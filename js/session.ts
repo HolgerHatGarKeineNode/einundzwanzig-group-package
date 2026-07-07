@@ -21,13 +21,29 @@ import { makeSecret, makeHttpAuth } from '@welshman/util'
 import { sync, localStorageProvider } from '@welshman/store'
 import { bytesToHex } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
-import { SIGNER_RELAYS } from './core'
+import { SIGNER_RELAYS, isMobile } from './core'
 
 /** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
 export const authReady = Promise.all([
     sync({ key: 'pubkey', store: pubkey, storage: localStorageProvider }),
     sync({ key: 'sessions', store: sessions, storage: localStorageProvider }),
 ])
+
+/**
+ * Mobiles Präsenz-Gate. Auf dem Gerät kann der Server nicht per NIP-98 gaten
+ * (§7) — `EnsureNostrAuth` lässt Mobile durch. Ohne dieses Gate rendert der Chat
+ * mit „Abmelden"-Kopf, aber ohne Signer (leerer Screen). Also erzwingt die Insel
+ * die eigene Anmeldung: kein welshman-pubkey → zurück zum Login.
+ * ponytail: Pfad-Check statt Route-Flag — der Chat hat genau eine öffentliche
+ * Seite (/nostr-login), und die Insel lädt nur im Chat-Layout.
+ */
+if (isMobile) {
+    authReady.then(() => {
+        if (!pubkey.get() && !location.pathname.startsWith('/nostr-login')) {
+            window.location.assign('/nostr-login')
+        }
+    })
+}
 
 /** NIP-07: Browser-Extension (`window.nostr`). Nur im Web verfügbar. */
 export async function loginWithExtension(): Promise<void> {

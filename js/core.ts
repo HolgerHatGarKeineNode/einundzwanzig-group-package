@@ -21,6 +21,14 @@ import { verifyEvent, type TrustedEvent } from '@welshman/util'
 type RelayOverride = { indexer?: string[]; default?: string[]; signer?: string[] }
 const relayOverride = (globalThis as { __nostrRelays?: RelayOverride }).__nostrRelays
 
+/**
+ * Plattform-Flag der Insel: der Host setzt `window.__nostrMobile` im <head>
+ * (aus `config('nativephp-internal.running')`) VOR dem Boot. Web = false.
+ * Steuert das Login-Verhalten: auf dem Gerät gibt es kein NIP-98-Server-Gate
+ * (§7, lokale single-user-Instanz), die Insel gated client-seitig.
+ */
+export const isMobile = Boolean((globalThis as { __nostrMobile?: boolean }).__nostrMobile)
+
 export const INDEXER_RELAYS = relayOverride?.indexer ?? [
     'wss://purplepag.es/',
     'wss://relay.damus.io/',

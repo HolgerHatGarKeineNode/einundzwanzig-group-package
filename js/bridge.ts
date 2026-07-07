@@ -12,7 +12,7 @@ import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
-import { DEFAULT_RELAYS } from './core'
+import { DEFAULT_RELAYS, isMobile } from './core'
 import {
     loginWithExtension,
     loginWithSecretKey,
@@ -84,6 +84,15 @@ const dispatchModal = (name: string, show = true): void => {
     document.dispatchEvent(new CustomEvent(show ? 'modal-show' : 'modal-close', { detail: { name } }))
 }
 
+/**
+ * Ziel nach erfolgreichem welshman-Login. Web: NIP-98-Handoff → Redirect ins
+ * Server-Gate. Mobile: kein Server-Gate (§7), direkt zu /spaces — die Insel
+ * hält die Session selbst.
+ */
+async function postLoginRedirect(): Promise<string> {
+    return isMobile ? '/spaces' : handoffToServer()
+}
+
 /** Generischer Adapter (für M2+): spiegelt einen Store in `this.value`. */
 export function alpineFromStore<T>(store: Readable<T>) {
     return {
@@ -120,7 +129,9 @@ type AuthState = {
     keyInput: string
     bunkerInput: string
     connectQr: string
+    connectUri: string
     connecting: boolean
+    mobile: boolean
     busy: boolean
     error: string
     _unsub: null | (() => void)
@@ -867,7 +878,9 @@ export function registerNostrComponents(Alpine: {
         keyInput: '',
         bunkerInput: '',
         connectQr: '',
+        connectUri: '',
         connecting: false,
+        mobile: isMobile,
         busy: false,
         error: '',
         _unsub: null,
@@ -891,16 +904,15 @@ export function registerNostrComponents(Alpine: {
                 this.npub = pk ? nip19.npubEncode(pk) : ''
             })
         },
-        // welshman-Login (Signer im Browser) → NIP-98-Handoff → Redirect ins Gate.
-        // Schlägt der Handoff fehl, wird die welshman-Session zurückgerollt, damit
-        // Browser- und Laravel-Zustand konsistent bleiben.
+        // welshman-Login (Signer im Browser). Nach Erfolg zum Login-Ziel (siehe
+        // postLoginRedirect). Schlägt es fehl, wird die welshman-Session
+        // zurückgerollt, damit Browser- und (auf Web) Laravel-Zustand konsistent bleiben.
         async completeLogin(fn) {
             this.busy = true
             this.error = ''
             try {
                 await fn()
-                const redirect = await handoffToServer()
-                window.location.assign(redirect)
+                window.location.assign(await postLoginRedirect())
             } catch (e) {
                 this.error = e instanceof Error ? e.message : String(e)
                 logout()
@@ -925,15 +937,19 @@ export function registerNostrComponents(Alpine: {
             }
             this.error = ''
             this.connectQr = ''
+            this.connectUri = ''
             this.connecting = true
             const abort = new AbortController()
             this._connectAbort = abort
             try {
                 await loginWithNostrConnect(async (url) => {
+                    // Mobile: der Deep-Link (nostrconnect://) öffnet Amber auf demselben
+                    // Gerät — kein zweites Gerät zum QR-Scannen. Der Rückkanal läuft über
+                    // die Signer-Relays, kein Deep-Link-Callback nötig.
+                    this.connectUri = url
                     this.connectQr = await QRCode.toDataURL(url, { width: 256, margin: 1 })
                 }, abort.signal)
-                const redirect = await handoffToServer()
-                window.location.assign(redirect)
+                window.location.assign(await postLoginRedirect())
             } catch (e) {
                 if (!abort.signal.aborted) {
                     this.error = e instanceof Error ? e.message : String(e)
@@ -952,11 +968,16 @@ export function registerNostrComponents(Alpine: {
             this._connectAbort = null
             this.connecting = false
             this.connectQr = ''
+            this.connectUri = ''
         },
         async doLogout() {
             this.stopConnect()
             logout()
-            await logoutServer()
+            // Mobile hat keine Laravel-Session (§7) — der Server-Logout ist ein No-op
+            // gegen tote Routen; nur die welshman-Session (localStorage) räumen.
+            if (!isMobile) {
+                await logoutServer()
+            }
             this.keyInput = ''
             this.bunkerInput = ''
             window.location.assign('/nostr-login')

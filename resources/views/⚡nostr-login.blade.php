@@ -56,20 +56,29 @@ new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Componen
                         <flux:button variant="primary" class="w-full" x-on:click="loginBunker()" ::disabled="busy">Verbinden</flux:button>
                     </flux:tab.panel>
 
-                    {{-- Amber via nostrconnect-QR: Client zeigt QR, Amber scannt + verbindet --}}
+                    {{-- Amber via nostrconnect: Desktop zeigt QR (Amber scannt), Mobile
+                         öffnet Amber per Deep-Link auf demselben Gerät. Rückkanal beide
+                         Male über die Signer-Relays. --}}
                     <flux:tab.panel name="amber" class="mt-3">
                         <template x-if="!connecting">
-                            <flux:button variant="primary" class="w-full" icon="qr-code" x-on:click="startConnect()">QR-Code für Amber erzeugen</flux:button>
+                            <flux:button variant="primary" class="w-full" icon="qr-code" x-on:click="startConnect()">Mit Amber verbinden</flux:button>
                         </template>
                         <template x-if="connecting">
                             <div class="flex flex-col items-center gap-3 text-center">
-                                <template x-if="connectQr">
+                                {{-- Mobile: direkter Deep-Link zu Amber --}}
+                                <template x-if="mobile">
+                                    <a :href="connectUri" class="w-full" x-show="connectUri">
+                                        <flux:button variant="primary" class="w-full" icon="arrow-top-right-on-square">Amber öffnen</flux:button>
+                                    </a>
+                                </template>
+                                {{-- Desktop: QR zum Scannen mit Amber --}}
+                                <template x-if="!mobile && connectQr">
                                     <img :src="connectQr" alt="nostrconnect QR-Code" class="size-56 rounded-tile bg-white p-2" />
                                 </template>
-                                <template x-if="!connectQr">
+                                <template x-if="!mobile && !connectQr">
                                     <flux:text>QR-Code wird erzeugt…</flux:text>
                                 </template>
-                                <flux:text class="text-sm">Mit Amber scannen — warte auf die Verbindung …</flux:text>
+                                <flux:text class="text-sm">Warte auf die Verbindung mit Amber …</flux:text>
                                 <flux:button variant="ghost" x-on:click="stopConnect()">Abbrechen</flux:button>
                             </div>
                         </template>
