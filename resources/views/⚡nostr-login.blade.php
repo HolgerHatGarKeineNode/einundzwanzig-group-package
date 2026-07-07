@@ -5,7 +5,23 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** Nostr-Login (öffentlich) als Livewire-SFC. Signer + Session leben im Browser. */
-new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Component {}; ?>
+new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Component
+{
+    /**
+     * Öffnet Amber (oder einen anderen nostrconnect-Handler) per nativem
+     * ACTION_VIEW-Intent. Nötig, weil die WebView Custom-Schemes
+     * (nostrconnect://) NICHT selbst an externe Apps weiterreicht — ein
+     * `<a href>` verpufft dort. Nur auf dem Gerät; im Web-/Test-Kontext ohne
+     * NativePHP-Extension ein No-op (der Button ist dort ohnehin aus). Das
+     * mobile-browser-Plugin bringt der Host (Portal) mit.
+     */
+    public function openAmber(string $uri): void
+    {
+        if (function_exists('nativephp_call') && str_starts_with($uri, 'nostrconnect://')) {
+            \Native\Mobile\Facades\Browser::open($uri);
+        }
+    }
+}; ?>
 
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
     <div x-data="nostrAuth" class="page-enter">
@@ -65,11 +81,10 @@ new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Componen
                         </template>
                         <template x-if="connecting">
                             <div class="flex flex-col items-center gap-3 text-center">
-                                {{-- Mobile: direkter Deep-Link zu Amber --}}
+                                {{-- Mobile: nativer Intent zu Amber (WebView reicht das
+                                     nostrconnect://-Scheme nicht selbst weiter). --}}
                                 <template x-if="mobile">
-                                    <a :href="connectUri" class="w-full" x-show="connectUri">
-                                        <flux:button variant="primary" class="w-full" icon="arrow-top-right-on-square">Amber öffnen</flux:button>
-                                    </a>
+                                    <flux:button variant="primary" class="w-full" icon="arrow-top-right-on-square" x-show="connectUri" x-on:click="openAmber()">Amber öffnen</flux:button>
                                 </template>
                                 {{-- Desktop: QR zum Scannen mit Amber --}}
                                 <template x-if="!mobile && connectQr">

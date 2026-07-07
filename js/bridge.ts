@@ -144,6 +144,7 @@ type AuthState = {
     loginBunker(): Promise<void>
     startConnect(): Promise<void>
     stopConnect(): void
+    openAmber(): void
     doLogout(): Promise<void>
 }
 
@@ -969,6 +970,14 @@ export function registerNostrComponents(Alpine: {
             this.connecting = false
             this.connectQr = ''
             this.connectUri = ''
+        },
+        // Amber öffnen: die WebView reicht das nostrconnect://-Scheme nicht selbst
+        // an externe Apps → nativer ACTION_VIEW-Intent über die Livewire-Methode
+        // (Browser::open). Der Rückkanal läuft weiter über die Signer-Relays.
+        openAmber() {
+            if (this.connectUri) {
+                ;(this as unknown as { $wire: { openAmber(u: string): void } }).$wire.openAmber(this.connectUri)
+            }
         },
         async doLogout() {
             this.stopConnect()
