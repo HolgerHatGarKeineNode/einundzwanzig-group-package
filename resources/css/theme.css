@@ -1,0 +1,198 @@
+/*
+    Chat-Theme (Inconsolata + Bitcoin-Brand-Ramp + Design-Tokens/Utilities).
+    EINZIGE Quelle — vom Package geliefert, von jedem Host per @import gezogen
+    (Web-Client: resources/css/app.css · Portal: resources/css/nostr-chat.css).
+    Host-spezifisch bleiben nur: `@import 'tailwindcss'`, der flux.css-Import und
+    die `@source`-Globs. Alles andere (Font, @theme, @utility, Klassen) lebt hier,
+    damit die beiden Hosts nicht auseinanderdriften (PLAN2 Reibung 1 + 7).
+
+    Muss NACH `@import 'tailwindcss'` importiert werden — @apply/@utility greifen
+    auf dessen Utilities zu.
+*/
+@import '@fontsource/inconsolata/400.css';
+@import '@fontsource/inconsolata/500.css';
+@import '@fontsource/inconsolata/600.css';
+@import '@fontsource/inconsolata/700.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --font-sans: 'Inconsolata', ui-monospace, monospace;
+
+    /* TWENTY ONE / Bitcoin Brand */
+    --color-brand-50: #fff8ed;
+    --color-brand-100: #ffefd4;
+    --color-brand-200: #ffdba8;
+    --color-brand-300: #ffc170;
+    --color-brand-400: #fda537;
+    --color-brand-500: #f7931a;
+    --color-brand-600: #e87706;
+    --color-brand-700: #c05c08;
+    --color-brand-800: #98480f;
+    --color-brand-900: #7b3d10;
+    --color-brand-950: #421d06;
+
+    --color-zinc-50: #fafafa;
+    --color-zinc-100: #f5f5f5;
+    --color-zinc-200: #e5e5e5;
+    --color-zinc-300: #d4d4d4;
+    --color-zinc-400: #a3a3a3;
+    --color-zinc-500: #737373;
+    --color-zinc-600: #525252;
+    --color-zinc-700: #404040;
+    --color-zinc-800: #262626;
+    --color-zinc-900: #171717;
+    --color-zinc-950: #0a0a0a;
+
+    --color-accent: var(--color-brand-500);
+    --color-accent-content: var(--color-brand-700);
+    --color-accent-foreground: var(--color-zinc-950);
+
+    /* ── AAA Design-Tokens (übernommen aus einundzwanzig-mobile-app) ──────
+       Radius-, Shadow- und Motion-Skala. Alle Cards/Sheets/Tiles greifen
+       darauf zu, statt rounded-* punktuell zu streuen. */
+    --radius-tile: 0.875rem; /* Icon-Kacheln, Badges */
+    --radius-card: 1rem; /* Listen-/Detail-Cards */
+    --radius-sheet: 1.5rem; /* Bottom-Sheets */
+
+    --shadow-card: 0 1px 2px rgb(24 24 27 / 0.04), 0 6px 16px -8px rgb(24 24 27 / 0.10);
+    --shadow-card-pressed: 0 1px 2px rgb(24 24 27 / 0.06);
+    --shadow-pop: 0 8px 30px -8px rgb(24 24 27 / 0.18);
+    --shadow-glow: 0 0 24px -4px var(--color-brand-500);
+
+    --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+    --duration-tap: 120ms;
+
+    --animate-shimmer: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+    0% { opacity: 0.45; }
+    50% { opacity: 0.85; }
+    100% { opacity: 0.45; }
+}
+
+@layer theme {
+    .dark {
+        --color-accent: var(--color-brand-500);
+        --color-accent-content: var(--color-brand-400);
+        --color-accent-foreground: var(--color-zinc-950);
+    }
+}
+
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentColor);
+    }
+}
+
+/* Safe-Area-Utilities für Notch/Home-Indicator (Web + NativePHP-WebView) */
+@utility pt-safe { padding-top: env(safe-area-inset-top); }
+@utility pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+@utility px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+}
+
+/* Karten-Oberfläche: gemeinsame Surface aller Cards/Sections. Im Dark trägt
+   der Border die Abgrenzung (kein sichtbarer Schatten). */
+@utility surface-card {
+    @apply rounded-card border border-zinc-200 bg-white shadow-card dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none;
+}
+
+/* Press-Feedback für tappbare Flächen: kurzer Scale-Down + reduzierte Elevation. */
+.pressable {
+    transition:
+        transform var(--duration-tap) var(--ease-spring),
+        box-shadow var(--duration-tap) var(--ease-spring),
+        background-color var(--duration-tap) var(--ease-spring);
+}
+.pressable:active {
+    transform: scale(0.97);
+    box-shadow: var(--shadow-card-pressed);
+}
+
+/* Skeleton-Loader: sanftes Opacity-Shimmer statt Spinner. */
+.skeleton {
+    background-color: var(--color-zinc-200);
+    border-radius: var(--radius-tile);
+    animation: var(--animate-shimmer);
+}
+.dark .skeleton { background-color: var(--color-zinc-800); }
+
+/* Leere/Fehler-Zustände: gestaffelte Entrance (Icon → Heading → Text → Action) */
+@keyframes fade-rise {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.empty-state > * { animation: fade-rise 0.45s var(--ease-spring) backwards; }
+.empty-state > :nth-child(2) { animation-delay: 0.07s; }
+.empty-state > :nth-child(3) { animation-delay: 0.14s; }
+.empty-state > :nth-child(n + 4) { animation-delay: 0.21s; }
+
+[x-cloak] { display: none !important; }
+
+/* Chat-Nachrichten: Links im gerenderten (welshman/content) Inhalt. */
+.chat-content a {
+    color: var(--color-brand-500);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    overflow-wrap: anywhere;
+}
+
+/* Terminal-Caret: blinkender Block hinter der Wortmarke (monospace-Signatur). */
+@keyframes caret-blink {
+    0%, 45% { opacity: 1; }
+    55%, 100% { opacity: 0; }
+}
+.caret {
+    display: inline-block;
+    width: 0.6ch;
+    height: 1em;
+    translate: 0 0.12em;
+    background-color: var(--color-brand-500);
+    animation: caret-blink 1.1s steps(1) infinite;
+}
+
+/* Page-Enter beim (wire:)navigate. */
+@keyframes page-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.page-enter { animation: page-in 0.3s var(--ease-emphasized) backwards; }
+
+/* Listen-Stagger: jede Karte blendet leicht versetzt ein (--i im Markup). */
+.list-stagger > * {
+    animation: fade-rise 0.4s var(--ease-spring) backwards;
+    animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .empty-state > *,
+    .page-enter,
+    .list-stagger > *,
+    .skeleton,
+    .caret {
+        animation: none;
+    }
+    .caret { opacity: 1; }
+    .pressable { transition: none; }
+    .pressable:active { transform: none; }
+}
+
+[data-flux-field]:not(ui-radio, ui-checkbox) {
+    @apply grid gap-2;
+}
+[data-flux-label] {
+    @apply !mb-0 !leading-tight;
+}
+input:focus[data-flux-control],
+textarea:focus[data-flux-control],
+select:focus[data-flux-control] {
+    @apply outline-hidden ring-2 ring-accent ring-offset-2 ring-offset-accent-foreground;
+}
