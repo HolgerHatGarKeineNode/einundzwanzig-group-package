@@ -17,6 +17,12 @@ new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Componen
      */
     public function openAmber(string $uri): void
     {
+        // Fire-and-forget: KEIN Re-Render. Sonst morpht Livewire das DOM auf den
+        // Server-Stand zurück und verwirft den reinen Alpine-Client-State
+        // (connecting/connectUri) — genau das schluckte den ersten Klick, sodass
+        // Amber erst beim zweiten öffnete.
+        $this->skipRender();
+
         if (function_exists('nativephp_call') && str_starts_with($uri, 'nostrconnect://')) {
             \Native\Mobile\Facades\Browser::open($uri);
         }
