@@ -9,7 +9,9 @@
 <!DOCTYPE html>
 <html lang="de" class="dark" data-theme="dark">
 <head>
-    @include('partials.head')
+    {{-- Head pro Host: Web-Client nutzt seine reiche partials.head (OG/Favicons);
+         ein Fremdhost (Portal) setzt config('chat.head_partial')='chat::partials.head'. --}}
+    @include(config('chat.head_partial', 'partials.head'))
 </head>
 <body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
     {{-- Globaler Signer-Health-Banner: erscheint app-weit, wenn der Signer

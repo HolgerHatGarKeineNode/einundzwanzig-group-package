@@ -1,5 +1,5 @@
 {
-    "name": "einundzwanzig/nostr-chat",
+    "name": "einundzwanzig/group",
     "description": "Nostr-Community-Chat (Spaces/Räume/Directory/Login) für EINUNDZWANZIG — als wiederverwendbares Laravel-Package.",
     "type": "library",
     "version": "0.1.0",
