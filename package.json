@@ -1,0 +1,25 @@
+{
+    "name": "@einundzwanzig/nostr-chat-island",
+    "version": "0.1.0",
+    "description": "Client-seitige welshman/Alpine-Insel des EINUNDZWANZIG-Nostr-Chats. Roh-TS, vom Vite des Hosts gebündelt.",
+    "type": "module",
+    "exports": {
+        ".": "./js/index.ts"
+    },
+    "files": [
+        "js"
+    ],
+    "dependencies": {
+        "@welshman/app": "^0.8.16",
+        "@welshman/content": "^0.8.16",
+        "@welshman/lib": "^0.8.16",
+        "@welshman/net": "^0.8.16",
+        "@welshman/router": "^0.8.16",
+        "@welshman/signer": "^0.8.16",
+        "@welshman/store": "^0.8.16",
+        "@welshman/util": "^0.8.16",
+        "nostr-tools": "^2.23.9",
+        "qrcode": "^1.5.4",
+        "svelte": "^5.56.4"
+    }
+}

@@ -43,6 +43,12 @@ class ChatServiceProvider extends ServiceProvider
             __DIR__.'/../config/chat.php' => config_path('chat.php'),
         ], 'chat-config');
 
+        // Brand-Mark (von x-chat::app-brand-mark referenziert). Der Host
+        // publiziert es nach public/img: `vendor:publish --tag=chat-assets`.
+        $this->publishes([
+            __DIR__.'/../public/img' => public_path('img'),
+        ], 'chat-assets');
+
         if ($this->app->runningInConsole()) {
             $this->commands([WarmNostrCache::class]);
         }
