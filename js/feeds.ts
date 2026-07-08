@@ -63,9 +63,26 @@ export type ChatMessage = {
     picture: string
     html: string
     divider: string // Datums-Trenner, wenn der Tag wechselt (sonst '')
+    unreadDivider: boolean // erste ungelesene Fremd-Nachricht (Last-Read-Grenze)
     showAuthor: boolean // erster Beitrag eines Autor-Blocks (Gruppierung)
     mine: boolean // vom eingeloggten User verfasst (→ löschbar, M5)
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), sonst null
+}
+
+/** Last-Read-Timestamp pro Raum (localStorage, Single-Device — kein Nostr-Kind). */
+const lastReadKey = (url: string, h: string): string => `room:lastread:${url}:${h}`
+
+export const readRoomLastRead = (url: string, h: string): number => {
+    const v = Number(localStorage.getItem(lastReadKey(url, h)))
+    return Number.isFinite(v) ? v : 0
+}
+
+export const writeRoomLastRead = (url: string, h: string, ts: number): void => {
+    try {
+        localStorage.setItem(lastReadKey(url, h), String(ts))
+    } catch {
+        // localStorage nicht verfügbar (Private-Mode/Quota) — Divider bleibt aus, kein Fehler.
+    }
 }
 
 /** Snippet aus Rohtext: Whitespace kollabiert + auf Länge gekürzt. */
@@ -79,7 +96,7 @@ const snippet = (text: string, max = 120): string => {
  * und Autor-Gruppierung — die Insel braucht nur EIN `subscribe`. HTML wird je
  * Event einmal geparst (Cache), Namen fließen reaktiv aus `profilesByPubkey`.
  */
-export const deriveRoomChat = (url: string, h: string): Readable<ChatMessage[]> =>
+export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
     derived([deriveRoomMessages(url, h), profilesByPubkey, pubkey], ([events, $profiles, $me]) => {
         const nameOf = (pk: string) => displayProfile($profiles.get(pk), shortNpub(nip19.npubEncode(pk)))
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
@@ -87,12 +104,21 @@ export const deriveRoomChat = (url: string, h: string): Readable<ChatMessage[]> 
 
         let prevDay = ''
         let prevPubkey = ''
-        return events.map((event): ChatMessage => {
+        let unreadShown = false
+        return events.map((event, idx): ChatMessage => {
             const day = dayLabel(event.created_at)
             const divider = day !== prevDay ? day : ''
             const showAuthor = event.pubkey !== prevPubkey || divider !== ''
             prevDay = day
             prevPubkey = event.pubkey
+
+            const mine = event.pubkey === $me
+            // Trennlinie vor der ersten Fremd-Nachricht jenseits der Last-Read-Grenze.
+            // `idx > 0`: keine Grenze, wenn ohnehin der ganze Verlauf ungelesen ist.
+            const unreadDivider = !unreadShown && lastRead > 0 && idx > 0 && event.created_at > lastRead && !mine
+            if (unreadDivider) {
+                unreadShown = true
+            }
 
             const quotedId = getTagValue('q', event.tags)
             const quoted = quotedId ? byId.get(quotedId) : undefined
@@ -110,8 +136,9 @@ export const deriveRoomChat = (url: string, h: string): Readable<ChatMessage[]> 
                 picture: profile?.picture ?? '',
                 html: renderMessageHtml(event),
                 divider,
+                unreadDivider,
                 showAuthor,
-                mine: event.pubkey === $me,
+                mine,
                 reply,
             }
         })

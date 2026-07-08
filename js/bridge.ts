@@ -74,6 +74,8 @@ import {
     loadRoomMessages,
     sendRoomMessage,
     deleteRoomMessage,
+    readRoomLastRead,
+    writeRoomLastRead,
     type ChatMessage,
 } from './feeds'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
@@ -230,6 +232,7 @@ type RoomChatState = {
     hasMore: boolean
     atBottom: boolean
     unread: number
+    firstPaintDone: boolean
     joined: boolean
     joining: boolean
     membershipReady: boolean
@@ -237,6 +240,8 @@ type RoomChatState = {
     sending: boolean
     replyTo: { id: string; pubkey: string; name: string; text: string } | null
     _url: string | null
+    _lastRead: number
+    _onViewport: null | (() => void)
     _unsubActive: null | (() => void)
     _unsub: null | (() => void)
     _unsubJoined: null | (() => void)
@@ -248,6 +253,7 @@ type RoomChatState = {
     loadOlder(): void
     onScroll(): void
     scrollToBottom(): void
+    markRead(): void
     setReply(m: ChatMessage): void
     clearReply(): void
     send(): Promise<void>
@@ -651,6 +657,7 @@ export function registerNostrComponents(Alpine: {
         hasMore: true,
         atBottom: true,
         unread: 0,
+        firstPaintDone: false,
         joined: false,
         joining: false,
         membershipReady: false,
@@ -658,6 +665,8 @@ export function registerNostrComponents(Alpine: {
         sending: false,
         replyTo: null,
         _url: null,
+        _lastRead: 0,
+        _onViewport: null,
         _unsubActive: null,
         _unsub: null,
         _unsubJoined: null,
@@ -666,6 +675,13 @@ export function registerNostrComponents(Alpine: {
         init() {
             // Aktiver Space → dessen Room-Feed (Wechsel baut Sub + Live neu auf).
             this._unsubActive = activeSpace.subscribe((url: string) => this.setup(url))
+            // Mobil: Tastatur/Adressleiste ändern die Viewport-Höhe — am Ende dran bleiben.
+            this._onViewport = () => {
+                if (this.atBottom) {
+                    this.scrollToBottom()
+                }
+            }
+            window.visualViewport?.addEventListener('resize', this._onViewport)
         },
         setup(url: string) {
             this.teardown()
@@ -673,6 +689,10 @@ export function registerNostrComponents(Alpine: {
             this.loading = true
             this.membershipReady = false
             this.messages = []
+            this.unread = 0
+            this.atBottom = true
+            this.firstPaintDone = false
+            this._lastRead = readRoomLastRead(url, this.h)
             this._controller = new AbortController()
             // Raum-Metas + Mitglieder (39002) laden; Live-Sub auf 39002, damit
             // Beitreten/Verlassen sofort reflektiert. `membershipReady` verhindert
@@ -688,9 +708,10 @@ export function registerNostrComponents(Alpine: {
             loadRoomMessages(url, this.h).finally(() => {
                 this.loading = false
             })
-            this._unsub = deriveRoomChat(url, this.h).subscribe((msgs: ChatMessage[]) => {
+            this._unsub = deriveRoomChat(url, this.h, this._lastRead).subscribe((msgs: ChatMessage[]) => {
                 const wasAtBottom = this.atBottom
-                const grew = msgs.length > this.messages.length
+                const prevIds = new Set(this.messages.map((m) => m.id))
+                const prevNewest = this.messages.length ? this.messages[this.messages.length - 1].created_at : 0
                 this.messages = msgs
 
                 // Profile neuer Autoren nachladen (einmal je pubkey).
@@ -706,9 +727,14 @@ export function registerNostrComponents(Alpine: {
                 magics.$nextTick(() => {
                     if (wasAtBottom) {
                         this.scrollToBottom()
-                    } else if (grew) {
-                        this.unread++
+                        return
                     }
+                    // Nur wirklich am Ende angehängte Fremd-Nachrichten zählen: kein
+                    // loadOlder-Prepend (created_at < prevNewest), keine eigenen.
+                    this.unread += msgs.filter(
+                        (m) => !prevIds.has(m.id) && !m.mine && m.created_at >= prevNewest,
+                    ).length
+                    this.firstPaintDone = true
                 })
             })
         },
@@ -744,6 +770,11 @@ export function registerNostrComponents(Alpine: {
             this.atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
             if (this.atBottom) {
                 this.unread = 0
+                this.markRead()
+            }
+            // Nahe am oberen Rand → nächstältere Seite automatisch nachladen (Button bleibt Fallback).
+            if (el.scrollTop < 120 && this.hasMore && !this.loadingMore) {
+                this.loadOlder()
             }
         },
         scrollToBottom() {
@@ -753,6 +784,19 @@ export function registerNostrComponents(Alpine: {
             }
             this.atBottom = true
             this.unread = 0
+            this.firstPaintDone = true
+            this.markRead()
+        },
+        // Last-Read-Grenze auf die jüngste Nachricht setzen (Divider beim nächsten Betreten).
+        markRead() {
+            if (!this._url || this.messages.length === 0) {
+                return
+            }
+            const newest = this.messages[this.messages.length - 1].created_at
+            if (newest > this._lastRead) {
+                this._lastRead = newest
+                writeRoomLastRead(this._url, this.h, newest)
+            }
         },
         teardown() {
             this._controller?.abort()
@@ -837,6 +881,10 @@ export function registerNostrComponents(Alpine: {
             }
         },
         destroy() {
+            if (this._onViewport) {
+                window.visualViewport?.removeEventListener('resize', this._onViewport)
+            }
+            this.markRead()
             this._unsubActive?.()
             this.teardown()
         },

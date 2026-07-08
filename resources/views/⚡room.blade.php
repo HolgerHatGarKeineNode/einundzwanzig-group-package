@@ -39,7 +39,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
 }; ?>
 
 {{-- Chat-Bühne: Kopf + Verlauf + Composer unter EINEM Alpine-Scope (M4 lesen, M5 schreiben). --}}
-<div x-data="nostrRoomChat(@js($h))" class="mx-auto flex h-screen w-full max-w-md flex-col px-4 pt-safe pb-safe">
+<div x-data="nostrRoomChat(@js($h))" class="mx-auto flex h-dvh w-full max-w-md flex-col px-4 pt-safe pb-safe">
 
     <x-chat::app-header :title="'# '.($roomName ?? $h)" :back="route('chat.spaces')" class="shrink-0">
         <x-slot:actions>
@@ -54,7 +54,9 @@ new #[Layout('chat::einundzwanzig')] class extends Component
     <div class="relative flex min-h-0 flex-1 flex-col">
 
         <div x-ref="scroll" x-on:scroll.debounce.50ms="onScroll()"
-             class="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-4">
+             role="log" aria-live="polite" aria-relevant="additions" aria-label="Chat-Verlauf"
+             class="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-4 transition-opacity"
+             :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
 
             {{-- Ältere laden (Cursor-Pagination) --}}
             <div class="py-2 text-center" x-show="hasMore && messages.length > 0" x-cloak>
@@ -97,6 +99,15 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                         </div>
                     </template>
 
+                    {{-- Last-Read-Grenze: erste ungelesene Fremd-Nachricht seit dem letzten Besuch. --}}
+                    <template x-if="m.unreadDivider">
+                        <div class="my-3 flex items-center gap-3">
+                            <flux:separator class="flex-1" />
+                            <span class="shrink-0 font-mono text-[0.7rem] font-semibold tracking-wide text-brand-500">Neue Nachrichten</span>
+                            <flux:separator class="flex-1" />
+                        </div>
+                    </template>
+
                     <div class="group flex gap-2 px-1" :class="m.showAuthor ? 'mt-2.5' : ''">
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
@@ -135,11 +146,12 @@ new #[Layout('chat::einundzwanzig')] class extends Component
             </template>
         </div>
 
-        {{-- „Neue Nachrichten"-Pill, wenn nicht am unteren Rand --}}
-        <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="unread > 0" x-cloak
+        {{-- Zurück ans Ende, sobald hochgescrollt — mit Zähler, wenn neue Nachrichten warten. --}}
+        <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="!atBottom" x-cloak
              x-transition.opacity>
-            <flux:button size="xs" variant="primary" class="pointer-events-auto" icon="arrow-down" x-on:click="scrollToBottom()">
-                <span x-text="unread"></span> neue
+            <flux:button size="xs" variant="primary" class="pointer-events-auto" icon="arrow-down"
+                         x-on:click="scrollToBottom()" aria-label="Zum Ende springen">
+                <span x-show="unread > 0"><span x-text="unread"></span> neue</span>
             </flux:button>
         </div>
     </div>
@@ -168,6 +180,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
         <div x-show="membershipReady && joined" x-cloak class="flex items-end gap-2">
             <flux:textarea x-ref="composer" x-model="draft" rows="1" resize="none"
                            placeholder="Nachricht schreiben…" class="flex-1"
+                           x-on:focus="atBottom && scrollToBottom()"
                            x-on:keydown.enter.prevent="!$event.shiftKey && send()" />
             <flux:button type="button" variant="primary" icon="paper-airplane"
                          x-on:click="send()" ::disabled="sending || draft.trim().length === 0"
