@@ -29,6 +29,38 @@ const relayOverride = (globalThis as { __nostrRelays?: RelayOverride }).__nostrR
  */
 export const isMobile = Boolean((globalThis as { __nostrMobile?: boolean }).__nostrMobile)
 
+/**
+ * NativePHP-Mobile-Bridge: ruft eine registrierte Bridge-Function DIREKT über
+ * den lokalen `/_native/api/call`-Endpoint auf — genau der Weg, den NativePHPs
+ * eigenes `#nativephp`-JS-Modul intern nutzt. Bewusst OHNE Livewire-Roundtrip:
+ * ein `$wire`-Call morpht/pool-t und schluckte den ersten Tap; der direkte
+ * fetch feuert sofort. Nur in der nativen App (isMobile); im Web ein No-op.
+ */
+export async function nativeCall(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+    if (!isMobile) {
+        return null
+    }
+    const res = await fetch('/_native/api/call', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+        },
+        body: JSON.stringify({ method, params }),
+    })
+    const result = await res.json()
+    if (result.status === 'error') {
+        throw new Error(result.message || 'Native call failed')
+    }
+    return result.data
+}
+
+/** URL im System-Browser öffnen (verlässt die App; auch Custom-Schemes wie nostrconnect://). */
+export const nativeBrowserOpen = (url: string): Promise<unknown> => nativeCall('Browser.Open', { url })
+
+/** URL eingebettet öffnen (Android Custom Tab / iOS SFSafariViewController) — für Webseiten. */
+export const nativeBrowserInApp = (url: string): Promise<unknown> => nativeCall('Browser.OpenInApp', { url })
+
 export const INDEXER_RELAYS = relayOverride?.indexer ?? [
     'wss://purplepag.es/',
     'wss://relay.damus.io/',

@@ -35,10 +35,13 @@
             </flux:text>
         </div>
 
+        {{-- Web: normales <a target=_blank>. Native: WebView reicht den Link nicht
+             extern weiter → openExternal() öffnet ihn über die In-App-Browser-Bridge. --}}
         <flux:button
             href="https://verein.einundzwanzig.space/"
             target="_blank"
             rel="noopener"
+            x-on:click="openExternal('https://verein.einundzwanzig.space/', $event)"
             variant="primary"
             icon:trailing="arrow-up-right"
             class="mt-5 w-full">

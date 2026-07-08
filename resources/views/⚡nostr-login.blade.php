@@ -4,30 +4,12 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-/** Nostr-Login (öffentlich) als Livewire-SFC. Signer + Session leben im Browser. */
-new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Component
-{
-    /**
-     * Öffnet Amber (oder einen anderen nostrconnect-Handler) per nativem
-     * ACTION_VIEW-Intent. Nötig, weil die WebView Custom-Schemes
-     * (nostrconnect://) NICHT selbst an externe Apps weiterreicht — ein
-     * `<a href>` verpufft dort. Nur auf dem Gerät; im Web-/Test-Kontext ohne
-     * NativePHP-Extension ein No-op (der Button ist dort ohnehin aus). Das
-     * mobile-browser-Plugin bringt der Host (Portal) mit.
-     */
-    public function openAmber(string $uri): void
-    {
-        // Fire-and-forget: KEIN Re-Render. Sonst morpht Livewire das DOM auf den
-        // Server-Stand zurück und verwirft den reinen Alpine-Client-State
-        // (connecting/connectUri) — genau das schluckte den ersten Klick, sodass
-        // Amber erst beim zweiten öffnete.
-        $this->skipRender();
-
-        if (function_exists('nativephp_call') && str_starts_with($uri, 'nostrconnect://')) {
-            \Native\Mobile\Facades\Browser::open($uri);
-        }
-    }
-}; ?>
+/**
+ * Nostr-Login (öffentlich) als Livewire-SFC. Signer + Session leben im Browser.
+ * Amber wird auf dem Gerät direkt aus der Insel über die NativePHP-Bridge
+ * geöffnet (Browser.Open) — kein Livewire-Roundtrip, der den ersten Tap schluckt.
+ */
+new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Component {}; ?>
 
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
     <div x-data="nostrAuth" class="page-enter">

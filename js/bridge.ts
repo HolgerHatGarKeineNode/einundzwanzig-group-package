@@ -12,7 +12,7 @@ import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
-import { DEFAULT_RELAYS, isMobile } from './core'
+import { DEFAULT_RELAYS, isMobile, nativeBrowserOpen, nativeBrowserInApp } from './core'
 import {
     loginWithExtension,
     loginWithSecretKey,
@@ -169,6 +169,7 @@ type VereinGateState = {
     _unsubAccess: null | (() => void)
     init(): void
     _refresh(): void
+    openExternal(url: string, e: Event): void
     destroy(): void
 }
 
@@ -266,6 +267,7 @@ type SpaceSettingsState = {
     spaces: { url: string; label: string; joined: boolean }[]
     active: string | null
     activeJoined: boolean
+    activeIsVerein: boolean
     busy: boolean
     _joined: string[]
     _choices: string[]
@@ -356,6 +358,15 @@ export function registerNostrComponents(Alpine: {
         },
         _refresh() {
             this.show = this._access.gated && this._loaded && this._access.ready && !this._access.isMember
+        },
+        // Vereins-Beitritts-Link öffnen: in der nativen App via In-App-Browser
+        // (Custom Tab / SFSafariViewController) — ein `target=_blank`-Link
+        // verpufft in der WebView. Im Web bleibt das normale <a> (kein preventDefault).
+        openExternal(url: string, e: Event) {
+            if (isMobile) {
+                e.preventDefault()
+                void nativeBrowserInApp(url)
+            }
         },
         destroy() {
             this._unsubActive?.()
@@ -813,6 +824,7 @@ export function registerNostrComponents(Alpine: {
         spaces: [],
         active: null,
         activeJoined: false,
+        activeIsVerein: false,
         busy: false,
         _joined: [],
         _choices: [],
@@ -828,6 +840,10 @@ export function registerNostrComponents(Alpine: {
                     joined: this._joined.includes(url),
                 }))
                 this.activeJoined = Boolean(this.active && this._joined.includes(this.active))
+                // Vereins-Relays (lokaler Default-Space + group.einundzwanzig.space)
+                // haben KEINEN NIP-29-Selbst-Beitritt — Zugang läuft über die
+                // Vereinsmitgliedschaft. Dort den „Beitreten"-Button ausblenden.
+                this.activeIsVerein = Boolean(this.active && isVereinRelay(this.active))
             }
             this._unsubJoined = userSpaceUrls.subscribe((urls: string[]) => {
                 this._joined = urls
@@ -1037,11 +1053,13 @@ export function registerNostrComponents(Alpine: {
             this.connectUri = ''
         },
         // Amber öffnen: die WebView reicht das nostrconnect://-Scheme nicht selbst
-        // an externe Apps → nativer ACTION_VIEW-Intent über die Livewire-Methode
-        // (Browser::open). Der Rückkanal läuft weiter über die Signer-Relays.
+        // an externe Apps → nativer Intent DIREKT über die NativePHP-Bridge
+        // (Browser.Open), nicht über einen `$wire`-Roundtrip. Genau der Roundtrip
+        // schluckte den ersten Tap (Request-Pooling/Morph); der direkte Bridge-
+        // fetch öffnet Amber beim ersten Klick. Rückkanal läuft über Signer-Relais.
         openAmber() {
             if (this.connectUri) {
-                ;(this as unknown as { $wire: { openAmber(u: string): void } }).$wire.openAmber(this.connectUri)
+                void nativeBrowserOpen(this.connectUri)
             }
         },
         async doLogout() {

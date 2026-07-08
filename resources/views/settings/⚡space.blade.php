@@ -39,14 +39,15 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space wählen')] class extends Com
             <div class="min-w-0">
                 <flux:text class="text-sm font-medium">Mitgliedschaft</flux:text>
                 <div class="truncate text-xs text-zinc-500"
-                     x-text="activeJoined ? 'Du bist Mitglied dieses Space.' : 'Noch nicht beigetreten.'"></div>
+                     x-text="activeJoined ? 'Du bist Mitglied dieses Space.' : (activeIsVerein ? 'Zugang über Vereinsmitgliedschaft.' : 'Noch nicht beigetreten.')"></div>
             </div>
             {{-- „Space verlassen" (leaveActive, kind 28936) noch nicht freigeben —
                  Feature kommt später. leaveActive() in der Insel bleibt bestehen. --}}
             {{-- <flux:button size="sm" variant="ghost" icon="arrow-right-start-on-rectangle"
                          x-show="activeJoined" x-cloak x-on:click="leaveActive()" ::disabled="busy">Verlassen</flux:button> --}}
+            {{-- Vereins-Relays haben keinen NIP-29-Selbst-Beitritt → Button ausblenden. --}}
             <flux:button size="sm" variant="primary" icon="plus"
-                         x-show="!activeJoined" x-cloak x-on:click="joinActive()" ::disabled="busy">Beitreten</flux:button>
+                         x-show="!activeJoined && !activeIsVerein" x-cloak x-on:click="joinActive()" ::disabled="busy">Beitreten</flux:button>
         </div>
     </div>
 
