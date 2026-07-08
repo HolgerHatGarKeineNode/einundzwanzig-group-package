@@ -50,7 +50,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 }; ?>
 
 {{-- Chat-Bühne: Kopf + Verlauf + Composer unter EINEM Alpine-Scope (M4 lesen, M5 schreiben). --}}
-<div x-data="nostrRoomChat(@js($h))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-safe pb-safe">
+<div x-data="nostrRoomChat(@js($h))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)]">
 
     <x-group::app-header :title="'# '.($roomName ?? $h)" :back="route('group.spaces')" class="shrink-0">
         @if ($roomPicture)
