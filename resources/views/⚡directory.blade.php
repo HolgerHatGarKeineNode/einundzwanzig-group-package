@@ -9,8 +9,8 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
 
 <main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
 
-    {{-- Kopf: zurück zum Space + Titel --}}
-    <x-chat::app-header title="Mitglieder" :back="route('chat.spaces')" />
+    {{-- Kopf: Brand-Mark (kein :back — gleichrangiger Bottom-Nav-Tab, §Bottom-Nav) --}}
+    <x-chat::app-header title="Mitglieder" />
 
     {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
     <x-chat::verein-gate context="Die Mitgliederliste" class="mb-4" />
