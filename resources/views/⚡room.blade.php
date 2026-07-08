@@ -177,12 +177,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </template>
         </div>
 
-        {{-- Zurück ans Ende, sobald hochgescrollt — mit Zähler, wenn neue Nachrichten warten. --}}
+        {{-- Zurück ans Ende, sobald hochgescrollt — mit Zähler, wenn neue Nachrichten warten.
+             Zwei Buttons: flux erkennt „Icon-only vs. Pille" server-seitig am Slot (ein
+             x-show-Span bliebe immer „nicht leer" → Pfeil säße links statt zentriert). --}}
         <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="!atBottom" x-cloak
              x-transition.opacity>
-            <flux:button size="xs" variant="primary" class="pointer-events-auto" icon="arrow-down"
-                         x-on:click="scrollToBottom()" aria-label="Zum Ende springen">
-                <span x-show="unread > 0"><span x-text="unread"></span> neue</span>
+            {{-- Keine ungelesenen → quadratischer Button, Pfeil zentriert. --}}
+            <flux:button x-show="unread === 0" size="xs" variant="primary" square icon="arrow-down"
+                         class="pointer-events-auto" x-on:click="scrollToBottom()" aria-label="Zum Ende springen" />
+            {{-- Ungelesene → Pille mit Zähler. --}}
+            <flux:button x-show="unread > 0" x-cloak size="xs" variant="primary" icon="arrow-down"
+                         class="pointer-events-auto" x-on:click="scrollToBottom()" aria-label="Zum Ende springen">
+                <span x-text="unread"></span> neue
             </flux:button>
         </div>
     </div>
