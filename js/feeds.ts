@@ -11,9 +11,38 @@ import { derived, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository } from '@welshman/app'
 import { parse, renderAsHtml } from '@welshman/content'
+import { sanitizeUrl } from '@braintree/sanitize-url'
 import { MESSAGE, DELETE, makeEvent, sortEventsAsc, displayProfile, getTagValue, type TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
+import { proxifyImage } from './core'
+
+/** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
+const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
+
+/**
+ * `renderLink`-Override für welshman/content: Bild-URLs werden zu einem `<img>`
+ * über den Bild-Proxy (Preset `msg`, `data-full` = `full` für die Lightbox) statt
+ * zu einem Textlink. Alles andere (Web-Links, njump-Entities) bleibt ein sicherer
+ * Anker. `document.createElement` escaped Attribute/Text beim `outerHTML`.
+ */
+const renderMessageLink = (href: string, display: string): string => {
+    if (IMAGE_URL.test(href)) {
+        const img = document.createElement('img')
+        img.className = 'chat-image'
+        img.loading = 'lazy'
+        img.src = proxifyImage(href, 'msg')
+        img.dataset.full = proxifyImage(href, 'full')
+        img.alt = ''
+        return img.outerHTML
+    }
+    const a = document.createElement('a')
+    a.href = sanitizeUrl(href)
+    a.target = '_blank'
+    a.rel = 'noopener noreferrer'
+    a.innerText = display
+    return a.outerHTML
+}
 
 const roomFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
 
@@ -37,7 +66,9 @@ const htmlCache = new Map<string, string>()
 const renderMessageHtml = (event: TrustedEvent): string => {
     let html = htmlCache.get(event.id)
     if (html === undefined) {
-        html = renderAsHtml(parse({ content: bodyWithoutQuote(event), tags: event.tags })).toString()
+        html = renderAsHtml(parse({ content: bodyWithoutQuote(event), tags: event.tags }), {
+            renderLink: renderMessageLink,
+        }).toString()
         htmlCache.set(event.id, html)
     }
     return html

@@ -265,6 +265,7 @@ type RoomChatState = {
     replyTo: { id: string; pubkey: string; name: string; text: string } | null
     activeId: string | null // Nachricht mit eingeblendeten Aktionen (Tap-to-toggle, Touch)
     flashId: string | null // kurz hervorgehobene Nachricht (Sprung zum Zitat)
+    lightboxSrc: string | null // Vollbild eines angeklickten Inline-Bilds (Proxy `full`)
     deleting: boolean
     pendingDelete: { id: string; createdAt: number } | null
     _url: string | null
@@ -749,6 +750,7 @@ export function registerNostrComponents(Alpine: {
         replyTo: null,
         activeId: null,
         flashId: null,
+        lightboxSrc: null,
         deleting: false,
         pendingDelete: null,
         _url: null,

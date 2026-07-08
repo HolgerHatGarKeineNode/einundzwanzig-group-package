@@ -159,7 +159,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <div class="truncate text-xs text-muted" x-text="m.reply.text"></div>
                                 </button>
                             </template>
-                            <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"></div>
+                            {{-- Inline-Bild anklicken → Lightbox (Klick delegiert, da x-html-Inhalt). --}}
+                            <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"
+                                 x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
                         </div>
                         {{-- Aktionen: bei Hover (Desktop) oder aktivem Tap (Touch). --}}
                         <div class="pointer-events-none flex shrink-0 items-start gap-0.5 self-start opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
@@ -244,4 +246,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </div>
     </flux:modal>
+
+    {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds (Proxy-Preset `full`).
+         Klick/Esc schließt; Proxy-Fehler → Original-URL (Offline-Fallback). --}}
+    <div x-show="lightboxSrc" x-cloak x-transition.opacity
+         x-on:click="lightboxSrc = null" x-on:keydown.escape.window="lightboxSrc = null"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+        <img :src="lightboxSrc" alt="" class="max-h-full max-w-full rounded-card"
+             x-on:error="$el.dataset.orig || ($el.dataset.orig = 1, $el.src = decodeURIComponent(($el.src.split('src=')[1] || '')))" />
+    </div>
 </div>
