@@ -25,25 +25,21 @@ class ContentSecurityPolicy
     {
         $response = $next($request);
 
-        // Auf Mobile (lokaler WebView) übernimmt die native Shell die Isolation;
-        // eine HTTP-CSP brächte dort nur Reibung.
-        if (config('nativephp-internal.running')) {
+        // Kein CSP-Header, wo er nur Reibung bringt und keinen Schutz:
+        // - Mobile (lokaler WebView): die native Shell übernimmt die Isolation.
+        // - Lokales Dev: einziger Nutzer ist der Entwickler auf localhost (kein
+        //   fremder Angriffsvektor), und die CSP kollidiert mit dem Vite-HMR-Origin
+        //   (separater Port, wechselnde public/hot). Die CSP ist Prod-Härtung;
+        //   dort greift sie voll.
+        if (config('nativephp-internal.running') || app()->environment('local')) {
             return $response;
-        }
-
-        // Dev: Vite serviert @vite/client + app.ts/css von seinem eigenen Origin
-        // (public/hot). Ohne Freigabe blockt die CSP das Insel-Bundle → keine
-        // Alpine-Komponenten. Nur im Dev aktiv (im Prod-Build fehlt public/hot).
-        $vite = '';
-        if (is_file($hot = public_path('hot'))) {
-            $vite = ' '.trim((string) file_get_contents($hot));
         }
 
         $policy = implode('; ', [
             "default-src 'self'",
             // Alpine/Livewire-Realität (siehe Klassendoku).
-            "script-src 'self' 'unsafe-eval' 'unsafe-inline'".$vite,
-            "style-src 'self' 'unsafe-inline'".$vite,
+            "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline'",
             // Avatare/Chat-Bilder kommen von beliebigen Hosts.
             'img-src * data: blob:',
             "font-src 'self' data:",
