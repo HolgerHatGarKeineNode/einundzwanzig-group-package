@@ -24,6 +24,15 @@ export const spaceSupportsRooms = (isVerein: boolean, profile?: { supported_nips
     return profile.supported_nips?.includes(NIP29) ?? false
 }
 
+/**
+ * Setzt das Relay NIP-70 („protected events", `["-"]`-Tag) durch? Aus dem
+ * NIP-11-`supported_nips` (von welshman auf `string[]` normalisiert). Rein &
+ * welshman-frei → testbar. Fehlendes Profil → false (kein PROTECTED, wie beim
+ * Referenz-Client).
+ */
+export const hasNip70 = (profile?: { supported_nips?: string[] }): boolean =>
+    profile?.supported_nips?.includes('70') ?? false
+
 /** Space-Branding aus dem NIP-11-Info-Doc (Anzeigename, Avatar, Untertitel, Kopfbild). */
 export type SpaceBranding = { label: string; icon: string; description: string; banner: string }
 

@@ -15,6 +15,7 @@ import { sanitizeUrl } from '@braintree/sanitize-url'
 import { MESSAGE, DELETE, makeEvent, sortEventsAsc, getTagValue, type TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
+import { roomTags } from './interactions'
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -275,7 +276,7 @@ export const sendRoomMessage = async (
     content: string,
     reply?: ReplyTarget,
 ): Promise<string> => {
-    const tags: string[][] = [['h', h]]
+    const tags: string[][] = roomTags(h, url)
     let body = content
     if (reply) {
         const nevent = nip19.neventEncode({ id: reply.id, relays: [url], author: reply.pubkey, kind: MESSAGE })
@@ -305,7 +306,7 @@ export const deleteRoomMessage = (url: string, h: string, id: string, createdAt:
             relays: [url],
             event: makeEvent(DELETE, {
                 created_at: Math.max(Math.floor(Date.now() / 1000), createdAt + 1),
-                tags: [['k', String(MESSAGE)], ['e', id], ['h', h]],
+                tags: [['k', String(MESSAGE)], ['e', id], ...roomTags(h, url)],
             }),
         }),
     )

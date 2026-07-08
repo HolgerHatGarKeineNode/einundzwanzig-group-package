@@ -184,6 +184,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
                                          x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
                                          aria-label="Nachricht löschen" />
+                            {{-- „…"-Menü = gemeinsamer Andockpunkt für alle weiteren Aktionen (C1–C4).
+                                 Web: Zeilen-Popover (flux:dropdown). Native App: Vollbild-Modal (openMessageMenu). --}}
+                            <template x-if="!isMobile">
+                                <div x-on:click.stop>
+                                    <flux:dropdown position="top" align="end">
+                                        <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
+                                                     class="icon-btn-touch" aria-label="Weitere Aktionen" />
+                                        <flux:menu>
+                                            <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">Antworten</flux:menu.item>
+                                            {{-- C1: Reaktion · C2: Melden/Löschen · C4: Kopieren/Info --}}
+                                        </flux:menu>
+                                    </flux:dropdown>
+                                </div>
+                            </template>
+                            <template x-if="isMobile">
+                                <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
+                                             class="icon-btn-touch" x-on:click.stop="openMessageMenu(m)"
+                                             aria-label="Weitere Aktionen" />
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -263,6 +282,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
                 <flux:button variant="danger" x-on:click="confirmDelete()" ::disabled="deleting">Löschen</flux:button>
             </div>
+        </div>
+    </flux:modal>
+
+    {{-- Interaktions-Menü (native App): Aktionen zur angetippten Nachricht.
+         Web nutzt stattdessen das Zeilen-Popover (flux:dropdown). Einträge wachsen
+         mit C1–C4; `menuFor` hält die Zielnachricht. --}}
+    <flux:modal name="message-menu" class="max-w-sm">
+        <div class="flex flex-col gap-1">
+            <flux:heading size="sm" class="mb-1">Nachricht</flux:heading>
+            <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
+                         x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">Antworten</flux:button>
+            {{-- C1: Reaktion · C2: Melden/Löschen · C4: Kopieren/Info --}}
         </div>
     </flux:modal>
 

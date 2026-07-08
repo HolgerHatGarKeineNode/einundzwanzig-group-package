@@ -289,6 +289,8 @@ type RoomChatState = {
     lightboxSrc: string | null // Vollbild eines angeklickten Inline-Bilds (Proxy `full`)
     deleting: boolean
     pendingDelete: { id: string; createdAt: number } | null
+    isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
+    menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
     _url: string | null
     _lastRead: number
     _onViewport: null | (() => void)
@@ -309,6 +311,8 @@ type RoomChatState = {
     markRead(): void
     setReply(m: ChatMessage): void
     clearReply(): void
+    openMessageMenu(m: ChatMessage): void
+    closeMessageMenu(): void
     send(): Promise<void>
     askDelete(m: ChatMessage): void
     confirmDelete(): Promise<void>
@@ -830,6 +834,8 @@ export function registerNostrComponents(Alpine: {
         lightboxSrc: null,
         deleting: false,
         pendingDelete: null,
+        isMobile,
+        menuFor: null,
         _url: null,
         _lastRead: 0,
         _onViewport: null,
@@ -1015,6 +1021,18 @@ export function registerNostrComponents(Alpine: {
         },
         clearReply() {
             this.replyTo = null
+        },
+        // Interaktions-Menü öffnen (native App: Vollbild-Modal). Merkt die
+        // Zielnachricht; die Einträge (Antworten … Reaktion/Löschen/Melden folgen
+        // mit C1+) lesen `menuFor`. Web nutzt stattdessen das Zeilen-Popover.
+        openMessageMenu(m: ChatMessage) {
+            this.activeId = null
+            this.menuFor = m
+            dispatchModal('message-menu')
+        },
+        closeMessageMenu() {
+            dispatchModal('message-menu', false)
+            this.menuFor = null
         },
         // Nachricht senden (kind 9). Optimistisch: die Live-Sub echot sofort.
         // Fehler (Relay-Reject/AUTH) landen als Toast; der Text kehrt zurück.
