@@ -117,6 +117,14 @@
     box-shadow: var(--shadow-card-pressed);
 }
 
+/* Aktiver Bottom-Nav-Indikator: die Pill am oberen Rand des aktiven Tabs
+   fährt sanft ein (Spring). Bei wire:navigate rendert die Nav am Ziel neu. */
+@keyframes nav-pill-in {
+    from { opacity: 0; transform: scaleX(0.3); }
+    to { opacity: 1; transform: scaleX(1); }
+}
+.nav-pill { animation: nav-pill-in 0.35s var(--ease-spring) backwards; }
+
 /* Skeleton-Loader: sanftes Opacity-Shimmer statt Spinner. */
 .skeleton {
     background-color: var(--color-zinc-200);
