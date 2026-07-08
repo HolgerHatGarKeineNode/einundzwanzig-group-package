@@ -14,21 +14,26 @@ new #[Layout('group::einundzwanzig')] #[Title('Space')] class extends Component 
 
 <main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
 
-    {{-- Kopf: Marke + wer bin ich + Abmelden (Navigation liegt in der Bottom-Nav) --}}
-    <x-group::app-header title="Space" x-data="nostrAuth">
-        <x-slot:subtitle>
-            <div class="truncate font-mono text-xs text-muted" x-text="npub"></div>
-        </x-slot:subtitle>
-        <x-slot:actions>
-            <flux:button variant="ghost" size="sm" x-on:click="doLogout()">Abmelden</flux:button>
-        </x-slot:actions>
-    </x-group::app-header>
-
-    {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
-    <x-group::verein-gate context="Räume und Chat" class="mb-4" />
-
-    {{-- Genau EIN fixierter Space + seine Räume (kein Multi-Space-Layout, §12) --}}
+    {{-- Genau EIN fixierter Space + seine Räume (kein Multi-Space-Layout, §12).
+         Der `nostrSpaces`-Scope umschließt auch den Header, damit dessen Titel den
+         echten Space-Namen (NIP-11) zeigen kann (B1). --}}
     <div x-data="nostrSpaces" class="page-enter">
+
+        {{-- Kopf: echter Space-Name (NIP-11, Fallback „Space") + NIP-11-Beschreibung
+             + wer bin ich + Abmelden. Space-Identität lebt NUR hier (kein doppelter
+             Name in der Karte darunter). --}}
+        <x-group::app-header title="Space" title-expr="space?.label || 'Space'" x-data="nostrAuth">
+            <x-slot:subtitle>
+                <div x-show="space?.description" x-cloak class="truncate text-xs text-muted" x-text="space?.description"></div>
+                <div class="truncate font-mono text-xs text-muted" x-text="npub"></div>
+            </x-slot:subtitle>
+            <x-slot:actions>
+                <flux:button variant="ghost" size="sm" x-on:click="doLogout()">Abmelden</flux:button>
+            </x-slot:actions>
+        </x-group::app-header>
+
+        {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
+        <x-group::verein-gate context="Räume und Chat" class="mb-4" />
 
         {{-- Erstes Laden: Space-Meta noch nicht da → Skeleton-Card statt nackte Fläche. --}}
         <div x-show="!space && loading" x-cloak class="surface-card p-4" aria-busy="true">
@@ -45,11 +50,6 @@ new #[Layout('group::einundzwanzig')] #[Title('Space')] class extends Component 
         </div>
 
         <div x-show="space" x-cloak class="surface-card p-4">
-            <div class="flex items-center gap-2">
-                <flux:icon.server variant="solid" class="size-4 text-brand-500" />
-                <span class="truncate font-semibold" x-text="space?.label"></span>
-            </div>
-
             {{-- Räume laden noch --}}
             <template x-if="loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0">
                 <div class="mt-3 space-y-2">

@@ -1,5 +1,6 @@
 @props([
     'title' => '',
+    'titleExpr' => null,
     'back' => null,
 ])
 
@@ -17,7 +18,13 @@
     @endif
 
     <div class="min-w-0 flex-1">
-        <flux:heading size="xl" class="truncate">{{ $title }}</flux:heading>
+        {{-- `titleExpr` (Alpine-Ausdruck aus umschließendem Scope) überschreibt den
+             SSR-Titel nach Alpine-Init; `{{ $title }}` bleibt Fallback vor dem Hydrate. --}}
+        @if ($titleExpr)
+            <flux:heading size="xl" class="truncate" x-text="{{ $titleExpr }}">{{ $title }}</flux:heading>
+        @else
+            <flux:heading size="xl" class="truncate">{{ $title }}</flux:heading>
+        @endif
         @isset($subtitle)
             {{ $subtitle }}
         @endisset

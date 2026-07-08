@@ -56,7 +56,8 @@ import {
     type TrustedEvent,
 } from '@welshman/util'
 import { uniq, sortBy, partition } from '@welshman/lib'
-import { spaceSupportsRooms } from './relayCaps'
+import { spaceSupportsRooms, spaceBranding } from './relayCaps'
+import type { RelayProfile } from '@welshman/util'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
 
@@ -194,6 +195,10 @@ export type RoomView = { h: string; name: string }
 export type SpaceView = {
     url: string
     label: string
+    /** NIP-11 `icon` (Space-Avatar), '' wenn keins. */
+    icon: string
+    /** NIP-11 `description` (Untertitel), '' wenn keine. */
+    description: string
     userRooms: RoomView[]
     otherRooms: RoomView[]
 }
@@ -212,6 +217,7 @@ const buildSpaceView = (
     byId: Map<string, Room>,
     membersByH: Map<string, Set<string>>,
     pk: string | undefined,
+    profile: RelayProfile | undefined,
 ): SpaceView => {
     const nameOf = (h: string) => displayRoom(byId.get(makeRoomId(url, h)), h)
     const isMember = (h: string) => Boolean(pk && membersByH.get(h)?.has(pk))
@@ -227,7 +233,23 @@ const buildSpaceView = (
 
     const toView = (hs: string[]) => sortBy(nameOf, uniq(hs)).map((h) => ({ h, name: nameOf(h) }))
 
-    return { url, label: displayRelayUrl(url), userRooms: toView(joined), otherRooms: toView(other) }
+    const brand = spaceBranding(displayRelayUrl(url), profile)
+    return { url, ...brand, userRooms: toView(joined), otherRooms: toView(other) }
+}
+
+/**
+ * Liefert das NIP-11-Profil eines Relays aus dem Store und stößt das Laden an,
+ * falls es noch fehlt. `loadRelay` cached (Erfolg 1h, Fehler-Backoff, Pending
+ * dedupliziert) → gefahrlos aus reaktiven Derives/Rebuilds aufrufbar.
+ */
+export const ensureRelayProfile = (
+    relays: Map<string, RelayProfile>,
+    url: string,
+): RelayProfile | undefined => {
+    if (!relays.has(url)) {
+        void loadRelay(url)
+    }
+    return relays.get(url)
 }
 
 /**
@@ -235,9 +257,11 @@ const buildSpaceView = (
  * und entdeckbaren Räumen — die Grundlage der Space-Auswahl in den Einstellungen.
  */
 export const userSpacesView: Readable<SpaceView[]> = derived(
-    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, pubkey],
-    ([$urls, $byUrl, $byId, $members, $pk]) =>
-        $urls.map((url) => buildSpaceView(url, $byUrl, $byId, $members.get(url) ?? new Map(), $pk)),
+    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl],
+    ([$urls, $byUrl, $byId, $members, $pk, $relays]) =>
+        $urls.map((url) =>
+            buildSpaceView(url, $byUrl, $byId, $members.get(url) ?? new Map(), $pk, ensureRelayProfile($relays, url)),
+        ),
 )
 
 // ── Aktiver Space (Single-Space-Fokus, §12) ─────────────────────────────────
@@ -292,9 +316,11 @@ export const activeSpace: Readable<string> = derived(activeSpaceUrl, ($active) =
  * Space (noch) nicht beigetreten ist. Rooms streamen nach dem 39000-Load ein.
  */
 export const activeSpaceView: Readable<SpaceView> = derived(
-    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, pubkey],
-    ([$active, $byUrl, $byId, $members, $pk]) =>
-        buildSpaceView($active, $byUrl, $byId, $members.get($active) ?? new Map(), $pk),
+    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl],
+    ([$active, $byUrl, $byId, $members, $pk, $relays]) =>
+        // NIP-11 auch für den aktiven Space anstoßen — inkl. Vereins-Relays, die
+        // sonst nie geladen würden (nur `groupSpaceChoices` lädt non-verein).
+        buildSpaceView($active, $byUrl, $byId, $members.get($active) ?? new Map(), $pk, ensureRelayProfile($relays, $active)),
 )
 
 /** Space-Auswahl in den Einstellungen: der fixe Default + beigetretene Spaces. */

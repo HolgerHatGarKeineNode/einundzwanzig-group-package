@@ -6,7 +6,9 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import type { Readable } from 'svelte/store'
-import { repository, pubkey } from '@welshman/app'
+import { repository, pubkey, relaysByUrl } from '@welshman/app'
+import type { RelayProfile } from '@welshman/util'
+import { spaceBranding } from './relayCaps'
 import { load } from '@welshman/net'
 import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
@@ -28,6 +30,7 @@ import {
     activeSpaceView,
     setActiveSpace,
     displayRelayUrl,
+    ensureRelayProfile,
     loadUserGroupList,
     loadSpaceRooms,
     watchSpaceRooms,
@@ -52,8 +55,8 @@ import {
     refreshSpaceAdmin,
     loadSpaceDirectory,
     watchSpaceDirectory,
-    listenSpaceDirectory,
     loadMemberProfiles,
+    settleMemberProfiles,
     loadBannedMembers,
     createRole,
     editRole,
@@ -199,6 +202,7 @@ type RoleForm = { id: string; label: string; description: string; hue: number; l
 
 type DirectoryState = {
     ready: boolean
+    profilesReady: boolean
     members: MemberView[]
     roles: RoleView[]
     query: string
@@ -221,6 +225,7 @@ type DirectoryState = {
     _unsubAccess: null | (() => void)
     _loadedDir: Set<string>
     _loadedProfiles: Set<string>
+    _settleStarted: boolean
     init(): void
     destroy(): void
     filtered(): MemberView[]
@@ -310,9 +315,11 @@ type SpaceSettingsState = {
     busy: boolean
     _joined: string[]
     _choices: string[]
+    _relays: Map<string, RelayProfile>
     _unsubChoices: null | (() => void)
     _unsubActive: null | (() => void)
     _unsubJoined: null | (() => void)
+    _unsubRelays: null | (() => void)
     init(): void
     destroy(): void
     choose(url: string): void
@@ -431,6 +438,7 @@ export function registerNostrComponents(Alpine: {
     // Client-Suche filtert über Name + npub. Kein Multi-Space (§12).
     Alpine.data('nostrDirectory', (): DirectoryState => ({
         ready: false,
+        profilesReady: false,
         members: [],
         roles: [],
         query: '',
@@ -452,6 +460,7 @@ export function registerNostrComponents(Alpine: {
         _unsubAccess: null,
         _loadedDir: new Set<string>(),
         _loadedProfiles: new Set<string>(),
+        _settleStarted: false,
         init() {
             // Aktiver Space → dessen Directory laden + Subs neu aufbauen.
             this._unsubActive = activeSpace.subscribe((url: string) => {
@@ -461,24 +470,56 @@ export function registerNostrComponents(Alpine: {
                 this._unsubAccess?.()
                 this._controller?.abort()
                 this.ready = false
+                this.profilesReady = false
+                this._settleStarted = false
                 this.members = []
                 this.roles = []
                 this.gatedOut = false
                 this.editingMember = null
                 this._url = url
                 this._controller = new AbortController()
+                // Sicherheitsnetz: bleibt das Directory-Loaded-Signal (EOSE/CLOSED)
+                // aus (Relay-Timeout/Netzfehler), nach 8s trotzdem rendern statt
+                // ewig Skeleton — dann eben mit dem bis dahin bekannten Stand.
+                setTimeout(() => {
+                    if (this._url === url && !this.profilesReady) {
+                        this.profilesReady = true
+                    }
+                }, 8000)
                 // Vereins-Relay & kein Mitglied → Mitgliederliste liefert der Relay
                 // nicht aus; Suche + falsche „keine Mitglieder"-Meldung ausblenden.
                 this._unsubAccess = deriveVereinAccess(url).subscribe((a: VereinAccess) => {
                     this.gatedOut = isVereinGatedOut(a)
+                    // `a.ready` = relay.self da UND das Directory (13534/33534) ist
+                    // FERTIG geladen — per EOSE (Liste inkl. Mitglieder da) oder
+                    // CLOSED (Nicht-Mitglied, keine Liste). ERST jetzt steht die
+                    // Mitgliederzahl final. `view.ready` allein (nur relay.self)
+                    // triggerte das Gate bei members=0 → profilesReady verfrüht,
+                    // die Liste sortierte/animierte danach bei jedem Profil neu.
+                    if (a.ready && !this._settleStarted) {
+                        this._settleStarted = true
+                        const pubkeys = this.members.map((m) => m.pubkey)
+                        pubkeys.forEach((pk) => this._loadedProfiles.add(pk))
+                        void settleMemberProfiles(url, pubkeys).then(() => {
+                            if (this._url === url) {
+                                this.profilesReady = true
+                            }
+                        })
+                    }
                 })
                 if (!this._loadedDir.has(url)) {
                     this._loadedDir.add(url)
                     loadSpaceDirectory(url)
                 }
-                listenSpaceDirectory(url, this._controller.signal)
+                // watchSpaceDirectory (statt listen): lädt 13534/33534 UND meldet per
+                // EOSE/CLOSED, dass das Directory fertig ist ([[spaceDirectoryLoaded]]) —
+                // das Signal, an dem `a.ready` oben hängt. Bleibt offen (Live-Updates).
+                watchSpaceDirectory(url, this._controller.signal)
                 this._unsubDir = deriveSpaceDirectory(url).subscribe((view: DirectoryView) => {
                     this.ready = view.ready
+                    // Liste im Hintergrund aktuell halten; die View zeigt sie erst,
+                    // wenn `profilesReady` steht (x-if, gesetzt vom Access-Gate oben) —
+                    // kein progressives Umsortieren einer sichtbaren Liste.
                     this.members = view.members
                     this.roles = view.roles
                     // Falls das Rollen-Modal offen ist, die Auswahl frisch halten.
@@ -486,12 +527,15 @@ export function registerNostrComponents(Alpine: {
                         this.editingMember =
                             view.members.find((m) => m.pubkey === this.editingMember!.pubkey) ?? this.editingMember
                     }
-                    // Profile der (neuen) Mitglieder nachladen — einmal je pubkey.
-                    const missing = view.members
-                        .map((m) => m.pubkey)
-                        .filter((pk) => !this._loadedProfiles.has(pk))
-                    missing.forEach((pk) => this._loadedProfiles.add(pk))
-                    loadMemberProfiles(url, missing)
+                    // Nachzügler (Live-Admin fügt nach dem Gate Mitglieder hinzu):
+                    // deren Profile einzeln nachladen — je pubkey einmal.
+                    if (this.profilesReady) {
+                        const missing = view.members
+                            .map((m) => m.pubkey)
+                            .filter((pk) => !this._loadedProfiles.has(pk))
+                        missing.forEach((pk) => this._loadedProfiles.add(pk))
+                        loadMemberProfiles(url, missing)
+                    }
                 })
                 this._unsubRoles = deriveSpaceRoles(url).subscribe((roles: SpaceRole[]) => {
                     this.rolesFull = roles
@@ -1008,9 +1052,11 @@ export function registerNostrComponents(Alpine: {
         busy: false,
         _joined: [],
         _choices: [],
+        _relays: new Map(),
         _unsubChoices: null,
         _unsubActive: null,
         _unsubJoined: null,
+        _unsubRelays: null,
         init() {
             // `ready` erst nach dem ersten Ladeversuch → kein „leer"-Flash vor der Emission (Fix A).
             loadUserGroupList()?.finally(() => {
@@ -1019,7 +1065,7 @@ export function registerNostrComponents(Alpine: {
             const rebuild = () => {
                 this.spaces = this._choices.map((url: string) => ({
                     url,
-                    label: displayRelayUrl(url),
+                    label: spaceBranding(displayRelayUrl(url), ensureRelayProfile(this._relays, url)).label,
                     joined: this._joined.includes(url),
                 }))
                 this.activeJoined = Boolean(this.active && this._joined.includes(this.active))
@@ -1038,6 +1084,10 @@ export function registerNostrComponents(Alpine: {
             })
             this._unsubActive = activeSpace.subscribe((url: string) => {
                 this.active = url
+                rebuild()
+            })
+            this._unsubRelays = relaysByUrl.subscribe((byUrl: Map<string, RelayProfile>) => {
+                this._relays = byUrl
                 rebuild()
             })
         },
@@ -1086,6 +1136,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubChoices?.()
             this._unsubActive?.()
             this._unsubJoined?.()
+            this._unsubRelays?.()
         },
     }))
 
