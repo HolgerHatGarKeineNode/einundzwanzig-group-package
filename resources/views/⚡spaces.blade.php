@@ -43,9 +43,11 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space')] class extends Component {
                 </div>
             </template>
 
-            {{-- Geladen, aber der Space hat keine Räume --}}
+            {{-- Geladen, aber keine Räume. Für Nicht-Vereinsmitglieder liefert der
+                 Relay die Räume gar nicht aus → korrekte Meldung statt „keine Räume". --}}
             <template x-if="!loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0">
-                <flux:text class="mt-3 text-sm text-zinc-500">Dieser Space hat noch keine Räume.</flux:text>
+                <flux:text class="mt-3 text-sm text-zinc-500"
+                           x-text="gatedOut ? 'Räume sind nur für Vereinsmitglieder sichtbar.' : 'Dieser Space hat noch keine Räume.'"></flux:text>
             </template>
 
             <flux:navlist class="mt-3">

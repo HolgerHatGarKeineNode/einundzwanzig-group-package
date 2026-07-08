@@ -154,8 +154,10 @@ type AuthState = {
 type SpacesState = {
     space: SpaceView | null
     loading: boolean
+    gatedOut: boolean
     _unsubView: null | (() => void)
     _unsubActive: null | (() => void)
+    _unsubAccess: null | (() => void)
     _loaded: Set<string>
     init(): void
     destroy(): void
@@ -181,6 +183,7 @@ type DirectoryState = {
     members: MemberView[]
     roles: RoleView[]
     query: string
+    gatedOut: boolean
     // Admin (NIP-86)
     isAdmin: boolean
     rolesFull: SpaceRole[]
@@ -196,6 +199,7 @@ type DirectoryState = {
     _unsubDir: null | (() => void)
     _unsubRoles: null | (() => void)
     _unsubAdmin: null | (() => void)
+    _unsubAccess: null | (() => void)
     _loadedDir: Set<string>
     _loadedProfiles: Set<string>
     init(): void
@@ -302,8 +306,10 @@ export function registerNostrComponents(Alpine: {
     Alpine.data('nostrSpaces', (): SpacesState => ({
         space: null,
         loading: true,
+        gatedOut: false,
         _unsubView: null,
         _unsubActive: null,
+        _unsubAccess: null,
         _loaded: new Set<string>(),
         init() {
             loadUserGroupList()?.finally(() => {
@@ -315,6 +321,13 @@ export function registerNostrComponents(Alpine: {
                     this._loaded.add(url)
                     loadSpaceRooms(url)
                 }
+                // Vereins-Relay & kein Mitglied → die Räume liefert der Relay gar
+                // nicht aus. „gatedOut" ersetzt die falsche „keine Räume"-Meldung.
+                this._unsubAccess?.()
+                this.gatedOut = false
+                this._unsubAccess = deriveVereinAccess(url).subscribe((a: VereinAccess) => {
+                    this.gatedOut = a.gated && a.ready && !a.isMember
+                })
             })
             this._unsubView = activeSpaceView.subscribe((view: SpaceView) => {
                 this.space = view
@@ -323,6 +336,7 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._unsubActive?.()
             this._unsubView?.()
+            this._unsubAccess?.()
         },
     }))
 
@@ -382,6 +396,7 @@ export function registerNostrComponents(Alpine: {
         members: [],
         roles: [],
         query: '',
+        gatedOut: false,
         isAdmin: false,
         rolesFull: [],
         editingMember: null,
@@ -396,6 +411,7 @@ export function registerNostrComponents(Alpine: {
         _unsubDir: null,
         _unsubRoles: null,
         _unsubAdmin: null,
+        _unsubAccess: null,
         _loadedDir: new Set<string>(),
         _loadedProfiles: new Set<string>(),
         init() {
@@ -404,13 +420,20 @@ export function registerNostrComponents(Alpine: {
                 this._unsubDir?.()
                 this._unsubRoles?.()
                 this._unsubAdmin?.()
+                this._unsubAccess?.()
                 this._controller?.abort()
                 this.ready = false
                 this.members = []
                 this.roles = []
+                this.gatedOut = false
                 this.editingMember = null
                 this._url = url
                 this._controller = new AbortController()
+                // Vereins-Relay & kein Mitglied → Mitgliederliste liefert der Relay
+                // nicht aus; Suche + falsche „keine Mitglieder"-Meldung ausblenden.
+                this._unsubAccess = deriveVereinAccess(url).subscribe((a: VereinAccess) => {
+                    this.gatedOut = a.gated && a.ready && !a.isMember
+                })
                 if (!this._loadedDir.has(url)) {
                     this._loadedDir.add(url)
                     loadSpaceDirectory(url)
@@ -611,6 +634,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubDir?.()
             this._unsubRoles?.()
             this._unsubAdmin?.()
+            this._unsubAccess?.()
             this._controller?.abort()
         },
     }))

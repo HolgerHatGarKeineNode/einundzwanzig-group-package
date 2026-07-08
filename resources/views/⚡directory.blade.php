@@ -18,8 +18,9 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
     {{-- Directory des AKTIVEN Space (§12). Gated auf relay.self (Fix A). --}}
     <div x-data="nostrDirectory" class="page-enter space-y-4">
 
-        {{-- Suche --}}
-        <flux:input x-model="query" icon="magnifying-glass" placeholder="Mitglied suchen…" clearable />
+        {{-- Suche — für Nicht-Vereinsmitglieder ausgeblendet: die Mitgliederliste
+             liefert der Relay nicht aus, eine Suche liefe ins Leere. --}}
+        <flux:input x-show="!gatedOut" x-model="query" icon="magnifying-glass" placeholder="Mitglied suchen…" clearable />
 
         {{-- Admin-Werkzeuge (nur wenn der Relay dem User NIP-86-Methoden erlaubt) --}}
         <div x-show="isAdmin" x-cloak class="flex flex-wrap gap-2">
@@ -50,8 +51,9 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
             </div>
         </template>
 
-        {{-- Geladen, aber keine Mitglieder --}}
-        <template x-if="ready && members.length === 0">
+        {{-- Geladen, aber keine Mitglieder. Für Nicht-Vereinsmitglieder ausgeblendet
+             (kein falsches „keine Mitglieder" — die Gate-Karte oben erklärt es). --}}
+        <template x-if="ready && members.length === 0 && !gatedOut">
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.users class="mx-auto size-8 text-zinc-400" />
                 <flux:text class="mt-2">Noch keine Mitglieder in diesem Space.</flux:text>
