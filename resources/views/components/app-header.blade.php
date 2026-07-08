@@ -17,6 +17,10 @@
         </a>
     @endif
 
+    @isset($leading)
+        {{ $leading }}
+    @endisset
+
     <div class="min-w-0 flex-1">
         {{-- `titleExpr` (Alpine-Ausdruck aus umschließendem Scope) überschreibt den
              SSR-Titel nach Alpine-Init; `{{ $title }}` bleibt Fallback vor dem Hydrate. --}}

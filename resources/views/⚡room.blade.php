@@ -22,12 +22,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     public string $roomAbout = '';
 
+    public string $roomPicture = '';
+
     public function mount(string $h, SpaceCache $cache): void
     {
         $this->h = $h;
         $room = $cache->rooms(SpaceCache::spaceUrl())[$h] ?? null;
         $this->roomName = $room['name'] ?? null;
         $this->roomAbout = $room['about'] ?? '';
+        $this->roomPicture = $room['picture'] ?? '';
     }
 
     public function render()
@@ -42,6 +45,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
 <div x-data="nostrRoomChat(@js($h))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-safe pb-safe">
 
     <x-group::app-header :title="'# '.($roomName ?? $h)" :back="route('group.spaces')" class="shrink-0">
+        @if ($roomPicture)
+            <x-slot:leading>
+                <flux:avatar circle size="sm" src="{{ $roomPicture }}" name="{{ $roomName ?? $h }}" />
+            </x-slot:leading>
+        @endif
         <x-slot:actions>
             {{-- Mitglied → Verlassen (kind 9022). Beitreten liegt beim Composer. --}}
             <flux:button size="xs" variant="ghost" icon="arrow-right-start-on-rectangle"

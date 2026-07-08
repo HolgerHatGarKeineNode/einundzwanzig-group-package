@@ -191,7 +191,7 @@ export const displayRoom = (room: Room | undefined, h: string): string => room?.
 
 // ── Aggregierte Sicht für die UI ─────────────────────────────────────────────
 
-export type RoomView = { h: string; name: string }
+export type RoomView = { h: string; name: string; picture: string; locked: boolean }
 export type SpaceView = {
     url: string
     label: string
@@ -231,7 +231,16 @@ const buildSpaceView = (
         ;(isMember(room.h) ? joined : other).push(room.h)
     }
 
-    const toView = (hs: string[]) => sortBy(nameOf, uniq(hs)).map((h) => ({ h, name: nameOf(h) }))
+    const toView = (hs: string[]): RoomView[] =>
+        sortBy(nameOf, uniq(hs)).map((h) => {
+            const room = byId.get(makeRoomId(url, h))
+            return {
+                h,
+                name: displayRoom(room, h),
+                picture: room?.picture ?? '',
+                locked: Boolean(room?.isPrivate || room?.isRestricted || room?.isClosed),
+            }
+        })
 
     const brand = spaceBranding(displayRelayUrl(url), profile)
     return { url, ...brand, userRooms: toView(joined), otherRooms: toView(other) }

@@ -34,7 +34,7 @@ class SpaceCache
     /**
      * Gecachte Raum-Metadaten je `h`. Leer bei Cache-Miss.
      *
-     * @return array<string, array{name: string, about: string}>
+     * @return array<string, array{name: string, about: string, picture: string, locked: bool}>
      */
     public function rooms(string $url): array
     {
@@ -42,9 +42,9 @@ class SpaceCache
     }
 
     /**
-     * Liest kind 39000 vom Relay und cached Name/Beschreibung je Raum.
+     * Liest kind 39000 vom Relay und cached Name/Beschreibung/Bild je Raum.
      *
-     * @return array<string, array{name: string, about: string}>
+     * @return array<string, array{name: string, about: string, picture: string, locked: bool}>
      */
     public function refreshRooms(string $url): array
     {
@@ -55,10 +55,11 @@ class SpaceCache
     }
 
     /**
-     * Baut aus 39000-Events die Map `h => {name, about}`.
+     * Baut aus 39000-Events die Map `h => {name, about, picture, locked}`.
+     * `locked` fasst NIP-29 `private`/`restricted`/`closed` zu einem Zugriffs-Flag.
      *
      * @param  array<int, \stdClass>  $events
-     * @return array<string, array{name: string, about: string}>
+     * @return array<string, array{name: string, about: string, picture: string, locked: bool}>
      */
     public static function parseRooms(array $events): array
     {
@@ -72,6 +73,10 @@ class SpaceCache
             $rooms[$h] = [
                 'name' => self::tag($tags, 'name') ?? $h,
                 'about' => self::tag($tags, 'about') ?? '',
+                'picture' => self::tag($tags, 'picture') ?? '',
+                'locked' => self::hasTag($tags, 'private')
+                    || self::hasTag($tags, 'restricted')
+                    || self::hasTag($tags, 'closed'),
             ];
         }
 
@@ -89,6 +94,16 @@ class SpaceCache
     private static function tag(Collection $tags, string $name): ?string
     {
         return $tags->firstWhere(fn ($t) => ($t[0] ?? null) === $name)[1] ?? null;
+    }
+
+    /**
+     * NIP-29-Presence-Tag (kein Wert, nur Existenz), z.B. `["private"]`.
+     *
+     * @param  Collection<int, array<int, string>>  $tags
+     */
+    private static function hasTag(Collection $tags, string $name): bool
+    {
+        return $tags->contains(fn ($t) => ($t[0] ?? null) === $name);
     }
 
     /**
