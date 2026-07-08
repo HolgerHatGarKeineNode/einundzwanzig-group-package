@@ -9,16 +9,16 @@ return [
     'space_url' => env('NOSTR_SPACE_URL'),
 
     /*
-     * Head-Partial des Chat-Vollbild-Layouts. Der Web-Client nutzt seine eigene
+     * Head-Partial des Group-Vollbild-Layouts. Der Web-Client nutzt seine eigene
      * `partials.head` (mit OG/Favicons). Ein Fremdhost (Portal) setzt hier
-     * `group::partials.head` — die lädt nur __nostrSpace + die `chat.vite`-Entries.
+     * `group::partials.head` — die lädt nur __nostrSpace + die `group.vite`-Entries.
      */
     'head_partial' => 'partials.head',
 
     /*
      * Vite-Entries, die `group::partials.head` lädt (nur relevant, wenn
      * head_partial = group::partials.head). Der Fremdhost zeigt hier auf seinen
-     * Insel-Entry + das Chat-Theme-CSS.
+     * Insel-Entry + das Group-Theme-CSS.
      */
     'vite' => ['resources/css/app.css', 'resources/js/app.ts'],
 ];

@@ -28,7 +28,7 @@ class SpaceCache
     /** Fixierter Default-Space (spiegelt `DEFAULT_SPACE_URL` der Insel). */
     public static function spaceUrl(): string
     {
-        return config('nostr.space_url') ?: 'ws://localhost:3334/';
+        return config('group.space_url') ?: 'ws://localhost:3334/';
     }
 
     /**

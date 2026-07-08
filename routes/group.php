@@ -5,7 +5,7 @@ use Einundzwanzig\Group\Http\Middleware\ContentSecurityPolicy;
 use Illuminate\Support\Facades\Route;
 
 /*
- * Chat-Routen des Packages. Alle Namen unter dem `chat.`-Präfix — der Host
+ * Group-Routen des Packages. Alle Namen unter dem `group.`-Präfix — der Host
  * verlinkt via `route('group.spaces')` (Web-Client heute, Portal-Nav in P1).
  * CSP nur auf diesen Routen (Reibung 9), nicht global an die Host-web-Group.
  */
