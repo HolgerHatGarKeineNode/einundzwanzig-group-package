@@ -7,10 +7,11 @@
         x-on:click="Livewire.navigate('/rooms/' + encodeURIComponent(room.h))"
         class="group pressable flex w-full items-center gap-3 rounded-tile p-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800">
     {{-- flux:avatar verzweigt server-seitig auf `$src` → bei reinem Alpine-Bind bliebe
-         es Initialen. Darum natives `<img>`; bei Ladefehler zurück auf den #-Chip
-         (der IMG-Proxy-Plan ergänzt später Zuschnitt + Fallback). --}}
+         es Initialen. Darum natives `<img>` über den IMG-Proxy ($img, Zuschnitt/WebP).
+         Zweistufiger Fallback: Proxy-Fehler → Original (Offline), dann → #-Chip. --}}
     <template x-if="room.picture">
-        <img :src="room.picture" :alt="room.name" x-on:error="room.picture = ''"
+        <img :src="$img(room.picture)" :alt="room.name"
+             x-on:error="$el.dataset.orig ? (room.picture = '') : ($el.dataset.orig = 1, $el.src = room.picture)"
              class="size-8 shrink-0 rounded-tile object-cover" />
     </template>
     <template x-if="!room.picture">

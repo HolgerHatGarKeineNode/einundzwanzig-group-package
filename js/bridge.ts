@@ -14,7 +14,7 @@ import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
-import { DEFAULT_RELAYS, isMobile, nativeBrowserOpen, nativeBrowserInApp } from './core'
+import { DEFAULT_RELAYS, isMobile, nativeBrowserOpen, nativeBrowserInApp, proxifyImage } from './core'
 import {
     loginWithExtension,
     loginWithSecretKey,
@@ -340,7 +340,12 @@ type InviteState = {
 
 export function registerNostrComponents(Alpine: {
     data: (name: string, factory: (...args: unknown[]) => unknown) => void
+    magic: (name: string, callback: () => unknown) => void
 }) {
+    // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
+    // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').
+    Alpine.magic('img', () => (url: unknown, preset?: string) => proxifyImage(url, preset))
+
     // Space/Room-Navigation (M2, Single-Space §12): lädt die 10009-Membership,
     // zieht die Room-Metas (39000) des AKTIVEN Space nach und spiegelt genau
     // diesen einen Space nach Alpine. Kein Multi-Space-Layout, keine Rail.

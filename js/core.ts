@@ -30,6 +30,23 @@ const relayOverride = (globalThis as { __nostrRelays?: RelayOverride }).__nostrR
 export const isMobile = Boolean((globalThis as { __nostrMobile?: boolean }).__nostrMobile)
 
 /**
+ * PLAN4 IMG — Bild-Proxy-URL bauen: leitet remote Nostr-Bilder über den
+ * gehosteten Zuschnitt-/WebP-Proxy (`/img/{preset}`). Web = relativ (gleicher
+ * Host); Mobile = absolut gegen den festen Web-Host (die App hostet den Proxy
+ * nicht). Nur http(s) wird proxifiziert — data:/blob: bleiben unangetastet.
+ */
+const IMG_PROXY_HOST = 'https://group.einundzwanzig.space'
+
+export function proxifyImage(url: unknown, preset = 'avatar'): string {
+    const src = typeof url === 'string' ? url : ''
+    if (! /^https?:\/\//i.test(src)) {
+        return src
+    }
+    const base = isMobile ? IMG_PROXY_HOST : ''
+    return `${base}/img/${preset}?src=${encodeURIComponent(src)}`
+}
+
+/**
  * NativePHP-Mobile-Bridge: ruft eine registrierte Bridge-Function DIREKT über
  * den lokalen `/_native/api/call`-Endpoint auf — genau der Weg, den NativePHPs
  * eigenes `#nativephp`-JS-Modul intern nutzt. Bewusst OHNE Livewire-Roundtrip:

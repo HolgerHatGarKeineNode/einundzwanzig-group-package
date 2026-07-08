@@ -47,7 +47,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
     <x-group::app-header :title="'# '.($roomName ?? $h)" :back="route('group.spaces')" class="shrink-0">
         @if ($roomPicture)
             <x-slot:leading>
-                <flux:avatar circle size="sm" src="{{ $roomPicture }}" name="{{ $roomName ?? $h }}" />
+                <flux:avatar circle size="sm" src="{{ \Einundzwanzig\Group\ImageProxy::url($roomPicture) }}" name="{{ $roomName ?? $h }}" />
             </x-slot:leading>
         @endif
         <x-slot:actions>
@@ -135,7 +135,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          :class="[m.showAuthor ? 'mt-2.5' : '', flashId===m.id ? 'ring-2 ring-brand-500/70' : '']">
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
-                                <flux:avatar circle size="xs" ::src="m.picture || null" ::name="m.name" />
+                                <flux:avatar circle size="xs" ::src="m.picture ? $img(m.picture) : null" ::name="m.name" />
                             </template>
                             {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
                             <template x-if="!m.showAuthor">
