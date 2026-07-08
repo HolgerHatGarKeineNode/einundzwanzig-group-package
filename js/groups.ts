@@ -199,6 +199,8 @@ export type SpaceView = {
     icon: string
     /** NIP-11 `description` (Untertitel), '' wenn keine. */
     description: string
+    /** NIP-11 `banner` (Kopfbild), '' wenn keins. */
+    banner: string
     userRooms: RoomView[]
     otherRooms: RoomView[]
 }

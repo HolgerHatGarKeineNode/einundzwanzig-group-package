@@ -19,6 +19,19 @@ new #[Layout('group::einundzwanzig')] #[Title('Space')] class extends Component 
          echten Space-Namen (NIP-11) zeigen kann (B1). --}}
     <div x-data="nostrSpaces" class="page-enter">
 
+        {{-- NIP-11-Kopfbild (B6): breiter Space-Banner über dem Header, wenn der
+             Relay `banner` liefert. Proxifiziert (banner-Preset, 3:1), Fade nach
+             unten hält den Header darunter lesbar. Kein Banner → nichts (kein
+             Platzhalter). Dekorativ → einstufiger onerror (Bild weg statt Chip). --}}
+        <template x-if="space?.banner">
+            <div class="relative mb-4 overflow-hidden rounded-card ring-1 ring-black/5 dark:ring-white/10">
+                <img :src="$img(space.banner, 'banner')" alt="" loading="lazy"
+                     class="h-28 w-full object-cover md:h-32"
+                     x-on:error="$el.parentElement.remove()" />
+                <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-zinc-50 to-transparent dark:from-zinc-950"></div>
+            </div>
+        </template>
+
         {{-- Kopf: echter Space-Name (NIP-11, Fallback „Space") + NIP-11-Beschreibung
              + wer bin ich + Abmelden. Space-Identität lebt NUR hier (kein doppelter
              Name in der Karte darunter). --}}

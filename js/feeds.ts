@@ -10,7 +10,7 @@
 import { derived, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05 } from '@welshman/app'
-import { parse, renderAsHtml } from '@welshman/content'
+import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { MESSAGE, DELETE, makeEvent, sortEventsAsc, getTagValue, type TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
@@ -46,6 +46,23 @@ const renderMessageLink = (href: string, display: string): string => {
     return a.outerHTML
 }
 
+/**
+ * Custom-Emoji (NIP-30) als kleines Inline-`<img>` über den Bild-Proxy. Nur
+ * `https`-URLs werden zum Bild — sonst `null` → welshman rendert den Shortcode
+ * als Text (kein Bild mit beliebigem `src`). `createElement` escaped Attribute.
+ */
+const renderEmojiImg = (name: string, url: string | undefined): string | null => {
+    if (!url || !/^https:\/\//i.test(url)) {
+        return null
+    }
+    const img = document.createElement('img')
+    img.className = 'chat-emoji'
+    img.loading = 'lazy'
+    img.src = proxifyImage(url, 'avatar')
+    img.alt = img.title = `:${name}:`
+    return img.outerHTML
+}
+
 const roomFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
 
 /** Vorangestelltes `nostr:nevent…`/`note…` einer Reply (unser Quote-Prefix). */
@@ -68,9 +85,21 @@ const htmlCache = new Map<string, string>()
 const renderMessageHtml = (event: TrustedEvent): string => {
     let html = htmlCache.get(event.id)
     if (html === undefined) {
-        html = renderAsHtml(parse({ content: bodyWithoutQuote(event), tags: event.tags }), {
-            renderLink: renderMessageLink,
-        }).toString()
+        // welshman rendert Custom-Emoji (NIP-30) per Default als Text-Shortcode
+        // (`renderEmoji` ist NICHT als Option überschreibbar) — darum Emoji-Nodes
+        // mit https-URL selbst zu Inline-<img> rendern, alle anderen Nodes an
+        // welshman geben (Text-Escaping, Links über den Proxy, Newlines).
+        html = parse({ content: bodyWithoutQuote(event), tags: event.tags })
+            .map((node) => {
+                if (node.type === ParsedType.Emoji) {
+                    const img = renderEmojiImg(node.value.name, node.value.url)
+                    if (img !== null) {
+                        return img
+                    }
+                }
+                return renderAsHtml([node], { renderLink: renderMessageLink }).toString()
+            })
+            .join('')
         htmlCache.set(event.id, html)
     }
     return html

@@ -188,6 +188,16 @@
     background-color: color-mix(in oklab, var(--color-brand-500) 8%, transparent);
 }
 
+/* Custom-Emoji (NIP-30): zeilenhohes Inline-Bild, keine Lightbox (andere Klasse). */
+.chat-emoji {
+    display: inline-block;
+    height: 1.4em;
+    width: auto;
+    vertical-align: -0.28em;
+    margin-inline: 0.05em;
+    object-fit: contain;
+}
+
 /* Terminal-Caret: blinkender Block hinter der Wortmarke (monospace-Signatur). */
 @keyframes caret-blink {
     0%, 45% { opacity: 1; }

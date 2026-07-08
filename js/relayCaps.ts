@@ -24,19 +24,21 @@ export const spaceSupportsRooms = (isVerein: boolean, profile?: { supported_nips
     return profile.supported_nips?.includes(NIP29) ?? false
 }
 
-/** Space-Branding aus dem NIP-11-Info-Doc (Anzeigename, Avatar, Untertitel). */
-export type SpaceBranding = { label: string; icon: string; description: string }
+/** Space-Branding aus dem NIP-11-Info-Doc (Anzeigename, Avatar, Untertitel, Kopfbild). */
+export type SpaceBranding = { label: string; icon: string; description: string; banner: string }
 
 /**
  * Ein Space hat kein Meta-Event — sein „Name" kommt aus dem NIP-11-Info-Doc des
  * Relays: `name` als Anzeigename (Fallback: gekürzte Relay-URL), `icon` als
- * Space-Avatar, `description` als Untertitel. Rein & welshman-frei → testbar.
+ * Space-Avatar, `description` als Untertitel, `banner` als Kopfbild.
+ * Rein & welshman-frei → testbar.
  */
 export const spaceBranding = (
     fallbackLabel: string,
-    profile?: { name?: string; icon?: string; description?: string },
+    profile?: { name?: string; icon?: string; description?: string; banner?: string },
 ): SpaceBranding => ({
     label: profile?.name?.trim() || fallbackLabel,
     icon: profile?.icon?.trim() || '',
     description: profile?.description?.trim() || '',
+    banner: profile?.banner?.trim() || '',
 })
