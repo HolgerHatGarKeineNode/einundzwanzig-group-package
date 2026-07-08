@@ -333,6 +333,15 @@ export const loadUserGroupList = (): Promise<void> | undefined => {
 export const loadSpaceRooms = (url: string): Promise<unknown> =>
     load({ relays: [url], filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS] }] })
 
+/**
+ * Live-Sub auf die Räume (39000/9008/39002) eines Space: lädt Bestand UND bleibt
+ * offen (kein CLOSE) → überlebt langsames NIP-42-AUTH auf `public_read=false`-
+ * Relays (welshman replayt den gepufferten REQ nach AUTH). Ein One-Shot-`load`
+ * läuft dagegen ins Timeout, sendet CLOSE und die Räume erscheinen nie. */
+export const watchSpaceRooms = (url: string, signal: AbortSignal): void => {
+    void request({ relays: [url], signal, filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS] }] })
+}
+
 /** Live-Sub für Mitglieder-Änderungen (39002) — Join/Leave reflektiert sofort. */
 export const listenRoomMembers = (url: string, signal: AbortSignal): void => {
     void request({ relays: [url], signal, filters: [{ kinds: [ROOM_MEMBERS], limit: 0 }] })

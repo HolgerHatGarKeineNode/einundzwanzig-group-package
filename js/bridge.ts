@@ -30,6 +30,7 @@ import {
     displayRelayUrl,
     loadUserGroupList,
     loadSpaceRooms,
+    watchSpaceRooms,
     listenRoomMembers,
     deriveUserInRoom,
     joinRoom,
@@ -46,9 +47,11 @@ import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
     deriveVereinAccess,
+    isVereinGatedOut,
     deriveUserIsSpaceAdmin,
     refreshSpaceAdmin,
     loadSpaceDirectory,
+    watchSpaceDirectory,
     listenSpaceDirectory,
     loadMemberProfiles,
     loadBannedMembers,
@@ -174,7 +177,7 @@ type SpacesState = {
     _unsubView: null | (() => void)
     _unsubActive: null | (() => void)
     _unsubAccess: null | (() => void)
-    _loaded: Set<string>
+    _controller: AbortController | null
     init(): void
     destroy(): void
 }
@@ -182,9 +185,9 @@ type SpacesState = {
 type VereinGateState = {
     show: boolean
     _access: VereinAccess
-    _loaded: boolean
     _unsubActive: null | (() => void)
     _unsubAccess: null | (() => void)
+    _controller: AbortController | null
     init(): void
     _refresh(): void
     openExternal(url: string, e: Event): void
@@ -342,23 +345,24 @@ export function registerNostrComponents(Alpine: {
         _unsubView: null,
         _unsubActive: null,
         _unsubAccess: null,
-        _loaded: new Set<string>(),
+        _controller: null,
         init() {
             loadUserGroupList()?.finally(() => {
                 this.loading = false
             })
-            // Aktiver Space → dessen Rooms laden (Wechsel baut Subs neu auf).
+            // Aktiver Space → dessen Rooms als LIVE-Sub abonnieren (Wechsel baut neu
+            // auf). Live statt One-Shot: überlebt langsames NIP-42-AUTH → Räume
+            // erscheinen auch, wenn der Signer erst spät bestätigt.
             this._unsubActive = activeSpace.subscribe((url: string) => {
-                if (!this._loaded.has(url)) {
-                    this._loaded.add(url)
-                    loadSpaceRooms(url)
-                }
+                this._controller?.abort()
+                this._controller = new AbortController()
+                watchSpaceRooms(url, this._controller.signal)
                 // Vereins-Relay & kein Mitglied → die Räume liefert der Relay gar
                 // nicht aus. „gatedOut" ersetzt die falsche „keine Räume"-Meldung.
                 this._unsubAccess?.()
                 this.gatedOut = false
                 this._unsubAccess = deriveVereinAccess(url).subscribe((a: VereinAccess) => {
-                    this.gatedOut = a.gated && a.ready && !a.isMember
+                    this.gatedOut = isVereinGatedOut(a)
                 })
             })
             this._unsubView = activeSpaceView.subscribe((view: SpaceView) => {
@@ -369,6 +373,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubActive?.()
             this._unsubView?.()
             this._unsubAccess?.()
+            this._controller?.abort()
         },
     }))
 
@@ -378,23 +383,23 @@ export function registerNostrComponents(Alpine: {
     Alpine.data('nostrVereinGate', (): VereinGateState => ({
         show: false,
         _access: { gated: false, ready: false, isMember: false },
-        _loaded: false,
         _unsubActive: null,
         _unsubAccess: null,
+        _controller: null,
         init() {
             this._unsubActive = activeSpace.subscribe((url: string) => {
                 this._unsubAccess?.()
+                this._controller?.abort()
                 this.show = false
-                this._loaded = false
                 this._access = { gated: isVereinRelay(url), ready: false, isMember: false }
-                // Mitgliederliste (13534) laden — auf /spaces tut das sonst niemand.
-                // Erst NACH EOSE steht fest, ob der User Mitglied ist → kein Flash
-                // des Hinweises für echte Mitglieder.
+                // Directory (13534/33534) als LIVE-Sub laden — auf /spaces tut das
+                // sonst niemand. Live statt One-Shot: überlebt langsames NIP-42-AUTH.
+                // `access.ready` wird erst nach dem post-AUTH-EOSE wahr (siehe
+                // deriveVereinAccess/spaceDirectoryLoaded) → kein verfrühter
+                // „kein Mitglied"-Hinweis, und er verschwindet, sobald AUTH durch ist.
                 if (this._access.gated) {
-                    loadSpaceDirectory(url).finally(() => {
-                        this._loaded = true
-                        this._refresh()
-                    })
+                    this._controller = new AbortController()
+                    watchSpaceDirectory(url, this._controller.signal)
                 }
                 this._unsubAccess = deriveVereinAccess(url).subscribe((a: VereinAccess) => {
                     this._access = a
@@ -403,7 +408,7 @@ export function registerNostrComponents(Alpine: {
             })
         },
         _refresh() {
-            this.show = this._access.gated && this._loaded && this._access.ready && !this._access.isMember
+            this.show = isVereinGatedOut(this._access)
         },
         // Vereins-Beitritts-Link öffnen: in der nativen App via In-App-Browser
         // (Custom Tab / SFSafariViewController) — ein `target=_blank`-Link
@@ -417,6 +422,7 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._unsubActive?.()
             this._unsubAccess?.()
+            this._controller?.abort()
         },
     }))
 
@@ -464,7 +470,7 @@ export function registerNostrComponents(Alpine: {
                 // Vereins-Relay & kein Mitglied → Mitgliederliste liefert der Relay
                 // nicht aus; Suche + falsche „keine Mitglieder"-Meldung ausblenden.
                 this._unsubAccess = deriveVereinAccess(url).subscribe((a: VereinAccess) => {
-                    this.gatedOut = a.gated && a.ready && !a.isMember
+                    this.gatedOut = isVereinGatedOut(a)
                 })
                 if (!this._loadedDir.has(url)) {
                     this._loadedDir.add(url)

@@ -186,20 +186,57 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
 export type VereinAccess = { gated: boolean; ready: boolean; isMember: boolean }
 
 /**
+ * Pro Space-URL: ist die relay-signierte Directory (13534/33534) **fertig**
+ * geladen? „Fertig" = der Relay hat den REQ nach dem NIP-42-AUTH abgeschlossen,
+ * per **EOSE** (Mitglied → Liste inkl. eigenem Pubkey ist da) ODER per **CLOSED**
+ * (`restricted:` für Nicht-Mitglieder — sie dürfen die Liste gar nicht lesen).
+ * Beides feuert erst NACH AUTH → kein „kein Mitglied"-Flash bei langsamem Signer,
+ * und für Mitglieder ist die Liste schon eingetroffen, wenn das Signal kommt →
+ * kein Flackern (isMember steht bereits fest, bevor `ready` wahr wird).
+ */
+export const spaceDirectoryLoaded = writable(new Set<string>())
+
+const markDirectoryLoaded = (url: string): void =>
+    spaceDirectoryLoaded.update((s) => (s.has(url) ? s : new Set(s).add(url)))
+
+/**
+ * Live-Sub auf die relay-signierte Directory (13534/33534): lädt den Bestand UND
+ * bleibt offen (kein Client-CLOSE). Entscheidend bei langsamem NIP-42-AUTH:
+ * welshmans Auth-Buffer puffert den REQ und replayt ihn NACH AUTH — ein
+ * One-Shot-`load` würde beim Timeout ein CLOSE senden und damit aus dem
+ * Replay-Buffer fallen (→ die Liste käme nie an, Gate bliebe hängen). `onEose`/
+ * `onClosed` (post-AUTH) markieren die URL als fertig geladen.
+ */
+export const watchSpaceDirectory = (url: string, signal: AbortSignal): void => {
+    void request({
+        relays: [url],
+        signal,
+        filters: [{ kinds: [RELAY_MEMBERS, RELAY_ROLE] }],
+        onEose: () => markDirectoryLoaded(url),
+        onClosed: () => markDirectoryLoaded(url),
+    })
+}
+
+/**
  * Vereins-Zugang für einen Space: `gated` = es ist ein EINUNDZWANZIG-Vereins-
  * Relay; `isMember` = der eingeloggte User steht in der relay-signierten
- * 13534-Mitgliederliste. `ready` (relay.self da, Fix A) verhindert einen
- * falschen „kein Mitglied"-Hinweis, solange NIP-11/13534 noch laden.
+ * 13534-Mitgliederliste. `ready` = NIP-11-`self` da **und** die AUTH-pflichtige
+ * Directory fertig geladen ([[spaceDirectoryLoaded]]) — sonst falscher/flackernder
+ * „kein Mitglied"-Hinweis, solange der (evtl. langsame) Signer + der Read laufen.
  */
 export const deriveVereinAccess = (url: string): Readable<VereinAccess> =>
     derived(
-        [deriveRelaySelfReady(url), deriveSpaceMembers(url), pubkey],
-        ([ready, members, pk]) => ({
+        [deriveRelaySelfReady(url), spaceDirectoryLoaded, deriveSpaceMembers(url), pubkey],
+        ([selfReady, loaded, members, pk]) => ({
             gated: isVereinRelay(url),
-            ready,
+            ready: selfReady && loaded.has(url),
             isMember: Boolean(pk && members.includes(pk)),
         }),
     )
+
+/** Gate/„keine Räume"-Hinweis zeigen? Nur wenn Vereins-Relay, fertig geladen
+ *  (kein Flackern, siehe [[spaceDirectoryLoaded]]) und der User kein Mitglied ist. */
+export const isVereinGatedOut = (a: VereinAccess): boolean => a.gated && a.ready && !a.isMember
 
 // ── Admin (NIP-86 manageRelay) ───────────────────────────────────────────────
 
