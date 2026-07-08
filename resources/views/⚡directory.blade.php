@@ -1,11 +1,30 @@
 <?php
 
+use Einundzwanzig\Group\ImageProxy;
+use Einundzwanzig\Group\Nostr\SpaceCache;
+use Illuminate\Support\Facades\View;
 use Livewire\Attributes\Layout;
-use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** Directory (Mitglieder + Rollen des aktiven Space) als Livewire-SFC. */
-new #[Layout('group::einundzwanzig')] #[Title('Mitglieder')] class extends Component {}; ?>
+new #[Layout('group::einundzwanzig')] class extends Component
+{
+    public ?string $ogImage = null;
+
+    public function mount(SpaceCache $cache): void
+    {
+        // OG-Bild = Space-icon (NIP-11), konsistent zur Space-Seite (B5).
+        $icon = $cache->relayInfo(SpaceCache::spaceUrl())['icon'];
+        $this->ogImage = $icon ? url(ImageProxy::url($icon, 'og')) : null;
+    }
+
+    public function render()
+    {
+        View::share('ogImage', $this->ogImage);
+
+        return $this->view()->title('Mitglieder');
+    }
+}; ?>
 
 <main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
 

@@ -6,6 +6,7 @@ namespace Einundzwanzig\Group\Nostr;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use swentel\nostr\Filter\Filter;
 use swentel\nostr\Message\RequestMessage;
 use swentel\nostr\Relay\Relay;
@@ -83,9 +84,49 @@ class SpaceCache
         return $rooms;
     }
 
+    /**
+     * Gecachte NIP-11-Relay-Info (Space-Identität). Leer bei Cache-Miss —
+     * die welshman-Insel löst client-seitig ohnehin live auf.
+     *
+     * @return array{name: string, description: string, icon: string}
+     */
+    public function relayInfo(string $url): array
+    {
+        return Cache::get(self::infoKey($url), ['name' => '', 'description' => '', 'icon' => '']);
+    }
+
+    /**
+     * Holt das NIP-11-Dokument (`Accept: application/nostr+json`) und cached
+     * `name`/`description`/`icon` als Space-Identität für Titel + OG-Tags.
+     *
+     * @return array{name: string, description: string, icon: string}
+     */
+    public function refreshRelayInfo(string $url): array
+    {
+        $http = preg_replace('#^ws#', 'http', rtrim($url, '/'));
+        $json = Http::withHeaders(['Accept' => 'application/nostr+json'])
+            ->timeout(5)
+            ->get($http)
+            ->json();
+
+        $info = [
+            'name' => (string) ($json['name'] ?? ''),
+            'description' => (string) ($json['description'] ?? ''),
+            'icon' => (string) ($json['icon'] ?? ''),
+        ];
+        Cache::put(self::infoKey($url), $info, self::TTL);
+
+        return $info;
+    }
+
     private static function key(string $url): string
     {
         return 'nostr:rooms:'.$url;
+    }
+
+    private static function infoKey(string $url): string
+    {
+        return 'nostr:relay-info:'.$url;
     }
 
     /**

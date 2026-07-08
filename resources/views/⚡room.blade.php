@@ -1,5 +1,6 @@
 <?php
 
+use Einundzwanzig\Group\ImageProxy;
 use Einundzwanzig\Group\Nostr\SpaceCache;
 use Illuminate\Support\Facades\View;
 use Livewire\Attributes\Layout;
@@ -24,18 +25,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     public string $roomPicture = '';
 
+    public ?string $ogImage = null;
+
     public function mount(string $h, SpaceCache $cache): void
     {
         $this->h = $h;
-        $room = $cache->rooms(SpaceCache::spaceUrl())[$h] ?? null;
+        $url = SpaceCache::spaceUrl();
+        $room = $cache->rooms($url)[$h] ?? null;
         $this->roomName = $room['name'] ?? null;
         $this->roomAbout = $room['about'] ?? '';
         $this->roomPicture = $room['picture'] ?? '';
+        // OG-Bild: Raum-picture, sonst Space-icon (NIP-11); absolut für Crawler.
+        $pic = $this->roomPicture ?: $cache->relayInfo($url)['icon'];
+        $this->ogImage = $pic ? url(ImageProxy::url($pic, 'og')) : null;
     }
 
     public function render()
     {
         View::share('ogDescription', $this->roomAbout ?: null);
+        View::share('ogImage', $this->ogImage);
 
         return $this->view()->title('# '.($this->roomName ?? $this->h));
     }

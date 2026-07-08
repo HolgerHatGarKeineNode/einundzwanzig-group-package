@@ -24,6 +24,7 @@ class WarmNostrCache extends Command
 
         try {
             $rooms = $cache->refreshRooms($url);
+            $cache->refreshRelayInfo($url);
         } catch (\Throwable $e) {
             // Relay unerreichbar/langsam: alten Cache behalten, nicht crashen.
             $this->warn('Warmen fehlgeschlagen ('.$url.'): '.$e->getMessage());

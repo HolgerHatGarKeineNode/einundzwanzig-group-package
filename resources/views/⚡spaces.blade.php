@@ -1,16 +1,37 @@
 <?php
 
+use Einundzwanzig\Group\ImageProxy;
+use Einundzwanzig\Group\Nostr\SpaceCache;
+use Illuminate\Support\Facades\View;
 use Livewire\Attributes\Layout;
-use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /**
  * Space-Seite (Single-Space §12) als Livewire-Full-Page-SFC. Die Klasse ist ein
  * dünner Shell — der reaktive Zustand lebt in der welshman/Alpine-Insel (`x-data`).
- * Server-Seam für spätere Cache-Vorteile (§10): hier könnten gecachte Space-/Room-
- * Daten in `mount()` geladen und via `@js(...)` an die Insel gereicht werden.
+ * Titel + OG-Bild kommen aus dem NIP-11-Read-Cache (B5): Space-Name statt „Space",
+ * Space-icon als OG. Cache-Miss = Fallback „Space"/Marken-OG; die Insel füllt live.
  */
-new #[Layout('group::einundzwanzig')] #[Title('Space')] class extends Component {}; ?>
+new #[Layout('group::einundzwanzig')] class extends Component
+{
+    public string $spaceName = 'Space';
+
+    public ?string $ogImage = null;
+
+    public function mount(SpaceCache $cache): void
+    {
+        $info = $cache->relayInfo(SpaceCache::spaceUrl());
+        $this->spaceName = $info['name'] ?: 'Space';
+        $this->ogImage = $info['icon'] ? url(ImageProxy::url($info['icon'], 'og')) : null;
+    }
+
+    public function render()
+    {
+        View::share('ogImage', $this->ogImage);
+
+        return $this->view()->title($this->spaceName);
+    }
+}; ?>
 
 <main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
 
