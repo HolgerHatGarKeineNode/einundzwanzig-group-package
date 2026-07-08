@@ -9,6 +9,7 @@
  * `["member", pubkey, ...roleIds]`-Tags der 13534.
  */
 import { derived, writable, type Readable } from 'svelte/store'
+import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
 import { profilesByPubkey, loadProfile, manageRelay, pubkey } from '@welshman/app'
 import {
@@ -139,13 +140,18 @@ const shortNpub = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice
  * einer (falschen) leeren Liste.
  */
 export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
+    // Profile gethrottlet: das Neubauen aller Views (npubEncode/displayProfile je
+    // Mitglied) läuft sonst bei JEDEM eintrudelnden Profil (O(N²) über die
+    // Ladezeit). Die Insel zeigt die Liste ohnehin erst, wenn alle Profile
+    // geladen sind ([[settleMemberProfiles]]) — dann steht der finale, alphabetisch
+    // sortierte Snapshot in EINEM Rutsch, ohne progressives Umsortieren.
     derived(
         [
             deriveRelaySelfReady(url),
             deriveSpaceMembers(url),
             deriveSpaceMemberRoles(url),
             deriveSpaceRoles(url),
-            profilesByPubkey,
+            throttled(300, profilesByPubkey),
         ],
         ([ready, members, memberRoles, roles, $profiles]) => {
             const roleById = new Map(roles.map((r) => [r.id, r]))
@@ -374,4 +380,25 @@ export const loadMemberProfiles = (url: string, pubkeys: string[]): void => {
     for (const pubkey of pubkeys) {
         loadProfile(pubkey)
     }
+}
+
+/**
+ * Wie [[loadMemberProfiles]], aber awaitbar: resolved erst, wenn ALLE Profile
+ * geladen sind (oder ein Sicherheits-Timeout greift). Die Directory-Insel wartet
+ * darauf und rendert die Mitgliederliste dann in EINEM Rutsch — so gibt es kein
+ * progressives Umsortieren (Flackern) und keinen halb-gerenderten Riesen-`x-for`,
+ * der im Mobile-WebView den Compositor überlastet (schwarzer Bildschirm).
+ * `loadProfile` bringt Timeout+Backoff selbst mit (hängt nie ewig); der
+ * Gesamt-Timeout ist nur ein Not-Aus gegen einzelne Ausreißer.
+ */
+export const settleMemberProfiles = async (url: string, pubkeys: string[]): Promise<void> => {
+    if (pubkeys.length === 0) {
+        return
+    }
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 8000))
+    const loads = Promise.all([
+        load({ relays: [url], filters: [{ kinds: [0], authors: pubkeys }] }),
+        ...pubkeys.map((pubkey) => loadProfile(pubkey)),
+    ])
+    await Promise.race([loads, timeout])
 }

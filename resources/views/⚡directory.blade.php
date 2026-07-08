@@ -39,8 +39,11 @@ new #[Layout('group::einundzwanzig')] #[Title('Mitglieder')] class extends Compo
             </flux:modal.trigger>
         </div>
 
-        {{-- Ladezustand (relay.self / NIP-11 noch nicht da) — Skeleton statt „leer" --}}
-        <template x-if="!ready">
+        {{-- Ladezustand: Skeleton, bis relay.self da UND alle Mitglieder-Profile
+             geladen sind (profilesReady). Erst dann rendert die Liste in EINEM
+             Rutsch — kein progressives Umsortieren/Flackern, im Mobile-WebView
+             kein Repaint-Sturm (schwarzer Bildschirm). --}}
+        <template x-if="!profilesReady">
             <div class="space-y-2" aria-busy="true">
                 <span class="sr-only" aria-live="polite">Mitglieder werden geladen…</span>
                 <template x-for="i in 4" :key="i">
@@ -57,7 +60,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Mitglieder')] class extends Compo
 
         {{-- Geladen, aber keine Mitglieder. Für Nicht-Vereinsmitglieder ausgeblendet
              (kein falsches „keine Mitglieder" — die Gate-Karte oben erklärt es). --}}
-        <template x-if="ready && members.length === 0 && !gatedOut">
+        <template x-if="profilesReady && members.length === 0 && !gatedOut">
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.users class="mx-auto size-8 text-zinc-400" />
                 <flux:text class="mt-2">Noch keine Mitglieder in diesem Space.</flux:text>
@@ -65,7 +68,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Mitglieder')] class extends Compo
         </template>
 
         {{-- Mitglieder-Grid --}}
-        <template x-if="ready && members.length > 0">
+        <template x-if="profilesReady && members.length > 0">
             <div class="list-stagger space-y-2">
                 <template x-for="(m, idx) in filtered()" :key="m.pubkey">
                     <div class="surface-card flex items-center gap-3 p-3" :style="`--i:${idx}`">

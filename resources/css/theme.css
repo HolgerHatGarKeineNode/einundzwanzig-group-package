@@ -195,10 +195,14 @@
 }
 .page-enter { animation: page-in 0.3s var(--ease-emphasized) backwards; }
 
-/* Listen-Stagger: jede Karte blendet leicht versetzt ein (--i im Markup). */
+/* Listen-Stagger: jede Karte blendet leicht versetzt ein (--i im Markup).
+   Delay bei 12 gedeckelt: `backwards` hält jede Karte VOR ihrem Delay auf
+   opacity:0 — ohne Cap wäre bei langen Listen (z.B. 200 Mitglieder) die unterste
+   Karte 8s unsichtbar → beim Scrollen schwarzer/leerer Bildschirm im Mobile-
+   WebView. Mit Cap ist nach max. ~0,5s alles sichtbar. */
 .list-stagger > * {
     animation: fade-rise 0.4s var(--ease-spring) backwards;
-    animation-delay: calc(var(--i, 0) * 40ms);
+    animation-delay: calc(min(var(--i, 0), 12) * 40ms);
 }
 
 @media (prefers-reduced-motion: reduce) {

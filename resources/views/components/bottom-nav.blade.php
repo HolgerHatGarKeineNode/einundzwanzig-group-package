@@ -10,7 +10,16 @@
     ];
 @endphp
 
-<nav class="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-zinc-200 bg-zinc-50/90 px-2 pb-safe backdrop-blur-md md:max-w-lg lg:max-w-2xl dark:border-zinc-800 dark:bg-zinc-950/90">
+{{-- backdrop-blur nur auf Web: eine fixe Nav mit backdrop-filter über
+     scrollendem Inhalt ist der klassische Mobile-WebView-Scroll-Killer (Blur wird
+     pro Frame neu berechnet → Ruckeln/schwarze Flächen). Auf Native daher opaker
+     Hintergrund ohne Blur. --}}
+@php($native = config('nativephp-internal.running'))
+<nav @class([
+    'fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-zinc-200 px-2 pb-safe md:max-w-lg lg:max-w-2xl dark:border-zinc-800',
+    'bg-zinc-50 dark:bg-zinc-950' => $native,
+    'bg-zinc-50/90 backdrop-blur-md dark:bg-zinc-950/90' => ! $native,
+])>
     <div class="grid grid-cols-3">
         @foreach ($items as $item)
             @php($active = request()->routeIs($item['match']))
