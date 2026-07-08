@@ -23,6 +23,7 @@ import {
     logout,
     handoffToServer,
     logoutServer,
+    authReady,
 } from './session'
 import {
     groupSpaceChoices,
@@ -159,8 +160,10 @@ type AuthState = {
     mobile: boolean
     busy: boolean
     error: string
+    reauthing: boolean
     _unsub: null | (() => void)
     _connectAbort: AbortController | null
+    _reauthTried: boolean
     init(): void
     destroy(): void
     completeLogin(fn: () => void | Promise<void>): Promise<void>
@@ -1201,8 +1204,10 @@ export function registerNostrComponents(Alpine: {
         mobile: isMobile,
         busy: false,
         error: '',
+        reauthing: false,
         _unsub: null,
         _connectAbort: null,
+        _reauthTried: false,
         init() {
             // NIP-07-Extensions (Alby, nos2x …) injizieren `window.nostr` asynchron —
             // oft erst NACH Alpine-init. Deshalb ~3 s pollen statt nur einmal prüfen.
@@ -1221,6 +1226,27 @@ export function registerNostrComponents(Alpine: {
                 this.pubkey = pk ?? null
                 this.npub = pk ? nip19.npubEncode(pk) : ''
             })
+            // Auto-Reauth: Kommt man mit wiederhergestellter Client-Session (localStorage)
+            // auf die Login-Seite, ist meist nur die Laravel-Session weg (Reboot/Ablauf) —
+            // das Server-Gate hat hierher geworfen. Handoff (NIP-98) nachholen statt in der
+            // „Angemeldet"-Sackgasse zu stecken. Nur auf /nostr-login, einmal, nur wenn
+            // wirklich eingeloggt. Web = Handoff; Mobile = direkt /spaces (kein Server-Gate).
+            if (location.pathname.startsWith('/nostr-login')) {
+                authReady.then(async () => {
+                    if (this._reauthTried || !pubkey.get()) {
+                        return
+                    }
+                    this._reauthTried = true
+                    this.reauthing = true
+                    try {
+                        window.location.assign(await postLoginRedirect())
+                    } catch (e) {
+                        // Handoff scheitert (Signer offline / kein Mitglied) → Karte + Fehler.
+                        this.reauthing = false
+                        this.error = e instanceof Error ? e.message : String(e)
+                    }
+                })
+            }
         },
         // welshman-Login (Signer im Browser). Nach Erfolg zum Login-Ziel (siehe
         // postLoginRedirect). Schlägt es fehl, wird die welshman-Session
