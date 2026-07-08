@@ -19,8 +19,11 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
     <div x-data="nostrDirectory" class="page-enter space-y-4">
 
         {{-- Suche — für Nicht-Vereinsmitglieder ausgeblendet: die Mitgliederliste
-             liefert der Relay nicht aus, eine Suche liefe ins Leere. --}}
-        <flux:input x-show="!gatedOut" x-model="query" icon="magnifying-glass" placeholder="Mitglied suchen…" clearable />
+             liefert der Relay nicht aus, eine Suche liefe ins Leere. Wrapper-Div,
+             weil flux:input x-show sonst nur ans innere <input> hängt (Icon bliebe). --}}
+        <div x-show="!gatedOut">
+            <flux:input x-model="query" icon="magnifying-glass" placeholder="Mitglied suchen…" clearable />
+        </div>
 
         {{-- Admin-Werkzeuge (nur wenn der Relay dem User NIP-86-Methoden erlaubt) --}}
         <div x-show="isAdmin" x-cloak class="flex flex-wrap gap-2">
