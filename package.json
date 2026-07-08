@@ -1,7 +1,7 @@
 {
     "name": "@einundzwanzig/group",
     "version": "0.1.0",
-    "description": "Client-seitige welshman/Alpine-Insel des EINUNDZWANZIG-Nostr-Chats. Roh-TS, vom Vite des Hosts gebündelt.",
+    "description": "Die EINUNDZWANZIG-Group-Insel: client-seitige welshman/Alpine-Insel. Roh-TS, vom Vite des Hosts gebündelt.",
     "type": "module",
     "exports": {
         ".": "./js/index.ts"
