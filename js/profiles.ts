@@ -37,18 +37,18 @@ async function seedChunk(base: string, pubkeys: string[]): Promise<void> {
             return
         }
         const { events } = (await res.json()) as { events: TrustedEvent[] }
-        const valid = (events ?? []).filter((e) => {
+        // WICHTIG: `repository.publish()` (additiv), NICHT `repository.load()` — load
+        // LEERT das Repository und lädt nur die übergebenen Events (würde Nachrichten
+        // und Raum-Mitgliedschaft wegwischen). publish fügt einzeln hinzu + notifiziert.
+        for (const event of events ?? []) {
             try {
-                return verifyEvent(e)
+                if (verifyEvent(event)) {
+                    ;(event as unknown as Record<symbol, boolean>)[verifiedSymbol] = true
+                    repository.publish(event)
+                }
             } catch {
-                return false
+                // ungültige Signatur → überspringen (nie ungeprüfte Relay-Daten laden).
             }
-        })
-        valid.forEach((e) => {
-            ;(e as unknown as Record<symbol, boolean>)[verifiedSymbol] = true
-        })
-        if (valid.length > 0) {
-            repository.load(valid)
         }
     } catch {
         // Endpoint/Netz weg → welshman löst die Profile ohnehin live auf.
