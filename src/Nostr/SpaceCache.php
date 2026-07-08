@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Chat\Nostr;
+namespace Einundzwanzig\Group\Nostr;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;

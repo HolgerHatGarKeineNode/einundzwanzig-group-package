@@ -1,7 +1,7 @@
 /*
     Chat-Theme (Inconsolata + Bitcoin-Brand-Ramp + Design-Tokens/Utilities).
     EINZIGE Quelle — vom Package geliefert, von jedem Host per @import gezogen
-    (Web-Client: resources/css/app.css · Portal: resources/css/nostr-chat.css).
+    (Web-Client: resources/css/app.css · Portal: resources/css/group.css).
     Host-spezifisch bleiben nur: `@import 'tailwindcss'`, der flux.css-Import und
     die `@source`-Globs. Alles andere (Font, @theme, @utility, Klassen) lebt hier,
     damit die beiden Hosts nicht auseinanderdriften (PLAN2 Reibung 1 + 7).

@@ -5,7 +5,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** Invite einlösen (`/join?r=&c=`) als Livewire-SFC. Beitritt signiert im Browser. */
-new #[Layout('chat::einundzwanzig')] #[Title('Einladung')] class extends Component {}; ?>
+new #[Layout('group::einundzwanzig')] #[Title('Einladung')] class extends Component {}; ?>
 
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
     {{-- `@js(request()->fullUrl())` gibt der Insel den Link inkl. ?r=&c= mit. --}}
@@ -36,7 +36,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Einladung')] class extends Compone
                              x-on:click="accept()" ::disabled="joining">
                     <span x-text="joining ? 'Trete bei…' : 'Space beitreten'"></span>
                 </flux:button>
-                <flux:button variant="ghost" size="sm" class="mt-2" :href="route('chat.spaces')" wire:navigate>Abbrechen</flux:button>
+                <flux:button variant="ghost" size="sm" class="mt-2" :href="route('group.spaces')" wire:navigate>Abbrechen</flux:button>
             </div>
         </template>
 

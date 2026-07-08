@@ -12,7 +12,7 @@
         <flux:button variant="ghost" size="sm" icon="arrow-left" :href="$back" wire:navigate aria-label="Zurück" />
     @else
         <a href="{{ route('home') }}" wire:navigate aria-label="Startseite" class="pressable shrink-0">
-            <x-chat::app-brand-mark class="size-9" />
+            <x-group::app-brand-mark class="size-9" />
         </a>
     @endif
 

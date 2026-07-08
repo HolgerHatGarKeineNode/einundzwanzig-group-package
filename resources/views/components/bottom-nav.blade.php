@@ -4,9 +4,9 @@
      Aktiv-Pill (nav-pill) oben, solid/outline-Icon-Wechsel und Akzentfarbe. --}}
 @php
     $items = [
-        ['route' => 'chat.spaces', 'match' => 'chat.spaces', 'icon' => 'chat-bubble-left-right', 'label' => 'Räume'],
-        ['route' => 'chat.directory', 'match' => 'chat.directory', 'icon' => 'users', 'label' => 'Mitglieder'],
-        ['route' => 'chat.space.settings', 'match' => 'chat.space.settings', 'icon' => 'cog-6-tooth', 'label' => 'Einstellungen'],
+        ['route' => 'group.spaces', 'match' => 'group.spaces', 'icon' => 'chat-bubble-left-right', 'label' => 'Räume'],
+        ['route' => 'group.directory', 'match' => 'group.directory', 'icon' => 'users', 'label' => 'Mitglieder'],
+        ['route' => 'group.space.settings', 'match' => 'group.space.settings', 'icon' => 'cog-6-tooth', 'label' => 'Einstellungen'],
     ];
 @endphp
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Chat\Http\Middleware;
+namespace Einundzwanzig\Group\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;

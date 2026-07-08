@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Chat\Http\Controllers;
+namespace Einundzwanzig\Group\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,7 +38,7 @@ class NostrAuthController
 
         return response()->json([
             'challenge' => $challenge,
-            'url' => route('chat.nostr.login'),
+            'url' => route('group.nostr.login'),
         ]);
     }
 
@@ -84,7 +84,7 @@ class NostrAuthController
         $method = $tags->firstWhere(0, 'method')[1] ?? null;
         $challenge = $tags->firstWhere(0, 'challenge')[1] ?? null;
 
-        if ($url !== route('chat.nostr.login') || strtoupper((string) $method) !== 'POST') {
+        if ($url !== route('group.nostr.login') || strtoupper((string) $method) !== 'POST') {
             return $this->reject('URL oder Methode stimmt nicht.');
         }
 
@@ -107,7 +107,7 @@ class NostrAuthController
         return response()->json([
             'ok' => true,
             'pubkey' => $event['pubkey'],
-            'redirect' => session()->pull('url.intended', route('chat.spaces')),
+            'redirect' => session()->pull('url.intended', route('group.spaces')),
         ]);
     }
 

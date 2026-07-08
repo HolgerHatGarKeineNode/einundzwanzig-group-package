@@ -17,7 +17,7 @@
     <div class="relative p-6 text-center">
         {{-- Brand-Chip mit Logomark --}}
         <div class="mx-auto mb-4 flex size-14 items-center justify-center">
-            <x-chat::app-brand-mark class="size-14 shadow-pop" />
+            <x-group::app-brand-mark class="size-14 shadow-pop" />
         </div>
 
         <flux:badge size="sm" color="orange" icon="lock-closed" class="mb-3">Vereinszugang</flux:badge>

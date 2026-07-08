@@ -9,7 +9,7 @@ das Gerät. Extrahiert aus dem Haupt-Client
 [einundzwanzig-group](https://github.com/HolgerHatGarKeineNode/einundzwanzig-group).
 
 - **Composer-Paket:** `einundzwanzig/group`
-- **Namespace:** `App\Chat\` · **Provider:** `App\Chat\ChatServiceProvider` (Auto-Discovery)
+- **Namespace:** `Einundzwanzig\Group\` · **Provider:** `Einundzwanzig\Group\GroupServiceProvider` (Auto-Discovery)
 - **Stack:** Laravel 13 · Livewire 4 · Flux UI · welshman (`@welshman/*`)
 
 ## Einbinden
@@ -29,12 +29,12 @@ In die `composer.json` des Ziel-Projekts:
 composer update einundzwanzig/group
 ```
 
-Der Provider wird per Laravel-Auto-Discovery registriert (Routen, Views `chat::*`,
-Layout `chat::einundzwanzig`).
+Der Provider wird per Laravel-Auto-Discovery registriert (Routen, Views `group::*`,
+Layout `group::einundzwanzig`).
 
 ## Lokale Entwicklung (Symlink-Weiche)
 
-Wird dieses Repo im Ziel-Projekt nach `packages/nostr-chat/` **geklont** und dort ein
+Wird dieses Repo im Ziel-Projekt nach `packages/einundzwanzig-group/` **geklont** und dort ein
 `path`-Repository (vor dem `vcs`-Eintrag) mit `"symlink": true` gesetzt, bindet Composer
 den lokalen Ordner als Symlink ein — Änderungen sind sofort live, ohne Tag/Release. Fehlt
 der Ordner, zieht Composer automatisch `dev-master` von hier. Details im Haupt-Repo unter

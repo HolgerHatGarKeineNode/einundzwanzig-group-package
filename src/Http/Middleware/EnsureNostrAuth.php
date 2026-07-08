@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Chat\Http\Middleware;
+namespace Einundzwanzig\Group\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
@@ -26,7 +26,7 @@ class EnsureNostrAuth
         }
 
         if (! $request->session()->has('nostr_pubkey')) {
-            return redirect()->guest(route('chat.nostr-login'));
+            return redirect()->guest(route('group.nostr-login'));
         }
 
         return $next($request);

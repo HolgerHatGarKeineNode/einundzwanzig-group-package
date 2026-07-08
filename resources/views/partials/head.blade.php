@@ -1,7 +1,7 @@
 {{--
     Minimal-Head des Chat-Vollbild-Layouts für Fremdhosts (Portal). Bringt nur,
     was der Chat braucht: Meta + CSRF + __nostrSpace-Injektion + die Insel-Vite-
-    Entries. OG/Favicons regelt der Host selbst. Aktiv via config('chat.head_partial').
+    Entries. OG/Favicons regelt der Host selbst. Aktiv via config('group.head_partial').
 --}}
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -10,12 +10,12 @@
 <title>{{ filled($title ?? null) ? $title.' – '.config('app.name') : config('app.name') }}</title>
 
 {{-- Default-Space VOR @vite setzen (die Insel liest window.__nostrSpace beim Boot). --}}
-@if (config('chat.space_url'))
-    <script>window.__nostrSpace = @js(config('chat.space_url'));</script>
+@if (config('group.space_url'))
+    <script>window.__nostrSpace = @js(config('group.space_url'));</script>
 @endif
 
 {{-- Plattform-Flag: auf dem Gerät gated die Insel client-seitig (kein NIP-98). --}}
 <script>window.__nostrMobile = @js((bool) config('nativephp-internal.running'));</script>
 
-@vite(config('chat.vite'))
+@vite(config('group.vite'))
 @fluxAppearance

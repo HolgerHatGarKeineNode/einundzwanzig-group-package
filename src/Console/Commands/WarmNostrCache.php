@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Chat\Console\Commands;
+namespace Einundzwanzig\Group\Console\Commands;
 
-use App\Chat\Nostr\SpaceCache;
+use Einundzwanzig\Group\Nostr\SpaceCache;
 use Illuminate\Console\Command;
 
 /**

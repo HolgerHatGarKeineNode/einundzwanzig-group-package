@@ -13,13 +13,13 @@
     },
     "autoload": {
         "psr-4": {
-            "App\\Chat\\": "src/"
+            "Einundzwanzig\\Group\\": "src/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "App\\Chat\\ChatServiceProvider"
+                "Einundzwanzig\\Group\\GroupServiceProvider"
             ]
         }
     },

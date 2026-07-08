@@ -5,20 +5,20 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** Space-Wechsel (der einzige Ort dafür, §12) als Livewire-SFC. */
-new #[Layout('chat::einundzwanzig')] #[Title('Space wählen')] class extends Component {}; ?>
+new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Component {}; ?>
 
 <main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
 
     {{-- Bottom-Nav-Tab: Brand-Mark-Header (kein :back — gleichrangig zu Space, §Bottom-Nav)
          + Abmelden hier verfügbar (Flow Settings→Logout, D5). --}}
-    <x-chat::app-header title="Space wählen" x-data="nostrAuth">
+    <x-group::app-header title="Space wählen" x-data="nostrAuth">
         <x-slot:subtitle>
             <flux:text class="text-sm">Die App zeigt immer genau diesen Space.</flux:text>
         </x-slot:subtitle>
         <x-slot:actions>
             <flux:button variant="ghost" size="sm" x-on:click="doLogout()">Abmelden</flux:button>
         </x-slot:actions>
-    </x-chat::app-header>
+    </x-group::app-header>
 
     {{-- Auswahl des aktiven Space (der einzige Ort zum Wechseln, §12) --}}
     <div x-data="nostrSpaceSettings" class="page-enter">
@@ -91,5 +91,5 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space wählen')] class extends Com
         </flux:radio.group>
     </div>
 
-    <x-chat::bottom-nav />
+    <x-group::bottom-nav />
 </main>

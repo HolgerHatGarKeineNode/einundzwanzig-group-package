@@ -1,5 +1,5 @@
 {
-    "name": "@einundzwanzig/nostr-chat-island",
+    "name": "@einundzwanzig/group",
     "version": "0.1.0",
     "description": "Client-seitige welshman/Alpine-Insel des EINUNDZWANZIG-Nostr-Chats. Roh-TS, vom Vite des Hosts gebündelt.",
     "type": "module",

@@ -9,7 +9,7 @@ use Livewire\Component;
  * Amber wird auf dem Gerät direkt aus der Insel über die NativePHP-Bridge
  * geöffnet (Browser.Open) — kein Livewire-Roundtrip, der den ersten Tap schluckt.
  */
-new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Component {}; ?>
+new #[Layout('group::einundzwanzig')] #[Title('Anmelden')] class extends Component {}; ?>
 
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
     <div x-data="nostrAuth" class="page-enter">
