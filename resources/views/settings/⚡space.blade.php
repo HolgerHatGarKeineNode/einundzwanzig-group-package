@@ -55,8 +55,13 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
                      Zeile um (Item verschiebt sich, Haken nicht mittig). --}}
                 <flux:navlist.item icon="server" x-on:click="choose(s.url)">
                     <span class="flex w-full items-center gap-2">
-                        <span class="truncate" x-text="s.label"></span>
-                        <flux:icon.check x-show="s.url === active" class="ms-auto size-4 shrink-0 text-brand-500" />
+                        {{-- Name (NIP-11) + technische Relay-URL darunter, damit klar
+                             ist, WO der Space liegt. URL mono/muted, Trailing-Slash weg. --}}
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate" x-text="s.label"></span>
+                            <span class="block truncate font-mono text-[0.7rem] text-muted" x-text="s.url.replace(/\/$/, '')"></span>
+                        </span>
+                        <flux:icon.check x-show="s.url === active" class="size-4 shrink-0 text-brand-500" />
                     </span>
                 </flux:navlist.item>
             </template>
