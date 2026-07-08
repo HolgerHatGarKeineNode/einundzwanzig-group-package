@@ -22,6 +22,8 @@ import {
     publishThunk,
     waitForThunkError,
     nip44EncryptToSelf,
+    relaysByUrl,
+    loadRelay,
 } from '@welshman/app'
 import { deriveItemsByKey, deriveEventsByIdByUrl, sync, localStorageProvider } from '@welshman/store'
 import { Router } from '@welshman/router'
@@ -54,6 +56,7 @@ import {
     type TrustedEvent,
 } from '@welshman/util'
 import { uniq, sortBy, partition } from '@welshman/lib'
+import { spaceSupportsRooms } from './relayCaps'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
 
@@ -297,6 +300,25 @@ export const activeSpaceView: Readable<SpaceView> = derived(
 /** Space-Auswahl in den Einstellungen: der fixe Default + beigetretene Spaces. */
 export const spaceChoices: Readable<string[]> = derived(userSpaceUrls, ($urls) =>
     uniq([DEFAULT_SPACE_URL, ...$urls]),
+)
+
+/**
+ * Space-Auswahl, gefiltert auf NIP-29-fähige Relays: nur ein Group-Relay kann
+ * Räume tragen. Support kommt aus dem NIP-11-Info-Doc (`supported_nips`), das
+ * welshman via `loadRelay` in `relaysByUrl` cached (Erfolg 1h, Fehler mit
+ * Backoff, Pending dedupliziert) — der `loadRelay`-Aufruf im derived ist daher
+ * unbedenklich und triggert den Nachlauf selbst neu, sobald sich die Auswahl
+ * ändert oder ein Profil eintrifft. Die Filter-Entscheidung selbst liegt rein
+ * in `spaceSupportsRooms` (welshman-frei, testbar).
+ */
+export const groupSpaceChoices: Readable<string[]> = derived([spaceChoices, relaysByUrl], ([$urls, $byUrl]) =>
+    $urls.filter((url) => {
+        const isVerein = isVereinRelay(url)
+        if (!isVerein && !$byUrl.has(url)) {
+            void loadRelay(url)
+        }
+        return spaceSupportsRooms(isVerein, $byUrl.get(url))
+    }),
 )
 
 // ── Laden ────────────────────────────────────────────────────────────────────

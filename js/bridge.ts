@@ -23,7 +23,7 @@ import {
     logoutServer,
 } from './session'
 import {
-    spaceChoices,
+    groupSpaceChoices,
     activeSpace,
     activeSpaceView,
     setActiveSpace,
@@ -1026,7 +1026,7 @@ export function registerNostrComponents(Alpine: {
                 this._joined = urls
                 rebuild()
             })
-            this._unsubChoices = spaceChoices.subscribe((urls: string[]) => {
+            this._unsubChoices = groupSpaceChoices.subscribe((urls: string[]) => {
                 this._choices = urls
                 rebuild()
             })
