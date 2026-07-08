@@ -7,7 +7,7 @@ use Livewire\Component;
 /** Directory (Mitglieder + Rollen des aktiven Space) als Livewire-SFC. */
 new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Component {}; ?>
 
-<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28">
+<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
 
     {{-- Kopf: zurück zum Space + Titel --}}
     <x-chat::app-header title="Mitglieder" :back="route('chat.spaces')" />
@@ -72,7 +72,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
                         <flux:avatar circle size="sm" ::src="m.picture || null" ::name="m.name" />
                         <div class="min-w-0 flex-1">
                             <div class="truncate font-semibold" x-text="m.name"></div>
-                            <div class="truncate font-mono text-xs text-zinc-500" x-text="m.short"></div>
+                            <div class="truncate font-mono text-xs text-muted" x-text="m.short"></div>
                             <div class="mt-1 flex flex-wrap gap-1" x-show="m.roles.length > 0">
                                 <template x-for="role in m.roles" :key="role.id">
                                     <flux:badge size="sm" ::style="`color:${role.color};background-color:${role.soft}`">
@@ -99,7 +99,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
 
                 {{-- Suche ohne Treffer --}}
                 <template x-if="filtered().length === 0">
-                    <div class="surface-card p-4 text-center text-sm text-zinc-500">
+                    <div class="surface-card p-4 text-center text-sm text-muted">
                         Kein Mitglied passt zu „<span x-text="query"></span>".
                     </div>
                 </template>
@@ -123,9 +123,9 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
                             <span x-text="roleForm.label || 'Vorschau'"></span>
                         </flux:badge>
                     </div>
-                    <label class="mt-2 block text-xs text-zinc-500">Farbton</label>
+                    <label class="mt-2 block text-xs text-muted">Farbton</label>
                     <input type="range" min="0" max="360" step="1" x-model.number="roleForm.hue" class="w-full accent-brand-500" />
-                    <label class="mt-1 block text-xs text-zinc-500">Helligkeit</label>
+                    <label class="mt-1 block text-xs text-muted">Helligkeit</label>
                     <input type="range" min="0.2" max="0.8" step="0.01" x-model.number="roleForm.lightness" class="w-full accent-brand-500" />
                 </div>
 
@@ -141,7 +141,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
             <div class="space-y-4">
                 <flux:heading size="lg">Rollen</flux:heading>
                 <template x-if="rolesFull.length === 0">
-                    <flux:text class="text-sm text-zinc-500">Noch keine Rollen definiert.</flux:text>
+                    <flux:text class="text-sm text-muted">Noch keine Rollen definiert.</flux:text>
                 </template>
                 <div class="space-y-2">
                     <template x-for="role in rolesFull" :key="role.id">
@@ -149,7 +149,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
                             <flux:badge size="sm" x-bind:style="`color:hsl(${parseFloat(role.color.hue)||0},70%,${(parseFloat(role.color.lightness)||0.5)*100}%);background-color:hsl(${parseFloat(role.color.hue)||0},70%,${(parseFloat(role.color.lightness)||0.5)*100}%,0.15)`">
                                 <span x-text="role.label || role.id"></span>
                             </flux:badge>
-                            <span class="min-w-0 flex-1 truncate text-xs text-zinc-500" x-text="role.description"></span>
+                            <span class="min-w-0 flex-1 truncate text-xs text-muted" x-text="role.description"></span>
                             <flux:button size="xs" variant="ghost" icon="pencil-square" x-on:click="openRoleEdit(role)" aria-label="Bearbeiten" />
                             <flux:button size="xs" variant="ghost" icon="trash" x-on:click="removeRole(role.id)" ::disabled="busy" aria-label="Löschen" />
                         </div>
@@ -164,7 +164,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
             <div class="space-y-4" x-show="editingMember">
                 <flux:heading size="lg">Rollen von <span x-text="editingMember?.name"></span></flux:heading>
                 <template x-if="roles.length === 0">
-                    <flux:text class="text-sm text-zinc-500">Erst eine Rolle anlegen.</flux:text>
+                    <flux:text class="text-sm text-muted">Erst eine Rolle anlegen.</flux:text>
                 </template>
                 <div class="space-y-1">
                     {{-- Zeilen-Toggle (Check/Plus-Icon + farbiges Rollen-Badge) → rohes <button>,
@@ -185,7 +185,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
         <flux:modal name="invite" class="max-w-sm">
             <div class="space-y-4">
                 <flux:heading size="lg">Einladen</flux:heading>
-                <flux:text class="text-sm text-zinc-500">Teile diesen Link — er führt direkt in den Space.</flux:text>
+                <flux:text class="text-sm text-muted">Teile diesen Link — er führt direkt in den Space.</flux:text>
                 <template x-if="inviteBusy">
                     <div class="skeleton h-10 rounded-tile"></div>
                 </template>
@@ -201,14 +201,14 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
             <div class="space-y-4">
                 <flux:heading size="lg">Gebannt</flux:heading>
                 <template x-if="banned.length === 0">
-                    <flux:text class="text-sm text-zinc-500">Niemand gebannt.</flux:text>
+                    <flux:text class="text-sm text-muted">Niemand gebannt.</flux:text>
                 </template>
                 <div class="space-y-2">
                     <template x-for="b in banned" :key="b.pubkey">
                         <div class="surface-card flex items-center gap-2 p-2">
                             <div class="min-w-0 flex-1">
-                                <div class="truncate font-mono text-xs text-zinc-500" x-text="b.short"></div>
-                                <div class="truncate text-xs text-zinc-500" x-text="b.reason"></div>
+                                <div class="truncate font-mono text-xs text-muted" x-text="b.short"></div>
+                                <div class="truncate text-xs text-muted" x-text="b.reason"></div>
                             </div>
                             <flux:button size="xs" variant="ghost" x-on:click="unbanMember(b.pubkey)" ::disabled="busy">Entbannen</flux:button>
                             <flux:button size="xs" variant="primary" x-on:click="restoreMember(b.pubkey)" ::disabled="busy">Wiederaufnehmen</flux:button>

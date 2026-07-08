@@ -105,6 +105,21 @@
     @apply rounded-card border border-zinc-200 bg-white shadow-card dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none;
 }
 
+/* Sekundärtext mit tragfähigem Kontrast in BEIDEN Themes (zinc-500 riss AA/AAA):
+   zinc-600 auf hellem, zinc-400 auf dunklem Grund. Ersetzt gestreutes text-zinc-500. */
+@utility text-muted {
+    @apply text-zinc-600 dark:text-zinc-400;
+}
+
+/* Touch-Ziel ≥ 44px (WCAG 2.5.5) nur auf grobem Pointer — Desktop-Maus bleibt
+   kompakt. Greift auf die dichten Chat-Aktions-Buttons. */
+@media (pointer: coarse) {
+    .icon-btn-touch {
+        min-height: 2.75rem;
+        min-width: 2.75rem;
+    }
+}
+
 /* Press-Feedback für tappbare Flächen: kurzer Scale-Down + reduzierte Elevation. */
 .pressable {
     transition:
@@ -115,6 +130,12 @@
 .pressable:active {
     transform: scale(0.97);
     box-shadow: var(--shadow-card-pressed);
+}
+/* Sichtbarer Keyboard-Focus für tappbare Nicht-Flux-Flächen (Nav-Links, Brand-
+   Link, Zitat-/Toggle-Buttons). Flux-Controls bringen ihren Ring selbst mit;
+   der Ring folgt der border-radius des jeweiligen Elements. */
+.pressable:focus-visible {
+    @apply outline-hidden ring-2 ring-accent ring-offset-2 ring-offset-zinc-50 dark:ring-offset-zinc-950;
 }
 
 /* Aktiver Bottom-Nav-Indikator: die Pill am oberen Rand des aktiven Tabs
@@ -184,6 +205,7 @@
     .empty-state > *,
     .page-enter,
     .list-stagger > *,
+    .nav-pill,
     .skeleton,
     .caret {
         animation: none;

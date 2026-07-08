@@ -7,7 +7,7 @@ use Livewire\Component;
 /** Space-Wechsel (der einzige Ort dafür, §12) als Livewire-SFC. */
 new #[Layout('chat::einundzwanzig')] #[Title('Space wählen')] class extends Component {}; ?>
 
-<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28">
+<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
 
     <x-chat::app-header title="Space wählen" :back="route('chat.spaces')">
         <x-slot:subtitle>
@@ -51,7 +51,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space wählen')] class extends Com
         <div class="surface-card mt-4 flex items-center justify-between gap-3 p-3">
             <div class="min-w-0">
                 <flux:text class="text-sm font-medium">Mitgliedschaft</flux:text>
-                <div class="truncate text-xs text-zinc-500"
+                <div class="truncate text-xs text-muted"
                      x-text="activeJoined ? 'Du bist Mitglied dieses Space.' : (activeIsVerein ? 'Zugang über Vereinsmitgliedschaft.' : 'Noch nicht beigetreten.')"></div>
             </div>
             {{-- „Space verlassen" (leaveActive, kind 28936) noch nicht freigeben —
@@ -62,6 +62,18 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space wählen')] class extends Com
             <flux:button size="sm" variant="primary" icon="plus"
                          x-show="!activeJoined && !activeIsVerein" x-cloak x-on:click="joinActive()" ::disabled="busy">Beitreten</flux:button>
         </div>
+    </div>
+
+    {{-- Darstellung: Theme-Switch bindet an Flux' geteilten appearance-Store
+         ($flux.appearance → localStorage `flux.appearance`, im <head> flackerfrei
+         angewandt). Im Portal-WebView same-origin → automatisch in sync. --}}
+    <div class="surface-card mt-4 flex items-center justify-between gap-3 p-3">
+        <flux:text class="text-sm font-medium">Darstellung</flux:text>
+        <flux:radio.group x-data variant="segmented" size="sm" x-model="$flux.appearance">
+            <flux:radio value="light" icon="sun" aria-label="Hell" />
+            <flux:radio value="system" icon="computer-desktop" aria-label="Automatisch" />
+            <flux:radio value="dark" icon="moon" aria-label="Dunkel" />
+        </flux:radio.group>
     </div>
 
     <x-chat::bottom-nav />

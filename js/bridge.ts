@@ -84,8 +84,22 @@ import { toast, flashToast } from './toast'
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
 
-/** Öffnet/schließt ein Flux-Modal per Name (Flux lauscht auf modal-show/-close). */
+/**
+ * Öffnet/schließt ein Flux-Modal per Name (Flux lauscht auf modal-show/-close).
+ * Beim Öffnen den auslösenden Fokus merken und beim Schließen zurückgeben — nur
+ * `flux:modal.trigger` macht das von selbst; JS-geöffnete Modals (role-form,
+ * member-roles, delete-message) ließen den Fokus sonst ins Leere fallen (A11y).
+ * Hängt einmalig am nativen `close`-Event des <dialog> (feuert auch bei Escape/
+ * Backdrop) → deckt jeden Schließweg ab, ohne pro Modal Markup zu berühren.
+ */
 const dispatchModal = (name: string, show = true): void => {
+    if (show) {
+        const trigger = document.activeElement
+        const dialog = document.querySelector(`dialog[data-modal="${name}"]`)
+        if (dialog && trigger instanceof HTMLElement) {
+            dialog.addEventListener('close', () => trigger.focus(), { once: true })
+        }
+    }
     document.dispatchEvent(new CustomEvent(show ? 'modal-show' : 'modal-close', { detail: { name } }))
 }
 

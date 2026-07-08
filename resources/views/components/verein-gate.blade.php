@@ -24,7 +24,7 @@
 
         <flux:heading size="lg" class="text-balance">Noch kein Vereinsmitglied</flux:heading>
 
-        <flux:text class="mx-auto mt-2 max-w-xs text-balance text-sm text-zinc-500 dark:text-zinc-400">
+        <flux:text class="mx-auto mt-2 max-w-xs text-balance text-sm text-muted">
             Du bist (noch) kein Mitglied im Verein <span class="font-semibold text-zinc-700 dark:text-zinc-200">EINUNDZWANZIG</span>.
             {{ $context }} in diesem Space bleiben deshalb gesperrt.
         </flux:text>

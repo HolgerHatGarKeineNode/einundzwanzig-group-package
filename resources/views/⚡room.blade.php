@@ -39,7 +39,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
 }; ?>
 
 {{-- Chat-Bühne: Kopf + Verlauf + Composer unter EINEM Alpine-Scope (M4 lesen, M5 schreiben). --}}
-<div x-data="nostrRoomChat(@js($h))" class="mx-auto flex h-dvh w-full max-w-md flex-col px-4 pt-safe pb-safe">
+<div x-data="nostrRoomChat(@js($h))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-safe pb-safe">
 
     <x-chat::app-header :title="'# '.($roomName ?? $h)" :back="route('chat.spaces')" class="shrink-0">
         <x-slot:actions>
@@ -106,7 +106,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                     <template x-if="m.divider">
                         <div class="my-3 flex items-center gap-3">
                             <flux:separator class="flex-1" />
-                            <span class="font-mono text-[0.7rem] tracking-wide text-zinc-500" x-text="m.divider"></span>
+                            <span class="font-mono text-[0.7rem] tracking-wide text-muted" x-text="m.divider"></span>
                             <flux:separator class="flex-1" />
                         </div>
                     </template>
@@ -131,7 +131,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                             </template>
                             {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
                             <template x-if="!m.showAuthor">
-                                <div class="pt-0.5 text-right font-mono text-[0.65rem] leading-4 text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100"
+                                <div class="pt-0.5 text-right font-mono text-[0.65rem] leading-4 text-muted opacity-0 transition-opacity group-hover:opacity-100"
                                      x-text="m.time"></div>
                             </template>
                         </div>
@@ -139,7 +139,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                             <template x-if="m.showAuthor">
                                 <div class="flex items-baseline gap-2">
                                     <span class="truncate text-sm font-semibold" x-text="m.name"></span>
-                                    <span class="shrink-0 font-mono text-[0.7rem] text-zinc-500" x-text="m.time"></span>
+                                    <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="m.time"></span>
                                 </div>
                             </template>
                             {{-- Zitat-Vorschau: Klick springt zur zitierten Original-Nachricht.
@@ -148,7 +148,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                                 <button type="button" x-on:click.stop="scrollToMessage(m.reply.id)"
                                         class="pressable mt-0.5 mb-1 block w-full border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500">
                                     <div class="truncate text-xs font-semibold text-brand-500" x-text="m.reply.name"></div>
-                                    <div class="truncate text-xs text-zinc-500" x-text="m.reply.text"></div>
+                                    <div class="truncate text-xs text-muted" x-text="m.reply.text"></div>
                                 </button>
                             </template>
                             <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"></div>
@@ -156,9 +156,9 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                         {{-- Aktionen: bei Hover (Desktop) oder aktivem Tap (Touch). --}}
                         <div class="pointer-events-none flex shrink-0 items-start gap-0.5 self-start opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
                              :class="activeId===m.id && '!pointer-events-auto !opacity-100'">
-                            <flux:button size="xs" variant="ghost" icon="arrow-uturn-left"
+                            <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" class="icon-btn-touch"
                                          x-on:click.stop="setReply(m)" aria-label="Antworten" />
-                            <flux:button size="xs" variant="ghost" icon="trash"
+                            <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
                                          x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
                                          aria-label="Nachricht löschen" />
                         </div>
@@ -191,7 +191,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
              class="surface-card mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-3 py-1.5">
             <div class="min-w-0 flex-1">
                 <div class="text-xs font-semibold text-brand-500">Antwort an <span x-text="replyTo?.name"></span></div>
-                <div class="truncate text-xs text-zinc-500" x-text="replyTo?.text"></div>
+                <div class="truncate text-xs text-muted" x-text="replyTo?.text"></div>
             </div>
             <flux:button size="xs" variant="ghost" icon="x-mark" x-on:click="clearReply()" aria-label="Antwort abbrechen" />
         </div>
@@ -218,7 +218,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
 
         <div x-show="membershipReady && !joined" x-cloak
              class="surface-card flex items-center justify-between gap-3 p-3">
-            <flux:text class="text-sm text-zinc-500">Tritt dem Raum bei, um mitzuschreiben.</flux:text>
+            <flux:text class="text-sm text-muted">Tritt dem Raum bei, um mitzuschreiben.</flux:text>
             <flux:button size="sm" variant="primary" icon="plus" x-on:click="join()" ::disabled="joining">
                 <span x-text="joining ? 'Trete bei…' : 'Beitreten'"></span>
             </flux:button>

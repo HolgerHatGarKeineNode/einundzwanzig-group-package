@@ -12,12 +12,12 @@ use Livewire\Component;
  */
 new #[Layout('chat::einundzwanzig')] #[Title('Space')] class extends Component {}; ?>
 
-<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28">
+<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
 
     {{-- Kopf: Marke + wer bin ich + Abmelden (Navigation liegt in der Bottom-Nav) --}}
     <x-chat::app-header title="Space" x-data="nostrAuth">
         <x-slot:subtitle>
-            <div class="truncate font-mono text-xs text-zinc-500" x-text="npub"></div>
+            <div class="truncate font-mono text-xs text-muted" x-text="npub"></div>
         </x-slot:subtitle>
         <x-slot:actions>
             <flux:button variant="ghost" size="sm" x-on:click="doLogout()">Abmelden</flux:button>
@@ -60,7 +60,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space')] class extends Component {
 
             {{-- Vereins-gated: die Räume liefert der Relay gar nicht aus → erklärende Zeile. --}}
             <template x-if="!loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0 && gatedOut">
-                <flux:text class="mt-3 text-sm text-zinc-500">Räume sind nur für Vereinsmitglieder sichtbar.</flux:text>
+                <flux:text class="mt-3 text-sm text-muted">Räume sind nur für Vereinsmitglieder sichtbar.</flux:text>
             </template>
 
             {{-- Wirklich leer: Icon + Text (empty-state) statt grauer Zeile — konsistent zu Room/Directory. --}}

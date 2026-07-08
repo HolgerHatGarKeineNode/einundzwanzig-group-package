@@ -10,7 +10,7 @@
     ];
 @endphp
 
-<nav class="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-zinc-200 bg-zinc-50/90 px-2 pb-safe backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90">
+<nav class="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-zinc-200 bg-zinc-50/90 px-2 pb-safe backdrop-blur-md md:max-w-lg lg:max-w-2xl dark:border-zinc-800 dark:bg-zinc-950/90">
     <div class="grid grid-cols-3">
         @foreach ($items as $item)
             @php($active = request()->routeIs($item['match']))
@@ -21,7 +21,7 @@
                 @class([
                     'pressable relative flex flex-col items-center justify-center gap-1 py-2.5',
                     'text-accent' => $active,
-                    'text-zinc-500 active:text-zinc-700 dark:text-zinc-400 dark:active:text-zinc-200' => ! $active,
+                    'text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200' => ! $active,
                 ])
             >
                 @if ($active)

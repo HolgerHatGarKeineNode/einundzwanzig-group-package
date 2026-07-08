@@ -4,10 +4,12 @@
     überlebt so `wire:navigate` (Body-Swap, Head bleibt) → das welshman-Repository,
     offene Subscriptions und optimistischer State bleiben zwischen Seiten warm.
     Die Seiten liefern nur ihren Rumpf (Alpine-Inseln via x-data); Hülle + Scripts
-    liegen hier. Dark-Only wie bisher.
+    liegen hier. Theme (Hell/Auto/Dunkel) steuert @fluxAppearance flackerfrei aus
+    dem geteilten `flux.appearance`-Store — daher KEIN hartes class="dark" hier
+    (würde Light toten Code machen und den Portal-WebView-Sync brechen).
 --}}
 <!DOCTYPE html>
-<html lang="de" class="dark" data-theme="dark">
+<html lang="de">
 <head>
     {{-- Head pro Host: Web-Client nutzt seine reiche partials.head (OG/Favicons);
          ein Fremdhost (Portal) setzt config('chat.head_partial')='chat::partials.head'. --}}
