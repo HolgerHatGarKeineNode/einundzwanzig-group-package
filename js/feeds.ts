@@ -16,6 +16,7 @@ import { MESSAGE, DELETE, makeEvent, sortEventsAsc, displayProfile, getTagValue,
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { proxifyImage } from './core'
+import { warmProfiles } from './profiles'
 
 /** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
 const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
@@ -145,6 +146,9 @@ const snippet = (text: string, max = 120): string => {
  */
 export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
     derived([deriveRoomMessages(url, h), profilesByPubkey, pubkey], ([events, $profiles, $me]) => {
+        // First-Paint-Seed: fehlende Autor-Profile vom geteilten Backend-Cache holen
+        // (dedupliziert intern; welshman löst parallel live auf). Fire-and-forget.
+        void warmProfiles(events.map((e) => e.pubkey))
         const nameOf = (pk: string) => displayProfile($profiles.get(pk), shortNpub(nip19.npubEncode(pk)))
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
         const byId = new Map(events.map((e) => [e.id, e]))
