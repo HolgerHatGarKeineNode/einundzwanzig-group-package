@@ -39,11 +39,13 @@ import {
     parseInviteLink,
     loadSpaceInviteClaim,
     userSpaceUrls,
+    isVereinRelay,
     type SpaceView,
 } from './groups'
 import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
+    deriveVereinAccess,
     deriveUserIsSpaceAdmin,
     refreshSpaceAdmin,
     loadSpaceDirectory,
@@ -64,6 +66,7 @@ import {
     type RoleView,
     type SpaceRole,
     type BannedMember,
+    type VereinAccess,
 } from './members'
 import {
     deriveRoomChat,
@@ -74,7 +77,7 @@ import {
     type ChatMessage,
 } from './feeds'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
-import { toast } from './toast'
+import { toast, flashToast } from './toast'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
@@ -155,6 +158,17 @@ type SpacesState = {
     _unsubActive: null | (() => void)
     _loaded: Set<string>
     init(): void
+    destroy(): void
+}
+
+type VereinGateState = {
+    show: boolean
+    _access: VereinAccess
+    _loaded: boolean
+    _unsubActive: null | (() => void)
+    _unsubAccess: null | (() => void)
+    init(): void
+    _refresh(): void
     destroy(): void
 }
 
@@ -307,6 +321,45 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._unsubActive?.()
             this._unsubView?.()
+        },
+    }))
+
+    // Vereins-Gate: zeigt Nicht-Vereinsmitgliedern (nicht in der relay-signierten
+    // 13534-Liste) auf einem EINUNDZWANZIG-Vereins-Relay den Beitritts-Hinweis.
+    // `show` erst wenn relay.self da ist (Fix A) — kein falsches Aufblitzen.
+    Alpine.data('nostrVereinGate', (): VereinGateState => ({
+        show: false,
+        _access: { gated: false, ready: false, isMember: false },
+        _loaded: false,
+        _unsubActive: null,
+        _unsubAccess: null,
+        init() {
+            this._unsubActive = activeSpace.subscribe((url: string) => {
+                this._unsubAccess?.()
+                this.show = false
+                this._loaded = false
+                this._access = { gated: isVereinRelay(url), ready: false, isMember: false }
+                // Mitgliederliste (13534) laden — auf /spaces tut das sonst niemand.
+                // Erst NACH EOSE steht fest, ob der User Mitglied ist → kein Flash
+                // des Hinweises für echte Mitglieder.
+                if (this._access.gated) {
+                    loadSpaceDirectory(url).finally(() => {
+                        this._loaded = true
+                        this._refresh()
+                    })
+                }
+                this._unsubAccess = deriveVereinAccess(url).subscribe((a: VereinAccess) => {
+                    this._access = a
+                    this._refresh()
+                })
+            })
+        },
+        _refresh() {
+            this.show = this._access.gated && this._loaded && this._access.ready && !this._access.isMember
+        },
+        destroy() {
+            this._unsubActive?.()
+            this._unsubAccess?.()
         },
     }))
 
@@ -791,6 +844,13 @@ export function registerNostrComponents(Alpine: {
         },
         choose(url: string) {
             setActiveSpace(url)
+            // Vereins-Relay gewählt → Hinweis als Toast (übersteht die Navigation).
+            if (isVereinRelay(url)) {
+                flashToast(
+                    'EINUNDZWANZIG-Vereins-Relay — voller Zugang zu Räumen & Chat nur für Vereinsmitglieder. Mitglied werden: verein.einundzwanzig.space',
+                    'info',
+                )
+            }
             // SPA-Navigation (welshman bleibt warm) statt Full-Reload.
             ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/spaces')
         },
@@ -944,11 +1004,16 @@ export function registerNostrComponents(Alpine: {
             this._connectAbort = abort
             try {
                 await loginWithNostrConnect(async (url) => {
-                    // Mobile: der Deep-Link (nostrconnect://) öffnet Amber auf demselben
-                    // Gerät — kein zweites Gerät zum QR-Scannen. Der Rückkanal läuft über
-                    // die Signer-Relays, kein Deep-Link-Callback nötig.
                     this.connectUri = url
-                    this.connectQr = await QRCode.toDataURL(url, { width: 256, margin: 1 })
+                    if (isMobile) {
+                        // Mobile: Amber SOFORT per nativem Intent öffnen (nostrconnect://
+                        // auf demselben Gerät) — der erste Klick genügt, kein zweiter
+                        // Button-Schritt. Rückkanal läuft über die Signer-Relais.
+                        this.openAmber()
+                    } else {
+                        // Desktop: QR zum Scannen mit Amber (kein zweites Gerät im Web).
+                        this.connectQr = await QRCode.toDataURL(url, { width: 256, margin: 1 })
+                    }
                 }, abort.signal)
                 window.location.assign(await postLoginRedirect())
             } catch (e) {

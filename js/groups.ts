@@ -251,6 +251,20 @@ const spaceOverride = (globalThis as { __nostrSpace?: string }).__nostrSpace
 export const DEFAULT_SPACE_URL = normalizeRelayUrl(spaceOverride ?? 'ws://localhost:3334/')
 
 /**
+ * Die EINUNDZWANZIG-Vereins-Relays: der fixierte Default-Space (lokaler
+ * Test-Relay bzw. via `__nostrSpace` der prod-Relay) plus der öffentliche
+ * `group.einundzwanzig.space`. Nur für diese zeigt die UI Nicht-Mitgliedern den
+ * Vereins-Beitritts-Hinweis (Zugang via verein.einundzwanzig.space).
+ */
+export const VEREIN_RELAY_URLS = uniq([
+    DEFAULT_SPACE_URL,
+    normalizeRelayUrl('wss://group.einundzwanzig.space/'),
+])
+
+/** Ist die URL ein EINUNDZWANZIG-Vereins-Relay (gated auf Vereinsmitglieder)? */
+export const isVereinRelay = (url: string): boolean => VEREIN_RELAY_URLS.includes(normalizeRelayUrl(url))
+
+/**
  * Die vom User gewählte Space-URL, in localStorage persistiert. Null = Default.
  * Es gibt KEINE Space-Rail und KEINE „Space wählen"-Pflicht — der Default-Space
  * lädt sofort; gewechselt wird nur in den Einstellungen (`/settings/space`).

@@ -87,10 +87,12 @@ new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Componen
                         </template>
                         <template x-if="connecting">
                             <div class="flex flex-col items-center gap-3 text-center">
-                                {{-- Mobile: nativer Intent zu Amber (WebView reicht das
-                                     nostrconnect://-Scheme nicht selbst weiter). --}}
+                                {{-- Mobile: startConnect() öffnet Amber bereits automatisch
+                                     per nativem Intent (WebView reicht nostrconnect:// nicht
+                                     selbst weiter). Der Button ist nur Fallback zum erneuten
+                                     Öffnen, falls Amber nicht ansprang. --}}
                                 <template x-if="mobile">
-                                    <flux:button variant="primary" class="w-full" icon="arrow-top-right-on-square" x-show="connectUri" x-on:click="openAmber()">Amber öffnen</flux:button>
+                                    <flux:button variant="ghost" class="w-full" icon="arrow-top-right-on-square" x-show="connectUri" x-on:click="openAmber()">Amber erneut öffnen</flux:button>
                                 </template>
                                 {{-- Desktop: QR zum Scannen mit Amber --}}
                                 <template x-if="!mobile && connectQr">

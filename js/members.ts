@@ -23,6 +23,7 @@ import {
 import { first, randomId, sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository'
+import { isVereinRelay } from './groups'
 
 /** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
 export const RELAY_ROLE = 33534
@@ -178,6 +179,26 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
                 .filter((r): r is RoleView => r !== null)
             return { ready, members: sortBy((m) => m.name.toLowerCase(), views), roles: allRoles }
         },
+    )
+
+// ── Vereins-Zugang (nur EINUNDZWANZIG-Vereins-Relays) ────────────────────────
+
+export type VereinAccess = { gated: boolean; ready: boolean; isMember: boolean }
+
+/**
+ * Vereins-Zugang für einen Space: `gated` = es ist ein EINUNDZWANZIG-Vereins-
+ * Relay; `isMember` = der eingeloggte User steht in der relay-signierten
+ * 13534-Mitgliederliste. `ready` (relay.self da, Fix A) verhindert einen
+ * falschen „kein Mitglied"-Hinweis, solange NIP-11/13534 noch laden.
+ */
+export const deriveVereinAccess = (url: string): Readable<VereinAccess> =>
+    derived(
+        [deriveRelaySelfReady(url), deriveSpaceMembers(url), pubkey],
+        ([ready, members, pk]) => ({
+            gated: isVereinRelay(url),
+            ready,
+            isMember: Boolean(pk && members.includes(pk)),
+        }),
     )
 
 // ── Admin (NIP-86 manageRelay) ───────────────────────────────────────────────

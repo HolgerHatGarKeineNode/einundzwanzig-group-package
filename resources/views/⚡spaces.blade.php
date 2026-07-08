@@ -24,6 +24,9 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space')] class extends Component {
         </x-slot:actions>
     </x-chat::app-header>
 
+    {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
+    <x-chat::verein-gate context="Räume und Chat" class="mb-4" />
+
     {{-- Genau EIN fixierter Space + seine Räume (kein Multi-Space-Layout, §12) --}}
     <div x-data="nostrSpaces" class="page-enter" x-show="space">
         <div class="surface-card p-4">

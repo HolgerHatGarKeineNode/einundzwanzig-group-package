@@ -12,6 +12,9 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
     {{-- Kopf: zurück zum Space + Titel --}}
     <x-chat::app-header title="Mitglieder" :back="route('chat.spaces')" />
 
+    {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
+    <x-chat::verein-gate context="Die Mitgliederliste" class="mb-4" />
+
     {{-- Directory des AKTIVEN Space (§12). Gated auf relay.self (Fix A). --}}
     <div x-data="nostrDirectory" class="page-enter space-y-4">
 
