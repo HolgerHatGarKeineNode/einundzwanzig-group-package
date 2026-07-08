@@ -72,7 +72,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Mitglieder')] class extends Compo
             <div class="list-stagger space-y-2">
                 <template x-for="(m, idx) in filtered()" :key="m.pubkey">
                     <div class="surface-card flex items-center gap-3 p-3" :style="`--i:${idx}`">
-                        <flux:avatar circle size="sm" ::src="m.picture ? $img(m.picture) : null" ::name="m.name" />
+                        <x-group::nostr-avatar picture="m.picture" name="m.name" />
                         <div class="min-w-0 flex-1">
                             <div class="truncate font-semibold" x-text="m.name"></div>
                             <div class="truncate font-mono text-xs text-muted" x-text="m.short"></div>

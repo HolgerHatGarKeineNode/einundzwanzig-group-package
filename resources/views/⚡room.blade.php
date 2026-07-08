@@ -135,7 +135,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          :class="[m.showAuthor ? 'mt-2.5' : '', flashId===m.id ? 'ring-2 ring-brand-500/70' : '']">
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
-                                <flux:avatar circle size="xs" ::src="m.picture ? $img(m.picture) : null" ::name="m.name" />
+                                <x-group::nostr-avatar picture="m.picture" name="m.name" />
                             </template>
                             {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
                             <template x-if="!m.showAuthor">
