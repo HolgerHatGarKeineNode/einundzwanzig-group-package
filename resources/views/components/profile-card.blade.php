@@ -1,8 +1,8 @@
 {{-- Autor-Profil-Karte (PLAN4 B3) als Identitätskarte: Banner-Header, überlappender
      Ring-Avatar (Brand-Glow), kopierbare Mono-Chips für npub/Lightning. Eigene
      Alpine-Insel, geöffnet per `open-profile`-Window-Event ($dispatch aus Chat/
-     Directory mit der pubkey). Daten reaktiv aus welshman (deriveProfile, lazy).
-     NIP-05 folgt in B4. Einmal pro Seite einbinden. --}}
+     Directory mit der pubkey). Daten reaktiv aus welshman (deriveProfile +
+     verifizierter NIP-05-Handle, lazy). Einmal pro Seite einbinden. --}}
 <div x-data="nostrProfileCard" x-on:open-profile.window="open($event.detail)">
     <flux:modal name="profile-card" class="max-w-sm overflow-hidden">
         {{-- Flux-Modal-Padding (p-6) aufheben, damit der Banner randlos blutet. --}}
@@ -24,7 +24,13 @@
                     </div>
                 </div>
 
-                <flux:heading size="xl" class="break-words" x-text="name"></flux:heading>
+                <div class="flex items-center gap-1.5">
+                    <flux:heading size="xl" class="min-w-0 break-words" x-text="name"></flux:heading>
+                    <x-group::nostr-nip05 nip05="nip05" />
+                </div>
+
+                {{-- Verifizierter NIP-05-Handle (nur bei bestätigtem Match, PLAN4 B4). --}}
+                <div x-show="nip05" x-cloak class="mt-0.5 truncate text-sm text-muted" x-text="nip05"></div>
 
                 {{-- npub — kopierbarer Mono-Chip (npub ist ein Wert zum Kopieren). --}}
                 <button type="button" x-on:click="copy(npub, 'npub')" aria-label="npub kopieren"

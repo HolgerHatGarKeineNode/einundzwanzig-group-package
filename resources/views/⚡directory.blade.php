@@ -77,9 +77,13 @@ new #[Layout('group::einundzwanzig')] #[Title('Mitglieder')] class extends Compo
                             <x-group::nostr-avatar picture="m.picture" name="m.name" />
                         </button>
                         <div class="min-w-0 flex-1">
-                            <button type="button" x-on:click="$dispatch('open-profile', m.pubkey)"
-                                    class="pressable block max-w-full truncate text-left font-semibold hover:underline" x-text="m.name"></button>
-                            <div class="truncate font-mono text-xs text-muted" x-text="m.short"></div>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" x-on:click="$dispatch('open-profile', m.pubkey)"
+                                        class="pressable min-w-0 truncate text-left font-semibold hover:underline" x-text="m.name"></button>
+                                <x-group::nostr-nip05 nip05="m.nip05" />
+                            </div>
+                            {{-- Verifizierter Handle ersetzt die npub-Kurzform, sonst npub. --}}
+                            <div class="truncate font-mono text-xs text-muted" x-text="m.nip05 || m.short"></div>
                             <div class="mt-1 flex flex-wrap gap-1" x-show="m.roles.length > 0">
                                 <template x-for="role in m.roles" :key="role.id">
                                     <flux:badge size="sm" ::style="`color:${role.color};background-color:${role.soft}`">

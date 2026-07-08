@@ -11,7 +11,7 @@
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, loadProfile, manageRelay, pubkey } from '@welshman/app'
+import { profilesByPubkey, loadProfile, manageRelay, pubkey, handlesByNip05 } from '@welshman/app'
 import {
     RELAY_MEMBERS,
     ManagementMethod,
@@ -25,6 +25,7 @@ import { first, randomId, sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository'
 import { isVereinRelay } from './groups'
+import { warmHandles, verifiedNip05 } from './handles'
 
 /** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
 export const RELAY_ROLE = 33534
@@ -122,6 +123,7 @@ export type MemberView = {
     npub: string
     short: string
     name: string
+    nip05: string // verifizierter NIP-05-Handle (leer = kein Häkchen)
     picture: string
     roles: RoleView[]
     roleIds: string[] // rohe Zuweisungen (für die Admin-Zuweisungs-UI)
@@ -152,8 +154,9 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
             deriveSpaceMemberRoles(url),
             deriveSpaceRoles(url),
             throttled(300, profilesByPubkey),
+            throttled(300, handlesByNip05),
         ],
-        ([ready, members, memberRoles, roles, $profiles]) => {
+        ([ready, members, memberRoles, roles, $profiles, $handles]) => {
             const roleById = new Map(roles.map((r) => [r.id, r]))
             const toRoleView = (id: string): RoleView | null => {
                 const role = roleById.get(id)
@@ -161,6 +164,9 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
                     ? { id, label: role.label || id, color: roleColor(role.color), soft: roleColorSoft(role.color) }
                     : null
             }
+
+            // NIP-05-Handles der Mitglieder lazy verifizieren (dedupliziert, async).
+            warmHandles(members)
 
             const views = members.map((pubkey): MemberView => {
                 const npub = nip19.npubEncode(pubkey)
@@ -173,6 +179,7 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
                     npub,
                     short: shortNpub(npub),
                     name,
+                    nip05: verifiedNip05(pubkey, $profiles, $handles),
                     picture: profile?.picture ?? '',
                     roles: memberRoleViews,
                     roleIds,

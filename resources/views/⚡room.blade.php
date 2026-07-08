@@ -151,6 +151,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <div class="flex items-baseline gap-2">
                                     <button type="button" x-on:click.stop="$dispatch('open-profile', m.pubkey)"
                                             class="pressable truncate text-left text-sm font-semibold hover:underline" x-text="m.name"></button>
+                                    <x-group::nostr-nip05 nip05="m.nip05" />
                                     <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="m.time"></span>
                                 </div>
                             </template>

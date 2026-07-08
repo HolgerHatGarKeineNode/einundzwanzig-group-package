@@ -6,7 +6,7 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import type { Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, deriveProfile } from '@welshman/app'
+import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05 } from '@welshman/app'
 import { displayProfile, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
@@ -149,7 +149,9 @@ type ProfileCardState = {
     about: string
     website: string // sanitized href ('' wenn keins/unsicher)
     lud16: string
+    nip05: string // verifizierter NIP-05-Handle ('' = kein Häkchen)
     _unsub: null | (() => void)
+    _unsubHandle: null | (() => void)
     open(pubkey: string): void
     copy(text: string, label: string): void
     destroy(): void
@@ -380,17 +382,25 @@ export function registerNostrComponents(Alpine: {
         about: '',
         website: '',
         lud16: '',
+        nip05: '',
         _unsub: null,
+        _unsubHandle: null,
         open(pk: string) {
             if (!pk) {
                 return
             }
             this._unsub?.()
+            this._unsubHandle?.()
             this.pubkey = pk
             this.npub = nip19.npubEncode(pk)
             const fallback = `${this.npub.slice(0, 12)}…${this.npub.slice(-6)}`
             this.name = fallback
-            this.picture = this.banner = this.about = this.website = this.lud16 = ''
+            this.picture = this.banner = this.about = this.website = this.lud16 = this.nip05 = ''
+            // NIP-05: welshman verifiziert den Handle (nostr.json ↔ pubkey); der Store
+            // liefert nur bei bestätigtem Match einen Wert → Häkchen erst dann.
+            this._unsubHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
+                this.nip05 = handle ? displayNip05(handle.nip05) : ''
+            })
             this._unsub = deriveProfile(pk).subscribe((p) => {
                 this.name = displayProfile(p, fallback)
                 this.picture = p?.picture ?? ''
@@ -410,6 +420,7 @@ export function registerNostrComponents(Alpine: {
         },
         destroy() {
             this._unsub?.()
+            this._unsubHandle?.()
         },
     }))
 

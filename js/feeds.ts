@@ -9,7 +9,7 @@
  */
 import { derived, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey } from '@welshman/app'
+import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05 } from '@welshman/app'
 import { parse, renderAsHtml } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { MESSAGE, DELETE, makeEvent, sortEventsAsc, getTagValue, type TrustedEvent } from '@welshman/util'
@@ -17,6 +17,7 @@ import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
+import { warmHandles, verifiedNip05 } from './handles'
 
 /** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
 const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
@@ -106,6 +107,7 @@ export type ChatMessage = {
     time: string
     fullTime: string // Datum+Uhrzeit für den Tooltip
     name: string
+    nip05: string // verifizierter NIP-05-Handle (leer = kein Häkchen)
     picture: string
     html: string
     divider: string // Datums-Trenner, wenn der Tag wechselt (sonst '')
@@ -143,10 +145,12 @@ const snippet = (text: string, max = 120): string => {
  * Event einmal geparst (Cache), Namen fließen reaktiv aus `profilesByPubkey`.
  */
 export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
-    derived([deriveRoomMessages(url, h), profilesByPubkey, pubkey], ([events, $profiles, $me]) => {
+    derived([deriveRoomMessages(url, h), profilesByPubkey, pubkey, handlesByNip05], ([events, $profiles, $me, $handles]) => {
         // First-Paint-Seed: fehlende Autor-Profile vom geteilten Backend-Cache holen
         // (dedupliziert intern; welshman löst parallel live auf). Fire-and-forget.
         void warmProfiles(events.map((e) => e.pubkey))
+        // NIP-05-Handles der Autoren lazy verifizieren (dedupliziert, fire-and-forget).
+        warmHandles(events.map((e) => e.pubkey))
         const nameOf = displayProfileByPubkey
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
         const byId = new Map(events.map((e) => [e.id, e]))
@@ -183,6 +187,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 time: timeLabel(event.created_at),
                 fullTime: fullTimeLabel(event.created_at),
                 name: nameOf(event.pubkey),
+                nip05: verifiedNip05(event.pubkey, $profiles, $handles),
                 picture: profile?.picture ?? '',
                 html: renderMessageHtml(event),
                 divider,
