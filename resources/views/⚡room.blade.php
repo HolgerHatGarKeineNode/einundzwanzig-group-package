@@ -53,8 +53,19 @@ new #[Layout('chat::einundzwanzig')] class extends Component
 
     <div class="relative flex min-h-0 flex-1 flex-col">
 
+        {{-- Ladefehler (Relay nicht erreichbar / AUTH-Reject): persistenter Callout + Retry. --}}
+        <template x-if="error">
+            <flux:callout variant="danger" icon="exclamation-triangle" class="mb-2 shrink-0">
+                <flux:callout.text x-text="error"></flux:callout.text>
+                <x-slot name="actions">
+                    <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="retry()">Erneut laden</flux:button>
+                </x-slot>
+            </flux:callout>
+        </template>
+
         <div x-ref="scroll" x-on:scroll.debounce.50ms="onScroll()"
              role="log" aria-live="polite" aria-relevant="additions" aria-label="Chat-Verlauf"
+             ::aria-busy="loading && messages.length === 0"
              class="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-4 transition-opacity"
              :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
 
@@ -68,6 +79,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
             {{-- Erstes Laden --}}
             <template x-if="loading && messages.length === 0">
                 <div class="space-y-3 pt-4">
+                    <span class="sr-only" aria-live="polite">Verlauf wird geladen…</span>
                     <template x-for="i in 6" :key="i">
                         <div class="flex gap-2">
                             <div class="skeleton size-8 shrink-0 rounded-full"></div>
@@ -144,14 +156,11 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                         {{-- Aktionen: bei Hover (Desktop) oder aktivem Tap (Touch). --}}
                         <div class="pointer-events-none flex shrink-0 items-start gap-0.5 self-start opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
                              :class="activeId===m.id && '!pointer-events-auto !opacity-100'">
-                            <button type="button" x-on:click.stop="setReply(m)"
-                                    class="pressable p-1 text-zinc-400 hover:text-brand-500" aria-label="Antworten">
-                                <flux:icon.arrow-uturn-left variant="micro" />
-                            </button>
-                            <button type="button" x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
-                                    class="pressable p-1 text-zinc-400 hover:text-red-500 disabled:opacity-50" aria-label="Nachricht löschen">
-                                <flux:icon.trash variant="micro" />
-                            </button>
+                            <flux:button size="xs" variant="ghost" icon="arrow-uturn-left"
+                                         x-on:click.stop="setReply(m)" aria-label="Antworten" />
+                            <flux:button size="xs" variant="ghost" icon="trash"
+                                         x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
+                                         aria-label="Nachricht löschen" />
                         </div>
                     </div>
                 </div>
@@ -184,9 +193,7 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                 <div class="text-xs font-semibold text-brand-500">Antwort an <span x-text="replyTo?.name"></span></div>
                 <div class="truncate text-xs text-zinc-500" x-text="replyTo?.text"></div>
             </div>
-            <button type="button" x-on:click="clearReply()" class="pressable p-1 text-zinc-400 hover:text-zinc-600" aria-label="Antwort abbrechen">
-                <flux:icon.x-mark variant="micro" />
-            </button>
+            <flux:button size="xs" variant="ghost" icon="x-mark" x-on:click="clearReply()" aria-label="Antwort abbrechen" />
         </div>
 
         <div x-show="membershipReady && joined" x-cloak class="flex items-end gap-2">

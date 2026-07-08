@@ -41,7 +41,8 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
 
         {{-- Ladezustand (relay.self / NIP-11 noch nicht da) — Skeleton statt „leer" --}}
         <template x-if="!ready">
-            <div class="space-y-2">
+            <div class="space-y-2" aria-busy="true">
+                <span class="sr-only" aria-live="polite">Mitglieder werden geladen…</span>
                 <template x-for="i in 4" :key="i">
                     <div class="surface-card flex items-center gap-3 p-3">
                         <div class="skeleton size-9 rounded-full"></div>
@@ -66,8 +67,8 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
         {{-- Mitglieder-Grid --}}
         <template x-if="ready && members.length > 0">
             <div class="list-stagger space-y-2">
-                <template x-for="m in filtered()" :key="m.pubkey">
-                    <div class="surface-card flex items-center gap-3 p-3">
+                <template x-for="(m, idx) in filtered()" :key="m.pubkey">
+                    <div class="surface-card flex items-center gap-3 p-3" :style="`--i:${idx}`">
                         <flux:avatar circle size="sm" ::src="m.picture || null" ::name="m.name" />
                         <div class="min-w-0 flex-1">
                             <div class="truncate font-semibold" x-text="m.name"></div>
@@ -166,6 +167,8 @@ new #[Layout('chat::einundzwanzig')] #[Title('Mitglieder')] class extends Compon
                     <flux:text class="text-sm text-zinc-500">Erst eine Rolle anlegen.</flux:text>
                 </template>
                 <div class="space-y-1">
+                    {{-- Zeilen-Toggle (Check/Plus-Icon + farbiges Rollen-Badge) → rohes <button>,
+                         kein Flux-Icon-Pendant für dieses Komposit, §6. --}}
                     <template x-for="role in roles" :key="role.id">
                         <button type="button" x-on:click="toggleMemberRole(role.id)" ::disabled="busy"
                                 class="pressable flex w-full items-center gap-2 rounded-tile p-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800">

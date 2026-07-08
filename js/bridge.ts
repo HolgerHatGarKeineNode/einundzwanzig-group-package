@@ -233,6 +233,7 @@ type RoomChatState = {
     atBottom: boolean
     unread: number
     firstPaintDone: boolean
+    error: string
     joined: boolean
     joining: boolean
     membershipReady: boolean
@@ -255,6 +256,7 @@ type RoomChatState = {
     init(): void
     setup(url: string): void
     teardown(): void
+    retry(): void
     loadOlder(): void
     onScroll(): void
     scrollToBottom(): void
@@ -283,6 +285,7 @@ type SignerBannerState = {
 }
 
 type SpaceSettingsState = {
+    ready: boolean
     spaces: { url: string; label: string; joined: boolean }[]
     active: string | null
     activeJoined: boolean
@@ -667,6 +670,7 @@ export function registerNostrComponents(Alpine: {
         atBottom: true,
         unread: 0,
         firstPaintDone: false,
+        error: '',
         joined: false,
         joining: false,
         membershipReady: false,
@@ -702,6 +706,7 @@ export function registerNostrComponents(Alpine: {
             this._url = url
             this.loading = true
             this.membershipReady = false
+            this.error = ''
             this.messages = []
             this.unread = 0
             this.atBottom = true
@@ -719,9 +724,15 @@ export function registerNostrComponents(Alpine: {
                 this.joined = isMember
             })
             listenRoom(url, this.h, this._controller.signal)
-            loadRoomMessages(url, this.h).finally(() => {
-                this.loading = false
-            })
+            loadRoomMessages(url, this.h)
+                .catch(() => {
+                    // Relay nicht erreichbar / AUTH-Reject: persistenter Inline-Callout
+                    // + Retry statt Dauer-Skeleton oder falschem „keine Nachrichten".
+                    this.error = 'Der Verlauf konnte nicht geladen werden — Relay nicht erreichbar?'
+                })
+                .finally(() => {
+                    this.loading = false
+                })
             this._unsub = deriveRoomChat(url, this.h, this._lastRead).subscribe((msgs: ChatMessage[]) => {
                 const wasAtBottom = this.atBottom
                 const prevIds = new Set(this.messages.map((m) => m.id))
@@ -839,6 +850,12 @@ export function registerNostrComponents(Alpine: {
             this._unsub = null
             this._unsubJoined?.()
             this._unsubJoined = null
+        },
+        // Erneuter Ladeversuch nach einem Fehler (Callout-Button): Sub + Verlauf neu aufbauen.
+        retry() {
+            if (this._url) {
+                this.setup(this._url)
+            }
         },
         // Setzt/räumt den Antwort-Kontext (Zitat der ausgewählten Nachricht).
         setReply(m: ChatMessage) {
@@ -963,6 +980,7 @@ export function registerNostrComponents(Alpine: {
     // Space-Auswahl (Einstellungen): listet die beigetretenen Spaces und lässt
     // den aktiven wechseln. Der einzige Ort, an dem gewechselt wird (§12).
     Alpine.data('nostrSpaceSettings', (): SpaceSettingsState => ({
+        ready: false,
         spaces: [],
         active: null,
         activeJoined: false,
@@ -974,7 +992,10 @@ export function registerNostrComponents(Alpine: {
         _unsubActive: null,
         _unsubJoined: null,
         init() {
-            loadUserGroupList()
+            // `ready` erst nach dem ersten Ladeversuch → kein „leer"-Flash vor der Emission (Fix A).
+            loadUserGroupList()?.finally(() => {
+                this.ready = true
+            })
             const rebuild = () => {
                 this.spaces = this._choices.map((url: string) => ({
                     url,

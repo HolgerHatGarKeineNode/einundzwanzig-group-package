@@ -18,14 +18,27 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space wählen')] class extends Com
     {{-- Auswahl des aktiven Space (der einzige Ort zum Wechseln, §12) --}}
     <div x-data="nostrSpaceSettings" class="page-enter">
 
-        <template x-if="spaces.length === 0">
+        {{-- Lädt noch (Fix A): Skeleton statt „leer"-Flash vor der ersten Emission. --}}
+        <template x-if="!ready">
+            <div class="space-y-2" aria-busy="true">
+                <span class="sr-only" aria-live="polite">Spaces werden geladen…</span>
+                <template x-for="i in 3" :key="i">
+                    <div class="surface-card flex items-center gap-3 p-3">
+                        <div class="skeleton size-5"></div>
+                        <div class="skeleton h-4 w-40"></div>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <template x-if="ready && spaces.length === 0">
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.inbox class="mx-auto size-8 text-zinc-400" />
                 <flux:text class="mt-2">Du bist noch keinem Space beigetreten.</flux:text>
             </div>
         </template>
 
-        <flux:navlist x-show="spaces.length > 0">
+        <flux:navlist x-show="ready && spaces.length > 0">
             <template x-for="s in spaces" :key="s.url">
                 <flux:navlist.item icon="server" x-on:click="choose(s.url)">
                     <span x-text="s.label"></span>

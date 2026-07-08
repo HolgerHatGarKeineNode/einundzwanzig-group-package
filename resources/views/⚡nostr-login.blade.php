@@ -38,7 +38,7 @@ new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Componen
 
                 {{-- NIP-07 (nur wenn Extension vorhanden) --}}
                 <flux:button x-show="hasExtension" variant="primary" class="w-full" x-on:click="loginExtension()" ::disabled="busy">
-                    Mit Browser-Erweiterung (NIP-07)
+                    <span x-text="busy ? 'Verbinde…' : 'Mit Browser-Erweiterung (NIP-07)'"></span>
                 </flux:button>
 
                 {{-- Signer-Methode: Flux managed die Tab-Auswahl --}}
@@ -61,12 +61,16 @@ new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Componen
                             </flux:callout.text>
                         </flux:callout>
                         <flux:input type="password" x-model="keyInput" placeholder="nsec1… oder 64-stelliger hex-Key" x-on:keydown.enter="loginNsec()" />
-                        <flux:button variant="danger" class="w-full" x-on:click="loginNsec()" ::disabled="busy">Trotzdem anmelden (unsicher)</flux:button>
+                        <flux:button variant="danger" class="w-full" x-on:click="loginNsec()" ::disabled="busy">
+                            <span x-text="busy ? 'Melde an…' : 'Trotzdem anmelden (unsicher)'"></span>
+                        </flux:button>
                     </flux:tab.panel>
 
                     <flux:tab.panel name="bunker" class="mt-3 space-y-2">
                         <flux:input x-model="bunkerInput" placeholder="bunker://…" x-on:keydown.enter="loginBunker()" />
-                        <flux:button variant="primary" class="w-full" x-on:click="loginBunker()" ::disabled="busy">Verbinden</flux:button>
+                        <flux:button variant="primary" class="w-full" x-on:click="loginBunker()" ::disabled="busy">
+                            <span x-text="busy ? 'Verbinde…' : 'Verbinden'"></span>
+                        </flux:button>
                     </flux:tab.panel>
 
                     {{-- Amber via nostrconnect: Desktop zeigt QR (Amber scannt), Mobile
@@ -90,7 +94,9 @@ new #[Layout('chat::einundzwanzig')] #[Title('Anmelden')] class extends Componen
                                     <img :src="connectQr" alt="nostrconnect QR-Code" class="size-56 rounded-tile bg-white p-2" />
                                 </template>
                                 <template x-if="!mobile && !connectQr">
-                                    <flux:text>QR-Code wird erzeugt…</flux:text>
+                                    <div class="skeleton size-56 rounded-tile" aria-busy="true">
+                                        <span class="sr-only" aria-live="polite">QR-Code wird erzeugt…</span>
+                                    </div>
                                 </template>
                                 <flux:text class="text-sm">Warte auf die Verbindung mit Amber …</flux:text>
                                 <flux:button variant="ghost" x-on:click="stopConnect()">Abbrechen</flux:button>

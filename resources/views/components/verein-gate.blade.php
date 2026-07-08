@@ -8,7 +8,7 @@
      Mitglieder). Sichtbarkeit steuert die Insel (nostrVereinGate) reaktiv über
      die relay-signierte 13534-Liste; `x-cloak` verhindert Aufblitzen. --}}
 <div x-data="nostrVereinGate" x-show="show" x-cloak x-transition.opacity.duration.300ms
-     {{ $attributes->class('page-enter relative overflow-hidden rounded-card border border-brand-500/30 bg-white shadow-card dark:bg-zinc-900 dark:shadow-none') }}>
+     {{ $attributes->class('page-enter surface-card relative overflow-hidden !border-brand-500/30') }}>
 
     {{-- Brand-Akzent: warmer Verlauf oben, dezenter Glow --}}
     <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-500 to-transparent"></div>

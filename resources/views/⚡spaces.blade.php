@@ -28,8 +28,23 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space')] class extends Component {
     <x-chat::verein-gate context="Räume und Chat" class="mb-4" />
 
     {{-- Genau EIN fixierter Space + seine Räume (kein Multi-Space-Layout, §12) --}}
-    <div x-data="nostrSpaces" class="page-enter" x-show="space">
-        <div class="surface-card p-4">
+    <div x-data="nostrSpaces" class="page-enter">
+
+        {{-- Erstes Laden: Space-Meta noch nicht da → Skeleton-Card statt nackte Fläche. --}}
+        <div x-show="!space && loading" x-cloak class="surface-card p-4" aria-busy="true">
+            <span class="sr-only" aria-live="polite">Space wird geladen…</span>
+            <div class="flex items-center gap-2">
+                <div class="skeleton size-4"></div>
+                <div class="skeleton h-4 w-32"></div>
+            </div>
+            <div class="mt-3 space-y-2">
+                <div class="skeleton h-4 w-40"></div>
+                <div class="skeleton h-4 w-28"></div>
+                <div class="skeleton h-4 w-36"></div>
+            </div>
+        </div>
+
+        <div x-show="space" x-cloak class="surface-card p-4">
             <div class="flex items-center gap-2">
                 <flux:icon.server variant="solid" class="size-4 text-brand-500" />
                 <span class="truncate font-semibold" x-text="space?.label"></span>
@@ -43,11 +58,17 @@ new #[Layout('chat::einundzwanzig')] #[Title('Space')] class extends Component {
                 </div>
             </template>
 
-            {{-- Geladen, aber keine Räume. Für Nicht-Vereinsmitglieder liefert der
-                 Relay die Räume gar nicht aus → korrekte Meldung statt „keine Räume". --}}
-            <template x-if="!loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0">
-                <flux:text class="mt-3 text-sm text-zinc-500"
-                           x-text="gatedOut ? 'Räume sind nur für Vereinsmitglieder sichtbar.' : 'Dieser Space hat noch keine Räume.'"></flux:text>
+            {{-- Vereins-gated: die Räume liefert der Relay gar nicht aus → erklärende Zeile. --}}
+            <template x-if="!loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0 && gatedOut">
+                <flux:text class="mt-3 text-sm text-zinc-500">Räume sind nur für Vereinsmitglieder sichtbar.</flux:text>
+            </template>
+
+            {{-- Wirklich leer: Icon + Text (empty-state) statt grauer Zeile — konsistent zu Room/Directory. --}}
+            <template x-if="!loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0 && !gatedOut">
+                <div class="empty-state mt-3 py-6 text-center">
+                    <flux:icon.hashtag class="mx-auto size-8 text-zinc-400" />
+                    <flux:text class="mt-2 text-sm">Dieser Space hat noch keine Räume.</flux:text>
+                </div>
             </template>
 
             <flux:navlist class="mt-3">
