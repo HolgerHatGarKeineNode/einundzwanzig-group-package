@@ -6,8 +6,9 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import type { Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl } from '@welshman/app'
-import type { RelayProfile } from '@welshman/util'
+import { repository, pubkey, relaysByUrl, deriveProfile } from '@welshman/app'
+import { displayProfile, type RelayProfile } from '@welshman/util'
+import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
 import { load } from '@welshman/net'
 import { deriveEvents } from '@welshman/store'
@@ -139,6 +140,21 @@ export function alpineFromStore<T>(store: Readable<T>) {
  * Registriert Alpine-Komponenten. Wird in `alpine:init` aufgerufen (= vor dem
  * Alpine/Livewire-Start), damit `x-data="…"` die Komponenten kennt.
  */
+type ProfileCardState = {
+    pubkey: string
+    npub: string
+    name: string
+    picture: string
+    banner: string
+    about: string
+    website: string // sanitized href ('' wenn keins/unsicher)
+    lud16: string
+    _unsub: null | (() => void)
+    open(pubkey: string): void
+    copy(text: string, label: string): void
+    destroy(): void
+}
+
 type SmokeState = {
     events: TrustedEvent[]
     loading: boolean
@@ -349,6 +365,53 @@ export function registerNostrComponents(Alpine: {
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').
     Alpine.magic('img', () => (url: unknown, preset?: string) => proxifyImage(url, preset))
+
+    // PLAN4 B3 — Autor-Profil-Karte (kind 0): öffnet ein Flux-Modal mit
+    // display_name/about/website/banner/lud16. Ein `open-profile`-Window-Event
+    // (aus Chat/Directory per `$dispatch`) trägt die pubkey herein — so triggert
+    // dieselbe Karte aus beiden Inseln. Profil wird lazy via `deriveProfile`
+    // geladen (welshman-Outbox); Felder füllen reaktiv nach.
+    Alpine.data('nostrProfileCard', (): ProfileCardState => ({
+        pubkey: '',
+        npub: '',
+        name: '',
+        picture: '',
+        banner: '',
+        about: '',
+        website: '',
+        lud16: '',
+        _unsub: null,
+        open(pk: string) {
+            if (!pk) {
+                return
+            }
+            this._unsub?.()
+            this.pubkey = pk
+            this.npub = nip19.npubEncode(pk)
+            const fallback = `${this.npub.slice(0, 12)}…${this.npub.slice(-6)}`
+            this.name = fallback
+            this.picture = this.banner = this.about = this.website = this.lud16 = ''
+            this._unsub = deriveProfile(pk).subscribe((p) => {
+                this.name = displayProfile(p, fallback)
+                this.picture = p?.picture ?? ''
+                this.banner = p?.banner ?? ''
+                this.about = p?.about ?? ''
+                // Website ist untrusted (kind-0) → sanitizeUrl; 'about:blank' = verworfen.
+                const href = p?.website ? sanitizeUrl(p.website) : ''
+                this.website = href === 'about:blank' ? '' : href
+                this.lud16 = p?.lud16 ?? ''
+            })
+            dispatchModal('profile-card')
+        },
+        copy(text: string, label: string) {
+            if (text) {
+                void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
+            }
+        },
+        destroy() {
+            this._unsub?.()
+        },
+    }))
 
     // Space/Room-Navigation (M2, Single-Space §12): lädt die 10009-Membership,
     // zieht die Room-Metas (39000) des AKTIVEN Space nach und spiegelt genau

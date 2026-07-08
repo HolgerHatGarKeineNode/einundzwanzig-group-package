@@ -9,10 +9,10 @@
  */
 import { derived, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository } from '@welshman/app'
+import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey } from '@welshman/app'
 import { parse, renderAsHtml } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, DELETE, makeEvent, sortEventsAsc, displayProfile, getTagValue, type TrustedEvent } from '@welshman/util'
+import { MESSAGE, DELETE, makeEvent, sortEventsAsc, getTagValue, type TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { proxifyImage } from './core'
@@ -74,8 +74,6 @@ const renderMessageHtml = (event: TrustedEvent): string => {
     }
     return html
 }
-
-const shortNpub = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice(-6)}`
 
 const startOfDay = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 
@@ -149,7 +147,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // First-Paint-Seed: fehlende Autor-Profile vom geteilten Backend-Cache holen
         // (dedupliziert intern; welshman löst parallel live auf). Fire-and-forget.
         void warmProfiles(events.map((e) => e.pubkey))
-        const nameOf = (pk: string) => displayProfile($profiles.get(pk), shortNpub(nip19.npubEncode(pk)))
+        const nameOf = displayProfileByPubkey
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
         const byId = new Map(events.map((e) => [e.id, e]))
 

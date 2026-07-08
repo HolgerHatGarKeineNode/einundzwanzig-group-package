@@ -72,9 +72,13 @@ new #[Layout('group::einundzwanzig')] #[Title('Mitglieder')] class extends Compo
             <div class="list-stagger space-y-2">
                 <template x-for="(m, idx) in filtered()" :key="m.pubkey">
                     <div class="surface-card flex items-center gap-3 p-3" :style="`--i:${idx}`">
-                        <x-group::nostr-avatar picture="m.picture" name="m.name" />
+                        <button type="button" x-on:click="$dispatch('open-profile', m.pubkey)"
+                                class="pressable shrink-0" aria-label="Profil anzeigen">
+                            <x-group::nostr-avatar picture="m.picture" name="m.name" />
+                        </button>
                         <div class="min-w-0 flex-1">
-                            <div class="truncate font-semibold" x-text="m.name"></div>
+                            <button type="button" x-on:click="$dispatch('open-profile', m.pubkey)"
+                                    class="pressable block max-w-full truncate text-left font-semibold hover:underline" x-text="m.name"></button>
                             <div class="truncate font-mono text-xs text-muted" x-text="m.short"></div>
                             <div class="mt-1 flex flex-wrap gap-1" x-show="m.roles.length > 0">
                                 <template x-for="role in m.roles" :key="role.id">
@@ -220,6 +224,8 @@ new #[Layout('group::einundzwanzig')] #[Title('Mitglieder')] class extends Compo
                 </div>
             </div>
         </flux:modal>
+
+        <x-group::profile-card />
 
     </div>
 

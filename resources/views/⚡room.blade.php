@@ -135,7 +135,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          :class="[m.showAuthor ? 'mt-2.5' : '', flashId===m.id ? 'ring-2 ring-brand-500/70' : '']">
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
-                                <x-group::nostr-avatar picture="m.picture" name="m.name" />
+                                <button type="button" x-on:click.stop="$dispatch('open-profile', m.pubkey)"
+                                        class="pressable" aria-label="Profil anzeigen">
+                                    <x-group::nostr-avatar picture="m.picture" name="m.name" />
+                                </button>
                             </template>
                             {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
                             <template x-if="!m.showAuthor">
@@ -146,7 +149,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <div class="min-w-0 flex-1">
                             <template x-if="m.showAuthor">
                                 <div class="flex items-baseline gap-2">
-                                    <span class="truncate text-sm font-semibold" x-text="m.name"></span>
+                                    <button type="button" x-on:click.stop="$dispatch('open-profile', m.pubkey)"
+                                            class="pressable truncate text-left text-sm font-semibold hover:underline" x-text="m.name"></button>
                                     <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="m.time"></span>
                                 </div>
                             </template>
@@ -261,4 +265,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <img :src="lightboxSrc" alt="" class="max-h-full max-w-full rounded-card"
              x-on:error="$el.dataset.orig || ($el.dataset.orig = 1, $el.src = decodeURIComponent(($el.src.split('src=')[1] || '')))" />
     </div>
+
+    <x-group::profile-card />
 </div>
