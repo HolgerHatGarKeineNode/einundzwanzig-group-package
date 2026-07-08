@@ -108,10 +108,19 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                         </div>
                     </template>
 
-                    <div class="group flex gap-2 px-1" :class="m.showAuthor ? 'mt-2.5' : ''">
+                    {{-- Zeile: Tap blendet die Aktionen ein/aus (Touch); :title = volles Datum. --}}
+                    <div :id="'msg-'+m.id" :title="m.fullTime"
+                         x-on:click="activeId = (activeId===m.id ? null : m.id)"
+                         class="group flex gap-2 rounded-card px-1 transition-shadow"
+                         :class="[m.showAuthor ? 'mt-2.5' : '', flashId===m.id ? 'ring-2 ring-brand-500/70' : '']">
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
                                 <flux:avatar circle size="xs" ::src="m.picture || null" ::name="m.name" />
+                            </template>
+                            {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
+                            <template x-if="!m.showAuthor">
+                                <div class="pt-0.5 text-right font-mono text-[0.65rem] leading-4 text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100"
+                                     x-text="m.time"></div>
                             </template>
                         </div>
                         <div class="min-w-0 flex-1">
@@ -121,23 +130,26 @@ new #[Layout('chat::einundzwanzig')] class extends Component
                                     <span class="shrink-0 font-mono text-[0.7rem] text-zinc-500" x-text="m.time"></span>
                                 </div>
                             </template>
-                            {{-- Zitat-Vorschau (Antwort auf eine Nachricht im selben Raum) --}}
+                            {{-- Zitat-Vorschau: Klick springt zur zitierten Original-Nachricht.
+                                 Zwei-Zeilen-Komposit → rohes <button> (kein Flux-Icon-Pendant), §6. --}}
                             <template x-if="m.reply">
-                                <div class="mt-0.5 mb-1 border-l-2 border-brand-500/60 pl-2">
+                                <button type="button" x-on:click.stop="scrollToMessage(m.reply.id)"
+                                        class="pressable mt-0.5 mb-1 block w-full border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500">
                                     <div class="truncate text-xs font-semibold text-brand-500" x-text="m.reply.name"></div>
                                     <div class="truncate text-xs text-zinc-500" x-text="m.reply.text"></div>
-                                </div>
+                                </button>
                             </template>
                             <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"></div>
                         </div>
-                        {{-- Aktionen (erscheinen bei Hover): Antworten, Löschen (nur eigene) --}}
-                        <div class="flex shrink-0 items-start gap-0.5 self-start opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-                            <button type="button" x-on:click="setReply(m)"
+                        {{-- Aktionen: bei Hover (Desktop) oder aktivem Tap (Touch). --}}
+                        <div class="pointer-events-none flex shrink-0 items-start gap-0.5 self-start opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
+                             :class="activeId===m.id && '!pointer-events-auto !opacity-100'">
+                            <button type="button" x-on:click.stop="setReply(m)"
                                     class="pressable p-1 text-zinc-400 hover:text-brand-500" aria-label="Antworten">
                                 <flux:icon.arrow-uturn-left variant="micro" />
                             </button>
-                            <button type="button" x-show="m.mine" x-cloak x-on:click="remove(m.id, m.created_at)"
-                                    class="pressable p-1 text-zinc-400 hover:text-red-500" aria-label="Nachricht löschen">
+                            <button type="button" x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
+                                    class="pressable p-1 text-zinc-400 hover:text-red-500 disabled:opacity-50" aria-label="Nachricht löschen">
                                 <flux:icon.trash variant="micro" />
                             </button>
                         </div>
@@ -179,12 +191,22 @@ new #[Layout('chat::einundzwanzig')] class extends Component
 
         <div x-show="membershipReady && joined" x-cloak class="flex items-end gap-2">
             <flux:textarea x-ref="composer" x-model="draft" rows="1" resize="none"
-                           placeholder="Nachricht schreiben…" class="flex-1"
+                           placeholder="Nachricht schreiben…" aria-label="Nachricht schreiben" class="flex-1"
                            x-on:focus="atBottom && scrollToBottom()"
-                           x-on:keydown.enter.prevent="!$event.shiftKey && send()" />
-            <flux:button type="button" variant="primary" icon="paper-airplane"
-                         x-on:click="send()" ::disabled="sending || draft.trim().length === 0"
+                           x-on:input="autoGrow($event.target); sendError = ''"
+                           x-on:keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); send() }" />
+            <flux:button type="button" variant="primary" icon="paper-airplane" :loading="true"
+                         x-on:click="send()" ::data-loading="sending" ::disabled="sending || draft.trim().length === 0"
                          aria-label="Senden" />
+        </div>
+
+        {{-- Fehlgeschlagen: aktionable Hinweiszeile statt flüchtigem Toast (Draft ist gefüllt). --}}
+        <div x-show="membershipReady && joined && sendError" x-cloak
+             class="mt-1 flex items-center justify-between gap-2 rounded-tile bg-red-500/10 px-3 py-1.5 text-xs text-red-500">
+            <span x-text="sendError"></span>
+            <button type="button" x-on:click="send()" class="pressable shrink-0 font-semibold text-brand-500 hover:underline">
+                Erneut senden
+            </button>
         </div>
 
         <div x-show="membershipReady && !joined" x-cloak
@@ -195,4 +217,16 @@ new #[Layout('chat::einundzwanzig')] class extends Component
             </flux:button>
         </div>
     </div>
+
+    {{-- Löschen bestätigen (NIP-09 ist unwiderruflich). --}}
+    <flux:modal name="delete-message" class="max-w-sm">
+        <div class="space-y-4">
+            <flux:heading size="lg">Nachricht löschen?</flux:heading>
+            <flux:text>Das lässt sich nicht rückgängig machen.</flux:text>
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
+                <flux:button variant="danger" x-on:click="confirmDelete()" ::disabled="deleting">Löschen</flux:button>
+            </div>
+        </div>
+    </flux:modal>
 </div>

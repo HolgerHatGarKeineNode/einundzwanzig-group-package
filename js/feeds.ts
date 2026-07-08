@@ -9,7 +9,7 @@
  */
 import { derived, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, publishThunk, waitForThunkError, pubkey } from '@welshman/app'
+import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository } from '@welshman/app'
 import { parse, renderAsHtml } from '@welshman/content'
 import { MESSAGE, DELETE, makeEvent, sortEventsAsc, displayProfile, getTagValue, type TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
@@ -45,11 +45,26 @@ const renderMessageHtml = (event: TrustedEvent): string => {
 
 const shortNpub = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice(-6)}`
 
-const dayLabel = (ts: number): string =>
-    new Date(ts * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+const startOfDay = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+
+const dayLabel = (ts: number): string => {
+    const d = new Date(ts * 1000)
+    const diffDays = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86_400_000)
+    if (diffDays === 0) {
+        return 'Heute'
+    }
+    if (diffDays === 1) {
+        return 'Gestern'
+    }
+    return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+}
 
 const timeLabel = (ts: number): string =>
     new Date(ts * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+
+/** Volles Datum+Uhrzeit für den Zeilen-Tooltip (`:title`). */
+const fullTimeLabel = (ts: number): string =>
+    new Date(ts * 1000).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
 
 /** Kompakte Vorschau der zitierten Nachricht (aufgelöst im selben Raum). */
 export type ReplyPreview = { id: string; name: string; text: string }
@@ -59,6 +74,7 @@ export type ChatMessage = {
     pubkey: string
     created_at: number
     time: string
+    fullTime: string // Datum+Uhrzeit für den Tooltip
     name: string
     picture: string
     html: string
@@ -132,6 +148,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 pubkey: event.pubkey,
                 created_at: event.created_at,
                 time: timeLabel(event.created_at),
+                fullTime: fullTimeLabel(event.created_at),
                 name: nameOf(event.pubkey),
                 picture: profile?.picture ?? '',
                 html: renderMessageHtml(event),
@@ -161,6 +178,21 @@ export const loadRoomMessages = (url: string, h: string, until?: number): Promis
 /** Ziel einer Antwort: die zitierte Nachricht (id + Autor). */
 export type ReplyTarget = { id: string; pubkey: string }
 
+/** Rohe Relay-Ablehnung → kurzer, handlungsleitender deutscher Text. */
+const mapRelayError = (raw: string): string => {
+    const s = raw.toLowerCase()
+    if (s.includes('rate') && s.includes('limit')) {
+        return 'Zu viele Nachrichten in kurzer Zeit — kurz warten und erneut senden.'
+    }
+    if (s.includes('auth')) {
+        return 'Am Relay nicht angemeldet — bitte erneut senden.'
+    }
+    if (s.includes('restrict') || s.includes('blocked') || s.includes('not allowed') || s.includes('forbidden')) {
+        return 'Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.'
+    }
+    return raw || 'Konnte nicht gesendet werden.'
+}
+
 /**
  * Sendet eine Nachricht (kind 9) in einen Room. Signiert im Browser, publiziert
  * via Thunk (optimistisch: der Thunk legt das Event sofort ins Repository, die
@@ -170,7 +202,12 @@ export type ReplyTarget = { id: string; pubkey: string }
  * vorangestelltes `nostr:nevent…` im Content (kein NIP-10 e-reply — so macht es
  * auch der Referenz-Client für NIP-29-Rooms).
  */
-export const sendRoomMessage = (url: string, h: string, content: string, reply?: ReplyTarget): Promise<string> => {
+export const sendRoomMessage = async (
+    url: string,
+    h: string,
+    content: string,
+    reply?: ReplyTarget,
+): Promise<string> => {
     const tags: string[][] = [['h', h]]
     let body = content
     if (reply) {
@@ -178,7 +215,15 @@ export const sendRoomMessage = (url: string, h: string, content: string, reply?:
         tags.push(['q', reply.id, url, reply.pubkey], ['p', reply.pubkey, url])
         body = `nostr:${nevent}\n\n${content}`
     }
-    return waitForThunkError(publishThunk({ relays: [url], event: makeEvent(MESSAGE, { content: body, tags }) }))
+    const thunk = publishThunk({ relays: [url], event: makeEvent(MESSAGE, { content: body, tags }) })
+    const err = await waitForThunkError(thunk)
+    if (err) {
+        // welshman entfernt das optimistisch eingelegte Event bei einem Relay-Reject
+        // NICHT selbst (nur bei Abort) — sonst bliebe die Nachricht sichtbar UND der
+        // Draft käme zurück (Doppel-Look). Die id ist ohne PoW über das Signieren stabil.
+        repository.removeEvent(thunk.event.id)
+    }
+    return err ? mapRelayError(err) : ''
 }
 
 /**

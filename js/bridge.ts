@@ -238,7 +238,12 @@ type RoomChatState = {
     membershipReady: boolean
     draft: string
     sending: boolean
+    sendError: string
     replyTo: { id: string; pubkey: string; name: string; text: string } | null
+    activeId: string | null // Nachricht mit eingeblendeten Aktionen (Tap-to-toggle, Touch)
+    flashId: string | null // kurz hervorgehobene Nachricht (Sprung zum Zitat)
+    deleting: boolean
+    pendingDelete: { id: string; createdAt: number } | null
     _url: string | null
     _lastRead: number
     _onViewport: null | (() => void)
@@ -253,10 +258,14 @@ type RoomChatState = {
     loadOlder(): void
     onScroll(): void
     scrollToBottom(): void
+    scrollToMessage(id: string): void
+    autoGrow(el: HTMLTextAreaElement): void
     markRead(): void
     setReply(m: ChatMessage): void
     clearReply(): void
     send(): Promise<void>
+    askDelete(m: ChatMessage): void
+    confirmDelete(): Promise<void>
     remove(id: string, createdAt: number): Promise<void>
     join(): Promise<void>
     leave(): Promise<void>
@@ -663,7 +672,12 @@ export function registerNostrComponents(Alpine: {
         membershipReady: false,
         draft: '',
         sending: false,
+        sendError: '',
         replyTo: null,
+        activeId: null,
+        flashId: null,
+        deleting: false,
+        pendingDelete: null,
         _url: null,
         _lastRead: 0,
         _onViewport: null,
@@ -787,6 +801,27 @@ export function registerNostrComponents(Alpine: {
             this.firstPaintDone = true
             this.markRead()
         },
+        // Zur zitierten Original-Nachricht springen + kurz hervorheben. Ist sie nicht
+        // (mehr) geladen (älter als der Verlauf), passiert nichts — kein Nachladen (Scope).
+        scrollToMessage(id: string) {
+            const el = document.getElementById('msg-' + id)
+            if (!el) {
+                return
+            }
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            this.flashId = id
+            // ponytail: schlichter Timeout-Highlight statt Animation-Lib
+            setTimeout(() => {
+                if (this.flashId === id) {
+                    this.flashId = null
+                }
+            }, 1400)
+        },
+        // Composer-Textarea mit dem Inhalt wachsen lassen (bis ~9rem), dann scrollt sie.
+        autoGrow(el: HTMLTextAreaElement) {
+            el.style.height = 'auto'
+            el.style.height = Math.min(el.scrollHeight, 144) + 'px'
+        },
         // Last-Read-Grenze auf die jüngste Nachricht setzen (Divider beim nächsten Betreten).
         markRead() {
             if (!this._url || this.messages.length === 0) {
@@ -807,6 +842,7 @@ export function registerNostrComponents(Alpine: {
         },
         // Setzt/räumt den Antwort-Kontext (Zitat der ausgewählten Nachricht).
         setReply(m: ChatMessage) {
+            this.activeId = null
             this.replyTo = { id: m.id, pubkey: m.pubkey, name: m.name, text: m.html.replace(/<[^>]*>/g, '') }
             ;(this as unknown as AlpineMagics).$nextTick(() =>
                 (this as unknown as { $refs: Record<string, HTMLElement> }).$refs.composer?.focus(),
@@ -823,30 +859,64 @@ export function registerNostrComponents(Alpine: {
                 return
             }
             this.sending = true
+            this.sendError = ''
             const draft = this.draft
-            const reply = this.replyTo ? { id: this.replyTo.id, pubkey: this.replyTo.pubkey } : undefined
+            const prevReply = this.replyTo
+            const reply = prevReply ? { id: prevReply.id, pubkey: prevReply.pubkey } : undefined
             this.draft = ''
             this.replyTo = null
             try {
                 const err = await sendRoomMessage(this._url, this.h, content, reply)
                 if (err) {
-                    toast(err)
-                    this.draft = draft // Text zurückgeben, damit nichts verloren geht
+                    // Fehlgeschlagen: Text + Zitat zurück, aktionable Hinweiszeile am Composer
+                    // (kein Toast — der verpufft und wäre neben der Zeile doppelt).
+                    this.sendError = err
+                    this.draft = draft
+                    this.replyTo = prevReply
                 } else {
                     this.scrollToBottom()
+                    const magics = this as unknown as AlpineMagics
+                    magics.$nextTick(() => {
+                        const c = magics.$refs.composer
+                        if (c) {
+                            c.focus()
+                            c.style.height = 'auto'
+                        }
+                    })
                 }
             } finally {
                 this.sending = false
             }
         },
-        // Eigene Nachricht löschen (kind 5). Repository blendet sie sofort aus.
-        async remove(id: string, createdAt: number) {
-            if (!this._url) {
+        // Löschen anfragen: Aktionsleiste zu, Merker setzen, Bestätigungs-Modal öffnen.
+        askDelete(m: ChatMessage) {
+            this.activeId = null
+            this.pendingDelete = { id: m.id, createdAt: m.created_at }
+            dispatchModal('delete-message')
+        },
+        // Bestätigt löschen: Modal zu, dann publishen (Busy verhindert Doppel-Klick).
+        async confirmDelete() {
+            const target = this.pendingDelete
+            if (!target) {
                 return
             }
-            const err = await deleteRoomMessage(this._url, this.h, id, createdAt)
-            if (err) {
-                toast(err)
+            dispatchModal('delete-message', false)
+            this.pendingDelete = null
+            await this.remove(target.id, target.createdAt)
+        },
+        // Eigene Nachricht löschen (kind 5). Repository blendet sie sofort aus.
+        async remove(id: string, createdAt: number) {
+            if (!this._url || this.deleting) {
+                return
+            }
+            this.deleting = true
+            try {
+                const err = await deleteRoomMessage(this._url, this.h, id, createdAt)
+                if (err) {
+                    toast(err)
+                }
+            } finally {
+                this.deleting = false
             }
         },
         // Beitreten (kind 9021). Round-trip: `joined` flippt, sobald die vom Relay
