@@ -441,8 +441,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:input x-model="pollTitle" label="Frage" placeholder="Was möchtest du fragen?" />
             <div class="space-y-2">
                 <flux:label>Optionen</flux:label>
+                {{-- Zeile = Drop-Zone; nur der Griff ist draggable (so bleibt das Input
+                     frei bedienbar). Live-Reorder beim Drüberziehen (pollReorder). --}}
                 <template x-for="(opt, i) in pollOptionList" :key="opt.id">
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 transition-opacity"
+                         x-on:dragover.prevent="pollReorder(opt.id)" x-on:drop.prevent="pollDragEnd()"
+                         :class="_draggedOption === opt.id ? 'opacity-40' : ''">
+                        <span draggable="true" x-on:dragstart="pollDragStart(opt.id)" x-on:dragend="pollDragEnd()"
+                              class="shrink-0 cursor-grab text-muted active:cursor-grabbing" role="button"
+                              :aria-label="'Option ' + (i + 1) + ' verschieben'">
+                            <flux:icon.bars-3 variant="micro" />
+                        </span>
                         <flux:input x-model="opt.value" class="flex-1" ::placeholder="'Option ' + (i + 1)" />
                         <flux:button size="sm" variant="ghost" icon="minus-circle"
                                      x-on:click="removePollOption(opt.id)" aria-label="Option entfernen" />

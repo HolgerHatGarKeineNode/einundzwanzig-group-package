@@ -337,6 +337,7 @@ type RoomChatState = {
     pollTypeSel: PollType // Einfach-/Mehrfachwahl der zu erstellenden Poll
     pollEndsAt: string // optionales Enddatum (datetime-local-String, '' = kein Ende)
     pollBusy: boolean // Poll wird gerade publiziert
+    _draggedOption: string | null // id der per Griff gezogenen Option (Reorder), sonst null
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
     infoFor: MessageInfo | null // Roh-Event-Details der offenen Nachricht-Info (C4)
@@ -395,6 +396,9 @@ type RoomChatState = {
     openPollCreate(): void
     addPollOption(): void
     removePollOption(id: string): void
+    pollDragStart(id: string): void
+    pollReorder(targetId: string): void
+    pollDragEnd(): void
     submitPoll(): Promise<void>
     join(): Promise<void>
     leave(): Promise<void>
@@ -924,6 +928,7 @@ export function registerNostrComponents(Alpine: {
         pollTypeSel: 'singlechoice',
         pollEndsAt: '',
         pollBusy: false,
+        _draggedOption: null,
         isMobile,
         menuFor: null,
         infoFor: null,
@@ -1167,8 +1172,9 @@ export function registerNostrComponents(Alpine: {
         },
         // Bearbeitbar? Eigene Nachricht und höchstens 5 Minuten alt (wie der Referenz-
         // Client). Zeit ist nicht reaktiv — im Menü bei jedem Öffnen frisch ausgewertet.
+        // Polls (kind 1068) NICHT: der Edit-Pfad republisht als kind-9 und zerstörte die Umfrage.
         canEdit(m: ChatMessage): boolean {
-            return m.mine && m.created_at >= Math.floor(Date.now() / 1000) - 300
+            return m.mine && !m.poll && m.created_at >= Math.floor(Date.now() / 1000) - 300
         },
         // Bearbeiten starten: Composer mit dem Klartext (ohne Zitat-Präfix) vorbefüllen,
         // Reply/Share verwerfen. Guard gegen zu alte Nachrichten (Menü zeigt es zwar nur
@@ -1499,7 +1505,11 @@ export function registerNostrComponents(Alpine: {
         // Mehrfachwahl toggelt sie in der bestehenden Auswahl. Optimistisch (die
         // Response landet sofort im Repository → Balken/eigener Vote aktualisieren).
         async votePoll(m: ChatMessage, optionId: string) {
-            if (!this._url || !m.poll || m.poll.closed) {
+            // Frische Poll-Sicht aus dem aktuellen Feed holen — das per x-for übergebene
+            // `m` kann ein veralteter Closure-Stand sein (schnelles Mehrfach-Toggle läse
+            // sonst eine alte Auswahl und verlöre die vorige Stimme).
+            const fresh = this.messages.find((x) => x.id === m.id) ?? m
+            if (!this._url || !fresh.poll || fresh.poll.closed) {
                 return
             }
             const poll = repository.getEvent(m.id)
@@ -1507,8 +1517,8 @@ export function registerNostrComponents(Alpine: {
                 return
             }
             let selection: string[]
-            if (m.poll.multi) {
-                const current = m.poll.options.filter((o) => o.mine).map((o) => o.id)
+            if (fresh.poll.multi) {
+                const current = fresh.poll.options.filter((o) => o.mine).map((o) => o.id)
                 selection = current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]
                 // Mehrfachwahl komplett abgewählt → keine leere Response senden (wie der Referenz-Client).
                 if (selection.length === 0) {
@@ -1538,6 +1548,24 @@ export function registerNostrComponents(Alpine: {
         },
         removePollOption(id: string) {
             this.pollOptionList = this.pollOptionList.filter((o) => o.id !== id)
+        },
+        // Optionen per Griff umsortieren (natives HTML5-DnD, wie der Referenz-Client —
+        // kein Sortable-Dep). `pollReorder` verschiebt live beim Drüberziehen: die gezogene
+        // Option wandert an die Position der überfahrenen.
+        pollDragStart(id: string) {
+            this._draggedOption = id
+        },
+        pollReorder(targetId: string) {
+            const src = this.pollOptionList.findIndex((o) => o.id === this._draggedOption)
+            const tgt = this.pollOptionList.findIndex((o) => o.id === targetId)
+            if (src === -1 || tgt === -1 || src === tgt) {
+                return
+            }
+            const [moved] = this.pollOptionList.splice(src, 1)
+            this.pollOptionList.splice(tgt, 0, moved)
+        },
+        pollDragEnd() {
+            this._draggedOption = null
         },
         // Poll publizieren (kind 1068). Validiert Frage + ≥2 nicht-leere Optionen +
         // Enddatum in der Zukunft; baut die Options-IDs des Formulars in die `option`-Tags.
