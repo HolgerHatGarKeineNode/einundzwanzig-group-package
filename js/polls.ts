@@ -103,3 +103,19 @@ export const ownPollSelection = (
 
 /** `["e", pollId]` einer Response → zugehörige Poll (fürs Gruppieren nach Ziel). */
 export const pollResponseTarget = (event: TrustedEvent): string => getTag('e', event.tags)?.[1] ?? ''
+
+/** Vorangestelltes `nostr:nevent…`/`note…`-Zitat (unser Quote-Prefix). */
+export const QUOTE_PREFIX = /^nostr:(?:nevent1|note1)[0-9a-z]+\n\n/
+
+/**
+ * Ist `event` die reine kind-9-Share-Quote einer Poll aus `pollIds` (Frage kommt
+ * bereits als native Poll-Karte)? Erkennungsmerkmal: `q`-Tag zeigt auf eine Poll-ID
+ * UND der Text besteht NUR aus dem `nostr:nevent…`-Zitat (kein eigener Kommentar).
+ * Diese Quote posten wir ausschließlich für Flotilla (dessen Chat-Feed kind-1068
+ * nicht direkt lädt); im eigenen Feed wird sie ausgeblendet, sonst erschiene die
+ * Poll doppelt. Ein echtes Textzitat auf eine Poll (nicht leer) bleibt sichtbar.
+ */
+export const isPollShareQuote = (event: TrustedEvent, pollIds: Set<string>): boolean => {
+    const q = getTagValue('q', event.tags)
+    return q !== undefined && pollIds.has(q) && event.content.replace(QUOTE_PREFIX, '').trim() === ''
+}

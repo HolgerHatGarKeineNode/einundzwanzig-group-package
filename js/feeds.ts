@@ -17,7 +17,7 @@ import { groupBy, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, mentionPubkeys } from './interactions'
-import { getPollEndsAt, getPollResults, getPollType, isPollClosed, ownPollSelection, pollResponseTarget, type PollOption, type PollType } from './polls'
+import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -77,12 +77,14 @@ const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
 /** kind-1018-Poll-Responses eines Raums (NIP-88) — tragen `#h` vom Poll (via makePollResponse). */
 const roomPollResponseFilter = (h: string) => [{ kinds: [POLL_RESPONSE], '#h': [h] }]
 
-/** Vorangestelltes `nostr:nevent…`/`note…` einer Reply (unser Quote-Prefix). */
-const QUOTE_PREFIX = /^nostr:(?:nevent1|note1)[0-9a-z]+\n\n/
-
 /** Aufsteigend sortierter Chat-Verlauf eines Rooms (Nachrichten + Polls, reaktiv). */
 const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
-    derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => sortEventsAsc(events))
+    derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => {
+        // Native Poll-Karten (kind 1068) zeigen die Frage bereits — die kind-9-Share-Quote,
+        // die wir NUR für Flotilla mitposten, hier ausblenden, sonst erschiene sie doppelt.
+        const pollIds = new Set(events.filter((e) => e.kind === POLL).map((e) => e.id))
+        return sortEventsAsc(events.filter((e) => !isPollShareQuote(e, pollIds)))
+    })
 
 /** Rohtext einer Nachricht ohne den vorangestellten Reply-Quote (für Snippets + Edit-Prefill). */
 export const bodyWithoutQuote = (event: TrustedEvent): string =>
@@ -593,8 +595,23 @@ export const sendReport = (
     )
 
 /**
+ * Postet zusätzlich zur Poll eine kind-9-Nachricht, die das Poll als `nostr:nevent…`
+ * zitiert — **nur für Flotilla-Kompatibilität**: dessen Chat-Feed lädt kind-1068 nicht
+ * direkt, ohne diese Quote bliebe die Poll dort unsichtbar. Unser eigener Feed blendet
+ * die Quote via `isPollShareQuote` wieder aus (keine Doppelanzeige). Fire-and-forget:
+ * scheitert die Quote, besteht die Poll trotzdem; die (lokal ohnehin verdeckte) Quote
+ * braucht keinen Rollback.
+ */
+const publishPollShareQuote = (url: string, h: string, poll: TrustedEvent): void => {
+    const nevent = nip19.neventEncode({ id: poll.id, relays: [url], author: poll.pubkey, kind: POLL })
+    const tags = [['q', poll.id, url, poll.pubkey], ['p', poll.pubkey, url], ...roomTags(h, url)]
+    void publishThunk({ relays: [url], event: makeEvent(MESSAGE, { content: `nostr:${nevent}\n\n`, tags }) })
+}
+
+/**
  * Erstellt eine NIP-88-Poll (kind 1068) im Raum. Optimistisch (die Poll erscheint
  * sofort via Live-Sub/Repository); gibt '' bei Erfolg, sonst die Relay-Fehlermeldung.
+ * Nach Erfolg wird eine Flotilla-kompatible Share-Quote nachgeschoben (siehe oben).
  */
 export const sendPoll = async (
     url: string,
@@ -608,8 +625,10 @@ export const sendPoll = async (
     const err = await waitForThunkError(thunk)
     if (err) {
         repository.removeEvent(thunk.event.id)
+        return mapRelayError(err)
     }
-    return err ? mapRelayError(err) : ''
+    publishPollShareQuote(url, h, thunk.event)
+    return ''
 }
 
 /**
