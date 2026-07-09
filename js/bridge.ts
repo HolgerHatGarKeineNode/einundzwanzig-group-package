@@ -81,6 +81,7 @@ import {
     listenRoom,
     loadRoomMessages,
     loadRoomReactions,
+    loadRoomPolls,
     sendRoomMessage,
     deleteRoomMessage,
     editRoomMessage,
@@ -88,11 +89,14 @@ import {
     sendReaction,
     removeReaction,
     sendReport,
+    sendPoll,
+    sendPollResponse,
     readRoomLastRead,
     writeRoomLastRead,
     type ChatMessage,
     type ReactionChip,
 } from './feeds'
+import type { PollType } from './polls'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
 import {
     loadEmojiGroups,
@@ -328,6 +332,11 @@ type RoomChatState = {
     reportReason: string // gewählter NIP-56-Grund (spam/profanity/impersonation/other)
     reportText: string // optionaler Freitext fürs „Fork off!"
     reporting: boolean
+    pollTitle: string // Frage der zu erstellenden Poll (C5)
+    pollOptionList: { id: string; value: string }[] // Antwortoptionen des Poll-Formulars
+    pollTypeSel: PollType // Einfach-/Mehrfachwahl der zu erstellenden Poll
+    pollEndsAt: string // optionales Enddatum (datetime-local-String, '' = kein Ende)
+    pollBusy: boolean // Poll wird gerade publiziert
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
     infoFor: MessageInfo | null // Roh-Event-Details der offenen Nachricht-Info (C4)
@@ -382,6 +391,11 @@ type RoomChatState = {
     remove(id: string, createdAt: number): Promise<void>
     askReport(m: ChatMessage): void
     confirmReport(): Promise<void>
+    votePoll(m: ChatMessage, optionId: string): Promise<void>
+    openPollCreate(): void
+    addPollOption(): void
+    removePollOption(id: string): void
+    submitPoll(): Promise<void>
     join(): Promise<void>
     leave(): Promise<void>
     destroy(): void
@@ -905,6 +919,11 @@ export function registerNostrComponents(Alpine: {
         reportReason: 'spam',
         reportText: '',
         reporting: false,
+        pollTitle: '',
+        pollOptionList: [],
+        pollTypeSel: 'singlechoice',
+        pollEndsAt: '',
+        pollBusy: false,
         isMobile,
         menuFor: null,
         infoFor: null,
@@ -979,6 +998,8 @@ export function registerNostrComponents(Alpine: {
             listenRoom(url, this.h, this._controller.signal)
             // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
             void loadRoomReactions(url, this.h)
+            // Bestehende Polls (kind 1068) + Responses (kind 1018) nachladen (C5).
+            void loadRoomPolls(url, this.h)
             // Custom-Emoji (NIP-30) des eigenen Profils vorwärmen, solange die
             // Relay-Verbindung frisch AUTH'd ist — beim späteren Picker-Öffnen
             // würde ein one-shot-Load gegen den member-only Relay sonst hängen.
@@ -1471,6 +1492,91 @@ export function registerNostrComponents(Alpine: {
                 }
             } finally {
                 this.reporting = false
+            }
+        },
+        // ── C5: Poll-Vote (NIP-88 kind 1018) ───────────────────────────────────
+        // Auf eine Poll-Option klicken. Einfachwahl setzt genau diese Option;
+        // Mehrfachwahl toggelt sie in der bestehenden Auswahl. Optimistisch (die
+        // Response landet sofort im Repository → Balken/eigener Vote aktualisieren).
+        async votePoll(m: ChatMessage, optionId: string) {
+            if (!this._url || !m.poll || m.poll.closed) {
+                return
+            }
+            const poll = repository.getEvent(m.id)
+            if (!poll) {
+                return
+            }
+            let selection: string[]
+            if (m.poll.multi) {
+                const current = m.poll.options.filter((o) => o.mine).map((o) => o.id)
+                selection = current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]
+                // Mehrfachwahl komplett abgewählt → keine leere Response senden (wie der Referenz-Client).
+                if (selection.length === 0) {
+                    return
+                }
+            } else {
+                selection = [optionId]
+            }
+            const err = await sendPollResponse(this._url, poll, selection)
+            if (err) {
+                toast(err)
+            }
+        },
+        // Poll-Erstellen öffnen: Formular auf zwei leere Optionen zurücksetzen, Modal auf.
+        openPollCreate() {
+            this.pollTitle = ''
+            this.pollOptionList = [
+                { id: crypto.randomUUID(), value: '' },
+                { id: crypto.randomUUID(), value: '' },
+            ]
+            this.pollTypeSel = 'singlechoice'
+            this.pollEndsAt = ''
+            dispatchModal('create-poll')
+        },
+        addPollOption() {
+            this.pollOptionList.push({ id: crypto.randomUUID(), value: '' })
+        },
+        removePollOption(id: string) {
+            this.pollOptionList = this.pollOptionList.filter((o) => o.id !== id)
+        },
+        // Poll publizieren (kind 1068). Validiert Frage + ≥2 nicht-leere Optionen +
+        // Enddatum in der Zukunft; baut die Options-IDs des Formulars in die `option`-Tags.
+        async submitPoll() {
+            if (this.pollBusy || !this._url) {
+                return
+            }
+            const title = this.pollTitle.trim()
+            if (!title) {
+                toast('Bitte gib eine Frage ein.')
+                return
+            }
+            const options = this.pollOptionList
+                .map((o) => ({ id: o.id, label: o.value.trim() }))
+                .filter((o) => o.label !== '')
+            if (options.length < 2) {
+                toast('Bitte gib mindestens zwei Optionen an.')
+                return
+            }
+            let endsAt: number | undefined
+            if (this.pollEndsAt) {
+                const ts = Math.floor(new Date(this.pollEndsAt).getTime() / 1000)
+                if (!Number.isFinite(ts) || ts <= Math.floor(Date.now() / 1000)) {
+                    toast('Das Enddatum muss in der Zukunft liegen.')
+                    return
+                }
+                endsAt = ts
+            }
+            this.pollBusy = true
+            try {
+                const err = await sendPoll(this._url, this.h, { title, options, pollType: this.pollTypeSel, endsAt })
+                if (err) {
+                    toast(err)
+                } else {
+                    dispatchModal('create-poll', false)
+                    this.scrollToBottom()
+                }
+            } finally {
+                this.pollBusy = false
             }
         },
         // Beitreten (kind 9021). Round-trip: `joined` flippt, sobald die vom Relay

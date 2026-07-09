@@ -4,10 +4,11 @@
  * Reaction/Delete/Poll). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { DELETE, REACTION, REPORT, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
+import { DELETE, POLL, POLL_RESPONSE, REACTION, REPORT, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
 import { getRelay, tagEvent, tagEventForReaction } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps'
+import type { PollOption, PollType } from './polls'
 
 /** NIP-70 PROTECTED-Marker: bittet das Relay, das Event nur vom Autor annehmbar zu halten. */
 export const PROTECTED = ['-']
@@ -77,6 +78,43 @@ export const makeReport = (event: Pick<TrustedEvent, 'id' | 'pubkey'>, reason: s
     makeEvent(REPORT, {
         content,
         tags: [['p', event.pubkey], ['e', event.id, reason]],
+    })
+
+/**
+ * Erstellt eine NIP-88-Poll (kind 1068) direkt im Raum: `content` = Frage, je Option
+ * ein `["option", id, label]`, dazu `["polltype", …]`, `["relay", url]`, optional
+ * `["endsAt", unix]` — plus `roomTags(h, url)` (`["h", h]` + PROTECTED), damit die
+ * Poll wie eine Nachricht ins Space-Relay geroutet und member-only geschützt wird.
+ * Poll-**Erstellen** ist bewusst Teil von C5 (Auftraggeber 2026-07-09).
+ */
+export const makePoll = (
+    params: { title: string; options: PollOption[]; pollType: PollType; endsAt?: number },
+    h: string,
+    url: string,
+) => {
+    const tags: string[][] = [
+        ...params.options.map((o) => ['option', o.id, o.label]),
+        ['polltype', params.pollType],
+        ['relay', url],
+    ]
+    if (params.endsAt) {
+        tags.push(['endsAt', String(params.endsAt)])
+    }
+    return makeEvent(POLL, { content: params.title, tags: [...tags, ...roomTags(h, url)] })
+}
+
+/**
+ * Poll-Response (NIP-88 kind 1018): `["e", pollId]` + je gewählter Option
+ * `["response", optionId]`, dazu `h` (vom Poll-Event) + PROTECTED. Erneutes Abstimmen
+ * publiziert eine neue Response; das Tally wertet pro Wähler nur die jüngste aus.
+ * `createdAt` wird über die vorige eigene Stimme gebumpt (Umwählen in derselben
+ * Sekunde, analog zum Delete-Toggle) — sonst greift der strikt-größer-Vergleich nicht.
+ */
+export const makePollResponse = (poll: TrustedEvent, selectedIds: string[], url: string, createdAt: number) =>
+    makeEvent(POLL_RESPONSE, {
+        created_at: createdAt,
+        content: '',
+        tags: [['e', poll.id], ...selectedIds.map((id) => ['response', id]), ...parentRoomTags(poll, url)],
     })
 
 /** `nostr:npub…`/`nostr:nprofile…`-Mentions (NIP-27) im Nachrichtentext. */

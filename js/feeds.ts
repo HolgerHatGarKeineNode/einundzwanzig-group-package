@@ -7,16 +7,17 @@
  * NIP-29: Room-Nachrichten sind **kind 9** (`MESSAGE`) mit `#h`=Room-ID, auf dem
  * Space-Relay. AUTH (NIP-42) läuft automatisch über die Socket-Policy.
  */
-import { derived, type Readable } from 'svelte/store'
+import { derived, get, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05 } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, DELETE, REACTION, makeEvent, sortEventsAsc, getTag, getTagValue, type TrustedEvent } from '@welshman/util'
+import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, makeEvent, sortEventsAsc, getTag, getTagValue, type TrustedEvent } from '@welshman/util'
 import { groupBy, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
-import { roomTags, makeReaction, makeEventDelete, makeReport, mentionPubkeys } from './interactions'
+import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, mentionPubkeys } from './interactions'
+import { getPollEndsAt, getPollResults, getPollType, isPollClosed, ownPollSelection, pollResponseTarget, type PollOption, type PollType } from './polls'
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -67,15 +68,21 @@ const renderEmojiImg = (name: string, url: string | undefined): string | null =>
 
 const roomFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
 
+/** Nachrichten UND Polls eines Raums — beide erscheinen zeitlich verwoben im Verlauf. */
+const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE, POLL], '#h': [h] }]
+
 /** kind-7-Reactions eines Raums (NIP-25) — tragen `#h` vom Parent (via makeReaction). */
 const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
+
+/** kind-1018-Poll-Responses eines Raums (NIP-88) — tragen `#h` vom Poll (via makePollResponse). */
+const roomPollResponseFilter = (h: string) => [{ kinds: [POLL_RESPONSE], '#h': [h] }]
 
 /** Vorangestelltes `nostr:nevent…`/`note…` einer Reply (unser Quote-Prefix). */
 const QUOTE_PREFIX = /^nostr:(?:nevent1|note1)[0-9a-z]+\n\n/
 
-/** Aufsteigend sortierter Chat-Verlauf eines Rooms (reaktiv aus dem Repository). */
+/** Aufsteigend sortierter Chat-Verlauf eines Rooms (Nachrichten + Polls, reaktiv). */
 const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
-    derived(deriveEventsForUrl(url, roomFilter(h)), (events) => sortEventsAsc(events))
+    derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => sortEventsAsc(events))
 
 /** Rohtext einer Nachricht ohne den vorangestellten Reply-Quote (für Snippets + Edit-Prefill). */
 export const bodyWithoutQuote = (event: TrustedEvent): string =>
@@ -231,6 +238,51 @@ export type ChatMessage = {
     mine: boolean // vom eingeloggten User verfasst (→ löschbar, M5)
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), sonst null
     reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
+    poll: PollView | null // NIP-88-Poll (kind 1068) mit Live-Tally + eigenem Vote (C5), sonst null
+}
+
+/** Eine Poll-Option mit Live-Zähler, Balkenbreite (0–100 %) und eigenem Vote-Zustand. */
+export type PollOptionView = { id: string; label: string; votes: number; pct: number; mine: boolean }
+
+/**
+ * Render-fertige NIP-88-Poll: Optionen mit Tally, Typ-/End-Label und Wählerzahl.
+ * `multi` steuert die Auswahllogik (Einfach-/Mehrfachwahl), `closed` sperrt das Voten.
+ */
+export type PollView = {
+    multi: boolean
+    typeLabel: string // 'Einfachwahl' | 'Mehrfachwahl'
+    closed: boolean
+    endsLabel: string // '' oder 'Endet …'/'Beendet …'
+    voters: number
+    options: PollOptionView[]
+}
+
+/**
+ * Baut die Render-Sicht einer Poll aus dem kind-1068-Event + ihren kind-1018-Responses:
+ * Stimmen (jüngste je Wähler zählt), Balkenbreite relativ zur Gewinner-Option, eigener
+ * Vote markiert. Pure Logik aus `polls.ts`; hier nur zur UI-Form verdichtet.
+ */
+const buildPollView = (event: TrustedEvent, responses: TrustedEvent[], me: string | null | undefined): PollView => {
+    const { options, voters } = getPollResults(event, responses)
+    const mine = new Set(ownPollSelection(event, responses, me))
+    const maxVotes = Math.max(...options.map((o) => o.votes), 1)
+    const endsAt = getPollEndsAt(event)
+    const closed = isPollClosed(event)
+    const multi = getPollType(event) === 'multiplechoice'
+    return {
+        multi,
+        typeLabel: multi ? 'Mehrfachwahl' : 'Einfachwahl',
+        closed,
+        endsLabel: endsAt ? `${closed ? 'Beendet' : 'Endet'} ${fullTimeLabel(endsAt)}` : '',
+        voters,
+        options: options.map((o) => ({
+            id: o.id,
+            label: o.label,
+            votes: o.votes,
+            pct: Math.round((o.votes / maxVotes) * 100),
+            mine: mine.has(o.id),
+        })),
+    }
 }
 
 /** Last-Read-Timestamp pro Raum (localStorage, Single-Device — kein Nostr-Kind). */
@@ -262,11 +314,20 @@ const snippet = (text: string, max = 120): string => {
  */
 export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
     derived(
-        [deriveRoomMessages(url, h), profilesByPubkey, pubkey, handlesByNip05, deriveEventsForUrl(url, roomReactionFilter(h))],
-        ([events, $profiles, $me, $handles, $reactions]) => {
+        [
+            deriveRoomMessages(url, h),
+            profilesByPubkey,
+            pubkey,
+            handlesByNip05,
+            deriveEventsForUrl(url, roomReactionFilter(h)),
+            deriveEventsForUrl(url, roomPollResponseFilter(h)),
+        ],
+        ([events, $profiles, $me, $handles, $reactions, $pollResponses]) => {
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
         // Reactions ohne `e`-Tag landen im ''-Bucket und werden nie abgerufen (event.id ≠ '').
         const reactionsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions)
+        // Poll-Responses nach Ziel-Poll (`["e", pollId]`) bündeln — je Poll einmal getallyt.
+        const pollResponsesByTarget = groupBy((r) => pollResponseTarget(r), $pollResponses)
         // First-Paint-Seed: fehlende Autor- UND erwähnte Profile (NIP-27) vom geteilten
         // Backend-Cache holen (dedupliziert intern; welshman löst parallel live auf).
         // Ohne die Mention-Pubkeys blieben extern referenzierte @-Mentions (Nicht-
@@ -319,6 +380,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 mine,
                 reply,
                 reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me, nameOf),
+                poll: event.kind === POLL ? buildPollView(event, pollResponsesByTarget.get(event.id) ?? [], $me) : null,
             }
         })
     },
@@ -330,8 +392,20 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
  * So erscheinen Fremd-Reactions und -Löschungen live, ohne separate Subscription.
  */
 export const listenRoom = (url: string, h: string, signal: AbortSignal): void => {
-    void request({ relays: [url], signal, filters: [{ kinds: [MESSAGE, REACTION, DELETE], '#h': [h], limit: 0 }] })
+    void request({
+        relays: [url],
+        signal,
+        filters: [{ kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE], '#h': [h], limit: 0 }],
+    })
 }
+
+/**
+ * Lädt bestehende Polls (kind 1068) + Poll-Responses (kind 1018) eines Raums beim
+ * ersten Öffnen (die Live-Sub liefert nur Neues). Kein Paging — Polls sind pro Raum
+ * überschaubar; das Tally braucht alle Responses.
+ */
+export const loadRoomPolls = (url: string, h: string): Promise<TrustedEvent[]> =>
+    load({ relays: [url], filters: [{ kinds: [POLL, POLL_RESPONSE], '#h': [h] }] })
 
 /**
  * Lädt die bestehenden Reactions (kind 7) + Tombstones (kind 5) eines Raums, damit
@@ -517,3 +591,46 @@ export const sendReport = (
     waitForThunkError(publishThunk({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
         err ? mapRelayError(err) : '',
     )
+
+/**
+ * Erstellt eine NIP-88-Poll (kind 1068) im Raum. Optimistisch (die Poll erscheint
+ * sofort via Live-Sub/Repository); gibt '' bei Erfolg, sonst die Relay-Fehlermeldung.
+ */
+export const sendPoll = async (
+    url: string,
+    h: string,
+    params: { title: string; options: PollOption[]; pollType: PollType; endsAt?: number },
+): Promise<string> => {
+    // Die Poll wird optimistisch aus dem Repository gerendert (roomStreamFilter zieht
+    // kind-1068). welshman entfernt sie bei Relay-Reject NICHT selbst → sonst bliebe die
+    // Karte sichtbar, obwohl sie das Relay nie erreicht hat (wie sendRoomMessage).
+    const thunk = publishThunk({ relays: [url], event: makePoll(params, h, url) })
+    const err = await waitForThunkError(thunk)
+    if (err) {
+        repository.removeEvent(thunk.event.id)
+    }
+    return err ? mapRelayError(err) : ''
+}
+
+/**
+ * Stimmt über eine Poll ab (kind 1018). Jeder Aufruf publiziert eine neue Response;
+ * das Tally zählt pro Wähler nur die jüngste. Optimistisch: die Response landet sofort
+ * im Repository (Balken/eigener Vote aktualisieren), bei Relay-Reject Rollback.
+ */
+export const sendPollResponse = async (url: string, poll: TrustedEvent, selectedIds: string[]): Promise<string> => {
+    // `created_at` strikt über die jüngste eigene Response bumpen, damit ein Umwählen
+    // in derselben Sekunde das Tally sicher überschreibt (latest-per-pubkey = strikt größer).
+    const me = get(pubkey)
+    const prev = me
+        ? repository
+              .query([{ kinds: [POLL_RESPONSE], '#e': [poll.id], authors: [me] }])
+              .reduce((max, e) => Math.max(max, e.created_at), 0)
+        : 0
+    const createdAt = Math.max(Math.floor(Date.now() / 1000), prev + 1)
+    const thunk = publishThunk({ relays: [url], event: makePollResponse(poll, selectedIds, url, createdAt) })
+    const err = await waitForThunkError(thunk)
+    if (err) {
+        repository.removeEvent(thunk.event.id)
+    }
+    return err ? mapRelayError(err) : ''
+}

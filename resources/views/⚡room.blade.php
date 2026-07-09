@@ -175,6 +175,38 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             {{-- Inline-Bild anklicken → Lightbox (Klick delegiert, da x-html-Inhalt). --}}
                             <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"
                                  x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
+                            {{-- Poll (C5, NIP-88 kind 1068): Optionen mit Live-Balken + Vote-Buttons.
+                                 Titel steht bereits in m.html (Poll-content = Frage). Option-Button
+                                 ist ein Komposit (Balken + Marker + Label + Zähler) → rohes <button>
+                                 wie die Zitat-Vorschau (§6), Flux hat kein Pendant. --}}
+                            <template x-if="m.poll">
+                                {{-- Einfachwahl = radiogroup (exklusiv), Mehrfachwahl = group aus Checkboxen.
+                                     Rolle/aria-checked tragen den Zustand → SR sagt „ausgewählt" an, nicht
+                                     die dekorative Glyphe (aria-hidden). --}}
+                                <div class="mt-1.5 space-y-1.5" :role="m.poll.multi ? 'group' : 'radiogroup'" aria-label="Umfrageoptionen">
+                                    <template x-for="opt in m.poll.options" :key="opt.id">
+                                        <button type="button" x-on:click.stop="votePoll(m, opt.id)" :disabled="m.poll.closed"
+                                                :role="m.poll.multi ? 'checkbox' : 'radio'" :aria-checked="opt.mine"
+                                                class="pressable relative block w-full overflow-hidden rounded-tile border text-left disabled:opacity-70"
+                                                :class="opt.mine ? 'border-brand-500' : 'border-white/10 hover:border-brand-500/50'">
+                                            <div class="absolute inset-y-0 left-0 bg-brand-500/15 transition-[width] duration-300" :style="`width:${opt.pct}%`"></div>
+                                            <div class="relative flex items-center justify-between gap-2 px-2 py-1.5">
+                                                <span class="flex min-w-0 items-center gap-2">
+                                                    {{-- Marker signalisiert die Wahlart: Radio (●/○) bei Einfach-, Checkbox (☑/☐) bei Mehrfachwahl. --}}
+                                                    <span aria-hidden="true" class="shrink-0 text-sm" :class="opt.mine ? 'text-brand-500' : 'text-muted'"
+                                                          x-text="opt.mine ? (m.poll.multi ? '☑' : '●') : (m.poll.multi ? '☐' : '○')"></span>
+                                                    <span class="truncate text-sm" x-text="opt.label"></span>
+                                                </span>
+                                                <span class="shrink-0 font-mono text-xs text-muted" x-text="opt.votes"></span>
+                                            </div>
+                                        </button>
+                                    </template>
+                                    <div class="flex items-center justify-between gap-2 text-xs text-muted">
+                                        <span x-text="m.poll.typeLabel + (m.poll.endsLabel ? ' · ' + m.poll.endsLabel : '')"></span>
+                                        <span x-text="m.poll.voters + (m.poll.voters === 1 ? ' Stimme' : ' Stimmen')"></span>
+                                    </div>
+                                </div>
+                            </template>
                             {{-- Reaction-Chips (C1): pro Emoji Zähler + eigener Toggle-Zustand. --}}
                             <template x-if="m.reactions.length">
                                 <div class="mt-1 flex flex-wrap gap-1">
@@ -328,6 +360,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </template>
                 </div>
             </template>
+            {{-- Umfrage erstellen (C5): öffnet das Poll-Formular-Modal. --}}
+            <flux:button type="button" variant="ghost" icon="chart-bar" class="shrink-0"
+                         x-on:click="openPollCreate()" aria-label="Umfrage erstellen" />
             <flux:textarea x-ref="composer" x-model="draft" rows="1" resize="none"
                            placeholder="Nachricht schreiben…" aria-label="Nachricht schreiben" class="flex-1"
                            x-on:focus="atBottom && scrollToBottom()"
@@ -393,6 +428,38 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
                 <flux:button variant="danger" x-on:click="confirmReport()" ::disabled="reporting">Fork off!</flux:button>
+            </div>
+        </div>
+    </flux:modal>
+
+    {{-- Umfrage erstellen (C5, NIP-88 kind 1068): Frage + ≥2 Optionen + Einfach-/
+         Mehrfachwahl + optionales Enddatum. Publiziert mit `["h", h]` in den Raum
+         (erscheint als Poll-Karte im Verlauf). Poll-Erstellen ist Teil von C5. --}}
+    <flux:modal name="create-poll" class="max-w-md">
+        <div class="space-y-4">
+            <flux:heading size="lg">Umfrage erstellen</flux:heading>
+            <flux:input x-model="pollTitle" label="Frage" placeholder="Was möchtest du fragen?" />
+            <div class="space-y-2">
+                <flux:label>Optionen</flux:label>
+                <template x-for="(opt, i) in pollOptionList" :key="opt.id">
+                    <div class="flex items-center gap-2">
+                        <flux:input x-model="opt.value" class="flex-1" ::placeholder="'Option ' + (i + 1)" />
+                        <flux:button size="sm" variant="ghost" icon="minus-circle"
+                                     x-on:click="removePollOption(opt.id)" aria-label="Option entfernen" />
+                    </div>
+                </template>
+                <flux:button size="sm" variant="ghost" icon="plus-circle" x-on:click="addPollOption()">
+                    Option hinzufügen
+                </flux:button>
+            </div>
+            <flux:select x-model="pollTypeSel" label="Auswahl">
+                <flux:select.option value="singlechoice">Einfachwahl</flux:select.option>
+                <flux:select.option value="multiplechoice">Mehrfachwahl</flux:select.option>
+            </flux:select>
+            <flux:input type="datetime-local" x-model="pollEndsAt" label="Endet am (optional)" />
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
+                <flux:button variant="primary" x-on:click="submitPoll()" ::disabled="pollBusy">Erstellen</flux:button>
             </div>
         </div>
     </flux:modal>
