@@ -109,6 +109,20 @@ import {
     type RecentEmoji,
 } from './emoji'
 import { toast, flashToast } from './toast'
+import {
+    getNwcModule,
+    getWebLn,
+    loadWallet,
+    saveWallet,
+    clearWallet,
+    getWalletBalance,
+    createInvoice,
+    payInvoice,
+    lnurlInvoice,
+    fromMsats,
+    type NWCInfo,
+} from './wallet'
+import { getWalletAddress, WalletType, type Wallet } from '@welshman/util'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
@@ -447,6 +461,40 @@ type InviteState = {
     accept(): Promise<void>
 }
 
+/** ZAPS.md Z0.4 — vollwertige Lightning-Wallet-Insel (Verbinden/Balance/Senden/Empfangen). */
+type WalletState = {
+    zapsEnabled: boolean
+    connected: boolean
+    walletType: '' | WalletType
+    lud16: string
+    relayUrl: string
+    balanceSats: number | null
+    weblnAvailable: boolean
+    connectUrl: string
+    busy: boolean
+    error: string
+    payReq: string
+    payAmountSats: number | null
+    paying: boolean
+    recvAmountSats: number | null
+    recvMemo: string
+    recvInvoice: string
+    recvQr: string
+    receiving: boolean
+    init(): Promise<void>
+    _apply(w: Wallet): void
+    connectNwc(): Promise<void>
+    connectWebln(): Promise<void>
+    disconnect(): Promise<void>
+    refreshBalance(): Promise<void>
+    openSend(): void
+    sendPayment(): Promise<void>
+    openReceive(): void
+    createReceiveInvoice(): Promise<void>
+    displayRelay(): string
+    copy(text: string, label: string): void
+}
+
 export function registerNostrComponents(Alpine: {
     data: (name: string, factory: (...args: unknown[]) => unknown) => void
     magic: (name: string, callback: () => unknown) => void
@@ -508,6 +556,216 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._unsub?.()
             this._unsubHandle?.()
+        },
+    }))
+
+    // ZAPS.md Z0.4 — vollwertige Lightning-Wallet: Verbinden (NWC/WebLN), Hero-
+    // Balance, Senden (bolt11 oder lud16) und Empfangen (Rechnung+QR). Der Secret
+    // liegt gehärtet in `js/secure-storage.ts` (nie Klartext). Zahlung 100 % im
+    // Browser. Der Feature-Flag `__nostrZapsEnabled` (Default true) kann die Wallet
+    // hart abschalten (iOS-Build), ohne Code-Umbau.
+    Alpine.data('nostrWallet', (): WalletState => ({
+        zapsEnabled: (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false,
+        connected: false,
+        walletType: '',
+        lud16: '',
+        relayUrl: '',
+        balanceSats: null,
+        weblnAvailable: Boolean(getWebLn()),
+        connectUrl: '',
+        busy: false,
+        error: '',
+        payReq: '',
+        payAmountSats: null,
+        paying: false,
+        recvAmountSats: null,
+        recvMemo: '',
+        recvInvoice: '',
+        recvQr: '',
+        receiving: false,
+        async init() {
+            // pubkey wird async aus localStorage hydratisiert (welshman `sync`) —
+            // erst abwarten, sonst liest loadWallet() bei hartem Reload direkt auf
+            // /settings/wallet einen leeren pubkey und eine verbundene Wallet erschiene
+            // fälschlich als „nicht verbunden" (nostrAuth.init guardet dasselbe Muster).
+            await authReady
+            // WebLN wird evtl. erst nach dem Factory-Aufruf injiziert → hier re-evaluieren.
+            this.weblnAvailable = Boolean(getWebLn())
+            const wallet = await loadWallet()
+            if (wallet) {
+                this._apply(wallet)
+                void this.refreshBalance()
+            }
+        },
+        _apply(w: Wallet) {
+            this.connected = true
+            this.walletType = w.type
+            this.lud16 = getWalletAddress(w) ?? ''
+            this.relayUrl = w.type === WalletType.NWC ? w.info.relayUrl : ''
+        },
+        async connectNwc() {
+            if (this.busy) {
+                return
+            }
+            this.busy = true
+            this.error = ''
+            try {
+                const url = this.connectUrl.trim()
+                if (!url.startsWith('nostr+walletconnect://')) {
+                    throw new Error('Ungültige Verbindung (nostr+walletconnect://…)')
+                }
+                const { nwc } = await getNwcModule()
+                const client = new nwc.NWCClient({ nostrWalletConnectUrl: url })
+                const info = await client.getInfo() // validiert die Verbindung
+                if (!info) {
+                    throw new Error('Wallet nicht erreichbar')
+                }
+                const wallet: Wallet = { type: WalletType.NWC, info: client.options as unknown as NWCInfo }
+                await saveWallet(wallet)
+                this._apply(wallet)
+                this.connectUrl = ''
+                toast('Wallet verbunden', 'success')
+                void this.refreshBalance()
+            } catch (e) {
+                this.error = e instanceof Error ? e.message : 'Verbindung fehlgeschlagen'
+                toast(this.error)
+            } finally {
+                this.busy = false
+            }
+        },
+        async connectWebln() {
+            if (this.busy) {
+                return
+            }
+            this.busy = true
+            this.error = ''
+            try {
+                const webln = getWebLn()
+                if (!webln) {
+                    throw new Error('Keine WebLN-Erweiterung gefunden')
+                }
+                await webln.enable()
+                const info = await webln.getInfo()
+                if (!info?.supports?.includes('lightning')) {
+                    throw new Error('Erweiterung unterstützt kein Lightning')
+                }
+                const wallet: Wallet = { type: WalletType.WebLN, info }
+                await saveWallet(wallet)
+                this._apply(wallet)
+                toast('Wallet verbunden', 'success')
+            } catch (e) {
+                this.error = e instanceof Error ? e.message : 'Verbindung fehlgeschlagen'
+                toast(this.error)
+            } finally {
+                this.busy = false
+            }
+        },
+        async disconnect() {
+            await clearWallet()
+            this.connected = false
+            this.walletType = ''
+            this.lud16 = ''
+            this.relayUrl = ''
+            this.balanceSats = null
+            toast('Wallet getrennt', 'success')
+        },
+        async refreshBalance() {
+            if (this.walletType !== WalletType.NWC) {
+                return
+            }
+            try {
+                const res = await getWalletBalance()
+                this.balanceSats = fromMsats(res.balance)
+            } catch {
+                // Balance-Fehler tolerant — Hero zeigt dann keinen Betrag.
+                this.balanceSats = null
+            }
+        },
+        openSend() {
+            this.payReq = ''
+            this.payAmountSats = null
+            this.error = ''
+            dispatchModal('wallet-send')
+        },
+        async sendPayment() {
+            if (this.paying) {
+                return
+            }
+            this.paying = true
+            this.error = ''
+            try {
+                const req = this.payReq.trim()
+                if (!req) {
+                    throw new Error('Rechnung oder Lightning-Adresse eingeben')
+                }
+                const isBolt11 = /^ln(bc|tb)/i.test(req)
+                let invoice = req
+                if (!isBolt11) {
+                    if (!this.payAmountSats || this.payAmountSats <= 0) {
+                        throw new Error('Betrag (Sats) eingeben')
+                    }
+                    invoice = await lnurlInvoice(req, this.payAmountSats)
+                }
+                const { Invoice } = await import('@getalby/lightning-tools/bolt11')
+                const parsed = new Invoice({ pr: invoice })
+                // Betragslose bolt11 braucht einen expliziten Betrag — sonst ginge 0 msats
+                // an payInvoice (dort falsy → kein amount → NWC lehnt kryptisch ab).
+                if (parsed.satoshi <= 0 && (!this.payAmountSats || this.payAmountSats <= 0)) {
+                    throw new Error('Betrag (Sats) eingeben')
+                }
+                // Betragslose bolt11 → msats mitgeben (WebLN kann das nicht, payInvoice wirft).
+                await payInvoice(invoice, parsed.satoshi > 0 ? undefined : (this.payAmountSats ?? 0) * 1000)
+                toast(`Gesendet: ${(parsed.satoshi || this.payAmountSats || 0).toLocaleString('de-DE')} Sats`, 'success')
+                this.payReq = ''
+                this.payAmountSats = null
+                dispatchModal('wallet-send', false)
+                void this.refreshBalance()
+            } catch (e) {
+                this.error = e instanceof Error ? e.message : 'Zahlung fehlgeschlagen'
+                toast(this.error)
+            } finally {
+                this.paying = false
+            }
+        },
+        openReceive() {
+            this.recvAmountSats = null
+            this.recvMemo = ''
+            this.recvInvoice = ''
+            this.recvQr = ''
+            this.error = ''
+            dispatchModal('wallet-receive')
+        },
+        async createReceiveInvoice() {
+            if (this.receiving) {
+                return
+            }
+            this.receiving = true
+            this.error = ''
+            try {
+                if (!this.recvAmountSats || this.recvAmountSats <= 0) {
+                    throw new Error('Betrag (Sats) eingeben')
+                }
+                const pr = await createInvoice({
+                    sats: this.recvAmountSats,
+                    description: this.recvMemo || 'Empfangen via Lightning',
+                })
+                this.recvInvoice = pr
+                this.recvQr = await QRCode.toDataURL(pr.toUpperCase(), { width: 256, margin: 1 })
+                toast('Rechnung erstellt', 'success')
+            } catch (e) {
+                this.error = e instanceof Error ? e.message : 'Rechnung fehlgeschlagen'
+                toast(this.error)
+            } finally {
+                this.receiving = false
+            }
+        },
+        displayRelay() {
+            return displayRelayUrl(this.relayUrl)
+        },
+        copy(text: string, label: string) {
+            if (text) {
+                void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
+            }
         },
     }))
 

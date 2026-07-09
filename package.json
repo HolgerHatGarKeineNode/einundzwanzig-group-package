@@ -10,6 +10,8 @@
         "js"
     ],
     "dependencies": {
+        "@getalby/lightning-tools": "^6.1.0",
+        "@getalby/sdk": "^5.1.2",
         "@welshman/app": "^0.8.16",
         "@welshman/content": "^0.8.16",
         "@welshman/lib": "^0.8.16",

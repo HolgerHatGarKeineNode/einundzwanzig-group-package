@@ -84,6 +84,24 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
         </div>
     </div>
 
+    {{-- Wallet (ZAPS.md Z0): Einstieg zur Lightning-Wallet. Auf Mobile ist dieses
+         Space-Settings der einzige „Einstellungen"-Tab (Bottom-Nav) → die Wallet
+         MUSS hier verlinkt sein, sonst ist die Account-Settings-Sektion
+         (settings/wallet) am Gerät nicht erreichbar. --}}
+    <a href="{{ route('group.wallet') }}" wire:navigate
+       class="surface-card pressable mt-4 flex items-center justify-between gap-3 p-3">
+        <span class="flex items-center gap-3">
+            <span class="flex size-9 items-center justify-center rounded-tile bg-brand-500/10">
+                <flux:icon.bolt variant="solid" class="size-5 text-brand-500" />
+            </span>
+            <span class="min-w-0">
+                <flux:text class="text-sm font-medium">Wallet</flux:text>
+                <span class="block truncate text-xs text-muted">Lightning — Guthaben, senden &amp; empfangen</span>
+            </span>
+        </span>
+        <flux:icon.chevron-right class="size-4 shrink-0 text-muted" />
+    </a>
+
     {{-- Darstellung: Theme-Switch bindet an Flux' geteilten appearance-Store
          ($flux.appearance → localStorage `flux.appearance`, im <head> flackerfrei
          angewandt). Im Portal-WebView same-origin → automatisch in sync. --}}

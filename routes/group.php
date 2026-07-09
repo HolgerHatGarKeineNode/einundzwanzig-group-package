@@ -24,6 +24,7 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         Route::livewire('/directory', 'group::directory')->name('directory');
         Route::livewire('/rooms/{h}', 'group::room')->name('room');
         Route::livewire('/settings/space', 'group::settings.space')->name('space.settings');
+        Route::livewire('/settings/wallet', 'group::settings.wallet')->name('wallet');
         Route::livewire('/join', 'group::join')->name('join');
     });
 });

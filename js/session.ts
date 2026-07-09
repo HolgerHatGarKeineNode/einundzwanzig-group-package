@@ -22,6 +22,7 @@ import { sync, localStorageProvider } from '@welshman/store'
 import { bytesToHex } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { SIGNER_RELAYS, isMobile } from './core'
+import { clearWallet } from './wallet'
 
 /** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
 export const authReady = Promise.all([
@@ -196,6 +197,9 @@ export async function logoutServer(): Promise<void> {
 export function logout(): void {
     const pk = pubkey.get()
     if (pk) {
+        // Wallet-Secret aus der gehärteten Ablage entfernen — VOR dropSession,
+        // solange pubkey.get() noch den pubkey-gebundenen Key auflöst (Z0.3).
+        void clearWallet()
         dropSession(pk)
     }
 }
