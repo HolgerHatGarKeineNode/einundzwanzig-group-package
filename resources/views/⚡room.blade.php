@@ -175,6 +175,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             {{-- Inline-Bild anklicken → Lightbox (Klick delegiert, da x-html-Inhalt). --}}
                             <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"
                                  x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
+                            {{-- Reaction-Chips (C1): pro Emoji Zähler + eigener Toggle-Zustand. --}}
+                            <template x-if="m.reactions.length">
+                                <div class="mt-1 flex flex-wrap gap-1">
+                                    <template x-for="r in m.reactions" :key="r.key">
+                                        <button type="button" x-on:click.stop="toggleReaction(m, r)" :aria-pressed="r.mine"
+                                                class="pressable inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none"
+                                                :class="r.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
+                                            <template x-if="r.emojiUrl"><img class="chat-emoji" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
+                                            <template x-if="!r.emojiUrl"><span x-text="r.label"></span></template>
+                                            <span x-show="r.count > 1" x-text="r.count" class="font-mono"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </template>
                         </div>
                         {{-- Aktionen: bei Hover (Desktop) oder aktivem Tap (Touch). --}}
                         <div class="pointer-events-none flex shrink-0 items-start gap-0.5 self-start opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
@@ -184,6 +198,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
                                          x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
                                          aria-label="Nachricht löschen" />
+                            {{-- Reaktions-Picker (C1, Web): Standard-Set als Alpine-Popover (flux:menu
+                                 rendert nur menu.item-Kinder → eigene, kontrollierte Auswahl). Native
+                                 App reagiert über das „…"-Modal (message-menu). --}}
+                            <template x-if="!isMobile">
+                                <div class="relative" x-data="{ open: false }" x-on:click.stop
+                                     x-on:keydown.escape.window="open = false">
+                                    <flux:button size="xs" variant="ghost" icon="face-smile"
+                                                 class="icon-btn-touch" x-on:click="open = !open" aria-label="Reagieren" />
+                                    <div x-show="open" x-cloak x-transition x-on:click.outside="open = false"
+                                         class="surface-card absolute bottom-full right-0 z-20 mb-1 flex gap-0.5 rounded-card p-1 shadow-lg">
+                                        <x-group::reaction-picker message="m" onpick="open = false" />
+                                    </div>
+                                </div>
+                            </template>
                             {{-- „…"-Menü = gemeinsamer Andockpunkt für alle weiteren Aktionen (C1–C4).
                                  Web: Zeilen-Popover (flux:dropdown). Native App: Vollbild-Modal (openMessageMenu). --}}
                             <template x-if="!isMobile">
@@ -193,7 +221,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      class="icon-btn-touch" aria-label="Weitere Aktionen" />
                                         <flux:menu>
                                             <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">Antworten</flux:menu.item>
-                                            {{-- C1: Reaktion · C2: Melden/Löschen · C4: Kopieren/Info --}}
+                                            {{-- C2: Melden/Löschen · C4: Kopieren/Info --}}
                                         </flux:menu>
                                     </flux:dropdown>
                                 </div>
@@ -291,9 +319,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
     <flux:modal name="message-menu" class="max-w-sm">
         <div class="flex flex-col gap-1">
             <flux:heading size="sm" class="mb-1">Nachricht</flux:heading>
+            {{-- Reaktions-Picker (C1, native App): Standard-Set als Emoji-Reihe. --}}
+            <div class="mb-1 flex gap-1">
+                <x-group::reaction-picker message="menuFor" class="px-2 py-1.5 text-xl" />
+            </div>
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
                          x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">Antworten</flux:button>
-            {{-- C1: Reaktion · C2: Melden/Löschen · C4: Kopieren/Info --}}
+            {{-- C2: Melden/Löschen · C4: Kopieren/Info --}}
         </div>
     </flux:modal>
 

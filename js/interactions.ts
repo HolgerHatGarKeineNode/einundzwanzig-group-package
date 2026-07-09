@@ -4,7 +4,8 @@
  * Reaction/Delete/Poll). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { getRelay } from '@welshman/app'
+import { DELETE, REACTION, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
+import { getRelay, tagEvent, tagEventForReaction } from '@welshman/app'
 import { hasNip70 } from './relayCaps'
 
 /** NIP-70 PROTECTED-Marker: bittet das Relay, das Event nur vom Autor annehmbar zu halten. */
@@ -23,3 +24,44 @@ export const canEnforceNip70 = (url: string): boolean => hasNip70(getRelay(url))
  */
 export const roomTags = (h: string, url: string): string[][] =>
     canEnforceNip70(url) ? [['h', h], PROTECTED] : [['h', h]]
+
+/**
+ * Baut die NIP-29-Group-Tags einer Aktion, die sich auf ein Parent-Event bezieht
+ * (Reaction/Delete): das `h` wird vom Parent übernommen (`getTag("h", …)`, wie beim
+ * Referenz-Client), PROTECTED nach Relay-Fähigkeit. Kein eigenes `h` raten.
+ */
+const parentRoomTags = (parent: TrustedEvent, url: string): string[][] => {
+    const tags: string[][] = []
+    const h = getTag('h', parent.tags)
+    if (h) {
+        tags.push(h)
+    }
+    if (canEnforceNip70(url)) {
+        tags.push(PROTECTED)
+    }
+    return tags
+}
+
+/**
+ * Emoji-Reaction (NIP-25 kind 7) auf `event`. `content` ist das Standard-Emoji
+ * (Unicode) bzw. `:shortcode:` für Custom-Emoji (NIP-30); für Custom-Emoji trägt
+ * `extraTags` das zugehörige `["emoji", shortcode, url]`. `tagEventForReaction`
+ * setzt `["p",…]?`+`["k","9"]`+`["e",id,hint]`; dazu `h` (vom Parent) + PROTECTED.
+ */
+export const makeReaction = (event: TrustedEvent, content: string, url: string, extraTags: string[][] = []) =>
+    makeEvent(REACTION, {
+        content,
+        tags: [...extraTags, ...tagEventForReaction(event, url), ...parentRoomTags(event, url)],
+    })
+
+/**
+ * NIP-09-Löschung (kind 5) eines eigenen Events — für den Reaction-Toggle die
+ * eigene kind-7 zurücknehmen. `["k", kind]`+`["e", id]` (via `tagEvent`), dazu `h`
+ * (vom Parent) + PROTECTED. `created_at` muss echt größer als das Ziel sein
+ * (Repository-Regel), sonst greift ein Toggle in derselben Sekunde nicht.
+ */
+export const makeEventDelete = (event: TrustedEvent, url: string) =>
+    makeEvent(DELETE, {
+        created_at: Math.max(Math.floor(Date.now() / 1000), event.created_at + 1),
+        tags: [['k', String(event.kind)], ...tagEvent(event), ...parentRoomTags(event, url)],
+    })

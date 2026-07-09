@@ -12,10 +12,11 @@ import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05 } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, DELETE, makeEvent, sortEventsAsc, getTagValue, type TrustedEvent } from '@welshman/util'
+import { MESSAGE, DELETE, REACTION, makeEvent, sortEventsAsc, getTag, getTagValue, type TrustedEvent } from '@welshman/util'
+import { groupBy, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
-import { roomTags } from './interactions'
+import { roomTags, makeReaction, makeEventDelete } from './interactions'
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -65,6 +66,9 @@ const renderEmojiImg = (name: string, url: string | undefined): string | null =>
 }
 
 const roomFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
+
+/** kind-7-Reactions eines Raums (NIP-25) — tragen `#h` vom Parent (via makeReaction). */
+const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
 
 /** Vorangestelltes `nostr:nevent…`/`note…` einer Reply (unser Quote-Prefix). */
 const QUOTE_PREFIX = /^nostr:(?:nevent1|note1)[0-9a-z]+\n\n/
@@ -130,6 +134,62 @@ const fullTimeLabel = (ts: number): string =>
 /** Kompakte Vorschau der zitierten Nachricht (aufgelöst im selben Raum). */
 export type ReplyPreview = { id: string; name: string; text: string }
 
+/**
+ * Aggregierte Reaction (NIP-25) einer Nachricht: pro Emoji ein Chip mit Zähler und
+ * eigenem Toggle-Zustand. `emojiUrl` ist bei Custom-Emoji (NIP-30) das proxifizierte
+ * Inline-Bild, sonst ''. `content`/`emojiTag` bilden die Reaction beim Toggle
+ * originalgetreu nach; `mineId` ist die eigene kind-7 (für den Delete-Toggle).
+ */
+export type ReactionChip = {
+    key: string // Gruppierungsschlüssel (= content)
+    content: string // Reaction-Content ('+', '👍', ':shortcode:')
+    label: string // Anzeige für Unicode ('+'→👍, '-'→👎, sonst content)
+    emojiUrl: string // proxifiziertes Custom-Emoji-Bild (https) oder ''
+    emojiTag: string[] | null // ['emoji', shortcode, url] für den Toggle-Rebuild
+    count: number
+    mine: boolean // hat der eingeloggte User so reagiert?
+    mineId: string // id der eigenen kind-7 (leer, wenn nicht mine)
+}
+
+/** `:shortcode:` → Custom-Emoji-Name, sonst null. */
+const CUSTOM_EMOJI = /^:([a-z0-9_+-]+):$/i
+
+/** Unicode-Anzeige einer Standard-Reaction: '+'/leer = 👍, '-' = 👎, sonst wörtlich. */
+const reactionLabel = (content: string): string => {
+    if (content === '+' || content === '') {
+        return '👍'
+    }
+    if (content === '-') {
+        return '👎'
+    }
+    return content
+}
+
+/**
+ * Gruppiert die kind-7-Reactions einer Nachricht zu Chips: dedupliziert pro
+ * (Autor, Emoji), zählt, markiert die eigene Reaction. So macht es der Referenz-
+ * Client (`ReactionSummary`), nur ohne Zap/Report (eigene Phasen).
+ */
+const aggregateReactions = (reactions: TrustedEvent[], me: string | null | undefined): ReactionChip[] => {
+    const byKey = groupBy((r) => r.content, uniqBy((e) => `${e.pubkey}${e.content}`, reactions))
+    return [...byKey.entries()].map(([content, events]): ReactionChip => {
+        const custom = CUSTOM_EMOJI.exec(content)
+        const emojiTag = custom ? getTag('emoji', events[0].tags) : undefined
+        const emojiSrc = custom && emojiTag?.[2] && /^https:\/\//i.test(emojiTag[2]) ? emojiTag[2] : ''
+        const mineEvent = me ? events.find((e) => e.pubkey === me) : undefined
+        return {
+            key: content,
+            content,
+            label: reactionLabel(content),
+            emojiUrl: emojiSrc ? proxifyImage(emojiSrc, 'avatar') : '',
+            emojiTag: emojiTag ?? null,
+            count: events.length,
+            mine: Boolean(mineEvent),
+            mineId: mineEvent?.id ?? '',
+        }
+    })
+}
+
 export type ChatMessage = {
     id: string
     pubkey: string
@@ -145,6 +205,7 @@ export type ChatMessage = {
     showAuthor: boolean // erster Beitrag eines Autor-Blocks (Gruppierung)
     mine: boolean // vom eingeloggten User verfasst (→ löschbar, M5)
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), sonst null
+    reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
 }
 
 /** Last-Read-Timestamp pro Raum (localStorage, Single-Device — kein Nostr-Kind). */
@@ -175,7 +236,12 @@ const snippet = (text: string, max = 120): string => {
  * Event einmal geparst (Cache), Namen fließen reaktiv aus `profilesByPubkey`.
  */
 export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
-    derived([deriveRoomMessages(url, h), profilesByPubkey, pubkey, handlesByNip05], ([events, $profiles, $me, $handles]) => {
+    derived(
+        [deriveRoomMessages(url, h), profilesByPubkey, pubkey, handlesByNip05, deriveEventsForUrl(url, roomReactionFilter(h))],
+        ([events, $profiles, $me, $handles, $reactions]) => {
+        // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
+        // Reactions ohne `e`-Tag landen im ''-Bucket und werden nie abgerufen (event.id ≠ '').
+        const reactionsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions)
         // First-Paint-Seed: fehlende Autor-Profile vom geteilten Backend-Cache holen
         // (dedupliziert intern; welshman löst parallel live auf). Fire-and-forget.
         void warmProfiles(events.map((e) => e.pubkey))
@@ -225,14 +291,28 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 showAuthor,
                 mine,
                 reply,
+                reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me),
             }
         })
-    })
+    },
+    )
 
-/** Öffnet eine Live-Subscription für NEUE Room-Nachrichten (bleibt bis abort offen). */
+/**
+ * Öffnet eine Live-Subscription für NEUE Room-Events (bleibt bis abort offen):
+ * Nachrichten (kind 9), Reactions (kind 7) und Tombstones (kind 5) — alle `#h`.
+ * So erscheinen Fremd-Reactions und -Löschungen live, ohne separate Subscription.
+ */
 export const listenRoom = (url: string, h: string, signal: AbortSignal): void => {
-    void request({ relays: [url], signal, filters: roomFilter(h).map((f) => ({ ...f, limit: 0 })) })
+    void request({ relays: [url], signal, filters: [{ kinds: [MESSAGE, REACTION, DELETE], '#h': [h], limit: 0 }] })
 }
+
+/**
+ * Lädt die bestehenden Reactions (kind 7) + Tombstones (kind 5) eines Raums, damit
+ * bereits vorhandene Reaction-Chips beim ersten Öffnen sichtbar sind (die Live-Sub
+ * liefert nur NEUE Events). Kein `until`-Paging — Reactions sind pro Raum überschaubar.
+ */
+export const loadRoomReactions = (url: string, h: string): Promise<TrustedEvent[]> =>
+    load({ relays: [url], filters: [{ kinds: [REACTION, DELETE], '#h': [h] }] })
 
 /**
  * Lädt Room-Nachrichten vom Space-Relay: die jüngsten (initial) oder — mit
@@ -309,4 +389,35 @@ export const deleteRoomMessage = (url: string, h: string, id: string, createdAt:
                 tags: [['k', String(MESSAGE)], ['e', id], ...roomTags(h, url)],
             }),
         }),
+    )
+
+/**
+ * Reagiert auf eine Nachricht (kind 7, NIP-25). `content` = Unicode-Emoji bzw.
+ * `:shortcode:` für Custom-Emoji (NIP-30) mit `emojiTag` = `['emoji', code, url]`.
+ * Optimistisch (Thunk legt die kind-7 sofort ins Repository → Chip erscheint);
+ * bei Relay-Reject wird sie zurückgenommen. Gibt '' bei Erfolg, sonst den Fehler.
+ */
+export const sendReaction = async (
+    url: string,
+    target: TrustedEvent,
+    content: string,
+    emojiTag?: string[],
+): Promise<string> => {
+    const thunk = publishThunk({ relays: [url], event: makeReaction(target, content, url, emojiTag ? [emojiTag] : []) })
+    const err = await waitForThunkError(thunk)
+    if (err) {
+        repository.removeEvent(thunk.event.id)
+    }
+    return err ? mapRelayError(err) : ''
+}
+
+/**
+ * Nimmt die eigene Reaction zurück (kind 5 auf die eigene kind-7). Das Repository
+ * blendet die referenzierte Reaction sofort aus (Chip verschwindet). Gibt '' bei
+ * Erfolg, sonst den Fehler; bei Reject bleibt die Reaction bis zum Reload verdeckt
+ * (das Relay hat den Tombstone nie erhalten — wie beim Nachricht-Löschen).
+ */
+export const removeReaction = (url: string, reaction: TrustedEvent): Promise<string> =>
+    waitForThunkError(publishThunk({ relays: [url], event: makeEventDelete(reaction, url) })).then((err) =>
+        err ? mapRelayError(err) : '',
     )

@@ -80,11 +80,15 @@ import {
     deriveRoomChat,
     listenRoom,
     loadRoomMessages,
+    loadRoomReactions,
     sendRoomMessage,
     deleteRoomMessage,
+    sendReaction,
+    removeReaction,
     readRoomLastRead,
     writeRoomLastRead,
     type ChatMessage,
+    type ReactionChip,
 } from './feeds'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
 import { toast, flashToast } from './toast'
@@ -313,6 +317,8 @@ type RoomChatState = {
     clearReply(): void
     openMessageMenu(m: ChatMessage): void
     closeMessageMenu(): void
+    react(m: ChatMessage, content: string, emojiTag?: string[]): Promise<void>
+    toggleReaction(m: ChatMessage, r: ReactionChip): Promise<void>
     send(): Promise<void>
     askDelete(m: ChatMessage): void
     confirmDelete(): Promise<void>
@@ -878,6 +884,8 @@ export function registerNostrComponents(Alpine: {
                 this.joined = isMember
             })
             listenRoom(url, this.h, this._controller.signal)
+            // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
+            void loadRoomReactions(url, this.h)
             loadRoomMessages(url, this.h)
                 .catch(() => {
                     // Relay nicht erreichbar / AUTH-Reject: persistenter Inline-Callout
@@ -1033,6 +1041,40 @@ export function registerNostrComponents(Alpine: {
         closeMessageMenu() {
             dispatchModal('message-menu', false)
             this.menuFor = null
+        },
+        // Reagiert auf eine Nachricht (kind 7). `content` = Unicode-Emoji bzw.
+        // `:shortcode:` (+ `emojiTag` für Custom-Emoji, NIP-30). Optimistisch: die
+        // kind-7 landet sofort im Repository → Chip erscheint via deriveRoomChat.
+        async react(m: ChatMessage, content: string, emojiTag?: string[]) {
+            this.activeId = null
+            this.closeMessageMenu()
+            const target = m ? repository.getEvent(m.id) : undefined
+            if (!target || !this._url) {
+                return
+            }
+            const err = await sendReaction(this._url, target, content, emojiTag)
+            if (err) {
+                toast(err)
+            }
+        },
+        // Chip-Klick: eigene Reaction zurücknehmen (kind 5 auf die eigene kind-7),
+        // sonst mit demselben Emoji reagieren (Custom-Emoji originalgetreu nachbauen).
+        async toggleReaction(m: ChatMessage, r: ReactionChip) {
+            if (!this._url) {
+                return
+            }
+            if (r.mine) {
+                const reaction = repository.getEvent(r.mineId)
+                if (!reaction) {
+                    return
+                }
+                const err = await removeReaction(this._url, reaction)
+                if (err) {
+                    toast(err)
+                }
+            } else {
+                await this.react(m, r.content, r.emojiTag ?? undefined)
+            }
         },
         // Nachricht senden (kind 9). Optimistisch: die Live-Sub echot sofort.
         // Fehler (Relay-Reject/AUTH) landen als Toast; der Text kehrt zurück.
