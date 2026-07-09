@@ -149,6 +149,7 @@ export type ReactionChip = {
     count: number
     mine: boolean // hat der eingeloggte User so reagiert?
     mineId: string // id der eigenen kind-7 (leer, wenn nicht mine)
+    names: string // Nostr-Namen der Reagierenden (kommagetrennt) → Chip-Tooltip
 }
 
 /** `:shortcode:` → Custom-Emoji-Name, sonst null. */
@@ -170,7 +171,11 @@ const reactionLabel = (content: string): string => {
  * (Autor, Emoji), zählt, markiert die eigene Reaction. So macht es der Referenz-
  * Client (`ReactionSummary`), nur ohne Zap/Report (eigene Phasen).
  */
-const aggregateReactions = (reactions: TrustedEvent[], me: string | null | undefined): ReactionChip[] => {
+const aggregateReactions = (
+    reactions: TrustedEvent[],
+    me: string | null | undefined,
+    nameOf: (pubkey: string) => string,
+): ReactionChip[] => {
     const byKey = groupBy((r) => r.content, uniqBy((e) => `${e.pubkey}${e.content}`, reactions))
     return [...byKey.entries()].map(([content, events]): ReactionChip => {
         const custom = CUSTOM_EMOJI.exec(content)
@@ -186,6 +191,7 @@ const aggregateReactions = (reactions: TrustedEvent[], me: string | null | undef
             count: events.length,
             mine: Boolean(mineEvent),
             mineId: mineEvent?.id ?? '',
+            names: events.map((e) => nameOf(e.pubkey)).join(', '),
         }
     })
 }
@@ -291,7 +297,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 showAuthor,
                 mine,
                 reply,
-                reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me),
+                reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me, nameOf),
             }
         })
     },

@@ -92,6 +92,16 @@ import {
     type ReactionChip,
 } from './feeds'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
+import {
+    loadEmojiGroups,
+    loadUserCustomEmojis,
+    loadRecentEmojis,
+    pushRecentEmoji,
+    searchEmojis,
+    type CustomEmoji,
+    type StdEmoji,
+    type RecentEmoji,
+} from './emoji'
 import { toast, flashToast } from './toast'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
@@ -322,7 +332,7 @@ type RoomChatState = {
     clearReply(): void
     openMessageMenu(m: ChatMessage): void
     closeMessageMenu(): void
-    react(m: ChatMessage, content: string, emojiTag?: string[]): Promise<void>
+    react(m: ChatMessage, content: string, emojiTag?: string[], label?: string): Promise<void>
     toggleReaction(m: ChatMessage, r: ReactionChip): Promise<void>
     send(): Promise<void>
     askDelete(m: ChatMessage): void
@@ -897,6 +907,10 @@ export function registerNostrComponents(Alpine: {
             listenRoom(url, this.h, this._controller.signal)
             // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
             void loadRoomReactions(url, this.h)
+            // Custom-Emoji (NIP-30) des eigenen Profils vorwärmen, solange die
+            // Relay-Verbindung frisch AUTH'd ist — beim späteren Picker-Öffnen
+            // würde ein one-shot-Load gegen den member-only Relay sonst hängen.
+            void loadUserCustomEmojis()
             loadRoomMessages(url, this.h)
                 .catch(() => {
                     // Relay nicht erreichbar / AUTH-Reject: persistenter Inline-Callout
@@ -1056,13 +1070,20 @@ export function registerNostrComponents(Alpine: {
         // Reagiert auf eine Nachricht (kind 7). `content` = Unicode-Emoji bzw.
         // `:shortcode:` (+ `emojiTag` für Custom-Emoji, NIP-30). Optimistisch: die
         // kind-7 landet sofort im Repository → Chip erscheint via deriveRoomChat.
-        async react(m: ChatMessage, content: string, emojiTag?: string[]) {
+        async react(m: ChatMessage, content: string, emojiTag?: string[], label?: string) {
             this.activeId = null
             this.closeMessageMenu()
             const target = m ? repository.getEvent(m.id) : undefined
             if (!target || !this._url) {
                 return
             }
+            // MRU vormerken (Nutzung, nicht Relay-Erfolg) → nächstes Öffnen zeigt es
+            // in der „Zuletzt benutzt"-Reihe. Custom trägt rohe url + proxifiziertes Bild.
+            pushRecentEmoji(
+                emojiTag
+                    ? { custom: true, shortcode: emojiTag[1], url: emojiTag[2], src: proxifyImage(emojiTag[2], 'avatar') }
+                    : { u: content, label: label ?? content },
+            )
             const err = await sendReaction(this._url, target, content, emojiTag)
             if (err) {
                 toast(err)
@@ -1084,7 +1105,7 @@ export function registerNostrComponents(Alpine: {
                     toast(err)
                 }
             } else {
-                await this.react(m, r.content, r.emojiTag ?? undefined)
+                await this.react(m, r.content, r.emojiTag ?? undefined, r.label)
             }
         },
         // Nachricht senden (kind 9). Optimistisch: die Live-Sub echot sofort.
@@ -1572,6 +1593,144 @@ export function registerNostrComponents(Alpine: {
         },
         destroy() {
             this._unsub?.()
+        },
+    }))
+
+    // C1-Emoji-Picker: das volle Standard-Set (emojibase, lazy) + ein erster Tab
+    // mit den Custom-Emoji (NIP-30) DEINES Profils. Die schweren Emoji-Listen
+    // liegen als Closure-Variablen (NICHT im Alpine-Proxy) — sonst würde jedes
+    // Öffnen ~1900 Objekte reaktiv wrappen. Reaktiv sind nur `search`/`activeTab`
+    // und die wenigen Tab-Metadaten; `results` liest daraus + den rohen Listen.
+    // `react(m, …)` kommt per Scope-Chain von der `nostrRoomChat`-Insel.
+    type PickerEmoji = (StdEmoji & { custom?: false }) | (CustomEmoji & { custom: true })
+    type EmojiPickerState = {
+        ready: boolean
+        search: string
+        activeTab: string
+        tabs: { key: string; name: string; icon: string; custom: boolean }[]
+        recent: RecentEmoji[]
+        customReady: CustomEmoji[]
+        customTotal: number
+        init(): Promise<void>
+        rebuildTabs(): void
+        preloadCustom(): void
+        readonly results: PickerEmoji[]
+    }
+    Alpine.data('emojiPicker', (): EmojiPickerState => {
+        let groups: Awaited<ReturnType<typeof loadEmojiGroups>> = []
+        let custom: CustomEmoji[] = []
+        return {
+            ready: false,
+            search: '',
+            activeTab: '',
+            tabs: [],
+            // „Zuletzt benutzt"-Reihe (MRU) — beim Öffnen aus localStorage; leer,
+            // solange noch nichts benutzt wurde (dann keine Reihe).
+            recent: loadRecentEmojis().slice(0, 8),
+            // Custom-Emoji (NIP-30), deren Bild FERTIG geladen ist — nur diese kommen
+            // ins Grid, progressiv (Reihenfolge = Ladereihenfolge). So sieht man nie
+            // plumpe Shortcode-Alt-Texte, sondern eine sich aufbauende Bilderliste.
+            customReady: [],
+            // Erwartete Custom-Emoji-Zahl (für „lädt noch" vs. „wirklich keine").
+            customTotal: 0,
+            async init() {
+                // Standard-Set zuerst (lokale JSON) → Grid sofort nutzbar. Die
+                // Custom-Emoji (NIP-30) ziehen entkoppelt nach: ein hängender/leerer
+                // Relay-Load (member-only AUTH) darf das Grid NIE blockieren. Der
+                // Load ist beim Raum-Init vorgewärmt (loadUserCustomEmojis) → hier
+                // i.d.R. ein Cache-Treffer, kein zweiter Relay-Roundtrip.
+                groups = await loadEmojiGroups()
+                this.rebuildTabs()
+                this.ready = true
+                void loadUserCustomEmojis().then((c) => {
+                    custom = c
+                    this.customTotal = c.length
+                    this.rebuildTabs()
+                    this.preloadCustom()
+                })
+            },
+            // Jedes Custom-Bild vorladen; erst bei `onload` ans Grid anhängen (fehlende
+            // Bilder werden nie gezeigt). Die Reihenfolge ist bewusst egal.
+            preloadCustom() {
+                this.customReady = []
+                for (const emoji of custom) {
+                    const img = new Image()
+                    img.onload = () => this.customReady.push(emoji)
+                    img.src = emoji.src
+                }
+            },
+            // Tab-Leiste (neu) bauen: „Deine Emojis" (NIP-30) zuerst, dann die
+            // Standard-Kategorien. Aktiven Tab behalten, solange er noch existiert.
+            rebuildTabs() {
+                this.tabs = [
+                    ...(custom.length ? [{ key: 'custom', name: 'Deine Emojis', icon: '⚡', custom: true }] : []),
+                    ...groups.map((g) => ({ key: g.key, name: g.name, icon: g.icon, custom: false })),
+                ]
+                if (!this.activeTab || !this.tabs.some((t) => t.key === this.activeTab)) {
+                    this.activeTab = this.tabs[0]?.key ?? ''
+                }
+            },
+            // Sichtbares Emoji-Segment: Suchtreffer, sonst der aktive Tab.
+            get results() {
+                if (!this.ready) {
+                    return []
+                }
+                if (this.search.trim()) {
+                    return searchEmojis(this.search, groups, this.customReady)
+                }
+                if (this.activeTab === 'custom') {
+                    return this.customReady.map((c) => ({ ...c, custom: true as const }))
+                }
+                return groups.find((g) => g.key === this.activeTab)?.emojis ?? []
+            },
+        }
+    })
+
+    // Web-Popover für das Emoji-Panel: teleportiert ans <body> (kein Clipping im
+    // Chat-Scroll-Container) und `fixed` mit Flip positioniert, damit das große
+    // Panel nie aus dem Viewport ragt — öffnet nach oben, sonst nach unten. Der
+    // Inhalt hängt an `x-if="open"` → nur die eine offene Instanz mountet den
+    // schweren emojiPicker (kein DOM-Bloat über N Nachrichtenzeilen).
+    type ReactionPopoverState = {
+        open: boolean
+        panelStyle: string
+        toggle(): void
+        reposition(): void
+        closeUnless(event: Event): void
+    }
+    Alpine.data('reactionPopover', (): ReactionPopoverState => ({
+        open: false,
+        panelStyle: '',
+        toggle() {
+            this.open = !this.open
+            if (this.open) {
+                ;(this as unknown as AlpineMagics).$nextTick(() => this.reposition())
+            }
+        },
+        reposition() {
+            const refs = (this as unknown as AlpineMagics).$refs
+            const trigger = refs.trigger
+            const panel = refs.panel
+            if (!trigger || !panel) {
+                return
+            }
+            const t = trigger.getBoundingClientRect()
+            const pw = panel.offsetWidth
+            const ph = panel.offsetHeight
+            const pad = 8
+            const gap = 6
+            const left = Math.min(Math.max(pad, t.right - pw), window.innerWidth - pw - pad)
+            let top = t.top - ph - gap
+            if (top < pad) {
+                top = Math.min(t.bottom + gap, window.innerHeight - ph - pad)
+            }
+            this.panelStyle = `left:${Math.round(left)}px;top:${Math.round(Math.max(pad, top))}px`
+        },
+        closeUnless(event: Event) {
+            const trigger = (this as unknown as AlpineMagics).$refs.trigger
+            if (!trigger?.contains(event.target as Node)) {
+                this.open = false
+            }
         },
     }))
 }

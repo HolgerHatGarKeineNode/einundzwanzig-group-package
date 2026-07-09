@@ -139,7 +139,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     {{-- Zeile: Tap blendet die Aktionen ein/aus (Touch); :title = volles Datum. --}}
                     <div :id="'msg-'+m.id" :title="m.fullTime"
                          x-on:click="activeId = (activeId===m.id ? null : m.id)"
-                         class="group flex gap-2 rounded-card px-1 transition-shadow"
+                         class="group relative flex gap-2 rounded-card px-1 transition-shadow"
                          :class="[m.showAuthor ? 'mt-2.5' : '', flashId===m.id ? 'ring-2 ring-brand-500/70' : '']">
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
@@ -179,37 +179,54 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <template x-if="m.reactions.length">
                                 <div class="mt-1 flex flex-wrap gap-1">
                                     <template x-for="r in m.reactions" :key="r.key">
+                                        {{-- Pills homogen: feste Höhe + Mindestbreite, Emoji/Bild auf
+                                             identische Größe normiert (das Inline-`chat-emoji` wäre sonst
+                                             1.4em → höhere Pill als ein Unicode-Emoji). --}}
                                         <button type="button" x-on:click.stop="toggleReaction(m, r)" :aria-pressed="r.mine"
-                                                class="pressable inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none"
+                                                :title="r.names"
+                                                class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
                                                 :class="r.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
-                                            <template x-if="r.emojiUrl"><img class="chat-emoji" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
+                                            <template x-if="r.emojiUrl"><img class="chat-emoji !size-4 shrink-0 object-contain" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
                                             <template x-if="!r.emojiUrl"><span x-text="r.label"></span></template>
-                                            <span x-show="r.count > 1" x-text="r.count" class="font-mono"></span>
+                                            <span x-show="r.count > 1" x-text="r.count" class="font-mono text-xs"></span>
                                         </button>
                                     </template>
                                 </div>
                             </template>
                         </div>
-                        {{-- Aktionen: bei Hover (Desktop) oder aktivem Tap (Touch). --}}
-                        <div class="pointer-events-none flex shrink-0 items-start gap-0.5 self-start opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
+                        {{-- Aktionen: schwebende Toolbar oben rechts (bei Hover/aktivem Tap).
+                             `absolute` → nimmt KEINEN Layout-Platz, der Text behält die volle
+                             Breite (früher drückte die Leiste ihn auf Mobile schmal). Opaker
+                             surface-Hintergrund, damit sie über langem Text lesbar bleibt. --}}
+                        <div class="surface-card pointer-events-none absolute right-1 top-0.5 z-10 flex items-center gap-0.5 rounded-full px-0.5 shadow-md opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
                              :class="activeId===m.id && '!pointer-events-auto !opacity-100'">
                             <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" class="icon-btn-touch"
                                          x-on:click.stop="setReply(m)" aria-label="Antworten" />
                             <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
                                          x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
                                          aria-label="Nachricht löschen" />
-                            {{-- Reaktions-Picker (C1, Web): Standard-Set als Alpine-Popover (flux:menu
-                                 rendert nur menu.item-Kinder → eigene, kontrollierte Auswahl). Native
-                                 App reagiert über das „…"-Modal (message-menu). --}}
+                            {{-- Reaktions-Picker (C1, Web): volles Emoji-Panel. Teleportiert ans
+                                 <body> (sonst würde der Chat-Scroll-Container es abschneiden) und
+                                 `fixed` mit Flip positioniert (reactionPopover) → nie aus dem Viewport.
+                                 `x-if="open"` mountet den Picker erst beim Öffnen. App: „…"-Modal. --}}
                             <template x-if="!isMobile">
-                                <div class="relative" x-data="{ open: false }" x-on:click.stop
-                                     x-on:keydown.escape.window="open = false">
-                                    <flux:button size="xs" variant="ghost" icon="face-smile"
-                                                 class="icon-btn-touch" x-on:click="open = !open" aria-label="Reagieren" />
-                                    <div x-show="open" x-cloak x-transition x-on:click.outside="open = false"
-                                         class="surface-card absolute bottom-full right-0 z-20 mb-1 flex gap-0.5 rounded-card p-1 shadow-lg">
-                                        <x-group::reaction-picker message="m" onpick="open = false" />
-                                    </div>
+                                <div x-data="reactionPopover()" x-on:click.stop>
+                                    <flux:button x-ref="trigger" size="xs" variant="ghost" icon="face-smile"
+                                                 class="icon-btn-touch" x-on:click="toggle()" aria-label="Reagieren" />
+                                    {{-- x-if (lazy-mount) + x-teleport getrennt verschachteln — beides
+                                         auf EINEM template teleportiert bei jedem Tick neu (Leak). --}}
+                                    <template x-if="open">
+                                        <div>
+                                            <template x-teleport="body">
+                                                <div x-ref="panel" x-transition.opacity :style="panelStyle"
+                                                     x-on:click.outside="closeUnless($event)"
+                                                     x-on:keydown.escape.window="open = false"
+                                                     class="surface-card fixed z-50 rounded-card p-2 shadow-xl">
+                                                    <x-group::emoji-picker message="m" onpick="open = false" />
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
                                 </div>
                             </template>
                             {{-- „…"-Menü = gemeinsamer Andockpunkt für alle weiteren Aktionen (C1–C4).
@@ -347,9 +364,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
     <flux:modal name="message-menu" class="max-w-sm">
         <div class="flex flex-col gap-1">
             <flux:heading size="sm" class="mb-1">Nachricht</flux:heading>
-            {{-- Reaktions-Picker (C1, native App): Standard-Set als Emoji-Reihe. --}}
-            <div class="mb-1 flex gap-1">
-                <x-group::reaction-picker message="menuFor" class="px-2 py-1.5 text-xl" />
+            {{-- Reaktions-Picker (C1, native App): volles Emoji-Panel. react() schließt
+                 das Modal selbst (closeMessageMenu) → kein onpick nötig. --}}
+            <div class="mb-1">
+                <x-group::emoji-picker message="menuFor" />
             </div>
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
                          x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">Antworten</flux:button>
