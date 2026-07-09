@@ -4,7 +4,7 @@
  * Reaction/Delete/Poll). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { DELETE, REACTION, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
+import { DELETE, REACTION, REPORT, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
 import { getRelay, tagEvent, tagEventForReaction } from '@welshman/app'
 import { hasNip70 } from './relayCaps'
 
@@ -64,4 +64,16 @@ export const makeEventDelete = (event: TrustedEvent, url: string) =>
     makeEvent(DELETE, {
         created_at: Math.max(Math.floor(Date.now() / 1000), event.created_at + 1),
         tags: [['k', String(event.kind)], ...tagEvent(event), ...parentRoomTags(event, url)],
+    })
+
+/**
+ * NIP-56-Meldung (kind 1984) einer fremden Nachricht. `reason` ist der NIP-56-
+ * Maschinencode (spam/illegal/…) am `["e", id, reason]`, `content` der optionale
+ * Freitext. KEIN `h`/PROTECTED — die Meldung ist keine Group-Message, sondern geht
+ * als reguläres Event ans Relay (zooid nimmt sie vom zugelassenen Member an).
+ */
+export const makeReport = (event: Pick<TrustedEvent, 'id' | 'pubkey'>, reason: string, content: string) =>
+    makeEvent(REPORT, {
+        content,
+        tags: [['p', event.pubkey], ['e', event.id, reason]],
     })

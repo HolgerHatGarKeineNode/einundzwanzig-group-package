@@ -16,7 +16,7 @@ import { MESSAGE, DELETE, REACTION, makeEvent, sortEventsAsc, getTag, getTagValu
 import { groupBy, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
-import { roomTags, makeReaction, makeEventDelete } from './interactions'
+import { roomTags, makeReaction, makeEventDelete, makeReport } from './interactions'
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -419,5 +419,20 @@ export const sendReaction = async (
  */
 export const removeReaction = (url: string, reaction: TrustedEvent): Promise<string> =>
     waitForThunkError(publishThunk({ relays: [url], event: makeEventDelete(reaction, url) })).then((err) =>
+        err ? mapRelayError(err) : '',
+    )
+
+/**
+ * Meldet eine fremde Nachricht (kind 1984, NIP-56). `reason` = NIP-56-Code,
+ * `content` = optionaler Freitext. Publiziert ans Space-Relay (AUTH automatisch);
+ * gibt '' bei Erfolg, sonst die übersetzte Relay-Fehlermeldung.
+ */
+export const sendReport = (
+    url: string,
+    target: Pick<TrustedEvent, 'id' | 'pubkey'>,
+    reason: string,
+    content: string,
+): Promise<string> =>
+    waitForThunkError(publishThunk({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
         err ? mapRelayError(err) : '',
     )

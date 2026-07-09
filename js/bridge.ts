@@ -85,6 +85,7 @@ import {
     deleteRoomMessage,
     sendReaction,
     removeReaction,
+    sendReport,
     readRoomLastRead,
     writeRoomLastRead,
     type ChatMessage,
@@ -293,6 +294,10 @@ type RoomChatState = {
     lightboxSrc: string | null // Vollbild eines angeklickten Inline-Bilds (Proxy `full`)
     deleting: boolean
     pendingDelete: { id: string; createdAt: number } | null
+    reportFor: ChatMessage | null // Zielnachricht des offenen Melde-Modals
+    reportReason: string // gewählter NIP-56-Grund (spam/illegal/…)
+    reportText: string // optionaler Freitext zur Meldung
+    reporting: boolean
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
     _url: string | null
@@ -323,6 +328,8 @@ type RoomChatState = {
     askDelete(m: ChatMessage): void
     confirmDelete(): Promise<void>
     remove(id: string, createdAt: number): Promise<void>
+    askReport(m: ChatMessage): void
+    confirmReport(): Promise<void>
     join(): Promise<void>
     leave(): Promise<void>
     destroy(): void
@@ -840,6 +847,10 @@ export function registerNostrComponents(Alpine: {
         lightboxSrc: null,
         deleting: false,
         pendingDelete: null,
+        reportFor: null,
+        reportReason: 'spam',
+        reportText: '',
+        reporting: false,
         isMobile,
         menuFor: null,
         _url: null,
@@ -1142,6 +1153,35 @@ export function registerNostrComponents(Alpine: {
                 }
             } finally {
                 this.deleting = false
+            }
+        },
+        // Melden anfragen: Zielnachricht merken, Grund auf Default, Freitext leeren,
+        // Melde-Modal öffnen. Wird vom Menü aufgerufen (Web-Popover / native Modal).
+        askReport(m: ChatMessage) {
+            this.activeId = null
+            this.reportFor = m
+            this.reportReason = 'spam'
+            this.reportText = ''
+            dispatchModal('report-message')
+        },
+        // Bestätigt melden: kind-1984 publishen (Busy verhindert Doppel-Klick), Modal
+        // zu. makeReport braucht nur id + pubkey — beide liegen auf m (kein Repository-Lookup).
+        async confirmReport() {
+            const m = this.reportFor
+            if (!m || !this._url || this.reporting) {
+                return
+            }
+            this.reporting = true
+            try {
+                const err = await sendReport(this._url, m, this.reportReason, this.reportText.trim())
+                if (err) {
+                    toast(err)
+                } else {
+                    dispatchModal('report-message', false)
+                    this.reportFor = null
+                }
+            } finally {
+                this.reporting = false
             }
         },
         // Beitreten (kind 9021). Round-trip: `joined` flippt, sobald die vom Relay
