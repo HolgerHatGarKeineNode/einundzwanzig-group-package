@@ -221,9 +221,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      class="icon-btn-touch" aria-label="Weitere Aktionen" />
                                         <flux:menu>
                                             <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">Antworten</flux:menu.item>
-                                            {{-- Melden: fremde Nachrichten (NIP-56 kind 1984). --}}
+                                            {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984). --}}
                                             <template x-if="!m.mine">
-                                                <flux:menu.item icon="flag" x-on:click="askReport(m)">Melden</flux:menu.item>
+                                                <flux:menu.item icon="flag" x-on:click="askReport(m)">Fork off!</flux:menu.item>
                                             </template>
                                             {{-- Löschen: nur eigene Nachrichten (NIP-09 kind 5). --}}
                                             <template x-if="m.mine">
@@ -321,15 +321,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </flux:modal>
 
-    {{-- Melden (NIP-56 kind 1984): Grund-Auswahl + optionaler Freitext. Geht ohne
+    {{-- Fork off! (NIP-56 kind 1984): Grund-Auswahl + optionaler Freitext. Geht ohne
          `h`/PROTECTED ans Relay (keine Group-Message). --}}
     <flux:modal name="report-message" class="max-w-sm">
         <div class="space-y-4">
-            <flux:heading size="lg">Nachricht melden</flux:heading>
+            <flux:heading size="lg">Fork off! 🍴</flux:heading>
             <flux:select x-model="reportReason" label="Grund">
                 <flux:select.option value="spam">Spam</flux:select.option>
-                <flux:select.option value="illegal">Illegal</flux:select.option>
-                <flux:select.option value="nudity">Nacktheit</flux:select.option>
                 <flux:select.option value="profanity">Beleidigung</flux:select.option>
                 <flux:select.option value="impersonation">Identitätsdiebstahl</flux:select.option>
                 <flux:select.option value="other">Sonstiges</flux:select.option>
@@ -338,7 +336,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                            placeholder="Was ist mit dieser Nachricht?" />
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
-                <flux:button variant="danger" x-on:click="confirmReport()" ::disabled="reporting">Melden</flux:button>
+                <flux:button variant="danger" x-on:click="confirmReport()" ::disabled="reporting">Fork off!</flux:button>
             </div>
         </div>
     </flux:modal>
@@ -355,10 +353,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
                          x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">Antworten</flux:button>
-            {{-- Melden (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
-                 dann schließt das Menü-Modal (öffnet Melde- bzw. Löschen-Bestätigung). --}}
+            {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
+                 dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}
             <flux:button variant="ghost" icon="flag" class="w-full justify-start" x-show="!menuFor?.mine" x-cloak
-                         x-on:click="if (menuFor) { askReport(menuFor); closeMessageMenu() }">Melden</flux:button>
+                         x-on:click="if (menuFor) { askReport(menuFor); closeMessageMenu() }">Fork off!</flux:button>
             <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askDelete(menuFor); closeMessageMenu() }">Löschen</flux:button>
             {{-- C4: Kopieren/Info --}}

@@ -67,10 +67,10 @@ export const makeEventDelete = (event: TrustedEvent, url: string) =>
     })
 
 /**
- * NIP-56-Meldung (kind 1984) einer fremden Nachricht. `reason` ist der NIP-56-
- * Maschinencode (spam/illegal/…) am `["e", id, reason]`, `content` der optionale
- * Freitext. KEIN `h`/PROTECTED — die Meldung ist keine Group-Message, sondern geht
- * als reguläres Event ans Relay (zooid nimmt sie vom zugelassenen Member an).
+ * „Fork off!" — NIP-56-Report (kind 1984) einer fremden Nachricht. `reason` ist der
+ * NIP-56-Maschinencode (spam/profanity/impersonation/other) am `["e", id, reason]`, `content` der optionale
+ * Freitext. KEIN `h`/PROTECTED — der Report ist keine Group-Message, sondern geht
+ * als reguläres Event ans Relay (zooid nimmt ihn vom zugelassenen Member an).
  */
 export const makeReport = (event: Pick<TrustedEvent, 'id' | 'pubkey'>, reason: string, content: string) =>
     makeEvent(REPORT, {

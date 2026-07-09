@@ -295,8 +295,8 @@ type RoomChatState = {
     deleting: boolean
     pendingDelete: { id: string; createdAt: number } | null
     reportFor: ChatMessage | null // Zielnachricht des offenen Melde-Modals
-    reportReason: string // gewählter NIP-56-Grund (spam/illegal/…)
-    reportText: string // optionaler Freitext zur Meldung
+    reportReason: string // gewählter NIP-56-Grund (spam/profanity/impersonation/other)
+    reportText: string // optionaler Freitext fürs „Fork off!"
     reporting: boolean
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
@@ -1042,7 +1042,7 @@ export function registerNostrComponents(Alpine: {
             this.replyTo = null
         },
         // Interaktions-Menü öffnen (native App: Vollbild-Modal). Merkt die
-        // Zielnachricht; die Einträge (Antworten … Reaktion/Löschen/Melden folgen
+        // Zielnachricht; die Einträge (Antworten … Reaktion/Löschen/Fork off! folgen
         // mit C1+) lesen `menuFor`. Web nutzt stattdessen das Zeilen-Popover.
         openMessageMenu(m: ChatMessage) {
             this.activeId = null
@@ -1155,8 +1155,8 @@ export function registerNostrComponents(Alpine: {
                 this.deleting = false
             }
         },
-        // Melden anfragen: Zielnachricht merken, Grund auf Default, Freitext leeren,
-        // Melde-Modal öffnen. Wird vom Menü aufgerufen (Web-Popover / native Modal).
+        // Fork off! anfragen: Zielnachricht merken, Grund auf Default, Freitext leeren,
+        // Fork-off!-Modal öffnen. Wird vom Menü aufgerufen (Web-Popover / native Modal).
         askReport(m: ChatMessage) {
             this.activeId = null
             this.reportFor = m
@@ -1164,7 +1164,7 @@ export function registerNostrComponents(Alpine: {
             this.reportText = ''
             dispatchModal('report-message')
         },
-        // Bestätigt melden: kind-1984 publishen (Busy verhindert Doppel-Klick), Modal
+        // Bestätigt „Fork off!": kind-1984 publishen (Busy verhindert Doppel-Klick), Modal
         // zu. makeReport braucht nur id + pubkey — beide liegen auf m (kein Repository-Lookup).
         async confirmReport() {
             const m = this.reportFor
