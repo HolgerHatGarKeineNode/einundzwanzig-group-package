@@ -99,7 +99,8 @@ export async function loginWithBunker(bunkerUri: string): Promise<void> {
 /**
  * NIP-46-Berechtigungen, die der Remote-Signer (Amber) beim Verbinden gewährt —
  * begrenzt auf unseren Verein-Kern-Scope: nip44 (verschlüsselte Listen), Chat
- * (kind 9), Löschen (5), Space/Room-Liste (10009), AUTH (22242), Room-Join (9021).
+ * (kind 9), Löschen (5), Space/Room-Liste (10009), AUTH (22242), Room-Join (9021),
+ * Zap-Request (9734, ZAPS.md Z1 — sonst können Amber/Bunker-User nicht zappen).
  */
 const NIP46_PERMS = [
     'nip44_encrypt',
@@ -109,6 +110,7 @@ const NIP46_PERMS = [
     'sign_event:10009',
     'sign_event:22242',
     'sign_event:9021',
+    'sign_event:9734',
 ].join(',')
 
 /**

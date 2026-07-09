@@ -98,7 +98,12 @@ export const SIGNER_RELAYS = relayOverride?.signer ?? [
     'wss://nos.lol/',
 ]
 
-appContext.dufflepudUrl = 'https://dufflepud.coracle.social'
+// ZAPS.md Z1 — kein dufflepud-Proxy (Auftraggeber-Entscheidung 2026-07-10): leer
+// ⇒ welshman holt LNURL-Zapper- (NIP-57) und NIP-05-Handle-Infos DIREKT aus dem
+// Browser (Fallback-Zweig in `zappers.js`/`handles.js`). Trade-off: die Empfänger-
+// lud16-Domain sieht die IP des Zappers; bewusst akzeptiert (keine eigene Proxy-
+// Infra). Proxy nachrüsten = diese eine Zeile auf eine URL setzen.
+appContext.dufflepudUrl = ''
 routerContext.getIndexerRelays = always(INDEXER_RELAYS)
 routerContext.getDefaultRelays = always(DEFAULT_RELAYS)
 netContext.isEventValid = (event: TrustedEvent, _url: string) => verifyEvent(event)
