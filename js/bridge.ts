@@ -1170,11 +1170,13 @@ export function registerNostrComponents(Alpine: {
             this.setReply(m) // setzt Zitat-Kontext + Fokus (activeId=null, sharing=false)
             this.sharing = true // danach: Quote-Only-Modus (Body darf leer bleiben)
         },
-        // Bearbeitbar? Eigene Nachricht und höchstens 5 Minuten alt (wie der Referenz-
-        // Client). Zeit ist nicht reaktiv — im Menü bei jedem Öffnen frisch ausgewertet.
+        // Bearbeitbar? Eigene Nachricht und höchstens 30 Minuten alt. Technisch ginge es
+        // dank Single-Space-Relay jederzeit; die Grenze ist eine bewusste UX-Konvention
+        // (kein stilles Umschreiben alter History) — vom Referenz-5-min auf 30 min angehoben
+        // (Auftraggeber). Zeit ist nicht reaktiv — im Menü bei jedem Öffnen frisch ausgewertet.
         // Polls (kind 1068) NICHT: der Edit-Pfad republisht als kind-9 und zerstörte die Umfrage.
         canEdit(m: ChatMessage): boolean {
-            return m.mine && !m.poll && m.created_at >= Math.floor(Date.now() / 1000) - 300
+            return m.mine && !m.poll && m.created_at >= Math.floor(Date.now() / 1000) - 1800
         },
         // Bearbeiten starten: Composer mit dem Klartext (ohne Zitat-Präfix) vorbefüllen,
         // Reply/Share verwerfen. Guard gegen zu alte Nachrichten (Menü zeigt es zwar nur
