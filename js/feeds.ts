@@ -16,7 +16,7 @@ import { MESSAGE, DELETE, REACTION, makeEvent, sortEventsAsc, getTag, getTagValu
 import { groupBy, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
-import { roomTags, makeReaction, makeEventDelete, makeReport } from './interactions'
+import { roomTags, makeReaction, makeEventDelete, makeReport, mentionPubkeys } from './interactions'
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -86,6 +86,13 @@ export const bodyWithoutQuote = (event: TrustedEvent): string =>
  * Bei Replies wird das vorangestellte `nostr:nevent…` entfernt (trimParent) —
  * das Zitat zeigt stattdessen die kompakte Vorschau (siehe `deriveRoomChat`).
  */
+const renderMentionSpan = (pubkey: string): string => {
+    const span = document.createElement('span')
+    span.className = 'mention'
+    span.textContent = `@${displayProfileByPubkey(pubkey)}`
+    return span.outerHTML
+}
+
 const htmlCache = new Map<string, string>()
 const renderMessageHtml = (event: TrustedEvent): string => {
     let html = htmlCache.get(event.id)
@@ -94,6 +101,9 @@ const renderMessageHtml = (event: TrustedEvent): string => {
         // (`renderEmoji` ist NICHT als Option überschreibbar) — darum Emoji-Nodes
         // mit https-URL selbst zu Inline-<img> rendern, alle anderen Nodes an
         // welshman geben (Text-Escaping, Links über den Proxy, Newlines).
+        // Profil-Mentions (NIP-27) rendert welshman als gekürztes `nprofile…` —
+        // wir lösen sie stattdessen zu `@Name` auf (displayProfileByPubkey).
+        let hasMention = false
         html = parse({ content: bodyWithoutQuote(event), tags: event.tags })
             .map((node) => {
                 if (node.type === ParsedType.Emoji) {
@@ -102,10 +112,19 @@ const renderMessageHtml = (event: TrustedEvent): string => {
                         return img
                     }
                 }
+                if (node.type === ParsedType.Profile) {
+                    hasMention = true
+                    return renderMentionSpan(node.value.pubkey)
+                }
                 return renderAsHtml([node], { renderLink: renderMessageLink }).toString()
             })
             .join('')
-        htmlCache.set(event.id, html)
+        // Nur Mention-freie Nachrichten cachen: der Name eines Mentions lädt async
+        // nach (Profil kommt später) → ein gecachtes `@npub…`-Fallback bliebe für
+        // immer eingefroren. Ohne Mention ist die HTML statisch (Cache lohnt sich).
+        if (!hasMention) {
+            htmlCache.set(event.id, html)
+        }
     }
     return html
 }
@@ -248,9 +267,11 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
         // Reactions ohne `e`-Tag landen im ''-Bucket und werden nie abgerufen (event.id ≠ '').
         const reactionsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions)
-        // First-Paint-Seed: fehlende Autor-Profile vom geteilten Backend-Cache holen
-        // (dedupliziert intern; welshman löst parallel live auf). Fire-and-forget.
-        void warmProfiles(events.map((e) => e.pubkey))
+        // First-Paint-Seed: fehlende Autor- UND erwähnte Profile (NIP-27) vom geteilten
+        // Backend-Cache holen (dedupliziert intern; welshman löst parallel live auf).
+        // Ohne die Mention-Pubkeys blieben extern referenzierte @-Mentions (Nicht-
+        // Mitglieder/gepastete npubs) dauerhaft als gekürztes npub statt @Name. Fire-and-forget.
+        void warmProfiles([...events.map((e) => e.pubkey), ...events.flatMap((e) => mentionPubkeys(bodyWithoutQuote(e)))])
         // NIP-05-Handles der Autoren lazy verifizieren (dedupliziert, fire-and-forget).
         warmHandles(events.map((e) => e.pubkey))
         const nameOf = displayProfileByPubkey
@@ -332,6 +353,21 @@ export const loadRoomMessages = (url: string, h: string, until?: number): Promis
 /** Ziel einer Antwort: die zitierte Nachricht (id + Autor). */
 export type ReplyTarget = { id: string; pubkey: string }
 
+/**
+ * Hängt `["p", pk, url]`-Tags für jede `nostr:npub…`-Mention (NIP-08/27) im Text an,
+ * ohne bereits gesetzte p-Tags (z.B. den Reply-Autor) zu doppeln. Mutiert & liefert
+ * dasselbe Array zurück (Aufrufer bauen ihre Tag-Liste ohnehin frisch).
+ */
+const withMentionTags = (tags: string[][], content: string, url: string): string[][] => {
+    const seen = new Set(tags.filter((t) => t[0] === 'p').map((t) => t[1]))
+    for (const pk of mentionPubkeys(content)) {
+        if (!seen.has(pk)) {
+            tags.push(['p', pk, url])
+        }
+    }
+    return tags
+}
+
 /** Rohe Relay-Ablehnung → kurzer, handlungsleitender deutscher Text. */
 const mapRelayError = (raw: string): string => {
     const s = raw.toLowerCase()
@@ -369,6 +405,7 @@ export const sendRoomMessage = async (
         tags.push(['q', reply.id, url, reply.pubkey], ['p', reply.pubkey, url])
         body = `nostr:${nevent}\n\n${content}`
     }
+    withMentionTags(tags, content, url)
     const thunk = publishThunk({ relays: [url], event: makeEvent(MESSAGE, { content: body, tags }) })
     const err = await waitForThunkError(thunk)
     if (err) {
@@ -424,7 +461,7 @@ export const editRoomMessage = async (
         event: makeEvent(MESSAGE, {
             content: prefix + content,
             created_at: original.created_at,
-            tags: [...preserved, ...roomTags(h, url)],
+            tags: withMentionTags([...preserved, ...roomTags(h, url)], content, url),
         }),
     })
     const err = await waitForThunkError(thunk)

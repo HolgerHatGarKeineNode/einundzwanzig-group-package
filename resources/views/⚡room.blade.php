@@ -252,7 +252,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             <template x-if="m.mine">
                                                 <flux:menu.item icon="trash" variant="danger" x-on:click="askDelete(m)">Löschen</flux:menu.item>
                                             </template>
-                                            {{-- C4: Kopieren/Info --}}
+                                            {{-- C4: Kopieren/Info (nur lesen, kein Publish). --}}
+                                            <flux:menu.separator />
+                                            <flux:menu.item icon="link" x-on:click="copyNevent(m)">Event-Link kopieren</flux:menu.item>
+                                            <flux:menu.item icon="user-circle" x-on:click="copyNpub(m)">npub kopieren</flux:menu.item>
+                                            <flux:menu.item icon="code-bracket" x-on:click="copyJson(m)">JSON kopieren</flux:menu.item>
+                                            <flux:menu.item icon="information-circle" x-on:click="openInfo(m)">Info</flux:menu.item>
                                         </flux:menu>
                                     </flux:dropdown>
                                 </div>
@@ -306,12 +311,35 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="Abbrechen" />
         </div>
 
-        <div x-show="membershipReady && joined" x-cloak class="flex items-end gap-2">
+        <div x-show="membershipReady && joined" x-cloak class="relative flex items-end gap-2">
+            {{-- @-Mention-Autocomplete (C4): Vorschläge über dem Composer. Pfeile
+                 wählen, Enter/Tab übernimmt, Escape schließt (siehe keydown unten).
+                 Klick auf einen Vorschlag fügt `nostr:npub… ` ein → rendert als @Name. --}}
+            <template x-if="mentionOpen">
+                <div class="surface-card absolute bottom-full left-0 z-30 mb-1 max-h-56 w-full max-w-xs overflow-y-auto rounded-card p-1 shadow-xl"
+                     x-on:click.stop>
+                    <template x-for="(item, i) in mentionItems" :key="item.pubkey">
+                        <button type="button" x-on:click="pickMention(item)" x-on:mouseenter="mentionIndex = i"
+                                class="pressable flex w-full items-center gap-2 rounded-tile px-2 py-1.5 text-left"
+                                :class="mentionIndex === i ? 'bg-brand-500/15' : ''">
+                            <x-group::nostr-avatar picture="item.picture" name="item.name" />
+                            <span class="truncate text-sm" x-text="item.name"></span>
+                        </button>
+                    </template>
+                </div>
+            </template>
             <flux:textarea x-ref="composer" x-model="draft" rows="1" resize="none"
                            placeholder="Nachricht schreiben…" aria-label="Nachricht schreiben" class="flex-1"
                            x-on:focus="atBottom && scrollToBottom()"
-                           x-on:input="autoGrow($event.target); sendError = ''"
-                           x-on:keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); send() }" />
+                           x-on:input="autoGrow($event.target); sendError = ''; onComposerInput($event.target)"
+                           x-on:keydown="
+                               if (mentionOpen) {
+                                   if ($event.key === 'ArrowDown') { $event.preventDefault(); mentionIndex = (mentionIndex + 1) % mentionItems.length; return }
+                                   if ($event.key === 'ArrowUp') { $event.preventDefault(); mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length; return }
+                                   if ($event.key === 'Enter' || $event.key === 'Tab') { $event.preventDefault(); pickMention(mentionItems[mentionIndex]); return }
+                                   if ($event.key === 'Escape') { $event.preventDefault(); closeMentions(); return }
+                               }
+                               if ($event.key === 'Enter' && !$event.shiftKey) { $event.preventDefault(); send() }" />
             {{-- Zitieren (Quote-Only) darf ohne Text gesendet werden → Button dann aktiv. --}}
             <flux:button type="button" variant="primary" icon="paper-airplane" :loading="true"
                          x-on:click="send()" ::data-loading="sending"
@@ -377,8 +405,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:heading size="sm" class="mb-1">Nachricht</flux:heading>
             {{-- Reaktions-Picker (C1, native App): volles Emoji-Panel. react() schließt
                  das Modal selbst (closeMessageMenu) → kein onpick nötig. --}}
+            {{-- OPTIMIZE: erst mounten, wenn das Menü offen ist (menuFor truthy). Ohne
+                 x-if lief emojiPicker().init() beim Raum-Render und lud compact.json
+                 (590kB) sofort in den Kaltstart. Vgl. Web-Popover-Vorbild oben. --}}
             <div class="mb-1">
-                <x-group::emoji-picker message="menuFor" />
+                <template x-if="menuFor">
+                    <x-group::emoji-picker message="menuFor" />
+                </template>
             </div>
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
                          x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">Antworten</flux:button>
@@ -395,8 +428,60 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="if (menuFor) { askReport(menuFor); closeMessageMenu() }">Fork off!</flux:button>
             <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askDelete(menuFor); closeMessageMenu() }">Löschen</flux:button>
-            {{-- C4: Kopieren/Info --}}
+            {{-- C4: Kopieren/Info (nur lesen). copy*/openInfo schließen das Menü selbst. --}}
+            <flux:separator class="my-1" />
+            <flux:button variant="ghost" icon="link" class="w-full justify-start"
+                         x-on:click="if (menuFor) copyNevent(menuFor)">Event-Link kopieren</flux:button>
+            <flux:button variant="ghost" icon="user-circle" class="w-full justify-start"
+                         x-on:click="if (menuFor) copyNpub(menuFor)">npub kopieren</flux:button>
+            <flux:button variant="ghost" icon="code-bracket" class="w-full justify-start"
+                         x-on:click="if (menuFor) copyJson(menuFor)">JSON kopieren</flux:button>
+            <flux:button variant="ghost" icon="information-circle" class="w-full justify-start"
+                         x-on:click="if (menuFor) openInfo(menuFor)">Info</flux:button>
         </div>
+    </flux:modal>
+
+    {{-- Nachricht-Info (C4): Roh-Event, Zeitpunkt, gesehene Relays. Nur lesen. --}}
+    <flux:modal name="message-info" class="max-w-lg">
+        <template x-if="infoFor">
+            <div class="space-y-4">
+                <flux:heading size="lg">Nachricht-Details</flux:heading>
+                <div class="space-y-1">
+                    <flux:text class="text-xs text-muted">Erstellt</flux:text>
+                    <flux:text class="text-sm" x-text="infoFor.createdAt"></flux:text>
+                </div>
+                <div class="space-y-1">
+                    <flux:text class="text-xs text-muted">Event-Link</flux:text>
+                    <button type="button" x-on:click="copy(infoFor.nevent, 'Event-Link')"
+                            class="pressable surface-card block w-full truncate rounded-tile px-2 py-1.5 text-left font-mono text-xs"
+                            x-text="infoFor.nevent"></button>
+                </div>
+                <div class="space-y-1">
+                    <flux:text class="text-xs text-muted">Autor (npub)</flux:text>
+                    <button type="button" x-on:click="copy(infoFor.npub, 'npub')"
+                            class="pressable surface-card block w-full truncate rounded-tile px-2 py-1.5 text-left font-mono text-xs"
+                            x-text="infoFor.npub"></button>
+                </div>
+                <div class="space-y-1" x-show="infoFor.seenOn.length">
+                    <flux:text class="text-xs text-muted">Gesehen auf</flux:text>
+                    <div class="flex flex-wrap gap-1">
+                        <template x-for="relay in infoFor.seenOn" :key="relay">
+                            <flux:badge size="sm" x-text="relay"></flux:badge>
+                        </template>
+                    </div>
+                </div>
+                <div class="space-y-1">
+                    <div class="flex items-center justify-between">
+                        <flux:text class="text-xs text-muted">Roh-Event</flux:text>
+                        <flux:button size="xs" variant="ghost" icon="clipboard" x-on:click="copy(infoFor.json, 'JSON')">Kopieren</flux:button>
+                    </div>
+                    <pre class="surface-card max-h-60 overflow-auto rounded-tile p-2 text-xs"><code x-text="infoFor.json"></code></pre>
+                </div>
+                <div class="flex justify-end">
+                    <flux:modal.close><flux:button variant="ghost">Schließen</flux:button></flux:modal.close>
+                </div>
+            </div>
+        </template>
     </flux:modal>
 
     {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds (Proxy-Preset `full`).

@@ -6,8 +6,8 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import type { Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05 } from '@welshman/app'
-import { displayProfile, type RelayProfile } from '@welshman/util'
+import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker } from '@welshman/app'
+import { displayProfile, toNostrURI, MESSAGE, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
 import { load } from '@welshman/net'
@@ -126,6 +126,16 @@ const dispatchModal = (name: string, show = true): void => {
         }
     }
     document.dispatchEvent(new CustomEvent(show ? 'modal-show' : 'modal-close', { detail: { name } }))
+}
+
+/**
+ * `nostr:nevent…` einer Nachricht (NIP-19/21): gesehene Relays als Hints, sonst
+ * das übergebene Fallback-Relay (Space-Relay). Teilbar/auflösbar in jedem Client.
+ */
+const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
+    const seen = [...tracker.getRelays(m.id)]
+    const relays = seen.length ? seen : fallbackRelay ? [fallbackRelay] : []
+    return toNostrURI(nip19.neventEncode({ id: m.id, relays, author: m.pubkey, kind: MESSAGE }))
 }
 
 /**
@@ -284,6 +294,12 @@ type DirectoryState = {
     copyInvite(): void
 }
 
+/** Ein @-Mention-Vorschlag (Space-Mitglied) im Composer-Autocomplete. */
+type MentionItem = { pubkey: string; npub: string; name: string; picture: string; search: string }
+
+/** Roh-Event-Details für das Nachricht-Info-Modal (C4). */
+type MessageInfo = { nevent: string; npub: string; json: string; createdAt: string; seenOn: string[] }
+
 type RoomChatState = {
     h: string
     messages: ChatMessage[]
@@ -314,6 +330,14 @@ type RoomChatState = {
     reporting: boolean
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
+    infoFor: MessageInfo | null // Roh-Event-Details der offenen Nachricht-Info (C4)
+    mentionOpen: boolean // @-Autocomplete-Popover sichtbar (C4)
+    mentionQuery: string // aktuelle @-Suchzeichenfolge (nach dem @)
+    mentionItems: MentionItem[] // gefilterte Mitglieder-Vorschläge
+    mentionIndex: number // hervorgehobener Vorschlag (Tastatur-Navigation)
+    _mentionStart: number // Caret-Index des @ im Draft (für den Ersetz-Splice)
+    _members: MentionItem[] // Space-Mitglieder als Mention-Quelle (Directory)
+    _unsubMembers: null | (() => void)
     _url: string | null
     _lastRead: number
     _onViewport: null | (() => void)
@@ -342,6 +366,14 @@ type RoomChatState = {
     refocusComposer(): void
     openMessageMenu(m: ChatMessage): void
     closeMessageMenu(): void
+    copyNevent(m: ChatMessage): void
+    copyNpub(m: ChatMessage): void
+    copyJson(m: ChatMessage): void
+    openInfo(m: ChatMessage): void
+    copy(text: string, label: string): void
+    onComposerInput(el: HTMLTextAreaElement): void
+    pickMention(item: MentionItem): void
+    closeMentions(): void
     react(m: ChatMessage, content: string, emojiTag?: string[], label?: string): Promise<void>
     toggleReaction(m: ChatMessage, r: ReactionChip): Promise<void>
     send(): Promise<void>
@@ -875,6 +907,14 @@ export function registerNostrComponents(Alpine: {
         reporting: false,
         isMobile,
         menuFor: null,
+        infoFor: null,
+        mentionOpen: false,
+        mentionQuery: '',
+        mentionItems: [],
+        mentionIndex: 0,
+        _mentionStart: -1,
+        _members: [],
+        _unsubMembers: null,
         _url: null,
         _lastRead: 0,
         _onViewport: null,
@@ -913,6 +953,26 @@ export function registerNostrComponents(Alpine: {
                 this.membershipReady = true
             })
             listenRoomMembers(url, this._controller.signal)
+            // Space-Directory (13534) als @-Mention-Quelle laden + live halten (C4).
+            // Der Raum lädt es sonst nicht (nur die Directory-Seite tut das) → ohne
+            // dies bliebe die Mitgliederliste leer. Profile lazy nachwärmen, damit
+            // Vorschläge Namen statt npub zeigen.
+            void loadSpaceDirectory(url)
+            watchSpaceDirectory(url, this._controller.signal)
+            this._unsubMembers = deriveSpaceDirectory(url).subscribe((dir: DirectoryView) => {
+                this._members = dir.members.map((m) => ({
+                    pubkey: m.pubkey,
+                    npub: m.npub,
+                    name: m.name,
+                    picture: m.picture,
+                    search: m.search,
+                }))
+                const missing = dir.members.map((m) => m.pubkey).filter((pk) => !this._loadedProfiles.has(pk))
+                if (missing.length) {
+                    missing.forEach((pk) => this._loadedProfiles.add(pk))
+                    loadMemberProfiles(url, missing)
+                }
+            })
             this._unsubJoined = deriveUserInRoom(url, this.h).subscribe((isMember: boolean) => {
                 this.joined = isMember
             })
@@ -1049,6 +1109,9 @@ export function registerNostrComponents(Alpine: {
             this._unsub = null
             this._unsubJoined?.()
             this._unsubJoined = null
+            this._unsubMembers?.()
+            this._unsubMembers = null
+            this.closeMentions()
         },
         // Erneuter Ladeversuch nach einem Fehler (Callout-Button): Sub + Verlauf neu aufbauen.
         retry() {
@@ -1173,6 +1236,95 @@ export function registerNostrComponents(Alpine: {
             dispatchModal('message-menu', false)
             this.menuFor = null
         },
+        // ── C4: Kopieren / Info (nur lesen, kein Publish) ──────────────────────
+        // In die Zwischenablage + Bestätigungs-Toast (wie die Profilkarte).
+        copy(text: string, label: string) {
+            if (text) {
+                void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
+            }
+        },
+        // `nostr:nevent…` der Nachricht (mit gesehenen Relays als Hints, sonst dem
+        // Space-Relay) — teilbar/auflösbar in jedem Nostr-Client (NIP-19/21).
+        copyNevent(m: ChatMessage) {
+            this.activeId = null
+            this.closeMessageMenu()
+            this.copy(neventFor(m, this._url), 'Event-Link')
+        },
+        // `npub…` des Autors.
+        copyNpub(m: ChatMessage) {
+            this.activeId = null
+            this.closeMessageMenu()
+            this.copy(nip19.npubEncode(m.pubkey), 'npub')
+        },
+        // Rohes signiertes Event als hübsches JSON (Debug/Verifikation).
+        copyJson(m: ChatMessage) {
+            this.activeId = null
+            this.closeMessageMenu()
+            const ev = repository.getEvent(m.id)
+            if (ev) {
+                this.copy(JSON.stringify(ev, null, 2), 'JSON')
+            }
+        },
+        // Nachricht-Info-Modal: Roh-Event, Zeitpunkt, gesehene Relays (tracker).
+        openInfo(m: ChatMessage) {
+            this.activeId = null
+            this.closeMessageMenu()
+            const ev = repository.getEvent(m.id)
+            if (!ev) {
+                return
+            }
+            const seen = [...tracker.getRelays(m.id)]
+            this.infoFor = {
+                nevent: neventFor(m, this._url),
+                npub: nip19.npubEncode(m.pubkey),
+                json: JSON.stringify(ev, null, 2),
+                createdAt: m.fullTime,
+                seenOn: seen.map((u) => displayRelayUrl(u)),
+            }
+            dispatchModal('message-info')
+        },
+        // ── C4: @-Mention-Autocomplete (NIP-08/NIP-27) ─────────────────────────
+        // Bei jeder Composer-Eingabe: steht direkt vor dem Cursor ein `@wort`
+        // (am Zeilen-/Wortanfang), Mitglieder-Vorschläge einblenden. `search` ist
+        // `name npub` kleingeschrieben (Directory), Query case-insensitiv.
+        onComposerInput(el: HTMLTextAreaElement) {
+            const caret = el.selectionStart ?? el.value.length
+            const match = /(?:^|\s)@([^\s@]*)$/.exec(el.value.slice(0, caret))
+            if (!match) {
+                this.closeMentions()
+                return
+            }
+            this.mentionQuery = match[1]
+            this._mentionStart = caret - match[1].length - 1
+            const q = this.mentionQuery.toLowerCase()
+            this.mentionItems = this._members.filter((mem) => !q || mem.search.includes(q)).slice(0, 8)
+            this.mentionIndex = 0
+            this.mentionOpen = this.mentionItems.length > 0
+        },
+        // Vorschlag übernehmen: `@query` (ab dem @) durch `nostr:npub… ` ersetzen,
+        // Cursor dahinter setzen. Der Render-Pfad löst das npub zu `@Name` auf.
+        pickMention(item: MentionItem) {
+            const insert = `nostr:${item.npub} `
+            const before = this.draft.slice(0, this._mentionStart)
+            const after = this.draft.slice(this._mentionStart + 1 + this.mentionQuery.length)
+            this.draft = before + insert + after
+            this.closeMentions()
+            const magics = this as unknown as AlpineMagics
+            magics.$nextTick(() => {
+                const c = magics.$refs.composer as HTMLTextAreaElement | undefined
+                if (c) {
+                    const pos = before.length + insert.length
+                    c.focus()
+                    c.setSelectionRange(pos, pos)
+                    this.autoGrow(c)
+                }
+            })
+        },
+        closeMentions() {
+            this.mentionOpen = false
+            this.mentionItems = []
+            this._mentionStart = -1
+        },
         // Reagiert auf eine Nachricht (kind 7). `content` = Unicode-Emoji bzw.
         // `:shortcode:` (+ `emojiTag` für Custom-Emoji, NIP-30). Optimistisch: die
         // kind-7 landet sofort im Repository → Chip erscheint via deriveRoomChat.
@@ -1220,6 +1372,9 @@ export function registerNostrComponents(Alpine: {
             if (this.sending || !this._url) {
                 return
             }
+            // Autocomplete zu (falls per Senden-Button bei offenem Popover ausgelöst) —
+            // sonst zeigte `_mentionStart` gleich auf den geleerten Draft (Phantom-Mention).
+            this.closeMentions()
             const content = this.draft.trim()
             // Bearbeiten: eigene Nachricht neu publizieren (braucht Text; leer → nichts tun).
             if (this.editingId) {

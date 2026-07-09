@@ -6,6 +6,7 @@
  */
 import { DELETE, REACTION, REPORT, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
 import { getRelay, tagEvent, tagEventForReaction } from '@welshman/app'
+import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps'
 
 /** NIP-70 PROTECTED-Marker: bittet das Relay, das Event nur vom Autor annehmbar zu halten. */
@@ -77,3 +78,28 @@ export const makeReport = (event: Pick<TrustedEvent, 'id' | 'pubkey'>, reason: s
         content,
         tags: [['p', event.pubkey], ['e', event.id, reason]],
     })
+
+/** `nostr:npub…`/`nostr:nprofile…`-Mentions (NIP-27) im Nachrichtentext. */
+const MENTION = /nostr:(npub1[0-9a-z]+|nprofile1[0-9a-z]+)/g
+
+/**
+ * Zieht die erwähnten Pubkeys (NIP-08/NIP-27) aus dem Klartext: jedes
+ * `nostr:npub…`/`nostr:nprofile…` wird dekodiert, ungültige/unbekannte Tokens
+ * fallen still raus. Dedupliziert; Reihenfolge = erstes Auftreten. Pure Funktion
+ * (nur nip19) → als JS-Unit ohne welshman testbar.
+ */
+export const mentionPubkeys = (content: string): string[] => {
+    const pks: string[] = []
+    for (const [, entity] of content.matchAll(MENTION)) {
+        try {
+            const decoded = nip19.decode(entity)
+            const pk = decoded.type === 'npub' ? decoded.data : decoded.type === 'nprofile' ? decoded.data.pubkey : null
+            if (pk && !pks.includes(pk)) {
+                pks.push(pk)
+            }
+        } catch {
+            // Kaputtes/gekürztes Token — kein p-Tag, kein Fehler.
+        }
+    }
+    return pks
+}

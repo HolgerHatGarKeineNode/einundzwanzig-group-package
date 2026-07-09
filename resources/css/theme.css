@@ -174,6 +174,12 @@
     overflow-wrap: anywhere;
 }
 
+/* @-Mention (NIP-27): der zu `@Name` aufgelöste Profil-Node, brand-getönt. */
+.chat-content .mention {
+    color: var(--color-brand-500);
+    font-weight: 600;
+}
+
 /* Inline-Bilder im Chat-Inhalt (Bild-Proxy): begrenzte Vorschau, Klick = Lightbox. */
 .chat-image {
     display: block;
