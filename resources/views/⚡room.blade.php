@@ -238,6 +238,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      class="icon-btn-touch" aria-label="Weitere Aktionen" />
                                         <flux:menu>
                                             <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">Antworten</flux:menu.item>
+                                            {{-- Zitieren (C3): Nachricht ohne Kommentar teilen (Quote-Only). --}}
+                                            <flux:menu.item icon="chat-bubble-left-right" x-on:click="share(m)">Zitieren</flux:menu.item>
+                                            {{-- Bearbeiten (C3): nur eigene Nachrichten, ≤5 min alt. --}}
+                                            <template x-if="canEdit(m)">
+                                                <flux:menu.item icon="pencil-square" x-on:click="startEdit(m)">Bearbeiten</flux:menu.item>
+                                            </template>
                                             {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984). --}}
                                             <template x-if="!m.mine">
                                                 <flux:menu.item icon="flag" x-on:click="askReport(m)">Fork off!</flux:menu.item>
@@ -287,14 +293,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
     <div class="shrink-0 pt-2">
         <div x-show="!membershipReady" x-cloak class="skeleton h-11 rounded-card"></div>
 
-        {{-- Antwort-Kontext (Zitat) über dem Composer, mit Abbrechen --}}
-        <div x-show="membershipReady && joined && replyTo" x-cloak
+        {{-- Compose-Kontext über dem Composer: Antworten (replyTo), Zitieren (sharing)
+             oder Bearbeiten (editingId) — mit Abbrechen. --}}
+        <div x-show="membershipReady && joined && (replyTo || editingId)" x-cloak
              class="surface-card mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-3 py-1.5">
             <div class="min-w-0 flex-1">
-                <div class="text-xs font-semibold text-brand-500">Antwort an <span x-text="replyTo?.name"></span></div>
-                <div class="truncate text-xs text-muted" x-text="replyTo?.text"></div>
+                <div class="text-xs font-semibold text-brand-500"
+                     x-text="editingId ? 'Nachricht bearbeiten' : (sharing ? 'Zitieren' : ('Antwort an ' + (replyTo?.name ?? '')))"></div>
+                <div class="truncate text-xs text-muted" x-show="replyTo" x-text="replyTo?.text"></div>
             </div>
-            <flux:button size="xs" variant="ghost" icon="x-mark" x-on:click="clearReply()" aria-label="Antwort abbrechen" />
+            <flux:button size="xs" variant="ghost" icon="x-mark"
+                         x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="Abbrechen" />
         </div>
 
         <div x-show="membershipReady && joined" x-cloak class="flex items-end gap-2">
@@ -303,8 +312,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                            x-on:focus="atBottom && scrollToBottom()"
                            x-on:input="autoGrow($event.target); sendError = ''"
                            x-on:keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); send() }" />
+            {{-- Zitieren (Quote-Only) darf ohne Text gesendet werden → Button dann aktiv. --}}
             <flux:button type="button" variant="primary" icon="paper-airplane" :loading="true"
-                         x-on:click="send()" ::data-loading="sending" ::disabled="sending || draft.trim().length === 0"
+                         x-on:click="send()" ::data-loading="sending"
+                         ::disabled="sending || (draft.trim().length === 0 && !sharing)"
                          aria-label="Senden" />
         </div>
 
@@ -371,6 +382,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
                          x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">Antworten</flux:button>
+            {{-- Zitieren (C3): teilt ohne Kommentar; share() schließt das Menü selbst. --}}
+            <flux:button variant="ghost" icon="chat-bubble-left-right" class="w-full justify-start"
+                         x-on:click="if (menuFor) share(menuFor)">Zitieren</flux:button>
+            {{-- Bearbeiten (C3): nur eigene Nachricht, ≤5 min alt; startEdit() schließt selbst. --}}
+            <flux:button variant="ghost" icon="pencil-square" class="w-full justify-start"
+                         x-show="menuFor && canEdit(menuFor)" x-cloak
+                         x-on:click="if (menuFor) startEdit(menuFor)">Bearbeiten</flux:button>
             {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
                  dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}
             <flux:button variant="ghost" icon="flag" class="w-full justify-start" x-show="!menuFor?.mine" x-cloak

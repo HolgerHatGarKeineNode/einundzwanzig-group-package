@@ -77,8 +77,8 @@ const QUOTE_PREFIX = /^nostr:(?:nevent1|note1)[0-9a-z]+\n\n/
 const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
     derived(deriveEventsForUrl(url, roomFilter(h)), (events) => sortEventsAsc(events))
 
-/** Rohtext einer Nachricht ohne den vorangestellten Reply-Quote (für Snippets). */
-const bodyWithoutQuote = (event: TrustedEvent): string =>
+/** Rohtext einer Nachricht ohne den vorangestellten Reply-Quote (für Snippets + Edit-Prefill). */
+export const bodyWithoutQuote = (event: TrustedEvent): string =>
     getTagValue('q', event.tags) ? event.content.replace(QUOTE_PREFIX, '') : event.content
 
 /**
@@ -396,6 +396,44 @@ export const deleteRoomMessage = (url: string, h: string, id: string, createdAt:
             }),
         }),
     )
+
+/**
+ * Bearbeitet eine eigene Nachricht: Nostr kennt kein Edit-Event, also **Delete des
+ * Alten + Re-Publish mit demselben `created_at`** (so wie der Referenz-Client) — die
+ * neue Fassung behält die Position im Verlauf. War die Nachricht eine Antwort/Zitat,
+ * bleiben `q`/`p`-Tag und der `nostr:nevent…`-Präfix erhalten. `content` ist der
+ * bearbeitete Klartext (ohne Präfix). Optimistisch: der Tombstone blendet das Alte
+ * sofort aus, die Neufassung erscheint via Live-Sub.
+ */
+export const editRoomMessage = async (
+    url: string,
+    h: string,
+    original: TrustedEvent,
+    content: string,
+): Promise<string> => {
+    // Reply-/Zitat-Kontext des Originals bewahren: q/p-Tags + vorangestelltes nevent.
+    const preserved = original.tags.filter((t) => t[0] === 'q' || t[0] === 'p')
+    const prefix = getTagValue('q', original.tags) ? (QUOTE_PREFIX.exec(original.content)?.[0] ?? '') : ''
+    // Original löschen (kind 5, `h` vom Original + PROTECTED); fire-and-forget, der
+    // Tombstone landet optimistisch sofort im Repository. ponytail: schlägt der
+    // Re-Publish unten fehl, ist das Alte bereits weg (wie beim Referenz-Client) —
+    // der Nutzer bekommt den Text zum erneuten Senden zurück (bridge).
+    void publishThunk({ relays: [url], event: makeEventDelete(original, url) })
+    const thunk = publishThunk({
+        relays: [url],
+        event: makeEvent(MESSAGE, {
+            content: prefix + content,
+            created_at: original.created_at,
+            tags: [...preserved, ...roomTags(h, url)],
+        }),
+    })
+    const err = await waitForThunkError(thunk)
+    if (err) {
+        repository.removeEvent(thunk.event.id)
+        return mapRelayError(err)
+    }
+    return ''
+}
 
 /**
  * Reagiert auf eine Nachricht (kind 7, NIP-25). `content` = Unicode-Emoji bzw.

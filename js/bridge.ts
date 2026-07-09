@@ -83,6 +83,8 @@ import {
     loadRoomReactions,
     sendRoomMessage,
     deleteRoomMessage,
+    editRoomMessage,
+    bodyWithoutQuote,
     sendReaction,
     removeReaction,
     sendReport,
@@ -299,6 +301,8 @@ type RoomChatState = {
     sending: boolean
     sendError: string
     replyTo: { id: string; pubkey: string; name: string; text: string } | null
+    sharing: boolean // Zitier-Modus (Quote-Only): Composer darf leer bleiben, Label „Zitieren"
+    editingId: string | null // id der gerade bearbeiteten eigenen Nachricht (sonst null)
     activeId: string | null // Nachricht mit eingeblendeten Aktionen (Tap-to-toggle, Touch)
     flashId: string | null // kurz hervorgehobene Nachricht (Sprung zum Zitat)
     lightboxSrc: string | null // Vollbild eines angeklickten Inline-Bilds (Proxy `full`)
@@ -330,6 +334,12 @@ type RoomChatState = {
     markRead(): void
     setReply(m: ChatMessage): void
     clearReply(): void
+    share(m: ChatMessage): void
+    canEdit(m: ChatMessage): boolean
+    startEdit(m: ChatMessage): void
+    cancelEdit(): void
+    saveEdit(content: string): Promise<void>
+    refocusComposer(): void
     openMessageMenu(m: ChatMessage): void
     closeMessageMenu(): void
     react(m: ChatMessage, content: string, emojiTag?: string[], label?: string): Promise<void>
@@ -852,6 +862,8 @@ export function registerNostrComponents(Alpine: {
         sending: false,
         sendError: '',
         replyTo: null,
+        sharing: false,
+        editingId: null,
         activeId: null,
         flashId: null,
         lightboxSrc: null,
@@ -1044,9 +1056,13 @@ export function registerNostrComponents(Alpine: {
                 this.setup(this._url)
             }
         },
-        // Setzt/räumt den Antwort-Kontext (Zitat der ausgewählten Nachricht).
+        // Setzt/räumt den Antwort-Kontext (Zitat der ausgewählten Nachricht). Antworten
+        // verdrängt Bearbeiten UND Zitieren → beide C3-Flags zurücknehmen (share() setzt
+        // `sharing` danach erneut), sonst würde send() fälschlich in saveEdit verzweigen.
         setReply(m: ChatMessage) {
             this.activeId = null
+            this.sharing = false
+            this.editingId = null
             this.replyTo = { id: m.id, pubkey: m.pubkey, name: m.name, text: m.html.replace(/<[^>]*>/g, '') }
             ;(this as unknown as AlpineMagics).$nextTick(() =>
                 (this as unknown as { $refs: Record<string, HTMLElement> }).$refs.composer?.focus(),
@@ -1054,6 +1070,96 @@ export function registerNostrComponents(Alpine: {
         },
         clearReply() {
             this.replyTo = null
+            this.sharing = false
+        },
+        // Zitieren (Quote-Only, C3): teilt eine sichtbare Nachricht ohne Kommentar.
+        // Nutzt denselben q/p-Präfix-Mechanismus wie Reply — nur darf der Body leer
+        // bleiben (send() erlaubt das bei `sharing`), und der Kontext heißt „Zitieren".
+        share(m: ChatMessage) {
+            this.closeMessageMenu()
+            this.editingId = null
+            this.setReply(m) // setzt Zitat-Kontext + Fokus (activeId=null, sharing=false)
+            this.sharing = true // danach: Quote-Only-Modus (Body darf leer bleiben)
+        },
+        // Bearbeitbar? Eigene Nachricht und höchstens 5 Minuten alt (wie der Referenz-
+        // Client). Zeit ist nicht reaktiv — im Menü bei jedem Öffnen frisch ausgewertet.
+        canEdit(m: ChatMessage): boolean {
+            return m.mine && m.created_at >= Math.floor(Date.now() / 1000) - 300
+        },
+        // Bearbeiten starten: Composer mit dem Klartext (ohne Zitat-Präfix) vorbefüllen,
+        // Reply/Share verwerfen. Guard gegen zu alte Nachrichten (Menü zeigt es zwar nur
+        // bei canEdit, aber die Zeitgrenze kann zwischen Render und Klick kippen).
+        startEdit(m: ChatMessage) {
+            this.activeId = null
+            this.closeMessageMenu()
+            if (!this.canEdit(m)) {
+                toast('Diese Nachricht ist zu alt zum Bearbeiten.')
+                return
+            }
+            const ev = repository.getEvent(m.id)
+            if (!ev) {
+                return
+            }
+            this.replyTo = null
+            this.sharing = false
+            this.editingId = m.id
+            this.draft = bodyWithoutQuote(ev)
+            this.sendError = ''
+            const magics = this as unknown as AlpineMagics
+            magics.$nextTick(() => {
+                const c = magics.$refs.composer as HTMLTextAreaElement | undefined
+                if (c) {
+                    c.focus()
+                    this.autoGrow(c)
+                }
+            })
+        },
+        cancelEdit() {
+            this.editingId = null
+            this.draft = ''
+            this.sendError = ''
+        },
+        // Bearbeitung speichern (Delete des Alten + Re-Publish, gleiche created_at).
+        // Leerer Text bricht nicht ab — der Senden-Button ist dann ohnehin deaktiviert.
+        async saveEdit(content: string) {
+            const id = this.editingId
+            if (!id || !this._url || this.sending) {
+                return
+            }
+            const original = repository.getEvent(id)
+            if (!original) {
+                this.cancelEdit()
+                return
+            }
+            this.sending = true
+            this.sendError = ''
+            const draft = this.draft
+            this.draft = ''
+            this.editingId = null
+            try {
+                const err = await editRoomMessage(this._url, this.h, original, content)
+                if (err) {
+                    // Fehlgeschlagen: Text + Edit-Kontext zurück (aktionable Hinweiszeile).
+                    this.sendError = err
+                    this.draft = draft
+                    this.editingId = id
+                } else {
+                    this.refocusComposer()
+                }
+            } finally {
+                this.sending = false
+            }
+        },
+        // Composer nach erfolgreichem Senden/Speichern: fokussieren und Höhe auf leer zurücksetzen.
+        refocusComposer() {
+            const magics = this as unknown as AlpineMagics
+            magics.$nextTick(() => {
+                const c = magics.$refs.composer
+                if (c) {
+                    c.focus()
+                    c.style.height = 'auto'
+                }
+            })
         },
         // Interaktions-Menü öffnen (native App: Vollbild-Modal). Merkt die
         // Zielnachricht; die Einträge (Antworten … Reaktion/Löschen/Fork off! folgen
@@ -1111,17 +1217,30 @@ export function registerNostrComponents(Alpine: {
         // Nachricht senden (kind 9). Optimistisch: die Live-Sub echot sofort.
         // Fehler (Relay-Reject/AUTH) landen als Toast; der Text kehrt zurück.
         async send() {
+            if (this.sending || !this._url) {
+                return
+            }
             const content = this.draft.trim()
-            if (!content || this.sending || !this._url) {
+            // Bearbeiten: eigene Nachricht neu publizieren (braucht Text; leer → nichts tun).
+            if (this.editingId) {
+                if (content) {
+                    await this.saveEdit(content)
+                }
+                return
+            }
+            // Zitieren (Quote-Only) darf ohne Kommentar gesendet werden, Nachricht/Reply nicht.
+            if (!content && !this.sharing) {
                 return
             }
             this.sending = true
             this.sendError = ''
             const draft = this.draft
             const prevReply = this.replyTo
+            const prevSharing = this.sharing
             const reply = prevReply ? { id: prevReply.id, pubkey: prevReply.pubkey } : undefined
             this.draft = ''
             this.replyTo = null
+            this.sharing = false
             try {
                 const err = await sendRoomMessage(this._url, this.h, content, reply)
                 if (err) {
@@ -1130,16 +1249,10 @@ export function registerNostrComponents(Alpine: {
                     this.sendError = err
                     this.draft = draft
                     this.replyTo = prevReply
+                    this.sharing = prevSharing
                 } else {
                     this.scrollToBottom()
-                    const magics = this as unknown as AlpineMagics
-                    magics.$nextTick(() => {
-                        const c = magics.$refs.composer
-                        if (c) {
-                            c.focus()
-                            c.style.height = 'auto'
-                        }
-                    })
+                    this.refocusComposer()
                 }
             } finally {
                 this.sending = false
