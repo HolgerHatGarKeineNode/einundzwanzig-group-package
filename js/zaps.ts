@@ -146,10 +146,24 @@ export const createZapInvoice = async (
     const event = await buildZapRequest({ ...input, zapper, relays })
     const res = await requestZap({ zapper, event })
     if (!res.invoice) {
-        throw new Error(res.error ? `Rechnung abgelehnt: ${res.error}` : 'Rechnung konnte nicht abgerufen werden.')
+        throw new Error(invoiceRequestError(res.error))
     }
     return { invoice: res.invoice, event, zapper, relays }
 }
+
+/**
+ * Klartext für den Fall, dass der LNURL-Server des EMPFÄNGERS keine bolt11 liefert
+ * (ZAPS.md Z6). welshmans `requestZap` gibt entweder den echten LNURL-`reason` des
+ * Servers zurück oder den generischen Fallback „Failed to request invoice" — Letzteren
+ * u.a., wenn der Empfänger-Server ein Nicht-Standard-Fehlerformat schickt (z.B. Alby:
+ * `{error,message}` statt `{status,reason}`, HTTP 400). Beides ist ein Problem der
+ * Empfänger-Wallet, NICHT der Wallet/des NWC-Strings des Zappers — daher eine klare,
+ * entlastende Meldung statt des englischen Roh-Fehlers. Pure Funktion → JS-Unit-prüfbar.
+ */
+export const invoiceRequestError = (rawError?: string): string =>
+    !rawError || /failed to request invoice/i.test(rawError)
+        ? 'Empfänger-Wallet konnte keine Rechnung erstellen — das Problem liegt beim Empfänger (nicht an dir, deiner Wallet oder dem NWC). Bitte einen anderen Betrag oder Empfänger versuchen.'
+        : `Empfänger-Wallet lehnte die Rechnung ab: ${rawError}`
 
 /**
  * Zahlweg des Zap-Buttons (ZAPS.md Z2, flotilla `ZapButton`-Router): `'info'` wenn der
