@@ -16,6 +16,7 @@ import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
 import { DEFAULT_RELAYS, isMobile, nativeBrowserOpen, nativeBrowserInApp, proxifyImage } from './core'
+import { sanitizeReturnUrl, isAuthed } from './auth-gate'
 import {
     loginWithExtension,
     loginWithSecretKey,
@@ -174,14 +175,22 @@ const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
  * hält die Session selbst.
  */
 async function postLoginRedirect(): Promise<string> {
+    // §4.2 „nach Login resume": tapte ein Gast eine gegatete Tab/Aktion, trägt der
+    // Login-View `?return=<Zielpfad>` (vom authGate gesetzt) — nach dem Login exakt
+    // dorthin, statt aufs Default. Open-Redirect-gehärtet (nur eigene Pfade).
+    const ret = sanitizeReturnUrl(new URLSearchParams(location.search).get('return'))
     if (isMobile) {
         // Single-Login: den Portal-Handoff für die Zielseite vormerken (das
         // Boot-Gate führt ihn dort aus). Direkt hier würde die folgende
         // window.location-Navigation ihn nach dem Signieren abreißen.
         schedulePortalHandoff()
-        return '/spaces'
+        return ret ?? '/spaces'
     }
-    return handoffToServer()
+    // Web: NIP-98-Handoff MUSS laufen (setzt die Laravel-Session), das Ziel danach.
+    // Bei Direkt-Hit auf eine gegatete Route liefert der Server `url.intended`; ein
+    // client-gesetztes `?return` (Gast-Tab-Tap) hat Vorrang.
+    const dest = await handoffToServer()
+    return ret ?? dest
 }
 
 /** Generischer Adapter (für M2+): spiegelt einen Store in `this.value`. */
@@ -555,10 +564,51 @@ type WalletState = {
 export function registerNostrComponents(Alpine: {
     data: (name: string, factory: (...args: unknown[]) => unknown) => void
     magic: (name: string, callback: () => unknown) => void
+    store: (name: string, value: unknown) => void
 }) {
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').
     Alpine.magic('img', () => (url: unknown, preset?: string) => proxifyImage(url, preset))
+
+    // PLAN P4 — Kontextueller Auth-Gate (§4.2). EIN globaler Store, den jede
+    // gegatete Tab/Aktion (nav-tab, später FAB/„Bearbeiten") konsultiert, statt
+    // selbst zu prüfen/navigieren:
+    //   eingeloggt → intent.resume() sofort (kein Sheet, kein Redirect).
+    //   Gast       → `open-login-sheet` dispatchen (detail.intent). Fängt ein
+    //                montiertes Login-Sheet (P6) das per preventDefault ab, bleibt
+    //                der Nutzer in-place; sonst harter Fallback auf den Login-View
+    //                mit `?return`, damit die Zielroute nach Login wieder aufgeht.
+    // Mobile hat KEIN Server-Gate (EnsureNostrAuth lässt lokale single-user-
+    // Instanzen durch) → dieser Client-Gate ist dort der EINZIGE Schutz für
+    // Chat/Wallet; im Web ist er die sanfte Ebene über dem echten Server-Gate.
+    // `intent.label` ist der Kontextzeilen-Vertrag fürs P6-Sheet (§5.4) — hier
+    // nur durchgereicht, das Sheet rendert ihn.
+    type AuthIntent = { label?: string; returnUrl?: string; resume?: () => void }
+    const authGateStore = {
+        requireAuth(intent: AuthIntent = {}): boolean {
+            if (isAuthed(localStorage.getItem('pubkey'))) {
+                intent.resume?.()
+                return true
+            }
+            const ev = new CustomEvent('open-login-sheet', { detail: { intent }, cancelable: true })
+            window.dispatchEvent(ev)
+            if (! ev.defaultPrevented) {
+                const ret = sanitizeReturnUrl(intent.returnUrl ?? location.pathname + location.search)
+                location.assign('/nostr-login' + (ret ? '?return=' + encodeURIComponent(ret) : ''))
+            }
+            return false
+        },
+        // Aus der CAPTURE-Phase (mousedown/keydown, VOR dem wire:navigate-Commit):
+        // nicht eingeloggt → SPA-Navigation blocken. Eine Methode statt der Logik
+        // doppelt in beiden nav-tab-Handlern.
+        gateTap(event: Event, intent: AuthIntent = {}): void {
+            if (! this.requireAuth(intent)) {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+            }
+        },
+    }
+    Alpine.store('authGate', authGateStore)
 
     // PLAN4 B3 — Autor-Profil-Karte (kind 0): öffnet ein Flux-Modal mit
     // display_name/about/website/banner/lud16. Ein `open-profile`-Window-Event

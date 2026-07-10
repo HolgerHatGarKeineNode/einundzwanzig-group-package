@@ -12,20 +12,18 @@
 
      Gate:
        'guest' → normaler wire:navigate-Link.
-       'nostr' → Tap OHNE welshman-Session navigiert NICHT, sondern dispatcht
-                 `open-login-sheet`. Zwei Fallstricke, hier bewusst gelöst:
-                 1. Session-Check: welshman `sync` schreibt den `pubkey`-Store
-                    JSON-serialisiert in localStorage — für Gäste den String
-                    "undefined"/"null" (beide truthy!). Also JSON.parse, nicht der
-                    Rohwert, sonst wäre `authed` IMMER wahr und der Gate tot.
-                 2. Abfang-Zeitpunkt: wire:navigate committet die SPA-Navigation
-                    schon auf mousedown/keydown (rAF) — VOR dem click-Event. Ein
-                    click-Handler käme zu spät. Darum in der CAPTURE-Phase auf
-                    mousedown/keydown abfangen (läuft vor Livewires Listener) mit
-                    stopImmediatePropagation.
-                 Das Login-Sheet selbst kommt in P6; bis dahin ist das Event ein
-                 no-op (forward-kompatibel). Server-Gate (EnsureNostrAuth) bleibt
-                 der reale Schutz — der Intercept ist nur die sanfte Ebene. --}}
+       'nostr' → Tap OHNE welshman-Session navigiert NICHT, sondern läuft über den
+                 globalen `$store.authGate` (§4.2, in bridge.ts): eingeloggt →
+                 requireAuth() gibt true, der Link navigiert normal; Gast → false,
+                 der Store öffnet das Login-Sheet (P6) bzw. springt mit `?return`
+                 auf den Login-View, und wir blocken die SPA-Navigation.
+                 Abfang-Zeitpunkt: wire:navigate committet die SPA-Navigation schon
+                 auf mousedown/keydown (rAF) — VOR dem click-Event. Ein click-
+                 Handler käme zu spät. Darum in der CAPTURE-Phase auf mousedown/
+                 keydown abfangen (läuft vor Livewires Listener) mit
+                 stopImmediatePropagation. Server-Gate (EnsureNostrAuth) bleibt der
+                 reale Schutz im Web — der Intercept ist die sanfte Ebene; auf
+                 Mobile (kein Server-Gate) ist der Store der EINZIGE Schutz. --}}
 {{-- `match` darf mehrere Route-Namen kommagetrennt listen (Multi-Route-Tabs wie
      Chat/Meetups/Mehr im Mobile-Host). routeIs()/Str::is splittet Kommas NICHT —
      ein roher String "meetups,meetups.show" matchte nie. Darum wie die Host-Nav
@@ -37,17 +35,10 @@
     wire:navigate
     @if ($active) aria-current="page" @endif
     @if ($gate === 'nostr')
-        x-data="{
-            authed: !! JSON.parse(localStorage.getItem('pubkey') || 'null'),
-            guard(e) {
-                if (this.authed) { return; }
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                this.$dispatch('open-login-sheet', { intent: @js($label), route: @js($route) });
-            },
-        }"
-        x-on:mousedown.capture="guard($event)"
-        x-on:keydown.enter.capture="guard($event)"
+        {{-- returnUrl = $el.pathname+search (DOM-Anchor liefert den reinen „/…"-Pfad;
+             route() rendert eine ABSOLUTE href, die sanitizeReturnUrl sonst verwürfe). --}}
+        x-on:mousedown.capture="$store.authGate.gateTap($event, { label: @js($label), returnUrl: $el.pathname + $el.search })"
+        x-on:keydown.enter.capture="$store.authGate.gateTap($event, { label: @js($label), returnUrl: $el.pathname + $el.search })"
     @endif
     @class([
         'pressable relative flex min-h-14 flex-col items-center justify-center gap-1 py-2.5',
