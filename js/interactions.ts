@@ -4,7 +4,7 @@
  * Reaction/Delete/Poll). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { DELETE, POLL, POLL_RESPONSE, REACTION, REPORT, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
+import { DELETE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
 import { getRelay, tagEvent, tagEventForReaction } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps'
@@ -101,6 +101,25 @@ export const makePoll = (
         tags.push(['endsAt', String(params.endsAt)])
     }
     return makeEvent(POLL, { content: params.title, tags: [...tags, ...roomTags(h, url)] })
+}
+
+/**
+ * Erstellt ein NIP-75-Zap-Goal (kind 9041) im Raum (ZAPS.md Z5): `content` = Titel,
+ * `["amount", <Sats>]` = Ziel (rohe Sats, Plan-Konvention — siehe `goals.ts`),
+ * `["relays", url]` = wohin die Beitrags-Receipts sollen, optional `["summary", …]`
+ * für Details — plus `roomTags(h, url)` (`["h", h]` + PROTECTED), damit die Goal-Karte
+ * wie eine Nachricht ins Space-Relay geroutet und member-only geschützt wird.
+ */
+export const makeGoal = (
+    params: { title: string; summary?: string; targetSats: number },
+    h: string,
+    url: string,
+) => {
+    const tags: string[][] = [['amount', String(params.targetSats)], ['relays', url]]
+    if (params.summary) {
+        tags.push(['summary', params.summary])
+    }
+    return makeEvent(ZAP_GOAL, { content: params.title, tags: [...tags, ...roomTags(h, url)] })
 }
 
 /**

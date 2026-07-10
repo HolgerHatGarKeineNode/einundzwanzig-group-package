@@ -12,13 +12,14 @@ import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
+import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { warmZappers } from './zaps'
-import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, mentionPubkeys } from './interactions'
+import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, mentionPubkeys } from './interactions'
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
+import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -69,8 +70,8 @@ const renderEmojiImg = (name: string, url: string | undefined): string | null =>
 
 const roomFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
 
-/** Nachrichten UND Polls eines Raums — beide erscheinen zeitlich verwoben im Verlauf. */
-const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE, POLL], '#h': [h] }]
+/** Nachrichten, Polls UND Zap-Goals eines Raums — alle zeitlich verwoben im Verlauf. */
+const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE, POLL, ZAP_GOAL], '#h': [h] }]
 
 /** kind-7-Reactions eines Raums (NIP-25) — tragen `#h` vom Parent (via makeReaction). */
 const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
@@ -235,6 +236,7 @@ const aggregateReactions = (
 /** Aggregierte Zap-Sicht einer Nachricht (⚡-Chip): Anzahl, Sats-Summe, eigener Anteil. */
 export type ZapSummary = {
     count: number // Anzahl valider Zaps (nach `zapFromEvent`-Prüfung)
+    contributors: number // Anzahl EINDEUTIGER Zapper (Flotilla-Goal-Parität: uniq(request.pubkey))
     sats: number // Summe in Sats (bolt11-`invoiceAmount`, msats→sats)
     mine: boolean // hat der eingeloggte User (mit)gezappt?
     names: string // Namen der Zapper (kommagetrennt, dedupliziert) → Chip-Tooltip
@@ -257,6 +259,7 @@ export const aggregateZaps = (
     const zaps = receipts.map((r) => zapFromEvent(r, zapper)).filter((z): z is Zap => Boolean(z))
     return {
         count: zaps.length,
+        contributors: uniq(zaps.map((z) => z.request.pubkey)).length,
         sats: fromMsats(zaps.reduce((sum, z) => sum + z.invoiceAmount, 0)),
         mine: zaps.some((z) => z.request.pubkey === me),
         names: uniq(zaps.map((z) => nameOf(z.request.pubkey))).join(', '),
@@ -280,6 +283,7 @@ export type ChatMessage = {
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), sonst null
     reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
     poll: PollView | null // NIP-88-Poll (kind 1068) mit Live-Tally + eigenem Vote (C5), sonst null
+    goal: GoalView | null // NIP-75-Zap-Goal (kind 9041) mit Fortschritt aus dem Zap-Tally (Z5), sonst null
     zaps: ZapSummary // validierte kind-9735-Zap-Summe (Z3), count 0 = keine
     zappable: boolean // Autor kann Zaps empfangen (lud16/lud06) UND ist nicht man selbst
 }
@@ -325,6 +329,39 @@ const buildPollView = (event: TrustedEvent, responses: TrustedEvent[], me: strin
             pct: Math.round((o.votes / maxVotes) * 100),
             mine: mine.has(o.id),
         })),
+    }
+}
+
+/**
+ * Render-fertiges NIP-75-Zap-Goal: Titel/Details, Ziel + gesammelte Sats (aus dem
+ * validierten 9735-Tally, `ZapSummary`), Fortschritt (0–100 %) und Beitragenden-Zahl.
+ */
+export type GoalView = {
+    title: string
+    summary: string
+    targetSats: number
+    raisedSats: number
+    pct: number
+    reached: boolean
+    contributors: number
+}
+
+/**
+ * Verdichtet ein kind-9041-Event + seinen Zap-Tally zur Goal-Karte. `zaps` ist die
+ * bereits validierte `aggregateZaps`-Summe der Receipts mit `#e` = goal.id (dieselbe
+ * Anti-Spoof-Pipeline wie Nachrichten-Zaps) — hier NUR gegen das Ziel verglichen.
+ */
+const buildGoalView = (event: TrustedEvent, zaps: ZapSummary): GoalView => {
+    const targetSats = getGoalTargetSats(event)
+    const { pct, reached } = goalProgress(targetSats, zaps.sats)
+    return {
+        title: getGoalTitle(event),
+        summary: getGoalSummary(event),
+        targetSats,
+        raisedSats: zaps.sats,
+        pct,
+        reached,
+        contributors: zaps.contributors,
     }
 }
 
@@ -422,6 +459,9 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             // gekeyt. `??` würde `lud16: ''` nicht durchfallen lassen → Store-Miss.
             const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
             const zapper = lnurl ? $zappers.get(lnurl) : undefined
+            // Zap-Tally einmal berechnen — Nachrichten-Chip UND (bei kind 9041) der
+            // Goal-Fortschritt speisen sich aus derselben validierten Summe.
+            const zaps = aggregateZaps(zapsByTarget.get(event.id) ?? [], zapper, $me, nameOf)
             return {
                 id: event.id,
                 pubkey: event.pubkey,
@@ -439,7 +479,8 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 reply,
                 reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me, nameOf),
                 poll: event.kind === POLL ? buildPollView(event, pollResponsesByTarget.get(event.id) ?? [], $me) : null,
-                zaps: aggregateZaps(zapsByTarget.get(event.id) ?? [], zapper, $me, nameOf),
+                goal: event.kind === ZAP_GOAL ? buildGoalView(event, zaps) : null,
+                zaps,
                 zappable: !mine && Boolean(lnurl),
             }
         })
@@ -455,7 +496,7 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal): void =>
     void request({
         relays: [url],
         signal,
-        filters: [{ kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE], '#h': [h], limit: 0 }],
+        filters: [{ kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL], '#h': [h], limit: 0 }],
     })
 }
 
@@ -466,6 +507,14 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal): void =>
  */
 export const loadRoomPolls = (url: string, h: string): Promise<TrustedEvent[]> =>
     load({ relays: [url], filters: [{ kinds: [POLL, POLL_RESPONSE], '#h': [h] }] })
+
+/**
+ * Lädt bestehende Zap-Goals (kind 9041) eines Raums beim ersten Öffnen (die Live-Sub
+ * liefert nur Neues). Die Beiträge (9735 mit `#e` = goal.id) kommen über `loadRoomZaps`
+ * (die Goal-IDs stecken als Feed-Nachrichten in der ID-Liste). Kein Paging.
+ */
+export const loadRoomGoals = (url: string, h: string): Promise<TrustedEvent[]> =>
+    load({ relays: [url], filters: [{ kinds: [ZAP_GOAL], '#h': [h] }] })
 
 /**
  * Lädt die bestehenden Reactions (kind 7) + Tombstones (kind 5) eines Raums, damit
@@ -698,6 +747,26 @@ export const sendPoll = async (
         return mapRelayError(err)
     }
     publishPollShareQuote(url, h, thunk.event)
+    return ''
+}
+
+/**
+ * Erstellt ein NIP-75-Zap-Goal (kind 9041) im Raum (ZAPS.md Z5). Optimistisch (die
+ * Goal-Karte erscheint sofort via Repository/Live-Sub); gibt '' bei Erfolg, sonst die
+ * Relay-Fehlermeldung und rollt die optimistische Karte zurück (wie `sendPoll`). Keine
+ * Flotilla-Share-Quote — Goals sind kein Poll-Sonderfall.
+ */
+export const sendGoal = async (
+    url: string,
+    h: string,
+    params: { title: string; summary?: string; targetSats: number },
+): Promise<string> => {
+    const thunk = publishThunk({ relays: [url], event: makeGoal(params, h, url) })
+    const err = await waitForThunkError(thunk)
+    if (err) {
+        repository.removeEvent(thunk.event.id)
+        return mapRelayError(err)
+    }
     return ''
 }
 

@@ -207,6 +207,38 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </div>
                                 </div>
                             </template>
+                            {{-- Zap-Goal (Z5, NIP-75 kind 9041): Titel steht in m.html (Goal-content),
+                                 hier Details + Fortschrittsbalken (aus validiertem 9735-Tally) +
+                                 „Beitragen"-Zap. Eigenes Ziel (!zappable) zeigt nur den Fortschritt. --}}
+                            <template x-if="m.goal">
+                                <div class="surface-card mt-1.5 space-y-2 rounded-tile border border-brand-500/20 p-3">
+                                    <template x-if="m.goal.summary">
+                                        <p class="text-sm text-muted" x-text="m.goal.summary"></p>
+                                    </template>
+                                    <div>
+                                        <div class="flex items-center justify-between gap-2 font-mono text-xs tabular-nums">
+                                            <span class="font-semibold text-brand-500" x-text="m.goal.raisedSats.toLocaleString('de-DE') + ' Sats'"></span>
+                                            <span class="text-muted" x-text="'Ziel ' + m.goal.targetSats.toLocaleString('de-DE')"></span>
+                                        </div>
+                                        {{-- Balken: role=progressbar trägt den Wert für SR; die Breite
+                                             animiert nur bei motion-safe (Reduced-Motion springt). --}}
+                                        <div class="mt-1 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar"
+                                             :aria-valuenow="m.goal.pct" aria-valuemin="0" aria-valuemax="100"
+                                             aria-label="Ziel-Fortschritt"
+                                             :aria-valuetext="m.goal.pct + ' Prozent — ' + m.goal.raisedSats.toLocaleString('de-DE') + ' von ' + m.goal.targetSats.toLocaleString('de-DE') + ' Sats'">
+                                            <div class="h-full rounded-full bg-brand-500 transition-[width] duration-500 motion-reduce:transition-none"
+                                                 :style="`width:${m.goal.pct}%`"></div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="text-xs text-muted"
+                                              x-text="m.goal.contributors + (m.goal.contributors === 1 ? ' Beitragende:r' : ' Beitragende') + (m.goal.reached ? ' · Ziel erreicht 🎉' : '')"></span>
+                                        <flux:button size="xs" variant="primary" icon="bolt" class="shrink-0"
+                                                     x-show="zapsEnabled && m.zappable" x-cloak
+                                                     x-on:click.stop="openZap(m)">Beitragen</flux:button>
+                                    </div>
+                                </div>
+                            </template>
                             {{-- Reaction-Chips (C1): pro Emoji Zähler + eigener Toggle-Zustand. --}}
                             <template x-if="m.reactions.length">
                                 <div class="mt-1 flex flex-wrap gap-1">
@@ -227,14 +259,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </template>
                             {{-- ⚡-Zap-Chip (Z3): validierte 9735-Summe in Sats, Brand-Ramp,
                                  hervorgehoben wenn man selbst (mit)gezappt hat. Tap re-zappt
-                                 (nur fremde Nachrichten → openZap gatet über m.zappable). --}}
-                            <template x-if="m.zaps.count">
+                                 (nur fremde Nachrichten → openZap gatet über m.zappable).
+                                 Bei Goals (Z5) unterdrückt — der Fortschrittsbalken zeigt die Summe. --}}
+                            <template x-if="m.zaps.count && !m.goal">
                                 <div class="mt-1 flex flex-wrap gap-1">
                                     <button type="button"
                                             x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
                                             :title="m.zaps.names"
                                             :aria-label="(m.zaps.mine ? 'Du hast gezappt. ' : '') + m.zaps.sats + ' Sats gezappt von ' + m.zaps.names + (zapsEnabled && m.zappable ? ' – tippen zum erneuten Zappen' : '')"
-                                            class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
+                                            class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none transition-colors motion-reduce:transition-none"
                                             :class="m.zaps.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
                                         <flux:icon.bolt variant="solid" class="size-3.5 shrink-0 text-brand-500" />
                                         <span x-text="m.zaps.sats" class="font-mono text-xs tabular-nums"></span>
@@ -387,9 +420,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </template>
                 </div>
             </template>
-            {{-- Umfrage erstellen (C5): öffnet das Poll-Formular-Modal. --}}
-            <flux:button type="button" variant="ghost" icon="chart-bar" class="shrink-0"
-                         x-on:click="openPollCreate()" aria-label="Umfrage erstellen" />
+            {{-- Anhängen-Menü (wie Flotilla): EIN „+"-Button bündelt Umfrage + Zap-Ziel,
+                 spart Platz im Composer. Zap-Ziel nur bei aktivem Feature-Flag. --}}
+            <flux:dropdown position="top" align="start" class="shrink-0">
+                <flux:button type="button" variant="ghost" icon="plus" aria-label="Anhängen" />
+                <flux:menu>
+                    <flux:menu.item icon="chart-bar" x-on:click="openPollCreate()">Umfrage</flux:menu.item>
+                    <template x-if="zapsEnabled">
+                        <flux:menu.item icon="trophy" x-on:click="openGoalCreate()">Zap-Ziel</flux:menu.item>
+                    </template>
+                </flux:menu>
+            </flux:dropdown>
             <flux:textarea x-ref="composer" x-model="draft" rows="1" resize="none"
                            placeholder="Nachricht schreiben…" aria-label="Nachricht schreiben" class="flex-1"
                            x-on:focus="atBottom && scrollToBottom()"
@@ -475,11 +516,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
             {{-- Eingabe-Zustand (solange keine QR-Rechnung offen ist). --}}
             <div x-show="!zapInvoice" class="space-y-4">
-                {{-- Sats-Presets: 21 hervorgehoben (EINUNDZWANZIG). --}}
-                <div class="grid grid-cols-4 gap-2" role="group" aria-label="Betrag wählen">
+                {{-- Sats-Presets: 21 hervorgehoben (EINUNDZWANZIG). Als Radiogroup ausgezeichnet
+                     (exklusive Betragswahl) → SR sagt „ausgewählt" an, nicht nur „Button". --}}
+                <div class="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Betrag wählen">
                     <template x-for="p in zapPresets" :key="p">
-                        <button type="button" x-on:click="zapAmount = p" :aria-pressed="zapAmount === p"
-                                class="pressable rounded-tile border px-2 py-2 font-mono text-sm tabular-nums"
+                        <button type="button" x-on:click="zapAmount = p" role="radio" :aria-checked="zapAmount === p"
+                                class="pressable rounded-tile border px-2 py-2 font-mono text-sm tabular-nums transition-colors motion-reduce:transition-none"
                                 :class="zapAmount === p ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'"
                                 x-text="p"></button>
                     </template>
@@ -494,8 +536,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </div>
 
-            {{-- QR-Fallback (kein Wallet): Rechnung als QR + kopierbar, Live-Warten. --}}
-            <div x-show="zapInvoice" x-cloak class="space-y-3">
+            {{-- QR-Fallback (kein Wallet): Rechnung als QR + kopierbar, Live-Warten.
+                 Sanfte Erscheinung (kurze Opacity-Transition, ZAPS.md Z6). --}}
+            <div x-show="zapInvoice" x-cloak x-transition.opacity.duration.200ms class="space-y-3">
                 <flux:text class="text-sm text-muted" role="status">Mit einer Lightning-Wallet scannen oder Rechnung kopieren — die Zahlung wird automatisch erkannt.</flux:text>
                 <div class="flex justify-center">
                     <img :src="zapQr" alt="Lightning-Rechnung als QR-Code" class="rounded-tile bg-white p-2" width="256" height="256" />
@@ -547,6 +590,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
                 <flux:button variant="primary" x-on:click="submitPoll()" ::disabled="pollBusy">Erstellen</flux:button>
+            </div>
+        </div>
+    </flux:modal>
+
+    {{-- Zap-Ziel erstellen (Z5, NIP-75 kind 9041): Titel + optionale Details + Sats-Ziel.
+         Publiziert mit `["h", h]` in den Raum (erscheint als Ziel-Karte im Verlauf);
+         Beitragen läuft über den bestehenden Zap-Pfad (openZap auf die Ziel-Nachricht). --}}
+    <flux:modal name="create-goal" class="max-w-md">
+        <div class="space-y-4">
+            <div class="flex items-center gap-2">
+                <flux:icon.trophy variant="solid" class="size-6 text-brand-500" />
+                <flux:heading size="lg">Zap-Ziel erstellen</flux:heading>
+            </div>
+            <flux:input x-model="goalTitle" label="Titel" placeholder="Wofür sammelst du?" />
+            <flux:textarea x-model="goalSummary" label="Details (optional)" rows="2" placeholder="Worum geht es?" />
+            <flux:input type="number" min="1" x-model.number="goalTargetSats" label="Ziel (Sats)" />
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
+                <flux:button variant="primary" icon="trophy" x-on:click="submitGoal()" ::disabled="goalBusy">
+                    <span x-text="goalBusy ? 'Erstelle…' : 'Erstellen'"></span>
+                </flux:button>
             </div>
         </div>
     </flux:modal>

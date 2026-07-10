@@ -82,6 +82,7 @@ import {
     loadRoomMessages,
     loadRoomReactions,
     loadRoomPolls,
+    loadRoomGoals,
     loadRoomZaps,
     sendRoomMessage,
     deleteRoomMessage,
@@ -92,6 +93,7 @@ import {
     sendReport,
     sendPoll,
     sendPollResponse,
+    sendGoal,
     readRoomLastRead,
     writeRoomLastRead,
     type ChatMessage,
@@ -124,7 +126,7 @@ import {
     type NWCInfo,
 } from './wallet'
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
-import { resolveZapper, canZap, chooseZapMethod, createZapInvoice, payZapAuto, watchZapReceipt, DEFAULT_ZAP_CONTENT } from './zaps'
+import { resolveZapper, canZap, chooseZapMethod, createZapInvoice, payZapAuto, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
 import { publishReceivingAddress } from './profiles'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
@@ -368,6 +370,10 @@ type RoomChatState = {
     pollTypeSel: PollType // Einfach-/Mehrfachwahl der zu erstellenden Poll
     pollEndsAt: string // optionales Enddatum (datetime-local-String, '' = kein Ende)
     pollBusy: boolean // Poll wird gerade publiziert
+    goalTitle: string // Titel des zu erstellenden Zap-Goals (Z5)
+    goalSummary: string // optionale Beschreibung des Zap-Goals
+    goalTargetSats: number // Ziel-Betrag in Sats
+    goalBusy: boolean // Goal wird gerade publiziert
     _draggedOption: string | null // id der per Griff gezogenen Option (Reorder), sonst null
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
@@ -434,6 +440,8 @@ type RoomChatState = {
     pollReorder(targetId: string): void
     pollDragEnd(): void
     submitPoll(): Promise<void>
+    openGoalCreate(): void
+    submitGoal(): Promise<void>
     join(): Promise<void>
     leave(): Promise<void>
     destroy(): void
@@ -1278,6 +1286,10 @@ export function registerNostrComponents(Alpine: {
         pollTypeSel: 'singlechoice',
         pollEndsAt: '',
         pollBusy: false,
+        goalTitle: '',
+        goalSummary: '',
+        goalTargetSats: 21000,
+        goalBusy: false,
         _draggedOption: null,
         isMobile,
         menuFor: null,
@@ -1355,6 +1367,8 @@ export function registerNostrComponents(Alpine: {
             void loadRoomReactions(url, this.h)
             // Bestehende Polls (kind 1068) + Responses (kind 1018) nachladen (C5).
             void loadRoomPolls(url, this.h)
+            // Bestehende Zap-Goals (kind 9041) nachladen — Beiträge kommen über loadRoomZaps (Z5).
+            void loadRoomGoals(url, this.h)
             // Custom-Emoji (NIP-30) des eigenen Profils vorwärmen, solange die
             // Relay-Verbindung frisch AUTH'd ist — beim späteren Picker-Öffnen
             // würde ein one-shot-Load gegen den member-only Relay sonst hängen.
@@ -1948,7 +1962,7 @@ export function registerNostrComponents(Alpine: {
                     ;(this as unknown as AlpineMagics).$nextTick(() => (this as unknown as AlpineMagics).$refs.zapCopyBtn?.focus())
                 }
             } catch (e) {
-                toast(e instanceof Error ? e.message : 'Zap fehlgeschlagen.')
+                toast(mapZapError(e))
             } finally {
                 this.zapping = false
             }
@@ -2069,6 +2083,44 @@ export function registerNostrComponents(Alpine: {
                 }
             } finally {
                 this.pollBusy = false
+            }
+        },
+        // ── Z5: Zap-Goal-Erstellen (NIP-75 kind 9041) ──────────────────────────
+        // Goal-Formular zurücksetzen (Default-Ziel 21 000 Sats) + Modal auf.
+        openGoalCreate() {
+            this.goalTitle = ''
+            this.goalSummary = ''
+            this.goalTargetSats = 21000
+            dispatchModal('create-goal')
+        },
+        // Goal publizieren (kind 9041). Validiert Titel + Ziel > 0; die Karte
+        // erscheint optimistisch im Verlauf (wie eine Poll), Beitragen läuft über
+        // den bestehenden Zap-Pfad (openZap auf die Goal-Nachricht).
+        async submitGoal() {
+            if (this.goalBusy || !this._url) {
+                return
+            }
+            const title = this.goalTitle.trim()
+            if (!title) {
+                toast('Bitte gib dem Ziel einen Titel.')
+                return
+            }
+            const targetSats = Math.floor(this.goalTargetSats)
+            if (!Number.isFinite(targetSats) || targetSats <= 0) {
+                toast('Bitte gib ein gültiges Ziel in Sats an.')
+                return
+            }
+            this.goalBusy = true
+            try {
+                const err = await sendGoal(this._url, this.h, { title, summary: this.goalSummary.trim(), targetSats })
+                if (err) {
+                    toast(err)
+                } else {
+                    dispatchModal('create-goal', false)
+                    this.scrollToBottom()
+                }
+            } finally {
+                this.goalBusy = false
             }
         },
         // Beitreten (kind 9021). Round-trip: `joined` flippt, sobald die vom Relay

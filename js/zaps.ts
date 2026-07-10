@@ -18,6 +18,40 @@ import { payInvoice as walletPayInvoice } from './wallet'
 /** Standard-Zap-Kommentar (flotilla legt den Reaktions-Emoji in den 9734-`content`). */
 export const DEFAULT_ZAP_CONTENT = '⚡'
 
+/**
+ * Rohe Zap-Fehler (Netzwerk/Wallet/LNURL) in eine kurze, deutsche, handlungsleitende
+ * Meldung übersetzen (ZAPS.md Z6). Bereits eingedeutschte Fehler aus dem Z1/Z2-Pfad
+ * (createZapInvoice etc.) reicht die Funktion durch — sie mappt nur die generischen
+ * Roh-Fehler von `fetch`/`NWCClient`/WebLN, die sonst englisch/kryptisch beim Nutzer
+ * landen. Pure Funktion → als JS-Unit ohne Runtime prüfbar.
+ */
+export const mapZapError = (error: unknown): string => {
+    const raw = error instanceof Error ? error.message : String(error ?? '')
+    const s = raw.toLowerCase()
+    if (s.includes('kein aktiver signer')) {
+        return 'Bitte zuerst anmelden, um zu zappen.'
+    }
+    if (s.includes('failed to fetch') || s.includes('networkerror') || s.includes('load failed')) {
+        return 'Zapper nicht erreichbar — bitte später erneut versuchen.'
+    }
+    if (s.includes('rechnung') || s.includes('lnurl') || s.includes('callback')) {
+        return raw // schon deutsch aus createZapInvoice / requestZap
+    }
+    if (s.includes('insufficient') || s.includes('balance')) {
+        return 'Zahlung fehlgeschlagen — Wallet-Guthaben reicht nicht.'
+    }
+    if (s.includes('reject') || s.includes('denied') || s.includes('unauthorized')) {
+        return 'Wallet hat die Zahlung abgelehnt.'
+    }
+    if (s.includes('nullbetrag') || s.includes('webln')) {
+        return raw // schon deutsch (payInvoice-Guard)
+    }
+    if (s.includes('kann keine zaps')) {
+        return raw // schon deutsch (canZap-Gate)
+    }
+    return raw || 'Zap fehlgeschlagen.'
+}
+
 /** Zapper (LNURL-pay-Metadaten) des Empfängers auflösen; undefined ohne lud16/lud06. */
 export const resolveZapper = (pubkey: string): Promise<Zapper | undefined> => loadZapperForPubkey(pubkey)
 
