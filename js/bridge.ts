@@ -25,6 +25,7 @@ import {
     handoffToServer,
     logoutServer,
     authReady,
+    nip46PermsStale,
 } from './session'
 import {
     groupSpaceChoices,
@@ -232,6 +233,7 @@ type AuthState = {
     busy: boolean
     error: string
     reauthing: boolean
+    reconnect: boolean
     _unsub: null | (() => void)
     _connectAbort: AbortController | null
     _reauthTried: boolean
@@ -455,6 +457,14 @@ type SignerBannerState = {
     _health: SignerHealth
     init(): void
     destroy(): void
+}
+
+type ReconnectBannerState = {
+    stale: boolean
+    _unsub: null | (() => void)
+    init(): void
+    destroy(): void
+    reconnect(): void
 }
 
 type SpaceSettingsState = {
@@ -2318,6 +2328,10 @@ export function registerNostrComponents(Alpine: {
         busy: false,
         error: '',
         reauthing: false,
+        // Reconnect-Modus (?reconnect=1 vom Perms-Nudge): zeigt trotz aktivem pubkey
+        // die Verbinden-Optionen und unterdrückt die Auto-Reauth, damit der Nutzer die
+        // Amber/Bunker-Verbindung mit den vollständigen Perms neu aufsetzen kann.
+        reconnect: new URLSearchParams(location.search).get('reconnect') === '1',
         _unsub: null,
         _connectAbort: null,
         _reauthTried: false,
@@ -2344,7 +2358,7 @@ export function registerNostrComponents(Alpine: {
             // das Server-Gate hat hierher geworfen. Handoff (NIP-98) nachholen statt in der
             // „Angemeldet"-Sackgasse zu stecken. Nur auf /nostr-login, einmal, nur wenn
             // wirklich eingeloggt. Web = Handoff; Mobile = direkt /spaces (kein Server-Gate).
-            if (location.pathname.startsWith('/nostr-login')) {
+            if (location.pathname.startsWith('/nostr-login') && !this.reconnect) {
                 authReady.then(async () => {
                     if (this._reauthTried || !pubkey.get()) {
                         return
@@ -2362,8 +2376,11 @@ export function registerNostrComponents(Alpine: {
             }
         },
         // welshman-Login (Signer im Browser). Nach Erfolg zum Login-Ziel (siehe
-        // postLoginRedirect). Schlägt es fehl, wird die welshman-Session
+        // postLoginRedirect). Schlägt ein FRISCHER Login fehl, wird die welshman-Session
         // zurückgerollt, damit Browser- und (auf Web) Laravel-Zustand konsistent bleiben.
+        // Im Reconnect-Modus NICHT rollen: dort besteht bereits eine gültige Session,
+        // die ein gescheiterter Perms-Reconnect (Amber offline/abgelehnt) nicht zerstören
+        // darf — der Nutzer soll weiter angemeldet bleiben.
         async completeLogin(fn) {
             this.busy = true
             this.error = ''
@@ -2372,7 +2389,9 @@ export function registerNostrComponents(Alpine: {
                 window.location.assign(await postLoginRedirect())
             } catch (e) {
                 this.error = e instanceof Error ? e.message : String(e)
-                logout()
+                if (!this.reconnect) {
+                    logout()
+                }
             } finally {
                 this.busy = false
             }
@@ -2415,7 +2434,11 @@ export function registerNostrComponents(Alpine: {
             } catch (e) {
                 if (!abort.signal.aborted) {
                     this.error = e instanceof Error ? e.message : String(e)
-                    logout()
+                    // Reconnect-Modus: bestehende Session nicht wegen eines
+                    // gescheiterten Perms-Reconnects zerstören (s. completeLogin).
+                    if (!this.reconnect) {
+                        logout()
+                    }
                 }
             } finally {
                 if (this._connectAbort === abort) {
@@ -2485,6 +2508,27 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._unsubHealth?.()
             this._unsubPubkey?.()
+        },
+    }))
+
+    // Reconnect-Nudge: bestehende Amber/Bunker-Verbindungen behalten nach dem Perms-
+    // Update ihre alten (unvollständigen) Rechte — welshman verhandelt beim Reload
+    // nicht neu. Erkennt das (nip46PermsStale) und bietet einen Einmal-Reconnect an,
+    // der die Verbindung mit der vollständigen Perm-Liste neu aufsetzt. Nur NIP-46.
+    Alpine.data('nostrReconnectBanner', (): ReconnectBannerState => ({
+        stale: false,
+        _unsub: null,
+        init() {
+            // An pubkey koppeln: (Re-)Login/Logout ändern den relevanten Zustand.
+            this._unsub = pubkey.subscribe(() => {
+                this.stale = nip46PermsStale()
+            })
+        },
+        destroy() {
+            this._unsub?.()
+        },
+        reconnect() {
+            window.location.assign('/nostr-login?reconnect=1')
         },
     }))
 

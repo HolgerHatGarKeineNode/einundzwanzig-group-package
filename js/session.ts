@@ -22,6 +22,7 @@ import { sync, localStorageProvider } from '@welshman/store'
 import { bytesToHex } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { SIGNER_RELAYS, isMobile } from './core'
+import { NIP46_PERMS, NIP46_PERMS_KEY, nip46PermsAreStale } from './nip46-perms'
 import { clearWallet } from './wallet'
 
 /** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
@@ -86,32 +87,38 @@ export async function loginWithBunker(bunkerUri: string): Promise<void> {
         clientSecret,
         signerPubkey,
     })
-    const result = await broker.connect(connectSecret)
+    const result = await broker.connect(connectSecret, NIP46_PERMS)
     const pk = await broker.getPublicKey()
     if (pk && ['ack', connectSecret].includes(result)) {
         broker.cleanup()
         loginWithNip46(pk, clientSecret, signerPubkey, broker.params.relays)
+        markNip46PermsFresh()
     } else {
         throw new Error('Bunker-Verbindung fehlgeschlagen.')
     }
 }
 
+function markNip46PermsFresh(): void {
+    try {
+        localStorage.setItem(NIP46_PERMS_KEY, NIP46_PERMS)
+    } catch {
+        // localStorage nicht verfügbar (Private Mode o.ä.) — Nudge bleibt dann aktiv, unkritisch.
+    }
+}
+
 /**
- * NIP-46-Berechtigungen, die der Remote-Signer (Amber) beim Verbinden gewährt —
- * begrenzt auf unseren Verein-Kern-Scope: nip44 (verschlüsselte Listen), Chat
- * (kind 9), Löschen (5), Space/Room-Liste (10009), AUTH (22242), Room-Join (9021),
- * Zap-Request (9734, ZAPS.md Z1 — sonst können Amber/Bunker-User nicht zappen).
+ * Store-/localStorage-Adapter um die reine `nip46PermsAreStale`-Entscheidung: liest
+ * den aktiven Signer-Typ (welshman-`sessions`) und den zuletzt gewährten Perms-String.
+ * Steuert den Reconnect-Nudge (bridge.ts). Die Kernlogik liegt in nip46-perms.ts.
  */
-const NIP46_PERMS = [
-    'nip44_encrypt',
-    'nip44_decrypt',
-    'sign_event:9',
-    'sign_event:5',
-    'sign_event:10009',
-    'sign_event:22242',
-    'sign_event:9021',
-    'sign_event:9734',
-].join(',')
+export function nip46PermsStale(): boolean {
+    const pk = pubkey.get()
+    if (!pk) {
+        return false
+    }
+    const method = sessions.get()[pk]?.method
+    return nip46PermsAreStale(method, localStorage.getItem(NIP46_PERMS_KEY))
+}
 
 /**
  * NIP-46 via `nostrconnect://` (Amber-QR-Flow): Der Client erzeugt eine Connect-URL,
@@ -137,6 +144,7 @@ export async function loginWithNostrConnect(
         const pk = await broker.getPublicKey()
         // connect() kann Relays gewechselt haben → die aktuellen des Brokers persistieren.
         loginWithNip46(pk, clientSecret, response.event.pubkey, broker.params.relays)
+        markNip46PermsFresh()
     } finally {
         broker.cleanup()
     }
@@ -147,13 +155,27 @@ function csrfToken(): string {
     return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? ''
 }
 
+let handoffInFlight: Promise<string> | null = null
+
 /**
  * NIP-98-Handoff: signiert ein Auth-Event über die Login-URL + Server-Nonce mit
  * dem aktiven Signer und lässt Laravel die Signatur verifizieren. Der Key bleibt
  * im Browser; die Session trägt danach den beglaubigten pubkey. Gibt die
  * Ziel-URL nach erfolgreichem Login zurück.
+ *
+ * Serialisiert: nie zwei parallele Handoffs. Auto-Reauth (bridge.ts) und ein
+ * manueller Login/Reconnect könnten sonst gleichzeitig je eine Challenge holen;
+ * das langsame Amber-Signieren verbreitert das Fenster, in dem der zweite GET die
+ * Nonce des ersten überholt. Ein modulweites In-Flight-Promise bündelt überlappende
+ * Aufrufe auf denselben Roundtrip. (Server-seitig zusätzlich per Cache-Nonce robust.)
  */
-export async function handoffToServer(): Promise<string> {
+export function handoffToServer(): Promise<string> {
+    return (handoffInFlight ??= doHandoff().finally(() => {
+        handoffInFlight = null
+    }))
+}
+
+async function doHandoff(): Promise<string> {
     const activeSigner = signer.get()
     if (!activeSigner) {
         throw new Error('Kein aktiver Signer für den Server-Login.')

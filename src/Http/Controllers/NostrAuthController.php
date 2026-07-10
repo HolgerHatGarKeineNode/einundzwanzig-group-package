@@ -4,6 +4,7 @@ namespace Einundzwanzig\Group\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use swentel\nostr\Event\Event;
 
@@ -17,11 +18,19 @@ use swentel\nostr\Event\Event;
  */
 class NostrAuthController
 {
-    /** Maximales Alter des signierten Events (Uhren-Drift-Toleranz). */
-    private const EVENT_MAX_AGE = 120;
+    /**
+     * Maximales Alter des signierten Events. `created_at` wird beim Template-Bau
+     * (makeHttpAuth) gestempelt — VOR dem u.U. langsamen Amber/NIP-46-Roundtrip.
+     * Deshalb an CHALLENGE_TTL angeglichen: solange die Challenge noch gültig ist,
+     * soll das Event nicht separat als „abgelaufen" durchfallen.
+     */
+    private const EVENT_MAX_AGE = 300;
 
     /** Lebensdauer der ausgegebenen Challenge. */
     private const CHALLENGE_TTL = 300;
+
+    /** Cache-Präfix der Einmal-Nonce (pro Challenge-Wert, nicht pro Session). */
+    private const CHALLENGE_PREFIX = 'nostr:challenge:';
 
     private const HTTP_AUTH_KIND = 27235;
 
@@ -29,12 +38,17 @@ class NostrAuthController
      * Gibt eine Einmal-Nonce + die kanonische Login-URL aus. Der Client signiert
      * genau diese URL, damit der u-Tag server-seitig exakt matcht.
      */
-    public function challenge(Request $request): JsonResponse
+    public function challenge(): JsonResponse
     {
         $challenge = Str::random(64);
 
-        $request->session()->put('nostr_challenge', $challenge);
-        $request->session()->put('nostr_challenge_at', now()->timestamp);
+        // Nonce im (geteilten) Cache halten, gekeyt auf den Challenge-Wert selbst —
+        // NICHT in einem einzigen Session-Slot. Überlappende Handoffs (Auto-Reauth +
+        // manueller Login, zweiter Tab, wire:navigate-Remount) auf DERSELBEN Session
+        // würden sich sonst gegenseitig überschreiben → der langsame erste POST käme
+        // mit veralteter Nonce zurück ⇒ „Challenge ungültig". Jede Challenge ist so
+        // eigenständig gültig bis zur TTL. Der Cache-Store (database) ist geteilt.
+        Cache::put(self::CHALLENGE_PREFIX.$challenge, true, self::CHALLENGE_TTL);
 
         return response()->json([
             'challenge' => $challenge,
@@ -88,16 +102,14 @@ class NostrAuthController
             return $this->reject('URL oder Methode stimmt nicht.');
         }
 
-        // 3. Einmal-Nonce prüfen (Replay-Schutz) und sofort verbrauchen.
-        $expected = $request->session()->pull('nostr_challenge');
-        $issuedAt = $request->session()->pull('nostr_challenge_at', 0);
-
-        if (! $expected || ! is_string($challenge) || ! hash_equals($expected, $challenge)) {
-            return $this->reject('Challenge ungültig.');
-        }
-
-        if (now()->timestamp - $issuedAt > self::CHALLENGE_TTL) {
-            return $this->reject('Challenge abgelaufen.');
+        // 3. Einmal-Nonce prüfen und verbrauchen: `Cache::pull` (get + forget) macht
+        // die Challenge single-use über die Zeit — ein später abgefangenes Event kann
+        // nicht erneut eingelöst werden. (Kein Lock: `pull` ist NICHT atomar, zwei exakt
+        // gleichzeitige POSTs desselben Events könnten beide durchgehen — harmlos, da
+        // dieselbe Signatur auf DENSELBEN pubkey, kein Privilegien-Gewinn.) Fehlt der
+        // Key (nie ausgegeben, schon verbraucht oder TTL abgelaufen) ⇒ ungültig.
+        if (! is_string($challenge) || ! Cache::pull(self::CHALLENGE_PREFIX.$challenge)) {
+            return $this->reject('Challenge ungültig oder abgelaufen — bitte erneut anmelden.');
         }
 
         // Beglaubigt: pubkey in eine frische Session schreiben.
@@ -114,7 +126,7 @@ class NostrAuthController
     /** Beendet die Laravel-Session (welshman-Session cleart der Client separat). */
     public function logout(Request $request): JsonResponse
     {
-        $request->session()->forget(['nostr_pubkey', 'nostr_challenge', 'nostr_challenge_at']);
+        $request->session()->forget('nostr_pubkey');
 
         return response()->json(['ok' => true]);
     }

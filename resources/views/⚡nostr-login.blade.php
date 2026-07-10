@@ -14,8 +14,11 @@ new #[Layout('group::einundzwanzig')] #[Title('Anmelden')] class extends Compone
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
     <div x-data="nostrAuth" class="page-enter">
 
-        {{-- Eingeloggt (bzw. Session wird nach Reboot wiederhergestellt) --}}
-        <template x-if="pubkey">
+        {{-- Eingeloggt (bzw. Session wird nach Reboot wiederhergestellt). Im
+             Reconnect-Modus (?reconnect=1) NICHT zeigen — dort sollen trotz aktivem
+             pubkey die Verbinden-Optionen erscheinen. --}}
+        <template x-if="pubkey && !reconnect">
+
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.check-badge variant="solid" class="mx-auto size-10 text-brand-500" />
                 <flux:heading size="lg" class="mt-3" x-text="reauthing ? 'Anmeldung wird wiederhergestellt…' : 'Angemeldet'"></flux:heading>
@@ -26,13 +29,18 @@ new #[Layout('group::einundzwanzig')] #[Title('Anmelden')] class extends Compone
             </div>
         </template>
 
-        {{-- Ausgeloggt: Login-Optionen --}}
-        <template x-if="!pubkey">
+        {{-- Ausgeloggt (oder Reconnect-Modus): Login-/Verbinden-Optionen --}}
+        <template x-if="!pubkey || reconnect">
             <div class="surface-card p-6">
                 <flux:heading size="xl" class="flex items-center gap-2">
                     <flux:icon.bolt variant="solid" class="size-6 text-brand-500" />
-                    Anmelden
+                    <span x-text="reconnect ? 'Neu verbinden' : 'Anmelden'"></span>
                 </flux:heading>
+
+                {{-- Reconnect-Hinweis: warum der Nutzer hier ist. --}}
+                <flux:callout x-show="reconnect" x-cloak icon="arrow-path" class="mt-3">
+                    <flux:callout.text>Deine Amber-/Bunker-Verbindung stammt aus einer früheren Version. Verbinde einmal neu, um alle Berechtigungen (Zaps, Umfragen, Reaktionen, Admin) zu erteilen.</flux:callout.text>
+                </flux:callout>
                 <flux:text class="mt-1 mb-5">
                     <span x-show="!mobile">Melde dich mit deinem Nostr-Signer an — per Browser-Erweiterung, Amber oder Bunker.</span>
                     <span x-show="mobile" x-cloak>Melde dich mit deinem Nostr-Signer an — per Amber oder Bunker.</span>

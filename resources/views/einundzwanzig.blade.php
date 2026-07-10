@@ -26,6 +26,18 @@
         </div>
     </div>
 
+    {{-- Reconnect-Nudge: veraltete NIP-46-Verbindung (Perms-Update) einmal erneuern.
+         welshman verhandelt beim Reload nicht neu → bestehende Amber/Bunker-Rechte
+         bleiben unvollständig, bis der Nutzer neu verbindet. --}}
+    <div x-data="nostrReconnectBanner" x-show="stale" x-cloak x-transition.opacity
+         class="fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-safe">
+        <div class="mt-2 flex items-center gap-2 rounded-tile bg-brand-500/95 px-3 py-1.5 text-xs font-medium text-white shadow-pop">
+            <flux:icon.arrow-path variant="micro" />
+            <span>Für Zaps, Umfragen &amp; Admin einmal neu verbinden.</span>
+            <button type="button" x-on:click="reconnect()" class="ml-1 rounded-full bg-white/25 px-2 py-0.5 font-semibold hover:bg-white/40">Neu verbinden</button>
+        </div>
+    </div>
+
     {{ $slot }}
 
     {{-- Ziel für Insel-Toasts (Publish-Fehler etc.), per `toast-show`-Event. --}}
