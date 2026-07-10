@@ -29,6 +29,7 @@ import {
     loginWithNip55,
 } from './session'
 import { nip55Available, startNip55Login } from './nip55-signer'
+import { schedulePortalHandoff } from './portal-handoff'
 import {
     groupSpaceChoices,
     activeSpace,
@@ -173,7 +174,14 @@ const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
  * hält die Session selbst.
  */
 async function postLoginRedirect(): Promise<string> {
-    return isMobile ? '/spaces' : handoffToServer()
+    if (isMobile) {
+        // Single-Login: den Portal-Handoff für die Zielseite vormerken (das
+        // Boot-Gate führt ihn dort aus). Direkt hier würde die folgende
+        // window.location-Navigation ihn nach dem Signieren abreißen.
+        schedulePortalHandoff()
+        return '/spaces'
+    }
+    return handoffToServer()
 }
 
 /** Generischer Adapter (für M2+): spiegelt einen Store in `this.value`. */

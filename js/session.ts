@@ -24,6 +24,7 @@ import * as nip19 from 'nostr-tools/nip19'
 import { SIGNER_RELAYS, isMobile } from './core'
 import { NIP46_PERMS, NIP46_PERMS_KEY, nip46PermsAreStale } from './nip46-perms'
 import { installNip55WindowNostr } from './nip55-signer'
+import { runScheduledPortalHandoff } from './portal-handoff'
 import { clearWallet } from './wallet'
 
 /** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
@@ -51,6 +52,11 @@ if (isMobile) {
         }
         if (!pk && !location.pathname.startsWith('/nostr-login')) {
             window.location.assign('/nostr-login')
+        }
+        // Single-Login: einen nach dem Login vorgemerkten Portal-Handoff hier auf
+        // der stabilen Zielseite ausführen (der Shim ist oben schon installiert).
+        if (pk) {
+            void runScheduledPortalHandoff()
         }
     })
 }
