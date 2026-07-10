@@ -225,6 +225,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </template>
                                 </div>
                             </template>
+                            {{-- ⚡-Zap-Chip (Z3): validierte 9735-Summe in Sats, Brand-Ramp,
+                                 hervorgehoben wenn man selbst (mit)gezappt hat. Tap re-zappt
+                                 (nur fremde Nachrichten → openZap gatet über m.zappable). --}}
+                            <template x-if="m.zaps.count">
+                                <div class="mt-1 flex flex-wrap gap-1">
+                                    <button type="button"
+                                            x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
+                                            :title="m.zaps.names"
+                                            :aria-label="(m.zaps.mine ? 'Du hast gezappt. ' : '') + m.zaps.sats + ' Sats gezappt von ' + m.zaps.names + (zapsEnabled && m.zappable ? ' – tippen zum erneuten Zappen' : '')"
+                                            class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
+                                            :class="m.zaps.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
+                                        <flux:icon.bolt variant="solid" class="size-3.5 shrink-0 text-brand-500" />
+                                        <span x-text="m.zaps.sats" class="font-mono text-xs tabular-nums"></span>
+                                    </button>
+                                </div>
+                            </template>
                         </div>
                         {{-- Aktionen: schwebende Toolbar oben rechts (bei Hover/aktivem Tap).
                              `absolute` → nimmt KEINEN Layout-Platz, der Text behält die volle
@@ -232,6 +248,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              surface-Hintergrund, damit sie über langem Text lesbar bleibt. --}}
                         <div class="surface-card pointer-events-none absolute right-1 top-0.5 z-10 flex items-center gap-0.5 rounded-full px-0.5 shadow-md opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
                              :class="activeId===m.id && '!pointer-events-auto !opacity-100'">
+                            {{-- Zap (Z3, NIP-57): WICHTIGSTE Aktion → ganz vorne, Brand-Gelb.
+                                 `!text-brand-500` überschreibt Flux' ghost-Textfarbe
+                                 (text-zinc-800/white, gleiche Spezifität → sonst Reihenfolge).
+                                 Nur fremde Nachrichten mit lud16; Feature-Flag-gated. --}}
+                            <flux:button size="xs" variant="ghost" icon="bolt" class="icon-btn-touch !text-brand-500"
+                                         x-show="zapsEnabled && m.zappable" x-cloak x-on:click.stop="openZap(m)"
+                                         aria-label="Zap" />
                             <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" class="icon-btn-touch"
                                          x-on:click.stop="setReply(m)" aria-label="Antworten" />
                             <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
@@ -269,6 +292,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
                                                      class="icon-btn-touch" aria-label="Weitere Aktionen" />
                                         <flux:menu>
+                                            {{-- Zap (Z3, NIP-57): WICHTIGSTE Aktion → ganz vorne. Nur fremde Nachricht mit lud16. --}}
+                                            <template x-if="zapsEnabled && m.zappable">
+                                                <flux:menu.item icon="bolt" x-on:click="openZap(m)">Zap</flux:menu.item>
+                                            </template>
                                             <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">Antworten</flux:menu.item>
                                             {{-- Zitieren (C3): Nachricht ohne Kommentar teilen (Quote-Only). --}}
                                             <flux:menu.item icon="chat-bubble-left-right" x-on:click="share(m)">Zitieren</flux:menu.item>
@@ -432,6 +459,57 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </flux:modal>
 
+    {{-- Zap senden (Z3, NIP-57): Sats-Presets + Freibetrag + Emoji/Kommentar. Wallet
+         verbunden → Auto-Pay; sonst QR-Fallback (bolt11 + Live-Receipt-Erkennung).
+         Inline-Sheet am nostrRoomChat-Root-Scope (kein eigenes Island — nur EINE
+         Modal-Instanz). Modal-Close bricht die offene QR-Sub ab (closeZap). --}}
+    <flux:modal name="zap-message" class="max-w-sm" x-on:close="closeZap()">
+        <div class="space-y-4">
+            <div class="flex items-center gap-2">
+                <flux:icon.bolt variant="solid" class="size-6 text-brand-500" />
+                <flux:heading size="lg">Zap senden</flux:heading>
+            </div>
+            <flux:text class="text-sm text-muted" x-show="zapFor" x-cloak>
+                An <span class="text-strong" x-text="zapFor?.name"></span>
+            </flux:text>
+
+            {{-- Eingabe-Zustand (solange keine QR-Rechnung offen ist). --}}
+            <div x-show="!zapInvoice" class="space-y-4">
+                {{-- Sats-Presets: 21 hervorgehoben (EINUNDZWANZIG). --}}
+                <div class="grid grid-cols-4 gap-2" role="group" aria-label="Betrag wählen">
+                    <template x-for="p in zapPresets" :key="p">
+                        <button type="button" x-on:click="zapAmount = p" :aria-pressed="zapAmount === p"
+                                class="pressable rounded-tile border px-2 py-2 font-mono text-sm tabular-nums"
+                                :class="zapAmount === p ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'"
+                                x-text="p"></button>
+                    </template>
+                </div>
+                <flux:input type="number" min="1" x-model.number="zapAmount" label="Betrag (Sats)" />
+                <flux:input x-model="zapContent" label="Kommentar" placeholder="⚡" />
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
+                    <flux:button variant="primary" icon="bolt" x-on:click="confirmZap()" ::disabled="zapping">
+                        <span x-text="zapping ? 'Sende…' : 'Zap senden'"></span>
+                    </flux:button>
+                </div>
+            </div>
+
+            {{-- QR-Fallback (kein Wallet): Rechnung als QR + kopierbar, Live-Warten. --}}
+            <div x-show="zapInvoice" x-cloak class="space-y-3">
+                <flux:text class="text-sm text-muted" role="status">Mit einer Lightning-Wallet scannen oder Rechnung kopieren — die Zahlung wird automatisch erkannt.</flux:text>
+                <div class="flex justify-center">
+                    <img :src="zapQr" alt="Lightning-Rechnung als QR-Code" class="rounded-tile bg-white p-2" width="256" height="256" />
+                </div>
+                <div class="flex items-center gap-2">
+                    <flux:input readonly ::value="zapInvoice" class="flex-1 font-mono text-xs" />
+                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, 'Rechnung')" aria-label="Rechnung kopieren" />
+                </div>
+                <a href="{{ route('group.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">Wallet verbinden für 1-Klick-Zaps</a>
+                <flux:modal.close><flux:button variant="ghost" class="w-full">Fertig</flux:button></flux:modal.close>
+            </div>
+        </div>
+    </flux:modal>
+
     {{-- Umfrage erstellen (C5, NIP-88 kind 1068): Frage + ≥2 Optionen + Einfach-/
          Mehrfachwahl + optionales Enddatum. Publiziert mit `["h", h]` in den Raum
          (erscheint als Poll-Karte im Verlauf). Poll-Erstellen ist Teil von C5. --}}
@@ -489,6 +567,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <x-group::emoji-picker message="menuFor" />
                 </template>
             </div>
+            {{-- Zap (Z3, NIP-57): WICHTIGSTE Aktion → ganz vorne, Brand-Gelb (`!text-brand-500`
+                 überschreibt ghost-Textfarbe). openZap schließt das Menü selbst. --}}
+            <flux:button variant="ghost" icon="bolt" class="w-full justify-start !text-brand-500"
+                         x-show="zapsEnabled && menuFor?.zappable" x-cloak
+                         x-on:click="if (menuFor) openZap(menuFor)">Zap</flux:button>
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
                          x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">Antworten</flux:button>
             {{-- Zitieren (C3): teilt ohne Kommentar; share() schließt das Menü selbst. --}}

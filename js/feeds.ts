@@ -9,13 +9,14 @@
  */
 import { derived, get, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05 } from '@welshman/app'
+import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, makeEvent, sortEventsAsc, getTag, getTagValue, type TrustedEvent } from '@welshman/util'
-import { groupBy, uniqBy } from '@welshman/lib'
+import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
+import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
+import { warmZappers } from './zaps'
 import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, mentionPubkeys } from './interactions'
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { proxifyImage } from './core'
@@ -76,6 +77,13 @@ const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
 
 /** kind-1018-Poll-Responses eines Raums (NIP-88) — tragen `#h` vom Poll (via makePollResponse). */
 const roomPollResponseFilter = (h: string) => [{ kinds: [POLL_RESPONSE], '#h': [h] }]
+
+/**
+ * kind-9735-Zap-Receipts (NIP-57): tragen KEIN `#h` — der LNURL-Server kopiert nur
+ * `p`/`e`/`bolt11`/`description` ins Receipt. Deshalb hier ungefiltert je Space-Relay;
+ * die Zuordnung zur Nachricht + Validierung läuft in `aggregateZaps` über `#e`.
+ */
+const roomZapReceiptFilter = () => [{ kinds: [ZAP_RESPONSE] }]
 
 /** Aufsteigend sortierter Chat-Verlauf eines Rooms (Nachrichten + Polls, reaktiv). */
 const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
@@ -224,6 +232,37 @@ const aggregateReactions = (
     })
 }
 
+/** Aggregierte Zap-Sicht einer Nachricht (⚡-Chip): Anzahl, Sats-Summe, eigener Anteil. */
+export type ZapSummary = {
+    count: number // Anzahl valider Zaps (nach `zapFromEvent`-Prüfung)
+    sats: number // Summe in Sats (bolt11-`invoiceAmount`, msats→sats)
+    mine: boolean // hat der eingeloggte User (mit)gezappt?
+    names: string // Namen der Zapper (kommagetrennt, dedupliziert) → Chip-Tooltip
+}
+
+/**
+ * Validiert + summiert die kind-9735-Receipts EINER Nachricht — NIE roh summieren
+ * (Anti-Spoof). `zapFromEvent` prüft bolt11↔`amount`-Tag, `lnurl` und den Receipt-
+ * Signer (`response.pubkey === zapper.nostrPubkey`). Ohne aufgelösten Zapper (Autor-
+ * lud16 noch nicht gewärmt) bleibt die Summe leer. (welshmans Selbst-Zap-Guard greift
+ * hier nicht — er prüft `zapper.pubkey`, das store-geladene LNURL-Zapper nicht tragen;
+ * Selbst-Zaps auf eigene Nachrichten verhindert ohnehin das `zappable`-Gate im UI.)
+ */
+export const aggregateZaps = (
+    receipts: TrustedEvent[],
+    zapper: Zapper | undefined,
+    me: string | null | undefined,
+    nameOf: (pubkey: string) => string,
+): ZapSummary => {
+    const zaps = receipts.map((r) => zapFromEvent(r, zapper)).filter((z): z is Zap => Boolean(z))
+    return {
+        count: zaps.length,
+        sats: fromMsats(zaps.reduce((sum, z) => sum + z.invoiceAmount, 0)),
+        mine: zaps.some((z) => z.request.pubkey === me),
+        names: uniq(zaps.map((z) => nameOf(z.request.pubkey))).join(', '),
+    }
+}
+
 export type ChatMessage = {
     id: string
     pubkey: string
@@ -241,6 +280,8 @@ export type ChatMessage = {
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), sonst null
     reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
     poll: PollView | null // NIP-88-Poll (kind 1068) mit Live-Tally + eigenem Vote (C5), sonst null
+    zaps: ZapSummary // validierte kind-9735-Zap-Summe (Z3), count 0 = keine
+    zappable: boolean // Autor kann Zaps empfangen (lud16/lud06) UND ist nicht man selbst
 }
 
 /** Eine Poll-Option mit Live-Zähler, Balkenbreite (0–100 %) und eigenem Vote-Zustand. */
@@ -323,13 +364,18 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             handlesByNip05,
             deriveEventsForUrl(url, roomReactionFilter(h)),
             deriveEventsForUrl(url, roomPollResponseFilter(h)),
+            deriveEventsForUrl(url, roomZapReceiptFilter()),
+            zappersByLnurl,
         ],
-        ([events, $profiles, $me, $handles, $reactions, $pollResponses]) => {
+        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers]) => {
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
         // Reactions ohne `e`-Tag landen im ''-Bucket und werden nie abgerufen (event.id ≠ '').
         const reactionsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions)
         // Poll-Responses nach Ziel-Poll (`["e", pollId]`) bündeln — je Poll einmal getallyt.
         const pollResponsesByTarget = groupBy((r) => pollResponseTarget(r), $pollResponses)
+        // Zap-Receipts (9735) nach Ziel-Nachricht (`#e`) bündeln — je Nachricht validiert
+        // getallyt. 9735 trägt kein `#h`, `#e` ist der einzige verlässliche Raumbezug.
+        const zapsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $zaps)
         // First-Paint-Seed: fehlende Autor- UND erwähnte Profile (NIP-27) vom geteilten
         // Backend-Cache holen (dedupliziert intern; welshman löst parallel live auf).
         // Ohne die Mention-Pubkeys blieben extern referenzierte @-Mentions (Nicht-
@@ -337,6 +383,9 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         void warmProfiles([...events.map((e) => e.pubkey), ...events.flatMap((e) => mentionPubkeys(bodyWithoutQuote(e)))])
         // NIP-05-Handles der Autoren lazy verifizieren (dedupliziert, fire-and-forget).
         warmHandles(events.map((e) => e.pubkey))
+        // Zapper (LNURL-pay-Meta) der Autoren lazy laden — nötig, um ihre 9735-Receipts
+        // zu validieren (Signer-Check) und den ⚡-Chip zu summieren (dedupliziert intern).
+        warmZappers(events.map((e) => e.pubkey))
         const nameOf = displayProfileByPubkey
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
         const byId = new Map(events.map((e) => [e.id, e]))
@@ -366,6 +415,13 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 : null
 
             const profile = $profiles.get(event.pubkey)
+            // Zapper des Autors aus dem gewärmten `zappersByLnurl`-Store (lud16/lud06 → lnurl).
+            // Ohne aufgelösten Zapper zählt `aggregateZaps` nichts (Signer nicht prüfbar).
+            // `||` (nicht `??`): welshmans makeProfile bevorzugt lud16, fällt aber bei
+            // LEEREM lud16 auf lud06 zurück — der Store ist dann unter der lud06-lnurl
+            // gekeyt. `??` würde `lud16: ''` nicht durchfallen lassen → Store-Miss.
+            const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
+            const zapper = lnurl ? $zappers.get(lnurl) : undefined
             return {
                 id: event.id,
                 pubkey: event.pubkey,
@@ -383,6 +439,8 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 reply,
                 reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me, nameOf),
                 poll: event.kind === POLL ? buildPollView(event, pollResponsesByTarget.get(event.id) ?? [], $me) : null,
+                zaps: aggregateZaps(zapsByTarget.get(event.id) ?? [], zapper, $me, nameOf),
+                zappable: !mine && Boolean(lnurl),
             }
         })
     },
@@ -416,6 +474,18 @@ export const loadRoomPolls = (url: string, h: string): Promise<TrustedEvent[]> =
  */
 export const loadRoomReactions = (url: string, h: string): Promise<TrustedEvent[]> =>
     load({ relays: [url], filters: [{ kinds: [REACTION, DELETE], '#h': [h] }] })
+
+/**
+ * Lädt bestehende kind-9735-Zap-Receipts für die übergebenen Nachrichten-IDs, damit
+ * ⚡-Chips beim Öffnen/Nachladen sofort stimmen (die Live-Sub liefert nur Neues).
+ * 9735 trägt KEIN `#h` (der LNURL-Server kopiert nur `p`/`e`/`bolt11`/`description`)
+ * → Filter zwingend über `#e` (Message-IDs), nicht `#h`. Leere ID-Liste = kein Load.
+ * ponytail: One-shot pro neuer ID; eigene Zaps landen ohnehin sofort (payZapAuto/
+ * watchZapReceipt) — eine separate Live-Sub auf Fremd-Zaps wäre erst nötig, wenn
+ * Echtzeit-Tally fremder Zaps ohne Feed-Reload gefordert ist.
+ */
+export const loadRoomZaps = (url: string, eventIds: string[]): Promise<TrustedEvent[]> =>
+    eventIds.length ? load({ relays: [url], filters: [{ kinds: [ZAP_RESPONSE], '#e': eventIds }] }) : Promise.resolve([])
 
 /**
  * Lädt Room-Nachrichten vom Space-Relay: die jüngsten (initial) oder — mit

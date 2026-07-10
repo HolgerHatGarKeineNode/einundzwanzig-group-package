@@ -21,6 +21,24 @@ export const DEFAULT_ZAP_CONTENT = '⚡'
 /** Zapper (LNURL-pay-Metadaten) des Empfängers auflösen; undefined ohne lud16/lud06. */
 export const resolveZapper = (pubkey: string): Promise<Zapper | undefined> => loadZapperForPubkey(pubkey)
 
+/** Pubkeys, deren Zapper bereits (an)geladen wurden — verhindert Reload-Spam pro Deriver-Tick. */
+const warmedZappers = new Set<string>()
+
+/**
+ * Zapper der Nachrichtenautoren vorwärmen (fire-and-forget, je Pubkey genau einmal):
+ * füllt welshmans `zappersByLnurl`, damit der Feed-Tally (Z3) ihre 9735-Receipts über
+ * `zapFromEvent` validieren (Signer-Check) und summieren kann. `loadZapperForPubkey`
+ * löst intern Profil → lnurl → Zapper auf.
+ */
+export const warmZappers = (pubkeys: string[]): void => {
+    for (const pk of pubkeys) {
+        if (!warmedZappers.has(pk)) {
+            warmedZappers.add(pk)
+            void loadZapperForPubkey(pk)
+        }
+    }
+}
+
 /**
  * Vorabgate (flotilla `ZapButton`): Kann der Empfänger Nostr-Zaps annehmen?
  * `getZapResponseFilter` wirft ohne `nostrPubkey` — daher hier zwingend vor jedem

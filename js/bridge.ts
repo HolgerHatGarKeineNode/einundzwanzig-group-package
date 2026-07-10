@@ -82,6 +82,7 @@ import {
     loadRoomMessages,
     loadRoomReactions,
     loadRoomPolls,
+    loadRoomZaps,
     sendRoomMessage,
     deleteRoomMessage,
     editRoomMessage,
@@ -122,10 +123,14 @@ import {
     fromMsats,
     type NWCInfo,
 } from './wallet'
-import { getWalletAddress, WalletType, type Wallet } from '@welshman/util'
+import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
+import { resolveZapper, canZap, chooseZapMethod, createZapInvoice, payZapAuto, watchZapReceipt, DEFAULT_ZAP_CONTENT } from './zaps'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
+
+/** Zap-Feature-Flag (iOS-Kill-Switch): `window.__nostrZapsEnabled` (Default true). */
+const zapsEnabled = (): boolean => (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false
 
 /**
  * Öffnet/schließt ein Flux-Modal per Name (Flux lauscht auf modal-show/-close).
@@ -346,6 +351,17 @@ type RoomChatState = {
     reportReason: string // gewählter NIP-56-Grund (spam/profanity/impersonation/other)
     reportText: string // optionaler Freitext fürs „Fork off!"
     reporting: boolean
+    zapFor: ChatMessage | null // Zielnachricht des offenen Zap-Modals (Z3)
+    zapAmount: number // gewählter Zap-Betrag in Sats (Default 21 = EINUNDZWANZIG)
+    zapContent: string // Zap-Kommentar/Emoji (Default '⚡')
+    zapping: boolean // Zap läuft (Doppel-Klick-Guard)
+    zapInvoice: string // bolt11 im QR-Fallback (leer = Auto-Pay/noch keine Rechnung)
+    zapQr: string // Data-URL des bolt11-QR (QR-Fallback)
+    zapsEnabled: boolean // Feature-Flag window.__nostrZapsEnabled (iOS-Kill-Switch)
+    zapPresets: number[] // feste Sats-Presets für die Schnellauswahl
+    _zapper: Zapper | null // aufgelöster Zapper der zapFor-Nachricht (Vorabgate bestanden)
+    _zapSub: AbortController | null // Live-Receipt-Sub im QR-Fallback (Abort bei Close)
+    _zapLoadedIds: Set<string> // Nachrichten, deren 9735-History schon geladen wurde
     pollTitle: string // Frage der zu erstellenden Poll (C5)
     pollOptionList: { id: string; value: string }[] // Antwortoptionen des Poll-Formulars
     pollTypeSel: PollType // Einfach-/Mehrfachwahl der zu erstellenden Poll
@@ -406,6 +422,9 @@ type RoomChatState = {
     remove(id: string, createdAt: number): Promise<void>
     askReport(m: ChatMessage): void
     confirmReport(): Promise<void>
+    openZap(m: ChatMessage): Promise<void>
+    confirmZap(): Promise<void>
+    closeZap(): void
     votePoll(m: ChatMessage, optionId: string): Promise<void>
     openPollCreate(): void
     addPollOption(): void
@@ -565,7 +584,7 @@ export function registerNostrComponents(Alpine: {
     // Browser. Der Feature-Flag `__nostrZapsEnabled` (Default true) kann die Wallet
     // hart abschalten (iOS-Build), ohne Code-Umbau.
     Alpine.data('nostrWallet', (): WalletState => ({
-        zapsEnabled: (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false,
+        zapsEnabled: zapsEnabled(),
         connected: false,
         walletType: '',
         lud16: '',
@@ -1181,6 +1200,17 @@ export function registerNostrComponents(Alpine: {
         reportReason: 'spam',
         reportText: '',
         reporting: false,
+        zapFor: null,
+        zapAmount: 21,
+        zapContent: '⚡',
+        zapping: false,
+        zapInvoice: '',
+        zapQr: '',
+        zapsEnabled: zapsEnabled(),
+        zapPresets: [21, 210, 2100, 21000],
+        _zapper: null,
+        _zapSub: null,
+        _zapLoadedIds: new Set<string>(),
         pollTitle: '',
         pollOptionList: [],
         pollTypeSel: 'singlechoice',
@@ -1291,6 +1321,14 @@ export function registerNostrComponents(Alpine: {
                     loadMemberProfiles(url, missing)
                 }
 
+                // Bestehende Zap-Receipts (9735) neuer Nachrichten laden (je ID einmal).
+                // 9735 trägt kein `#h` → über `#e` der geladenen IDs (feeds.loadRoomZaps).
+                const newZapIds = msgs.map((m) => m.id).filter((id) => !this._zapLoadedIds.has(id))
+                if (newZapIds.length > 0) {
+                    newZapIds.forEach((id) => this._zapLoadedIds.add(id))
+                    void loadRoomZaps(url, newZapIds)
+                }
+
                 const magics = this as unknown as AlpineMagics
                 magics.$nextTick(() => {
                     if (wasAtBottom) {
@@ -1395,6 +1433,9 @@ export function registerNostrComponents(Alpine: {
             this._unsubJoined = null
             this._unsubMembers?.()
             this._unsubMembers = null
+            this._zapSub?.abort()
+            this._zapSub = null
+            this._zapLoadedIds.clear()
             this.closeMentions()
         },
         // Erneuter Ladeversuch nach einem Fehler (Callout-Button): Sub + Verlauf neu aufbauen.
@@ -1759,6 +1800,107 @@ export function registerNostrComponents(Alpine: {
             } finally {
                 this.reporting = false
             }
+        },
+        // ── Z3: Zap (NIP-57) ────────────────────────────────────────────────────
+        // Zap-Sheet öffnen: Zapper des Autors auflösen (Vorabgate — `getZapResponseFilter`
+        // wirft ohne nostrPubkey), Betrag/Emoji auf Default, QR-Reste + alte Live-Sub weg,
+        // Modal auf. Kann der Empfänger keine Nostr-Zaps → Info-Toast statt Sheet.
+        async openZap(m: ChatMessage) {
+            this.activeId = null
+            this.closeMessageMenu()
+            const zapper = await resolveZapper(m.pubkey)
+            if (!canZap(zapper)) {
+                toast('Dieser Empfänger kann keine Zaps annehmen.', 'info')
+                return
+            }
+            this._zapSub?.abort()
+            this._zapSub = null
+            this.zapFor = m
+            this._zapper = zapper
+            this.zapAmount = 21
+            this.zapContent = DEFAULT_ZAP_CONTENT
+            this.zapInvoice = ''
+            this.zapQr = ''
+            dispatchModal('zap-message')
+        },
+        // Zap senden: Zahlweg-Router (Z2). Wallet verbunden → Auto-Pay (zahlt + lädt das
+        // 9735-Receipt), sonst QR-Fallback mit Live-Receipt-Sub. Busy-Guard verhindert
+        // Doppel-Zap; Fehler bleiben (Toast) im offenen Modal (wie C2-Report).
+        async confirmZap() {
+            const m = this.zapFor
+            const zapper = this._zapper
+            if (!m || !zapper || !this._url || this.zapping) {
+                return
+            }
+            const sats = Math.floor(Number(this.zapAmount))
+            if (!Number.isFinite(sats) || sats <= 0) {
+                toast('Bitte einen gültigen Betrag angeben.', 'warning')
+                return
+            }
+            this.zapping = true
+            try {
+                const input = {
+                    pubkey: m.pubkey,
+                    zapper,
+                    sats,
+                    content: this.zapContent.trim() || DEFAULT_ZAP_CONTENT,
+                    eventId: m.id,
+                    url: this._url,
+                }
+                const hasWallet = Boolean(await loadWallet())
+                // Ziel-Guard: Schließt/wechselt der Nutzer das Sheet während eines awaits
+                // (Escape/Backdrop → closeZap, oder openZap einer anderen Nachricht), NICHT
+                // weiterschreiben — sonst verwaiste QR-Sub bzw. fremde Rechnung im Sheet.
+                if (this.zapFor !== m) {
+                    return
+                }
+                if (chooseZapMethod(zapper, hasWallet) === 'auto') {
+                    await payZapAuto(input)
+                    toast('Zap gesendet ⚡', 'success')
+                    if (this.zapFor === m) {
+                        this.closeZap()
+                    }
+                } else {
+                    // QR-Fallback: Rechnung holen + anzeigen, auf das 9735-Receipt lauschen
+                    // (identischer Relay-Satz aus createZapInvoice — NICHT neu berechnen).
+                    const { invoice, relays } = await createZapInvoice(input)
+                    if (this.zapFor !== m) {
+                        return
+                    }
+                    this.zapInvoice = invoice
+                    this.zapQr = await QRCode.toDataURL(invoice.toUpperCase(), { width: 256, margin: 1 })
+                    this._zapSub = new AbortController()
+                    watchZapReceipt({
+                        zapper,
+                        pubkey: m.pubkey,
+                        eventId: m.id,
+                        relays,
+                        signal: this._zapSub.signal,
+                        onReceived: () => {
+                            toast('Zahlung erhalten ⚡', 'success')
+                            this.closeZap()
+                        },
+                    })
+                    // Fokus in den neuen QR-Zustand (der „Zap senden"-Button ist jetzt
+                    // ausgeblendet → Fokus fiele sonst auf <body>).
+                    ;(this as unknown as AlpineMagics).$nextTick(() => (this as unknown as AlpineMagics).$refs.zapCopyBtn?.focus())
+                }
+            } catch (e) {
+                toast(e instanceof Error ? e.message : 'Zap fehlgeschlagen.')
+            } finally {
+                this.zapping = false
+            }
+        },
+        // Zap-Sheet schließen: Live-Sub abbrechen (Leak-Schutz bei offener QR-Sub),
+        // State + Modal zurücksetzen.
+        closeZap() {
+            this._zapSub?.abort()
+            this._zapSub = null
+            this.zapFor = null
+            this._zapper = null
+            this.zapInvoice = ''
+            this.zapQr = ''
+            dispatchModal('zap-message', false)
         },
         // ── C5: Poll-Vote (NIP-88 kind 1018) ───────────────────────────────────
         // Auf eine Poll-Option klicken. Einfachwahl setzt genau diese Option;
