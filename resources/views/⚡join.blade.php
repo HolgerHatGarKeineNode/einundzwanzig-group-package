@@ -27,8 +27,8 @@ new #[Layout('group::einundzwanzig')] #[Title('Einladung')] class extends Compon
         <template x-if="space">
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.envelope-open variant="solid" class="mx-auto size-10 text-brand-500" />
-                <flux:heading size="xl" class="mt-3">Einladung</flux:heading>
-                <flux:text class="mt-1">Du wurdest zu diesem Space eingeladen:</flux:text>
+                <flux:heading size="xl" class="mt-3">{{ __('Einladung') }}</flux:heading>
+                <flux:text class="mt-1">{{ __('Du wurdest zu diesem Space eingeladen:') }}</flux:text>
                 <div class="mt-2 truncate rounded-tile bg-zinc-100 p-2 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" x-text="label"></div>
 
                 <template x-if="error">
@@ -39,9 +39,9 @@ new #[Layout('group::einundzwanzig')] #[Title('Einladung')] class extends Compon
 
                 <flux:button variant="primary" class="mt-5 w-full" icon="arrow-right"
                              x-on:click="accept()" ::disabled="joining">
-                    <span x-text="joining ? 'Trete bei…' : 'Space beitreten'"></span>
+                    <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Space beitreten'))"></span>
                 </flux:button>
-                <flux:button variant="ghost" size="sm" class="mt-2" :href="route('group.spaces')" wire:navigate>Abbrechen</flux:button>
+                <flux:button variant="ghost" size="sm" class="mt-2" :href="route('group.spaces')" wire:navigate>{{ __('Abbrechen') }}</flux:button>
             </div>
         </template>
 

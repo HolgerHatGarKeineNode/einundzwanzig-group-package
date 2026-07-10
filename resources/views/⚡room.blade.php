@@ -67,8 +67,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <x-slot:actions>
             {{-- Mitglied → Verlassen (kind 9022). Beitreten liegt beim Composer. --}}
             <flux:button size="xs" variant="ghost" icon="arrow-right-start-on-rectangle" class="icon-btn-touch"
-                         x-show="joined" x-cloak x-on:click="leave()" ::disabled="joining" aria-label="Raum verlassen">
-                Verlassen
+                         x-show="joined" x-cloak x-on:click="leave()" ::disabled="joining" aria-label="{{ __('Raum verlassen') }}">
+                {{ __('Verlassen') }}
             </flux:button>
         </x-slot:actions>
     </x-group::app-header>
@@ -80,13 +80,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:callout variant="danger" icon="exclamation-triangle" class="mb-2 shrink-0">
                 <flux:callout.text x-text="error"></flux:callout.text>
                 <x-slot name="actions">
-                    <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="retry()">Erneut laden</flux:button>
+                    <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="retry()">{{ __('Erneut laden') }}</flux:button>
                 </x-slot>
             </flux:callout>
         </template>
 
         <div x-ref="scroll" x-on:scroll.debounce.50ms="onScroll()"
-             role="log" aria-live="polite" aria-relevant="additions" aria-label="Chat-Verlauf"
+             role="log" aria-live="polite" aria-relevant="additions" aria-label="{{ __('Chat-Verlauf') }}"
              ::aria-busy="loading && messages.length === 0"
              class="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-4 transition-opacity"
              :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
@@ -94,14 +94,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Ältere laden (Cursor-Pagination) --}}
             <div class="py-2 text-center" x-show="hasMore && messages.length > 0" x-cloak>
                 <flux:button size="xs" variant="ghost" class="icon-btn-touch" x-on:click="loadOlder()" ::disabled="loadingMore">
-                    <span x-text="loadingMore ? 'Lädt…' : 'Ältere laden'"></span>
+                    <span x-text="loadingMore ? @js(__('Lädt…')) : @js(__('Ältere laden'))"></span>
                 </flux:button>
             </div>
 
             {{-- Erstes Laden --}}
             <template x-if="loading && messages.length === 0">
                 <div class="space-y-3 pt-4">
-                    <span class="sr-only" aria-live="polite">Verlauf wird geladen…</span>
+                    <span class="sr-only" aria-live="polite">{{ __('Verlauf wird geladen…') }}</span>
                     <template x-for="i in 6" :key="i">
                         <div class="flex gap-2">
                             <div class="skeleton size-8 shrink-0 rounded-full"></div>
@@ -118,7 +118,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <template x-if="!loading && messages.length === 0">
                 <div class="surface-card empty-state mt-8 p-6 text-center">
                     <flux:icon.chat-bubble-left-right class="mx-auto size-8 text-zinc-400" />
-                    <flux:text class="mt-2">Noch keine Nachrichten in diesem Raum.</flux:text>
+                    <flux:text class="mt-2">{{ __('Noch keine Nachrichten in diesem Raum.') }}</flux:text>
                 </div>
             </template>
 
@@ -137,7 +137,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <template x-if="m.unreadDivider">
                         <div class="my-3 flex items-center gap-3">
                             <flux:separator class="flex-1" />
-                            <span class="shrink-0 font-mono text-[0.7rem] font-semibold tracking-wide text-brand-500">Neue Nachrichten</span>
+                            <span class="shrink-0 font-mono text-[0.7rem] font-semibold tracking-wide text-brand-500">{{ __('Neue Nachrichten') }}</span>
                             <flux:separator class="flex-1" />
                         </div>
                     </template>
@@ -150,7 +150,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
                                 <button type="button" x-on:click.stop="$dispatch('open-profile', m.pubkey)"
-                                        class="pressable" aria-label="Profil anzeigen">
+                                        class="pressable" aria-label="{{ __('Profil anzeigen') }}">
                                     <x-group::nostr-avatar picture="m.picture" name="m.name" />
                                 </button>
                             </template>
@@ -189,7 +189,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 {{-- Einfachwahl = radiogroup (exklusiv), Mehrfachwahl = group aus Checkboxen.
                                      Rolle/aria-checked tragen den Zustand → SR sagt „ausgewählt" an, nicht
                                      die dekorative Glyphe (aria-hidden). --}}
-                                <div class="mt-1.5 space-y-1.5" :role="m.poll.multi ? 'group' : 'radiogroup'" aria-label="Umfrageoptionen">
+                                <div class="mt-1.5 space-y-1.5" :role="m.poll.multi ? 'group' : 'radiogroup'" aria-label="{{ __('Umfrageoptionen') }}">
                                     <template x-for="opt in m.poll.options" :key="opt.id">
                                         <button type="button" x-on:click.stop="votePoll(m, opt.id)" :disabled="m.poll.closed"
                                                 :role="m.poll.multi ? 'checkbox' : 'radio'" :aria-checked="opt.mine"
@@ -209,7 +209,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </template>
                                     <div class="flex items-center justify-between gap-2 text-xs text-muted">
                                         <span x-text="m.poll.typeLabel + (m.poll.endsLabel ? ' · ' + m.poll.endsLabel : '')"></span>
-                                        <span x-text="m.poll.voters + (m.poll.voters === 1 ? ' Stimme' : ' Stimmen')"></span>
+                                        <span x-text="m.poll.voters + (m.poll.voters === 1 ? @js(__(' Stimme')) : @js(__(' Stimmen')))"></span>
                                     </div>
                                 </div>
                             </template>
@@ -224,24 +224,24 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <div>
                                         <div class="flex items-center justify-between gap-2 font-mono text-xs tabular-nums">
                                             <span class="font-semibold text-brand-500" x-text="m.goal.raisedSats.toLocaleString('de-DE') + ' Sats'"></span>
-                                            <span class="text-muted" x-text="'Ziel ' + m.goal.targetSats.toLocaleString('de-DE')"></span>
+                                            <span class="text-muted" x-text="@js(__('Ziel ')) + m.goal.targetSats.toLocaleString('de-DE')"></span>
                                         </div>
                                         {{-- Balken: role=progressbar trägt den Wert für SR; die Breite
                                              animiert nur bei motion-safe (Reduced-Motion springt). --}}
                                         <div class="mt-1 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar"
                                              :aria-valuenow="m.goal.pct" aria-valuemin="0" aria-valuemax="100"
-                                             aria-label="Ziel-Fortschritt"
-                                             :aria-valuetext="m.goal.pct + ' Prozent — ' + m.goal.raisedSats.toLocaleString('de-DE') + ' von ' + m.goal.targetSats.toLocaleString('de-DE') + ' Sats'">
+                                             aria-label="{{ __('Ziel-Fortschritt') }}"
+                                             :aria-valuetext="m.goal.pct + @js(__(' Prozent — ')) + m.goal.raisedSats.toLocaleString('de-DE') + @js(__(' von ')) + m.goal.targetSats.toLocaleString('de-DE') + ' Sats'">
                                             <div class="h-full rounded-full bg-brand-500 transition-[width] duration-500 motion-reduce:transition-none"
                                                  :style="`width:${m.goal.pct}%`"></div>
                                         </div>
                                     </div>
                                     <div class="flex items-center justify-between gap-2">
                                         <span class="text-xs text-muted"
-                                              x-text="m.goal.contributors + (m.goal.contributors === 1 ? ' Beitragende:r' : ' Beitragende') + (m.goal.reached ? ' · Ziel erreicht 🎉' : '')"></span>
+                                              x-text="m.goal.contributors + (m.goal.contributors === 1 ? @js(__(' Beitragende:r')) : @js(__(' Beitragende'))) + (m.goal.reached ? @js(__(' · Ziel erreicht 🎉')) : '')"></span>
                                         <flux:button size="xs" variant="primary" icon="bolt" class="shrink-0 icon-btn-touch"
                                                      x-show="zapsEnabled && m.zappable" x-cloak
-                                                     x-on:click.stop="openZap(m)">Beitragen</flux:button>
+                                                     x-on:click.stop="openZap(m)">{{ __('Beitragen') }}</flux:button>
                                     </div>
                                 </div>
                             </template>
@@ -272,7 +272,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <button type="button"
                                             x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
                                             :title="m.zaps.names"
-                                            :aria-label="(m.zaps.mine ? 'Du hast gezappt. ' : '') + m.zaps.sats + ' Sats gezappt von ' + m.zaps.names + (zapsEnabled && m.zappable ? ' – tippen zum erneuten Zappen' : '')"
+                                            :aria-label="(m.zaps.mine ? @js(__('Du hast gezappt. ')) : '') + m.zaps.sats + @js(__(' Sats gezappt von ')) + m.zaps.names + (zapsEnabled && m.zappable ? @js(__(' – tippen zum erneuten Zappen')) : '')"
                                             class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none transition-colors motion-reduce:transition-none"
                                             :class="m.zaps.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
                                         <flux:icon.bolt variant="solid" class="size-3.5 shrink-0 text-brand-500" />
@@ -295,10 +295,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                          x-show="zapsEnabled && m.zappable" x-cloak x-on:click.stop="openZap(m)"
                                          aria-label="Zap" />
                             <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" class="icon-btn-touch"
-                                         x-on:click.stop="setReply(m)" aria-label="Antworten" />
+                                         x-on:click.stop="setReply(m)" aria-label="{{ __('Antworten') }}" />
                             <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
                                          x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
-                                         aria-label="Nachricht löschen" />
+                                         aria-label="{{ __('Nachricht löschen') }}" />
                             {{-- Reaktions-Picker (C1, Web): volles Emoji-Panel. Teleportiert ans
                                  <body> (sonst würde der Chat-Scroll-Container es abschneiden) und
                                  `fixed` mit Flip positioniert (reactionPopover) → nie aus dem Viewport.
@@ -306,7 +306,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <template x-if="!isMobile">
                                 <div x-data="reactionPopover()" x-on:click.stop>
                                     <flux:button x-ref="trigger" size="xs" variant="ghost" icon="face-smile"
-                                                 class="icon-btn-touch" x-on:click="toggle()" aria-label="Reagieren" />
+                                                 class="icon-btn-touch" x-on:click="toggle()" aria-label="{{ __('Reagieren') }}" />
                                     {{-- x-if (lazy-mount) + x-teleport getrennt verschachteln — beides
                                          auf EINEM template teleportiert bei jedem Tick neu (Leak). --}}
                                     <template x-if="open">
@@ -329,18 +329,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <div x-on:click.stop>
                                     <flux:dropdown position="top" align="end">
                                         <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
-                                                     class="icon-btn-touch" aria-label="Weitere Aktionen" />
+                                                     class="icon-btn-touch" aria-label="{{ __('Weitere Aktionen') }}" />
                                         <flux:menu>
                                             {{-- Zap (Z3, NIP-57): WICHTIGSTE Aktion → ganz vorne. Nur fremde Nachricht mit lud16. --}}
                                             <template x-if="zapsEnabled && m.zappable">
                                                 <flux:menu.item icon="bolt" x-on:click="openZap(m)">Zap</flux:menu.item>
                                             </template>
-                                            <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">Antworten</flux:menu.item>
+                                            <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">{{ __('Antworten') }}</flux:menu.item>
                                             {{-- Zitieren (C3): Nachricht ohne Kommentar teilen (Quote-Only). --}}
-                                            <flux:menu.item icon="chat-bubble-left-right" x-on:click="share(m)">Zitieren</flux:menu.item>
+                                            <flux:menu.item icon="chat-bubble-left-right" x-on:click="share(m)">{{ __('Zitieren') }}</flux:menu.item>
                                             {{-- Bearbeiten (C3): nur eigene Nachrichten, ≤5 min alt. --}}
                                             <template x-if="canEdit(m)">
-                                                <flux:menu.item icon="pencil-square" x-on:click="startEdit(m)">Bearbeiten</flux:menu.item>
+                                                <flux:menu.item icon="pencil-square" x-on:click="startEdit(m)">{{ __('Bearbeiten') }}</flux:menu.item>
                                             </template>
                                             {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984). --}}
                                             <template x-if="!m.mine">
@@ -348,14 +348,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             </template>
                                             {{-- Löschen: nur eigene Nachrichten (NIP-09 kind 5). --}}
                                             <template x-if="m.mine">
-                                                <flux:menu.item icon="trash" variant="danger" x-on:click="askDelete(m)">Löschen</flux:menu.item>
+                                                <flux:menu.item icon="trash" variant="danger" x-on:click="askDelete(m)">{{ __('Löschen') }}</flux:menu.item>
                                             </template>
                                             {{-- C4: Kopieren/Info (nur lesen, kein Publish). --}}
                                             <flux:menu.separator />
-                                            <flux:menu.item icon="link" x-on:click="copyNevent(m)">Event-Link kopieren</flux:menu.item>
-                                            <flux:menu.item icon="user-circle" x-on:click="copyNpub(m)">npub kopieren</flux:menu.item>
-                                            <flux:menu.item icon="code-bracket" x-on:click="copyJson(m)">JSON kopieren</flux:menu.item>
-                                            <flux:menu.item icon="information-circle" x-on:click="openInfo(m)">Info</flux:menu.item>
+                                            <flux:menu.item icon="link" x-on:click="copyNevent(m)">{{ __('Event-Link kopieren') }}</flux:menu.item>
+                                            <flux:menu.item icon="user-circle" x-on:click="copyNpub(m)">{{ __('npub kopieren') }}</flux:menu.item>
+                                            <flux:menu.item icon="code-bracket" x-on:click="copyJson(m)">{{ __('JSON kopieren') }}</flux:menu.item>
+                                            <flux:menu.item icon="information-circle" x-on:click="openInfo(m)">{{ __('Info') }}</flux:menu.item>
                                         </flux:menu>
                                     </flux:dropdown>
                                 </div>
@@ -363,7 +363,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <template x-if="isMobile">
                                 <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
                                              class="icon-btn-touch" x-on:click.stop="openMessageMenu(m)"
-                                             aria-label="Weitere Aktionen" />
+                                             aria-label="{{ __('Weitere Aktionen') }}" />
                             </template>
                         </div>
                     </div>
@@ -378,11 +378,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
              x-transition.opacity>
             {{-- Keine ungelesenen → quadratischer Button, Pfeil zentriert. --}}
             <flux:button x-show="unread === 0" size="xs" variant="primary" square icon="arrow-down"
-                         class="pointer-events-auto icon-btn-touch" x-on:click="scrollToBottom()" aria-label="Zum Ende springen" />
+                         class="pointer-events-auto icon-btn-touch" x-on:click="scrollToBottom()" aria-label="{{ __('Zum Ende springen') }}" />
             {{-- Ungelesene → Pille mit Zähler. --}}
             <flux:button x-show="unread > 0" x-cloak size="xs" variant="primary" icon="arrow-down"
-                         class="pointer-events-auto icon-btn-touch" x-on:click="scrollToBottom()" aria-label="Zum Ende springen">
-                <span x-text="unread"></span> neue
+                         class="pointer-events-auto icon-btn-touch" x-on:click="scrollToBottom()" aria-label="{{ __('Zum Ende springen') }}">
+                <span x-text="unread"></span> {{ __('neue') }}
             </flux:button>
         </div>
     </div>
@@ -402,11 +402,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
              class="surface-card mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-3 py-1.5">
             <div class="min-w-0 flex-1">
                 <div class="text-xs font-semibold text-brand-500"
-                     x-text="editingId ? 'Nachricht bearbeiten' : (sharing ? 'Zitieren' : ('Antwort an ' + (replyTo?.name ?? '')))"></div>
+                     x-text="editingId ? @js(__('Nachricht bearbeiten')) : (sharing ? @js(__('Zitieren')) : (@js(__('Antwort an ')) + (replyTo?.name ?? '')))"></div>
                 <div class="truncate text-xs text-muted" x-show="replyTo" x-text="replyTo?.text"></div>
             </div>
             <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
-                         x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="Abbrechen" />
+                         x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="{{ __('Abbrechen') }}" />
         </div>
 
         <div x-show="membershipReady && joined" x-cloak class="relative flex items-end gap-2">
@@ -429,16 +429,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Anhängen-Menü (wie Flotilla): EIN „+"-Button bündelt Umfrage + Zap-Ziel,
                  spart Platz im Composer. Zap-Ziel nur bei aktivem Feature-Flag. --}}
             <flux:dropdown position="top" align="start" class="shrink-0">
-                <flux:button type="button" variant="ghost" icon="plus" class="icon-btn-touch" aria-label="Anhängen" />
+                <flux:button type="button" variant="ghost" icon="plus" class="icon-btn-touch" aria-label="{{ __('Anhängen') }}" />
                 <flux:menu>
-                    <flux:menu.item icon="chart-bar" x-on:click="openPollCreate()">Umfrage</flux:menu.item>
+                    <flux:menu.item icon="chart-bar" x-on:click="openPollCreate()">{{ __('Umfrage') }}</flux:menu.item>
                     <template x-if="zapsEnabled">
-                        <flux:menu.item icon="trophy" x-on:click="openGoalCreate()">Zap-Ziel</flux:menu.item>
+                        <flux:menu.item icon="trophy" x-on:click="openGoalCreate()">{{ __('Zap-Ziel') }}</flux:menu.item>
                     </template>
                 </flux:menu>
             </flux:dropdown>
             <flux:textarea x-ref="composer" x-model="draft" rows="1" resize="none"
-                           placeholder="Nachricht schreiben…" aria-label="Nachricht schreiben" class="flex-1"
+                           placeholder="{{ __('Nachricht schreiben…') }}" aria-label="{{ __('Nachricht schreiben') }}" class="flex-1"
                            x-on:focus="atBottom && scrollToBottom()"
                            x-on:input="autoGrow($event.target); sendError = ''; onComposerInput($event.target)"
                            x-on:keydown="
@@ -453,7 +453,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch" :loading="true"
                          x-on:click="send()" ::data-loading="sending"
                          ::disabled="sending || (draft.trim().length === 0 && !sharing)"
-                         aria-label="Senden" />
+                         aria-label="{{ __('Senden') }}" />
         </div>
 
         {{-- Fehlgeschlagen: aktionable Hinweiszeile statt flüchtigem Toast (Draft ist gefüllt). --}}
@@ -461,15 +461,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
              class="mt-1 flex items-center justify-between gap-2 rounded-tile bg-red-500/10 px-3 py-1.5 text-xs text-red-500">
             <span x-text="sendError"></span>
             <button type="button" x-on:click="send()" class="pressable shrink-0 font-semibold text-brand-500 hover:underline">
-                Erneut senden
+                {{ __('Erneut senden') }}
             </button>
         </div>
 
         <div x-show="membershipReady && !joined" x-cloak
              class="surface-card flex items-center justify-between gap-3 p-3">
-            <flux:text class="text-sm text-muted">Tritt dem Raum bei, um mitzuschreiben.</flux:text>
+            <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um mitzuschreiben.') }}</flux:text>
             <flux:button size="sm" variant="primary" icon="plus" class="icon-btn-touch" x-on:click="join()" ::disabled="joining">
-                <span x-text="joining ? 'Trete bei…' : 'Beitreten'"></span>
+                <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
             </flux:button>
         </div>
     </div>
@@ -477,11 +477,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
     {{-- Löschen bestätigen (NIP-09 ist unwiderruflich). --}}
     <flux:modal name="delete-message" class="max-w-sm">
         <div class="space-y-4">
-            <flux:heading size="lg">Nachricht löschen?</flux:heading>
-            <flux:text>Das lässt sich nicht rückgängig machen.</flux:text>
+            <flux:heading size="lg">{{ __('Nachricht löschen?') }}</flux:heading>
+            <flux:text>{{ __('Das lässt sich nicht rückgängig machen.') }}</flux:text>
             <div class="flex justify-end gap-2">
-                <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
-                <flux:button variant="danger" x-on:click="confirmDelete()" ::disabled="deleting">Löschen</flux:button>
+                <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
+                <flux:button variant="danger" x-on:click="confirmDelete()" ::disabled="deleting">{{ __('Löschen') }}</flux:button>
             </div>
         </div>
     </flux:modal>
@@ -491,16 +491,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
     <flux:modal name="report-message" class="max-w-sm">
         <div class="space-y-4">
             <flux:heading size="lg">Fork off! 🍴</flux:heading>
-            <flux:select x-model="reportReason" label="Grund">
-                <flux:select.option value="spam">Spam</flux:select.option>
-                <flux:select.option value="profanity">Beleidigung</flux:select.option>
-                <flux:select.option value="impersonation">Identitätsdiebstahl</flux:select.option>
-                <flux:select.option value="other">Sonstiges</flux:select.option>
+            <flux:select x-model="reportReason" label="{{ __('Grund') }}">
+                <flux:select.option value="spam">{{ __('Spam') }}</flux:select.option>
+                <flux:select.option value="profanity">{{ __('Beleidigung') }}</flux:select.option>
+                <flux:select.option value="impersonation">{{ __('Identitätsdiebstahl') }}</flux:select.option>
+                <flux:select.option value="other">{{ __('Sonstiges') }}</flux:select.option>
             </flux:select>
-            <flux:textarea x-model="reportText" label="Details (optional)" rows="2"
-                           placeholder="Was ist mit dieser Nachricht?" />
+            <flux:textarea x-model="reportText" label="{{ __('Details (optional)') }}" rows="2"
+                           placeholder="{{ __('Was ist mit dieser Nachricht?') }}" />
             <div class="flex justify-end gap-2">
-                <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
+                <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
                 <flux:button variant="danger" x-on:click="confirmReport()" ::disabled="reporting">Fork off!</flux:button>
             </div>
         </div>
@@ -514,17 +514,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <div class="space-y-4">
             <div class="flex items-center gap-2">
                 <flux:icon.bolt variant="solid" class="size-6 text-brand-500" />
-                <flux:heading size="lg">Zap senden</flux:heading>
+                <flux:heading size="lg">{{ __('Zap senden') }}</flux:heading>
             </div>
             <flux:text class="text-sm text-muted" x-show="zapFor" x-cloak>
-                An <span class="text-strong" x-text="zapFor?.name"></span>
+                {{ __('An') }} <span class="text-strong" x-text="zapFor?.name"></span>
             </flux:text>
 
             {{-- Eingabe-Zustand (solange keine QR-Rechnung offen ist). --}}
             <div x-show="!zapInvoice" class="space-y-4">
                 {{-- Sats-Presets: 21 hervorgehoben (EINUNDZWANZIG). Als Radiogroup ausgezeichnet
                      (exklusive Betragswahl) → SR sagt „ausgewählt" an, nicht nur „Button". --}}
-                <div class="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Betrag wählen">
+                <div class="grid grid-cols-4 gap-2" role="radiogroup" aria-label="{{ __('Betrag wählen') }}">
                     <template x-for="p in zapPresets" :key="p">
                         <button type="button" x-on:click="zapAmount = p" role="radio" :aria-checked="zapAmount === p"
                                 class="pressable rounded-tile border px-2 py-2 font-mono text-sm tabular-nums transition-colors motion-reduce:transition-none"
@@ -532,12 +532,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 x-text="p"></button>
                     </template>
                 </div>
-                <flux:input type="number" min="1" x-model.number="zapAmount" label="Betrag (Sats)" />
-                <flux:input x-model="zapContent" label="Kommentar" placeholder="⚡" />
+                <flux:input type="number" min="1" x-model.number="zapAmount" label="{{ __('Betrag (Sats)') }}" />
+                <flux:input x-model="zapContent" label="{{ __('Kommentar') }}" placeholder="⚡" />
                 <div class="flex justify-end gap-2">
-                    <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
+                    <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
                     <flux:button variant="primary" icon="bolt" x-on:click="confirmZap()" ::disabled="zapping">
-                        <span x-text="zapping ? 'Sende…' : 'Zap senden'"></span>
+                        <span x-text="zapping ? @js(__('Sende…')) : @js(__('Zap senden'))"></span>
                     </flux:button>
                 </div>
             </div>
@@ -545,16 +545,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- QR-Fallback (kein Wallet): Rechnung als QR + kopierbar, Live-Warten.
                  Sanfte Erscheinung (kurze Opacity-Transition, ZAPS.md Z6). --}}
             <div x-show="zapInvoice" x-cloak x-transition.opacity.duration.200ms class="space-y-3">
-                <flux:text class="text-sm text-muted" role="status">Mit einer Lightning-Wallet scannen oder Rechnung kopieren — die Zahlung wird automatisch erkannt.</flux:text>
+                <flux:text class="text-sm text-muted" role="status">{{ __('Mit einer Lightning-Wallet scannen oder Rechnung kopieren — die Zahlung wird automatisch erkannt.') }}</flux:text>
                 <div class="flex justify-center">
-                    <img :src="zapQr" alt="Lightning-Rechnung als QR-Code" class="rounded-tile bg-white p-2" width="256" height="256" />
+                    <img :src="zapQr" alt="{{ __('Lightning-Rechnung als QR-Code') }}" class="rounded-tile bg-white p-2" width="256" height="256" />
                 </div>
                 <div class="flex items-center gap-2">
                     <flux:input readonly ::value="zapInvoice" class="flex-1 font-mono text-xs" />
-                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, 'Rechnung')" aria-label="Rechnung kopieren" />
+                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, @js(__('Rechnung')))" aria-label="{{ __('Rechnung kopieren') }}" />
                 </div>
-                <a href="{{ route('group.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">Wallet verbinden für 1-Klick-Zaps</a>
-                <flux:modal.close><flux:button variant="ghost" class="w-full">Fertig</flux:button></flux:modal.close>
+                <a href="{{ route('group.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">{{ __('Wallet verbinden für 1-Klick-Zaps') }}</a>
+                <flux:modal.close><flux:button variant="ghost" class="w-full">{{ __('Fertig') }}</flux:button></flux:modal.close>
             </div>
         </div>
     </flux:modal>
@@ -564,10 +564,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
          (erscheint als Poll-Karte im Verlauf). Poll-Erstellen ist Teil von C5. --}}
     <flux:modal name="create-poll" class="max-w-md">
         <div class="space-y-4">
-            <flux:heading size="lg">Umfrage erstellen</flux:heading>
-            <flux:input x-model="pollTitle" label="Frage" placeholder="Was möchtest du fragen?" />
+            <flux:heading size="lg">{{ __('Umfrage erstellen') }}</flux:heading>
+            <flux:input x-model="pollTitle" label="{{ __('Frage') }}" placeholder="{{ __('Was möchtest du fragen?') }}" />
             <div class="space-y-2">
-                <flux:label>Optionen</flux:label>
+                <flux:label>{{ __('Optionen') }}</flux:label>
                 {{-- Zeile = Drop-Zone; nur der Griff ist draggable (so bleibt das Input
                      frei bedienbar). Live-Reorder beim Drüberziehen (pollReorder). --}}
                 <template x-for="(opt, i) in pollOptionList" :key="opt.id">
@@ -576,26 +576,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          :class="_draggedOption === opt.id ? 'opacity-40' : ''">
                         <span draggable="true" x-on:dragstart="pollDragStart(opt.id)" x-on:dragend="pollDragEnd()"
                               class="shrink-0 cursor-grab text-muted active:cursor-grabbing" role="button"
-                              :aria-label="'Option ' + (i + 1) + ' verschieben'">
+                              :aria-label="@js(__('Option ')) + (i + 1) + @js(__(' verschieben'))">
                             <flux:icon.bars-3 variant="micro" />
                         </span>
-                        <flux:input x-model="opt.value" class="flex-1" ::placeholder="'Option ' + (i + 1)" />
+                        <flux:input x-model="opt.value" class="flex-1" ::placeholder="@js(__('Option ')) + (i + 1)" />
                         <flux:button size="sm" variant="ghost" icon="minus-circle"
-                                     x-on:click="removePollOption(opt.id)" aria-label="Option entfernen" />
+                                     x-on:click="removePollOption(opt.id)" aria-label="{{ __('Option entfernen') }}" />
                     </div>
                 </template>
                 <flux:button size="sm" variant="ghost" icon="plus-circle" x-on:click="addPollOption()">
-                    Option hinzufügen
+                    {{ __('Option hinzufügen') }}
                 </flux:button>
             </div>
-            <flux:select x-model="pollTypeSel" label="Auswahl">
-                <flux:select.option value="singlechoice">Einfachwahl</flux:select.option>
-                <flux:select.option value="multiplechoice">Mehrfachwahl</flux:select.option>
+            <flux:select x-model="pollTypeSel" label="{{ __('Auswahl') }}">
+                <flux:select.option value="singlechoice">{{ __('Einfachwahl') }}</flux:select.option>
+                <flux:select.option value="multiplechoice">{{ __('Mehrfachwahl') }}</flux:select.option>
             </flux:select>
-            <flux:input type="datetime-local" x-model="pollEndsAt" label="Endet am (optional)" />
+            <flux:input type="datetime-local" x-model="pollEndsAt" label="{{ __('Endet am (optional)') }}" />
             <div class="flex justify-end gap-2">
-                <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
-                <flux:button variant="primary" x-on:click="submitPoll()" ::disabled="pollBusy">Erstellen</flux:button>
+                <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
+                <flux:button variant="primary" x-on:click="submitPoll()" ::disabled="pollBusy">{{ __('Erstellen') }}</flux:button>
             </div>
         </div>
     </flux:modal>
@@ -607,15 +607,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <div class="space-y-4">
             <div class="flex items-center gap-2">
                 <flux:icon.trophy variant="solid" class="size-6 text-brand-500" />
-                <flux:heading size="lg">Zap-Ziel erstellen</flux:heading>
+                <flux:heading size="lg">{{ __('Zap-Ziel erstellen') }}</flux:heading>
             </div>
-            <flux:input x-model="goalTitle" label="Titel" placeholder="Wofür sammelst du?" />
-            <flux:textarea x-model="goalSummary" label="Details (optional)" rows="2" placeholder="Worum geht es?" />
-            <flux:input type="number" min="1" x-model.number="goalTargetSats" label="Ziel (Sats)" />
+            <flux:input x-model="goalTitle" label="{{ __('Titel') }}" placeholder="{{ __('Wofür sammelst du?') }}" />
+            <flux:textarea x-model="goalSummary" label="{{ __('Details (optional)') }}" rows="2" placeholder="{{ __('Worum geht es?') }}" />
+            <flux:input type="number" min="1" x-model.number="goalTargetSats" label="{{ __('Ziel (Sats)') }}" />
             <div class="flex justify-end gap-2">
-                <flux:modal.close><flux:button variant="ghost">Abbrechen</flux:button></flux:modal.close>
+                <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
                 <flux:button variant="primary" icon="trophy" x-on:click="submitGoal()" ::disabled="goalBusy">
-                    <span x-text="goalBusy ? 'Erstelle…' : 'Erstellen'"></span>
+                    <span x-text="goalBusy ? @js(__('Erstelle…')) : @js(__('Erstellen'))"></span>
                 </flux:button>
             </div>
         </div>
@@ -626,7 +626,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
          mit C1–C4; `menuFor` hält die Zielnachricht. --}}
     <flux:modal name="message-menu" class="max-w-sm">
         <div class="flex flex-col gap-1">
-            <flux:heading size="sm" class="mb-1">Nachricht</flux:heading>
+            <flux:heading size="sm" class="mb-1">{{ __('Nachricht') }}</flux:heading>
             {{-- Reaktions-Picker (C1, native App): volles Emoji-Panel. react() schließt
                  das Modal selbst (closeMessageMenu) → kein onpick nötig. --}}
             {{-- OPTIMIZE: erst mounten, wenn das Menü offen ist (menuFor truthy). Ohne
@@ -643,30 +643,30 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-show="zapsEnabled && menuFor?.zappable" x-cloak
                          x-on:click="if (menuFor) openZap(menuFor)">Zap</flux:button>
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
-                         x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">Antworten</flux:button>
+                         x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">{{ __('Antworten') }}</flux:button>
             {{-- Zitieren (C3): teilt ohne Kommentar; share() schließt das Menü selbst. --}}
             <flux:button variant="ghost" icon="chat-bubble-left-right" class="w-full justify-start"
-                         x-on:click="if (menuFor) share(menuFor)">Zitieren</flux:button>
+                         x-on:click="if (menuFor) share(menuFor)">{{ __('Zitieren') }}</flux:button>
             {{-- Bearbeiten (C3): nur eigene Nachricht, ≤5 min alt; startEdit() schließt selbst. --}}
             <flux:button variant="ghost" icon="pencil-square" class="w-full justify-start"
                          x-show="menuFor && canEdit(menuFor)" x-cloak
-                         x-on:click="if (menuFor) startEdit(menuFor)">Bearbeiten</flux:button>
+                         x-on:click="if (menuFor) startEdit(menuFor)">{{ __('Bearbeiten') }}</flux:button>
             {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
                  dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}
             <flux:button variant="ghost" icon="flag" class="w-full justify-start" x-show="!menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askReport(menuFor); closeMessageMenu() }">Fork off!</flux:button>
             <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="menuFor?.mine" x-cloak
-                         x-on:click="if (menuFor) { askDelete(menuFor); closeMessageMenu() }">Löschen</flux:button>
+                         x-on:click="if (menuFor) { askDelete(menuFor); closeMessageMenu() }">{{ __('Löschen') }}</flux:button>
             {{-- C4: Kopieren/Info (nur lesen). copy*/openInfo schließen das Menü selbst. --}}
             <flux:separator class="my-1" />
             <flux:button variant="ghost" icon="link" class="w-full justify-start"
-                         x-on:click="if (menuFor) copyNevent(menuFor)">Event-Link kopieren</flux:button>
+                         x-on:click="if (menuFor) copyNevent(menuFor)">{{ __('Event-Link kopieren') }}</flux:button>
             <flux:button variant="ghost" icon="user-circle" class="w-full justify-start"
-                         x-on:click="if (menuFor) copyNpub(menuFor)">npub kopieren</flux:button>
+                         x-on:click="if (menuFor) copyNpub(menuFor)">{{ __('npub kopieren') }}</flux:button>
             <flux:button variant="ghost" icon="code-bracket" class="w-full justify-start"
-                         x-on:click="if (menuFor) copyJson(menuFor)">JSON kopieren</flux:button>
+                         x-on:click="if (menuFor) copyJson(menuFor)">{{ __('JSON kopieren') }}</flux:button>
             <flux:button variant="ghost" icon="information-circle" class="w-full justify-start"
-                         x-on:click="if (menuFor) openInfo(menuFor)">Info</flux:button>
+                         x-on:click="if (menuFor) openInfo(menuFor)">{{ __('Info') }}</flux:button>
         </div>
     </flux:modal>
 
@@ -674,25 +674,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
     <flux:modal name="message-info" class="max-w-lg">
         <template x-if="infoFor">
             <div class="space-y-4">
-                <flux:heading size="lg">Nachricht-Details</flux:heading>
+                <flux:heading size="lg">{{ __('Nachricht-Details') }}</flux:heading>
                 <div class="space-y-1">
-                    <flux:text class="text-xs text-muted">Erstellt</flux:text>
+                    <flux:text class="text-xs text-muted">{{ __('Erstellt') }}</flux:text>
                     <flux:text class="text-sm" x-text="infoFor.createdAt"></flux:text>
                 </div>
                 <div class="space-y-1">
-                    <flux:text class="text-xs text-muted">Event-Link</flux:text>
-                    <button type="button" x-on:click="copy(infoFor.nevent, 'Event-Link')"
+                    <flux:text class="text-xs text-muted">{{ __('Event-Link') }}</flux:text>
+                    <button type="button" x-on:click="copy(infoFor.nevent, @js(__('Event-Link')))"
                             class="pressable surface-card block w-full truncate rounded-tile px-2 py-1.5 text-left font-mono text-xs"
                             x-text="infoFor.nevent"></button>
                 </div>
                 <div class="space-y-1">
-                    <flux:text class="text-xs text-muted">Autor (npub)</flux:text>
+                    <flux:text class="text-xs text-muted">{{ __('Autor (npub)') }}</flux:text>
                     <button type="button" x-on:click="copy(infoFor.npub, 'npub')"
                             class="pressable surface-card block w-full truncate rounded-tile px-2 py-1.5 text-left font-mono text-xs"
                             x-text="infoFor.npub"></button>
                 </div>
                 <div class="space-y-1" x-show="infoFor.seenOn.length">
-                    <flux:text class="text-xs text-muted">Gesehen auf</flux:text>
+                    <flux:text class="text-xs text-muted">{{ __('Gesehen auf') }}</flux:text>
                     <div class="flex flex-wrap gap-1">
                         <template x-for="relay in infoFor.seenOn" :key="relay">
                             <flux:badge size="sm" x-text="relay"></flux:badge>
@@ -701,13 +701,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
                 <div class="space-y-1">
                     <div class="flex items-center justify-between">
-                        <flux:text class="text-xs text-muted">Roh-Event</flux:text>
-                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, 'JSON')">Kopieren</flux:button>
+                        <flux:text class="text-xs text-muted">{{ __('Roh-Event') }}</flux:text>
+                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, 'JSON')">{{ __('Kopieren') }}</flux:button>
                     </div>
                     <pre class="surface-card max-h-60 overflow-auto rounded-tile p-2 text-xs"><code x-text="infoFor.json"></code></pre>
                 </div>
                 <div class="flex justify-end">
-                    <flux:modal.close><flux:button variant="ghost">Schließen</flux:button></flux:modal.close>
+                    <flux:modal.close><flux:button variant="ghost">{{ __('Schließen') }}</flux:button></flux:modal.close>
                 </div>
             </div>
         </template>

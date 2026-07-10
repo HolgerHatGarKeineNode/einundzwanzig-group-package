@@ -105,8 +105,8 @@
 
                 {{-- lud16-Empfangsadresse (kopierbar). --}}
                 <button type="button" x-show="lud16" x-cloak
-                        x-on:click="copy(lud16, 'Lightning-Adresse')"
-                        :aria-label="__('Lightning-Adresse kopieren')"
+                        x-on:click="copy(lud16, @js(__('Lightning-Adresse')))"
+                        :aria-label="@js(__('Lightning-Adresse kopieren'))"
                         class="pressable mt-3 flex w-full min-w-0 items-center gap-2 rounded-tile border border-brand-500/30 bg-brand-500/5 px-3 py-2">
                     <flux:icon.bolt variant="solid" class="size-4 shrink-0 text-brand-500" />
                     <span class="min-w-0 truncate font-mono text-xs" x-text="lud16"></span>
@@ -229,11 +229,11 @@
             {{-- Ergebnis: QR + kopierbare bolt11. --}}
             <div x-show="recvInvoice" x-cloak class="space-y-3">
                 <div class="flex justify-center">
-                    <img :src="recvQr" :alt="__('QR-Code der Rechnung')"
+                    <img :src="recvQr" :alt="@js(__('QR-Code der Rechnung'))"
                          class="size-56 rounded-tile bg-white p-2" />
                 </div>
-                <button type="button" x-on:click="copy(recvInvoice, 'Rechnung')"
-                        :aria-label="__('Rechnung kopieren')"
+                <button type="button" x-on:click="copy(recvInvoice, @js(__('Rechnung')))"
+                        :aria-label="@js(__('Rechnung kopieren'))"
                         class="pressable flex w-full min-w-0 items-center gap-2 rounded-tile border border-zinc-200 px-3 py-2 dark:border-zinc-800">
                     <span class="min-w-0 truncate font-mono text-xs" x-text="recvInvoice"></span>
                     <flux:icon.clipboard-document class="ml-auto size-3.5 shrink-0 opacity-50" />

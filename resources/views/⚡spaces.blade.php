@@ -56,22 +56,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Kopf: echter Space-Name (NIP-11, Fallback „Space") + NIP-11-Beschreibung
              + wer bin ich + Abmelden. Space-Identität lebt NUR hier (kein doppelter
              Name in der Karte darunter). --}}
-        <x-group::app-header title="Space" title-expr="space?.label || 'Space'" x-data="nostrAuth">
+        <x-group::app-header title="{{ __('Space') }}" title-expr="space?.label || @js(__('Space'))" x-data="nostrAuth">
             <x-slot:subtitle>
                 <div x-show="space?.description" x-cloak class="truncate text-xs text-muted" x-text="space?.description"></div>
                 <div class="truncate font-mono text-xs text-muted" x-text="npub"></div>
             </x-slot:subtitle>
             <x-slot:actions>
-                <flux:button variant="ghost" size="sm" x-on:click="doLogout()">Abmelden</flux:button>
+                <flux:button variant="ghost" size="sm" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
             </x-slot:actions>
         </x-group::app-header>
 
         {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
-        <x-group::verein-gate context="Räume und Chat" class="mb-4" />
+        <x-group::verein-gate context="{{ __('Räume und Chat') }}" class="mb-4" />
 
         {{-- Erstes Laden: Space-Meta noch nicht da → Skeleton-Card statt nackte Fläche. --}}
         <div x-show="!space && loading" x-cloak class="surface-card p-4" aria-busy="true">
-            <span class="sr-only" aria-live="polite">Space wird geladen…</span>
+            <span class="sr-only" aria-live="polite">{{ __('Space wird geladen…') }}</span>
             <div class="flex items-center gap-2">
                 <div class="skeleton size-4"></div>
                 <div class="skeleton h-4 w-32"></div>
@@ -89,7 +89,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <div class="flex items-center justify-between gap-2 border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-800/80">
                 <div class="flex items-center gap-2">
                     <flux:icon.hashtag variant="solid" class="size-4 text-brand-500" />
-                    <span class="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600 dark:text-brand-400">Räume</span>
+                    <span class="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600 dark:text-brand-400">{{ __('Räume') }}</span>
                 </div>
                 <span x-show="((space?.userRooms.length ?? 0) + (space?.otherRooms.length ?? 0)) > 0" x-cloak
                       class="rounded-full bg-brand-500/10 px-2 py-0.5 font-mono text-xs font-semibold text-brand-600 dark:text-brand-400"
@@ -109,7 +109,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <template x-if="!loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0 && gatedOut">
                     <div class="empty-state py-6 text-center">
                         <flux:icon.lock-closed class="mx-auto size-8 text-zinc-400" />
-                        <flux:text class="mt-2 text-sm">Räume sind nur für Vereinsmitglieder sichtbar.</flux:text>
+                        <flux:text class="mt-2 text-sm">{{ __('Räume sind nur für Vereinsmitglieder sichtbar.') }}</flux:text>
                     </div>
                 </template>
 
@@ -117,14 +117,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <template x-if="!loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0 && !gatedOut">
                     <div class="empty-state py-6 text-center">
                         <flux:icon.hashtag class="mx-auto size-8 text-zinc-400" />
-                        <flux:text class="mt-2 text-sm">Dieser Space hat noch keine Räume.</flux:text>
+                        <flux:text class="mt-2 text-sm">{{ __('Dieser Space hat noch keine Räume.') }}</flux:text>
                     </div>
                 </template>
 
                 {{-- Meine Räume (beigetreten laut 39002) --}}
                 <template x-if="(space?.userRooms.length ?? 0) > 0">
                     <div>
-                        <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">Meine Räume</p>
+                        <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Meine Räume') }}</p>
                         <div class="space-y-0.5">
                             <template x-for="room in space.userRooms" :key="room.h">
                                 <x-group::room-tile />
@@ -136,7 +136,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 {{-- Entdeckbare Räume --}}
                 <template x-if="(space?.otherRooms.length ?? 0) > 0">
                     <div :class="(space?.userRooms.length ?? 0) > 0 ? 'mt-3' : ''">
-                        <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">Andere Räume</p>
+                        <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Andere Räume') }}</p>
                         <div class="space-y-0.5">
                             <template x-for="room in space.otherRooms" :key="room.h">
                                 <x-group::room-tile />

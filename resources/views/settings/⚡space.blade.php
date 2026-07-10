@@ -11,12 +11,12 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
 
     {{-- Bottom-Nav-Tab: Brand-Mark-Header (kein :back — gleichrangig zu Space, §Bottom-Nav)
          + Abmelden hier verfügbar (Flow Settings→Logout, D5). --}}
-    <x-group::app-header title="Space wählen" x-data="nostrAuth">
+    <x-group::app-header title="{{ __('Space wählen') }}" x-data="nostrAuth">
         <x-slot:subtitle>
-            <flux:text class="text-sm">Die App zeigt immer genau diesen Space.</flux:text>
+            <flux:text class="text-sm">{{ __('Die App zeigt immer genau diesen Space.') }}</flux:text>
         </x-slot:subtitle>
         <x-slot:actions>
-            <flux:button variant="ghost" size="sm" x-on:click="doLogout()">Abmelden</flux:button>
+            <flux:button variant="ghost" size="sm" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
         </x-slot:actions>
     </x-group::app-header>
 
@@ -26,7 +26,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
         {{-- Lädt noch (Fix A): Skeleton statt „leer"-Flash vor der ersten Emission. --}}
         <template x-if="!ready">
             <div class="space-y-2" aria-busy="true">
-                <span class="sr-only" aria-live="polite">Spaces werden geladen…</span>
+                <span class="sr-only" aria-live="polite">{{ __('Spaces werden geladen…') }}</span>
                 <template x-for="i in 3" :key="i">
                     <div class="surface-card flex items-center gap-3 p-3">
                         <div class="skeleton size-5"></div>
@@ -39,11 +39,11 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
         <template x-if="ready && spaces.length === 0">
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.inbox class="mx-auto size-8 text-zinc-400" />
-                <flux:text class="mt-2">Du bist noch keinem Space beigetreten.</flux:text>
+                <flux:text class="mt-2">{{ __('Du bist noch keinem Space beigetreten.') }}</flux:text>
                 {{-- Keine Sackgasse (D5): zurück zur Startseite → Beitritts-/Vereinsflow.
                      Interner wire:navigate-Link (funktioniert in Web UND WebView). --}}
                 <flux:button :href="route('home')" wire:navigate variant="primary" icon="home" class="mt-4">
-                    Zur Startseite
+                    {{ __('Zur Startseite') }}
                 </flux:button>
             </div>
         </template>
@@ -70,9 +70,9 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
         {{-- Mitgliedschaft im aktiven Space (Space-Ebene, kind 28934/28936) --}}
         <div class="surface-card mt-4 flex items-center justify-between gap-3 p-3">
             <div class="min-w-0">
-                <flux:text class="text-sm font-medium">Mitgliedschaft</flux:text>
+                <flux:text class="text-sm font-medium">{{ __('Mitgliedschaft') }}</flux:text>
                 <div class="truncate text-xs text-muted"
-                     x-text="activeJoined ? 'Du bist Mitglied dieses Space.' : (activeIsVerein ? 'Zugang über Vereinsmitgliedschaft.' : 'Noch nicht beigetreten.')"></div>
+                     x-text="activeJoined ? @js(__('Du bist Mitglied dieses Space.')) : (activeIsVerein ? @js(__('Zugang über Vereinsmitgliedschaft.')) : @js(__('Noch nicht beigetreten.')))"></div>
             </div>
             {{-- „Space verlassen" (leaveActive, kind 28936) noch nicht freigeben —
                  Feature kommt später. leaveActive() in der Insel bleibt bestehen. --}}
@@ -80,7 +80,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
                          x-show="activeJoined" x-cloak x-on:click="leaveActive()" ::disabled="busy">Verlassen</flux:button> --}}
             {{-- Vereins-Relays haben keinen NIP-29-Selbst-Beitritt → Button ausblenden. --}}
             <flux:button size="sm" variant="primary" icon="plus"
-                         x-show="!activeJoined && !activeIsVerein" x-cloak x-on:click="joinActive()" ::disabled="busy">Beitreten</flux:button>
+                         x-show="!activeJoined && !activeIsVerein" x-cloak x-on:click="joinActive()" ::disabled="busy">{{ __('Beitreten') }}</flux:button>
         </div>
     </div>
 
@@ -95,8 +95,8 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
                 <flux:icon.bolt variant="solid" class="size-5 text-brand-500" />
             </span>
             <span class="min-w-0">
-                <flux:text class="text-sm font-medium">Wallet</flux:text>
-                <span class="block truncate text-xs text-muted">Lightning — Guthaben, senden &amp; empfangen</span>
+                <flux:text class="text-sm font-medium">{{ __('Wallet') }}</flux:text>
+                <span class="block truncate text-xs text-muted">{{ __('Lightning — Guthaben, senden & empfangen') }}</span>
             </span>
         </span>
         <flux:icon.chevron-right class="size-4 shrink-0 text-muted" />
@@ -106,11 +106,11 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
          ($flux.appearance → localStorage `flux.appearance`, im <head> flackerfrei
          angewandt). Im Portal-WebView same-origin → automatisch in sync. --}}
     <div class="surface-card mt-4 flex items-center justify-between gap-3 p-3">
-        <flux:text class="text-sm font-medium">Darstellung</flux:text>
+        <flux:text class="text-sm font-medium">{{ __('Darstellung') }}</flux:text>
         <flux:radio.group x-data variant="segmented" size="sm" x-model="$flux.appearance">
-            <flux:radio value="light" icon="sun" aria-label="Hell" />
-            <flux:radio value="system" icon="computer-desktop" aria-label="Automatisch" />
-            <flux:radio value="dark" icon="moon" aria-label="Dunkel" />
+            <flux:radio value="light" icon="sun" aria-label="{{ __('Hell') }}" />
+            <flux:radio value="system" icon="computer-desktop" aria-label="{{ __('Automatisch') }}" />
+            <flux:radio value="dark" icon="moon" aria-label="{{ __('Dunkel') }}" />
         </flux:radio.group>
     </div>
 

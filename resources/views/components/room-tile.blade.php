@@ -18,6 +18,6 @@
         <span class="flex size-8 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-600 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
     </template>
     <span class="min-w-0 flex-1 truncate font-medium" x-text="room.name"></span>
-    <flux:icon.lock-closed x-show="room.locked" x-cloak class="size-4 shrink-0 text-zinc-400" aria-label="Privater Raum" />
+    <flux:icon.lock-closed x-show="room.locked" x-cloak class="size-4 shrink-0 text-zinc-400" aria-label="{{ __('Privater Raum') }}" />
     <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
 </button>

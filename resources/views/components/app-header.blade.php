@@ -16,15 +16,15 @@
 @php($exit = config('group.exit'))
 <header {{ $attributes->class('mb-6 flex items-center gap-3') }}>
     @if ($back)
-        <flux:button variant="ghost" size="sm" icon="arrow-left" :href="$back" wire:navigate aria-label="Zurück" />
+        <flux:button variant="ghost" size="sm" icon="arrow-left" :href="$back" wire:navigate aria-label="{{ __('Zurück') }}" />
     @elseif ($exit)
-        <a href="{{ route($exit['route']) }}" wire:navigate aria-label="Zurück zu {{ $exit['label'] }}"
+        <a href="{{ route($exit['route']) }}" wire:navigate aria-label="{{ __('Zurück zu :label', ['label' => $exit['label']]) }}"
            class="pressable -ms-1 inline-flex shrink-0 items-center gap-0.5 rounded-full py-1.5 pe-3 ps-1.5 text-sm font-semibold text-accent">
             <flux:icon.chevron-left variant="micro" class="size-5" />
             <span>{{ $exit['label'] }}</span>
         </a>
     @else
-        <a href="{{ route('home') }}" wire:navigate aria-label="Startseite" class="pressable shrink-0">
+        <a href="{{ route('home') }}" wire:navigate aria-label="{{ __('Startseite') }}" class="pressable shrink-0">
             <x-group::app-brand-mark class="size-9" />
         </a>
     @endif

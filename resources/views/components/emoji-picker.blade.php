@@ -12,7 +12,11 @@
     // Custom-Emoji originalgetreu (`:shortcode:` + roher emoji-Tag), Standard mit Label
     // für die MRU. `{!! !!}`: die Ausdrücke enthalten Anführungszeichen → nicht escapen.
     $pick = "(e.custom ? react($message, ':' + e.shortcode + ':', ['emoji', e.shortcode, e.url]) : react($message, e.u, undefined, e.label))$after";
-    $pickLabel = "e.custom ? ('Mit :' + e.shortcode + ': reagieren') : ('Mit ' + e.label + ' reagieren')";
+    // aria-label übersetzbar: EIN Präfix-Key + der Emoji-Token am Ende (Fragment-
+    // Übersetzung „Mit … reagieren" bräche in jeder Zielsprache die Grammatik).
+    // Einfach-gequotetes JS-Literal (das Attribut :aria-label ist doppelt gequotet).
+    $pickPrefix = "'".str_replace("'", "\\'", __('Reagieren mit '))."'";
+    $pickLabel = "$pickPrefix + (e.custom ? (':' + e.shortcode + ':') : e.label)";
     $pickTitle = 'e.custom ? e.shortcode : e.label';
 @endphp
 
@@ -25,7 +29,7 @@
 
     {{-- „Zuletzt benutzt" (MRU): dynamisch, leer beim ersten Gebrauch → keine Reihe. --}}
     <template x-if="recent.length">
-        <div class="flex items-center gap-0.5 overflow-x-auto" role="group" aria-label="Zuletzt benutzt"
+        <div class="flex items-center gap-0.5 overflow-x-auto" role="group" aria-label="{{ __('Zuletzt benutzt') }}"
              style="scrollbar-width: thin;">
             <template x-for="e in recent" :key="e.custom ? ':' + e.shortcode : e.u">
                 <button type="button"
@@ -47,13 +51,13 @@
             <circle cx="9" cy="9" r="6" /><path d="m14 14 4 4" stroke-linecap="round" />
         </svg>
         <input x-model.debounce.150ms="search" type="search"
-               placeholder="Emoji suchen…" aria-label="Emoji suchen"
+               placeholder="{{ __('Emoji suchen…') }}" aria-label="{{ __('Emoji suchen') }}"
                class="w-full rounded-tile border border-white/10 bg-white/5 py-1.5 pl-8 pr-3 text-sm text-white placeholder:text-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40" />
     </div>
 
     {{-- Kategorie-Tabs: aktiver Tab mit Bitcoin-Underline. Bei aktiver Suche verborgen. --}}
     <div x-show="ready && !search.trim()" class="-mx-0.5 flex gap-0.5 overflow-x-auto px-0.5 pb-1"
-         role="tablist" aria-label="Emoji-Kategorien" style="scrollbar-width: thin;">
+         role="tablist" aria-label="{{ __('Emoji-Kategorien') }}" style="scrollbar-width: thin;">
         <template x-for="t in tabs" :key="t.key">
             <button type="button" role="tab" x-on:click="activeTab = t.key" :aria-selected="activeTab === t.key"
                     :title="t.name" :aria-label="t.name"
@@ -85,10 +89,10 @@
 
     {{-- Zustände: Laden / leer. --}}
     <template x-if="!ready">
-        <p class="py-6 text-center text-xs text-muted">Emojis laden…</p>
+        <p class="py-6 text-center text-xs text-muted">{{ __('Emojis laden…') }}</p>
     </template>
     <template x-if="ready && !results.length">
         <p class="py-6 text-center text-xs text-muted"
-           x-text="(activeTab === 'custom' && customTotal > 0) ? 'Emojis laden…' : (search.trim() ? ('Keine Treffer für „' + search.trim() + '“') : 'Keine Custom-Emojis in deinem Profil')"></p>
+           x-text="(activeTab === 'custom' && customTotal > 0) ? @js(__('Emojis laden…')) : (search.trim() ? (@js(__('Keine Treffer für „')) + search.trim() + '“') : @js(__('Keine Custom-Emojis in deinem Profil')))"></p>
     </template>
 </div>

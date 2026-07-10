@@ -17,7 +17,7 @@
     x-on:keydown.escape.window="open = false"
     x-cloak
 >
-    <div x-show="open" class="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Anmelden">
+    <div x-show="open" class="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="{{ __('Anmelden') }}">
         {{-- Scrim: Tap schließt (Gast bleibt, wo er war). --}}
         <div x-show="open" x-transition.opacity class="absolute inset-0 bg-black/40" x-on:click="open = false"></div>
 
@@ -36,7 +36,7 @@
             class="surface-card relative z-10 max-h-[90dvh] w-full overflow-y-auto rounded-t-sheet pb-safe sm:max-w-md sm:rounded-sheet"
         >
             <div class="sticky top-0 flex justify-end p-2">
-                <flux:button variant="ghost" size="sm" icon="x-mark" x-on:click="open = false" aria-label="Schließen" />
+                <flux:button variant="ghost" size="sm" icon="x-mark" x-on:click="open = false" aria-label="{{ __('Schließen') }}" />
             </div>
             <div class="px-2 pb-2">
                 {{-- Kontextzeile (§4.2, `intent.label`): warum das Sheet gerade aufging.

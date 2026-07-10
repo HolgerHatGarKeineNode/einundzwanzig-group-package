@@ -33,7 +33,7 @@
                 <div x-show="nip05" x-cloak class="mt-0.5 truncate text-sm text-muted" x-text="nip05"></div>
 
                 {{-- npub — kopierbarer Mono-Chip (npub ist ein Wert zum Kopieren). --}}
-                <button type="button" x-on:click="copy(npub, 'npub')" aria-label="npub kopieren"
+                <button type="button" x-on:click="copy(npub, 'npub')" aria-label="{{ __('npub kopieren') }}"
                         class="pressable group mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-tile bg-brand-500/10 px-2.5 py-1 font-mono text-xs text-brand-600 dark:text-brand-400">
                     <span class="min-w-0 truncate" x-text="npub"></span>
                     <flux:icon.clipboard-document class="size-3.5 shrink-0 opacity-60 transition-opacity group-hover:opacity-100" />
@@ -51,8 +51,8 @@
                 </a>
 
                 {{-- Lightning — kopierbarer ⚡-Chip. Reine Anzeige, KEINE Zaps (PLAN §1). --}}
-                <button type="button" x-show="lud16" x-cloak x-on:click="copy(lud16, 'Lightning-Adresse')"
-                        aria-label="Lightning-Adresse kopieren"
+                <button type="button" x-show="lud16" x-cloak x-on:click="copy(lud16, @js(__('Lightning-Adresse')))"
+                        aria-label="{{ __('Lightning-Adresse kopieren') }}"
                         class="pressable mt-2 flex w-full min-w-0 items-center gap-2 rounded-tile border border-brand-500/30 bg-brand-500/5 px-3 py-2">
                     <flux:icon.bolt variant="solid" class="size-4 shrink-0 text-brand-500" />
                     <span class="min-w-0 truncate font-mono text-xs" x-text="lud16"></span>

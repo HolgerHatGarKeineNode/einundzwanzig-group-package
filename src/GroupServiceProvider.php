@@ -30,6 +30,12 @@ class GroupServiceProvider extends ServiceProvider
 
         // `group::einundzwanzig` (Layout) + `group::*` als Blade-Views.
         $this->loadViewsFrom($views, 'group');
+
+        // JSON-Translations mit DEUTSCHEN Quell-Keys (__('Deutscher Text')). Beide
+        // Consumer laden sie: der Web-Host bleibt via APP_LOCALE=de beim Key (kein
+        // de.json nötig), die Mobile-App rendert sie über ihre 8 Locales. Additiv —
+        // die app-eigenen lang/*.json des Hosts bleiben unberührt und haben Vorrang.
+        $this->loadJsonTranslationsFrom(__DIR__.'/../lang');
         // Livewire-Full-Page-SFCs: `group::spaces`, `group::settings.space`, …
         Livewire::addNamespace('group', $views);
         // Anonyme Blade-Komponenten: `<x-group.app-header>` etc. (absoluter Pfad).

@@ -2,6 +2,8 @@
     'context' => 'Räume und Chat',
 ])
 
+@php($context = __($context))
+
 {{-- Vereins-Gate: Nicht-Vereinsmitgliedern auf einem EINUNDZWANZIG-Vereins-Relay
      zeigen, dass voller Zugang eine Mitgliedschaft braucht — mit direktem Link
      zum Vereinsbeitritt. `context` benennt, was gerade gesperrt ist (Räume /
@@ -20,18 +22,18 @@
             <x-group::app-brand-mark class="size-14 shadow-pop" />
         </div>
 
-        <flux:badge size="sm" color="orange" icon="lock-closed" class="mb-3">Vereinszugang</flux:badge>
+        <flux:badge size="sm" color="orange" icon="lock-closed" class="mb-3">{{ __('Vereinszugang') }}</flux:badge>
 
-        <flux:heading size="lg" class="text-balance">Noch kein Vereinsmitglied</flux:heading>
+        <flux:heading size="lg" class="text-balance">{{ __('Noch kein Vereinsmitglied') }}</flux:heading>
 
         <flux:text class="mx-auto mt-2 max-w-xs text-balance text-sm text-muted">
-            Du bist (noch) kein Mitglied im Verein <span class="font-semibold text-zinc-700 dark:text-zinc-200">EINUNDZWANZIG</span>.
-            {{ $context }} in diesem Space bleiben deshalb gesperrt.
+            {{ __('Du bist (noch) kein Mitglied im Verein') }} <span class="font-semibold text-zinc-700 dark:text-zinc-200">EINUNDZWANZIG</span>.
+            {{ $context }} {{ __('in diesem Space bleiben deshalb gesperrt.') }}
         </flux:text>
 
         <div class="mx-auto mt-4 max-w-xs rounded-tile bg-brand-500/10 px-4 py-3">
             <flux:text class="text-sm text-zinc-600 dark:text-zinc-300">
-                Eine Mitgliedschaft schaltet <span class="font-semibold">automatisch</span> den Zugang zu diesem Space und Relay frei.
+                {{ __('Eine Mitgliedschaft schaltet') }} <span class="font-semibold">{{ __('automatisch') }}</span> {{ __('den Zugang zu diesem Space und Relay frei.') }}
             </flux:text>
         </div>
 
@@ -45,7 +47,7 @@
             variant="primary"
             icon:trailing="arrow-up-right"
             class="mt-5 w-full">
-            Vereinsmitglied werden
+            {{ __('Vereinsmitglied werden') }}
         </flux:button>
 
         <flux:text class="mt-3 text-xs text-zinc-400">

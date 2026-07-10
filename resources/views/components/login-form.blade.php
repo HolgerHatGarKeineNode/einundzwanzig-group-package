@@ -29,11 +29,11 @@
         <template x-if="pubkey && !reconnect">
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.check-badge variant="solid" class="mx-auto size-10 text-brand-500" />
-                <flux:heading size="lg" class="mt-3" x-text="reauthing ? 'Anmeldung wird wiederhergestellt…' : 'Angemeldet'"></flux:heading>
+                <flux:heading size="lg" class="mt-3" x-text="reauthing ? @js(__('Anmeldung wird wiederhergestellt…')) : @js(__('Angemeldet'))"></flux:heading>
                 <div class="mt-2 rounded-tile bg-zinc-100 p-2 font-mono text-xs break-all text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" x-text="npub"></div>
                 {{-- Auto-Reauth (NIP-98-Handoff) fehlgeschlagen → Grund zeigen. --}}
                 <flux:text x-show="error" x-cloak class="mt-3 text-sm text-red-500" x-text="error"></flux:text>
-                <flux:button variant="ghost" class="mt-4" x-on:click="doLogout()">Abmelden</flux:button>
+                <flux:button variant="ghost" class="mt-4" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
             </div>
         </template>
     @endif
@@ -43,12 +43,12 @@
         <div class="surface-card p-6" x-data="{ showMore: false, nsecOk: false }">
             <flux:heading size="xl" class="flex items-center gap-2">
                 <flux:icon.bolt variant="solid" class="size-6 text-brand-500" />
-                <span x-text="reconnect ? 'Neu verbinden' : 'Anmelden'"></span>
+                <span x-text="reconnect ? @js(__('Neu verbinden')) : @js(__('Anmelden'))"></span>
             </flux:heading>
 
             {{-- Reconnect-Hinweis: warum der Nutzer hier ist. --}}
             <flux:callout x-show="reconnect" x-cloak icon="arrow-path" class="mt-3">
-                <flux:callout.text>Deine Amber-/Bunker-Verbindung stammt aus einer früheren Version. Verbinde einmal neu, um alle Berechtigungen (Zaps, Umfragen, Reaktionen, Admin) zu erteilen.</flux:callout.text>
+                <flux:callout.text>{{ __('Deine Amber-/Bunker-Verbindung stammt aus einer früheren Version. Verbinde einmal neu, um alle Berechtigungen (Zaps, Umfragen, Reaktionen, Admin) zu erteilen.') }}</flux:callout.text>
             </flux:callout>
 
             {{-- QR-/Amber-Verbindungslauf (nostrconnect://). EINE Instanz, getriggert
@@ -57,18 +57,18 @@
                  scannt), Mobile öffnet Amber per Deep-Link auf demselben Gerät. --}}
             <div x-show="connecting" x-cloak class="mt-4 flex flex-col items-center gap-3 text-center">
                 <template x-if="mobile">
-                    <flux:button variant="ghost" class="w-full" icon="arrow-top-right-on-square" x-show="connectUri" x-on:click="openAmber()">Amber erneut öffnen</flux:button>
+                    <flux:button variant="ghost" class="w-full" icon="arrow-top-right-on-square" x-show="connectUri" x-on:click="openAmber()">{{ __('Amber erneut öffnen') }}</flux:button>
                 </template>
                 <template x-if="!mobile && connectQr">
-                    <img :src="connectQr" alt="nostrconnect QR-Code" class="size-56 rounded-tile bg-white p-2" />
+                    <img :src="connectQr" alt="{{ __('nostrconnect QR-Code') }}" class="size-56 rounded-tile bg-white p-2" />
                 </template>
                 <template x-if="!mobile && !connectQr">
                     <div class="skeleton size-56 rounded-tile" aria-busy="true">
-                        <span class="sr-only" aria-live="polite">QR-Code wird erzeugt…</span>
+                        <span class="sr-only" aria-live="polite">{{ __('QR-Code wird erzeugt…') }}</span>
                     </div>
                 </template>
-                <flux:text class="text-sm">Warte auf die Verbindung mit dem Signer …</flux:text>
-                <flux:button variant="ghost" x-on:click="stopConnect()">Abbrechen</flux:button>
+                <flux:text class="text-sm">{{ __('Warte auf die Verbindung mit dem Signer …') }}</flux:text>
+                <flux:button variant="ghost" x-on:click="stopConnect()">{{ __('Abbrechen') }}</flux:button>
             </div>
 
             {{-- ── Primär-CTA (genau einer, plattform-adaptiv) ──────────────── --}}
@@ -76,31 +76,31 @@
                 {{-- native mobil → Amber (NIP-55) --}}
                 <template x-if="mobile">
                     <div class="space-y-1">
-                        <flux:button variant="primary" class="w-full" icon="qr-code" x-on:click="startConnect()" ::disabled="busy">Mit Amber anmelden</flux:button>
-                        <flux:text class="text-xs text-muted">Empfohlen · dein Schlüssel bleibt in Amber.</flux:text>
+                        <flux:button variant="primary" class="w-full" icon="qr-code" x-on:click="startConnect()" ::disabled="busy">{{ __('Mit Amber anmelden') }}</flux:button>
+                        <flux:text class="text-xs text-muted">{{ __('Empfohlen · dein Schlüssel bleibt in Amber.') }}</flux:text>
                     </div>
                 </template>
                 {{-- Web + Erweiterung → NIP-07 --}}
                 <template x-if="!mobile && hasExtension">
                     <div class="space-y-1">
                         <flux:button variant="primary" class="w-full" x-on:click="loginExtension()" ::disabled="busy">
-                            <span x-text="busy ? 'Verbinde…' : 'Mit Browser-Erweiterung anmelden'"></span>
+                            <span x-text="busy ? @js(__('Verbinde…')) : @js(__('Mit Browser-Erweiterung anmelden'))"></span>
                         </flux:button>
-                        <flux:text class="text-xs text-muted">NIP-07 · dein Schlüssel bleibt in der Erweiterung.</flux:text>
+                        <flux:text class="text-xs text-muted">{{ __('NIP-07 · dein Schlüssel bleibt in der Erweiterung.') }}</flux:text>
                     </div>
                 </template>
                 {{-- Web ohne Erweiterung → QR-Bunker primär --}}
                 <template x-if="!mobile && !hasExtension">
                     <div class="space-y-1">
-                        <flux:button variant="primary" class="w-full" icon="qr-code" x-on:click="startConnect()" ::disabled="busy">Signer per QR verbinden</flux:button>
-                        <flux:text class="text-xs text-muted">Keine Browser-Erweiterung gefunden (Alby, nos2x …). Verbinde deinen Signer (z. B. Amber, nsec.app) per QR.</flux:text>
+                        <flux:button variant="primary" class="w-full" icon="qr-code" x-on:click="startConnect()" ::disabled="busy">{{ __('Signer per QR verbinden') }}</flux:button>
+                        <flux:text class="text-xs text-muted">{{ __('Keine Browser-Erweiterung gefunden (Alby, nos2x …). Verbinde deinen Signer (z. B. Amber, nsec.app) per QR.') }}</flux:text>
                     </div>
                 </template>
             </div>
 
             {{-- ── Andere Optionen (aufklappbar) ───────────────────────────── --}}
             <div x-show="!connecting" class="mt-4">
-                <flux:button variant="ghost" size="sm" class="w-full" icon="ellipsis-horizontal" x-on:click="showMore = !showMore" ::aria-expanded="showMore">Andere Optionen</flux:button>
+                <flux:button variant="ghost" size="sm" class="w-full" icon="ellipsis-horizontal" x-on:click="showMore = !showMore" ::aria-expanded="showMore">{{ __('Andere Optionen') }}</flux:button>
 
                 <div x-show="showMore" x-cloak class="mt-3 space-y-4">
                     {{-- QR-Bunker als Sekundäroption NUR im Web-mit-Erweiterung-Fall, wo
@@ -108,31 +108,31 @@
                          ruft der Amber-Primär-CTA bereits startConnect(), und Web-ohne-
                          Erweiterung hat den QR schon primär → dort kein Duplikat. --}}
                     <template x-if="hasExtension">
-                        <flux:button variant="filled" class="w-full" icon="qr-code" x-on:click="startConnect()">Signer per QR verbinden (Bunker)</flux:button>
+                        <flux:button variant="filled" class="w-full" icon="qr-code" x-on:click="startConnect()">{{ __('Signer per QR verbinden (Bunker)') }}</flux:button>
                     </template>
 
                     {{-- Bunker-URI direkt einfügen. --}}
                     <div class="space-y-2">
                         <flux:input x-model="bunkerInput" placeholder="bunker://…" x-on:keydown.enter="loginBunker()" />
                         <flux:button variant="filled" class="w-full" x-on:click="loginBunker()" ::disabled="busy">
-                            <span x-text="busy ? 'Verbinde…' : 'Mit Bunker verbinden'"></span>
+                            <span x-text="busy ? @js(__('Verbinde…')) : @js(__('Mit Bunker verbinden'))"></span>
                         </flux:button>
                     </div>
 
                     {{-- nsec — gehärtet: roter Hinweis + Checkbox-Gate schaltet frei. --}}
                     <div class="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
                         <flux:callout variant="warning" icon="exclamation-triangle">
-                            <flux:callout.heading>Privaten Schlüssel eingeben — unsicher</flux:callout.heading>
+                            <flux:callout.heading>{{ __('Privaten Schlüssel eingeben — unsicher') }}</flux:callout.heading>
                             <flux:callout.text>
                                 {{-- Nativ (App) kennt weder „Browser" noch NIP-07-Erweiterung → eigener Wortlaut. --}}
-                                <span x-show="!mobile">Dein privater Schlüssel wird im Browser gespeichert und ist dort angreifbar. Für echte Konten nutze eine Browser-Erweiterung oder einen Signer (Amber, Bunker).</span>
-                                <span x-show="mobile" x-cloak>Dein privater Schlüssel wird auf diesem Gerät gespeichert und ist dort angreifbar. Für echte Konten nutze Amber oder einen Bunker.</span>
+                                <span x-show="!mobile">{{ __('Dein privater Schlüssel wird im Browser gespeichert und ist dort angreifbar. Für echte Konten nutze eine Browser-Erweiterung oder einen Signer (Amber, Bunker).') }}</span>
+                                <span x-show="mobile" x-cloak>{{ __('Dein privater Schlüssel wird auf diesem Gerät gespeichert und ist dort angreifbar. Für echte Konten nutze Amber oder einen Bunker.') }}</span>
                             </flux:callout.text>
                         </flux:callout>
-                        <flux:checkbox x-model="nsecOk" label="Ich verstehe das Risiko" />
-                        <flux:input type="password" x-model="keyInput" placeholder="nsec1… oder 64-stelliger hex-Key" x-on:keydown.enter="nsecOk && loginNsec()" ::disabled="!nsecOk" />
+                        <flux:checkbox x-model="nsecOk" label="{{ __('Ich verstehe das Risiko') }}" />
+                        <flux:input type="password" x-model="keyInput" placeholder="{{ __('nsec1… oder 64-stelliger hex-Key') }}" x-on:keydown.enter="nsecOk && loginNsec()" ::disabled="!nsecOk" />
                         <flux:button variant="danger" class="w-full" x-on:click="loginNsec()" ::disabled="!nsecOk || busy">
-                            <span x-text="busy ? 'Melde an…' : 'Trotzdem anmelden (unsicher)'"></span>
+                            <span x-text="busy ? @js(__('Melde an…')) : @js(__('Trotzdem anmelden (unsicher)'))"></span>
                         </flux:button>
                     </div>
                 </div>
@@ -143,11 +143,11 @@
                  verwahrt — mobil Amber (F-Droid), im Web eine Browser-Erweiterung.
                  (Reicher Gast-Onboarding-Ausbau → P7 §5.2/§5.4.) --}}
             <div x-show="!connecting" x-data="{ showHelp: false }" class="mt-4 border-t border-zinc-200 pt-3 text-center dark:border-zinc-700">
-                <flux:button variant="ghost" size="sm" x-on:click="showHelp = !showHelp" ::aria-expanded="showHelp">Neu bei Nostr?</flux:button>
+                <flux:button variant="ghost" size="sm" x-on:click="showHelp = !showHelp" ::aria-expanded="showHelp">{{ __('Neu bei Nostr?') }}</flux:button>
                 <div x-show="showHelp" x-cloak class="mt-2 space-y-2 text-left">
-                    <flux:text class="text-sm">Nostr ist ein offenes Netzwerk ohne zentrales Konto. Statt Passwort besitzt du einen Schlüssel, den ein Signer sicher verwahrt und für dich signiert.</flux:text>
-                    <flux:link x-show="mobile" href="https://f-droid.org/packages/com.greenart7c3.nostrsigner/" external>Amber-Signer installieren (F-Droid)</flux:link>
-                    <flux:text x-show="!mobile" class="text-sm">Im Browser: installiere eine Signer-Erweiterung wie <flux:link href="https://getalby.com" external>Alby</flux:link> oder nos2x und lade diese Seite neu.</flux:text>
+                    <flux:text class="text-sm">{{ __('Nostr ist ein offenes Netzwerk ohne zentrales Konto. Statt Passwort besitzt du einen Schlüssel, den ein Signer sicher verwahrt und für dich signiert.') }}</flux:text>
+                    <flux:link x-show="mobile" href="https://f-droid.org/packages/com.greenart7c3.nostrsigner/" external>{{ __('Amber-Signer installieren (F-Droid)') }}</flux:link>
+                    <flux:text x-show="!mobile" class="text-sm">{{ __('Im Browser: installiere eine Signer-Erweiterung wie') }} <flux:link href="https://getalby.com" external>Alby</flux:link> {{ __('oder nos2x und lade diese Seite neu.') }}</flux:text>
                 </div>
             </div>
 

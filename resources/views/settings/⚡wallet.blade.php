@@ -14,9 +14,9 @@ use Livewire\Component;
 new #[Layout('group::einundzwanzig')] #[Title('Wallet')] class extends Component {}; ?>
 
 <x-group::app-shell>
-    <x-group::app-header title="Wallet">
+    <x-group::app-header title="{{ __('Wallet') }}">
         <x-slot:subtitle>
-            <flux:text class="text-sm">Lightning — Guthaben, senden &amp; empfangen.</flux:text>
+            <flux:text class="text-sm">{{ __('Lightning — Guthaben, senden & empfangen.') }}</flux:text>
         </x-slot:subtitle>
     </x-group::app-header>
 
