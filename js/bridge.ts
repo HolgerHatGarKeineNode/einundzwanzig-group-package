@@ -7,7 +7,7 @@
  */
 import { get, type Readable } from 'svelte/store'
 import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile } from '@welshman/app'
-import { displayProfile, toNostrURI, MESSAGE, type RelayProfile } from '@welshman/util'
+import { displayProfile, toNostrURI, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
 import { load } from '@welshman/net'
@@ -268,6 +268,15 @@ type AuthState = {
     stopConnect(): void
     openAmber(): void
     doLogout(): Promise<void>
+}
+
+type RelaysState = {
+    relays: Array<{ url: string; read: boolean; write: boolean }>
+    loading: boolean
+    _unsub: null | (() => void)
+    _unsubEvents: null | (() => void)
+    init(): Promise<void>
+    destroy(): void
 }
 
 type SpacesState = {
@@ -2607,6 +2616,54 @@ export function registerNostrComponents(Alpine: {
         },
         reconnect() {
             window.location.assign('/nostr-login?reconnect=1')
+        },
+    }))
+
+    // Netzwerk & Relays (App-Shell-Verschmelzung §6.4, read-only): zeigt die
+    // NIP-65-Relayliste (kind 10002) des Nutzers. Parst die `r`-Tags direkt
+    // (ohne Marker = Lesen+Schreiben) statt über den Router — robust auch, wenn
+    // die Router-Relay-Selektion noch nicht warm ist. Editor folgt separat.
+    Alpine.data('nostrRelays', (): RelaysState => ({
+        relays: [],
+        loading: true,
+        _unsub: null,
+        _unsubEvents: null,
+        // pubkey wird async aus localStorage hydriert (@welshman/store sync) — erst
+        // nach authReady ist er definitiv (sonst wäre die Liste beim harten Reload,
+        // dem einzigen Weg hierher, dauerhaft leer). Danach reaktiv: Login/Logout
+        // schaltet die Relay-Ansicht mit (gleiche Disziplin wie nostrWallet/nostrAuth).
+        async init() {
+            await authReady
+            this._unsub = pubkey.subscribe((pk: string | undefined) => {
+                this._unsubEvents?.()
+                this._unsubEvents = null
+                if (!pk) {
+                    this.relays = []
+                    this.loading = false
+
+                    return
+                }
+                this.loading = true
+                const store = deriveEvents({ repository, filters: [{ kinds: [RELAYS], authors: [pk] }] })
+                this._unsubEvents = store.subscribe((evs: TrustedEvent[]) => {
+                    const ev = evs[0]
+                    if (!ev) {
+                        return
+                    }
+                    // NIP-65: r-Tag [ "r", url, ("read"|"write")? ]; ohne Marker = beides.
+                    this.relays = ev.tags
+                        .filter((t: string[]) => t[0] === 'r' && Boolean(t[1]))
+                        .map((t: string[]) => ({ url: t[1], read: !t[2] || t[2] === 'read', write: !t[2] || t[2] === 'write' }))
+                    this.loading = false
+                })
+                load({ filters: [{ kinds: [RELAYS], authors: [pk] }], relays: DEFAULT_RELAYS }).finally(() => {
+                    this.loading = false
+                })
+            })
+        },
+        destroy() {
+            this._unsub?.()
+            this._unsubEvents?.()
         },
     }))
 
