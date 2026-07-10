@@ -171,6 +171,16 @@ const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
 }
 
 /**
+ * §4.2 „nach Login resume", Sheet-Pfad: Das Login-Sheet (P6) öffnet in-place und
+ * navigiert NICHT auf `/nostr-login?return=…`, also fehlt der `?return`-Parameter
+ * in der URL. `requireAuth` legt das (bereits sanitisierte) Gate-Ziel darum hier
+ * ab, damit `postLoginRedirect` nach dem harten Login-Redirect trotzdem aufs
+ * getappte Tab-Ziel springt statt aufs Default. Der Deep-Link-Fallback (`?return`
+ * in der URL) bleibt unberührt.
+ */
+let pendingReturn: string | null = null
+
+/**
  * Ziel nach erfolgreichem welshman-Login. Web: NIP-98-Handoff → Redirect ins
  * Server-Gate. Mobile: kein Server-Gate (§7), direkt zu /spaces — die Insel
  * hält die Session selbst.
@@ -178,8 +188,9 @@ const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
 async function postLoginRedirect(): Promise<string> {
     // §4.2 „nach Login resume": tapte ein Gast eine gegatete Tab/Aktion, trägt der
     // Login-View `?return=<Zielpfad>` (vom authGate gesetzt) — nach dem Login exakt
-    // dorthin, statt aufs Default. Open-Redirect-gehärtet (nur eigene Pfade).
-    const ret = sanitizeReturnUrl(new URLSearchParams(location.search).get('return'))
+    // dorthin, statt aufs Default. Sheet-Pfad → `pendingReturn`, Deep-Link → URL.
+    // Open-Redirect-gehärtet (nur eigene Pfade).
+    const ret = pendingReturn ?? sanitizeReturnUrl(new URLSearchParams(location.search).get('return'))
     if (isMobile) {
         // Single-Login: den Portal-Handoff für die Zielseite vormerken (das
         // Boot-Gate führt ihn dort aus). Direkt hier würde die folgende
@@ -601,10 +612,13 @@ export function registerNostrComponents(Alpine: {
                 intent.resume?.()
                 return true
             }
+            // Gate-Ziel EINMAL bestimmen: das Sheet (P6) landet nach Login darüber
+            // (pendingReturn, §postLoginRedirect), der Fallback-View über `?return`.
+            const ret = sanitizeReturnUrl(intent.returnUrl ?? location.pathname + location.search)
+            pendingReturn = ret
             const ev = new CustomEvent('open-login-sheet', { detail: { intent }, cancelable: true })
             window.dispatchEvent(ev)
             if (! ev.defaultPrevented) {
-                const ret = sanitizeReturnUrl(intent.returnUrl ?? location.pathname + location.search)
                 location.assign('/nostr-login' + (ret ? '?return=' + encodeURIComponent(ret) : ''))
             }
             return false

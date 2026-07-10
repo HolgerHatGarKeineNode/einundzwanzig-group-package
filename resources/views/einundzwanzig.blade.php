@@ -23,6 +23,11 @@
          Overlays übereinander. --}}
     {{ $slot }}
 
+    {{-- P6 (§4.2): Das globale Login-Sheet. Außerhalb des $slot → überlebt
+         `wire:navigate` und liegt auf JEDER Seite (auch chrome-lose), damit der
+         `authGate`-Store sein `open-login-sheet`-Event immer abfangen kann. --}}
+    <x-group::login-sheet />
+
     {{-- Ziel für Insel-Toasts (Publish-Fehler etc.), per `toast-show`-Event. --}}
     <flux:toast position="bottom center" />
 
