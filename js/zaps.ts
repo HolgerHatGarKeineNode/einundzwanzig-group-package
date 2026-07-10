@@ -10,8 +10,10 @@
  * Server, der an diesem Pfad gar nicht beteiligt ist.
  */
 import { loadZapperForPubkey, signer } from '@welshman/app'
-import { makeZapRequest, requestZap, toMsats, type SignedEvent, type Zapper } from '@welshman/util'
+import { getZapResponseFilter, makeZapRequest, requestZap, toMsats, type SignedEvent, type Zapper } from '@welshman/util'
+import { load, request } from '@welshman/net'
 import { Router } from '@welshman/router'
+import { payInvoice as walletPayInvoice } from './wallet'
 
 /** Standard-Zap-Kommentar (flotilla legt den Reaktions-Emoji in den 9734-`content`). */
 export const DEFAULT_ZAP_CONTENT = '⚡'
@@ -61,31 +63,109 @@ export type ZapRequestInput = {
     url?: string
 }
 
-/** kind-9734 bauen + im Browser signieren (Muster `session.ts` `handoffToServer`). */
-export const buildZapRequest = async ({ pubkey, zapper, sats, content, eventId, url }: ZapRequestInput): Promise<SignedEvent> => {
+/**
+ * kind-9734 bauen + im Browser signieren (Muster `session.ts` `handoffToServer`).
+ * Bekommt die Ziel-`relays` fertig übergeben (statt selbst `zapRelays` zu rufen),
+ * damit `createZapInvoice` denselben — für Profil-Zaps nicht-deterministischen —
+ * Relay-Satz ins `relays`-Tag UND in die spätere Receipt-Subscription (Z2) legt.
+ */
+export const buildZapRequest = async ({ pubkey, zapper, sats, content, eventId, relays }: Omit<ZapRequestInput, 'url'> & { relays: string[] }): Promise<SignedEvent> => {
     const activeSigner = signer.get()
     if (!activeSigner) {
         throw new Error('Kein aktiver Signer.')
     }
-    return activeSigner.sign(zapRequestTemplate({ pubkey, zapper, sats, relays: zapRelays(pubkey, url), content, eventId }))
+    return activeSigner.sign(zapRequestTemplate({ pubkey, zapper, sats, relays, content, eventId }))
 }
 
 /**
  * Vollständiger Z1-Pfad: Zapper auflösen → 9734 bauen/signieren → LNURL-Callback →
  * bolt11. Wirft deutsche Fehler. Zahlung (`payInvoice`) + Receipt-Live-Sub folgen in
- * Z2; der `zapper` wird für den dortigen `getZapResponseFilter` mit zurückgegeben.
+ * Z2; `zapper` + `relays` werden für den dortigen `getZapResponseFilter`/`load`
+ * mit zurückgegeben (identischer Relay-Satz wie im 9734-`relays`-Tag).
  */
 export const createZapInvoice = async (
     input: Omit<ZapRequestInput, 'zapper'> & { zapper?: Zapper },
-): Promise<{ invoice: string; event: SignedEvent; zapper: Zapper }> => {
+): Promise<{ invoice: string; event: SignedEvent; zapper: Zapper; relays: string[] }> => {
     const zapper = input.zapper ?? (await resolveZapper(input.pubkey))
     if (!canZap(zapper)) {
         throw new Error('Dieser Empfänger kann keine Zaps annehmen.')
     }
-    const event = await buildZapRequest({ ...input, zapper })
+    const relays = zapRelays(input.pubkey, input.url)
+    const event = await buildZapRequest({ ...input, zapper, relays })
     const res = await requestZap({ zapper, event })
     if (!res.invoice) {
         throw new Error(res.error ? `Rechnung abgelehnt: ${res.error}` : 'Rechnung konnte nicht abgerufen werden.')
     }
-    return { invoice: res.invoice, event, zapper }
+    return { invoice: res.invoice, event, zapper, relays }
+}
+
+/**
+ * Zahlweg des Zap-Buttons (ZAPS.md Z2, flotilla `ZapButton`-Router): `'info'` wenn der
+ * Empfänger keine Nostr-Zaps annehmen kann, `'auto'` bei verbundenem Wallet (Z2a),
+ * sonst `'invoice'` (QR-Fallback, Z2b). `canZap` (allowsNostr UND nostrPubkey) gatet,
+ * weil `getZapResponseFilter` ohne `nostrPubkey` wirft.
+ */
+export type ZapMethod = 'info' | 'auto' | 'invoice'
+
+export const chooseZapMethod = (zapper: Zapper | undefined, hasWallet: boolean): ZapMethod =>
+    !canZap(zapper) ? 'info' : hasWallet ? 'auto' : 'invoice'
+
+type ZapPayInput = Omit<ZapRequestInput, 'zapper'> & { zapper?: Zapper }
+
+/**
+ * Z2a Auto-Pay (flotilla `Zap.svelte` `sendZap`): Rechnung holen (Z1) → über das
+ * verbundene Wallet zahlen → das 9735-Receipt **einmalig** nachladen, damit es ins
+ * lokale Repository/Tally fließt (Z3). Zahlt zuerst — schlägt `pay` fehl, wird das
+ * Receipt nicht geladen (Reihenfolge ist der Kern des Auto-Pay). `deps` injizierbar
+ * für Stub-Tests; Default = echter Z1-Pfad + echtes Wallet + welshman-`load`.
+ */
+export const payZapAuto = async (
+    input: ZapPayInput,
+    {
+        createInvoice = createZapInvoice,
+        pay = walletPayInvoice,
+        loadReceipt = load,
+    }: { createInvoice?: typeof createZapInvoice; pay?: typeof walletPayInvoice; loadReceipt?: typeof load } = {},
+): Promise<Awaited<ReturnType<typeof createZapInvoice>>> => {
+    const result = await createInvoice(input)
+    await pay(result.invoice)
+    await loadReceipt({
+        relays: result.relays,
+        filters: [getZapResponseFilter({ zapper: result.zapper, pubkey: input.pubkey, eventId: input.eventId })],
+    })
+    return result
+}
+
+export type WatchZapReceiptInput = {
+    zapper: Zapper
+    pubkey: string
+    eventId?: string
+    /** Space-Relay im Raum; ohne dieses routet welshman zum Empfänger. */
+    url?: string
+    /** Aufrufer (Z3-Sheet) besitzt den Controller und bricht bei Close/Erfolg ab. */
+    signal: AbortSignal
+    onReceived: () => void
+}
+
+/**
+ * Z2b QR-Fallback-Live-Sub (flotilla `ZapInvoice.svelte`): auf das 9735-Receipt zum
+ * offenen Invoice lauschen und `onReceived` **genau einmal** feuern. Kein eigener
+ * Abort — der Aufrufer schließt die Subscription über `signal`. `sub` injizierbar für Tests.
+ */
+export const watchZapReceipt = (
+    { zapper, pubkey, eventId, url, signal, onReceived }: WatchZapReceiptInput,
+    sub: typeof request = request,
+): void => {
+    let fired = false
+    sub({
+        relays: zapRelays(pubkey, url),
+        signal,
+        filters: [getZapResponseFilter({ zapper, pubkey, eventId })],
+        onEvent: () => {
+            if (!fired) {
+                fired = true
+                onReceived()
+            }
+        },
+    })
 }
