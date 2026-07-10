@@ -140,8 +140,13 @@ export type WatchZapReceiptInput = {
     zapper: Zapper
     pubkey: string
     eventId?: string
-    /** Space-Relay im Raum; ohne dieses routet welshman zum Empfänger. */
-    url?: string
+    /**
+     * Exakt der `relays`-Satz aus `createZapInvoice` (= 9734-`relays`-Tag) — NICHT neu
+     * berechnen: `zapRelays` ist für Profil-Zaps (ohne `url`) über `Router.ForPubkey`
+     * nicht-deterministisch, sonst lauscht die Sub woanders als der LNURL-Server das
+     * 9735 publiziert und `onReceived` feuert nie (Sheet hängt trotz Zahlung).
+     */
+    relays: string[]
     /** Aufrufer (Z3-Sheet) besitzt den Controller und bricht bei Close/Erfolg ab. */
     signal: AbortSignal
     onReceived: () => void
@@ -153,12 +158,12 @@ export type WatchZapReceiptInput = {
  * Abort — der Aufrufer schließt die Subscription über `signal`. `sub` injizierbar für Tests.
  */
 export const watchZapReceipt = (
-    { zapper, pubkey, eventId, url, signal, onReceived }: WatchZapReceiptInput,
+    { zapper, pubkey, eventId, relays, signal, onReceived }: WatchZapReceiptInput,
     sub: typeof request = request,
 ): void => {
     let fired = false
     sub({
-        relays: zapRelays(pubkey, url),
+        relays,
         signal,
         filters: [getZapResponseFilter({ zapper, pubkey, eventId })],
         onEvent: () => {
