@@ -26,7 +26,12 @@
                  Das Login-Sheet selbst kommt in P6; bis dahin ist das Event ein
                  no-op (forward-kompatibel). Server-Gate (EnsureNostrAuth) bleibt
                  der reale Schutz — der Intercept ist nur die sanfte Ebene. --}}
-@php($active = request()->routeIs($match ?? $route))
+{{-- `match` darf mehrere Route-Namen kommagetrennt listen (Multi-Route-Tabs wie
+     Chat/Meetups/Mehr im Mobile-Host). routeIs()/Str::is splittet Kommas NICHT —
+     ein roher String "meetups,meetups.show" matchte nie. Darum wie die Host-Nav
+     auf ein Pattern-Array explodieren; ein Ein-Wert-`match` ergibt ein Ein-Element-
+     Array → für die Web-P2-/Package-Default-Tabs (alle Ein-Routen) unverändert. --}}
+@php($active = request()->routeIs(...explode(',', $match ?? $route)))
 <a
     href="{{ route($route) }}"
     wire:navigate
