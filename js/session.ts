@@ -146,6 +146,28 @@ export function nip46PermsStale(): boolean {
 }
 
 /**
+ * Menschliches Label des aktiven Signer-Typs für Einstellungen › Signer & Sitzung.
+ * welshman kennt nur `method` (nip07/nip46/nip01); auf dem Gerät ist `nip07` unser
+ * Amber-Offline-Login (NIP-55, echte Extension gibt es dort nicht, §session.ts).
+ */
+export function currentSignerLabel(): string {
+    const pk = pubkey.get()
+    if (!pk) {
+        return 'Nicht verbunden'
+    }
+    switch (sessions.get()[pk]?.method) {
+        case 'nip07':
+            return isMobile ? 'Amber (NIP-55)' : 'Browser-Erweiterung (NIP-07)'
+        case 'nip46':
+            return 'Bunker (NIP-46)'
+        case 'nip01':
+            return 'Privater Schlüssel (nsec)'
+        default:
+            return 'Verbunden'
+    }
+}
+
+/**
  * NIP-46 via `nostrconnect://` (Amber-QR-Flow): Der Client erzeugt eine Connect-URL,
  * zeigt sie als QR-Code, Amber scannt und stellt die Verbindung her. Umgekehrt zum
  * `bunker://`-Flow (dort liefert der Signer die URL). `onUrl` bekommt die URL, sobald

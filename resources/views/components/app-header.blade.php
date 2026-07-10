@@ -37,9 +37,9 @@
         {{-- `titleExpr` (Alpine-Ausdruck aus umschließendem Scope) überschreibt den
              SSR-Titel nach Alpine-Init; `{{ $title }}` bleibt Fallback vor dem Hydrate. --}}
         @if ($titleExpr)
-            <flux:heading size="xl" class="truncate" x-text="{{ $titleExpr }}">{{ $title }}</flux:heading>
+            <flux:heading level="1" size="xl" class="truncate" x-text="{{ $titleExpr }}">{{ $title }}</flux:heading>
         @else
-            <flux:heading size="xl" class="truncate">{{ $title }}</flux:heading>
+            <flux:heading level="1" size="xl" class="truncate">{{ $title }}</flux:heading>
         @endif
         @isset($subtitle)
             {{ $subtitle }}

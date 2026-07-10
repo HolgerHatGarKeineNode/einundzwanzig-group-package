@@ -23,6 +23,9 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         Route::livewire('/spaces', 'group::spaces')->name('spaces');
         Route::livewire('/directory', 'group::directory')->name('directory');
         Route::livewire('/rooms/{h}', 'group::room')->name('room');
+        // Verschmolzener Settings-Screen (P5, §6) — additiv neben der alten
+        // space.settings-Seite (Mobile-Default), bis dessen eigener P5-Pass folgt.
+        Route::livewire('/settings', 'group::pages.settings')->name('settings');
         Route::livewire('/settings/space', 'group::settings.space')->name('space.settings');
         Route::livewire('/settings/wallet', 'group::settings.wallet')->name('wallet');
         Route::livewire('/join', 'group::join')->name('join');

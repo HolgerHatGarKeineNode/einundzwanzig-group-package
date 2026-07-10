@@ -28,6 +28,7 @@ import {
     authReady,
     nip46PermsStale,
     loginWithNip55,
+    currentSignerLabel,
 } from './session'
 import { nip55Available, startNip55Login } from './nip55-signer'
 import { schedulePortalHandoff } from './portal-handoff'
@@ -242,6 +243,7 @@ type SmokeState = {
 type AuthState = {
     pubkey: string | null
     npub: string
+    signerLabel: string
     hasExtension: boolean
     keyInput: string
     bunkerInput: string
@@ -2378,6 +2380,7 @@ export function registerNostrComponents(Alpine: {
     Alpine.data('nostrAuth', (): AuthState => ({
         pubkey: null,
         npub: '',
+        signerLabel: 'Nicht verbunden',
         hasExtension: false,
         keyInput: '',
         bunkerInput: '',
@@ -2412,6 +2415,7 @@ export function registerNostrComponents(Alpine: {
             this._unsub = pubkey.subscribe((pk: string | undefined) => {
                 this.pubkey = pk ?? null
                 this.npub = pk ? nip19.npubEncode(pk) : ''
+                this.signerLabel = currentSignerLabel()
             })
             // Auto-Reauth: Kommt man mit wiederhergestellter Client-Session (localStorage)
             // auf die Login-Seite, ist meist nur die Laravel-Session weg (Reboot/Ablauf) —
