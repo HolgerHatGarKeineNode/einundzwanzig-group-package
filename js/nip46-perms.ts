@@ -63,3 +63,20 @@ export function nip46PermsAreStale(method: string | undefined, granted: string |
     }
     return granted !== NIP46_PERMS
 }
+
+/**
+ * NIP46_PERMS-String → Ambers NIP-55-`permissions`-JSON-Array (Intent-Extra beim
+ * get_public_key). "sign_event:9,nip44_encrypt" → [{"type":"sign_event","kind":9},
+ * {"type":"nip44_encrypt"}]. Pure & testbar.
+ */
+export function permsToNip55Json(permsCsv: string): string {
+    const perms = permsCsv
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => {
+            const [type, kind] = p.split(':')
+            return kind !== undefined ? { type, kind: Number(kind) } : { type }
+        })
+    return JSON.stringify(perms)
+}

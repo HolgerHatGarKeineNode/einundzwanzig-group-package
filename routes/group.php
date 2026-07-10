@@ -14,6 +14,11 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(function (): void {
     // M1 — Nostr-Login (Client-Signer) + NIP-98-Handoff an die Laravel-Session.
     Route::livewire('/nostr-login', 'group::nostr-login')->name('nostr-login');
+
+    // Amber-NIP-55-Offline-Login-Callback (Mobile): Amber liefert den pubkey per
+    // Custom-Scheme <scheme>://amber-chat/{pubkey} → WebView lädt diese Route →
+    // die Insel schließt den Login ab. Guest (kein Server-Gate, Mobile signt lokal).
+    Route::livewire('/amber-chat/{result}', 'group::amber-callback')->name('amber-callback');
     Route::get('/nostr/challenge', [NostrAuthController::class, 'challenge'])->name('nostr.challenge');
     Route::post('/nostr/login', [NostrAuthController::class, 'login'])->name('nostr.login');
     Route::post('/nostr/logout', [NostrAuthController::class, 'logout'])->name('nostr.logout');

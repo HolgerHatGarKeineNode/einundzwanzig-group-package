@@ -26,7 +26,9 @@ import {
     logoutServer,
     authReady,
     nip46PermsStale,
+    loginWithNip55,
 } from './session'
+import { nip55Available, startNip55Login } from './nip55-signer'
 import {
     groupSpaceChoices,
     activeSpace,
@@ -2415,6 +2417,19 @@ export function registerNostrComponents(Alpine: {
             this.connectQr = ''
             this.connectUri = ''
             this.connecting = true
+            // Mobile + lokaler Amber → NIP-55 Offline-Login (App-zu-App, kein Relay,
+            // kein nostrconnect-Pairing-Race). Amber öffnet sich für get_public_key;
+            // das Ergebnis kommt per Custom-Scheme-Callback (Navigation → /amber-chat/…).
+            if (isMobile && (await nip55Available())) {
+                try {
+                    const scheme = (window as unknown as { __deeplinkScheme?: string }).__deeplinkScheme ?? 'einundzwanzig'
+                    await startNip55Login(`${scheme}://amber-chat/`)
+                } catch (e) {
+                    this.error = e instanceof Error ? e.message : String(e)
+                    this.connecting = false
+                }
+                return
+            }
             const abort = new AbortController()
             this._connectAbort = abort
             try {
@@ -2529,6 +2544,29 @@ export function registerNostrComponents(Alpine: {
         },
         reconnect() {
             window.location.assign('/nostr-login?reconnect=1')
+        },
+    }))
+
+    // Amber-NIP-55-Callback: Amber liefert nach dem get_public_key-Login den pubkey
+    // per Custom-Scheme an die Route /amber-chat/{result}; diese Insel schließt den
+    // Login ab (Shim installieren + welshman-NIP-07) und leitet in den Chat weiter.
+    Alpine.data('nip55Callback', (result: unknown): { error: string; init(): void } => ({
+        error: '',
+        init() {
+            try {
+                let pk = String(result ?? '').trim()
+                if (pk.startsWith('npub1')) {
+                    pk = nip19.decode(pk).data as string
+                }
+                pk = pk.toLowerCase()
+                if (!/^[0-9a-f]{64}$/.test(pk)) {
+                    throw new Error('Ungültiger pubkey von Amber.')
+                }
+                loginWithNip55(pk)
+                window.location.assign('/spaces')
+            } catch (e) {
+                this.error = e instanceof Error ? e.message : String(e)
+            }
         },
     }))
 

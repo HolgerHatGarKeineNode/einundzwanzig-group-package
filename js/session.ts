@@ -23,6 +23,7 @@ import { bytesToHex } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { SIGNER_RELAYS, isMobile } from './core'
 import { NIP46_PERMS, NIP46_PERMS_KEY, nip46PermsAreStale } from './nip46-perms'
+import { installNip55WindowNostr } from './nip55-signer'
 import { clearWallet } from './wallet'
 
 /** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
@@ -41,10 +42,30 @@ export const authReady = Promise.all([
  */
 if (isMobile) {
     authReady.then(() => {
-        if (!pubkey.get() && !location.pathname.startsWith('/nostr-login')) {
+        const pk = pubkey.get()
+        // Wiederhergestellte NIP-55-Session (Methode nip07 auf dem Gerät = unser
+        // Amber-Offline-Login, echte Extension gibt es nicht) → `window.nostr`-Shim
+        // installieren, BEVOR welshman den Signer für die erste Signatur rekonstruiert.
+        if (pk && sessions.get()[pk]?.method === 'nip07') {
+            installNip55WindowNostr()
+        }
+        // /amber-chat NICHT wegleiten: dort schließt nip55Callback den Login gerade
+        // erst ab (pubkey ist beim Boot noch leer) — sonst Race gegen die Weiterleitung.
+        if (!pk && !location.pathname.startsWith('/nostr-login') && !location.pathname.startsWith('/amber-chat')) {
             window.location.assign('/nostr-login')
         }
     })
+}
+
+/**
+ * NIP-55-Login (Amber same-device, offline): installiert den `window.nostr`-Shim
+ * (ContentResolver-Bridge) und meldet welshman per NIP-07 mit dem von Amber
+ * gelieferten pubkey an. Aufgerufen aus der Amber-Callback-Route, nachdem Amber
+ * den Login bestätigt + die Perms gemerkt hat.
+ */
+export function loginWithNip55(pk: string): void {
+    installNip55WindowNostr()
+    loginWithNip07(pk)
 }
 
 /** NIP-07: Browser-Extension (`window.nostr`). Nur im Web verfügbar. */
