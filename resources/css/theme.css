@@ -54,6 +54,7 @@
     --radius-tile: 0.875rem; /* Icon-Kacheln, Badges */
     --radius-card: 1rem; /* Listen-/Detail-Cards */
     --radius-sheet: 1.5rem; /* Bottom-Sheets */
+    --radius-pill: 9999px; /* Nav-Indicator, Chips, Composer */
 
     --shadow-card: 0 1px 2px rgb(24 24 27 / 0.04), 0 6px 16px -8px rgb(24 24 27 / 0.10);
     --shadow-card-pressed: 0 1px 2px rgb(24 24 27 / 0.06);
@@ -62,7 +63,13 @@
 
     --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+    /* Sanftes Ausschwingen für Tab-Wechsel/Slides (§7.1 --ease-out). Bewusst NEBEN
+       --ease-spring — dessen Wert nicht umdefinieren (bricht bestehende nav-pill/
+       pressable-Motion; Overshoot-Spring kommt bei Bedarf in P7 als eigenes Token). */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     --duration-tap: 120ms;
+    --duration-nav: 220ms; /* Tab-/Seiten-Übergang (§7.1) */
+    --duration-sheet: 300ms; /* Bottom-Sheet Ein/Aus (§7.1) */
 
     --animate-shimmer: shimmer 1.4s ease-in-out infinite;
 }

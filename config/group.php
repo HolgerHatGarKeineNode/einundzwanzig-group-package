@@ -35,4 +35,30 @@ return [
      * @var array{route: string, label: string}|null
      */
     'exit' => null,
+
+    /*
+     * Nav-Registry der Shell (`<x-group::app-shell>` / `<x-group::bottom-nav>`).
+     * Die eigentliche Vereinigung (§8.2): jeder Host publiziert seine Tabs als
+     * Config, `bottom-nav` iteriert sie und rendert je Eintrag `<x-group::nav-tab>`.
+     * „GENAU N Tabs" ist damit eine Config-Zeile, in jedem Consumer identisch.
+     *
+     * Default = die drei package-nativen Chat-Tabs (Räume/Mitglieder/Einstellungen),
+     * damit das alte Vollbild-Layout unverändert weiterläuft. Hosts überschreiben:
+     *   Web → 3 Tabs (Chat · Wallet · Einstellungen), Mobile → 4 (+ Meetups · Mehr).
+     *
+     * Felder je Eintrag:
+     *   key    stabiler Bezeichner (Aktiv-Match für host-injizierte Routen, §10.6)
+     *   route  benannte Route (route()-auflösbar)
+     *   match  routeIs()-Pattern für den Aktiv-State (Default: route)
+     *   icon   Flux-Icon-Name (outline/solid je Aktiv-State)
+     *   label  Tab-Beschriftung
+     *   gate   'guest' = frei | 'nostr' = Tap ohne pubkey → open-login-sheet
+     *
+     * @var list<array{key: string, route: string, match?: string, icon: string, label: string, gate: 'guest'|'nostr'}>
+     */
+    'nav' => [
+        ['key' => 'chat', 'route' => 'group.spaces', 'match' => 'group.spaces', 'icon' => 'chat-bubble-left-right', 'label' => 'Räume', 'gate' => 'nostr'],
+        ['key' => 'members', 'route' => 'group.directory', 'match' => 'group.directory', 'icon' => 'users', 'label' => 'Mitglieder', 'gate' => 'nostr'],
+        ['key' => 'settings', 'route' => 'group.space.settings', 'match' => 'group.space.settings', 'icon' => 'cog-6-tooth', 'label' => 'Einstellungen', 'gate' => 'nostr'],
+    ],
 ];

@@ -1,44 +1,38 @@
-{{-- Bottom-Nav der Hauptscreens (Räume/Mitglieder/Einstellungen), §12 mobile-
-     first. Fixiert am unteren Rand, in der max-w-md-Spalte zentriert — skaliert
-     auf Desktop mit. Optik an einundzwanzig-mobile-app angeglichen: pro Tab ein
-     Aktiv-Pill (nav-pill) oben, solid/outline-Icon-Wechsel und Akzentfarbe. --}}
-@php
-    $items = [
-        ['route' => 'group.spaces', 'match' => 'group.spaces', 'icon' => 'chat-bubble-left-right', 'label' => 'Räume'],
-        ['route' => 'group.directory', 'match' => 'group.directory', 'icon' => 'users', 'label' => 'Mitglieder'],
-        ['route' => 'group.space.settings', 'match' => 'group.space.settings', 'icon' => 'cog-6-tooth', 'label' => 'Einstellungen'],
-    ];
-@endphp
+{{-- Shell-Nav, config-getrieben (§8.2): iteriert `config('group.nav')` und
+     rendert je Eintrag <x-group::nav-tab>. Die Tab-Menge ist damit eine
+     Config-Zeile je Host (Web 3 · Mobile 4), das Item-Markup bleibt geteilt.
+     Default-Config = die drei package-nativen Tabs → altes Layout unverändert.
+
+     Fixiert am unteren Rand, in der max-w-md-Spalte zentriert (skaliert auf
+     Desktop mit). @web wird dieselbe Komponente in P2 zur linken Rail — hier
+     bleibt sie zunächst die Bottom-Bar (additiv). --}}
+@php($items = config('group.nav', []))
 
 {{-- backdrop-blur nur auf Web: eine fixe Nav mit backdrop-filter über
      scrollendem Inhalt ist der klassische Mobile-WebView-Scroll-Killer (Blur wird
      pro Frame neu berechnet → Ruckeln/schwarze Flächen). Auf Native daher opaker
      Hintergrund ohne Blur. --}}
 @php($native = config('nativephp-internal.running'))
-<nav @class([
-    'fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-zinc-200 px-2 pb-safe md:max-w-lg lg:max-w-2xl dark:border-zinc-800',
-    'bg-zinc-50 dark:bg-zinc-950' => $native,
-    'bg-zinc-50/90 backdrop-blur-md dark:bg-zinc-950/90' => ! $native,
-])>
-    <div class="grid grid-cols-3">
+<nav
+    aria-label="Hauptnavigation"
+    @class([
+        'fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-zinc-200 px-2 pb-safe md:max-w-lg lg:max-w-2xl dark:border-zinc-800',
+        'bg-zinc-50 dark:bg-zinc-950' => $native,
+        'bg-zinc-50/90 backdrop-blur-md dark:bg-zinc-950/90' => ! $native,
+    ])
+>
+    {{-- Statische Spaltenklasse (JIT-sicher, beide Literale im Quelltext) je realer
+         Tab-Zahl: Web 3 · Mobile 4. --}}
+    @php($cols = count($items) === 4 ? 'grid-cols-4' : 'grid-cols-3')
+    <div class="grid {{ $cols }}">
         @foreach ($items as $item)
-            @php($active = request()->routeIs($item['match']))
-            <a
-                href="{{ route($item['route']) }}"
-                wire:navigate
-                @if ($active) aria-current="page" @endif
-                @class([
-                    'pressable relative flex flex-col items-center justify-center gap-1 py-2.5',
-                    'text-accent' => $active,
-                    'text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200' => ! $active,
-                ])
-            >
-                @if ($active)
-                    <span class="nav-pill absolute inset-x-0 top-0 mx-auto h-1 w-8 rounded-full bg-accent" aria-hidden="true"></span>
-                @endif
-                <flux:icon :name="$item['icon']" :variant="$active ? 'solid' : 'outline'" class="size-6" />
-                <span class="text-[11px] font-semibold leading-none">{{ $item['label'] }}</span>
-            </a>
+            <x-group::nav-tab
+                :route="$item['route']"
+                :match="$item['match'] ?? null"
+                :icon="$item['icon']"
+                :label="$item['label']"
+                :gate="$item['gate'] ?? 'guest'"
+            />
         @endforeach
     </div>
 </nav>
