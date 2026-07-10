@@ -18,10 +18,5 @@
      Ein vorab gesetztes Flag gewinnt (E2E via addInitScript, wie __nostrRelays). --}}
 <script>window.__nostrMobile = window.__nostrMobile ?? @js((bool) config('nativephp-internal.running'));</script>
 
-{{-- Deeplink-Scheme der Host-App (für den Amber-NIP-55-Callback: <scheme>://amber-chat/…). --}}
-@if (config('nativephp.deeplink_scheme'))
-    <script>window.__deeplinkScheme = @js(config('nativephp.deeplink_scheme'));</script>
-@endif
-
 @vite(config('group.vite'))
 @fluxAppearance

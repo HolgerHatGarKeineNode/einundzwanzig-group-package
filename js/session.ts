@@ -49,9 +49,7 @@ if (isMobile) {
         if (pk && sessions.get()[pk]?.method === 'nip07') {
             installNip55WindowNostr()
         }
-        // /amber-chat NICHT wegleiten: dort schließt nip55Callback den Login gerade
-        // erst ab (pubkey ist beim Boot noch leer) — sonst Race gegen die Weiterleitung.
-        if (!pk && !location.pathname.startsWith('/nostr-login') && !location.pathname.startsWith('/amber-chat')) {
+        if (!pk && !location.pathname.startsWith('/nostr-login')) {
             window.location.assign('/nostr-login')
         }
     })
