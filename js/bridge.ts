@@ -5,8 +5,8 @@
  * ohne Svelte-Compiler. `alpineFromStore` koppelt jeden Store an Alpine-State;
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
-import type { Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker } from '@welshman/app'
+import { get, type Readable } from 'svelte/store'
+import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile } from '@welshman/app'
 import { displayProfile, toNostrURI, MESSAGE, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
@@ -125,6 +125,7 @@ import {
 } from './wallet'
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
 import { resolveZapper, canZap, chooseZapMethod, createZapInvoice, payZapAuto, watchZapReceipt, DEFAULT_ZAP_CONTENT } from './zaps'
+import { publishReceivingAddress } from './profiles'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
@@ -500,6 +501,11 @@ type WalletState = {
     recvInvoice: string
     recvQr: string
     receiving: boolean
+    profileLud16: string
+    addressInput: string
+    addressTouched: boolean
+    savingAddress: boolean
+    _unsubProfile: (() => void) | null
     init(): Promise<void>
     _apply(w: Wallet): void
     connectNwc(): Promise<void>
@@ -511,7 +517,11 @@ type WalletState = {
     openReceive(): void
     createReceiveInvoice(): Promise<void>
     displayRelay(): string
+    addressMismatch(): boolean
+    useWalletAddress(): void
+    saveReceivingAddress(): Promise<void>
     copy(text: string, label: string): void
+    destroy(): void
 }
 
 export function registerNostrComponents(Alpine: {
@@ -602,7 +612,24 @@ export function registerNostrComponents(Alpine: {
         recvInvoice: '',
         recvQr: '',
         receiving: false,
+        profileLud16: '',
+        addressInput: '',
+        addressTouched: false,
+        savingAddress: false,
+        _unsubProfile: null,
         async init() {
+            // Z4 — Profil-lud16 (kind 0) als Empfangsadresse spiegeln. SYNCHRON vor
+            // jedem `await` abonnieren: sonst könnte destroy() beim schnellen
+            // wire:navigate vor der Zuweisung laufen (`?.()`-No-op) und die danach
+            // angelegte Sub würde leaken. Das Feld folgt dem Profil, bis der User
+            // selbst tippt (`addressTouched`) — so überschreibt ein spätes Update
+            // keine Eingabe und ein bewusst geleertes Feld (Adresse entfernen) bleibt leer.
+            this._unsubProfile = userProfile.subscribe((p) => {
+                this.profileLud16 = p?.lud16 ?? ''
+                if (!this.addressTouched) {
+                    this.addressInput = this.profileLud16
+                }
+            })
             // pubkey wird async aus localStorage hydratisiert (welshman `sync`) —
             // erst abwarten, sonst liest loadWallet() bei hartem Reload direkt auf
             // /settings/wallet einen leeren pubkey und eine verbundene Wallet erschiene
@@ -781,10 +808,45 @@ export function registerNostrComponents(Alpine: {
         displayRelay() {
             return displayRelayUrl(this.relayUrl)
         },
+        // Z4 — verbundenes Wallet liefert eine lud16, die von einer BEREITS GESETZTEN
+        // Profil-Empfangsadresse abweicht (Hinweis „übernehmen?"). Ohne Profil-Adresse
+        // kein „andere Adresse"-Banner (widerspräche „Nicht gesetzt"); WebLN hat keine
+        // lud16 → false. (flotilla-Guard: profil UND wallet UND ungleich.)
+        addressMismatch() {
+            return Boolean(this.profileLud16) && Boolean(this.lud16) && this.lud16 !== this.profileLud16
+        },
+        useWalletAddress() {
+            if (this.lud16) {
+                this.addressInput = this.lud16
+                this.addressTouched = true
+            }
+        },
+        async saveReceivingAddress() {
+            if (this.savingAddress) {
+                return
+            }
+            this.savingAddress = true
+            this.error = ''
+            try {
+                const err = await publishReceivingAddress(this.addressInput, get(userSpaceUrls))
+                if (err) {
+                    throw new Error(err)
+                }
+                toast('Empfangsadresse gespeichert', 'success')
+            } catch (e) {
+                this.error = e instanceof Error ? e.message : 'Speichern fehlgeschlagen'
+                toast(this.error)
+            } finally {
+                this.savingAddress = false
+            }
+        },
         copy(text: string, label: string) {
             if (text) {
                 void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
             }
+        },
+        destroy() {
+            this._unsubProfile?.()
         },
     }))
 

@@ -114,6 +114,49 @@
             </div>
         </div>
 
+        {{-- ============ Z4: Empfangsadresse (kind-0 lud16) ============ --}}
+        {{-- Immer sichtbar (mit/ohne Wallet): die Lightning-Adresse im Nostr-Profil,
+             damit andere einen zappen können. Publish 100 % im Browser (Signer). --}}
+        <div class="surface-card rounded-card space-y-4 p-5">
+            <div class="flex items-center gap-3">
+                <span class="flex size-9 items-center justify-center rounded-tile bg-brand-500/10">
+                    <flux:icon.arrow-down-left class="size-5 text-brand-500" />
+                </span>
+                <div>
+                    <flux:heading>{{ __('Empfangsadresse') }}</flux:heading>
+                    <flux:subheading>{{ __('Deine Lightning-Adresse im Nostr-Profil — damit dich andere zappen können.') }}</flux:subheading>
+                </div>
+            </div>
+
+            <div class="text-sm">
+                <span class="text-muted">{{ __('Aktuell:') }}</span>
+                <span x-show="profileLud16" x-cloak class="font-mono" x-text="profileLud16"></span>
+                <span x-show="!profileLud16" x-cloak class="text-muted">{{ __('Nicht gesetzt') }}</span>
+            </div>
+
+            {{-- Mismatch: Wallet liefert eine andere lud16 als das Profil (Brand-Amber, dezent). --}}
+            <div x-show="addressMismatch()" x-cloak
+                 class="rounded-tile border border-brand-500/30 bg-brand-500/5 px-3 py-2 text-xs text-brand-600 dark:text-brand-400">
+                {{ __('Deine Wallet nutzt eine andere Adresse:') }}
+                <span class="font-mono" x-text="lud16"></span>
+            </div>
+
+            <flux:input x-model="addressInput" x-on:input="addressTouched = true"
+                        :label="__('Lightning-Adresse')"
+                        placeholder="name@domain.com" autocomplete="off" inputmode="email" />
+
+            <div class="flex flex-wrap items-center justify-end gap-2">
+                <flux:button x-show="addressMismatch()" x-cloak size="sm" variant="ghost"
+                             x-on:click="useWalletAddress()">
+                    {{ __('Wallet-Adresse übernehmen') }}
+                </flux:button>
+                <flux:button variant="primary" icon="check"
+                             x-on:click="saveReceivingAddress()" ::disabled="savingAddress">
+                    {{ __('Speichern') }}
+                </flux:button>
+            </div>
+        </div>
+
         {{-- Fehleranzeige (deutsch). --}}
         <div x-show="error" x-cloak
              class="rounded-tile border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-600 dark:text-red-400"
