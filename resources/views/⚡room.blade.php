@@ -66,7 +66,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         @endif
         <x-slot:actions>
             {{-- Mitglied → Verlassen (kind 9022). Beitreten liegt beim Composer. --}}
-            <flux:button size="xs" variant="ghost" icon="arrow-right-start-on-rectangle"
+            <flux:button size="xs" variant="ghost" icon="arrow-right-start-on-rectangle" class="icon-btn-touch"
                          x-show="joined" x-cloak x-on:click="leave()" ::disabled="joining" aria-label="Raum verlassen">
                 Verlassen
             </flux:button>
@@ -93,7 +93,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
             {{-- Ältere laden (Cursor-Pagination) --}}
             <div class="py-2 text-center" x-show="hasMore && messages.length > 0" x-cloak>
-                <flux:button size="xs" variant="ghost" x-on:click="loadOlder()" ::disabled="loadingMore">
+                <flux:button size="xs" variant="ghost" class="icon-btn-touch" x-on:click="loadOlder()" ::disabled="loadingMore">
                     <span x-text="loadingMore ? 'Lädt…' : 'Ältere laden'"></span>
                 </flux:button>
             </div>
@@ -195,7 +195,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 :role="m.poll.multi ? 'checkbox' : 'radio'" :aria-checked="opt.mine"
                                                 class="pressable relative block w-full overflow-hidden rounded-tile border text-left disabled:opacity-70"
                                                 :class="opt.mine ? 'border-brand-500' : 'border-white/10 hover:border-brand-500/50'">
-                                            <div class="absolute inset-y-0 left-0 bg-brand-500/15 transition-[width] duration-300" :style="`width:${opt.pct}%`"></div>
+                                            <div class="absolute inset-y-0 left-0 bg-brand-500/15 transition-[width] duration-300 motion-reduce:transition-none" :style="`width:${opt.pct}%`"></div>
                                             <div class="relative flex items-center justify-between gap-2 px-2 py-1.5">
                                                 <span class="flex min-w-0 items-center gap-2">
                                                     {{-- Marker signalisiert die Wahlart: Radio (●/○) bei Einfach-, Checkbox (☑/☐) bei Mehrfachwahl. --}}
@@ -239,7 +239,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <div class="flex items-center justify-between gap-2">
                                         <span class="text-xs text-muted"
                                               x-text="m.goal.contributors + (m.goal.contributors === 1 ? ' Beitragende:r' : ' Beitragende') + (m.goal.reached ? ' · Ziel erreicht 🎉' : '')"></span>
-                                        <flux:button size="xs" variant="primary" icon="bolt" class="shrink-0"
+                                        <flux:button size="xs" variant="primary" icon="bolt" class="shrink-0 icon-btn-touch"
                                                      x-show="zapsEnabled && m.zappable" x-cloak
                                                      x-on:click.stop="openZap(m)">Beitragen</flux:button>
                                     </div>
@@ -378,10 +378,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
              x-transition.opacity>
             {{-- Keine ungelesenen → quadratischer Button, Pfeil zentriert. --}}
             <flux:button x-show="unread === 0" size="xs" variant="primary" square icon="arrow-down"
-                         class="pointer-events-auto" x-on:click="scrollToBottom()" aria-label="Zum Ende springen" />
+                         class="pointer-events-auto icon-btn-touch" x-on:click="scrollToBottom()" aria-label="Zum Ende springen" />
             {{-- Ungelesene → Pille mit Zähler. --}}
             <flux:button x-show="unread > 0" x-cloak size="xs" variant="primary" icon="arrow-down"
-                         class="pointer-events-auto" x-on:click="scrollToBottom()" aria-label="Zum Ende springen">
+                         class="pointer-events-auto icon-btn-touch" x-on:click="scrollToBottom()" aria-label="Zum Ende springen">
                 <span x-text="unread"></span> neue
             </flux:button>
         </div>
@@ -405,7 +405,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      x-text="editingId ? 'Nachricht bearbeiten' : (sharing ? 'Zitieren' : ('Antwort an ' + (replyTo?.name ?? '')))"></div>
                 <div class="truncate text-xs text-muted" x-show="replyTo" x-text="replyTo?.text"></div>
             </div>
-            <flux:button size="xs" variant="ghost" icon="x-mark"
+            <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
                          x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="Abbrechen" />
         </div>
 
@@ -429,7 +429,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Anhängen-Menü (wie Flotilla): EIN „+"-Button bündelt Umfrage + Zap-Ziel,
                  spart Platz im Composer. Zap-Ziel nur bei aktivem Feature-Flag. --}}
             <flux:dropdown position="top" align="start" class="shrink-0">
-                <flux:button type="button" variant="ghost" icon="plus" aria-label="Anhängen" />
+                <flux:button type="button" variant="ghost" icon="plus" class="icon-btn-touch" aria-label="Anhängen" />
                 <flux:menu>
                     <flux:menu.item icon="chart-bar" x-on:click="openPollCreate()">Umfrage</flux:menu.item>
                     <template x-if="zapsEnabled">
@@ -450,7 +450,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                }
                                if ($event.key === 'Enter' && !$event.shiftKey) { $event.preventDefault(); send() }" />
             {{-- Zitieren (Quote-Only) darf ohne Text gesendet werden → Button dann aktiv. --}}
-            <flux:button type="button" variant="primary" icon="paper-airplane" :loading="true"
+            <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch" :loading="true"
                          x-on:click="send()" ::data-loading="sending"
                          ::disabled="sending || (draft.trim().length === 0 && !sharing)"
                          aria-label="Senden" />
@@ -468,7 +468,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <div x-show="membershipReady && !joined" x-cloak
              class="surface-card flex items-center justify-between gap-3 p-3">
             <flux:text class="text-sm text-muted">Tritt dem Raum bei, um mitzuschreiben.</flux:text>
-            <flux:button size="sm" variant="primary" icon="plus" x-on:click="join()" ::disabled="joining">
+            <flux:button size="sm" variant="primary" icon="plus" class="icon-btn-touch" x-on:click="join()" ::disabled="joining">
                 <span x-text="joining ? 'Trete bei…' : 'Beitreten'"></span>
             </flux:button>
         </div>
@@ -702,7 +702,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="space-y-1">
                     <div class="flex items-center justify-between">
                         <flux:text class="text-xs text-muted">Roh-Event</flux:text>
-                        <flux:button size="xs" variant="ghost" icon="clipboard" x-on:click="copy(infoFor.json, 'JSON')">Kopieren</flux:button>
+                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, 'JSON')">Kopieren</flux:button>
                     </div>
                     <pre class="surface-card max-h-60 overflow-auto rounded-tile p-2 text-xs"><code x-text="infoFor.json"></code></pre>
                 </div>

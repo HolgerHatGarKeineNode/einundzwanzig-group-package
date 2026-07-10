@@ -24,9 +24,9 @@
     {{-- Reconnect-Nudge: veraltete NIP-46-Verbindung (Perms-Update) neu aufsetzen. --}}
     <div x-data="nostrReconnectBanner" x-show="stale" x-cloak
          x-transition:enter="transition ease-out duration-200 motion-reduce:transition-none" x-transition:enter-start="-translate-y-2 opacity-0"
-         class="pointer-events-auto mt-2 flex items-center gap-2 rounded-tile bg-brand-500/95 px-3 py-1.5 text-xs font-medium text-white shadow-pop">
+         class="pointer-events-auto mt-2 flex items-center gap-2 rounded-tile bg-brand-500/95 px-3 py-1.5 text-xs font-medium text-brand-950 shadow-pop">
         <flux:icon.arrow-path variant="micro" />
         <span>Für Zaps, Umfragen &amp; Admin einmal neu verbinden.</span>
-        <button type="button" x-on:click="reconnect()" class="ml-1 rounded-full bg-white/25 px-2 py-0.5 font-semibold hover:bg-white/40">Neu verbinden</button>
+        <button type="button" x-on:click="reconnect()" class="ml-1 rounded-full bg-brand-950 px-2 py-0.5 font-semibold text-brand-50 hover:bg-brand-900">Neu verbinden</button>
     </div>
 </div>

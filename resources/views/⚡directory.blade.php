@@ -115,7 +115,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         {{-- Admin-Aktionen je Mitglied (NIP-86) --}}
                         <div x-show="isAdmin" x-cloak class="shrink-0">
                             <flux:dropdown position="bottom" align="end">
-                                <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" aria-label="Mitglied verwalten" />
+                                <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="Mitglied verwalten" />
                                 <flux:menu>
                                     <flux:menu.item icon="swatch" x-on:click="openMemberRoles(m)">Rollen bearbeiten</flux:menu.item>
                                     <flux:menu.separator />
@@ -180,8 +180,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <span x-text="role.label || role.id"></span>
                             </flux:badge>
                             <span class="min-w-0 flex-1 truncate text-xs text-muted" x-text="role.description"></span>
-                            <flux:button size="xs" variant="ghost" icon="pencil-square" x-on:click="openRoleEdit(role)" aria-label="Bearbeiten" />
-                            <flux:button size="xs" variant="ghost" icon="trash" x-on:click="removeRole(role.id)" ::disabled="busy" aria-label="Löschen" />
+                            <flux:button size="xs" variant="ghost" icon="pencil-square" class="icon-btn-touch" x-on:click="openRoleEdit(role)" aria-label="Bearbeiten" />
+                            <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch" x-on:click="removeRole(role.id)" ::disabled="busy" aria-label="Löschen" />
                         </div>
                     </template>
                 </div>
@@ -240,8 +240,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <div class="truncate font-mono text-xs text-muted" x-text="b.short"></div>
                                 <div class="truncate text-xs text-muted" x-text="b.reason"></div>
                             </div>
-                            <flux:button size="xs" variant="ghost" x-on:click="unbanMember(b.pubkey)" ::disabled="busy">Entbannen</flux:button>
-                            <flux:button size="xs" variant="primary" x-on:click="restoreMember(b.pubkey)" ::disabled="busy">Wiederaufnehmen</flux:button>
+                            <flux:button size="xs" variant="ghost" class="icon-btn-touch" x-on:click="unbanMember(b.pubkey)" ::disabled="busy">Entbannen</flux:button>
+                            <flux:button size="xs" variant="primary" class="icon-btn-touch" x-on:click="restoreMember(b.pubkey)" ::disabled="busy">Wiederaufnehmen</flux:button>
                         </div>
                     </template>
                 </div>

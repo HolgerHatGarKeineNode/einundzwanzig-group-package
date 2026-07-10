@@ -77,7 +77,7 @@
                 <template x-if="mobile">
                     <div class="space-y-1">
                         <flux:button variant="primary" class="w-full" icon="qr-code" x-on:click="startConnect()" ::disabled="busy">Mit Amber anmelden</flux:button>
-                        <flux:text class="text-xs text-zinc-500">Empfohlen · dein Schlüssel bleibt in Amber.</flux:text>
+                        <flux:text class="text-xs text-muted">Empfohlen · dein Schlüssel bleibt in Amber.</flux:text>
                     </div>
                 </template>
                 {{-- Web + Erweiterung → NIP-07 --}}
@@ -86,14 +86,14 @@
                         <flux:button variant="primary" class="w-full" x-on:click="loginExtension()" ::disabled="busy">
                             <span x-text="busy ? 'Verbinde…' : 'Mit Browser-Erweiterung anmelden'"></span>
                         </flux:button>
-                        <flux:text class="text-xs text-zinc-500">NIP-07 · dein Schlüssel bleibt in der Erweiterung.</flux:text>
+                        <flux:text class="text-xs text-muted">NIP-07 · dein Schlüssel bleibt in der Erweiterung.</flux:text>
                     </div>
                 </template>
                 {{-- Web ohne Erweiterung → QR-Bunker primär --}}
                 <template x-if="!mobile && !hasExtension">
                     <div class="space-y-1">
                         <flux:button variant="primary" class="w-full" icon="qr-code" x-on:click="startConnect()" ::disabled="busy">Signer per QR verbinden</flux:button>
-                        <flux:text class="text-xs text-zinc-500">Keine Browser-Erweiterung gefunden (Alby, nos2x …). Verbinde deinen Signer (z. B. Amber, nsec.app) per QR.</flux:text>
+                        <flux:text class="text-xs text-muted">Keine Browser-Erweiterung gefunden (Alby, nos2x …). Verbinde deinen Signer (z. B. Amber, nsec.app) per QR.</flux:text>
                     </div>
                 </template>
             </div>

@@ -21,9 +21,18 @@
         {{-- Scrim: Tap schließt (Gast bleibt, wo er war). --}}
         <div x-show="open" x-transition.opacity class="absolute inset-0 bg-black/40" x-on:click="open = false"></div>
 
+        {{-- Bottom-Sheet slide-up (mobil) / Fade+Scale (breit). Unter prefers-
+             reduced-motion neutralisieren die motion-reduce:*-Utilities Slide UND
+             Scale in den Start/End-States → es bleibt ein reiner Opacity-Fade
+             (§7.6). Alpines bare `x-transition` hätte hart hochskaliert (kein Guard). --}}
         <div
             x-show="open"
-            x-transition
+            x-transition:enter="transition ease-out duration-300 motion-reduce:duration-150"
+            x-transition:enter-start="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95 motion-reduce:!translate-y-0 motion-reduce:!scale-100"
+            x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+            x-transition:leave="transition ease-in duration-200 motion-reduce:duration-150"
+            x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+            x-transition:leave-end="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95 motion-reduce:!translate-y-0 motion-reduce:!scale-100"
             class="surface-card relative z-10 max-h-[90dvh] w-full overflow-y-auto rounded-t-sheet pb-safe sm:max-w-md sm:rounded-sheet"
         >
             <div class="sticky top-0 flex justify-end p-2">
@@ -33,7 +42,9 @@
                 {{-- Kontextzeile (§4.2, `intent.label`): warum das Sheet gerade aufging.
                      Runtime-Wert → hier im Sheet-Scope, nicht in der server-gerenderten
                      Form. --}}
-                <flux:text x-show="label" x-cloak class="mb-3 px-4 text-brand-600 dark:text-brand-400" x-text="label"></flux:text>
+                {{-- Orange-Kleintext auf weißem Sheet: Light-Mode brand-700 (≥4.5:1),
+                     Dark brand-400 (≈9:1) — brand-600 riss im Light die AA-Schwelle (§7.6). --}}
+                <flux:text x-show="label" x-cloak class="mb-3 px-4 text-brand-700 dark:text-brand-400" x-text="label"></flux:text>
                 {{-- Insel erst bei geöffnetem Sheet mounten (deferred). Sheet öffnet
                      nur für Gäste → kein „Angemeldet"/Abmelden-Zweig (Logout bleibt
                      an EINEM Ort, §5.4). --}}

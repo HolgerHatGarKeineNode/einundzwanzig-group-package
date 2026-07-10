@@ -60,14 +60,39 @@
                         <flux:icon.bolt variant="solid" class="size-4" />
                         <span>{{ __('Guthaben') }}</span>
                     </div>
-                    <flux:button size="xs" variant="ghost" icon="arrow-path"
+                    <flux:button size="xs" variant="ghost" icon="arrow-path" class="icon-btn-touch"
                                  x-on:click="refreshBalance()"
                                  :aria-label="__('Guthaben aktualisieren')" />
                 </div>
 
-                <div class="mt-2 flex items-baseline gap-2">
-                    <span class="text-4xl font-bold tabular-nums tracking-tight"
-                          x-text="balanceSats === null ? '—' : balanceSats.toLocaleString('de-DE')"></span>
+                {{-- Hero-Balance mit Count-Up (§7.4): einmaliges Hochzählen (400 ms),
+                     Count-Roll bei Änderung, grüner Farb-Flash NUR bei Zuwachs
+                     (empfangener Zap, §7.3 sats-grün). Der `nostrWallet`-Parent-Scope
+                     liefert `balanceSats`; ein `$watch` (kein x-effect → keine
+                     Selbst-Retrigger-Schleife) tweent den lokalen `shown`-Wert.
+                     prefers-reduced-motion → sofort setzen (kein rAF, §7.6). --}}
+                <div class="mt-2 flex items-baseline gap-2"
+                     x-data="{
+                        shown: null, flash: false, _raf: 0,
+                        tween(to, old) {
+                            if (to === null) { this.shown = null; return }
+                            const from = typeof old === 'number' ? old : 0
+                            if (old != null && to > old) { this.flash = true; setTimeout(() => (this.flash = false), 700) }
+                            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || from === to) { this.shown = to; return }
+                            const start = performance.now(), dur = 400
+                            cancelAnimationFrame(this._raf)
+                            const step = (now) => {
+                                const p = Math.min(1, (now - start) / dur)
+                                this.shown = Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3)))
+                                if (p < 1) { this._raf = requestAnimationFrame(step) }
+                            }
+                            this._raf = requestAnimationFrame(step)
+                        },
+                     }"
+                     x-init="tween(balanceSats, null); $watch('balanceSats', (v, old) => tween(v, old))">
+                    <span class="text-4xl font-bold tabular-nums tracking-tight transition-colors duration-300 motion-reduce:transition-none"
+                          :class="flash ? 'text-green-500 dark:text-green-400' : ''"
+                          x-text="shown === null ? '—' : shown.toLocaleString('de-DE')"></span>
                     <span class="text-lg font-medium text-muted">{{ __('Sats') }}</span>
                 </div>
 
