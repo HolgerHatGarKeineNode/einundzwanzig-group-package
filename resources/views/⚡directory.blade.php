@@ -26,7 +26,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
     }
 }; ?>
 
-<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
+<x-group::app-shell>
 
     {{-- Kopf: Brand-Mark (kein :back — gleichrangiger Bottom-Nav-Tab, §Bottom-Nav) --}}
     <x-group::app-header title="Mitglieder" />
@@ -252,5 +252,4 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     </div>
 
-    <x-group::bottom-nav />
-</main>
+</x-group::app-shell>

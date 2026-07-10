@@ -8,6 +8,11 @@ use Livewire\Component;
 new #[Layout('group::einundzwanzig')] #[Title('Einladung')] class extends Component {}; ?>
 
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
+    {{-- P2: Interstitial ohne app-shell → Signer/Reconnect-Strip selbst tragen
+         (Beitritt signiert Events; der Banner darf hier nicht fehlen). `fixed`,
+         kein Einfluss auf das zentrierte Flex-Layout, bleibt im Root-<main>. --}}
+    <x-group::status-strip />
+
     {{-- `@js(request()->fullUrl())` gibt der Insel den Link inkl. ?r=&c= mit. --}}
     <div x-data="nostrInvite(@js(request()->fullUrl()))" class="page-enter">
 

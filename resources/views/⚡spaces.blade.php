@@ -33,7 +33,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
     }
 }; ?>
 
-<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
+<x-group::app-shell>
 
     {{-- Genau EIN fixierter Space + seine Räume (kein Multi-Space-Layout, §12).
          Der `nostrSpaces`-Scope umschließt auch den Header, damit dessen Titel den
@@ -148,5 +148,4 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </div>
 
-    <x-group::bottom-nav />
-</main>
+</x-group::app-shell>

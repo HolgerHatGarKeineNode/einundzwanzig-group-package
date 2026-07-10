@@ -12,6 +12,11 @@ use Livewire\Component;
 new #[Layout('group::einundzwanzig')] #[Title('Anmelden')] class extends Component {}; ?>
 
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
+    {{-- P2: Login-Interstitial ohne app-shell → Signer-Health-Strip selbst tragen,
+         damit ein langsamer/hängender NIP-46-Signer WÄHREND des Handshakes sichtbar
+         bleibt. `fixed`, kein Einfluss aufs zentrierte Layout, im Root-<main>. --}}
+    <x-group::status-strip />
+
     <div x-data="nostrAuth" class="page-enter">
 
         {{-- Eingeloggt (bzw. Session wird nach Reboot wiederhergestellt). Im

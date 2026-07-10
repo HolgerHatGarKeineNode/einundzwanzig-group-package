@@ -16,28 +16,11 @@
     @include(config('group.head_partial', 'partials.head'))
 </head>
 <body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
-    {{-- Globaler Signer-Health-Banner: erscheint app-weit, wenn der Signer
-         (v.a. NIP-46-Bunker) nicht/langsam antwortet. --}}
-    <div x-data="nostrSignerBanner" x-show="message" x-cloak x-transition.opacity
-         class="fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-safe">
-        <div class="mt-2 flex items-center gap-2 rounded-tile bg-amber-500/95 px-3 py-1.5 text-xs font-medium text-amber-950 shadow-pop">
-            <flux:icon.signal-slash variant="micro" />
-            <span x-text="message"></span>
-        </div>
-    </div>
-
-    {{-- Reconnect-Nudge: veraltete NIP-46-Verbindung (Perms-Update) einmal erneuern.
-         welshman verhandelt beim Reload nicht neu → bestehende Amber/Bunker-Rechte
-         bleiben unvollständig, bis der Nutzer neu verbindet. --}}
-    <div x-data="nostrReconnectBanner" x-show="stale" x-cloak x-transition.opacity
-         class="fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-safe">
-        <div class="mt-2 flex items-center gap-2 rounded-tile bg-brand-500/95 px-3 py-1.5 text-xs font-medium text-white shadow-pop">
-            <flux:icon.arrow-path variant="micro" />
-            <span>Für Zaps, Umfragen &amp; Admin einmal neu verbinden.</span>
-            <button type="button" x-on:click="reconnect()" class="ml-1 rounded-full bg-white/25 px-2 py-0.5 font-semibold hover:bg-white/40">Neu verbinden</button>
-        </div>
-    </div>
-
+    {{-- P2: Die beiden Signer-Banner leben jetzt im <x-group::status-strip> der
+         app-shell (§3.1, EIN Strip, eine Höhe). Die Tab-Seiten rendern ihn über
+         app-shell; chrome-lose Seiten ohne Shell (Raum) ziehen ihn direkt. Hier
+         kein doppelter Inline-Balken mehr — sonst stünden zwei identische fixed-
+         Overlays übereinander. --}}
     {{ $slot }}
 
     {{-- Ziel für Insel-Toasts (Publish-Fehler etc.), per `toast-show`-Event. --}}

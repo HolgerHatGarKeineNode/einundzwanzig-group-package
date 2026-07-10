@@ -13,14 +13,12 @@ use Livewire\Component;
  */
 new #[Layout('group::einundzwanzig')] #[Title('Wallet')] class extends Component {}; ?>
 
-<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
-    <x-group::app-header title="Wallet" :back="route('group.space.settings')">
+<x-group::app-shell>
+    <x-group::app-header title="Wallet">
         <x-slot:subtitle>
             <flux:text class="text-sm">Lightning — Guthaben, senden &amp; empfangen.</flux:text>
         </x-slot:subtitle>
     </x-group::app-header>
 
     <x-group::wallet />
-
-    <x-group::bottom-nav />
-</main>
+</x-group::app-shell>

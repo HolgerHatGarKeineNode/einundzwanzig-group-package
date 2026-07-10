@@ -7,7 +7,7 @@ use Livewire\Component;
 /** Space-Wechsel (der einzige Ort dafür, §12) als Livewire-SFC. */
 new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Component {}; ?>
 
-<main class="mx-auto max-w-md px-4 py-8 pt-safe pb-28 md:max-w-lg lg:max-w-2xl">
+<x-group::app-shell>
 
     {{-- Bottom-Nav-Tab: Brand-Mark-Header (kein :back — gleichrangig zu Space, §Bottom-Nav)
          + Abmelden hier verfügbar (Flow Settings→Logout, D5). --}}
@@ -114,5 +114,4 @@ new #[Layout('group::einundzwanzig')] #[Title('Space wählen')] class extends Co
         </flux:radio.group>
     </div>
 
-    <x-group::bottom-nav />
-</main>
+</x-group::app-shell>
