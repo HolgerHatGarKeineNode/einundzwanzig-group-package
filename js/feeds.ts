@@ -16,6 +16,7 @@ import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL,
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
+import { throttled } from '@welshman/store'
 import { warmZappers } from './zaps'
 import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, mentionPubkeys } from './interactions'
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
@@ -395,14 +396,19 @@ const snippet = (text: string, max = 120): string => {
 export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
     derived(
         [
+            // Nachrichten UNgedrosselt: neue/eigene Message + scrollToBottom bleiben sofort.
             deriveRoomMessages(url, h),
-            profilesByPubkey,
+            // Zweite Welle (nicht warmgehalten): Profile, NIP-05, Reactions, Poll-Responses,
+            // Zap-Receipts, Zapper laden beim Kaltstart als Event-Burst nach. Gedrosselt, damit
+            // der Chip-Einblende-Burst zu wenigen Emits zusammenfällt → weniger Layout-Shifts
+            // und Anker-Scans (Muster: members.ts deriveSpaceDirectory). Reihenfolge = Destructuring.
+            throttled(200, profilesByPubkey),
             pubkey,
-            handlesByNip05,
-            deriveEventsForUrl(url, roomReactionFilter(h)),
-            deriveEventsForUrl(url, roomPollResponseFilter(h)),
-            deriveEventsForUrl(url, roomZapReceiptFilter()),
-            zappersByLnurl,
+            throttled(200, handlesByNip05),
+            throttled(200, deriveEventsForUrl(url, roomReactionFilter(h))),
+            throttled(200, deriveEventsForUrl(url, roomPollResponseFilter(h))),
+            throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
+            throttled(200, zappersByLnurl),
         ],
         ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers]) => {
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.

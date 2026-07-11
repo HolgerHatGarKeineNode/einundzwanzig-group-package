@@ -1506,9 +1506,61 @@ export function registerNostrComponents(Alpine: {
                     this.loading = false
                 })
             this._unsub = deriveRoomChat(url, this.h, this._lastRead).subscribe((msgs: ChatMessage[]) => {
-                const wasAtBottom = this.atBottom
+                const el = (this as unknown as AlpineMagics).$refs.scroll
+                // wasAtBottom LIVE aus den Scroll-Metriken (gleiche 60px-Schwelle wie onScroll),
+                // NICHT aus dem debounceten this.atBottom: sonst hinkt der Zweig 50ms hinter einer
+                // aktiven Aufwärts-Geste her → scrollToBottom() risse den Nutzer beim Kaltstart-
+                // Emit (nachladende Reactions/Zaps) zurück an den Boden (+ fälschliches markRead).
+                const wasAtBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 60 : this.atBottom
                 const prevIds = new Set(this.messages.map((m) => m.id))
                 const prevNewest = this.messages.length ? this.messages[this.messages.length - 1].created_at : 0
+
+                // Scroll-Anker gegen Layout-Shift beim Kaltstart: Reactions (kind 7) und
+                // Zaps (kind 9735) sind nicht warmgehalten, laden async in einer zweiten
+                // Welle nach und blenden Chip-Zeilen ein — das vergrössert Item-Höhen,
+                // auch oberhalb der Leseposition. Bliebe scrollTop numerisch fix, spränge
+                // der Inhalt unter dem Finger weg. Wir merken die erste VOLL sichtbare
+                // Nachricht + ihren Abstand zum oberen Rand und stellen ihn nach dem
+                // Re-Render wieder her (korrekt unabhängig davon, WO gewachsen wird — anders
+                // als ein reiner scrollHeight-Delta). Fällt der Anker weg (Tombstone/Edit),
+                // hält der else-Zweig unten die Boden-Distanz übers Höhen-Delta. Entfällt am
+                // Ende (scrollToBottom klebt) und beim loadOlder-Prepend (kompensiert selbst).
+                const prevHeight = el?.scrollHeight ?? 0
+                let anchorNode: HTMLElement | null = null
+                let anchorOffset = 0
+                if (el && !wasAtBottom && !this.loadingMore) {
+                    const top = el.getBoundingClientRect().top
+                    let partial: HTMLElement | null = null
+                    let partialOffset = 0
+                    for (const m of this.messages) {
+                        const node = document.getElementById('msg-' + m.id)
+                        if (!node) {
+                            continue
+                        }
+                        const r = node.getBoundingClientRect()
+                        if (r.bottom <= top) {
+                            continue
+                        }
+                        // Erste teilsichtbare als Fallback merken — greift, wenn KEINE
+                        // Nachricht voll sichtbar ist (eine Nachricht höher als der Viewport).
+                        if (!partial) {
+                            partial = node
+                            partialOffset = r.top - top
+                        }
+                        // Bevorzugt: erste VOLL sichtbare — so liegt die Chip-Zeile einer nur
+                        // teilsichtbaren obersten Nachricht oberhalb des Ankers und wird kompensiert.
+                        if (r.top >= top) {
+                            anchorNode = node
+                            anchorOffset = r.top - top
+                            break
+                        }
+                    }
+                    if (!anchorNode && partial) {
+                        anchorNode = partial
+                        anchorOffset = partialOffset
+                    }
+                }
+
                 this.messages = msgs
 
                 // Profile neuer Autoren nachladen (einmal je pubkey).
@@ -1534,6 +1586,20 @@ export function registerNostrComponents(Alpine: {
                         this.scrollToBottom()
                         return
                     }
+                    // Anker wieder an seine alte Viewport-Position rücken → kein Springen.
+                    // Node bleibt über das Re-Render erhalten (x-for :key="m.id"). Fiel der
+                    // Anker weg (isConnected=false: Tombstone/Edit), über das Höhen-Delta die
+                    // Boden-Distanz halten statt gar nicht zu kompensieren. Der !loadingMore-
+                    // Guard verhindert, dass dieser Fallback mit loadOlder doppelt kompensiert.
+                    if (el && anchorNode && anchorNode.isConnected) {
+                        const nowOffset = anchorNode.getBoundingClientRect().top - el.getBoundingClientRect().top
+                        const delta = nowOffset - anchorOffset
+                        if (delta !== 0) {
+                            el.scrollTop += delta
+                        }
+                    } else if (el && !this.loadingMore) {
+                        el.scrollTop += el.scrollHeight - prevHeight
+                    }
                     // Nur wirklich am Ende angehängte Fremd-Nachrichten zählen: kein
                     // loadOlder-Prepend (created_at < prevNewest), keine eigenen.
                     this.unread += msgs.filter(
@@ -1551,6 +1617,7 @@ export function registerNostrComponents(Alpine: {
             this.loadingMore = true
             const el = (this as unknown as AlpineMagics).$refs.scroll
             const prevHeight = el?.scrollHeight ?? 0
+            const prevTop = el?.scrollTop ?? 0
             const oldest = this.messages[0].created_at
             loadRoomMessages(this._url, this.h, oldest)
                 .then((events) => {
@@ -1562,7 +1629,10 @@ export function registerNostrComponents(Alpine: {
                     this.loadingMore = false
                     ;(this as unknown as AlpineMagics).$nextTick(() => {
                         if (el) {
-                            el.scrollTop = el.scrollHeight - prevHeight
+                            // Erhaltungsformel: neuer scrollTop = alter scrollTop + Höhenzuwachs.
+                            // Der alte scrollTop MUSS mit rein (loadOlder feuert bei scrollTop<120,
+                            // also nicht bei 0) — sonst springt die Leseposition um bis zu ~120px.
+                            el.scrollTop = prevTop + (el.scrollHeight - prevHeight)
                         }
                     })
                 })
