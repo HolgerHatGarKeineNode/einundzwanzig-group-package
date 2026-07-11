@@ -4,7 +4,8 @@
     "description": "Die EINUNDZWANZIG-Group-Insel: client-seitige welshman/Alpine-Insel. Roh-TS, vom Vite des Hosts gebündelt.",
     "type": "module",
     "exports": {
-        ".": "./js/index.ts"
+        ".": "./js/index.ts",
+        "./auth-gate": "./js/auth-gate.ts"
     },
     "files": [
         "js"

@@ -6,7 +6,7 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile } from '@welshman/app'
+import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile } from '@welshman/app'
 import { displayProfile, toNostrURI, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
@@ -733,10 +733,6 @@ export function registerNostrComponents(Alpine: {
             // selbst tippt (`addressTouched`) — so überschreibt ein spätes Update
             // keine Eingabe und ein bewusst geleertes Feld (Adresse entfernen) bleibt leer.
             this._unsubProfile = userProfile.subscribe((p) => {
-                // welshman emittiert `undefined`, solange die kind-0 noch nicht da ist —
-                // erst ein aufgelöstes Profil (auch ohne lud16) schaltet `profileReady`,
-                // damit „Nicht gesetzt" nicht während des Ladens aufblitzt.
-                this.profileReady = p != null
                 this.profileLud16 = p?.lud16 ?? ''
                 if (!this.addressTouched) {
                     this.addressInput = this.profileLud16
@@ -747,6 +743,15 @@ export function registerNostrComponents(Alpine: {
             // /settings/wallet einen leeren pubkey und eine verbundene Wallet erschiene
             // fälschlich als „nicht verbunden" (nostrAuth.init guardet dasselbe Muster).
             await authReady
+            // `profileReady` gated „Nicht gesetzt" gegen den Lade-Flash — aber an den
+            // ABGESCHLOSSENEN Lade-VERSUCH gekoppelt, nicht an ein vorhandenes Profil:
+            // welshman hält `userProfile` für Nutzer OHNE kind-0 (gast-first, frisches
+            // nsec) ewig `undefined` → sonst bliebe „Nicht gesetzt" für sie für immer
+            // aus und die „Aktuell:"-Zeile leer. loadUserProfile() resolved nach dem
+            // Relay-Versuch (mit oder ohne Ergebnis).
+            void loadUserProfile().finally(() => {
+                this.profileReady = true
+            })
             // WebLN wird evtl. erst nach dem Factory-Aufruf injiziert → hier re-evaluieren.
             this.weblnAvailable = Boolean(getWebLn())
             const wallet = await loadWallet()
