@@ -2009,6 +2009,14 @@ export function registerNostrComponents(Alpine: {
         async openZap(m: ChatMessage) {
             this.activeId = null
             this.closeMessageMenu()
+            // Mobile ohne verbundene Wallet: der Zap-Sheet-QR-Fallback ergibt keinen
+            // Sinn (der QR liegt auf dem eigenen Gerät, nicht scanbar). Statt Modal
+            // direkt in die Wallet-Einstellungen (group.wallet), wo NWC verbunden wird.
+            // Web behält den QR-Fallback (dort ist der QR vom Handy scanbar).
+            if (isMobile && !(await loadWallet())) {
+                location.assign('/settings/wallet')
+                return
+            }
             const zapper = await resolveZapper(m.pubkey)
             if (!canZap(zapper)) {
                 toast('Dieser Empfänger kann keine Zaps annehmen.', 'info')
