@@ -37,8 +37,8 @@
     @if ($gate === 'nostr')
         {{-- returnUrl = $el.pathname+search (DOM-Anchor liefert den reinen „/…"-Pfad;
              route() rendert eine ABSOLUTE href, die sanitizeReturnUrl sonst verwürfe). --}}
-        x-on:mousedown.capture="$store.authGate.gateTap($event, { label: @js($label), returnUrl: $el.pathname + $el.search })"
-        x-on:keydown.enter.capture="$store.authGate.gateTap($event, { label: @js($label), returnUrl: $el.pathname + $el.search })"
+        x-on:mousedown.capture="$store.authGate.gateTap($event, { label: @js(__($label)), returnUrl: $el.pathname + $el.search })"
+        x-on:keydown.enter.capture="$store.authGate.gateTap($event, { label: @js(__($label)), returnUrl: $el.pathname + $el.search })"
     @endif
     @class([
         'pressable relative flex min-h-14 flex-col items-center justify-center gap-1 py-2.5',
@@ -51,5 +51,8 @@
         <span class="nav-pill absolute inset-x-0 top-0 mx-auto h-1 w-8 rounded-pill bg-brand-700 dark:bg-accent" aria-hidden="true"></span>
     @endif
     <flux:icon :name="$icon" :variant="$active ? 'solid' : 'outline'" class="size-6" />
-    <span class="text-[11px] font-semibold leading-none">{{ $label }}</span>
+    {{-- Label zur Render-Zeit übersetzen: die Nav-Labels kommen aus config('group.nav'),
+         die beim Boot VOR der Locale-Middleware lädt — ein `__()` in der Config löste
+         darum immer die Default-Sprache auf. Hier greift die Request-Locale (z.B. „Mehr"→„More"). --}}
+    <span class="text-[11px] font-semibold leading-none">{{ __($label) }}</span>
 </a>

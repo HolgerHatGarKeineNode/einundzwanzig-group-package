@@ -42,6 +42,7 @@ import {
     loadUserGroupList,
     loadSpaceRooms,
     watchSpaceRooms,
+    roomsByUrl,
     listenRoomMembers,
     deriveUserInRoom,
     joinRoom,
@@ -371,6 +372,7 @@ type MessageInfo = { nevent: string; npub: string; json: string; createdAt: stri
 
 type RoomChatState = {
     h: string
+    roomName: string // Anzeigename des Raums (Client-Meta 39000); Fallback = Server-Wert/`h`
     messages: ChatMessage[]
     loading: boolean
     loadingMore: boolean
@@ -428,6 +430,7 @@ type RoomChatState = {
     _mentionStart: number // Caret-Index des @ im Draft (für den Ersetz-Splice)
     _members: MentionItem[] // Space-Mitglieder als Mention-Quelle (Directory)
     _unsubMembers: null | (() => void)
+    _unsubRoomMeta: null | (() => void)
     _url: string | null
     _lastRead: number
     _onViewport: null | (() => void)
@@ -561,6 +564,7 @@ type WalletState = {
     recvQr: string
     receiving: boolean
     profileLud16: string
+    profileReady: boolean // true erst nach der ersten aufgelösten Profil-Emission (kein „Nicht gesetzt"-Flash beim Laden)
     addressInput: string
     addressTouched: boolean
     savingAddress: boolean
@@ -716,6 +720,7 @@ export function registerNostrComponents(Alpine: {
         recvQr: '',
         receiving: false,
         profileLud16: '',
+        profileReady: false,
         addressInput: '',
         addressTouched: false,
         savingAddress: false,
@@ -728,6 +733,10 @@ export function registerNostrComponents(Alpine: {
             // selbst tippt (`addressTouched`) — so überschreibt ein spätes Update
             // keine Eingabe und ein bewusst geleertes Feld (Adresse entfernen) bleibt leer.
             this._unsubProfile = userProfile.subscribe((p) => {
+                // welshman emittiert `undefined`, solange die kind-0 noch nicht da ist —
+                // erst ein aufgelöstes Profil (auch ohne lud16) schaltet `profileReady`,
+                // damit „Nicht gesetzt" nicht während des Ladens aufblitzt.
+                this.profileReady = p != null
                 this.profileLud16 = p?.lud16 ?? ''
                 if (!this.addressTouched) {
                     this.addressInput = this.profileLud16
@@ -1337,8 +1346,12 @@ export function registerNostrComponents(Alpine: {
     // Live-Sub (limit:0) + Cursor-Pagination. Senden/Löschen = kind 9/5 (optimistisch).
     // Beitreten/Verlassen = NIP-29 (kind 9021/9022) → relay-autoritative 39002-
     // Mitgliedschaft (persistent); der Composer ist an `joined` gekoppelt.
-    Alpine.data('nostrRoomChat', (h: unknown): RoomChatState => ({
+    Alpine.data('nostrRoomChat', (h: unknown, initialName?: unknown): RoomChatState => ({
         h: String(h),
+        // SSR-Fallback (Server-Read-Cache/Slug); die Client-Meta (39000) überschreibt
+        // ihn reaktiv in setup(), sobald sie vom Relay da ist — der Server-Cache kann
+        // den Namen am member-only-Relay ohne AUTH nicht lesen und zeigt sonst den Slug.
+        roomName: String(initialName ?? h),
         messages: [],
         loading: true,
         loadingMore: false,
@@ -1396,6 +1409,7 @@ export function registerNostrComponents(Alpine: {
         _mentionStart: -1,
         _members: [],
         _unsubMembers: null,
+        _unsubRoomMeta: null,
         _url: null,
         _lastRead: 0,
         _onViewport: null,
@@ -1456,6 +1470,15 @@ export function registerNostrComponents(Alpine: {
             })
             this._unsubJoined = deriveUserInRoom(url, this.h).subscribe((isMember: boolean) => {
                 this.joined = isMember
+            })
+            // Raum-Anzeigename aus der Client-Meta (39000) reaktiv nachziehen — der
+            // SSR-Header trägt bei member-only-Relays nur den Slug (Server hat keine
+            // AUTH). `url` ist bereits normalisiert (activeSpace), roomsByUrl ebenso.
+            this._unsubRoomMeta = roomsByUrl.subscribe(($byUrl) => {
+                const room = ($byUrl.get(url) ?? []).find((r) => r.h === this.h)
+                if (room?.name) {
+                    this.roomName = room.name
+                }
             })
             listenRoom(url, this.h, this._controller.signal)
             // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
@@ -1604,6 +1627,8 @@ export function registerNostrComponents(Alpine: {
             this._unsubJoined = null
             this._unsubMembers?.()
             this._unsubMembers = null
+            this._unsubRoomMeta?.()
+            this._unsubRoomMeta = null
             this._zapSub?.abort()
             this._zapSub = null
             this._zapLoadedIds.clear()

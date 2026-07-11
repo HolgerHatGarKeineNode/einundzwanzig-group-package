@@ -156,7 +156,7 @@
             <div class="text-sm">
                 <span class="text-muted">{{ __('Aktuell:') }}</span>
                 <span x-show="profileLud16" x-cloak class="font-mono" x-text="profileLud16"></span>
-                <span x-show="!profileLud16" x-cloak class="text-muted">{{ __('Nicht gesetzt') }}</span>
+                <span x-show="profileReady && !profileLud16" x-cloak class="text-muted">{{ __('Nicht gesetzt') }}</span>
             </div>
 
             {{-- Mismatch: Wallet liefert eine andere lud16 als das Profil (Brand-Amber, dezent). --}}

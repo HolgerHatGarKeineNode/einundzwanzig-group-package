@@ -50,7 +50,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 }; ?>
 
 {{-- Chat-Bühne: Kopf + Verlauf + Composer unter EINEM Alpine-Scope (M4 lesen, M5 schreiben). --}}
-<div x-data="nostrRoomChat(@js($h))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)]">
+<div x-data="nostrRoomChat(@js($h), @js($roomName ?? $h))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)]">
 
     {{-- P2: Der Raum ist eine chrome-lose Detail-Ebene (kein Tab, keine Bottom-Nav)
          und rendert daher den globalen Signer/Reconnect-Strip selbst — die app-shell
@@ -58,7 +58,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
          liegt im Root-Div (Livewire-SFC: genau eine Wurzel). --}}
     <x-group::status-strip />
 
-    <x-group::app-header :title="'# '.($roomName ?? $h)" :back="route('group.spaces')" class="shrink-0">
+    <x-group::app-header :title="'# '.($roomName ?? $h)" :title-expr="json_encode('# ').' + roomName'" :back="route('group.spaces')" class="shrink-0">
         @if ($roomPicture)
             <x-slot:leading>
                 <flux:avatar circle size="sm" src="{{ \Einundzwanzig\Group\ImageProxy::url($roomPicture) }}" name="{{ $roomName ?? $h }}" />
@@ -579,7 +579,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                               :aria-label="@js(__('Option ')) + (i + 1) + @js(__(' verschieben'))">
                             <flux:icon.bars-3 variant="micro" />
                         </span>
-                        <flux:input x-model="opt.value" class="flex-1" ::placeholder="@js(__('Option ')) + (i + 1)" />
+                        {{-- ::attr (escaped) rendert den Wert LITERAL → `@js()` würde
+                             roh ins DOM leaken (Alpine: „Invalid token"). Js::from via
+                             {{ }} liefert das lokalisierte JS-String-Literal zur Compile-Zeit. --}}
+                        <flux:input x-model="opt.value" class="flex-1" ::placeholder="{{ \Illuminate\Support\Js::from(__('Option ')) }} + (i + 1)" />
                         <flux:button size="sm" variant="ghost" icon="minus-circle"
                                      x-on:click="removePollOption(opt.id)" aria-label="{{ __('Option entfernen') }}" />
                     </div>

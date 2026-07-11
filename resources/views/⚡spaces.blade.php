@@ -56,7 +56,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Kopf: echter Space-Name (NIP-11, Fallback „Space") + NIP-11-Beschreibung
              + wer bin ich + Abmelden. Space-Identität lebt NUR hier (kein doppelter
              Name in der Karte darunter). --}}
-        <x-group::app-header title="{{ __('Space') }}" title-expr="space?.label || @js(__('Space'))" x-data="nostrAuth">
+        <x-group::app-header title="{{ __('Space') }}" :title-expr="'space?.label || ' . json_encode(__('Space'))" x-data="nostrAuth">
             <x-slot:subtitle>
                 <div x-show="space?.description" x-cloak class="truncate text-xs text-muted" x-text="space?.description"></div>
                 <div class="truncate font-mono text-xs text-muted" x-text="npub"></div>
