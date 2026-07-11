@@ -144,7 +144,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Einstellungen')] class extends Co
         @if (config('group.show_relays', false))
             <section x-data="nostrRelays" aria-labelledby="settings-relays">
                 <flux:heading id="settings-relays" level="2" size="sm" class="mb-2 text-muted">{{ __('Netzwerk & Relays') }}</flux:heading>
-                <flux:text class="mb-2 text-xs text-muted">{{ __('Deine Relays (NIP-65). Bearbeiten folgt.') }}</flux:text>
+                <flux:text class="mb-2 text-xs text-muted">{{ __('Deine Relays (NIP-65).') }}</flux:text>
 
                 <template x-if="loading">
                     <div class="surface-card space-y-2 p-3" aria-busy="true">

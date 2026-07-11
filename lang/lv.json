@@ -45,7 +45,7 @@
     "Dein privater Schlüssel wird im Browser gespeichert und ist dort angreifbar. Für echte Konten nutze eine Browser-Erweiterung oder einen Signer (Amber, Bunker).": "Tava privātā atslēga tiek glabāta pārlūkā un tur ir apdraudēta. Īstiem kontiem izmanto pārlūka paplašinājumu vai parakstītāju (Amber, Bunker).",
     "Deine Amber-/Bunker-Verbindung stammt aus einer früheren Version. Verbinde einmal neu, um alle Berechtigungen (Zaps, Umfragen, Reaktionen, Admin) zu erteilen.": "Tavs Amber/Bunker savienojums ir no vecākas versijas. Savienojies vēlreiz, lai piešķirtu visas atļaujas (Zap, aptaujas, reakcijas, administrēšana).",
     "Deine Lightning-Adresse im Nostr-Profil — damit dich andere zappen können.": "Tava Lightning adrese Nostr profilā — lai citi var tevi zapot.",
-    "Deine Relays (NIP-65). Bearbeiten folgt.": "Tavi Relay (NIP-65). Rediģēšana sekos.",
+    "Deine Relays (NIP-65).": "Tavi Relay (NIP-65).",
     "Deine Wallet nutzt eine andere Adresse:": "Tavs maks izmanto citu adresi:",
     "Den NWC-String bekommst du in deiner Wallet-App (z. B. Alby Hub) unter „Verbindungen“.": "NWC virkni iegūsi savā maka lietotnē (piem., Alby Hub) sadaļā „Savienojumi”.",
     "Details (optional)": "Detaļas (neobligāti)",

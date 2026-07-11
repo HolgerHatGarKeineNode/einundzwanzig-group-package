@@ -45,7 +45,7 @@
     "Dein privater Schlüssel wird im Browser gespeichert und ist dort angreifbar. Für echte Konten nutze eine Browser-Erweiterung oder einen Signer (Amber, Bunker).": "Tu clave privada se guarda en el navegador y es vulnerable ahí. Para cuentas reales usa una extensión del navegador o un firmante (Amber, Bunker).",
     "Deine Amber-/Bunker-Verbindung stammt aus einer früheren Version. Verbinde einmal neu, um alle Berechtigungen (Zaps, Umfragen, Reaktionen, Admin) zu erteilen.": "Tu conexión de Amber/Bunker viene de una versión anterior. Vuelve a conectar una vez para conceder todos los permisos (Zaps, encuestas, reacciones, admin).",
     "Deine Lightning-Adresse im Nostr-Profil — damit dich andere zappen können.": "Tu dirección Lightning en el perfil de Nostr — para que otros puedan zappearte.",
-    "Deine Relays (NIP-65). Bearbeiten folgt.": "Tus Relays (NIP-65). La edición llegará pronto.",
+    "Deine Relays (NIP-65).": "Tus Relays (NIP-65).",
     "Deine Wallet nutzt eine andere Adresse:": "Tu wallet usa otra dirección:",
     "Den NWC-String bekommst du in deiner Wallet-App (z. B. Alby Hub) unter „Verbindungen“.": "El string NWC lo obtienes en tu app de wallet (p. ej. Alby Hub) en «Conexiones».",
     "Details (optional)": "Detalles (opcional)",
