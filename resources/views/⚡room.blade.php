@@ -94,7 +94,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <div x-ref="scroll" x-on:scroll.throttle.50ms="onScroll()"
              role="log" aria-live="polite" aria-relevant="additions" aria-label="{{ __('Chat-Verlauf') }}"
              ::aria-busy="loading && messages.length === 0"
-             class="min-h-0 flex-1 overflow-y-auto transition-opacity"
+             {{-- [overflow-anchor:none]: DEFENSIV. Standard-Rezept für JS-verwaltete Chat-Scroller
+                  (Slack/Discord/Telegram-Web), damit die native Browser-Scroll-Verankerung nicht als
+                  zweite scrollTop-Quelle gegen virtual-core (alleiniger scrollTop-Owner) kämpft. In
+                  UNSERER Architektur real vermutlich ein No-op — die Zeilen sind absolut + translateY
+                  (out-of-flow, transform unterdrückt Anchoring ohnehin), auf WebKit gibt es das Feature
+                  gar nicht. Der eigentliche Oszillations-Fix sitzt im scrollToFn (chatVirtualizer.ts).
+                  Kostet nichts, schützt gegen künftige Layout-Änderungen → drin lassen. --}}
+             class="min-h-0 flex-1 overflow-y-auto transition-opacity [overflow-anchor:none]"
              :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
 
             {{-- Erstes Laden --}}
@@ -294,9 +301,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  wüchse die Zeile beim Eintreffen von 0 auf 28px → scrollHeight ändert
                                  sich → Scrollbalken-Thumb zuckt. Der reservierte Platz fängt das ab
                                  (Chips füllen ihn, die Zeilenhöhe bleibt konstant). Reactions UND Zap in
-                                 EINER umbrechenden Reihe (statt zwei) → auch „beide" bleibt eine Reihe
-                                 hoch → kein Zwei-Reihen-Wachstum. `mt-1` als Padding (flow-root/border-box
-                                 → offsetHeight erfasst es). --}}
+                                 EINER umbrechenden Reihe → bei sehr vielen Chips kann eine zweite Reihe
+                                 entstehen; das ist mit dem Spacer-Sync-Fix (chatVirtualizer.ts scrollToFn)
+                                 aber KEINE Oszillation mehr, sondern eine einmalige, saubere Höhenkorrektur
+                                 (Leseposition bleibt erhalten). Darum bewusst flex-wrap statt einer
+                                 erzwungenen Ein-Reihen-Lane mit horizontalem Scrollbalken: der Balken
+                                 brächte die Höhenvariabilität (Balkenhöhe) zurück und schöbe den Zap-Chip
+                                 aus dem Bild. `mt-1` als Padding (flow-root/border-box → offsetHeight
+                                 erfasst es). --}}
                             <div :id="'chips-'+m.id" class="mt-1 flex min-h-7 flex-wrap items-center gap-1">
                                 {{-- Reaction-Chips (C1): pro Emoji Zähler + eigener Toggle-Zustand. --}}
                                 <template x-for="r in m.reactions" :key="r.key">

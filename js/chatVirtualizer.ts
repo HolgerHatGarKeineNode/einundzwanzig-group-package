@@ -75,7 +75,24 @@ export function createChatVirtualizer(config: {
         getScrollElement: config.getScrollElement,
         estimateSize: (index: number) => config.estimateRow?.(index) ?? estimate,
         getItemKey: (index: number) => config.getKey(index),
-        scrollToFn: elementScroll,
+        // WURZEL-FIX gegen das Thumb-Pendeln: virtual-core wendet Mess-Korrekturen
+        // (applyScrollAdjustment/scrollToEnd/reconcile) SYNCHRON an, indem es scrollTop gegen
+        // die DOM-scrollHeight setzt — aber unsere Spacer-Höhe hängt an Alpines reaktivem
+        // `:style="height:${totalSize}px"` und wird erst einen Frame SPÄTER gesetzt. Jede
+        // wachsende Zeile (ASCII-Messung, Chip-/Poll-/Goal-Nachladung) korrigierte also gegen
+        // die noch ALTE, zu kleine scrollHeight → Browser klampt scrollTop → der geklampte Wert
+        // fließt via Scroll-Event zurück → nächster Frame wächst der Spacer → Korrektur überschießt
+        // = Oszillation. Indem wir den Spacer HIER (im scrollToFn, das virtual-core direkt VOR
+        // jedem Scroll ruft) imperativ auf getTotalSize() setzen, läuft jede Korrektur gegen die
+        // bereits gewachsene Höhe → kein Klamp, kein Rückkopplungs-Pendeln. Alpines `:style`
+        // setzt danach denselben Wert (idempotent). Vorbild: der Prepend-Pfad in update() (unten).
+        scrollToFn: (offset: number, opts: { adjustments?: number; behavior?: ScrollBehavior }, instance: Virtualizer<HTMLElement, HTMLElement>) => {
+            const spacer = config.getSpacerElement?.()
+            if (spacer) {
+                spacer.style.height = instance.getTotalSize() + 'px'
+            }
+            elementScroll(offset, opts, instance)
+        },
         observeElementRect,
         observeElementOffset,
         overscan: 8,
