@@ -12,7 +12,7 @@ import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
+import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
@@ -36,13 +36,20 @@ const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
  */
 const renderMessageLink = (href: string, display: string): string => {
     if (IMAGE_URL.test(href)) {
+        // Bild in einen reservierten Container wickeln: dessen Maße stehen per CSS-`aspect-ratio`
+        // schon VOR dem Laden fest → kein Layout-Sprung (CLS/„Kaugummi"), wenn das Bild spät
+        // dekodiert. Das Bild wird KOMPLETT gezeigt (`object-fit:contain`, ganze Grafik sichtbar,
+        // Leerraum wo das Verhältnis abweicht); die Lightbox (`data-full`) zeigt es groß.
+        const box = document.createElement('span')
+        box.className = 'chat-image-box'
         const img = document.createElement('img')
         img.className = 'chat-image'
         img.loading = 'lazy'
         img.src = proxifyImage(href, 'msg')
         img.dataset.full = proxifyImage(href, 'full')
         img.alt = ''
-        return img.outerHTML
+        box.appendChild(img)
+        return box.outerHTML
     }
     const a = document.createElement('a')
     a.href = sanitizeUrl(href)
@@ -69,7 +76,12 @@ const renderEmojiImg = (name: string, url: string | undefined): string | null =>
     return img.outerHTML
 }
 
-const roomFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
+// Polls (1068) und Zap-Goals (9041) MIT den Nachrichten laden (nicht nur MESSAGE): sie SIND
+// Timeline-Einträge und werden von deriveRoomMessages ohnehin angezeigt. Lud man sie nur über den
+// separaten loadRoomPolls/-Goals nach, erschien die Poll/Goal-Zeile erst verzögert (async) und
+// wuchs nach dem Paint in den Verlauf → Jitter. Im selben Query (initial + loadOlder-Paging) sind
+// sie sofort da → kein verstecktes Nachpoppen. (loadRoomPolls bleibt für die 1018-Responses/Tally.)
+const roomFilter = (h: string) => [{ kinds: [MESSAGE, POLL, ZAP_GOAL], '#h': [h] }]
 
 /** Nachrichten, Polls UND Zap-Goals eines Raums — alle zeitlich verwoben im Verlauf. */
 const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE, POLL, ZAP_GOAL], '#h': [h] }]
@@ -88,7 +100,7 @@ const roomPollResponseFilter = (h: string) => [{ kinds: [POLL_RESPONSE], '#h': [
 const roomZapReceiptFilter = () => [{ kinds: [ZAP_RESPONSE] }]
 
 /** Aufsteigend sortierter Chat-Verlauf eines Rooms (Nachrichten + Polls, reaktiv). */
-const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
+export const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
     derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => {
         // Native Poll-Karten (kind 1068) zeigen die Frage bereits — die kind-9-Share-Quote,
         // die wir NUR für Flotilla mitposten, hier ausblenden, sonst erschiene sie doppelt.
@@ -276,6 +288,7 @@ export type ChatMessage = {
     name: string
     nip05: string // verifizierter NIP-05-Handle (leer = kein Häkchen)
     picture: string
+    profileReady: boolean // kind-0 des Autors geladen (sonst npub-Fallback → ruhiger Platzhalter)
     html: string
     divider: string // Datums-Trenner, wenn der Tag wechselt (sonst '')
     unreadDivider: boolean // erste ungelesene Fremd-Nachricht (Last-Read-Grenze)
@@ -477,6 +490,10 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 name: nameOf(event.pubkey),
                 nip05: verifiedNip05(event.pubkey, $profiles, $handles),
                 picture: profile?.picture ?? '',
+                // Auf brauchbaren NAMEN prüfen, nicht bloss kind-0-Existenz: ein namenloses
+                // Profil (nur lud16/about) fiele in displayProfile auf den npub zurück → sonst
+                // zeigte der Avatar wieder die irreführende „n"-Initiale statt „?" (Schritt-4-Ziel).
+                profileReady: profileHasName(profile),
                 html: renderMessageHtml(event),
                 divider,
                 unreadDivider,
@@ -507,20 +524,17 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal): void =>
 }
 
 /**
- * Lädt bestehende Polls (kind 1068) + Poll-Responses (kind 1018) eines Raums beim
- * ersten Öffnen (die Live-Sub liefert nur Neues). Kein Paging — Polls sind pro Raum
- * überschaubar; das Tally braucht alle Responses.
+ * Lädt NUR die Poll-Responses (kind 1018) eines Raums fürs Tally — NICHT die Poll-Events
+ * (kind 1068) selbst. Die Poll-KARTE (1068) ist eine große, variabel hohe Timeline-Zeile
+ * und kommt jetzt ausschließlich übers gepagte `roomFilter` (limit:50 + loadOlder), damit
+ * sie IMMER im gerade geladenen Fenster liegt → sofort via measureRow vermessen → kein
+ * Off-screen-Estimate → kein mittiger Scroll-Sprung. (Vorher lud dies ALLE 1068 ungepaged
+ * ins Repository, wodurch mittige Polls als nur-geschätzte Off-screen-Zeilen erschienen.)
+ * Die 1018-Responses tragen kein Layout → raumweit laden ist unschädlich und hält das Tally
+ * einer gerade eingepagten Poll sofort korrekt.
  */
 export const loadRoomPolls = (url: string, h: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ kinds: [POLL, POLL_RESPONSE], '#h': [h] }] })
-
-/**
- * Lädt bestehende Zap-Goals (kind 9041) eines Raums beim ersten Öffnen (die Live-Sub
- * liefert nur Neues). Die Beiträge (9735 mit `#e` = goal.id) kommen über `loadRoomZaps`
- * (die Goal-IDs stecken als Feed-Nachrichten in der ID-Liste). Kein Paging.
- */
-export const loadRoomGoals = (url: string, h: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ kinds: [ZAP_GOAL], '#h': [h] }] })
+    load({ relays: [url], filters: [{ kinds: [POLL_RESPONSE], '#h': [h] }] })
 
 /**
  * Lädt die bestehenden Reactions (kind 7) + Tombstones (kind 5) eines Raums, damit

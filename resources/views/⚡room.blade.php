@@ -85,18 +85,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </flux:callout>
         </template>
 
-        <div x-ref="scroll" x-on:scroll.debounce.50ms="onScroll()"
+        {{-- throttle (nicht debounce, Schritt 6): debounce ist trailing-only → feuert bei einem
+             schnellen Aufwärts-Fling nie MID-Scroll (Timer resettet jeden Frame) → der eager Prefetch
+             startet erst nach dem Stopp. throttle feuert in 50ms-Intervallen WÄHREND der Geste → die
+             2-Viewport-Schwelle greift rechtzeitig, der Prepend landet off-screen. --}}
+        {{-- Der Virtualizer besitzt scrollTop; kein space-y (absolute Zeilen) und kein pb-4
+             (paddingEnd im Virtualizer). --}}
+        <div x-ref="scroll" x-on:scroll.throttle.50ms="onScroll()"
              role="log" aria-live="polite" aria-relevant="additions" aria-label="{{ __('Chat-Verlauf') }}"
              ::aria-busy="loading && messages.length === 0"
-             class="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-4 transition-opacity"
+             class="min-h-0 flex-1 overflow-y-auto transition-opacity"
              :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
-
-            {{-- Ältere laden (Cursor-Pagination) --}}
-            <div class="py-2 text-center" x-show="hasMore && messages.length > 0" x-cloak>
-                <flux:button size="xs" variant="ghost" class="icon-btn-touch" x-on:click="loadOlder()" ::disabled="loadingMore">
-                    <span x-text="loadingMore ? @js(__('Lädt…')) : @js(__('Ältere laden'))"></span>
-                </flux:button>
-            </div>
 
             {{-- Erstes Laden --}}
             <template x-if="loading && messages.length === 0">
@@ -122,8 +121,24 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </template>
 
-            {{-- Verlauf --}}
-            <template x-for="m in messages" :key="m.id">
+            {{-- Verlauf — virtualisiert via @tanstack/virtual-core (Schritt 7): nur das sichtbare
+                 Fenster (virtualItems) liegt im DOM, der Spacer trägt die Gesamthöhe für die
+                 Scrollbar, jede Zeile ist absolut an ihrem gemessenen Offset. Der Virtualizer besitzt
+                 scrollTop (Boden-Stick via followOnAppend, Prepend-Anker keyed by Event-ID, Bild-/
+                 Chip-Re-Measure via ResizeObserver). wire:ignore: der Livewire-Morph darf die
+                 absolut positionierten Nodes nicht anfassen. --}}
+            <div wire:ignore data-virt-spacer x-show="messages.length > 0" class="relative w-full" :style="`height:${totalSize}px`">
+            <template x-for="vi in virtualItems" :key="vi.key">
+                {{-- Gemessene Zeile: data-index (Virtualizer liest daraus den Item-Key), measureRow
+                     registriert sie + ResizeObserver. Vertikalabstand als PADDING (in der border-box
+                     → offsetHeight erfasst ihn), da absolute Items kein margin/space-y tragen. --}}
+                <div :data-index="vi.index" x-init="$nextTick(() => measureRow($el))"
+                     class="absolute left-0 top-0 w-full"
+                     :class="messages[vi.index]?.showAuthor ? 'pt-2.5' : 'pt-0.5'"
+                     :style="`transform:translateY(${vi.start}px)`">
+                {{-- Reaktiver Alias m = messages[vi.index] (1-Element-x-for statt Getter → Chip-/Profil-
+                     Updates schlagen live durch; leerer Fallback schützt vor Übergangs-Frames). --}}
+                <template x-for="m in (messages[vi.index] ? [messages[vi.index]] : [])" :key="vi.key">
                 <div>
                     <template x-if="m.divider">
                         <div class="my-3 flex items-center gap-3">
@@ -146,12 +161,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <div :id="'msg-'+m.id" :title="m.fullTime"
                          x-on:click="activeId = (activeId===m.id ? null : m.id)"
                          class="group relative flex gap-2 rounded-card px-1 transition-shadow"
-                         :class="[m.showAuthor ? 'mt-2.5' : '', flashId===m.id ? 'ring-2 ring-brand-500/70' : '']">
+                         :class="flashId===m.id ? 'ring-2 ring-brand-500/70' : ''">
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
                                 <button type="button" x-on:click.stop="$dispatch('open-profile', m.pubkey)"
                                         class="pressable" aria-label="{{ __('Profil anzeigen') }}">
-                                    <x-group::nostr-avatar picture="m.picture" name="m.name" />
+                                    {{-- Unaufgelöst (kind-0 noch nicht da) → ruhiges „?" statt der irreführenden
+                                         npub-Initiale „n". Profile sind dank Prewarm (Schritt 4) meist warm. --}}
+                                    <x-group::nostr-avatar picture="m.picture" name="m.profileReady ? m.name : ''" />
                                 </button>
                             </template>
                             {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
@@ -161,11 +178,19 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </template>
                         </div>
                         <div class="min-w-0 flex-1">
+                            {{-- items-center (nicht -baseline): das später einblendende NIP-05-Badge-Icon
+                                 (16px) darf die Zeilenhöhe (text-sm ≈ 20px) NICHT vergrössern → kein
+                                 vertikaler Ruck der Liste, wenn die Verifizierung spät nachlädt (Schritt 3). --}}
                             <template x-if="m.showAuthor">
-                                <div class="flex items-baseline gap-2">
+                                <div class="flex items-center gap-2">
                                     <button type="button" x-on:click.stop="$dispatch('open-profile', m.pubkey)"
                                             class="pressable truncate text-left text-sm font-semibold hover:underline" x-text="m.name"></button>
-                                    <x-group::nostr-nip05 nip05="m.nip05" />
+                                    {{-- Fester 16px-Slot fürs Badge: reserviert den Platz IMMER, damit das
+                                         spät nachladende NIP-05-Häkchen die Uhrzeit nicht nach rechts schiebt
+                                         (Schritt 3). Kosten: kleine Lücke bei Autoren ohne verifiziertes NIP-05. --}}
+                                    <span class="inline-flex size-4 shrink-0 items-center justify-center">
+                                        <x-group::nostr-nip05 nip05="m.nip05" />
+                                    </span>
                                     <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="m.time"></span>
                                 </div>
                             </template>
@@ -189,25 +214,34 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 {{-- Einfachwahl = radiogroup (exklusiv), Mehrfachwahl = group aus Checkboxen.
                                      Rolle/aria-checked tragen den Zustand → SR sagt „ausgewählt" an, nicht
                                      die dekorative Glyphe (aria-hidden). --}}
-                                <div class="mt-1.5 space-y-1.5" :role="m.poll.multi ? 'group' : 'radiogroup'" aria-label="{{ __('Umfrageoptionen') }}">
-                                    <template x-for="opt in m.poll.options" :key="opt.id">
-                                        <button type="button" x-on:click.stop="votePoll(m, opt.id)" :disabled="m.poll.closed"
-                                                :role="m.poll.multi ? 'checkbox' : 'radio'" :aria-checked="opt.mine"
-                                                class="pressable relative block w-full overflow-hidden rounded-tile border text-left disabled:opacity-70"
-                                                :class="opt.mine ? 'border-brand-500' : 'border-white/10 hover:border-brand-500/50'">
-                                            <div class="absolute inset-y-0 left-0 bg-brand-500/15 transition-[width] duration-300 motion-reduce:transition-none" :style="`width:${opt.pct}%`"></div>
-                                            <div class="relative flex items-center justify-between gap-2 px-2 py-1.5">
-                                                <span class="flex min-w-0 items-center gap-2">
-                                                    {{-- Marker signalisiert die Wahlart: Radio (●/○) bei Einfach-, Checkbox (☑/☐) bei Mehrfachwahl. --}}
-                                                    <span aria-hidden="true" class="shrink-0 text-sm" :class="opt.mine ? 'text-brand-500' : 'text-muted'"
-                                                          x-text="opt.mine ? (m.poll.multi ? '☑' : '●') : (m.poll.multi ? '☐' : '○')"></span>
-                                                    <span class="truncate text-sm" x-text="opt.label"></span>
-                                                </span>
-                                                <span class="shrink-0 font-mono text-xs text-muted" x-text="opt.votes"></span>
-                                            </div>
-                                        </button>
-                                    </template>
-                                    <div class="flex items-center justify-between gap-2 text-xs text-muted">
+                                <div class="mt-1.5">
+                                    {{-- Optionen in einer GEDECKELTEN, innen scrollbaren Box (max-h-52): jede
+                                         Options-Zeile hat feste Höhe (truncate, kein Umbruch), viele Optionen
+                                         scrollen INNEN statt die Nachrichtenzeile wachsen zu lassen. So ist die
+                                         äußere Höhe deterministisch (Optionsanzahl × feste Zeilenhöhe, gedeckelt)
+                                         und async-stabil (Tally füllt nur die Balken) → der Virtualizer-Estimate
+                                         trifft exakt → kein Jitter beim Scrollen in Polls. --}}
+                                    <div class="max-h-52 space-y-1.5 overflow-y-auto" :role="m.poll.multi ? 'group' : 'radiogroup'" aria-label="{{ __('Umfrageoptionen') }}">
+                                        <template x-for="opt in m.poll.options" :key="opt.id">
+                                            <button type="button" x-on:click.stop="votePoll(m, opt.id)" :disabled="m.poll.closed"
+                                                    :role="m.poll.multi ? 'checkbox' : 'radio'" :aria-checked="opt.mine"
+                                                    class="pressable relative block w-full overflow-hidden rounded-tile border text-left disabled:opacity-70"
+                                                    :class="opt.mine ? 'border-brand-500' : 'border-white/10 hover:border-brand-500/50'">
+                                                <div class="absolute inset-y-0 left-0 bg-brand-500/15 transition-[width] duration-300 motion-reduce:transition-none" :style="`width:${opt.pct}%`"></div>
+                                                <div class="relative flex items-center justify-between gap-2 px-2 py-1.5">
+                                                    <span class="flex min-w-0 items-center gap-2">
+                                                        {{-- Marker signalisiert die Wahlart: Radio (●/○) bei Einfach-, Checkbox (☑/☐) bei Mehrfachwahl. --}}
+                                                        <span aria-hidden="true" class="shrink-0 text-sm" :class="opt.mine ? 'text-brand-500' : 'text-muted'"
+                                                              x-text="opt.mine ? (m.poll.multi ? '☑' : '●') : (m.poll.multi ? '☐' : '○')"></span>
+                                                        <span class="truncate text-sm" x-text="opt.label"></span>
+                                                    </span>
+                                                    <span class="shrink-0 font-mono text-xs text-muted" x-text="opt.votes"></span>
+                                                </div>
+                                            </button>
+                                        </template>
+                                    </div>
+                                    {{-- Footer außerhalb der Scrollbox → bleibt fix sichtbar. --}}
+                                    <div class="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted">
                                         <span x-text="m.poll.typeLabel + (m.poll.endsLabel ? ' · ' + m.poll.endsLabel : '')"></span>
                                         <span x-text="m.poll.voters + (m.poll.voters === 1 ? @js(__(' Stimme')) : @js(__(' Stimmen')))"></span>
                                     </div>
@@ -218,8 +252,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  „Beitragen"-Zap. Eigenes Ziel (!zappable) zeigt nur den Fortschritt. --}}
                             <template x-if="m.goal">
                                 <div class="surface-card mt-1.5 space-y-2 rounded-tile border border-brand-500/20 p-3">
+                                    {{-- Summary auf eine Zeile abgeschnitten (+ Hover-Tooltip für die
+                                         Vollansicht): hält die Goal-Höhe fix, egal wie lang die Beschreibung
+                                         ist → async-stabil, Estimate trifft → kein Jitter (Nutzer-Vorgabe). --}}
                                     <template x-if="m.goal.summary">
-                                        <p class="text-sm text-muted" x-text="m.goal.summary"></p>
+                                        <p class="truncate text-sm text-muted" :title="m.goal.summary" x-text="m.goal.summary"></p>
                                     </template>
                                     <div>
                                         <div class="flex items-center justify-between gap-2 font-mono text-xs tabular-nums">
@@ -245,30 +282,41 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </div>
                                 </div>
                             </template>
-                            {{-- Reaction-Chips (C1): pro Emoji Zähler + eigener Toggle-Zustand. --}}
-                            <template x-if="m.reactions.length">
-                                <div class="mt-1 flex flex-wrap gap-1">
-                                    <template x-for="r in m.reactions" :key="r.key">
-                                        {{-- Pills homogen: feste Höhe + Mindestbreite, Emoji/Bild auf
-                                             identische Größe normiert (das Inline-`chat-emoji` wäre sonst
-                                             1.4em → höhere Pill als ein Unicode-Emoji). --}}
-                                        <button type="button" x-on:click.stop="toggleReaction(m, r)" :aria-pressed="r.mine"
-                                                :title="r.names"
-                                                class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
-                                                :class="r.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
-                                            <template x-if="r.emojiUrl"><img class="chat-emoji !size-4 shrink-0 object-contain" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
-                                            <template x-if="!r.emojiUrl"><span x-text="r.label"></span></template>
-                                            <span x-show="r.count > 1" x-text="r.count" class="font-mono text-xs"></span>
-                                        </button>
-                                    </template>
-                                </div>
-                            </template>
-                            {{-- ⚡-Zap-Chip (Z3): validierte 9735-Summe in Sats, Brand-Ramp,
-                                 hervorgehoben wenn man selbst (mit)gezappt hat. Tap re-zappt
-                                 (nur fremde Nachrichten → openZap gatet über m.zappable).
-                                 Bei Goals (Z5) unterdrückt — der Fortschrittsbalken zeigt die Summe. --}}
-                            <template x-if="m.zaps.count && !m.goal">
-                                <div class="mt-1 flex flex-wrap gap-1">
+                            {{-- Grow-only Chip-Bereich (Schritt 1, plans/chat-message-cache-no-flicker.md):
+                                 EIN Container um Reaction- + Zap-Zeile mit stabiler :id. bridge.ts misst
+                                 im $nextTick die Höhe und hält sie als min-height — nachladende oder
+                                 zurückgenommene Chips vergrössern das Item, kollabieren es aber nie
+                                 (keine Motion in der Liste). Leer = Höhe 0 (kein reservierter Leerstreifen).
+                                 `flow-root` = eigener BFC, damit das mt-1 der inneren Zeile INNERHALB
+                                 der border-box liegt und offsetHeight es miterfasst (sonst 4px-Ruck). --}}
+                            {{-- Chip-Lane mit RESERVIERTER Höhe (min-h-7 = eine Chip-Reihe): Zap-/
+                                 Reaction-Chips laden async nach (throttled stores) → ohne Reservierung
+                                 wüchse die Zeile beim Eintreffen von 0 auf 28px → scrollHeight ändert
+                                 sich → Scrollbalken-Thumb zuckt. Der reservierte Platz fängt das ab
+                                 (Chips füllen ihn, die Zeilenhöhe bleibt konstant). Reactions UND Zap in
+                                 EINER umbrechenden Reihe (statt zwei) → auch „beide" bleibt eine Reihe
+                                 hoch → kein Zwei-Reihen-Wachstum. `mt-1` als Padding (flow-root/border-box
+                                 → offsetHeight erfasst es). --}}
+                            <div :id="'chips-'+m.id" class="mt-1 flex min-h-7 flex-wrap items-center gap-1">
+                                {{-- Reaction-Chips (C1): pro Emoji Zähler + eigener Toggle-Zustand. --}}
+                                <template x-for="r in m.reactions" :key="r.key">
+                                    {{-- Pills homogen: feste Höhe + Mindestbreite, Emoji/Bild auf
+                                         identische Größe normiert (das Inline-`chat-emoji` wäre sonst
+                                         1.4em → höhere Pill als ein Unicode-Emoji). --}}
+                                    <button type="button" x-on:click.stop="toggleReaction(m, r)" :aria-pressed="r.mine"
+                                            :title="r.names"
+                                            class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
+                                            :class="r.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
+                                        <template x-if="r.emojiUrl"><img class="chat-emoji !size-4 shrink-0 object-contain" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
+                                        <template x-if="!r.emojiUrl"><span x-text="r.label"></span></template>
+                                        <span x-show="r.count > 1" x-text="r.count" class="font-mono text-xs"></span>
+                                    </button>
+                                </template>
+                                {{-- ⚡-Zap-Chip (Z3): validierte 9735-Summe in Sats, Brand-Ramp,
+                                     hervorgehoben wenn man selbst (mit)gezappt hat. Tap re-zappt
+                                     (nur fremde Nachrichten → openZap gatet über m.zappable).
+                                     Bei Goals (Z5) unterdrückt — der Fortschrittsbalken zeigt die Summe. --}}
+                                <template x-if="m.zaps.count && !m.goal">
                                     <button type="button"
                                             x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
                                             :title="m.zaps.names"
@@ -278,8 +326,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <flux:icon.bolt variant="solid" class="size-3.5 shrink-0 text-brand-500" />
                                         <span x-text="m.zaps.sats" class="font-mono text-xs tabular-nums"></span>
                                     </button>
-                                </div>
-                            </template>
+                                </template>
+                            </div>
                         </div>
                         {{-- Aktionen: schwebende Toolbar oben rechts (bei Hover/aktivem Tap).
                              `absolute` → nimmt KEINEN Layout-Platz, der Text behält die volle
@@ -368,12 +416,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </div>
                     </div>
                 </div>
+                </template>
+                </div>
             </template>
+            </div>
+        </div>
+
+        {{-- Ältere laden: schwebende Affordanz oben (analog zum Jump-Button unten), damit sie die
+             absolut positionierte virtuelle Liste NICHT in ihrer Geometrie verschiebt. Meist nur
+             Fallback — der Eager-Prefetch (onScroll) lädt beim Hochscrollen schon von selbst. --}}
+        <div class="pointer-events-none absolute inset-x-0 top-2 flex justify-center" x-show="hasMore && messages.length > 0" x-cloak
+             x-transition.opacity>
+            <flux:button size="xs" variant="ghost" class="pointer-events-auto surface-card icon-btn-touch shadow-md" x-on:click="loadOlder()" ::disabled="loadingMore">
+                <span x-text="loadingMore ? @js(__('Lädt…')) : @js(__('Ältere laden'))"></span>
+            </flux:button>
         </div>
 
         {{-- Zurück ans Ende, sobald hochgescrollt — mit Zähler, wenn neue Nachrichten warten.
              Zwei Buttons: flux erkennt „Icon-only vs. Pille" server-seitig am Slot (ein
              x-show-Span bliebe immer „nicht leer" → Pfeil säße links statt zentriert). --}}
+        {{-- Zeigt, sobald der User nicht mehr am Boden ist (atBottom = Virtualizer.isAtEnd(60)). --}}
         <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="!atBottom" x-cloak
              x-transition.opacity>
             {{-- Keine ungelesenen → quadratischer Button, Pfeil zentriert. --}}

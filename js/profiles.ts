@@ -25,9 +25,13 @@ export async function warmProfiles(pubkeys: Iterable<string>): Promise<void> {
 
     const base = isMobile ? HOST : ''
     // In 100er-Blöcken (Endpoint-Limit) laden, damit große Räume nicht abgeschnitten werden.
+    // Awaitbar (Viewport-Prewarm-Gate, Schritt 4): seedChunk fängt Fehler intern → rejectet nie.
+    // fire-and-forget-Aufrufer nutzen weiter `void warmProfiles(...)`, unverändert.
+    const chunks: Promise<void>[] = []
     for (let i = 0; i < fresh.length; i += 100) {
-        void seedChunk(base, fresh.slice(i, i + 100))
+        chunks.push(seedChunk(base, fresh.slice(i, i + 100)))
     }
+    await Promise.all(chunks)
 }
 
 async function seedChunk(base: string, pubkeys: string[]): Promise<void> {
