@@ -107,6 +107,7 @@ import {
     type ReactionChip,
 } from './feeds'
 import type { PollType } from './polls'
+import { uploadAttachment, type Attachment } from './uploads'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
 import {
     loadEmojiGroups,
@@ -142,6 +143,22 @@ type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => 
 
 /** Zap-Feature-Flag (iOS-Kill-Switch): `window.__nostrZapsEnabled` (Default true). */
 const zapsEnabled = (): boolean => (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false
+
+/** Minimal-API des cropperjs-Instanz, die wir nutzen (C6a). */
+type CropperLike = {
+    setAspectRatio(r: number): void
+    rotate(d: number): void
+    scaleX(x: number): void
+    getData(): { scaleX: number }
+    getCroppedCanvas(o?: object): HTMLCanvasElement | null
+    destroy(): void
+}
+
+// Die cropperjs-Instanz lebt BEWUSST außerhalb des Alpine-Zustands: Alpine wickelt
+// reaktive Werte in einen Proxy, der cropperjs' interne DOM-/Layout-Mathematik
+// (offset-Messungen, Element-Identität) verfälscht → versetzte Doppelanzeige. Es gibt
+// nie mehr als einen offenen Cropper, darum genügt eine Modul-Variable.
+let cropperInstance: CropperLike | null = null
 
 /**
  * Öffnet/schließt ein Flux-Modal per Name (Flux lauscht auf modal-show/-close).
@@ -390,6 +407,10 @@ type RoomChatState = {
     sendError: string
     replyTo: { id: string; pubkey: string; name: string; text: string } | null
     sharing: boolean // Zitier-Modus (Quote-Only): Composer darf leer bleiben, Label „Zitieren"
+    attachment: Attachment | null // hochgeladener Bild-Anhang (C6a), wartet auf Senden
+    _cropSrc: string | null // Object-URL des zu croppenden Bilds (Crop-Overlay, sonst null)
+    cropRatio: number // aktives Seitenverhältnis (NaN = frei) — für die Button-Hervorhebung
+    uploadingImage: boolean // Crop→Upload läuft (Doppel-Klick-Guard, Busy-Anzeige)
     editingId: string | null // id der gerade bearbeiteten eigenen Nachricht (sonst null)
     activeId: string | null // Nachricht mit eingeblendeten Aktionen (Tap-to-toggle, Touch)
     flashId: string | null // kurz hervorgehobene Nachricht (Sprung zum Zitat)
@@ -478,6 +499,13 @@ type RoomChatState = {
     react(m: ChatMessage, content: string, emojiTag?: string[], label?: string): Promise<void>
     toggleReaction(m: ChatMessage, r: ReactionChip): Promise<void>
     send(): Promise<void>
+    pickImage(input: HTMLInputElement): void
+    setCropRatio(r: number): void
+    rotateCrop(): void
+    flipCrop(): void
+    confirmCrop(): Promise<void>
+    cancelCrop(): void
+    removeAttachment(): void
     askDelete(m: ChatMessage): void
     confirmDelete(): Promise<void>
     remove(id: string, createdAt: number): Promise<void>
@@ -1412,6 +1440,10 @@ export function registerNostrComponents(Alpine: {
         sendError: '',
         replyTo: null,
         sharing: false,
+        attachment: null,
+        _cropSrc: null,
+        cropRatio: NaN,
+        uploadingImage: false,
         editingId: null,
         activeId: null,
         flashId: null,
@@ -1913,6 +1945,7 @@ export function registerNostrComponents(Alpine: {
             this._virt?.destroy()
             this._virt = null
             this.closeMentions()
+            this.cancelCrop() // offenen Cropper + Object-URL freigeben (Raumwechsel)
         },
         // Erneuter Ladeversuch nach einem Fehler (Callout-Button): Sub + Verlauf neu aufbauen.
         retry() {
@@ -2187,8 +2220,9 @@ export function registerNostrComponents(Alpine: {
                 }
                 return
             }
-            // Zitieren (Quote-Only) darf ohne Kommentar gesendet werden, Nachricht/Reply nicht.
-            if (!content && !this.sharing) {
+            // Zitieren (Quote-Only) ODER ein Bild-Anhang (C6a) darf ohne Kommentar gesendet
+            // werden; eine reine Text-Nachricht/Reply nicht.
+            if (!content && !this.sharing && !this.attachment) {
                 return
             }
             this.sending = true
@@ -2196,19 +2230,22 @@ export function registerNostrComponents(Alpine: {
             const draft = this.draft
             const prevReply = this.replyTo
             const prevSharing = this.sharing
+            const prevAttachment = this.attachment
             const reply = prevReply ? { id: prevReply.id, pubkey: prevReply.pubkey } : undefined
             this.draft = ''
             this.replyTo = null
             this.sharing = false
+            this.attachment = null
             try {
-                const err = await sendRoomMessage(this._url, this.h, content, reply)
+                const err = await sendRoomMessage(this._url, this.h, content, reply, prevAttachment ?? undefined)
                 if (err) {
-                    // Fehlgeschlagen: Text + Zitat zurück, aktionable Hinweiszeile am Composer
-                    // (kein Toast — der verpufft und wäre neben der Zeile doppelt).
+                    // Fehlgeschlagen: Text + Zitat + Anhang zurück, aktionable Hinweiszeile am
+                    // Composer (kein Toast — der verpufft und wäre neben der Zeile doppelt).
                     this.sendError = err
                     this.draft = draft
                     this.replyTo = prevReply
                     this.sharing = prevSharing
+                    this.attachment = prevAttachment
                 } else {
                     this.scrollToBottom()
                     this.refocusComposer()
@@ -2216,6 +2253,86 @@ export function registerNostrComponents(Alpine: {
             } finally {
                 this.sending = false
             }
+        },
+        // ── C6a: Bild-Anhang (Cropper + Blossom) ─────────────────────────────────
+        // Datei gewählt → Object-URL fürs Crop-Overlay, cropperjs LAZY laden (nur wenn
+        // wirklich ein Bild angehängt wird — kein Bundle-Ballast im Normalfall) samt
+        // eigenem CSS (co-lokalisiert im Lazy-Chunk → lädt garantiert mit, unabhängig
+        // von der globalen CSS-Pipeline) und auf dem Overlay-<img> initialisieren.
+        // Input-Wert danach leeren, damit dieselbe Datei erneut wählbar bleibt.
+        pickImage(input: HTMLInputElement) {
+            const file = input.files?.[0]
+            input.value = ''
+            if (!file || !file.type.startsWith('image/')) {
+                return
+            }
+            this.cancelCrop() // evtl. offenen Cropper + alte Object-URL freigeben (Re-Pick)
+            // `_cropSrc` steuert das Crop-Overlay (x-show) direkt — kein flux:modal, dessen
+            // Transition den Cropper mit 0px-Container initialisieren könnte.
+            const src = URL.createObjectURL(file)
+            this._cropSrc = src
+            this.cropRatio = NaN
+            const magics = this as unknown as AlpineMagics
+            magics.$nextTick(async () => {
+                const [{ default: Cropper }] = await Promise.all([import('cropperjs'), import('cropperjs/dist/cropper.css')])
+                // Abgebrochen, während der Lazy-Chunk lud (cancelCrop nullte `_cropSrc`)?
+                // Dann KEINEN Zombie-Cropper auf dem versteckten <img> bauen.
+                const img = magics.$refs.cropImg as HTMLImageElement | undefined
+                if (this._cropSrc !== src || !img) {
+                    return
+                }
+                cropperInstance?.destroy()
+                cropperInstance = new Cropper(img, { viewMode: 1, autoCropArea: 1, background: false }) as unknown as CropperLike
+            })
+        },
+        setCropRatio(r: number) {
+            this.cropRatio = r
+            cropperInstance?.setAspectRatio(r)
+        },
+        rotateCrop() {
+            cropperInstance?.rotate(90)
+        },
+        // Horizontal spiegeln: aktuelles scaleX umkehren (getData liest den Ist-Zustand).
+        flipCrop() {
+            if (cropperInstance) {
+                cropperInstance.scaleX(cropperInstance.getData().scaleX >= 0 ? -1 : 1)
+            }
+        },
+        // Zuschnitt bestätigen: Canvas (max. 2048px) → WebP-Blob (q=0.85, ersetzt die
+        // separate Kompression) → Blossom-Upload. Ergebnis wird zum wartenden Anhang;
+        // Fehler bleibt im Overlay (Toast), damit der Nutzer neu zuschneiden/abbrechen kann.
+        async confirmCrop() {
+            if (!cropperInstance || this.uploadingImage) {
+                return
+            }
+            this.uploadingImage = true
+            try {
+                const canvas = cropperInstance.getCroppedCanvas({ maxWidth: 2048, maxHeight: 2048 })
+                const blob = canvas && (await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.85)))
+                if (!blob) {
+                    throw new Error('Bild konnte nicht verarbeitet werden.')
+                }
+                this.attachment = await uploadAttachment(blob, `${canvas.width}x${canvas.height}`)
+                this.cancelCrop()
+                this.refocusComposer()
+            } catch (e) {
+                toast(String((e as Error)?.message ?? e))
+            } finally {
+                this.uploadingImage = false
+            }
+        },
+        // Crop abbrechen/schließen: Cropper zerstören, Object-URL freigeben, Overlay zu
+        // (das Nullen von `_cropSrc` blendet es via x-show aus).
+        cancelCrop() {
+            cropperInstance?.destroy()
+            cropperInstance = null
+            if (this._cropSrc) {
+                URL.revokeObjectURL(this._cropSrc)
+                this._cropSrc = null
+            }
+        },
+        removeAttachment() {
+            this.attachment = null
         },
         // Löschen anfragen: Aktionsleiste zu, Merker setzen, Bestätigungs-Modal öffnen.
         askDelete(m: ChatMessage) {

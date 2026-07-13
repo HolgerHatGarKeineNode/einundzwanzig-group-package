@@ -24,6 +24,7 @@ import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from '.
 import { proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
+import type { Attachment } from './uploads'
 
 /** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
 const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
@@ -612,6 +613,7 @@ export const sendRoomMessage = async (
     h: string,
     content: string,
     reply?: ReplyTarget,
+    attachment?: Attachment,
 ): Promise<string> => {
     const tags: string[][] = roomTags(h, url)
     let body = content
@@ -621,6 +623,13 @@ export const sendRoomMessage = async (
         body = `nostr:${nevent}\n\n${content}`
     }
     withMentionTags(tags, content, url)
+    if (attachment) {
+        // NIP-92: `imeta`-Tag ans Event. Die URL zusätzlich in den Text (mit Leerzeile
+        // getrennt) — `renderMessageLink` macht Bild-URLs zu <img>, deshalb muss sie im
+        // Content stehen (nicht nur im Tag). Anhang-ohne-Kommentar → URL steht allein.
+        tags.push(attachment.imetaTag)
+        body = body ? `${body}\n\n${attachment.url}` : attachment.url
+    }
     const thunk = publishThunk({ relays: [url], event: makeEvent(MESSAGE, { content: body, tags }) })
     const err = await waitForThunkError(thunk)
     if (err) {

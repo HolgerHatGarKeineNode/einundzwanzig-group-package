@@ -483,6 +483,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="{{ __('Abbrechen') }}" />
         </div>
 
+        {{-- Anhang-Vorschau (C6a): hochgeladenes, zugeschnittenes Bild wartet auf Senden.
+             Über den Proxy (Preset `msg`) angezeigt; X nimmt den Anhang zurück. --}}
+        <div x-show="membershipReady && joined && attachment" x-cloak
+             class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
+            <img :src="$img(attachment?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
+                 class="size-14 shrink-0 rounded-tile object-cover" />
+            <div class="min-w-0 flex-1 text-xs text-muted">{{ __('Bild angehängt') }}</div>
+            <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
+                         x-on:click="removeAttachment()" aria-label="{{ __('Anhang entfernen') }}" />
+        </div>
+
         <div x-show="membershipReady && joined" x-cloak class="relative flex items-end gap-2">
             {{-- @-Mention-Autocomplete (C4): Vorschläge über dem Composer. Pfeile
                  wählen, Enter/Tab übernimmt, Escape schließt (siehe keydown unten).
@@ -505,12 +516,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:dropdown position="top" align="start" class="shrink-0">
                 <flux:button type="button" variant="ghost" icon="plus" class="icon-btn-touch" aria-label="{{ __('Anhängen') }}" />
                 <flux:menu>
+                    <flux:menu.item icon="photo" x-on:click="$refs.imageInput.click()">{{ __('Bild') }}</flux:menu.item>
                     <flux:menu.item icon="chart-bar" x-on:click="openPollCreate()">{{ __('Umfrage') }}</flux:menu.item>
                     <template x-if="zapsEnabled">
                         <flux:menu.item icon="trophy" x-on:click="openGoalCreate()">{{ __('Zap-Ziel') }}</flux:menu.item>
                     </template>
                 </flux:menu>
             </flux:dropdown>
+            {{-- Verstecktes Datei-Feld (C6a): das +-Menü löst es aus, pickImage öffnet das
+                 Crop-Modal. accept=image/* → Foto-/Galerie-Picker auf Mobile. --}}
+            <input type="file" accept="image/*" x-ref="imageInput" class="hidden"
+                   x-on:change="pickImage($event.target)" aria-hidden="true" tabindex="-1" />
             <flux:textarea x-ref="composer" x-model="draft" rows="1" resize="none"
                            placeholder="{{ __('Nachricht schreiben…') }}" aria-label="{{ __('Nachricht schreiben') }}" class="flex-1"
                            x-on:focus="atBottom && scrollToBottom()"
@@ -526,7 +542,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Zitieren (Quote-Only) darf ohne Text gesendet werden → Button dann aktiv. --}}
             <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch" :loading="true"
                          x-on:click="send()" ::data-loading="sending"
-                         ::disabled="sending || (draft.trim().length === 0 && !sharing)"
+                         ::disabled="sending || (draft.trim().length === 0 && !sharing && !attachment)"
                          aria-label="{{ __('Senden') }}" />
         </div>
 
@@ -697,6 +713,63 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </div>
     </flux:modal>
+
+    {{-- Bild zuschneiden (C6a): eigenes Overlay statt flux:modal, damit cropperjs auf
+         einem sofort sichtbaren Container fester Höhe initialisiert (eine Modal-Transition
+         lieferte 0px → versetzte Doppelanzeige). `_cropSrc` steuert Sichtbarkeit; cropperjs
+         übernimmt das <img>. A11y-Basis: role/aria-modal, Escape schließt, Initialfokus.
+         `x-effect` fokussiert die Bestätigen-Taste, sobald das Overlay erscheint. --}}
+    <div x-show="_cropSrc" x-cloak role="dialog" aria-modal="true" aria-label="{{ __('Bild zuschneiden') }}"
+         x-effect="_cropSrc && $nextTick(() => $refs.cropConfirm?.focus())"
+         x-on:keydown.escape.window="_cropSrc && cancelCrop()"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+        {{-- Zentrierte Karte statt Vollflächen-Wüste: klare Kopf-/Bühne-/Fuß-Struktur. --}}
+        <div class="surface-card flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 p-4 shadow-2xl sm:p-5"
+             x-on:click.outside="cancelCrop()">
+            <div class="flex items-center gap-2">
+                <flux:icon.scissors variant="solid" class="size-5 text-brand-500" />
+                <flux:heading size="lg">{{ __('Bild zuschneiden') }}</flux:heading>
+            </div>
+
+            {{-- Crop-Bühne mit FESTER Höhe: cropperjs misst den Container beim Init —
+                 ohne konkrete Höhe (flex-1) berechnete es das Layout auf 0px → Bug. --}}
+            <div class="h-[55vh] overflow-hidden rounded-card bg-black/40">
+                <img x-ref="cropImg" :src="_cropSrc" alt="" class="block max-w-full" style="max-height:55vh" />
+            </div>
+
+            {{-- Werkzeugleiste: Seitenverhältnisse (Frei/quadratisch/quer/hoch) + Drehen/Spiegeln. --}}
+            <div class="flex flex-wrap items-center justify-center gap-2" role="group" aria-label="{{ __('Zuschnitt-Werkzeuge') }}">
+                <template x-for="r in [
+                    { label: @js(__('Frei')), v: NaN },
+                    { label: '1:1', v: 1 },
+                    { label: '4:3', v: 4/3 },
+                    { label: '3:4', v: 3/4 },
+                    { label: '16:9', v: 16/9 },
+                ]" :key="r.label">
+                    <button type="button" x-on:click="setCropRatio(r.v)"
+                            class="pressable rounded-tile border px-3 py-1.5 text-sm font-medium tabular-nums transition-colors motion-reduce:transition-none"
+                            :aria-pressed="Number.isNaN(r.v) ? Number.isNaN(cropRatio) : cropRatio === r.v"
+                            :class="(Number.isNaN(r.v) ? Number.isNaN(cropRatio) : cropRatio === r.v)
+                                ? 'border-brand-500 bg-brand-500/15 text-brand-500'
+                                : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'"
+                            x-text="r.label"></button>
+                </template>
+                <div class="mx-1 h-6 w-px bg-white/10" aria-hidden="true"></div>
+                <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="rotateCrop()"
+                             aria-label="{{ __('Um 90° drehen') }}" />
+                <flux:button size="sm" variant="ghost" icon="arrows-right-left" x-on:click="flipCrop()"
+                             aria-label="{{ __('Horizontal spiegeln') }}" />
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <flux:button variant="ghost" x-on:click="cancelCrop()" ::disabled="uploadingImage">{{ __('Abbrechen') }}</flux:button>
+                <flux:button variant="primary" icon="check" x-ref="cropConfirm" x-on:click="confirmCrop()"
+                             ::data-loading="uploadingImage" ::disabled="uploadingImage">
+                    <span x-text="uploadingImage ? @js(__('Lade hoch…')) : @js(__('Anhängen'))"></span>
+                </flux:button>
+            </div>
+        </div>
+    </div>
 
     {{-- Interaktions-Menü (native App): Aktionen zur angetippten Nachricht.
          Web nutzt stattdessen das Zeilen-Popover (flux:dropdown). Einträge wachsen

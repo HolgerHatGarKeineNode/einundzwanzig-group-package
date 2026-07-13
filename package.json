@@ -22,6 +22,7 @@
         "@welshman/signer": "^0.8.16",
         "@welshman/store": "^0.8.16",
         "@welshman/util": "^0.8.16",
+        "cropperjs": "^1.6.2",
         "nostr-tools": "^2.23.9",
         "qrcode": "^1.5.4",
         "svelte": "^5.56.4"
