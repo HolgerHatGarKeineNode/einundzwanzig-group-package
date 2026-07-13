@@ -4,8 +4,8 @@
  * Reaction/Delete/Poll). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { DELETE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
-import { getRelay, tagEvent, tagEventForReaction } from '@welshman/app'
+import { COMMENT, DELETE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
+import { getRelay, tagEvent, tagEventForComment, tagEventForReaction } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps'
 import type { PollOption, PollType } from './polls'
@@ -135,6 +135,18 @@ export const makePollResponse = (poll: TrustedEvent, selectedIds: string[], url:
         content: '',
         tags: [['e', poll.id], ...selectedIds.map((id) => ['response', id]), ...parentRoomTags(poll, url)],
     })
+
+/**
+ * NIP-22-Kommentar (kind 1111) auf `event` (Root-Nachricht ODER Eltern-Kommentar).
+ * `tagEventForComment` setzt die NIP-22-Tags: `K/E/P` (Thread-Root, Großbuchstaben)
+ * + `k/e/p` (direktes Parent, klein) — dadurch entsteht der Baum, und ALLE Kommentare
+ * eines Threads teilen dasselbe `["E", rootId]` (Ladefilter der Thread-Ansicht).
+ * Dazu `parentRoomTags(event)` = `h` (vom Parent geerbt) + PROTECTED — sonst würde
+ * der member-only NIP-29-zooid den Kommentar nicht speichern/ausliefern (Abweichung
+ * vom Referenz-Client, der Threads gegen offene Relays fährt; hier wie Reaction/Poll).
+ */
+export const makeComment = (event: TrustedEvent, content: string, url: string) =>
+    makeEvent(COMMENT, { content, tags: [...tagEventForComment(event, url), ...parentRoomTags(event, url)] })
 
 /** `nostr:npub…`/`nostr:nprofile…`-Mentions (NIP-27) im Nachrichtentext. */
 const MENTION = /nostr:(npub1[0-9a-z]+|nprofile1[0-9a-z]+)/g

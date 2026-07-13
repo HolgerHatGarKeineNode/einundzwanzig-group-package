@@ -89,6 +89,7 @@ import {
     listenRoom,
     loadRoomMessages,
     loadRoomReactions,
+    loadRoomComments,
     loadRoomPolls,
     loadRoomZaps,
     sendRoomMessage,
@@ -101,10 +102,16 @@ import {
     sendPoll,
     sendPollResponse,
     sendGoal,
+    deriveThread,
+    loadThread,
+    listenThread,
+    sendComment,
     readRoomLastRead,
     writeRoomLastRead,
     type ChatMessage,
     type ReactionChip,
+    type ThreadRoot,
+    type ThreadComment,
 } from './feeds'
 import type { PollType } from './polls'
 import { uploadAttachment, userBlossomServers, resolveBlossomServer, ensureBlossomServersLoaded, DEFAULT_BLOSSOM_SERVER, type Attachment } from './uploads'
@@ -459,6 +466,16 @@ type RoomChatState = {
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
     infoFor: MessageInfo | null // Roh-Event-Details der offenen Nachricht-Info (C4)
+    // Thread-Ansicht (C6b, NIP-22): In-Room-Overlay statt eigener Route.
+    threadRootId: string | null // Root-Event des offenen Threads (null = Overlay zu)
+    threadRoot: ThreadRoot | null // aufgelöster Root (die zitierte Nachricht)
+    threadComments: ThreadComment[] // verschachtelte Kommentare (flach mit depth)
+    threadCount: number // Anzahl Kommentare im offenen Thread
+    threadReplyTo: { id: string; name: string } | null // Ziel-Kommentar der nächsten Antwort (null = am Root)
+    threadDraft: string // Kommentar-Entwurf im Thread-Composer
+    threadSending: boolean // Kommentar wird gerade publiziert (Doppel-Klick-Guard)
+    _threadUnsub: null | (() => void) // deriveThread-Subscription
+    _threadController: AbortController | null // Live-Sub des offenen Threads
     mentionOpen: boolean // @-Autocomplete-Popover sichtbar (C4)
     mentionQuery: string // aktuelle @-Suchzeichenfolge (nach dem @)
     mentionItems: MentionItem[] // gefilterte Mitglieder-Vorschläge
@@ -506,6 +523,11 @@ type RoomChatState = {
     copyNpub(m: ChatMessage): void
     copyJson(m: ChatMessage): void
     openInfo(m: ChatMessage): void
+    openThread(m: ChatMessage): void
+    closeThread(): void
+    setThreadReply(c: ThreadComment): void
+    clearThreadReply(): void
+    sendComment(): Promise<void>
     copy(text: string, label: string): void
     onComposerInput(el: HTMLTextAreaElement): void
     pickMention(item: MentionItem): void
@@ -1494,6 +1516,15 @@ export function registerNostrComponents(Alpine: {
         isMobile,
         menuFor: null,
         infoFor: null,
+        threadRootId: null,
+        threadRoot: null,
+        threadComments: [],
+        threadCount: 0,
+        threadReplyTo: null,
+        threadDraft: '',
+        threadSending: false,
+        _threadUnsub: null,
+        _threadController: null,
         mentionOpen: false,
         mentionQuery: '',
         mentionItems: [],
@@ -1668,6 +1699,9 @@ export function registerNostrComponents(Alpine: {
             // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
             // Promise fürs Prewarm-Gate behalten: der Reveal wartet (budgetiert) darauf.
             const reactionsReady = loadRoomReactions(url, this.h)
+            // NIP-22-Kommentare (kind 1111) nachladen, damit die Kommentar-Zähler an
+            // Quote-Only-Nachrichten schon beim ersten Paint stimmen (Live-Sub = nur Neues).
+            void loadRoomComments(url, this.h)
             // Poll-Responses (kind 1018) fürs Tally nachladen — NICHT die Poll-Karten (1068) selbst:
             // die kommen jetzt übers gepagte roomFilter (limit:50 + loadOlder), liegen also IMMER im
             // geladenen Fenster → sofort vermessen → kein Off-screen-Estimate → kein mittiger Sprung.
@@ -1962,6 +1996,7 @@ export function registerNostrComponents(Alpine: {
             this._virt = null
             this.closeMentions()
             this.cancelCrop() // offenen Cropper + Object-URL freigeben (Raumwechsel)
+            this.closeThread() // offenes Thread-Overlay + Live-Sub abbauen (Raumwechsel)
         },
         // Erneuter Ladeversuch nach einem Fehler (Callout-Button): Sub + Verlauf neu aufbauen.
         retry() {
@@ -2135,6 +2170,82 @@ export function registerNostrComponents(Alpine: {
                 seenOn: seen.map((u) => displayRelayUrl(u)),
             }
             dispatchModal('message-info')
+        },
+        // ── C6b: Thread-Ansicht (NIP-22 kind 1111 COMMENT) ─────────────────────
+        // Öffnet das In-Room-Overlay zu einer Quote-Only-Nachricht: der zitierte
+        // Root (per id, raumübergreifend) + der verschachtelte Kommentar-Baum. Der
+        // Root ist `m.quotedId` (das rohe q-Tag der Quote-Only-Nachricht). Live-Sub
+        // hält den Thread aktuell, solange das Overlay offen ist.
+        openThread(m: ChatMessage) {
+            this.activeId = null
+            this.closeMessageMenu()
+            // Rohe q-Tag-id (nicht m.reply.id): die Vorschau `reply` ist nur gesetzt, wenn die
+            // Wurzel im geladenen Fenster liegt — der Thread lädt sie ohnehin per id/#E nach,
+            // also auch für ältere/raumfremde Wurzeln (sonst wäre der Chip ein toter Button).
+            const rootId = m.quotedId
+            if (!rootId || !this._url) {
+                return
+            }
+            this.closeThread() // evtl. noch offenen Thread sauber abbauen (Wechsel)
+            const url = this._url
+            this.threadRootId = rootId
+            this._threadController = new AbortController()
+            // Root (per id) + bestehende Kommentare nachladen; die Live-Sub liefert nur Neues.
+            void loadThread(url, rootId)
+            listenThread(url, rootId, this._threadController.signal)
+            this._threadUnsub = deriveThread(url, rootId).subscribe((v) => {
+                this.threadRoot = v.root
+                this.threadComments = v.comments
+                this.threadCount = v.count
+            })
+        },
+        closeThread() {
+            this._threadController?.abort()
+            this._threadController = null
+            this._threadUnsub?.()
+            this._threadUnsub = null
+            this.threadRootId = null
+            this.threadRoot = null
+            this.threadComments = []
+            this.threadCount = 0
+            this.threadReplyTo = null
+            this.threadDraft = ''
+        },
+        // Auf einen bestehenden Kommentar antworten (verschachtelt): das nächste
+        // Absenden hängt den Kommentar unter `c` statt unter den Root.
+        setThreadReply(c: ThreadComment) {
+            this.threadReplyTo = { id: c.id, name: c.name }
+            ;(this as unknown as AlpineMagics).$nextTick(() =>
+                (this as unknown as { $refs: Record<string, HTMLElement> }).$refs.threadComposer?.focus(),
+            )
+        },
+        clearThreadReply() {
+            this.threadReplyTo = null
+        },
+        // Kommentar publizieren (kind 1111). Ziel = Eltern-Kommentar (verschachtelt)
+        // oder der Thread-Root. Optimistisch: erscheint sofort via deriveThread.
+        async sendComment() {
+            if (this.threadSending || !this._url || !this.threadRootId) {
+                return
+            }
+            const content = this.threadDraft.trim()
+            if (!content) {
+                return
+            }
+            const target = repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
+            if (!target) {
+                toast('Bezugs-Nachricht noch nicht geladen — kurz warten.')
+                return
+            }
+            this.threadSending = true
+            const err = await sendComment(this._url, target, content)
+            this.threadSending = false
+            if (err) {
+                toast(err)
+                return
+            }
+            this.threadDraft = ''
+            this.threadReplyTo = null
         },
         // ── C4: @-Mention-Autocomplete (NIP-08/NIP-27) ─────────────────────────
         // Bei jeder Composer-Eingabe: steht direkt vor dem Cursor ein `@wort`

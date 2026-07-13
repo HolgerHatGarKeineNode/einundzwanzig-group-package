@@ -12,13 +12,13 @@ import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
+import { MESSAGE, COMMENT, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { throttled } from '@welshman/store'
 import { warmZappers } from './zaps'
-import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, mentionPubkeys } from './interactions'
+import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, makeComment, mentionPubkeys } from './interactions'
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
 import { proxifyImage } from './core'
@@ -92,6 +92,9 @@ const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
 
 /** kind-1018-Poll-Responses eines Raums (NIP-88) — tragen `#h` vom Poll (via makePollResponse). */
 const roomPollResponseFilter = (h: string) => [{ kinds: [POLL_RESPONSE], '#h': [h] }]
+
+/** kind-1111-Kommentare eines Raums (NIP-22, C6b) — tragen `#h` vom Root (via makeComment). */
+const roomCommentFilter = (h: string) => [{ kinds: [COMMENT], '#h': [h] }]
 
 /**
  * kind-9735-Zap-Receipts (NIP-57): tragen KEIN `#h` — der LNURL-Server kopiert nur
@@ -295,7 +298,10 @@ export type ChatMessage = {
     unreadDivider: boolean // erste ungelesene Fremd-Nachricht (Last-Read-Grenze)
     showAuthor: boolean // erster Beitrag eines Autor-Blocks (Gruppierung)
     mine: boolean // vom eingeloggten User verfasst (→ löschbar, M5)
-    reply: ReplyPreview | null // zitierte Nachricht (q-Tag), sonst null
+    reply: ReplyPreview | null // zitierte Nachricht (q-Tag), im Fenster aufgelöst — sonst null
+    quotedId: string // rohe q-Tag-Ziel-id (auch wenn die Wurzel NICHT im Fenster liegt), '' = kein Zitat (C6b)
+    isQuote: boolean // Quote-Only-Share (q-Tag + leerer Body) → Thread-Wurzel, kommentierbar (C6b)
+    commentCount: number // Anzahl NIP-22-Kommentare (kind 1111) an dieser Quote-Only-Nachricht (C6b)
     reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
     poll: PollView | null // NIP-88-Poll (kind 1068) mit Live-Tally + eigenem Vote (C5), sonst null
     goal: GoalView | null // NIP-75-Zap-Goal (kind 9041) mit Fortschritt aus dem Zap-Tally (Z5), sonst null
@@ -423,8 +429,9 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             throttled(200, deriveEventsForUrl(url, roomPollResponseFilter(h))),
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
             throttled(200, zappersByLnurl),
+            throttled(200, deriveEventsForUrl(url, roomCommentFilter(h))),
         ],
-        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers]) => {
+        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $comments]) => {
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
         // Reactions ohne `e`-Tag landen im ''-Bucket und werden nie abgerufen (event.id ≠ '').
         const reactionsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions)
@@ -433,6 +440,10 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // Zap-Receipts (9735) nach Ziel-Nachricht (`#e`) bündeln — je Nachricht validiert
         // getallyt. 9735 trägt kein `#h`, `#e` ist der einzige verlässliche Raumbezug.
         const zapsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $zaps)
+        // NIP-22-Kommentare (kind 1111, C6b) nach Thread-Root (`["E", rootId]`) bündeln —
+        // ALLE Kommentare eines Threads (auch verschachtelte) teilen dieses Root-`E`, also
+        // ist die Bucket-Größe die Gesamt-Thread-Zahl der zitierten Nachricht.
+        const commentsByRoot = groupBy((c) => getTagValue('E', c.tags) ?? '', $comments)
         // First-Paint-Seed: fehlende Autor- UND erwähnte Profile (NIP-27) vom geteilten
         // Backend-Cache holen (dedupliziert intern; welshman löst parallel live auf).
         // Ohne die Mention-Pubkeys blieben extern referenzierte @-Mentions (Nicht-
@@ -470,6 +481,10 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             const reply: ReplyPreview | null = quoted
                 ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(bodyWithoutQuote(quoted)) }
                 : null
+            // Quote-Only-Share (C3): q-Tag gesetzt UND kein eigener Body → Thread-Wurzel (C6b).
+            // Nur diese Nachrichten tragen Kommentare; ein Reply-MIT-Text bleibt einfacher Chat.
+            const isQuote = quotedId !== undefined && bodyWithoutQuote(event).trim() === ''
+            const commentCount = isQuote && quotedId ? (commentsByRoot.get(quotedId)?.length ?? 0) : 0
 
             const profile = $profiles.get(event.pubkey)
             // Zapper des Autors aus dem gewärmten `zappersByLnurl`-Store (lud16/lud06 → lnurl).
@@ -501,6 +516,9 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 showAuthor,
                 mine,
                 reply,
+                quotedId: quotedId ?? '',
+                isQuote,
+                commentCount,
                 reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me, nameOf),
                 poll: event.kind === POLL ? buildPollView(event, pollResponsesByTarget.get(event.id) ?? [], $me) : null,
                 goal: event.kind === ZAP_GOAL ? buildGoalView(event, zaps) : null,
@@ -513,14 +531,15 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
 
 /**
  * Öffnet eine Live-Subscription für NEUE Room-Events (bleibt bis abort offen):
- * Nachrichten (kind 9), Reactions (kind 7) und Tombstones (kind 5) — alle `#h`.
- * So erscheinen Fremd-Reactions und -Löschungen live, ohne separate Subscription.
+ * Nachrichten (kind 9), Kommentare (kind 1111), Reactions (kind 7) und Tombstones
+ * (kind 5) — alle `#h`. So erscheinen Fremd-Reactions/-Löschungen und der Live-
+ * Kommentar-Zähler ohne separate Subscription.
  */
 export const listenRoom = (url: string, h: string, signal: AbortSignal): void => {
     void request({
         relays: [url],
         signal,
-        filters: [{ kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL], '#h': [h], limit: 0 }],
+        filters: [{ kinds: [MESSAGE, COMMENT, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL], '#h': [h], limit: 0 }],
     })
 }
 
@@ -544,6 +563,14 @@ export const loadRoomPolls = (url: string, h: string): Promise<TrustedEvent[]> =
  */
 export const loadRoomReactions = (url: string, h: string): Promise<TrustedEvent[]> =>
     load({ relays: [url], filters: [{ kinds: [REACTION, DELETE], '#h': [h] }] })
+
+/**
+ * Lädt die bestehenden NIP-22-Kommentare (kind 1111) eines Raums, damit die
+ * Kommentar-Zähler an Quote-Only-Nachrichten schon beim ersten Öffnen stimmen
+ * (die Live-Sub liefert nur Neues). Pro Raum überschaubar — kein Paging (wie Reactions).
+ */
+export const loadRoomComments = (url: string, h: string): Promise<TrustedEvent[]> =>
+    load({ relays: [url], filters: [{ kinds: [COMMENT], '#h': [h] }] })
 
 /**
  * Lädt bestehende kind-9735-Zap-Receipts für die übergebenen Nachrichten-IDs, damit
@@ -709,6 +736,157 @@ export const sendReaction = async (
     emojiTag?: string[],
 ): Promise<string> => {
     const thunk = publishThunk({ relays: [url], event: makeReaction(target, content, url, emojiTag ? [emojiTag] : []) })
+    const err = await waitForThunkError(thunk)
+    if (err) {
+        repository.removeEvent(thunk.event.id)
+    }
+    return err ? mapRelayError(err) : ''
+}
+
+// ─── C6b: NIP-22-Thread-Ansicht (kind 1111 COMMENT) ────────────────────────────
+
+/** Der Root eines Threads (die zitierte Nachricht). `missing`: noch nicht (nach)geladen. */
+export type ThreadRoot = {
+    id: string
+    pubkey: string
+    name: string
+    picture: string
+    profileReady: boolean
+    nip05: string
+    html: string
+    time: string
+    fullTime: string
+    missing: boolean
+}
+
+/** Ein Kommentar im Thread — flach mit `depth` (Einrückung) + `replyToName` (Elternautor). */
+export type ThreadComment = {
+    id: string
+    pubkey: string
+    created_at: number
+    name: string
+    picture: string
+    profileReady: boolean
+    nip05: string
+    html: string
+    time: string
+    fullTime: string
+    mine: boolean
+    depth: number // Verschachtelungstiefe (0 = direkt am Root)
+    replyToName: string // Autor des Eltern-Kommentars (leer = am Root)
+}
+
+/** Render-fertige Thread-Sicht: aufgelöster Root + verschachtelte Kommentar-Liste (DFS). */
+export type ThreadView = { rootId: string; root: ThreadRoot; comments: ThreadComment[]; count: number }
+
+/** Personen-/Render-Felder eines Events (geteilt von Root + Kommentar). */
+const personFields = (
+    event: TrustedEvent,
+    $profiles: Map<string, { picture?: string; nip05?: string }>,
+    $handles: Parameters<typeof verifiedNip05>[2],
+) => {
+    const profile = $profiles.get(event.pubkey)
+    return {
+        name: displayProfileByPubkey(event.pubkey),
+        picture: profile?.picture ?? '',
+        profileReady: profileHasName(profile),
+        nip05: verifiedNip05(event.pubkey, $profiles, $handles),
+        html: renderMessageHtml(event),
+        time: timeLabel(event.created_at),
+        fullTime: fullTimeLabel(event.created_at),
+    }
+}
+
+/**
+ * Baut aus den flachen kind-1111-Events den Kommentar-Baum in DFS-Reihenfolge: das
+ * direkte Parent steckt im kleinen `["e", parentId]` (NIP-22). Kinder werden je Parent
+ * zeitlich aufsteigend eingehängt; `depth` trägt die Einrückung. Ein `seen`-Set schützt
+ * gegen Zyklen/Doppelungen; Waisen (Parent fehlt/außerhalb) landen als depth-0 am Ende,
+ * damit kein Kommentar verloren geht.
+ */
+const buildCommentTree = (
+    comments: TrustedEvent[],
+    rootId: string,
+    me: string | null | undefined,
+    $profiles: Map<string, { picture?: string; nip05?: string }>,
+    $handles: Parameters<typeof verifiedNip05>[2],
+): ThreadComment[] => {
+    const childrenOf = groupBy((c) => getTagValue('e', c.tags) ?? '', comments)
+    const out: ThreadComment[] = []
+    const seen = new Set<string>()
+    const toComment = (c: TrustedEvent, depth: number, replyToName: string): ThreadComment => ({
+        id: c.id,
+        pubkey: c.pubkey,
+        created_at: c.created_at,
+        mine: c.pubkey === me,
+        depth,
+        replyToName,
+        ...personFields(c, $profiles, $handles),
+    })
+    const walk = (parentId: string, depth: number, parentName: string): void => {
+        for (const c of sortEventsAsc(childrenOf.get(parentId) ?? [])) {
+            if (seen.has(c.id)) {
+                continue // Zyklus-/Doppel-Guard
+            }
+            seen.add(c.id)
+            out.push(toComment(c, depth, parentName))
+            walk(c.id, depth + 1, displayProfileByPubkey(c.pubkey))
+        }
+    }
+    walk(rootId, 0, '')
+    for (const c of sortEventsAsc(comments)) {
+        if (!seen.has(c.id)) {
+            seen.add(c.id)
+            out.push(toComment(c, 0, '')) // Waise: Parent nicht im Thread → als Wurzel-Ebene zeigen
+        }
+    }
+    return out
+}
+
+/**
+ * Reaktive Thread-Sicht zu `rootId`: der aufgelöste Root (per id, raumübergreifend im
+ * Repository gefunden) + alle Kommentare (kind 1111) mit `["E", rootId]` als Baum. Lädt
+ * über `#E` (Thread-Root-Tag) — nicht `#h` —, damit auch raumfremde/ältere Roots tragen.
+ */
+export const deriveThread = (url: string, rootId: string): Readable<ThreadView> =>
+    derived(
+        [
+            deriveEventsForUrl(url, [{ ids: [rootId] }]),
+            deriveEventsForUrl(url, [{ kinds: [COMMENT], '#E': [rootId] }]),
+            throttled(200, profilesByPubkey),
+            pubkey,
+            throttled(200, handlesByNip05),
+        ],
+        ([rootEvents, commentEvents, $profiles, $me, $handles]) => {
+            void warmProfiles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
+            warmHandles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
+            const rootEvent = rootEvents.find((e) => e.id === rootId)
+            const root: ThreadRoot = rootEvent
+                ? { id: rootEvent.id, pubkey: rootEvent.pubkey, missing: false, ...personFields(rootEvent, $profiles, $handles) }
+                : { id: rootId, pubkey: '', name: '', picture: '', profileReady: false, nip05: '', html: '', time: '', fullTime: '', missing: true }
+            return { rootId, root, comments: buildCommentTree(commentEvents, rootId, $me, $profiles, $handles), count: commentEvents.length }
+        },
+    )
+
+/**
+ * Lädt Root (per id) + bestehende Kommentare (kind 1111, `#E`) eines Threads — die
+ * Live-Sub liefert nur Neues. Root-Load per id trägt auch raumfremde/ältere Wurzeln.
+ */
+export const loadThread = (url: string, rootId: string): Promise<TrustedEvent[]> =>
+    load({ relays: [url], filters: [{ ids: [rootId] }, { kinds: [COMMENT], '#E': [rootId] }] })
+
+/** Live-Sub für NEUE Kommentare eines offenen Threads (`#E`), bis abort. */
+export const listenThread = (url: string, rootId: string, signal: AbortSignal): void => {
+    void request({ relays: [url], signal, filters: [{ kinds: [COMMENT], '#E': [rootId], limit: 0 }] })
+}
+
+/**
+ * Kommentiert `target` (Thread-Root ODER Eltern-Kommentar) mit einem kind-1111 (NIP-22).
+ * Optimistisch: der Thunk legt den Kommentar sofort ins Repository (erscheint via
+ * `deriveThread`); bei Relay-Reject zurückgenommen. Gibt '' bei Erfolg, sonst den Fehler.
+ */
+export const sendComment = async (url: string, target: TrustedEvent, content: string): Promise<string> => {
+    const thunk = publishThunk({ relays: [url], event: makeComment(target, content, url) })
     const err = await waitForThunkError(thunk)
     if (err) {
         repository.removeEvent(thunk.event.id)

@@ -339,6 +339,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <span x-text="m.zaps.sats" class="font-mono text-xs tabular-nums"></span>
                                     </button>
                                 </template>
+                                {{-- Kommentar-Chip (C6b): nur an Quote-Only-Nachrichten (Thread-Wurzel).
+                                     Öffnet die Thread-Ansicht; zeigt die Kommentar-Zahl bzw. lädt zum
+                                     Kommentieren ein (auch bei 0). --}}
+                                <template x-if="m.isQuote">
+                                    <button type="button" x-on:click.stop="openThread(m)"
+                                            :aria-label="m.commentCount + @js(__(' Kommentare — Thread öffnen'))"
+                                            class="pressable inline-flex h-6 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none transition-colors motion-reduce:transition-none"
+                                            :class="m.commentCount ? 'border-brand-500/40 bg-brand-500/10 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
+                                        <flux:icon.chat-bubble-left-right class="size-3.5 shrink-0" />
+                                        <span class="text-xs" x-text="m.commentCount ? (m.commentCount + (m.commentCount === 1 ? @js(__(' Kommentar')) : @js(__(' Kommentare')))) : @js(__('Kommentieren'))"></span>
+                                    </button>
+                                </template>
                             </div>
                         </div>
                         {{-- Aktionen: schwebende Toolbar oben rechts (bei Hover/aktivem Tap).
@@ -864,10 +876,116 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </template>
     </flux:modal>
 
+    {{-- Thread-Ansicht (C6b, NIP-22 kind 1111): In-Room-Overlay statt eigener Route.
+         Zeigt den zitierten Root + den verschachtelten Kommentar-Baum; kommentieren
+         läuft über den eigenen Composer (Root oder Antwort auf einen Kommentar).
+         Web + Mobile teilen dieses Panel (eine View, kein Fork). --}}
+    {{-- `!lightboxSrc`-Guard: wird ein Inline-Bild IM Thread groß angesehen, darf das
+         Schließen der Lightbox (Escape/Klick) NICHT auch den Thread abbauen. Der Thread
+         steht im DOM VOR der Lightbox → sein window-Escape-Listener feuert zuerst und
+         sieht `lightboxSrc` noch gesetzt; der Lightbox-Klick trägt zusätzlich `.stop`. --}}
+    <div x-show="threadRootId" x-cloak role="dialog" aria-modal="true" aria-label="{{ __('Thread') }}"
+         x-effect="threadRootId && $nextTick(() => $refs.threadClose?.focus())"
+         x-on:keydown.escape.window="threadRootId && !lightboxSrc && closeThread()"
+         class="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4">
+        <div class="surface-card flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-card shadow-2xl sm:rounded-card"
+             x-on:click.outside="!lightboxSrc && closeThread()">
+            {{-- Kopf: Zurück + Titel + Kommentar-Zahl. --}}
+            <div class="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+                <flux:button size="xs" variant="ghost" icon="arrow-left" class="icon-btn-touch"
+                             x-ref="threadClose" x-on:click="closeThread()" aria-label="{{ __('Zurück') }}" />
+                <flux:heading size="lg" class="flex-1">{{ __('Thread') }}</flux:heading>
+                <span class="shrink-0 text-xs text-muted"
+                      x-text="threadCount + (threadCount === 1 ? @js(__(' Kommentar')) : @js(__(' Kommentare')))"></span>
+            </div>
+
+            {{-- Root + Kommentare (scrollbar). --}}
+            <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+                {{-- Zitierte Root-Nachricht. --}}
+                <template x-if="threadRoot && !threadRoot.missing">
+                    <div class="surface-card rounded-tile border border-brand-500/20 p-3">
+                        <div class="mb-1 flex items-center gap-2">
+                            <x-group::nostr-avatar picture="threadRoot.picture" name="threadRoot.name" />
+                            <span class="truncate text-sm font-semibold" x-text="threadRoot.name"></span>
+                            <span class="inline-flex size-4 shrink-0 items-center justify-center">
+                                <x-group::nostr-nip05 nip05="threadRoot.nip05" />
+                            </span>
+                            <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="threadRoot.time"></span>
+                        </div>
+                        <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="threadRoot.html"
+                             x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
+                    </div>
+                </template>
+                <template x-if="threadRoot?.missing">
+                    <div class="rounded-tile border border-white/10 p-3 text-sm text-muted">
+                        {{ __('Originalnachricht (noch) nicht verfügbar.') }}
+                    </div>
+                </template>
+
+                {{-- Kommentar-Baum: flach mit Einrückung nach `depth` (gedeckelt). --}}
+                <template x-if="threadComments.length === 0">
+                    <p class="py-6 text-center text-sm text-muted">{{ __('Noch keine Kommentare — schreib den ersten.') }}</p>
+                </template>
+                <template x-for="c in threadComments" :key="c.id">
+                    <div :style="'margin-left:' + Math.min(c.depth, 6) * 14 + 'px'"
+                         class="border-l-2 border-white/10 pl-2">
+                        <div class="flex items-center gap-2">
+                            <x-group::nostr-avatar picture="c.picture" name="c.name" />
+                            <span class="truncate text-sm font-semibold" x-text="c.name"></span>
+                            <span class="inline-flex size-4 shrink-0 items-center justify-center">
+                                <x-group::nostr-nip05 nip05="c.nip05" />
+                            </span>
+                            <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="c.time"></span>
+                        </div>
+                        {{-- Bei verschachtelten Antworten: „Antwort auf <Autor>". --}}
+                        <template x-if="c.replyToName">
+                            <div class="text-xs text-muted">
+                                {{ __('Antwort auf') }} <span class="text-brand-500" x-text="c.replyToName"></span>
+                            </div>
+                        </template>
+                        <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="c.html"
+                             x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
+                        <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" class="icon-btn-touch -ml-1 mt-0.5"
+                                     x-show="joined" x-cloak x-on:click="setThreadReply(c)">{{ __('Antworten') }}</flux:button>
+                    </div>
+                </template>
+            </div>
+
+            {{-- Composer: Root kommentieren oder auf einen Kommentar antworten. --}}
+            <div class="border-t border-white/10 p-3">
+                <template x-if="joined">
+                    <div>
+                        {{-- Antwort-Kontext (verschachtelt) mit Abbrechen. --}}
+                        <div x-show="threadReplyTo" x-cloak
+                             class="mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-2 py-1 text-xs">
+                            <span class="min-w-0 flex-1 truncate text-muted">
+                                {{ __('Antwort auf') }} <span class="text-brand-500" x-text="threadReplyTo?.name"></span>
+                            </span>
+                            <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
+                                         x-on:click="clearThreadReply()" aria-label="{{ __('Abbrechen') }}" />
+                        </div>
+                        <div class="flex items-end gap-2">
+                            <flux:textarea x-ref="threadComposer" x-model="threadDraft" rows="1" resize="none" class="flex-1"
+                                           placeholder="{{ __('Kommentieren…') }}" aria-label="{{ __('Kommentar schreiben') }}"
+                                           x-on:keydown="if ($event.key === 'Enter' && !$event.shiftKey) { $event.preventDefault(); sendComment() }" />
+                            <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch"
+                                         x-on:click="sendComment()" ::data-loading="threadSending"
+                                         ::disabled="threadSending || threadDraft.trim().length === 0"
+                                         aria-label="{{ __('Kommentar senden') }}" />
+                        </div>
+                    </div>
+                </template>
+                <template x-if="!joined">
+                    <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu kommentieren.') }}</flux:text>
+                </template>
+            </div>
+        </div>
+    </div>
+
     {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds (Proxy-Preset `full`).
          Klick/Esc schließt; Proxy-Fehler → Original-URL (Offline-Fallback). --}}
     <div x-show="lightboxSrc" x-cloak x-transition.opacity
-         x-on:click="lightboxSrc = null" x-on:keydown.escape.window="lightboxSrc = null"
+         x-on:click.stop="lightboxSrc = null" x-on:keydown.escape.window="lightboxSrc = null"
          class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
         <img :src="lightboxSrc" alt="" class="max-h-full max-w-full rounded-card"
              x-on:error="$el.dataset.orig || ($el.dataset.orig = 1, $el.src = decodeURIComponent(($el.src.split('src=')[1] || '')))" />
