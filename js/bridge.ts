@@ -2233,13 +2233,19 @@ export function registerNostrComponents(Alpine: {
             const prevReply = this.replyTo
             const prevSharing = this.sharing
             const prevAttachment = this.attachment
+            // Rohe (NICHT-reaktive) Kopie fürs Event: `this.attachment.imetaTag` ist ein
+            // Alpine-Proxy-Array; landete es in den Event-Tags, scheiterte welshmans
+            // Event-Klon (structuredClone/postMessage) an „Proxy could not be cloned".
+            const rawAttachment = prevAttachment
+                ? { url: prevAttachment.url, imetaTag: [...prevAttachment.imetaTag] }
+                : undefined
             const reply = prevReply ? { id: prevReply.id, pubkey: prevReply.pubkey } : undefined
             this.draft = ''
             this.replyTo = null
             this.sharing = false
             this.attachment = null
             try {
-                const err = await sendRoomMessage(this._url, this.h, content, reply, prevAttachment ?? undefined)
+                const err = await sendRoomMessage(this._url, this.h, content, reply, rawAttachment)
                 if (err) {
                     // Fehlgeschlagen: Text + Zitat + Anhang zurück, aktionable Hinweiszeile am
                     // Composer (kein Toast — der verpufft und wäre neben der Zeile doppelt).
