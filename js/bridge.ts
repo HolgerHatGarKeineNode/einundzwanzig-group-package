@@ -107,7 +107,8 @@ import {
     type ReactionChip,
 } from './feeds'
 import type { PollType } from './polls'
-import { uploadAttachment, type Attachment } from './uploads'
+import { uploadAttachment, userBlossomServers, resolveBlossomServer, ensureBlossomServersLoaded, DEFAULT_BLOSSOM_SERVER, type Attachment } from './uploads'
+import { userBlossomServerList } from '@welshman/app'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
 import {
     loadEmojiGroups,
@@ -305,6 +306,19 @@ type RelaysState = {
     loading: boolean
     _unsub: null | (() => void)
     _unsubEvents: null | (() => void)
+    init(): Promise<void>
+    destroy(): void
+}
+
+type BlossomState = {
+    servers: string[] // alle konfigurierten Blossom-Server (kind 10063), normalisiert
+    active: string // der für Uploads gewählte Server (erster der Liste, sonst Default)
+    isDefault: boolean // kein eigener Server → Fallback (DEFAULT_BLOSSOM_SERVER)
+    defaultServer: string // der Fallback-Server (für die Anzeige)
+    loading: boolean
+    _destroyed: boolean // Insel per wire:navigate abgebaut, während init() noch auf authReady wartete
+    _unsubList: null | (() => void) // reaktive Liste (Repository → Anzeige)
+    _unsubPk: null | (() => void) // pubkey → Load anstoßen
     init(): Promise<void>
     destroy(): void
 }
@@ -3137,6 +3151,58 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._unsub?.()
             this._unsubEvents?.()
+        },
+    }))
+
+    // Blossom-Medien-Upload (C6a): zeigt in den Einstellungen, welcher Blossom-Server aus
+    // dem Profil (kind 10063) für Uploads verwendet wird — oder ob der Standard greift.
+    // Reaktiv über `userBlossomServerList` (aktualisiert bei Login + Eintreffen der Liste);
+    // der explizite Load stößt den Outbox-Fetch an, damit sie auch beim ersten Besuch da ist.
+    Alpine.data('nostrBlossom', (): BlossomState => ({
+        servers: [],
+        active: '',
+        isDefault: true,
+        defaultServer: DEFAULT_BLOSSOM_SERVER,
+        loading: true,
+        _destroyed: false,
+        _unsubList: null,
+        _unsubPk: null,
+        async init() {
+            await authReady
+            if (this._destroyed) {
+                return // während des await abgebaut (schnelles wire:navigate) → nicht mehr abonnieren
+            }
+            // Reaktive Anzeige: userBlossomServerList spiegelt das Repository (aktualisiert,
+            // sobald die kind-10063 eintrifft — auch spät). `active` kommt aus derselben
+            // Auflösung wie der Upload (resolveBlossomServer) → die Debug-Anzeige zeigt exakt
+            // den genutzten Server, kann nie von der Upload-Wahl abweichen.
+            this._unsubList = userBlossomServerList.subscribe(() => {
+                this.servers = userBlossomServers()
+                this.isDefault = this.servers.length === 0
+                this.active = resolveBlossomServer()
+            })
+            // Load an den pubkey hängen (nicht nur einmal nach authReady): auf einem harten
+            // /settings-Reload ist der pubkey evtl. noch nicht hydriert → sonst lief der Load
+            // ins Leere und die Liste erschien erst nach einem Seitenwechsel. Deckt auch den
+            // Account-Wechsel ohne Remount ab (neuer pubkey → neuer Load).
+            this._unsubPk = pubkey.subscribe((pk: string | undefined) => {
+                if (!pk) {
+                    this.loading = false
+
+                    return
+                }
+                this.loading = true
+                void ensureBlossomServersLoaded()
+                    .catch(() => {})
+                    .finally(() => {
+                        this.loading = false
+                    })
+            })
+        },
+        destroy() {
+            this._destroyed = true
+            this._unsubList?.()
+            this._unsubPk?.()
         },
     }))
 

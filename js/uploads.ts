@@ -9,13 +9,15 @@
  * (kind 10063) des Nutzers, sonst der Default. Render steht bereits (`renderMessageLink`
  * macht Bild-URLs zu `<img>`), deshalb muss die URL eine Bild-Endung tragen.
  */
-import { getListTags, getTagValues, makeBlossomAuthEvent, uploadBlob } from '@welshman/util'
-import { signer, userBlossomServerList } from '@welshman/app'
-import { first, parseJson, sha256 } from '@welshman/lib'
+import { BLOSSOM_SERVERS, getListTags, getTagValues, makeBlossomAuthEvent, uploadBlob } from '@welshman/util'
+import { signer, pubkey, userBlossomServerList } from '@welshman/app'
+import { load } from '@welshman/net'
+import { parseJson, sha256 } from '@welshman/lib'
 import { get } from 'svelte/store'
+import { DEFAULT_RELAYS } from './core'
 
 /** Fallback, wenn der Nutzer keine eigene Blossom-Server-Liste (kind 10063) hat. */
-const DEFAULT_BLOSSOM_SERVER = 'https://blossom.band'
+export const DEFAULT_BLOSSOM_SERVER = 'https://blossom.band'
 
 /**
  * Normalisiert eine Server-URL auf ihren http(s)-Ursprung (+Pfad, Trailing-Slash weg).
@@ -30,15 +32,48 @@ const normalizeServer = (raw: string): string => {
     return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, '')
 }
 
-/** Erster Blossom-Server des Nutzers (kind 10063) oder der Default (immer gültig). */
-export const resolveBlossomServer = (): string => {
-    const candidate = first(getTagValues('server', getListTags(get(userBlossomServerList))))
-    try {
-        return normalizeServer(candidate ?? DEFAULT_BLOSSOM_SERVER)
-    } catch {
-        return normalizeServer(DEFAULT_BLOSSOM_SERVER)
-    }
+/**
+ * Alle im Profil (kind 10063, `server`-Tags) konfigurierten Blossom-Server, normalisiert;
+ * ungültige Einträge fallen still raus. LIEST nur den aktuellen Repository-Stand — die
+ * Liste muss vorher geladen sein (`ensureBlossomServersLoaded`), sonst ist sie leer.
+ */
+export const userBlossomServers = (): string[] => {
+    const normalized = getTagValues('server', getListTags(get(userBlossomServerList)))
+        .map((u) => {
+            try {
+                return normalizeServer(u)
+            } catch {
+                return null
+            }
+        })
+        .filter((u): u is string => u !== null)
+    // Dedupe: doppelte/aliasgleiche Einträge (z. B. mit/ohne Trailing-Slash) kollidierten
+    // sonst als `x-for :key` in der Settings-Liste.
+    return [...new Set(normalized)]
 }
+
+/**
+ * Lädt die kind-10063-Liste des Nutzers in den Repository-Store — EXPLIZIT von
+ * `DEFAULT_RELAYS` (wie die Relay-Liste in der Settings-Insel), NICHT über welshmans
+ * Outbox-Loader: der braucht die (auf einem harten Reload noch nicht geladene) Relay-
+ * Auswahl des Nutzers und fand die Liste sonst erst nach einem Seitenwechsel.
+ * MUSS vor `resolveBlossomServer`/`userBlossomServers` awaited werden — `userBlossomServerList`
+ * gibt synchron nur den JETZIGEN Stand zurück, sonst greift der Fallback trotz Profil-Server.
+ */
+const blossomLoadedFor = new Set<string>()
+export const ensureBlossomServersLoaded = async (): Promise<void> => {
+    const pk = pubkey.get()
+    if (!pk || blossomLoadedFor.has(pk)) {
+        return
+    }
+    // Einmal pro Sitzung & Pubkey holen (kein Refetch bei jedem Upload). Erst NACH Erfolg
+    // markieren — scheitert der Load, wird beim nächsten Mal erneut versucht.
+    await load({ filters: [{ kinds: [BLOSSOM_SERVERS], authors: [pk] }], relays: DEFAULT_RELAYS })
+    blossomLoadedFor.add(pk)
+}
+
+/** Erster Blossom-Server des Nutzers (kind 10063) oder der Default (immer gültig). */
+export const resolveBlossomServer = (): string => userBlossomServers()[0] ?? normalizeServer(DEFAULT_BLOSSOM_SERVER)
 
 export type Attachment = { url: string; imetaTag: string[] }
 
@@ -78,6 +113,11 @@ export const uploadAttachment = async (blob: Blob, dim?: string): Promise<Attach
     if (!activeSigner) {
         throw new Error('Kein aktiver Signer — bitte anmelden.')
     }
+    // Profil-Blossom-Liste (kind 10063) laden, BEVOR wir den Server wählen — sonst greift
+    // beim ersten Upload der Fallback, obwohl der Nutzer einen eigenen Server konfiguriert hat.
+    // Best-effort: scheitert der Load (Netz), fällt resolveBlossomServer auf den Default —
+    // der Upload soll daran nicht sterben.
+    await ensureBlossomServersLoaded().catch(() => {})
     const server = resolveBlossomServer()
     const hash = await sha256(await blob.arrayBuffer())
     const authEvent = await activeSigner.sign(makeBlossomAuthEvent({ action: 'upload', server, hashes: [hash] }))

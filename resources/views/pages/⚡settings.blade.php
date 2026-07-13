@@ -174,6 +174,56 @@ new #[Layout('group::einundzwanzig')] #[Title('Einstellungen')] class extends Co
             </section>
         @endif
 
+        {{-- ── Medien-Upload (Blossom, C6a): welcher Blossom-Server wird für Bild-Uploads
+             genutzt? Aus dem Profil (kind 10063) oder der Standard. Read-only Anzeige zum
+             Selbst-Debuggen der Server-Auflösung. --}}
+        <section x-data="nostrBlossom" aria-labelledby="settings-blossom">
+            <flux:heading id="settings-blossom" level="2" size="sm" class="mb-2 text-muted">{{ __('Medien-Upload (Blossom)') }}</flux:heading>
+            <flux:text class="mb-2 text-xs text-muted">{{ __('Server für hochgeladene Bilder (aus deinem Profil, kind 10063).') }}</flux:text>
+
+            <template x-if="loading">
+                <div class="surface-card space-y-2 p-3" aria-busy="true">
+                    <span class="sr-only" aria-live="polite">{{ __('Blossom-Server werden geladen…') }}</span>
+                    <div class="skeleton h-4 w-48"></div>
+                </div>
+            </template>
+
+            <div x-show="!loading" x-cloak class="space-y-2">
+                {{-- Aktiver Server + Herkunft (Profil vs. Standard). --}}
+                <div class="surface-card flex items-center justify-between gap-3 p-3">
+                    <div class="min-w-0">
+                        <flux:text class="text-sm font-medium">{{ __('Aktiver Server') }}</flux:text>
+                        <div class="truncate font-mono text-xs text-brand-600 dark:text-brand-400" x-text="active"></div>
+                    </div>
+                    {{-- Plain-Span (flux:badge-Farbe ist Blade-Compile-Zeit, nicht reaktiv). --}}
+                    <span class="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
+                          :class="isDefault ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-green-500/15 text-green-600 dark:text-green-400'"
+                          x-text="isDefault ? @js(__('Standard')) : @js(__('aus Profil'))"></span>
+                </div>
+
+                {{-- Hinweis, wenn kein eigener Server gefunden wurde (Debug-Hilfe). --}}
+                <template x-if="isDefault">
+                    <flux:text class="px-1 text-xs text-muted">
+                        {{ __('Kein eigener Blossom-Server im Profil gefunden — es wird der Standard verwendet:') }}
+                        <span class="font-mono" x-text="defaultServer"></span>
+                    </flux:text>
+                </template>
+
+                {{-- Volle Liste (falls mehrere), erster = aktiv. --}}
+                <template x-if="servers.length > 1">
+                    <div class="surface-card divide-y divide-zinc-100 dark:divide-zinc-800" role="list">
+                        <template x-for="(s, i) in servers" :key="s">
+                            <div class="flex items-center gap-2 p-3" role="listitem">
+                                <flux:icon.server class="size-4 shrink-0 text-muted" />
+                                <span class="min-w-0 flex-1 truncate font-mono text-xs" x-text="s"></span>
+                                <span class="shrink-0 text-[0.7rem] text-brand-500" x-show="i === 0">{{ __('aktiv') }}</span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </section>
+
         {{-- ── Darstellung (§6.6): Theme = der EINE Regler ($flux.appearance-Store,
              flackerfrei im <head>; nie hart class="dark"). --}}
         <section aria-labelledby="settings-appearance">
