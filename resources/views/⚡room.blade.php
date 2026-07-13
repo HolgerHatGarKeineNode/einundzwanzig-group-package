@@ -531,6 +531,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                            placeholder="{{ __('Nachricht schreiben…') }}" aria-label="{{ __('Nachricht schreiben') }}" class="flex-1"
                            x-on:focus="atBottom && scrollToBottom()"
                            x-on:input="autoGrow($event.target); sendError = ''; onComposerInput($event.target)"
+                           x-on:paste="pasteImage($event)"
                            x-on:keydown="
                                if (mentionOpen) {
                                    if ($event.key === 'ArrowDown') { $event.preventDefault(); mentionIndex = (mentionIndex + 1) % mentionItems.length; return }

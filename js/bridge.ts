@@ -499,7 +499,9 @@ type RoomChatState = {
     react(m: ChatMessage, content: string, emojiTag?: string[], label?: string): Promise<void>
     toggleReaction(m: ChatMessage, r: ReactionChip): Promise<void>
     send(): Promise<void>
+    _openCropper(file: File): void
     pickImage(input: HTMLInputElement): void
+    pasteImage(e: ClipboardEvent): void
     setCropRatio(r: number): void
     rotateCrop(): void
     flipCrop(): void
@@ -2255,15 +2257,12 @@ export function registerNostrComponents(Alpine: {
             }
         },
         // ── C6a: Bild-Anhang (Cropper + Blossom) ─────────────────────────────────
-        // Datei gewählt → Object-URL fürs Crop-Overlay, cropperjs LAZY laden (nur wenn
-        // wirklich ein Bild angehängt wird — kein Bundle-Ballast im Normalfall) samt
-        // eigenem CSS (co-lokalisiert im Lazy-Chunk → lädt garantiert mit, unabhängig
-        // von der globalen CSS-Pipeline) und auf dem Overlay-<img> initialisieren.
-        // Input-Wert danach leeren, damit dieselbe Datei erneut wählbar bleibt.
-        pickImage(input: HTMLInputElement) {
-            const file = input.files?.[0]
-            input.value = ''
-            if (!file || !file.type.startsWith('image/')) {
+        // Bild-Datei (aus dem +-Menü-Picker ODER Copy&Paste) → Object-URL fürs Crop-
+        // Overlay, cropperjs LAZY laden (nur wenn wirklich ein Bild angehängt wird —
+        // kein Bundle-Ballast) samt eigenem CSS (co-lokalisiert im Lazy-Chunk → lädt
+        // garantiert mit) und auf dem Overlay-<img> initialisieren.
+        _openCropper(file: File) {
+            if (!file.type.startsWith('image/')) {
                 return
             }
             this.cancelCrop() // evtl. offenen Cropper + alte Object-URL freigeben (Re-Pick)
@@ -2284,6 +2283,30 @@ export function registerNostrComponents(Alpine: {
                 cropperInstance?.destroy()
                 cropperInstance = new Cropper(img, { viewMode: 1, autoCropArea: 1, background: false }) as unknown as CropperLike
             })
+        },
+        // Datei-Picker (+-Menü): Wert danach leeren, damit dieselbe Datei erneut wählbar bleibt.
+        pickImage(input: HTMLInputElement) {
+            const file = input.files?.[0]
+            input.value = ''
+            if (file) {
+                this._openCropper(file)
+            }
+        },
+        // Copy&Paste ins Eingabefeld: ein reines Bild (Screenshot) öffnet den Cropper.
+        // Text hat Vorrang — Tabellenzellen (Excel/Sheets/Calc) legen Text UND ein
+        // gerendertes Bild ab; dann NICHT kapern, sondern den normalen Text-Paste
+        // durchlassen (kein preventDefault). Kein Bild → ebenfalls durchlassen.
+        pasteImage(e: ClipboardEvent) {
+            const items = Array.from(e.clipboardData?.items ?? [])
+            if (items.some((i) => i.kind === 'string' && i.type === 'text/plain')) {
+                return
+            }
+            const item = items.find((i) => i.type.startsWith('image/'))
+            const file = item?.getAsFile()
+            if (file) {
+                e.preventDefault()
+                this._openCropper(file)
+            }
         },
         setCropRatio(r: number) {
             this.cropRatio = r
