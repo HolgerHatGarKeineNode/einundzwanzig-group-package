@@ -129,8 +129,23 @@ export function messagesToPrune(
 }
 
 // ── Rohe IndexedDB (Muster secure-storage.ts) ──────────────────────────────
+//
+// P4 Robustheit: ALLE IDB-Zugriffe sind fail-soft. Bei Quota/Eviction/Privacy-Mode/
+// fehlendem IndexedDB (iOS-nonPersistent-WebView reagiert nicht so, aber ein
+// gesperrter/voller Store schon) degradiert jeder Helfer still — Reads → leer,
+// Writes → No-op — statt zu rejecten. So kann KEIN Storage-Fehler (weder am Boot
+// noch im Live-Sync als unhandled rejection) je den Chat brechen: er fällt auf das
+// heutige reine Relay-Laden zurück. Der Fehler wird EINMAL geloggt (kein Spam).
 
 let dbPromise: Promise<IDBDatabase> | null = null
+let storageWarned = false
+
+function onStorageError(error: unknown): void {
+    if (!storageWarned) {
+        storageWarned = true
+        console.warn('[cache] IndexedDB nicht verfügbar → Fallback auf reines Relay-Laden', error)
+    }
+}
 
 function connect(): Promise<IDBDatabase> {
     if (!dbPromise) {
@@ -149,75 +164,87 @@ function connect(): Promise<IDBDatabase> {
     return dbPromise
 }
 
-function getAll<T>(store: StoreName): Promise<T[]> {
-    return connect().then(
-        (db) =>
-            new Promise<T[]>((resolve, reject) => {
-                const req = db.transaction(store, 'readonly').objectStore(store).getAll()
-                req.onsuccess = () => resolve(req.result as T[])
-                req.onerror = () => reject(req.error)
-            }),
-    )
-}
-
-function bulkPut<T>(store: StoreName, items: T[]): Promise<void> {
-    if (items.length === 0) {
-        return Promise.resolve()
+async function getAll<T>(store: StoreName): Promise<T[]> {
+    try {
+        const db = await connect()
+        return await new Promise<T[]>((resolve, reject) => {
+            const req = db.transaction(store, 'readonly').objectStore(store).getAll()
+            req.onsuccess = () => resolve(req.result as T[])
+            req.onerror = () => reject(req.error)
+        })
+    } catch (error) {
+        onStorageError(error)
+        return []
     }
-    return connect().then(
-        (db) =>
-            new Promise<void>((resolve, reject) => {
-                const tx = db.transaction(store, 'readwrite')
-                const os = tx.objectStore(store)
-                for (const item of items) {
-                    os.put(item)
-                }
-                tx.oncomplete = () => resolve()
-                tx.onerror = () => reject(tx.error)
-            }),
-    )
 }
 
-function bulkDelete(store: StoreName, ids: Iterable<string>): Promise<void> {
+async function bulkPut<T>(store: StoreName, items: T[]): Promise<void> {
+    if (items.length === 0) {
+        return
+    }
+    try {
+        const db = await connect()
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite')
+            const os = tx.objectStore(store)
+            for (const item of items) {
+                os.put(item)
+            }
+            tx.oncomplete = () => resolve()
+            tx.onerror = () => reject(tx.error)
+        })
+    } catch (error) {
+        onStorageError(error)
+    }
+}
+
+async function bulkDelete(store: StoreName, ids: Iterable<string>): Promise<void> {
     const arr = Array.from(ids)
     if (arr.length === 0) {
-        return Promise.resolve()
+        return
     }
-    return connect().then(
-        (db) =>
-            new Promise<void>((resolve, reject) => {
-                const tx = db.transaction(store, 'readwrite')
-                const os = tx.objectStore(store)
-                for (const id of arr) {
-                    os.delete(id)
-                }
-                tx.oncomplete = () => resolve()
-                tx.onerror = () => reject(tx.error)
-            }),
-    )
+    try {
+        const db = await connect()
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite')
+            const os = tx.objectStore(store)
+            for (const id of arr) {
+                os.delete(id)
+            }
+            tx.oncomplete = () => resolve()
+            tx.onerror = () => reject(tx.error)
+        })
+    } catch (error) {
+        onStorageError(error)
+    }
 }
 
-function clearStore(store: StoreName): Promise<void> {
-    return connect().then(
-        (db) =>
-            new Promise<void>((resolve, reject) => {
-                const tx = db.transaction(store, 'readwrite')
-                tx.objectStore(store).clear()
-                tx.oncomplete = () => resolve()
-                tx.onerror = () => reject(tx.error)
-            }),
-    )
+async function clearStore(store: StoreName): Promise<void> {
+    try {
+        const db = await connect()
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite')
+            tx.objectStore(store).clear()
+            tx.oncomplete = () => resolve()
+            tx.onerror = () => reject(tx.error)
+        })
+    } catch (error) {
+        onStorageError(error)
+    }
 }
 
-function metaGet(key: string): Promise<string | undefined> {
-    return connect().then(
-        (db) =>
-            new Promise<string | undefined>((resolve, reject) => {
-                const req = db.transaction('meta', 'readonly').objectStore('meta').get(key)
-                req.onsuccess = () => resolve((req.result as { key: string; value: string } | undefined)?.value)
-                req.onerror = () => reject(req.error)
-            }),
-    )
+async function metaGet(key: string): Promise<string | undefined> {
+    try {
+        const db = await connect()
+        return await new Promise<string | undefined>((resolve, reject) => {
+            const req = db.transaction('meta', 'readonly').objectStore('meta').get(key)
+            req.onsuccess = () => resolve((req.result as { key: string; value: string } | undefined)?.value)
+            req.onerror = () => reject(req.error)
+        })
+    } catch (error) {
+        onStorageError(error)
+        return undefined
+    }
 }
 
 const metaSet = (key: string, value: string): Promise<void> => bulkPut('meta', [{ key, value }])
