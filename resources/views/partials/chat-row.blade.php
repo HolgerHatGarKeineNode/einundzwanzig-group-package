@@ -66,6 +66,14 @@
                                     <div class="truncate text-xs text-muted" x-text="m.reply.text"></div>
                                 </button>
                             </template>
+                            {{-- Thread-Kommentar (P3): Eltern-Bezug „Antwort auf <Autor>" (NIP-22 kleines `e`,
+                                 via replyToName). Im Raum-Feed undefined → nie gerendert; ersetzt die
+                                 frühere depth-Einrückung (flach/Slack-Stil). --}}
+                            <template x-if="m.replyToName">
+                                <div class="mb-0.5 text-xs text-muted">
+                                    {{ __('Antwort auf') }} <span class="text-brand-500" x-text="m.replyToName"></span>
+                                </div>
+                            </template>
                             {{-- Inline-Bild anklicken → Lightbox (Klick delegiert, da x-html-Inhalt). --}}
                             <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"
                                  x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
@@ -233,15 +241,21 @@
                             <flux:button size="xs" variant="ghost" icon="bolt" class="icon-btn-touch !text-brand-500"
                                          x-show="zapsEnabled && m.zappable" x-cloak x-on:click.stop="openZap(m)"
                                          aria-label="Zap" />
+                            {{-- Antworten: im Raum q-Reply (Raum-Composer), im Thread verschachtelte
+                                 Kommentar-Antwort (Thread-Composer). --}}
                             <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" class="icon-btn-touch"
-                                         x-on:click.stop="setReply(m)" aria-label="{{ __('Antworten') }}" />
+                                         x-on:click.stop="{{ $context === 'thread' ? 'setThreadReply(m)' : 'setReply(m)' }}" aria-label="{{ __('Antworten') }}" />
+                            @if ($context === 'room')
                             {{-- Im Thread antworten (C6b): öffnet den Thread dieser Nachricht (jede Nachricht
-                                 ist thread-fähig). Sichtbarer Direkt-Einstieg statt versteckter Quote-Geste. --}}
+                                 ist thread-fähig). Nur im Raum — ein Kommentar wurzelt keinen Sub-Thread. --}}
                             <flux:button size="xs" variant="ghost" icon="chat-bubble-oval-left" class="icon-btn-touch"
                                          x-on:click.stop="openThread(m)" aria-label="{{ __('Im Thread antworten') }}" />
+                            {{-- Löschen: Raum-Nachricht (kind 9, deleteRoomMessage). Kommentar-Delete (kind
+                                 1111) ist nicht implementiert → im Thread aus. --}}
                             <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
                                          x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
                                          aria-label="{{ __('Nachricht löschen') }}" />
+                            @endif
                             {{-- Reaktions-Picker (C1, Web): volles Emoji-Panel. Teleportiert ans
                                  <body> (sonst würde der Chat-Scroll-Container es abschneiden) und
                                  `fixed` mit Flip positioniert (reactionPopover) → nie aus dem Viewport.
@@ -278,23 +292,27 @@
                                             <template x-if="zapsEnabled && m.zappable">
                                                 <flux:menu.item icon="bolt" x-on:click="openZap(m)">Zap</flux:menu.item>
                                             </template>
-                                            <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">{{ __('Antworten') }}</flux:menu.item>
-                                            {{-- Im Thread antworten (C6b): öffnet den Thread dieser Nachricht. --}}
+                                            <flux:menu.item icon="arrow-uturn-left" x-on:click="{{ $context === 'thread' ? 'setThreadReply(m)' : 'setReply(m)' }}">{{ __('Antworten') }}</flux:menu.item>
+                                            @if ($context === 'room')
+                                            {{-- Im Thread antworten (C6b): öffnet den Thread dieser Nachricht. Nur im Raum. --}}
                                             <flux:menu.item icon="chat-bubble-oval-left" x-on:click="openThread(m)">{{ __('Im Thread antworten') }}</flux:menu.item>
-                                            {{-- Zitieren (C3): Nachricht ohne Kommentar teilen (Quote-Only). --}}
+                                            {{-- Zitieren (C3): Nachricht ohne Kommentar teilen (Quote-Only) — Raum-Composer. --}}
                                             <flux:menu.item icon="chat-bubble-left-right" x-on:click="share(m)">{{ __('Zitieren') }}</flux:menu.item>
-                                            {{-- Bearbeiten (C3): nur eigene Nachrichten, ≤5 min alt. --}}
+                                            {{-- Bearbeiten (C3): nur eigene Nachrichten, ≤5 min alt (kind-9-spezifisch → nur Raum). --}}
                                             <template x-if="canEdit(m)">
                                                 <flux:menu.item icon="pencil-square" x-on:click="startEdit(m)">{{ __('Bearbeiten') }}</flux:menu.item>
                                             </template>
-                                            {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984). --}}
+                                            @endif
+                                            {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984) — generisch, auch im Thread. --}}
                                             <template x-if="!m.mine">
                                                 <flux:menu.item icon="flag" x-on:click="askReport(m)">Fork off!</flux:menu.item>
                                             </template>
-                                            {{-- Löschen: nur eigene Nachrichten (NIP-09 kind 5). --}}
+                                            @if ($context === 'room')
+                                            {{-- Löschen: nur eigene Nachrichten (NIP-09 kind 5, kind-9-spezifisch → nur Raum). --}}
                                             <template x-if="m.mine">
                                                 <flux:menu.item icon="trash" variant="danger" x-on:click="askDelete(m)">{{ __('Löschen') }}</flux:menu.item>
                                             </template>
+                                            @endif
                                             {{-- C4: Kopieren/Info (nur lesen, kein Publish). --}}
                                             <flux:menu.separator />
                                             <flux:menu.item icon="link" x-on:click="copyNevent(m)">{{ __('Event-Link kopieren') }}</flux:menu.item>

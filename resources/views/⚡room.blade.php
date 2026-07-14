@@ -631,26 +631,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <template x-if="threadComments.length === 0">
                     <p class="py-6 text-center text-sm text-muted">{{ __('Noch keine Antworten — antworte als erste:r.') }}</p>
                 </template>
-                <template x-for="c in threadComments" :key="c.id">
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <x-group::nostr-avatar picture="c.picture" name="c.name" />
-                            <span class="truncate text-sm font-semibold" x-text="c.name"></span>
-                            <span class="inline-flex size-4 shrink-0 items-center justify-center">
-                                <x-group::nostr-nip05 nip05="c.nip05" />
-                            </span>
-                            <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="c.time"></span>
-                        </div>
-                        {{-- Bei verschachtelten Antworten: „Antwort auf <Autor>". --}}
-                        <template x-if="c.replyToName">
-                            <div class="text-xs text-muted">
-                                {{ __('Antwort auf') }} <span class="text-brand-500" x-text="c.replyToName"></span>
-                            </div>
-                        </template>
-                        <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="c.html"
-                             x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
-                        <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" class="icon-btn-touch -ml-1 mt-0.5"
-                                     x-show="joined" x-cloak x-on:click="setThreadReply(c)">{{ __('Antworten') }}</flux:button>
+                {{-- Kommentare durch die GETEILTE Raum-Message-Row (P3 4.2): erben Mentions/Crop/
+                     Lightbox/Reaktionen/Zaps/Toolbar. `context='thread'` gatet Raum-only-Aktionen
+                     (openThread/Zitieren/Bearbeiten/Löschen) aus und routet Antworten→setThreadReply.
+                     `m` ist der Schleifenname, den das Partial erwartet. --}}
+                <template x-for="m in threadComments" :key="m.id">
+                    <div :class="m.showAuthor ? 'pt-2.5' : 'pt-0.5'">
+                        @include('group::partials.chat-row', ['context' => 'thread'])
                     </div>
                 </template>
             </div>
