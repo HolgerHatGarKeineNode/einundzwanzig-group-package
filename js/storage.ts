@@ -40,7 +40,6 @@ const DB_NAME = 'einundzwanzig-cache'
 const DB_VERSION = 1
 
 type StoreName = 'events' | 'tracker' | 'meta'
-const STORES: StoreName[] = ['events', 'tracker', 'meta']
 
 /** id→relays-Zeile im `tracker`-Store (Set ist nicht structured-clone-freundlich). */
 type TrackerItem = { id: string; relays: string[] }
@@ -358,11 +357,22 @@ function startSync(): void {
 
 // ── Öffentliche API ────────────────────────────────────────────────────────
 
-/** Alle Stores leeren + Live-Sync abmelden (aus `session.ts logout()`, P3). */
+/**
+ * Alle Stores leeren + Live-Sync abmelden (aus `session.ts logout()`, P3).
+ *
+ * Reihenfolge ist sicherheitsrelevant: ERST die Daten (events/tracker), DANN der
+ * `owner`-Marker (meta). Der Logout feuert dies mobil UNGEAWAITED direkt vor
+ * `window.location.assign` — wird der Clear vom Reload unterbrochen, darf NIE der
+ * Zustand „Daten da + owner weg" zurückbleiben: der würde den Owner-Gate in
+ * initStorage aushebeln (`if (owner && owner !== pk)` → owner falsy → kein Clear)
+ * und fremde member-only-Räume an den nächsten Account/Gast leaken. Data-first
+ * heißt: jeder Teilabbruch ist sicher (owner überlebt → Gate greift beim Re-Login).
+ */
 export async function clearCache(): Promise<void> {
     stopSyncFn?.()
     stopSyncFn = null
-    await Promise.all(STORES.map(clearStore))
+    await Promise.all([clearStore('events'), clearStore('tracker')])
+    await clearStore('meta')
 }
 
 let started = false

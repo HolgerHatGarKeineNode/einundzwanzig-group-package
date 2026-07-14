@@ -26,6 +26,7 @@ import { NIP46_PERMS, NIP46_PERMS_KEY, nip46PermsAreStale } from './nip46-perms'
 import { installNip55WindowNostr } from './nip55-signer'
 import { runScheduledPortalHandoff } from './portal-handoff'
 import { clearWallet } from './wallet'
+import { clearCache } from './storage'
 
 /** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
 export const authReady = Promise.all([
@@ -271,6 +272,11 @@ export function logout(): void {
         // Wallet-Secret aus der gehärteten Ablage entfernen — VOR dropSession,
         // solange pubkey.get() noch den pubkey-gebundenen Key auflöst (Z0.3).
         void clearWallet()
+        // M3 P3: den Event-Cache leeren, damit der nächste Boot (Gast ODER anderer
+        // Account) keine member-only-Räume dieses pubkeys re-hydratisiert. Der Owner-
+        // Gate in initStorage ist der Backstop; dies räumt auch den Gast-Fall (kein
+        // Login danach → initStorage lädt nie, würde also nie clearen).
+        void clearCache()
         dropSession(pk)
     }
 }
