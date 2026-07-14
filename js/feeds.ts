@@ -94,11 +94,35 @@ const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
 const roomPollResponseFilter = (h: string) => [{ kinds: [POLL_RESPONSE], '#h': [h] }]
 
 /**
+ * Lotus' In-Chat-Thread (NIP-29 Group Chat Threading): kind 10, wurzelt an einer normalen
+ * kind-9-Nachricht via `["e", rootId, relay, "root"]`, direktes Parent via
+ * `["e", parentId, relay, "reply"]`, plus `["h", groupId, relay]`. Wir LESEN diese Events
+ * (P4, Interop) neben unseren kind-1111-Kommentaren; unser eigener Write bleibt kind-1111.
+ */
+const CHAT_THREAD = 10
+
+/**
+ * Thread-Root eines Kommentars, format-übergreifend: unsere kind-1111 tragen `["E", rootId]`
+ * (NIP-22, uppercase), Lotus' kind-10 tragen `["e", rootId, relay, "root"]` (NIP-29, marker).
+ */
+const commentRootId = (event: TrustedEvent): string =>
+    getTagValue('E', event.tags) ?? event.tags.find((t) => t[0] === 'e' && t[3] === 'root')?.[1] ?? ''
+
+/**
+ * Direkter Eltern-Kommentar: Lotus' kind-10 markiert ihn `["e", parentId, relay, "reply"]`;
+ * unsere kind-1111 tragen den Parent im ersten kleinen `e` (NIP-22, ohne Marker). Der
+ * Reply-Marker hat Vorrang → bei kind-10 wird nicht fälschlich der Root-`e` als Parent gelesen.
+ */
+const commentParentId = (event: TrustedEvent): string =>
+    event.tags.find((t) => t[0] === 'e' && t[3] === 'reply')?.[1] ?? getTagValue('e', event.tags) ?? ''
+
+/**
  * kind-1111-Kommentare (NIP-22, C6b) — flotilla-kompatibel OHNE `#h` (Kommentare sind
  * keine Group-Events). Ungescopt je Space-Relay geladen; die Zuordnung zur Nachricht
- * läuft über den Thread-Root `["E", rootId]` (uppercase), nicht `#h`.
+ * läuft über den Thread-Root `["E", rootId]` (uppercase), nicht `#h`. Zusätzlich Lotus'
+ * kind-10 In-Chat-Threads (P4) — dieselben Kanäle, gebündelt über {@link commentRootId}.
  */
-const roomCommentFilter = () => [{ kinds: [COMMENT] }]
+const roomCommentFilter = () => [{ kinds: [COMMENT, CHAT_THREAD] }]
 
 /**
  * kind-9735-Zap-Receipts (NIP-57): tragen KEIN `#h` — der LNURL-Server kopiert nur
@@ -555,7 +579,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // NIP-22-Kommentare (kind 1111, C6b) nach Thread-Root (`["E", rootId]`) bündeln —
         // ALLE Kommentare eines Threads (auch verschachtelte) teilen dieses Root-`E`, also
         // ist die Bucket-Größe die Gesamt-Thread-Zahl der zitierten Nachricht.
-        const commentsByRoot = groupBy((c) => getTagValue('E', c.tags) ?? '', $comments)
+        const commentsByRoot = groupBy(commentRootId, $comments)
         // First-Paint-Seed: fehlende Autor- UND erwähnte Profile (NIP-27) vom geteilten
         // Backend-Cache holen (dedupliziert intern; welshman löst parallel live auf).
         // Ohne die Mention-Pubkeys blieben extern referenzierte @-Mentions (Nicht-
@@ -606,7 +630,7 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal): void =>
         signal,
         filters: [
             { kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL], '#h': [h], limit: 0 },
-            { kinds: [COMMENT], limit: 0 },
+            { kinds: [COMMENT, CHAT_THREAD], limit: 0 },
         ],
     })
 }
@@ -640,7 +664,7 @@ export const loadRoomReactions = (url: string, h: string): Promise<TrustedEvent[
  * (`#E`) eingrenzen; für die aktuelle Space-Größe unschädlich.
  */
 export const loadRoomComments = (url: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ kinds: [COMMENT] }] })
+    load({ relays: [url], filters: [{ kinds: [COMMENT, CHAT_THREAD] }] })
 
 /**
  * Lädt bestehende kind-9735-Zap-Receipts für die übergebenen Nachrichten-IDs, damit
@@ -869,7 +893,7 @@ const buildCommentList = (comments: TrustedEvent[], rootId: string, ctx: ChatBui
         const showAuthor = c.pubkey !== prevPubkey || divider !== ''
         prevDay = day
         prevPubkey = c.pubkey
-        const parentId = getTagValue('e', c.tags) ?? ''
+        const parentId = commentParentId(c)
         const parent = parentId && parentId !== rootId ? byId.get(parentId) : undefined
         return {
             divider,
@@ -893,7 +917,13 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
     derived(
         [
             deriveEventsForUrl(url, [{ ids: [rootId] }]),
-            deriveEventsForUrl(url, [{ kinds: [COMMENT], '#E': [rootId] }]),
+            // kind-1111 bündelt per Root-`#E`; Lotus' kind-10 trägt den Root im kleinen `e`
+            // (marker "root") → nur per `#e` filterbar (P4). Client-seitig über commentRootId
+            // gebündelt, sodass fremde kind-10 anderer Wurzeln nicht durchrutschen.
+            deriveEventsForUrl(url, [
+                { kinds: [COMMENT], '#E': [rootId] },
+                { kinds: [CHAT_THREAD], '#e': [rootId] },
+            ]),
             throttled(200, profilesByPubkey),
             pubkey,
             throttled(200, handlesByNip05),
@@ -901,7 +931,11 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
             throttled(200, zappersByLnurl),
         ],
-        ([rootEvents, commentEvents, $profiles, $me, $handles, $reactions, $zaps, $zappers]) => {
+        ([rootEvents, rawComments, $profiles, $me, $handles, $reactions, $zaps, $zappers]) => {
+            // Nur Kommentare, die WIRKLICH an diesem Root wurzeln: kind-10 kommt per `#e`
+            // (matcht jedes e-Tag) → die mit rootId nur als Reply-Parent (fremder Thread)
+            // fielen sonst rein. commentRootId liest den Root formatspezifisch (E bzw. e/root).
+            const commentEvents = rawComments.filter((c) => commentRootId(c) === rootId)
             void warmProfiles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
             warmHandles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
             warmZappers(commentEvents.map((e) => e.pubkey)) // Zapper der Kommentar-Autoren → 9735-Validierung/⚡-Chip
@@ -925,15 +959,16 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
     )
 
 /**
- * Lädt Root (per id) + bestehende Kommentare (kind 1111, `#E`) eines Threads — die
- * Live-Sub liefert nur Neues. Root-Load per id trägt auch raumfremde/ältere Wurzeln.
+ * Lädt Root (per id) + bestehende Kommentare eines Threads: unsere kind-1111 (`#E`) UND
+ * Lotus' kind-10 (`#e`, P4) — die Live-Sub liefert nur Neues. Root-Load per id trägt auch
+ * raumfremde/ältere Wurzeln.
  */
 export const loadThread = (url: string, rootId: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ ids: [rootId] }, { kinds: [COMMENT], '#E': [rootId] }] })
+    load({ relays: [url], filters: [{ ids: [rootId] }, { kinds: [COMMENT], '#E': [rootId] }, { kinds: [CHAT_THREAD], '#e': [rootId] }] })
 
-/** Live-Sub für NEUE Kommentare eines offenen Threads (`#E`), bis abort. */
+/** Live-Sub für NEUE Kommentare eines offenen Threads (kind-1111 `#E` + Lotus' kind-10 `#e`), bis abort. */
 export const listenThread = (url: string, rootId: string, signal: AbortSignal): void => {
-    void request({ relays: [url], signal, filters: [{ kinds: [COMMENT], '#E': [rootId], limit: 0 }] })
+    void request({ relays: [url], signal, filters: [{ kinds: [COMMENT], '#E': [rootId], limit: 0 }, { kinds: [CHAT_THREAD], '#e': [rootId], limit: 0 }] })
 }
 
 /**
@@ -970,7 +1005,7 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
         ],
         ([comments, roots, $profiles]) => {
             const byId = new Map(roots.map((r) => [r.id, r]))
-            const byRoot = groupBy((c) => getTagValue('E', c.tags) ?? '', comments)
+            const byRoot = groupBy(commentRootId, comments)
             const out: SpaceThread[] = []
             for (const [rootId, cs] of byRoot.entries()) {
                 const root = rootId ? byId.get(rootId) : undefined
@@ -1007,7 +1042,7 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
  */
 export const loadSpaceThreads = async (url: string): Promise<void> => {
     const comments = await loadRoomComments(url)
-    const rootIds = uniq(comments.map((c) => getTagValue('E', c.tags)).filter((id): id is string => Boolean(id)))
+    const rootIds = uniq(comments.map(commentRootId).filter((id): id is string => Boolean(id)))
     const roots = rootIds.length > 0 ? await load({ relays: [url], filters: [{ ids: rootIds }] }) : []
     // Profile der Kommentar-Autoren (Gesichter) UND der Wurzel-Autoren (Snippet-Name) vorwärmen.
     void warmProfiles([...comments.map((c) => c.pubkey), ...roots.map((r) => r.pubkey)])

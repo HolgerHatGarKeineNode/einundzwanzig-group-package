@@ -2249,16 +2249,26 @@ export function registerNostrComponents(Alpine: {
             if (!content && !this.threadAttachment) {
                 return
             }
-            const target = repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
+            const root = repository.getEvent(this.threadRootId)
+            let target = repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
             if (!target) {
                 toast('Bezugs-Nachricht noch nicht geladen — kurz warten.')
                 return
+            }
+            // Antwort auf ein FREMDES Lotus-kind-10 (P4, Interop): das trägt nur lowercase
+            // NIP-29-Marker (kein uppercase E/K/P), also würde welshmans tagEventForComment
+            // unseren Kommentar fälschlich AUF das kind-10 rooten (E=kind10) → er fiele aus dem
+            // `#E`-Thread-Feed + Root-Guard → unsichtbar. Stattdessen auf die echte kind-9-Wurzel
+            // rooten (welshman self-rootet kind-9 korrekt, wie beim Top-Level-Reply). Der explizite
+            // Parent-Link zum kind-10 entfällt — im flachen Slack-Modell (P3) kosmetisch.
+            // ponytail: volle NIP-29→NIP-22-Parent-Übersetzung wäre mehr Code; bei Bedarf nachrüsten.
+            if (target.kind === 10 && root) {
+                target = root
             }
             // NIP-29-Scoping (Interop, P1): das `h` des Thread-ROOTS (kind 9) mitgeben, damit
             // Lotus/#h-scopende Relays den Kommentar sehen. Vom Root, NICHT vom target — ein
             // verschachtelter Reply-target ist ein h-loses kind-1111. Fehlt der Root (Race),
             // bleibt rootH undefined → kein leeres `["h",""]` (makeComment lässt h dann weg).
-            const root = repository.getEvent(this.threadRootId)
             const rootH = root ? getTagValue('h', root.tags) : undefined
             const url = this._url
             // Rohe (NICHT-reaktive) Kopie des Anhangs fürs Event — `imetaTag` ist sonst ein
