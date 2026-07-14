@@ -36,10 +36,15 @@ import {
 } from '@welshman/util'
 import type { RepositoryUpdate } from '@welshman/net'
 
-const DB_NAME = 'einundzwanzig-cache'
+// §4.4 Multi-Account: EINE DB PRO pubkey (`…-<hex>`). Damit teilen zwei Accounts NIE
+// einen Store → kein Cross-Account-Leak (auch nicht über konkurrierende Web-Tabs, die
+// sich denselben Origin/IDB teilen, oder einen still fehlgeschlagenen Clear). Der owner-
+// Marker/-Gate entfällt komplett — die DB-Zugehörigkeit IST der pubkey. Gast (kein pk)
+// öffnet gar keine DB.
+const DB_PREFIX = 'einundzwanzig-cache-'
 const DB_VERSION = 1
 
-type StoreName = 'events' | 'tracker' | 'meta'
+type StoreName = 'events' | 'tracker'
 
 /** id→relays-Zeile im `tracker`-Store (Set ist nicht structured-clone-freundlich). */
 type TrackerItem = { id: string; relays: string[] }
@@ -137,6 +142,7 @@ export function messagesToPrune(
 // noch im Live-Sync als unhandled rejection) je den Chat brechen: er fällt auf das
 // heutige reine Relay-Laden zurück. Der Fehler wird EINMAL geloggt (kein Spam).
 
+let dbName: string | null = null // erst nach Login gesetzt (`DB_PREFIX + pubkey`); Gast = null
 let dbPromise: Promise<IDBDatabase> | null = null
 let storageWarned = false
 
@@ -148,14 +154,17 @@ function onStorageError(error: unknown): void {
 }
 
 function connect(): Promise<IDBDatabase> {
+    if (!dbName) {
+        return Promise.reject(new Error('cache: kein pubkey')) // Gast → fail-soft No-op/leer
+    }
     if (!dbPromise) {
+        const name = dbName
         dbPromise = new Promise((resolve, reject) => {
-            const req = indexedDB.open(DB_NAME, DB_VERSION)
+            const req = indexedDB.open(name, DB_VERSION)
             req.onupgradeneeded = () => {
                 const db = req.result
                 db.createObjectStore('events', { keyPath: 'id' })
                 db.createObjectStore('tracker', { keyPath: 'id' })
-                db.createObjectStore('meta', { keyPath: 'key' })
             }
             req.onsuccess = () => resolve(req.result)
             req.onerror = () => reject(req.error)
@@ -219,35 +228,19 @@ async function bulkDelete(store: StoreName, ids: Iterable<string>): Promise<void
     }
 }
 
-async function clearStore(store: StoreName): Promise<void> {
-    try {
-        const db = await connect()
-        await new Promise<void>((resolve, reject) => {
-            const tx = db.transaction(store, 'readwrite')
-            tx.objectStore(store).clear()
-            tx.oncomplete = () => resolve()
-            tx.onerror = () => reject(tx.error)
-        })
-    } catch (error) {
-        onStorageError(error)
-    }
+/** Eine ganze IndexedDB löschen (fail-soft; hängt nie, auch nicht bei offener Zweit-Verbindung). */
+function deleteDb(name: string): Promise<void> {
+    return new Promise((resolve) => {
+        try {
+            const req = indexedDB.deleteDatabase(name)
+            req.onsuccess = () => resolve()
+            req.onerror = () => resolve()
+            req.onblocked = () => resolve()
+        } catch {
+            resolve()
+        }
+    })
 }
-
-async function metaGet(key: string): Promise<string | undefined> {
-    try {
-        const db = await connect()
-        return await new Promise<string | undefined>((resolve, reject) => {
-            const req = db.transaction('meta', 'readonly').objectStore('meta').get(key)
-            req.onsuccess = () => resolve((req.result as { key: string; value: string } | undefined)?.value)
-            req.onerror = () => reject(req.error)
-        })
-    } catch (error) {
-        onStorageError(error)
-        return undefined
-    }
-}
-
-const metaSet = (key: string, value: string): Promise<void> => bulkPut('meta', [{ key, value }])
 
 // ── Load (Boot) + Sync (live) ──────────────────────────────────────────────
 
@@ -385,21 +378,29 @@ function startSync(): void {
 // ── Öffentliche API ────────────────────────────────────────────────────────
 
 /**
- * Alle Stores leeren + Live-Sync abmelden (aus `session.ts logout()`, P3).
- *
- * Reihenfolge ist sicherheitsrelevant: ERST die Daten (events/tracker), DANN der
- * `owner`-Marker (meta). Der Logout feuert dies mobil UNGEAWAITED direkt vor
- * `window.location.assign` — wird der Clear vom Reload unterbrochen, darf NIE der
- * Zustand „Daten da + owner weg" zurückbleiben: der würde den Owner-Gate in
- * initStorage aushebeln (`if (owner && owner !== pk)` → owner falsy → kein Clear)
- * und fremde member-only-Räume an den nächsten Account/Gast leaken. Data-first
- * heißt: jeder Teilabbruch ist sicher (owner überlebt → Gate greift beim Re-Login).
+ * Die pubkey-DB des AKTUELLEN Accounts GANZ löschen + Live-Sync abmelden (aus
+ * `session.ts logout()`, P3). Privacy-Hygiene beim Abmelden. Bewusst `deleteDatabase`
+ * statt nur `clear()`: sonst bliebe die leere DB `DB_PREFIX+pubkey` zurück und der
+ * pubkey wäre über `indexedDB.databases()` dauerhaft am Gerät enumerierbar (Identitäts-
+ * Spur). `dbName=null` macht zugleich einen später feuernden batch-Trailing-Flush zum
+ * No-op (connect() rejektet ohne dbName). Die Multi-Account-ISOLATION braucht das nicht
+ * — jeder Account hat seine eigene DB, niemand liest je die eines anderen.
  */
 export async function clearCache(): Promise<void> {
     stopSyncFn?.()
     stopSyncFn = null
-    await Promise.all([clearStore('events'), clearStore('tracker')])
-    await clearStore('meta')
+    const name = dbName
+    if (!name) {
+        return
+    }
+    dbName = null
+    try {
+        ;(await dbPromise)?.close()
+    } catch {
+        // Verbindung evtl. schon fehlerhaft — egal, gleich wird sie gelöscht.
+    }
+    dbPromise = null
+    await deleteDb(name)
 }
 
 let started = false
@@ -408,10 +409,12 @@ let started = false
 export let storageReady: Promise<void> = Promise.resolve()
 
 /**
- * Idempotenter Boot-Einstieg (aus `core.ts`, P1). Lädt den Cache NUR für den
- * eingeloggten, passenden pubkey (Gast lädt nichts; fremder Cache → clear —
- * Multi-Account-Isolation, §4.4). Jeder IDB-Fehler fällt still auf reines Relay-
- * Laden zurück (heutiges Verhalten) — der Chat bricht nie am Cache.
+ * Idempotenter Boot-Einstieg (aus `core.ts`, P1). Öffnet die DB DES eingeloggten
+ * pubkey und lädt sie in die repository (Gast: kein pk → keine DB, nichts geladen).
+ * Multi-Account-Isolation ist strukturell: eine DB pro pubkey (`DB_PREFIX+pk`) → in der
+ * DB liegen ausschließlich die Events DIESES pubkey (nur er hat je hineingeschrieben),
+ * ein Cross-Account-Leak ist damit unmöglich — kein owner-Gate/-Marker nötig. Jeder
+ * IDB-Fehler fällt still auf reines Relay-Laden zurück — der Chat bricht nie am Cache.
  */
 export function initStorage(): void {
     if (started) {
@@ -420,6 +423,11 @@ export function initStorage(): void {
     started = true
     storageReady = (async () => {
         try {
+            // Einmalige Migration (pro Boot, billig): die ALTE GETEILTE Cache-DB löschen.
+            // Der Pre-per-pubkey-Build nutzte den festen Namen `einundzwanzig-cache` über
+            // Accounts hinweg → sie kann Cross-Account-member-only-Events enthalten (der
+            // behobene Leak). deleteDatabase räumt diese Alt-Daten weg (auch für Gäste).
+            await deleteDb('einundzwanzig-cache')
             // Dynamischer Import: `session.ts` bindet beim Modul-Eval localStorage —
             // so bleibt die reine Cache-Logik (shouldPersistEvent) node-/testbar und
             // der (in P1) von `core.ts` gezogene Import zirkelfrei.
@@ -427,15 +435,11 @@ export function initStorage(): void {
             await authReady
             const pk = pubkey.get()
             if (!pk) {
-                return // Gast → keinen member-only-Cache laden
+                return // Gast → keine DB, keinen member-only-Cache laden
             }
-            const owner = await metaGet('owner')
-            if (owner && owner !== pk) {
-                await clearCache() // fremder Cache → weg, bevor wir laden
-            }
+            dbName = DB_PREFIX + pk // ab jetzt liest/schreibt der Cache DIESE pubkey-DB
             await loadCachedEvents()
             await loadCachedTracker()
-            await metaSet('owner', pk)
             startSync() // Live-Persistenz erst NACH dem destruktiven load()
         } catch (error) {
             console.warn('[cache] init fehlgeschlagen, Fallback auf Relay-Laden', error)
