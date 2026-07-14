@@ -479,7 +479,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Zwei Buttons: flux erkennt „Icon-only vs. Pille" server-seitig am Slot (ein
              x-show-Span bliebe immer „nicht leer" → Pfeil säße links statt zentriert). --}}
         {{-- Zeigt, sobald der User nicht mehr am Boden ist (atBottom = Virtualizer.isAtEnd(60)). --}}
-        <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="!atBottom" x-cloak
+        <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="firstPaintDone && !atBottom" x-cloak
              x-transition.opacity>
             {{-- Keine ungelesenen → quadratischer Button, Pfeil zentriert. --}}
             <flux:button x-show="unread === 0" size="xs" variant="primary" square icon="arrow-down"
@@ -570,7 +570,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                    if ($event.key === 'Enter' || $event.key === 'Tab') { $event.preventDefault(); pickMention(mentionItems[mentionIndex]); return }
                                    if ($event.key === 'Escape') { $event.preventDefault(); closeMentions(); return }
                                }
-                               if ($event.key === 'Enter' && !$event.shiftKey) { $event.preventDefault(); send() }" />
+                               if ($event.key === 'Enter' && !$event.shiftKey && !isMobile) { $event.preventDefault(); send() }" />
             {{-- Zitieren (Quote-Only) darf ohne Text gesendet werden → Button dann aktiv. --}}
             <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch" :loading="true"
                          x-on:click="send()" ::data-loading="sending"
@@ -935,7 +935,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
 
             {{-- Root + Kommentare (scrollbar). --}}
-            <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+            <div x-ref="threadScroll" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
                 {{-- Zitierte Root-Nachricht. `sticky top-0` hält sie beim Scrollen oben,
                      damit immer klar ist, in welchem Thread man ist. surface-card ist opak,
                      Kommentare scrollen darunter durch; z-10 über die Kommentare. --}}
@@ -1025,7 +1025,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:textarea x-ref="threadComposer" x-model="threadDraft" rows="1" resize="none" class="flex-1"
                                            placeholder="{{ __('Im Thread antworten…') }}" aria-label="{{ __('Antwort schreiben') }}"
                                            x-on:paste="pasteImage($event)"
-                                           x-on:keydown="if ($event.key === 'Enter' && !$event.shiftKey) { $event.preventDefault(); sendComment() }" />
+                                           x-on:keydown="if ($event.key === 'Enter' && !$event.shiftKey && !isMobile) { $event.preventDefault(); sendComment() }" />
                             <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch"
                                          x-on:click="sendComment()"
                                          ::disabled="threadDraft.trim().length === 0 && !threadAttachment"

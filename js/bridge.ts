@@ -1842,8 +1842,15 @@ export function registerNostrComponents(Alpine: {
                     this._virt?.scrollToEndSettled(() => {
                         // Gegen stale Raum absichern: käme ein alter Settle-Loop doch durch (Race beim
                         // schnellen Raumwechsel), darf er firstPaintDone des NEUEN Raums nicht setzen.
+                        // Reveal erst EINEN Frame nach dem Settle: dann hat Alpine die korrigierten
+                        // translateY-Offsets der Zeilen committet → kein 1-Frame-Fenster, in dem eine
+                        // unterschätzte Textzeile kurz über der Nachbarzeile/dem Bild liegt (Bug #2).
                         if (this._url === url) {
-                            this.firstPaintDone = true
+                            requestAnimationFrame(() => {
+                                if (this._url === url) {
+                                    this.firstPaintDone = true
+                                }
+                            })
                         }
                     })
                 }
@@ -2260,9 +2267,24 @@ export function registerNostrComponents(Alpine: {
             void loadThread(url, rootId)
             listenThread(url, rootId, this._threadController.signal)
             this._threadUnsub = deriveThread(url, rootId).subscribe((v) => {
+                // Vor dem Update messen: stand der Nutzer (nahe) am Boden — oder ist der
+                // Container noch nicht gerendert (frisch geöffnet)? Dann nach dem Render ans
+                // Ende scrollen, damit der Thread bei der LETZTEN Antwort startet (analog
+                // wasAtBottom des Haupt-Chats). Wer bewusst hochgescrollt hat, bleibt oben.
+                const magics = this as unknown as AlpineMagics
+                const el = magics.$refs.threadScroll
+                const stick = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 80
                 this.threadRoot = v.root
                 this.threadComments = v.comments
                 this.threadCount = v.count
+                if (stick) {
+                    magics.$nextTick(() => {
+                        const s = magics.$refs.threadScroll
+                        if (s) {
+                            s.scrollTop = s.scrollHeight
+                        }
+                    })
+                }
             })
         },
         closeThread() {
