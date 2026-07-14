@@ -460,6 +460,65 @@ const snippet = (text: string, max = 120): string => {
 }
 
 /**
+ * Aggregations-Kontext für {@link toChatMessage}: die je-Nachricht gebündelten Reaktionen/
+ * Zaps/Poll-Responses/Kommentare + Profile/Handles/Zapper. Der Thread-Feed reicht leere
+ * Aggregations-Maps (Reaktionen/Zaps folgen in P3 Schritt 5) → reply/thread/reactions/poll/
+ * goal/zaps kommen neutral heraus, ohne Sonderpfad.
+ */
+type ChatBuildCtx = {
+    me: string | null | undefined
+    $profiles: Map<string, { picture?: string; nip05?: string; lud16?: string; lud06?: string }>
+    $handles: Parameters<typeof verifiedNip05>[2]
+    $zappers: Map<string, Zapper>
+    byId: Map<string, TrustedEvent>
+    commentsByRoot: Map<string, TrustedEvent[]>
+    reactionsByTarget: Map<string, TrustedEvent[]>
+    pollResponsesByTarget: Map<string, TrustedEvent[]>
+    zapsByTarget: Map<string, TrustedEvent[]>
+}
+
+/**
+ * Baut die positions-UNABHÄNGIGEN ChatMessage-Felder eines Events — der gemeinsame Kern von
+ * Raum- und Thread-Feed (P3 4.1, „gleiches Model"). divider/showAuthor/unreadDivider hängen von
+ * der Position in der Liste ab und kommen aus dem aufrufenden Fold. Leere Aggregations-Maps
+ * (Thread) → reply/thread/reactions/poll/goal neutral (null/leer), zappable=false.
+ */
+const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage, 'divider' | 'unreadDivider' | 'showAuthor'> => {
+    const nameOf = displayProfileByPubkey
+    const mine = event.pubkey === ctx.me
+    const quotedId = getTagValue('q', event.tags)
+    const quoted = quotedId ? ctx.byId.get(quotedId) : undefined
+    const reply: ReplyPreview | null = quoted
+        ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(bodyWithoutQuote(quoted)) }
+        : null
+    // Threading (C6b, Slack-Modell): JEDE Nachricht ist thread-fähig — der Thread wurzelt an
+    // ihr selbst (event.id), Kommentare (kind 1111) tragen ["E", event.id]. null = keine Antworten.
+    const thread = buildThreadSummary(ctx.commentsByRoot.get(event.id) ?? [], ctx.$profiles, nameOf)
+    const profile = ctx.$profiles.get(event.pubkey)
+    // Zapper (lud16/lud06 → lnurl). `||` (nicht `??`): leeres lud16 muss auf lud06 durchfallen,
+    // sonst Store-Miss und `aggregateZaps` zählt nichts.
+    const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
+    const zapper = lnurl ? ctx.$zappers.get(lnurl) : undefined
+    // Zap-Tally einmal — Nachrichten-Chip UND (kind 9041) Goal-Fortschritt teilen die Summe.
+    const zaps = aggregateZaps(ctx.zapsByTarget.get(event.id) ?? [], zapper, ctx.me, nameOf)
+    return {
+        id: event.id,
+        pubkey: event.pubkey,
+        created_at: event.created_at,
+        // name/nip05/picture/profileReady/html/time/fullTime — geteilter Personen-Baustein.
+        ...personFields(event, ctx.$profiles, ctx.$handles),
+        mine,
+        reply,
+        thread,
+        reactions: aggregateReactions(ctx.reactionsByTarget.get(event.id) ?? [], ctx.me, nameOf),
+        poll: event.kind === POLL ? buildPollView(event, ctx.pollResponsesByTarget.get(event.id) ?? [], ctx.me) : null,
+        goal: event.kind === ZAP_GOAL ? buildGoalView(event, zaps) : null,
+        zaps,
+        zappable: !mine && Boolean(lnurl),
+    }
+}
+
+/**
  * Aggregierte Chat-Sicht: Nachrichten mit aufgelösten Profilen, Datums-Dividern
  * und Autor-Gruppierung — die Insel braucht nur EIN `subscribe`. HTML wird je
  * Event einmal geparst (Cache), Namen fließen reaktiv aus `profilesByPubkey`.
@@ -509,9 +568,9 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // Zapper (LNURL-pay-Meta) der Autoren lazy laden — nötig, um ihre 9735-Receipts
         // zu validieren (Signer-Check) und den ⚡-Chip zu summieren (dedupliziert intern).
         warmZappers(events.map((e) => e.pubkey))
-        const nameOf = displayProfileByPubkey
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
         const byId = new Map(events.map((e) => [e.id, e]))
+        const ctx: ChatBuildCtx = { me: $me, $profiles, $handles, $zappers, byId, commentsByRoot, reactionsByTarget, pollResponsesByTarget, zapsByTarget }
 
         let prevDay = ''
         let prevPubkey = ''
@@ -522,56 +581,13 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             const showAuthor = event.pubkey !== prevPubkey || divider !== ''
             prevDay = day
             prevPubkey = event.pubkey
-
-            const mine = event.pubkey === $me
             // Trennlinie vor der ersten Fremd-Nachricht jenseits der Last-Read-Grenze.
             // `idx > 0`: keine Grenze, wenn ohnehin der ganze Verlauf ungelesen ist.
-            const unreadDivider = !unreadShown && lastRead > 0 && idx > 0 && event.created_at > lastRead && !mine
+            const unreadDivider = !unreadShown && lastRead > 0 && idx > 0 && event.created_at > lastRead && event.pubkey !== $me
             if (unreadDivider) {
                 unreadShown = true
             }
-
-            const quotedId = getTagValue('q', event.tags)
-            const quoted = quotedId ? byId.get(quotedId) : undefined
-            const reply: ReplyPreview | null = quoted
-                ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(bodyWithoutQuote(quoted)) }
-                : null
-            // Threading (C6b, Slack-Modell): JEDE Nachricht ist thread-fähig — der Thread
-            // wurzelt an ihr selbst (`event.id`), Kommentare (kind 1111) tragen `["E", event.id]`.
-            // Nicht mehr an Quote-Only gebunden. `null`, solange es keine Antworten gibt.
-            const thread = buildThreadSummary(commentsByRoot.get(event.id) ?? [], $profiles, nameOf)
-
-            const profile = $profiles.get(event.pubkey)
-            // Zapper des Autors aus dem gewärmten `zappersByLnurl`-Store (lud16/lud06 → lnurl).
-            // Ohne aufgelösten Zapper zählt `aggregateZaps` nichts (Signer nicht prüfbar).
-            // `||` (nicht `??`): welshmans makeProfile bevorzugt lud16, fällt aber bei
-            // LEEREM lud16 auf lud06 zurück — der Store ist dann unter der lud06-lnurl
-            // gekeyt. `??` würde `lud16: ''` nicht durchfallen lassen → Store-Miss.
-            const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
-            const zapper = lnurl ? $zappers.get(lnurl) : undefined
-            // Zap-Tally einmal berechnen — Nachrichten-Chip UND (bei kind 9041) der
-            // Goal-Fortschritt speisen sich aus derselben validierten Summe.
-            const zaps = aggregateZaps(zapsByTarget.get(event.id) ?? [], zapper, $me, nameOf)
-            return {
-                id: event.id,
-                pubkey: event.pubkey,
-                created_at: event.created_at,
-                // name/nip05/picture/profileReady/html/time/fullTime — geteilt mit dem Thread-
-                // Feed. profileReady prüft brauchbaren NAMEN (nicht bloss kind-0-Existenz), sonst
-                // zeigte der Avatar die irreführende „n"-Initiale statt „?" (siehe personFields).
-                ...personFields(event, $profiles, $handles),
-                divider,
-                unreadDivider,
-                showAuthor,
-                mine,
-                reply,
-                thread,
-                reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me, nameOf),
-                poll: event.kind === POLL ? buildPollView(event, pollResponsesByTarget.get(event.id) ?? [], $me) : null,
-                goal: event.kind === ZAP_GOAL ? buildGoalView(event, zaps) : null,
-                zaps,
-                zappable: !mine && Boolean(lnurl),
-            }
+            return { divider, unreadDivider, showAuthor, ...toChatMessage(event, ctx) }
         })
     },
     )
