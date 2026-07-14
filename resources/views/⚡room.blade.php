@@ -101,9 +101,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
              class="flex flex-col-reverse min-h-0 flex-1 overflow-y-auto px-1 pb-2 transition-opacity"
              :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
 
-            {{-- Erstes Laden --}}
+            {{-- Erstes Laden. `skeleton-defer`: hält das Skeleton ~175ms unsichtbar, damit
+                 ein warmer Cache-Load (F5, Content in ~150ms) es nie aufblitzen lässt. --}}
             <template x-if="loading && messages.length === 0">
-                <div class="space-y-3 pt-4">
+                <div class="skeleton-defer space-y-3 pt-4">
                     <span class="sr-only" aria-live="polite">{{ __('Verlauf wird geladen…') }}</span>
                     <template x-for="i in 6" :key="i">
                         <div class="flex gap-2">
@@ -181,8 +182,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="{{ __('Abbrechen') }}" />
         </div>
 
-        {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild, Umfrage/Zap-Ziel): geteilter Composer. --}}
-        <div x-show="membershipReady && joined" x-cloak>
+        {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild, Umfrage/Zap-Ziel): geteilter Composer.
+             Sanftes Opacity-Einblenden statt hartem Aufploppen, sobald die Mitgliedschaft (39002)
+             geladen ist (membershipReady). --}}
+        <div x-show="membershipReady && joined" x-cloak x-transition.opacity.duration.200ms>
             @include('group::partials.chat-composer', ['context' => 'room'])
         </div>
 
@@ -195,7 +198,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </button>
         </div>
 
-        <div x-show="membershipReady && !joined" x-cloak
+        <div x-show="membershipReady && !joined" x-cloak x-transition.opacity.duration.200ms
              class="surface-card flex items-center justify-between gap-3 p-3">
             <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um mitzuschreiben.') }}</flux:text>
             <flux:button size="sm" variant="primary" icon="plus" class="icon-btn-touch" x-on:click="join()" ::disabled="joining">

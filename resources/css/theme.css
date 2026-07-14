@@ -251,10 +251,30 @@
     animation-delay: calc(min(var(--i, 0), 12) * 40ms);
 }
 
+/* Async-Nachzügler (Reaktionen/Zaps/NIP-05/Antworten-Indikator): schwingen beim
+   Erscheinen kurz ein statt hart aufzuploppen. Sie laden IMMER nach dem First Paint
+   (nicht gecacht) → die Animation feuert nur auf echten Nachzüglern, nicht auf dem
+   Erst-Render der Liste. Kurz + spring, damit es slick wirkt, nicht verspielt. */
+@keyframes chip-in {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+}
+.chip-in { animation: chip-in var(--duration-tap) var(--ease-spring) backwards; }
+
+/* Verzögertes Chat-Skeleton: ein WARMER Cache-Load (F5) füllt den Verlauf in ~150 ms.
+   Ohne Delay blitzte das Skeleton dabei ~40 ms auf und wurde sofort vom Content ersetzt
+   → wirkte wie „der Chat flasht zweimal". Mit `backwards` hält es bis 55 % (~175 ms) auf
+   opacity:0 → erscheint der Content vorher, war das Skeleton NIE sichtbar (nur der Content
+   blendet ein). Kalter (Relay-)Load zeigt es nach dem Delay ganz normal. */
+@keyframes skeleton-defer { 0%, 55% { opacity: 0; } 100% { opacity: 1; } }
+.skeleton-defer { animation: skeleton-defer 320ms var(--ease-out) backwards; }
+
 @media (prefers-reduced-motion: reduce) {
+    .skeleton-defer,
     .empty-state > *,
     .page-enter,
     .list-stagger > *,
+    .chip-in,
     .nav-pill,
     .skeleton,
     .caret {

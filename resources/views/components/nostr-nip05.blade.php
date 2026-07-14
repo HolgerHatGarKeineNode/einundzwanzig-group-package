@@ -3,7 +3,7 @@
      Verifizierung passiert client-seitig in welshman; hier nur die Anzeige.
      Nur das Häkchen als Default; `:label="true"` zeigt zusätzlich den Handle-Text. --}}
 @props(['nip05', 'label' => false])
-<span x-show="{{ $nip05 }}" x-cloak class="inline-flex min-w-0 items-center gap-1 text-brand-500"
+<span x-show="{{ $nip05 }}" x-cloak class="chip-in inline-flex min-w-0 items-center gap-1 text-brand-500"
       :title="@js(__('NIP-05 verifiziert: ')) + ({{ $nip05 }})">
     <flux:icon.check-badge variant="solid" class="size-4 shrink-0" />
     @if ($label)

@@ -181,39 +181,28 @@
                                          1.4em → höhere Pill als ein Unicode-Emoji). --}}
                                     <button type="button" x-on:click.stop="toggleReaction(m, r)" :aria-pressed="r.mine"
                                             :title="r.names"
-                                            class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
+                                            class="chip-in pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
                                             :class="r.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
                                         <template x-if="r.emojiUrl"><img class="chat-emoji !size-4 shrink-0 object-contain" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
                                         <template x-if="!r.emojiUrl"><span x-text="r.label"></span></template>
                                         <span x-show="r.count > 1" x-text="r.count" class="font-mono text-xs"></span>
                                     </button>
                                 </template>
-                                {{-- ⚡-Zap-Chip (Z3): validierte 9735-Summe in Sats, Brand-Ramp,
-                                     hervorgehoben wenn man selbst (mit)gezappt hat. Tap re-zappt
-                                     (nur fremde Nachrichten → openZap gatet über m.zappable).
-                                     Bei Goals (Z5) unterdrückt — der Fortschrittsbalken zeigt die Summe. --}}
-                                <template x-if="m.zaps.count && !m.goal">
-                                    <button type="button"
-                                            x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
-                                            :title="m.zaps.names"
-                                            :aria-label="(m.zaps.mine ? @js(__('Du hast gezappt. ')) : '') + m.zaps.sats + @js(__(' Sats gezappt von ')) + m.zaps.names + (zapsEnabled && m.zappable ? @js(__(' – tippen zum erneuten Zappen')) : '')"
-                                            class="pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none transition-colors motion-reduce:transition-none"
-                                            :class="m.zaps.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
-                                        <flux:icon.bolt variant="solid" class="size-3.5 shrink-0 text-brand-500" />
-                                        <span x-text="m.zaps.sats" class="font-mono text-xs tabular-nums"></span>
-                                    </button>
-                                </template>
                                 {{-- Antworten-Indikator (C6b, Slack-Stil): erscheint an JEDER Nachricht mit
                                      ≥1 Antwort (kind 1111). Überlappende Teilnehmer-Gesichter + Zähler +
                                      „vor …" der letzten Antwort → öffnet den Thread. Passt in die reservierte
-                                     Chip-Lane (h-7 = min-h-7), also kein Layout-Sprung beim Nachladen. --}}
+                                     Chip-Lane (h-7 = min-h-7), also kein Layout-Sprung beim Nachladen.
+                                     REIHENFOLGE: Reaktionen → Thread → Zap. So entspricht die DOM-Ordnung
+                                     der typischen Ankunft (Reaktionen früh, Thread, dann Zap) → jedes
+                                     Nachzügler-Chip hängt RECHTS an statt ein bestehendes (v.a. den breiten
+                                     Thread-Pill) horizontal wegzuschieben. --}}
                                 <template x-if="m.thread">
                                     {{-- P2: Pille = teilbarer Deep-Link auf die Thread-Route (wire:navigate,
                                          Vollansicht) statt In-Place-Modal. Real-`<a>` → back/mittelklick/teilbar.
                                          KEIN `.stop`: wire:navigate lauscht global, stopPropagation bräche es. --}}
                                     <a wire:navigate :href="threadHref(m)"
                                             :aria-label="m.thread.count + (m.thread.count === 1 ? @js(__(' Antwort, letzte ')) : @js(__(' Antworten, letzte '))) + m.thread.lastLabel + @js(__(' — Thread öffnen'))"
-                                            class="pressable group/th inline-flex h-7 items-center gap-1.5 rounded-full border border-brand-500/40 bg-brand-500/10 pl-1 pr-2.5 text-brand-500 transition-colors motion-reduce:transition-none hover:border-brand-500 hover:bg-brand-500/15">
+                                            class="chip-in pressable group/th inline-flex h-7 items-center gap-1.5 rounded-full border border-brand-500/40 bg-brand-500/10 pl-1 pr-2.5 text-brand-500 transition-colors motion-reduce:transition-none hover:border-brand-500 hover:bg-brand-500/15">
                                         <span class="flex -space-x-1.5">
                                             <template x-for="f in m.thread.faces" :key="f.pubkey">
                                                 <span class="inline-flex rounded-full ring-2 ring-white dark:ring-zinc-900">
@@ -225,6 +214,23 @@
                                         <span class="text-xs text-muted" x-text="'· ' + m.thread.lastLabel"></span>
                                         <flux:icon.chevron-right class="size-3.5 shrink-0 opacity-60 transition-transform motion-reduce:transition-none group-hover/th:translate-x-0.5" />
                                     </a>
+                                </template>
+                                {{-- ⚡-Zap-Chip (Z3): validierte 9735-Summe in Sats, Brand-Ramp,
+                                     hervorgehoben wenn man selbst (mit)gezappt hat. Tap re-zappt
+                                     (nur fremde Nachrichten → openZap gatet über m.zappable).
+                                     Bei Goals (Z5) unterdrückt — der Fortschrittsbalken zeigt die Summe.
+                                     ZULETZT in der Lane (s. Reihenfolge-Hinweis oben): der Zap trifft oft
+                                     spät ein und darf den Thread-Pill nicht wegschieben. --}}
+                                <template x-if="m.zaps.count && !m.goal">
+                                    <button type="button"
+                                            x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
+                                            :title="m.zaps.names"
+                                            :aria-label="(m.zaps.mine ? @js(__('Du hast gezappt. ')) : '') + m.zaps.sats + @js(__(' Sats gezappt von ')) + m.zaps.names + (zapsEnabled && m.zappable ? @js(__(' – tippen zum erneuten Zappen')) : '')"
+                                            class="chip-in pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none transition-colors motion-reduce:transition-none"
+                                            :class="m.zaps.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
+                                        <flux:icon.bolt variant="solid" class="size-3.5 shrink-0 text-brand-500" />
+                                        <span x-text="m.zaps.sats" class="font-mono text-xs tabular-nums"></span>
+                                    </button>
                                 </template>
                             </div>
                         </div>
