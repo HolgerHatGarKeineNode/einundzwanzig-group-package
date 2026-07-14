@@ -147,12 +147,20 @@ export const makePollResponse = (poll: TrustedEvent, selectedIds: string[], url:
  * mit flotillas und beide Clients lesen sie wechselseitig (Read/Write-Interop). Der member-
  * only zooid speichert/liefert das `h`-lose kind-1111 wie einen Report (Member-Event, per
  * kind/#E abfragbar) — verifiziert. Gelesen wird über `#E` (Thread-Root), nicht `#h`.
+ *
+ * Optionaler Bild-Anhang (C6a-Wiederverwendung): `imeta`-Tag (NIP-92) ans Event + die
+ * URL mit Leerzeile in den Text (wie `sendRoomMessage`), damit `renderMessageLink` sie
+ * als `<img>` rendert. Anhang ohne Text → URL steht allein. `imeta` ist flotilla-kompatibel.
  */
-export const makeComment = (event: TrustedEvent, content: string, url: string) =>
-    makeEvent(COMMENT, {
-        content,
-        tags: canEnforceNip70(url) ? [...tagEventForComment(event, url), PROTECTED] : tagEventForComment(event, url),
-    })
+export const makeComment = (event: TrustedEvent, content: string, url: string, attachment?: { url: string; imetaTag: string[] }) => {
+    const tags = canEnforceNip70(url) ? [...tagEventForComment(event, url), PROTECTED] : tagEventForComment(event, url)
+    let body = content
+    if (attachment) {
+        tags.push(attachment.imetaTag)
+        body = body ? `${body}\n\n${attachment.url}` : attachment.url
+    }
+    return makeEvent(COMMENT, { content: body, tags })
+}
 
 /** `nostr:npub…`/`nostr:nprofile…`-Mentions (NIP-27) im Nachrichtentext. */
 const MENTION = /nostr:(npub1[0-9a-z]+|nprofile1[0-9a-z]+)/g

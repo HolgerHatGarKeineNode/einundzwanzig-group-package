@@ -751,13 +751,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
          lieferte 0px → versetzte Doppelanzeige). `_cropSrc` steuert Sichtbarkeit; cropperjs
          übernimmt das <img>. A11y-Basis: role/aria-modal, Escape schließt, Initialfokus.
          `x-effect` fokussiert die Bestätigen-Taste, sobald das Overlay erscheint. --}}
+    {{-- z-[60] > Thread-Overlay (z-50): der Cropper wird auch AUS dem Thread heraus geöffnet
+         und liegt dann darüber. Beide Overlays haben `.window`-Escape- bzw. `click.outside`-
+         Handler; damit ein „nur den Zuschnitt abbrechen"-ESC/Klick NICHT auch den Thread abreißt,
+         stoppt der Cropper (früher im DOM → feuert zuerst) die Propagation, und die Thread-
+         Handler tragen zusätzlich den `!_cropSrc`-Guard (analog zum bestehenden `!lightboxSrc`). --}}
     <div x-show="_cropSrc" x-cloak role="dialog" aria-modal="true" aria-label="{{ __('Bild zuschneiden') }}"
          x-effect="_cropSrc && $nextTick(() => $refs.cropConfirm?.focus())"
-         x-on:keydown.escape.window="_cropSrc && cancelCrop()"
-         class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+         x-on:keydown.escape.window="if (_cropSrc) { $event.stopImmediatePropagation(); cancelCrop() }"
+         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
         {{-- Zentrierte Karte statt Vollflächen-Wüste: klare Kopf-/Bühne-/Fuß-Struktur. --}}
         <div class="surface-card flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 p-4 shadow-2xl sm:p-5"
-             x-on:click.outside="cancelCrop()">
+             x-on:click.outside="$event.stopImmediatePropagation(); cancelCrop()">
             <div class="flex items-center gap-2">
                 <flux:icon.scissors variant="solid" class="size-5 text-brand-500" />
                 <flux:heading size="lg">{{ __('Bild zuschneiden') }}</flux:heading>
@@ -911,12 +916,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
          nicht sichtbar. „Zurück" führt entsprechend (Modal schließen bzw. zur Übersicht). --}}
     <div x-show="threadRootId" x-cloak role="dialog" aria-modal="true" aria-label="{{ __('Thread') }}"
          x-effect="threadRootId && $nextTick(() => $refs.threadClose?.focus())"
-         x-on:keydown.escape.window="threadRootId && !lightboxSrc && backFromThread()"
+         x-on:keydown.escape.window="threadRootId && !lightboxSrc && !_cropSrc && backFromThread()"
          class="fixed inset-0 z-50 flex justify-center"
          :class="threadFull ? 'items-stretch bg-zinc-50 dark:bg-zinc-900' : 'items-end bg-black/70 backdrop-blur-sm sm:items-center sm:p-4'">
         <div class="surface-card flex w-full max-w-2xl flex-col overflow-hidden"
              :class="threadFull ? 'h-full' : 'max-h-[92vh] rounded-t-card shadow-2xl sm:rounded-card'"
-             x-on:click.outside="!lightboxSrc && !threadFull && closeThread()">
+             x-on:click.outside="!lightboxSrc && !_cropSrc && !threadFull && closeThread()">
             {{-- Kopf: Zurück + Titel + Kommentar-Zahl. --}}
             <div class="flex items-center gap-2 border-b border-white/10 px-4 py-3">
                 <flux:button size="xs" variant="ghost" icon="arrow-left" class="icon-btn-touch"
@@ -991,13 +996,30 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
                                          x-on:click="clearThreadReply()" aria-label="{{ __('Abbrechen') }}" />
                         </div>
+                        {{-- Anhang-Vorschau (C6a-Wiederverwendung, EIGENER `threadAttachment`-State,
+                             getrennt vom Haupt-Composer): zugeschnittenes Bild wartet auf Senden. --}}
+                        <div x-show="threadAttachment" x-cloak
+                             class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
+                            <img :src="$img(threadAttachment?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
+                                 class="size-14 shrink-0 rounded-tile object-cover" />
+                            <div class="min-w-0 flex-1 text-xs text-muted">{{ __('Bild angehängt') }}</div>
+                            <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
+                                         x-on:click="threadAttachment = null" aria-label="{{ __('Anhang entfernen') }}" />
+                        </div>
+                        {{-- Verstecktes Datei-Feld (Meme-Bild-Thread): der Foto-Button löst es aus,
+                             pickImage öffnet dasselbe Crop-Overlay wie im Haupt-Composer. --}}
+                        <input type="file" accept="image/*" x-ref="threadImageInput" class="hidden"
+                               x-on:change="pickImage($event.target)" aria-hidden="true" tabindex="-1" />
                         <div class="flex items-end gap-2">
+                            <flux:button type="button" variant="ghost" icon="photo" class="shrink-0 icon-btn-touch"
+                                         x-on:click="$refs.threadImageInput.click()" aria-label="{{ __('Bild anhängen') }}" />
                             <flux:textarea x-ref="threadComposer" x-model="threadDraft" rows="1" resize="none" class="flex-1"
                                            placeholder="{{ __('Im Thread antworten…') }}" aria-label="{{ __('Antwort schreiben') }}"
+                                           x-on:paste="pasteImage($event)"
                                            x-on:keydown="if ($event.key === 'Enter' && !$event.shiftKey) { $event.preventDefault(); sendComment() }" />
                             <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch"
                                          x-on:click="sendComment()"
-                                         ::disabled="threadDraft.trim().length === 0"
+                                         ::disabled="threadDraft.trim().length === 0 && !threadAttachment"
                                          aria-label="{{ __('Antwort senden') }}" />
                         </div>
                     </div>

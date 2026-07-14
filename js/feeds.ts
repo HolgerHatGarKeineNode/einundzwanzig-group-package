@@ -1020,8 +1020,8 @@ export const loadSpaceThreads = async (url: string): Promise<void> => {
  * Optimistisch: der Thunk legt den Kommentar sofort ins Repository (erscheint via
  * `deriveThread`); bei Relay-Reject zurückgenommen. Gibt '' bei Erfolg, sonst den Fehler.
  */
-export const sendComment = async (url: string, target: TrustedEvent, content: string): Promise<string> => {
-    const thunk = publishThunk({ relays: [url], event: makeComment(target, content, url) })
+export const sendComment = async (url: string, target: TrustedEvent, content: string, attachment?: Attachment): Promise<string> => {
+    const thunk = publishThunk({ relays: [url], event: makeComment(target, content, url, attachment) })
     const err = await waitForThunkError(thunk)
     if (err) {
         repository.removeEvent(thunk.event.id)

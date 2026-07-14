@@ -435,8 +435,10 @@ type RoomChatState = {
     sendError: string
     replyTo: { id: string; pubkey: string; name: string; text: string } | null
     sharing: boolean // Zitier-Modus (Quote-Only): Composer darf leer bleiben, Label „Zitieren"
-    attachment: Attachment | null // hochgeladener Bild-Anhang (C6a), wartet auf Senden
+    attachment: Attachment | null // hochgeladener Bild-Anhang des HAUPT-Composers (C6a), wartet auf Senden
+    threadAttachment: Attachment | null // eigener Bild-Anhang des THREAD-Composers (getrennt → kein Übersprechen)
     _cropSrc: string | null // Object-URL des zu croppenden Bilds (Crop-Overlay, sonst null)
+    _cropForThread: boolean // beim Cropper-Öffnen erfasst: Ziel ist der Thread- (true) statt Haupt-Composer
     cropRatio: number // aktives Seitenverhältnis (NaN = frei) — für die Button-Hervorhebung
     uploadingImage: boolean // Crop→Upload läuft (Doppel-Klick-Guard, Busy-Anzeige)
     editingId: string | null // id der gerade bearbeiteten eigenen Nachricht (sonst null)
@@ -1516,7 +1518,9 @@ export function registerNostrComponents(Alpine: {
         replyTo: null,
         sharing: false,
         attachment: null,
+        threadAttachment: null,
         _cropSrc: null,
+        _cropForThread: false,
         cropRatio: NaN,
         uploadingImage: false,
         editingId: null,
@@ -2164,7 +2168,9 @@ export function registerNostrComponents(Alpine: {
         refocusComposer() {
             const magics = this as unknown as AlpineMagics
             magics.$nextTick(() => {
-                const c = magics.$refs.composer
+                // Ist ein Thread offen, gehört der Fokus dem Thread-Composer (der Cropper
+                // kann aus beiden Composern geöffnet werden) — sonst dem Haupt-Composer.
+                const c = (this.threadRootId ? magics.$refs.threadComposer : magics.$refs.composer) as HTMLElement | undefined
                 if (c) {
                     c.focus()
                     c.style.height = 'auto'
@@ -2242,6 +2248,10 @@ export function registerNostrComponents(Alpine: {
                 return
             }
             this.closeThread() // evtl. noch offenen Thread sauber abbauen (Wechsel)
+            // Frischer Thread → eigener, leerer Anhang. Der Haupt-Composer-Anhang bleibt
+            // unangetastet (getrennter State), damit ein Thread-Öffnen zum Lesen keinen
+            // im Haupt-Composer wartenden Entwurf/Anhang verwirft.
+            this.threadAttachment = null
             const url = this._url
             this.threadFull = full // aus dem Chat = Modal; aus der Übersicht (Deep-Link) = Vollansicht
             this.threadRootId = rootId
@@ -2267,6 +2277,12 @@ export function registerNostrComponents(Alpine: {
             this.threadReplyTo = null
             this.threadDraft = ''
             this.threadFull = false
+            // War ein Crop AUS dem Thread offen, aufräumen; sonst den Haupt-Cropper NICHT
+            // anfassen (der lebt über einem geschlossenen Thread eigenständig weiter).
+            if (this._cropForThread) {
+                this.cancelCrop()
+            }
+            this.threadAttachment = null // wartenden Thread-Anhang verwerfen (Haupt bleibt)
         },
         // „Zurück" aus dem Thread. Modal (aus dem Chat) → nur schließen, Raum bleibt.
         // Vollansicht (aus der Übersicht/Deep-Link) → zurück zur Threads-Übersicht (History,
@@ -2305,7 +2321,7 @@ export function registerNostrComponents(Alpine: {
                 return
             }
             const content = this.threadDraft.trim()
-            if (!content) {
+            if (!content && !this.threadAttachment) {
                 return
             }
             const target = repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
@@ -2314,9 +2330,16 @@ export function registerNostrComponents(Alpine: {
                 return
             }
             const url = this._url
+            // Rohe (NICHT-reaktive) Kopie des Anhangs fürs Event — `imetaTag` ist sonst ein
+            // Alpine-Proxy und bricht beim Signieren (DataCloneError), siehe C6a-Message-Send.
+            const prevAttachment = this.threadAttachment
+            const rawAttachment = prevAttachment
+                ? { url: prevAttachment.url, imetaTag: [...prevAttachment.imetaTag] }
+                : undefined
             this.threadDraft = ''
             this.threadReplyTo = null
-            const err = await sendComment(url, target, content)
+            this.threadAttachment = null
+            const err = await sendComment(url, target, content, rawAttachment)
             if (err) {
                 toast(err)
             }
@@ -2471,6 +2494,10 @@ export function registerNostrComponents(Alpine: {
                 return
             }
             this.cancelCrop() // evtl. offenen Cropper + alte Object-URL freigeben (Re-Pick)
+            // Ziel-Composer JETZT erfassen (nicht erst beim Bestätigen): so landet das Bild
+            // deterministisch dort, wo der Cropper geöffnet wurde — auch wenn sich der aktive
+            // Composer während des Uploads änderte. Thread offen → Thread-Anhang, sonst Haupt.
+            this._cropForThread = Boolean(this.threadRootId)
             // `_cropSrc` steuert das Crop-Overlay (x-show) direkt — kein flux:modal, dessen
             // Transition den Cropper mit 0px-Container initialisieren könnte.
             const src = URL.createObjectURL(file)
@@ -2540,7 +2567,13 @@ export function registerNostrComponents(Alpine: {
                 if (!blob) {
                     throw new Error('Bild konnte nicht verarbeitet werden.')
                 }
-                this.attachment = await uploadAttachment(blob, `${canvas.width}x${canvas.height}`)
+                const up = await uploadAttachment(blob, `${canvas.width}x${canvas.height}`)
+                // In den beim Öffnen erfassten Ziel-Composer schreiben (kein Übersprechen).
+                if (this._cropForThread) {
+                    this.threadAttachment = up
+                } else {
+                    this.attachment = up
+                }
                 this.cancelCrop()
                 this.refocusComposer()
             } catch (e) {
