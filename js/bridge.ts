@@ -130,7 +130,7 @@ import {
     type StdEmoji,
     type RecentEmoji,
 } from './emoji'
-import { createChatVirtualizer, type ChatVirtualizer, type VirtualRow } from './chatVirtualizer'
+import { createScroller, type Scroller } from './scroll'
 import { toast, flashToast } from './toast'
 import {
     getNwcModule,
@@ -419,7 +419,8 @@ type MessageInfo = { nevent: string; npub: string; json: string; createdAt: stri
 type RoomChatState = {
     h: string
     roomName: string // Anzeigename des Raums (Client-Meta 39000); Fallback = Server-Wert/`h`
-    messages: ChatMessage[]
+    messages: ChatMessage[] // aufsteigend (Quelle): loadOlder/markRead/scrollToMessage arbeiten hierauf
+    messagesReversed: ChatMessage[] // newest-first fürs `flex-col-reverse`-Rendering (neweste am Boden)
     loading: boolean
     loadingMore: boolean
     hasMore: boolean
@@ -503,19 +504,14 @@ type RoomChatState = {
     _controller: AbortController | null
     _loadedProfiles: Set<string>
     _loadedMsgIds: Set<string> // ROH geladene kind-9-IDs (Pagination-Terminierung, robust ggü. Anzeige-Filter wie Poll-Share-Quotes)
-    _virt: ChatVirtualizer | null // TanStack-Virtualizer: besitzt scrollTop (Anker/Boden-Stick/Prepend); Schritt 7
-    virtualItems: VirtualRow[] // gerendertes Fenster (nur diese Zeilen liegen im DOM)
-    totalSize: number // Gesamthöhe der virtuellen Liste (Spacer-Höhe für die Scrollbar)
-    _revealing: boolean // First-Paint-Boden-Settle läuft (Guard gegen Mehrfachstart bei mehreren Emits)
+    _scroller: Scroller | null // Auto-Nachlade-Scroller (createScroller) statt Virtualizer; Teardown stoppt ihn
     init(): void
     setup(url: string): void
     teardown(): void
     retry(): void
     loadOlder(): void
     onScroll(): void
-    maybePrefetch(): void
     scrollToBottom(): void
-    measureRow(node: HTMLElement): void
     scrollToMessage(id: string): void
     autoGrow(el: HTMLTextAreaElement): void
     markRead(): void
@@ -1503,6 +1499,7 @@ export function registerNostrComponents(Alpine: {
         // den Namen am member-only-Relay ohne AUTH nicht lesen und zeigt sonst den Slug.
         roomName: String(initialName ?? h),
         messages: [],
+        messagesReversed: [],
         loading: true,
         loadingMore: false,
         hasMore: true,
@@ -1584,10 +1581,7 @@ export function registerNostrComponents(Alpine: {
         _controller: null,
         _loadedProfiles: new Set<string>(),
         _loadedMsgIds: new Set<string>(),
-        _virt: null,
-        virtualItems: [],
-        totalSize: 0,
-        _revealing: false,
+        _scroller: null,
         init() {
             // Aktiver Space → dessen Room-Feed (Wechsel baut Sub + Live neu auf).
             this._unsubActive = activeSpace.subscribe((url: string) => this.setup(url))
@@ -1600,7 +1594,8 @@ export function registerNostrComponents(Alpine: {
             // bei Adressleisten-Show/Hide nach unten (derselbe Fight wie das entfernte onMediaLoad).
             this._onViewport = () => {
                 if (this.atBottom) {
-                    this._virt?.scrollToEnd()
+                    const el = (this as unknown as AlpineMagics).$refs.scroll as HTMLElement | undefined
+                    el?.scrollTo({ top: 0 }) // column-reverse: top:0 = Boden (neueste)
                 }
             }
             window.visualViewport?.addEventListener('resize', this._onViewport)
@@ -1612,13 +1607,11 @@ export function registerNostrComponents(Alpine: {
             this.membershipReady = false
             this.error = ''
             this.messages = []
-            this.virtualItems = []
-            this.totalSize = 0
+            this.messagesReversed = []
             this.unread = 0
             this.atBottom = true
             this.hasMore = true // pro Raum zurücksetzen (sonst bliebe „Anfang erreicht" beim Space-Wechsel kleben)
             this.firstPaintDone = false
-            this._revealing = false
             this._lastRead = readRoomLastRead(url, this.h)
             this._controller = new AbortController()
             // Deep-Link (C6b): /rooms/{h}/thread/{nevent} öffnet den Thread als Vollansicht —
@@ -1639,82 +1632,18 @@ export function registerNostrComponents(Alpine: {
                     // Kaputter nevent im Pfad → kein Thread, kein Fehler.
                 }
             }
-            // Virtualizer pro Raum frisch aufbauen (eigener Messungs-Cache). Er besitzt
-            // fortan scrollTop: Anker beim Prepend, Boden-Stick, Bild-/Chip-Re-Measure.
+            // Kein Virtualizer mehr (Flotilla-Ansatz): der `flex-col-reverse`-Container pinnt den
+            // Boden NATIV, ältere Nachrichten voranstellen verschiebt die Leseposition nicht → kein
+            // Höhen-Messen, kein Spacer, kein Anker-Rechnen, kein Ruckeln. Ältere lädt ein schlichter
+            // Scroller nach, sobald man nahe an den oberen (ältesten) Rand scrollt. Pro Raum frisch;
+            // in $nextTick, damit $refs.scroll gemountet ist. Teardown stoppt ihn.
             const magics = this as unknown as AlpineMagics
-            // Content-bewusster Höhen-Estimate: hält getTotalSize() nah an der realen Höhe, BEVOR
-            // eine Zeile vermessen wird → beim Hochscrollen korrigiert die Messung kaum noch → der
-            // Scrollbalken zuckt nicht. Kalibriert an gemessenen Höhen (Autor-Einzeiler ≈ 50, jede
-            // weitere Textzeile ≈ 22, Chip-Reihe ≈ 30, reservierte Bild-Box ≈ 250). Per Event-ID
-            // gecacht: die Höhe einer Nachricht ist stabil, und estimateSize wird sonst pro
-            // ungemessener Zeile je Frame gerufen (bei großen Räumen sonst N× Regex/Frame).
-            const estCache = new Map<string, number>()
-            const estimateRow = (i: number): number => {
-                const m = this.messages[i]
-                if (!m) {
-                    return 64
+            magics.$nextTick(() => {
+                const el = magics.$refs.scroll as HTMLElement | undefined
+                if (el && this._url === url) {
+                    this._scroller?.stop()
+                    this._scroller = createScroller(el, () => this.loadOlder())
                 }
-                const hit = estCache.get(m.id)
-                if (hit !== undefined) {
-                    return hit
-                }
-                // +32 = die IMMER reservierte Chip-Lane (min-h-7 + mt-1, siehe ⚡room.blade) — sie ist
-                // bei jeder Nachricht präsent, damit async nachladende Zap-/Reaction-Chips die Zeile
-                // nicht wachsen lassen (Thumb-Zucken). Also gehört sie IMMER in den Estimate, nicht
-                // nur wenn Chips schon da sind.
-                let h = (m.showAuthor ? 50 : 30) + 32
-                // Höhe aus VISUELLEN Zeilen. Der Container ist monospace + whitespace-pre-wrap → jede
-                // harte Zeile (\n) ist mind. EINE visuelle Zeile, lange Zeilen wrappen bei ~60 Zeichen
-                // (gemessen: charWidth 7px, ~82/Zeile bei Desktop-Breite; 60 konservativ für schmalere
-                // Viewports). Der frühere ceil(gesamtZeichen/60) ignorierte die \n VÖLLIG → ASCII-Art /
-                // mehrzeilige Nachrichten wurden massiv unterschätzt (24 Zeilen: est 216 vs real 514px)
-                // → beim späten Vermessen OBERHALB des Viewports ein scrollHeight-Sprung von ~300px.
-                // Bilder tragen kein \n (eigene Box), darum VOR dem Zeilen-Zählen entfernen.
-                // Unsichtbare Zeichen ebenfalls raus: Zero-Width, Variation Selectors (FE00-FE0F) und
-                // v.a. der Variation-Selector-Supplement-/Tag-Bereich (U+E0000-E01EF) — „Stego"-Nachrichten
-                // verstecken dort tausende unsichtbare Codepoints hinter einem Emoji. Ungestrippt zählt
-                // der Estimate sie als sichtbare Zeichen → grobe Überschätzung (gemessen: real 120px vs
-                // est 902px → −782px Sprung beim Vermessen). Gestrippt bleibt der Estimate realistisch.
-                const text = (m.html ? m.html.replace(/<[^>]+>/g, '') : '').replace(
-                    /[\u200B-\u200D\u2060\uFEFF\uFE00-\uFE0F\u{E0000}-\u{E01EF}]/gu,
-                    '',
-                )
-                let visualLines = 0
-                for (const line of text.split('\n')) {
-                    visualLines += Math.max(1, Math.ceil(line.length / 60))
-                }
-                h += Math.max(0, visualLines - 1) * 20 // erste Zeile steckt in der Basis; lineHeight 20 (gemessen)
-                h += (m.html.match(/chat-image-box/g)?.length ?? 0) * 250 // reservierte Bild-Boxen
-                if (m.reply) {
-                    h += 46
-                }
-                if (m.poll) {
-                    // Optionen in gedeckelter Scrollbox (max-h-52 ≈ 208px, feste Zeilenhöhe ~38px) +
-                    // Footer (~20px) → deterministisch aus der Optionsanzahl, async-stabil (Tally füllt
-                    // nur Balken). An gemessenen Werten kalibriert (4 Opt → 171px Block).
-                    h += Math.min(208, m.poll.options.length * 38) + 20
-                }
-                if (m.goal) {
-                    h += 103 // fixe Goal-Blockhöhe (Summary 1 Zeile truncated + Balken + Footer), async-stabil; gemessen
-                }
-                estCache.set(m.id, h)
-                return h
-            }
-            this._virt = createChatVirtualizer({
-                getScrollElement: () => (magics.$refs.scroll as HTMLElement) ?? null,
-                getSpacerElement: () =>
-                    ((magics.$refs.scroll as HTMLElement)?.querySelector('[data-virt-spacer]') as HTMLElement) ?? null,
-                getKey: (i) => this.messages[i]?.id ?? String(i),
-                estimateRow,
-                onChange: (rows, total) => {
-                    this.virtualItems = rows
-                    this.totalSize = total
-                    // atBottom hier mitführen (nicht nur in onScroll): ein followOnAppend-Auto-Stick
-                    // bewegt scrollTop ohne Scroll-Event des Users → sonst bliebe der Jump-Button hängen.
-                    this.atBottom = this._virt?.isAtEnd(60) ?? true
-                    // Prefetch-Backstop am Fling-Ruhepunkt (onScroll-throttle verpasst die Endposition).
-                    this.maybePrefetch()
-                },
             })
             // Raum-Metas + Mitglieder (39002) laden; Live-Sub auf 39002, damit
             // Beitreten/Verlassen sofort reflektiert. `membershipReady` verhindert
@@ -1783,25 +1712,19 @@ export function registerNostrComponents(Alpine: {
             // (Handler-Body bewusst nicht umeingerückt gehalten → minimaler Diff.)
             const startFeed = () => {
             this._unsub = deriveRoomChat(url, this.h, this._lastRead).subscribe((msgs: ChatMessage[]) => {
-                // Boden-Stick, Prepend-Anker und das Halten der Leseposition bei nachladenden
-                // Höhen (Chips/Bilder) macht jetzt der Virtualizer (anchorTo:'end', Schritt 7) —
-                // kein manueller scrollTop-Pfad, kein Grow-only, kein Gesten-Latch mehr. Hier nur:
-                // Daten übernehmen, count melden, Profile/Zaps nachladen, Ungelesen-Zähler pflegen.
+                // column-reverse + Full-DOM: der Container pinnt den Boden NATIV — kein manueller
+                // scrollTop-Pfad, kein Anker, keine Höhenmessung. Hier nur: Daten übernehmen (inkl.
+                // reversed-Sicht fürs Rendering), Profile/Zaps nachladen, Ungelesen-Zähler pflegen.
                 const prevIds = new Set(this.messages.map((m) => m.id))
                 const prevNewest = this.messages.length ? this.messages[this.messages.length - 1].created_at : 0
-                // VOR dem Update prüfen: stand der Nutzer (nahe) am Boden? Dann klebt followOnAppend
-                // automatisch an neue Nachrichten (→ nichts ungelesen); sonst zählen wir sie.
-                const atEnd = !this.firstPaintDone || (this._virt?.isAtEnd(80) ?? true)
-                // Enger als atEnd(80): stand man WIRKLICH ganz unten? Dann muss der Boden auch
-                // gehalten werden, wenn dieser Emit async Chips (Zap/Reaction) in BESTEHENDE Zeilen
-                // nachlädt — die wachsen 1-2 Frames später und schöben den Inhalt sonst nach oben
-                // („springt hoch" nach Reload). Enge Schwelle → ein Hochgescrollter wird nicht getuggt.
-                const wasAtBottom = this.firstPaintDone && (this._virt?.isAtEnd(8) ?? false)
+                // Stand der Nutzer (nahe) am Boden? Dann klebt column-reverse automatisch an neuen
+                // Nachrichten (→ nichts ungelesen); sonst zählen wir sie. atBottom pflegt onScroll.
+                const atEnd = !this.firstPaintDone || this.atBottom
 
                 this.messages = msgs
-                // count an den Virtualizer: erfasst den Anker (Prepend hält die Leseposition über
-                // die Event-ID, Append am Boden klebt via followOnAppend) — EIN scrollTop-Owner.
-                this._virt?.update(msgs.length)
+                // Reversed fürs `flex-col-reverse`-Rendering (newest-first als Flex-Items → neweste
+                // am Boden). `this.messages` bleibt aufsteigend für loadOlder/markRead/scrollToMessage.
+                this.messagesReversed = msgs.slice().reverse()
 
                 // Profile neuer Autoren nachladen (einmal je pubkey).
                 const missing = msgs
@@ -1827,31 +1750,14 @@ export function registerNostrComponents(Alpine: {
                         (m) => !prevIds.has(m.id) && !m.mine && m.created_at >= prevNewest,
                     ).length
                 }
-                // Stand man ganz unten und dieser Emit lädt Chips in bestehende Zeilen nach
-                // (Zap/Reaction wachsen verzögert) → über ein paar Frames am Boden nachziehen.
-                // Ersetzt das entfernte onMediaLoad, aber sauber gegatet (nur bei echtem Boden-Stand,
-                // aus dem Emit statt aus jedem Bild-load) → hält den Boden ohne Gesten-Fight.
-                if (wasAtBottom) {
-                    this._virt?.stickToEndBriefly()
-                }
-                if (!this.firstPaintDone && !this._revealing) {
-                    // Am wachsenden Boden kleben, bis die async Zeilen-Messung stabil ist, DANN
-                    // enthüllen (Liste ist bis firstPaintDone opacity-0). Sonst landet der Reveal am
-                    // geschätzten Boden und driftet beim Vermessen weg (nicht ganz unten). Nur einmal
-                    // starten (Guard), auch wenn welshman mehrfach emittiert, bevor es fertig ist.
-                    this._revealing = true
-                    this._virt?.scrollToEndSettled(() => {
-                        // Gegen stale Raum absichern: käme ein alter Settle-Loop doch durch (Race beim
-                        // schnellen Raumwechsel), darf er firstPaintDone des NEUEN Raums nicht setzen.
-                        // Reveal erst EINEN Frame nach dem Settle: dann hat Alpine die korrigierten
-                        // translateY-Offsets der Zeilen committet → kein 1-Frame-Fenster, in dem eine
-                        // unterschätzte Textzeile kurz über der Nachbarzeile/dem Bild liegt (Bug #2).
+                if (!this.firstPaintDone) {
+                    // column-reverse startet nativ am Boden (scrollTop 0 = neueste) — kein Settle,
+                    // kein Anker, keine Messung nötig. Reveal erst nach dem Render (nextTick), damit
+                    // kein leerer Frame aufblitzt (Liste ist bis firstPaintDone opacity-0); url-Guard
+                    // gegen einen stale Raum bei schnellem Wechsel.
+                    ;(this as unknown as AlpineMagics).$nextTick(() => {
                         if (this._url === url) {
-                            requestAnimationFrame(() => {
-                                if (this._url === url) {
-                                    this.firstPaintDone = true
-                                }
-                            })
+                            this.firstPaintDone = true
                         }
                     })
                 }
@@ -1965,66 +1871,37 @@ export function registerNostrComponents(Alpine: {
                 })
         },
         onScroll() {
-            const el = (this as unknown as AlpineMagics).$refs.scroll
+            const el = (this as unknown as AlpineMagics).$refs.scroll as HTMLElement | undefined
             if (!el) {
                 return
             }
-            // atBottom (60px) für markRead/Composer-Fokus; der Boden-Stick selbst läuft
-            // über den Virtualizer (followOnAppend), nicht mehr über einen Gesten-Latch.
-            this.atBottom = this._virt?.isAtEnd(60) ?? true
+            // column-reverse: Boden = scrollTop ≈ 0 (Vorzeichen browserabhängig → Math.abs). Das
+            // automatische Nachladen älterer Nachrichten macht der Scroller (createScroller), nicht
+            // mehr ein Prefetch aus onScroll.
+            this.atBottom = Math.abs(el.scrollTop) < 60
             if (this.atBottom) {
                 this.unread = 0
                 this.markRead()
             }
-            this.maybePrefetch()
         },
-        // Eager Prefetch: ~2 Viewport-Höhen vor dem oberen Rand die nächste Alt-Seite laden → der
-        // Prepend + Anker-Kompensation passieren OBERHALB des Sichtbereichs (unsichtbar). NUR wenn
-        // hochgescrollt (nicht am Boden) UND First Paint fertig: in kurzen Räumen ist scrollTop < 2
-        // Viewports schon AM BODEN — dort NICHT prefetchen (der Prepend-Anker zöge vom Boden weg).
-        // Wird aus onScroll UND onChange gerufen: onScroll (throttle.50ms, leading-edge) verpasst die
-        // ENDposition eines Flings (kein trailing-Event bei scrollTop=0); onChange feuert über virtual-
-        // cores ungethrottelten Scroll-Listener auch am Ruhepunkt → zuverlässiger Backstop. loadingMore
-        // serialisiert (kein paralleles/kaskadierendes Laden), der Anker schiebt scrollTop nach jedem
-        // Prepend aus der <2vp-Zone → EINE Seite pro Hochscrollen, kein „lädt alles auf einmal".
-        maybePrefetch() {
-            const el = (this as unknown as AlpineMagics).$refs.scroll
-            if (!el) {
-                return
-            }
-            if (
-                this.firstPaintDone &&
-                !this.atBottom &&
-                el.scrollTop < el.clientHeight * 2 &&
-                this.hasMore &&
-                !this.loadingMore
-            ) {
-                this.loadOlder()
-            }
-        },
-        // „Zum Ende"-Button + Composer-Fokus: der Virtualizer scrollt an den echten Boden
-        // (hält ihn auch, während untere Bilder noch laden — wasAtEnd-Adjust).
+        // „Zum Ende"-Button + Composer-Fokus: column-reverse → top:0 ist der Boden (neueste).
         scrollToBottom() {
-            this._virt?.scrollToEnd()
+            const el = (this as unknown as AlpineMagics).$refs.scroll as HTMLElement | undefined
+            el?.scrollTo({ top: 0, behavior: 'smooth' })
             this.atBottom = true
             this.unread = 0
             this.firstPaintDone = true
             this.markRead()
         },
-        // Alpine x-init pro gerenderter Zeile → registriert sie beim Virtualizer (misst + beobachtet
-        // Höhenänderungen via ResizeObserver: Bild-Load, Chip-Nachladen). Ersetzt onMediaLoad + Grow-only.
-        measureRow(node: HTMLElement) {
-            this._virt?.measureRow(node)
-        },
-        // Zur zitierten Original-Nachricht springen + kurz hervorheben. Ist sie geladen, scrollt
-        // der Virtualizer sie zentriert an (auch wenn sie gerade nicht im Fenster gerendert ist);
-        // sonst (älter als der Verlauf) passiert nichts — kein Nachladen (Scope).
+        // Zur zitierten Original-Nachricht springen + kurz hervorheben. Full-DOM: der Knoten
+        // #msg-{id} existiert, sobald die Nachricht geladen ist → scrollIntoView; sonst (älter als
+        // der Verlauf) passiert nichts — kein Nachladen (Scope).
         scrollToMessage(id: string) {
-            const index = this.messages.findIndex((m) => m.id === id)
-            if (index < 0) {
+            const node = document.getElementById('msg-' + id)
+            if (!node) {
                 return
             }
-            this._virt?.scrollToIndex(index)
+            node.scrollIntoView({ block: 'center' })
             this.flashId = id
             // ponytail: schlichter Timeout-Highlight statt Animation-Lib
             setTimeout(() => {
@@ -2063,8 +1940,8 @@ export function registerNostrComponents(Alpine: {
             this._zapSub = null
             this._zapLoadedIds.clear()
             this._loadedMsgIds.clear()
-            this._virt?.destroy()
-            this._virt = null
+            this._scroller?.stop()
+            this._scroller = null
             this.closeMentions()
             this.cancelCrop() // offenen Cropper + Object-URL freigeben (Raumwechsel)
             this.closeThread() // offenes Thread-Overlay + Live-Sub abbauen (Raumwechsel)

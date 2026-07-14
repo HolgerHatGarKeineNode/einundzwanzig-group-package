@@ -90,23 +90,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </flux:callout>
         </template>
 
-        {{-- throttle (nicht debounce, Schritt 6): debounce ist trailing-only → feuert bei einem
-             schnellen Aufwärts-Fling nie MID-Scroll (Timer resettet jeden Frame) → der eager Prefetch
-             startet erst nach dem Stopp. throttle feuert in 50ms-Intervallen WÄHREND der Geste → die
-             2-Viewport-Schwelle greift rechtzeitig, der Prepend landet off-screen. --}}
-        {{-- Der Virtualizer besitzt scrollTop; kein space-y (absolute Zeilen) und kein pb-4
-             (paddingEnd im Virtualizer). --}}
-        <div x-ref="scroll" x-on:scroll.throttle.50ms="onScroll()"
+        {{-- Verlauf (Flotilla-Ansatz): `flex-col-reverse` pinnt den Boden (neueste) NATIV —
+             scrollTop 0 = Boden, ältere voranstellen verschiebt die Leseposition nicht → kein
+             Ruckeln, kein Virtualizer, keine Höhenmessung. Ältere lädt ein rAF-Scroller
+             (createScroller, bridge setup) automatisch nahe am oberen (ältesten) Rand.
+             `wire:ignore`: der Livewire-Morph darf die Alpine-gerenderte Liste nicht anfassen. --}}
+        <div x-ref="scroll" wire:ignore x-on:scroll.throttle.50ms="onScroll()"
              role="log" aria-live="polite" aria-relevant="additions" aria-label="{{ __('Chat-Verlauf') }}"
              ::aria-busy="loading && messages.length === 0"
-             {{-- [overflow-anchor:none]: DEFENSIV. Standard-Rezept für JS-verwaltete Chat-Scroller
-                  (Slack/Discord/Telegram-Web), damit die native Browser-Scroll-Verankerung nicht als
-                  zweite scrollTop-Quelle gegen virtual-core (alleiniger scrollTop-Owner) kämpft. In
-                  UNSERER Architektur real vermutlich ein No-op — die Zeilen sind absolut + translateY
-                  (out-of-flow, transform unterdrückt Anchoring ohnehin), auf WebKit gibt es das Feature
-                  gar nicht. Der eigentliche Oszillations-Fix sitzt im scrollToFn (chatVirtualizer.ts).
-                  Kostet nichts, schützt gegen künftige Layout-Änderungen → drin lassen. --}}
-             class="min-h-0 flex-1 overflow-y-auto transition-opacity [overflow-anchor:none]"
+             class="flex flex-col-reverse min-h-0 flex-1 overflow-y-auto px-1 pb-2 transition-opacity"
              :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
 
             {{-- Erstes Laden --}}
@@ -133,25 +125,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </template>
 
-            {{-- Verlauf — virtualisiert via @tanstack/virtual-core (Schritt 7): nur das sichtbare
-                 Fenster (virtualItems) liegt im DOM, der Spacer trägt die Gesamthöhe für die
-                 Scrollbar, jede Zeile ist absolut an ihrem gemessenen Offset. Der Virtualizer besitzt
-                 scrollTop (Boden-Stick via followOnAppend, Prepend-Anker keyed by Event-ID, Bild-/
-                 Chip-Re-Measure via ResizeObserver). wire:ignore: der Livewire-Morph darf die
-                 absolut positionierten Nodes nicht anfassen. --}}
-            <div wire:ignore data-virt-spacer x-show="messages.length > 0" class="relative w-full" :style="`height:${totalSize}px`">
-            <template x-for="vi in virtualItems" :key="vi.key">
-                {{-- Gemessene Zeile: data-index (Virtualizer liest daraus den Item-Key), measureRow
-                     registriert sie + ResizeObserver. Vertikalabstand als PADDING (in der border-box
-                     → offsetHeight erfasst ihn), da absolute Items kein margin/space-y tragen. --}}
-                <div :data-index="vi.index" x-init="$nextTick(() => measureRow($el))"
-                     class="absolute left-0 top-0 w-full"
-                     :class="messages[vi.index]?.showAuthor ? 'pt-2.5' : 'pt-0.5'"
-                     :style="`transform:translateY(${vi.start}px)`">
-                {{-- Reaktiver Alias m = messages[vi.index] (1-Element-x-for statt Getter → Chip-/Profil-
-                     Updates schlagen live durch; leerer Fallback schützt vor Übergangs-Frames). --}}
-                <template x-for="m in (messages[vi.index] ? [messages[vi.index]] : [])" :key="vi.key">
-                <div>
+            {{-- Verlauf: Full-DOM, newest-first als direkte Flex-Items (messagesReversed) im
+                 flex-col-reverse-Container → neweste am Boden, Boden nativ gepinnt. Kein Virtualizer,
+                 keine Höhenmessung → kein Ruckeln. Vertikalabstand als pt-* pro Zeile. --}}
+            <template x-for="m in messagesReversed" :key="m.id">
+                <div :class="m.showAuthor ? 'pt-2.5' : 'pt-0.5'">
                     <template x-if="m.divider">
                         <div class="my-3 flex items-center gap-3">
                             <flux:separator class="flex-1" />
@@ -462,26 +440,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </div>
                     </div>
                 </div>
-                </template>
-                </div>
             </template>
-            </div>
         </div>
 
-        {{-- Ältere laden: schwebende Affordanz oben (analog zum Jump-Button unten), damit sie die
-             absolut positionierte virtuelle Liste NICHT in ihrer Geometrie verschiebt. Meist nur
-             Fallback — der Eager-Prefetch (onScroll) lädt beim Hochscrollen schon von selbst. --}}
-        <div class="pointer-events-none absolute inset-x-0 top-2 flex justify-center" x-show="hasMore && messages.length > 0" x-cloak
+        {{-- Lade-Spinner oben, während der Auto-Scroller (createScroller) ältere Nachrichten
+             nachzieht — reines Feedback; das Laden selbst passiert beim Hochscrollen von allein. --}}
+        <div class="pointer-events-none absolute inset-x-0 top-2 flex justify-center" x-show="loadingMore" x-cloak
              x-transition.opacity>
-            <flux:button size="xs" variant="ghost" class="pointer-events-auto surface-card icon-btn-touch shadow-md" x-on:click="loadOlder()" ::disabled="loadingMore">
-                <span x-text="loadingMore ? @js(__('Lädt…')) : @js(__('Ältere laden'))"></span>
-            </flux:button>
+            <span class="surface-card rounded-full px-3 py-1 text-xs text-muted shadow-md">{{ __('Lädt ältere…') }}</span>
         </div>
 
         {{-- Zurück ans Ende, sobald hochgescrollt — mit Zähler, wenn neue Nachrichten warten.
              Zwei Buttons: flux erkennt „Icon-only vs. Pille" server-seitig am Slot (ein
              x-show-Span bliebe immer „nicht leer" → Pfeil säße links statt zentriert). --}}
-        {{-- Zeigt, sobald der User nicht mehr am Boden ist (atBottom = Virtualizer.isAtEnd(60)). --}}
+        {{-- Zeigt, sobald der User nicht mehr am Boden ist (atBottom = Math.abs(scrollTop) < 60, column-reverse). --}}
         <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="firstPaintDone && !atBottom" x-cloak
              x-transition.opacity>
             {{-- Keine ungelesenen → quadratischer Button, Pfeil zentriert. --}}
