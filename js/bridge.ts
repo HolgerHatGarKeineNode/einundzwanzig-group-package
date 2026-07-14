@@ -1844,7 +1844,11 @@ export function registerNostrComponents(Alpine: {
         },
         // Ältere Nachrichten vor der aktuell ältesten laden; Scroll-Position halten.
         loadOlder() {
-            if (this.loadingMore || !this._url || this.messages.length === 0) {
+            // hasMore-Guard MUSS hier sitzen: der rAF-Scroller (createScroller) ruft loadOlder
+            // ungebremst, sobald man nahe am ältesten Rand steht. Ohne den Guard würde er nach
+            // erschöpfter History die Grenzseite endlos (~alle 300ms) neu vom Relay holen —
+            // früher gaten das die entfernten Aufrufer (maybePrefetch/„Ältere laden"-Button).
+            if (this.loadingMore || !this.hasMore || !this._url || this.messages.length === 0) {
                 return
             }
             this.loadingMore = true
