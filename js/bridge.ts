@@ -534,6 +534,7 @@ type RoomChatState = {
     copyJson(m: ChatMessage): void
     openInfo(m: ChatMessage): void
     openThread(m: ChatMessage, full?: boolean): void
+    threadHref(m: ChatMessage): string
     closeThread(): void
     backFromThread(): void
     setThreadReply(c: ThreadComment): void
@@ -2247,6 +2248,13 @@ export function registerNostrComponents(Alpine: {
         // Öffnet das In-Room-Overlay zu EINER Nachricht: sie selbst ist die Thread-Wurzel
         // (Slack-Modell — jede Nachricht ist thread-fähig, nicht nur Quote-Only). Zeigt die
         // Wurzel + den verschachtelten Kommentar-Baum + Composer. Live-Sub hält ihn aktuell.
+        // P2: Teilbarer Deep-Link zum Thread einer Nachricht (/rooms/{h}/thread/{nevent}).
+        // Die Antworten-Pille navigiert dorthin (wire:navigate) statt das In-Place-Modal zu
+        // öffnen — dieselbe Wurzel, aber als teilbare/back-fähige Vollansicht (setup ruft
+        // openThread(…,true) aus dem nevent). Bech32 ohne `nostr:`-Präfix für den Routen-Param.
+        threadHref(m: ChatMessage): string {
+            return `/rooms/${encodeURIComponent(this.h)}/thread/${neventFor(m, this._url).replace(/^nostr:/, '')}`
+        },
         openThread(m: ChatMessage, full = false) {
             this.activeId = null
             this.closeMessageMenu()

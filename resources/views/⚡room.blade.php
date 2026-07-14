@@ -349,7 +349,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      „vor …" der letzten Antwort → öffnet den Thread. Passt in die reservierte
                                      Chip-Lane (h-7 = min-h-7), also kein Layout-Sprung beim Nachladen. --}}
                                 <template x-if="m.thread">
-                                    <button type="button" x-on:click.stop="openThread(m)"
+                                    {{-- P2: Pille = teilbarer Deep-Link auf die Thread-Route (wire:navigate,
+                                         Vollansicht) statt In-Place-Modal. Real-`<a>` → back/mittelklick/teilbar.
+                                         KEIN `.stop`: wire:navigate lauscht global, stopPropagation bräche es. --}}
+                                    <a wire:navigate :href="threadHref(m)"
                                             :aria-label="m.thread.count + (m.thread.count === 1 ? @js(__(' Antwort, letzte ')) : @js(__(' Antworten, letzte '))) + m.thread.lastLabel + @js(__(' — Thread öffnen'))"
                                             class="pressable group/th inline-flex h-7 items-center gap-1.5 rounded-full border border-brand-500/40 bg-brand-500/10 pl-1 pr-2.5 text-brand-500 transition-colors motion-reduce:transition-none hover:border-brand-500 hover:bg-brand-500/15">
                                         <span class="flex -space-x-1.5">
@@ -362,7 +365,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <span class="text-xs font-semibold" x-text="m.thread.count + (m.thread.count === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
                                         <span class="text-xs text-muted" x-text="'· ' + m.thread.lastLabel"></span>
                                         <flux:icon.chevron-right class="size-3.5 shrink-0 opacity-60 transition-transform motion-reduce:transition-none group-hover/th:translate-x-0.5" />
-                                    </button>
+                                    </a>
                                 </template>
                             </div>
                         </div>
