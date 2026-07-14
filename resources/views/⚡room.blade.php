@@ -962,13 +962,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </div>
                 </template>
 
-                {{-- Kommentar-Baum: flach mit Einrückung nach `depth` (gedeckelt). --}}
+                {{-- Kommentar-Liste: flach + chronologisch (Slack-Stil, P3 4.2) — keine
+                     depth-Einrückung; Eltern-Bezug über die „Antwort auf <Autor>"-Zeile. --}}
                 <template x-if="threadComments.length === 0">
                     <p class="py-6 text-center text-sm text-muted">{{ __('Noch keine Antworten — antworte als erste:r.') }}</p>
                 </template>
                 <template x-for="c in threadComments" :key="c.id">
-                    <div :style="'margin-left:' + Math.min(c.depth, 6) * 14 + 'px'"
-                         class="border-l-2 border-white/10 pl-2">
+                    <div>
                         <div class="flex items-center gap-2">
                             <x-group::nostr-avatar picture="c.picture" name="c.name" />
                             <span class="truncate text-sm font-semibold" x-text="c.name"></span>

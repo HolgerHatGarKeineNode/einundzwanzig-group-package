@@ -825,7 +825,7 @@ export type ThreadRoot = {
     missing: boolean
 }
 
-/** Ein Kommentar im Thread — flach mit `depth` (Einrückung) + `replyToName` (Elternautor). */
+/** Ein Kommentar im Thread — flach/chronologisch, `replyToName` = Elternautor (leer = am Root). */
 export type ThreadComment = {
     id: string
     pubkey: string
@@ -838,11 +838,10 @@ export type ThreadComment = {
     time: string
     fullTime: string
     mine: boolean
-    depth: number // Verschachtelungstiefe (0 = direkt am Root)
-    replyToName: string // Autor des Eltern-Kommentars (leer = am Root)
+    replyToName: string // Autor des Eltern-Kommentars (leer = am Root oder Waise)
 }
 
-/** Render-fertige Thread-Sicht: aufgelöster Root + verschachtelte Kommentar-Liste (DFS). */
+/** Render-fertige Thread-Sicht: aufgelöster Root + flache chronologische Kommentar-Liste. */
 export type ThreadView = { rootId: string; root: ThreadRoot; comments: ThreadComment[]; count: number }
 
 /** Personen-/Render-Felder eines Events (geteilt von Root + Kommentar). */
@@ -864,49 +863,31 @@ const personFields = (
 }
 
 /**
- * Baut aus den flachen kind-1111-Events den Kommentar-Baum in DFS-Reihenfolge: das
- * direkte Parent steckt im kleinen `["e", parentId]` (NIP-22). Kinder werden je Parent
- * zeitlich aufsteigend eingehängt; `depth` trägt die Einrückung. Ein `seen`-Set schützt
- * gegen Zyklen/Doppelungen; Waisen (Parent fehlt/außerhalb) landen als depth-0 am Ende,
- * damit kein Kommentar verloren geht.
+ * Baut aus den kind-1111-Events die flache CHRONOLOGISCHE Kommentar-Liste (Slack-Stil, P3 4.2) —
+ * keine depth-Einrückung mehr. Der Elternautor (`replyToName`) kommt aus dem kleinen `["e"]`
+ * (NIP-22, direktes Parent); leer, wenn das Parent der Root ist ODER außerhalb des Threads liegt
+ * (Waise). Waisen sortieren einfach per Zeit ein — kein Sonderfall/Anhang am Ende mehr.
  */
-const buildCommentTree = (
+const buildCommentList = (
     comments: TrustedEvent[],
     rootId: string,
     me: string | null | undefined,
     $profiles: Map<string, { picture?: string; nip05?: string }>,
     $handles: Parameters<typeof verifiedNip05>[2],
 ): ThreadComment[] => {
-    const childrenOf = groupBy((c) => getTagValue('e', c.tags) ?? '', comments)
-    const out: ThreadComment[] = []
-    const seen = new Set<string>()
-    const toComment = (c: TrustedEvent, depth: number, replyToName: string): ThreadComment => ({
-        id: c.id,
-        pubkey: c.pubkey,
-        created_at: c.created_at,
-        mine: c.pubkey === me,
-        depth,
-        replyToName,
-        ...personFields(c, $profiles, $handles),
+    const byId = new Map(comments.map((c) => [c.id, c]))
+    return sortEventsAsc(comments).map((c) => {
+        const parentId = getTagValue('e', c.tags) ?? ''
+        const parent = parentId && parentId !== rootId ? byId.get(parentId) : undefined
+        return {
+            id: c.id,
+            pubkey: c.pubkey,
+            created_at: c.created_at,
+            mine: c.pubkey === me,
+            replyToName: parent ? displayProfileByPubkey(parent.pubkey) : '',
+            ...personFields(c, $profiles, $handles),
+        }
     })
-    const walk = (parentId: string, depth: number, parentName: string): void => {
-        for (const c of sortEventsAsc(childrenOf.get(parentId) ?? [])) {
-            if (seen.has(c.id)) {
-                continue // Zyklus-/Doppel-Guard
-            }
-            seen.add(c.id)
-            out.push(toComment(c, depth, parentName))
-            walk(c.id, depth + 1, displayProfileByPubkey(c.pubkey))
-        }
-    }
-    walk(rootId, 0, '')
-    for (const c of sortEventsAsc(comments)) {
-        if (!seen.has(c.id)) {
-            seen.add(c.id)
-            out.push(toComment(c, 0, '')) // Waise: Parent nicht im Thread → als Wurzel-Ebene zeigen
-        }
-    }
-    return out
 }
 
 /**
@@ -930,7 +911,7 @@ export const deriveThread = (url: string, rootId: string): Readable<ThreadView> 
             const root: ThreadRoot = rootEvent
                 ? { id: rootEvent.id, pubkey: rootEvent.pubkey, missing: false, ...personFields(rootEvent, $profiles, $handles) }
                 : { id: rootId, pubkey: '', name: '', picture: '', profileReady: false, nip05: '', html: '', time: '', fullTime: '', missing: true }
-            return { rootId, root, comments: buildCommentTree(commentEvents, rootId, $me, $profiles, $handles), count: commentEvents.length }
+            return { rootId, root, comments: buildCommentList(commentEvents, rootId, $me, $profiles, $handles), count: commentEvents.length }
         },
     )
 
