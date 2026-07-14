@@ -261,16 +261,7 @@
 }
 .chip-in { animation: chip-in var(--duration-tap) var(--ease-spring) backwards; }
 
-/* Verzögertes Chat-Skeleton: ein WARMER Cache-Load (F5) füllt den Verlauf in ~150 ms.
-   Ohne Delay blitzte das Skeleton dabei ~40 ms auf und wurde sofort vom Content ersetzt
-   → wirkte wie „der Chat flasht zweimal". Mit `backwards` hält es bis 55 % (~175 ms) auf
-   opacity:0 → erscheint der Content vorher, war das Skeleton NIE sichtbar (nur der Content
-   blendet ein). Kalter (Relay-)Load zeigt es nach dem Delay ganz normal. */
-@keyframes skeleton-defer { 0%, 55% { opacity: 0; } 100% { opacity: 1; } }
-.skeleton-defer { animation: skeleton-defer 320ms var(--ease-out) backwards; }
-
 @media (prefers-reduced-motion: reduce) {
-    .skeleton-defer,
     .empty-state > *,
     .page-enter,
     .list-stagger > *,

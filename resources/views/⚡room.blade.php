@@ -101,22 +101,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
              class="flex flex-col-reverse min-h-0 flex-1 overflow-y-auto px-1 pb-2 transition-opacity"
              :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
 
-            {{-- Erstes Laden. `skeleton-defer`: hält das Skeleton ~175ms unsichtbar, damit
-                 ein warmer Cache-Load (F5, Content in ~150ms) es nie aufblitzen lässt. --}}
-            <template x-if="loading && messages.length === 0">
-                <div class="skeleton-defer space-y-3 pt-4">
-                    <span class="sr-only" aria-live="polite">{{ __('Verlauf wird geladen…') }}</span>
-                    <template x-for="i in 6" :key="i">
-                        <div class="flex gap-2">
-                            <div class="skeleton size-8 shrink-0 rounded-full"></div>
-                            <div class="flex-1 space-y-1.5 py-1">
-                                <div class="skeleton h-3 w-24"></div>
-                                <div class="skeleton h-3 w-2/3"></div>
-                            </div>
+            {{-- Erstes Laden: SERVER-SEITIG gerendertes Skeleton (kein x-cloak/x-if, statische
+                 Rows via @for) → steht ab dem ERSTEN Paint da. Sonst blitzte der Chat-Bereich
+                 beim F5 weiß auf, bis Alpine bootet (~165ms) und die x-if/x-for-Templates
+                 auswertet. `x-show` blendet es aus, sobald Nachrichten geladen sind. --}}
+            <div x-show="loading && messages.length === 0" class="space-y-3 pt-4">
+                <span class="sr-only" aria-live="polite">{{ __('Verlauf wird geladen…') }}</span>
+                @for ($i = 0; $i < 6; $i++)
+                    <div class="flex gap-2">
+                        <div class="skeleton size-8 shrink-0 rounded-full"></div>
+                        <div class="flex-1 space-y-1.5 py-1">
+                            <div class="skeleton h-3 w-24"></div>
+                            <div class="skeleton h-3 w-2/3"></div>
                         </div>
-                    </template>
-                </div>
-            </template>
+                    </div>
+                @endfor
+            </div>
 
             {{-- Leerer Raum --}}
             <template x-if="!loading && messages.length === 0">
@@ -167,7 +167,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
          dass der Hinweis kurz aufblitzt, bevor die Members-Liste geladen ist.
          Senden ist eine reine Alpine-Aktion (welshman signiert im Browser). --}}
     <div class="shrink-0 pt-2">
-        <div x-show="!membershipReady" x-cloak class="skeleton h-11 rounded-card"></div>
+        {{-- SSR-sichtbar (kein x-cloak): der Composer-Platz zeigt beim F5 sofort ein Skeleton
+             statt weiß, bis die Mitgliedschaft geladen ist. --}}
+        <div x-show="!membershipReady" class="skeleton h-11 rounded-card"></div>
 
         {{-- Compose-Kontext über dem Composer: Antworten (replyTo), Zitieren (sharing)
              oder Bearbeiten (editingId) — mit Abbrechen. --}}
