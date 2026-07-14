@@ -113,7 +113,6 @@ import {
     type ChatMessage,
     type ReactionChip,
     type ThreadRoot,
-    type ThreadComment,
     type SpaceThread,
 } from './feeds'
 import type { PollType } from './polls'
@@ -479,7 +478,7 @@ type RoomChatState = {
     // Thread-Ansicht (C6b, NIP-22): In-Room-Overlay statt eigener Route.
     threadRootId: string | null // Root-Event des offenen Threads (null = Overlay zu)
     threadRoot: ThreadRoot | null // aufgelöster Root (die zitierte Nachricht)
-    threadComments: ThreadComment[] // verschachtelte Kommentare (flach mit depth)
+    threadComments: ChatMessage[] // flache chronologische Kommentare (ChatMessage-shaped, P3 4.2)
     threadCount: number // Anzahl Kommentare im offenen Thread
     threadReplyTo: { id: string; name: string } | null // Ziel-Kommentar der nächsten Antwort (null = am Root)
     threadDraft: string // Kommentar-Entwurf im Thread-Composer
@@ -533,7 +532,7 @@ type RoomChatState = {
     threadHref(m: ChatMessage): string
     closeThread(): void
     backFromThread(): void
-    setThreadReply(c: ThreadComment): void
+    setThreadReply(c: ChatMessage): void
     clearThreadReply(): void
     sendComment(): Promise<void>
     copy(text: string, label: string): void
@@ -2212,7 +2211,7 @@ export function registerNostrComponents(Alpine: {
         },
         // Auf einen bestehenden Kommentar antworten (verschachtelt): das nächste
         // Absenden hängt den Kommentar unter `c` statt unter den Root.
-        setThreadReply(c: ThreadComment) {
+        setThreadReply(c: ChatMessage) {
             this.threadReplyTo = { id: c.id, name: c.name }
             ;(this as unknown as AlpineMagics).$nextTick(() =>
                 (this as unknown as { $refs: Record<string, HTMLElement> }).$refs.threadComposer?.focus(),

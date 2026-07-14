@@ -358,6 +358,8 @@ export type ChatMessage = {
     goal: GoalView | null // NIP-75-Zap-Goal (kind 9041) mit Fortschritt aus dem Zap-Tally (Z5), sonst null
     zaps: ZapSummary // validierte kind-9735-Zap-Summe (Z3), count 0 = keine
     zappable: boolean // Autor kann Zaps empfangen (lud16/lud06) UND ist nicht man selbst
+    replyToName?: string // NUR Thread-Kommentare (P3): Elternautor (NIP-22 kleines `e`) für die
+    // „Antwort auf <Autor>"-Zeile; im Raum-Feed undefined (dort trägt `reply` den q-Quote).
 }
 
 /** Eine Poll-Option mit Live-Zähler, Balkenbreite (0–100 %) und eigenem Vote-Zustand. */
@@ -825,24 +827,10 @@ export type ThreadRoot = {
     missing: boolean
 }
 
-/** Ein Kommentar im Thread — flach/chronologisch, `replyToName` = Elternautor (leer = am Root). */
-export type ThreadComment = {
-    id: string
-    pubkey: string
-    created_at: number
-    name: string
-    picture: string
-    profileReady: boolean
-    nip05: string
-    html: string
-    time: string
-    fullTime: string
-    mine: boolean
-    replyToName: string // Autor des Eltern-Kommentars (leer = am Root oder Waise)
-}
-
-/** Render-fertige Thread-Sicht: aufgelöster Root + flache chronologische Kommentar-Liste. */
-export type ThreadView = { rootId: string; root: ThreadRoot; comments: ThreadComment[]; count: number }
+/** Render-fertige Thread-Sicht: aufgelöster Root + flache chronologische Kommentar-Liste.
+ *  Kommentare sind vollwertige {@link ChatMessage} (P3 4.2) → sie rendern durch die geteilte
+ *  Raum-Message-Row (Reaktionen/Zaps/Toolbar/Crop geerbt); `replyToName` trägt den Eltern-Bezug. */
+export type ThreadView = { rootId: string; root: ThreadRoot; comments: ChatMessage[]; count: number }
 
 /** Personen-/Render-Felder eines Events (geteilt von Root + Kommentar). */
 const personFields = (
@@ -863,29 +851,32 @@ const personFields = (
 }
 
 /**
- * Baut aus den kind-1111-Events die flache CHRONOLOGISCHE Kommentar-Liste (Slack-Stil, P3 4.2) —
- * keine depth-Einrückung mehr. Der Elternautor (`replyToName`) kommt aus dem kleinen `["e"]`
- * (NIP-22, direktes Parent); leer, wenn das Parent der Root ist ODER außerhalb des Threads liegt
- * (Waise). Waisen sortieren einfach per Zeit ein — kein Sonderfall/Anhang am Ende mehr.
+ * Baut aus den kind-1111-Events die flache CHRONOLOGISCHE Kommentar-Liste (Slack-Stil, P3 4.2) als
+ * vollwertige {@link ChatMessage} (via {@link toChatMessage}) → sie rendern durch die geteilte
+ * Raum-Message-Row. divider/showAuthor werden wie im Raum-Feed gruppiert; `unreadDivider` gibt es im
+ * Thread nicht. Der Elternautor (`replyToName`) kommt aus dem kleinen `["e"]` (NIP-22, direktes
+ * Parent); leer, wenn das Parent der Root ist ODER außerhalb des Threads liegt (Waise sortiert per
+ * Zeit ein). `ctx` trägt (im Thread) leere Aggregations-Maps → reactions/zaps/poll/goal neutral,
+ * bis P3 Schritt 5 sie füllt.
  */
-const buildCommentList = (
-    comments: TrustedEvent[],
-    rootId: string,
-    me: string | null | undefined,
-    $profiles: Map<string, { picture?: string; nip05?: string }>,
-    $handles: Parameters<typeof verifiedNip05>[2],
-): ThreadComment[] => {
+const buildCommentList = (comments: TrustedEvent[], rootId: string, ctx: ChatBuildCtx): ChatMessage[] => {
     const byId = new Map(comments.map((c) => [c.id, c]))
-    return sortEventsAsc(comments).map((c) => {
+    let prevDay = ''
+    let prevPubkey = ''
+    return sortEventsAsc(comments).map((c): ChatMessage => {
+        const day = dayLabel(c.created_at)
+        const divider = day !== prevDay ? day : ''
+        const showAuthor = c.pubkey !== prevPubkey || divider !== ''
+        prevDay = day
+        prevPubkey = c.pubkey
         const parentId = getTagValue('e', c.tags) ?? ''
         const parent = parentId && parentId !== rootId ? byId.get(parentId) : undefined
         return {
-            id: c.id,
-            pubkey: c.pubkey,
-            created_at: c.created_at,
-            mine: c.pubkey === me,
+            divider,
+            unreadDivider: false,
+            showAuthor,
             replyToName: parent ? displayProfileByPubkey(parent.pubkey) : '',
-            ...personFields(c, $profiles, $handles),
+            ...toChatMessage(c, ctx),
         }
     })
 }
@@ -911,7 +902,20 @@ export const deriveThread = (url: string, rootId: string): Readable<ThreadView> 
             const root: ThreadRoot = rootEvent
                 ? { id: rootEvent.id, pubkey: rootEvent.pubkey, missing: false, ...personFields(rootEvent, $profiles, $handles) }
                 : { id: rootId, pubkey: '', name: '', picture: '', profileReady: false, nip05: '', html: '', time: '', fullTime: '', missing: true }
-            return { rootId, root, comments: buildCommentList(commentEvents, rootId, $me, $profiles, $handles), count: commentEvents.length }
+            // Thread-Kommentare tragen (noch) keine Reaktions-/Zap-/Poll-Aggregation → leere Maps
+            // (P3 Schritt 5 füllt reactions/zaps). `byId`/`commentsByRoot` leer → reply/thread neutral.
+            const ctx: ChatBuildCtx = {
+                me: $me,
+                $profiles,
+                $handles,
+                $zappers: new Map(),
+                byId: new Map(),
+                commentsByRoot: new Map(),
+                reactionsByTarget: new Map(),
+                pollResponsesByTarget: new Map(),
+                zapsByTarget: new Map(),
+            }
+            return { rootId, root, comments: buildCommentList(commentEvents, rootId, ctx), count: commentEvents.length }
         },
     )
 
