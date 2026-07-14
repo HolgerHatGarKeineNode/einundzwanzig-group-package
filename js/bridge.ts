@@ -2154,7 +2154,7 @@ export function registerNostrComponents(Alpine: {
             // Root (per id) + bestehende Kommentare nachladen; die Live-Sub liefert nur Neues.
             void loadThread(url, rootId)
             listenThread(url, rootId, this._threadController.signal)
-            this._threadUnsub = deriveThread(url, rootId).subscribe((v) => {
+            this._threadUnsub = deriveThread(url, rootId, this.h).subscribe((v) => {
                 // Vor dem Update messen: stand der Nutzer (nahe) am Boden — oder ist der
                 // Container noch nicht gerendert (frisch geöffnet)? Dann nach dem Render ans
                 // Ende scrollen, damit der Thread bei der LETZTEN Antwort startet (analog
@@ -2165,6 +2165,13 @@ export function registerNostrComponents(Alpine: {
                 this.threadRoot = v.root
                 this.threadComments = v.comments
                 this.threadCount = v.count
+                // Zap-Receipts (9735, tragen kein #h) der Kommentare per #e nachladen (je ID einmal,
+                // teilt _zapLoadedIds mit dem Raum-Feed) → die ⚡-Chips der Kommentare stimmen.
+                const newZapIds = v.comments.map((c) => c.id).filter((id) => !this._zapLoadedIds.has(id))
+                if (newZapIds.length > 0) {
+                    newZapIds.forEach((id) => this._zapLoadedIds.add(id))
+                    void loadRoomZaps(url, newZapIds)
+                }
                 if (stick) {
                     magics.$nextTick(() => {
                         const s = magics.$refs.threadScroll

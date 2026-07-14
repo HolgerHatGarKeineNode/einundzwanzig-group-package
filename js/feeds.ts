@@ -883,10 +883,13 @@ const buildCommentList = (comments: TrustedEvent[], rootId: string, ctx: ChatBui
 
 /**
  * Reaktive Thread-Sicht zu `rootId`: der aufgelöste Root (per id, raumübergreifend im
- * Repository gefunden) + alle Kommentare (kind 1111) mit `["E", rootId]` als Baum. Lädt
- * über `#E` (Thread-Root-Tag) — nicht `#h` —, damit auch raumfremde/ältere Roots tragen.
+ * Repository gefunden) + alle Kommentare (kind 1111) mit `["E", rootId]`, flach chronologisch.
+ * Kommentare laden über `#E` (Thread-Root-Tag). Reaktionen/Zaps (P3 Schritt 5): Kommentar-
+ * Reaktionen (kind 7) tragen `#h` (via makeReaction vom Kommentar-`h`) → über `roomReactionFilter(h)`
+ * mitgeladen; Zap-Receipts (9735) tragen kein `#h` → per `#e` der Kommentar-IDs geladen (bridge).
+ * Beide werden client-seitig nach Ziel (`#e`) gebündelt und je Kommentar aggregiert wie im Raum.
  */
-export const deriveThread = (url: string, rootId: string): Readable<ThreadView> =>
+export const deriveThread = (url: string, rootId: string, h: string): Readable<ThreadView> =>
     derived(
         [
             deriveEventsForUrl(url, [{ ids: [rootId] }]),
@@ -894,26 +897,28 @@ export const deriveThread = (url: string, rootId: string): Readable<ThreadView> 
             throttled(200, profilesByPubkey),
             pubkey,
             throttled(200, handlesByNip05),
+            throttled(200, deriveEventsForUrl(url, roomReactionFilter(h))),
+            throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
+            throttled(200, zappersByLnurl),
         ],
-        ([rootEvents, commentEvents, $profiles, $me, $handles]) => {
+        ([rootEvents, commentEvents, $profiles, $me, $handles, $reactions, $zaps, $zappers]) => {
             void warmProfiles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
             warmHandles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
+            warmZappers(commentEvents.map((e) => e.pubkey)) // Zapper der Kommentar-Autoren → 9735-Validierung/⚡-Chip
             const rootEvent = rootEvents.find((e) => e.id === rootId)
             const root: ThreadRoot = rootEvent
                 ? { id: rootEvent.id, pubkey: rootEvent.pubkey, missing: false, ...personFields(rootEvent, $profiles, $handles) }
                 : { id: rootId, pubkey: '', name: '', picture: '', profileReady: false, nip05: '', html: '', time: '', fullTime: '', missing: true }
-            // Thread-Kommentare tragen (noch) keine Reaktions-/Zap-/Poll-Aggregation → leere Maps
-            // (P3 Schritt 5 füllt reactions/zaps). `byId`/`commentsByRoot` leer → reply/thread neutral.
             const ctx: ChatBuildCtx = {
                 me: $me,
                 $profiles,
                 $handles,
-                $zappers: new Map(),
-                byId: new Map(),
-                commentsByRoot: new Map(),
-                reactionsByTarget: new Map(),
+                $zappers,
+                byId: new Map(), // Kommentare tragen kein q-Zitat → reply bleibt null (Eltern-Bezug via replyToName)
+                commentsByRoot: new Map(), // Kommentare wurzeln keinen Sub-Thread → thread bleibt null
+                reactionsByTarget: groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions),
                 pollResponsesByTarget: new Map(),
-                zapsByTarget: new Map(),
+                zapsByTarget: groupBy((r) => getTagValue('e', r.tags) ?? '', $zaps),
             }
             return { rootId, root, comments: buildCommentList(commentEvents, rootId, ctx), count: commentEvents.length }
         },
