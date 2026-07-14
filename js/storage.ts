@@ -74,6 +74,61 @@ export function shouldPersistEvent(event: TrustedEvent): boolean {
     return PERSIST_KINDS.has(event.kind)
 }
 
+/**
+ * §4.3 Pruning — NUR kind 9 wächst unbegrenzt (Control-Plane ist replaceable → selbst-
+ * bounded, kein Cap). Per-Raum die neuesten N behalten + Alters-Backstop als harte
+ * Obergrenze (fängt zugleich tombstone-lose Relay-Purges, §6). Kein LRU-Framework.
+ */
+const MSG_CAP_PER_ROOM = 300
+const MSG_MAX_AGE_SEC = 30 * 24 * 60 * 60 // 30 Tage
+
+const nowSec = (): number => Math.floor(Date.now() / 1000)
+
+/**
+ * Gibt die zu VERWERFENDEN kind-9-event-ids zurück: pro Raum (`#h`) alles jenseits der
+ * neuesten `cap`, plus alles älter als `maxAgeSec`. Control-Plane bleibt unangetastet.
+ * Reine Funktion (now/Cap injizierbar) → deterministisch node-testbar.
+ */
+export function messagesToPrune(
+    events: TrustedEvent[],
+    now: number,
+    cap = MSG_CAP_PER_ROOM,
+    maxAgeSec = MSG_MAX_AGE_SEC,
+): string[] {
+    const cutoff = now - maxAgeSec
+    const byRoom = new Map<string, TrustedEvent[]>()
+    const drop: string[] = []
+    for (const event of events) {
+        if (event.kind !== MESSAGE) {
+            continue
+        }
+        if (event.created_at < cutoff) {
+            drop.push(event.id)
+            continue
+        }
+        const h = event.tags.find((tag) => tag[0] === 'h')?.[1]
+        if (!h) {
+            continue // kind-9 ohne #h ist nicht pro Raum kappbar → in Ruhe lassen
+        }
+        const arr = byRoom.get(h)
+        if (arr) {
+            arr.push(event)
+        } else {
+            byRoom.set(h, [event])
+        }
+    }
+    for (const arr of byRoom.values()) {
+        if (arr.length <= cap) {
+            continue
+        }
+        arr.sort((a, b) => b.created_at - a.created_at) // neueste zuerst
+        for (const event of arr.slice(cap)) {
+            drop.push(event.id)
+        }
+    }
+    return drop
+}
+
 // ── Rohe IndexedDB (Muster secure-storage.ts) ──────────────────────────────
 
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -188,9 +243,12 @@ async function loadCachedEvents(): Promise<void> {
             drop.push(event.id)
         }
     }
-    repository.load(keep)
-    if (drop.length > 0) {
-        void bulkDelete('events', drop)
+    // §4.3: gekappte/veraltete Nachrichten weder in die repository laden noch behalten.
+    const prune = new Set(messagesToPrune(keep, nowSec()))
+    repository.load(keep.filter((event) => !prune.has(event.id)))
+    const remove = [...drop, ...prune]
+    if (remove.length > 0) {
+        void bulkDelete('events', remove)
     }
 }
 
@@ -220,7 +278,7 @@ function syncEvents(): () => void {
     return on(
         repository,
         'update',
-        batch(3000, (updates: RepositoryUpdate[]) => {
+        batch(3000, async (updates: RepositoryUpdate[]) => {
             const add: TrustedEvent[] = []
             const remove = new Set<string>()
             for (const update of updates) {
@@ -234,8 +292,16 @@ function syncEvents(): () => void {
                     remove.add(id)
                 }
             }
-            void bulkPut('events', add)
-            void bulkDelete('events', remove)
+            await bulkPut('events', add)
+            await bulkDelete('events', remove)
+            // §4.3: nach neuen Nachrichten den (bounded) Store per-Raum kappen. Der
+            // events-Store ist durchs Cap selbst begrenzt → getAll bleibt günstig.
+            if (add.some((event) => event.kind === MESSAGE)) {
+                const prune = messagesToPrune(await getAll<TrustedEvent>('events'), nowSec())
+                if (prune.length > 0) {
+                    await bulkDelete('events', prune)
+                }
+            }
         }),
     )
 }
