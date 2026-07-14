@@ -437,23 +437,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:button variant="ghost" icon="bolt" class="w-full justify-start !text-brand-500"
                          x-show="zapsEnabled && menuFor?.zappable" x-cloak
                          x-on:click="if (menuFor) openZap(menuFor)">Zap</flux:button>
+            {{-- Antworten: im Thread verschachtelte Kommentar-Antwort (setThreadReply), sonst Raum-q-Reply. --}}
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
-                         x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">{{ __('Antworten') }}</flux:button>
-            {{-- Im Thread antworten (C6b): openThread schließt das Menü selbst (closeMessageMenu). --}}
-            <flux:button variant="ghost" icon="chat-bubble-oval-left" class="w-full justify-start"
+                         x-on:click="if (menuFor) { _menuInThread ? setThreadReply(menuFor) : setReply(menuFor); closeMessageMenu() }">{{ __('Antworten') }}</flux:button>
+            {{-- Raum-only (x-show="!_menuInThread"): an einem Thread-Kommentar (kind 1111) würden diese
+                 kind-9-Aktionen malformte Events erzeugen (Sub-Thread/Quote/Edit/Delete). Deshalb im Thread aus. --}}
+            <flux:button variant="ghost" icon="chat-bubble-oval-left" class="w-full justify-start" x-show="!_menuInThread" x-cloak
                          x-on:click="if (menuFor) openThread(menuFor)">{{ __('Im Thread antworten') }}</flux:button>
-            {{-- Zitieren (C3): teilt ohne Kommentar; share() schließt das Menü selbst. --}}
-            <flux:button variant="ghost" icon="chat-bubble-left-right" class="w-full justify-start"
+            <flux:button variant="ghost" icon="chat-bubble-left-right" class="w-full justify-start" x-show="!_menuInThread" x-cloak
                          x-on:click="if (menuFor) share(menuFor)">{{ __('Zitieren') }}</flux:button>
-            {{-- Bearbeiten (C3): nur eigene Nachricht, ≤5 min alt; startEdit() schließt selbst. --}}
             <flux:button variant="ghost" icon="pencil-square" class="w-full justify-start"
-                         x-show="menuFor && canEdit(menuFor)" x-cloak
+                         x-show="!_menuInThread && menuFor && canEdit(menuFor)" x-cloak
                          x-on:click="if (menuFor) startEdit(menuFor)">{{ __('Bearbeiten') }}</flux:button>
             {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
                  dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}
             <flux:button variant="ghost" icon="flag" class="w-full justify-start" x-show="!menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askReport(menuFor); closeMessageMenu() }">Fork off!</flux:button>
-            <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="menuFor?.mine" x-cloak
+            <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="!_menuInThread && menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askDelete(menuFor); closeMessageMenu() }">{{ __('Löschen') }}</flux:button>
             {{-- C4: Kopieren/Info (nur lesen). copy*/openInfo schließen das Menü selbst. --}}
             <flux:separator class="my-1" />

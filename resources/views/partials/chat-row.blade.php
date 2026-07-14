@@ -269,7 +269,12 @@
                                     <template x-if="open">
                                         <div>
                                             <template x-teleport="body">
+                                                {{-- x-on:click.stop: das Panel ist nach <body> teleportiert, der
+                                                     .stop-Wrapper (reactionPopover) ist kein Vorfahre mehr →
+                                                     ohne .stop bubbelt ein Klick im Picker zum document und
+                                                     triggert click.outside des Thread-Overlays (closeThread). --}}
                                                 <div x-ref="panel" x-transition.opacity :style="panelStyle"
+                                                     x-on:click.stop
                                                      x-on:click.outside="closeUnless($event)"
                                                      x-on:keydown.escape.window="open = false"
                                                      class="surface-card fixed z-50 rounded-card p-2 shadow-xl">
@@ -325,7 +330,7 @@
                             </template>
                             <template x-if="isMobile">
                                 <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
-                                             class="icon-btn-touch" x-on:click.stop="openMessageMenu(m)"
+                                             class="icon-btn-touch" x-on:click.stop="openMessageMenu(m, {{ $context === 'thread' ? 'true' : 'false' }})"
                                              aria-label="{{ __('Weitere Aktionen') }}" />
                             </template>
                         </div>

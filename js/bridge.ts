@@ -196,7 +196,10 @@ const dispatchModal = (name: string, show = true): void => {
 const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
     const seen = [...tracker.getRelays(m.id)]
     const relays = seen.length ? seen : fallbackRelay ? [fallbackRelay] : []
-    return toNostrURI(nip19.neventEncode({ id: m.id, relays, author: m.pubkey, kind: MESSAGE }))
+    // Echten Kind aus dem Repository (Thread-Kommentar = 1111, Nachricht = 9, Poll = 1068 …);
+    // die geteilte Row ruft copyNevent/openInfo auch auf Kommentaren → nicht hart MESSAGE annehmen.
+    const kind = repository.getEvent(m.id)?.kind ?? MESSAGE
+    return toNostrURI(nip19.neventEncode({ id: m.id, relays, author: m.pubkey, kind }))
 }
 
 /**
@@ -474,6 +477,7 @@ type RoomChatState = {
     _draggedOption: string | null // id der per Griff gezogenen Option (Reorder), sonst null
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
+    _menuInThread: boolean // Mobile-Menü aus dem Thread geöffnet → Raum-only-Aktionen ausblenden, Antworten→setThreadReply
     infoFor: MessageInfo | null // Roh-Event-Details der offenen Nachricht-Info (C4)
     // Thread-Ansicht (C6b, NIP-22): In-Room-Overlay statt eigener Route.
     threadRootId: string | null // Root-Event des offenen Threads (null = Overlay zu)
@@ -523,7 +527,7 @@ type RoomChatState = {
     cancelEdit(): void
     saveEdit(content: string): Promise<void>
     refocusComposer(): void
-    openMessageMenu(m: ChatMessage): void
+    openMessageMenu(m: ChatMessage, inThread?: boolean): void
     closeMessageMenu(): void
     copyNevent(m: ChatMessage): void
     copyNpub(m: ChatMessage): void
@@ -1554,6 +1558,7 @@ export function registerNostrComponents(Alpine: {
         _draggedOption: null,
         isMobile,
         menuFor: null,
+        _menuInThread: false,
         infoFor: null,
         threadRootId: null,
         threadRoot: null,
@@ -2070,9 +2075,10 @@ export function registerNostrComponents(Alpine: {
         // Interaktions-Menü öffnen (native App: Vollbild-Modal). Merkt die
         // Zielnachricht; die Einträge (Antworten … Reaktion/Löschen/Fork off! folgen
         // mit C1+) lesen `menuFor`. Web nutzt stattdessen das Zeilen-Popover.
-        openMessageMenu(m: ChatMessage) {
+        openMessageMenu(m: ChatMessage, inThread = false) {
             this.activeId = null
             this.menuFor = m
+            this._menuInThread = inThread // gatet die Raum-only-Einträge im Mobile-Modal (Thread-Kommentar)
             dispatchModal('message-menu')
         },
         closeMessageMenu() {
