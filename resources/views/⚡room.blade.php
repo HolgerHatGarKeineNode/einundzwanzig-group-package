@@ -922,8 +922,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <div class="surface-card flex w-full max-w-2xl flex-col overflow-hidden"
              :class="threadFull ? 'h-full' : 'max-h-[92vh] rounded-t-card shadow-2xl sm:rounded-card'"
              x-on:click.outside="!lightboxSrc && !_cropSrc && !threadFull && closeThread()">
-            {{-- Kopf: Zurück + Titel + Kommentar-Zahl. --}}
-            <div class="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+            {{-- Kopf: Zurück + Titel + Kommentar-Zahl.
+                 pt via safe-area-inset NUR in der Vollansicht (h-full berührt die Status-Leiste);
+                 im Bottom-Sheet (max-h-92vh, items-end) liegt der Kopf nie am oberen Rand. --}}
+            <div class="flex items-center gap-2 border-b border-white/10 px-4 pb-3"
+                 :class="threadFull ? 'pt-[max(env(safe-area-inset-top),1rem)]' : 'pt-3'">
                 <flux:button size="xs" variant="ghost" icon="arrow-left" class="icon-btn-touch"
                              x-ref="threadClose" x-on:click="backFromThread()" aria-label="{{ __('Zurück') }}" />
                 <flux:heading size="lg" class="flex-1">{{ __('Thread') }}</flux:heading>
@@ -933,9 +936,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
             {{-- Root + Kommentare (scrollbar). --}}
             <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
-                {{-- Zitierte Root-Nachricht. --}}
+                {{-- Zitierte Root-Nachricht. `sticky top-0` hält sie beim Scrollen oben,
+                     damit immer klar ist, in welchem Thread man ist. surface-card ist opak,
+                     Kommentare scrollen darunter durch; z-10 über die Kommentare. --}}
                 <template x-if="threadRoot && !threadRoot.missing">
-                    <div class="surface-card rounded-tile border border-brand-500/20 p-3">
+                    <div class="surface-card sticky top-0 z-10 rounded-tile border border-brand-500/20 p-3">
                         <div class="mb-1 flex items-center gap-2">
                             <x-group::nostr-avatar picture="threadRoot.picture" name="threadRoot.name" />
                             <span class="truncate text-sm font-semibold" x-text="threadRoot.name"></span>
@@ -983,8 +988,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </template>
             </div>
 
-            {{-- Composer: Root kommentieren oder auf einen Kommentar antworten. --}}
-            <div class="border-t border-white/10 p-3">
+            {{-- Composer: Root kommentieren oder auf einen Kommentar antworten.
+                 pb via safe-area-inset: das Thread-Overlay ist `fixed inset-0` und erbt NICHT
+                 das pb des Root-Containers (Zeile 58), sonst läge der Composer auf der
+                 Android-3-Button-Leiste / iOS-Home-Indicator. Gleicher Wert wie Root-Container
+                 (Zeile 58), damit die Tailwind-Klasse garantiert im kompilierten CSS liegt. --}}
+            <div class="border-t border-white/10 px-3 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)]">
                 <template x-if="joined">
                     <div>
                         {{-- Antwort-Kontext (verschachtelt) mit Abbrechen. --}}
