@@ -181,68 +181,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="{{ __('Abbrechen') }}" />
         </div>
 
-        {{-- Anhang-Vorschau (C6a): hochgeladenes, zugeschnittenes Bild wartet auf Senden.
-             Über den Proxy (Preset `msg`) angezeigt; X nimmt den Anhang zurück. --}}
-        <div x-show="membershipReady && joined && attachment" x-cloak
-             class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
-            <img :src="$img(attachment?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
-                 class="size-14 shrink-0 rounded-tile object-cover" />
-            <div class="min-w-0 flex-1 text-xs text-muted">{{ __('Bild angehängt') }}</div>
-            <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
-                         x-on:click="removeAttachment()" aria-label="{{ __('Anhang entfernen') }}" />
-        </div>
-
-        <div x-show="membershipReady && joined" x-cloak class="relative flex items-end gap-2">
-            {{-- @-Mention-Autocomplete (C4): Vorschläge über dem Composer. Pfeile
-                 wählen, Enter/Tab übernimmt, Escape schließt (siehe keydown unten).
-                 Klick auf einen Vorschlag fügt `nostr:npub… ` ein → rendert als @Name. --}}
-            <template x-if="mentionOpen">
-                <div class="surface-card absolute bottom-full left-0 z-30 mb-1 max-h-56 w-full max-w-xs overflow-y-auto rounded-card p-1 shadow-xl"
-                     x-on:click.stop>
-                    <template x-for="(item, i) in mentionItems" :key="item.pubkey">
-                        <button type="button" x-on:click="pickMention(item)" x-on:mouseenter="mentionIndex = i"
-                                class="pressable flex w-full items-center gap-2 rounded-tile px-2 py-1.5 text-left"
-                                :class="mentionIndex === i ? 'bg-brand-500/15' : ''">
-                            <x-group::nostr-avatar picture="item.picture" name="item.name" />
-                            <span class="truncate text-sm" x-text="item.name"></span>
-                        </button>
-                    </template>
-                </div>
-            </template>
-            {{-- Anhängen-Menü (wie Flotilla): EIN „+"-Button bündelt Umfrage + Zap-Ziel,
-                 spart Platz im Composer. Zap-Ziel nur bei aktivem Feature-Flag. --}}
-            <flux:dropdown position="top" align="start" class="shrink-0">
-                <flux:button type="button" variant="ghost" icon="plus" class="icon-btn-touch" aria-label="{{ __('Anhängen') }}" />
-                <flux:menu>
-                    <flux:menu.item icon="photo" x-on:click="$refs.imageInput.click()">{{ __('Bild') }}</flux:menu.item>
-                    <flux:menu.item icon="chart-bar" x-on:click="openPollCreate()">{{ __('Umfrage') }}</flux:menu.item>
-                    <template x-if="zapsEnabled">
-                        <flux:menu.item icon="trophy" x-on:click="openGoalCreate()">{{ __('Zap-Ziel') }}</flux:menu.item>
-                    </template>
-                </flux:menu>
-            </flux:dropdown>
-            {{-- Verstecktes Datei-Feld (C6a): das +-Menü löst es aus, pickImage öffnet das
-                 Crop-Modal. accept=image/* → Foto-/Galerie-Picker auf Mobile. --}}
-            <input type="file" accept="image/*" x-ref="imageInput" class="hidden"
-                   x-on:change="pickImage($event.target)" aria-hidden="true" tabindex="-1" />
-            <flux:textarea x-ref="composer" x-model="draft" rows="1" resize="none"
-                           placeholder="{{ __('Nachricht schreiben…') }}" aria-label="{{ __('Nachricht schreiben') }}" class="flex-1"
-                           x-on:focus="atBottom && scrollToBottom()"
-                           x-on:input="autoGrow($event.target); sendError = ''; onComposerInput($event.target)"
-                           x-on:paste="pasteImage($event)"
-                           x-on:keydown="
-                               if (mentionOpen) {
-                                   if ($event.key === 'ArrowDown') { $event.preventDefault(); mentionIndex = (mentionIndex + 1) % mentionItems.length; return }
-                                   if ($event.key === 'ArrowUp') { $event.preventDefault(); mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length; return }
-                                   if ($event.key === 'Enter' || $event.key === 'Tab') { $event.preventDefault(); pickMention(mentionItems[mentionIndex]); return }
-                                   if ($event.key === 'Escape') { $event.preventDefault(); closeMentions(); return }
-                               }
-                               if ($event.key === 'Enter' && !$event.shiftKey && !isMobile) { $event.preventDefault(); send() }" />
-            {{-- Zitieren (Quote-Only) darf ohne Text gesendet werden → Button dann aktiv. --}}
-            <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch" :loading="true"
-                         x-on:click="send()" ::data-loading="sending"
-                         ::disabled="sending || (draft.trim().length === 0 && !sharing && !attachment)"
-                         aria-label="{{ __('Senden') }}" />
+        {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild, Umfrage/Zap-Ziel): geteilter Composer. --}}
+        <div x-show="membershipReady && joined" x-cloak>
+            @include('group::partials.chat-composer', ['context' => 'room'])
         </div>
 
         {{-- Fehlgeschlagen: aktionable Hinweiszeile statt flüchtigem Toast (Draft ist gefüllt). --}}
@@ -659,32 +600,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
                                          x-on:click="clearThreadReply()" aria-label="{{ __('Abbrechen') }}" />
                         </div>
-                        {{-- Anhang-Vorschau (C6a-Wiederverwendung, EIGENER `threadAttachment`-State,
-                             getrennt vom Haupt-Composer): zugeschnittenes Bild wartet auf Senden. --}}
-                        <div x-show="threadAttachment" x-cloak
-                             class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
-                            <img :src="$img(threadAttachment?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
-                                 class="size-14 shrink-0 rounded-tile object-cover" />
-                            <div class="min-w-0 flex-1 text-xs text-muted">{{ __('Bild angehängt') }}</div>
-                            <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
-                                         x-on:click="threadAttachment = null" aria-label="{{ __('Anhang entfernen') }}" />
-                        </div>
-                        {{-- Verstecktes Datei-Feld (Meme-Bild-Thread): der Foto-Button löst es aus,
-                             pickImage öffnet dasselbe Crop-Overlay wie im Haupt-Composer. --}}
-                        <input type="file" accept="image/*" x-ref="threadImageInput" class="hidden"
-                               x-on:change="pickImage($event.target)" aria-hidden="true" tabindex="-1" />
-                        <div class="flex items-end gap-2">
-                            <flux:button type="button" variant="ghost" icon="photo" class="shrink-0 icon-btn-touch"
-                                         x-on:click="$refs.threadImageInput.click()" aria-label="{{ __('Bild anhängen') }}" />
-                            <flux:textarea x-ref="threadComposer" x-model="threadDraft" rows="1" resize="none" class="flex-1"
-                                           placeholder="{{ __('Im Thread antworten…') }}" aria-label="{{ __('Antwort schreiben') }}"
-                                           x-on:paste="pasteImage($event)"
-                                           x-on:keydown="if ($event.key === 'Enter' && !$event.shiftKey && !isMobile) { $event.preventDefault(); sendComment() }" />
-                            <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch"
-                                         x-on:click="sendComment()"
-                                         ::disabled="threadDraft.trim().length === 0 && !threadAttachment"
-                                         aria-label="{{ __('Antwort senden') }}" />
-                        </div>
+                        {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild-Anhang): geteilter Composer.
+                             context='thread' → sendComment(), threadDraft/threadComposer, kein Poll/Zap-Ziel. --}}
+                        @include('group::partials.chat-composer', ['context' => 'thread'])
                     </div>
                 </template>
                 {{-- Nicht-Mitglied: Beitreten DIREKT aus dem Thread (v.a. Vollansicht aus der

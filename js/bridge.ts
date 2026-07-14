@@ -491,6 +491,7 @@ type RoomChatState = {
     mentionItems: MentionItem[] // gefilterte Mitglieder-Vorschläge
     mentionIndex: number // hervorgehobener Vorschlag (Tastatur-Navigation)
     _mentionStart: number // Caret-Index des @ im Draft (für den Ersetz-Splice)
+    _mentionTarget: 'main' | 'thread' // welcher Composer die @-Mention gerade füttert (draft vs threadDraft)
     _members: MentionItem[] // Space-Mitglieder als Mention-Quelle (Directory)
     _unsubMembers: null | (() => void)
     _unsubRoomMeta: null | (() => void)
@@ -536,7 +537,7 @@ type RoomChatState = {
     clearThreadReply(): void
     sendComment(): Promise<void>
     copy(text: string, label: string): void
-    onComposerInput(el: HTMLTextAreaElement): void
+    onComposerInput(el: HTMLTextAreaElement, target?: 'main' | 'thread'): void
     pickMention(item: MentionItem): void
     closeMentions(): void
     react(m: ChatMessage, content: string, emojiTag?: string[], label?: string): Promise<void>
@@ -1565,6 +1566,7 @@ export function registerNostrComponents(Alpine: {
         _threadController: null,
         mentionOpen: false,
         mentionQuery: '',
+        _mentionTarget: 'main',
         mentionItems: [],
         mentionIndex: 0,
         _mentionStart: -1,
@@ -2271,7 +2273,8 @@ export function registerNostrComponents(Alpine: {
         // Bei jeder Composer-Eingabe: steht direkt vor dem Cursor ein `@wort`
         // (am Zeilen-/Wortanfang), Mitglieder-Vorschläge einblenden. `search` ist
         // `name npub` kleingeschrieben (Directory), Query case-insensitiv.
-        onComposerInput(el: HTMLTextAreaElement) {
+        onComposerInput(el: HTMLTextAreaElement, target: 'main' | 'thread' = 'main') {
+            this._mentionTarget = target // merkt, welchen Draft pickMention später splicen muss
             const caret = el.selectionStart ?? el.value.length
             const match = /(?:^|\s)@([^\s@]*)$/.exec(el.value.slice(0, caret))
             if (!match) {
@@ -2288,14 +2291,20 @@ export function registerNostrComponents(Alpine: {
         // Vorschlag übernehmen: `@query` (ab dem @) durch `nostr:npub… ` ersetzen,
         // Cursor dahinter setzen. Der Render-Pfad löst das npub zu `@Name` auf.
         pickMention(item: MentionItem) {
+            const isThread = this._mentionTarget === 'thread'
+            const draft = isThread ? this.threadDraft : this.draft
             const insert = `nostr:${item.npub} `
-            const before = this.draft.slice(0, this._mentionStart)
-            const after = this.draft.slice(this._mentionStart + 1 + this.mentionQuery.length)
-            this.draft = before + insert + after
+            const before = draft.slice(0, this._mentionStart)
+            const after = draft.slice(this._mentionStart + 1 + this.mentionQuery.length)
+            if (isThread) {
+                this.threadDraft = before + insert + after
+            } else {
+                this.draft = before + insert + after
+            }
             this.closeMentions()
             const magics = this as unknown as AlpineMagics
             magics.$nextTick(() => {
-                const c = magics.$refs.composer as HTMLTextAreaElement | undefined
+                const c = (isThread ? magics.$refs.threadComposer : magics.$refs.composer) as HTMLTextAreaElement | undefined
                 if (c) {
                     const pos = before.length + insert.length
                     c.focus()
