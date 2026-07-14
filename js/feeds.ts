@@ -556,16 +556,10 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 id: event.id,
                 pubkey: event.pubkey,
                 created_at: event.created_at,
-                time: timeLabel(event.created_at),
-                fullTime: fullTimeLabel(event.created_at),
-                name: nameOf(event.pubkey),
-                nip05: verifiedNip05(event.pubkey, $profiles, $handles),
-                picture: profile?.picture ?? '',
-                // Auf brauchbaren NAMEN prüfen, nicht bloss kind-0-Existenz: ein namenloses
-                // Profil (nur lud16/about) fiele in displayProfile auf den npub zurück → sonst
-                // zeigte der Avatar wieder die irreführende „n"-Initiale statt „?" (Schritt-4-Ziel).
-                profileReady: profileHasName(profile),
-                html: renderMessageHtml(event),
+                // name/nip05/picture/profileReady/html/time/fullTime — geteilt mit dem Thread-
+                // Feed. profileReady prüft brauchbaren NAMEN (nicht bloss kind-0-Existenz), sonst
+                // zeigte der Avatar die irreführende „n"-Initiale statt „?" (siehe personFields).
+                ...personFields(event, $profiles, $handles),
                 divider,
                 unreadDivider,
                 showAuthor,
@@ -685,6 +679,23 @@ const mapRelayError = (raw: string): string => {
 }
 
 /**
+ * Publiziert ein Event optimistisch (der Thunk legt es sofort ins Repository → die UI
+ * zeigt es ohne Round-Trip) und wartet auf die Relay-Bestätigung. Bei Reject wird das
+ * optimistisch eingelegte Event zurückgenommen (welshman tut das nur bei Abort, nicht
+ * bei Relay-Reject — sonst bliebe es sichtbar, obwohl es das Relay nie erreicht hat).
+ * Gibt '' bei Erfolg, sonst die übersetzte Relay-Fehlermeldung. Der gemeinsame Kern von
+ * Nachricht/Antwort/Reaction/Kommentar/Goal/Vote (Raum- UND Thread-Publish, P3 4.1).
+ */
+const publishOptimistic = async (url: string, event: Parameters<typeof publishThunk>[0]['event']): Promise<string> => {
+    const thunk = publishThunk({ relays: [url], event })
+    const err = await waitForThunkError(thunk)
+    if (err) {
+        repository.removeEvent(thunk.event.id)
+    }
+    return err ? mapRelayError(err) : ''
+}
+
+/**
  * Sendet eine Nachricht (kind 9) in einen Room. Signiert im Browser, publiziert
  * via Thunk (optimistisch: der Thunk legt das Event sofort ins Repository, die
  * Live-Sub bestätigt es). Gibt die Fehlermeldung des Relays zurück, '' bei Erfolg.
@@ -715,15 +726,7 @@ export const sendRoomMessage = async (
         tags.push(attachment.imetaTag)
         body = body ? `${body}\n\n${attachment.url}` : attachment.url
     }
-    const thunk = publishThunk({ relays: [url], event: makeEvent(MESSAGE, { content: body, tags }) })
-    const err = await waitForThunkError(thunk)
-    if (err) {
-        // welshman entfernt das optimistisch eingelegte Event bei einem Relay-Reject
-        // NICHT selbst (nur bei Abort) — sonst bliebe die Nachricht sichtbar UND der
-        // Draft käme zurück (Doppel-Look). Die id ist ohne PoW über das Signieren stabil.
-        repository.removeEvent(thunk.event.id)
-    }
-    return err ? mapRelayError(err) : ''
+    return publishOptimistic(url, makeEvent(MESSAGE, { content: body, tags }))
 }
 
 /**
@@ -765,20 +768,14 @@ export const editRoomMessage = async (
     // Re-Publish unten fehl, ist das Alte bereits weg (wie beim Referenz-Client) —
     // der Nutzer bekommt den Text zum erneuten Senden zurück (bridge).
     void publishThunk({ relays: [url], event: makeEventDelete(original, url) })
-    const thunk = publishThunk({
-        relays: [url],
-        event: makeEvent(MESSAGE, {
+    return publishOptimistic(
+        url,
+        makeEvent(MESSAGE, {
             content: prefix + content,
             created_at: original.created_at,
             tags: withMentionTags([...preserved, ...roomTags(h, url)], content, url),
         }),
-    })
-    const err = await waitForThunkError(thunk)
-    if (err) {
-        repository.removeEvent(thunk.event.id)
-        return mapRelayError(err)
-    }
-    return ''
+    )
 }
 
 /**
@@ -793,12 +790,7 @@ export const sendReaction = async (
     content: string,
     emojiTag?: string[],
 ): Promise<string> => {
-    const thunk = publishThunk({ relays: [url], event: makeReaction(target, content, url, emojiTag ? [emojiTag] : []) })
-    const err = await waitForThunkError(thunk)
-    if (err) {
-        repository.removeEvent(thunk.event.id)
-    }
-    return err ? mapRelayError(err) : ''
+    return publishOptimistic(url, makeReaction(target, content, url, emojiTag ? [emojiTag] : []))
 }
 
 // ─── C6b: NIP-22-Thread-Ansicht (kind 1111 COMMENT) ────────────────────────────
@@ -1021,12 +1013,7 @@ export const loadSpaceThreads = async (url: string): Promise<void> => {
  * `deriveThread`); bei Relay-Reject zurückgenommen. Gibt '' bei Erfolg, sonst den Fehler.
  */
 export const sendComment = async (url: string, target: TrustedEvent, content: string, attachment?: Attachment, rootH?: string): Promise<string> => {
-    const thunk = publishThunk({ relays: [url], event: makeComment(target, content, url, attachment, rootH) })
-    const err = await waitForThunkError(thunk)
-    if (err) {
-        repository.removeEvent(thunk.event.id)
-    }
-    return err ? mapRelayError(err) : ''
+    return publishOptimistic(url, makeComment(target, content, url, attachment, rootH))
 }
 
 /**
@@ -1103,13 +1090,7 @@ export const sendGoal = async (
     h: string,
     params: { title: string; summary?: string; targetSats: number },
 ): Promise<string> => {
-    const thunk = publishThunk({ relays: [url], event: makeGoal(params, h, url) })
-    const err = await waitForThunkError(thunk)
-    if (err) {
-        repository.removeEvent(thunk.event.id)
-        return mapRelayError(err)
-    }
-    return ''
+    return publishOptimistic(url, makeGoal(params, h, url))
 }
 
 /**
@@ -1127,10 +1108,5 @@ export const sendPollResponse = async (url: string, poll: TrustedEvent, selected
               .reduce((max, e) => Math.max(max, e.created_at), 0)
         : 0
     const createdAt = Math.max(Math.floor(Date.now() / 1000), prev + 1)
-    const thunk = publishThunk({ relays: [url], event: makePollResponse(poll, selectedIds, url, createdAt) })
-    const err = await waitForThunkError(thunk)
-    if (err) {
-        repository.removeEvent(thunk.event.id)
-    }
-    return err ? mapRelayError(err) : ''
+    return publishOptimistic(url, makePollResponse(poll, selectedIds, url, createdAt))
 }
