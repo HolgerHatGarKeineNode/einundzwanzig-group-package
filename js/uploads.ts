@@ -119,13 +119,28 @@ export const uploadAttachment = async (blob: Blob, dim?: string): Promise<Attach
     // der Upload soll daran nicht sterben.
     await ensureBlossomServersLoaded().catch(() => {})
     const server = resolveBlossomServer()
+    const host = new URL(server).host
     const hash = await sha256(await blob.arrayBuffer())
     const authEvent = await activeSigner.sign(makeBlossomAuthEvent({ action: 'upload', server, hashes: [hash] }))
-    const res = await uploadBlob(server, blob, { authEvent })
+
+    // `uploadBlob` ist ein nacktes `fetch` (welshman): Netzfehler → TypeError ("Failed to fetch",
+    // NIE beim Server angekommen); HTTP-Fehler → Response mit res.ok=false, Grund im `X-Reason`-
+    // Header (Blossom BUD-06, Body oft leer). Beides so aufbereiten, dass der Toast dem Nutzer den
+    // Server nennt und WOHER der Fehler stammt (Netz vs. Server-Ablehnung).
+    let res: Response
+    try {
+        res = await uploadBlob(server, blob, { authEvent })
+    } catch {
+        throw new Error(`Blossom-Server ${host} nicht erreichbar (Netzwerkfehler) — bitte erneut versuchen.`)
+    }
     const text = await res.text()
+    if (!res.ok) {
+        const reason = res.headers.get('X-Reason') || text.trim()
+        throw new Error(`${host} lehnte den Upload ab (HTTP ${res.status}${reason ? `: ${reason}` : ''}).`)
+    }
     const task = parseJson<{ url?: string }>(text)
     if (!task?.url) {
-        throw new Error(text || `Upload fehlgeschlagen (HTTP ${res.status})`)
+        throw new Error(`${host} lieferte keine Upload-URL${text.trim() ? `: ${text.trim()}` : ''}.`)
     }
     return buildAttachment(task.url, blob.type, hash, dim)
 }
