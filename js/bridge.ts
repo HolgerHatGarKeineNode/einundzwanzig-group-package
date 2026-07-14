@@ -7,7 +7,7 @@
  */
 import { get, type Readable } from 'svelte/store'
 import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile } from '@welshman/app'
-import { displayProfile, toNostrURI, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
+import { displayProfile, toNostrURI, getTagValue, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
 import { load } from '@welshman/net'
@@ -2351,6 +2351,12 @@ export function registerNostrComponents(Alpine: {
                 toast('Bezugs-Nachricht noch nicht geladen — kurz warten.')
                 return
             }
+            // NIP-29-Scoping (Interop, P1): das `h` des Thread-ROOTS (kind 9) mitgeben, damit
+            // Lotus/#h-scopende Relays den Kommentar sehen. Vom Root, NICHT vom target — ein
+            // verschachtelter Reply-target ist ein h-loses kind-1111. Fehlt der Root (Race),
+            // bleibt rootH undefined → kein leeres `["h",""]` (makeComment lässt h dann weg).
+            const root = repository.getEvent(this.threadRootId)
+            const rootH = root ? getTagValue('h', root.tags) : undefined
             const url = this._url
             // Rohe (NICHT-reaktive) Kopie des Anhangs fürs Event — `imetaTag` ist sonst ein
             // Alpine-Proxy und bricht beim Signieren (DataCloneError), siehe C6a-Message-Send.
@@ -2361,7 +2367,7 @@ export function registerNostrComponents(Alpine: {
             this.threadDraft = ''
             this.threadReplyTo = null
             this.threadAttachment = null
-            const err = await sendComment(url, target, content, rawAttachment)
+            const err = await sendComment(url, target, content, rawAttachment, rootH)
             if (err) {
                 toast(err)
             }

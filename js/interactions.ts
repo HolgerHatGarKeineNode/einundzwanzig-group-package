@@ -142,18 +142,24 @@ export const makePollResponse = (poll: TrustedEvent, selectedIds: string[], url:
  * + `k/e/p` (direktes Parent, klein) — dadurch entsteht der Baum, und ALLE Kommentare
  * eines Threads teilen dasselbe `["E", rootId]` (Ladefilter der Thread-Ansicht).
  *
- * **Flotilla-kompatibel (bewusst KEIN `h`-Tag):** exakt flotillas `makeComment`-Rezept
- * (`tagEventForComment` + konditionales PROTECTED). So sind unsere Kommentare byte-gleich
- * mit flotillas und beide Clients lesen sie wechselseitig (Read/Write-Interop). Der member-
- * only zooid speichert/liefert das `h`-lose kind-1111 wie einen Report (Member-Event, per
- * kind/#E abfragbar) — verifiziert. Gelesen wird über `#E` (Thread-Root), nicht `#h`.
+ * **NIP-22 + additives `h` für NIP-29-Scoping (Interop):** Grundgerüst = flotillas
+ * `makeComment`-Rezept (`tagEventForComment` → `K/E/P` + `k/e/p`, + konditionales PROTECTED),
+ * gelesen wird bei uns über `#E` (Thread-Root). ZUSÄTZLICH hängen wir das `h` des Thread-
+ * ROOTS (kind 9) an, wenn der Aufrufer es kennt (`rootH`): additiv, damit `#h`-scopende
+ * Clients/Relays (Lotus, member-only zooid als NIP-29-Group-Event) den Kommentar sehen.
+ * NIP-22-Leser (Flotilla) ignorieren das Extra-`h` und lesen weiter per `#E` → wir sind ein
+ * Superset, kein Fork. `h` MUSS vom Root kommen (nested target = h-loses kind-1111). Siehe
+ * `plans/THREAD-INTEROP-UND-VEREINHEITLICHUNG.md` (P1).
  *
  * Optionaler Bild-Anhang (C6a-Wiederverwendung): `imeta`-Tag (NIP-92) ans Event + die
  * URL mit Leerzeile in den Text (wie `sendRoomMessage`), damit `renderMessageLink` sie
  * als `<img>` rendert. Anhang ohne Text → URL steht allein. `imeta` ist flotilla-kompatibel.
  */
-export const makeComment = (event: TrustedEvent, content: string, url: string, attachment?: { url: string; imetaTag: string[] }) => {
+export const makeComment = (event: TrustedEvent, content: string, url: string, attachment?: { url: string; imetaTag: string[] }, rootH?: string) => {
     const tags = canEnforceNip70(url) ? [...tagEventForComment(event, url), PROTECTED] : tagEventForComment(event, url)
+    if (rootH) {
+        tags.push(['h', rootH])
+    }
     let body = content
     if (attachment) {
         tags.push(attachment.imetaTag)
