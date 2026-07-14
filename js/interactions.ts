@@ -141,12 +141,18 @@ export const makePollResponse = (poll: TrustedEvent, selectedIds: string[], url:
  * `tagEventForComment` setzt die NIP-22-Tags: `K/E/P` (Thread-Root, Großbuchstaben)
  * + `k/e/p` (direktes Parent, klein) — dadurch entsteht der Baum, und ALLE Kommentare
  * eines Threads teilen dasselbe `["E", rootId]` (Ladefilter der Thread-Ansicht).
- * Dazu `parentRoomTags(event)` = `h` (vom Parent geerbt) + PROTECTED — sonst würde
- * der member-only NIP-29-zooid den Kommentar nicht speichern/ausliefern (Abweichung
- * vom Referenz-Client, der Threads gegen offene Relays fährt; hier wie Reaction/Poll).
+ *
+ * **Flotilla-kompatibel (bewusst KEIN `h`-Tag):** exakt flotillas `makeComment`-Rezept
+ * (`tagEventForComment` + konditionales PROTECTED). So sind unsere Kommentare byte-gleich
+ * mit flotillas und beide Clients lesen sie wechselseitig (Read/Write-Interop). Der member-
+ * only zooid speichert/liefert das `h`-lose kind-1111 wie einen Report (Member-Event, per
+ * kind/#E abfragbar) — verifiziert. Gelesen wird über `#E` (Thread-Root), nicht `#h`.
  */
 export const makeComment = (event: TrustedEvent, content: string, url: string) =>
-    makeEvent(COMMENT, { content, tags: [...tagEventForComment(event, url), ...parentRoomTags(event, url)] })
+    makeEvent(COMMENT, {
+        content,
+        tags: canEnforceNip70(url) ? [...tagEventForComment(event, url), PROTECTED] : tagEventForComment(event, url),
+    })
 
 /** `nostr:npub…`/`nostr:nprofile…`-Mentions (NIP-27) im Nachrichtentext. */
 const MENTION = /nostr:(npub1[0-9a-z]+|nprofile1[0-9a-z]+)/g

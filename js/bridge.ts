@@ -106,12 +106,15 @@ import {
     loadThread,
     listenThread,
     sendComment,
+    deriveSpaceThreads,
+    loadSpaceThreads,
     readRoomLastRead,
     writeRoomLastRead,
     type ChatMessage,
     type ReactionChip,
     type ThreadRoot,
     type ThreadComment,
+    type SpaceThread,
 } from './feeds'
 import type { PollType } from './polls'
 import { uploadAttachment, userBlossomServers, resolveBlossomServer, ensureBlossomServersLoaded, DEFAULT_BLOSSOM_SERVER, type Attachment } from './uploads'
@@ -334,11 +337,15 @@ type SpacesState = {
     space: SpaceView | null
     loading: boolean
     gatedOut: boolean
+    tab: string // aktiver Tab („rooms"/„threads"), aus ?tab= gelesen + dorthin gespiegelt (verlinkbar)
+    threads: SpaceThread[] // aktive Threads des Space (C6b, Startseiten-Übersicht)
     _unsubView: null | (() => void)
     _unsubActive: null | (() => void)
     _unsubAccess: null | (() => void)
+    _unsubThreads: null | (() => void)
     _controller: AbortController | null
     init(): void
+    roomName(h: string): string
     destroy(): void
 }
 
@@ -473,9 +480,10 @@ type RoomChatState = {
     threadCount: number // Anzahl Kommentare im offenen Thread
     threadReplyTo: { id: string; name: string } | null // Ziel-Kommentar der nächsten Antwort (null = am Root)
     threadDraft: string // Kommentar-Entwurf im Thread-Composer
-    threadSending: boolean // Kommentar wird gerade publiziert (Doppel-Klick-Guard)
+    threadFull: boolean // Vollansicht (aus der Übersicht/Deep-Link) statt Modal-über-Chat (aus dem Feed)
     _threadUnsub: null | (() => void) // deriveThread-Subscription
     _threadController: AbortController | null // Live-Sub des offenen Threads
+    _deepThreadNevent: string | null // Deep-Link-nevent aus /rooms/{h}/thread/{nevent}, EINMAL in setup konsumiert
     mentionOpen: boolean // @-Autocomplete-Popover sichtbar (C4)
     mentionQuery: string // aktuelle @-Suchzeichenfolge (nach dem @)
     mentionItems: MentionItem[] // gefilterte Mitglieder-Vorschläge
@@ -523,8 +531,9 @@ type RoomChatState = {
     copyNpub(m: ChatMessage): void
     copyJson(m: ChatMessage): void
     openInfo(m: ChatMessage): void
-    openThread(m: ChatMessage): void
+    openThread(m: ChatMessage, full?: boolean): void
     closeThread(): void
+    backFromThread(): void
     setThreadReply(c: ThreadComment): void
     clearThreadReply(): void
     sendComment(): Promise<void>
@@ -1080,11 +1089,31 @@ export function registerNostrComponents(Alpine: {
         space: null,
         loading: true,
         gatedOut: false,
+        // Tab aus der URL (?tab=threads) übernehmen → Startseite ist direkt verlinkbar.
+        tab: new URLSearchParams(window.location.search).get('tab') === 'threads' ? 'threads' : 'rooms',
+        threads: [],
         _unsubView: null,
         _unsubActive: null,
         _unsubAccess: null,
+        _unsubThreads: null,
         _controller: null,
+        // Raumname zu einem h-Tag (aus den bereits geladenen Space-Räumen) — für die Thread-Liste.
+        roomName(h: string): string {
+            const rooms = [...(this.space?.userRooms ?? []), ...(this.space?.otherRooms ?? [])]
+            return rooms.find((r) => r.h === h)?.name || h
+        },
         init() {
+            // Tab-Wechsel in die URL spiegeln (replaceState, keine Navigation) → verlinkbar,
+            // Reload/Share landen im gleichen Tab. Default „rooms" ohne Param (sauberere URL).
+            ;(this as unknown as { $watch(p: string, cb: (v: string) => void): void }).$watch('tab', (v: string) => {
+                const u = new URL(window.location.href)
+                if (v === 'rooms') {
+                    u.searchParams.delete('tab')
+                } else {
+                    u.searchParams.set('tab', v)
+                }
+                window.history.replaceState(window.history.state, '', u)
+            })
             loadUserGroupList()?.finally(() => {
                 this.loading = false
             })
@@ -1095,6 +1124,12 @@ export function registerNostrComponents(Alpine: {
                 this._controller?.abort()
                 this._controller = new AbortController()
                 watchSpaceRooms(url, this._controller.signal)
+                // Threads-Übersicht des Space (C6b): Kommentare + Wurzeln laden, reaktiv anzeigen.
+                this._unsubThreads?.()
+                this._unsubThreads = deriveSpaceThreads(url).subscribe((t: SpaceThread[]) => {
+                    this.threads = t
+                })
+                void loadSpaceThreads(url)
                 // Vereins-Relay & kein Mitglied → die Räume liefert der Relay gar
                 // nicht aus. „gatedOut" ersetzt die falsche „keine Räume"-Meldung.
                 this._unsubAccess?.()
@@ -1111,6 +1146,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubActive?.()
             this._unsubView?.()
             this._unsubAccess?.()
+            this._unsubThreads?.()
             this._controller?.abort()
         },
     }))
@@ -1456,8 +1492,9 @@ export function registerNostrComponents(Alpine: {
     // Live-Sub (limit:0) + Cursor-Pagination. Senden/Löschen = kind 9/5 (optimistisch).
     // Beitreten/Verlassen = NIP-29 (kind 9021/9022) → relay-autoritative 39002-
     // Mitgliedschaft (persistent); der Composer ist an `joined` gekoppelt.
-    Alpine.data('nostrRoomChat', (h: unknown, initialName?: unknown): RoomChatState => ({
+    Alpine.data('nostrRoomChat', (h: unknown, initialName?: unknown, nevent?: unknown): RoomChatState => ({
         h: String(h),
+        _deepThreadNevent: nevent ? String(nevent) : null,
         // SSR-Fallback (Server-Read-Cache/Slug); die Client-Meta (39000) überschreibt
         // ihn reaktiv in setup(), sobald sie vom Relay da ist — der Server-Cache kann
         // den Namen am member-only-Relay ohne AUTH nicht lesen und zeigt sonst den Slug.
@@ -1522,7 +1559,7 @@ export function registerNostrComponents(Alpine: {
         threadCount: 0,
         threadReplyTo: null,
         threadDraft: '',
-        threadSending: false,
+        threadFull: false,
         _threadUnsub: null,
         _threadController: null,
         mentionOpen: false,
@@ -1579,6 +1616,24 @@ export function registerNostrComponents(Alpine: {
             this._revealing = false
             this._lastRead = readRoomLastRead(url, this.h)
             this._controller = new AbortController()
+            // Deep-Link (C6b): /rooms/{h}/thread/{nevent} öffnet den Thread als Vollansicht —
+            // eine DIREKT verlinkbare/teilbare URL (Reload/Bookmark öffnen denselben Thread).
+            // Der nevent (bech32) wird zur Wurzel-id dekodiert; openThread lädt Wurzel+Baum
+            // per id/#E selbst. EINMAL konsumiert: Reload = neue Insel-Instanz (öffnet erneut),
+            // retry() im selben Leben nicht (kein ungewolltes Wieder-Aufpoppen nach Schließen).
+            if (this._deepThreadNevent) {
+                const nevent = this._deepThreadNevent
+                this._deepThreadNevent = null
+                try {
+                    const dec = nip19.decode(nevent)
+                    const rootId = dec.type === 'nevent' ? dec.data.id : dec.type === 'note' ? dec.data : ''
+                    if (rootId) {
+                        this.openThread({ id: rootId } as ChatMessage, true)
+                    }
+                } catch {
+                    // Kaputter nevent im Pfad → kein Thread, kein Fehler.
+                }
+            }
             // Virtualizer pro Raum frisch aufbauen (eigener Messungs-Cache). Er besitzt
             // fortan scrollTop: Anker beim Prepend, Boden-Stick, Bild-/Chip-Re-Measure.
             const magics = this as unknown as AlpineMagics
@@ -1693,15 +1748,19 @@ export function registerNostrComponents(Alpine: {
                 const room = ($byUrl.get(url) ?? []).find((r) => r.h === this.h)
                 if (room?.name) {
                     this.roomName = room.name
+                    // Meta-/Tab-Titel clientseitig auf den echten Raumnamen setzen: der server-
+                    // gerenderte Titel fällt bei SpaceCache-Miss auf die rohe Raum-id zurück
+                    // (`# <h>`); sobald die Insel den Namen aus 39000/9007 auflöst, korrigieren.
+                    document.title = `# ${room.name}`
                 }
             })
             listenRoom(url, this.h, this._controller.signal)
             // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
             // Promise fürs Prewarm-Gate behalten: der Reveal wartet (budgetiert) darauf.
             const reactionsReady = loadRoomReactions(url, this.h)
-            // NIP-22-Kommentare (kind 1111) nachladen, damit die Kommentar-Zähler an
-            // Quote-Only-Nachrichten schon beim ersten Paint stimmen (Live-Sub = nur Neues).
-            void loadRoomComments(url, this.h)
+            // NIP-22-Kommentare (kind 1111) nachladen, damit die Antworten-Indikatoren
+            // schon beim ersten Paint stimmen (Live-Sub = nur Neues). Ohne #h (flotilla-kompat).
+            void loadRoomComments(url)
             // Poll-Responses (kind 1018) fürs Tally nachladen — NICHT die Poll-Karten (1068) selbst:
             // die kommen jetzt übers gepagte roomFilter (limit:50 + loadOlder), liegen also IMMER im
             // geladenen Fenster → sofort vermessen → kein Off-screen-Estimate → kein mittiger Sprung.
@@ -2172,22 +2231,19 @@ export function registerNostrComponents(Alpine: {
             dispatchModal('message-info')
         },
         // ── C6b: Thread-Ansicht (NIP-22 kind 1111 COMMENT) ─────────────────────
-        // Öffnet das In-Room-Overlay zu einer Quote-Only-Nachricht: der zitierte
-        // Root (per id, raumübergreifend) + der verschachtelte Kommentar-Baum. Der
-        // Root ist `m.quotedId` (das rohe q-Tag der Quote-Only-Nachricht). Live-Sub
-        // hält den Thread aktuell, solange das Overlay offen ist.
-        openThread(m: ChatMessage) {
+        // Öffnet das In-Room-Overlay zu EINER Nachricht: sie selbst ist die Thread-Wurzel
+        // (Slack-Modell — jede Nachricht ist thread-fähig, nicht nur Quote-Only). Zeigt die
+        // Wurzel + den verschachtelten Kommentar-Baum + Composer. Live-Sub hält ihn aktuell.
+        openThread(m: ChatMessage, full = false) {
             this.activeId = null
             this.closeMessageMenu()
-            // Rohe q-Tag-id (nicht m.reply.id): die Vorschau `reply` ist nur gesetzt, wenn die
-            // Wurzel im geladenen Fenster liegt — der Thread lädt sie ohnehin per id/#E nach,
-            // also auch für ältere/raumfremde Wurzeln (sonst wäre der Chip ein toter Button).
-            const rootId = m.quotedId
+            const rootId = m.id
             if (!rootId || !this._url) {
                 return
             }
             this.closeThread() // evtl. noch offenen Thread sauber abbauen (Wechsel)
             const url = this._url
+            this.threadFull = full // aus dem Chat = Modal; aus der Übersicht (Deep-Link) = Vollansicht
             this.threadRootId = rootId
             this._threadController = new AbortController()
             // Root (per id) + bestehende Kommentare nachladen; die Live-Sub liefert nur Neues.
@@ -2210,6 +2266,22 @@ export function registerNostrComponents(Alpine: {
             this.threadCount = 0
             this.threadReplyTo = null
             this.threadDraft = ''
+            this.threadFull = false
+        },
+        // „Zurück" aus dem Thread. Modal (aus dem Chat) → nur schließen, Raum bleibt.
+        // Vollansicht (aus der Übersicht/Deep-Link) → zurück zur Threads-Übersicht (History,
+        // sonst /spaces) — der Nutzer landet dort, wo er den Thread angetippt hat.
+        backFromThread() {
+            if (this.threadFull) {
+                this.closeThread()
+                if (window.history.length > 1) {
+                    window.history.back()
+                } else {
+                    ;(window as unknown as { Livewire?: { navigate(u: string): void } }).Livewire?.navigate('/spaces')
+                }
+            } else {
+                this.closeThread()
+            }
         },
         // Auf einen bestehenden Kommentar antworten (verschachtelt): das nächste
         // Absenden hängt den Kommentar unter `c` statt unter den Root.
@@ -2223,9 +2295,13 @@ export function registerNostrComponents(Alpine: {
             this.threadReplyTo = null
         },
         // Kommentar publizieren (kind 1111). Ziel = Eltern-Kommentar (verschachtelt)
-        // oder der Thread-Root. Optimistisch: erscheint sofort via deriveThread.
+        // oder der Thread-Root. OPTIMISTISCH & nicht-blockierend (Slack-artig): der
+        // Composer wird sofort geleert (der Kommentar liegt via publishThunk schon im
+        // Repository → erscheint via deriveThread), der Relay-OK wird NICHT abgewartet.
+        // Das sofortige Leeren verhindert auch Doppel-Senden (ein zweiter Enter trifft
+        // auf leeren Draft). Fehler landen im Hintergrund als Toast (feeds rollt zurück).
         async sendComment() {
-            if (this.threadSending || !this._url || !this.threadRootId) {
+            if (!this._url || !this.threadRootId) {
                 return
             }
             const content = this.threadDraft.trim()
@@ -2237,15 +2313,13 @@ export function registerNostrComponents(Alpine: {
                 toast('Bezugs-Nachricht noch nicht geladen — kurz warten.')
                 return
             }
-            this.threadSending = true
-            const err = await sendComment(this._url, target, content)
-            this.threadSending = false
-            if (err) {
-                toast(err)
-                return
-            }
+            const url = this._url
             this.threadDraft = ''
             this.threadReplyTo = null
+            const err = await sendComment(url, target, content)
+            if (err) {
+                toast(err)
+            }
         },
         // ── C4: @-Mention-Autocomplete (NIP-08/NIP-27) ─────────────────────────
         // Bei jeder Composer-Eingabe: steht direkt vor dem Cursor ein `@wort`

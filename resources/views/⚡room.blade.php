@@ -27,9 +27,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     public ?string $ogImage = null;
 
-    public function mount(string $h, SpaceCache $cache): void
+    // Optionale Thread-Referenz aus /rooms/{h}/thread/{nevent} — die Insel öffnet
+    // beim Setup den Thread als Vollansicht (direkt verlinkbarer Deep-Link, C6b).
+    public ?string $nevent = null;
+
+    public function mount(string $h, SpaceCache $cache, ?string $nevent = null): void
     {
         $this->h = $h;
+        $this->nevent = $nevent;
         $url = SpaceCache::spaceUrl();
         $room = $cache->rooms($url)[$h] ?? null;
         $this->roomName = $room['name'] ?? null;
@@ -50,7 +55,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 }; ?>
 
 {{-- Chat-Bühne: Kopf + Verlauf + Composer unter EINEM Alpine-Scope (M4 lesen, M5 schreiben). --}}
-<div x-data="nostrRoomChat(@js($h), @js($roomName ?? $h))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)]">
+<div x-data="nostrRoomChat(@js($h), @js($roomName ?? $h), @js($nevent))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)]">
 
     {{-- P2: Der Raum ist eine chrome-lose Detail-Ebene (kein Tab, keine Bottom-Nav)
          und rendert daher den globalen Signer/Reconnect-Strip selbst — die app-shell
@@ -339,16 +344,24 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <span x-text="m.zaps.sats" class="font-mono text-xs tabular-nums"></span>
                                     </button>
                                 </template>
-                                {{-- Kommentar-Chip (C6b): nur an Quote-Only-Nachrichten (Thread-Wurzel).
-                                     Öffnet die Thread-Ansicht; zeigt die Kommentar-Zahl bzw. lädt zum
-                                     Kommentieren ein (auch bei 0). --}}
-                                <template x-if="m.isQuote">
+                                {{-- Antworten-Indikator (C6b, Slack-Stil): erscheint an JEDER Nachricht mit
+                                     ≥1 Antwort (kind 1111). Überlappende Teilnehmer-Gesichter + Zähler +
+                                     „vor …" der letzten Antwort → öffnet den Thread. Passt in die reservierte
+                                     Chip-Lane (h-7 = min-h-7), also kein Layout-Sprung beim Nachladen. --}}
+                                <template x-if="m.thread">
                                     <button type="button" x-on:click.stop="openThread(m)"
-                                            :aria-label="m.commentCount + @js(__(' Kommentare — Thread öffnen'))"
-                                            class="pressable inline-flex h-6 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none transition-colors motion-reduce:transition-none"
-                                            :class="m.commentCount ? 'border-brand-500/40 bg-brand-500/10 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
-                                        <flux:icon.chat-bubble-left-right class="size-3.5 shrink-0" />
-                                        <span class="text-xs" x-text="m.commentCount ? (m.commentCount + (m.commentCount === 1 ? @js(__(' Kommentar')) : @js(__(' Kommentare')))) : @js(__('Kommentieren'))"></span>
+                                            :aria-label="m.thread.count + (m.thread.count === 1 ? @js(__(' Antwort, letzte ')) : @js(__(' Antworten, letzte '))) + m.thread.lastLabel + @js(__(' — Thread öffnen'))"
+                                            class="pressable group/th inline-flex h-7 items-center gap-1.5 rounded-full border border-brand-500/40 bg-brand-500/10 pl-1 pr-2.5 text-brand-500 transition-colors motion-reduce:transition-none hover:border-brand-500 hover:bg-brand-500/15">
+                                        <span class="flex -space-x-1.5">
+                                            <template x-for="f in m.thread.faces" :key="f.pubkey">
+                                                <span class="inline-flex rounded-full ring-2 ring-white dark:ring-zinc-900">
+                                                    <x-group::nostr-avatar picture="f.picture" name="f.name" size="1.15rem" />
+                                                </span>
+                                            </template>
+                                        </span>
+                                        <span class="text-xs font-semibold" x-text="m.thread.count + (m.thread.count === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
+                                        <span class="text-xs text-muted" x-text="'· ' + m.thread.lastLabel"></span>
+                                        <flux:icon.chevron-right class="size-3.5 shrink-0 opacity-60 transition-transform motion-reduce:transition-none group-hover/th:translate-x-0.5" />
                                     </button>
                                 </template>
                             </div>
@@ -368,6 +381,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                          aria-label="Zap" />
                             <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" class="icon-btn-touch"
                                          x-on:click.stop="setReply(m)" aria-label="{{ __('Antworten') }}" />
+                            {{-- Im Thread antworten (C6b): öffnet den Thread dieser Nachricht (jede Nachricht
+                                 ist thread-fähig). Sichtbarer Direkt-Einstieg statt versteckter Quote-Geste. --}}
+                            <flux:button size="xs" variant="ghost" icon="chat-bubble-oval-left" class="icon-btn-touch"
+                                         x-on:click.stop="openThread(m)" aria-label="{{ __('Im Thread antworten') }}" />
                             <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
                                          x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
                                          aria-label="{{ __('Nachricht löschen') }}" />
@@ -408,6 +425,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <flux:menu.item icon="bolt" x-on:click="openZap(m)">Zap</flux:menu.item>
                                             </template>
                                             <flux:menu.item icon="arrow-uturn-left" x-on:click="setReply(m)">{{ __('Antworten') }}</flux:menu.item>
+                                            {{-- Im Thread antworten (C6b): öffnet den Thread dieser Nachricht. --}}
+                                            <flux:menu.item icon="chat-bubble-oval-left" x-on:click="openThread(m)">{{ __('Im Thread antworten') }}</flux:menu.item>
                                             {{-- Zitieren (C3): Nachricht ohne Kommentar teilen (Quote-Only). --}}
                                             <flux:menu.item icon="chat-bubble-left-right" x-on:click="share(m)">{{ __('Zitieren') }}</flux:menu.item>
                                             {{-- Bearbeiten (C3): nur eigene Nachrichten, ≤5 min alt. --}}
@@ -807,6 +826,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="if (menuFor) openZap(menuFor)">Zap</flux:button>
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
                          x-on:click="if (menuFor) { setReply(menuFor); closeMessageMenu() }">{{ __('Antworten') }}</flux:button>
+            {{-- Im Thread antworten (C6b): openThread schließt das Menü selbst (closeMessageMenu). --}}
+            <flux:button variant="ghost" icon="chat-bubble-oval-left" class="w-full justify-start"
+                         x-on:click="if (menuFor) openThread(menuFor)">{{ __('Im Thread antworten') }}</flux:button>
             {{-- Zitieren (C3): teilt ohne Kommentar; share() schließt das Menü selbst. --}}
             <flux:button variant="ghost" icon="chat-bubble-left-right" class="w-full justify-start"
                          x-on:click="if (menuFor) share(menuFor)">{{ __('Zitieren') }}</flux:button>
@@ -884,19 +906,24 @@ new #[Layout('group::einundzwanzig')] class extends Component
          Schließen der Lightbox (Escape/Klick) NICHT auch den Thread abbauen. Der Thread
          steht im DOM VOR der Lightbox → sein window-Escape-Listener feuert zuerst und
          sieht `lightboxSrc` noch gesetzt; der Lightbox-Klick trägt zusätzlich `.stop`. --}}
+    {{-- Zwei Modi: aus dem Chat geöffnet = Modal über gedimmtem Raum (threadFull=false);
+         aus der Übersicht/Deep-Link = OPAKE Vollansicht (threadFull=true), Raum dahinter
+         nicht sichtbar. „Zurück" führt entsprechend (Modal schließen bzw. zur Übersicht). --}}
     <div x-show="threadRootId" x-cloak role="dialog" aria-modal="true" aria-label="{{ __('Thread') }}"
          x-effect="threadRootId && $nextTick(() => $refs.threadClose?.focus())"
-         x-on:keydown.escape.window="threadRootId && !lightboxSrc && closeThread()"
-         class="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4">
-        <div class="surface-card flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-card shadow-2xl sm:rounded-card"
-             x-on:click.outside="!lightboxSrc && closeThread()">
+         x-on:keydown.escape.window="threadRootId && !lightboxSrc && backFromThread()"
+         class="fixed inset-0 z-50 flex justify-center"
+         :class="threadFull ? 'items-stretch bg-zinc-50 dark:bg-zinc-900' : 'items-end bg-black/70 backdrop-blur-sm sm:items-center sm:p-4'">
+        <div class="surface-card flex w-full max-w-2xl flex-col overflow-hidden"
+             :class="threadFull ? 'h-full' : 'max-h-[92vh] rounded-t-card shadow-2xl sm:rounded-card'"
+             x-on:click.outside="!lightboxSrc && !threadFull && closeThread()">
             {{-- Kopf: Zurück + Titel + Kommentar-Zahl. --}}
             <div class="flex items-center gap-2 border-b border-white/10 px-4 py-3">
                 <flux:button size="xs" variant="ghost" icon="arrow-left" class="icon-btn-touch"
-                             x-ref="threadClose" x-on:click="closeThread()" aria-label="{{ __('Zurück') }}" />
+                             x-ref="threadClose" x-on:click="backFromThread()" aria-label="{{ __('Zurück') }}" />
                 <flux:heading size="lg" class="flex-1">{{ __('Thread') }}</flux:heading>
                 <span class="shrink-0 text-xs text-muted"
-                      x-text="threadCount + (threadCount === 1 ? @js(__(' Kommentar')) : @js(__(' Kommentare')))"></span>
+                      x-text="threadCount + (threadCount === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
             </div>
 
             {{-- Root + Kommentare (scrollbar). --}}
@@ -924,7 +951,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                 {{-- Kommentar-Baum: flach mit Einrückung nach `depth` (gedeckelt). --}}
                 <template x-if="threadComments.length === 0">
-                    <p class="py-6 text-center text-sm text-muted">{{ __('Noch keine Kommentare — schreib den ersten.') }}</p>
+                    <p class="py-6 text-center text-sm text-muted">{{ __('Noch keine Antworten — antworte als erste:r.') }}</p>
                 </template>
                 <template x-for="c in threadComments" :key="c.id">
                     <div :style="'margin-left:' + Math.min(c.depth, 6) * 14 + 'px'"
@@ -966,17 +993,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </div>
                         <div class="flex items-end gap-2">
                             <flux:textarea x-ref="threadComposer" x-model="threadDraft" rows="1" resize="none" class="flex-1"
-                                           placeholder="{{ __('Kommentieren…') }}" aria-label="{{ __('Kommentar schreiben') }}"
+                                           placeholder="{{ __('Im Thread antworten…') }}" aria-label="{{ __('Antwort schreiben') }}"
                                            x-on:keydown="if ($event.key === 'Enter' && !$event.shiftKey) { $event.preventDefault(); sendComment() }" />
                             <flux:button type="button" variant="primary" icon="paper-airplane" class="icon-btn-touch"
-                                         x-on:click="sendComment()" ::data-loading="threadSending"
-                                         ::disabled="threadSending || threadDraft.trim().length === 0"
-                                         aria-label="{{ __('Kommentar senden') }}" />
+                                         x-on:click="sendComment()"
+                                         ::disabled="threadDraft.trim().length === 0"
+                                         aria-label="{{ __('Antwort senden') }}" />
                         </div>
                     </div>
                 </template>
+                {{-- Nicht-Mitglied: Beitreten DIREKT aus dem Thread (v.a. Vollansicht aus der
+                     Übersicht, wo man den Raum noch nicht betreten hat). join() ist die
+                     bestehende Raum-Beitritts-Aktion; nach Beitritt erscheint der Composer. --}}
                 <template x-if="!joined">
-                    <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu kommentieren.') }}</flux:text>
+                    <div class="flex items-center justify-between gap-3">
+                        <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu antworten.') }}</flux:text>
+                        <flux:button size="sm" variant="primary" icon="plus" class="shrink-0 icon-btn-touch"
+                                     x-on:click="join()" ::disabled="joining">
+                            <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
+                        </flux:button>
+                    </div>
                 </template>
             </div>
         </div>

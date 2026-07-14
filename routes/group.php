@@ -23,6 +23,9 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         Route::livewire('/spaces', 'group::spaces')->name('spaces');
         Route::livewire('/directory', 'group::directory')->name('directory');
         Route::livewire('/rooms/{h}', 'group::room')->name('room');
+        // Direkt verlinkbarer Thread (C6b): dieselbe Room-SFC, öffnet den Thread als
+        // Vollansicht. `{nevent}` = bech32-Referenz auf die Wurzel-Nachricht (portabel/teilbar).
+        Route::livewire('/rooms/{h}/thread/{nevent}', 'group::room')->name('room.thread');
         // Verschmolzener Settings-Screen (P5, §6) — additiv neben der alten
         // space.settings-Seite (Mobile-Default), bis dessen eigener P5-Pass folgt.
         Route::livewire('/settings', 'group::pages.settings')->name('settings');

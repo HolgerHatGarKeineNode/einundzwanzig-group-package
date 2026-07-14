@@ -93,8 +93,12 @@ const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
 /** kind-1018-Poll-Responses eines Raums (NIP-88) — tragen `#h` vom Poll (via makePollResponse). */
 const roomPollResponseFilter = (h: string) => [{ kinds: [POLL_RESPONSE], '#h': [h] }]
 
-/** kind-1111-Kommentare eines Raums (NIP-22, C6b) — tragen `#h` vom Root (via makeComment). */
-const roomCommentFilter = (h: string) => [{ kinds: [COMMENT], '#h': [h] }]
+/**
+ * kind-1111-Kommentare (NIP-22, C6b) — flotilla-kompatibel OHNE `#h` (Kommentare sind
+ * keine Group-Events). Ungescopt je Space-Relay geladen; die Zuordnung zur Nachricht
+ * läuft über den Thread-Root `["E", rootId]` (uppercase), nicht `#h`.
+ */
+const roomCommentFilter = () => [{ kinds: [COMMENT] }]
 
 /**
  * kind-9735-Zap-Receipts (NIP-57): tragen KEIN `#h` — der LNURL-Server kopiert nur
@@ -188,6 +192,34 @@ const fullTimeLabel = (ts: number): string =>
 /** Kompakte Vorschau der zitierten Nachricht (aufgelöst im selben Raum). */
 export type ReplyPreview = { id: string; name: string; text: string }
 
+/** Ein Gesicht (Teilnehmer) im Antworten-Indikator eines Threads. */
+export type ThreadFace = { pubkey: string; name: string; picture: string }
+
+/**
+ * Slack-artige Thread-Zusammenfassung EINER Nachricht (C6b): Anzahl Antworten,
+ * bis zu 3 Teilnehmer-Gesichter (jüngste zuerst) und ein relatives „vor …"-Label
+ * der letzten Antwort. `null`, wenn es keine Kommentare (kind 1111) an dieser Nachricht gibt.
+ */
+export type ThreadSummary = { count: number; faces: ThreadFace[]; lastLabel: string }
+
+/** Relatives Zeit-Label („vor 3 Min" / „vor 2 Std" / Datum) für den Antworten-Indikator. */
+const relativeTime = (ts: number): string => {
+    const s = Math.floor(Date.now() / 1000) - ts
+    if (s < 60) {
+        return 'gerade eben'
+    }
+    const m = Math.floor(s / 60)
+    if (m < 60) {
+        return `vor ${m} Min`
+    }
+    const h = Math.floor(m / 60)
+    if (h < 24) {
+        return `vor ${h} Std`
+    }
+    const d = Math.floor(h / 24)
+    return d < 7 ? `vor ${d} Tg` : dayLabel(ts)
+}
+
 /**
  * Aggregierte Reaction (NIP-25) einer Nachricht: pro Emoji ein Chip mit Zähler und
  * eigenem Toggle-Zustand. `emojiUrl` ist bei Custom-Emoji (NIP-30) das proxifizierte
@@ -250,6 +282,27 @@ const aggregateReactions = (
     })
 }
 
+/**
+ * Baut die Slack-artige Antworten-Zusammenfassung einer Nachricht aus ihren
+ * kind-1111-Kommentaren (dem ganzen Thread, per Root-`E` gebündelt): Zähler,
+ * bis zu 3 EINDEUTIGE Teilnehmer-Gesichter (jüngste zuerst) und das relative
+ * „vor …"-Label der letzten Antwort. `null` = keine Antworten (kein Indikator).
+ */
+const buildThreadSummary = (
+    comments: TrustedEvent[],
+    $profiles: Map<string, { picture?: string }>,
+    nameOf: (pubkey: string) => string,
+): ThreadSummary | null => {
+    if (comments.length === 0) {
+        return null
+    }
+    const newestFirst = sortEventsAsc(comments).reverse()
+    const faces = uniqBy((c) => c.pubkey, newestFirst)
+        .slice(0, 3)
+        .map((c): ThreadFace => ({ pubkey: c.pubkey, name: nameOf(c.pubkey), picture: $profiles.get(c.pubkey)?.picture ?? '' }))
+    return { count: comments.length, faces, lastLabel: relativeTime(newestFirst[0].created_at) }
+}
+
 /** Aggregierte Zap-Sicht einer Nachricht (⚡-Chip): Anzahl, Sats-Summe, eigener Anteil. */
 export type ZapSummary = {
     count: number // Anzahl valider Zaps (nach `zapFromEvent`-Prüfung)
@@ -299,9 +352,7 @@ export type ChatMessage = {
     showAuthor: boolean // erster Beitrag eines Autor-Blocks (Gruppierung)
     mine: boolean // vom eingeloggten User verfasst (→ löschbar, M5)
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), im Fenster aufgelöst — sonst null
-    quotedId: string // rohe q-Tag-Ziel-id (auch wenn die Wurzel NICHT im Fenster liegt), '' = kein Zitat (C6b)
-    isQuote: boolean // Quote-Only-Share (q-Tag + leerer Body) → Thread-Wurzel, kommentierbar (C6b)
-    commentCount: number // Anzahl NIP-22-Kommentare (kind 1111) an dieser Quote-Only-Nachricht (C6b)
+    thread: ThreadSummary | null // Slack-artige Antworten-Zusammenfassung (kind 1111, C6b); null = keine Antworten
     reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
     poll: PollView | null // NIP-88-Poll (kind 1068) mit Live-Tally + eigenem Vote (C5), sonst null
     goal: GoalView | null // NIP-75-Zap-Goal (kind 9041) mit Fortschritt aus dem Zap-Tally (Z5), sonst null
@@ -429,7 +480,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             throttled(200, deriveEventsForUrl(url, roomPollResponseFilter(h))),
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
             throttled(200, zappersByLnurl),
-            throttled(200, deriveEventsForUrl(url, roomCommentFilter(h))),
+            throttled(200, deriveEventsForUrl(url, roomCommentFilter())),
         ],
         ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $comments]) => {
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
@@ -448,7 +499,11 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // Backend-Cache holen (dedupliziert intern; welshman löst parallel live auf).
         // Ohne die Mention-Pubkeys blieben extern referenzierte @-Mentions (Nicht-
         // Mitglieder/gepastete npubs) dauerhaft als gekürztes npub statt @Name. Fire-and-forget.
-        void warmProfiles([...events.map((e) => e.pubkey), ...events.flatMap((e) => mentionPubkeys(bodyWithoutQuote(e)))])
+        void warmProfiles([
+            ...events.map((e) => e.pubkey),
+            ...events.flatMap((e) => mentionPubkeys(bodyWithoutQuote(e))),
+            ...$comments.map((c) => c.pubkey), // Kommentar-Autoren → Gesichter im Antworten-Indikator (C6b)
+        ])
         // NIP-05-Handles der Autoren lazy verifizieren (dedupliziert, fire-and-forget).
         warmHandles(events.map((e) => e.pubkey))
         // Zapper (LNURL-pay-Meta) der Autoren lazy laden — nötig, um ihre 9735-Receipts
@@ -481,10 +536,10 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             const reply: ReplyPreview | null = quoted
                 ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(bodyWithoutQuote(quoted)) }
                 : null
-            // Quote-Only-Share (C3): q-Tag gesetzt UND kein eigener Body → Thread-Wurzel (C6b).
-            // Nur diese Nachrichten tragen Kommentare; ein Reply-MIT-Text bleibt einfacher Chat.
-            const isQuote = quotedId !== undefined && bodyWithoutQuote(event).trim() === ''
-            const commentCount = isQuote && quotedId ? (commentsByRoot.get(quotedId)?.length ?? 0) : 0
+            // Threading (C6b, Slack-Modell): JEDE Nachricht ist thread-fähig — der Thread
+            // wurzelt an ihr selbst (`event.id`), Kommentare (kind 1111) tragen `["E", event.id]`.
+            // Nicht mehr an Quote-Only gebunden. `null`, solange es keine Antworten gibt.
+            const thread = buildThreadSummary(commentsByRoot.get(event.id) ?? [], $profiles, nameOf)
 
             const profile = $profiles.get(event.pubkey)
             // Zapper des Autors aus dem gewärmten `zappersByLnurl`-Store (lud16/lud06 → lnurl).
@@ -516,9 +571,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
                 showAuthor,
                 mine,
                 reply,
-                quotedId: quotedId ?? '',
-                isQuote,
-                commentCount,
+                thread,
                 reactions: aggregateReactions(reactionsByTarget.get(event.id) ?? [], $me, nameOf),
                 poll: event.kind === POLL ? buildPollView(event, pollResponsesByTarget.get(event.id) ?? [], $me) : null,
                 goal: event.kind === ZAP_GOAL ? buildGoalView(event, zaps) : null,
@@ -531,15 +584,18 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
 
 /**
  * Öffnet eine Live-Subscription für NEUE Room-Events (bleibt bis abort offen):
- * Nachrichten (kind 9), Kommentare (kind 1111), Reactions (kind 7) und Tombstones
- * (kind 5) — alle `#h`. So erscheinen Fremd-Reactions/-Löschungen und der Live-
- * Kommentar-Zähler ohne separate Subscription.
+ * Nachrichten (kind 9), Reactions (kind 7), Tombstones (kind 5), Poll(-Responses)
+ * und Goals — alle `#h`. Kommentare (kind 1111) tragen KEIN `#h` (flotilla-kompatibel)
+ * → eigener, ungescopter Filter, damit der Live-Antworten-Zähler ohne separate Sub kommt.
  */
 export const listenRoom = (url: string, h: string, signal: AbortSignal): void => {
     void request({
         relays: [url],
         signal,
-        filters: [{ kinds: [MESSAGE, COMMENT, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL], '#h': [h], limit: 0 }],
+        filters: [
+            { kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL], '#h': [h], limit: 0 },
+            { kinds: [COMMENT], limit: 0 },
+        ],
     })
 }
 
@@ -565,12 +621,14 @@ export const loadRoomReactions = (url: string, h: string): Promise<TrustedEvent[
     load({ relays: [url], filters: [{ kinds: [REACTION, DELETE], '#h': [h] }] })
 
 /**
- * Lädt die bestehenden NIP-22-Kommentare (kind 1111) eines Raums, damit die
- * Kommentar-Zähler an Quote-Only-Nachrichten schon beim ersten Öffnen stimmen
- * (die Live-Sub liefert nur Neues). Pro Raum überschaubar — kein Paging (wie Reactions).
+ * Lädt die bestehenden NIP-22-Kommentare (kind 1111) des Space-Relays, damit die
+ * Antworten-Indikatoren schon beim ersten Öffnen stimmen (die Live-Sub liefert nur
+ * Neues). OHNE `#h` (flotilla-kompatibel), Zuordnung über `["E", rootId]`.
+ * ponytail: ungescopt je Relay — bei sehr vielen Threads später auf sichtbare Roots
+ * (`#E`) eingrenzen; für die aktuelle Space-Größe unschädlich.
  */
-export const loadRoomComments = (url: string, h: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ kinds: [COMMENT], '#h': [h] }] })
+export const loadRoomComments = (url: string): Promise<TrustedEvent[]> =>
+    load({ relays: [url], filters: [{ kinds: [COMMENT] }] })
 
 /**
  * Lädt bestehende kind-9735-Zap-Receipts für die übergebenen Nachrichten-IDs, damit
@@ -878,6 +936,83 @@ export const loadThread = (url: string, rootId: string): Promise<TrustedEvent[]>
 /** Live-Sub für NEUE Kommentare eines offenen Threads (`#E`), bis abort. */
 export const listenThread = (url: string, rootId: string, signal: AbortSignal): void => {
     void request({ relays: [url], signal, filters: [{ kinds: [COMMENT], '#E': [rootId], limit: 0 }] })
+}
+
+/**
+ * Ein Thread in der Space-Übersicht (Startseite): der Wurzel-Beitrag + Aktivität.
+ * `ready=false`, solange die Wurzel-Nachricht (kind 9) noch nicht (per id) geladen ist.
+ */
+export type SpaceThread = {
+    rootId: string
+    nevent: string // bech32-Referenz auf die Wurzel → direkt verlinkbarer Pfad /rooms/{h}/thread/{nevent}
+    roomH: string // Raum (h-Tag der Wurzel) — Name löst die Startseite aus ihren Raumdaten auf
+    authorName: string
+    snippet: string
+    count: number
+    faces: ThreadFace[]
+    lastLabel: string
+    lastTs: number
+}
+
+/**
+ * Reaktive Liste ALLER aktiven Threads eines Space (Startseite, C6b): gruppiert die
+ * kind-1111-Kommentare nach Thread-Root (`["E"]`), löst je Root die Wurzel-Nachricht
+ * (kind 9, per id im Repository) für Snippet/Autor/Raum auf und sortiert nach letzter
+ * Aktivität. Wurzel-Events kommen über `loadSpaceThreads`; die kind-9-Ableitung als
+ * Dependency sorgt dafür, dass die Liste nachzieht, sobald Wurzeln eintreffen.
+ */
+export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
+    derived(
+        [
+            throttled(300, deriveEventsForUrl(url, roomCommentFilter())),
+            // Wurzeln gegen ALLE Timeline-Kinds auflösen (wie roomStreamFilter) — Threads können
+            // an Nachricht (9), Poll (1068) ODER Zap-Goal (9041) wurzeln, nicht nur kind-9.
+            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }])),
+            throttled(300, profilesByPubkey),
+        ],
+        ([comments, roots, $profiles]) => {
+            const byId = new Map(roots.map((r) => [r.id, r]))
+            const byRoot = groupBy((c) => getTagValue('E', c.tags) ?? '', comments)
+            const out: SpaceThread[] = []
+            for (const [rootId, cs] of byRoot.entries()) {
+                const root = rootId ? byId.get(rootId) : undefined
+                // Nur Threads mit AUFLÖSBARER Wurzel in unserem Space zeigen — sonst blieben
+                // Geister-Zeilen (fremde flotilla-Wurzeln kind-11/1, noch nicht geladene Roots)
+                // dauerhaft als „(wird geladen…)" stehen und verfälschten den Zähler.
+                if (!root) {
+                    continue
+                }
+                const newestFirst = sortEventsAsc(cs).reverse()
+                const faces = uniqBy((c) => c.pubkey, newestFirst)
+                    .slice(0, 3)
+                    .map((c): ThreadFace => ({ pubkey: c.pubkey, name: displayProfileByPubkey(c.pubkey), picture: $profiles.get(c.pubkey)?.picture ?? '' }))
+                out.push({
+                    rootId: root.id,
+                    nevent: nip19.neventEncode({ id: root.id, relays: [url], author: root.pubkey }),
+                    roomH: getTagValue('h', root.tags) ?? '',
+                    authorName: displayProfileByPubkey(root.pubkey),
+                    snippet: snippet(bodyWithoutQuote(root)),
+                    count: cs.length,
+                    faces,
+                    lastLabel: relativeTime(newestFirst[0].created_at),
+                    lastTs: newestFirst[0].created_at,
+                })
+            }
+            return out.sort((a, b) => b.lastTs - a.lastTs)
+        },
+    )
+
+/**
+ * Lädt die Threads-Übersicht eines Space (Startseite): alle Kommentare (kind 1111),
+ * dann ihre Wurzel-Nachrichten (kind 9, per id — raumübergreifend), plus Vorwärmen
+ * der beteiligten Profile (Gesichter/Autor). Fire-and-forget beim Betreten der Startseite.
+ */
+export const loadSpaceThreads = async (url: string): Promise<void> => {
+    const comments = await loadRoomComments(url)
+    const rootIds = uniq(comments.map((c) => getTagValue('E', c.tags)).filter((id): id is string => Boolean(id)))
+    const roots = rootIds.length > 0 ? await load({ relays: [url], filters: [{ ids: rootIds }] }) : []
+    // Profile der Kommentar-Autoren (Gesichter) UND der Wurzel-Autoren (Snippet-Name) vorwärmen.
+    void warmProfiles([...comments.map((c) => c.pubkey), ...roots.map((r) => r.pubkey)])
 }
 
 /**
