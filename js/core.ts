@@ -12,6 +12,10 @@ import { netContext, defaultSocketPolicies, makeSocketPolicyAuth } from '@welshm
 import { routerContext } from '@welshman/router'
 import { always } from '@welshman/lib'
 import { verifyEvent, type TrustedEvent } from '@welshman/util'
+import { initStorage } from './storage'
+
+// M3 P1: `storageReady` für die Insel re-exportieren (bridge.ts gated den Warm-Peek darauf).
+export { storageReady } from './storage'
 
 /**
  * Relay-Override für Tests/Self-Hosting: setzt `window.__nostrRelays` VOR dem
@@ -115,9 +119,21 @@ netContext.isEventValid = (event: TrustedEvent, _url: string) => verifyEvent(eve
  * ponytail: aggressiv (jeder AUTH-fragende Relay) — bei Bedarf auf eine
  * Whitelist der Space-URLs (userSpaceUrls) einschränken (Privacy, M6).
  */
-defaultSocketPolicies.push(
-    makeSocketPolicyAuth({
-        sign,
-        shouldAuth: () => Boolean(pubkey.get()),
-    }),
-)
+// Boot-Seiteneffekte GENAU EINMAL — über einen globalThis-Guard, der auch ein
+// HMR-Re-Eval dieses Moduls überlebt (ein modulweites `let` würde bei HMR neu
+// erzeugt → der AUTH-Policy-Push liefe doppelt, und `initStorage` startete einen
+// zweiten repository-'update'-Listener). Die Kontext-Zuweisungen oben sind reine,
+// idempotente Sets → die dürfen ruhig re-laufen; nur diese zwei nicht.
+const bootGuard = globalThis as { __ezGroupBooted?: boolean }
+if (!bootGuard.__ezGroupBooted) {
+    bootGuard.__ezGroupBooted = true
+    defaultSocketPolicies.push(
+        makeSocketPolicyAuth({
+            sign,
+            shouldAuth: () => Boolean(pubkey.get()),
+        }),
+    )
+    // M3 P1: Kaltstart-Cache aus IndexedDB in die welshman-repository spiegeln,
+    // BEVOR der erste Raum öffnet (Room-init gated auf `storageReady`). Idempotent.
+    initStorage()
+}

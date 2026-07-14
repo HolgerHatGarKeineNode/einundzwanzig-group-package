@@ -15,7 +15,7 @@ import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
-import { DEFAULT_RELAYS, isMobile, nativeBrowserOpen, nativeBrowserInApp, proxifyImage } from './core'
+import { DEFAULT_RELAYS, isMobile, nativeBrowserOpen, nativeBrowserInApp, proxifyImage, storageReady } from './core'
 import { sanitizeReturnUrl, isAuthed } from './auth-gate'
 import {
     loginWithExtension,
@@ -509,6 +509,7 @@ type RoomChatState = {
     _loadedProfiles: Set<string>
     _loadedMsgIds: Set<string> // ROH geladene kind-9-IDs (Pagination-Terminierung, robust ggü. Anzeige-Filter wie Poll-Share-Quotes)
     _scroller: Scroller | null // Auto-Nachlade-Scroller (createScroller) statt Virtualizer; Teardown stoppt ihn
+    _destroyed: boolean // Insel via wire:navigate abgebaut, während init() noch auf storageReady wartete (M3 P1)
     init(): void
     setup(url: string): void
     teardown(): void
@@ -1588,9 +1589,20 @@ export function registerNostrComponents(Alpine: {
         _loadedProfiles: new Set<string>(),
         _loadedMsgIds: new Set<string>(),
         _scroller: null,
+        _destroyed: false,
         init() {
             // Aktiver Space → dessen Room-Feed (Wechsel baut Sub + Live neu auf).
-            this._unsubActive = activeSpace.subscribe((url: string) => this.setup(url))
+            // M3 P1: ERST wenn der Kaltstart-Cache in die repository gespiegelt ist
+            // (storageReady) abonnieren — sonst misst der Warm-Peek in setup() ein noch
+            // leeres Repo → Skeleton statt Instant-Paint. storageReady rejectet nie und
+            // resolved auch ohne Cache/bei IDB-Fehler sofort → der kalte Pfad bleibt
+            // unverändert schnell; es verschiebt das Abo nur um einen Micro-/IDB-Tick.
+            void storageReady.then(() => {
+                if (this._destroyed) {
+                    return // Raum schon verlassen, bevor der Cache-Load fertig war → nicht abonnieren
+                }
+                this._unsubActive = activeSpace.subscribe((url: string) => this.setup(url))
+            })
             // Mobil: Tastatur/Adressleiste ändern die Viewport-Höhe — stand man am Boden,
             // dort bleiben. followOnAppend feuert nur bei count-Änderung, ein Viewport-Resize
             // ist keine → explizit re-sticken. WICHTIG: `this.atBottom` (Zustand VOR dem Resize,
@@ -2889,6 +2901,7 @@ export function registerNostrComponents(Alpine: {
             }
         },
         destroy() {
+            this._destroyed = true // eine noch offene storageReady-Subscription (init) nicht mehr anlaufen lassen
             if (this._onViewport) {
                 window.visualViewport?.removeEventListener('resize', this._onViewport)
             }
