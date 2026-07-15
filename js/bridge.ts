@@ -1897,13 +1897,22 @@ export function registerNostrComponents(Alpine: {
             if (!el) {
                 return
             }
-            // column-reverse: Boden = scrollTop ≈ 0 (Vorzeichen browserabhängig → Math.abs). Das
-            // automatische Nachladen älterer Nachrichten macht der Scroller (createScroller), nicht
-            // mehr ein Prefetch aus onScroll.
-            this.atBottom = Math.abs(el.scrollTop) < 60
+            // column-reverse: Boden = scrollTop ≈ 0 (Vorzeichen browserabhängig → Math.abs).
+            const offset = Math.abs(el.scrollTop)
+            this.atBottom = offset < 60
             if (this.atBottom) {
                 this.unread = 0
                 this.markRead()
+            }
+            // WebView-Fallback fürs Nachladen: der rAF-Scroller (createScroller) läuft im Android-
+            // WebView beim ersten Raum-Mount nicht immer an (rAF-Drosselung rund um wire:navigate +
+            // hinter storageReady verzögertes setup()) → ältere Nachrichten würden bis zum Raum-
+            // Neubetreten nie geladen. Das native Scroll-Event feuert dagegen zuverlässig (sonst
+            // gäbe es den atBottom-abhängigen Scroll-Button nicht), also hier ebenfalls nahe am
+            // ältesten (oberen) Rand nachladen. loadOlder ist per loadingMore/hasMore geguardet
+            // (kein Doppel-Load), die Prepend-Anker-Kompensation macht der deriveRoomChat-Handler.
+            if (offset + el.clientHeight + 1500 > el.scrollHeight) {
+                this.loadOlder()
             }
         },
         // „Zum Ende"-Button + Composer-Fokus: column-reverse → top:0 ist der Boden (neueste).
