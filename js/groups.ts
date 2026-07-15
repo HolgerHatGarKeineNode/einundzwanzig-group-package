@@ -334,6 +334,41 @@ export const activeSpaceView: Readable<SpaceView> = derived(
         buildSpaceView($active, $byUrl, $byId, $members.get($active) ?? new Map(), $pk, ensureRelayProfile($relays, $active)),
 )
 
+/**
+ * Zustand für den nativen Push-Worker (Android): aktiver Space + die Räume, in
+ * denen der User Mitglied ist. Der Worker kennt weder Login noch
+ * Mitgliedschaft — beides lebt ausschliesslich hier im Client.
+ *
+ * Der Weg geht über localStorage + ein Event statt über einen direkten Aufruf,
+ * weil das mobile Layout der Companion-App (Meetups) dieses Bundle gar nicht
+ * lädt und den Stand trotzdem mitsynchronisieren muss. Abgeholt wird beides in
+ * `partials/push-sync.blade.php` (Companion-Repo).
+ */
+export const pushSyncState: Readable<{
+    relay: string
+    rooms: string[]
+    names: Record<string, string>
+}> = derived(activeSpaceView, ($space) => ({
+    relay: $space.url,
+    rooms: $space.userRooms.map((room) => room.h),
+    // Nur für den Notification-Titel: der Worker kennt sonst bloss die Raum-ID
+    // (`eegreyplugough8`) und schriebe „Neue Nachricht". Der Name steht im
+    // 39000-Event des Relays und ist damit nur hier bekannt.
+    names: Object.fromEntries($space.userRooms.map((room) => [room.h, room.name])),
+}))
+
+pushSyncState.subscribe(($state) => {
+    try {
+        localStorage.setItem('pushSync', JSON.stringify($state))
+        // Die Mitgliedschaft (39002) streamt erst NACH dem Seitenaufbau ein — ohne
+        // dieses Event hätte der Sync beim App-Start immer eine leere Raumliste
+        // gesehen und den Worker abbestellt.
+        window.dispatchEvent(new CustomEvent('push-sync'))
+    } catch (e) {
+        // localStorage/Event nicht verfügbar → der Worker behält seinen letzten Stand.
+    }
+})
+
 /** Space-Auswahl in den Einstellungen: der fixe Default + beigetretene Spaces. */
 export const spaceChoices: Readable<string[]> = derived(userSpaceUrls, ($urls) =>
     uniq([DEFAULT_SPACE_URL, ...$urls]),

@@ -32,5 +32,11 @@
     <flux:toast position="bottom center" />
 
     @fluxScripts
+
+    {{-- Hintergrund-Worker für Chat-Benachrichtigungen mit dem Push-Schalter
+         abgleichen. Muss AUCH hier hängen, nicht nur in layouts::mobile: die
+         Launch-Weiche schickt eingeloggte Nutzer direkt in den Chat, die sähen
+         das mobile Layout sonst nie. --}}
+    @includeIf('partials.push-sync')
 </body>
 </html>
