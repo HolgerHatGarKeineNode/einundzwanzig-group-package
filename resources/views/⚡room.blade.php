@@ -95,7 +95,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Ruckeln, kein Virtualizer, keine Höhenmessung. Ältere lädt ein rAF-Scroller
              (createScroller, bridge setup) automatisch nahe am oberen (ältesten) Rand.
              `wire:ignore`: der Livewire-Morph darf die Alpine-gerenderte Liste nicht anfassen. --}}
-        <div x-ref="scroll" wire:ignore x-on:scroll.throttle.50ms="onScroll()"
+        {{-- KEIN `.throttle`/`.debounce` auf dem Scroll-Handler: Alpines throttle feuert nur auf
+             der leading edge und verwirft das letzte Event einer Serie — also genau das, das am
+             Boden ankommt. `atBottom` blieb dann auf dem vorletzten Wert stehen und der „Zum
+             Ende"-Pfeil klebte fest. onScroll() ist reine Arithmetik; markRead/loadOlder sind
+             selbst geguardet → ungedrosselt ist billig genug (Scroll-Events sind rAF-getaktet). --}}
+        <div x-ref="scroll" wire:ignore x-on:scroll="onScroll()"
              role="log" aria-live="polite" aria-relevant="additions" aria-label="{{ __('Chat-Verlauf') }}"
              ::aria-busy="loading && messages.length === 0"
              class="flex flex-col-reverse min-h-0 flex-1 overflow-y-auto px-1 pb-2 transition-opacity"
