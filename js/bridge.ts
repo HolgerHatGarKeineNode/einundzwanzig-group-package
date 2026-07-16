@@ -6,7 +6,7 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, loadZapper } from '@welshman/app'
+import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, loadZapper } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
@@ -77,6 +77,9 @@ import {
     unbanSpaceMember,
     addSpaceMember,
     banEvent,
+    setRelayName,
+    setRelayDescription,
+    setRelayIcon,
     type DirectoryView,
     type MemberView,
     type RoleView,
@@ -402,6 +405,12 @@ type DirectoryState = {
     inviteLink: string
     inviteBusy: boolean
     busy: boolean
+    // Space-Metadaten bearbeiten (P2, NIP-86 changerelay*)
+    spaceForm: { name: string; description: string }
+    _spaceInitial: { name: string; description: string } // Prefill-Snapshot (Vergleichsbasis: nur GEÄNDERTES senden)
+    spaceIconPreview: string // Vorschau: data-URL des neu gewählten Icons ODER aktuelle Icon-URL
+    _spaceIconFile: File | null // neu gewähltes Icon (null = unverändert)
+    spaceSaving: boolean
     _url: string | null
     _controller: AbortController | null
     _unsubActive: null | (() => void)
@@ -430,6 +439,10 @@ type DirectoryState = {
     restoreMember(pubkey: string): Promise<void>
     loadInvite(): Promise<void>
     copyInvite(): void
+    openSpaceEdit(): void
+    _prefillSpace(profile?: RelayProfile): void
+    pickSpaceIcon(input: HTMLInputElement): void
+    saveSpace(): Promise<void>
 }
 
 /** Ein @-Mention-Vorschlag (Space-Mitglied) im Composer-Autocomplete. */
@@ -1383,6 +1396,11 @@ export function registerNostrComponents(Alpine: {
         inviteLink: '',
         inviteBusy: false,
         busy: false,
+        spaceForm: { name: '', description: '' },
+        _spaceInitial: { name: '', description: '' },
+        spaceIconPreview: '',
+        _spaceIconFile: null,
+        spaceSaving: false,
         _url: null,
         _controller: null,
         _unsubActive: null,
@@ -1641,6 +1659,98 @@ export function registerNostrComponents(Alpine: {
         copyInvite() {
             if (this.inviteLink) {
                 navigator.clipboard?.writeText(this.inviteLink).then(() => toast('Link kopiert.', 'success'))
+            }
+        },
+        // ── P2: Space-Metadaten bearbeiten (NIP-86 changerelay*) ───────────────
+        // Vorbelegen aus dem NIP-11-Info-Doc + Snapshot (_spaceInitial) als Vergleichs-
+        // basis: saveSpace sendet NUR Felder, die der Admin gegenüber dem Prefill wirklich
+        // geändert hat → kein Whitespace-No-op, und ein (noch) leeres Feld aus einem nicht
+        // geladenen Profil wird NIE als „auf leer gesetzt" gesendet (kein Namens-Wipe).
+        // Modal SOFORT mit dem Cache-Snapshot öffnen (nie hinter await blocken,
+        // [[zap-modal-open-never-block-on-resolvezapper]]); dann das NIP-11 frisch
+        // nachladen (1h-loadRelay-Cache umgehen) und neu vorbelegen — aber nur, wenn der
+        // Admin das Formular noch nicht angefasst hat (sonst überschriebe es seine Eingabe).
+        openSpaceEdit() {
+            const url = this._url
+            if (!url) {
+                return
+            }
+            this._prefillSpace(get(relaysByUrl).get(url))
+            this._spaceIconFile = null
+            dispatchModal('space-edit')
+            void forceLoadRelay(url).then(() => {
+                const pristine =
+                    !this._spaceIconFile &&
+                    this.spaceForm.name === this._spaceInitial.name &&
+                    this.spaceForm.description === this._spaceInitial.description
+                if (this._url === url && pristine) {
+                    this._prefillSpace(get(relaysByUrl).get(url))
+                }
+            })
+        },
+        _prefillSpace(profile?: RelayProfile) {
+            this.spaceForm = { name: profile?.name ?? '', description: profile?.description ?? '' }
+            this._spaceInitial = { name: this.spaceForm.name, description: this.spaceForm.description }
+            this.spaceIconPreview = profile?.icon ?? ''
+        },
+        // Neues Icon wählen: lokale Vorschau (data-URL) + Datei merken (Upload erst
+        // beim Speichern, damit ein Abbrechen nichts hochlädt). `input.value` leeren,
+        // damit dieselbe Datei nach einem Abbruch erneut wählbar bleibt (wie pickImage).
+        pickSpaceIcon(input: HTMLInputElement) {
+            const file = input.files?.[0]
+            input.value = ''
+            if (!file || !file.type.startsWith('image/')) {
+                return
+            }
+            this._spaceIconFile = file
+            const reader = new FileReader()
+            reader.onload = (e) => {
+                this.spaceIconPreview = String(e.target?.result ?? '')
+            }
+            reader.readAsDataURL(file)
+        },
+        // Speichern: nur gegenüber dem Prefill-Snapshot GEÄNDERTE Felder senden (je ein
+        // manageRelay-Call, wie der Referenz-Client), ein neues Icon vorher hochladen.
+        // Danach das NIP-11 hart neu laden (forceLoadRelay) → das Branding (Space-Auswahl/
+        // Raum-Header) zieht ohne Reload nach. Erster Fehler bricht ab (Modal bleibt offen).
+        async saveSpace() {
+            if (!this._url || this.spaceSaving) {
+                return
+            }
+            this.spaceSaving = true
+            const url = this._url
+            try {
+                if (this.spaceForm.name !== this._spaceInitial.name) {
+                    const err = await setRelayName(url, this.spaceForm.name.trim())
+                    if (err) {
+                        toast(err)
+                        return
+                    }
+                }
+                if (this.spaceForm.description !== this._spaceInitial.description) {
+                    const err = await setRelayDescription(url, this.spaceForm.description.trim())
+                    if (err) {
+                        toast(err)
+                        return
+                    }
+                }
+                if (this._spaceIconFile) {
+                    const uploaded = await uploadAttachment(this._spaceIconFile)
+                    const err = await setRelayIcon(url, uploaded.url)
+                    if (err) {
+                        toast(err)
+                        return
+                    }
+                }
+                // Gespeichert (Relay hat quittiert); das lokale NIP-11 frisch nachziehen,
+                // damit das Branding vor dem Toast steht.
+                await forceLoadRelay(url)
+                dispatchModal('space-edit', false)
+                toast('Space gespeichert.', 'success')
+            } catch {
+                toast('Speichern fehlgeschlagen.')
+            } finally {
+                this.spaceSaving = false
             }
         },
         destroy() {

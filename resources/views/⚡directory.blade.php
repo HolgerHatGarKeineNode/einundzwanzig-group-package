@@ -46,6 +46,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
         {{-- Admin-Werkzeuge (nur wenn der Relay dem User NIP-86-Methoden erlaubt) --}}
         <div x-show="isAdmin" x-cloak class="flex flex-wrap gap-2">
+            {{-- Space-Metadaten (Name/Beschreibung/Icon, NIP-86 changerelay*). openSpaceEdit
+                 belegt aus dem NIP-11 vor + öffnet das Modal selbst (kein modal.trigger nötig). --}}
+            <flux:button size="sm" variant="ghost" icon="pencil-square" x-on:click="openSpaceEdit()">{{ __('Space') }}</flux:button>
             <flux:button size="sm" variant="primary" icon="plus" x-on:click="openRoleCreate()">{{ __('Rolle') }}</flux:button>
             <flux:modal.trigger name="roles-list">
                 <flux:button size="sm" variant="ghost" icon="swatch">{{ __('Rollen verwalten') }}</flux:button>
@@ -244,6 +247,33 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:button size="xs" variant="primary" class="icon-btn-touch" x-on:click="restoreMember(b.pubkey)" ::disabled="busy">{{ __('Wiederaufnehmen') }}</flux:button>
                         </div>
                     </template>
+                </div>
+            </div>
+        </flux:modal>
+
+        {{-- Space-Metadaten bearbeiten (P2, NIP-86 changerelay*): Icon-Upload mit
+             Vorschau + Name + Beschreibung. Nur geänderte Felder werden gesendet. --}}
+        <flux:modal name="space-edit" class="max-w-sm">
+            <div class="space-y-4">
+                <flux:heading size="lg">{{ __('Space bearbeiten') }}</flux:heading>
+
+                {{-- Icon: runde Vorschau + „Ändern". Verstecktes File-Input via x-ref; die
+                     Datei wird erst beim Speichern hochgeladen (Abbrechen lädt nichts). --}}
+                <div class="flex items-center gap-3">
+                    <div class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                        <img x-show="spaceIconPreview" :src="spaceIconPreview" alt="" class="size-full object-cover" />
+                        <flux:icon.server x-show="!spaceIconPreview" class="size-6 text-zinc-400" />
+                    </div>
+                    <flux:button size="sm" variant="ghost" icon="photo" x-on:click="$refs.spaceIcon.click()">{{ __('Icon ändern') }}</flux:button>
+                    <input type="file" accept="image/*" class="hidden" x-ref="spaceIcon" x-on:change="pickSpaceIcon($event.target)" />
+                </div>
+
+                <flux:input label="{{ __('Name') }}" x-model="spaceForm.name" placeholder="{{ __('Space-Name') }}" />
+                <flux:textarea label="{{ __('Beschreibung') }}" x-model="spaceForm.description" rows="2" placeholder="{{ __('Optional') }}" />
+
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
+                    <flux:button variant="primary" x-on:click="saveSpace()" ::disabled="spaceSaving">{{ __('Speichern') }}</flux:button>
                 </div>
             </div>
         </flux:modal>

@@ -362,6 +362,19 @@ export const banEvent = async (url: string, id: string, reason = ''): Promise<st
         }),
     )
 
+// Space-Metadaten (NIP-86 changerelay*): editiert Name/Beschreibung/Icon des
+// Relay-NIP-11-Info-Docs. Der Aufrufer sendet nur die GEÄNDERTEN Felder (wie der
+// Referenz-Client SpaceEdit) — jede Methode ist ein eigener manageRelay-Call. Der
+// Icon-Wert ist eine bereits hochgeladene URL. '' = Erfolg.
+export const setRelayName = async (url: string, name: string): Promise<string> =>
+    manageError(await manageRelay(url, { method: ManagementMethod.ChangeRelayName, params: [name] }))
+
+export const setRelayDescription = async (url: string, description: string): Promise<string> =>
+    manageError(await manageRelay(url, { method: ManagementMethod.ChangeRelayDescription, params: [description] }))
+
+export const setRelayIcon = async (url: string, icon: string): Promise<string> =>
+    manageError(await manageRelay(url, { method: ManagementMethod.ChangeRelayIcon, params: [icon] }))
+
 export type BannedMember = { pubkey: string; npub: string; short: string; reason: string }
 
 /** Lädt die Ban-Liste (`listbannedpubkeys`) frisch als Promise (kein Store-Cache). */
