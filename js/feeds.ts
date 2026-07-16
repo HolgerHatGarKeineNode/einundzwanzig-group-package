@@ -491,7 +491,7 @@ const snippet = (text: string, max = 120): string => {
  * Aggregations-Maps (Reaktionen/Zaps folgen in P3 Schritt 5) → reply/thread/reactions/poll/
  * goal/zaps kommen neutral heraus, ohne Sonderpfad.
  */
-type ChatBuildCtx = {
+export type ChatBuildCtx = {
     me: string | null | undefined
     $profiles: Map<string, { picture?: string; nip05?: string; lud16?: string; lud06?: string }>
     $handles: Parameters<typeof verifiedNip05>[2]
@@ -567,15 +567,17 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
  *  - me: eingeloggter pubkey (stabil). quoted: Event-Ref des Zitats (undefined→Event, sobald das
  *    zitierte Event spät nachlädt → reply wechselt null→Vorschau).
  *
- * ponytail — bewusst NICHT im Key (verifizierte Long-Tails, beide reiner Hover/kein sichtbares Feld):
- *  a) Zapper-Meta ($zappers.get(lnurl), validiert die Zap-SUMME) — bei sehr spätem Zapper-Load kann
- *     die Summe kurz einen noch-unvalidierten Zap auslassen.
- *  b) `zaps.names` (Zapper-Anzeigename im Zap-Chip-TOOLTIP, aus dem eingebetteten `request.pubkey`) —
- *     dessen kind-0 wird nicht mal gewärmt (warmProfiles deckt Zapper nicht), zeigt also ohnehin oft
- *     npub; die Memoization verschärft das nur im engen Fall „Zapper-Profil lädt via anderen Pfad".
- * Beide sind Hover-only (auf der Touch-WebView praktisch unsichtbar), selbstkorrigierend beim nächsten
- * Message-relevanten Emit, und throttle macht Profil-Wellen ohnehin selten. Der request.pubkey pro
- * Zap-Receipt zu extrahieren (pro HIT-Check!) lohnt für ein unsichtbares Tooltip-Feld nicht.
+ * Zapper-Meta ($zappers.get(lnurl)) IST im Key (gegated auf „hat Zap-Receipts"): sie validiert die
+ * Zap-SUMME (Signer-Check gegen zapper.nostrPubkey), und der Zapper lädt fast IMMER erst NACH den
+ * 9735-Receipts nach → ohne ihn im Key bliebe der ⚡-Chip für immer auf 0 (Cache-Hit auf die count-0-
+ * Message, auch nach Reload). Der Ref bustet, sobald der Zapper auflöst → Neubau → Chip erscheint.
+ *
+ * ponytail — bewusst NICHT im Key (Hover-only, kein sichtbares Feld):
+ *  - `zaps.names` (Zapper-Anzeigename im Zap-Chip-TOOLTIP, aus dem eingebetteten `request.pubkey`) —
+ *    dessen kind-0 wird nicht mal gewärmt (warmProfiles deckt Zapper nicht), zeigt also ohnehin oft
+ *    npub; die Memoization verschärft das nur im engen Fall „Zapper-Profil lädt via anderen Pfad".
+ * Hover-only (auf der Touch-WebView praktisch unsichtbar), selbstkorrigierend beim nächsten Message-
+ * relevanten Emit. Den request.pubkey pro Zap-Receipt zu extrahieren lohnt fürs Tooltip-Feld nicht.
  *
  * Nur der Raum-Feed nutzt den Cache; der Thread-Feed baut direkt (Kommentare = kind 1111,
  * disjunkte IDs; klein & selten offen → Memoization lohnt dort nicht, hält den Cache-Kontext eindeutig).
@@ -585,6 +587,7 @@ type ChatMsgMemo = {
     profileRefs: unknown[]
     me: string | null | undefined
     quoted: unknown
+    zapperRef: unknown
     fp: string
     msg: ChatMsgFields
 }
@@ -663,20 +666,30 @@ const bucketFp = (evs?: TrustedEvent[]): string => {
     return `${evs.length}:${h}`
 }
 
-const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): ChatMsgFields => {
+export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): ChatMsgFields => {
     const quotedId = getTagValue('q', event.tags)
     const quoted = quotedId ? ctx.byId.get(quotedId) : undefined
     const profileRefs = renderedProfileRefs(event, ctx, quoted)
+    // Zapper-Ref in den Key — ABER NUR wenn dieses Event Zap-Receipts hat. Ohne aufgelösten
+    // Zapper zählt aggregateZaps 0 (der Receipt-Signer-Check gegen zapper.nostrPubkey schlägt
+    // fehl). Der Zapper lädt via warmZappers fast IMMER erst NACH den 9735-Receipts nach
+    // (async Profil→lnurl→Zapper) → stünde er nicht im Key, bliebe der ⚡-Chip für immer auf 0
+    // (Cache-Hit auf die count-0-Message, auch nach Reload). undefined bei leerem Bucket → kein
+    // Extra-Recompute, wenn zappersByLnurl für die Zapper ANDERER Autoren emittiert. Genau das
+    // ist zugleich die Selbstheilung: sobald der Zapper auflöst, bustet der Ref → Neubau → Chip.
+    const profile = ctx.$profiles.get(event.pubkey)
+    const lnurl = ctx.zapsByTarget.get(event.id)?.length ? getLnUrl(profile?.lud16 || profile?.lud06 || '') : ''
+    const zapperRef = lnurl ? ctx.$zappers.get(lnurl) : undefined
     const fp =
         `${verifiedNip05(event.pubkey, ctx.$profiles, ctx.$handles)}` +
         `|${bucketFp(ctx.reactionsByTarget.get(event.id))}|${bucketFp(ctx.zapsByTarget.get(event.id))}` +
         `|${bucketFp(ctx.commentsByRoot.get(event.id))}|${bucketFp(ctx.pollResponsesByTarget.get(event.id))}`
     const hit = chatMsgCache.get(event.id)
-    if (hit && hit.me === ctx.me && hit.quoted === quoted && hit.fp === fp && sameRefs(hit.profileRefs, profileRefs)) {
+    if (hit && hit.me === ctx.me && hit.quoted === quoted && hit.zapperRef === zapperRef && hit.fp === fp && sameRefs(hit.profileRefs, profileRefs)) {
         return hit.msg
     }
     const msg = toChatMessage(event, ctx)
-    chatMsgCache.set(event.id, { profileRefs, me: ctx.me, quoted, fp, msg })
+    chatMsgCache.set(event.id, { profileRefs, me: ctx.me, quoted, zapperRef, fp, msg })
     return msg
 }
 
