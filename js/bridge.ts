@@ -6,7 +6,7 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper } from '@welshman/app'
+import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, loadZapper } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
@@ -145,7 +145,7 @@ import {
     type NWCInfo,
 } from './wallet'
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
-import { resolveZapper, warmZappers, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
+import { warmZappers, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
@@ -2929,17 +2929,20 @@ export function registerNostrComponents(Alpine: {
             this.zapQr = ''
             dispatchModal('zap-message')
             try {
-                // 1) SYNCHRON aus dem bereits gewärmten Cache (feeds.ts `warmZappers` lädt die
-                // Zapper aller Raum-Autoren; genau denselben nutzt der ⚡-Tally). KEIN erneutes
-                // `await loadProfile` wie in `resolveZapper` — das kann hinter der NIP-42-AUTH-
-                // Lawine hängen/werfen, OBWOHL Profil UND Zapper längst da sind → sonst falscher
-                // „nicht erreichbar"-Alarm bei voll zappbaren Adressen (z. B. walletofsatoshi.com).
+                // Zapper des Empfängers auflösen — OHNE Outbox-Relays/loadProfile anzufassen.
+                // Das Profil liegt bereits im Repository (der Name steht ja im Feed) → `getProfile`
+                // liefert die lud16 SYNCHRON. Daraus die lnurl, dann:
+                // 1) synchron aus dem gewärmten Zapper-Cache (feeds.ts `warmZappers`, gleicher Cache
+                //    wie der ⚡-Tally), sonst
+                // 2) den LNURL DIREKT laden (`loadZapper` = reiner HTTP-Fetch des .well-known/lnurlp,
+                //    KEINE Relays, KEIN NIP-42-AUTH). Das frühere `resolveZapper` machte ein
+                //    `await loadProfile` über die Outbox-Relays → hing hinter der AUTH-Lawine und
+                //    meldete fälschlich „nicht erreichbar" bei validen Adressen (walletofsatoshi.com).
                 const profile = getProfile(m.pubkey)
                 const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
                 let zapper = lnurl ? getZapper(lnurl) : undefined
-                // 2) Nur bei echtem Cache-Miss async nachladen (Backstop-Timeout, blockiert nichts).
-                if (!zapper) {
-                    zapper = await withTimeout(resolveZapper(m.pubkey), 12000).catch(() => undefined)
+                if (!zapper && lnurl) {
+                    zapper = await withTimeout(loadZapper(lnurl), 8000).catch(() => undefined)
                     if (this.zapFor !== m) {
                         return // Sheet zwischenzeitlich geschlossen/gewechselt
                     }
