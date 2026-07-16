@@ -57,6 +57,8 @@ import {
     createRoom,
     editRoomMeta,
     deleteRoom,
+    addRoomMember,
+    removeRoomMember,
     type SpaceView,
     type RoomView,
     type RoomInput,
@@ -86,6 +88,8 @@ import {
     setRelayName,
     setRelayDescription,
     setRelayIcon,
+    deriveRoomMemberViews,
+    type RoomMemberView,
     type DirectoryView,
     type MemberView,
     type RoleView,
@@ -93,7 +97,16 @@ import {
     type BannedMember,
     type VereinAccess,
 } from './members'
-import { deriveSpaceReports, loadSpaceReports, watchSpaceReports, type ReportView } from './actionItems'
+import {
+    deriveSpaceReports,
+    loadSpaceReports,
+    watchSpaceReports,
+    deriveSpaceJoinRequests,
+    loadSpaceJoinRequests,
+    watchSpaceJoinRequests,
+    type ReportView,
+    type JoinRequestView,
+} from './actionItems'
 import {
     deriveRoomChat,
     deriveRoomMessages,
@@ -378,6 +391,12 @@ type SpacesState = {
     _roomIconFile: File | null // neu gewähltes Raumbild (Upload erst beim Speichern)
     roomSaving: boolean
     pendingRoomDelete: RoomView | null // Zielraum der offenen Lösch-Bestätigung
+    // Raum-Mitglieder (P4b): Liste + Hinzufügen/Entfernen
+    membersRoom: RoomView | null // Raum des offenen Mitglieder-Modals
+    roomMembers: RoomMemberView[]
+    memberNpub: string // npub/hex-Eingabe zum Hinzufügen
+    memberBusy: boolean
+    _unsubRoomMembers: null | (() => void)
     _url: string | null // aktive Space-URL (für die Admin-Mutationen)
     _unsubView: null | (() => void)
     _unsubActive: null | (() => void)
@@ -393,6 +412,10 @@ type SpacesState = {
     saveRoom(): Promise<void>
     askDeleteRoom(room: RoomView): void
     confirmDeleteRoom(): Promise<void>
+    openRoomMembers(room: RoomView): void
+    closeRoomMembers(): void
+    addRoomMemberByNpub(): Promise<void>
+    kickRoomMember(pubkey: string): Promise<void>
     destroy(): void
 }
 
@@ -429,6 +452,8 @@ type DirectoryState = {
     busy: boolean
     // Melde-Queue (P3, NIP-56 kind 1984)
     reports: ReportView[]
+    // Beitritts-Queue (P4b, offene 9021 für closed-Räume)
+    joinRequests: JoinRequestView[]
     // Space-Metadaten bearbeiten (P2, NIP-86 changerelay*)
     spaceForm: { name: string; description: string }
     _spaceInitial: { name: string; description: string } // Prefill-Snapshot (Vergleichsbasis: nur GEÄNDERTES senden)
@@ -443,6 +468,7 @@ type DirectoryState = {
     _unsubAdmin: null | (() => void)
     _unsubAccess: null | (() => void)
     _unsubReports: null | (() => void)
+    _unsubJoins: null | (() => void)
     _loadedDir: Set<string>
     _loadedProfiles: Set<string>
     _settleStarted: boolean
@@ -467,6 +493,8 @@ type DirectoryState = {
     dismissReport(r: ReportView): Promise<void>
     removeReportedContent(r: ReportView): Promise<void>
     banReportedUser(r: ReportView): Promise<void>
+    acceptJoin(j: JoinRequestView): Promise<void>
+    rejectJoin(j: JoinRequestView): Promise<void>
     openSpaceEdit(): void
     _prefillSpace(profile?: RelayProfile): void
     pickSpaceIcon(input: HTMLInputElement): void
@@ -1304,6 +1332,11 @@ export function registerNostrComponents(Alpine: {
         _roomIconFile: null,
         roomSaving: false,
         pendingRoomDelete: null,
+        membersRoom: null,
+        roomMembers: [],
+        memberNpub: '',
+        memberBusy: false,
+        _unsubRoomMembers: null,
         _url: null,
         _unsubView: null,
         _unsubActive: null,
@@ -1412,6 +1445,75 @@ export function registerNostrComponents(Alpine: {
                 this.roomSaving = false
             }
         },
+        // Raum-Mitglieder (P4b): live-Liste der 39002 des Raums, +hinzufügen/-entfernen.
+        openRoomMembers(room: RoomView) {
+            this._unsubRoomMembers?.()
+            this.membersRoom = room
+            this.roomMembers = []
+            this.memberNpub = ''
+            if (this._url) {
+                this._unsubRoomMembers = deriveRoomMemberViews(this._url, room.h).subscribe((m: RoomMemberView[]) => {
+                    this.roomMembers = m
+                })
+            }
+            dispatchModal('room-members')
+        },
+        closeRoomMembers() {
+            this._unsubRoomMembers?.()
+            this._unsubRoomMembers = null
+            this.membersRoom = null
+        },
+        // Hinzufügen per npub/hex: erst Space-Zulassung (allowpubkey), dann Raum-Beitritt
+        // (kind 9000). Ein noch nicht zugelassener Fremder wird so in EINEM Schritt Mitglied.
+        async addRoomMemberByNpub() {
+            const room = this.membersRoom
+            const raw = this.memberNpub.trim()
+            if (!room || !this._url || this.memberBusy || !raw) {
+                return
+            }
+            let pubkey = ''
+            try {
+                pubkey = raw.startsWith('npub') ? (nip19.decode(raw).data as string) : /^[0-9a-f]{64}$/.test(raw) ? raw : ''
+            } catch {
+                pubkey = ''
+            }
+            if (!pubkey) {
+                toast('Kein gültiger npub / Pubkey.')
+                return
+            }
+            this.memberBusy = true
+            try {
+                const allowErr = await addSpaceMember(this._url, pubkey)
+                if (allowErr) {
+                    toast(allowErr)
+                    return
+                }
+                const err = await addRoomMember(this._url, room.h, pubkey)
+                if (err) {
+                    toast(err)
+                } else {
+                    this.memberNpub = ''
+                }
+            } finally {
+                this.memberBusy = false
+            }
+        },
+        // Entfernen: kind 9001 (remove-user) → der Live-Sub aktualisiert die 39002-Liste.
+        async kickRoomMember(pubkey: string) {
+            const room = this.membersRoom
+            if (!room || !this._url || this.memberBusy) {
+                return
+            }
+            this.memberBusy = true
+            try {
+                const err = await removeRoomMember(this._url, room.h, pubkey)
+                if (err) {
+                    toast(err)
+                }
+            } finally {
+                this.memberBusy = false
+            }
+        },
         init() {
             // Tab-Wechsel in die URL spiegeln (replaceState, keine Navigation) → verlinkbar,
             // Reload/Share landen im gleichen Tab. Default „rooms" ohne Param (sauberere URL).
@@ -1464,6 +1566,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubAccess?.()
             this._unsubAdmin?.()
             this._unsubThreads?.()
+            this._unsubRoomMembers?.()
             this._controller?.abort()
         },
     }))
@@ -1536,6 +1639,7 @@ export function registerNostrComponents(Alpine: {
         inviteBusy: false,
         busy: false,
         reports: [],
+        joinRequests: [],
         spaceForm: { name: '', description: '' },
         _spaceInitial: { name: '', description: '' },
         spaceIconPreview: '',
@@ -1549,6 +1653,7 @@ export function registerNostrComponents(Alpine: {
         _unsubAdmin: null,
         _unsubAccess: null,
         _unsubReports: null,
+        _unsubJoins: null,
         _loadedDir: new Set<string>(),
         _loadedProfiles: new Set<string>(),
         _settleStarted: false,
@@ -1560,11 +1665,13 @@ export function registerNostrComponents(Alpine: {
                 this._unsubAdmin?.()
                 this._unsubAccess?.()
                 this._unsubReports?.()
+                this._unsubJoins?.()
                 this._controller?.abort()
                 this.ready = false
                 this.profilesReady = false
                 this._settleStarted = false
                 this.reports = []
+                this.joinRequests = []
                 this.members = []
                 this.roles = []
                 this.gatedOut = false
@@ -1643,6 +1750,16 @@ export function registerNostrComponents(Alpine: {
                 watchSpaceReports(url, this._controller.signal)
                 this._unsubReports = deriveSpaceReports(url).subscribe((r: ReportView[]) => {
                     this.reports = r
+                })
+                // Beitritts-Queue (P4b): Räume (39000/39002) UND Join-Requests (9021/9022)
+                // laden — auf der Directory-Seite lädt sonst niemand die Räume, dann fehlte
+                // der Membership-Abgleich (offene vs. angenommene Anfrage).
+                loadSpaceRooms(url)
+                watchSpaceRooms(url, this._controller.signal)
+                loadSpaceJoinRequests(url)
+                watchSpaceJoinRequests(url, this._controller.signal)
+                this._unsubJoins = deriveSpaceJoinRequests(url).subscribe((j: JoinRequestView[]) => {
+                    this.joinRequests = j
                 })
             })
         },
@@ -1873,6 +1990,49 @@ export function registerNostrComponents(Alpine: {
                 this.busy = false
             }
         },
+        // ── P4b: Beitritts-Queue (offene 9021 für closed-Räume) ────────────────
+        // Annehmen: kind 9000 (put-user) → Relay trägt den Pubkey in die 39002 ein;
+        // der Live-Sub reflektiert das → die Anfrage fällt aus der Queue (jetzt Mitglied).
+        // Der Anfragende ist bereits Space-Member (sonst wäre sein 9021 abgelehnt worden),
+        // also genügt der Raum-Beitritt (kein zusätzliches allowpubkey nötig).
+        async acceptJoin(j: JoinRequestView) {
+            if (!this._url || this.busy) {
+                return
+            }
+            this.busy = true
+            try {
+                const err = await addRoomMember(this._url, j.h, j.pubkey)
+                if (err) {
+                    toast(err)
+                } else {
+                    // Den 9021-Request zurückziehen (wie beim Ablehnen). Sonst bliebe er
+                    // im Repository und tauchte nach einem späteren Kick (9001, das kein
+                    // 9022 erzeugt) erneut als „offen" auf, weil der Pubkey dann wieder aus
+                    // der 39002 fällt. Best-effort: die Mitgliedschaft steht bereits.
+                    void banEvent(this._url, j.id)
+                    repository.removeEvent(j.id)
+                }
+            } finally {
+                this.busy = false
+            }
+        },
+        // Ablehnen: den 9021-Request bannen (banevent) → aus der Queue (optimistisch lokal).
+        async rejectJoin(j: JoinRequestView) {
+            if (!this._url || this.busy) {
+                return
+            }
+            this.busy = true
+            try {
+                const err = await banEvent(this._url, j.id)
+                if (err) {
+                    toast(err)
+                } else {
+                    repository.removeEvent(j.id)
+                }
+            } finally {
+                this.busy = false
+            }
+        },
         // ── P2: Space-Metadaten bearbeiten (NIP-86 changerelay*) ───────────────
         // Vorbelegen aus dem NIP-11-Info-Doc + Snapshot (_spaceInitial) als Vergleichs-
         // basis: saveSpace sendet NUR Felder, die der Admin gegenüber dem Prefill wirklich
@@ -1972,6 +2132,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubAdmin?.()
             this._unsubAccess?.()
             this._unsubReports?.()
+            this._unsubJoins?.()
             this._controller?.abort()
         },
     }))

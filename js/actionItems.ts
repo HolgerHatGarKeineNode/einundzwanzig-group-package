@@ -14,10 +14,11 @@ import { derived, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
 import { profilesByPubkey, loadProfile } from '@welshman/app'
-import { REPORT, getTag, getTagValue, displayProfile, type TrustedEvent, type PublishedProfile } from '@welshman/util'
+import { REPORT, ROOM_JOIN, ROOM_LEAVE, getTag, getTagValue, displayProfile, type TrustedEvent, type PublishedProfile } from '@welshman/util'
 import { sortBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
+import { roomsByUrl, roomMembersByUrl } from './groups'
 
 /** NIP-56-Maschinencodes → deutsche Labels (wie das Melde-Modal). */
 const REASON_LABELS: Record<string, string> = {
@@ -85,4 +86,82 @@ export const loadSpaceReports = (url: string): Promise<unknown> =>
 /** Live-Sub auf neue Meldungen (kind 1984) — Nachzügler erscheinen sofort. */
 export const watchSpaceReports = (url: string, signal: AbortSignal): void => {
     void request({ relays: [url], signal, filters: [{ kinds: [REPORT], limit: 0 }] })
+}
+
+// ── Beitritts-Queue (P4b/P3b: offene Join-Requests, nur bei `closed`-Räumen) ──
+// zooid trägt Beitritte offener Räume automatisch in die 39002 ein → keine offene
+// Anfrage. Bei `closed`-Räumen bleibt der 9021 pending, bis ein Admin per kind 9000
+// freigibt. „offen" = jüngster 9021 je (Raum, pubkey), pubkey NICHT in der 39002 und
+// kein jüngeres 9022 (zurückgezogen).
+
+export type JoinRequestView = {
+    id: string // 9021-Event (Ziel von „Ablehnen" = banEvent)
+    h: string
+    roomName: string
+    pubkey: string // Ziel von „Annehmen" = addRoomMember(h, pubkey)
+    name: string
+}
+
+export const deriveSpaceJoinRequests = (url: string): Readable<JoinRequestView[]> =>
+    derived(
+        [deriveEventsForUrl(url, [{ kinds: [ROOM_JOIN, ROOM_LEAVE] }]), roomMembersByUrl, roomsByUrl, throttled(300, profilesByPubkey)],
+        ([events, $members, $rooms, $profiles]) => {
+            // Jüngsten Join je (h,pubkey) + jüngsten Leave-Zeitpunkt sammeln.
+            const joins = new Map<string, TrustedEvent>()
+            const leaves = new Map<string, number>()
+            for (const e of events) {
+                const h = getTagValue('h', e.tags)
+                if (!h) {
+                    continue
+                }
+                const key = `${h}'${e.pubkey}`
+                if (e.kind === ROOM_JOIN) {
+                    const prev = joins.get(key)
+                    if (!prev || e.created_at > prev.created_at) {
+                        joins.set(key, e)
+                    }
+                } else {
+                    leaves.set(key, Math.max(leaves.get(key) ?? 0, e.created_at))
+                }
+            }
+            const views: JoinRequestView[] = []
+            for (const [key, join] of joins) {
+                const h = getTagValue('h', join.tags) ?? ''
+                const room = ($rooms.get(url) ?? []).find((r) => r.h === h)
+                // NUR closed-Räume erzeugen offene Anfragen (offene genehmigt zooid
+                // automatisch → nie pending). Fehlt der Raum noch (39000 nicht geladen),
+                // ebenfalls überspringen → kein „pending"-Flash vor dem 39002/39000-Load.
+                if (!room?.isClosed) {
+                    continue
+                }
+                if ($members.get(url)?.get(h)?.has(join.pubkey)) {
+                    continue // schon Mitglied (angenommen)
+                }
+                if ((leaves.get(key) ?? 0) > join.created_at) {
+                    continue // Anfrage zurückgezogen
+                }
+                if (!$profiles.has(join.pubkey)) {
+                    loadProfile(join.pubkey)
+                }
+                const npub = nip19.npubEncode(join.pubkey)
+                const profile = $profiles.get(join.pubkey) as PublishedProfile | undefined
+                views.push({
+                    id: join.id,
+                    h,
+                    roomName: room.name || h,
+                    pubkey: join.pubkey,
+                    name: displayProfile(profile, shortNpub(npub)),
+                })
+            }
+            return sortBy((v) => `${v.roomName} ${v.name}`.toLowerCase(), views)
+        },
+    )
+
+/** Lädt Beitritts-Anfragen (9021/9022) des Space. */
+export const loadSpaceJoinRequests = (url: string): Promise<unknown> =>
+    load({ relays: [url], filters: [{ kinds: [ROOM_JOIN, ROOM_LEAVE] }] })
+
+/** Live-Sub auf Beitritts-Anfragen — neue erscheinen sofort. */
+export const watchSpaceJoinRequests = (url: string, signal: AbortSignal): void => {
+    void request({ relays: [url], signal, filters: [{ kinds: [ROOM_JOIN, ROOM_LEAVE], limit: 0 }] })
 }

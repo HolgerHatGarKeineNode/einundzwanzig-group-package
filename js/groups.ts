@@ -34,6 +34,8 @@ import {
     ROOM_CREATE,
     ROOM_DELETE,
     ROOM_MEMBERS,
+    ROOM_ADD_MEMBER,
+    ROOM_REMOVE_MEMBER,
     ROOM_JOIN,
     ROOM_LEAVE,
     RELAY_JOIN,
@@ -514,6 +516,17 @@ export const editRoomMeta = (url: string, input: RoomInput): Promise<string> =>
 /** Löscht einen Raum (kind 9008 → 39000-Tombstone, roomsByUrl blendet ihn aus). */
 export const deleteRoom = (url: string, h: string): Promise<string> =>
     waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE, { tags: [['h', h]] }) }))
+
+// ── Raum-Mitglieder (Admin, NIP-29 9000/9001 → relay-signierte 39002) ────────
+
+/** Fügt einen Pubkey der Raum-Mitgliederliste hinzu (kind 9000 put-user → 39002).
+ *  Setzt Space-Mitgliedschaft (allowpubkey) voraus — der Aufrufer stellt das sicher. */
+export const addRoomMember = (url: string, h: string, pubkey: string): Promise<string> =>
+    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_ADD_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
+
+/** Entfernt einen Pubkey aus der Raum-Mitgliederliste (kind 9001 remove-user → 39002). */
+export const removeRoomMember = (url: string, h: string, pubkey: string): Promise<string> =>
+    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_REMOVE_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
 
 // ── Space beitreten/verlassen (Space-Ebene, NIP-29 kind 28934/28936) ─────────
 

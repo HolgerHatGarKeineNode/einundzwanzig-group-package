@@ -34,6 +34,8 @@
                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Raum verwalten') }}" />
                 <flux:menu>
                     <flux:menu.item icon="pencil-square" x-on:click="openRoomEdit(room)">{{ __('Bearbeiten') }}</flux:menu.item>
+                    <flux:menu.item icon="users" x-on:click="openRoomMembers(room)">{{ __('Mitglieder') }}</flux:menu.item>
+                    <flux:menu.separator />
                     <flux:menu.item variant="danger" icon="trash" x-on:click="askDeleteRoom(room)">{{ __('Löschen') }}</flux:menu.item>
                 </flux:menu>
             </flux:dropdown>

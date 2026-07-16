@@ -24,7 +24,7 @@ import {
 import { first, randomId, sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository'
-import { isVereinRelay } from './groups'
+import { isVereinRelay, roomMembersByUrl } from './groups'
 import { warmHandles, verifiedNip05 } from './handles'
 
 /** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
@@ -193,6 +193,38 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
             return { ready, members: sortBy((m) => m.name.toLowerCase(), views), roles: allRoles }
         },
     )
+
+// ── Raum-Mitglieder (P4b: die relay-signierte 39002-Liste EINES Raums) ───────
+
+export type RoomMemberView = { pubkey: string; npub: string; short: string; name: string; picture: string }
+
+/**
+ * Die Mitglieder EINES Raums (39002-Set aus [[roomMembersByUrl]]) als aufgelöste
+ * Views (Name/Avatar), alphabetisch. Profile werden lazy nachgewärmt; `throttled`
+ * verhindert das Neubauen bei jedem eintrudelnden Profil.
+ */
+export const deriveRoomMemberViews = (url: string, h: string): Readable<RoomMemberView[]> =>
+    derived([roomMembersByUrl, throttled(300, profilesByPubkey)], ([$byUrl, $profiles]) => {
+        // 64-hex filtern: ein kaputter p-Wert ließe npubEncode im derived-map werfen und
+        // bräche die GANZE Liste (wie im Report-Pfad). 39002 ist zwar relay-kuratiert,
+        // roomMembersByUrl aber nicht self-gefiltert → defensiv.
+        const pubkeys = [...($byUrl.get(url)?.get(h) ?? new Set<string>())].filter((pk) => /^[0-9a-f]{64}$/.test(pk))
+        const views = pubkeys.map((pk): RoomMemberView => {
+            if (!$profiles.has(pk)) {
+                loadProfile(pk)
+            }
+            const npub = nip19.npubEncode(pk)
+            const profile = $profiles.get(pk) as PublishedProfile | undefined
+            return {
+                pubkey: pk,
+                npub,
+                short: shortNpub(npub),
+                name: displayProfile(profile, shortNpub(npub)),
+                picture: profile?.picture ?? '',
+            }
+        })
+        return sortBy((m) => m.name.toLowerCase(), views)
+    })
 
 // ── Vereins-Zugang (nur EINUNDZWANZIG-Vereins-Relays) ────────────────────────
 

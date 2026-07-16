@@ -51,8 +51,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:modal.trigger name="action-items">
                 <flux:button size="sm" variant="ghost" icon="flag">
                     <span class="inline-flex items-center gap-1.5">
-                        {{ __('Meldungen') }}
-                        <span x-show="reports.length" x-cloak x-text="reports.length"
+                        {{ __('Meldungen & Beitritte') }}
+                        <span x-show="reports.length + joinRequests.length" x-cloak x-text="reports.length + joinRequests.length"
                               class="rounded-full bg-red-500/15 px-1.5 py-0.5 text-xs font-semibold text-red-500"></span>
                     </span>
                 </flux:button>
@@ -294,9 +294,32 @@ new #[Layout('group::einundzwanzig')] class extends Component
              gemeldetes Event + Report), Autor bannen (banpubkey + Report). --}}
         <flux:modal name="action-items" class="max-w-md">
             <div class="space-y-4">
-                <flux:heading size="lg">{{ __('Meldungen') }}</flux:heading>
-                <template x-if="reports.length === 0">
-                    <flux:text class="text-sm text-muted">{{ __('Keine offenen Meldungen.') }}</flux:text>
+                <flux:heading size="lg">{{ __('Meldungen & Beitritte') }}</flux:heading>
+
+                {{-- Beitritts-Queue (P4b): offene 9021 für closed-Räume. Annehmen=kind 9000
+                     (→ Mitglied, fällt aus der Queue), Ablehnen=banevent auf den Request. --}}
+                <template x-if="joinRequests.length > 0">
+                    <div class="space-y-2">
+                        <p class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Beitritts-Anfragen') }}</p>
+                        <template x-for="j in joinRequests" :key="j.id">
+                            <div class="surface-card flex items-center gap-2 p-2">
+                                <div class="min-w-0 flex-1">
+                                    <button type="button" x-on:click="$dispatch('open-profile', j.pubkey)"
+                                            class="pressable block max-w-full truncate text-left text-sm font-medium hover:underline" x-text="j.name"></button>
+                                    <div class="truncate text-xs text-muted">{{ __('für Raum') }} #<span x-text="j.roomName"></span></div>
+                                </div>
+                                <flux:button size="xs" variant="primary" icon="check" class="icon-btn-touch shrink-0" x-on:click="acceptJoin(j)" ::disabled="busy" aria-label="{{ __('Annehmen') }}" />
+                                <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch shrink-0" x-on:click="rejectJoin(j)" ::disabled="busy" aria-label="{{ __('Ablehnen') }}" />
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                {{-- Melde-Queue (P3, NIP-56 kind 1984): eingegangene „Fork off!"-Meldungen.
+                     Trenn-Überschrift nur, wenn es Meldungen gibt (sonst verwaist). --}}
+                <p x-show="reports.length > 0" class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Meldungen') }}</p>
+                <template x-if="reports.length === 0 && joinRequests.length === 0">
+                    <flux:text class="text-sm text-muted">{{ __('Keine offenen Meldungen oder Beitritte.') }}</flux:text>
                 </template>
                 <div class="space-y-2">
                     <template x-for="r in reports" :key="r.id">
