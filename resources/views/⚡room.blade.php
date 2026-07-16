@@ -259,8 +259,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </flux:modal>
 
-    {{-- Admin: Autor bannen (NIP-86 banpubkey). Entfernt ihn als Mitglied UND löscht
-         relay-seitig ALLE seine Nachrichten — deshalb explizit im Text. --}}
+    {{-- Admin: Autor bannen (NIP-86 banpubkey) — vorerst NICHT angeboten (bewusst
+         deaktiviert). Zum Reaktivieren dieses Modal + die Menü-Trigger wieder
+         einkommentieren (JS confirmBanAuthor bleibt bestehen).
     <flux:modal name="ban-author" class="max-w-sm">
         <div class="space-y-4">
             <flux:heading size="lg">{{ __('Autor bannen?') }}</flux:heading>
@@ -271,6 +272,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </div>
     </flux:modal>
+    --}}
 
     {{-- Zap senden (Z3, NIP-57): Sats-Presets + Freibetrag + Emoji/Kommentar. Wallet
          verbunden → Auto-Pay; sonst QR-Fallback (bolt11 + Live-Receipt-Erkennung).
@@ -518,12 +520,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="!_menuInThread && menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askDelete(menuFor); closeMessageMenu() }">{{ __('Löschen') }}</flux:button>
             {{-- Moderation (P1, NIP-86): nur Admins, nur fremde Nachrichten. Wirkt in Raum UND
-                 Thread (banevent/banpubkey kind-agnostisch). askAdminDelete/askBanAuthor merken
-                 das Ziel, dann schließt das Menü-Modal (öffnet die jeweilige Bestätigung). --}}
+                 Thread (banevent kind-agnostisch). askAdminDelete merkt das Ziel, dann schließt
+                 das Menü-Modal (öffnet die Bestätigung). --}}
             <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="isAdmin && !menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askAdminDelete(menuFor); closeMessageMenu() }">{{ __('Nachricht entfernen') }}</flux:button>
+            {{-- „Autor bannen" (banpubkey) vorerst NICHT angeboten (bewusst deaktiviert). Zum
+                 Reaktivieren diesen Button wieder einkommentieren (JS confirmBanAuthor bleibt).
             <flux:button variant="danger" icon="no-symbol" class="w-full justify-start" x-show="isAdmin && !menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askBanAuthor(menuFor); closeMessageMenu() }">{{ __('Autor bannen') }}</flux:button>
+            --}}
             {{-- C4: Kopieren/Info (nur lesen). copy*/openInfo schließen das Menü selbst. --}}
             <flux:separator class="my-1" />
             <flux:button variant="ghost" icon="link" class="w-full justify-start"

@@ -335,7 +335,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <div class="flex flex-wrap justify-end gap-2">
                                 <flux:button size="xs" variant="ghost" x-on:click="dismissReport(r)" ::disabled="busy">{{ __('Verwerfen') }}</flux:button>
                                 <flux:button size="xs" variant="ghost" icon="trash" x-on:click="removeReportedContent(r)" ::disabled="busy">{{ __('Inhalt entfernen') }}</flux:button>
+                                {{-- „Autor bannen" (banpubkey) vorerst NICHT angeboten (bewusst deaktiviert).
+                                     Zum Reaktivieren wieder einkommentieren (JS banReportedUser bleibt).
                                 <flux:button size="xs" variant="danger" icon="no-symbol" x-on:click="banReportedUser(r)" ::disabled="busy">{{ __('Autor bannen') }}</flux:button>
+                                --}}
                             </div>
                         </div>
                     </template>

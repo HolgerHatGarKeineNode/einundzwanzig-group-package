@@ -333,9 +333,12 @@
                                             <template x-if="isAdmin && !m.mine">
                                                 <flux:menu.item icon="trash" variant="danger" x-on:click="askAdminDelete(m)">{{ __('Nachricht entfernen') }}</flux:menu.item>
                                             </template>
+                                            {{-- „Autor bannen" (banpubkey) vorerst NICHT angeboten (bewusst deaktiviert). Zum
+                                                 Reaktivieren dieses template x-if wieder einkommentieren (JS confirmBanAuthor bleibt).
                                             <template x-if="isAdmin && !m.mine">
                                                 <flux:menu.item icon="no-symbol" variant="danger" x-on:click="askBanAuthor(m)">{{ __('Autor bannen') }}</flux:menu.item>
                                             </template>
+                                            --}}
                                             {{-- C4: Kopieren/Info (nur lesen, kein Publish). --}}
                                             <flux:menu.separator />
                                             <flux:menu.item icon="link" x-on:click="copyNevent(m)">{{ __('Event-Link kopieren') }}</flux:menu.item>
