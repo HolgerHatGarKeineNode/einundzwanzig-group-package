@@ -159,6 +159,31 @@
                 <span x-show="profileReady && !profileLud16" x-cloak class="text-muted">{{ __('Nicht gesetzt') }}</span>
             </div>
 
+            {{-- NIP-05-Status: der Community-Relay verlangt zum Veröffentlichen eine
+                 VERIFIZIERTE NIP-05-Adresse. Ist keine/keine gültige gesetzt, blockt er
+                 auch dieses Profil-Update. Hier proaktiv anzeigen + erklären, was zu tun ist. --}}
+            <div x-show="nip05State() === 'verified'" x-cloak
+                 class="flex items-center gap-2 rounded-tile border border-green-500/30 bg-green-500/5 px-3 py-2 text-xs text-green-600 dark:text-green-400">
+                <flux:icon.check-badge class="size-4 shrink-0" />
+                <span>{{ __('NIP-05 verifiziert:') }} <span class="font-mono" x-text="profileNip05"></span></span>
+            </div>
+            <div x-show="nip05State() === 'unverified' || nip05State() === 'missing'" x-cloak
+                 class="space-y-1 rounded-tile border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                <div class="flex items-center gap-2 font-medium">
+                    <flux:icon.exclamation-triangle class="size-4 shrink-0" />
+                    <span x-show="nip05State() === 'missing'">{{ __('Keine NIP-05-Adresse im Profil') }}</span>
+                    <span x-show="nip05State() === 'unverified'">{{ __('NIP-05 gesetzt, aber nicht verifiziert') }}</span>
+                </div>
+                <p class="text-amber-600/90 dark:text-amber-400/80">
+                    {{ __('Der Community-Relay nimmt Veröffentlichungen nur mit verifizierter NIP-05-Adresse an. So reparierst du es:') }}
+                </p>
+                <ul class="ml-4 list-disc space-y-0.5 text-amber-600/90 dark:text-amber-400/80">
+                    <li x-show="nip05State() === 'missing'">{{ __('Hinterlege in deinem Nostr-Profil eine NIP-05-Adresse (z. B. name@deine-domain.de oder über einen NIP-05-Anbieter).') }}</li>
+                    <li x-show="nip05State() === 'unverified'">{{ __('Die nostr.json der Domain muss deinen öffentlichen Schlüssel als hex enthalten — prüfe Schreibweise und den Eintrag unter .well-known/nostr.json.') }}</li>
+                    <li>{{ __('In die nostr.json gehört genau dieser hex-Schlüssel (nicht der npub):') }} <button type="button" class="pressable font-mono underline decoration-dotted" x-on:click="copyPubkeyHex()" x-text="pubkeyHexShort()"></button></li>
+                </ul>
+            </div>
+
             {{-- Mismatch: Wallet liefert eine andere lud16 als das Profil (Brand-Amber, dezent). --}}
             <div x-show="addressMismatch()" x-cloak
                  class="rounded-tile border border-brand-500/30 bg-brand-500/5 px-3 py-2 text-xs text-brand-600 dark:text-brand-400">
@@ -179,6 +204,58 @@
                              x-on:click="saveReceivingAddress()" ::disabled="savingAddress">
                     {{ __('Speichern') }}
                 </flux:button>
+            </div>
+
+            {{-- ===== Profil-Diagnose ===== Was Relays aktuell von deinem Profil ausliefern
+                 (nip05/lud16/npub) + das Per-Relay-Ergebnis des letzten Speicherns. Damit
+                 der User selbst prüfen kann, warum ein Relay blockt. Standardmäßig eingeklappt;
+                 klappt bei Teil-/Totalausfall automatisch auf (showDiag in saveReceivingAddress). --}}
+            <div class="border-t border-zinc-200/70 pt-3 dark:border-zinc-800/70">
+                <button type="button" x-on:click="showDiag = !showDiag"
+                        class="pressable flex w-full items-center gap-2 text-left text-xs font-medium text-muted">
+                    <flux:icon.wrench-screwdriver class="size-3.5" />
+                    <span>{{ __('Profil-Diagnose') }}</span>
+                    <flux:icon.chevron-down class="ml-auto size-3.5 transition-transform"
+                                            ::class="showDiag ? 'rotate-180' : ''" />
+                </button>
+
+                <div x-show="showDiag" x-cloak class="mt-3 space-y-2 text-xs">
+                    {{-- Profil, wie es die Relays aktuell ausliefern (welshman-Repository, live). --}}
+                    <div class="space-y-1.5 rounded-tile bg-zinc-100/60 px-3 py-2 font-mono dark:bg-zinc-900/50">
+                        <div class="flex items-start gap-2">
+                            <span class="w-14 shrink-0 text-muted">npub</span>
+                            <button type="button" x-on:click="copyNpub()" class="pressable min-w-0 break-all text-left" x-text="npubShort() || '—'"></button>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="w-14 shrink-0 text-muted">nip05</span>
+                            <span class="min-w-0 break-all">
+                                <span x-text="profileNip05 || '—'"></span>
+                                <span x-show="nip05State() === 'verified'" x-cloak class="text-green-500">✓</span>
+                                <span x-show="nip05State() === 'unverified'" x-cloak class="text-amber-500">{{ __('(nicht verifiziert)') }}</span>
+                            </span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="w-14 shrink-0 text-muted">lud16</span>
+                            <span class="min-w-0 break-all" x-text="profileLud16 || '—'"></span>
+                        </div>
+                    </div>
+
+                    {{-- Per-Relay-Ergebnis des letzten Speicherns (Ebene 2): welches Relay hat
+                         angenommen, welches abgelehnt und warum. Nur nach einem Speicherversuch. --}}
+                    <div x-show="saveResults.length" x-cloak class="space-y-1">
+                        <div class="text-muted">{{ __('Letztes Speichern:') }}</div>
+                        <template x-for="r in saveResults" :key="r.url">
+                            <div class="flex items-start gap-2 rounded-tile bg-zinc-100/60 px-3 py-1.5 dark:bg-zinc-900/50">
+                                <span x-text="r.ok ? '✓' : '✗'" ::class="r.ok ? 'text-green-500' : 'text-red-500'" class="shrink-0"></span>
+                                <span class="min-w-0 flex-1 break-all font-mono" x-text="shortRelay(r.url)"></span>
+                                <span x-show="!r.ok" x-cloak class="shrink-0 text-right text-red-500/90" x-text="r.reason"></span>
+                            </div>
+                        </template>
+                        <p x-show="saveBlockedByNip05()" x-cloak class="pt-1 text-amber-600 dark:text-amber-400">
+                            {{ __('Ein Relay hat wegen fehlender NIP-05 abgelehnt — siehe Hinweis oben. Die Adresse ist auf den übrigen Relays trotzdem gespeichert.') }}
+                        </p>
+                    </div>
+                </div>
             </div>
         </div>
 

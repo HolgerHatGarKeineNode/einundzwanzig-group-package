@@ -12,6 +12,7 @@
 import { loadZapperForPubkey, signer } from '@welshman/app'
 import { getZapResponseFilter, makeZapRequest, requestZap, toMsats, type SignedEvent, type Zapper } from '@welshman/util'
 import { load, request } from '@welshman/net'
+import { fetchJson, tryCatch } from '@welshman/lib'
 import { Router } from '@welshman/router'
 import { payInvoice as walletPayInvoice } from './wallet'
 
@@ -54,6 +55,61 @@ export const mapZapError = (error: unknown): string => {
 
 /** Zapper (LNURL-pay-Metadaten) des Empfängers auflösen; undefined ohne lud16/lud06. */
 export const resolveZapper = (pubkey: string): Promise<Zapper | undefined> => loadZapperForPubkey(pubkey)
+
+/**
+ * Kann diesem Empfänger ÜBERHAUPT bezahlt werden (gültiger LNURL-Callback)? Schwächer
+ * als {@link canZap}: `canZap` verlangt zusätzlich NIP-57 (`allowsNostr`+`nostrPubkey`).
+ * Unterschied = „normale Lightning-Zahlung möglich" vs. „als Nostr-Zap sichtbar".
+ */
+export const canPay = (zapper: Zapper | undefined): zapper is Zapper => Boolean(zapper?.callback)
+
+/**
+ * Query-String für einen Plain-LNURL-Pay-Callback (LUD-06/16, OHNE NIP-57): nur `amount`
+ * in Millisats, plus `comment` falls der Server ihn erlaubt (LUD-12 `commentAllowed` > 0,
+ * auf dessen Länge gekürzt). Pure → JS-Unit-prüfbar.
+ */
+export const plainInvoiceQuery = (zapper: Zapper, sats: number, comment = ''): string => {
+    let qs = `?amount=${toMsats(sats)}`
+    const max = Number((zapper as { commentAllowed?: number }).commentAllowed ?? 0)
+    const c = comment.trim()
+    if (c && max > 0) {
+        // Nach CODE-POINTS kürzen (Array.from), nicht nach UTF-16-Einheiten: sonst zerschneidet
+        // slice(0,max) ein astrales Emoji (Surrogate-Paar) → encodeURIComponent wirft URIError
+        // und die Zahlung würde blockiert. LUD-12 misst commentAllowed in Zeichen.
+        const clipped = Array.from(c).slice(0, max).join('')
+        qs += `&comment=${encodeURIComponent(clipped)}`
+    }
+    return qs
+}
+
+/**
+ * Plain-LNURL-Pay OHNE 9734 (kein Nostr-Zap): holt eine bolt11 nur über amount(+comment).
+ * Für Empfänger, deren Lightning-Adresse NIP-57 NICHT unterstützt (z. B. bitrefill.com).
+ * Es entsteht KEIN 9735-Receipt → der Zap ist im Raum nicht sichtbar. Wirft deutsche Fehler.
+ */
+export const requestPlainInvoice = async ({ zapper, sats, comment }: { zapper: Zapper; sats: number; comment?: string }): Promise<string> => {
+    const cb = zapper.callback
+    if (!cb) {
+        throw new Error('Empfänger hat keinen Zahlungs-Endpoint.')
+    }
+    const res = await tryCatch(() => fetchJson(cb + plainInvoiceQuery(zapper, sats, comment ?? '')))
+    if (!res?.pr) {
+        throw new Error(invoiceRequestError(res?.reason))
+    }
+    return res.pr as string
+}
+
+/**
+ * Plain-Auto-Pay (nostrless): Rechnung holen → über das verbundene Wallet zahlen. KEIN
+ * Receipt-Load (es gibt kein 9735). `deps` injizierbar für Stub-Tests (wie {@link payZapAuto}).
+ */
+export const payZapPlain = async (
+    { zapper, sats, comment }: { zapper: Zapper; sats: number; comment?: string },
+    { request: req = requestPlainInvoice, pay = walletPayInvoice }: { request?: typeof requestPlainInvoice; pay?: typeof walletPayInvoice } = {},
+): Promise<void> => {
+    const invoice = await req({ zapper, sats, comment })
+    await pay(invoice)
+}
 
 /** Pubkeys, deren Zapper bereits (an)geladen wurden — verhindert Reload-Spam pro Deriver-Tick. */
 const warmedZappers = new Set<string>()

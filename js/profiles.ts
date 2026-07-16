@@ -5,7 +5,8 @@
  * überschreibt. Web = relativer Endpunkt; Mobile = gehosteter Host (Hybrid wie $img).
  */
 import { get } from 'svelte/store'
-import { getProfile, loadProfile, publishThunk, repository, userProfile, waitForThunkError } from '@welshman/app'
+import { getProfile, loadProfile, publishThunk, repository, userProfile, waitForThunkCompletion } from '@welshman/app'
+import { PublishStatus } from '@welshman/net'
 import { createProfile, editProfile, isPublishedProfile, makeEvent, makeProfile, profileHasName, verifyEvent, verifiedSymbol, type Profile, type TrustedEvent } from '@welshman/util'
 import { Router } from '@welshman/router'
 import { isMobile } from './core'
@@ -129,17 +130,39 @@ export const buildReceivingAddressEvent = (current: Profile | undefined, lud16: 
     return makeEvent(template.kind, template)
 }
 
+/** Ein Relay-Ergebnis eines Publishs: `ok=false` trägt den (Relay-)Grund in `reason`. */
+export type RelayPublishResult = { url: string; ok: boolean; reason: string }
+
+/**
+ * welshman-Thunk-Results → flache Per-Relay-Liste (pure, JS-Unit-fähig). `success`
+ * = akzeptiert; alles andere (failure/timeout/aborted) = Ablehnung mit Relay-Detail
+ * als Grund (Fallback: der Status selbst). Ersetzt das First-Failure-`waitForThunkError`,
+ * das ein einzelnes ablehnendes Relay wie einen Totalausfall aussehen ließ.
+ */
+export const summarizePublishResults = (
+    results: Record<string, { relay: string; status: string; detail?: string }>,
+): RelayPublishResult[] =>
+    Object.values(results).map((r) => ({
+        url: r.relay,
+        ok: r.status === PublishStatus.Success,
+        reason: r.status === PublishStatus.Success ? '' : r.detail || r.status,
+    }))
+
 /**
  * Empfangsadresse als kind-0 publizieren (ZAPS.md Z4): an die Schreib-Relays des
  * Users (`FromUser`), die übergebenen `spaceUrls` (Space-Relays) und den Index.
- * Signatur 100 % im Browser (`publishThunk` → Session-Signer). Gibt die (deutsche)
- * Thunk-Fehlermeldung zurück (leer = Erfolg), analog `sendReaction`/`sendReport`.
+ * Signatur 100 % im Browser (`publishThunk` → Session-Signer). Wartet auf den
+ * ABSCHLUSS aller Relays und gibt die Per-Relay-Ergebnisse zurück — der Aufrufer
+ * entscheidet (≥1 akzeptiert = gespeichert), statt bei einem einzigen Reject
+ * (z. B. Member-Relay „NIP-05 needed") alles als Fehler zu werten.
  * `spaceUrls` kommt vom Aufrufer (`js/groups.ts` `userSpaceUrls`), damit dieses
  * Modul `@welshman/util`-nah bleibt (kein `./groups`-Import → JS-Unit-fähig).
  */
-export const publishReceivingAddress = (lud16: string, spaceUrls: string[] = []): Promise<string> => {
+export const publishReceivingAddress = async (lud16: string, spaceUrls: string[] = []): Promise<RelayPublishResult[]> => {
     const event = buildReceivingAddressEvent(get(userProfile), lud16)
     const router = Router.get()
     const relays = router.merge([router.FromUser(), router.FromRelays(spaceUrls), router.Index()]).getUrls()
-    return waitForThunkError(publishThunk({ event, relays }))
+    const thunk = publishThunk({ event, relays })
+    await waitForThunkCompletion(thunk)
+    return summarizePublishResults(thunk.results)
 }

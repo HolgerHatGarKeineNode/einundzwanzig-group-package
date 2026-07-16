@@ -6,8 +6,8 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile } from '@welshman/app'
-import { displayProfile, toNostrURI, getTagValue, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
+import { repository, pubkey, relaysByUrl, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper } from '@welshman/app'
+import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
 import { load } from '@welshman/net'
@@ -110,6 +110,7 @@ import {
     loadSpaceThreads,
     readRoomLastRead,
     writeRoomLastRead,
+    evictChatMsgCache,
     type ChatMessage,
     type ReactionChip,
     type ThreadRoot,
@@ -144,14 +145,46 @@ import {
     type NWCInfo,
 } from './wallet'
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
-import { resolveZapper, warmZappers, canZap, chooseZapMethod, createZapInvoice, payZapAuto, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
-import { publishReceivingAddress, warmProfiles } from './profiles'
+import { resolveZapper, warmZappers, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
+import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
 
 /** Zap-Feature-Flag (iOS-Kill-Switch): `window.__nostrZapsEnabled` (Default true). */
 const zapsEnabled = (): boolean => (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false
+
+/**
+ * Kurzes haptisches Feedback (Android-Web + Android-App-WebView; iOS-Safari kennt
+ * `navigator.vibrate` nicht → wird still ignoriert). Für taktile Quittung von Taps
+ * und Fehlern, damit der Nutzer spürt, dass ein Tap ankam bzw. warum nichts aufgeht.
+ */
+const haptic = (pattern: number | number[]): void => {
+    try {
+        navigator.vibrate?.(pattern)
+    } catch {
+        /* nicht unterstützt — egal */
+    }
+}
+
+/**
+ * Promise mit Zeitlimit: rejectet nach `ms`. welshmans LNURL-Fetch hat keinen Timeout —
+ * ein hängender/CORS-blockierter Endpoint würde einen Tap sonst STUMM verschlucken.
+ */
+const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
+    new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('timeout')), ms)
+        p.then(
+            (v) => {
+                clearTimeout(t)
+                resolve(v)
+            },
+            (e: unknown) => {
+                clearTimeout(t)
+                reject(e instanceof Error ? e : new Error(String(e)))
+            },
+        )
+    })
 
 /** Minimal-API des cropperjs-Instanz, die wir nutzen (C6a). */
 type CropperLike = {
@@ -441,6 +474,9 @@ type RoomChatState = {
     reportText: string // optionaler Freitext fürs „Fork off!"
     reporting: boolean
     zapFor: ChatMessage | null // Zielnachricht des offenen Zap-Modals (Z3)
+    zapResolving: boolean // Zapper des offenen Modals wird noch aufgelöst → „Senden" disabled
+    zapUnavailable: boolean // Empfänger nicht bezahlbar (Resolve fehlgeschlagen/kein Endpoint) → Hinweis im Modal
+    zapNostrless: boolean // Modal im Plain-Pay-Modus: Empfänger ohne NIP-57 → Zahlung ohne Nostr-Event
     zapAmount: number // gewählter Zap-Betrag in Sats (Default 21 = EINUNDZWANZIG)
     zapContent: string // Zap-Kommentar/Emoji (Default '⚡')
     zapping: boolean // Zap läuft (Doppel-Klick-Guard)
@@ -488,6 +524,9 @@ type RoomChatState = {
     _url: string | null
     _lastRead: number
     _onViewport: null | (() => void)
+    _onVisible: null | (() => void) // App-Foreground → Live-Subs neu senden (WebView-Background killt den Socket)
+    _hiddenAt: number // Zeitpunkt des Hintergrund-Gangs (0 = sichtbar) → Resync nur nach echtem Background
+    _initialLoadDone: boolean // erster setup()-Load fertig? Gate gegen Resync mitten im Prewarm-Fenster
     _unsubActive: null | (() => void)
     _unsub: null | (() => void)
     _unsubJoined: null | (() => void)
@@ -496,9 +535,12 @@ type RoomChatState = {
     _loadedMsgIds: Set<string> // ROH geladene kind-9-IDs (Pagination-Terminierung, robust ggü. Anzeige-Filter wie Poll-Share-Quotes)
     _scroller: Scroller | null // Auto-Nachlade-Scroller (createScroller) statt Virtualizer; Teardown stoppt ihn
     _destroyed: boolean // Insel via wire:navigate abgebaut, während init() noch auf storageReady wartete (M3 P1)
+    _pendingMsgs: ChatMessage[] | null // rAF-Coalescing: letzter Feed-Emit, der noch aufs Rendern wartet
+    _rafMsgs: number // laufender requestAnimationFrame-Handle fürs Coalescing (0 = keiner)
     init(): void
     setup(url: string): void
     teardown(): void
+    resync(): void
     retry(): void
     loadOlder(): void
     onScroll(): void
@@ -637,11 +679,19 @@ type WalletState = {
     recvQr: string
     receiving: boolean
     profileLud16: string
+    profileNip05: string // roher nip05-Wert aus dem Profil ('' = keiner gesetzt)
+    nip05Verified: boolean // true nur bei bestätigtem nostr.json↔pubkey-Match (welshman-Handle)
+    nip05Settled: boolean // true, sobald die nostr.json-Prüfung abgeschlossen (verifiziert ODER Settle-Timeout) — trennt „prüft noch" von „geprüft, kein Match"
     profileReady: boolean // true erst nach der ersten aufgelösten Profil-Emission (kein „Nicht gesetzt"-Flash beim Laden)
     addressInput: string
     addressTouched: boolean
     savingAddress: boolean
+    saveResults: RelayPublishResult[] // Per-Relay-Ergebnis des letzten Speicherns (Diagnose)
+    showDiag: boolean // Profil-Diagnose-Panel ein-/ausgeklappt
+    _destroyed: boolean
+    _nip05Timer: ReturnType<typeof setTimeout> | null
     _unsubProfile: (() => void) | null
+    _unsubHandle: (() => void) | null
     init(): Promise<void>
     _apply(w: Wallet): void
     connectNwc(): Promise<void>
@@ -656,6 +706,13 @@ type WalletState = {
     addressMismatch(): boolean
     useWalletAddress(): void
     saveReceivingAddress(): Promise<void>
+    nip05State(): 'verified' | 'unverified' | 'missing' | 'pending'
+    saveBlockedByNip05(): boolean
+    shortRelay(url: string): string
+    npubShort(): string
+    copyNpub(): void
+    pubkeyHexShort(): string
+    copyPubkeyHex(): void
     copy(text: string, label: string): void
     destroy(): void
 }
@@ -824,11 +881,19 @@ export function registerNostrComponents(Alpine: {
         recvQr: '',
         receiving: false,
         profileLud16: '',
+        profileNip05: '',
+        nip05Verified: false,
+        nip05Settled: false,
         profileReady: false,
         addressInput: '',
         addressTouched: false,
         savingAddress: false,
+        saveResults: [],
+        showDiag: false,
+        _destroyed: false,
+        _nip05Timer: null,
         _unsubProfile: null,
+        _unsubHandle: null,
         async init() {
             // Z4 — Profil-lud16 (kind 0) als Empfangsadresse spiegeln. SYNCHRON vor
             // jedem `await` abonnieren: sonst könnte destroy() beim schnellen
@@ -838,6 +903,7 @@ export function registerNostrComponents(Alpine: {
             // keine Eingabe und ein bewusst geleertes Feld (Adresse entfernen) bleibt leer.
             this._unsubProfile = userProfile.subscribe((p) => {
                 this.profileLud16 = p?.lud16 ?? ''
+                this.profileNip05 = p?.nip05 ?? ''
                 if (!this.addressTouched) {
                     this.addressInput = this.profileLud16
                 }
@@ -856,6 +922,32 @@ export function registerNostrComponents(Alpine: {
             void loadUserProfile().finally(() => {
                 this.profileReady = true
             })
+            // destroy() kann während `await authReady` gelaufen sein (schnelles wire:navigate);
+            // dann NICHT mehr abonnieren, sonst leakt die Handle-Sub auf einer toten Komponente.
+            if (this._destroyed) {
+                return
+            }
+            // NIP-05-Verifikation (Diagnose): welshman löst nostr.json↔pubkey live auf und
+            // liefert nur bei bestätigtem Match einen Handle → genau die Bedingung, die das
+            // Member-Relay zum Publishen verlangt. Der Store emittiert erst `undefined` und
+            // re-emittiert nach dem nostr.json-Fetch (800 ms-Batch + Netz). `profileReady`
+            // wird aber schon nach dem kind-0-Laden true — deshalb `nip05Settled`: erst wenn
+            // verifiziert ODER der Settle-Timeout abgelaufen ist, gilt die Prüfung als fertig.
+            // Sonst blitzte „unverifiziert" bei EINEM gültigen NIP-05-Nutzer auf (Review-Fund).
+            const pk = get(pubkey)
+            if (pk) {
+                this._unsubHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
+                    this.nip05Verified = Boolean(handle)
+                    if (handle) {
+                        this.nip05Settled = true
+                    }
+                })
+                this._nip05Timer = setTimeout(() => {
+                    this.nip05Settled = true
+                }, 6000)
+            } else {
+                this.nip05Settled = true
+            }
             // WebLN wird evtl. erst nach dem Factory-Aufruf injiziert → hier re-evaluieren.
             this.weblnAvailable = Boolean(getWebLn())
             const wallet = await loadWallet()
@@ -1048,17 +1140,84 @@ export function registerNostrComponents(Alpine: {
             }
             this.savingAddress = true
             this.error = ''
+            this.saveResults = []
             try {
-                const err = await publishReceivingAddress(this.addressInput, get(userSpaceUrls))
-                if (err) {
-                    throw new Error(err)
+                const results = await publishReceivingAddress(this.addressInput, get(userSpaceUrls))
+                this.saveResults = results
+                const accepted = results.filter((r) => r.ok)
+                const rejected = results.filter((r) => !r.ok)
+                // Ebene 2: mind. EIN Relay akzeptiert ⇒ das kind-0 IST veröffentlicht.
+                // Nur wenn KEIN Relay annimmt, ist es ein echter Fehlschlag.
+                if (accepted.length === 0) {
+                    this.showDiag = true
+                    throw new Error('Auf keinem Relay gespeichert — Details in der Diagnose.')
                 }
-                toast('Empfangsadresse gespeichert', 'success')
+                this.addressTouched = false
+                if (rejected.length > 0) {
+                    // Teil-Erfolg: gespeichert, aber ein Relay (i. d. R. das Member-Relay
+                    // mit NIP-05-Pflicht) hat abgelehnt. Diagnose aufklappen, damit der User
+                    // sieht, WO und WARUM — und was zu tun ist (NIP-05-Hinweis unten).
+                    this.showDiag = true
+                    toast(`Gespeichert auf ${accepted.length}/${results.length} Relays.`, 'success')
+                } else {
+                    // Voller Erfolg → nichts zu diagnostizieren: das (evtl. auto-geöffnete) Panel
+                    // wieder schließen, damit es nur auftaucht, wenn es etwas zu sehen gibt.
+                    this.showDiag = false
+                    toast('Empfangsadresse gespeichert', 'success')
+                }
             } catch (e) {
                 this.error = e instanceof Error ? e.message : 'Speichern fehlgeschlagen'
                 toast(this.error)
             } finally {
                 this.savingAddress = false
+            }
+        },
+        nip05State() {
+            if (!this.profileReady) {
+                return 'pending'
+            }
+            if (this.nip05Verified) {
+                return 'verified'
+            }
+            // NIP-05 gesetzt, aber noch nicht bestätigt UND die Prüfung läuft noch
+            // (nostr.json-Fetch nicht durch) → „pending", nicht fälschlich „unverified".
+            if (this.profileNip05 && !this.nip05Settled) {
+                return 'pending'
+            }
+            return this.profileNip05 ? 'unverified' : 'missing'
+        },
+        // Hat ein Relay das Speichern konkret wegen fehlender NIP-05 abgelehnt? Dann
+        // den gezielten Reparatur-Hinweis zeigen (statt nur der rohen Relay-Meldung).
+        saveBlockedByNip05() {
+            return this.saveResults.some((r) => !r.ok && /nip-?0?5/i.test(r.reason))
+        },
+        shortRelay(url: string) {
+            return url.replace(/^wss?:\/\//, '').replace(/\/$/, '')
+        },
+        npubShort() {
+            const pk = get(pubkey)
+            if (!pk) {
+                return ''
+            }
+            const npub = nip19.npubEncode(pk)
+            return `${npub.slice(0, 12)}…${npub.slice(-6)}`
+        },
+        copyNpub() {
+            const pk = get(pubkey)
+            if (pk) {
+                this.copy(nip19.npubEncode(pk), 'npub')
+            }
+        },
+        // Der hex-Pubkey ist der Wert, der WÖRTLICH in die nostr.json (`names`-Map) gehört —
+        // NICHT der npub. Genau das verlangt NIP-05 (welshman vergleicht names[name] === hex).
+        pubkeyHexShort() {
+            const pk = get(pubkey)
+            return pk ? `${pk.slice(0, 10)}…${pk.slice(-8)}` : ''
+        },
+        copyPubkeyHex() {
+            const pk = get(pubkey)
+            if (pk) {
+                this.copy(pk, 'Public Key (hex)')
             }
         },
         copy(text: string, label: string) {
@@ -1067,7 +1226,12 @@ export function registerNostrComponents(Alpine: {
             }
         },
         destroy() {
+            this._destroyed = true
+            if (this._nip05Timer) {
+                clearTimeout(this._nip05Timer)
+            }
             this._unsubProfile?.()
+            this._unsubHandle?.()
         },
     }))
 
@@ -1523,6 +1687,9 @@ export function registerNostrComponents(Alpine: {
         reportText: '',
         reporting: false,
         zapFor: null,
+        zapResolving: false,
+        zapUnavailable: false,
+        zapNostrless: false,
         zapAmount: 21,
         zapContent: '⚡',
         zapping: false,
@@ -1568,6 +1735,9 @@ export function registerNostrComponents(Alpine: {
         _url: null,
         _lastRead: 0,
         _onViewport: null,
+        _onVisible: null,
+        _hiddenAt: 0,
+        _initialLoadDone: false,
         _unsubActive: null,
         _unsub: null,
         _unsubJoined: null,
@@ -1576,6 +1746,8 @@ export function registerNostrComponents(Alpine: {
         _loadedMsgIds: new Set<string>(),
         _scroller: null,
         _destroyed: false,
+        _pendingMsgs: null,
+        _rafMsgs: 0,
         init() {
             // Aktiver Space → dessen Room-Feed (Wechsel baut Sub + Live neu auf).
             // M3 P1: ERST wenn der Kaltstart-Cache in die repository gespiegelt ist
@@ -1603,10 +1775,31 @@ export function registerNostrComponents(Alpine: {
                 }
             }
             window.visualViewport?.addEventListener('resize', this._onViewport)
+            // App-Foreground-Resync: Im Android-WebView friert der Hintergrund die JS-Timer ein
+            // und das OS kappt den WebSocket → welshmans Timer-Reconnect läuft nicht sauber an,
+            // die Live-REQ (listenRoom) bleibt tot. Beim Zurückkommen (visibilitychange→visible)
+            // die Live-Subs neu senden + Verpasstes nachladen, statt bis zum Raum-Neubetreten
+            // blind zu bleiben. resync() ist bewusst leicht (kein teardown) → kein Rerender/Blank.
+            // Dauer-Schwelle statt isMobile-Gate: ein echter App-Background dauert immer > 2 s, ein
+            // kurzer Web-Tab-Blick nicht → im Web (wo welshman ohnehin selbst reconnectet) feuert
+            // resync nicht bei jedem Tab-Wechsel (kein unnötiges Sub-Neusenden/Churn).
+            this._onVisible = () => {
+                if (document.visibilityState === 'hidden') {
+                    this._hiddenAt = Date.now()
+                    return
+                }
+                const wasBackgrounded = this._hiddenAt > 0 && Date.now() - this._hiddenAt > 2000
+                this._hiddenAt = 0
+                if (wasBackgrounded) {
+                    this.resync()
+                }
+            }
+            document.addEventListener('visibilitychange', this._onVisible)
         },
         setup(url: string) {
             this.teardown()
             this._url = url
+            this._initialLoadDone = false // Resync erst nach diesem Load wieder erlauben (Prewarm-Race)
             this.loading = true
             this.membershipReady = false
             this.error = ''
@@ -1715,7 +1908,13 @@ export function registerNostrComponents(Alpine: {
             // Paint und scrollToBottom sind warm; es folgt keine chip-einblendende zweite Welle.
             // (Handler-Body bewusst nicht umeingerückt gehalten → minimaler Diff.)
             const startFeed = () => {
-            this._unsub = deriveRoomChat(url, this.h, this._lastRead).subscribe((msgs: ChatMessage[]) => {
+            // rAF-Coalescing: `deriveRoomMessages` ist bewusst UNgedrosselt (instant own-message),
+            // beim Kaltstart streamt der Verlauf aber als Event-Burst herein → ein Emit je Nachricht.
+            // Jeder Emit rebuildet die ganze Liste UND morpht das komplette `x-for` (Full-DOM, kein
+            // Virtualizer) → der Main-Thread pegt und Touches feuern erst, wenn alles geladen ist.
+            // Wir merken nur den LETZTEN Emit und rendern höchstens einmal pro Frame; der Browser
+            // arbeitet zwischen den Frames die Touch-Queue ab. Eigene/neue Nachricht: ≤1 Frame (~16ms).
+            const applyMsgs = (msgs: ChatMessage[]) => {
                 // column-reverse + Full-DOM: der Container pinnt den Boden NATIV — kein manueller
                 // scrollTop-Pfad, kein Anker, keine Höhenmessung. Hier nur: Daten übernehmen (inkl.
                 // reversed-Sicht fürs Rendering), Profile/Zaps nachladen, Ungelesen-Zähler pflegen.
@@ -1765,6 +1964,20 @@ export function registerNostrComponents(Alpine: {
                         }
                     })
                 }
+            }
+            this._unsub = deriveRoomChat(url, this.h, this._lastRead).subscribe((msgs: ChatMessage[]) => {
+                this._pendingMsgs = msgs
+                if (this._rafMsgs) {
+                    return // schon ein Frame eingeplant → nur den neuesten Stand merken
+                }
+                this._rafMsgs = requestAnimationFrame(() => {
+                    this._rafMsgs = 0
+                    const pending = this._pendingMsgs
+                    this._pendingMsgs = null
+                    if (pending && this._url === url) {
+                        applyMsgs(pending)
+                    }
+                })
             })
             }
             // Viewport-Prewarm (Schritt 2): Verlauf laden, dann die Zap-Receipts des geladenen
@@ -1844,6 +2057,7 @@ export function registerNostrComponents(Alpine: {
                         startFeed() // kalt: erst nach dem Prewarm → warmer First Paint
                     }
                     this.loading = false
+                    this._initialLoadDone = true // ab jetzt darf ein Foreground-Resync greifen
                 })
         },
         // Ältere Nachrichten vor der aktuell ältesten laden; Scroll-Position halten.
@@ -1947,6 +2161,11 @@ export function registerNostrComponents(Alpine: {
             this._controller?.abort()
             this._unsub?.()
             this._unsub = null
+            if (this._rafMsgs) {
+                cancelAnimationFrame(this._rafMsgs) // koaleszierten Render nicht in einen abgebauten/gewechselten Raum feuern
+                this._rafMsgs = 0
+            }
+            this._pendingMsgs = null
             this._unsubJoined?.()
             this._unsubJoined = null
             this._unsubMembers?.()
@@ -1956,12 +2175,78 @@ export function registerNostrComponents(Alpine: {
             this._zapSub?.abort()
             this._zapSub = null
             this._zapLoadedIds.clear()
+            evictChatMsgCache(this._loadedMsgIds) // Memo-Cache des verlassenen Raums freigeben (vor clear)
             this._loadedMsgIds.clear()
             this._scroller?.stop()
             this._scroller = null
             this.closeMentions()
             this.cancelCrop() // offenen Cropper + Object-URL freigeben (Raumwechsel)
             this.closeThread() // offenes Thread-Overlay + Live-Sub abbauen (Raumwechsel)
+        },
+        // App-Foreground-Resync (aus dem visibilitychange-Listener in init()): NUR die Live-
+        // Subscriptions auf einem frischen AbortController neu senden + je EIN Catch-up-Load —
+        // KEIN teardown, kein Zurücksetzen von messages/scroll/firstPaintDone. Der bestehende
+        // deriveRoomChat-`_unsub` (reine Store-Subscription, im Hintergrund nie gestorben) malt
+        // die nachgeladenen Events additiv → keine Bewegung/kein Rerender der Seite. Guard auf
+        // `_unsub`: läuft erst NACH abgeschlossenem setup() (sonst würde das Abort den initialen
+        // load()-Pfad kappen, bevor startFeed() lief). loading==true ⇒ setup arbeitet noch → skip.
+        resync() {
+            // Guard auf _initialLoadDone (NICHT bloß loading/_unsub): der warme setup()-Pfad setzt
+            // loading=false + _unsub schon, während der initiale loadRoomMessages().then noch läuft;
+            // ein Resync in diesem Fenster würde dessen Controller abbrechen → _loadedMsgIds bliebe
+            // leer (kaputte Pagination-Terminierung). _initialLoadDone kippt erst im setup-finally.
+            if (!this._url || this._destroyed || !this._initialLoadDone) {
+                return
+            }
+            const url = this._url
+            this._controller?.abort()
+            this._controller = new AbortController()
+            const signal = this._controller.signal
+            // Live-Subs neu senden (der erste REQ-Send öffnet den Socket via socketPolicyConnectOnSend
+            // wieder) …
+            listenRoom(url, this.h, signal)
+            listenRoomMembers(url, signal)
+            watchSpaceDirectory(url, signal)
+            // … + einmal nachladen, was im Hintergrund verpasst wurde. loadSpaceRooms backfillt die
+            // 39002/39000 (Mitgliedschaft → joined/Composer, Raumname); listenRoomMembers ist limit:0
+            // (nur Neues) und deckt das NICHT ab.
+            void loadSpaceRooms(url)
+            void loadRoomMessages(url, this.h)
+            void loadRoomReactions(url, this.h)
+            void loadRoomComments(url)
+            void loadRoomPolls(url, this.h)
+            // Zap-Receipts (kind 9735) haben KEINE Live-Sub (kein #h, nicht im listenRoom-Filter) und
+            // werden sonst nur je NEUER Nachricht geladen → im Hintergrund auf SCHON geladene
+            // Nachrichten eingetroffene Fremd-Zaps blieben stale. Fürs sichtbare Fenster nachladen.
+            if (this.messages.length > 0) {
+                void loadRoomZaps(url, this.messages.map((m) => m.id))
+            }
+            // Offenen Thread ebenso neu verdrahten (eigener Controller + Live-Sub, eigener _unsub)
+            // inkl. Zap-Nachladen der Kommentare.
+            if (this.threadRootId) {
+                const rootId = this.threadRootId
+                this._threadController?.abort()
+                this._threadController = new AbortController()
+                void loadThread(url, rootId)
+                listenThread(url, rootId, this._threadController.signal)
+                if (this.threadComments.length > 0) {
+                    void loadRoomZaps(url, this.threadComments.map((c) => c.id))
+                }
+            }
+            // WebView-Race: liefert der OS-Socket-Close erst NACH diesem Tick, sterben die obigen
+            // One-shot-Loads leer (welshman autoClose bei Disconnect). Ein einmaliger Nachzügler holt
+            // sie, sobald der Socket via connectOnSend/closeInactive wieder steht.
+            // ponytail: EINE feste Nachzügler-Runde deckt den Race; kein Reconnect-Backoff-Framework.
+            setTimeout(() => {
+                if (this._destroyed || this._url !== url || document.visibilityState !== 'visible') {
+                    return
+                }
+                void loadRoomMessages(url, this.h)
+                void loadRoomReactions(url, this.h)
+                if (this.messages.length > 0) {
+                    void loadRoomZaps(url, this.messages.map((m) => m.id))
+                }
+            }, 2500)
         },
         // Erneuter Ladeversuch nach einem Fehler (Callout-Button): Sub + Verlauf neu aufbauen.
         retry() {
@@ -2617,28 +2902,61 @@ export function registerNostrComponents(Alpine: {
         async openZap(m: ChatMessage) {
             this.activeId = null
             this.closeMessageMenu()
+            haptic(10) // Tap kam an — sofortige taktile Quittung
             // Mobile ohne verbundene Wallet: der Zap-Sheet-QR-Fallback ergibt keinen
             // Sinn (der QR liegt auf dem eigenen Gerät, nicht scanbar). Statt Modal
             // direkt in die Wallet-Einstellungen (group.wallet), wo NWC verbunden wird.
-            // Web behält den QR-Fallback (dort ist der QR vom Handy scanbar).
             if (isMobile && !(await loadWallet())) {
                 location.assign('/settings/wallet')
                 return
             }
-            const zapper = await resolveZapper(m.pubkey)
-            if (!canZap(zapper)) {
-                toast('Dieser Empfänger kann keine Zaps annehmen.', 'info')
-                return
-            }
+            // Modal SOFORT öffnen — dass eine lud16 existiert, weiß der Feed bereits (m.zappable).
+            // NICHT auf resolveZapper warten: dessen Profil-/Zapper-Fetch läuft über die OUTBOX-
+            // Relays des Empfängers und löst dabei NIP-42-AUTH an ein Dutzend fremder Relays aus
+            // (jeweils eine 22242-Signatur) → sekundenlang. Das früher davorgeschaltete `await`
+            // ließ das Sheet erst nach dieser Lawine (oder gar nicht) aufgehen. Jetzt: Sheet auf,
+            // Zapper im Hintergrund; „Senden" wartet über `zapResolving`.
             this._zapSub?.abort()
             this._zapSub = null
             this.zapFor = m
-            this._zapper = zapper
+            this._zapper = null
+            this.zapNostrless = false
+            this.zapUnavailable = false
+            this.zapResolving = true
             this.zapAmount = 21
             this.zapContent = DEFAULT_ZAP_CONTENT
             this.zapInvoice = ''
             this.zapQr = ''
             dispatchModal('zap-message')
+            try {
+                // 1) SYNCHRON aus dem bereits gewärmten Cache (feeds.ts `warmZappers` lädt die
+                // Zapper aller Raum-Autoren; genau denselben nutzt der ⚡-Tally). KEIN erneutes
+                // `await loadProfile` wie in `resolveZapper` — das kann hinter der NIP-42-AUTH-
+                // Lawine hängen/werfen, OBWOHL Profil UND Zapper längst da sind → sonst falscher
+                // „nicht erreichbar"-Alarm bei voll zappbaren Adressen (z. B. walletofsatoshi.com).
+                const profile = getProfile(m.pubkey)
+                const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
+                let zapper = lnurl ? getZapper(lnurl) : undefined
+                // 2) Nur bei echtem Cache-Miss async nachladen (Backstop-Timeout, blockiert nichts).
+                if (!zapper) {
+                    zapper = await withTimeout(resolveZapper(m.pubkey), 12000).catch(() => undefined)
+                    if (this.zapFor !== m) {
+                        return // Sheet zwischenzeitlich geschlossen/gewechselt
+                    }
+                }
+                if (!canPay(zapper)) {
+                    this.zapUnavailable = true // gültige lud16, aber kein erreichbarer LNURL-Endpoint
+                } else {
+                    this._zapper = zapper
+                    // Gültiger LNURL, aber KEIN NIP-57 (allowsNostr/nostrPubkey) → Plain-Pay-Modus:
+                    // zahlen möglich, erzeugt aber KEIN Nostr-Event (kein 9735) → im Raum unsichtbar.
+                    this.zapNostrless = !canZap(zapper)
+                }
+            } finally {
+                if (this.zapFor === m) {
+                    this.zapResolving = false
+                }
+            }
         },
         // Zap senden: Zahlweg-Router (Z2). Wallet verbunden → Auto-Pay (zahlt + lädt das
         // 9735-Receipt), sonst QR-Fallback mit Live-Receipt-Sub. Busy-Guard verhindert
@@ -2656,6 +2974,35 @@ export function registerNostrComponents(Alpine: {
             }
             this.zapping = true
             try {
+                const hasWallet = Boolean(await loadWallet())
+                // Ziel-Guard: Schließt/wechselt der Nutzer das Sheet während eines awaits
+                // (Escape/Backdrop → closeZap, oder openZap einer anderen Nachricht), NICHT
+                // weiterschreiben — sonst verwaiste QR-Sub bzw. fremde Rechnung im Sheet.
+                if (this.zapFor !== m) {
+                    return
+                }
+                // Plain-Pay-Modus (Empfänger ohne NIP-57): normale Lightning-Zahlung OHNE
+                // 9734/9735 → es entsteht kein Nostr-Event, der „Zap" ist im Raum nicht
+                // sichtbar. Kein Receipt-Warten im QR-Fallback (es kommt keins).
+                if (this.zapNostrless) {
+                    if (hasWallet) {
+                        await payZapPlain({ zapper, sats, comment: this.zapContent })
+                        if (this.zapFor === m) {
+                            haptic(20)
+                            toast('Zahlung gesendet ⚡ (ohne Nostr-Event — im Raum nicht sichtbar).', 'success')
+                            this.closeZap()
+                        }
+                    } else {
+                        const invoice = await requestPlainInvoice({ zapper, sats, comment: this.zapContent })
+                        if (this.zapFor !== m) {
+                            return
+                        }
+                        this.zapInvoice = invoice
+                        this.zapQr = await QRCode.toDataURL(invoice.toUpperCase(), { width: 256, margin: 1 })
+                        ;(this as unknown as AlpineMagics).$nextTick(() => (this as unknown as AlpineMagics).$refs.zapCopyBtn?.focus())
+                    }
+                    return
+                }
                 const input = {
                     pubkey: m.pubkey,
                     zapper,
@@ -2663,13 +3010,6 @@ export function registerNostrComponents(Alpine: {
                     content: this.zapContent.trim() || DEFAULT_ZAP_CONTENT,
                     eventId: m.id,
                     url: this._url,
-                }
-                const hasWallet = Boolean(await loadWallet())
-                // Ziel-Guard: Schließt/wechselt der Nutzer das Sheet während eines awaits
-                // (Escape/Backdrop → closeZap, oder openZap einer anderen Nachricht), NICHT
-                // weiterschreiben — sonst verwaiste QR-Sub bzw. fremde Rechnung im Sheet.
-                if (this.zapFor !== m) {
-                    return
                 }
                 if (chooseZapMethod(zapper, hasWallet) === 'auto') {
                     await payZapAuto(input)
@@ -2715,6 +3055,9 @@ export function registerNostrComponents(Alpine: {
             this._zapSub = null
             this.zapFor = null
             this._zapper = null
+            this.zapResolving = false
+            this.zapUnavailable = false
+            this.zapNostrless = false
             this.zapInvoice = ''
             this.zapQr = ''
             dispatchModal('zap-message', false)
@@ -2899,6 +3242,9 @@ export function registerNostrComponents(Alpine: {
             this._destroyed = true // eine noch offene storageReady-Subscription (init) nicht mehr anlaufen lassen
             if (this._onViewport) {
                 window.visualViewport?.removeEventListener('resize', this._onViewport)
+            }
+            if (this._onVisible) {
+                document.removeEventListener('visibilitychange', this._onVisible)
             }
             this.markRead()
             this._unsubActive?.()

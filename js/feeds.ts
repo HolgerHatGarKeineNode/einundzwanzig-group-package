@@ -545,6 +545,142 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
 }
 
 /**
+ * Result-Memoization für {@link toChatMessage} im Raum-Feed. Der derived-Store recomputet bei
+ * JEDEM Input-Emit (Nachrichten-, Profil-, Reaction-, Zap-, Kommentar-Welle) die GANZE Liste —
+ * beim Kaltstart ~20× über bis zu ~70 Events, obwohl zwischen zwei Emits fast alle Events
+ * UNVERÄNDERT sind (nur EIN Event/Profil kam neu). Wir cachen die gebaute ChatMessage pro
+ * event.id und bauen nur neu, wenn sich ein Input GENAU DIESES Events geändert hat.
+ *
+ * Change-Detection per Key. WICHTIG: welshmans Profil-/Handle-/Zapper-Stores (`deriveItemsByKey`,
+ * @welshman/store repository.js) mutieren EINE Map IN-PLACE und emittieren sie per selber Referenz
+ * — die Map-REFERENZ taugt NICHT als Buster (bliebe konstant → alles stale). Der EINZELWERT
+ * `get(pubkey)` bustet dagegen (neues Item-Objekt pro Update). Also granular pro pubkey:
+ *  - profileRefs: `$profiles.get(pk)` für ALLE pubkeys, deren Profil (Name/Avatar/nip05-Feld/lud16)
+ *    ins Rendering einfließt — Autor + zitierter Reply-Autor + NIP-27-Mentions + Thread-Kommentatoren
+ *    (Faces) + Reaktoren (Chip-Tooltip). Ein reiner Autor-Key ließ Nicht-Autor-Namen für immer auf
+ *    dem npub-Fallback einfrieren (Review-Fund #1–#3/#5) — unterläuft genau den Mention-Skip des htmlCache.
+ *  - fp: nip05-Verifikationsergebnis des Autors (deckt das spät verifizierte Häkchen: hängt an
+ *    $handles, nicht am Autor-Profil-Feld) + je ein billiger ordnungsabhängiger Hash über die
+ *    Aggregat-Bucket-Event-IDs (reactions/zaps/comments/poll-responses; `groupBy` liefert pro Compute
+ *    NEUE Array-Refs → Referenzvergleich unbrauchbar). ponytail: 32-bit-Hash, Kollision ~bucketSize/2³²
+ *    ⇒ schlimmstenfalls EIN Emit lang stale Chip-Zähler (rein visuell, KEIN Konsens-/Signaturpfad).
+ *  - me: eingeloggter pubkey (stabil). quoted: Event-Ref des Zitats (undefined→Event, sobald das
+ *    zitierte Event spät nachlädt → reply wechselt null→Vorschau).
+ *
+ * ponytail — bewusst NICHT im Key (verifizierte Long-Tails, beide reiner Hover/kein sichtbares Feld):
+ *  a) Zapper-Meta ($zappers.get(lnurl), validiert die Zap-SUMME) — bei sehr spätem Zapper-Load kann
+ *     die Summe kurz einen noch-unvalidierten Zap auslassen.
+ *  b) `zaps.names` (Zapper-Anzeigename im Zap-Chip-TOOLTIP, aus dem eingebetteten `request.pubkey`) —
+ *     dessen kind-0 wird nicht mal gewärmt (warmProfiles deckt Zapper nicht), zeigt also ohnehin oft
+ *     npub; die Memoization verschärft das nur im engen Fall „Zapper-Profil lädt via anderen Pfad".
+ * Beide sind Hover-only (auf der Touch-WebView praktisch unsichtbar), selbstkorrigierend beim nächsten
+ * Message-relevanten Emit, und throttle macht Profil-Wellen ohnehin selten. Der request.pubkey pro
+ * Zap-Receipt zu extrahieren (pro HIT-Check!) lohnt für ein unsichtbares Tooltip-Feld nicht.
+ *
+ * Nur der Raum-Feed nutzt den Cache; der Thread-Feed baut direkt (Kommentare = kind 1111,
+ * disjunkte IDs; klein & selten offen → Memoization lohnt dort nicht, hält den Cache-Kontext eindeutig).
+ */
+type ChatMsgFields = Omit<ChatMessage, 'divider' | 'unreadDivider' | 'showAuthor'>
+type ChatMsgMemo = {
+    profileRefs: unknown[]
+    me: string | null | undefined
+    quoted: unknown
+    fp: string
+    msg: ChatMsgFields
+}
+const chatMsgCache = new Map<string, ChatMsgMemo>()
+
+/** NIP-27-Mention-pubkeys sind event-invariant (Body ändert sich nie) → einmal parsen + cachen. */
+const mentionPkCache = new Map<string, string[]>()
+const eventMentionPks = (event: TrustedEvent): string[] => {
+    let pks = mentionPkCache.get(event.id)
+    if (pks === undefined) {
+        pks = mentionPubkeys(bodyWithoutQuote(event))
+        mentionPkCache.set(event.id, pks)
+    }
+    return pks
+}
+
+/** Profil-Werte-Refs aller pubkeys, deren Name/Avatar ins Rendering DIESER Message einfließt. */
+const renderedProfileRefs = (event: TrustedEvent, ctx: ChatBuildCtx, quoted: TrustedEvent | undefined): unknown[] => {
+    const pks = new Set<string>()
+    pks.add(event.pubkey)
+    if (quoted) {
+        pks.add(quoted.pubkey)
+    }
+    for (const pk of eventMentionPks(event)) {
+        pks.add(pk)
+    }
+    for (const c of ctx.commentsByRoot.get(event.id) ?? []) {
+        pks.add(c.pubkey)
+    }
+    for (const r of ctx.reactionsByTarget.get(event.id) ?? []) {
+        pks.add(r.pubkey)
+    }
+    const refs: unknown[] = []
+    for (const pk of pks) {
+        refs.push(ctx.$profiles.get(pk))
+    }
+    return refs
+}
+
+const sameRefs = (a: unknown[], b: unknown[]): boolean => {
+    if (a.length !== b.length) {
+        return false
+    }
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) {
+            return false
+        }
+    }
+    return true
+}
+
+/**
+ * Cache-Einträge der genannten Event-IDs freigeben (Raumwechsel/Teardown) — sonst wächst der
+ * modul-globale Cache über eine lange WebView-Session monoton (je ChatMessage inkl. html-String).
+ */
+export const evictChatMsgCache = (ids: Iterable<string>): void => {
+    for (const id of ids) {
+        chatMsgCache.delete(id)
+        mentionPkCache.delete(id)
+    }
+}
+
+/**
+ * Billiger ordnungsabhängiger Fingerprint eines Aggregat-Buckets. Leer/undefined → '0'; ein nicht-
+ * leerer Bucket liefert IMMER das Format `LEN:HASH` (LEN ≥ 1) und kann so nie versehentlich mit dem
+ * Leer-Sentinel `'0'` kollidieren, selbst wenn der Polynom-Hash zufällig 0 ergibt (Review-Fund #4).
+ */
+const bucketFp = (evs?: TrustedEvent[]): string => {
+    if (!evs || evs.length === 0) {
+        return '0'
+    }
+    let h = evs.length
+    for (const e of evs) {
+        h = (Math.imul(h, 31) + parseInt(e.id.slice(0, 8), 16)) >>> 0
+    }
+    return `${evs.length}:${h}`
+}
+
+const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): ChatMsgFields => {
+    const quotedId = getTagValue('q', event.tags)
+    const quoted = quotedId ? ctx.byId.get(quotedId) : undefined
+    const profileRefs = renderedProfileRefs(event, ctx, quoted)
+    const fp =
+        `${verifiedNip05(event.pubkey, ctx.$profiles, ctx.$handles)}` +
+        `|${bucketFp(ctx.reactionsByTarget.get(event.id))}|${bucketFp(ctx.zapsByTarget.get(event.id))}` +
+        `|${bucketFp(ctx.commentsByRoot.get(event.id))}|${bucketFp(ctx.pollResponsesByTarget.get(event.id))}`
+    const hit = chatMsgCache.get(event.id)
+    if (hit && hit.me === ctx.me && hit.quoted === quoted && hit.fp === fp && sameRefs(hit.profileRefs, profileRefs)) {
+        return hit.msg
+    }
+    const msg = toChatMessage(event, ctx)
+    chatMsgCache.set(event.id, { profileRefs, me: ctx.me, quoted, fp, msg })
+    return msg
+}
+
+/**
  * Aggregierte Chat-Sicht: Nachrichten mit aufgelösten Profilen, Datums-Dividern
  * und Autor-Gruppierung — die Insel braucht nur EIN `subscribe`. HTML wird je
  * Event einmal geparst (Cache), Namen fließen reaktiv aus `profilesByPubkey`.
@@ -552,8 +688,14 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
 export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
     derived(
         [
-            // Nachrichten UNgedrosselt: neue/eigene Message + scrollToBottom bleiben sofort.
-            deriveRoomMessages(url, h),
+            // Nachrichten LEADING-EDGE-gedrosselt (100ms): `throttle` feuert den ersten Emit
+            // einer Ruhephase SOFORT (Tools.ts:987) → eine einzeln gesendete/eintreffende Nachricht
+            // erscheint im Ruhezustand ohne Latenz; nur wenn im letzten 100ms-Fenster schon ein
+            // Emit war, wartet sie bis zum trailing edge (≤100ms) — NIE gedroppt, scrollToBottom
+            // pinnt ohnehin nativ (column-reverse). NUR ein Kaltstart-Burst (der Verlauf streamt
+            // Event für Event herein) fällt so von ~25 auf ~8 Recomputes zusammen — jeder Recompute
+            // baut die GANZE Liste neu + ruft warmProfiles/Handles/Zappers. 340ms-Block im CPU-Profil.
+            throttled(100, deriveRoomMessages(url, h)),
             // Zweite Welle (nicht warmgehalten): Profile, NIP-05, Reactions, Poll-Responses,
             // Zap-Receipts, Zapper laden beim Kaltstart als Event-Burst nach. Gedrosselt, damit
             // der Chip-Einblende-Burst zu wenigen Emits zusammenfällt → weniger Layout-Shifts
@@ -613,7 +755,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             if (unreadDivider) {
                 unreadShown = true
             }
-            return { divider, unreadDivider, showAuthor, ...toChatMessage(event, ctx) }
+            return { divider, unreadDivider, showAuthor, ...memoedToChatMessage(event, ctx) }
         })
     },
     )

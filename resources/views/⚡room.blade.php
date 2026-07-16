@@ -260,6 +260,31 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 {{ __('An') }} <span class="text-strong" x-text="zapFor?.name"></span>
             </flux:text>
 
+            {{-- Empfänger wird geprüft (Zapper-Auflösung im Hintergrund, kann wegen NIP-42-AUTH
+                 an die Outbox-Relays kurz dauern). Sheet ist schon offen → der Nutzer sieht sofort etwas. --}}
+            <div x-show="zapResolving" x-cloak class="flex items-center gap-2 text-xs text-muted" role="status">
+                <flux:icon.arrow-path class="size-4 shrink-0 animate-spin" />
+                <span>{{ __('Empfänger wird geprüft …') }}</span>
+            </div>
+
+            {{-- Empfänger nicht bezahlbar: gültige Adresse, aber kein erreichbarer LNURL-Endpoint.
+                 role="alert" → Screenreader kündigt den async auftauchenden Grund an, warum „Senden" aus bleibt. --}}
+            <div x-show="zapUnavailable" x-cloak role="alert"
+                 class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
+                <span>{{ __('Der Zahlungs-Endpoint des Empfängers ist nicht erreichbar. Bitte später erneut versuchen.') }}</span>
+            </div>
+
+            {{-- Nostrless-Hinweis (Empfänger ohne NIP-57, z. B. bitrefill.com): zahlen geht,
+                 aber es entsteht KEIN Nostr-Event → der Zap ist im Raum NICHT sichtbar.
+                 `!zapInvoice` → im QR-Zustand übernimmt der QR-eigene Nostrless-Text (keine Dopplung).
+                 role="status" → async Einblendung wird angesagt (wie die Prüf-Box). --}}
+            <div x-show="zapNostrless && !zapInvoice" x-cloak role="status"
+                 class="flex items-start gap-2 rounded-tile border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
+                <span>{{ __('Diese Lightning-Adresse unterstützt keine Nostr-Zaps. Du kannst trotzdem zahlen — die Zahlung erscheint dann aber nicht als Zap im Raum.') }}</span>
+            </div>
+
             {{-- Eingabe-Zustand (solange keine QR-Rechnung offen ist). --}}
             <div x-show="!zapInvoice" class="space-y-4">
                 {{-- Sats-Presets: 21 hervorgehoben (EINUNDZWANZIG). Als Radiogroup ausgezeichnet
@@ -276,8 +301,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <flux:input x-model="zapContent" label="{{ __('Kommentar') }}" placeholder="⚡" />
                 <div class="flex justify-end gap-2">
                     <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
-                    <flux:button variant="primary" icon="bolt" x-on:click="confirmZap()" ::disabled="zapping">
-                        <span x-text="zapping ? @js(__('Sende…')) : @js(__('Zap senden'))"></span>
+                    <flux:button variant="primary" icon="bolt" x-on:click="confirmZap()" ::disabled="zapping || zapResolving || zapUnavailable">
+                        <span x-text="zapResolving ? @js(__('Prüfe …')) : (zapping ? @js(__('Sende…')) : (zapNostrless ? @js(__('Trotzdem zahlen')) : @js(__('Zap senden'))))"></span>
                     </flux:button>
                 </div>
             </div>
@@ -285,7 +310,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- QR-Fallback (kein Wallet): Rechnung als QR + kopierbar, Live-Warten.
                  Sanfte Erscheinung (kurze Opacity-Transition, ZAPS.md Z6). --}}
             <div x-show="zapInvoice" x-cloak x-transition.opacity.duration.200ms class="space-y-3">
-                <flux:text class="text-sm text-muted" role="status">{{ __('Mit einer Lightning-Wallet scannen oder Rechnung kopieren — die Zahlung wird automatisch erkannt.') }}</flux:text>
+                <flux:text x-show="!zapNostrless" class="text-sm text-muted" role="status">{{ __('Mit einer Lightning-Wallet scannen oder Rechnung kopieren — die Zahlung wird automatisch erkannt.') }}</flux:text>
+                <flux:text x-show="zapNostrless" x-cloak class="text-sm text-muted" role="status">{{ __('Mit einer Lightning-Wallet scannen oder Rechnung kopieren. Danach das Fenster schließen — diese Zahlung erscheint nicht als Zap im Raum.') }}</flux:text>
                 <div class="flex justify-center">
                     <img :src="zapQr" alt="{{ __('Lightning-Rechnung als QR-Code') }}" class="rounded-tile bg-white p-2" width="256" height="256" />
                 </div>
