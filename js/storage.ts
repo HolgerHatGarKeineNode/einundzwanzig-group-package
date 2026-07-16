@@ -22,6 +22,7 @@ import {
     PROFILE,
     FOLLOWS,
     DELETE,
+    ROOM_DELETE_EVENT,
     MESSAGE,
     POLL,
     ZAP_GOAL,
@@ -52,7 +53,10 @@ type TrackerItem = { id: string; relays: string[] }
 /**
  * §4.1 Whitelist — was gecacht wird: Chat (MESSAGE=9, der 13-s-Treiber) +
  * bounded Control-Plane (Profile/Follows/Relays/Room-Meta/Member-Listen) +
- * kind 5 (DELETE, zwingend — sonst reappearen gelöschte Nachrichten). §4.2 raus:
+ * kind 5 (DELETE, zwingend — sonst reappearen gelöschte Nachrichten) + kind 9005
+ * (ROOM_DELETE_EVENT, NIP-29 Admin-Löschung fremder Nachrichten — derselbe Grund:
+ * der Tombstone MUSS den Kaltstart überleben, sonst aufersteht die gelöschte
+ * Nachricht bei einem Client, der beim Live-Broadcast offline war). §4.2 raus:
  * Ephemeral/AUTH/Reaktionen/Zaps/Kommentare (kein `#h`, laden lazy nach dem Paint).
  *
  * ponytail: nur MESSAGE wächst unbegrenzt → Per-Raum-Cap + Alters-Backstop folgt
@@ -61,6 +65,7 @@ type TrackerItem = { id: string; relays: string[] }
 const PERSIST_KINDS = new Set<number>([
     MESSAGE,
     DELETE,
+    ROOM_DELETE_EVENT,
     POLL,
     ZAP_GOAL,
     PROFILE,
@@ -76,6 +81,30 @@ const PERSIST_KINDS = new Set<number>([
 
 export function shouldPersistEvent(event: TrustedEvent): boolean {
     return PERSIST_KINDS.has(event.kind)
+}
+
+/**
+ * Reine Berechnung der von NIP-29-9005-Tombstones (ROOM_DELETE_EVENT) im Cache-Bestand
+ * gelöschten Ziel-Event-IDs: sammelt alle `e`-Ziele aller 9005. Diese IDs dürfen beim
+ * Kaltstart weder in die `repository` geladen noch in der IDB behalten werden — sonst
+ * aufersteht eine vom Admin gelöschte Nachricht bei einem Client, der beim Live-Broadcast
+ * offline war (der `limit:0`-`listenRoom` liefert historische 9005 nie nach). Der Cache
+ * enthält nur relay-akzeptierte Events (der Relay hat das 9005 bereits auf `can_manage`
+ * gegatet) → keine h-/Autor-Prüfung nötig. Reine Funktion, node-testbar (kein welshman).
+ */
+export function tombstonedIds(events: TrustedEvent[]): Set<string> {
+    const ids = new Set<string>()
+    for (const event of events) {
+        if (event.kind !== ROOM_DELETE_EVENT) {
+            continue
+        }
+        for (const tag of event.tags) {
+            if (tag[0] === 'e' && tag[1]) {
+                ids.add(tag[1])
+            }
+        }
+    }
+    return ids
 }
 
 /**
@@ -263,9 +292,14 @@ async function loadCachedEvents(): Promise<void> {
         }
     }
     // §4.3: gekappte/veraltete Nachrichten weder in die repository laden noch behalten.
+    // Zusätzlich: durch gecachte 9005-Tombstones gelöschte Ziele ausschließen (B2) — ein
+    // im Cache liegendes 9005 darf seine Nachricht nicht wieder auferstehen lassen. Das
+    // 9005 SELBST bleibt erhalten (persistierter Tombstone); nur seine `e`-Ziele fliegen raus.
     const prune = new Set(messagesToPrune(keep, nowSec()))
-    repository.load(keep.filter((event) => !prune.has(event.id)))
-    const remove = [...drop, ...prune]
+    const tombstoned = tombstonedIds(keep)
+    const excluded = new Set<string>([...prune, ...tombstoned])
+    repository.load(keep.filter((event) => !excluded.has(event.id)))
+    const remove = [...drop, ...excluded]
     if (remove.length > 0) {
         void bulkDelete('events', remove)
     }

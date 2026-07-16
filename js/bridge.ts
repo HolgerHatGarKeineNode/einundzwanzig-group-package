@@ -115,9 +115,11 @@ import {
     loadRoomReactions,
     loadRoomComments,
     loadRoomPolls,
+    loadRoomDeletes,
     loadRoomZaps,
     sendRoomMessage,
     deleteRoomMessage,
+    moderateDeleteMessage,
     editRoomMessage,
     bodyWithoutQuote,
     sendReaction,
@@ -2395,6 +2397,10 @@ export function registerNostrComponents(Alpine: {
             // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
             // Promise fürs Prewarm-Gate behalten: der Reveal wartet (budgetiert) darauf.
             const reactionsReady = loadRoomReactions(url, this.h)
+            // Selbstreparatur: gespeicherte NIP-29-9005 (Admin-Löschungen) nachladen und
+            // anwenden — holt eine Löschung nach, die dieser Client offline verpasst hat
+            // (der Warm-Cache hätte die Nachricht sonst wieder auferstehen lassen).
+            void loadRoomDeletes(url, this.h)
             // NIP-22-Kommentare (kind 1111) nachladen, damit die Antworten-Indikatoren
             // schon beim ersten Paint stimmen (Live-Sub = nur Neues). Ohne #h (flotilla-kompat).
             void loadRoomComments(url)
@@ -2721,6 +2727,9 @@ export function registerNostrComponents(Alpine: {
             void loadSpaceRooms(url)
             void loadRoomMessages(url, this.h)
             void loadRoomReactions(url, this.h)
+            // Verpasste Admin-Löschungen (9005) nachholen — während der Client
+            // im Hintergrund/getrennt war, kam kein Live-Broadcast an.
+            void loadRoomDeletes(url, this.h)
             void loadRoomComments(url)
             void loadRoomPolls(url, this.h)
             // Zap-Receipts (kind 9735) haben KEINE Live-Sub (kein #h, nicht im listenRoom-Filter) und
@@ -2751,6 +2760,7 @@ export function registerNostrComponents(Alpine: {
                 }
                 void loadRoomMessages(url, this.h)
                 void loadRoomReactions(url, this.h)
+                void loadRoomDeletes(url, this.h)
                 if (this.messages.length > 0) {
                     void loadRoomZaps(url, this.messages.map((m) => m.id))
                 }
@@ -3421,6 +3431,13 @@ export function registerNostrComponents(Alpine: {
             }
             this.moderating = true
             try {
+                // Live-Propagierung zuerst: NIP-29 9005 (delete-event) ans Space-Relay —
+                // andere offene Clients (listenRoom→honorDeleteEvent) lassen die Nachricht
+                // sofort verschwinden. Danach der NIP-86-banEvent für die relay-seitige
+                // Bann-Liste (verhindert Re-Publish). banEvent-Fehler entscheidet über den
+                // Toast; das 9005 ist best-effort für die Live-Sync und blockiert den Erfolg
+                // nicht (der Autor bleibt ohnehin lokal + relay-seitig via banEvent entfernt).
+                void moderateDeleteMessage(this._url, this.h, m.id)
                 const err = await banEvent(this._url, m.id)
                 if (err) {
                     toast(err)

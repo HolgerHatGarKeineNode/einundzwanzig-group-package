@@ -12,7 +12,7 @@ import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, COMMENT, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
+import { MESSAGE, COMMENT, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, ROOM_DELETE_EVENT, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
@@ -766,16 +766,48 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
  * und Goals — alle `#h`. Kommentare (kind 1111) tragen KEIN `#h` (flotilla-kompatibel)
  * → eigener, ungescopter Filter, damit der Live-Antworten-Zähler ohne separate Sub kommt.
  */
+/**
+ * Honoriert ein eingehendes NIP-29-`delete-event` (kind 9005, nur von `can_manage`-
+ * Admins signiert — das Relay gatet die Annahme, siehe zooid `CheckWrite`): entfernt
+ * die per `e`-Tag referenzierten Ziel-Events aus dem Repository, worauf der abgeleitete
+ * Feed OHNE sie re-emittiert → Live-Löschung ohne Reload. Nötig, weil welshmans
+ * Repository von sich aus NUR kind-5 (NIP-09, gleicher Autor) honoriert, NICHT 9005
+ * (Beleg: @welshman/app dist/net/src/repository.js `publish`, Zweig `event.kind === DELETE`).
+ */
+const honorDeleteEvent = (event: TrustedEvent): void => {
+    if (event.kind !== ROOM_DELETE_EVENT) {
+        return
+    }
+    for (const tag of event.tags) {
+        if (tag[0] === 'e' && tag[1]) {
+            repository.removeEvent(tag[1])
+        }
+    }
+}
+
 export const listenRoom = (url: string, h: string, signal: AbortSignal): void => {
     void request({
         relays: [url],
         signal,
+        onEvent: honorDeleteEvent,
         filters: [
-            { kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL], '#h': [h], limit: 0 },
+            { kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL, ROOM_DELETE_EVENT], '#h': [h], limit: 0 },
             { kinds: [COMMENT, CHAT_THREAD], limit: 0 },
         ],
     })
 }
+
+/**
+ * Admin-Live-Löschung EINER fremden Nachricht (NIP-29 kind 9005, `delete-event`): baut ein
+ * 9005 mit `h`=Raum-ID + `e`=Ziel-Event-ID und publiziert es ans Space-Relay. zooid nimmt
+ * 9005 nur von `can_manage`-Admins an (CheckWrite), löscht das Ziel serverseitig und
+ * broadcastet das 9005 an alle offenen `listenRoom`-Subscriber → `honorDeleteEvent` lässt es
+ * dort live verschwinden. ERGÄNZT (ersetzt nicht) den NIP-86-`banEvent`: 9005 propagiert live
+ * an Clients, `banEvent` trägt die id zusätzlich in die relay-seitige Bann-Liste (verhindert
+ * Re-Publish desselben Events). '' = Erfolg.
+ */
+export const moderateDeleteMessage = (url: string, h: string, id: string): Promise<string> =>
+    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE_EVENT, { tags: [['h', h], ['e', id]] }) }))
 
 /**
  * Lädt NUR die Poll-Responses (kind 1018) eines Raums fürs Tally — NICHT die Poll-Events
@@ -797,6 +829,22 @@ export const loadRoomPolls = (url: string, h: string): Promise<TrustedEvent[]> =
  */
 export const loadRoomReactions = (url: string, h: string): Promise<TrustedEvent[]> =>
     load({ relays: [url], filters: [{ kinds: [REACTION, DELETE], '#h': [h] }] })
+
+/**
+ * Selbstreparatur gegen „Limbo"-Nachrichten: lädt die GESPEICHERTEN NIP-29-9005
+ * (delete-event) eines Raums — bewusst OHNE `limit:0`, also echte Historie, anders als
+ * die live-only `listenRoom` — und schleust jedes durch `honorDeleteEvent`. Ein Client,
+ * der beim Live-Broadcast des 9005 offline/geschlossen war, holt die Löschung so beim
+ * nächsten Öffnen/Reconnect nach: das Ziel fliegt aus dem `repository` (→ Feed re-emittiert
+ * ohne es) und via `syncEvents.removed` aus der IDB. Läuft im Room-Load neben
+ * loadRoomMessages/loadRoomReactions, damit es vor/mit dem ersten Paint wirkt.
+ */
+export const loadRoomDeletes = async (url: string, h: string): Promise<void> => {
+    const deletes = await load({ relays: [url], filters: [{ kinds: [ROOM_DELETE_EVENT], '#h': [h] }] })
+    for (const event of deletes) {
+        honorDeleteEvent(event)
+    }
+}
 
 /**
  * Lädt die bestehenden NIP-22-Kommentare (kind 1111) des Space-Relays, damit die

@@ -19,6 +19,7 @@
  * - 1984 REPORT — melden (interactions.ts)
  * - 9000/9001 ROOM_ADD_MEMBER/ROOM_REMOVE_MEMBER — NIP-29 Raum-Mitglieder (Admin, groups.ts)
  * - 9002/9007/9008 ROOM_EDIT_META/ROOM_CREATE/ROOM_DELETE — NIP-29 Raum-Verwaltung (Admin, groups.ts)
+ * - 9005 ROOM_DELETE_EVENT — NIP-29 fremde Nachricht live entfernen (Admin, feeds.ts)
  * - 9021/9022 ROOM_JOIN/ROOM_LEAVE — NIP-29 (groups.ts)
  * - 9041 ZAP_GOAL — NIP-75-Spendenziel (interactions.ts)
  * - 9734 ZAP_REQUEST — NIP-57 (zaps.ts)
@@ -40,6 +41,7 @@ export const NIP46_PERMS = [
     'sign_event:9000',
     'sign_event:9001',
     'sign_event:9002',
+    'sign_event:9005',
     'sign_event:9007',
     'sign_event:9008',
     'sign_event:9021',
