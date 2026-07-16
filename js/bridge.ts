@@ -87,6 +87,7 @@ import {
     type BannedMember,
     type VereinAccess,
 } from './members'
+import { deriveSpaceReports, loadSpaceReports, watchSpaceReports, type ReportView } from './actionItems'
 import {
     deriveRoomChat,
     deriveRoomMessages,
@@ -405,6 +406,8 @@ type DirectoryState = {
     inviteLink: string
     inviteBusy: boolean
     busy: boolean
+    // Melde-Queue (P3, NIP-56 kind 1984)
+    reports: ReportView[]
     // Space-Metadaten bearbeiten (P2, NIP-86 changerelay*)
     spaceForm: { name: string; description: string }
     _spaceInitial: { name: string; description: string } // Prefill-Snapshot (Vergleichsbasis: nur GEÄNDERTES senden)
@@ -418,6 +421,7 @@ type DirectoryState = {
     _unsubRoles: null | (() => void)
     _unsubAdmin: null | (() => void)
     _unsubAccess: null | (() => void)
+    _unsubReports: null | (() => void)
     _loadedDir: Set<string>
     _loadedProfiles: Set<string>
     _settleStarted: boolean
@@ -439,6 +443,9 @@ type DirectoryState = {
     restoreMember(pubkey: string): Promise<void>
     loadInvite(): Promise<void>
     copyInvite(): void
+    dismissReport(r: ReportView): Promise<void>
+    removeReportedContent(r: ReportView): Promise<void>
+    banReportedUser(r: ReportView): Promise<void>
     openSpaceEdit(): void
     _prefillSpace(profile?: RelayProfile): void
     pickSpaceIcon(input: HTMLInputElement): void
@@ -1396,6 +1403,7 @@ export function registerNostrComponents(Alpine: {
         inviteLink: '',
         inviteBusy: false,
         busy: false,
+        reports: [],
         spaceForm: { name: '', description: '' },
         _spaceInitial: { name: '', description: '' },
         spaceIconPreview: '',
@@ -1408,6 +1416,7 @@ export function registerNostrComponents(Alpine: {
         _unsubRoles: null,
         _unsubAdmin: null,
         _unsubAccess: null,
+        _unsubReports: null,
         _loadedDir: new Set<string>(),
         _loadedProfiles: new Set<string>(),
         _settleStarted: false,
@@ -1418,10 +1427,12 @@ export function registerNostrComponents(Alpine: {
                 this._unsubRoles?.()
                 this._unsubAdmin?.()
                 this._unsubAccess?.()
+                this._unsubReports?.()
                 this._controller?.abort()
                 this.ready = false
                 this.profilesReady = false
                 this._settleStarted = false
+                this.reports = []
                 this.members = []
                 this.roles = []
                 this.gatedOut = false
@@ -1492,6 +1503,14 @@ export function registerNostrComponents(Alpine: {
                 })
                 this._unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
                     this.isAdmin = admin
+                })
+                // Melde-Queue (P3): Meldungen (kind 1984) laden + live halten. Die
+                // Ableitung ist billig; die UI zeigt sie nur Admins (x-show), also
+                // kein Gate auf den (async auflösenden) Admin-Status nötig.
+                loadSpaceReports(url)
+                watchSpaceReports(url, this._controller.signal)
+                this._unsubReports = deriveSpaceReports(url).subscribe((r: ReportView[]) => {
+                    this.reports = r
                 })
             })
         },
@@ -1661,6 +1680,67 @@ export function registerNostrComponents(Alpine: {
                 navigator.clipboard?.writeText(this.inviteLink).then(() => toast('Link kopiert.', 'success'))
             }
         },
+        // ── P3: Melde-Queue (NIP-56 kind 1984) ─────────────────────────────────
+        // Meldung verwerfen: den Report relay-seitig bannen (banevent) → er
+        // verschwindet aus der Queue (optimistisch lokal via removeEvent). Der
+        // gemeldete Inhalt bleibt unberührt. Gemeinsames busy-Gate wie die anderen
+        // Admin-Mutationen (immer nur eine Aktion offen).
+        async dismissReport(r: ReportView) {
+            if (!this._url || this.busy) {
+                return
+            }
+            this.busy = true
+            try {
+                const err = await banEvent(this._url, r.id, 'dismissed by admin')
+                if (err) {
+                    toast(err)
+                } else {
+                    repository.removeEvent(r.id)
+                }
+            } finally {
+                this.busy = false
+            }
+        },
+        // Gemeldeten Inhalt entfernen: das gemeldete Event bannen (banevent) UND die
+        // Meldung verwerfen (erledigt → aus der Queue). Beides relay-seitig, lokal
+        // optimistisch ausgeblendet.
+        async removeReportedContent(r: ReportView) {
+            if (!this._url || this.busy || !r.reportedId) {
+                return
+            }
+            this.busy = true
+            try {
+                const err = (await banEvent(this._url, r.reportedId)) || (await banEvent(this._url, r.id))
+                if (err) {
+                    toast(err)
+                } else {
+                    repository.removeEvent(r.reportedId)
+                    repository.removeEvent(r.id)
+                }
+            } finally {
+                this.busy = false
+            }
+        },
+        // Gemeldeten Autor bannen (banpubkey — entfernt ihn + löscht alle seine
+        // Events) UND die Meldung verwerfen. Der Autor-Bann räumt den gemeldeten
+        // Inhalt relay-seitig gleich mit weg.
+        async banReportedUser(r: ReportView) {
+            if (!this._url || this.busy || !r.reportedPubkey) {
+                return
+            }
+            this.busy = true
+            try {
+                const err = (await banSpaceMember(this._url, r.reportedPubkey)) || (await banEvent(this._url, r.id))
+                if (err) {
+                    toast(err)
+                } else {
+                    refreshSpaceAdmin(this._url)
+                    repository.removeEvent(r.id)
+                }
+            } finally {
+                this.busy = false
+            }
+        },
         // ── P2: Space-Metadaten bearbeiten (NIP-86 changerelay*) ───────────────
         // Vorbelegen aus dem NIP-11-Info-Doc + Snapshot (_spaceInitial) als Vergleichs-
         // basis: saveSpace sendet NUR Felder, die der Admin gegenüber dem Prefill wirklich
@@ -1759,6 +1839,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubRoles?.()
             this._unsubAdmin?.()
             this._unsubAccess?.()
+            this._unsubReports?.()
             this._controller?.abort()
         },
     }))

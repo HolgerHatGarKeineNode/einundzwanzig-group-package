@@ -46,6 +46,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
         {{-- Admin-Werkzeuge (nur wenn der Relay dem User NIP-86-Methoden erlaubt) --}}
         <div x-show="isAdmin" x-cloak class="flex flex-wrap gap-2">
+            {{-- Melde-Queue (P3, NIP-56 kind 1984). Count-Badge signalisiert offene
+                 Meldungen; reports werden in der Insel geladen + live gehalten. --}}
+            <flux:modal.trigger name="action-items">
+                <flux:button size="sm" variant="ghost" icon="flag">
+                    <span class="inline-flex items-center gap-1.5">
+                        {{ __('Meldungen') }}
+                        <span x-show="reports.length" x-cloak x-text="reports.length"
+                              class="rounded-full bg-red-500/15 px-1.5 py-0.5 text-xs font-semibold text-red-500"></span>
+                    </span>
+                </flux:button>
+            </flux:modal.trigger>
             {{-- Space-Metadaten (Name/Beschreibung/Icon, NIP-86 changerelay*). openSpaceEdit
                  belegt aus dem NIP-11 vor + öffnet das Modal selbst (kein modal.trigger nötig). --}}
             <flux:button size="sm" variant="ghost" icon="pencil-square" x-on:click="openSpaceEdit()">{{ __('Space') }}</flux:button>
@@ -274,6 +285,37 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="flex justify-end gap-2">
                     <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
                     <flux:button variant="primary" x-on:click="saveSpace()" ::disabled="spaceSaving">{{ __('Speichern') }}</flux:button>
+                </div>
+            </div>
+        </flux:modal>
+
+        {{-- Melde-Queue (P3, NIP-56 kind 1984): eingegangene „Fork off!"-Meldungen.
+             Je Meldung: verwerfen (banevent Report), Inhalt entfernen (banevent
+             gemeldetes Event + Report), Autor bannen (banpubkey + Report). --}}
+        <flux:modal name="action-items" class="max-w-md">
+            <div class="space-y-4">
+                <flux:heading size="lg">{{ __('Meldungen') }}</flux:heading>
+                <template x-if="reports.length === 0">
+                    <flux:text class="text-sm text-muted">{{ __('Keine offenen Meldungen.') }}</flux:text>
+                </template>
+                <div class="space-y-2">
+                    <template x-for="r in reports" :key="r.id">
+                        <div class="surface-card space-y-2 p-3">
+                            <div class="flex items-center gap-2">
+                                <flux:badge size="sm" color="red"><span x-text="r.reasonLabel"></span></flux:badge>
+                                {{-- Gemeldeter Autor: Klick öffnet das Profil (wie im Grid). --}}
+                                <button type="button" x-on:click="$dispatch('open-profile', r.reportedPubkey)"
+                                        class="pressable min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline" x-text="r.reportedName"></button>
+                            </div>
+                            {{-- Optionaler Freitext des Melders. --}}
+                            <p x-show="r.text" x-cloak class="text-sm text-muted" x-text="r.text"></p>
+                            <div class="flex flex-wrap justify-end gap-2">
+                                <flux:button size="xs" variant="ghost" x-on:click="dismissReport(r)" ::disabled="busy">{{ __('Verwerfen') }}</flux:button>
+                                <flux:button size="xs" variant="ghost" icon="trash" x-on:click="removeReportedContent(r)" ::disabled="busy">{{ __('Inhalt entfernen') }}</flux:button>
+                                <flux:button size="xs" variant="danger" icon="no-symbol" x-on:click="banReportedUser(r)" ::disabled="busy">{{ __('Autor bannen') }}</flux:button>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </div>
         </flux:modal>
