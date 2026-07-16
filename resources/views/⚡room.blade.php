@@ -246,6 +246,32 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </flux:modal>
 
+    {{-- Admin: fremde Nachricht entfernen (NIP-86 banevent). Relay-seitige Löschung,
+         unwiderruflich. Nur erreichbar, wenn isAdmin die Menü-Einträge freigibt. --}}
+    <flux:modal name="admin-delete-message" class="max-w-sm">
+        <div class="space-y-4">
+            <flux:heading size="lg">{{ __('Nachricht entfernen?') }}</flux:heading>
+            <flux:text>{{ __('Als Admin entfernst du diese fremde Nachricht relay-seitig für alle. Das lässt sich nicht rückgängig machen.') }}</flux:text>
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
+                <flux:button variant="danger" x-on:click="confirmAdminDelete()" ::disabled="moderating">{{ __('Entfernen') }}</flux:button>
+            </div>
+        </div>
+    </flux:modal>
+
+    {{-- Admin: Autor bannen (NIP-86 banpubkey). Entfernt ihn als Mitglied UND löscht
+         relay-seitig ALLE seine Nachrichten — deshalb explizit im Text. --}}
+    <flux:modal name="ban-author" class="max-w-sm">
+        <div class="space-y-4">
+            <flux:heading size="lg">{{ __('Autor bannen?') }}</flux:heading>
+            <flux:text>{{ __('Der Autor verliert die Mitgliedschaft im Space und alle seine bisherigen Nachrichten werden relay-seitig gelöscht. Das lässt sich nicht rückgängig machen.') }}</flux:text>
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
+                <flux:button variant="danger" x-on:click="confirmBanAuthor()" ::disabled="moderating">{{ __('Bannen') }}</flux:button>
+            </div>
+        </div>
+    </flux:modal>
+
     {{-- Zap senden (Z3, NIP-57): Sats-Presets + Freibetrag + Emoji/Kommentar. Wallet
          verbunden → Auto-Pay; sonst QR-Fallback (bolt11 + Live-Receipt-Erkennung).
          Inline-Sheet am nostrRoomChat-Root-Scope (kein eigenes Island — nur EINE
@@ -491,6 +517,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="if (menuFor) { askReport(menuFor); closeMessageMenu() }">Fork off!</flux:button>
             <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="!_menuInThread && menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askDelete(menuFor); closeMessageMenu() }">{{ __('Löschen') }}</flux:button>
+            {{-- Moderation (P1, NIP-86): nur Admins, nur fremde Nachrichten. Wirkt in Raum UND
+                 Thread (banevent/banpubkey kind-agnostisch). askAdminDelete/askBanAuthor merken
+                 das Ziel, dann schließt das Menü-Modal (öffnet die jeweilige Bestätigung). --}}
+            <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="isAdmin && !menuFor?.mine" x-cloak
+                         x-on:click="if (menuFor) { askAdminDelete(menuFor); closeMessageMenu() }">{{ __('Nachricht entfernen') }}</flux:button>
+            <flux:button variant="danger" icon="no-symbol" class="w-full justify-start" x-show="isAdmin && !menuFor?.mine" x-cloak
+                         x-on:click="if (menuFor) { askBanAuthor(menuFor); closeMessageMenu() }">{{ __('Autor bannen') }}</flux:button>
             {{-- C4: Kopieren/Info (nur lesen). copy*/openInfo schließen das Menü selbst. --}}
             <flux:separator class="my-1" />
             <flux:button variant="ghost" icon="link" class="w-full justify-start"

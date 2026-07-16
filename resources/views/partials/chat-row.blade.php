@@ -324,6 +324,18 @@
                                                 <flux:menu.item icon="trash" variant="danger" x-on:click="askDelete(m)">{{ __('Löschen') }}</flux:menu.item>
                                             </template>
                                             @endif
+                                            {{-- Moderation (P1, NIP-86): nur Admins, nur fremde Nachrichten. $context-agnostisch
+                                                 (banevent/banpubkey wirken auf jedes kind, auch Thread-Kommentare). Drei separate
+                                                 template x-if, je EIN flux-Kind — ein Wrapper-Div verschluckte flux:menu. --}}
+                                            <template x-if="isAdmin && !m.mine">
+                                                <flux:menu.separator />
+                                            </template>
+                                            <template x-if="isAdmin && !m.mine">
+                                                <flux:menu.item icon="trash" variant="danger" x-on:click="askAdminDelete(m)">{{ __('Nachricht entfernen') }}</flux:menu.item>
+                                            </template>
+                                            <template x-if="isAdmin && !m.mine">
+                                                <flux:menu.item icon="no-symbol" variant="danger" x-on:click="askBanAuthor(m)">{{ __('Autor bannen') }}</flux:menu.item>
+                                            </template>
                                             {{-- C4: Kopieren/Info (nur lesen, kein Publish). --}}
                                             <flux:menu.separator />
                                             <flux:menu.item icon="link" x-on:click="copyNevent(m)">{{ __('Event-Link kopieren') }}</flux:menu.item>

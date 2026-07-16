@@ -350,6 +350,18 @@ export const banSpaceMember = async (url: string, pubkey: string, reason = ''): 
 export const unbanSpaceMember = async (url: string, pubkey: string): Promise<string> =>
     manageError(await manageRelay(url, { method: ManagementMethod.UnbanPubkey, params: [pubkey] }))
 
+// Event-Moderation (NIP-86 banevent): entfernt EIN Event relay-seitig (löscht es +
+// trägt die id in die Banned-Events-Liste). Das ist die Admin-Löschung fremder
+// Nachrichten — im Gegensatz zum eigenen kind-5-Delete braucht sie kein Signatur-
+// Recht am Event, nur den Admin-Status am Relay. '' = Erfolg.
+export const banEvent = async (url: string, id: string, reason = ''): Promise<string> =>
+    manageError(
+        await manageRelay(url, {
+            method: ManagementMethod.BanEvent,
+            params: reason ? [id, reason] : [id],
+        }),
+    )
+
 export type BannedMember = { pubkey: string; npub: string; short: string; reason: string }
 
 /** Lädt die Ban-Liste (`listbannedpubkeys`) frisch als Promise (kein Store-Cache). */

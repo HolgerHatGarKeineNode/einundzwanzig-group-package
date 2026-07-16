@@ -76,6 +76,7 @@ import {
     banSpaceMember,
     unbanSpaceMember,
     addSpaceMember,
+    banEvent,
     type DirectoryView,
     type MemberView,
     type RoleView,
@@ -501,6 +502,11 @@ type RoomChatState = {
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
     _menuInThread: boolean // Mobile-Menü aus dem Thread geöffnet → Raum-only-Aktionen ausblenden, Antworten→setThreadReply
     infoFor: MessageInfo | null // Roh-Event-Details der offenen Nachricht-Info (C4)
+    // Moderation (P1, NIP-86): nur wenn der Relay dem User Management-Methoden erlaubt.
+    isAdmin: boolean // Admin des aktiven Space? (deriveUserIsSpaceAdmin, reaktiv)
+    pendingAdminDelete: ChatMessage | null // Zielnachricht der offenen Admin-Löschen-Bestätigung (banevent)
+    banAuthorFor: ChatMessage | null // Ziel-Autor der offenen Bannen-Bestätigung (banpubkey)
+    moderating: boolean // banevent/banpubkey läuft (Doppel-Klick-Guard)
     // Thread-Ansicht (C6b, NIP-22): In-Room-Overlay statt eigener Route.
     threadRootId: string | null // Root-Event des offenen Threads (null = Overlay zu)
     threadRoot: ThreadRoot | null // aufgelöster Root (die zitierte Nachricht)
@@ -520,6 +526,7 @@ type RoomChatState = {
     _mentionTarget: 'main' | 'thread' // welcher Composer die @-Mention gerade füttert (draft vs threadDraft)
     _members: MentionItem[] // Space-Mitglieder als Mention-Quelle (Directory)
     _unsubMembers: null | (() => void)
+    _unsubAdmin: null | (() => void) // deriveUserIsSpaceAdmin-Subscription (P1)
     _unsubRoomMeta: null | (() => void)
     _url: string | null
     _lastRead: number
@@ -590,6 +597,10 @@ type RoomChatState = {
     remove(id: string, createdAt: number): Promise<void>
     askReport(m: ChatMessage): void
     confirmReport(): Promise<void>
+    askAdminDelete(m: ChatMessage): void
+    confirmAdminDelete(): Promise<void>
+    askBanAuthor(m: ChatMessage): void
+    confirmBanAuthor(): Promise<void>
     openZap(m: ChatMessage): Promise<void>
     confirmZap(): Promise<void>
     closeZap(): void
@@ -1714,6 +1725,10 @@ export function registerNostrComponents(Alpine: {
         menuFor: null,
         _menuInThread: false,
         infoFor: null,
+        isAdmin: false,
+        pendingAdminDelete: null,
+        banAuthorFor: null,
+        moderating: false,
         threadRootId: null,
         threadRoot: null,
         threadComments: [],
@@ -1731,6 +1746,7 @@ export function registerNostrComponents(Alpine: {
         _mentionStart: -1,
         _members: [],
         _unsubMembers: null,
+        _unsubAdmin: null,
         _unsubRoomMeta: null,
         _url: null,
         _lastRead: 0,
@@ -1871,6 +1887,12 @@ export function registerNostrComponents(Alpine: {
             })
             this._unsubJoined = deriveUserInRoom(url, this.h).subscribe((isMember: boolean) => {
                 this.joined = isMember
+            })
+            // Admin-Status des aktiven Space (P1): gatet die Moderations-Einträge im
+            // Nachrichten-Menü. Relay-autoritativ (SupportedMethods), pubkey-abhängig →
+            // beim Login-Wechsel/Space-Wechsel neu (setup läuft dann ohnehin erneut).
+            this._unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
+                this.isAdmin = admin
             })
             // Raum-Anzeigename aus der Client-Meta (39000) reaktiv nachziehen — der
             // SSR-Header trägt bei member-only-Relays nur den Slug (Server hat keine
@@ -2170,6 +2192,8 @@ export function registerNostrComponents(Alpine: {
             this._unsubJoined = null
             this._unsubMembers?.()
             this._unsubMembers = null
+            this._unsubAdmin?.()
+            this._unsubAdmin = null
             this._unsubRoomMeta?.()
             this._unsubRoomMeta = null
             this._zapSub?.abort()
@@ -2893,6 +2917,75 @@ export function registerNostrComponents(Alpine: {
                 }
             } finally {
                 this.reporting = false
+            }
+        },
+        // ── P1: Admin-Moderation (NIP-86) ──────────────────────────────────────
+        // Fremde Nachricht entfernen (banevent): Ziel merken, Bestätigung öffnen.
+        // Nur für Admins erreichbar (isAdmin gatet die Menü-Einträge).
+        askAdminDelete(m: ChatMessage) {
+            this.activeId = null
+            this.pendingAdminDelete = m
+            dispatchModal('admin-delete-message')
+        },
+        // Bestätigt: banevent publizieren; bei Erfolg lokal aus dem Repository nehmen
+        // (der abgeleitete Feed re-emittiert dann ohne die Nachricht, wie beim Retract
+        // eines fehlgeschlagenen Publish). Bei Fehler bleibt die Nachricht sichtbar.
+        async confirmAdminDelete() {
+            const m = this.pendingAdminDelete
+            if (!m || !this._url || this.moderating) {
+                return
+            }
+            this.moderating = true
+            try {
+                const err = await banEvent(this._url, m.id)
+                if (err) {
+                    toast(err)
+                } else {
+                    repository.removeEvent(m.id)
+                    dispatchModal('admin-delete-message', false)
+                    this.pendingAdminDelete = null
+                }
+            } finally {
+                this.moderating = false
+            }
+        },
+        // Autor bannen (banpubkey): Ziel merken, Bestätigung öffnen. Der Ban entfernt
+        // den Autor als Space-Mitglied UND löscht relay-seitig ALLE seine Events —
+        // das Bestätigungs-Modal sagt das explizit.
+        askBanAuthor(m: ChatMessage) {
+            this.activeId = null
+            this.banAuthorFor = m
+            dispatchModal('ban-author')
+        },
+        async confirmBanAuthor() {
+            const m = this.banAuthorFor
+            if (!m || !this._url || this.moderating) {
+                return
+            }
+            this.moderating = true
+            try {
+                const err = await banSpaceMember(this._url, m.pubkey)
+                if (err) {
+                    toast(err)
+                } else {
+                    // Admin-Cache invalidieren (Mitgliederliste änderte sich) + die lokal
+                    // geladenen Nachrichten des Autors optimistisch ausblenden. ponytail:
+                    // nur das geladene Fenster — ältere räumt der nächste Load/die Live-Sub.
+                    refreshSpaceAdmin(this._url)
+                    // Raum-Feed UND (falls offen) die Kommentare des aktuellen Threads:
+                    // Thread-Kommentare (kind 1111) liegen NICHT in this.messages, sondern
+                    // in threadComments (deriveThread) → sonst blieben die Antworten des
+                    // Gebannten im offenen Overlay stehen (wie confirmAdminDelete am Ziel).
+                    for (const msg of [...this.messages, ...this.threadComments]) {
+                        if (msg.pubkey === m.pubkey) {
+                            repository.removeEvent(msg.id)
+                        }
+                    }
+                    dispatchModal('ban-author', false)
+                    this.banAuthorFor = null
+                }
+            } finally {
+                this.moderating = false
             }
         },
         // ── Z3: Zap (NIP-57) ────────────────────────────────────────────────────
