@@ -174,28 +174,13 @@
                                  aus dem Bild. `mt-1` als Padding (flow-root/border-box → offsetHeight
                                  erfasst es). --}}
                             <div :id="'chips-'+m.id" class="mt-1 flex min-h-7 flex-wrap items-center gap-1">
-                                {{-- Reaction-Chips (C1): pro Emoji Zähler + eigener Toggle-Zustand. --}}
-                                <template x-for="r in m.reactions" :key="r.key">
-                                    {{-- Pills homogen: feste Höhe + Mindestbreite, Emoji/Bild auf
-                                         identische Größe normiert (das Inline-`chat-emoji` wäre sonst
-                                         1.4em → höhere Pill als ein Unicode-Emoji). --}}
-                                    <button type="button" x-on:click.stop="toggleReaction(m, r)" :aria-pressed="r.mine"
-                                            :title="r.names"
-                                            class="chip-in pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
-                                            :class="r.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
-                                        <template x-if="r.emojiUrl"><img class="chat-emoji !size-4 shrink-0 object-contain" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
-                                        <template x-if="!r.emojiUrl"><span x-text="r.label"></span></template>
-                                        <span x-show="r.count > 1" x-text="r.count" class="font-mono text-xs"></span>
-                                    </button>
-                                </template>
                                 {{-- Antworten-Indikator (C6b, Slack-Stil): erscheint an JEDER Nachricht mit
                                      ≥1 Antwort (kind 1111). Überlappende Teilnehmer-Gesichter + Zähler +
                                      „vor …" der letzten Antwort → öffnet den Thread. Passt in die reservierte
                                      Chip-Lane (h-7 = min-h-7), also kein Layout-Sprung beim Nachladen.
-                                     REIHENFOLGE: Reaktionen → Thread → Zap. So entspricht die DOM-Ordnung
-                                     der typischen Ankunft (Reaktionen früh, Thread, dann Zap) → jedes
-                                     Nachzügler-Chip hängt RECHTS an statt ein bestehendes (v.a. den breiten
-                                     Thread-Pill) horizontal wegzuschieben. --}}
+                                     REIHENFOLGE: Thread → Reaktionen → Zap. Der klickbare Thread-Pill steht
+                                     bewusst ZUERST (wichtigste Navigations-Aktion); Reaktionen und Zaps hängen
+                                     rechts an. --}}
                                 <template x-if="m.thread">
                                     {{-- P2: Pille = teilbarer Deep-Link auf die Thread-Route (wire:navigate,
                                          Vollansicht) statt In-Place-Modal. Real-`<a>` → back/mittelklick/teilbar.
@@ -215,12 +200,26 @@
                                         <flux:icon.chevron-right class="size-3.5 shrink-0 opacity-60 transition-transform motion-reduce:transition-none group-hover/th:translate-x-0.5" />
                                     </a>
                                 </template>
+                                {{-- Reaction-Chips (C1): pro Emoji Zähler + eigener Toggle-Zustand. --}}
+                                <template x-for="r in m.reactions" :key="r.key">
+                                    {{-- Pills homogen: feste Höhe + Mindestbreite, Emoji/Bild auf
+                                         identische Größe normiert (das Inline-`chat-emoji` wäre sonst
+                                         1.4em → höhere Pill als ein Unicode-Emoji). --}}
+                                    <button type="button" x-on:click.stop="toggleReaction(m, r)" :aria-pressed="r.mine"
+                                            :title="r.names"
+                                            class="chip-in pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
+                                            :class="r.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
+                                        <template x-if="r.emojiUrl"><img class="chat-emoji !size-4 shrink-0 object-contain" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
+                                        <template x-if="!r.emojiUrl"><span x-text="r.label"></span></template>
+                                        <span x-show="r.count > 1" x-text="r.count" class="font-mono text-xs"></span>
+                                    </button>
+                                </template>
                                 {{-- ⚡-Zap-Chip (Z3): validierte 9735-Summe in Sats, Brand-Ramp,
                                      hervorgehoben wenn man selbst (mit)gezappt hat. Tap re-zappt
                                      (nur fremde Nachrichten → openZap gatet über m.zappable).
                                      Bei Goals (Z5) unterdrückt — der Fortschrittsbalken zeigt die Summe.
-                                     ZULETZT in der Lane (s. Reihenfolge-Hinweis oben): der Zap trifft oft
-                                     spät ein und darf den Thread-Pill nicht wegschieben. --}}
+                                     ZULETZT in der Lane (s. Reihenfolge-Hinweis oben): Thread-Pill zuerst,
+                                     Reaktionen, dann Zap ganz rechts. --}}
                                 <template x-if="m.zaps.count && !m.goal">
                                     <button type="button"
                                             x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
