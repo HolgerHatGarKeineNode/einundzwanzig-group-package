@@ -5,10 +5,10 @@
  * verwerfen, den gemeldeten Inhalt entfernen oder den Autor bannen (Aktionen laufen
  * über die vorhandenen NIP-86-Wrapper `banEvent`/`banSpaceMember` in bridge.ts).
  *
- * Pending Join-Requests (Flotillas zweite Action-Item-Art) sind hier bewusst NICHT
- * enthalten: zooid genehmigt Beitritte offener Räume automatisch → es gibt keine
- * „offene" Anfrage; sie entstehen nur bei `closed`-Räumen, die erst mit der Raum-
- * Verwaltung (P4) erzeugt werden können. Kommt mit P4.
+ * Pending Join-Requests (Flotillas zweite Action-Item-Art) sind seit P4b hier mit
+ * abgeleitet (`deriveSpaceJoinRequests`): zooid genehmigt Beitritte offener Räume
+ * automatisch → „offene" Anfragen entstehen nur bei `closed`-Räumen (kind 9021 ohne
+ * folgendes 39002-Mitglied bzw. jüngeres 9022-Leave). Annehmen/Ablehnen in bridge.ts.
  */
 import { derived, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
