@@ -8,6 +8,7 @@
 import { get, type Readable } from 'svelte/store'
 import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, loadZapper } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
+import { randomId } from '@welshman/lib'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
 import { load } from '@welshman/net'
@@ -53,7 +54,12 @@ import {
     loadSpaceInviteClaim,
     userSpaceUrls,
     isVereinRelay,
+    createRoom,
+    editRoomMeta,
+    deleteRoom,
     type SpaceView,
+    type RoomView,
+    type RoomInput,
 } from './groups'
 import {
     deriveSpaceDirectory,
@@ -365,13 +371,28 @@ type SpacesState = {
     gatedOut: boolean
     tab: string // aktiver Tab („rooms"/„threads"), aus ?tab= gelesen + dorthin gespiegelt (verlinkbar)
     threads: SpaceThread[] // aktive Threads des Space (C6b, Startseiten-Übersicht)
+    // Raum-Verwaltung (P4, Admin): anlegen/bearbeiten/löschen
+    isAdmin: boolean
+    roomForm: RoomInput // beim Anlegen mit frisch gemintetem stabilem `h` (retry-sicher)
+    _roomEditing: boolean // Bearbeiten (true) vs. Anlegen (false) — h ist in beiden Fällen gesetzt
+    _roomIconFile: File | null // neu gewähltes Raumbild (Upload erst beim Speichern)
+    roomSaving: boolean
+    pendingRoomDelete: RoomView | null // Zielraum der offenen Lösch-Bestätigung
+    _url: string | null // aktive Space-URL (für die Admin-Mutationen)
     _unsubView: null | (() => void)
     _unsubActive: null | (() => void)
     _unsubAccess: null | (() => void)
+    _unsubAdmin: null | (() => void)
     _unsubThreads: null | (() => void)
     _controller: AbortController | null
     init(): void
     roomName(h: string): string
+    openRoomCreate(): void
+    openRoomEdit(room: RoomView): void
+    pickRoomPicture(input: HTMLInputElement): void
+    saveRoom(): Promise<void>
+    askDeleteRoom(room: RoomView): void
+    confirmDeleteRoom(): Promise<void>
     destroy(): void
 }
 
@@ -1277,15 +1298,119 @@ export function registerNostrComponents(Alpine: {
         // Tab aus der URL (?tab=threads) übernehmen → Startseite ist direkt verlinkbar.
         tab: new URLSearchParams(window.location.search).get('tab') === 'threads' ? 'threads' : 'rooms',
         threads: [],
+        isAdmin: false,
+        roomForm: { h: '', name: '', about: '', picture: '', isPrivate: false, isClosed: false, isHidden: false, isRestricted: false },
+        _roomEditing: false,
+        _roomIconFile: null,
+        roomSaving: false,
+        pendingRoomDelete: null,
+        _url: null,
         _unsubView: null,
         _unsubActive: null,
         _unsubAccess: null,
+        _unsubAdmin: null,
         _unsubThreads: null,
         _controller: null,
         // Raumname zu einem h-Tag (aus den bereits geladenen Space-Räumen) — für die Thread-Liste.
         roomName(h: string): string {
             const rooms = [...(this.space?.userRooms ?? []), ...(this.space?.otherRooms ?? [])]
             return rooms.find((r) => r.h === h)?.name || h
+        },
+        // ── P4: Raum-Verwaltung (Admin, NIP-29 9007/9002/9008) ─────────────────
+        openRoomCreate() {
+            // `h` EINMALIG minten (retry-sicher): schlägt ein Publish-Schritt fehl, füllt
+            // ein erneutes Speichern denselben Raum weiter, statt einen zweiten anzulegen.
+            this.roomForm = { h: randomId(), name: '', about: '', picture: '', isPrivate: false, isClosed: false, isHidden: false, isRestricted: false }
+            this._roomEditing = false
+            this._roomIconFile = null
+            dispatchModal('room-form')
+        },
+        // Bearbeiten: alle Felder + Flags aus der RoomView vorbelegen (die einzeln
+        // getragenen Flags verhindern, dass ein Speichern bestehende wegwirft).
+        openRoomEdit(room: RoomView) {
+            this.roomForm = {
+                h: room.h,
+                name: room.name,
+                about: room.about,
+                picture: room.picture,
+                isPrivate: room.isPrivate,
+                isClosed: room.isClosed,
+                isHidden: room.isHidden,
+                isRestricted: room.isRestricted,
+            }
+            this._roomEditing = true
+            this._roomIconFile = null
+            dispatchModal('room-form')
+        },
+        // Raumbild wählen: Datei merken + roomForm.picture als data-URL-Vorschau; der
+        // echte Upload läuft erst in saveRoom (Abbrechen lädt nichts). `input.value`
+        // leeren, damit dieselbe Datei erneut wählbar bleibt (wie pickSpaceIcon).
+        pickRoomPicture(input: HTMLInputElement) {
+            const file = input.files?.[0]
+            input.value = ''
+            if (!file || !file.type.startsWith('image/')) {
+                return
+            }
+            this._roomIconFile = file
+            const reader = new FileReader()
+            reader.onload = (e) => {
+                this.roomForm.picture = String(e.target?.result ?? '')
+            }
+            reader.readAsDataURL(file)
+        },
+        // Speichern: neues Bild vorher hochladen, dann anlegen (h leer) oder bearbeiten.
+        // Der Live-Sub (watchSpaceRooms) reflektiert das relay-signierte 39000 selbst.
+        async saveRoom() {
+            const url = this._url
+            if (!url || this.roomSaving || !this.roomForm.name.trim()) {
+                return
+            }
+            this.roomSaving = true
+            const editing = this._roomEditing
+            try {
+                if (this._roomIconFile) {
+                    const uploaded = await uploadAttachment(this._roomIconFile)
+                    this.roomForm.picture = uploaded.url
+                    // Datei-Referenz lösen: bei einem Retry liegt die URL schon in
+                    // roomForm.picture → kein zweiter Upload (Blossom ist ohnehin
+                    // content-addressed, aber der Sign+Upload-Roundtrip entfällt).
+                    this._roomIconFile = null
+                }
+                const input: RoomInput = { ...this.roomForm, name: this.roomForm.name.trim(), about: this.roomForm.about.trim() }
+                const err = editing ? await editRoomMeta(url, input) : await createRoom(url, input)
+                if (err) {
+                    toast(err)
+                } else {
+                    dispatchModal('room-form', false)
+                    toast(editing ? 'Raum gespeichert.' : 'Raum erstellt.', 'success')
+                }
+            } catch {
+                toast('Speichern fehlgeschlagen.')
+            } finally {
+                this.roomSaving = false
+            }
+        },
+        askDeleteRoom(room: RoomView) {
+            this.pendingRoomDelete = room
+            dispatchModal('delete-room')
+        },
+        async confirmDeleteRoom() {
+            const room = this.pendingRoomDelete
+            if (!room || !this._url || this.roomSaving) {
+                return
+            }
+            this.roomSaving = true
+            try {
+                const err = await deleteRoom(this._url, room.h)
+                if (err) {
+                    toast(err)
+                } else {
+                    dispatchModal('delete-room', false)
+                    this.pendingRoomDelete = null
+                }
+            } finally {
+                this.roomSaving = false
+            }
         },
         init() {
             // Tab-Wechsel in die URL spiegeln (replaceState, keine Navigation) → verlinkbar,
@@ -1306,9 +1431,15 @@ export function registerNostrComponents(Alpine: {
             // auf). Live statt One-Shot: überlebt langsames NIP-42-AUTH → Räume
             // erscheinen auch, wenn der Signer erst spät bestätigt.
             this._unsubActive = activeSpace.subscribe((url: string) => {
+                this._url = url
                 this._controller?.abort()
                 this._controller = new AbortController()
                 watchSpaceRooms(url, this._controller.signal)
+                // Admin-Status (P4): gatet „+ Raum" + die Kachel-Aktionen.
+                this._unsubAdmin?.()
+                this._unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
+                    this.isAdmin = admin
+                })
                 // Threads-Übersicht des Space (C6b): Kommentare + Wurzeln laden, reaktiv anzeigen.
                 this._unsubThreads?.()
                 this._unsubThreads = deriveSpaceThreads(url).subscribe((t: SpaceThread[]) => {
@@ -1331,6 +1462,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubActive?.()
             this._unsubView?.()
             this._unsubAccess?.()
+            this._unsubAdmin?.()
             this._unsubThreads?.()
             this._controller?.abort()
         },

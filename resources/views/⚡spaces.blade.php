@@ -105,6 +105,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                 {{-- Tab „Räume" --}}
                 <flux:tab.panel name="rooms" class="mt-3">
+                    {{-- Admin (P4): neuen Raum anlegen (NIP-29 9007/9002). --}}
+                    <div x-show="isAdmin" x-cloak class="mb-2 flex justify-end">
+                        <flux:button size="sm" variant="primary" icon="plus" x-on:click="openRoomCreate()">{{ __('Raum') }}</flux:button>
+                    </div>
                     <div class="surface-card overflow-hidden p-3">
                         {{-- Räume laden noch --}}
                         <template x-if="loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0">
@@ -198,6 +202,52 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </flux:tab.panel>
             </flux:tab.group>
         </div>
+
+        {{-- ── Raum-Verwaltung (P4, Admin) ──────────────────────────────────── --}}
+
+        {{-- Raum anlegen/bearbeiten (NIP-29 9007/9002). Leeres roomForm.h = Anlegen. --}}
+        <flux:modal name="room-form" class="max-w-sm">
+            <div class="space-y-4">
+                <flux:heading size="lg" x-text="roomForm.h ? @js(__('Raum bearbeiten')) : @js(__('Neuer Raum'))"></flux:heading>
+
+                {{-- Raumbild: runde-eckige Vorschau + „wählen". Upload erst beim Speichern. --}}
+                <div class="flex items-center gap-3">
+                    <div class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-tile bg-zinc-100 dark:bg-zinc-800">
+                        <img x-show="roomForm.picture" :src="roomForm.picture" alt="" class="size-full object-cover" />
+                        <span x-show="!roomForm.picture" class="font-mono text-lg font-semibold text-zinc-400">#</span>
+                    </div>
+                    <flux:button size="sm" variant="ghost" icon="photo" x-on:click="$refs.roomPic.click()">{{ __('Bild wählen') }}</flux:button>
+                    <input type="file" accept="image/*" class="hidden" x-ref="roomPic" x-on:change="pickRoomPicture($event.target)" />
+                </div>
+
+                <flux:input label="{{ __('Name') }}" x-model="roomForm.name" placeholder="{{ __('z.B. Allgemein') }}" />
+                <flux:textarea label="{{ __('Beschreibung') }}" x-model="roomForm.about" rows="2" placeholder="{{ __('Optional') }}" />
+
+                {{-- Natives Checkbox (zuverlässiges x-model) statt Flux-Komponente. --}}
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" x-model="roomForm.isPrivate" class="accent-brand-500" />
+                    {{ __('Privater Raum (nur Mitglieder)') }}
+                </label>
+
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
+                    <flux:button variant="primary" x-on:click="saveRoom()" ::disabled="roomSaving || !roomForm.name.trim()">{{ __('Speichern') }}</flux:button>
+                </div>
+            </div>
+        </flux:modal>
+
+        {{-- Raum löschen (NIP-29 9008 → 39000-Tombstone). --}}
+        <flux:modal name="delete-room" class="max-w-sm">
+            <div class="space-y-4">
+                <flux:heading size="lg">{{ __('Raum löschen?') }}</flux:heading>
+                <flux:text>{{ __('Dieser Raum wird für alle entfernt. Das lässt sich nicht rückgängig machen.') }}</flux:text>
+                <div class="surface-card rounded-tile p-2 text-sm font-medium" x-text="pendingRoomDelete?.name"></div>
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
+                    <flux:button variant="danger" x-on:click="confirmDeleteRoom()" ::disabled="roomSaving">{{ __('Löschen') }}</flux:button>
+                </div>
+            </div>
+        </flux:modal>
     </div>
 
 </x-group::app-shell>

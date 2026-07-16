@@ -31,6 +31,7 @@ import { load, request } from '@welshman/net'
 import {
     ROOMS,
     ROOM_META,
+    ROOM_CREATE,
     ROOM_DELETE,
     ROOM_MEMBERS,
     ROOM_JOIN,
@@ -40,6 +41,7 @@ import {
     RELAY_INVITE,
     readList,
     readRoomMeta,
+    makeRoomEditEvent,
     asDecryptedEvent,
     makeEvent,
     makeList,
@@ -55,7 +57,7 @@ import {
     type PublishedList,
     type TrustedEvent,
 } from '@welshman/util'
-import { uniq, sortBy, partition } from '@welshman/lib'
+import { uniq, sortBy, partition, randomId } from '@welshman/lib'
 import { spaceSupportsRooms, spaceBranding } from './relayCaps'
 import type { RelayProfile } from '@welshman/util'
 
@@ -191,7 +193,20 @@ export const displayRoom = (room: Room | undefined, h: string): string => room?.
 
 // ── Aggregierte Sicht für die UI ─────────────────────────────────────────────
 
-export type RoomView = { h: string; name: string; picture: string; locked: boolean }
+export type RoomView = {
+    h: string
+    name: string
+    /** Beschreibung (39000 `about`), '' wenn keine — für den Edit-Prefill. */
+    about: string
+    picture: string
+    /** Aggregiert (privat|eingeschränkt|geschlossen) → Schloss-Badge. */
+    locked: boolean
+    // Einzel-Flags (für den Admin-Edit-Prefill, damit ein Speichern keine wegwirft).
+    isPrivate: boolean
+    isClosed: boolean
+    isHidden: boolean
+    isRestricted: boolean
+}
 export type SpaceView = {
     url: string
     label: string
@@ -239,8 +254,13 @@ const buildSpaceView = (
             return {
                 h,
                 name: displayRoom(room, h),
+                about: room?.about ?? '',
                 picture: room?.picture ?? '',
                 locked: Boolean(room?.isPrivate || room?.isRestricted || room?.isClosed),
+                isPrivate: Boolean(room?.isPrivate),
+                isClosed: Boolean(room?.isClosed),
+                isHidden: Boolean(room?.isHidden),
+                isRestricted: Boolean(room?.isRestricted),
             }
         })
 
@@ -434,6 +454,66 @@ export const joinRoom = (url: string, h: string): Promise<string> =>
 /** Verlässt einen Raum: Leave-Request (kind 9022) → Relay entfernt aus der 39002. */
 export const leaveRoom = (url: string, h: string): Promise<string> =>
     waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_LEAVE, { tags: [['h', h]] }) }))
+
+// ── Raum-Verwaltung (Admin, NIP-29 9007/9002/9008 → relay-signierte 39000) ───
+// Nur `can_manage`-Admins dürfen diese Moderations-Events schreiben; der Relay
+// verarbeitet sie in `OnEventSaved` zum relay-signierten 39000 (bzw. Tombstone).
+
+export type RoomInput = {
+    h: string
+    name: string
+    about: string
+    picture: string
+    isPrivate: boolean
+    isClosed: boolean
+    isHidden: boolean
+    isRestricted: boolean
+}
+
+/**
+ * Baut das 9002-Meta-Event via welshmans `makeRoomEditEvent`. Entscheidend beim
+ * Bearbeiten: zooid ersetzt das 39000 KOMPLETT aus den 9002-Tags → makeRoomEditEvent
+ * kopiert die bestehenden Tags des vorhandenen 39000 (`pictureMeta`, fremde/relay-
+ * gesetzte) mit, sonst gingen sie bei jeder Änderung verloren. Beim Anlegen (kein
+ * `existing`) baut es das Event allein aus dem Input.
+ */
+const roomMetaEvent = (url: string, input: RoomInput) => {
+    const existing = get(roomsById).get(makeRoomId(url, input.h))
+    return makeRoomEditEvent({ ...input, pictureMeta: existing?.pictureMeta, event: existing?.event })
+}
+
+/** „bereits vorhanden"-Antworten des Relays (idempotenter Retry über gleiches `h`). */
+const isAlreadyError = (err: string): boolean => /already|duplicate/i.test(err)
+
+/**
+ * Legt einen neuen Raum an (wie der Referenz-Client): kind 9007 (Create, nur `h`) →
+ * kind 9002 (Metadaten) → kind 9021 (der Ersteller tritt bei, erscheint in „Meine
+ * Räume"). `h` MUSS vom Aufrufer stabil vergeben sein (openRoomCreate mintet es
+ * einmalig) — so vervollständigt ein Retry nach partiellem Fehler denselben Raum,
+ * statt einen zweiten Waisen anzulegen. „already/duplicate" auf Create/Join wird
+ * daher toleriert. '' = Erfolg.
+ */
+export const createRoom = async (url: string, input: RoomInput): Promise<string> => {
+    const h = input.h || randomId()
+    const createErr = await waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_CREATE, { tags: [['h', h]] }) }))
+    if (createErr && !isAlreadyError(createErr)) {
+        return createErr
+    }
+    const metaErr = await waitForThunkError(publishThunk({ relays: [url], event: roomMetaEvent(url, { ...input, h }) }))
+    if (metaErr) {
+        return metaErr
+    }
+    const joinErr = await joinRoom(url, h)
+    return joinErr && !isAlreadyError(joinErr) ? joinErr : ''
+}
+
+/** Ändert die Raum-Metadaten (kind 9002, bestehende 39000-Tags werden bewahrt). */
+export const editRoomMeta = (url: string, input: RoomInput): Promise<string> =>
+    waitForThunkError(publishThunk({ relays: [url], event: roomMetaEvent(url, input) }))
+
+/** Löscht einen Raum (kind 9008 → 39000-Tombstone, roomsByUrl blendet ihn aus). */
+export const deleteRoom = (url: string, h: string): Promise<string> =>
+    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE, { tags: [['h', h]] }) }))
 
 // ── Space beitreten/verlassen (Space-Ebene, NIP-29 kind 28934/28936) ─────────
 
