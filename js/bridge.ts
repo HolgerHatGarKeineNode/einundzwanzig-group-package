@@ -2513,9 +2513,12 @@ export function registerNostrComponents(Alpine: {
                 this.loading = false
             }
 
+            // Kaltstart-Race, siehe finally: kam der Verlauf LEER vom Relay zurück?
+            let netloadEmpty = false
             loadRoomMessages(url, this.h)
                 .then(
                     (events) => {
+                        netloadEmpty = events.length === 0
                         if (signal?.aborted) {
                             return // Raumwechsel während Prewarm → keine verwaisten Loads/State-Bleed
                         }
@@ -2570,6 +2573,21 @@ export function registerNostrComponents(Alpine: {
                     }
                     this.loading = false
                     this._initialLoadDone = true // ab jetzt darf ein Foreground-Resync greifen
+                    // Kaltstart-Race: Ein Notification-Tap lädt die Seite NEU (MainActivity →
+                    // webView.loadUrl), während Socket UND NIP-42-AUTH nach langer Pause tot sind.
+                    // welshmans load() rejected dabei NICHT (siehe error-Zweig oben) — es resolved
+                    // LEER. Ohne Gegenwehr bliebe der Verlauf für immer auf dem Cache-Stand und die
+                    // Live-Sub (auf demselben toten Socket gesendet) stumm, bis der Raum neu betreten
+                    // wird. Der visibilitychange-Resync greift hier NICHT: diese Insel wurde erst
+                    // NACH dem Foreground geboren und sieht nie ein `hidden` (am Emulator gemessen).
+                    // Ein leerer Netz-Load bei GEFÜLLTEM Cache ist der Widerspruch, der den Race
+                    // verrät: das Relay muss mindestens die Nachrichten haben, die wir schon kennen.
+                    // Ein wirklich leerer Raum hat auch keinen Cache → kein Fehlalarm.
+                    // ponytail: EIN resync() (sendet die Live-Subs neu + holt nach und bringt seinen
+                    // eigenen 2,5s-Nachzügler gegen den Socket-Race mit); kein Reconnect-Framework.
+                    if (netloadEmpty && this.messages.length > 0) {
+                        this.resync()
+                    }
                 })
         },
         // Ältere Nachrichten vor der aktuell ältesten laden; Scroll-Position halten.
