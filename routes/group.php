@@ -26,10 +26,13 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         // Direkt verlinkbarer Thread (C6b): dieselbe Room-SFC, öffnet den Thread als
         // Vollansicht. `{nevent}` = bech32-Referenz auf die Wurzel-Nachricht (portabel/teilbar).
         Route::livewire('/rooms/{h}/thread/{nevent}', 'group::room')->name('room.thread');
-        // Verschmolzener Settings-Screen (P5, §6) — additiv neben der alten
-        // space.settings-Seite (Mobile-Default), bis dessen eigener P5-Pass folgt.
+        // Verschmolzener Settings-Screen (§6): der EINE Settings-Ort.
         Route::livewire('/settings', 'group::pages.settings')->name('settings');
-        Route::livewire('/settings/space', 'group::settings.space')->name('space.settings');
+        // Alte ad-hoc space.settings-Seite konsolidiert → Redirect auf den Hub.
+        // Route-NAME beibehalten (Cross-Repo-Hardlinks: Mobile-`nav`-`match` +
+        // layouts/mobile.blade.php verweisen darauf; Rename = 3 Repos). Entfällt
+        // in P5, sobald der Mobile-Host keine space.settings-Referenz mehr hält.
+        Route::redirect('/settings/space', '/settings')->name('space.settings');
         Route::livewire('/settings/wallet', 'group::settings.wallet')->name('wallet');
         Route::livewire('/join', 'group::join')->name('join');
     });

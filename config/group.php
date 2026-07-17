@@ -59,6 +59,24 @@ return [
     'nav' => [
         ['key' => 'chat', 'route' => 'group.spaces', 'match' => 'group.spaces', 'icon' => 'chat-bubble-left-right', 'label' => 'Räume', 'gate' => 'nostr'],
         ['key' => 'members', 'route' => 'group.directory', 'match' => 'group.directory', 'icon' => 'users', 'label' => 'Mitglieder', 'gate' => 'nostr'],
-        ['key' => 'settings', 'route' => 'group.space.settings', 'match' => 'group.space.settings', 'icon' => 'cog-6-tooth', 'label' => 'Einstellungen', 'gate' => 'nostr'],
+        ['key' => 'settings', 'route' => 'group.settings', 'match' => 'group.settings,group.space.settings', 'icon' => 'cog-6-tooth', 'label' => 'Einstellungen', 'gate' => 'nostr'],
     ],
+
+    /*
+     * Settings-Registry (§4.1): geordnete Liste der Sektions-Keys, die der
+     * verschmolzene Settings-Hub (`group::pages.settings`) iteriert und je Key als
+     * `group::partials.settings.<key>` einbindet. Sichtbarkeit + Reihenfolge sind
+     * damit eine Config-Zeile je Host — exakt wie `nav`. Löst `show_relays` ab
+     * (Sichtbarkeit = „ist 'relays' in der Liste?").
+     *
+     * NUR Keys, KEINE `__()`-Labels: Config lädt VOR der Locale-Middleware (gleiche
+     * Falle wie `nav`); Labels kommen aus den Partials via `__()`.
+     *
+     * Default = voller Satz (Package-nativ). Hosts überschreiben:
+     *   Web   → ohne 'relays' (Web-Client editiert/zeigt keine Relays).
+     *   Mobile→ mit 'relays', ohne 'wallet' (Wallet ist dort eigener Bottom-Nav-Tab).
+     *
+     * @var list<string>
+     */
+    'settings' => ['account', 'space', 'wallet', 'relays', 'blossom', 'appearance', 'session'],
 ];
