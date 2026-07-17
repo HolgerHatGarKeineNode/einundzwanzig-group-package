@@ -18,6 +18,7 @@ import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
 import { DEFAULT_RELAYS, isMobile, nativeBrowserOpen, nativeBrowserInApp, proxifyImage, storageReady } from './core'
 import { sanitizeReturnUrl, isAuthed } from './auth-gate'
+import { createLightboxZoom } from './lightbox'
 import {
     loginWithExtension,
     loginWithSecretKey,
@@ -4452,4 +4453,6 @@ export function registerNostrComponents(Alpine: {
             }
         },
     }))
+
+    Alpine.data('lightboxZoom', createLightboxZoom)
 }

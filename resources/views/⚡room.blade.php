@@ -695,13 +695,45 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </div>
 
-    {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds (Proxy-Preset `full`).
-         Klick/Esc schließt; Proxy-Fehler → Original-URL (Offline-Fallback). --}}
+    {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds (Proxy-Preset `full`), mit
+         Zoom (Pinch/Doppeltipp/Mausrad — s. `js/lightbox.ts`). Proxy-Fehler → Original-URL
+         (Offline-Fallback).
+
+         Schließen geht über Hintergrund-Klick, das ✕ und Escape — NICHT über einen Klick
+         aufs Bild: ein schließender Erst-Klick würde den Doppeltipp/-klick zum Zoomen
+         verschlucken. Darum stoppt das Bild seinen eigenen Klick, und der Hintergrund-Klick
+         trägt den `panned`-Guard, damit ein Zieh-Ende neben dem Bild nicht schließt.
+
+         `touch-none` ist Pflicht: sonst greift der Browser die Pinch-Geste für den
+         Seiten-Zoom ab, bevor unsere Pointer-Handler sie sehen. --}}
     <div x-show="lightboxSrc" x-cloak x-transition.opacity
-         x-on:click.stop="lightboxSrc = null" x-on:keydown.escape.window="lightboxSrc = null"
-         class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-        <img :src="lightboxSrc" alt="" class="max-h-full max-w-full rounded-card"
+         x-data="lightboxZoom" x-effect="lightboxSrc, reset()"
+         role="dialog" aria-modal="true" aria-label="{{ __('Bild in voller Größe') }}"
+         x-on:click.stop="panned || (lightboxSrc = null)"
+         x-on:keydown.escape.window="lightboxSrc = null"
+         x-on:pointerdown="onPointerDown($event)"
+         x-on:pointermove="onPointerMove($event)"
+         x-on:pointerup="onPointerUp($event)"
+         x-on:pointercancel="onPointerUp($event)"
+         x-on:wheel="onWheel($event)"
+         x-on:dblclick.stop="toggleZoom($event.clientX, $event.clientY)"
+         x-on:resize.window="clampPan()"
+         class="fixed inset-0 z-50 flex touch-none select-none items-center justify-center overscroll-contain bg-black/80 p-4">
+        <img x-ref="img" :src="lightboxSrc" alt="" x-on:click.stop=""
+             class="max-h-full max-w-full rounded-card will-change-transform"
+             :style="imageStyle"
              x-on:error="$el.dataset.orig || ($el.dataset.orig = 1, $el.src = decodeURIComponent(($el.src.split('src=')[1] || '')))" />
+
+        {{-- Sichtbarer Ausgang: seit der Klick aufs Bild zoomt statt schließt, ist das ✕
+             auf dem Handy der einzige verlässliche Weg raus (kein Escape).
+             `!absolute`: <flux:button> bringt eigenes `position:relative` mit, das in der
+             Utility-Kaskade ein blankes `absolute` schlägt (Quellreihenfolge) → der Button
+             säße sonst mittig im Bild statt in der Ecke. `!` erzwingt die Positionierung
+             (gleiches Muster wie `!text-brand-500` andernorts). --}}
+        <flux:button size="sm" variant="ghost" icon="x-mark"
+                     class="icon-btn-touch !absolute top-4 right-4 bg-black/40 text-white"
+                     x-on:click.stop="lightboxSrc = null"
+                     aria-label="{{ __('Schließen') }}" />
     </div>
 
     <x-group::profile-card />
