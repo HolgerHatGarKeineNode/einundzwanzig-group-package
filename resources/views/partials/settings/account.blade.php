@@ -9,7 +9,7 @@
         <button type="button" x-data="{ copied: false }" x-show="npub" x-cloak
                 x-on:click="navigator.clipboard.writeText(npub); copied = true; setTimeout(() => copied = false, 1500)"
                 :aria-label="copied ? @js(__('npub kopiert')) : @js(__('npub kopieren'))"
-                class="pressable group mt-1 flex w-full min-w-0 items-center gap-1.5 rounded-tile bg-brand-500/10 px-2.5 py-1.5 font-mono text-xs text-brand-600 dark:text-brand-400">
+                class="pressable group mt-1 flex w-full min-w-0 items-center gap-1.5 rounded-tile bg-brand-500/10 px-2.5 py-1.5 font-mono text-xs text-brand-800 dark:text-brand-400">
             <span class="min-w-0 flex-1 truncate text-start" x-text="npub"></span>
             <flux:icon.check x-show="copied" class="size-3.5 shrink-0" />
             <flux:icon.clipboard-document x-show="!copied" class="size-3.5 shrink-0 opacity-60 transition-opacity group-hover:opacity-100" />
