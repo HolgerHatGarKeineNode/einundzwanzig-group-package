@@ -2,6 +2,7 @@
     'title' => '',
     'titleExpr' => null,
     'back' => null,
+    'backExpr' => null,
 ])
 
 {{-- Einheitlicher Kopf aller Kern-Screens (Space/Directory/Einstellungen).
@@ -15,7 +16,15 @@
      damit Alpine-Scopes (z.B. nostrAuth) die Slots umschließen. --}}
 @php($exit = config('group.exit'))
 <header {{ $attributes->class('mb-6 flex items-center gap-3') }}>
-    @if ($back)
+    @if ($backExpr)
+        {{-- JS-Rücksprung statt Navigate: für Vollbild-Takeover, die INNERHALB derselben
+             Livewire-Seite auf-/zugehen (Thread-Ansicht). Kein href/wire:navigate — die
+             Alpine-Aktion baut nur das Overlay ab. `x-ref="threadClose"` ist bewusst hier:
+             Der Zurück-Button ist das Fokus-Ziel (Escape-Control) beim Öffnen des Dialogs,
+             und dieser Zweig existiert NUR im Thread (kein anderer Screen setzt backExpr). --}}
+        <flux:button variant="ghost" size="sm" icon="arrow-left" x-on:click="{{ $backExpr }}"
+                     x-ref="threadClose" aria-label="{{ __('Zurück') }}" />
+    @elseif ($back)
         <flux:button variant="ghost" size="sm" icon="arrow-left" :href="$back" wire:navigate aria-label="{{ __('Zurück') }}" />
     @elseif ($exit)
         <a href="{{ route($exit['route']) }}" wire:navigate aria-label="{{ __('Zurück zu :label', ['label' => $exit['label']]) }}"

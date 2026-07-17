@@ -40,31 +40,106 @@ new #[Layout('group::einundzwanzig')] class extends Component
          echten Space-Namen (NIP-11) zeigen kann (B1). --}}
     <div x-data="nostrSpaces" class="page-enter">
 
-        {{-- NIP-11-Kopfbild (B6): breiter Space-Banner über dem Header, wenn der
-             Relay `banner` liefert. Proxifiziert (banner-Preset, 3:1), Fade nach
-             unten hält den Header darunter lesbar. Kein Banner → nichts (kein
-             Platzhalter). Dekorativ → einstufiger onerror (Bild weg statt Chip). --}}
-        <template x-if="space?.banner">
-            <div class="relative mb-4 overflow-hidden rounded-card ring-1 ring-black/5 dark:ring-white/10">
-                <img :src="$img(space.banner, 'banner')" alt="" loading="lazy"
-                     class="h-28 w-full object-cover md:h-32"
-                     x-on:error="$el.parentElement.remove()" />
-                <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-zinc-50 to-transparent dark:from-zinc-950"></div>
-            </div>
-        </template>
+        {{-- Kopfbereich neu (B1/B6): zwei getrennte Identitäts-Zonen statt einer
+             gedrängten Zeile. WER bin ich = Profil-Chip oben rechts (Avatar+Name+✓,
+             Details/Abmelden hinter einem Tap). WO bin ich = Space-Block darunter
+             (Icon+Name+Beschreibung). `nostrAuth` umschließt beides und erbt
+             `space?.…` aus dem `nostrSpaces`-Page-Scope. --}}
+        @php($exit = config('group.exit'))
+        <div x-data="nostrAuth" class="mb-6">
 
-        {{-- Kopf: echter Space-Name (NIP-11, Fallback „Space") + NIP-11-Beschreibung
-             + wer bin ich + Abmelden. Space-Identität lebt NUR hier (kein doppelter
-             Name in der Karte darunter). --}}
-        <x-group::app-header title="{{ __('Space') }}" :title-expr="'space?.label || ' . json_encode(__('Space'))" x-data="nostrAuth">
-            <x-slot:subtitle>
-                <div x-show="space?.description" x-cloak class="truncate text-xs text-muted" x-text="space?.description"></div>
-                <div class="truncate font-mono text-xs text-muted" x-text="npub"></div>
-            </x-slot:subtitle>
-            <x-slot:actions>
-                <flux:button variant="ghost" size="sm" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
-            </x-slot:actions>
-        </x-group::app-header>
+            {{-- Utility-Zeile: links der Host-Ausgang (Mobile-App-Takeover — repliziert
+                 app-headers exit-Zweig, ohne ihn säße der Nutzer fest), rechts das
+                 eigene Profil. Kein Brand-Mark im Web: die Startseite braucht keinen
+                 Home-Link auf sich selbst, und `space.icon` unten ist die eine Marke. --}}
+            <div class="mb-3 flex min-h-[44px] items-center justify-between gap-3">
+                <div class="min-w-0">
+                    @if ($exit)
+                        <a href="{{ route($exit['route']) }}" wire:navigate
+                           aria-label="{{ __('Zurück zu :label', ['label' => $exit['label']]) }}"
+                           class="pressable -ms-1 inline-flex shrink-0 items-center gap-0.5 rounded-full py-1.5 pe-3 ps-1.5 text-sm font-semibold text-accent">
+                            <flux:icon.chevron-left variant="micro" class="size-5" />
+                            <span class="max-w-[9rem] truncate">{{ $exit['label'] }}</span>
+                        </a>
+                    @endif
+                </div>
+
+                {{-- Profil-Chip → simples Alpine-Popover (kein flux:dropdown/-menu: das
+                     verschluckt rohe Alpine-Kinder). Nur `open` lokal, Rest aus nostrAuth. --}}
+                <div x-data="{ open: false }" class="relative shrink-0">
+                    <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
+                            :aria-label="@js(__('Angemeldet als ')) + myName"
+                            class="pressable flex min-h-[44px] items-center gap-2 rounded-full py-1 pe-2 ps-1 ring-1 ring-black/5 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:ring-white/10 dark:hover:bg-white/5">
+                        <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem" />
+                        <span class="min-w-0 max-w-[7rem] truncate text-sm font-semibold text-zinc-900 sm:max-w-[12rem] dark:text-zinc-100" x-text="myName"></span>
+                        <x-group::nostr-nip05 nip05="myNip05" />
+                        <flux:icon.chevron-down variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />
+                    </button>
+
+                    {{-- Popover: volles Profil + sekundäre Infos + Abmelden. --}}
+                    <div x-show="open" x-cloak x-transition
+                         x-on:click.outside="open = false" x-on:keydown.escape.window="open = false"
+                         class="surface-card absolute end-0 z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] origin-top-right p-4 shadow-lg">
+                        <div class="flex items-start gap-3">
+                            <x-group::nostr-avatar picture="myPicture" name="myName" size="2.75rem" />
+                            <div class="min-w-0 flex-1">
+                                <div class="flex min-w-0 items-center gap-1">
+                                    <span class="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
+                                    <x-group::nostr-nip05 nip05="myNip05" />
+                                </div>
+                                <div x-show="myNip05" x-cloak class="truncate text-xs text-muted" x-text="myNip05"></div>
+                            </div>
+                        </div>
+
+                        <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
+
+                        <div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
+                            {{-- npub: 1-Klick-Kopieren (copy() im nostrAuth-Island, „Kopiert"-Toast). --}}
+                            <button type="button" x-on:click="copy(npub, 'npub')" aria-label="{{ __('npub kopieren') }}"
+                                    class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                                <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
+                                <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
+                            </button>
+                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-600 dark:text-brand-400">
+                                <flux:icon.key variant="micro" class="size-3 shrink-0" />
+                                <span x-text="@js(__('Angemeldet über ')) + signerLabel"></span>
+                            </div>
+                        </div>
+
+                        <flux:button variant="ghost" size="sm" icon="arrow-right-start-on-rectangle" class="mt-3 w-full" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
+                    </div>
+                </div>
+            </div>
+
+            {{-- NIP-11-Kopfbild (B6): breiter Space-Banner. Proxifiziert (banner-Preset,
+                 3:1), Fade nach unten trägt den Space-Avatar darunter. Kein Banner →
+                 nichts. Dekorativ → einstufiger onerror (Bild weg statt Chip). --}}
+            <template x-if="space?.banner">
+                <div class="relative overflow-hidden rounded-card ring-1 ring-black/5 dark:ring-white/10">
+                    <img :src="$img(space.banner, 'banner')" alt="" loading="lazy"
+                         class="h-28 w-full object-cover md:h-32"
+                         x-on:error="$el.parentElement.remove()" />
+                    <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-zinc-50 to-transparent dark:from-zinc-950"></div>
+                </div>
+            </template>
+
+            {{-- Space-Identität: Icon + Name (H1) + Beschreibung. Steht NUR hier (kein
+                 npub mehr — der lebt im Profil-Chip). Beschreibung 2 Zeilen mit
+                 Fließtext-Zeilenhöhe statt hartem Abschnitt (behebt „abgeschnitten").
+                 Bei Banner: Avatar überlappt dessen Fade (Profil-Header-Signatur),
+                 der Ring in Hintergrundfarbe hebt ihn ab — ohne Banner unsichtbar. --}}
+            <div class="flex items-start gap-3" :class="space?.banner ? 'relative z-10 -mt-6' : ''">
+                <span class="shrink-0 rounded-full ring-4 ring-zinc-50 dark:ring-zinc-950">
+                    <x-group::nostr-avatar picture="space?.icon" name="space?.label || @js($spaceName)" size="3rem" />
+                </span>
+                <div class="min-w-0 flex-1 pt-0.5">
+                    <flux:heading level="1" size="xl" class="truncate">
+                        <span x-text="space?.label || @js($spaceName)">{{ $spaceName }}</span>
+                    </flux:heading>
+                    <p x-show="space?.description" x-cloak class="mt-0.5 line-clamp-2 text-sm leading-normal text-muted" x-text="space?.description"></p>
+                </div>
+            </div>
+        </div>
 
         {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
         <x-group::verein-gate context="{{ __('Räume und Chat') }}" class="mb-4" />
@@ -177,24 +252,39 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         x-on:click="Livewire.navigate('/rooms/' + encodeURIComponent(t.roomH) + '/thread/' + t.nevent)"
                                         :disabled="!t.roomH"
                                         :aria-label="(t.authorName || @js(__('Nachricht'))) + ': ' + t.snippet + ' — ' + t.count + @js(__(' Antworten, öffnen'))"
-                                        class="pressable flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-brand-500/5 disabled:cursor-default disabled:opacity-60">
-                                    {{-- Teilnehmer-Gesichter (jüngste zuerst, überlappend). --}}
-                                    <span class="mt-0.5 flex shrink-0 -space-x-2">
-                                        <template x-for="f in t.faces" :key="f.pubkey">
-                                            <span class="inline-flex rounded-full ring-2 ring-white dark:ring-zinc-900">
-                                                <x-group::nostr-avatar picture="f.picture" name="f.name" size="1.6rem" />
-                                            </span>
-                                        </template>
-                                    </span>
+                                        class="pressable flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-brand-500/5 disabled:cursor-default disabled:opacity-60">
                                     <span class="min-w-0 flex-1">
-                                        <span class="truncate text-sm font-semibold" x-text="t.authorName || @js(__('Nachricht'))"></span>
-                                        <span class="mt-0.5 block truncate text-sm text-muted" x-text="t.snippet || @js(__('(Nachricht wird geladen…)'))"></span>
-                                        <span class="mt-1 block text-xs">
-                                            <span class="font-semibold text-brand-600 dark:text-brand-400" x-text="t.count + (t.count === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
-                                            <span class="text-muted" x-text="' · ' + t.lastLabel"></span>
+                                        {{-- Raum-Kontext (raumübergreifende Liste): nur zeigen, wenn `roomName`
+                                             gegen die geladenen Space-Räume real auflöst — sonst nichts (kein roher h-Tag). --}}
+                                        <span x-show="roomName(t.roomH) !== t.roomH" x-cloak
+                                              class="mb-1 flex items-center gap-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+                                            <flux:icon.hashtag class="size-3 shrink-0" />
+                                            <span class="truncate" x-text="roomName(t.roomH)"></span>
+                                        </span>
+                                        {{-- Autor: Hierarchie durch Kontrast, nicht nur Größe (Refactoring UI). --}}
+                                        <span class="block truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+                                              x-text="t.authorName || @js(__('Nachricht'))"></span>
+                                        {{-- Vorschau: bis zu 2 Zeilen mit Fließtext-Zeilenhöhe statt 1 harter Zeile
+                                             (das Kern-Lesbarkeitsproblem). --}}
+                                        <span class="mt-1 block text-sm leading-normal text-muted line-clamp-2"
+                                              x-text="t.snippet || @js(__('(Nachricht wird geladen…)'))"></span>
+                                        {{-- Meta: Teilnehmer-Gesichter (überlappend, jüngste zuerst) neben Anzahl + Zeit —
+                                             ein Akzent (Anzahl) pro Zeile, der Rest dezent. --}}
+                                        <span class="mt-2 flex items-center gap-2 text-xs">
+                                            <span x-show="t.faces.length > 0" class="flex shrink-0 -space-x-1.5">
+                                                <template x-for="f in t.faces" :key="f.pubkey">
+                                                    <span class="inline-flex rounded-full ring-2 ring-white dark:ring-zinc-900">
+                                                        <x-group::nostr-avatar picture="f.picture" name="f.name" size="1.25rem" />
+                                                    </span>
+                                                </template>
+                                            </span>
+                                            <span class="min-w-0 truncate">
+                                                <span class="font-semibold text-brand-600 dark:text-brand-400" x-text="t.count + (t.count === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
+                                                <span class="text-muted" x-text="' · ' + t.lastLabel"></span>
+                                            </span>
                                         </span>
                                     </span>
-                                    <flux:icon.chevron-right class="mt-1 size-4 shrink-0 text-muted" />
+                                    <flux:icon.chevron-right class="size-4 shrink-0 text-muted" />
                                 </button>
                             </template>
                         </div>

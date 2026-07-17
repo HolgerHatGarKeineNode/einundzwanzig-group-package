@@ -357,7 +357,15 @@ type AuthState = {
     error: string
     reauthing: boolean
     reconnect: boolean
+    // Eigenes Profil des eingeloggten Users (für den Space-Kopf): reaktiv aus welshman
+    // (deriveProfile/deriveHandleForPubkey), Fallback = gekürzter npub. Leer bei ausgeloggt.
+    myName: string
+    myPicture: string
+    myNip05: string
+    myAbout: string
     _unsub: null | (() => void)
+    _unsubMyProfile: null | (() => void)
+    _unsubMyHandle: null | (() => void)
     _connectAbort: AbortController | null
     _reauthTried: boolean
     init(): void
@@ -369,6 +377,7 @@ type AuthState = {
     startConnect(): Promise<void>
     stopConnect(): void
     openAmber(): void
+    copy(text: string, label: string): void
     doLogout(): Promise<void>
 }
 
@@ -589,6 +598,7 @@ type RoomChatState = {
     threadFull: boolean // Vollansicht (aus der Übersicht/Deep-Link) statt Modal-über-Chat (aus dem Feed)
     _threadUnsub: null | (() => void) // deriveThread-Subscription
     _threadController: AbortController | null // Live-Sub des offenen Threads
+    _threadPrevUrl: string | null // Raum-URL VOR dem Thread-Open (Adressleiste kosmetisch gespiegelt); beim Schließen zurückgesetzt
     _deepThreadNevent: string | null // Deep-Link-nevent aus /rooms/{h}/thread/{nevent}, EINMAL in setup konsumiert
     mentionOpen: boolean // @-Autocomplete-Popover sichtbar (C4)
     mentionQuery: string // aktuelle @-Suchzeichenfolge (nach dem @)
@@ -641,7 +651,7 @@ type RoomChatState = {
     copyNpub(m: ChatMessage): void
     copyJson(m: ChatMessage): void
     openInfo(m: ChatMessage): void
-    openThread(m: ChatMessage, full?: boolean): void
+    openThread(m: ChatMessage, full?: boolean, syncUrl?: boolean): void
     threadHref(m: ChatMessage): string
     closeThread(): void
     backFromThread(): void
@@ -2223,6 +2233,7 @@ export function registerNostrComponents(Alpine: {
         threadReplyTo: null,
         threadDraft: '',
         threadFull: false,
+        _threadPrevUrl: null,
         _threadUnsub: null,
         _threadController: null,
         mentionOpen: false,
@@ -2326,7 +2337,9 @@ export function registerNostrComponents(Alpine: {
                     const dec = nip19.decode(nevent)
                     const rootId = dec.type === 'nevent' ? dec.data.id : dec.type === 'note' ? dec.data : ''
                     if (rootId) {
-                        this.openThread({ id: rootId } as ChatMessage, true)
+                        // push=false: die URL IST bereits /rooms/{h}/thread/{nevent} (Deep-Link/Reload) —
+                        // kein zusätzlicher history-Eintrag. Back räumt via replaceState auf den Raum zurück.
+                        this.openThread({ id: rootId } as ChatMessage, true, false)
                     }
                 } catch {
                     // Kaputter nevent im Pfad → kein Thread, kein Fehler.
@@ -2966,13 +2979,14 @@ export function registerNostrComponents(Alpine: {
         // (Slack-Modell — jede Nachricht ist thread-fähig, nicht nur Quote-Only). Zeigt die
         // Wurzel + den verschachtelten Kommentar-Baum + Composer. Live-Sub hält ihn aktuell.
         // P2: Teilbarer Deep-Link zum Thread einer Nachricht (/rooms/{h}/thread/{nevent}).
-        // Die Antworten-Pille navigiert dorthin (wire:navigate) statt das In-Place-Modal zu
-        // öffnen — dieselbe Wurzel, aber als teilbare/back-fähige Vollansicht (setup ruft
-        // openThread(…,true) aus dem nevent). Bech32 ohne `nostr:`-Präfix für den Routen-Param.
+        // Die Antworten-Pille öffnet den Thread WARM in der Insel (kein wire:navigate-Reboot) und
+        // spiegelt die URL nur KOSMETISCH per replaceState (`syncUrl`) → teilbar, aber instant statt
+        // kaltem Neu-Boot der ganzen Chat-Insel. Deep-Link/setup rufen mit syncUrl=false (URL steht
+        // schon). Bech32 ohne `nostr:`-Präfix für den Routen-Param.
         threadHref(m: ChatMessage): string {
             return `/rooms/${encodeURIComponent(this.h)}/thread/${neventFor(m, this._url).replace(/^nostr:/, '')}`
         },
-        openThread(m: ChatMessage, full = false) {
+        openThread(m: ChatMessage, full = true, syncUrl = true) {
             this.activeId = null
             this.closeMessageMenu()
             const rootId = m.id
@@ -2985,8 +2999,25 @@ export function registerNostrComponents(Alpine: {
             // im Haupt-Composer wartenden Entwurf/Anhang verwirft.
             this.threadAttachment = null
             const url = this._url
-            this.threadFull = full // aus dem Chat = Modal; aus der Übersicht (Deep-Link) = Vollansicht
+            this.threadFull = full // Thread ist stets die volle, raum-erbende Vollansicht (eine Präsentation)
             this.threadRootId = rootId
+            // URL nur KOSMETISCH spiegeln (teilbarer Deep-Link in der Adressleiste), OHNE einen eigenen
+            // history-Eintrag zu pushen: `replaceState` mit UNVERÄNDERTEM `window.history.state`, nur die
+            // URL wechselt. Kein pushState — denn ein Zurück landete sonst auf dem RAUM-Eintrag, den Livewire
+            // per `wire:navigate` mit echtem State+Snapshot besitzt → `document.body.replaceWith` +
+            // `Alpine.destroyTree` = kalter Insel-Reboot beim SCHLIESSEN (genau das, was hier weg soll).
+            // Livewires State bleibt unangetastet → seine History-Integrität ist intakt; beim Schließen
+            // (backFromThread) wird die gemerkte Raum-URL per replaceState wiederhergestellt. Deep-Link/
+            // setup: syncUrl=false (die Adressleiste zeigt die Thread-URL bereits).
+            if (syncUrl) {
+                try {
+                    this._threadPrevUrl = window.location.pathname + window.location.search
+                    window.history.replaceState(window.history.state, '', this.threadHref(m))
+                } catch {
+                    /* threadHref/neventFor scheiterte (unvollständige Nachricht) → ohne URL-Sync öffnen */
+                    this._threadPrevUrl = null
+                }
+            }
             this._threadController = new AbortController()
             // Root (per id) + bestehende Kommentare nachladen; die Live-Sub liefert nur Neues.
             void loadThread(url, rootId)
@@ -3031,6 +3062,7 @@ export function registerNostrComponents(Alpine: {
             this.threadReplyTo = null
             this.threadDraft = ''
             this.threadFull = false
+            this._threadPrevUrl = null
             // War ein Crop AUS dem Thread offen, aufräumen; sonst den Haupt-Cropper NICHT
             // anfassen (der lebt über einem geschlossenen Thread eigenständig weiter).
             if (this._cropForThread) {
@@ -3038,19 +3070,21 @@ export function registerNostrComponents(Alpine: {
             }
             this.threadAttachment = null // wartenden Thread-Anhang verwerfen (Haupt bleibt)
         },
-        // „Zurück" aus dem Thread. Modal (aus dem Chat) → nur schließen, Raum bleibt.
-        // Vollansicht (aus der Übersicht/Deep-Link) → zurück zur Threads-Übersicht (History,
-        // sonst /spaces) — der Nutzer landet dort, wo er den Thread angetippt hat.
+        // „Zurück" aus dem Thread (Kopf-Pfeil). Rein WARM: der Thread ist nur ein Ansichts-Wechsel
+        // innerhalb derselben Insel (kein Overlay-Abbau, kein Reboot). Nur die Adressleiste wird
+        // per replaceState zurückgesetzt — auf die vor dem Öffnen gemerkte Raum-URL, sonst die Raum-
+        // Basis (Deep-Link). `window.history.state` bleibt unverändert (der echte Livewire-State des
+        // Raum-Eintrags) → Livewires History-Integrität ist intakt, kein Snapshot-Restore/Reboot.
         backFromThread() {
-            if (this.threadFull) {
-                this.closeThread()
-                if (window.history.length > 1) {
-                    window.history.back()
-                } else {
-                    ;(window as unknown as { Livewire?: { navigate(u: string): void } }).Livewire?.navigate('/spaces')
+            const prevUrl = this._threadPrevUrl
+            this.closeThread() // setzt _threadPrevUrl zurück
+            try {
+                const target = prevUrl ?? '/rooms/' + encodeURIComponent(this.h)
+                if (window.location.pathname + window.location.search !== target) {
+                    window.history.replaceState(window.history.state, '', target)
                 }
-            } else {
-                this.closeThread()
+            } catch {
+                /* history-API nicht verfügbar → Adressleiste bleibt, Thread ist trotzdem zu */
             }
         },
         // Auf einen bestehenden Kommentar antworten (verschachtelt): das nächste
@@ -4027,7 +4061,13 @@ export function registerNostrComponents(Alpine: {
         // die Verbinden-Optionen und unterdrückt die Auto-Reauth, damit der Nutzer die
         // Amber/Bunker-Verbindung mit den vollständigen Perms neu aufsetzen kann.
         reconnect: new URLSearchParams(location.search).get('reconnect') === '1',
+        myName: '',
+        myPicture: '',
+        myNip05: '',
+        myAbout: '',
         _unsub: null,
+        _unsubMyProfile: null,
+        _unsubMyHandle: null,
         _connectAbort: null,
         _reauthTried: false,
         init() {
@@ -4048,6 +4088,30 @@ export function registerNostrComponents(Alpine: {
                 this.pubkey = pk ?? null
                 this.npub = pk ? nip19.npubEncode(pk) : ''
                 this.signerLabel = currentSignerLabel()
+                // Eigenes Profil (Name/Avatar/nip05/about) für den Space-Kopf auflösen — dasselbe
+                // Muster wie die profile-card: pro pubkey frische deriveProfile/-Handle-Subs, Fallback
+                // = gekürzter npub, verifizierte nip05 nur bei bestätigtem welshman-Handle.
+                this._unsubMyProfile?.()
+                this._unsubMyProfile = null
+                this._unsubMyHandle?.()
+                this._unsubMyHandle = null
+                if (pk) {
+                    const fallback = `${this.npub.slice(0, 12)}…${this.npub.slice(-6)}`
+                    this.myName = fallback
+                    this.myPicture = ''
+                    this.myAbout = ''
+                    this.myNip05 = ''
+                    this._unsubMyHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
+                        this.myNip05 = handle ? displayNip05(handle.nip05) : ''
+                    })
+                    this._unsubMyProfile = deriveProfile(pk).subscribe((p) => {
+                        this.myName = displayProfile(p, fallback)
+                        this.myPicture = p?.picture ?? ''
+                        this.myAbout = p?.about ?? ''
+                    })
+                } else {
+                    this.myName = this.myPicture = this.myAbout = this.myNip05 = ''
+                }
             })
             // Auto-Reauth: Kommt man mit wiederhergestellter Client-Session (localStorage)
             // auf die Login-Seite, ist meist nur die Laravel-Session weg (Reboot/Ablauf) —
@@ -4175,6 +4239,12 @@ export function registerNostrComponents(Alpine: {
                 void nativeBrowserOpen(this.connectUri)
             }
         },
+        // npub o. Ä. in die Zwischenablage (Profil-Popover). Gleiches Muster wie profile-card.
+        copy(text, label) {
+            if (text) {
+                void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
+            }
+        },
         async doLogout() {
             this.stopConnect()
             logout()
@@ -4190,6 +4260,8 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._connectAbort?.abort()
             this._unsub?.()
+            this._unsubMyProfile?.()
+            this._unsubMyHandle?.()
         },
     }))
 

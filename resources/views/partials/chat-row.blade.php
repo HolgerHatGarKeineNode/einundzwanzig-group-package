@@ -182,10 +182,14 @@
                                      bewusst ZUERST (wichtigste Navigations-Aktion); Reaktionen und Zaps hängen
                                      rechts an. --}}
                                 <template x-if="m.thread">
-                                    {{-- P2: Pille = teilbarer Deep-Link auf die Thread-Route (wire:navigate,
-                                         Vollansicht) statt In-Place-Modal. Real-`<a>` → back/mittelklick/teilbar.
-                                         KEIN `.stop`: wire:navigate lauscht global, stopPropagation bräche es. --}}
-                                    <a wire:navigate :href="threadHref(m)"
+                                    {{-- P2: Pille = teilbarer Deep-Link auf die Thread-Route, aber der Linksklick
+                                         öffnet den Thread WARM in der Insel (openThread) statt via wire:navigate die
+                                         ganze Chat-Insel kalt neu zu booten — instant, kein Reboot. Real-`<a href>`
+                                         bleibt für Teilen/Mittelklick/„in neuem Tab öffnen" (→ Deep-Link, Kaltstart);
+                                         Modifier-Klicks (Cmd/Ctrl/Shift) lässt der Handler nativ durch. openThread
+                                         spiegelt die URL selbst kosmetisch per replaceState → teilbar. --}}
+                                    <a :href="threadHref(m)"
+                                            x-on:click="if (!$event.metaKey && !$event.ctrlKey && !$event.shiftKey) { $event.preventDefault(); $event.stopPropagation(); openThread(m) }"
                                             :aria-label="m.thread.count + (m.thread.count === 1 ? @js(__(' Antwort, letzte ')) : @js(__(' Antworten, letzte '))) + m.thread.lastLabel + @js(__(' — Thread öffnen'))"
                                             class="chip-in pressable group/th inline-flex h-7 items-center gap-1.5 rounded-full border border-brand-500/40 bg-brand-500/10 pl-1 pr-2.5 text-brand-500 transition-colors motion-reduce:transition-none hover:border-brand-500 hover:bg-brand-500/15">
                                         <span class="flex -space-x-1.5">

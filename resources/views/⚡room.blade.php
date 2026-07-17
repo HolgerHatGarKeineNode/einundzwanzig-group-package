@@ -63,22 +63,43 @@ new #[Layout('group::einundzwanzig')] class extends Component
          liegt im Root-Div (Livewire-SFC: genau eine Wurzel). --}}
     <x-group::status-strip />
 
-    <x-group::app-header :title="'# '.($roomName ?? $h)" :title-expr="json_encode('# ').' + roomName'" :back="route('group.spaces')" class="shrink-0">
+    {{-- EIN geteilter Kopf für Raum UND Thread (der Thread ERBT die Shell, ist kein eigenes
+         Overlay): Titel, Zurück-Aktion und Actions wechseln nur reaktiv per `threadRootId`.
+         Dadurch bewegt sich der Zurück-Button nie, der Hintergrund ist identisch und es gibt
+         KEIN Überblenden beim Wechsel Raum↔Thread — es ist dieselbe DOM-Shell.
+         `titleExpr`: im Thread „# Raum · Thread", sonst „# Raum". `backExpr`: im Thread zurück
+         in den Raum (warm, backFromThread), sonst per Livewire.navigate zur Raumliste. --}}
+    @php
+        // json_encode (NICHT Js::from): app-header echot titleExpr/backExpr via `{{ }}` — Js::from
+        // wäre bereits attributsicher und würde hier ein zweites Mal escaped. json_encode liefert
+        // ein rohes JS-String-Literal ("…"), das `{{ }}` genau EINMAL escaped (wie der Raum-Titel zuvor).
+        $hashName = json_encode('# ').' + roomName';
+        $titleExpr = 'threadRootId ? ('.$hashName.' + '.json_encode(' · '.__('Thread')).') : ('.$hashName.')';
+        $backExpr = 'threadRootId ? backFromThread() : window.Livewire.navigate('.json_encode(route('group.spaces')).')';
+    @endphp
+    <x-group::app-header :title="'# '.($roomName ?? $h)" :title-expr="$titleExpr" :back-expr="$backExpr" class="shrink-0">
         @if ($roomPicture)
             <x-slot:leading>
                 <flux:avatar circle size="sm" src="{{ \Einundzwanzig\Group\ImageProxy::url($roomPicture) }}" name="{{ $roomName ?? $h }}" />
             </x-slot:leading>
         @endif
+        <x-slot:subtitle>
+            {{-- Im Thread: Antwort-Zahl unter dem Titel (gleiche Singular/Plural-Logik wie zuvor). --}}
+            <span x-show="threadRootId" x-cloak class="text-xs text-muted"
+                  x-text="threadCount + (threadCount === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
+        </x-slot:subtitle>
         <x-slot:actions>
-            {{-- Mitglied → Verlassen (kind 9022). Beitreten liegt beim Composer. --}}
+            {{-- Mitglied → Verlassen (kind 9022). Nur im Raum, nicht im Thread. Beitreten liegt beim Composer. --}}
             <flux:button size="xs" variant="ghost" icon="arrow-right-start-on-rectangle" class="icon-btn-touch"
-                         x-show="joined" x-cloak x-on:click="leave()" ::disabled="joining" aria-label="{{ __('Raum verlassen') }}">
+                         x-show="joined && !threadRootId" x-cloak x-on:click="leave()" ::disabled="joining" aria-label="{{ __('Raum verlassen') }}">
                 {{ __('Verlassen') }}
             </flux:button>
         </x-slot:actions>
     </x-group::app-header>
 
-    <div class="relative flex min-h-0 flex-1 flex-col">
+    {{-- Raum-Feed: nur sichtbar, wenn KEIN Thread offen ist (der Thread tauscht denselben
+         Mittelbereich, teilt aber Kopf + Bühne → identisches Layout, kein Overlay). --}}
+    <div x-show="!threadRootId" class="relative flex min-h-0 flex-1 flex-col">
 
         {{-- Ladefehler (Relay nicht erreichbar / AUTH-Reject): persistenter Callout + Retry. --}}
         <template x-if="error">
@@ -165,13 +186,74 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </div>
 
+    {{-- Thread-Mittelbereich (C6b, NIP-22 kind 1111): tauscht denselben Bereich wie der Raum-Feed,
+         teilt aber Kopf + status-strip + Bühne → identisches Layout, KEIN Overlay, kein Überblenden.
+         `role="dialog"` + Fokus-/Escape-Verwaltung bleiben (fokussierte Sub-Ansicht). Der Escape-Guard
+         (`!lightboxSrc && !_cropSrc`) verhindert, dass ein Lightbox-/Cropper-Schließen den Thread mitreißt. --}}
+    <div x-show="threadRootId" x-cloak role="dialog" aria-modal="true" aria-label="{{ __('Thread') }}"
+         x-effect="threadRootId && $nextTick(() => $refs.threadClose?.focus())"
+         x-on:keydown.escape.window="threadRootId && !lightboxSrc && !_cropSrc && backFromThread()"
+         class="relative flex min-h-0 flex-1 flex-col">
+        {{-- Root + Kommentare (scrollbar). px-1 wie der Raum-Verlauf. --}}
+        <div x-ref="threadScroll" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 py-3">
+            {{-- Zitat-Anker statt Karte: der Root ist untergeordneter KONTEXT, kein Inhalt.
+                 Ein linker brand-Rail ist die klassische Zitat-Metapher und trägt Bedeutung
+                 („dies ist die zitierte Ursprungsnachricht") — kein voller Rahmen, keine
+                 Card-Elevation, kein separater „mehr anzeigen"-Block. Die Kopf-Leiste selbst
+                 ist der Toggle: eingeklappt = 1 Zeile Auszug → minimale Extra-Höhe. Opaker
+                 zinc-Grund, damit die Kommentare beim Scrollen sauber DAHINTER verschwinden. --}}
+            <template x-if="threadRoot && !threadRoot.missing">
+                <div x-data="{ expanded: false, overflow: false }"
+                     x-effect="threadRoot; expanded = false; $nextTick(() => { overflow = $refs.rootBody ? $refs.rootBody.scrollHeight > $refs.rootBody.clientHeight : false })"
+                     class="sticky top-0 z-10 rounded-r-card border-l-2 border-brand-500/60 bg-zinc-100 py-2 pr-2 pl-3 dark:bg-zinc-800">
+                    {{-- Ganze Kopf-Leiste tappbar. Nur ein Toggle, wenn wirklich Überlauf → sonst
+                         disabled (keine falsche Affordance, aus dem Tab-Fokus). --}}
+                    <button type="button" x-on:click="overflow && (expanded = ! expanded)"
+                            :disabled="!overflow" :aria-expanded="overflow ? expanded : null"
+                            class="pressable flex w-full items-center gap-2 rounded text-left enabled:hover:bg-brand-500/5 disabled:cursor-default">
+                        <x-group::nostr-avatar picture="threadRoot.picture" name="threadRoot.name" size="1.25rem" />
+                        <span class="truncate text-xs font-semibold" x-text="threadRoot.name"></span>
+                        <span class="inline-flex size-3.5 shrink-0 items-center justify-center">
+                            <x-group::nostr-nip05 nip05="threadRoot.nip05" />
+                        </span>
+                        <span class="ml-auto shrink-0 font-mono text-[0.7rem] text-muted" x-text="threadRoot.time"></span>
+                        <flux:icon.chevron-down x-show="overflow" x-cloak class="size-3.5 shrink-0 text-muted transition-transform" ::class="expanded ? 'rotate-180' : ''" />
+                    </button>
+                    {{-- Auszug unter dem Namen eingerückt (Avatar 1.25rem + gap-2 = 1.75rem).
+                         text-muted = untergeordnet, aber AA-tragfähig; Links/Mentions bleiben brand. --}}
+                    <div x-ref="rootBody" class="chat-content mt-0.5 pl-7 text-sm break-words whitespace-pre-wrap text-muted"
+                         :class="expanded ? '' : 'line-clamp-1'" x-html="threadRoot.html"
+                         x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
+                </div>
+            </template>
+            <template x-if="threadRoot?.missing">
+                {{-- Gleiche Anker-Form, aber neutraler zinc-Rail (kein brand): inert, kein Inhalt. --}}
+                <div class="sticky top-0 z-10 rounded-r-card border-l-2 border-zinc-300 bg-zinc-100 py-2 pr-2 pl-3 text-xs text-muted dark:border-zinc-700 dark:bg-zinc-800">
+                    {{ __('Originalnachricht (noch) nicht verfügbar.') }}
+                </div>
+            </template>
+
+            {{-- Kommentar-Liste: flach + chronologisch (Slack-Stil, P3 4.2). Kommentare durch die
+                 GETEILTE Raum-Message-Row → erben Mentions/Crop/Lightbox/Reaktionen/Zaps/Toolbar.
+                 `context='thread'` gatet Raum-only-Aktionen aus und routet Antworten→setThreadReply. --}}
+            <template x-if="threadComments.length === 0">
+                <p class="py-6 text-center text-sm text-muted">{{ __('Noch keine Antworten — antworte als erste:r.') }}</p>
+            </template>
+            <template x-for="m in threadComments" :key="m.id">
+                <div :class="m.showAuthor ? 'pt-2.5' : 'pt-0.5'">
+                    @include('group::partials.chat-row', ['context' => 'thread'])
+                </div>
+            </template>
+        </div>
+    </div>
+
     {{-- Fehler (Relay lehnt ab, AUTH etc.) erscheinen als globaler Toast. --}}
 
     {{-- Composer nur für Mitglieder; sonst Beitreten-Hinweis. Mitgliedschaft ist
          relay-seitig (NIP-29 39002) und persistent. `membershipReady` verhindert,
          dass der Hinweis kurz aufblitzt, bevor die Members-Liste geladen ist.
          Senden ist eine reine Alpine-Aktion (welshman signiert im Browser). --}}
-    <div class="shrink-0 pt-2">
+    <div x-show="!threadRootId" class="shrink-0 pt-2">
         {{-- SSR-sichtbar (kein x-cloak): der Composer-Platz zeigt beim F5 sofort ein Skeleton
              statt weiß, bis die Mitgliedschaft geladen ist. --}}
         <div x-show="!membershipReady" class="skeleton h-11 rounded-card"></div>
@@ -212,6 +294,36 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
             </flux:button>
         </div>
+    </div>
+
+    {{-- Thread-Composer: tauscht denselben Composer-Platz wie der Raum (gleiche `shrink-0 pt-2`-
+         Bühne unten) → keine Layout-Verschiebung beim Wechsel. Root kommentieren oder auf einen
+         Kommentar antworten; context='thread' → sendComment(), threadDraft/threadComposer. --}}
+    <div x-show="threadRootId" x-cloak class="shrink-0 pt-2">
+        <template x-if="joined">
+            <div>
+                {{-- Antwort-Kontext (verschachtelt) mit Abbrechen. --}}
+                <div x-show="threadReplyTo" x-cloak
+                     class="mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-2 py-1 text-xs">
+                    <span class="min-w-0 flex-1 truncate text-muted">
+                        {{ __('Antwort auf') }} <span class="text-brand-500" x-text="threadReplyTo?.name"></span>
+                    </span>
+                    <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
+                                 x-on:click="clearThreadReply()" aria-label="{{ __('Abbrechen') }}" />
+                </div>
+                @include('group::partials.chat-composer', ['context' => 'thread'])
+            </div>
+        </template>
+        {{-- Nicht-Mitglied: Beitreten direkt aus dem Thread. --}}
+        <template x-if="!joined">
+            <div class="surface-card flex items-center justify-between gap-3 p-3">
+                <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu antworten.') }}</flux:text>
+                <flux:button size="sm" variant="primary" icon="plus" class="shrink-0 icon-btn-touch"
+                             x-on:click="join()" ::disabled="joining">
+                    <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
+                </flux:button>
+            </div>
+        </template>
     </div>
 
     {{-- Löschen bestätigen (NIP-09 ist unwiderruflich). --}}
@@ -584,116 +696,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </template>
     </flux:modal>
-
-    {{-- Thread-Ansicht (C6b, NIP-22 kind 1111): In-Room-Overlay statt eigener Route.
-         Zeigt den zitierten Root + den verschachtelten Kommentar-Baum; kommentieren
-         läuft über den eigenen Composer (Root oder Antwort auf einen Kommentar).
-         Web + Mobile teilen dieses Panel (eine View, kein Fork). --}}
-    {{-- `!lightboxSrc`-Guard: wird ein Inline-Bild IM Thread groß angesehen, darf das
-         Schließen der Lightbox (Escape/Klick) NICHT auch den Thread abbauen. Der Thread
-         steht im DOM VOR der Lightbox → sein window-Escape-Listener feuert zuerst und
-         sieht `lightboxSrc` noch gesetzt; der Lightbox-Klick trägt zusätzlich `.stop`. --}}
-    {{-- Zwei Modi: aus dem Chat geöffnet = Modal über gedimmtem Raum (threadFull=false);
-         aus der Übersicht/Deep-Link = OPAKE Vollansicht (threadFull=true), Raum dahinter
-         nicht sichtbar. „Zurück" führt entsprechend (Modal schließen bzw. zur Übersicht). --}}
-    <div x-show="threadRootId" x-cloak role="dialog" aria-modal="true" aria-label="{{ __('Thread') }}"
-         x-effect="threadRootId && $nextTick(() => $refs.threadClose?.focus())"
-         x-on:keydown.escape.window="threadRootId && !lightboxSrc && !_cropSrc && backFromThread()"
-         class="fixed inset-0 z-50 flex justify-center"
-         :class="threadFull ? 'items-stretch bg-zinc-50 dark:bg-zinc-900' : 'items-end bg-black/70 backdrop-blur-sm sm:items-center sm:p-4'">
-        <div class="surface-card flex w-full max-w-2xl flex-col overflow-hidden"
-             :class="threadFull ? 'h-full' : 'max-h-[92vh] rounded-t-card shadow-2xl sm:rounded-card'"
-             x-on:click.outside="!lightboxSrc && !_cropSrc && !threadFull && closeThread()">
-            {{-- Kopf: Zurück + Titel + Kommentar-Zahl.
-                 pt via safe-area-inset NUR in der Vollansicht (h-full berührt die Status-Leiste);
-                 im Bottom-Sheet (max-h-92vh, items-end) liegt der Kopf nie am oberen Rand. --}}
-            <div class="flex items-center gap-2 border-b border-white/10 px-4 pb-3"
-                 :class="threadFull ? 'pt-[max(env(safe-area-inset-top),1rem)]' : 'pt-3'">
-                <flux:button size="xs" variant="ghost" icon="arrow-left" class="icon-btn-touch"
-                             x-ref="threadClose" x-on:click="backFromThread()" aria-label="{{ __('Zurück') }}" />
-                <flux:heading size="lg" class="flex-1">{{ __('Thread') }}</flux:heading>
-                <span class="shrink-0 text-xs text-muted"
-                      x-text="threadCount + (threadCount === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
-            </div>
-
-            {{-- Root + Kommentare (scrollbar). --}}
-            <div x-ref="threadScroll" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
-                {{-- Zitierte Root-Nachricht. `sticky top-0` hält sie beim Scrollen oben,
-                     damit immer klar ist, in welchem Thread man ist. surface-card ist opak,
-                     Kommentare scrollen darunter durch; z-10 über die Kommentare. --}}
-                <template x-if="threadRoot && !threadRoot.missing">
-                    <div class="surface-card sticky top-0 z-10 rounded-tile border border-brand-500/20 p-3">
-                        <div class="mb-1 flex items-center gap-2">
-                            <x-group::nostr-avatar picture="threadRoot.picture" name="threadRoot.name" />
-                            <span class="truncate text-sm font-semibold" x-text="threadRoot.name"></span>
-                            <span class="inline-flex size-4 shrink-0 items-center justify-center">
-                                <x-group::nostr-nip05 nip05="threadRoot.nip05" />
-                            </span>
-                            <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="threadRoot.time"></span>
-                        </div>
-                        <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="threadRoot.html"
-                             x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
-                    </div>
-                </template>
-                <template x-if="threadRoot?.missing">
-                    <div class="rounded-tile border border-white/10 p-3 text-sm text-muted">
-                        {{ __('Originalnachricht (noch) nicht verfügbar.') }}
-                    </div>
-                </template>
-
-                {{-- Kommentar-Liste: flach + chronologisch (Slack-Stil, P3 4.2) — keine
-                     depth-Einrückung; Eltern-Bezug über die „Antwort auf <Autor>"-Zeile. --}}
-                <template x-if="threadComments.length === 0">
-                    <p class="py-6 text-center text-sm text-muted">{{ __('Noch keine Antworten — antworte als erste:r.') }}</p>
-                </template>
-                {{-- Kommentare durch die GETEILTE Raum-Message-Row (P3 4.2): erben Mentions/Crop/
-                     Lightbox/Reaktionen/Zaps/Toolbar. `context='thread'` gatet Raum-only-Aktionen
-                     (openThread/Zitieren/Bearbeiten/Löschen) aus und routet Antworten→setThreadReply.
-                     `m` ist der Schleifenname, den das Partial erwartet. --}}
-                <template x-for="m in threadComments" :key="m.id">
-                    <div :class="m.showAuthor ? 'pt-2.5' : 'pt-0.5'">
-                        @include('group::partials.chat-row', ['context' => 'thread'])
-                    </div>
-                </template>
-            </div>
-
-            {{-- Composer: Root kommentieren oder auf einen Kommentar antworten.
-                 pb via safe-area-inset: das Thread-Overlay ist `fixed inset-0` und erbt NICHT
-                 das pb des Root-Containers (Zeile 58), sonst läge der Composer auf der
-                 Android-3-Button-Leiste / iOS-Home-Indicator. Gleicher Wert wie Root-Container
-                 (Zeile 58), damit die Tailwind-Klasse garantiert im kompilierten CSS liegt. --}}
-            <div class="border-t border-white/10 px-3 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)]">
-                <template x-if="joined">
-                    <div>
-                        {{-- Antwort-Kontext (verschachtelt) mit Abbrechen. --}}
-                        <div x-show="threadReplyTo" x-cloak
-                             class="mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-2 py-1 text-xs">
-                            <span class="min-w-0 flex-1 truncate text-muted">
-                                {{ __('Antwort auf') }} <span class="text-brand-500" x-text="threadReplyTo?.name"></span>
-                            </span>
-                            <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
-                                         x-on:click="clearThreadReply()" aria-label="{{ __('Abbrechen') }}" />
-                        </div>
-                        {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild-Anhang): geteilter Composer.
-                             context='thread' → sendComment(), threadDraft/threadComposer, kein Poll/Zap-Ziel. --}}
-                        @include('group::partials.chat-composer', ['context' => 'thread'])
-                    </div>
-                </template>
-                {{-- Nicht-Mitglied: Beitreten DIREKT aus dem Thread (v.a. Vollansicht aus der
-                     Übersicht, wo man den Raum noch nicht betreten hat). join() ist die
-                     bestehende Raum-Beitritts-Aktion; nach Beitritt erscheint der Composer. --}}
-                <template x-if="!joined">
-                    <div class="flex items-center justify-between gap-3">
-                        <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu antworten.') }}</flux:text>
-                        <flux:button size="sm" variant="primary" icon="plus" class="shrink-0 icon-btn-touch"
-                                     x-on:click="join()" ::disabled="joining">
-                            <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
-                        </flux:button>
-                    </div>
-                </template>
-            </div>
-        </div>
-    </div>
 
     {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds (Proxy-Preset `full`), mit
          Zoom (Pinch/Doppeltipp/Mausrad — s. `js/lightbox.ts`). Proxy-Fehler → Original-URL
