@@ -409,6 +409,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
             {{-- Empfänger nicht bezahlbar: gültige Adresse, aber kein erreichbarer LNURL-Endpoint.
                  role="alert" → Screenreader kündigt den async auftauchenden Grund an, warum „Senden" aus bleibt. --}}
+            {{-- Prüfung scheiterte bei UNS (Timeout/Netz) — bewusst KEINE Aussage über den
+                 Empfänger, sondern ein erneuter Versuch. --}}
+            <div x-show="zapResolveFailed" x-cloak role="alert"
+                 class="flex items-start gap-2 rounded-tile border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
+                <span class="flex-1">{{ __('Der Empfänger konnte gerade nicht geprüft werden (Zeitüberschreitung).') }}</span>
+                <button type="button" x-on:click="openZap(zapFor)" class="shrink-0 font-medium underline">{{ __('Erneut versuchen') }}</button>
+            </div>
+
             <div x-show="zapUnavailable" x-cloak role="alert"
                  class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
                 <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
@@ -441,7 +450,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <flux:input x-model="zapContent" label="{{ __('Kommentar') }}" placeholder="⚡" />
                 <div class="flex justify-end gap-2">
                     <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
-                    <flux:button variant="primary" icon="bolt" x-on:click="confirmZap()" ::disabled="zapping || zapResolving || zapUnavailable">
+                    <flux:button variant="primary" icon="bolt" x-on:click="confirmZap()" ::disabled="zapping || zapResolving || zapUnavailable || zapResolveFailed">
                         <span x-text="zapResolving ? @js(__('Prüfe …')) : (zapping ? @js(__('Sende…')) : (zapNostrless ? @js(__('Trotzdem zahlen')) : @js(__('Zap senden'))))"></span>
                     </flux:button>
                 </div>

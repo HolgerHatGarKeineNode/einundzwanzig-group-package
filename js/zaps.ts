@@ -10,9 +10,9 @@
  * Server, der an diesem Pfad gar nicht beteiligt ist.
  */
 import { loadZapperForPubkey, signer } from '@welshman/app'
-import { getZapResponseFilter, makeZapRequest, requestZap, toMsats, type SignedEvent, type Zapper } from '@welshman/util'
-import { load, request } from '@welshman/net'
-import { fetchJson, tryCatch } from '@welshman/lib'
+import { getTagValue, getZapResponseFilter, makeZapRequest, toMsats, type SignedEvent, type Zapper } from '@welshman/util'
+import { request } from '@welshman/net'
+import { uniq } from '@welshman/lib'
 import { Router } from '@welshman/router'
 import { payInvoice as walletPayInvoice } from './wallet'
 
@@ -64,23 +64,80 @@ export const resolveZapper = (pubkey: string): Promise<Zapper | undefined> => lo
 export const canPay = (zapper: Zapper | undefined): zapper is Zapper => Boolean(zapper?.callback)
 
 /**
- * Query-String für einen Plain-LNURL-Pay-Callback (LUD-06/16, OHNE NIP-57): nur `amount`
- * in Millisats, plus `comment` falls der Server ihn erlaubt (LUD-12 `commentAllowed` > 0,
- * auf dessen Länge gekürzt). Pure → JS-Unit-prüfbar.
+ * LNURL-Callback + Parameter zu einer URL verbinden. Zwei Fallen, die welshmans
+ * `requestZap` (`@welshman/util` Zaps.js) beide stellt und die hier bewusst geschlossen sind:
+ *
+ * 1. **Anfügen mit `?` ODER `&`.** LUD-06 schreibt wörtlich `<callback><?|&>amount=…` — der
+ *    Callback DARF bereits einen Query-Teil tragen. Ein hart angehängtes `?` erzeugt dann eine
+ *    kaputte URL und der Server sieht `amount`/`nostr` gar nicht.
+ * 2. **Werte einzeln mit `encodeURIComponent`.** `encodeURI` (welshman) lässt `& = + # ? , : / $`
+ *    stehen — ein Zap-Kommentar mit einem dieser Zeichen zerschneidet den `nostr=`-Parameter
+ *    (Server: „invalid zap request") oder verändert still den `content` (`+` → Leerzeichen),
+ *    womit die Schnorr-Signatur der 9734 nicht mehr passt (Server: „bad signature").
+ *    Bewusst `encodeURIComponent` statt `URLSearchParams`: Letzteres kodiert Leerzeichen als
+ *    `+`, was nur ein `x-www-form-urlencoded`-Parser richtig auflöst — `%20` verstehen beide.
+ *
+ * Leere Werte fallen raus (kein `&comment=`). Pure → JS-Unit-prüfbar.
  */
-export const plainInvoiceQuery = (zapper: Zapper, sats: number, comment = ''): string => {
-    let qs = `?amount=${toMsats(sats)}`
+export const lnurlCallbackUrl = (callback: string, params: Record<string, string>): string => {
+    const qs = Object.entries(params)
+        .filter(([, v]) => v !== '')
+        .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+        .join('&')
+    return callback + (callback.includes('?') ? '&' : '?') + qs
+}
+
+/**
+ * Rohe LNURL-Antwort holen und in `{invoice}` ODER `{error}` überführen.
+ *
+ * Bewusst KEIN `fetchJson` (welshman): reale LNURL-Server antworten im Fehlerfall mit
+ * PLAIN TEXT statt LUD-06-JSON — gemessen an primal.net: HTTP 500 `error`, HTTP 406
+ * `invalid zap request`, HTTP 406 `invalid zap amount`. `fetchJson` wirft dann beim
+ * `JSON.parse`, `tryCatch` schluckt es, übrig bleibt „Failed to request invoice" — die
+ * präzise Begründung des Servers ist weg. Also: Body als Text lesen, JSON nur VERSUCHEN,
+ * und HTTP-Status + Originaltext in der Meldung führen. Keine erfundene Schuldzuweisung.
+ */
+const fetchInvoice = async (url: string): Promise<{ invoice?: string; error?: string }> => {
+    let res: Response
+    try {
+        res = await fetch(url)
+    } catch (e) {
+        // Kommt der Request gar nicht erst raus (Offline, DNS, CORS, blockierender
+        // Tracking-Schutz), ist das UNSER Ende der Leitung — nicht das des Empfängers.
+        return { error: `Der Server des Empfängers war nicht erreichbar (${e instanceof Error ? e.message : String(e)}).` }
+    }
+    const body = (await res.text().catch(() => '')).trim()
+    let json: unknown
+    try {
+        json = JSON.parse(body)
+    } catch {
+        json = undefined
+    }
+    const pr = (json as { pr?: unknown } | undefined)?.pr
+    if (typeof pr === 'string' && pr) {
+        return { invoice: pr }
+    }
+    return { error: invoiceRequestError(lnurlErrorReason(json) ?? body.slice(0, 200), res.status) }
+}
+
+/**
+ * Kommentar auf die vom Server erlaubte Länge kürzen (LUD-12 `commentAllowed`, in Zeichen).
+ * Nach CODE-POINTS kürzen (`Array.from`), nicht nach UTF-16-Einheiten: sonst zerschneidet
+ * `slice(0,max)` ein astrales Emoji (Surrogate-Paar) und `encodeURIComponent` wirft URIError.
+ * `0`/fehlend = Server erlaubt keinen Kommentar → leer.
+ */
+export const clipComment = (zapper: Zapper, comment = ''): string => {
     const max = Number((zapper as { commentAllowed?: number }).commentAllowed ?? 0)
     const c = comment.trim()
-    if (c && max > 0) {
-        // Nach CODE-POINTS kürzen (Array.from), nicht nach UTF-16-Einheiten: sonst zerschneidet
-        // slice(0,max) ein astrales Emoji (Surrogate-Paar) → encodeURIComponent wirft URIError
-        // und die Zahlung würde blockiert. LUD-12 misst commentAllowed in Zeichen.
-        const clipped = Array.from(c).slice(0, max).join('')
-        qs += `&comment=${encodeURIComponent(clipped)}`
-    }
-    return qs
+    return c && max > 0 ? Array.from(c).slice(0, max).join('') : ''
 }
+
+/**
+ * Vollständige URL für einen Plain-LNURL-Pay-Callback (LUD-06/16, OHNE NIP-57): `amount`
+ * in Millisats, plus `comment` falls der Server ihn erlaubt (LUD-12). Pure → JS-Unit-prüfbar.
+ */
+export const plainInvoiceUrl = (zapper: Zapper, sats: number, comment = ''): string =>
+    lnurlCallbackUrl(zapper.callback ?? '', { amount: String(toMsats(sats)), comment: clipComment(zapper, comment) })
 
 /**
  * Plain-LNURL-Pay OHNE 9734 (kein Nostr-Zap): holt eine bolt11 nur über amount(+comment).
@@ -88,15 +145,14 @@ export const plainInvoiceQuery = (zapper: Zapper, sats: number, comment = ''): s
  * Es entsteht KEIN 9735-Receipt → der Zap ist im Raum nicht sichtbar. Wirft deutsche Fehler.
  */
 export const requestPlainInvoice = async ({ zapper, sats, comment }: { zapper: Zapper; sats: number; comment?: string }): Promise<string> => {
-    const cb = zapper.callback
-    if (!cb) {
+    if (!zapper.callback) {
         throw new Error('Empfänger hat keinen Zahlungs-Endpoint.')
     }
-    const res = await tryCatch(() => fetchJson(cb + plainInvoiceQuery(zapper, sats, comment ?? '')))
-    if (!res?.pr) {
-        throw new Error(invoiceRequestError(res?.reason))
+    const res = await fetchInvoice(plainInvoiceUrl(zapper, sats, comment ?? ''))
+    if (!res.invoice) {
+        throw new Error(res.error ?? invoiceRequestError())
     }
-    return res.pr as string
+    return res.invoice
 }
 
 /**
@@ -138,11 +194,23 @@ export const canZap = (zapper: Zapper | undefined): zapper is Zapper =>
     Boolean(zapper?.allowsNostr && zapper.nostrPubkey)
 
 /**
- * Empfänger-Relays fürs `["relays", …]`-Tag der 9734 (wohin das Receipt soll):
- * im Raum das Space-Relay (`url`), sonst die Router-Relays des Empfängers.
+ * Relays fürs `["relays", …]`-Tag der 9734 — dorthin publiziert der LNURL-Server des
+ * EMPFÄNGERS das 9735-Receipt (NIP-57).
+ *
+ * flotilla nimmt hier `url ? [url] : Router.ForPubkey(pubkey)`, also im Raum AUSSCHLIESSLICH
+ * das Space-Relay. Wir nehmen zusätzlich die Relays des Empfängers — **nicht** weil das
+ * Space-Relay das Receipt abwiese (tut es nicht: zooids `OnEvent` ruft
+ * `AllowRecipientEvent` VOR dem Auth-Check, und kind 9735 mit `p` auf ein Mitglied wird
+ * ohne NIP-42 angenommen, `zooid/instance.go:181-206`+345), sondern weil ein einziges
+ * Zielrelay ein Single Point of Failure für einen bereits BEZAHLTEN Zap ist: ist es kurz
+ * weg, ist der Zap verloren, nicht nur unsichtbar. Und ein Receipt, das nur auf einem
+ * geschlossenen Relay liegt, existiert für jeden anderen Client des Empfängers nicht.
+ * Redundanz kostet hier nichts und ist NIP-57-üblich (`relays` ist bewusst eine Liste).
  */
-export const zapRelays = (pubkey: string, url?: string): string[] =>
-    url ? [url] : Router.get().ForPubkey(pubkey).getUrls()
+export const zapRelays = (pubkey: string, url?: string): string[] => {
+    const recipient = Router.get().ForPubkey(pubkey).getUrls()
+    return uniq([...recipient, ...(url ? [url] : [])])
+}
 
 export type ZapTemplateInput = {
     pubkey: string
@@ -200,26 +268,66 @@ export const createZapInvoice = async (
     }
     const relays = zapRelays(input.pubkey, input.url)
     const event = await buildZapRequest({ ...input, zapper, relays })
-    const res = await requestZap({ zapper, event })
+    const res = await requestZapInvoice({ zapper, event })
     if (!res.invoice) {
-        throw new Error(invoiceRequestError(res.error))
+        throw new Error(res.error ?? invoiceRequestError())
     }
     return { invoice: res.invoice, event, zapper, relays }
 }
 
 /**
- * Klartext für den Fall, dass der LNURL-Server des EMPFÄNGERS keine bolt11 liefert
- * (ZAPS.md Z6). welshmans `requestZap` gibt entweder den echten LNURL-`reason` des
- * Servers zurück oder den generischen Fallback „Failed to request invoice" — Letzteren
- * u.a., wenn der Empfänger-Server ein Nicht-Standard-Fehlerformat schickt (z.B. Alby:
- * `{error,message}` statt `{status,reason}`, HTTP 400). Beides ist ein Problem der
- * Empfänger-Wallet, NICHT der Wallet/des NWC-Strings des Zappers — daher eine klare,
- * entlastende Meldung statt des englischen Roh-Fehlers. Pure Funktion → JS-Unit-prüfbar.
+ * LNURL-Callback der 9734 (NIP-57 Schritt „zap request → invoice"). Ersetzt welshmans
+ * `requestZap`, weil dessen `encodeURI`-Query den `nostr`-Parameter bei Kommentaren mit
+ * `& = + #` zerstört (siehe {@link lnurlCallbackUrl}); welshman selbst bleibt unangetastet.
+ * Wertet über {@link fetchInvoice} HTTP-Status UND rohen Body aus, damit die ECHTE
+ * Begründung des Empfänger-Servers beim Nutzer ankommt statt eines generischen „ging nicht".
  */
-export const invoiceRequestError = (rawError?: string): string =>
-    !rawError || /failed to request invoice/i.test(rawError)
-        ? 'Empfänger-Wallet konnte keine Rechnung erstellen — das Problem liegt beim Empfänger (nicht an dir, deiner Wallet oder dem NWC). Bitte einen anderen Betrag oder Empfänger versuchen.'
-        : `Empfänger-Wallet lehnte die Rechnung ab: ${rawError}`
+export const requestZapInvoice = async ({ zapper, event }: { zapper: Zapper; event: SignedEvent }): Promise<{ invoice?: string; error?: string }> => {
+    if (!zapper.callback) {
+        return { error: 'Empfänger hat keinen Zahlungs-Endpoint.' }
+    }
+    return fetchInvoice(
+        lnurlCallbackUrl(zapper.callback, {
+            amount: getTagValue('amount', event.tags) ?? '',
+            nostr: JSON.stringify(event),
+            lnurl: zapper.lnurl,
+        }),
+    )
+}
+
+/**
+ * Fehlergrund aus einer LNURL-Antwort ziehen. LUD-06 sieht `{status:"ERROR", reason}` vor,
+ * reale Server (u. a. Alby) antworten aber auch mit `{error, message}` oder `{detail}` — ohne
+ * diese Varianten fiele der echte Grund unter den Tisch und {@link invoiceRequestError} zeigte
+ * nur den generischen Text. Pure → JS-Unit-prüfbar.
+ */
+export const lnurlErrorReason = (res: unknown): string | undefined => {
+    const r = (res ?? {}) as Record<string, unknown>
+    for (const key of ['reason', 'message', 'detail', 'error']) {
+        const v = r[key]
+        if (typeof v === 'string' && v.trim()) {
+            return v.trim()
+        }
+    }
+    return undefined
+}
+
+/**
+ * Meldung, wenn der LNURL-Server des EMPFÄNGERS keine bolt11 liefert (ZAPS.md Z6).
+ *
+ * Gibt den Originaltext des Servers (und den HTTP-Status) weiter, statt eine Ursache zu
+ * ERFINDEN. Die frühere Fassung behauptete „das Problem liegt beim Empfänger (nicht an dir,
+ * deiner Wallet oder dem NWC)" — das war nachweislich falsch: der Server liefert oft eine
+ * präzise Begründung (`invalid zap request`, `invalid zap amount`), die wir nur weggeworfen
+ * hatten, weil sie als PLAIN TEXT statt als LUD-06-JSON kommt. Wer die Ursache nicht kennt,
+ * benennt sie nicht. Pure Funktion → JS-Unit-prüfbar.
+ */
+export const invoiceRequestError = (rawError?: string, status?: number): string => {
+    const detail = [status && status >= 400 ? `HTTP ${status}` : '', rawError?.trim()].filter(Boolean).join(': ')
+    return detail
+        ? `Der Server des Empfängers hat keine Rechnung ausgestellt — ${detail}`
+        : 'Der Server des Empfängers hat keine Rechnung ausgestellt (ohne Begründung).'
+}
 
 /**
  * Zahlweg des Zap-Buttons (ZAPS.md Z2, flotilla `ZapButton`-Router): `'info'` wenn der
@@ -236,27 +344,97 @@ type ZapPayInput = Omit<ZapRequestInput, 'zapper'> & { zapper?: Zapper }
 
 /**
  * Z2a Auto-Pay (flotilla `Zap.svelte` `sendZap`): Rechnung holen (Z1) → über das
- * verbundene Wallet zahlen → das 9735-Receipt **einmalig** nachladen, damit es ins
- * lokale Repository/Tally fließt (Z3). Zahlt zuerst — schlägt `pay` fehl, wird das
- * Receipt nicht geladen (Reihenfolge ist der Kern des Auto-Pay). `deps` injizierbar
- * für Stub-Tests; Default = echter Z1-Pfad + echtes Wallet + welshman-`load`.
+ * verbundene Wallet zahlen → auf das 9735-Receipt lauschen, damit es ins lokale
+ * Repository/Tally fließt (Z3). Zahlt zuerst — schlägt `pay` fehl, wird nicht auf das
+ * Receipt gewartet (Reihenfolge ist der Kern des Auto-Pay). `deps` injizierbar für
+ * Stub-Tests; Default = echter Z1-Pfad + echtes Wallet + welshman-`request`.
+ *
+ * **Abweichung 1 von flotilla — LAUSCHEN statt EINMAL LADEN.** flotilla macht direkt nach
+ * `payInvoice` genau ein `await load({relays, filters})`. Das ist ein Rennen, das der Client
+ * fast immer verliert: der LNURL-Server stellt das 9735 erst aus, NACHDEM die Zahlung
+ * settled ist (typisch 1–3 s), `load` (`@welshman/net` `makeLoader({timeout: 3000,
+ * threshold: 0.5})`, `autoClose`) kommt aber schon beim EOSE zurück — bei leerem Ergebnis
+ * nach Bruchteilen einer Sekunde. Danach fragt niemand mehr nach: `bridge.ts` lädt Receipts
+ * per `loadRoomZaps` nur je Nachricht EINMAL (`_zapLoadedIds`) und für 9735 gibt es keine
+ * Live-Sub (kein `#h`, nicht im `listenRoom`-Filter). Ergebnis: bezahlt, aber kein ⚡-Chip
+ * bis zum nächsten Reload. Darum hier dieselbe Live-Subscription wie im QR-Pfad
+ * ({@link watchZapReceipt}) — EIN Mechanismus für beide Zahlwege statt zwei.
+ *
+ * **Abweichung 2 von flotilla — Zahlung ≠ Bestätigung.** flotilla hat `payInvoice` und
+ * `load` in EINEM try/catch: kippt der Receipt-Schritt, sieht der Nutzer einen Fehler-Toast
+ * trotz gezahltem Zap und zappt ein zweites Mal. Ab `pay` darf nichts mehr werfen; ob das
+ * Receipt kam, ist eine SEPARATE Aussage (`receiptSeen`) für „Zap gesendet ⚡" vs.
+ * „Bezahlt ⚡ — Bestätigung steht noch aus".
  */
 export const payZapAuto = async (
     input: ZapPayInput,
     {
         createInvoice = createZapInvoice,
         pay = walletPayInvoice,
-        loadReceipt = load,
-    }: { createInvoice?: typeof createZapInvoice; pay?: typeof walletPayInvoice; loadReceipt?: typeof load } = {},
-): Promise<Awaited<ReturnType<typeof createZapInvoice>>> => {
+        subscribe = request,
+    }: { createInvoice?: typeof createZapInvoice; pay?: typeof walletPayInvoice; subscribe?: typeof request } = {},
+): Promise<Awaited<ReturnType<typeof createZapInvoice>> & { receiptSeen: boolean }> => {
     const result = await createInvoice(input)
     await pay(result.invoice)
-    await loadReceipt({
-        relays: result.relays,
-        filters: [getZapResponseFilter({ zapper: result.zapper, pubkey: input.pubkey, eventId: input.eventId })],
-    })
-    return result
+    // AB HIER IST DAS GELD WEG — ab hier darf NICHTS mehr werfen.
+    const receiptSeen = await awaitZapReceipt(
+        { zapper: result.zapper, pubkey: input.pubkey, eventId: input.eventId, relays: result.relays },
+        subscribe,
+    )
+    return { ...result, receiptSeen }
 }
+
+/**
+ * So lange wartet der AUFRUFER auf das Receipt, bevor er „Bestätigung steht noch aus"
+ * meldet (ms). Kurz gehalten: der Nutzer soll nicht auf einen fremden Server warten
+ * müssen, dessen Zahlung längst durch ist. Deckt den typischen Fall (1–3 s) ab.
+ */
+export const RECEIPT_WAIT = 4000
+
+/**
+ * So lange lauscht die Subscription im HINTERGRUND weiter (ms), auch nachdem der Aufrufer
+ * schon „steht noch aus" gemeldet hat. Trifft das Receipt später ein, landet es trotzdem
+ * im Repository und der ⚡-Chip erscheint ohne Reload — genau der Fall, der vorher
+ * dauerhaft verloren ging.
+ */
+export const RECEIPT_WINDOW = 30000
+
+/**
+ * Auf das 9735 zu einer eben bezahlten Rechnung lauschen. Löst mit `true` auf, sobald es
+ * eintrifft, sonst nach {@link RECEIPT_WAIT} mit `false` — die Subscription läuft danach
+ * bis {@link RECEIPT_WINDOW} weiter. Wirft nie (nach der Zahlung darf nichts mehr kippen).
+ */
+export const awaitZapReceipt = (
+    { zapper, pubkey, eventId, relays }: Omit<WatchZapReceiptInput, 'signal' | 'onReceived'>,
+    sub: typeof request = request,
+): Promise<boolean> =>
+    new Promise((resolve) => {
+        const controller = new AbortController()
+        const closeSub = setTimeout(() => controller.abort(), RECEIPT_WINDOW)
+        const answer = setTimeout(() => resolve(false), RECEIPT_WAIT)
+        try {
+            watchZapReceipt(
+                {
+                    zapper,
+                    pubkey,
+                    eventId,
+                    relays,
+                    signal: controller.signal,
+                    onReceived: () => {
+                        clearTimeout(answer)
+                        clearTimeout(closeSub)
+                        controller.abort()
+                        resolve(true)
+                    },
+                },
+                sub,
+            )
+        } catch {
+            clearTimeout(answer)
+            clearTimeout(closeSub)
+            resolve(false)
+        }
+    })
 
 export type WatchZapReceiptInput = {
     zapper: Zapper

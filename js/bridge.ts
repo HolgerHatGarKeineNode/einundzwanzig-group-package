@@ -6,7 +6,7 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, loadZapper } from '@welshman/app'
+import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, forceLoadZapper } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { randomId } from '@welshman/lib'
 import { sanitizeUrl } from '@braintree/sanitize-url'
@@ -593,7 +593,8 @@ type RoomChatState = {
     reporting: boolean
     zapFor: ChatMessage | null // Zielnachricht des offenen Zap-Modals (Z3)
     zapResolving: boolean // Zapper des offenen Modals wird noch aufgelöst → „Senden" disabled
-    zapUnavailable: boolean // Empfänger nicht bezahlbar (Resolve fehlgeschlagen/kein Endpoint) → Hinweis im Modal
+    zapUnavailable: boolean // Empfänger nicht bezahlbar (kein erreichbarer LNURL-Endpoint) → Hinweis im Modal
+    zapResolveFailed: boolean // Prüfung des Empfängers scheiterte bei UNS (Timeout/Netz) → erneut versuchen
     zapNostrless: boolean // Modal im Plain-Pay-Modus: Empfänger ohne NIP-57 → Zahlung ohne Nostr-Event
     zapAmount: number // gewählter Zap-Betrag in Sats (Default 21 = EINUNDZWANZIG)
     zapContent: string // Zap-Kommentar/Emoji (Default '⚡')
@@ -2508,6 +2509,7 @@ export function registerNostrComponents(Alpine: {
         zapFor: null,
         zapResolving: false,
         zapUnavailable: false,
+        zapResolveFailed: false,
         zapNostrless: false,
         zapAmount: 21,
         zapContent: '⚡',
@@ -3880,6 +3882,7 @@ export function registerNostrComponents(Alpine: {
             this._zapper = null
             this.zapNostrless = false
             this.zapUnavailable = false
+            this.zapResolveFailed = false
             this.zapResolving = true
             this.zapAmount = 21
             this.zapContent = DEFAULT_ZAP_CONTENT
@@ -3892,15 +3895,39 @@ export function registerNostrComponents(Alpine: {
                 // liefert die lud16 SYNCHRON. Daraus die lnurl, dann:
                 // 1) synchron aus dem gewärmten Zapper-Cache (feeds.ts `warmZappers`, gleicher Cache
                 //    wie der ⚡-Tally), sonst
-                // 2) den LNURL DIREKT laden (`loadZapper` = reiner HTTP-Fetch des .well-known/lnurlp,
-                //    KEINE Relays, KEIN NIP-42-AUTH). Das frühere `resolveZapper` machte ein
+                // 2) den LNURL DIREKT laden (reiner HTTP-Fetch des .well-known/lnurlp, KEINE
+                //    Relays, KEIN NIP-42-AUTH). Das frühere `resolveZapper` machte ein
                 //    `await loadProfile` über die Outbox-Relays → hing hinter der AUTH-Lawine und
                 //    meldete fälschlich „nicht erreichbar" bei validen Adressen (walletofsatoshi.com).
+                //
+                //    `forceLoadZapper`, NICHT `loadZapper`: `loadZapper` läuft über welshmans
+                //    `makeLoadItem` (@welshman/store repository.js:275) mit EXPONENTIELLEM BACKOFF —
+                //    nach n erfolglosen Versuchen liefert es innerhalb von 2^n Sekunden sofort
+                //    `undefined` zurück, OHNE zu fetchen. Die Versuche verbraucht `warmZappers`
+                //    im Hintergrund für jeden Feed-Autor; tippt der Nutzer danach auf ⚡, kam die
+                //    Antwort aus dem Backoff statt vom Server → „Zahlungs-Endpoint nicht erreichbar"
+                //    bei einer kerngesunden Adresse. Genau dieses „mal geht's, mal nicht".
+                //    Ein expliziter Nutzer-Tap darf nie gedrosselt werden.
                 const profile = getProfile(m.pubkey)
                 const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
                 let zapper = lnurl ? getZapper(lnurl) : undefined
+                // Timeout/Netzwerkfehler von UNSERER Seite streng trennen von „Empfänger kann
+                // nichts empfangen". Beides in `zapUnavailable` zu werfen, log dem Nutzer eine
+                // Aussage über den EMPFÄNGER auf, obwohl nur unser Fetch nicht durchkam — genau
+                // das Muster hinter „mal geht's, mal nicht". `zapResolveFailed` sagt stattdessen,
+                // dass es an der Prüfung lag, und bietet einen erneuten Versuch an.
                 if (!zapper && lnurl) {
-                    zapper = await withTimeout(loadZapper(lnurl), 8000).catch(() => undefined)
+                    try {
+                        // 15 s, nicht 8: der LNURL-Fetch des Empfängers braucht gemessen
+                        // 1,3–1,6 s, mit Ausreißern bis 5,5 s — plus welshmans 800-ms-Batcher.
+                        // Bei 8 s hätte ein langsamer Empfänger-Server als „nicht erreichbar" gegolten.
+                        zapper = await withTimeout(forceLoadZapper(lnurl), 15000)
+                    } catch {
+                        if (this.zapFor === m) {
+                            this.zapResolveFailed = true
+                        }
+                        return
+                    }
                     if (this.zapFor !== m) {
                         return // Sheet zwischenzeitlich geschlossen/gewechselt
                     }
@@ -3973,8 +4000,11 @@ export function registerNostrComponents(Alpine: {
                     url: this._url,
                 }
                 if (chooseZapMethod(zapper, hasWallet) === 'auto') {
-                    await payZapAuto(input)
-                    toast('Zap gesendet ⚡', 'success')
+                    // Gezahlt ist gezahlt: `payZapAuto` wirft nach erfolgreicher Zahlung nicht
+                    // mehr. Ob das 9735-Receipt schon da ist, ist eine SEPARATE Aussage —
+                    // fehlt es, sagen wir das, statt einen Fehler zu melden (das Geld ist raus).
+                    const { receiptSeen } = await payZapAuto(input)
+                    toast(receiptSeen ? 'Zap gesendet ⚡' : 'Bezahlt ⚡ — Bestätigung steht noch aus.', 'success')
                     if (this.zapFor === m) {
                         this.closeZap()
                     }
@@ -4018,6 +4048,7 @@ export function registerNostrComponents(Alpine: {
             this._zapper = null
             this.zapResolving = false
             this.zapUnavailable = false
+            this.zapResolveFailed = false
             this.zapNostrless = false
             this.zapInvoice = ''
             this.zapQr = ''

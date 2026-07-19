@@ -21,7 +21,7 @@ import { warmZappers } from './zaps'
 import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, makeComment, mentionPubkeys } from './interactions'
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
-import { proxifyImage } from './core'
+import { DEFAULT_RELAYS, proxifyImage } from './core'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
@@ -877,9 +877,21 @@ export const loadRoomComments = (url: string): Promise<TrustedEvent[]> =>
  * ponytail: One-shot pro neuer ID; eigene Zaps landen ohnehin sofort (payZapAuto/
  * watchZapReceipt) — eine separate Live-Sub auf Fremd-Zaps wäre erst nötig, wenn
  * Echtzeit-Tally fremder Zaps ohne Feed-Reload gefordert ist.
+ *
+ * Gelesen wird aus Space-Relay UND öffentlichen Default-Relays — eine HEURISTIK,
+ * bewusst kein exakter Gegensatz zum Schreibziel: `zaps.ts` `zapRelays` schickt das
+ * Receipt an `Router.ForPubkey(empfänger)`, also dessen NIP-65-Relays (ohne Fallback,
+ * `getPolicy() = addNoFallbacks`), die hier gar nicht bekannt sind. Nur das Space-Relay
+ * abzufragen wäre aber sicher zu eng: Receipts eines Clients mit anderem `relays`-Tag
+ * oder bei kurz weggebrochenem Space-Relay blieben dauerhaft unsichtbar. Rest-Lücke:
+ * ein Receipt, das ausschließlich auf einem exotischen Empfänger-Relay liegt, sieht
+ * dieser historische Load nicht — der EIGENE frische Zap dagegen schon, der lauscht in
+ * `payZapAuto`/`watchZapReceipt` auf exakt dem Satz aus dem `relays`-Tag.
  */
 export const loadRoomZaps = (url: string, eventIds: string[]): Promise<TrustedEvent[]> =>
-    eventIds.length ? load({ relays: [url], filters: [{ kinds: [ZAP_RESPONSE], '#e': eventIds }] }) : Promise.resolve([])
+    eventIds.length
+        ? load({ relays: uniq([url, ...DEFAULT_RELAYS]), filters: [{ kinds: [ZAP_RESPONSE], '#e': eventIds }] })
+        : Promise.resolve([])
 
 /**
  * Lädt Room-Nachrichten vom Space-Relay: die jüngsten (initial) oder — mit
