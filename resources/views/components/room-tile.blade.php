@@ -9,7 +9,7 @@
 <div class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
     <button type="button"
             x-on:click="Livewire.navigate('/rooms/' + encodeURIComponent(room.h))"
-            class="pressable flex min-w-0 flex-1 items-center gap-3 rounded-tile p-2 text-left">
+            class="pressable flex min-w-0 flex-1 items-center gap-2.5 rounded-tile p-1.5 text-left">
         {{-- flux:avatar verzweigt server-seitig auf `$src` → bei reinem Alpine-Bind bliebe
              es Initialen. Darum natives `<img>` über den IMG-Proxy ($img, Zuschnitt/WebP).
              Zweistufiger Fallback: Proxy-Fehler → Original (Offline), dann → #-Chip. --}}

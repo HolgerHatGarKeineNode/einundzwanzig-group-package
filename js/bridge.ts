@@ -65,6 +65,12 @@ import {
     type RoomInput,
 } from './groups'
 import {
+    loadMeetupPresentations,
+    meetupPresentationBySlug,
+    type MeetupPresentation,
+} from './meetups'
+import { flagEmoji } from './meetupPresentation'
+import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
     deriveVereinAccess,
@@ -409,6 +415,36 @@ type SpacesState = {
     memberNpub: string // npub/hex-Eingabe zum Hinzufügen
     memberBusy: boolean
     _unsubRoomMembers: null | (() => void)
+    // Meetup-Praesentations-Join (Plan E2): slug → {flag, portalLink, …}. Wird
+    // EINMAL aus der Portal-Liste geladen; die Kachel joint per room.meetupSlug.
+    meetups: Record<string, MeetupPresentation>
+    meetup(slug: string): MeetupPresentation | null
+    _unsubMeetups: null | (() => void)
+    // ── P4: Raumübersicht-Filter (Text · Land · Typ), rein clientseitig ──────────
+    roomQuery: string
+    roomType: 'rooms' | 'meetups' // 'rooms' = Standard-Räume (Default), 'meetups' = Meetup-Modus
+    roomCountry: string // ISO-3166-1-alpha-2 ('' = alle Länder)
+    focusMode(): boolean
+    meetupCount(): number
+    standardCount(): number
+    myCountry(): string
+    countryName(iso: string): string
+    countryFlag(iso: string): string
+    fmtEventDate(iso: string): string
+    isEventSoon(iso: string): boolean
+    availableCountries(): Array<{ country: string; flag: string; name: string; count: number }>
+    filteredMeetups(): RoomView[]
+    filteredMine(): RoomView[]
+    filteredOther(): RoomView[]
+    activeFilterCount(): number
+    visibleCount(): number
+    selectCountry(iso: string): void
+    resetRoomFilters(): void
+    _pres(room: RoomView): MeetupPresentation | null
+    _matches(room: RoomView, q: string): boolean
+    _meetupPool(all: boolean): RoomView[]
+    _dataSig(): string
+    _ensureFiltered(): { key: string; mine: RoomView[]; meetups: RoomView[]; other: RoomView[] }
     _url: string | null // aktive Space-URL (für die Admin-Mutationen)
     _unsubView: null | (() => void)
     _unsubActive: null | (() => void)
@@ -837,6 +873,57 @@ function installResizeObserverLoopFilter(): void {
         },
         true,
     )
+}
+
+// ── Meetup-Filter: Modul-Ebene-Caches (BEWUSST nicht-reaktiv) ────────────────
+// Intl-Instanzen dürfen NICHT im Alpine-State liegen: Alpine wickelt den State in
+// einen reactive()-Proxy, und `Intl.*.prototype.format/of` über einen Proxy wirft
+// „incompatible receiver" (interne Slots brauchen das echte Objekt als this).
+// Zugleich vermeidet der Modul-Scope reaktive Writes während des Renderns.
+// Die Formatter sind zustandslos → prozessweit teilbar; die Filter-Caches sind
+// per Schlüssel invalidiert (Single-Space-Seite → genau eine nostrSpaces-Insel).
+let _regionNamesCache: Intl.DisplayNames | null | undefined
+let _dateFmtCache: Intl.DateTimeFormat | null | undefined
+let _myCCCache: string | undefined
+// Aktivitäts-Feld liefert die Datenschicht später (Live). Bis dahin optional gelesen
+// (undefined) — KEIN groups.ts-Umbau, nur ein lokaler Cast-Typ zum Konsumieren.
+type RoomActivity = RoomView & { lastMessageAt?: number | null }
+const lastMsgAt = (room: RoomView): number =>
+    typeof (room as RoomActivity).lastMessageAt === 'number' ? (room as RoomActivity).lastMessageAt! : Number.NEGATIVE_INFINITY
+type RoomFilterResult = { key: string; mine: RoomView[]; meetups: RoomView[]; other: RoomView[] }
+let _roomFilterCache: RoomFilterResult | null = null
+type CountryOption = { country: string; flag: string; name: string; count: number }
+let _countryCache: { key: string; list: CountryOption[] } | null = null
+
+const regionNames = (): Intl.DisplayNames | null => {
+    if (_regionNamesCache === undefined) {
+        try {
+            _regionNamesCache = new Intl.DisplayNames(['de'], { type: 'region' })
+        } catch {
+            _regionNamesCache = null
+        }
+    }
+    return _regionNamesCache
+}
+const dateFmt = (): Intl.DateTimeFormat | null => {
+    if (_dateFmtCache === undefined) {
+        try {
+            _dateFmtCache = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
+        } catch {
+            _dateFmtCache = null
+        }
+    }
+    return _dateFmtCache
+}
+const myCountryCode = (): string => {
+    if (_myCCCache === undefined) {
+        try {
+            _myCCCache = new Intl.Locale(navigator.language).region?.toUpperCase() ?? ''
+        } catch {
+            _myCCCache = ''
+        }
+    }
+    return _myCCCache
 }
 
 export function registerNostrComponents(Alpine: {
@@ -1350,6 +1437,11 @@ export function registerNostrComponents(Alpine: {
         memberNpub: '',
         memberBusy: false,
         _unsubRoomMembers: null,
+        meetups: {},
+        _unsubMeetups: null,
+        roomQuery: '',
+        roomType: 'rooms',
+        roomCountry: '',
         _url: null,
         _unsubView: null,
         _unsubActive: null,
@@ -1361,6 +1453,214 @@ export function registerNostrComponents(Alpine: {
         roomName(h: string): string {
             const rooms = [...(this.space?.userRooms ?? []), ...(this.space?.otherRooms ?? [])]
             return rooms.find((r) => r.h === h)?.name || h
+        },
+        // Praesentations-Join fuer die Kachel: room.meetupSlug → {flag, portalLink,
+        // country, nextEventStart, …}. Null-sicher (Warm-Render: Join-Daten fehlen
+        // kurz, bis die Portal-Liste geladen ist) → die Kachel rendert dann ohne Flagge.
+        meetup(slug: string): MeetupPresentation | null {
+            return (slug && this.meetups[slug]) || null
+        },
+        // ── P4: Raumübersicht — Standard-Räume default, Meetups ein bewusster Schritt ─
+        // Meetup-Modus = nur die Meetup-Liste (Suche/Land/Sort). Default sind die
+        // Standard-Räume (Meine · Andere); Meetups öffnet man über die Entdecken-Karte.
+        focusMode(): boolean {
+            return this.roomType === 'meetups'
+        },
+        // Gesamtzahl der Meetup-Räume (für die Entdecken-Karte). Unabhängig vom Filter.
+        meetupCount(): number {
+            return this._meetupPool(true).length
+        },
+        // Standard-Räume im Default-View (Meine + Andere ohne Meetups) — für den
+        // „Räume"-Tab-Zähler. Ehrlich: nicht die 304 Meetups mitzählen (die stecken
+        // hinter der Entdecken-Karte). Filter-unabhängig.
+        standardCount(): number {
+            const mine = this.space?.userRooms.length ?? 0
+            const other = (this.space?.otherRooms ?? []).filter((r) => !r.isMeetup).length
+            return mine + other
+        },
+        // Heimatland aus der Browser-Sprache (de-DE → DE) für „mein Land zuerst".
+        myCountry(): string {
+            return myCountryCode()
+        },
+        // ISO → Landesname (nativ, kein Datentable). '' → '', unbekannt → Code.
+        countryName(iso: string): string {
+            if (!iso) {
+                return ''
+            }
+            try {
+                return regionNames()?.of(iso) ?? iso
+            } catch {
+                return iso
+            }
+        },
+        countryFlag(iso: string): string {
+            return flagEmoji(iso)
+        },
+        // Nächster Termin → kurzes deutsches Datum („Heute"/„Morgen"/„Di, 4. Feb").
+        fmtEventDate(iso: string): string {
+            const t = Date.parse(iso)
+            if (!iso || Number.isNaN(t)) {
+                return ''
+            }
+            const d = new Date(t)
+            const startOfToday = new Date().setHours(0, 0, 0, 0)
+            const day = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - startOfToday) / 86400000)
+            if (day === 0) {
+                return 'Heute'
+            }
+            if (day === 1) {
+                return 'Morgen'
+            }
+            const fmt = dateFmt()
+            return fmt ? fmt.format(d) : ''
+        },
+        // Termin innerhalb der nächsten 7 Tage (und nicht > 1h vergangen) → Akzent.
+        isEventSoon(iso: string): boolean {
+            const t = Date.parse(iso)
+            if (!iso || Number.isNaN(t)) {
+                return false
+            }
+            const diff = t - Date.now()
+            return diff >= -3600000 && diff <= 7 * 86400000
+        },
+        _pres(room: RoomView): MeetupPresentation | null {
+            return this.meetup(room.meetupSlug)
+        },
+        // Texttreffer auf Name ODER Stadt (Stadt kommt aus dem async Join → null-tolerant).
+        _matches(room: RoomView, q: string): boolean {
+            if (!q) {
+                return true
+            }
+            return room.name.toLowerCase().includes(q) || (this._pres(room)?.city ?? '').toLowerCase().includes(q)
+        },
+        // Meetup-Pool: im Fokus alle (auch beigetretene), sonst nur entdeckbare.
+        _meetupPool(all: boolean): RoomView[] {
+            const other = (this.space?.otherRooms ?? []).filter((r) => r.isMeetup)
+            if (!all) {
+                return other
+            }
+            const mine = (this.space?.userRooms ?? []).filter((r) => r.isMeetup)
+            return [...mine, ...other]
+        },
+        // Datensignatur für die Filter-Memoisierung: ändert sich, sobald Filter,
+        // Raum-Anzahl oder der Meetup-Join wechseln → dann (und nur dann) neu rechnen.
+        // Die Getter laufen pro Render mehrfach; ohne Cache würde die 304er-Liste
+        // je Tastendruck vielfach neu sortiert.
+        _dataSig(): string {
+            const s = this.space
+            // Aktivitäts-Token: neueste lastMessageAt + Zahl der Räume mit Nachricht.
+            // Ändert sich, sobald eine neue Nachricht eintrifft → bricht den Sort-Cache
+            // für die Live-Sortierung, auch wenn die Raum-Anzahl gleich bleibt.
+            let maxTs = 0
+            let nTs = 0
+            for (const room of [...(s?.userRooms ?? []), ...(s?.otherRooms ?? [])]) {
+                const t = lastMsgAt(room)
+                if (t > Number.NEGATIVE_INFINITY) {
+                    nTs++
+                    if (t > maxTs) {
+                        maxTs = t
+                    }
+                }
+            }
+            return [
+                this.roomQuery.trim().toLowerCase(),
+                this.roomCountry,
+                this.roomType,
+                s?.userRooms.length ?? 0,
+                s?.otherRooms.length ?? 0,
+                Object.keys(this.meetups).length,
+                maxTs,
+                nTs,
+            ].join('|')
+        },
+        _ensureFiltered() {
+            const key = this._dataSig()
+            if (_roomFilterCache && _roomFilterCache.key === key) {
+                return _roomFilterCache
+            }
+            const q = this.roomQuery.trim().toLowerCase()
+            const cc = this.roomCountry
+            const mineRooms = (this.space?.userRooms ?? []).filter((room) => this._matches(room, q))
+            const otherRooms = (this.space?.otherRooms ?? []).filter((room) => !room.isMeetup && this._matches(room, q))
+            const meetupRows = this._meetupPool(true).filter((room) => {
+                if (cc && this._pres(room)?.country !== cc) {
+                    return false
+                }
+                return this._matches(room, q)
+            })
+            // Sortierung (Brief): primär letzte eingehende Nachricht (neueste zuerst),
+            // sekundär alphabetisch. Robust: fehlt lastMessageAt (frische Räume / bis die
+            // Datenschicht das Feld live liefert), fallen alle auf den Alphabet-Zweig.
+            meetupRows.sort((a, b) => {
+                const ta = lastMsgAt(a)
+                const tb = lastMsgAt(b)
+                if (ta !== tb) {
+                    return tb - ta
+                }
+                return a.name.localeCompare(b.name, 'de')
+            })
+            _roomFilterCache = { key, mine: mineRooms, meetups: meetupRows, other: otherRooms }
+            return _roomFilterCache
+        },
+        // Real vertretene Länder (aus dem Gesamt-Pool), meins zuerst, dann nach Anzahl.
+        // Memoisiert auf Pool-/Join-Größe: baut den Index nur neu, wenn Räume/Join wachsen.
+        availableCountries() {
+            const key = [this.space?.otherRooms.length ?? 0, this.space?.userRooms.length ?? 0, Object.keys(this.meetups).length, this.myCountry()].join('|')
+            if (_countryCache && _countryCache.key === key) {
+                return _countryCache.list
+            }
+            const by = new Map<string, number>()
+            for (const room of this._meetupPool(true)) {
+                const cc = this._pres(room)?.country
+                if (cc) {
+                    by.set(cc, (by.get(cc) ?? 0) + 1)
+                }
+            }
+            const mine = this.myCountry()
+            const list = Array.from(by.entries())
+                .map(([country, count]) => ({ country, count, flag: flagEmoji(country), name: this.countryName(country) }))
+                .sort(
+                    (a, b) =>
+                        (a.country === mine ? -1 : b.country === mine ? 1 : 0) ||
+                        b.count - a.count ||
+                        a.name.localeCompare(b.name, 'de'),
+                )
+            _countryCache = { key, list }
+            return list
+        },
+        // Gefilterte + sortierte Meetup-Liste (mein Land → nächster Termin → Name).
+        filteredMeetups(): RoomView[] {
+            return this._ensureFiltered().meetups
+        },
+        filteredMine(): RoomView[] {
+            return this._ensureFiltered().mine
+        },
+        filteredOther(): RoomView[] {
+            return this._ensureFiltered().other
+        },
+        // Aktive, entfernbare Filter im Meetup-Modus (Suche + Land). Der Modus selbst
+        // ist kein „Filter"-Chip — man verlässt ihn über „Räume anzeigen".
+        activeFilterCount(): number {
+            return (this.roomQuery.trim() ? 1 : 0) + (this.roomCountry ? 1 : 0)
+        },
+        // Land togglen; eine Landwahl setzt zugleich den Meetup-Modus.
+        selectCountry(iso: string): void {
+            this.roomCountry = this.roomCountry === iso ? '' : iso
+            if (this.roomCountry) {
+                this.roomType = 'meetups'
+            }
+        },
+        resetRoomFilters(): void {
+            this.roomQuery = ''
+            this.roomCountry = ''
+            this.roomType = 'rooms'
+        },
+        // Sichtbare Räume über die aktuell eingeblendeten Sektionen — steuert den
+        // „keine Treffer"-Leerzustand. Rooms-Modus: Meine+Andere; Meetup-Modus: Liste.
+        visibleCount(): number {
+            return this.focusMode()
+                ? this.filteredMeetups().length
+                : this.filteredMine().length + this.filteredOther().length
         },
         // ── P4: Raum-Verwaltung (Admin, NIP-29 9007/9002/9008) ─────────────────
         openRoomCreate() {
@@ -1528,6 +1828,10 @@ export function registerNostrComponents(Alpine: {
             }
         },
         init() {
+            // Filter-Caches (Modul-Scope) beim (Re-)Mount leeren → keine Stale-Arrays
+            // aus einer vorherigen Space-Navigation.
+            _roomFilterCache = null
+            _countryCache = null
             // Tab-Wechsel in die URL spiegeln (replaceState, keine Navigation) → verlinkbar,
             // Reload/Share landen im gleichen Tab. Default „rooms" ohne Param (sauberere URL).
             ;(this as unknown as { $watch(p: string, cb: (v: string) => void): void }).$watch('tab', (v: string) => {
@@ -1572,6 +1876,12 @@ export function registerNostrComponents(Alpine: {
             this._unsubView = activeSpaceView.subscribe((view: SpaceView) => {
                 this.space = view
             })
+            // Meetup-Praesentation EINMAL laden (fail-soft) und den Index reaktiv nach
+            // Alpine spiegeln — die Kachel joint dann per room.meetupSlug.
+            void loadMeetupPresentations()
+            this._unsubMeetups = meetupPresentationBySlug.subscribe((bySlug: Map<string, MeetupPresentation>) => {
+                this.meetups = Object.fromEntries(bySlug)
+            })
         },
         destroy() {
             this._unsubActive?.()
@@ -1580,6 +1890,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubAdmin?.()
             this._unsubThreads?.()
             this._unsubRoomMembers?.()
+            this._unsubMeetups?.()
             this._controller?.abort()
         },
     }))

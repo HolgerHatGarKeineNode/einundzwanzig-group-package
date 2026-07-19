@@ -61,6 +61,7 @@ import {
 } from '@welshman/util'
 import { uniq, sortBy, partition, randomId } from '@welshman/lib'
 import { spaceSupportsRooms, spaceBranding } from './relayCaps'
+import { parseMeetupTags } from './meetupPresentation'
 import type { RelayProfile } from '@welshman/util'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
@@ -208,6 +209,17 @@ export type RoomView = {
     isClosed: boolean
     isHidden: boolean
     isRestricted: boolean
+    // ── Meetup-Felder (Plan E1/E2) ─────────────────────────────────────────────
+    // Aus den ROH-Tags des 39000 (`room.event.tags`) gehoben — welshmans
+    // `readRoomMeta` liest diese Custom-Tags nicht. Die Praesentation (Flagge,
+    // Portal-Deep-Link, naechster Termin) joint der Client zur Render-Zeit ueber
+    // `meetupSlug` gegen die Portal-Liste (`meetups.ts`), sie steht NICHT hier.
+    /** Traegt das 39000 den `["t","meetup"]`-Marker? */
+    isMeetup: boolean
+    /** Stabile Meetup-id aus `["i","meetup:<id>"]` ('' wenn keins). */
+    meetupId: string
+    /** Slug aus `["meetup_slug","<slug>"]` — der Praesentations-Join-Schluessel. */
+    meetupSlug: string
 }
 export type SpaceView = {
     url: string
@@ -253,6 +265,9 @@ const buildSpaceView = (
     const toView = (hs: string[]): RoomView[] =>
         sortBy(nameOf, uniq(hs)).map((h) => {
             const room = byId.get(makeRoomId(url, h))
+            // Meetup-Marker/-Schluessel aus den ROH-Tags des 39000 heben (readRoomMeta
+            // liest sie nicht). Fehlt das Event (Warm-Render-Race), bleibt es kein Meetup.
+            const meetup = parseMeetupTags(room?.event?.tags ?? [])
             return {
                 h,
                 name: displayRoom(room, h),
@@ -263,6 +278,9 @@ const buildSpaceView = (
                 isClosed: Boolean(room?.isClosed),
                 isHidden: Boolean(room?.isHidden),
                 isRestricted: Boolean(room?.isRestricted),
+                isMeetup: meetup.isMeetup,
+                meetupId: meetup.meetupId,
+                meetupSlug: meetup.meetupSlug,
             }
         })
 
