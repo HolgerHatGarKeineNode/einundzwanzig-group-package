@@ -13,14 +13,26 @@
         {{-- flux:avatar verzweigt server-seitig auf `$src` → bei reinem Alpine-Bind bliebe
              es Initialen. Darum natives `<img>` über den IMG-Proxy ($img, Zuschnitt/WebP).
              Zweistufiger Fallback: Proxy-Fehler → Original (Offline), dann → #-Chip. --}}
-        <template x-if="room.picture">
-            <img :src="$img(room.picture)" :alt="room.name"
-                 x-on:error="$el.dataset.orig ? (room.picture = '') : ($el.dataset.orig = 1, $el.src = room.picture)"
-                 class="size-8 shrink-0 rounded-tile object-cover" />
-        </template>
-        <template x-if="!room.picture">
-            <span class="flex size-8 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-600 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
-        </template>
+        {{-- Avatar im relative-Wrapper: trägt bei einem beigetretenen Meetup ein
+             dezentes Flaggen-Badge an der Ecke (Land-Marker), ohne die Zeilenhöhe zu
+             ändern — der Pin ist absolut positioniert. Normale Räume: kein Badge. --}}
+        <span class="relative shrink-0">
+            <template x-if="room.picture">
+                <img :src="$img(room.picture)" :alt="room.name"
+                     x-on:error="$el.dataset.orig ? (room.picture = '') : ($el.dataset.orig = 1, $el.src = room.picture)"
+                     class="size-8 rounded-tile object-cover" />
+            </template>
+            <template x-if="!room.picture">
+                <span class="flex size-8 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-600 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
+            </template>
+            {{-- Meetup-Marker: kleines Flaggen-Badge (aria-hidden — der Raumname trägt
+                 die Info; Join lädt async → null-tolerant, Badge erscheint dann). --}}
+            <template x-if="room.isMeetup && meetup(room.meetupSlug)?.flag">
+                <span aria-hidden="true"
+                      class="absolute -bottom-0.5 -end-0.5 rounded-full bg-white text-[0.7rem] leading-none ring-2 ring-white dark:bg-zinc-900 dark:ring-zinc-900"
+                      x-text="meetup(room.meetupSlug).flag"></span>
+            </template>
+        </span>
         <span class="min-w-0 flex-1 truncate font-medium" x-text="room.name"></span>
         <flux:icon.lock-closed x-show="room.locked" x-cloak class="size-4 shrink-0 text-zinc-400" aria-label="{{ __('Privater Raum') }}" />
         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />

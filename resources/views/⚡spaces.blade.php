@@ -295,16 +295,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                         {{-- ── Standard-Modus: Meine · Andere · Entdecken ──────────────────── --}}
 
-                        {{-- Meine Räume (beigetreten laut 39002). Joined Meetups tragen die Meetup-Kachel. --}}
+                        {{-- Meine Räume (beigetreten laut 39002). Einheitliche room-tile-Zeilen —
+                             beigetretene Meetups tragen NUR ein dezentes Flaggen-Badge am Icon
+                             (gleiche Zeilenhöhe). Die reiche Meetup-Kachel bleibt der
+                             Entdecken-Liste (focusMode) vorbehalten. --}}
                         <template x-if="!focusMode() && filteredMine().length > 0">
                             <div>
                                 <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Meine Räume') }}</p>
                                 <div class="space-y-0.5">
                                     <template x-for="room in filteredMine()" :key="room.h">
-                                        <div>
-                                            <template x-if="room.isMeetup"><x-group::meetup-tile /></template>
-                                            <template x-if="!room.isMeetup"><x-group::room-tile /></template>
-                                        </div>
+                                        <x-group::room-tile />
                                     </template>
                                 </div>
                             </div>
