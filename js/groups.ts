@@ -62,6 +62,7 @@ import {
 import { uniq, sortBy, partition, randomId } from '@welshman/lib'
 import { spaceSupportsRooms, spaceBranding } from './relayCaps'
 import { parseMeetupTags } from './meetupPresentation'
+import { parseProjectSupportTags, withExtraTags } from './roomCategories'
 import type { RelayProfile } from '@welshman/util'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
@@ -220,6 +221,14 @@ export type RoomView = {
     meetupId: string
     /** Slug aus `["meetup_slug","<slug>"]` — der Praesentations-Join-Schluessel. */
     meetupSlug: string
+    // ── Projektunterstuetzung (Vereins-Antragsraeume) ──────────────────────────
+    // Ebenfalls aus den ROH-Tags des 39000, siehe `roomCategories.ts`. Die
+    // Raeume sind kategorisiert, NICHT versteckt: sie fallen aus den
+    // entdeckbaren Standard-Raeumen, bleiben aber in „Meine Raeume".
+    /** Traegt das 39000 den `["t","project-support"]`-Marker? */
+    isProjectSupport: boolean
+    /** Stabile Antrags-id aus `["i","proposal:<id>"]` ('' wenn keine). */
+    proposalId: string
 }
 export type SpaceView = {
     url: string
@@ -268,6 +277,7 @@ const buildSpaceView = (
             // Meetup-Marker/-Schluessel aus den ROH-Tags des 39000 heben (readRoomMeta
             // liest sie nicht). Fehlt das Event (Warm-Render-Race), bleibt es kein Meetup.
             const meetup = parseMeetupTags(room?.event?.tags ?? [])
+            const projectSupport = parseProjectSupportTags(room?.event?.tags ?? [])
             return {
                 h,
                 name: displayRoom(room, h),
@@ -281,6 +291,8 @@ const buildSpaceView = (
                 isMeetup: meetup.isMeetup,
                 meetupId: meetup.meetupId,
                 meetupSlug: meetup.meetupSlug,
+                isProjectSupport: projectSupport.isProjectSupport,
+                proposalId: projectSupport.proposalId,
             }
         })
 
@@ -488,6 +500,14 @@ export type RoomInput = {
     isClosed: boolean
     isHidden: boolean
     isRestricted: boolean
+    /**
+     * Zusatz-Tags fuers 9002, die welshmans `makeRoomEditEvent` nicht kennt —
+     * z. B. Kategorie-Marker beim ANLEGEN (`projectSupportTags(id)` aus
+     * `roomCategories.ts`). Beim Edit braucht man sie nicht: dort kopiert
+     * `makeRoomEditEvent` die Tags des vorhandenen 39000 ohnehin mit.
+     * Weggelassen → das Event ist byte-gleich zu vorher.
+     */
+    extraTags?: string[][]
 }
 
 /**
@@ -496,10 +516,19 @@ export type RoomInput = {
  * kopiert die bestehenden Tags des vorhandenen 39000 (`pictureMeta`, fremde/relay-
  * gesetzte) mit, sonst gingen sie bei jeder Änderung verloren. Beim Anlegen (kein
  * `existing`) baut es das Event allein aus dem Input.
+ *
+ * `input.extraTags` werden DANACH angehaengt (`withExtraTags`) — `makeRoomEditEvent`
+ * selbst bleibt unangetastet. Der Tag-Erhalt laeuft davor und unveraendert ab; die
+ * Anhaenge-Stufe dedupliziert auf Name+Wert, ein beim Edit mitkopierter Marker wird
+ * also nicht verdoppelt. Ohne `extraTags` gibt `withExtraTags` dasselbe Event
+ * unveraendert zurueck.
  */
 const roomMetaEvent = (url: string, input: RoomInput) => {
     const existing = get(roomsById).get(makeRoomId(url, input.h))
-    return makeRoomEditEvent({ ...input, pictureMeta: existing?.pictureMeta, event: existing?.event })
+    return withExtraTags(
+        makeRoomEditEvent({ ...input, pictureMeta: existing?.pictureMeta, event: existing?.event }),
+        input.extraTags,
+    )
 }
 
 /** „bereits vorhanden"-Antworten des Relays (idempotenter Retry über gleiches `h`). */

@@ -310,7 +310,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </div>
                         </template>
 
-                        {{-- Andere Räume (entdeckbar, kein Meetup). --}}
+                        {{-- Andere Räume (entdeckbar; ohne kategorisierte: kein Meetup, keine Projektunterstützung). --}}
                         <template x-if="!focusMode() && filteredOther().length > 0">
                             <div :class="filteredMine().length > 0 ? 'mt-2' : ''">
                                 <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Andere Räume') }}</p>

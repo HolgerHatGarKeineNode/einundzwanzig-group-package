@@ -70,6 +70,7 @@ import {
     type MeetupPresentation,
 } from './meetups'
 import { flagEmoji } from './meetupPresentation'
+import { isStandardRoom } from './roomCategories'
 import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
@@ -1471,12 +1472,14 @@ export function registerNostrComponents(Alpine: {
         meetupCount(): number {
             return this._meetupPool(true).length
         },
-        // Standard-Räume im Default-View (Meine + Andere ohne Meetups) — für den
-        // „Räume"-Tab-Zähler. Ehrlich: nicht die 304 Meetups mitzählen (die stecken
-        // hinter der Entdecken-Karte). Filter-unabhängig.
+        // Standard-Räume im Default-View (Meine + Andere ohne kategorisierte Räume) —
+        // für den „Räume"-Tab-Zähler. Ehrlich: nicht die 304 Meetups mitzählen (die
+        // stecken hinter der Entdecken-Karte) und auch keine fremden Antragsräume
+        // (Projektunterstützung). `userRooms` bleibt ungefiltert: was mir gehört,
+        // zähle ich mit — sonst verschwände mein eigener Antragsraum aus der Liste.
         standardCount(): number {
             const mine = this.space?.userRooms.length ?? 0
-            const other = (this.space?.otherRooms ?? []).filter((r) => !r.isMeetup).length
+            const other = (this.space?.otherRooms ?? []).filter(isStandardRoom).length
             return mine + other
         },
         // Heimatland aus der Browser-Sprache (de-DE → DE) für „mein Land zuerst".
@@ -1535,6 +1538,9 @@ export function registerNostrComponents(Alpine: {
             return room.name.toLowerCase().includes(q) || (this._pres(room)?.city ?? '').toLowerCase().includes(q)
         },
         // Meetup-Pool: im Fokus alle (auch beigetretene), sonst nur entdeckbare.
+        // Positiv-Filter auf `isMeetup` → Antragsräume (Projektunterstützung) landen
+        // hier nie; der Pool und alles, was daran hängt (meetupCount, Länderliste),
+        // bleibt von der neuen Kategorie unberührt.
         _meetupPool(all: boolean): RoomView[] {
             const other = (this.space?.otherRooms ?? []).filter((r) => r.isMeetup)
             if (!all) {
@@ -1582,7 +1588,7 @@ export function registerNostrComponents(Alpine: {
             const q = this.roomQuery.trim().toLowerCase()
             const cc = this.roomCountry
             const mineRooms = (this.space?.userRooms ?? []).filter((room) => this._matches(room, q))
-            const otherRooms = (this.space?.otherRooms ?? []).filter((room) => !room.isMeetup && this._matches(room, q))
+            const otherRooms = (this.space?.otherRooms ?? []).filter((room) => isStandardRoom(room) && this._matches(room, q))
             const meetupRows = this._meetupPool(true).filter((room) => {
                 if (cc && this._pres(room)?.country !== cc) {
                     return false
