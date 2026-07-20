@@ -22,6 +22,7 @@ import {
     PROFILE,
     FOLLOWS,
     DELETE,
+    ROOM_DELETE,
     ROOM_DELETE_EVENT,
     MESSAGE,
     POLL,
@@ -56,7 +57,15 @@ type TrackerItem = { id: string; relays: string[] }
  * kind 5 (DELETE, zwingend — sonst reappearen gelöschte Nachrichten) + kind 9005
  * (ROOM_DELETE_EVENT, NIP-29 Admin-Löschung fremder Nachrichten — derselbe Grund:
  * der Tombstone MUSS den Kaltstart überleben, sonst aufersteht die gelöschte
- * Nachricht bei einem Client, der beim Live-Broadcast offline war). §4.2 raus:
+ * Nachricht bei einem Client, der beim Live-Broadcast offline war).
+ *
+ * kind 9008 (ROOM_DELETE, gelöschter RAUM) aus genau demselben Grund — er fehlte
+ * hier, obwohl das Argument eine Zeile höher steht. Folge: Das 39000 des Raums lag
+ * im Cache, sein Grabstein nicht. Beim Kaltstart erschien ein gelöschter Raum in
+ * „Meine Räume" und verschwand erst wieder, wenn die 9008 vom Relay nachströmte —
+ * ein sichtbares Aufblitzen bei JEDEM Seitenaufbau, nicht nur einmal.
+ *
+ * §4.2 raus:
  * Ephemeral/AUTH/Reaktionen/Zaps/Kommentare (kein `#h`, laden lazy nach dem Paint).
  *
  * ponytail: nur MESSAGE wächst unbegrenzt → Per-Raum-Cap + Alters-Backstop folgt
@@ -66,6 +75,7 @@ const PERSIST_KINDS = new Set<number>([
     MESSAGE,
     DELETE,
     ROOM_DELETE_EVENT,
+    ROOM_DELETE,
     POLL,
     ZAP_GOAL,
     PROFILE,
