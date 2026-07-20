@@ -438,6 +438,9 @@ type SpacesState = {
     filteredMeetups(): RoomView[]
     filteredMine(): RoomView[]
     filteredOther(): RoomView[]
+    filteredProposals(): RoomView[]
+    proposalCount(): number
+    _proposalPool(): RoomView[]
     activeFilterCount(): number
     visibleCount(): number
     selectCountry(iso: string): void
@@ -446,7 +449,7 @@ type SpacesState = {
     _matches(room: RoomView, q: string): boolean
     _meetupPool(all: boolean): RoomView[]
     _dataSig(): string
-    _ensureFiltered(): { key: string; mine: RoomView[]; meetups: RoomView[]; other: RoomView[] }
+    _ensureFiltered(): RoomFilterResult
     _url: string | null // aktive Space-URL (für die Admin-Mutationen)
     _unsubView: null | (() => void)
     _unsubActive: null | (() => void)
@@ -893,7 +896,7 @@ let _myCCCache: string | undefined
 type RoomActivity = RoomView & { lastMessageAt?: number | null }
 const lastMsgAt = (room: RoomView): number =>
     typeof (room as RoomActivity).lastMessageAt === 'number' ? (room as RoomActivity).lastMessageAt! : Number.NEGATIVE_INFINITY
-type RoomFilterResult = { key: string; mine: RoomView[]; meetups: RoomView[]; other: RoomView[] }
+type RoomFilterResult = { key: string; mine: RoomView[]; meetups: RoomView[]; other: RoomView[]; proposals: RoomView[] }
 let _roomFilterCache: RoomFilterResult | null = null
 type CountryOption = { country: string; flag: string; name: string; count: number }
 let _countryCache: { key: string; list: CountryOption[] } | null = null
@@ -1479,7 +1482,7 @@ export function registerNostrComponents(Alpine: {
         // (Projektunterstützung). `userRooms` bleibt ungefiltert: was mir gehört,
         // zähle ich mit — sonst verschwände mein eigener Antragsraum aus der Liste.
         standardCount(): number {
-            const mine = this.space?.userRooms.length ?? 0
+            const mine = (this.space?.userRooms ?? []).filter((r) => !r.isProjectSupport).length
             const other = (this.space?.otherRooms ?? []).filter(isStandardRoom).length
             return mine + other
         },
@@ -1550,6 +1553,25 @@ export function registerNostrComponents(Alpine: {
             const mine = (this.space?.userRooms ?? []).filter((r) => r.isMeetup)
             return [...mine, ...other]
         },
+        // Antragsräume (Projektunterstützung) — eigene Sektion statt verstreut in
+        // „Meine Räume". Wer Mitglied ist (userRooms), sieht seinen Antragsraum
+        // IMMER; FREMDE Antragsräume (otherRooms) bekommt nur der Space-Admin
+        // (Vorstand) zu sehen. Dedupliziert über `h`, falls ein Raum in beiden
+        // Listen auftaucht.
+        _proposalPool(): RoomView[] {
+            const mine = (this.space?.userRooms ?? []).filter((r) => r.isProjectSupport)
+            if (!this.isAdmin) {
+                return mine
+            }
+            const seen = new Set(mine.map((r) => r.h))
+            const other = (this.space?.otherRooms ?? []).filter((r) => r.isProjectSupport && !seen.has(r.h))
+            return [...mine, ...other]
+        },
+        // Gesamtzahl der für mich sichtbaren Antragsräume (ungefiltert) — steuert,
+        // ob die Sektion überhaupt existiert.
+        proposalCount(): number {
+            return this._proposalPool().length
+        },
         // Datensignatur für die Filter-Memoisierung: ändert sich, sobald Filter,
         // die Räume ODER der Meetup-Join wechseln → dann (und nur dann) neu rechnen.
         // Die Getter laufen pro Render mehrfach; ohne Cache würde die 304er-Liste
@@ -1567,6 +1589,15 @@ export function registerNostrComponents(Alpine: {
                 this.roomQuery.trim().toLowerCase(),
                 this.roomCountry,
                 this.roomType,
+                // Der Antragsraum-Pool hängt an der Admin-Rolle (fremde Anträge nur
+                // für den Vorstand), also gehört sie in den Schlüssel. `isAdmin` kommt
+                // asynchron nach; im Kaltstart (Räume aus dem IndexedDB-Cache sofort,
+                // Rolle erst nach dem Relay-Roundtrip) ist es der EINZIGE Teil, der
+                // sich dann noch ändert. Im Normalfall bricht die Raum-Signatur den
+                // Cache ohnehin mit — der E2E-Lauf bleibt deshalb auch ohne dieses Bit
+                // grün; festgenagelt ist es in `roomFingerprint.test.ts` („allein
+                // kippendes isAdmin bricht den Schlüssel").
+                this.isAdmin ? 'a' : '-',
                 roomsFingerprint(s?.userRooms as RoomLike[] | undefined),
                 roomsFingerprint(s?.otherRooms as RoomLike[] | undefined),
                 Object.keys(this.meetups).length,
@@ -1579,7 +1610,10 @@ export function registerNostrComponents(Alpine: {
             }
             const q = this.roomQuery.trim().toLowerCase()
             const cc = this.roomCountry
-            const mineRooms = (this.space?.userRooms ?? []).filter((room) => this._matches(room, q))
+            // Antragsräume raus aus „Meine Räume" — sie stehen in ihrer eigenen
+            // Sektion (kategorisieren, nicht verstecken). Beigetretene MEETUPS
+            // bleiben hier bewusst drin (dezentes Flaggen-Badge, gleiche Zeilenhöhe).
+            const mineRooms = (this.space?.userRooms ?? []).filter((room) => !room.isProjectSupport && this._matches(room, q))
             const otherRooms = (this.space?.otherRooms ?? []).filter((room) => isStandardRoom(room) && this._matches(room, q))
             const meetupRows = this._meetupPool(true).filter((room) => {
                 if (cc && this._pres(room)?.country !== cc) {
@@ -1598,7 +1632,12 @@ export function registerNostrComponents(Alpine: {
                 }
                 return a.name.localeCompare(b.name, 'de')
             })
-            _roomFilterCache = { key, mine: mineRooms, meetups: meetupRows, other: otherRooms }
+            // Antragsräume: alphabetisch — es sind wenige, und ein stabiler Platz
+            // schlägt hier eine Aktivitäts-Sortierung, die die Zeilen springen lässt.
+            const proposalRows = this._proposalPool()
+                .filter((room) => this._matches(room, q))
+                .sort((a, b) => a.name.localeCompare(b.name, 'de'))
+            _roomFilterCache = { key, mine: mineRooms, meetups: meetupRows, other: otherRooms, proposals: proposalRows }
             return _roomFilterCache
         },
         // Real vertretene Länder (aus dem Gesamt-Pool), meins zuerst, dann nach Anzahl.
@@ -1637,6 +1676,9 @@ export function registerNostrComponents(Alpine: {
         filteredOther(): RoomView[] {
             return this._ensureFiltered().other
         },
+        filteredProposals(): RoomView[] {
+            return this._ensureFiltered().proposals
+        },
         // Aktive, entfernbare Filter im Meetup-Modus (Suche + Land). Der Modus selbst
         // ist kein „Filter"-Chip — man verlässt ihn über „Räume anzeigen".
         activeFilterCount(): number {
@@ -1659,7 +1701,7 @@ export function registerNostrComponents(Alpine: {
         visibleCount(): number {
             return this.focusMode()
                 ? this.filteredMeetups().length
-                : this.filteredMine().length + this.filteredOther().length
+                : this.filteredMine().length + this.filteredOther().length + this.filteredProposals().length
         },
         // ── P4: Raum-Verwaltung (Admin, NIP-29 9007/9002/9008) ─────────────────
         openRoomCreate() {

@@ -333,8 +333,24 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </div>
                         </template>
 
+                        {{-- Projektunterstützung (Antragsräume, ["t","project-support"]).
+                             Eigene Sektion statt verstreut zwischen den Standard-Räumen.
+                             Der Pool ist bereits gegated: eigene Anträge sieht jeder
+                             Antragsteller, FREMDE nur der Vorstand (isAdmin) — siehe
+                             _proposalPool(). Keine Sektion, wenn nichts sichtbar ist. --}}
+                        <template x-if="!focusMode() && filteredProposals().length > 0">
+                            <div :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2' : ''">
+                                <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Projektunterstützung') }}</p>
+                                <div class="space-y-0.5">
+                                    <template x-for="room in filteredProposals()" :key="room.h">
+                                        <x-group::room-tile />
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
                         {{-- Noch keine Standard-Räume, aber Meetups existieren → kurzer Hinweis. --}}
-                        <template x-if="!focusMode() && !loading && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0 && filteredMine().length === 0 && filteredOther().length === 0">
+                        <template x-if="!focusMode() && !loading && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0 && filteredMine().length === 0 && filteredOther().length === 0 && filteredProposals().length === 0">
                             <p class="px-2 py-3 text-sm text-muted">{{ __('Noch keine Standard-Räume in diesem Space.') }}</p>
                         </template>
 

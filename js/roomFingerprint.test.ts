@@ -123,6 +123,7 @@ const dataSig = (state: {
     roomQuery: string
     roomCountry: string
     roomType: string
+    isAdmin: boolean
     userRooms: RoomLike[]
     otherRooms: RoomLike[]
     meetups: Record<string, unknown>
@@ -131,6 +132,7 @@ const dataSig = (state: {
         state.roomQuery.trim().toLowerCase(),
         state.roomCountry,
         state.roomType,
+        state.isAdmin ? 'a' : '-',
         roomsFingerprint(state.userRooms),
         roomsFingerprint(state.otherRooms),
         Object.keys(state.meetups).length,
@@ -140,6 +142,7 @@ const baseState = () => ({
     roomQuery: '',
     roomCountry: '',
     roomType: 'rooms',
+    isAdmin: false,
     userRooms: [room({ h: 'r1', name: 'Neu-1' })],
     otherRooms: [room({ h: 'r2', name: 'Dev' })],
     meetups: {},
@@ -166,6 +169,18 @@ test('_dataSig: Filter (Suche/Land/Modus) bleiben Teil des Schluessels', () => {
     }
     // Nur Gross-/Kleinschreibung + Rand-Leerzeichen der Suche: derselbe Filter.
     assert.equal(dataSig({ ...baseState(), roomQuery: 'DE' }), dataSig({ ...baseState(), roomQuery: ' de ' }))
+})
+
+/**
+ * Die Admin-Rolle kommt ASYNCHRON nach (`deriveUserIsSpaceAdmin` → `this.isAdmin`),
+ * typischerweise NACH dem ersten Render der Raumliste. Sie entscheidet, ob FREMDE
+ * Antragsraeume (`t=project-support`) im Pool liegen — kippt sie allein, ohne dass
+ * sich Raeume oder Filter aendern, muss der Cache trotzdem brechen. Sonst bliebe
+ * die Sektion „Projektunterstuetzung" beim Vorstand bis zum Reload leer.
+ */
+test('_dataSig: allein kippendes isAdmin bricht den Schluessel', () => {
+    const before = dataSig(baseState())
+    assert.notEqual(before, dataSig({ ...baseState(), isAdmin: true }))
 })
 
 test('_dataSig: unveraenderte Daten ⇒ identischer Schluessel', () => {
