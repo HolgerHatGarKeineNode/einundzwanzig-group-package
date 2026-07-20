@@ -128,9 +128,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  Fließtext-Zeilenhöhe statt hartem Abschnitt (behebt „abgeschnitten").
                  Bei Banner: Avatar überlappt dessen Fade (Profil-Header-Signatur),
                  der Ring in Hintergrundfarbe hebt ihn ab — ohne Banner unsichtbar. --}}
+            {{-- `@js()` gehört NICHT in ein statisches Attribut einer Blade-KOMPONENTE:
+                 der ComponentTagCompiler läuft als Precompiler und gießt den Attributwert
+                 als PHP-String in einen rohen PHP-Block — compileEchos/compileStatements
+                 sehen ihn danach nie wieder, die Directive landet ROH in der Alpine-
+                 Expression („Invalid or unexpected token"). Wie im Raum-Kopf
+                 (⚡room.blade.php) daher json_encode vorab: nostr-avatar echot `name` via
+                 `{{ }}`, das escapt das rohe JS-Literal genau EINMAL attributsicher.
+                 Bewusst die INLINE-Form (Klammern statt Block): Blades Raw-Block-Regex
+                 paart die Inline-Zuweisung weiter oben im File mit dem Ende eines
+                 späteren Blocks — alles dazwischen bliebe uncompiliert. --}}
+            @php($spaceNameExpr = 'space?.label || '.json_encode($spaceName))
             <div class="flex items-start gap-3" :class="space?.banner ? 'relative z-10 -mt-6' : ''">
                 <span class="shrink-0 rounded-full ring-4 ring-zinc-50 dark:ring-zinc-950">
-                    <x-group::nostr-avatar picture="space?.icon" name="space?.label || @js($spaceName)" size="3rem" />
+                    <x-group::nostr-avatar picture="space?.icon" :name="$spaceNameExpr" size="3rem" />
                 </span>
                 <div class="min-w-0 flex-1 pt-0.5">
                     <flux:heading level="1" size="xl" class="truncate">

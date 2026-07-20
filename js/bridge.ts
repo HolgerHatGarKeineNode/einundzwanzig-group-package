@@ -71,6 +71,7 @@ import {
 } from './meetups'
 import { flagEmoji } from './meetupPresentation'
 import { isStandardRoom } from './roomCategories'
+import { roomsFingerprint, type RoomLike } from './roomFingerprint'
 import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
@@ -1550,34 +1551,25 @@ export function registerNostrComponents(Alpine: {
             return [...mine, ...other]
         },
         // Datensignatur für die Filter-Memoisierung: ändert sich, sobald Filter,
-        // Raum-Anzahl oder der Meetup-Join wechseln → dann (und nur dann) neu rechnen.
+        // die Räume ODER der Meetup-Join wechseln → dann (und nur dann) neu rechnen.
         // Die Getter laufen pro Render mehrfach; ohne Cache würde die 304er-Liste
         // je Tastendruck vielfach neu sortiert.
+        //
+        // Die Raum-Anteile sind FINGERABDRÜCKE über alle Felder (roomFingerprint.ts),
+        // nicht bloß Längen: eine Umbenennung (9002 → neues 39000) ändert weder die
+        // Anzahl noch einen Zeitstempel — mit reinen Längen blieb der alte Name bis
+        // zum Reload stehen (Anlegen/Löschen fielen nie auf, die ändern die Länge).
+        // `lastMessageAt` steckt als Raum-Feld mit drin, die Live-Sortierung nach
+        // eingehenden Nachrichten bricht den Cache also weiterhin.
         _dataSig(): string {
             const s = this.space
-            // Aktivitäts-Token: neueste lastMessageAt + Zahl der Räume mit Nachricht.
-            // Ändert sich, sobald eine neue Nachricht eintrifft → bricht den Sort-Cache
-            // für die Live-Sortierung, auch wenn die Raum-Anzahl gleich bleibt.
-            let maxTs = 0
-            let nTs = 0
-            for (const room of [...(s?.userRooms ?? []), ...(s?.otherRooms ?? [])]) {
-                const t = lastMsgAt(room)
-                if (t > Number.NEGATIVE_INFINITY) {
-                    nTs++
-                    if (t > maxTs) {
-                        maxTs = t
-                    }
-                }
-            }
             return [
                 this.roomQuery.trim().toLowerCase(),
                 this.roomCountry,
                 this.roomType,
-                s?.userRooms.length ?? 0,
-                s?.otherRooms.length ?? 0,
+                roomsFingerprint(s?.userRooms as RoomLike[] | undefined),
+                roomsFingerprint(s?.otherRooms as RoomLike[] | undefined),
                 Object.keys(this.meetups).length,
-                maxTs,
-                nTs,
             ].join('|')
         },
         _ensureFiltered() {
