@@ -161,8 +161,27 @@ export const summarizePublishResults = (
 export const publishReceivingAddress = async (lud16: string, spaceUrls: string[] = []): Promise<RelayPublishResult[]> => {
     const event = buildReceivingAddressEvent(get(userProfile), lud16)
     const router = Router.get()
-    const relays = router.merge([router.FromUser(), router.FromRelays(spaceUrls), router.Index()]).getUrls()
+    const relays = router
+        .merge([router.FromUser(), router.FromRelays(spaceUrls), router.Index()])
+        .getUrls()
+        .filter(acceptsProfiles)
     const thunk = publishThunk({ event, relays })
     await waitForThunkCompletion(thunk)
     return summarizePublishResults(thunk.results)
 }
+
+/**
+ * Reine Relay-Listen-Indexer, die AUSSCHLIESSLICH kind 10002 (NIP-65-Relayliste)
+ * annehmen und jedes kind-0 mit `blocked: this relay only accepts kind 10002 events`
+ * ablehnen. Sie stehen zu Recht in `INDEXER_RELAYS` (dort lesen wir Relaylisten), sind
+ * als Ziel eines Profil-Publishs aber sinnlos: sie speichern kind 0 nie. Ohne diesen
+ * Filter zeigte die Profil-Diagnose nach jedem erfolgreichen Speichern einen roten
+ * Relay-Fehler — technisch korrekt gemeldet, für den Nutzer schlicht falsch.
+ *
+ * Bewusst eine Ausschlussliste und KEIN Entfernen aus `INDEXER_RELAYS`: zum LESEN von
+ * Relaylisten bleibt das Relay wertvoll. `purplepag.es` bleibt drin — es indexiert
+ * kind 0 und kind 10002 und ist der wichtigste Profil-Indexer.
+ */
+const PROFILE_HOSTILE_INDEXERS = ['indexer.coracle.social']
+
+const acceptsProfiles = (url: string): boolean => !PROFILE_HOSTILE_INDEXERS.some((host) => url.includes(host))
