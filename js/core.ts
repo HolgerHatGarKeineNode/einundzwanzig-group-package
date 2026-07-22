@@ -51,6 +51,40 @@ export function proxifyImage(url: unknown, preset = 'avatar'): string {
 }
 
 /**
+ * Wartet, bis NativePHPs POST-Shim scharf ist. **Ohne dieses Gate verliert jeder
+ * frühe Bridge-Aufruf seinen Body.**
+ *
+ * Android kann POST-Bodies in `shouldInterceptRequest` nicht lesen; NativePHP legt
+ * deshalb einen eigenen fetch/XHR-Shim darüber — aber erst in `onPageFinished`. Ein
+ * `fetch` davor kommt bei Laravel mit LEEREM Body an: `$request->all()` ist leer, die
+ * Antwort ist `400 MISSING_METHOD` — und weil `nativeCall` daraus einen Throw macht,
+ * sieht der Aufrufer nur ein unerklärliches Fehlschlagen.
+ *
+ * Am Gerät gemessen (Emulator, Release-Build, 2026-07-22): der Shim wird nach ~131 ms
+ * scharf, ein `AmberSigner.SignEvent` feuerte bei 111 ms und bekam
+ * `{"status":"error","code":"MISSING_METHOD"}`; derselbe Aufruf nach dem Shim → HTTP 200.
+ * Das Fenster trifft JEDEN Bridge-Aufruf, auch `SecureStorage.Get` (Wallet/NWC laden) —
+ * dort sieht es aus, als seien die Einstellungen verschwunden.
+ *
+ * Polling statt Event, weil NativePHP keins anbietet. Der Timeout ist eine Notbremse:
+ * lieber ein später Versuch mit unsicherem Ausgang als eine Bridge, die ewig hängt
+ * (z. B. wenn eine künftige NativePHP-Version das Flag nicht mehr setzt).
+ */
+const POST_SHIM_TIMEOUT_MS = 10_000
+const POST_SHIM_POLL_MS = 10
+
+const postShimReady = async (): Promise<void> => {
+    const shimAktiv = () => (globalThis as { __nphpPostPatched?: boolean }).__nphpPostPatched === true
+    if (shimAktiv()) {
+        return
+    }
+    const deadline = Date.now() + POST_SHIM_TIMEOUT_MS
+    while (!shimAktiv() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, POST_SHIM_POLL_MS))
+    }
+}
+
+/**
  * NativePHP-Mobile-Bridge: ruft eine registrierte Bridge-Function DIREKT über
  * den lokalen `/_native/api/call`-Endpoint auf — genau der Weg, den NativePHPs
  * eigenes `#nativephp`-JS-Modul intern nutzt. Bewusst OHNE Livewire-Roundtrip:
@@ -61,6 +95,8 @@ export async function nativeCall(method: string, params: Record<string, unknown>
     if (!isMobile) {
         return null
     }
+    // Pflicht vor JEDEM Bridge-POST — siehe postShimReady.
+    await postShimReady()
     const res = await fetch('/_native/api/call', {
         method: 'POST',
         headers: {
