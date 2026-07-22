@@ -22,6 +22,7 @@ import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePoll
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
+import { linkDisplay } from './chatLinks'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
@@ -56,7 +57,8 @@ const renderMessageLink = (href: string, display: string): string => {
     a.href = sanitizeUrl(href)
     a.target = '_blank'
     a.rel = 'noopener noreferrer'
-    a.innerText = display
+    // Voller Anzeigetext inkl. Query/Fragment — welshmans `display` schneidet beides ab.
+    a.innerText = linkDisplay(href, display)
     return a.outerHTML
 }
 

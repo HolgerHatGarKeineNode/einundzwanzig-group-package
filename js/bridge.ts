@@ -677,6 +677,7 @@ type RoomChatState = {
     onScroll(): void
     scrollToBottom(): void
     scrollToMessage(id: string): void
+    openChatLink(url: string, e: Event): void
     autoGrow(el: HTMLTextAreaElement): void
     markRead(): void
     setReply(m: ChatMessage): void
@@ -3037,6 +3038,17 @@ export function registerNostrComponents(Alpine: {
                     this.flashId = null
                 }
             }, 1400)
+        },
+        // Link aus dem Nachrichtentext öffnen. In der nativen App über den In-App-Browser
+        // (Custom Tab / SFSafariViewController) — ein `target=_blank`-Anker verpufft in der
+        // WebView WIRKUNGSLOS, genau darum waren Chat-Links auf dem Gerät „nicht klickbar"
+        // (im Web hat immer alles funktioniert). Gleiche Behandlung wie der Vereins-Beitritts-
+        // Link (nostrVereinGate.openExternal). Im Web kein preventDefault → normaler Anker.
+        openChatLink(url: string, e: Event) {
+            if (isMobile) {
+                e.preventDefault()
+                void nativeBrowserInApp(url)
+            }
         },
         // Composer-Textarea mit dem Inhalt wachsen lassen (bis ~9rem), dann scrollt sie.
         autoGrow(el: HTMLTextAreaElement) {

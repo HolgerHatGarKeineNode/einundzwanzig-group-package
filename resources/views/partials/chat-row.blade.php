@@ -74,9 +74,20 @@
                                     {{ __('Antwort auf') }} <span class="text-brand-500" x-text="m.replyToName"></span>
                                 </div>
                             </template>
-                            {{-- Inline-Bild anklicken → Lightbox (Klick delegiert, da x-html-Inhalt). --}}
+                            {{-- Inline-Bild anklicken → Lightbox; Link anklicken → In-App-Browser.
+                                 Beides DELEGIERT, weil der Inhalt per x-html kommt (kein Alpine im Markup).
+                                 Der Link-Zweig ist Pflicht für die native App: dort verpufft ein
+                                 `target=_blank`-Anker in der WebView, der Tap täte sonst nichts. --}}
                             <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"
-                                 x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
+                                 x-on:click="
+                                     if ($event.target.matches('img.chat-image')) {
+                                         $event.stopPropagation();
+                                         lightboxSrc = $event.target.dataset.full
+                                     } else {
+                                         const link = $event.target.closest('a[href]');
+                                         if (link) { $event.stopPropagation(); openChatLink(link.href, $event) }
+                                     }
+                                 "></div>
                             {{-- Poll (C5, NIP-88 kind 1068): Optionen mit Live-Balken + Vote-Buttons.
                                  Titel steht bereits in m.html (Poll-content = Frage). Option-Button
                                  ist ein Komposit (Balken + Marker + Label + Zähler) → rohes <button>
