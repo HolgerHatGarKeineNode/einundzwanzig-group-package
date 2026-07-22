@@ -4290,7 +4290,17 @@ export function registerNostrComponents(Alpine: {
             if (this._onVisible) {
                 document.removeEventListener('visibilitychange', this._onVisible)
             }
-            this.markRead()
+            // NUR quittieren, wenn der Nutzer wirklich unten stand. Die beiden anderen
+            // markRead()-Aufrufer sind bereits so geguardet (onScroll nur bei atBottom,
+            // scrollToBottom setzt es selbst) — destroy() war der einzige unbedingte und
+            // damit inkonsistent: wer hochgescrollt liest, während neue Nachrichten
+            // einlaufen, und dann weg navigiert, hätte genau diese ungelesenen Nachrichten
+            // stillschweigend als gelesen markiert. Das Wasserzeichen ist der einzige
+            // Zustand, der die Navigation überlebt — es hier falsch zu setzen ist nicht
+            // reparierbar.
+            if (this.atBottom) {
+                this.markRead()
+            }
             this._unsubActive?.()
             this.teardown()
         },

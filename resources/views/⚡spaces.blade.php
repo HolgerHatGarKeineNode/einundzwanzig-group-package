@@ -178,13 +178,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <flux:tab name="rooms" icon="hashtag">
                         {{ __('Räume') }}
                         <span x-show="standardCount() > 0" x-cloak
-                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-600 dark:text-brand-400"
+                              {{-- Light-Zweig bewusst brand-800, nicht brand-600: der Zähler steht auf der
+                                   getönten Fläche bg-brand-500/10 (= #fef4e8 über Weiß). brand-600 ergibt dort
+                                   2,73:1 und verfehlt WCAG 1.4.3 (4,5:1) bei 0,65rem deutlich; brand-800 liefert
+                                   5,92:1. Dark ist unauffällig (brand-400 auf getöntem zinc-950 = 8,90:1). --}}
+                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-800 dark:text-brand-400"
                               x-text="standardCount()"></span>
                     </flux:tab>
                     <flux:tab name="threads" icon="chat-bubble-left-right">
                         {{ __('Threads') }}
                         <span x-show="threads.length > 0" x-cloak
-                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-600 dark:text-brand-400"
+                              {{-- Light-Zweig bewusst brand-800, nicht brand-600: der Zähler steht auf der
+                                   getönten Fläche bg-brand-500/10 (= #fef4e8 über Weiß). brand-600 ergibt dort
+                                   2,73:1 und verfehlt WCAG 1.4.3 (4,5:1) bei 0,65rem deutlich; brand-800 liefert
+                                   5,92:1. Dark ist unauffällig (brand-400 auf getöntem zinc-950 = 8,90:1). --}}
+                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-800 dark:text-brand-400"
                               x-text="threads.length"></span>
                     </flux:tab>
                 </flux:tabs>

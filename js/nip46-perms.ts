@@ -16,6 +16,7 @@
  * - 7   REACTION — Emoji-Reaktion (interactions.ts)
  * - 9   MESSAGE — NIP-29-Gruppen-Chat (feeds.ts)
  * - 1018/1068 POLL_RESPONSE/POLL — NIP-88-Umfragen (interactions.ts)
+ * - 1111 COMMENT — NIP-22-Thread-Kommentar (interactions.ts `sendComment`)
  * - 1984 REPORT — melden (interactions.ts)
  * - 9000/9001 ROOM_ADD_MEMBER/ROOM_REMOVE_MEMBER — NIP-29 Raum-Mitglieder (Admin, groups.ts)
  * - 9002/9007/9008 ROOM_EDIT_META/ROOM_CREATE/ROOM_DELETE — NIP-29 Raum-Verwaltung (Admin, groups.ts)
@@ -37,6 +38,7 @@ export const NIP46_PERMS = [
     'sign_event:9',
     'sign_event:1018',
     'sign_event:1068',
+    'sign_event:1111',
     'sign_event:1984',
     'sign_event:9000',
     'sign_event:9001',
