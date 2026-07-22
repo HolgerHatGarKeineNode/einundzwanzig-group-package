@@ -23,7 +23,7 @@
                      class="size-8 rounded-tile object-cover" />
             </template>
             <template x-if="!room.picture">
-                <span class="flex size-8 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-600 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
+                <span class="flex size-8 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-800 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
             </template>
             {{-- Meetup-Marker: kleines Flaggen-Badge (aria-hidden — der Raumname trägt
                  die Info; Join lädt async → null-tolerant, Badge erscheint dann). --}}

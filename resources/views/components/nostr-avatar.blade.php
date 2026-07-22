@@ -5,7 +5,7 @@
      Alpine-Ausdrücke (z.B. `m.picture`, `m.name`) aus dem umschließenden Scope. --}}
 @props(['picture', 'name', 'size' => '2rem'])
 <span x-data="{ imgOrig: false, imgBroken: false }"
-      class="relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-500/10 font-mono text-xs font-semibold uppercase text-brand-600 dark:text-brand-400"
+      class="relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-500/10 font-mono text-xs font-semibold uppercase text-brand-900 dark:text-brand-400"
       style="width: {{ $size }}; height: {{ $size }};">
     <span x-text="((({{ $name }}) || '?').trim()[0]) || '?'"></span>
     <template x-if="({{ $picture }}) && !imgBroken">

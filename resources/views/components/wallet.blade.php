@@ -56,7 +56,7 @@
             {{-- Hero-Balance-Karte: Guthaben groß, Brand-Glow. --}}
             <div class="relative overflow-hidden rounded-card bg-gradient-to-br from-brand-500/15 via-brand-500/5 to-transparent p-6 shadow-card ring-1 ring-brand-500/20">
                 <div class="flex items-start justify-between">
-                    <div class="flex items-center gap-2 text-sm font-medium text-brand-600 dark:text-brand-400">
+                    <div class="flex items-center gap-2 text-sm font-medium text-brand-800 dark:text-brand-400">
                         <flux:icon.bolt variant="solid" class="size-4" />
                         <span>{{ __('Guthaben') }}</span>
                     </div>
@@ -186,7 +186,7 @@
 
             {{-- Mismatch: Wallet liefert eine andere lud16 als das Profil (Brand-Amber, dezent). --}}
             <div x-show="addressMismatch()" x-cloak
-                 class="rounded-tile border border-brand-500/30 bg-brand-500/5 px-3 py-2 text-xs text-brand-600 dark:text-brand-400">
+                 class="rounded-tile border border-brand-500/30 bg-brand-500/5 px-3 py-2 text-xs text-brand-800 dark:text-brand-400">
                 {{ __('Deine Wallet nutzt eine andere Adresse:') }}
                 <span class="font-mono" x-text="lud16"></span>
             </div>

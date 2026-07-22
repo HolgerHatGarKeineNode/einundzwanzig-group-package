@@ -34,7 +34,7 @@
 
                 {{-- npub — kopierbarer Mono-Chip (npub ist ein Wert zum Kopieren). --}}
                 <button type="button" x-on:click="copy(npub, 'npub')" aria-label="{{ __('npub kopieren') }}"
-                        class="pressable group mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-tile bg-brand-500/10 px-2.5 py-1 font-mono text-xs text-brand-600 dark:text-brand-400">
+                        class="pressable group mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-tile bg-brand-500/10 px-2.5 py-1 font-mono text-xs text-brand-800 dark:text-brand-400">
                     <span class="min-w-0 truncate" x-text="npub"></span>
                     <flux:icon.clipboard-document class="size-3.5 shrink-0 opacity-60 transition-opacity group-hover:opacity-100" />
                 </button>
@@ -44,7 +44,7 @@
 
                 {{-- Website — eigene volle Zeile, lange URLs truncaten statt auszulaufen. --}}
                 <a x-show="website" x-cloak :href="website" target="_blank" rel="noopener noreferrer"
-                   class="pressable mt-3 flex min-w-0 items-center gap-2 rounded-tile border border-zinc-200 px-3 py-2 text-sm text-brand-600 hover:bg-brand-500/5 dark:border-zinc-800 dark:text-brand-400">
+                   class="pressable mt-3 flex min-w-0 items-center gap-2 rounded-tile border border-zinc-200 px-3 py-2 text-sm text-brand-800 hover:bg-brand-500/5 dark:border-zinc-800 dark:text-brand-400">
                     <flux:icon.globe-alt class="size-4 shrink-0" />
                     <span class="min-w-0 truncate" x-text="website"></span>
                     <flux:icon.arrow-up-right class="ml-auto size-3.5 shrink-0 opacity-50" />

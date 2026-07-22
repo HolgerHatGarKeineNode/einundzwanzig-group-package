@@ -100,7 +100,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
                                 <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
                             </button>
-                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-600 dark:text-brand-400">
+                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
                                 <flux:icon.key variant="micro" class="size-3 shrink-0" />
                                 <span x-text="@js(__('Angemeldet über ')) + signerLabel"></span>
                             </div>
@@ -182,7 +182,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                    getönten Fläche bg-brand-500/10 (= #fef4e8 über Weiß). brand-600 ergibt dort
                                    2,73:1 und verfehlt WCAG 1.4.3 (4,5:1) bei 0,65rem deutlich; brand-800 liefert
                                    5,92:1. Dark ist unauffällig (brand-400 auf getöntem zinc-950 = 8,90:1). --}}
-                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-800 dark:text-brand-400"
+                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-900 dark:text-brand-400"
                               x-text="standardCount()"></span>
                     </flux:tab>
                     <flux:tab name="threads" icon="chat-bubble-left-right">
@@ -192,7 +192,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                    getönten Fläche bg-brand-500/10 (= #fef4e8 über Weiß). brand-600 ergibt dort
                                    2,73:1 und verfehlt WCAG 1.4.3 (4,5:1) bei 0,65rem deutlich; brand-800 liefert
                                    5,92:1. Dark ist unauffällig (brand-400 auf getöntem zinc-950 = 8,90:1). --}}
-                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-800 dark:text-brand-400"
+                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-900 dark:text-brand-400"
                               x-text="threads.length"></span>
                     </flux:tab>
                 </flux:tabs>
@@ -243,7 +243,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             :class="!roomCountry ? 'font-semibold text-brand-700 dark:text-brand-400' : ''">
                                         <flux:icon.globe-alt class="size-4 shrink-0 text-muted" />
                                         <span class="flex-1">{{ __('Alle Länder') }}</span>
-                                        <flux:icon.check x-show="!roomCountry" x-cloak class="size-4 shrink-0 text-brand-600 dark:text-brand-400" />
+                                        <flux:icon.check x-show="!roomCountry" x-cloak class="size-4 shrink-0 text-brand-700 dark:text-brand-400" />
                                     </button>
                                     <template x-for="c in availableCountries()" :key="c.country">
                                         <button type="button" x-on:click="selectCountry(c.country); open = false"
@@ -368,7 +368,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <button type="button" x-on:click="roomType = 'meetups'"
                                     :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 dark:border-zinc-800/60' : ''"
                                     class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
-                                <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-600 dark:text-brand-400">
+                                <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
                                     <flux:icon.map-pin class="size-5" />
                                 </span>
                                 <span class="min-w-0 flex-1">
@@ -449,7 +449,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </template>
                                             </span>
                                             <span class="min-w-0 truncate">
-                                                <span class="font-semibold text-brand-600 dark:text-brand-400" x-text="t.count + (t.count === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
+                                                <span class="font-semibold text-brand-800 dark:text-brand-400" x-text="t.count + (t.count === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
                                                 <span class="text-muted" x-text="' · ' + t.lastLabel"></span>
                                             </span>
                                         </span>
