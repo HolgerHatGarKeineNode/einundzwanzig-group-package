@@ -190,6 +190,32 @@ type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => 
 const zapsEnabled = (): boolean => (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false
 
 /**
+ * sessionStorage-Marker „in diesem Tab wurde schon App-intern navigiert" (Rückweg).
+ * Tab-lokal — ein frischer Deep-Link-Tab startet ohne ihn. Siehe Setzer beim
+ * `livewire:navigate`-Listener und Leser in {@link hasInternalHistory}.
+ */
+const APP_NAV_KEY = 'appNav'
+
+/**
+ * Gibt es einen App-internen Vorgänger, auf den `history.back()` zielen darf?
+ *
+ * Zwei Bedingungen, beide nötig:
+ * - der Tab hat schon einmal per `wire:navigate` navigiert (Marker), und
+ * - der History-Stack hat überhaupt einen Vorgänger.
+ *
+ * Ist eine davon falsch, ist der Nutzer per Deep-Link/Kaltstart hier gelandet und
+ * `history.back()` führte aus der App heraus (oder ins Leere) — dann gilt das
+ * explizite UP-Ziel.
+ */
+const hasInternalHistory = (): boolean => {
+    try {
+        return sessionStorage.getItem(APP_NAV_KEY) === '1' && window.history.length > 1
+    } catch {
+        return false
+    }
+}
+
+/**
  * Kurzes haptisches Feedback (Android-Web + Android-App-WebView; iOS-Safari kennt
  * `navigator.vibrate` nicht → wird still ignoriert). Für taktile Quittung von Taps
  * und Fehlern, damit der Nutzer spürt, dass ein Tap ankam bzw. warum nichts aufgeht.
@@ -697,6 +723,8 @@ type RoomChatState = {
     openThread(m: ChatMessage, full?: boolean, syncUrl?: boolean): void
     threadHref(m: ChatMessage): string
     closeThread(): void
+    /** Kopf-Pfeil im RAUM: history.back() bei App-internem Vorgänger, sonst `upTarget`. */
+    backFromRoom(upTarget: string): void
     backFromThread(): void
     setThreadReply(c: ChatMessage): void
     clearThreadReply(): void
@@ -986,6 +1014,33 @@ export function registerNostrComponents(Alpine: {
         },
     }
     Alpine.store('authGate', authGateStore)
+
+    // ── Rückweg: „gibt es einen App-internen Vorgänger?" ─────────────────────────
+    // Der Kopf-Pfeil ist UP (Hierarchie), nicht BACK. Trotzdem soll er dorthin führen,
+    // wo der Nutzer WAR — inklusive Filterzustand — statt stur auf die Raumliste zu
+    // springen. Beides zusammen geht nur, wenn wir die eine Frage beantworten können,
+    // die die History-API nicht beantwortet: ist der vorherige Eintrag UNSERER?
+    //
+    // Gemessen (Playwright/Host-Chromium, 2026-07-22):
+    //   /spaces --Klick--> /rooms/welcome  → history.length 3→4 (wire:navigate PUSHT)
+    //   dort history.back()                → /spaces, Alpine lebt (kein kalter Reboot)
+    // `history.back()` trägt also — aber nur, wenn es einen eigenen Vorgänger gibt.
+    // Beim Deep-Link-Kaltstart (Notification-Tap, geteilter Link) gibt es keinen, und
+    // ein blindes back() führte aus der App heraus.
+    //
+    // Der Marker ist bewusst KEIN Pfad-Stack: ein selbst geführter Herkunfts-Stack wäre
+    // eine zweite Navigationsgeschichte neben der echten und driftet garantiert
+    // (Reload, Resume, Deep-Link). Gespeichert wird nur ein Bit — „in diesem Tab hat
+    // schon einmal eine App-interne Navigation stattgefunden". sessionStorage ist
+    // tab-lokal, ein frischer Deep-Link-Tab startet also korrekt ohne Marker.
+    document.addEventListener('livewire:navigate', () => {
+        try {
+            sessionStorage.setItem(APP_NAV_KEY, '1')
+        } catch {
+            // sessionStorage nicht verfügbar (Private-Mode/Quota) → Marker bleibt aus,
+            // der Rückweg fällt auf das explizite UP-Ziel zurück. Kein Fehler.
+        }
+    })
 
     // PLAN4 B3 — Autor-Profil-Karte (kind 0): öffnet ein Flux-Modal mit
     // display_name/about/website/banner/lud16. Ein `open-profile`-Window-Event
@@ -1446,9 +1501,14 @@ export function registerNostrComponents(Alpine: {
         _unsubRoomMembers: null,
         meetups: {},
         _unsubMeetups: null,
-        roomQuery: '',
-        roomType: 'rooms',
-        roomCountry: '',
+        // Filterzustand aus der URL übernehmen — spiegelbildlich zu den $watch-Hooks in
+        // init(). Ohne das war der Filter reiner Mount-State: aus einem Meetup-Raum
+        // zurück landete man IMMER in der ungefilterten Standardliste, egal wie der
+        // Zurück-Weg implementiert ist. Die URL ist der einzige Zustand, der eine
+        // Navigation überlebt (Alpine wird bei wire:navigate neu aufgebaut).
+        roomQuery: new URLSearchParams(window.location.search).get('q') ?? '',
+        roomType: new URLSearchParams(window.location.search).get('rt') === 'meetups' ? 'meetups' : 'rooms',
+        roomCountry: (new URLSearchParams(window.location.search).get('cc') ?? '').toUpperCase(),
         _url: null,
         _unsubView: null,
         _unsubActive: null,
@@ -1885,6 +1945,24 @@ export function registerNostrComponents(Alpine: {
                 }
                 window.history.replaceState(window.history.state, '', u)
             })
+            // Dasselbe für den Filterzustand (Modus/Suche/Land): NUR replaceState, nie
+            // pushState — ein eigener History-Eintrag pro Tastendruck im Suchfeld wäre
+            // eine Zurück-Falle, und pushState auf einem Livewire-Eintrag löst beim
+            // Zurück den kalten Insel-Reboot aus (siehe openThread, gleiche Begründung).
+            // Kurze Parameternamen (rt/q/cc), weil sie an jeder Raum-URL mitlaufen.
+            const syncFilterParam = (key: string, value: string, isDefault: boolean): void => {
+                const u = new URL(window.location.href)
+                if (isDefault) {
+                    u.searchParams.delete(key)
+                } else {
+                    u.searchParams.set(key, value)
+                }
+                window.history.replaceState(window.history.state, '', u)
+            }
+            const watch = this as unknown as { $watch(p: string, cb: (v: string) => void): void }
+            watch.$watch('roomType', (v: string) => syncFilterParam('rt', v, v !== 'meetups'))
+            watch.$watch('roomQuery', (v: string) => syncFilterParam('q', v.trim(), v.trim() === ''))
+            watch.$watch('roomCountry', (v: string) => syncFilterParam('cc', v, v === ''))
             loadUserGroupList()?.finally(() => {
                 this.loading = false
             })
@@ -3440,6 +3518,27 @@ export function registerNostrComponents(Alpine: {
         // per replaceState zurückgesetzt — auf die vor dem Öffnen gemerkte Raum-URL, sonst die Raum-
         // Basis (Deep-Link). `window.history.state` bleibt unverändert (der echte Livewire-State des
         // Raum-Eintrags) → Livewires History-Integrität ist intakt, kein Snapshot-Restore/Reboot.
+        // „Zurück" aus dem RAUM (Kopf-Pfeil, wenn kein Thread offen ist). Führt dorthin,
+        // wo der Nutzer war — samt Filterzustand, der jetzt in der URL steht (rt/q/cc) —
+        // statt stur auf die Raumliste zu springen.
+        //
+        // Warum nicht einfach immer `history.back()`: beim Deep-Link-Kaltstart
+        // (Notification-Tap, geteilter Link) gibt es keinen eigenen Vorgänger; back()
+        // führte dann aus der App heraus. Warum nicht immer `Livewire.navigate`: das war
+        // das bisherige Verhalten und verwarf jeden Filter und jede Scroll-Position.
+        //
+        // Der Thread hat seinen EIGENEN Weg (backFromThread) und darf hier nie landen:
+        // er pusht bewusst keinen History-Eintrag, ein back() spränge also am Raum vorbei
+        // direkt in die Übersicht. Gemessen (Playwright, 2026-07-22): aus dem offenen
+        // Thread führte history.back() auf /spaces statt auf /rooms/<h>. Die Verzweigung
+        // in `⚡room.blade.php` ($backExpr) ist deshalb nicht optional.
+        backFromRoom(upTarget: string) {
+            if (hasInternalHistory()) {
+                window.history.back()
+                return
+            }
+            ;(window as unknown as { Livewire: { navigate(u: string): void } }).Livewire.navigate(upTarget)
+        },
         backFromThread() {
             const prevUrl = this._threadPrevUrl
             this.closeThread() // setzt _threadPrevUrl zurück

@@ -75,7 +75,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
         // ein rohes JS-String-Literal ("…"), das `{{ }}` genau EINMAL escaped (wie der Raum-Titel zuvor).
         $hashName = json_encode('# ').' + roomName';
         $titleExpr = 'threadRootId ? ('.$hashName.' + '.json_encode(' · '.__('Thread')).') : ('.$hashName.')';
-        $backExpr = 'threadRootId ? backFromThread() : window.Livewire.navigate('.json_encode(route('group.spaces')).')';
+        // Zwei getrennte Rückwege, die NICHT vertauscht werden dürfen:
+        //  - Thread offen → backFromThread(): warmer In-Place-Abbau. Der Thread pusht
+        //    bewusst keinen History-Eintrag, ein history.back() spränge hier am Raum
+        //    vorbei direkt in die Übersicht (gemessen 2026-07-22).
+        //  - sonst → backFromRoom(<UP-Ziel>): history.back(), wenn dieser Tab einen
+        //    App-internen Vorgänger hat (dann kommt die Übersicht samt Filter aus der
+        //    URL zurück), sonst Livewire.navigate auf das UP-Ziel (Deep-Link-Kaltstart).
+        $backExpr = 'threadRootId ? backFromThread() : backFromRoom('.json_encode(route('group.spaces')).')';
     @endphp
     <x-group::app-header :title="'# '.($roomName ?? $h)" :title-expr="$titleExpr" :back-expr="$backExpr" class="shrink-0">
         @if ($roomPicture)
