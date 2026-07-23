@@ -25,11 +25,14 @@ import {
     relaysByUrl,
     loadRelay,
 } from '@welshman/app'
-import { deriveItemsByKey, deriveEventsByIdByUrl, sync, localStorageProvider } from '@welshman/store'
+import { deriveItemsByKey, deriveEventsByIdByUrl, sync, throttled, localStorageProvider } from '@welshman/store'
 import { Router } from '@welshman/router'
 import { load, request } from '@welshman/net'
 import {
     ROOMS,
+    MESSAGE,
+    POLL,
+    ZAP_GOAL,
     ROOM_META,
     ROOM_CREATE,
     ROOM_DELETE,
@@ -153,6 +156,49 @@ export const roomsById = derived(roomsByUrl, ($byUrl) => {
     return result
 })
 
+// ── Raum-Aktivität (`lastMessageAt`) ─────────────────────────────────────────
+
+/**
+ * Timeline-Events (kind 9/1068/9041) aller Spaces, nach Herkunfts-Relay (tracker) —
+ * dieselben Kinds, die auch im Raum-Verlauf stehen (`feeds.ts roomStreamFilter`), damit
+ * eine Poll oder ein Spendenziel einen Raum genauso „aktiv" macht wie eine Nachricht.
+ */
+const timelineEventsByIdByUrl = deriveEventsByIdByUrl({
+    tracker,
+    repository,
+    filters: [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }],
+})
+
+/**
+ * Jüngster Timeline-Zeitstempel je Space-URL und Raum-`h`.
+ *
+ * Das Feld `lastMessageAt` war bis hierher TOTER CODE: die Sortierung der Raumliste
+ * (`bridge.ts _ensureFiltered`) las es viermal, geschrieben hat es nie jemand — sie fiel
+ * damit IMMER auf den alphabetischen Zweig zurück, und die „Sortierung nach letzter
+ * Aktivität" existierte nur im Kommentar. Hier entsteht der Schreiber.
+ *
+ * `throttled(1000)`: die Quelle feuert pro eingehendem Event. Ohne Drosselung würde
+ * jede Nachricht die komplette Space-Sicht neu bauen (und darüber `pushSyncState`).
+ * Eine Sekunde Verzug in einer Sortierreihenfolge sieht niemand.
+ */
+export const lastMessageAtByUrl: Readable<Map<string, Map<string, number>>> = derived(
+    throttled(1000, timelineEventsByIdByUrl),
+    ($byUrl) => {
+        const result = new Map<string, Map<string, number>>()
+        for (const [url, eventsById] of $byUrl) {
+            const byH = new Map<string, number>()
+            for (const event of eventsById.values() as Iterable<TrustedEvent>) {
+                const h = getTagValue('h', event.tags)
+                if (h && event.created_at > (byH.get(h) ?? 0)) {
+                    byH.set(h, event.created_at)
+                }
+            }
+            result.set(url, byH)
+        }
+        return result
+    },
+)
+
 // ── Raum-Mitgliedschaft (NIP-29 39002, relay-autoritativ) ────────────────────
 
 /** Members-Listen (39002) je Space-URL, nach Herkunfts-Relay (tracker). */
@@ -229,6 +275,15 @@ export type RoomView = {
     isProjectSupport: boolean
     /** Stabile Antrags-id aus `["i","proposal:<id>"]` ('' wenn keine). */
     proposalId: string
+    /**
+     * `created_at` des jüngsten bekannten Timeline-Events (9/1068/9041) dieses Raums,
+     * `null` solange keins vorliegt. Quelle: {@link lastMessageAtByUrl}. Trägt die
+     * Sortierung der Raumliste nach Aktivität.
+     *
+     * ACHTUNG, das ist AUTORGESETZTE Zeit (NIP-01), nicht die Uhr dieses Geräts — für
+     * eine Reihenfolge genügt das, als Lese-Wasserzeichen NICHT (dafür `readState.ts`).
+     */
+    lastMessageAt: number | null
 }
 export type SpaceView = {
     url: string
@@ -258,6 +313,7 @@ const buildSpaceView = (
     membersByH: Map<string, Set<string>>,
     pk: string | undefined,
     profile: RelayProfile | undefined,
+    lastByH: Map<string, number>,
 ): SpaceView => {
     const nameOf = (h: string) => displayRoom(byId.get(makeRoomId(url, h)), h)
     const isMember = (h: string) => Boolean(pk && membersByH.get(h)?.has(pk))
@@ -293,6 +349,7 @@ const buildSpaceView = (
                 meetupSlug: meetup.meetupSlug,
                 isProjectSupport: projectSupport.isProjectSupport,
                 proposalId: projectSupport.proposalId,
+                lastMessageAt: lastByH.get(h) ?? null,
             }
         })
 
@@ -320,10 +377,18 @@ export const ensureRelayProfile = (
  * und entdeckbaren Räumen — die Grundlage der Space-Auswahl in den Einstellungen.
  */
 export const userSpacesView: Readable<SpaceView[]> = derived(
-    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl],
-    ([$urls, $byUrl, $byId, $members, $pk, $relays]) =>
+    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+    ([$urls, $byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
         $urls.map((url) =>
-            buildSpaceView(url, $byUrl, $byId, $members.get(url) ?? new Map(), $pk, ensureRelayProfile($relays, url)),
+            buildSpaceView(
+                url,
+                $byUrl,
+                $byId,
+                $members.get(url) ?? new Map(),
+                $pk,
+                ensureRelayProfile($relays, url),
+                $lastAt.get(url) ?? new Map(),
+            ),
         ),
 )
 
@@ -379,11 +444,19 @@ export const activeSpace: Readable<string> = derived(activeSpaceUrl, ($active) =
  * Space (noch) nicht beigetreten ist. Rooms streamen nach dem 39000-Load ein.
  */
 export const activeSpaceView: Readable<SpaceView> = derived(
-    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl],
-    ([$active, $byUrl, $byId, $members, $pk, $relays]) =>
+    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+    ([$active, $byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
         // NIP-11 auch für den aktiven Space anstoßen — inkl. Vereins-Relays, die
         // sonst nie geladen würden (nur `groupSpaceChoices` lädt non-verein).
-        buildSpaceView($active, $byUrl, $byId, $members.get($active) ?? new Map(), $pk, ensureRelayProfile($relays, $active)),
+        buildSpaceView(
+            $active,
+            $byUrl,
+            $byId,
+            $members.get($active) ?? new Map(),
+            $pk,
+            ensureRelayProfile($relays, $active),
+            $lastAt.get($active) ?? new Map(),
+        ),
 )
 
 /**
@@ -409,9 +482,22 @@ export const pushSyncState: Readable<{
     names: Object.fromEntries($space.userRooms.map((room) => [room.h, room.name])),
 }))
 
+// Zuletzt geschriebener Push-Zustand — Wächter gegen Leerlauf-Schreibvorgänge.
+// `activeSpaceView` emittiert seit `lastMessageAt` auch bei bloßer Raum-AKTIVITÄT
+// (gedrosselt, aber regelmäßig); der abgeleitete Push-Zustand (Relay + Raumliste +
+// Namen) ändert sich dabei fast nie. Ohne diesen Vergleich schriebe jede Nachrichten-
+// welle localStorage neu und weckte den Android-Worker per `push-sync`-Event, obwohl
+// er exakt denselben Zustand schon hat.
+let lastPushSyncJson: string | null = null
+
 pushSyncState.subscribe(($state) => {
     try {
-        localStorage.setItem('pushSync', JSON.stringify($state))
+        const json = JSON.stringify($state)
+        if (json === lastPushSyncJson) {
+            return
+        }
+        lastPushSyncJson = json
+        localStorage.setItem('pushSync', json)
         // Die Mitgliedschaft (39002) streamt erst NACH dem Seitenaufbau ein — ohne
         // dieses Event hätte der Sync beim App-Start immer eine leere Raumliste
         // gesehen und den Worker abbestellt.

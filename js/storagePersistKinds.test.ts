@@ -19,6 +19,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
     MESSAGE,
+    COMMENT,
     DELETE,
     ROOM_DELETE,
     ROOM_DELETE_EVENT,
@@ -28,9 +29,19 @@ import {
     REACTION,
     ZAP_RESPONSE,
 } from '@welshman/util'
-import { shouldPersistEvent } from './storage.ts'
+import { messagesToPrune, shouldPersistEvent } from './storage.ts'
 
 const ev = (kind: number) => ({ kind }) as never
+
+/** Minimal-Event fürs Pruning (nur die Felder, die messagesToPrune liest). */
+const msg = (id: string, createdAt: number, h: string) =>
+    ({ id, kind: MESSAGE, created_at: createdAt, tags: [['h', h]] }) as never
+
+const comment = (id: string, createdAt: number, rootId = 'root') =>
+    ({ id, kind: COMMENT, created_at: createdAt, tags: [['E', rootId]] }) as never
+
+const NOW = 1_800_000_000
+const DAY = 24 * 60 * 60
 
 test('Grabstein und Begrabenes werden gemeinsam gespeichert', () => {
     // Raum-Metadaten und die Löschung des Raums.
@@ -59,4 +70,55 @@ test('Was lazy nachlaedt, wird NICHT gespeichert', () => {
     // Zap-Quittungen haengen an keinem `#h` und kommen nach dem Paint.
     assert.equal(shouldPersistEvent(ev(REACTION)), false, 'kind 7 (Reaktion)')
     assert.equal(shouldPersistEvent(ev(ZAP_RESPONSE)), false, 'kind 9735 (Zap-Quittung)')
+})
+
+test('Thread-Kommentare ueberleben den Kaltstart — Lotus-kind-10 bewusst nicht', () => {
+    // Ohne kind 1111 im Cache ist der Ungelesen-Punkt eines Threads beim Kaltstart
+    // immer aus: die Ableitung liest dieselbe repository, und die waere leer.
+    assert.equal(shouldPersistEvent(ev(COMMENT)), true, 'kind 1111 (Thread-Kommentar)')
+    // Bekannte Grenze, absichtlich festgenagelt: Lotus' kind-10 (In-Chat-Thread) lesen
+    // wir nur fuer die Interop und schreiben ihn nie — sein Marker kommt erst nach dem
+    // Netz-Load. Wer das aendert, aendert es hier bewusst, nicht versehentlich.
+    assert.equal(shouldPersistEvent(ev(10)), false, 'kind 10 (Lotus In-Chat-Thread)')
+})
+
+test('Was gespeichert wird UND waechst, wird auch gekappt', () => {
+    // Die eigentliche Bedingung fuer die Aufnahme von kind 1111: Persistenz OHNE
+    // Kappung waere ein unbegrenzt wachsender Store. Der Deckel ist global (nicht pro
+    // Thread), weil jede Nachricht eine Thread-Wurzel sein kann — ein Per-Root-Cap
+    // haette gar keine Obergrenze.
+    const comments = Array.from({ length: 12 }, (_, i) => comment('c' + i, NOW - i))
+    const drop = new Set(messagesToPrune(comments, NOW, 300, 30 * DAY, 5))
+    assert.equal(drop.size, 7, 'von 12 Kommentaren bleiben genau 5 (die juengsten)')
+    for (const keep of ['c0', 'c1', 'c2', 'c3', 'c4']) {
+        assert.equal(drop.has(keep), false, `${keep} ist unter den juengsten 5 und bleibt`)
+    }
+    assert.equal(drop.has('c11'), true, 'der aelteste Kommentar faellt raus')
+})
+
+test('Der Alters-Backstop gilt fuer Kommentare wie fuer Nachrichten', () => {
+    const drop = new Set(
+        messagesToPrune([comment('alt', NOW - 31 * DAY), comment('neu', NOW - 1 * DAY)], NOW),
+    )
+    assert.equal(drop.has('alt'), true, 'aelter als 30 Tage → weg')
+    assert.equal(drop.has('neu'), false, 'innerhalb des Fensters → bleibt')
+})
+
+test('Nachrichten-Kappung bleibt per Raum und faellt nicht in den Kommentar-Topf', () => {
+    // Gegenprobe gegen den naheliegenden Fehler beim Erweitern: kind 9 und kind 1111
+    // duerfen sich ihre Deckel NICHT teilen, sonst verdraengt eine rege Thread-
+    // Diskussion den Verlauf eines stillen Raums.
+    const events = [
+        msg('a1', NOW - 1, 'raum-a'),
+        msg('a2', NOW - 2, 'raum-a'),
+        msg('a3', NOW - 3, 'raum-a'),
+        msg('b1', NOW - 4, 'raum-b'),
+        comment('c1', NOW - 5),
+        comment('c2', NOW - 6),
+    ]
+    const drop = new Set(messagesToPrune(events, NOW, 2, 30 * DAY, 1))
+    assert.equal(drop.has('a3'), true, 'Raum A ist bei cap=2 um eine Nachricht zu voll')
+    assert.equal(drop.has('b1'), false, 'Raum B hat nur eine Nachricht und bleibt unberuehrt')
+    assert.equal(drop.has('c2'), true, 'der aeltere Kommentar faellt am Kommentar-Deckel')
+    assert.equal(drop.has('c1'), false, 'der juengere Kommentar bleibt')
 })

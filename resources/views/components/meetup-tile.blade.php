@@ -13,7 +13,10 @@
 <div class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
     <button type="button"
             x-on:click="Livewire.navigate('/rooms/' + encodeURIComponent(room.h))"
-            :aria-label="room.name + (meetup(room.meetupSlug)?.city ? ' — {{ __('Meetup in') }} ' + meetup(room.meetupSlug).city : ' — {{ __('Meetup') }}')"
+            {{-- Der aria-label ERSETZT den Kindtext des Buttons — ein sr-only im
+                 Ungelesen-Marker käme hier nie an. Darum hängt der Hinweis am Label
+                 selbst; defensiv gegen einen fehlenden `unread`-Store (dann ''). --}}
+            :aria-label="room.name + (meetup(room.meetupSlug)?.city ? ' — {{ __('Meetup in') }} ' + meetup(room.meetupSlug).city : ' — {{ __('Meetup') }}') + ($store.unread?.rooms?.[room.h] ? '{{ __(', ungelesene Nachrichten') }}' : '')"
             class="pressable flex min-w-0 flex-1 items-center gap-2.5 rounded-tile p-1.5 text-left">
 
         {{-- Logo + Flaggen-Pin (Signatur). --}}
@@ -70,6 +73,10 @@
         </span>
 
         <flux:icon.lock-closed x-show="room.locked" x-cloak class="size-4 shrink-0 text-zinc-400" aria-label="{{ __('Privater Raum') }}" />
+        {{-- Ungelesen: identische Position wie in `room-tile` (vor dem Chevron) —
+             beide Kachelvarianten lesen sich dadurch gleich. `sr=false`: der
+             Hinweis steckt im aria-label des Buttons (siehe oben). --}}
+        <x-group::unread-dot when="$store.unread?.rooms?.[room.h]" :sr="false" />
         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
 

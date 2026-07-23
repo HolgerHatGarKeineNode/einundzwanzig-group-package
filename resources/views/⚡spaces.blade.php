@@ -182,7 +182,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                    getönten Fläche bg-brand-500/10 (= #fef4e8 über Weiß). brand-600 ergibt dort
                                    2,73:1 und verfehlt WCAG 1.4.3 (4,5:1) bei 0,65rem deutlich; brand-800 liefert
                                    5,92:1. Dark ist unauffällig (brand-400 auf getöntem zinc-950 = 8,90:1). --}}
-                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-900 dark:text-brand-400"
+                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-900 dark:text-brand-300"
                               x-text="standardCount()"></span>
                     </flux:tab>
                     <flux:tab name="threads" icon="chat-bubble-left-right">
@@ -192,7 +192,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                    getönten Fläche bg-brand-500/10 (= #fef4e8 über Weiß). brand-600 ergibt dort
                                    2,73:1 und verfehlt WCAG 1.4.3 (4,5:1) bei 0,65rem deutlich; brand-800 liefert
                                    5,92:1. Dark ist unauffällig (brand-400 auf getöntem zinc-950 = 8,90:1). --}}
-                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-900 dark:text-brand-400"
+                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-900 dark:text-brand-300"
                               x-text="threads.length"></span>
                     </flux:tab>
                 </flux:tabs>
@@ -421,7 +421,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <button type="button"
                                         x-on:click="Livewire.navigate('/rooms/' + encodeURIComponent(t.roomH) + '/thread/' + t.nevent)"
                                         :disabled="!t.roomH"
-                                        :aria-label="(t.authorName || @js(__('Nachricht'))) + ': ' + t.snippet + ' — ' + t.count + @js(__(' Antworten, öffnen'))"
+                                        {{-- aria-label ERSETZT den Kindtext → der Ungelesen-Hinweis muss hier
+                                             hinein, ein sr-only im Marker käme nie an. Defensiv: fehlt der
+                                             `unread`-Store, liefert der Ausdruck '' (kein Hinweis). --}}
+                                        :aria-label="(t.authorName || @js(__('Nachricht'))) + ': ' + t.snippet + ' — ' + t.count + @js(__(' Antworten, öffnen')) + ($store.unread?.threads?.[t.rootId] ? @js(__(', ungelesene Antworten')) : '')"
                                         class="pressable flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-brand-500/5 disabled:cursor-default disabled:opacity-60">
                                     <span class="min-w-0 flex-1">
                                         {{-- Raum-Kontext (raumübergreifende Liste): nur zeigen, wenn `roomName`
@@ -431,8 +434,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             <flux:icon.hashtag class="size-3 shrink-0" />
                                             <span class="truncate" x-text="roomName(t.roomH)"></span>
                                         </span>
-                                        {{-- Autor: Hierarchie durch Kontrast, nicht nur Größe (Refactoring UI). --}}
-                                        <span class="block truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+                                        {{-- Autor: Hierarchie durch Kontrast, nicht nur Größe (Refactoring UI).
+                                             Ungelesen trägt hier ZWEIFACH — Punkt am Zeilenende plus Gewicht
+                                             am Titel: anders als in der Raum-Zeile steht der Marker weit vom
+                                             Titel entfernt (drei Zeilen Inhalt dazwischen). Rohes <span> →
+                                             einfaches `:class`, KEIN `::class` (das ist die Flux-Konvention).
+                                             Ohne Store fällt der Ausdruck auf font-medium, also auf „gelesen". --}}
+                                        <span class="block truncate text-sm text-zinc-900 dark:text-zinc-100"
+                                              :class="$store.unread?.threads?.[t.rootId] ? 'font-bold' : 'font-semibold'"
                                               x-text="t.authorName || @js(__('Nachricht'))"></span>
                                         {{-- Vorschau: bis zu 2 Zeilen mit Fließtext-Zeilenhöhe statt 1 harter Zeile
                                              (das Kern-Lesbarkeitsproblem). --}}
@@ -454,6 +463,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             </span>
                                         </span>
                                     </span>
+                                    {{-- Ungelesen: Punkt rechts, vor dem Chevron — dieselbe Stelle wie in
+                                         Raum- und Meetup-Kachel. `sr=false`: siehe aria-label des Buttons. --}}
+                                    <x-group::unread-dot when="$store.unread?.threads?.[t.rootId]" :sr="false" />
                                     <flux:icon.chevron-right class="size-4 shrink-0 text-muted" />
                                 </button>
                             </template>

@@ -25,6 +25,12 @@
          Tab-Zahl: Web 3 · Mobile 4. --}}
     @php($cols = count($items) === 4 ? 'grid-cols-4' : 'grid-cols-3')
     <div class="grid {{ $cols }}">
+        {{-- `unreadDot` ist eine reine LESE-Ableitung aus dem bestehenden `key`
+             (existiert in allen drei Nav-Registries: Package-Default, Web-Host,
+             Mobile-Host-Unified). Die Config bleibt unangetastet, kein Eintrag
+             kommt hinzu, `count($items)` und damit die Spaltenklasse ändern sich
+             nicht. Fehlt der Key in einer fremden Registry, ist das Ergebnis
+             `false` → kein Punkt, kein Fehler. --}}
         @foreach ($items as $item)
             <x-group::nav-tab
                 :route="$item['route']"
@@ -32,6 +38,7 @@
                 :icon="$item['icon']"
                 :label="$item['label']"
                 :gate="$item['gate'] ?? 'guest'"
+                :unread-dot="($item['key'] ?? null) === 'chat'"
             />
         @endforeach
     </div>

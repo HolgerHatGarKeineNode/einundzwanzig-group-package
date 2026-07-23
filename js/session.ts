@@ -27,6 +27,7 @@ import { installNip55WindowNostr } from './nip55-signer'
 import { runScheduledPortalHandoff } from './portal-handoff'
 import { clearWallet } from './wallet'
 import { clearCache } from './storage'
+import { clearReadState } from './readState'
 
 /** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
 export const authReady = Promise.all([
@@ -277,6 +278,10 @@ export function logout(): void {
         // Gate in initStorage ist der Backstop; dies räumt auch den Gast-Fall (kein
         // Login danach → initStorage lädt nie, würde also nie clearen).
         void clearCache()
+        // P3: derselbe Grund für den Lesestand. Seine Keys sind Raum- und Thread-IDs,
+        // also eine Aktivitätsspur des abgemeldeten Accounts — sie darf auf dem Gerät
+        // nicht zurückbleiben, wenn danach ein Gast oder ein anderer Account bootet.
+        void clearReadState()
         dropSession(pk)
     }
 }

@@ -4,6 +4,7 @@
     'label',
     'match' => null,
     'gate' => 'guest',
+    'unreadDot' => false,
 ])
 
 {{-- Ein Tab der Shell-Nav. Aus der bottom-nav-Schleife extrahiert, damit Web
@@ -50,9 +51,32 @@
         {{-- Indicator im Light-Mode brand-700 (≥3:1 auf hellem Nav-Grund), Dark brand-500. --}}
         <span class="nav-pill absolute inset-x-0 top-0 mx-auto h-1 w-8 rounded-pill bg-brand-700 dark:bg-accent" aria-hidden="true"></span>
     @endif
-    <flux:icon :name="$icon" :variant="$active ? 'solid' : 'outline'" class="size-6" />
+    {{-- Icon im relative-Wrapper: der Ungelesen-Punkt hängt an der ECKE DES ICONS,
+         nicht an einer gerechneten Prozentposition im Tab — er bleibt damit richtig,
+         wenn sich Icon-Größe oder Tab-Breite ändern. Weil er absolut positioniert
+         ist, ändert er die Tab-Höhe (`min-h-14`) nicht.
+         Der Punkt speist sich aus `any` (irgendwo etwas ungelesen), nicht aus einer
+         Summe: auf 11-px-Beschriftungsebene ist die einzige Frage „muss ich da
+         rein?". Der Ring trennt ihn vom Icon-Strich und gibt der Kontrastmessung
+         einen bekannten flachen Nachbarn (Nav-Grund zinc-50/zinc-950). --}}
+    <span class="relative inline-flex">
+        <flux:icon :name="$icon" :variant="$active ? 'solid' : 'outline'" class="size-6" />
+        @if ($unreadDot)
+            <x-group::unread-dot
+                when="$store.unread?.any"
+                :sr="false"
+                dot-class="absolute -end-1 -top-1 ring-2 ring-zinc-50 dark:ring-zinc-950" />
+        @endif
+    </span>
     {{-- Label zur Render-Zeit übersetzen: die Nav-Labels kommen aus config('group.nav'),
          die beim Boot VOR der Locale-Middleware lädt — ein `__()` in der Config löste
          darum immer die Default-Sprache auf. Hier greift die Request-Locale (z.B. „Mehr"→„More"). --}}
     <span class="text-[11px] font-semibold leading-none">{{ __($label) }}</span>
+    {{-- Der sr-only-Text steht NACH dem Label (Lesereihenfolge „Chat, ungelesene
+         Nachrichten"); das <a> trägt kein aria-label, der Kindtext kommt also an. --}}
+    @if ($unreadDot)
+        <template x-if="$store.unread?.any">
+            <span class="sr-only">, {{ __('ungelesene Nachrichten') }}</span>
+        </template>
+    @endif
 </a>

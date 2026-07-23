@@ -35,6 +35,11 @@
         </span>
         <span class="min-w-0 flex-1 truncate font-medium" x-text="room.name"></span>
         <flux:icon.lock-closed x-show="room.locked" x-cloak class="size-4 shrink-0 text-zinc-400" aria-label="{{ __('Privater Raum') }}" />
+        {{-- Ungelesen: Punkt rechts, vor dem Chevron. Der Raumname bleibt bewusst
+             font-medium — die Zeile trägt schon Avatar, Flaggen-Pin, Schloss und
+             Chevron; ein fünftes Signal machte die Liste unruhig. Der Button hat
+             KEIN aria-label, darum trägt der sr-only-Text der Komponente hier. --}}
+        <x-group::unread-dot when="$store.unread?.rooms?.[room.h]" />
         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
 

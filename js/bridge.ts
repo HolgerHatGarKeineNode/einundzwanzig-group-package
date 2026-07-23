@@ -5,7 +5,7 @@
  * ohne Svelte-Compiler. `alpineFromStore` koppelt jeden Store an Alpine-State;
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
-import { get, type Readable } from 'svelte/store'
+import { derived, get, type Readable } from 'svelte/store'
 import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, forceLoadZapper } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { randomId } from '@welshman/lib'
@@ -143,8 +143,8 @@ import {
     sendComment,
     deriveSpaceThreads,
     loadSpaceThreads,
-    readRoomLastRead,
-    writeRoomLastRead,
+    loadRoomActivity,
+    watchRoomActivity,
     evictChatMsgCache,
     type ChatMessage,
     type ReactionChip,
@@ -164,6 +164,8 @@ import {
     type StdEmoji,
     type RecentEmoji,
 } from './emoji'
+import { readState, readStateReady, roomKey, threadKey, roomWatermark, setRead } from './readState'
+import { deriveUnread, type UnreadView } from './unread'
 import { createScroller, type Scroller } from './scroll'
 import { toast, flashToast } from './toast'
 import {
@@ -589,7 +591,7 @@ type MessageInfo = { nevent: string; npub: string; json: string; createdAt: stri
 type RoomChatState = {
     h: string
     roomName: string // Anzeigename des Raums (Client-Meta 39000); Fallback = Server-Wert/`h`
-    messages: ChatMessage[] // aufsteigend (Quelle): loadOlder/markRead/scrollToMessage arbeiten hierauf
+    messages: ChatMessage[] // aufsteigend (Quelle): loadOlder/scrollToMessage arbeiten hierauf
     messagesReversed: ChatMessage[] // newest-first fürs `flex-col-reverse`-Rendering (neweste am Boden)
     loading: boolean
     loadingMore: boolean
@@ -920,11 +922,9 @@ function installResizeObserverLoopFilter(): void {
 let _regionNamesCache: Intl.DisplayNames | null | undefined
 let _dateFmtCache: Intl.DateTimeFormat | null | undefined
 let _myCCCache: string | undefined
-// Aktivitäts-Feld liefert die Datenschicht später (Live). Bis dahin optional gelesen
-// (undefined) — KEIN groups.ts-Umbau, nur ein lokaler Cast-Typ zum Konsumieren.
-type RoomActivity = RoomView & { lastMessageAt?: number | null }
-const lastMsgAt = (room: RoomView): number =>
-    typeof (room as RoomActivity).lastMessageAt === 'number' ? (room as RoomActivity).lastMessageAt! : Number.NEGATIVE_INFINITY
+// Aktivitäts-Feld der Datenschicht (`groups.ts lastMessageAtByUrl`). Räume ohne
+// bekannte Aktivität sortieren ans Ende und fallen damit auf den Alphabet-Zweig.
+const lastMsgAt = (room: RoomView): number => room.lastMessageAt ?? Number.NEGATIVE_INFINITY
 type RoomFilterResult = { key: string; mine: RoomView[]; meetups: RoomView[]; other: RoomView[]; proposals: RoomView[] }
 let _roomFilterCache: RoomFilterResult | null = null
 type CountryOption = { country: string; flag: string; name: string; count: number }
@@ -961,12 +961,86 @@ const myCountryCode = (): string => {
     return _myCCCache
 }
 
+// ── Ungelesen-Punkt (P3): globaler Store + raumübergreifende Aktivität ──────
+//
+// Beides hängt bewusst NICHT an einer Seiten-Insel, sondern am Insel-Boot: der Punkt
+// sitzt in der Bottom-Nav und damit auf JEDER Seite, nicht nur auf der Raumliste.
+
+/** `h` der beigetretenen Räume des aktiven Space (relay-signierte 39002). */
+const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceView) =>
+    $view.userRooms.map((room) => room.h),
+)
+
+let unreadWired = false
+let activityKey = ''
+let activityController: AbortController | null = null
+
+/**
+ * S1+S2 für die aktuelle Raum-Menge (neu senden, sobald sich Space ODER Mitgliedschaft
+ * ändern). Der Schlüsselvergleich ist Pflicht, nicht Kosmetik: `joinedRoomHs` hängt an
+ * `activeSpaceView`, und das emittiert seit `lastMessageAt` bei jeder Aktivitätswelle —
+ * ohne ihn risse jede eingehende Nachricht die Live-Subscription ab und baute sie neu auf.
+ */
+const syncRoomActivity = (url: string, hs: string[]): void => {
+    const key = url + '|' + [...hs].sort().join(',')
+    if (key === activityKey) {
+        return
+    }
+    activityKey = key
+    activityController?.abort()
+    activityController = null
+    if (hs.length === 0) {
+        return // Gast oder noch keine Mitgliedschaft geladen → kein REQ
+    }
+    activityController = new AbortController()
+    void loadRoomActivity(url, hs)
+    watchRoomActivity(url, hs, activityController.signal)
+}
+
+/**
+ * Registriert den `unread`-Store und hält ihn am Leben. Der Vertrag zur Oberfläche:
+ *
+ *     Alpine.store('unread') → { rooms: Record<h, boolean>, threads: Record<rootId, boolean>, any: boolean }
+ *
+ * Der Store wird EINMAL angelegt und danach nur noch befüllt — Blade liest ihn defensiv
+ * (`$store.unread?.rooms?.[…]`), ein fehlender Store bedeutet dort „kein Marker".
+ * Der Guard trägt: `registerNostrComponents` kann mehrfach laufen (Muster:
+ * installResizeObserverLoopFilter), zwei Subscriptions wären zwei Netzwerk-Subs.
+ */
+function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown }): void {
+    if (unreadWired) {
+        return
+    }
+    unreadWired = true
+    const initial: UnreadView = { rooms: {}, threads: {}, any: false }
+    Alpine.store('unread', initial)
+    const store = Alpine.store('unread') as UnreadView
+    let unsubUnread: (() => void) | null = null
+    activeSpace.subscribe((url: string) => {
+        // Space-Wechsel: erst leeren, dann neu ableiten — sonst blieben die Marker des
+        // alten Space bis zum ersten Emit des neuen stehen.
+        unsubUnread?.()
+        store.rooms = {}
+        store.threads = {}
+        store.any = false
+        unsubUnread = deriveUnread(url, joinedRoomHs).subscribe((view: UnreadView) => {
+            store.rooms = view.rooms
+            store.threads = view.threads
+            store.any = view.any
+        })
+    })
+    // Ohne diese Subscription bewegte sich der Punkt NUR beim Kaltstart aus dem Cache:
+    // `watchSpaceRooms` holt bloß Raum-Metadaten, `listenRoom` nur den EINEN offenen Raum.
+    joinedRoomHs.subscribe((hs: string[]) => syncRoomActivity(get(activeSpace), hs))
+}
+
 export function registerNostrComponents(Alpine: {
     data: (name: string, factory: (...args: unknown[]) => unknown) => void
     magic: (name: string, callback: () => unknown) => void
-    store: (name: string, value: unknown) => void
+    store: (name: string, value?: unknown) => unknown
 }) {
     installResizeObserverLoopFilter()
+    wireUnread(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').
@@ -2701,7 +2775,11 @@ export function registerNostrComponents(Alpine: {
             // leeres Repo → Skeleton statt Instant-Paint. storageReady rejectet nie und
             // resolved auch ohne Cache/bei IDB-Fehler sofort → der kalte Pfad bleibt
             // unverändert schnell; es verschiebt das Abo nur um einen Micro-/IDB-Tick.
-            void storageReady.then(() => {
+            // P3 zusätzlich `readStateReady`: setup() liest das Wasserzeichen EINMAL für die
+            // „Neu"-Trennlinie. Liefe es davor, wäre das Wasserzeichen 0 und die Linie fehlte
+            // die ganze Sitzung. Beide Promises starten beim Insel-Boot parallel, rejecten nie
+            // und lösen auch ohne Speicher sofort auf → der kalte Pfad bleibt gleich schnell.
+            void Promise.all([storageReady, readStateReady]).then(() => {
                 if (this._destroyed) {
                     return // Raum schon verlassen, bevor der Cache-Load fertig war → nicht abonnieren
                 }
@@ -2755,7 +2833,11 @@ export function registerNostrComponents(Alpine: {
             this.atBottom = true
             this.hasMore = true // pro Raum zurücksetzen (sonst bliebe „Anfang erreicht" beim Space-Wechsel kleben)
             this.firstPaintDone = false
-            this._lastRead = readRoomLastRead(url, this.h)
+            // Trennlinien-Grenze EINMAL beim Betreten festhalten (Wall-Clock des letzten
+            // Quittierens, `readState`). Bewusst ein Schnappschuss: markRead() schiebt das
+            // Wasserzeichen während des Lesens weiter, die „Neu"-Linie darf einem dabei
+            // aber nicht unter den Augen wegrutschen.
+            this._lastRead = roomWatermark(get(readState), url, this.h)
             this._controller = new AbortController()
             // Deep-Link (C6b): /rooms/{h}/thread/{nevent} öffnet den Thread als Vollansicht —
             // eine DIREKT verlinkbare/teilbare URL (Reload/Bookmark öffnen denselben Thread).
@@ -2884,7 +2966,7 @@ export function registerNostrComponents(Alpine: {
 
                 this.messages = msgs
                 // Reversed fürs `flex-col-reverse`-Rendering (newest-first als Flex-Items → neweste
-                // am Boden). `this.messages` bleibt aufsteigend für loadOlder/markRead/scrollToMessage.
+                // am Boden). `this.messages` bleibt aufsteigend für loadOlder/scrollToMessage.
                 this.messagesReversed = msgs.slice().reverse()
 
                 // Profile neuer Autoren nachladen (einmal je pubkey).
@@ -3133,16 +3215,26 @@ export function registerNostrComponents(Alpine: {
             el.style.height = 'auto'
             el.style.height = Math.min(el.scrollHeight, 144) + 'px'
         },
-        // Last-Read-Grenze auf die jüngste Nachricht setzen (Divider beim nächsten Betreten).
+        /**
+         * Raum bis hierher gesehen quittieren — mit der **Wall-Clock dieses Geräts**,
+         * nicht mit dem `created_at` der jüngsten Nachricht.
+         *
+         * `created_at` ist autorgesetzt (NIP-01): eine einzige Nachricht mit
+         * `created_at = jetzt + 1 Jahr` quittierte vorher alles bis 2027 als gelesen,
+         * und das Wasserzeichen ist der einzige Zustand, der die Navigation überlebt.
+         * `setRead` schreibt monoton (`Math.max`) → eine rückwärts laufende Uhr kann
+         * einen gelesenen Raum nie wieder auf ungelesen ziehen.
+         *
+         * Die Aufrufer sind alle am Boden geguardet (onScroll nur bei `atBottom`,
+         * scrollToBottom setzt es selbst, destroy() prüft es) — „Raum betreten" allein
+         * quittiert NICHT. Die frühere Bedingung `messages.length === 0` entfällt: mit
+         * Wall-Clock ist „ich habe hingesehen, da war nichts" eine gültige Aussage.
+         */
         markRead() {
-            if (!this._url || this.messages.length === 0) {
+            if (!this._url) {
                 return
             }
-            const newest = this.messages[this.messages.length - 1].created_at
-            if (newest > this._lastRead) {
-                this._lastRead = newest
-                writeRoomLastRead(this._url, this.h, newest)
-            }
+            setRead(roomKey(this._url, this.h))
         },
         teardown() {
             this._controller?.abort()
@@ -3490,6 +3582,16 @@ export function registerNostrComponents(Alpine: {
                             s.scrollTop = s.scrollHeight
                         }
                     })
+                    // „Thread offen UND am Boden" ist hier eine Tatsache, keine Vermutung:
+                    // `stick` heißt entweder „stand schon unten" oder „Container ist frisch
+                    // und wird gleich ans Ende gescrollt" — in beiden Fällen sieht der Nutzer
+                    // die jüngste Antwort. Wer bewusst hochgescrollt hat, fällt aus `stick`
+                    // heraus und quittiert NICHT (gleiche Regel wie der Raum).
+                    //
+                    // Thread-Wasserzeichen sind vom Raum-Wasserzeichen ENTKOPPELT: unsere
+                    // kind-1111-Kommentare erscheinen nicht im Raum-Feed (eigener, `#h`-loser
+                    // Filter), Raum-Lesen kann sie also nicht mitquittieren (NIP-22).
+                    setRead(threadKey(rootId))
                 }
             })
         },

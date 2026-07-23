@@ -13,6 +13,7 @@ import { routerContext } from '@welshman/router'
 import { always } from '@welshman/lib'
 import { verifyEvent, type TrustedEvent } from '@welshman/util'
 import { initStorage } from './storage'
+import { initReadState } from './readState'
 
 // M3 P1: `storageReady` für die Insel re-exportieren (bridge.ts gated den Warm-Peek darauf).
 export { storageReady } from './storage'
@@ -172,4 +173,11 @@ if (!bootGuard.__ezGroupBooted) {
     // M3 P1: Kaltstart-Cache aus IndexedDB in die welshman-repository spiegeln,
     // BEVOR der erste Raum öffnet (Room-init gated auf `storageReady`). Idempotent.
     initStorage()
+    // P3: Lesestand (Wasserzeichen pro Raum/Thread) laden — eigene pubkey-DB, plus
+    // die einmalige Migration der Alt-Keys `room:lastread:*` aus localStorage.
+    // Gleicher Guard, gleiche fail-soft-Zusage wie der Cache: ein Speicherfehler
+    // kostet Lesestand, nie den Chat. Gast (kein pubkey): öffnet keine DB.
+    // BEWUSST hier und nicht in der Insel: der Ungelesen-Punkt hängt in der
+    // App-Shell (Bottom-Nav) auf JEDER Seite, nicht nur auf denen mit Raum-Insel.
+    initReadState()
 }

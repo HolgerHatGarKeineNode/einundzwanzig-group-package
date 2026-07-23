@@ -16,6 +16,7 @@ import { MESSAGE, COMMENT, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, 
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
+import { readState, roomWatermark } from './readState'
 import { throttled } from '@welshman/store'
 import { warmZappers } from './zaps'
 import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, makeComment, mentionPubkeys } from './interactions'
@@ -465,21 +466,13 @@ const buildGoalView = (event: TrustedEvent, zaps: ZapSummary): GoalView => {
     }
 }
 
-/** Last-Read-Timestamp pro Raum (localStorage, Single-Device — kein Nostr-Kind). */
-const lastReadKey = (url: string, h: string): string => `room:lastread:${url}:${h}`
-
-export const readRoomLastRead = (url: string, h: string): number => {
-    const v = Number(localStorage.getItem(lastReadKey(url, h)))
-    return Number.isFinite(v) ? v : 0
-}
-
-export const writeRoomLastRead = (url: string, h: string, ts: number): void => {
-    try {
-        localStorage.setItem(lastReadKey(url, h), String(ts))
-    } catch {
-        // localStorage nicht verfügbar (Private-Mode/Quota) — Divider bleibt aus, kein Fehler.
-    }
-}
+// Der Alt-Lesestand (`room:lastread:${url}:${h}` in localStorage) stand bis P3 hier.
+// Er ist ersatzlos ENTFERNT, nicht bloß umgeleitet: es darf nur EINEN Schreibpfad für
+// das Wasserzeichen geben (`readState.ts setRead`), sonst driften wieder zwei Wahrheiten
+// auseinander — genau der Befund, der die ganze Ungelesen-Arbeit ausgelöst hat. Die
+// Altbestände werden beim ersten Start migriert und gelöscht (`migrateLegacyLastRead`).
+// Der `lastRead`-Parameter von {@link deriveRoomChat} bleibt — er speist nur noch die
+// „Neu"-Trennlinie und kommt jetzt aus `roomWatermark(...)`.
 
 /** Snippet aus Rohtext: Whitespace kollabiert + auf Länge gekürzt. */
 const snippet = (text: string, max = 120): string => {
@@ -699,6 +692,12 @@ export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Cha
  * Aggregierte Chat-Sicht: Nachrichten mit aufgelösten Profilen, Datums-Dividern
  * und Autor-Gruppierung — die Insel braucht nur EIN `subscribe`. HTML wird je
  * Event einmal geparst (Cache), Namen fließen reaktiv aus `profilesByPubkey`.
+ *
+ * `lastRead` ist seit P3 die **Wall-Clock** des Geräts beim letzten Quittieren
+ * (`readState.ts roomWatermark`), nicht mehr das `created_at` der jüngsten gelesenen
+ * Nachricht. Für die Trennlinie ändert das nichts an der Frage („was kam, seit ich
+ * zuletzt unten stand?"), wohl aber an der Manipulierbarkeit: ein Event mit
+ * `created_at = now + 1 Jahr` konnte vorher den ganzen Verlauf quittieren.
  */
 export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
     derived(
@@ -867,9 +866,19 @@ export const loadRoomDeletes = async (url: string, h: string): Promise<void> => 
  * Neues). OHNE `#h` (flotilla-kompatibel), Zuordnung über `["E", rootId]`.
  * ponytail: ungescopt je Relay — bei sehr vielen Threads später auf sichtbare Roots
  * (`#E`) eingrenzen; für die aktuelle Space-Größe unschädlich.
+ *
+ * Der Filter trug bis P3 GAR KEIN `limit` und lief damit in die zooid-Falle: fehlt das
+ * `limit`, greift der Relay-Deckel nicht und die SQL bekommt gar keins
+ * (`zooid/events.go:104-106` und `:239-240`) — dieser Aufruf zog bei JEDEM Raum-Öffnen
+ * sämtliche Kommentare des Relays. Der Wert entspricht exakt zooids eigenem Maximum
+ * (`instance.go:319`); sortiert wird `created_at DESC` (`events.go:165`), es kommen also
+ * die jüngsten. Für jeden Space unter 1000 Kommentaren ändert sich am Ergebnis nichts —
+ * nur die Abfrage ist jetzt begrenzt.
  */
+const COMMENT_LOAD_LIMIT = 1000
+
 export const loadRoomComments = (url: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ kinds: [COMMENT, CHAT_THREAD] }] })
+    load({ relays: [url], filters: [{ kinds: [COMMENT, CHAT_THREAD], limit: COMMENT_LOAD_LIMIT }] })
 
 /**
  * Lädt bestehende kind-9735-Zap-Receipts für die übergebenen Nachrichten-IDs, damit
@@ -901,6 +910,84 @@ export const loadRoomZaps = (url: string, eventIds: string[]): Promise<TrustedEv
  */
 export const loadRoomMessages = (url: string, h: string, until?: number): Promise<TrustedEvent[]> =>
     load({ relays: [url], filters: roomFilter(h).map((f) => ({ ...f, limit: 50, ...(until ? { until } : {}) })) })
+
+// ── Raumübergreifende Aktivität (P3, Ungelesen-Punkt) ────────────────────────
+//
+// Bis hierher gab es KEINE raumübergreifende Subscription: `watchSpaceRooms` holt nur
+// Raum-Metadaten (39000/9008/39002), `listenRoom` nur den EINEN offenen Raum. Der
+// Ungelesen-Punkt eines NICHT geöffneten Raums bewegte sich damit ausschließlich beim
+// Kaltstart aus dem Cache — live nie. Die zwei Filter hier schließen genau diese Lücke:
+// S1 holt einmal nach, S2 bleibt offen.
+
+/**
+ * Räume je REQ-Filter. Ein Nutzer ist typischerweise in wenigen Räumen (auf Prod
+ * gemessen: Median 2, Maximum 9), aber ein Admin kann überall Mitglied sein — die
+ * Chunkung hält den Filter auch in diesem Fall unter jeder plausiblen Relay-Grenze.
+ * Alle Chunks reisen in EINEM REQ (ein Socket, eine AUTH-Challenge, ein EOSE).
+ */
+export const ROOM_ACTIVITY_CHUNK = 40
+
+/**
+ * Deckel des Nachhol-Loads je Chunk.
+ *
+ * **`limit` ist hier PFLICHT, nicht Kosmetik.** zooid deckelt fremde REQs auf 1000
+ * Events — aber nur, wenn der Filter selbst ein `limit` trägt: ohne `limit` ist
+ * `filter.Limit == 0`, der Vergleich gegen das Maximum greift nicht und die SQL bekommt
+ * gar kein `LIMIT` (`zooid/events.go:104-106` und `:239-240`, gegengelesen am Prod-Branch
+ * `feat/postgres-support`). Ein limitloser raumübergreifender Filter zöge also den
+ * kompletten Bestand.
+ *
+ * Truncation ist dabei ein Feature, kein Verlust: liefert ein Chunk exakt `limit`
+ * Events, ist mindestens ein Raum darin ungelesen — und mehr als „da ist etwas" sagt
+ * ein Punkt ohnehin nicht.
+ */
+export const ROOM_ACTIVITY_LIMIT = 200
+
+const chunk = <T>(items: readonly T[], size: number): T[][] => {
+    const out: T[][] = []
+    for (let i = 0; i < items.length; i += size) {
+        out.push(items.slice(i, i + size))
+    }
+    return out
+}
+
+/**
+ * S1 — Nachhol-Load der Aktivität in den BEIGETRETENEN Räumen (`h`-Liste aus der
+ * relay-signierten 39002, nicht aus dem Raumbestand des Relays: die gegateten
+ * Meetup-Räume sind für Nicht-Mitglieder serverseitig ohnehin unsichtbar).
+ *
+ * `since` je Chunk = das NIEDRIGSTE Wasserzeichen seiner Räume, plus 1: NIP-01-`since`
+ * ist INKLUSIV, ohne die 1 käme das zuletzt Gelesene bei jedem Start erneut.
+ */
+export const loadRoomActivity = (url: string, hs: string[]): Promise<TrustedEvent[]> => {
+    const state = get(readState)
+    const filters = chunk(hs, ROOM_ACTIVITY_CHUNK).map((group) => ({
+        kinds: [MESSAGE, POLL, ZAP_GOAL],
+        '#h': group,
+        since: Math.min(...group.map((h) => roomWatermark(state, url, h))) + 1,
+        limit: ROOM_ACTIVITY_LIMIT,
+    }))
+    return filters.length > 0 ? load({ relays: [url], filters }) : Promise.resolve([])
+}
+
+/**
+ * S2 — Live-Delta derselben Räume, offen solange die App läuft.
+ *
+ * `limit: 0` ist hier KEIN vergessener Deckel, sondern die Live-only-Zusage: zooid
+ * unterscheidet ein explizites `limit:0` (`filter.LimitZero` → gar keine gespeicherte
+ * Abfrage, `zooid/events.go:100-102`) von einem FEHLENDEN Limit (voller Scan). Genau
+ * dieselbe Form nutzt `listenRoom` seit jeher.
+ */
+export const watchRoomActivity = (url: string, hs: string[], signal: AbortSignal): void => {
+    const filters = chunk(hs, ROOM_ACTIVITY_CHUNK).map((group) => ({
+        kinds: [MESSAGE, POLL, ZAP_GOAL],
+        '#h': group,
+        limit: 0,
+    }))
+    if (filters.length > 0) {
+        void request({ relays: [url], signal, filters })
+    }
+}
 
 // ── Schreiben (M5) ───────────────────────────────────────────────────────────
 

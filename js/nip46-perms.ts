@@ -28,6 +28,10 @@
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
  * - 27235 HTTP_AUTH — KRITISCH: Server-Login-Handoff (session.ts) UND NIP-86-Relay-Admin (members.ts)
  * - 28934/28936 RELAY_JOIN/RELAY_LEAVE — NIP-29 Space beitreten/verlassen (groups.ts)
+ * - 30078 APP_DATA — Lesestand (NIP-78, readState.ts). Publiziert wird er erst in P6;
+ *   die Berechtigung steht trotzdem SCHON JETZT hier, weil welshman die Rechte einer
+ *   bestehenden NIP-46-Verbindung nie nachverhandelt (siehe nip46PermsAreStale). Wer
+ *   heute koppelt, bekäme den Prompt sonst genau dann, wenn P6 zum ersten Mal quittiert.
  */
 export const NIP46_PERMS = [
     'nip44_encrypt',
@@ -55,6 +59,7 @@ export const NIP46_PERMS = [
     'sign_event:27235',
     'sign_event:28934',
     'sign_event:28936',
+    'sign_event:30078',
 ].join(',')
 
 /** localStorage-Key des zuletzt gewährten Perms-Strings (Reconnect-Nudge). */
