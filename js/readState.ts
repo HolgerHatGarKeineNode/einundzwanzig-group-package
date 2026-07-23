@@ -89,7 +89,7 @@ export const READ_STATE_CAP = 500
  */
 export const PUBLISHED_READ_STATE_CAP = 150
 
-const nowSec = (): number => Math.floor(Date.now() / 1000)
+export const nowSec = (): number => Math.floor(Date.now() / 1000)
 
 // ── Reine Funktionen (node-testbar) ────────────────────────────────────────
 
@@ -226,8 +226,21 @@ export const isLegacyLastReadKey = (key: string): boolean => key.startsWith(LEGA
  * mit `Math.max`, weil das die konservative Richtung ist: im Zweifel gilt zu viel als
  * gelesen, nie entsteht ein Fehl-Badge. Ein einmal zu weit gesetztes Wasserzeichen
  * kostet höchstens eine verpasste Meldung; ein zu niedriges meldet dauerhaft falsch.
+ *
+ * **`ceiling` deckelt genau die Ausnahme dieser Regel.** Der Altwert war das `created_at`
+ * der jüngsten Nachricht (`bridge.ts markRead()`, Alt-Client) — autorgesetzt und auf
+ * Nostr regelmäßig zukunftsdatiert (Spam, fehlgestellte Uhr). Ein solcher Wert ist eine
+ * gültige, positive Zahl und käme sonst ungeprüft durch; als jüngster Key würde er
+ * publiziert (Outbox + Space) und quittierte per Grow-only jeden Raum bis zum
+ * Zukunftsdatum auf allen Geräten, irreversibel. Man kann nicht in der Zukunft gelesen
+ * haben — deshalb `Math.min(…, ceiling)`. Der unreine Aufrufer reicht `nowSec()` rein;
+ * der Default `Infinity` hält diese Funktion rein und node-testbar (siehe `setRead`,
+ * dasselbe Muster mit `nowSec()` als Default im unreinen Pfad).
  */
-export function migrateLegacyLastRead(entries: Iterable<readonly [string, unknown]>): ReadState {
+export function migrateLegacyLastRead(
+    entries: Iterable<readonly [string, unknown]>,
+    ceiling = Infinity,
+): ReadState {
     const out: ReadState = {}
     for (const [key, raw] of entries) {
         if (!isLegacyLastReadKey(key)) {
@@ -245,7 +258,7 @@ export function migrateLegacyLastRead(entries: Iterable<readonly [string, unknow
             continue
         }
         const target = roomKey(rest.slice(0, cut), rest.slice(cut + 1))
-        out[target] = Math.max(out[target] ?? 0, Math.floor(ts))
+        out[target] = Math.max(out[target] ?? 0, Math.min(Math.floor(ts), ceiling))
     }
     return out
 }
@@ -263,18 +276,30 @@ export function migrateLegacyLastRead(entries: Iterable<readonly [string, unknow
  * diese Keys müssen AUCH aus der IDB, sonst stünden sie beim nächsten Start wieder da
  * und das Rückgängig wäre nach einem Reload verschwunden.
  */
-export function readStateRestorePlan(current: ReadState, snapshot: ReadState): { next: ReadState; removed: string[] } {
-    const next = sanitizeReadState(snapshot)
+export function readStateRestorePlan(
+    current: ReadState,
+    snapshot: ReadState,
+    ceiling = Infinity,
+): { next: ReadState; removed: string[] } {
+    const next = sanitizeReadState(snapshot, ceiling)
     return { next, removed: Object.keys(current).filter((key) => next[key] === undefined) }
 }
 
 /**
- * Fremde Karte (Zweit-Tab per BroadcastChannel; ab P6 der entschlüsselte 30078-Inhalt)
- * auf die eigene Form zurechtstutzen: nur endliche positive Zahlen unter plausibel
- * kurzen Keys überleben. Nichts davon darf ungeprüft in den Store — ein `NaN` würde
- * jeden späteren `Math.max` vergiften.
+ * Fremde Karte (Zweit-Tab per BroadcastChannel; der entschlüsselte 30078-Inhalt eines
+ * anderen Geräts) auf die eigene Form zurechtstutzen: nur endliche positive Zahlen unter
+ * plausibel kurzen Keys überleben. Nichts davon darf ungeprüft in den Store — ein `NaN`
+ * würde jeden späteren `Math.max` vergiften.
+ *
+ * **`ceiling` deckelt jeden Wert auf die Wall-Clock des Aufrufers** (`Math.min`). Ein
+ * empfangenes 30078 eines eigenen, uhr-fehlgestellten Geräts (oder ein Alt-Restore mit
+ * einem vor dem Fix eingeschleppten Zukunftswert) trüge sonst ein Wasserzeichen `>
+ * nowSec()` in den Store — gültige Zahl, aber unmöglich (man liest nicht in der Zukunft),
+ * und per Grow-only irreversibel. Der unreine Aufrufer reicht `nowSec()` rein; Default
+ * `Infinity` hält die Funktion rein/node-testbar. Siehe {@link migrateLegacyLastRead},
+ * derselbe Deckel am zweiten externen Eingang.
  */
-export function sanitizeReadState(input: unknown): ReadState {
+export function sanitizeReadState(input: unknown, ceiling = Infinity): ReadState {
     const out: ReadState = {}
     if (!input || typeof input !== 'object') {
         return out
@@ -286,7 +311,7 @@ export function sanitizeReadState(input: unknown): ReadState {
         if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
             continue
         }
-        out[key] = Math.floor(value)
+        out[key] = Math.min(Math.floor(value), ceiling)
     }
     return out
 }
@@ -438,7 +463,7 @@ function readLegacyLastRead(): { state: ReadState; keys: string[] } {
     } catch (error) {
         onStorageError(error) // Private-Mode/Quota → keine Migration, kein Fehler
     }
-    return { state: migrateLegacyLastRead(entries), keys }
+    return { state: migrateLegacyLastRead(entries, nowSec()), keys }
 }
 
 function dropLegacyLastRead(keys: string[]): void {
@@ -471,7 +496,7 @@ function openChannel(pk: string): void {
         channel = new BroadcastChannel(`${READ_STATE_CHANNEL}:${pk}`)
         channel.onmessage = (event: MessageEvent) => {
             const data = event.data as { state?: unknown; reset?: boolean } | null
-            const patch = sanitizeReadState(data?.state)
+            const patch = sanitizeReadState(data?.state, nowSec())
             // `reset` = Rückgängig (siehe restoreReadState): ERSETZEN statt mergen. Ein
             // Merge wäre hier wirkungslos — die Momentaufnahme ist überall kleiner oder
             // gleich, `Math.max` behielte jeden Wert. Der Geschwister-Tab zeigte den Raum
@@ -707,7 +732,7 @@ export const snapshotReadState = (): ReadState => ({ ...get(state) })
  * ist die konservative Richtung und zugleich die, die der Nutzer gerade angefordert hat.
  */
 export async function restoreReadState(snapshot: ReadState): Promise<void> {
-    const { next, removed } = readStateRestorePlan(get(state), snapshot)
+    const { next, removed } = readStateRestorePlan(get(state), snapshot, nowSec())
     for (const key of removed) {
         dirty.delete(key)
     }
@@ -734,10 +759,12 @@ export async function restoreReadState(snapshot: ReadState): Promise<void> {
  * zurück, und ein erfundenes `all` wäre genau der Schaden, den der Marker verhindert.
  *
  * Alles Fremde geht durch {@link sanitizeReadState}: ein `NaN`, ein String oder ein
- * 4-KB-Key aus einem manipulierten Event vergiftete sonst jeden späteren `Math.max`.
+ * 4-KB-Key aus einem manipulierten Event vergiftete sonst jeden späteren `Math.max` —
+ * und ein Wert `> nowSec()` (fehlgestellte Uhr des sendenden Geräts) wird dort auf die
+ * eigene Wall-Clock gedeckelt, weil er sonst per Grow-only unumkehrbar Räume quittierte.
  */
 export function mergeRemoteReadState(input: unknown): void {
-    const patch = sanitizeReadState(input)
+    const patch = sanitizeReadState(input, nowSec())
     if (Object.keys(patch).length === 0) {
         return
     }

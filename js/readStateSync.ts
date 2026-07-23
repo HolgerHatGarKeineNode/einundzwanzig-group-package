@@ -43,6 +43,7 @@ import {
     getBootstrapAll,
     mergeReadState,
     mergeRemoteReadState,
+    nowSec,
     publishableReadState,
     readState,
     readStateReady,
@@ -108,14 +109,20 @@ export const readStateJson = (state: ReadState): string => {
  * `[1,2,3]` ist für `Object.entries` ein Objekt mit den Keys `"0"/"1"/"2"` und käme als
  * drei gültige Wasserzeichen durch. Schaden richtete das keinen an (die Keys gehören zu
  * keinem Raum), aber es belegte Plätze unter `READ_STATE_CAP`.
+ *
+ * `ceiling` reicht bis zu `sanitizeReadState` durch: ein empfangener Wert `> nowSec()`
+ * (fehlgestellte Uhr eines eigenen Geräts) wird auf die eigene Wall-Clock gedeckelt,
+ * damit die geladene Karte identisch zu der ist, die {@link mergeRemoteReadState} in den
+ * Store schreibt — sonst wiche `lastPublishedJson` ab und löste einen überflüssigen
+ * Nachhol-Publish aus. Default `Infinity` = node-testbar ohne Uhr.
  */
-export const parseReadStateContent = (plaintext: string | undefined): ReadState => {
+export const parseReadStateContent = (plaintext: string | undefined, ceiling = Infinity): ReadState => {
     if (!plaintext) {
         return {}
     }
     try {
         const parsed: unknown = JSON.parse(plaintext)
-        return Array.isArray(parsed) ? {} : sanitizeReadState(parsed)
+        return Array.isArray(parsed) ? {} : sanitizeReadState(parsed, ceiling)
     } catch {
         return {} // kein JSON (fremdes Format, fehlgeschlagene Entschlüsselung)
     }
@@ -235,7 +242,7 @@ export const loadRemoteReadState = async (): Promise<ReadState> => {
         } catch {
             continue // fremder Schlüssel/kaputter Payload → dieses Event überspringen
         }
-        out = mergeReadState(out, parseReadStateContent(plaintext))
+        out = mergeReadState(out, parseReadStateContent(plaintext, nowSec()))
     }
     return out
 }

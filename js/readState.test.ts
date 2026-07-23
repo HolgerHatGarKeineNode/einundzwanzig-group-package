@@ -193,6 +193,50 @@ test('sanitizeReadState laesst nur endliche positive Zahlen durch', () => {
     assert.deepEqual(sanitizeReadState('nope'), {})
 })
 
+// ── Zukunfts-Deckel (High-Sev-Fix): man liest nicht in der Zukunft ─────────
+//
+// Beide externen Eingaenge nehmen `created_at`-artige Werte an, die autorgesetzt und auf
+// Nostr regelmaessig zukunftsdatiert sind. Ungedeckelt ist so ein Wert eine GUELTIGE Zahl
+// (positiv, endlich) und passiert jede bisherige Pruefung — er wuerde als juengster Key
+// publiziert und quittierte per Grow-only jeden Raum bis zum Zukunftsdatum, irreversibel.
+
+test('migrateLegacyLastRead deckelt einen zukunftsdatierten Altwert auf nowSec()', () => {
+    const jetzt = 1_700_000_000
+    const zukunft = jetzt + 400 * 24 * 3600 // > ein Jahr voraus
+    const migriert = migrateLegacyLastRead(
+        [
+            [`room:lastread:${URL}:${ROOM}`, String(zukunft)],
+            [`room:lastread:${URL}:brav`, String(jetzt - 100)],
+        ],
+        jetzt,
+    )
+    assert.equal(migriert[roomKey(URL, ROOM)], jetzt, 'der Zukunftswert wird auf die Wall-Clock gedeckelt')
+    assert.equal(migriert[roomKey(URL, 'brav')], jetzt - 100, 'ein Vergangenheitswert bleibt unangetastet')
+})
+
+test('sanitizeReadState deckelt ein empfangenes Wasserzeichen > nowSec()', () => {
+    const jetzt = 1_700_000_000
+    const sanitized = sanitizeReadState({ 'r:x|a': jetzt + 999_999, 'r:x|b': jetzt - 50 }, jetzt)
+    assert.equal(sanitized['r:x|a'], jetzt, 'Zukunft → nowSec()')
+    assert.equal(sanitized['r:x|b'], jetzt - 50, 'Vergangenheit unveraendert')
+})
+
+test('ohne ceiling (reine Nutzung) clampt nichts — die Testbarkeit bleibt', () => {
+    assert.deepEqual(sanitizeReadState({ 'r:x|a': 9_999_999_999 }), { 'r:x|a': 9_999_999_999 })
+    assert.deepEqual(migrateLegacyLastRead([[`room:lastread:${URL}:${ROOM}`, '9999999999']]), {
+        [roomKey(URL, ROOM)]: 9_999_999_999,
+    })
+})
+
+test('ein empfangenes 30078 mit Zukunftswert kippt keinen Raum dauerhaft auf gelesen', async () => {
+    await restoreReadState({})
+    const RAUM = roomKey(URL, 'zukunft-remote')
+    // Simuliert mergeRemoteReadState mit dem eigenen nowSec()-Deckel (wie im Modul).
+    const jetzt = Math.floor(Date.now() / 1000)
+    mergeRemoteReadState({ [RAUM]: jetzt + 10 * 365 * 24 * 3600 }) // 10 Jahre voraus
+    assert.ok(get(readState)[RAUM] <= jetzt + 1, 'im Store steht hoechstens die eigene Wall-Clock, nicht das Jahr 2035')
+})
+
 // ── Schreibpfad (Store; ohne IndexedDB, ohne Netz) ─────────────────────────
 
 test('setRead ist monoton — eine rueckwaerts laufende Uhr entquittiert nichts', () => {
