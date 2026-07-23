@@ -13,10 +13,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeRoomEditEvent } from '@welshman/util'
 import {
+    DEFAULT_ROOM_TYPE,
     PROJECT_SUPPORT_MARKER,
+    isFocusMode,
     isStandardRoom,
     parseProjectSupportTags,
+    parseRoomType,
     projectSupportTags,
+    supportsCountryFilter,
     withExtraTags,
 } from './roomCategories.ts'
 import { parseMeetupTags } from './meetupPresentation.ts'
@@ -239,4 +243,30 @@ test('withExtraTags: kaputte Zusatz-Tags werden ignoriert, nicht durchgereicht',
         ['h', 'x'],
         ['t', 'ok'],
     ])
+})
+
+// ── Fokus-Kategorie der Raumuebersicht (`?rt=`) ─────────────────────────────
+
+test('parseRoomType: bekannte Kategorien durch, alles andere auf den Default', () => {
+    assert.equal(parseRoomType('meetups'), 'meetups')
+    assert.equal(parseRoomType('proposals'), 'proposals')
+    assert.equal(parseRoomType('rooms'), 'rooms')
+    // Kaputte/fehlende URL zeigt die Standardliste, nie eine leere Seite.
+    assert.equal(parseRoomType(null), DEFAULT_ROOM_TYPE)
+    assert.equal(parseRoomType(undefined), DEFAULT_ROOM_TYPE)
+    assert.equal(parseRoomType(''), DEFAULT_ROOM_TYPE)
+    assert.equal(parseRoomType('Meetups'), DEFAULT_ROOM_TYPE, 'Gross-/Kleinschreibung ist keine Kategorie')
+    assert.equal(parseRoomType('<script>'), DEFAULT_ROOM_TYPE)
+})
+
+test('isFocusMode ist kategorie-agnostisch: alles ausser dem Default ist Fokus', () => {
+    assert.equal(isFocusMode('rooms'), false)
+    assert.equal(isFocusMode('meetups'), true)
+    assert.equal(isFocusMode('proposals'), true)
+})
+
+test('Land-Filter gibt es NUR bei Meetups — Antragsraeume tragen kein Land', () => {
+    assert.equal(supportsCountryFilter('meetups'), true)
+    assert.equal(supportsCountryFilter('proposals'), false)
+    assert.equal(supportsCountryFilter('rooms'), false)
 })

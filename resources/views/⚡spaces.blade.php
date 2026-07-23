@@ -204,23 +204,33 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <flux:button size="sm" variant="primary" icon="plus" x-on:click="openRoomCreate()">{{ __('Raum') }}</flux:button>
                     </div>
 
-                    {{-- ── Meetup-Modus-Kopf: Zurück · Suche · Land · Anzahl ─────────────────
-                         Standard-Räume sind der Default; die Meetup-Liste öffnet man bewusst
-                         über die Entdecken-Karte. Suche/Land brauchen nur die Meetups (die
-                         304er-Liste), die paar Standard-Räume nicht → hier statt dauerhaft. --}}
+                    {{-- ── Fokus-Kopf: Zurück · Suche · Land · Anzahl ────────────────────────
+                         Standard-Räume sind der Default; eine Kategorie-Liste (Meetups über
+                         die Entdecken-Karte, Projektunterstützung über „Alle anzeigen") öffnet
+                         man bewusst. Der Kopf ist kategorie-agnostisch: nur der Land-Filter
+                         hängt an den Meetups, weil allein sie ein Land tragen. --}}
                     <div x-show="space && focusMode()" x-cloak class="mb-2 space-y-2">
                         <button type="button" x-on:click="resetRoomFilters()"
                                 class="pressable -ms-1 inline-flex min-h-[2.75rem] items-center gap-0.5 rounded-full py-1.5 pe-3 ps-1 text-sm font-semibold text-accent">
                             <flux:icon.chevron-left variant="micro" class="size-5" />
                             {{ __('Räume anzeigen') }}
                         </button>
-                        <flux:input x-model="roomQuery" icon="magnifying-glass" clearable
-                                    placeholder="{{ __('Meetup oder Stadt suchen…') }}" />
+                        {{-- Der Platzhalter wechselt mit der Kategorie. Die Texte hängen an
+                             einem ROHEN Wrapper-Element, nicht am Flux-Attribut: Blade führt
+                             `@js()` in einer Komponenten-Attributliste NICHT aus (es landete
+                             wörtlich im Alpine-Ausdruck und der Platzhalter blieb leer —
+                             gemessen am kompilierten View). Das Kind erbt den Alpine-Scope,
+                             `x-model="roomQuery"` trifft also weiterhin nostrSpaces. --}}
+                        <div x-data="{ phMeetups: @js(__('Meetup oder Stadt suchen…')), phProposals: @js(__('Antragsraum suchen…')) }">
+                            <flux:input x-model="roomQuery" icon="magnifying-glass" clearable
+                                        ::placeholder="proposalMode() ? phProposals : phMeetups" />
+                        </div>
 
                         <div class="flex flex-wrap items-center gap-2">
                             {{-- Land-Auswahl → Alpine-Popover (kein flux:dropdown: das verschluckt
-                                 rohe Kinder). Nur real vertretene Länder, meins zuerst. --}}
-                            <div x-data="{ open: false }" class="relative">
+                                 rohe Kinder). Nur real vertretene Länder, meins zuerst.
+                                 Nur im Meetup-Fokus: Antragsräume tragen kein Land. --}}
+                            <div x-data="{ open: false }" x-show="countryFilterAvailable()" x-cloak class="relative">
                                 <button type="button" x-on:click="open = !open"
                                         aria-haspopup="true" :aria-expanded="open"
                                         class="pressable inline-flex min-h-[2.75rem] items-center gap-2 rounded-pill px-3 text-sm font-medium ring-1 ring-inset transition-colors"
@@ -257,15 +267,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </div>
 
-                            {{-- Ergebnis-Zähler (Systemstatus): wie viele Meetups die Filter zeigen. --}}
+                            {{-- Ergebnis-Zähler (Systemstatus): wie viele Räume die Filter zeigen. --}}
                             <span class="ms-auto shrink-0 font-mono text-xs text-muted">
-                                <span x-text="filteredMeetups().length"></span> {{ __('Räume') }}
+                                <span x-text="visibleCount()"></span> {{ __('Räume') }}
                             </span>
                         </div>
 
                         {{-- Aktive Filter (Suche + Land) sichtbar + einzeln/gesamt entfernbar. --}}
                         <div x-show="activeFilterCount() > 0" x-cloak class="flex flex-wrap items-center gap-1.5">
-                            <template x-if="roomCountry">
+                            <template x-if="roomCountry && countryFilterAvailable()">
                                 <button type="button" x-on:click="roomCountry = ''"
                                         class="chip-in pressable inline-flex items-center gap-1 rounded-pill bg-brand-500/10 py-1 pe-1.5 ps-2.5 text-xs font-medium text-brand-700 hover:bg-brand-500/20 dark:text-brand-400">
                                     <span aria-hidden="true" x-text="countryFlag(roomCountry)"></span>
@@ -348,7 +358,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              _proposalPool(). Keine Sektion, wenn nichts sichtbar ist. --}}
                         <template x-if="!focusMode() && filteredProposals().length > 0">
                             <div :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2' : ''">
-                                <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Projektunterstützung') }}</p>
+                                {{-- Kopfzeile mit Einstieg in den Fokus: ein schlichter Textlink,
+                                     KEINE Entdecken-Karte. Gemessen (P0/M2, Prod-Relay) gibt es
+                                     zwei Antragsräume — eine Karte versteckte zwei Zeilen hinter
+                                     einem Klick und machte die Sektion unsichtbar. --}}
+                                <div class="flex items-center gap-2 px-2 pb-1">
+                                    <p class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Projektunterstützung') }}</p>
+                                    <button type="button" x-on:click="selectRoomType('proposals')"
+                                            class="pressable ms-auto shrink-0 rounded-pill px-1.5 py-0.5 text-[0.7rem] font-semibold text-accent hover:underline">
+                                        {{ __('Alle anzeigen') }}
+                                    </button>
+                                </div>
                                 <div class="space-y-0.5">
                                     <template x-for="room in filteredProposals()" :key="room.h">
                                         <x-group::room-tile />
@@ -365,7 +385,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         {{-- Entdecken-Karte: der bewusste Schritt in die Meetup-Liste. Zeigt
                              Umfang (Gruppen · Länder) an, damit der Klick sich lohnt. --}}
                         <template x-if="!focusMode() && meetupCount() > 0">
-                            <button type="button" x-on:click="roomType = 'meetups'"
+                            <button type="button" x-on:click="selectRoomType('meetups')"
                                     :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 dark:border-zinc-800/60' : ''"
                                     class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
                                 <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
@@ -381,10 +401,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </button>
                         </template>
 
-                        {{-- ── Meetup-Modus: aktivitätssortierte Liste (2-spaltig auf lg) ────── --}}
+                        {{-- ── Meetup-Fokus: aktivitätssortierte Liste (2-spaltig auf lg) ────── --}}
 
                         {{-- Filter greift leer → Treffer-Leerzustand; „Filter leeren" bleibt im Modus. --}}
-                        <template x-if="focusMode() && !loading && meetupCount() > 0 && filteredMeetups().length === 0">
+                        <template x-if="meetupMode() && !loading && meetupCount() > 0 && filteredMeetups().length === 0">
                             <div class="empty-state py-8 text-center">
                                 <flux:icon.magnifying-glass class="mx-auto size-8 text-zinc-400" />
                                 <flux:text class="mt-2 text-sm">{{ __('Keine Meetups passen zu deiner Suche.') }}</flux:text>
@@ -395,11 +415,47 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </template>
 
                         {{-- Die Liste: 1 Spalte mobil, 2 Spalten auf lg (nutzt die Breite). --}}
-                        <template x-if="focusMode() && filteredMeetups().length > 0">
+                        <template x-if="meetupMode() && filteredMeetups().length > 0">
                             <div class="grid grid-cols-1 gap-x-3 gap-y-0.5 lg:grid-cols-2">
                                 <template x-for="room in filteredMeetups()" :key="room.h">
                                     <x-group::meetup-tile />
                                 </template>
+                            </div>
+                        </template>
+
+                        {{-- ── Antrags-Fokus (Projektunterstützung): dieselben room-tile-Zeilen
+                             wie in der Sektion. Keine reiche Kachel — Antragsräume haben
+                             keinen Portal-Join (kein Land, kein Termin, keine Flagge).
+                             Der Pool ist gegated (eigene Anträge jeder, fremde nur der
+                             Vorstand) — siehe _proposalPool(). --}}
+                        <template x-if="proposalMode() && filteredProposals().length > 0">
+                            <div class="space-y-0.5">
+                                <template x-for="room in filteredProposals()" :key="room.h">
+                                    <x-group::room-tile />
+                                </template>
+                            </div>
+                        </template>
+
+                        {{-- Suche greift leer → Treffer-Leerzustand des Antrags-Fokus. --}}
+                        <template x-if="proposalMode() && !loading && proposalCount() > 0 && filteredProposals().length === 0">
+                            <div class="empty-state py-8 text-center">
+                                <flux:icon.magnifying-glass class="mx-auto size-8 text-zinc-400" />
+                                <flux:text class="mt-2 text-sm">{{ __('Keine Antragsräume passen zu deiner Suche.') }}</flux:text>
+                                <div class="mt-3">
+                                    <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="roomQuery = ''">{{ __('Filter leeren') }}</flux:button>
+                                </div>
+                            </div>
+                        </template>
+
+                        {{-- Antrags-Fokus ohne einen einzigen sichtbaren Antragsraum (z. B. per
+                             Deep-Link `?rt=proposals` geöffnet): erklären statt leer bleiben. --}}
+                        <template x-if="proposalMode() && !loading && space && proposalCount() === 0">
+                            <div class="empty-state py-8 text-center">
+                                <flux:icon.document-text class="mx-auto size-8 text-zinc-400" />
+                                <flux:text class="mt-2 text-sm">{{ __('Keine Antragsräume für dich sichtbar.') }}</flux:text>
+                                <div class="mt-3">
+                                    <flux:button size="sm" variant="ghost" icon="arrow-left" x-on:click="resetRoomFilters()">{{ __('Räume anzeigen') }}</flux:button>
+                                </div>
                             </div>
                         </template>
                     </div>

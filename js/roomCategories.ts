@@ -95,6 +95,33 @@ export const isStandardRoom = (room: RoomCategoryFlags): boolean =>
     !room.isMeetup && !room.isProjectSupport
 
 /**
+ * Die Fokus-Kategorie der Raumuebersicht — zugleich der Wert des URL-Parameters
+ * `rt`. `rooms` ist der Default (Meine · Andere · Projektunterstuetzung); jede
+ * andere Kategorie stellt genau EINE Liste allein in den Vordergrund.
+ */
+export type RoomTypeFilter = 'rooms' | 'meetups' | 'proposals'
+
+/** Der Default — der Zustand, den die URL NICHT mitschreibt. */
+export const DEFAULT_ROOM_TYPE: RoomTypeFilter = 'rooms'
+
+/**
+ * `?rt=`-Parameter → Kategorie. Unbekanntes (auch `null`) faellt auf den Default
+ * zurueck: eine kaputte URL zeigt die Standardliste, nie eine leere Seite.
+ */
+export const parseRoomType = (value: string | null | undefined): RoomTypeFilter =>
+    value === 'meetups' || value === 'proposals' ? value : DEFAULT_ROOM_TYPE
+
+/** Steht eine Kategorie allein im Vordergrund? (kategorie-agnostisch) */
+export const isFocusMode = (type: RoomTypeFilter): boolean => type !== DEFAULT_ROOM_TYPE
+
+/**
+ * Nur Meetup-Raeume tragen ein Land (Portal-Join `meetupPresentation.ts`).
+ * Antragsraeume haben keins — im Antrags-Fokus darf es die Land-Bedienelemente
+ * also gar nicht geben, sonst filterte man auf ein Feld, das nie gesetzt ist.
+ */
+export const supportsCountryFilter = (type: RoomTypeFilter): boolean => type === 'meetups'
+
+/**
  * Haengt Zusatz-Tags an ein bereits gebautes Event an (typisch: das 9002 aus
  * welshmans `makeRoomEditEvent`) und gibt das ERGEBNIS zurueck.
  *

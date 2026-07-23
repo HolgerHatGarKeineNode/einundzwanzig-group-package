@@ -70,7 +70,7 @@ import {
     type MeetupPresentation,
 } from './meetups'
 import { flagEmoji } from './meetupPresentation'
-import { isStandardRoom } from './roomCategories'
+import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint'
 import {
     deriveSpaceDirectory,
@@ -452,9 +452,15 @@ type SpacesState = {
     _unsubMeetups: null | (() => void)
     // ── P4: Raumübersicht-Filter (Text · Land · Typ), rein clientseitig ──────────
     roomQuery: string
-    roomType: 'rooms' | 'meetups' // 'rooms' = Standard-Räume (Default), 'meetups' = Meetup-Modus
+    // Fokus-Kategorie: 'rooms' = Standard-Übersicht (Default), 'meetups' und
+    // 'proposals' (Projektunterstützung) stellen je EINE Liste allein dar.
+    roomType: RoomTypeFilter
     roomCountry: string // ISO-3166-1-alpha-2 ('' = alle Länder)
     focusMode(): boolean
+    meetupMode(): boolean
+    proposalMode(): boolean
+    countryFilterAvailable(): boolean
+    selectRoomType(type: RoomTypeFilter): void
     meetupCount(): number
     standardCount(): number
     myCountry(): string
@@ -1581,7 +1587,7 @@ export function registerNostrComponents(Alpine: {
         // Zurück-Weg implementiert ist. Die URL ist der einzige Zustand, der eine
         // Navigation überlebt (Alpine wird bei wire:navigate neu aufgebaut).
         roomQuery: new URLSearchParams(window.location.search).get('q') ?? '',
-        roomType: new URLSearchParams(window.location.search).get('rt') === 'meetups' ? 'meetups' : 'rooms',
+        roomType: parseRoomType(new URLSearchParams(window.location.search).get('rt')),
         roomCountry: (new URLSearchParams(window.location.search).get('cc') ?? '').toUpperCase(),
         _url: null,
         _unsubView: null,
@@ -1601,11 +1607,36 @@ export function registerNostrComponents(Alpine: {
         meetup(slug: string): MeetupPresentation | null {
             return (slug && this.meetups[slug]) || null
         },
-        // ── P4: Raumübersicht — Standard-Räume default, Meetups ein bewusster Schritt ─
-        // Meetup-Modus = nur die Meetup-Liste (Suche/Land/Sort). Default sind die
-        // Standard-Räume (Meine · Andere); Meetups öffnet man über die Entdecken-Karte.
+        // ── P4: Raumübersicht — Standard-Räume default, Kategorien ein bewusster Schritt ─
+        // Fokus-Modus = genau EINE Kategorie-Liste (Suche/Sort, Land nur wo es eins
+        // gibt). Default sind die Standard-Räume (Meine · Andere · Projektunterstützung);
+        // Meetups öffnet die Entdecken-Karte, Anträge der „Alle anzeigen"-Link.
+        // Kategorie-agnostisch — jede neue Kategorie erbt das Verhalten (P5).
         focusMode(): boolean {
+            return isFocusMode(this.roomType)
+        },
+        // Die beiden konkreten Fokus-Modi. Getrennt von `focusMode()`, weil mehrere
+        // Bausteine WIRKLICH „Meetups" meinen (Land-Filter, Meetup-Kacheln, Zähler)
+        // und nicht „irgendein Fokus".
+        meetupMode(): boolean {
             return this.roomType === 'meetups'
+        },
+        proposalMode(): boolean {
+            return this.roomType === 'proposals'
+        },
+        // Land gibt es nur bei Meetups (Portal-Join). Antragsräume tragen keins →
+        // im Antrags-Fokus verschwinden die Land-Bedienelemente ganz.
+        countryFilterAvailable(): boolean {
+            return supportsCountryFilter(this.roomType)
+        },
+        // Kategorie-Wechsel aus der UI: schaltet den Modus und wirft dabei einen
+        // Filter weg, den die Zielkategorie nicht kennt — sonst bliebe ein Land-Chip
+        // stehen, der im Antrags-Fokus nichts mehr filtert (stiller Geisterfilter).
+        selectRoomType(type: RoomTypeFilter): void {
+            this.roomType = type
+            if (!supportsCountryFilter(type)) {
+                this.roomCountry = ''
+            }
         },
         // Gesamtzahl der Meetup-Räume (für die Entdecken-Karte). Unabhängig vom Filter.
         meetupCount(): number {
@@ -1814,12 +1845,14 @@ export function registerNostrComponents(Alpine: {
         filteredProposals(): RoomView[] {
             return this._ensureFiltered().proposals
         },
-        // Aktive, entfernbare Filter im Meetup-Modus (Suche + Land). Der Modus selbst
-        // ist kein „Filter"-Chip — man verlässt ihn über „Räume anzeigen".
+        // Aktive, entfernbare Filter im Fokus-Modus (Suche + Land). Der Modus selbst
+        // ist kein „Filter"-Chip — man verlässt ihn über „Räume anzeigen". Das Land
+        // zählt nur, wo es überhaupt filtert (nicht im Antrags-Fokus).
         activeFilterCount(): number {
-            return (this.roomQuery.trim() ? 1 : 0) + (this.roomCountry ? 1 : 0)
+            return (this.roomQuery.trim() ? 1 : 0) + (this.roomCountry && this.countryFilterAvailable() ? 1 : 0)
         },
-        // Land togglen; eine Landwahl setzt zugleich den Meetup-Modus.
+        // Land togglen; eine Landwahl setzt zugleich den Meetup-Modus — nur Meetups
+        // tragen ein Land, ein Land IST also die Meetup-Auswahl.
         selectCountry(iso: string): void {
             this.roomCountry = this.roomCountry === iso ? '' : iso
             if (this.roomCountry) {
@@ -1829,14 +1862,19 @@ export function registerNostrComponents(Alpine: {
         resetRoomFilters(): void {
             this.roomQuery = ''
             this.roomCountry = ''
-            this.roomType = 'rooms'
+            this.roomType = DEFAULT_ROOM_TYPE
         },
-        // Sichtbare Räume über die aktuell eingeblendeten Sektionen — steuert den
-        // „keine Treffer"-Leerzustand. Rooms-Modus: Meine+Andere; Meetup-Modus: Liste.
+        // Sichtbare Räume über die aktuell eingeblendeten Sektionen — trägt den
+        // Ergebnis-Zähler im Fokus-Kopf und den „keine Treffer"-Leerzustand.
+        // Rooms-Modus: Meine+Andere+Anträge; Fokus: genau die eine Liste.
         visibleCount(): number {
-            return this.focusMode()
-                ? this.filteredMeetups().length
-                : this.filteredMine().length + this.filteredOther().length + this.filteredProposals().length
+            if (this.proposalMode()) {
+                return this.filteredProposals().length
+            }
+            if (this.meetupMode()) {
+                return this.filteredMeetups().length
+            }
+            return this.filteredMine().length + this.filteredOther().length + this.filteredProposals().length
         },
         // ── P4: Raum-Verwaltung (Admin, NIP-29 9007/9002/9008) ─────────────────
         openRoomCreate() {
@@ -2034,7 +2072,9 @@ export function registerNostrComponents(Alpine: {
                 window.history.replaceState(window.history.state, '', u)
             }
             const watch = this as unknown as { $watch(p: string, cb: (v: string) => void): void }
-            watch.$watch('roomType', (v: string) => syncFilterParam('rt', v, v !== 'meetups'))
+            // Jede Kategorie außer dem Default steht in der URL (`rt=meetups`,
+            // `rt=proposals`) → Fokus ist verlinkbar und überlebt Reload/Zurück.
+            watch.$watch('roomType', (v: string) => syncFilterParam('rt', v, v === DEFAULT_ROOM_TYPE))
             watch.$watch('roomQuery', (v: string) => syncFilterParam('q', v.trim(), v.trim() === ''))
             watch.$watch('roomCountry', (v: string) => syncFilterParam('cc', v, v === ''))
             loadUserGroupList()?.finally(() => {
