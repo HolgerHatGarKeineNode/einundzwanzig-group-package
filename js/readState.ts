@@ -152,6 +152,24 @@ export function migrateLegacyLastRead(entries: Iterable<readonly [string, unknow
 }
 
 /**
+ * Was muss geschrieben, was gelöscht werden, um `snapshot` wiederherzustellen?
+ *
+ * Rein und damit node-testbar — die unreine Hülle ist {@link restoreReadState}. Die
+ * Momentaufnahme wird durch {@link sanitizeReadState} gedreht: sie kommt aus einem
+ * Alpine-Puffer, ist also potenziell ein Proxy mit fremden Werten und darf so weder in
+ * den Store noch in die IndexedDB (`structuredClone` eines Proxys endet in
+ * `DataCloneError`).
+ *
+ * `removed` = alles, was der aktuelle Stand hat und die Momentaufnahme nicht. Genau
+ * diese Keys müssen AUCH aus der IDB, sonst stünden sie beim nächsten Start wieder da
+ * und das Rückgängig wäre nach einem Reload verschwunden.
+ */
+export function readStateRestorePlan(current: ReadState, snapshot: ReadState): { next: ReadState; removed: string[] } {
+    const next = sanitizeReadState(snapshot)
+    return { next, removed: Object.keys(current).filter((key) => next[key] === undefined) }
+}
+
+/**
  * Fremde Karte (Zweit-Tab per BroadcastChannel; ab P6 der entschlüsselte 30078-Inhalt)
  * auf die eigene Form zurechtstutzen: nur endliche positive Zahlen unter plausibel
  * kurzen Keys überleben. Nichts davon darf ungeprüft in den Store — ein `NaN` würde
@@ -353,7 +371,16 @@ function openChannel(pk: string): void {
     try {
         channel = new BroadcastChannel(`${READ_STATE_CHANNEL}:${pk}`)
         channel.onmessage = (event: MessageEvent) => {
-            const patch = sanitizeReadState((event.data as { state?: unknown } | null)?.state)
+            const data = event.data as { state?: unknown; reset?: boolean } | null
+            const patch = sanitizeReadState(data?.state)
+            // `reset` = Rückgängig (siehe restoreReadState): ERSETZEN statt mergen. Ein
+            // Merge wäre hier wirkungslos — die Momentaufnahme ist überall kleiner oder
+            // gleich, `Math.max` behielte jeden Wert. Der Geschwister-Tab zeigte den Raum
+            // dann weiter als gelesen an, obwohl der Nutzer das gerade zurückgenommen hat.
+            if (data?.reset === true) {
+                state.set(patch)
+                return
+            }
             if (Object.keys(patch).length === 0) {
                 return
             }
@@ -366,9 +393,9 @@ function openChannel(pk: string): void {
     }
 }
 
-function broadcast(patch: ReadState): void {
+function broadcast(patch: ReadState, reset = false): void {
     try {
-        channel?.postMessage({ state: patch })
+        channel?.postMessage({ state: patch, reset })
     } catch (error) {
         console.warn('[readstate] BroadcastChannel-Sendung fehlgeschlagen', error)
     }
@@ -455,6 +482,52 @@ export function markAllRead(ts: number = nowSec()): void {
     }
     state.set(after)
     void deleteRows(removed)
+}
+
+/**
+ * Momentaufnahme der Karte — der Puffer, den {@link markAllRead} braucht, um
+ * rückgängig gemacht werden zu können (§8 „Randzustände", 10-Sekunden-Frist).
+ *
+ * Eigene Kopie: der Aufrufer hält sie über mehrere Sekunden, während {@link setRead}
+ * weiterläuft.
+ */
+export const snapshotReadState = (): ReadState => ({ ...get(state) })
+
+/**
+ * Eine Momentaufnahme WIEDERHERSTELLEN — die einzige Stelle, die die Monotonie von
+ * {@link setRead} bewusst durchbricht.
+ *
+ * **Warum das nötig ist:** `setRead` schreibt `Math.max(alt, neu)`, damit eine rückwärts
+ * laufende Uhr nichts kaputt macht. Genau diese Eigenschaft macht ein „Rückgängig" per
+ * Zurückschreiben der alten Werte aber wirkungslos: das `all`-Wasserzeichen, das
+ * {@link markAllRead} gerade auf „jetzt" gehoben hat, bliebe stehen — und `all`
+ * dominiert jeden Raum- und Thread-Key. Ein Rückgängig, das nichts rückgängig macht, ist
+ * schlimmer als keins. Hier wird deshalb ersetzt statt gemerged, inklusive der Keys, die
+ * `markAllRead` als dominiert weggeworfen hat.
+ *
+ * **Warum das die Isolationszusage nicht verletzt:** geschrieben wird über denselben
+ * Pfad wie jedes andere Wasserzeichen — `dbName` ist die DB DES eingeloggten pubkey
+ * (`einundzwanzig-readstate-<pubkey>`), als Gast ist sie `null` und alles bleibt
+ * flüchtig. Es entsteht kein zweiter Schreibweg und kein Weg an der Kontotrennung
+ * vorbei; nur die Richtung des Wertes ist eine andere.
+ *
+ * **Grenze, offen benannt:** die Uhr geht dabei zurück. Wer in einem Geschwister-Tab in
+ * denselben zehn Sekunden etwas gelesen hat, verliert dieses Wasserzeichen mit — in die
+ * Richtung „zu wenig gelesen", also mit einer Meldung zu viel statt einer zu wenig. Das
+ * ist die konservative Richtung und zugleich die, die der Nutzer gerade angefordert hat.
+ */
+export async function restoreReadState(snapshot: ReadState): Promise<void> {
+    const { next, removed } = readStateRestorePlan(get(state), snapshot)
+    for (const key of removed) {
+        dirty.delete(key)
+    }
+    state.set(next)
+    for (const key of Object.keys(next)) {
+        dirty.add(key)
+    }
+    broadcast(next, true)
+    await deleteRows(removed)
+    await flush()
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────

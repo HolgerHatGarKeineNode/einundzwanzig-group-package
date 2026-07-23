@@ -21,6 +21,11 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
     // Geschützt durch das Nostr-Gate: aktiver Space + Raum-Liste (Single-Space §12).
     Route::middleware('nostr.auth')->group(function (): void {
         Route::livewire('/spaces', 'group::spaces')->name('spaces');
+        // Benachrichtigungen („Neu", P4). Eigener Screen statt Bottom-Nav-Tab —
+        // ein fünfter Tab bräche `bottom-nav.blade.php` still auf 3 Spalten und
+        // wäre ein Drei-Repo-Release inkl. Play-Store. Statisches erstes Segment,
+        // kollidiert also mit keinem `/rooms/{h}`.
+        Route::livewire('/updates', 'group::updates')->name('updates');
         Route::livewire('/directory', 'group::directory')->name('directory');
         Route::livewire('/rooms/{h}', 'group::room')->name('room');
         // Direkt verlinkbarer Thread (C6b): dieselbe Room-SFC, öffnet den Thread als

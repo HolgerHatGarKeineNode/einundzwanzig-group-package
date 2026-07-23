@@ -164,8 +164,40 @@ import {
     type StdEmoji,
     type RecentEmoji,
 } from './emoji'
-import { readState, readStateReady, roomKey, threadKey, roomWatermark, setRead } from './readState'
+import {
+    readState,
+    readStateReady,
+    roomKey,
+    threadKey,
+    roomWatermark,
+    setRead,
+    markAllRead as markAllReadWatermark,
+    snapshotReadState,
+    restoreReadState,
+    type ReadState,
+} from './readState'
 import { deriveUnread, type UnreadView } from './unread'
+import { deriveUpdates, type UpdateItem } from './updates'
+import {
+    firstNonEmpty,
+    groupUpdates,
+    hasMoreUpdates,
+    hasUnreadUpdates,
+    nextUpdatesLimit,
+    originTarget,
+    threadBackTarget,
+    undoClickAction,
+    undoSnapshotFor,
+    undoStillOpen,
+    updateAriaLabel,
+    updateAuthors,
+    updatesSubtitle,
+    visibleUpdates,
+    withOrigin,
+    UPDATES_PAGE,
+    type UpdateFeed,
+    type UpdateGroup,
+} from './updatesView'
 import { createScroller, type Scroller } from './scroll'
 import { toast, flashToast } from './toast'
 import {
@@ -506,6 +538,45 @@ type SpacesState = {
     destroy(): void
 }
 
+/**
+ * Screen-Zustand von `/updates` (P4). Der Vertrag zur View ist EINGEFROREN —
+ * `⚡updates.blade.php` bindet direkt an diese Namen.
+ */
+type UpdatesState = {
+    feed: UpdateFeed
+    limit: number
+    loading: boolean
+    /** Deutsche Fehlerzeile (§3.5), '' = kein Fehler. */
+    error: string
+    items: UpdateItem[]
+    /** Ablaufzeitpunkt der Undo-Frist in ms (0 = kein Puffer). Reaktiv, trägt `canUndo()`. */
+    _undoUntil: number
+    _undoTimer: ReturnType<typeof setTimeout> | null
+    _url: string
+    _controller: AbortController | null
+    _unsubActive: null | (() => void)
+    _unsubItems: null | (() => void)
+    init(): void
+    destroy(): void
+    _load(): Promise<void>
+    hasAny(): boolean
+    hasUnread(): boolean
+    isEmpty(): boolean
+    isFiltered(): boolean
+    hasMore(): boolean
+    groups(): UpdateGroup[]
+    older(): void
+    open(item: UpdateItem): void
+    retry(): void
+    resetFeed(): void
+    markAllRead(): void
+    _closeUndo(): void
+    undoMarkAll(): void
+    canUndo(): boolean
+    labelFor(item: UpdateItem): string
+    subtitleText(): string
+}
+
 type VereinGateState = {
     show: boolean
     _access: VereinAccess
@@ -732,6 +803,7 @@ type RoomChatState = {
     threadHref(m: ChatMessage): string
     closeThread(): void
     /** Kopf-Pfeil im RAUM: history.back() bei App-internem Vorgänger, sonst `upTarget`. */
+    originHref(fallback: string): string
     backFromRoom(upTarget: string): void
     backFromThread(): void
     setThreadReply(c: ChatMessage): void
@@ -976,6 +1048,22 @@ const myCountryCode = (): string => {
 const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceView) =>
     $view.userRooms.map((room) => room.h),
 )
+
+/**
+ * `h` → Anzeigename derselben Räume. Nur die BEIGETRETENEN: ein fehlender Schlüssel
+ * heißt in `computeUpdates` „verwaist" (§8) — nähme man `otherRooms` dazu, verlöre die
+ * Liste genau die Aussage, die sie treffen soll (der Raum ist weg/nicht mehr meiner).
+ */
+const joinedRoomNames: Readable<Record<string, string>> = derived(activeSpaceView, ($view: SpaceView) =>
+    Object.fromEntries($view.userRooms.map((room) => [room.h, room.name])),
+)
+
+/**
+ * Frist des „Rückgängig" nach „Alles gelesen" (§8, verbindlich: 10 s). EINE Quelle —
+ * die Leiste in `⚡updates.blade.php` hängt an `canUndo()` und führt bewusst keinen
+ * eigenen `setTimeout`, sonst gäbe es zwei Wahrheiten über dieselbe Frist.
+ */
+const UNDO_WINDOW_MS = 10_000
 
 let unreadWired = false
 let activityKey = ''
@@ -2128,6 +2216,249 @@ export function registerNostrComponents(Alpine: {
             this._controller?.abort()
         },
     }))
+
+    // ── Benachrichtigungen „Neu" (/updates, P4) ────────────────────────────────
+    //
+    // Screen-Zustand, nichts weiter: die ZEILEN rechnet `updates.ts` fertig (inklusive
+    // `href` mit `?from=updates`), das Ordnen/Kappen/Beschriften macht das reine
+    // `updatesView.ts`. Hier lebt nur, was ohne Browser nicht geht — Subscriptions,
+    // Nachladen, Navigation, Timer.
+    //
+    // Warum Data-Komponente und nicht Store: der Ungelesen-ZUSTAND (Punkt an drei Orten)
+    // gilt über alle Screens und liegt deshalb in `Alpine.store('unread')`; Filter,
+    // Seitenlänge und Undo-Frist gelten nur, solange dieser eine Screen offen ist.
+    Alpine.data('nostrUpdates', (): UpdatesState => {
+        // Der Undo-Puffer liegt ABSICHTLICH in der Closure und nicht als Feld: Alpine
+        // proxifiziert jedes Feld, und ein Proxy, der über setRead/writeRows in einen
+        // `structuredClone` läuft, endet in DataCloneError. Reaktiv muss ohnehin nur die
+        // Frist sein (`_undoUntil`), nicht die Karte.
+        let undoSnapshot: ReadState | null = null
+        return {
+            feed: 'all',
+            limit: UPDATES_PAGE,
+            loading: true,
+            error: '',
+            items: [],
+            _undoUntil: 0,
+            _undoTimer: null,
+            _url: '',
+            _controller: null,
+            _unsubActive: null,
+            _unsubItems: null,
+            init() {
+                // Filterwechsel setzt die Seitenlänge zurück: „Ältere anzeigen" gilt für
+                // die Ansicht, die man gerade sieht, nicht für alle drei Tabs zusammen.
+                ;(this as unknown as { $watch(p: string, cb: () => void): void }).$watch('feed', () => {
+                    this.limit = UPDATES_PAGE
+                })
+                this._unsubActive = activeSpace.subscribe((url: string) => {
+                    this._url = url
+                    // Space-Wechsel: erst leeren, dann neu ableiten — sonst blieben die
+                    // Zeilen des alten Space bis zum ersten Emit des neuen stehen (gleiche
+                    // Regel wie im `unread`-Store).
+                    this._unsubItems?.()
+                    this.items = []
+                    this.limit = UPDATES_PAGE
+                    // Räume (39000/9008) + Mitgliedschaften (39002) selbst abonnieren.
+                    // OHNE das ist die Liste beim kalten Direkteinstieg (Reload, Bookmark,
+                    // geteilter Link) STRUKTURELL leer: `computeUpdates` filtert hart auf
+                    // die beigetretenen Räume (Regel 5), und der Screen zeigte „Alles
+                    // gelesen" — eine Falschaussage. Über die Glocke fiel das nicht auf,
+                    // weil `nostrSpaces` vorher geladen hatte. Live-Sub statt One-Shot aus
+                    // demselben Grund wie dort: überlebt langsames NIP-42-AUTH.
+                    this._controller?.abort()
+                    this._controller = new AbortController()
+                    watchSpaceRooms(url, this._controller.signal)
+                    this._unsubItems = deriveUpdates(url, joinedRoomHs, joinedRoomNames).subscribe((items: UpdateItem[]) => {
+                        this.items = items
+                        // Autoren-Profile (kind 0) wärmen — sonst steht in der häufigsten
+                        // Zeile der npub statt des Namens (§3.2 ②). `warmProfiles`
+                        // entdoppelt intern, der Aufruf pro Emit ist deshalb billig; die
+                        // Zeilen ziehen nach, weil `deriveUpdates` an `profilesByPubkey`
+                        // hängt.
+                        void warmProfiles(updateAuthors(items))
+                    })
+                    void this._load()
+                })
+            },
+            destroy() {
+                this._unsubActive?.()
+                this._unsubItems?.()
+                this._controller?.abort()
+                this._closeUndo() // Timer UND Puffer — der Screen ist weg, die Frist auch
+            },
+            /**
+             * Nachladen aus dem Space. Zwei Quellen, weil die Liste zwei Ereignisarten
+             * führt: Raum-Aktivität (9/1068/9041) und Thread-Kommentare (1111 + Lotus'
+             * kind 10, die tragen kein `#h` und fallen deshalb aus dem Raum-Filter).
+             *
+             * Die Reihenfolge ist lasttragend, nicht kosmetisch:
+             *  1. Threads sofort anstoßen — sie brauchen weder Lesestand noch Raumliste.
+             *  2. `readStateReady` ABWARTEN, bevor die Raum-Aktivität geladen wird:
+             *     `loadRoomActivity` leitet sein `since` aus den Wasserzeichen ab. Ohne
+             *     geladenen Lesestand wäre das `since` 1 und zöge den ganzen Bestand.
+             *     Zugleich liefert `deriveUpdates` bis dahin bewusst eine leere Liste —
+             *     der Skeleton darf also nicht vorher gegen „Alles gelesen" tauschen.
+             *  3. Auf eine NICHT-leere Raumliste warten. Beim kalten Direkteinstieg sind
+             *     die 39002 im ersten Emit noch nicht da; ein synchrones `get()` läse `[]`
+             *     und `loadRoomActivity` setzte GAR KEINEN REQ ab (`feeds.ts`: keine
+             *     Filter ⇒ `Promise.resolve([])`). `loading`/`error` entschieden sich dann
+             *     aus einem Lauf, der nie stattgefunden hat.
+             */
+            async _load() {
+                const url = this._url
+                if (!url) {
+                    this.loading = false
+                    return
+                }
+                this.loading = true
+                try {
+                    const threads = loadSpaceThreads(url)
+                    await readStateReady
+                    const hs = await firstNonEmpty(joinedRoomHs)
+                    await Promise.all([threads, loadRoomActivity(url, [...hs])])
+                    this.error = ''
+                } catch {
+                    // Der Gerätespeicher trägt weiter — die Liste ist unvollständig, nicht
+                    // falsch. Genau das sagt der Wortlaut (§3.5, Nielsen #1).
+                    this.error = 'Der Space ist gerade nicht erreichbar. Ältere Hinweise stammen aus dem Gerätespeicher.'
+                } finally {
+                    this.loading = false
+                }
+            },
+            /** Gibt es überhaupt etwas? Trägt den Untertitel im Kopf. */
+            hasAny() {
+                return this.items.length > 0
+            },
+            /**
+             * Gibt es etwas zu quittieren? Trägt den „Alles"-Knopf — bewusst NICHT
+             * `hasAny()`: gelesene Zeilen bleiben 24 h stehen, die Liste ist nach dem
+             * Quittieren also nicht leer (Begründung in `hasUnreadUpdates`).
+             */
+            hasUnread() {
+                return hasUnreadUpdates(this.items)
+            },
+            /**
+             * Nichts SICHTBARES — der Schalter zwischen Liste und (Skeleton | Leerzustand).
+             * Bewusst die gefilterte, gekappte Menge: unter „Erwähnungen" ohne Erwähnungen
+             * muss der Leerzustand kommen, nicht eine leere Liste ohne jede Aussage.
+             */
+            isEmpty() {
+                return visibleUpdates(this.items, this.feed, this.limit).length === 0
+            },
+            /**
+             * Ist der FILTER der Grund für die Leere? Trennt die beiden Leerzustände
+             * (§3.5): „nie was gewesen" vs. „hier nicht, woanders schon". Wird nur
+             * innerhalb von {@link isEmpty} konsultiert, und die beiden Zustände hängen an
+             * `isFiltered()` / `!isFiltered()` — sie können deshalb nie beide stehen.
+             */
+            isFiltered() {
+                return this.feed !== 'all' && this.items.length > 0
+            },
+            hasMore() {
+                return hasMoreUpdates(this.items, this.feed, this.limit)
+            },
+            groups() {
+                return groupUpdates(visibleUpdates(this.items, this.feed, this.limit))
+            },
+            older() {
+                this.limit = nextUpdatesLimit(this.limit)
+            },
+            /**
+             * Zeile öffnen. `item.href` ist FERTIG (inkl. `?from=updates`) — hier wird
+             * kein Ziel zusammengebaut, sonst gäbe es zwei Erzeuger für denselben Pfad.
+             *
+             * Verwaist → nichts. Die View schaltet den Knopf bereits per `:disabled` ab;
+             * das hier ist der zweite Riegel für den Weg über Tastatur/AT/Programm.
+             */
+            open(item: UpdateItem) {
+                if (item.orphan) {
+                    return
+                }
+                ;(window as unknown as { Livewire: { navigate(u: string): void } }).Livewire.navigate(item.href)
+            },
+            retry() {
+                this.error = ''
+                void this._load()
+            },
+            resetFeed() {
+                this.feed = 'all'
+                this.limit = UPDATES_PAGE
+            },
+            /**
+             * „Alles gelesen" — mit Rückweg (§8, verbindlich): erst die Karte puffern,
+             * dann das globale Wasserzeichen setzen. Ohne Puffer wäre die Aktion
+             * irreversibel und bräuchte einen Bestätigungsdialog; der Puffer ist die
+             * bessere Wahl (Nielsen #3).
+             *
+             * Ein ZWEITER Klick innerhalb der Frist behält den ERSTEN Puffer
+             * ({@link undoSnapshotFor}) und startet nur die Frist neu — sonst sicherte er
+             * als „vorher" den bereits quittierten Zustand, und das Rückgängig ließe nur
+             * `{all: …}` übrig.
+             */
+            markAllRead() {
+                undoSnapshot = undoSnapshotFor(undoSnapshot, snapshotReadState())
+                if (this._undoTimer) {
+                    clearTimeout(this._undoTimer)
+                }
+                this._undoUntil = Date.now() + UNDO_WINDOW_MS
+                // Der Timer lässt die Leiste von selbst verschwinden; die verbindliche
+                // Frist ist trotzdem `_undoUntil` (siehe undoMarkAll) — ein gestreckter
+                // Timer darf das Zeitfenster nicht verlängern.
+                this._undoTimer = setTimeout(() => this._closeUndo(), UNDO_WINDOW_MS)
+                markAllReadWatermark()
+            },
+            /**
+             * Ob die Leiste STEHT. Die Frist wird gerechnet, nicht nur getimt: ein
+             * gedrosselter Hintergrund-Tab streckt `setTimeout` erheblich.
+             *
+             * Das allein gattet aber nur die ANZEIGE — und auch die nur, wenn Alpine den
+             * Ausdruck überhaupt neu auswertet (`Date.now()` ist keine reaktive
+             * Abhängigkeit). Wer den Klick abwehren will, muss ihn im Klick prüfen:
+             * {@link undoMarkAll}.
+             */
+            canUndo() {
+                return undoStillOpen(this._undoUntil, Date.now())
+            },
+            /** Puffer, Frist und Timer in EINEM Schritt schließen — die drei gehören zusammen. */
+            _closeUndo() {
+                if (this._undoTimer) {
+                    clearTimeout(this._undoTimer)
+                    this._undoTimer = null
+                }
+                this._undoUntil = 0
+                undoSnapshot = null
+            },
+            /**
+             * Rückgängig — mit eigener Fristprüfung ({@link undoClickAction}), nicht im
+             * Vertrauen darauf, dass die Leiste rechtzeitig verschwunden ist. Ein später
+             * Klick räumt nur noch auf.
+             *
+             * `restoreReadState` ERSETZT die Karte, statt Werte zurückzuschreiben —
+             * `setRead` ist monoton und bekäme das `all`-Wasserzeichen nie wieder herunter
+             * (Begründung im Docstring dort).
+             */
+            undoMarkAll() {
+                const action = undoClickAction(this._undoUntil, Date.now(), undoSnapshot !== null)
+                const snapshot = undoSnapshot
+                this._closeUndo()
+                if (action === 'restore' && snapshot) {
+                    void restoreReadState(snapshot)
+                }
+            },
+            labelFor(item: UpdateItem) {
+                return updateAriaLabel(item)
+            },
+            /**
+             * Zählt, was gerade STEHT (gefiltert + gekappt) — nicht die Gesamtmenge und
+             * schon gar nichts Ungelesenes: eine Ungelesen-Zahl ist eine Behauptung über
+             * das Wasserzeichen und bis P6 gesperrt (Begründung in `updatesSubtitle`).
+             */
+            subtitleText() {
+                return updatesSubtitle(visibleUpdates(this.items, this.feed, this.limit), this.isFiltered())
+            },
+        }
+    })
 
     // Vereins-Gate: zeigt Nicht-Vereinsmitgliedern (nicht in der relay-signierten
     // 13534-Liste) auf einem EINUNDZWANZIG-Vereins-Relay den Beitritts-Hinweis.
@@ -3558,8 +3889,13 @@ export function registerNostrComponents(Alpine: {
         // spiegelt die URL nur KOSMETISCH per replaceState (`syncUrl`) → teilbar, aber instant statt
         // kaltem Neu-Boot der ganzen Chat-Insel. Deep-Link/setup rufen mit syncUrl=false (URL steht
         // schon). Bech32 ohne `nostr:`-Präfix für den Routen-Param.
+        // `withOrigin`: der Herkunfts-Parameter der aktuellen URL wandert MIT in die
+        // Thread-URL (§6.2). Ohne ihn verlöre der warme Thread-Wechsel die Herkunft —
+        // der Kopf-Pfeil führte aus einem aus „Neu" geöffneten Thread zwar zurück in den
+        // Raum, von dort aber auf die Übersicht statt nach „Neu".
         threadHref(m: ChatMessage): string {
-            return `/rooms/${encodeURIComponent(this.h)}/thread/${neventFor(m, this._url).replace(/^nostr:/, '')}`
+            const base = `/rooms/${encodeURIComponent(this.h)}/thread/${neventFor(m, this._url).replace(/^nostr:/, '')}`
+            return withOrigin(base, window.location.search)
         },
         openThread(m: ChatMessage, full = true, syncUrl = true) {
             this.activeId = null
@@ -3674,6 +4010,14 @@ export function registerNostrComponents(Alpine: {
         // direkt in die Übersicht. Gemessen (Playwright, 2026-07-22): aus dem offenen
         // Thread führte history.back() auf /spaces statt auf /rooms/<h>. Die Verzweigung
         // in `⚡room.blade.php` ($backExpr) ist deshalb nicht optional.
+        // UP-Ziel aus der Herkunft (§6.2): `?from=updates` führt zurück nach „Neu",
+        // alles andere — auch Müll wie `?from=//evil.tld` — auf das übergebene Ziel
+        // (die Raumliste). Der Parameter ist fremde Eingabe aus der Adressleiste und
+        // wird deshalb gegen eine Whitelist geprüft, nie durchgereicht.
+        // Warum Query und nicht `history.state`: der gehört Livewire (siehe openThread).
+        originHref(fallback: string): string {
+            return originTarget(window.location.search, fallback)
+        },
         backFromRoom(upTarget: string) {
             if (hasInternalHistory()) {
                 window.history.back()
@@ -3685,7 +4029,12 @@ export function registerNostrComponents(Alpine: {
             const prevUrl = this._threadPrevUrl
             this.closeThread() // setzt _threadPrevUrl zurück
             try {
-                const target = prevUrl ?? '/rooms/' + encodeURIComponent(this.h)
+                // Ohne gemerkte Raum-URL (deep-gemounteter Thread: die URL stand schon,
+                // `_threadPrevUrl` bleibt null) muss die Herkunft aus der aktuellen Query
+                // gerettet werden — sonst schnitte das blanke `/rooms/{h}` das `?from=`
+                // weg und der nächste Zurück-Druck landete auf /spaces statt auf „Neu"
+                // (siehe threadBackTarget).
+                const target = threadBackTarget(prevUrl, '/rooms/' + encodeURIComponent(this.h), window.location.search)
                 if (window.location.pathname + window.location.search !== target) {
                     window.history.replaceState(window.history.state, '', target)
                 }

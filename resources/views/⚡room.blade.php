@@ -82,7 +82,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
         //  - sonst → backFromRoom(<UP-Ziel>): history.back(), wenn dieser Tab einen
         //    App-internen Vorgänger hat (dann kommt die Übersicht samt Filter aus der
         //    URL zurück), sonst Livewire.navigate auf das UP-Ziel (Deep-Link-Kaltstart).
-        $backExpr = 'threadRootId ? backFromThread() : backFromRoom('.json_encode(route('group.spaces')).')';
+        // Das UP-Ziel ist seit P4 DATUM, keine Konstante: `originHref()` liest die
+        // Herkunft aus `?from=` (Whitelist updates|spaces|room) — wer aus „Neu" hierher
+        // gesprungen ist, will nach „Neu" zurück. Ohne/mit ungültigem Parameter bleibt
+        // es bei der Raumliste, die deshalb weiterhin aus route() kommt und nicht als
+        // zweites Literal im JS steht.
+        $backExpr = 'threadRootId ? backFromThread() : backFromRoom(originHref('.json_encode(route('group.spaces')).'))';
     @endphp
     <x-group::app-header :title="'# '.($roomName ?? $h)" :title-expr="$titleExpr" :back-expr="$backExpr" class="shrink-0">
         @if ($roomPicture)

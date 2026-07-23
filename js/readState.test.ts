@@ -27,10 +27,13 @@ import {
     migrateLegacyLastRead,
     pruneReadState,
     readState,
+    readStateRestorePlan,
+    restoreReadState,
     roomKey,
     roomWatermark,
     sanitizeReadState,
     setRead,
+    snapshotReadState,
     threadKey,
     threadWatermark,
     type ReadState,
@@ -225,6 +228,94 @@ test('markAllRead setzt `all` und raeumt die dadurch dominierten Keys weg', () =
     assert.equal(state[threadKey(ROOT)], undefined, 'dominierter Thread-Key muss weg sein')
     assert.equal(state[roomKey(URL, 'zukunft')], 9_000_000, 'juengerer Key ueberlebt')
     assert.equal(roomWatermark(state, URL, 'alt'), 2_000_000, 'faellt korrekt auf all zurueck')
+})
+
+// ── Rückgängig (P4): der einzige Bruch der Monotonie ───────────────────────
+//
+// Die scharfe Stelle des Undo. Wer hier „vereinfacht" und die alten Werte per `setRead`
+// zurückschreibt, baut ein Rückgängig, das nichts rückgängig macht — der Knopf reagiert,
+// die Liste bleibt leer. Die drei Tests halten genau das auseinander.
+
+test('setRead kann `all` NICHT senken — deshalb genuegt Zurueckschreiben nicht', () => {
+    markAllRead(5_000_000)
+    setRead(ALL_KEY, 4_000_000)
+    assert.equal(get(readState)[ALL_KEY], 5_000_000, 'setRead ist monoton, der alte Wert prallt ab')
+})
+
+test('readStateRestorePlan nennt Ziel UND die zu loeschenden Keys', () => {
+    const current: ReadState = { [ALL_KEY]: 900, [roomKey(URL, 'bleibt')]: 950, [roomKey(URL, 'weg')]: 980 }
+    const snapshot: ReadState = { [ALL_KEY]: 100, [roomKey(URL, 'bleibt')]: 950 }
+
+    const plan = readStateRestorePlan(current, snapshot)
+
+    assert.deepEqual(plan.next, snapshot, 'die Momentaufnahme ist das Ziel, nicht ein Merge')
+    assert.deepEqual(plan.removed, [roomKey(URL, 'weg')], 'nur was die Momentaufnahme nicht kennt')
+    assert.equal(plan.next[ALL_KEY], 100, 'auch ein KLEINERES all ist das Ziel')
+})
+
+test('readStateRestorePlan putzt eine fremde/proxifizierte Momentaufnahme', () => {
+    const plan = readStateRestorePlan({}, { gut: 5, kaputt: Number.NaN, negativ: -1, text: 'x' } as unknown as ReadState)
+    assert.deepEqual(plan.next, { gut: 5 })
+})
+
+test('Undo nach markAllRead: restoreReadState stellt die Karte exakt wieder her', async () => {
+    setRead(roomKey(URL, 'undo-raum'), 6_000_000)
+    setRead(threadKey(ROOT), 6_100_000)
+    const before = snapshotReadState()
+
+    markAllRead(7_000_000)
+    assert.equal(get(readState)[ALL_KEY], 7_000_000)
+    assert.equal(get(readState)[roomKey(URL, 'undo-raum')], undefined, 'markAllRead raeumt dominierte Keys weg')
+
+    await restoreReadState(before)
+
+    assert.deepEqual(get(readState), before, 'die Karte muss wieder dieselbe sein')
+    assert.equal(get(readState)[roomKey(URL, 'undo-raum')], 6_000_000, 'der weggeraeumte Key ist zurueck')
+    assert.equal(get(readState)[threadKey(ROOT)], 6_100_000, 'auch der Thread-Key')
+})
+
+/**
+ * Der Doppeltap auf „Alles gelesen" — nachgestellt an der echten Karte.
+ *
+ * Die Liste ist nach dem Quittieren NICHT leer (gelesene Zeilen bleiben 24 h stehen),
+ * der Knopf steht also weiter neben der Undo-Leiste. Puffert der zweite Klick die
+ * Momentaufnahme von DANACH, sind Raum- und Thread-Wasserzeichen dauerhaft weg und es
+ * bleibt nur `{all}` übrig. Beide Hälften stehen hier nebeneinander: die falsche als
+ * Gegenprobe, die richtige als Zusage.
+ */
+test('Doppeltap auf „Alles": der ERSTE Puffer holt alles zurueck, der zweite nichts', async () => {
+    const RAUM1 = roomKey(URL, 'doppeltap-1')
+    const RAUM2 = roomKey(URL, 'doppeltap-2')
+    const THREAD = threadKey('d'.repeat(64))
+    setRead(RAUM1, 10_000_000)
+    setRead(THREAD, 10_000_001)
+    setRead(RAUM2, 10_000_002)
+    const ersterPuffer = snapshotReadState()
+
+    markAllRead(11_000_000)
+    const zweiterPuffer = snapshotReadState() // was ein zweiter Klick puffern WUERDE
+
+    markAllRead(11_000_001)
+
+    // Gegenprobe: der Puffer des zweiten Klicks kennt die Wasserzeichen nicht mehr.
+    await restoreReadState(zweiterPuffer)
+    assert.equal(get(readState)[RAUM1], undefined, 'der zweite Puffer holt NICHTS zurueck')
+    assert.equal(get(readState)[THREAD], undefined)
+    assert.equal(get(readState)[ALL_KEY], 11_000_000, 'uebrig bliebe nur `all`')
+
+    // Zusage: der behaltene erste Puffer stellt den Stand von vor dem ersten Klick her.
+    await restoreReadState(ersterPuffer)
+    assert.deepEqual(get(readState), ersterPuffer)
+    assert.equal(get(readState)[RAUM1], 10_000_000)
+    assert.equal(get(readState)[THREAD], 10_000_001)
+    assert.equal(get(readState)[RAUM2], 10_000_002)
+})
+
+test('snapshotReadState ist eine Kopie — spaeteres setRead veraendert sie nicht', () => {
+    const snapshot = snapshotReadState()
+    setRead(roomKey(URL, 'nach-dem-puffern'), 8_000_000)
+    assert.equal(snapshot[roomKey(URL, 'nach-dem-puffern')], undefined)
+    assert.equal(get(readState)[roomKey(URL, 'nach-dem-puffern')], 8_000_000)
 })
 
 test('das d-Tag des (erst in P6 publizierten) 30078 ist versioniert festgeschrieben', () => {

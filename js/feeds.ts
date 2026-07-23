@@ -959,15 +959,31 @@ const chunk = <T>(items: readonly T[], size: number): T[][] => {
  * `since` je Chunk = das NIEDRIGSTE Wasserzeichen seiner Räume, plus 1: NIP-01-`since`
  * ist INKLUSIV, ohne die 1 käme das zuletzt Gelesene bei jedem Start erneut.
  */
-export const loadRoomActivity = (url: string, hs: string[]): Promise<TrustedEvent[]> => {
+export const loadRoomActivity = async (url: string, hs: string[]): Promise<TrustedEvent[]> => {
     const state = get(readState)
-    const filters = chunk(hs, ROOM_ACTIVITY_CHUNK).map((group) => ({
-        kinds: [MESSAGE, POLL, ZAP_GOAL],
-        '#h': group,
-        since: Math.min(...group.map((h) => roomWatermark(state, url, h))) + 1,
-        limit: ROOM_ACTIVITY_LIMIT,
-    }))
-    return filters.length > 0 ? load({ relays: [url], filters }) : Promise.resolve([])
+    const filters = chunk(hs, ROOM_ACTIVITY_CHUNK).flatMap((group) => [
+        {
+            kinds: [MESSAGE, POLL, ZAP_GOAL],
+            '#h': group,
+            since: Math.min(...group.map((h) => roomWatermark(state, url, h))) + 1,
+            limit: ROOM_ACTIVITY_LIMIT,
+        },
+        // Tombstones derselben Räume — BEWUSST ohne `since`. Wurde eine Nachricht
+        // gelöscht, während dieses Gerät geschlossen war, liegt das 9005/5 irgendwo in
+        // der Historie; ein `since` am Lesestand ließe genau die Löschungen aus, die
+        // dieser Client noch nie gesehen hat. Ohne sie stünde die entfernte Nachricht
+        // raumübergreifend weiter in der Liste — und `/updates` druckt anders als der
+        // Ungelesen-Punkt ihren VOLLEN TEXT nach. Kind 5 genügt im Repository
+        // (`query` blendet Tombstone-Ziele selbst aus), 9005 braucht zusätzlich
+        // {@link honorDeleteEvent} unten. `limit` ist Pflicht (zooid-Falle, siehe oben).
+        { kinds: [DELETE, ROOM_DELETE_EVENT], '#h': group, limit: ROOM_ACTIVITY_LIMIT },
+    ])
+    if (filters.length === 0) {
+        return []
+    }
+    const events = await load({ relays: [url], filters })
+    events.forEach(honorDeleteEvent)
+    return events
 }
 
 /**
@@ -980,12 +996,17 @@ export const loadRoomActivity = (url: string, hs: string[]): Promise<TrustedEven
  */
 export const watchRoomActivity = (url: string, hs: string[], signal: AbortSignal): void => {
     const filters = chunk(hs, ROOM_ACTIVITY_CHUNK).map((group) => ({
-        kinds: [MESSAGE, POLL, ZAP_GOAL],
+        // DELETE/ROOM_DELETE_EVENT gehören in denselben Live-Filter wie beim offenen Raum
+        // (`listenRoom`): löscht ein Admin, während dieser Client auf `/updates` steht,
+        // muss die Zeile SOFORT verschwinden — nicht erst, wenn jemand genau diesen Raum
+        // öffnet. `onEvent: honorDeleteEvent` ist dabei Pflicht, nicht Zierde: kind 9005
+        // ist kein NIP-09-Tombstone, das Repository entfernt sein Ziel nicht von selbst.
+        kinds: [MESSAGE, POLL, ZAP_GOAL, DELETE, ROOM_DELETE_EVENT],
         '#h': group,
         limit: 0,
     }))
     if (filters.length > 0) {
-        void request({ relays: [url], signal, filters })
+        void request({ relays: [url], signal, onEvent: honorDeleteEvent, filters })
     }
 }
 

@@ -64,49 +64,77 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     @endif
                 </div>
 
-                {{-- Profil-Chip → simples Alpine-Popover (kein flux:dropdown/-menu: das
-                     verschluckt rohe Alpine-Kinder). Nur `open` lokal, Rest aus nostrAuth. --}}
-                <div x-data="{ open: false }" class="relative shrink-0">
-                    <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
-                            :aria-label="@js(__('Angemeldet als ')) + myName"
-                            class="pressable flex min-h-[44px] items-center gap-2 rounded-full py-1 pe-2 ps-1 ring-1 ring-black/5 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:ring-white/10 dark:hover:bg-white/5">
-                        <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem" />
-                        <span class="min-w-0 max-w-[7rem] truncate text-sm font-semibold text-zinc-900 sm:max-w-[12rem] dark:text-zinc-100" x-text="myName"></span>
-                        <x-group::nostr-nip05 nip05="myNip05" />
-                        <flux:icon.chevron-down variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />
-                    </button>
+                <div class="flex shrink-0 items-center gap-1">
 
-                    {{-- Popover: volles Profil + sekundäre Infos + Abmelden. --}}
-                    <div x-show="open" x-cloak x-transition
-                         x-on:click.outside="open = false" x-on:keydown.escape.window="open = false"
-                         class="surface-card absolute end-0 z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] origin-top-right p-4 shadow-lg">
-                        <div class="flex items-start gap-3">
-                            <x-group::nostr-avatar picture="myPicture" name="myName" size="2.75rem" />
-                            <div class="min-w-0 flex-1">
-                                <div class="flex min-w-0 items-center gap-1">
-                                    <span class="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
-                                    <x-group::nostr-nip05 nip05="myNip05" />
+                    {{-- Glocke → Benachrichtigungen („Neu", P4). Der Einstieg sitzt HIER
+                         und nicht in der Bottom-Nav: ein Nav-Tab ist ein ORT, Ungelesenes
+                         ist ein ZUSTAND ÜBER Orte — und ein fünfter Tab bräche
+                         `bottom-nav.blade.php` still auf drei Spalten (Drei-Repo-Release).
+                         Marker ist ein PUNKT, keine Zahl (P3-Entscheidung: das
+                         Wasserzeichen ist noch nicht lange genug Wall-Clock; eine Zahl,
+                         die einmal falsch war, wird nie wieder geglaubt).
+                         KEINE zweite aria-live-Region: auf diesem Screen existiert bereits
+                         genau eine (der Lade-Hinweis weiter unten). Der Zustand steckt
+                         stattdessen im `aria-label` der Glocke — es ändert sich reaktiv
+                         mit und wird beim Fokussieren vorgelesen. `?.` durchgehend: fehlt
+                         der Store (Gast, Ladephase, Fremdhost ohne Datenstrang), bleibt es
+                         beim schlichten „Neu". Die 44×44-Fläche (size-11) erfüllt WCAG
+                         2.5.8/Apple; die Zeile trägt bereits min-h-[44px]. --}}
+                    <a href="{{ route('group.updates') }}" wire:navigate
+                       :aria-label="$store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu'))"
+                       class="pressable relative flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5">
+                        <flux:icon.bell class="size-5 text-muted" />
+                        {{-- `sr=false`: der Hinweis steckt im aria-label des <a> (siehe oben),
+                             ein sr-only-Geschwister wäre dort totes Markup. Der Ring in
+                             Seitenhintergrundfarbe trennt den Punkt vom Glocken-Icon. --}}
+                        <x-group::unread-dot when="$store.unread?.any" :sr="false"
+                                             dot-class="absolute end-2.5 top-2.5 ring-2 ring-zinc-50 dark:ring-zinc-950" />
+                    </a>
+
+                    {{-- Profil-Chip → simples Alpine-Popover (kein flux:dropdown/-menu: das
+                         verschluckt rohe Alpine-Kinder). Nur `open` lokal, Rest aus nostrAuth. --}}
+                    <div x-data="{ open: false }" class="relative shrink-0">
+                        <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
+                                :aria-label="@js(__('Angemeldet als ')) + myName"
+                                class="pressable flex min-h-[44px] items-center gap-2 rounded-full py-1 pe-2 ps-1 ring-1 ring-black/5 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:ring-white/10 dark:hover:bg-white/5">
+                            <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem" />
+                            <span class="min-w-0 max-w-[7rem] truncate text-sm font-semibold text-zinc-900 sm:max-w-[12rem] dark:text-zinc-100" x-text="myName"></span>
+                            <x-group::nostr-nip05 nip05="myNip05" />
+                            <flux:icon.chevron-down variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />
+                        </button>
+
+                        {{-- Popover: volles Profil + sekundäre Infos + Abmelden. --}}
+                        <div x-show="open" x-cloak x-transition
+                             x-on:click.outside="open = false" x-on:keydown.escape.window="open = false"
+                             class="surface-card absolute end-0 z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] origin-top-right p-4 shadow-lg">
+                            <div class="flex items-start gap-3">
+                                <x-group::nostr-avatar picture="myPicture" name="myName" size="2.75rem" />
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex min-w-0 items-center gap-1">
+                                        <span class="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
+                                        <x-group::nostr-nip05 nip05="myNip05" />
+                                    </div>
+                                    <div x-show="myNip05" x-cloak class="truncate text-xs text-muted" x-text="myNip05"></div>
                                 </div>
-                                <div x-show="myNip05" x-cloak class="truncate text-xs text-muted" x-text="myNip05"></div>
                             </div>
-                        </div>
 
-                        <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
+                            <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
 
-                        <div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
-                            {{-- npub: 1-Klick-Kopieren (copy() im nostrAuth-Island, „Kopiert"-Toast). --}}
-                            <button type="button" x-on:click="copy(npub, 'npub')" aria-label="{{ __('npub kopieren') }}"
-                                    class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                                <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
-                                <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
-                            </button>
-                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
-                                <flux:icon.key variant="micro" class="size-3 shrink-0" />
-                                <span x-text="@js(__('Angemeldet über ')) + signerLabel"></span>
+                            <div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
+                                {{-- npub: 1-Klick-Kopieren (copy() im nostrAuth-Island, „Kopiert"-Toast). --}}
+                                <button type="button" x-on:click="copy(npub, 'npub')" aria-label="{{ __('npub kopieren') }}"
+                                        class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                                    <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
+                                    <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
+                                </button>
+                                <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
+                                    <flux:icon.key variant="micro" class="size-3 shrink-0" />
+                                    <span x-text="@js(__('Angemeldet über ')) + signerLabel"></span>
+                                </div>
                             </div>
-                        </div>
 
-                        <flux:button variant="ghost" size="sm" icon="arrow-right-start-on-rectangle" class="mt-3 w-full" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
+                            <flux:button variant="ghost" size="sm" icon="arrow-right-start-on-rectangle" class="mt-3 w-full" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -500,8 +528,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                               :class="$store.unread?.threads?.[t.rootId] ? 'font-bold' : 'font-semibold'"
                                               x-text="t.authorName || @js(__('Nachricht'))"></span>
                                         {{-- Vorschau: bis zu 2 Zeilen mit Fließtext-Zeilenhöhe statt 1 harter Zeile
-                                             (das Kern-Lesbarkeitsproblem). --}}
-                                        <span class="mt-1 block text-sm leading-normal text-muted line-clamp-2"
+                                             (das Kern-Lesbarkeitsproblem). KEIN `block` daneben: `line-clamp-2`
+                                             setzt `display: -webkit-box` selbst, und `-webkit-line-clamp` wirkt
+                                             NUR darauf. Gleiche Spezifität, `.block` steht im gebauten Bundle
+                                             später → die Kappung fiel still aus und ein langer Thread-Auszug
+                                             sprengte die Zeilenhöhe. Gemessen, nicht gerechnet. --}}
+                                        <span class="mt-1 text-sm leading-normal text-muted line-clamp-2"
                                               x-text="t.snippet || @js(__('(Nachricht wird geladen…)'))"></span>
                                         {{-- Meta: Teilnehmer-Gesichter (überlappend, jüngste zuerst) neben Anzahl + Zeit —
                                              ein Akzent (Anzahl) pro Zeile, der Rest dezent. --}}
