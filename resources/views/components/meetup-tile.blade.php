@@ -15,8 +15,10 @@
             x-on:click="Livewire.navigate('/rooms/' + encodeURIComponent(room.h))"
             {{-- Der aria-label ERSETZT den Kindtext des Buttons — ein sr-only im
                  Ungelesen-Marker käme hier nie an. Darum hängt der Hinweis am Label
-                 selbst; defensiv gegen einen fehlenden `unread`-Store (dann ''). --}}
-            :aria-label="room.name + (meetup(room.meetupSlug)?.city ? ' — {{ __('Meetup in') }} ' + meetup(room.meetupSlug).city : ' — {{ __('Meetup') }}') + ($store.unread?.rooms?.[room.h] ? '{{ __(', ungelesene Nachrichten') }}' : '')"
+                 selbst; defensiv gegen einen fehlenden `unread`-Store (dann '').
+                 Seit P6 mit der ZAHL, und zwar der ungekappten: „150 ungelesene
+                 Nachrichten" ist für einen Screenreader brauchbarer als „99+". --}}
+            :aria-label="room.name + (meetup(room.meetupSlug)?.city ? ' — {{ __('Meetup in') }} ' + meetup(room.meetupSlug).city : ' — {{ __('Meetup') }}') + ($store.unread?.rooms?.[room.h] ? ', ' + $store.unread.rooms[room.h] + ($store.unread.rooms[room.h] === 1 ? ' {{ __('ungelesene Nachricht') }}' : ' {{ __('ungelesene Nachrichten') }}') : '')"
             class="pressable flex min-w-0 flex-1 items-center gap-2.5 rounded-tile p-1.5 text-left">
 
         {{-- Logo + Flaggen-Pin (Signatur). --}}
@@ -74,9 +76,13 @@
 
         <flux:icon.lock-closed x-show="room.locked" x-cloak class="size-4 shrink-0 text-zinc-400" aria-label="{{ __('Privater Raum') }}" />
         {{-- Ungelesen: identische Position wie in `room-tile` (vor dem Chevron) —
-             beide Kachelvarianten lesen sich dadurch gleich. `sr=false`: der
-             Hinweis steckt im aria-label des Buttons (siehe oben). --}}
-        <x-group::unread-dot when="$store.unread?.rooms?.[room.h]" :sr="false" />
+             beide Kachelvarianten lesen sich dadurch gleich. §4.3: die Pille steht
+             LINKS vom Schloss? Nein — hier wie dort RECHTS davon, direkt vor dem
+             Chevron; die Reihenfolge Schloss→Zähler ist in beiden Kacheln dieselbe
+             und war es schon beim Punkt. Eine Kachel, die als einzige umsortiert,
+             bräche die Wiedererkennung, die §4.3 eigentlich meint.
+             `sr=false`: der Hinweis steckt im aria-label des Buttons (siehe oben). --}}
+        <x-group::unread-badge count="$store.unread?.rooms?.[room.h]" :sr="false" />
         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
 

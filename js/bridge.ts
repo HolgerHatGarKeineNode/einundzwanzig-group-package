@@ -176,13 +176,15 @@ import {
     restoreReadState,
     type ReadState,
 } from './readState'
-import { deriveUnread, type UnreadView } from './unread'
+import { BADGE_CAP, deriveUnread, formatUnreadCount, type UnreadView } from './unread'
 import { deriveUpdates, type UpdateItem } from './updates'
 import {
+    countUnreadUpdates,
     firstNonEmpty,
     groupUpdates,
     hasMoreUpdates,
     hasUnreadUpdates,
+    liveRegionDelay,
     nextUpdatesLimit,
     originTarget,
     threadBackTarget,
@@ -191,6 +193,7 @@ import {
     undoStillOpen,
     updateAriaLabel,
     updateAuthors,
+    updatesLiveText,
     updatesSubtitle,
     visibleUpdates,
     withOrigin,
@@ -1092,9 +1095,60 @@ const syncRoomActivity = (url: string, hs: string[]): void => {
 }
 
 /**
+ * Der `unread`-Store, wie ihn Blade sieht. Die beiden Formatierer liegen ABSICHTLICH am
+ * Store und nicht im Template: sonst stünde die Cap-Schwelle (99 bzw. 9) als Literal in
+ * jedem `x-text`, und die vier Pillen aus §4.1 könnten auseinanderlaufen.
+ */
+type UnreadStore = UnreadView & {
+    /**
+     * Ungelesene ZEILEN von `/updates` — die Zahl der Header-Glocke (§4.1 Nr. 6).
+     *
+     * Sie liegt hier und nicht in der `nostrUpdates`-Insel, weil die Glocke im Kopf von
+     * `⚡spaces.blade.php` sitzt: auf diesem Screen existiert die Insel gar nicht, und
+     * ohne globale Quelle könnte die Glocke nie eine Zahl tragen. Gezählt wird in
+     * `countUnreadUpdates` — dieselbe Liste, die der Klick auf die Glocke öffnet.
+     */
+    updates: number
+    /**
+     * Zahl → fertiger Pillentext, gekappt. EINE Methode für beide Schwellen aus §4.2
+     * (99 an den frei stehenden Pillen, 9 an der Glocke) statt zweier benannter: die
+     * Schwelle ist eine Eigenschaft des ORTES, an dem die Pille steht, und der Ort ist
+     * das Template. `x-group::unread-badge` reicht sie als `cap`-Prop durch.
+     *
+     * Verträgt `undefined` (gelesener Thread hat keinen Schlüssel, Store noch leer) und
+     * gibt dann — wie bei 0 — den leeren String zurück.
+     */
+    capped(count: number | null | undefined, cap?: number): string
+    /**
+     * Text der EINEN `aria-live="polite"`-Zählregion des Clients (§4.7), leer = nichts
+     * anzusagen. **Feld, kein Getter** — ein Getter würde bei jeder Store-Mutation neu
+     * ausgewertet und die Drosselung wäre wirkungslos.
+     *
+     * Geschrieben wird höchstens alle {@link LIVE_REGION_THROTTLE_MS} (§4.7), und der
+     * ERSTE Wert nach einem Space-Wechsel wird verschluckt: das ist der Zustand, in dem
+     * die Seite ankommt, keine Änderung. Ohne diesen Riegel spräche der Screenreader bei
+     * jedem Seitenaufbau den Zählerstand vor, den der Nutzer nicht angefordert hat —
+     * genau die Unbenutzbarkeit, die §4.7 mit „genau eine Region" verhindern will.
+     */
+    liveText: string
+}
+
+/**
  * Registriert den `unread`-Store und hält ihn am Leben. Der Vertrag zur Oberfläche:
  *
- *     Alpine.store('unread') → { rooms: Record<h, boolean>, threads: Record<rootId, boolean>, any: boolean }
+ *     Alpine.store('unread') → {
+ *         rooms: Record<h, number>,          // Schlüssel fehlt = nicht beigetreten, 0 = gelesen
+ *         threads: Record<rootId, number>,   // Schlüssel nur bei > 0 (siehe UnreadView)
+ *         any: boolean,                      // Punkt der Bottom-Nav, Ja/Nein der Glocke
+ *         roomsTotal: number, threadsTotal: number,   // die beiden Tab-Pillen (§4.4)
+ *         updates: number,                   // ungelesene /updates-Zeilen → Header-Glocke
+ *         capped(n, cap = 99): string,       // fertiger Pillentext inkl. Cap (99 bzw. 9)
+ *         liveText: string,                  // die EINE aria-live-Zählregion (§4.7)
+ *     }
+ *
+ * Das Template rechnet damit NICHT: `x-text="$store.unread.capped(n, 99)"` ist der ganze
+ * Aufruf (so ruft `x-group::unread-badge` ihn auf), und `capped()` verträgt `undefined`
+ * (gelesener Thread, fehlender Raum) mit einem leeren String.
  *
  * Der Store wird EINMAL angelegt und danach nur noch befüllt — Blade liest ihn defensiv
  * (`$store.unread?.rooms?.[…]`), ein fehlender Store bedeutet dort „kein Marker".
@@ -1106,21 +1160,108 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         return
     }
     unreadWired = true
-    const initial: UnreadView = { rooms: {}, threads: {}, any: false }
+    const initial: UnreadStore = {
+        rooms: {},
+        threads: {},
+        any: false,
+        roomsTotal: 0,
+        threadsTotal: 0,
+        updates: 0,
+        capped: (count, cap = BADGE_CAP) => formatUnreadCount(count, cap),
+        liveText: '',
+    }
     Alpine.store('unread', initial)
-    const store = Alpine.store('unread') as UnreadView
+    const store = Alpine.store('unread') as UnreadStore
     let unsubUnread: (() => void) | null = null
+    let unsubUpdateCount: (() => void) | null = null
+
+    /**
+     * Die Drossel der Zählregion (§4.7). Sie lebt hier und nicht im Template, weil
+     * „höchstens alle 2 s" Zustand ÜBER ZEIT ist — ein Blade-Ausdruck kann das nicht.
+     *
+     * `announced` verschluckt den ersten Wert je Space (Ankunftszustand, keine Änderung).
+     * `pending` trägt die Nachzügler-Ansage: läuft die Frist noch, gewinnt der ZULETZT
+     * gesehene Stand, nicht der erste — eine Ansage, die eine überholte Zahl nennt, wäre
+     * schlimmer als eine, die zwei Sekunden spät kommt.
+     */
+    let liveAnnounced = false
+    let liveWrittenAt = 0
+    let liveTimer: ReturnType<typeof setTimeout> | null = null
+    let livePending: string | null = null
+
+    const writeLiveText = (text: string): void => {
+        livePending = null
+        liveWrittenAt = Date.now()
+        store.liveText = text
+    }
+
+    const announceUnread = (count: number): void => {
+        const text = updatesLiveText(count)
+        if (!liveAnnounced) {
+            liveAnnounced = true
+            liveWrittenAt = Date.now()
+            return // Ankunftszustand: sichtbar ja, hörbar nein
+        }
+        if (text === store.liveText && livePending === null) {
+            return
+        }
+        if (liveTimer !== null) {
+            livePending = text // Frist läuft — der letzte Stand gewinnt
+            return
+        }
+        const delay = liveRegionDelay(liveWrittenAt, Date.now())
+        if (delay === 0) {
+            writeLiveText(text)
+            return
+        }
+        livePending = text
+        liveTimer = setTimeout(() => {
+            liveTimer = null
+            if (livePending !== null && livePending !== store.liveText) {
+                writeLiveText(livePending)
+            } else {
+                livePending = null
+            }
+        }, delay)
+    }
+
     activeSpace.subscribe((url: string) => {
         // Space-Wechsel: erst leeren, dann neu ableiten — sonst blieben die Marker des
         // alten Space bis zum ersten Emit des neuen stehen.
         unsubUnread?.()
+        unsubUpdateCount?.()
         store.rooms = {}
         store.threads = {}
         store.any = false
+        store.roomsTotal = 0
+        store.threadsTotal = 0
+        store.updates = 0
+        // Auch die Region auf Anfang: der Zählerstand des ALTEN Space darf im neuen
+        // weder stehen bleiben noch als Änderung angesagt werden.
+        if (liveTimer !== null) {
+            clearTimeout(liveTimer)
+            liveTimer = null
+        }
+        livePending = null
+        liveAnnounced = false
+        store.liveText = ''
         unsubUnread = deriveUnread(url, joinedRoomHs).subscribe((view: UnreadView) => {
             store.rooms = view.rooms
             store.threads = view.threads
             store.any = view.any
+            store.roomsTotal = view.roomsTotal
+            store.threadsTotal = view.threadsTotal
+        })
+        // Die Glocken-Zahl. Zweite Ableitung über DENSELBEN Bestand — bewusst nicht aus
+        // `roomsTotal + threadsTotal` gerechnet: die Glocke führt zu einer LISTE, und
+        // deren Zeilen aggregieren Ereignisse (`updates.ts`). Eine Zahl, die sich beim
+        // Öffnen der Liste ändert, wäre genau der Fehler, den §4 vermeiden will.
+        // Kosten: `deriveUpdates` faltet dieselben zwei Event-Ströme wie `deriveUnread`
+        // (throttled 300, kein Netz) plus die Profile — das ist der Preis dafür, dass die
+        // Glocke auch auf Screens ohne `nostrUpdates`-Insel eine Zahl trägt.
+        unsubUpdateCount = deriveUpdates(url, joinedRoomHs, joinedRoomNames).subscribe((items: UpdateItem[]) => {
+            store.updates = countUnreadUpdates(items)
+            announceUnread(store.updates)
         })
     })
     // Ohne diese Subscription bewegte sich der Punkt NUR beim Kaltstart aus dem Cache:

@@ -21,11 +21,18 @@ import assert from 'node:assert/strict'
 import { get } from 'svelte/store'
 import {
     ALL_KEY,
+    PUBLISHED_READ_STATE_CAP,
+    READ_STATE_CAP,
     READ_STATE_D,
+    clearReadState,
+    getBootstrapAll,
     markAllRead,
     mergeReadState,
+    mergeRemoteReadState,
     migrateLegacyLastRead,
+    noteBootstrapSeed,
     pruneReadState,
+    publishableReadState,
     readState,
     readStateRestorePlan,
     restoreReadState,
@@ -318,6 +325,142 @@ test('snapshotReadState ist eine Kopie — spaeteres setRead veraendert sie nich
     assert.equal(get(readState)[roomKey(URL, 'nach-dem-puffern')], 8_000_000)
 })
 
-test('das d-Tag des (erst in P6 publizierten) 30078 ist versioniert festgeschrieben', () => {
+test('das d-Tag des publizierten 30078 ist versioniert festgeschrieben', () => {
     assert.equal(READ_STATE_D, 'einundzwanzig/read-state/v1')
+})
+
+// ── P6: was das Geraet verlassen darf ──────────────────────────────────────
+//
+// Der Kern des Sync-Sicherheitsnetzes. Ein frisch aufgesetztes Geraet setzt `all =
+// jetzt`, damit nicht der ganze Cache als ungelesen aufblitzt — publiziert, waere dieser
+// erfundene Wert von einem echten „Alles gelesen" nicht unterscheidbar und quittierte
+// per Grow-only-Max den Rueckstand JEDES anderen Geraets, unumkehrbar. Die vier Tests
+// hier halten die eine Eigenschaft fest, an der das haengt: der Seed schweigt, die
+// echte Handlung spricht.
+
+const SEED = 5_000_000
+
+test('publishableReadState laesst `all` weg, solange es der synthetische Startwert ist', async () => {
+    await restoreReadState({})
+    noteBootstrapSeed(SEED)
+    setRead(ALL_KEY, SEED)
+    setRead(roomKey(URL, 'seed-raum'), SEED + 10)
+
+    const payload = publishableReadState(get(readState), getBootstrapAll())
+
+    assert.equal(payload[ALL_KEY], undefined, 'der erfundene Startwert darf das Geraet nicht verlassen')
+    assert.equal(payload[roomKey(URL, 'seed-raum')], SEED + 10, 'echte Wasserzeichen aber schon')
+})
+
+test('publishableReadState publiziert ein `all`, das NICHT der Startwert ist', () => {
+    const state: ReadState = { [ALL_KEY]: SEED + 1, 'r:x|a': 7 }
+    assert.deepEqual(publishableReadState(state, SEED), state, 'anderer Wert ⇒ echter Wert')
+    assert.deepEqual(publishableReadState(state, null), state, 'kein Marker ⇒ nichts zu unterdruecken')
+})
+
+test('publishableReadState kopiert — die Eingabe bleibt unangetastet', () => {
+    const state: ReadState = { [ALL_KEY]: SEED, 'r:x|a': 7 }
+    publishableReadState(state, SEED)
+    assert.equal(state[ALL_KEY], SEED, 'die lokale Karte behaelt ihr `all` (nur das Publish laesst es weg)')
+})
+
+test('publishableReadState kappt auf die juengsten Keys — `all` ausgenommen', () => {
+    const state: ReadState = { [ALL_KEY]: 1 }
+    for (let i = 0; i < READ_STATE_CAP; i++) {
+        state[roomKey(URL, 'raum-' + i)] = 1_000 + i // je groesser i, desto juenger
+    }
+
+    const payload = publishableReadState(state, null)
+
+    assert.equal(Object.keys(payload).length, PUBLISHED_READ_STATE_CAP + 1, '`all` kommt zum Deckel dazu')
+    assert.equal(payload[ALL_KEY], 1, '`all` ueberlebt die Kappung immer')
+    assert.equal(payload[roomKey(URL, 'raum-' + (READ_STATE_CAP - 1))], 1_000 + READ_STATE_CAP - 1, 'der juengste bleibt')
+    assert.equal(payload[roomKey(URL, 'raum-0')], undefined, 'der aelteste faellt raus')
+    assert.equal(Object.keys(state).length, READ_STATE_CAP + 1, 'die LOKALE Karte bleibt unangetastet')
+})
+
+test('publishableReadState kappt eine kleine Karte nicht', () => {
+    const state: ReadState = { [ALL_KEY]: 1, 'r:x|a': 2, 't:z': 3 }
+    assert.deepEqual(publishableReadState(state, null), state)
+})
+
+test('der Uebergang: geseedetes Geraet schweigt, nach „Alles gelesen" publiziert es', async () => {
+    await restoreReadState({})
+    noteBootstrapSeed(SEED)
+    setRead(ALL_KEY, SEED)
+    assert.equal(publishableReadState(get(readState), getBootstrapAll())[ALL_KEY], undefined)
+
+    // Quittieren in DERSELBEN Sekunde wie der Seed: gleicher Zahlenwert, aber echte
+    // Handlung. Ein reiner Wertvergleich wuerde das verschlucken — markAllRead laesst
+    // den Marker deshalb bedingungslos fallen.
+    markAllRead(SEED)
+
+    assert.equal(getBootstrapAll(), null, 'der Marker ist gefallen')
+    assert.equal(publishableReadState(get(readState), getBootstrapAll())[ALL_KEY], SEED, 'jetzt wird `all` publiziert')
+})
+
+test('der Marker faellt auch, wenn ein anderes Geraet ein hoeheres `all` schickt', async () => {
+    await restoreReadState({})
+    noteBootstrapSeed(SEED)
+    setRead(ALL_KEY, SEED)
+
+    mergeRemoteReadState({ [ALL_KEY]: SEED + 500 })
+
+    assert.equal(get(readState)[ALL_KEY], SEED + 500)
+    assert.equal(getBootstrapAll(), null, 'der Startwert ist ueberholt — der Marker ist hinfaellig')
+    assert.equal(publishableReadState(get(readState), getBootstrapAll())[ALL_KEY], SEED + 500)
+})
+
+// ── P6: was von aussen hereinkommt ─────────────────────────────────────────
+
+test('mergeRemoteReadState mergt grow-only — ein aelterer Fremdstand zieht nichts zurueck', async () => {
+    await restoreReadState({})
+    const RAUM = roomKey(URL, 'fremd')
+    const THREAD = threadKey('e'.repeat(64))
+    setRead(RAUM, 9_000_000)
+
+    mergeRemoteReadState({ [RAUM]: 8_000_000, [THREAD]: 9_500_000 })
+
+    assert.equal(get(readState)[RAUM], 9_000_000, 'der eigene, juengere Stand gewinnt')
+    assert.equal(get(readState)[THREAD], 9_500_000, 'Neues kommt dazu')
+})
+
+test('ein kaputtes oder fremdes 30078 kippt nichts', async () => {
+    await restoreReadState({})
+    const RAUM = roomKey(URL, 'robust')
+    setRead(RAUM, 9_000_000)
+    const vorher = snapshotReadState()
+
+    mergeRemoteReadState(null)
+    mergeRemoteReadState('kein Objekt')
+    mergeRemoteReadState({ [RAUM]: Number.NaN })
+    mergeRemoteReadState({ [RAUM]: -5 })
+    mergeRemoteReadState({ [RAUM]: 'morgen' })
+    mergeRemoteReadState({ ['x'.repeat(300)]: 9_999_999 })
+
+    assert.deepEqual(get(readState), vorher, 'nichts davon darf den Store erreichen')
+})
+
+test('ein empfangenes 30078 OHNE `all` erfindet keins', async () => {
+    await restoreReadState({})
+    const RAUM = roomKey(URL, 'ohne-all')
+
+    mergeRemoteReadState({ [RAUM]: 9_000_000 })
+
+    assert.equal(get(readState)[ALL_KEY], undefined, 'fehlendes `all` bleibt fehlend')
+    assert.equal(roomWatermark(get(readState), URL, 'ohne-all'), 9_000_000)
+    assert.equal(roomWatermark(get(readState), URL, 'nie-gelesen'), 0, 'ohne `all` faellt der Boden auf 0')
+})
+
+// Muss der LETZTE Test der Datei bleiben: clearReadState leert den geteilten Store.
+test('der Bootstrap-Marker faellt beim Abmelden', async () => {
+    await restoreReadState({})
+    noteBootstrapSeed(SEED)
+    setRead(ALL_KEY, SEED)
+    assert.equal(getBootstrapAll(), SEED)
+
+    await clearReadState()
+
+    assert.equal(getBootstrapAll(), null, 'sonst erbt der naechste Account eine fremde Zahl')
+    assert.deepEqual(get(readState), {})
 })

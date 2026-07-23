@@ -12,10 +12,18 @@
                     </template>
 
                     {{-- Last-Read-Grenze: erste ungelesene Fremd-Nachricht seit dem letzten Besuch. --}}
+                    {{-- Farbe nach der §4.6-Rollenregel, nicht nach Geschmack: `brand-500` ist
+                         FLÄCHENfarbe und war hier Text — auf zinc-50 GEMESSEN 2,20:1, also
+                         unter jeder Schwelle (1.4.3 verlangt 4,5:1 bei 0,7rem). Der Dark-Zweig
+                         war mit 8,62:1 nie das Problem, bekommt aber `brand-400`, weil das die
+                         Linien-/Akzentfarbe des dunklen Themes ist und der Marker sonst als
+                         einziger aus der Reihe fiele. Beide Werte stehen im Anker
+                         (`a11y-contrast.spec.ts`, Phase 3) — sie sind gemessen, nicht gerechnet;
+                         meine Rechnung sagte 2,33:1 und lag schon wieder zu optimistisch. --}}
                     <template x-if="m.unreadDivider">
                         <div class="my-3 flex items-center gap-3">
                             <flux:separator class="flex-1" />
-                            <span class="shrink-0 font-mono text-[0.7rem] font-semibold tracking-wide text-brand-500">{{ __('Neue Nachrichten') }}</span>
+                            <span class="shrink-0 font-mono text-[0.7rem] font-semibold tracking-wide text-brand-800 dark:text-brand-400">{{ __('Neue Nachrichten') }}</span>
                             <flux:separator class="flex-1" />
                         </div>
                     </template>

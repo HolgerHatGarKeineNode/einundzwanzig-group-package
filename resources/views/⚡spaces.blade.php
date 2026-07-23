@@ -70,26 +70,68 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          und nicht in der Bottom-Nav: ein Nav-Tab ist ein ORT, Ungelesenes
                          ist ein ZUSTAND ÜBER Orte — und ein fünfter Tab bräche
                          `bottom-nav.blade.php` still auf drei Spalten (Drei-Repo-Release).
-                         Marker ist ein PUNKT, keine Zahl (P3-Entscheidung: das
-                         Wasserzeichen ist noch nicht lange genug Wall-Clock; eine Zahl,
-                         die einmal falsch war, wird nie wieder geglaubt).
-                         KEINE zweite aria-live-Region: auf diesem Screen existiert bereits
-                         genau eine (der Lade-Hinweis weiter unten). Der Zustand steckt
-                         stattdessen im `aria-label` der Glocke — es ändert sich reaktiv
-                         mit und wird beim Fokussieren vorgelesen. `?.` durchgehend: fehlt
-                         der Store (Gast, Ladephase, Fremdhost ohne Datenstrang), bleibt es
-                         beim schlichten „Neu". Die 44×44-Fläche (size-11) erfüllt WCAG
-                         2.5.8/Apple; die Zeile trägt bereits min-h-[44px]. --}}
+                         Marker ist seit P6 eine ZAHL (§4.1 Nr. 6) — und zwar die der
+                         ungelesenen /updates-ZEILEN (`$store.unread.updates`), nicht die
+                         Summe der Nachrichten: die Glocke führt zu einer Liste, und eine
+                         Zahl, die sich beim Öffnen der Liste ändert, wäre genau die zweite
+                         Wahrheit, die §4 verhindern soll.
+                         Cap 9+ statt 99+ (§4.2): die Glocke sitzt zwischen exit-Link und
+                         Profil-Chip, dreistellig drückte sie die max-w-[7rem]-Namenszeile.
+                         Der Zustand steckt zusätzlich im `aria-label` — es ändert sich
+                         reaktiv mit und wird beim Fokussieren vorgelesen. `?.` durchgehend:
+                         fehlt der Store (Gast, Ladephase, Fremdhost ohne Datenstrang),
+                         bleibt es beim schlichten „Neu". Die 44×44-Fläche (size-11) erfüllt
+                         WCAG 2.5.8/Apple; die Zeile trägt bereits min-h-[44px].
+
+                         ── Der Glocken-Marker trägt ZWEI Ausgänge ohne Umbau ──────────────
+                         Ob `$store.unread.updates` überhaupt existiert, hängt an einer noch
+                         offenen Kostenmessung des Datenstrangs (die Zahl muss aus DERSELBEN
+                         Quelle kommen, die die /updates-Liste füllt — `rooms + threads` ist
+                         eine andere Menge, und eine Glocke, die „12" sagt, während die Liste
+                         7 Zeilen zeigt, ist dauerhaft verbrannt). Deshalb steht hier keine
+                         Entweder-oder-Entscheidung, sondern ein Fallback:
+                           Feld vorhanden → Zahl-Pille, Cap 9+ (§4.1 Nr. 6).
+                           Feld FEHLT     → der P3-PUNKT aus `any`, bewusste Abweichung.
+                         Unterschieden wird über `=== undefined`, NICHT über Falsy: `0` heißt
+                         „nichts ungelesen" und muss marker-los bleiben, `undefined` heißt
+                         „diese Zahl gibt es nicht". Wer beides gleich behandelt, macht aus
+                         dem Fallback einen Dauerpunkt. Fällt das Feld weg, ist das eine
+                         Zeile weniger — kein Umbau. --}}
                     <a href="{{ route('group.updates') }}" wire:navigate
-                       :aria-label="$store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu'))"
+                       {{-- Die Leerzeichen stehen IN den Literalen, nicht zwischen den
+                            Operanden: `'Neu, ' + 1 + 'ungelesener Hinweis'` ergäbe
+                            „Neu, 1ungelesener Hinweis" — im Markup unsichtbar, im
+                            Screenreader hörbar (vom E2E-Anker gefangen, nicht vermutet).
+                            Dritter Zweig = derselbe Fallback wie beim Marker: ohne Zahl die
+                            P3-Formulierung, damit der Hinweis nicht mit der Pille verschwindet. --}}
+                       :aria-label="$store.unread?.updates ? @js(__('Neu, ')) + $store.unread.updates + ($store.unread.updates === 1 ? @js(' '.__('ungelesener Hinweis')) : @js(' '.__('ungelesene Hinweise'))) : ($store.unread?.updates === undefined && $store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu')))"
                        class="pressable relative flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                         <flux:icon.bell class="size-5 text-muted" />
-                        {{-- `sr=false`: der Hinweis steckt im aria-label des <a> (siehe oben),
-                             ein sr-only-Geschwister wäre dort totes Markup. Der Ring in
-                             Seitenhintergrundfarbe trennt den Punkt vom Glocken-Icon. --}}
-                        <x-group::unread-dot when="$store.unread?.any" :sr="false"
+                        {{-- `sr=false` an beiden Formen: der Hinweis steckt im aria-label des
+                             <a> (siehe oben), ein sr-only-Geschwister wäre dort totes Markup.
+                             Der Ring in Seitenhintergrundfarbe trennt den Marker vom Icon.
+                             Beide rendern per `x-if` und schließen sich gegenseitig aus —
+                             gleichzeitig sichtbar können sie nicht sein. --}}
+                        <x-group::unread-badge count="$store.unread?.updates" :cap="9" size="sm" :sr="false"
+                                               badge-class="absolute end-1.5 top-1.5 ring-2 ring-zinc-50 dark:ring-zinc-950" />
+                        <x-group::unread-dot when="$store.unread?.updates === undefined && $store.unread?.any" :sr="false"
                                              dot-class="absolute end-2.5 top-2.5 ring-2 ring-zinc-50 dark:ring-zinc-950" />
                     </a>
+
+                    {{-- Die EINE Zählregion des Clients (§4.7). Sie steht neben der Glocke,
+                         weil dort die einzige Zahl sitzt, die über ALLE Orte spricht — 20
+                         gleichzeitig aktualisierende Badges in Live-Regions machen einen
+                         Screenreader unbenutzbar, deshalb hat kein anderes Badge eine.
+                         Die DROSSELUNG (≥ 2 s) liegt im Store und nicht hier: „höchstens
+                         alle 2 s" ist Zustand über Zeit, den ein Blade-Ausdruck nicht
+                         halten kann. `liveText` ist deshalb ein FELD, kein Getter — und es
+                         verschluckt den Ankunftszustand, sonst spräche der Screenreader bei
+                         jedem Seitenaufbau einen Zählerstand vor, den niemand angefordert hat.
+                         Abgegrenzt: der Lade-Hinweis weiter unten ist eine STATUS-Region
+                         (existiert nur, solange der Space lädt) und der Chat-Verlauf in
+                         ⚡room beschreibt INHALT — beide zählen nicht, §4.7 spricht von
+                         Zählregionen. --}}
+                    <span class="sr-only" aria-live="polite" x-text="$store.unread?.liveText ?? ''"></span>
 
                     {{-- Profil-Chip → simples Alpine-Popover (kein flux:dropdown/-menu: das
                          verschluckt rohe Alpine-Kinder). Nur `open` lokal, Rest aus nostrAuth. --}}
@@ -203,25 +245,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <div x-show="space" x-cloak>
             <flux:tab.group>
                 <flux:tabs variant="segmented" x-model="tab">
+                    {{-- Die Tab-Badges zeigen seit P6 UNGELESENES, nicht mehr den Bestand
+                         (§4.4). Der Bestand steht als graue Mono-Zahl über der Liste. Grund:
+                         sobald daneben irgendwo eine Ungelesen-Pille in derselben getönten
+                         Form stand, las jeder Nutzer beide gleich — zwei Bedeutungen in einem
+                         Zeichen (Nielsen #4).
+                         Der Zählhinweis kommt als sr-only AUS DER KOMPONENTE (`sr=true`) und
+                         NICHT als `::aria-label` am Flux-Tag: `flux:tab` reicht `$attributes`
+                         an `button-or-link` durch und rendert `{{ $slot }}` als Kind, der
+                         Accessible Name wächst also mit dem sr-Text von selbst — und ein
+                         `@js()` in einer Flux-ATTRIBUTLISTE würde nicht ausgeführt, sondern
+                         landete wörtlich im Alpine-Ausdruck (P5, am kompilierten View
+                         gemessen). Der billigere Weg ist hier auch der richtige. --}}
                     <flux:tab name="rooms" icon="hashtag">
                         {{ __('Räume') }}
-                        <span x-show="standardCount() > 0" x-cloak
-                              {{-- Light-Zweig bewusst brand-800, nicht brand-600: der Zähler steht auf der
-                                   getönten Fläche bg-brand-500/10 (= #fef4e8 über Weiß). brand-600 ergibt dort
-                                   2,73:1 und verfehlt WCAG 1.4.3 (4,5:1) bei 0,65rem deutlich; brand-800 liefert
-                                   5,92:1. Dark ist unauffällig (brand-400 auf getöntem zinc-950 = 8,90:1). --}}
-                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-900 dark:text-brand-300"
-                              x-text="standardCount()"></span>
+                        <x-group::unread-badge count="$store.unread?.roomsTotal" badge-class="ms-1.5"
+                                               :sr-one="__('ungelesene Nachricht')" :sr-many="__('ungelesene Nachrichten')" />
                     </flux:tab>
                     <flux:tab name="threads" icon="chat-bubble-left-right">
                         {{ __('Threads') }}
-                        <span x-show="threads.length > 0" x-cloak
-                              {{-- Light-Zweig bewusst brand-800, nicht brand-600: der Zähler steht auf der
-                                   getönten Fläche bg-brand-500/10 (= #fef4e8 über Weiß). brand-600 ergibt dort
-                                   2,73:1 und verfehlt WCAG 1.4.3 (4,5:1) bei 0,65rem deutlich; brand-800 liefert
-                                   5,92:1. Dark ist unauffällig (brand-400 auf getöntem zinc-950 = 8,90:1). --}}
-                              class="ml-1.5 rounded-full bg-brand-500/10 px-1.5 font-mono text-[0.65rem] font-semibold text-brand-900 dark:text-brand-300"
-                              x-text="threads.length"></span>
+                        <x-group::unread-badge count="$store.unread?.threadsTotal" badge-class="ms-1.5"
+                                               :sr-one="__('neue Antwort')" :sr-many="__('neue Antworten')" />
                     </flux:tab>
                 </flux:tabs>
 
@@ -294,11 +338,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </template>
                                 </div>
                             </div>
-
-                            {{-- Ergebnis-Zähler (Systemstatus): wie viele Räume die Filter zeigen. --}}
-                            <span class="ms-auto shrink-0 font-mono text-xs text-muted">
-                                <span x-text="visibleCount()"></span> {{ __('Räume') }}
-                            </span>
                         </div>
 
                         {{-- Aktive Filter (Suche + Land) sichtbar + einzeln/gesamt entfernbar. --}}
@@ -323,6 +362,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 {{ __('Filter leeren') }}
                             </button>
                         </div>
+                    </div>
+
+                    {{-- Bestands-/Ergebniszähler (§4.4). Stand HIER schon immer, aber nur im
+                         Fokus-Kopf — seit P6 in BEIDEN Modi, weil das Tab-Badge daneben jetzt
+                         Ungelesenes trägt. Damit gilt im ganzen Client eine Regel, die man
+                         ohne Legende liest: FARBIGE PILLE = ungelesen, GRAUE MONO-ZAHL =
+                         Bestand. Zwei Zahlen in derselben Form (getönte Pille) wären zwei
+                         Bedeutungen in einem Zeichen — Nielsen #4.
+                         `visibleCount()` ist in beiden Modi das, was die Liste unten zeigt
+                         (Standard: Meine+Andere+Anträge, Fokus: genau die eine gefilterte
+                         Liste) — keine zweite Zählwahrheit neben der sichtbaren Liste.
+                         Bei 0 keine Zeile: der Leerzustand in der Karte darunter sagt es
+                         besser als eine „0". --}}
+                    <div x-show="space && visibleCount() > 0" x-cloak class="mb-1 flex justify-end px-2">
+                        <span class="shrink-0 font-mono text-xs text-muted">
+                            <span x-text="visibleCount()"></span> {{ __('Räume') }}
+                        </span>
                     </div>
 
                     <div class="surface-card overflow-hidden p-2">
@@ -493,6 +549,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      den Thread direkt im jeweiligen Raum (Deep-Link ?thread=). Slack-Stil:
                      Gesichter + Autor + Raum-Badge + „N Antworten · vor …". --}}
                 <flux:tab.panel name="threads" class="mt-3">
+                    {{-- Dieselbe Bestandszeile wie im Räume-Tab (§4.4). Sie steht hier, weil
+                         das Threads-Tab-Badge dieselbe Wanderung mitmacht: die Bestandszahl
+                         verlässt die Pille, sonst hätte der eine Tab eine Regel und der
+                         andere eine Ausnahme. --}}
+                    <div x-show="threads.length > 0" x-cloak class="mb-1 flex justify-end px-2">
+                        <span class="shrink-0 font-mono text-xs text-muted">
+                            <span x-text="threads.length"></span> {{ __('Threads') }}
+                        </span>
+                    </div>
+
                     <div class="surface-card overflow-hidden">
                         <template x-if="threads.length === 0">
                             <div class="empty-state py-8 text-center">
@@ -507,8 +573,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         :disabled="!t.roomH"
                                         {{-- aria-label ERSETZT den Kindtext → der Ungelesen-Hinweis muss hier
                                              hinein, ein sr-only im Marker käme nie an. Defensiv: fehlt der
-                                             `unread`-Store, liefert der Ausdruck '' (kein Hinweis). --}}
-                                        :aria-label="(t.authorName || @js(__('Nachricht'))) + ': ' + t.snippet + ' — ' + t.count + @js(__(' Antworten, öffnen')) + ($store.unread?.threads?.[t.rootId] ? @js(__(', ungelesene Antworten')) : '')"
+                                             `unread`-Store, liefert der Ausdruck '' (kein Hinweis).
+                                             ZWEI Zahlen in einem Label, darum verschieden benannt: `t.count`
+                                             ist der BESTAND („4 Antworten"), die Store-Zahl das UNGELESENE
+                                             („2 neue Antworten"). Ungekappt — siehe unread-badge. --}}
+                                        :aria-label="(t.authorName || @js(__('Nachricht'))) + ': ' + t.snippet + ' — ' + t.count + @js(__(' Antworten, öffnen')) + ($store.unread?.threads?.[t.rootId] ? ', ' + $store.unread.threads[t.rootId] + ($store.unread.threads[t.rootId] === 1 ? @js(' '.__('neue Antwort')) : @js(' '.__('neue Antworten'))) : '')"
                                         class="pressable flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-brand-500/5 disabled:cursor-default disabled:opacity-60">
                                     <span class="min-w-0 flex-1">
                                         {{-- Raum-Kontext (raumübergreifende Liste): nur zeigen, wenn `roomName`
@@ -551,9 +620,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             </span>
                                         </span>
                                     </span>
-                                    {{-- Ungelesen: Punkt rechts, vor dem Chevron — dieselbe Stelle wie in
-                                         Raum- und Meetup-Kachel. `sr=false`: siehe aria-label des Buttons. --}}
-                                    <x-group::unread-dot when="$store.unread?.threads?.[t.rootId]" :sr="false" />
+                                    {{-- Ungelesen: Zähler-Pille rechts, vor dem Chevron — dieselbe Stelle wie
+                                         in Raum- und Meetup-Kachel. `sr=false`: siehe aria-label des Buttons.
+                                         Der Titel oben trägt ZUSÄTZLICH mit (font-bold): anders als in der
+                                         Raum-Zeile liegen hier drei Zeilen Inhalt zwischen Titel und Marker. --}}
+                                    <x-group::unread-badge count="$store.unread?.threads?.[t.rootId]" :sr="false" />
                                     <flux:icon.chevron-right class="size-4 shrink-0 text-muted" />
                                 </button>
                             </template>

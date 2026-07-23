@@ -240,6 +240,68 @@ export function firstNonEmpty<T>(store: Subscribable<readonly T[]>, timeoutMs = 
 export const hasUnreadUpdates = (items: readonly UpdateItem[]): boolean => items.some((item) => item.unread)
 
 /**
+ * Wie viele ungelesene Hinweise? Die Zahl der Header-Glocke (§4.1 Nr. 6, Cap `9+` über
+ * `formatUnreadCount(…, BELL_CAP)` aus `unread.ts`).
+ *
+ * **Gezählt werden ZEILEN, nicht Ereignisse** — die Entscheidung, die §4.1 offenließ.
+ * Eine Zeile aggregiert n Ereignisse ({@link UpdateItem.count}); die Glocke könnte also
+ * auch deren Summe zeigen. Sie tut es nicht, weil „Hinweis" in diesem Screen durchgehend
+ * die ZEILE meint: der Untertitel sagt „12 Hinweise" ({@link updatesSubtitle}, gezählt
+ * über `items.length`), und §4.1 Nr. 6 schreibt der Glocke das `aria-label`
+ * „Neu, 12 ungelesene Hinweise" vor. Zwei verschiedene Zahlen unter demselben Wort wären
+ * ein Widerspruch, den der Nutzer beim Öffnen der Liste sofort sieht: er zählt die
+ * markierten Zeilen und kommt auf etwas anderes als die Glocke behauptet hat.
+ *
+ * Der Unterschied zu {@link hasUnreadUpdates} ist nur der Rückgabetyp — beide fragen
+ * dieselbe Eigenschaft ab; der boolesche Export bleibt, weil der „Alles gelesen"-Knopf
+ * genau ja/nein braucht und ein `> 0` an der Aufrufstelle die Absicht verwässerte.
+ */
+export const countUnreadUpdates = (items: readonly UpdateItem[]): number =>
+    items.reduce((total, item) => (item.unread ? total + 1 : total), 0)
+
+// ── Die eine Live-Region des Clients (§4.7) ───────────────────────────────
+
+/**
+ * Mindestabstand zwischen zwei Schreibvorgängen in die Zählregion (§4.7: „≥ 2 s").
+ *
+ * Der Grund ist nicht Sparsamkeit: eine `aria-live="polite"`-Region unterbricht sich
+ * selbst nicht, sie STAUT sich. Schreibt eine Zahl, die im Sekundentakt hochläuft, jedes
+ * Mal neu, hört der Nutzer eine Warteschlange veralteter Ansagen, während der sichtbare
+ * Zähler längst weiter ist.
+ */
+export const LIVE_REGION_THROTTLE_MS = 2_000
+
+/**
+ * Wie lange muss vor dem nächsten Schreiben in die Live-Region noch gewartet werden?
+ * `0` = jetzt schreiben. Reine Rechnung, die Zeit kommt von außen (Muster:
+ * {@link undoStillOpen}) — nur so ist die 2-s-Regel ohne Browser prüfbar.
+ *
+ * Eine Uhr, die rückwärts geht (Systemzeit-Korrektur, `lastWrittenAt` in der Zukunft),
+ * führt zu einer Wartezeit von höchstens `throttleMs` — nie zu einer unbegrenzten.
+ */
+export const liveRegionDelay = (lastWrittenAt: number, now: number, throttleMs = LIVE_REGION_THROTTLE_MS): number =>
+    Math.min(throttleMs, Math.max(0, lastWrittenAt + throttleMs - now))
+
+/**
+ * Text der Zählregion an der Glocke — oder `''`, wenn es nichts anzusagen gibt.
+ *
+ * Zwei Entscheidungen, die der Plan offenließ:
+ *   - **Die ECHTE Zahl, nicht die gekappte.** „12 ungelesene Hinweise" ist hörend
+ *     brauchbar, „9+" ist es nicht. Dieselbe Regel gilt schon im `sr-only`-Text der
+ *     Pille (`unread-badge.blade.php`).
+ *   - **„Hinweis" ist die ZEILE**, exakt wie in {@link updatesSubtitle} und
+ *     {@link countUnreadUpdates}. Die Live-Region sagt damit dieselbe Größe an, die die
+ *     Glocke zeigt und die die Liste danach führt.
+ */
+export const updatesLiveText = (count: number): string => {
+    if (!Number.isFinite(count) || count < 1) {
+        return ''
+    }
+    const exact = Math.floor(count)
+    return exact === 1 ? '1 ungelesener Hinweis' : `${exact} ungelesene Hinweise`
+}
+
+/**
  * Die Autoren der Zeilen — die pubkeys, deren kind-0 gewärmt werden muss, damit die
  * zweite Zeilenebene (§3.2 ②) einen NAMEN trägt statt eines npub.
  *

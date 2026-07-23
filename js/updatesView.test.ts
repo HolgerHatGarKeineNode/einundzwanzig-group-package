@@ -20,11 +20,13 @@ import {
     LABEL_SNIPPET_MAX,
     UNREAD_SR_PREFIX,
     UPDATES_PAGE,
+    countUnreadUpdates,
     filterUpdates,
     firstNonEmpty,
     groupUpdates,
     hasMoreUpdates,
     hasUnreadUpdates,
+    liveRegionDelay,
     nextUpdatesLimit,
     originTarget,
     readOrigin,
@@ -34,6 +36,7 @@ import {
     undoStillOpen,
     updateAriaLabel,
     updateAuthors,
+    updatesLiveText,
     updatesSubtitle,
     visibleUpdates,
     withOrigin,
@@ -309,6 +312,36 @@ test('hasUnread misst am Gesamtbestand, nicht am Filter', () => {
     assert.equal(hasUnreadUpdates([]), false)
 })
 
+test('Die Glocken-Zahl zaehlt ZEILEN, nicht die Ereignisse dahinter (P6)', () => {
+    // §4.1 Nr. 6 („Neu, 12 ungelesene Hinweise") meint dieselbe Groesse wie der
+    // Untertitel im Screen („12 Hinweise"). Wuerde die Glocke `count` aufsummieren,
+    // stuende an ihr eine andere Zahl als in der Liste, die sie oeffnet.
+    const zeilen = [
+        item({ key: 'a', unread: true, count: 7 }),
+        item({ key: 'b', unread: true, count: 1 }),
+        item({ key: 'c', unread: false, count: 99 }),
+    ]
+    assert.equal(countUnreadUpdates(zeilen), 2)
+    assert.equal(updatesSubtitle(zeilen), '3 Hinweise', 'dieselbe Einheit wie der Untertitel: die Zeile')
+})
+
+test('Die Glocken-Zahl ist 0, wenn alles quittiert ist — und dann faellt die Pille weg', () => {
+    assert.equal(countUnreadUpdates([]), 0)
+    assert.equal(countUnreadUpdates([item({ key: 'a', unread: false })]), 0)
+})
+
+test('Glocken-Zahl und `hasUnread` widersprechen sich nie', () => {
+    // Beide fragen dieselbe Eigenschaft ab; der boolesche Export bleibt nur, weil der
+    // „Alles gelesen"-Knopf genau ja/nein braucht.
+    for (const zeilen of [
+        [],
+        [item({ key: 'a', unread: false })],
+        [item({ key: 'a', unread: false }), item({ key: 'b', unread: true })],
+    ]) {
+        assert.equal(countUnreadUpdates(zeilen) > 0, hasUnreadUpdates(zeilen))
+    }
+})
+
 /**
  * Ohne diese Liste steht in der häufigsten Zeile der npub statt des Namens: `message`
  * kommt über den Raum-Filter, der keine kind-0 mitbringt, und `loadSpaceThreads` wärmt
@@ -487,4 +520,33 @@ test('Thread schliessen: gemerkte Raum-URL gewinnt unveraendert', () => {
 test('Thread schliessen ohne Herkunft bleibt bei der blanken Raum-URL', () => {
     assert.equal(threadBackTarget(null, '/rooms/welcome', ''), '/rooms/welcome')
     assert.equal(threadBackTarget(null, '/rooms/welcome', '?from=//evil.tld'), '/rooms/welcome')
+})
+
+// ── Die eine Live-Region (§4.7) ───────────────────────────────────────────
+
+test('Der Ansagetext nennt die ECHTE Zahl und beugt richtig', () => {
+    assert.equal(updatesLiveText(1), '1 ungelesener Hinweis')
+    assert.equal(updatesLiveText(2), '2 ungelesene Hinweise')
+    assert.equal(updatesLiveText(12), '12 ungelesene Hinweise', '§4.1 Nr. 6 — hoerend ist `9+` unbrauchbar')
+    assert.equal(updatesLiveText(150), '150 ungelesene Hinweise', 'ungekappt: die Pille kappt, die Ansage nicht')
+})
+
+test('Nichts anzusagen heisst leerer Text, nie „0 Hinweise"', () => {
+    for (const wert of [0, -3, Number.NaN, Number.POSITIVE_INFINITY]) {
+        assert.equal(updatesLiveText(wert), '', `${String(wert)} darf nichts ansagen`)
+    }
+})
+
+test('Die 2-s-Drossel laesst den ersten Schreibvorgang sofort durch', () => {
+    const jetzt = 1_700_000_000_000
+    assert.equal(liveRegionDelay(0, jetzt), 0, 'noch nie geschrieben ⇒ keine Wartezeit')
+    assert.equal(liveRegionDelay(jetzt - 2_000, jetzt), 0, 'exakt abgelaufen zaehlt als frei')
+    assert.equal(liveRegionDelay(jetzt - 2_001, jetzt), 0)
+})
+
+test('Innerhalb der Frist wird die Restzeit gewartet — hoechstens die volle Frist', () => {
+    const jetzt = 1_700_000_000_000
+    assert.equal(liveRegionDelay(jetzt, jetzt), 2_000, 'gerade geschrieben ⇒ volle Frist')
+    assert.equal(liveRegionDelay(jetzt - 500, jetzt), 1_500)
+    assert.equal(liveRegionDelay(jetzt + 60_000, jetzt), 2_000, 'ruecklaeufige Uhr sperrt die Region nicht dauerhaft')
 })

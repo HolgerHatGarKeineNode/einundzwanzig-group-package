@@ -2,11 +2,12 @@
  * Lesestand — Ungelesen-Wasserzeichen pro Raum und pro Thread.
  *
  * Format exakt nach `docs/plans/2026-07-22T2222-benachrichtigungen-ungelesen/
- * datenmodell-ungelesen.md` (Key-Raum, Grow-only-Max-Merge, Prune-Verhalten), aber in
- * dieser Phase (P3) **rein lokal**: es verlässt kein einziges Event das Gerät. Der
- * Publish-Pfad (kind 30078, nip44-self-verschlüsselt, an die Outbox) ist P6 und hier
- * bewusst NICHT gebaut — deshalb steht `READ_STATE_D` schon hier, aber kein
- * `publishThunk`. Das Format ist ab Tag 1 richtig; P6 ist dann ein Schalter, kein Umbau.
+ * datenmodell-ungelesen.md` (Key-Raum, Grow-only-Max-Merge, Prune-Verhalten). P3 hat es
+ * rein lokal gebaut, P6 hat den Schalter umgelegt: der Netz-Pfad (kind 30078,
+ * nip44-self-verschlüsselt, an die Outbox) liegt in `readStateSync.ts` — dieses Modul
+ * bleibt frei von welshman-Netzstack und damit node-testbar. Was das Gerät verlassen
+ * darf, entscheidet {@link publishableReadState}; empfangen wird über
+ * {@link mergeRemoteReadState}.
  *
  * Wasserzeichen = **Wall-Clock des lesenden Geräts**, nicht `created_at` des jüngsten
  * Events. `created_at` ist autorgesetzt (NIP-01): EIN Event mit `created_at = now + 1y`
@@ -21,7 +22,19 @@
 import { get, writable, type Readable } from 'svelte/store'
 import { pubkey } from '@welshman/app'
 
-/** NIP-78-`d`-Tag des (erst in P6 publizierten) kind-30078. Hier nur die Format-Zusage. */
+/**
+ * NIP-78-`d`-Tag des publizierten kind-30078.
+ *
+ * **Vor einem Formatwechsel lesen:** das `d`-Tag ist die Adresse des adressierbaren
+ * Events (NIP-01: `kind:pubkey:d`). Ein Wechsel auf `…/v2` ersetzt das v1-Event NICHT,
+ * er legt ein zweites daneben — die alte Karte bleibt als **genau eine Leiche pro Nutzer
+ * und Relay** liegen, unbegrenzt und verschlüsselt (also auch nicht mehr lesbar, sobald
+ * niemand mehr v1 entschlüsselt). Das ist der einzige Waisen-Pfad dieses Formats; die
+ * Anzahl ist sonst konstant, weil zooid adressierbare Events ersetzt statt anzuhängen
+ * (`zooid/events.go:353`, `IsReplaceable() || IsAddressable()` → `ReplaceEvent`).
+ * Wer `v2` einführt, publiziert deshalb zuerst eine leere v1-Karte oder ein NIP-09-kind-5
+ * auf die v1-Adresse — sonst wächst der Bestand mit jeder Formatversion um eins.
+ */
 export const READ_STATE_D = 'einundzwanzig/read-state/v1'
 
 /**
@@ -40,8 +53,41 @@ export const ALL_KEY: ReadKey = 'all'
 export const roomKey = (url: string, h: string): ReadKey => `r:${url}|${h}`
 export const threadKey = (rootId: string): ReadKey => `t:${rootId}`
 
-/** Obergrenze der Karte; hält das (spätere) 30078 klein und die IDB bounded. */
+/** Obergrenze der lokalen Karte; hält die IDB bounded. */
 export const READ_STATE_CAP = 500
+
+/**
+ * Obergrenze der **publizierten** Karte — bewusst deutlich kleiner als
+ * {@link READ_STATE_CAP}, weil lokal ein Eintrag ein paar Bytes IndexedDB kostet und im
+ * 30078 ein Vielfaches davon auf jedem Outbox-Relay.
+ *
+ * **Gemessen, nicht geschätzt** (`readStateSync.test.ts`, ephemerer NIP-01-Signer,
+ * echtes nip44+base64):
+ *
+ * | Keys | Klartext-JSON | fertiger `content` |
+ * |---|---|---|
+ * | 500 `r:` (URL `wss://group.einundzwanzig.space/` + 64-hex `h`) | 56 405 B | **76 548 B** |
+ * | 500 `t:` (64-hex rootId) | 39 938 B | 54 704 B |
+ * | 150 `r:` + `all` (dieser Deckel) | 16 968 B | **27 396 B** |
+ *
+ * Ein `r:`-Eintrag kostet 112 B im JSON, ein `t:`-Eintrag 79 B; nip44+base64 multipliziert
+ * mit ~1,36.
+ *
+ * Warum 150 und nicht 500: 76 KB reißen die verbreitetste Relay-Obergrenze — strfry
+ * deckelt Events per Default bei 64 KB. zooid selbst wäre unkritisch (khatru-Default
+ * `MaxMessageSize: 512000`, von zooid nicht überschrieben), aber der Lesestand geht an
+ * die **Outbox**, also an fremde Relays. 150 Keys lassen mit 27 396 B Faktor ~2,4 Luft.
+ *
+ * Warum 150 reicht: die Karte trägt beigetretene Räume (auf Prod gemessen: Median 2,
+ * Maximum 9 — `feeds.ts ROOM_ACTIVITY_CHUNK`) plus geöffnete Threads. 150 ist auch für
+ * einen Vielleser weit jenseits des Normalfalls; die Kappung wirkt praktisch nie.
+ *
+ * Der Preis, wenn sie doch wirkt: die ältesten Wasserzeichen fehlen im publizierten
+ * Stand, ein **frisches** Gerät sieht diese Räume wieder als ungelesen. Richtung „zu
+ * wenig gelesen", nie „fälschlich gelesen" — dieselbe Zusage wie beim lokalen Prune.
+ * Bestehende Geräte verlieren nichts (der Merge ist grow-only).
+ */
+export const PUBLISHED_READ_STATE_CAP = 150
 
 const nowSec = (): number => Math.floor(Date.now() / 1000)
 
@@ -88,6 +134,59 @@ export function pruneReadState(state: ReadState, cap = READ_STATE_CAP): ReadStat
         out[ALL_KEY] = all
     }
     for (const [key, ts] of kept) {
+        out[key] = ts
+    }
+    return out
+}
+
+/**
+ * Was von der Karte publiziert werden DARF (P6, kind 30078).
+ *
+ * Der einzige Unterschied zur lokalen Karte ist `all` — und nur, solange es noch der
+ * **synthetische Startwert** aus {@link initReadState} ist. Das ist kein Feinschliff,
+ * sondern der Grund, warum der Sync überhaupt gefahrlos ist:
+ *
+ * Ein Gerät ohne lokalen Stand setzt `all = jetzt`, damit nicht der ganze mitgelieferte
+ * Cache als ungelesen aufblitzt. Im publizierten Event ist dieser Wert von einem echten
+ * „Alles gelesen" **nicht unterscheidbar** — und weil der Merge ein Grow-only-Max ist
+ * ({@link mergeReadState}) und {@link pruneReadState} die dadurch dominierten Keys
+ * wegwirft, quittierte er den Rückstand JEDES anderen Geräts unwiderruflich. Wer sich
+ * am Telefon anmeldet, fände seinen Desktop komplett gelesen vor, ohne je etwas gelesen
+ * zu haben; ein Rückgängig gibt es geräteübergreifend nicht ({@link restoreReadState}
+ * ist lokal und 10 s lang).
+ *
+ * Der Fall braucht dafür nicht einmal ein neues Gerät: `readRows()` schluckt IDB-Fehler
+ * und liefert dann eine leere Karte — ein Speicher-Hickser auf einem seit Wochen
+ * genutzten Gerät seedet genauso.
+ *
+ * Sobald der Nutzer real quittiert, fällt der Marker ({@link markAllRead}) und `all`
+ * wird publiziert wie jeder andere Key.
+ *
+ * Zweitens wird auf {@link PUBLISHED_READ_STATE_CAP} gekappt — die jüngsten Keys
+ * gewinnen, `all` ist davon ausgenommen (es ist der Boden, gegen den alles gemessen
+ * wird, und kostet einen einzigen Eintrag). Die gemessenen Byte-Zahlen und der Grund
+ * für die Zahl stehen an der Konstante.
+ *
+ * Die **lokale** Karte bleibt davon unberührt: gekappt wird nur die Projektion nach
+ * außen, nicht der Key-Raum und nicht der Speicher.
+ */
+export function publishableReadState(
+    state: ReadState,
+    bootstrapAll: number | null,
+    cap = PUBLISHED_READ_STATE_CAP,
+): ReadState {
+    const all = state[ALL_KEY]
+    const keepAll = all !== undefined && !(bootstrapAll !== null && all === bootstrapAll)
+    const rest = Object.entries(state).filter(([key]) => key !== ALL_KEY)
+    if (rest.length > cap) {
+        rest.sort((a, b) => b[1] - a[1]) // jüngste zuerst — wie pruneReadState
+        rest.length = cap
+    }
+    const out: ReadState = {}
+    if (keepAll) {
+        out[ALL_KEY] = all
+    }
+    for (const [key, ts] of rest) {
         out[key] = ts
     }
     return out
@@ -408,6 +507,89 @@ const state = writable<ReadState>({})
 /** Die gemergte Wasserzeichen-Karte. Einzige Wahrheitsquelle für „ungelesen". */
 export const readState: Readable<ReadState> = { subscribe: state.subscribe }
 
+// ── Bootstrap-Marker: „dieses `all` hat niemand gelesen" (P6) ──────────────
+//
+// Der Marker liegt in localStorage und BEWUSST NICHT in der IndexedDB: er sichert genau
+// den Fall ab, in dem die IDB nicht liefert (`readRows()` schluckt Fehler und gibt eine
+// leere Karte zurück → initReadState seedet). Läge er in derselben Fehlerdomäne,
+// verschwände er zusammen mit dem Zustand, den er erklären soll — und der Seed sähe beim
+// nächsten Start wie ein echtes „Alles gelesen" aus.
+//
+// Er MUSS den Reload überleben: nach dem ersten Start liegt der Seed in der IDB, `merged`
+// ist nicht mehr leer, und ohne persistierten Marker wäre am zweiten Tag nicht mehr
+// erkennbar, dass dieses `all` nie jemand gelesen hat.
+
+const BOOTSTRAP_PREFIX = 'e21:readstate:bootstrap:'
+
+/** localStorage-Schlüssel des Markers — pro pubkey, wie die IDB (Kontotrennung). */
+export const bootstrapMarkerKey = (pk: string): string => BOOTSTRAP_PREFIX + pk
+
+let bootstrapStorageKey: string | null = null
+let bootstrapAll: number | null = null
+
+function readBootstrapMarker(): number | null {
+    if (!bootstrapStorageKey) {
+        return null
+    }
+    try {
+        const raw = localStorage.getItem(bootstrapStorageKey)
+        const ts = Number(raw)
+        return raw !== null && Number.isFinite(ts) && ts > 0 ? Math.floor(ts) : null
+    } catch {
+        return null // Private Mode/Quota → kein Marker; siehe getBootstrapAll
+    }
+}
+
+/**
+ * Den synthetischen Startwert merken — im Speicher UND über den Reload hinweg.
+ *
+ * Schlägt der localStorage-Zugriff fehl, bleibt der Marker rein flüchtig: dieser Lauf
+ * publiziert `all` nicht, ein späterer Start könnte es. Das ist die Rest-Lücke des
+ * Verfahrens und die kleinere Hälfte — sie braucht einen Speicherfehler UND ein Gerät
+ * ohne Lesestand im selben Moment.
+ */
+export function noteBootstrapSeed(ts: number): void {
+    bootstrapAll = Math.floor(ts)
+    if (!bootstrapStorageKey) {
+        return
+    }
+    try {
+        localStorage.setItem(bootstrapStorageKey, String(bootstrapAll))
+    } catch {
+        // s.o. — kein Fehlerfall, nur eine schwächere Zusage.
+    }
+}
+
+/** Marker fallen lassen: ab jetzt ist `all` ein publizierbarer Wert wie jeder andere. */
+export function clearBootstrapMarker(): void {
+    bootstrapAll = null
+    if (!bootstrapStorageKey) {
+        return
+    }
+    try {
+        localStorage.removeItem(bootstrapStorageKey)
+    } catch {
+        // Nicht löschbar ist folgenlos: der Wertvergleich unten entscheidet ohnehin.
+    }
+}
+
+/**
+ * Der synthetische `all`-Wert, oder `null`.
+ *
+ * Prüft bei JEDEM Aufruf gegen den echten Stand: sobald `all` nicht mehr der erfundene
+ * Wert ist — der Nutzer hat quittiert, oder ein anderes Gerät hat ein höheres, echtes
+ * `all` geschickt — ist der Marker hinfällig und fällt hier. So kann kein Schreibpfad
+ * ihn vergessen; {@link markAllRead} lässt ihn zusätzlich sofort fallen, damit auch ein
+ * Quittieren in derselben Sekunde wie der Seed (gleicher Zahlenwert, echte Handlung)
+ * publiziert wird.
+ */
+export function getBootstrapAll(): number | null {
+    if (bootstrapAll !== null && get(state)[ALL_KEY] !== bootstrapAll) {
+        clearBootstrapMarker()
+    }
+    return bootstrapAll
+}
+
 const dirty = new Set<string>()
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -447,8 +629,9 @@ function scheduleFlush(): void {
  * rückwärts laufende Uhr (Zeitzonen-/NTP-Sprung, manuell gestellte Systemzeit) kann
  * einen bereits gelesenen Raum nie wieder auf ungelesen ziehen.
  *
- * P3: lokal mergen → an die Geschwister-Tabs → fertig. Es wird NICHTS publiziert;
- * der 30078-Pfad an die Outbox-Relays ist P6.
+ * Lokal mergen → an die Geschwister-Tabs → fertig. Der 30078-Publish hängt nicht hier,
+ * sondern an einer gedrosselten Subscription auf {@link readState} (`readStateSync.ts`) —
+ * ein Publish pro Wasserzeichen wäre eine Event-Flut an die Outbox.
  */
 export function setRead(key: ReadKey, ts: number = nowSec()): void {
     if (!Number.isFinite(ts) || ts <= 0) {
@@ -468,8 +651,15 @@ export function setRead(key: ReadKey, ts: number = nowSec()): void {
 /**
  * „Alles gelesen": setzt das globale Wasserzeichen und wirft die dadurch dominierten
  * Einzel-Keys weg — lokal wie in der IDB. Danach ist die Karte wieder klein.
+ *
+ * Hier — und nur hier — quittiert ein MENSCH global. Deshalb fällt der Bootstrap-Marker
+ * an dieser Stelle bedingungslos: ab jetzt ist `all` ein echter, publizierbarer Wert
+ * ({@link publishableReadState}). Der Wertvergleich in {@link getBootstrapAll} allein
+ * genügte nicht — wer in derselben Sekunde quittiert, in der das Gerät geseedet hat,
+ * bekäme denselben Zahlenwert und bliebe stumm.
  */
 export function markAllRead(ts: number = nowSec()): void {
+    clearBootstrapMarker()
     setRead(ALL_KEY, ts)
     const before = get(state)
     const after = pruneReadState(before)
@@ -530,6 +720,41 @@ export async function restoreReadState(snapshot: ReadState): Promise<void> {
     await flush()
 }
 
+/**
+ * Eine EMPFANGENE Karte einmergen (P6: der entschlüsselte 30078-Inhalt eines anderen
+ * Geräts; `readStateSync.ts` liefert sie).
+ *
+ * Grow-only-Max wie überall — die Reihenfolge ist egal, ein doppelter Empfang ist
+ * idempotent, ein Rückschritt unmöglich. Neu Gewonnenes geht auch in die IDB (sonst
+ * wäre der Sync nach dem nächsten Kaltstart wieder weg) und an die Geschwister-Tabs.
+ *
+ * **Ein 30078 OHNE `all` ist der Normalfall, kein Sonderfall.** Ein Gerät, dessen `all`
+ * nur der synthetische Startwert ist, publiziert es nicht ({@link publishableReadState}).
+ * Fehlt `all`, entsteht hier auch keins — {@link roomWatermark} fällt ohnehin auf 0
+ * zurück, und ein erfundenes `all` wäre genau der Schaden, den der Marker verhindert.
+ *
+ * Alles Fremde geht durch {@link sanitizeReadState}: ein `NaN`, ein String oder ein
+ * 4-KB-Key aus einem manipulierten Event vergiftete sonst jeden späteren `Math.max`.
+ */
+export function mergeRemoteReadState(input: unknown): void {
+    const patch = sanitizeReadState(input)
+    if (Object.keys(patch).length === 0) {
+        return
+    }
+    const current = get(state)
+    const next = mergeReadState(current, patch)
+    const changed = Object.keys(next).filter((key) => next[key] !== current[key])
+    if (changed.length === 0) {
+        return
+    }
+    state.set(next)
+    for (const key of changed) {
+        dirty.add(key)
+    }
+    scheduleFlush()
+    broadcast(Object.fromEntries(changed.map((key) => [key, next[key]])))
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 
 let flushHooksInstalled = false
@@ -573,6 +798,8 @@ export function initReadState(): void {
                 return
             }
             dbName = DB_PREFIX + pk
+            bootstrapStorageKey = bootstrapMarkerKey(pk)
+            bootstrapAll = readBootstrapMarker()
             const stored = await readRows()
             const legacy = readLegacyLastRead()
             let merged = mergeReadState(stored, legacy.state)
@@ -587,6 +814,9 @@ export function initReadState(): void {
                 // quittiertes Konto — die gerade migrierten Raum-Keys wären wertlos.
                 merged = { [ALL_KEY]: nowSec() }
                 dirty.add(ALL_KEY)
+                // P6: Dieser Wert ist erfunden, nicht gelesen — er darf das Gerät nicht
+                // verlassen, sonst quittiert er jedes andere Gerät des Nutzers mit.
+                noteBootstrapSeed(merged[ALL_KEY])
             }
             // Prune wirft Keys aus dem Speicher — sie müssen AUCH aus der IDB, sonst wächst
             // die Tabelle unbegrenzt weiter (jeder je geöffnete Thread bliebe für immer
@@ -610,6 +840,14 @@ export function initReadState(): void {
         } catch (error) {
             console.warn('[readstate] Init fehlgeschlagen — Lesestand bleibt flüchtig', error)
         }
+        // P6: Abgleich mit den Outbox-Relays (kind 30078). BEWUSST nicht awaited und
+        // erst hier: `readStateReady` ist die Zusage „lokaler Stand geladen" und darf
+        // nie am Netz hängen — der Ungelesen-Punkt und `/updates` warten darauf.
+        // Dynamischer Import wie oben bei `./session`, damit die reinen Funktionen
+        // dieses Moduls unter `node --test` ohne welshman-Netzstack ladbar bleiben.
+        void import('./readStateSync')
+            .then((mod) => mod.initReadStateSync())
+            .catch((error) => console.warn('[readstate] Sync nicht gestartet — Lesestand bleibt lokal', error))
     })()
 }
 
@@ -618,6 +856,10 @@ export function initReadState(): void {
  * (Privacy-Hygiene wie `clearCache()`; die Raum-/Thread-IDs darin sind eine
  * Aktivitätsspur). `deleteDatabase` statt `clear()`, damit der pubkey nicht über
  * `indexedDB.databases()` am Gerät enumerierbar bleibt.
+ *
+ * Der Bootstrap-Marker geht mit — er trägt den pubkey im Schlüssel und wäre für den
+ * nächsten Account eine fremde Zahl, die dessen `all` stumm schalten könnte (der
+ * Vergleich in {@link getBootstrapAll} ist reine Gleichheit, kein Besitznachweis).
  */
 export async function clearReadState(): Promise<void> {
     if (flushTimer) {
@@ -626,6 +868,8 @@ export async function clearReadState(): Promise<void> {
     }
     dirty.clear()
     state.set({})
+    clearBootstrapMarker()
+    bootstrapStorageKey = null
     channel?.close()
     channel = null
     const name = dbName
