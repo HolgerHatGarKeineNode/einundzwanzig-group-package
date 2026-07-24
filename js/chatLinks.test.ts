@@ -59,3 +59,116 @@ test('mailto behaelt seine Form ohne doppelten Slash', () => {
 test('unparsebare URL faellt auf den Fallback zurueck', () => {
     assert.equal(linkDisplay('nicht mal ansatzweise eine url', 'fallback-text'), 'fallback-text')
 })
+
+// Regression 2026-07-24: welshmans parseLink linkt jedes wort.wort und setzt
+// https:// davor. Im Chat gepostete Code-Snippets (Alpine-Store-Zugriffe,
+// Dateinamen mit .ts-Endung, $store.unread-Pfade) wurden so zu URLs:
+//   "Schau mal: Alpine.store('unread')"  →  <a href="https://alpine.store">…</a>
+// isPlausibleUrl filtert post-parse diese Token raus. Policy nach Nutzer-Vorgabe:
+// NUR http:// und https:// sind Links, alles andere (auch nackte domain.tld,
+// wss:, mailto:, lightning:) fällt auf Plaintext zurück.
+// Die echten Faelle aus dem Bug-Report stehen jeweils als eigener Test, damit ein
+// Regression sofort zeigt, welcher Token wieder durchrutscht.
+import { isPlausibleUrl } from './chatLinks.ts'
+
+test('Alpine.store wird NICHT als URL erkannt (Bug-Report 2026-07-24)', () => {
+    assert.equal(isPlausibleUrl("Alpine.store"), false)
+})
+
+test('readState.ts wird NICHT als URL erkannt', () => {
+    assert.equal(isPlausibleUrl('readState.ts'), false)
+})
+
+test('$store.unread wird NICHT als URL erkannt', () => {
+    assert.equal(isPlausibleUrl('store.unread'), false)
+})
+
+test('readStateSync.ts wird NICHT als URL erkannt', () => {
+    assert.equal(isPlausibleUrl('readStateSync.ts'), false)
+})
+
+test('Variable.eigenschaft NICHT als URL', () => {
+    assert.equal(isPlausibleUrl('config.app_name'), false)
+})
+
+// Positive Faelle: einzige Links nach Policy sind http:// und https://.
+test('https-URL ist plausibel', () => {
+    assert.equal(isPlausibleUrl('https://example.com/path?t=1#x'), true)
+})
+
+test('http-URL ist plausibel', () => {
+    assert.equal(isPlausibleUrl('http://example.com'), true)
+})
+
+test('https-GROSSSCHREIBUNG ist plausibel (Schema case-insensitive)', () => {
+    assert.equal(isPlausibleUrl('HTTPS://example.com'), true)
+})
+
+test('http-GROSSSCHREIBUNG ist plausibel', () => {
+    assert.equal(isPlausibleUrl('HTTP://example.com'), true)
+})
+
+// Alle nicht-http-Schemas fallen raus (Policy: nur http/https, sonst nichts).
+// mailto:/lightning: laufen in welshman ohnehin über eigene Node-Typen und werden
+// separat gerendert; der Filter hier trifft nur Link-Nodes.
+test('wss-URL ist NICHT plausibel (nur http/https)', () => {
+    assert.equal(isPlausibleUrl('wss://relay.example.com'), false)
+})
+
+test('ws-URL ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('ws://relay.example.com'), false)
+})
+
+test('ftp-URL ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('ftp://example.com'), false)
+})
+
+test('mailto ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('mailto:jemand@example.com'), false)
+})
+
+test('lightning-Invoice ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('lightning:lnbc100n1pjd…'), false)
+})
+
+// Nackte Domains (selbst bekannte TLDs) sind KEINE Links mehr.
+test('nackte domain.com ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('example.com'), false)
+})
+
+test('nackte Subdomain fountain.fm ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('fountain.fm/episode/abc'), false)
+})
+
+test('nackte einundzwanzig.space ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('einundzwanzig.space'), false)
+})
+
+test('nackte example.de ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('example.de'), false)
+})
+
+test('nackte example.io ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('example.io/path'), false)
+})
+
+// Edge: leere / kranke Eingaben. Fail-closed, nie Link.
+test('leerer String ist nicht plausibel', () => {
+    assert.equal(isPlausibleUrl(''), false)
+})
+
+test('nur Punkt ist nicht plausibel', () => {
+    assert.equal(isPlausibleUrl('.'), false)
+})
+
+test('TLD-Jonglage ohne Schema ist nicht plausibel', () => {
+    assert.equal(isPlausibleUrl('a.b.c.unbekanntetld'), false)
+})
+
+test('pseudo-Schema tcp:// ist NICHT plausibel', () => {
+    assert.equal(isPlausibleUrl('tcp://example.com'), false)
+})
+
+test('http-Match im Inneren reicht NICHT (muss am Anfang stehen)', () => {
+    assert.equal(isPlausibleUrl('siehe https://example.com'), false)
+})

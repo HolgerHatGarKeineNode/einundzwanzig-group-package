@@ -23,7 +23,7 @@ import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePoll
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
-import { linkDisplay } from './chatLinks'
+import { linkDisplay, isPlausibleUrl } from './chatLinks'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
@@ -181,6 +181,17 @@ const renderMessageHtml = (event: TrustedEvent): string => {
                 if (node.type === ParsedType.Profile) {
                     hasMention = true
                     return renderMentionSpan(node.value.pubkey)
+                }
+                // welshman linkt jedes wort.wort und setzt https:// davor —
+                // Code-Token wie `Alpine.store`, `readState.ts`, `$store.unread`
+                // fallen hier durch. isPlausibleUrl entscheidet, ob der Token
+                // wirklich ein Link ist (Schema oder gelistete TLD); wenn nicht,
+                // fällt die Node auf Plaintext zurück. Siehe chatLinks.ts.
+                if (node.type === ParsedType.Link && !isPlausibleUrl(node.raw)) {
+                    return renderAsHtml(
+                        [{ type: ParsedType.Text, value: node.raw, raw: node.raw }],
+                        { renderLink: renderMessageLink },
+                    ).toString()
                 }
                 return renderAsHtml([node], { renderLink: renderMessageLink }).toString()
             })

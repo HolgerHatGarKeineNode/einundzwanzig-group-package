@@ -31,3 +31,26 @@ export const linkDisplay = (href: string, fallback: string): string => {
     const display = url.protocol + authority + url.pathname.replace(/^\/$/, '') + url.search + url.hash
     return display || fallback
 }
+
+/**
+ * Ist das ein Link-Token, das wir als echten Link rendern wollen?
+ *
+ * **Warum diese Funktion existiert:** welshmans `parseLink` linkt jedes `wort.wort`
+ * (parser.js Regex #2 „without a protocol") und setzt `https://` davor. Das macht
+ * aus Code-Snippets (`Alpine.store`, `readState.ts`, `$store.unread`) URLs. Wir
+ * filtern post-parse: nur was hier `true` liefert, wird zu einem Anker, alles andere
+ * fällt auf Plaintext zurück.
+ *
+ * **Strikte Policy:** ausschließlich `http://` und `https://`. Kein TLD-Raten,
+ * keine Whitelist, keine Heuristik für nackte `domain.tld`. Wer eine Adresse
+ * meint, schreibt das Schema davor — damit endet jede Diskussion, ob `fountain.fm`
+ * noch eine Domain ist oder `.fm` eine Code-Endung.
+ *
+ * Rein, ohne welshman-Importe, unter `node --test` lauffähig. Die Diagnose „hat der
+ * Parser da eine echte URL erkannt?" muss ohne Browser-Stubs beantwortbar bleiben.
+ *
+ * @param raw `raw`-Feld der geparsten Node (der Original-String, NICHT das
+ *   URL-Objekt — welshman hat Schema-less bereits `https://` vorgesetzt)
+ */
+export const isPlausibleUrl = (raw: string): boolean =>
+    typeof raw === 'string' && /^https?:\/\//i.test(raw)
