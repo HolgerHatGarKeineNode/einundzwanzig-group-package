@@ -412,11 +412,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              beigetretene Meetups tragen NUR ein dezentes Flaggen-Badge am Icon
                              (gleiche Zeilenhöhe). Die reiche Meetup-Kachel bleibt der
                              Entdecken-Liste (focusMode) vorbehalten.
-                             Hier stehen ALLE beigetretenen Räume, auch die kategorisierten:
-                             ein Raum, in dem ich bin, ist meiner — und nur er kann eine
-                             Ungelesen-Pille tragen. Das gilt seit dem Umbau der
-                             Projektunterstützung auf eine Entdecken-Zeile auch für den
-                             eigenen Antragsraum (vorher: eigene Sektion). --}}
+                             ANTRAGSRÄUME stehen hier nicht, auch nicht die beigetretenen: die
+                             Projektunterstützung lebt vollständig hinter ihrer Entdecken-Zeile
+                             (Nutzerentscheidung 2026-07-27). Ihr Ungelesenes trägt dort die
+                             Summenpille — hier verschwindet eine Zeile, kein Zähler. --}}
                         <template x-if="!focusMode() && filteredMine().length > 0">
                             <div>
                                 <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Meine Räume') }}</p>
@@ -456,16 +455,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              (P5); sie ist auf dieselbe Zeile zusammengefallen, weil der Nutzer
                              genau das Meetup-Muster wollte (Wunsch 2026-07-27).
 
-                             Ungelesenes geht dabei NICHT verloren, und zwar strukturell statt
-                             über eine Summenpille: beigetretene Antragsräume stehen wieder in
-                             „Meine Räume" (wie beigetretene Meetups) und tragen dort ihre
-                             eigene Pille. Hinter dieser Zeile bleiben ausschließlich FREMDE
-                             Antragsräume (Vorstandsblick) — und die können per Definition
-                             keinen Zähler tragen: `computeUnread` Regel 1 vergibt einen
-                             Schlüssel nur für BEIGETRETENE Räume (`joinedRoomHs` = `userRooms`).
-                             Eine Summe an dieser Zeile wäre also entweder immer 0 oder eine
-                             zweite Wahrheit über Zahlen, die zwei Zentimeter höher schon
-                             einzeln stehen. --}}
+                             Hinter der Antrags-Zeile liegt die Kategorie VOLLSTÄNDIG — auch die
+                             beigetretenen Antragsräume, die ausdrücklich nicht mehr unter
+                             „Meine Räume" gemischt werden sollen (Nutzerentscheidung, zweite
+                             Runde am 2026-07-27). Damit verschwinden Zeilen, die sehr wohl eine
+                             Ungelesen-Pille tragen können: beigetreten heißt Schlüssel in
+                             `computeUnread`. Der Zähler wandert deshalb AN die Zeile —
+                             `proposalUnread()` ist eine TEILSUMME derselben `rooms`-Karte
+                             (`sumUnreadRooms`, node-getestet), keine zweite Ableitung. Sie kann
+                             darum nie über der Tab-Pille „Räume" liegen, in der dieselben
+                             Ereignisse unverändert voll enthalten sind.
+
+                             Die Meetup-Zeile darunter trägt bewusst KEINE Summe: beigetretene
+                             Meetups stehen weiterhin in „Meine Räume" und zeigen ihre Zahl in
+                             ihrer eigenen Zeile. Eine Pille hier wäre eine zweite Wahrheit über
+                             eine sichtbare Zahl — die Regel ist „ein Zähler, ein Ort". --}}
                         <template x-if="!focusMode() && (proposalCount() > 0 || meetupCount() > 0)">
                             <div class="flex flex-col gap-0.5"
                                  :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 pt-1.5 dark:border-zinc-800/60' : ''">
@@ -476,7 +480,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Der Numerus steht hier ausformuliert (anders als in der
                                      Meetup-Zeile darunter): bei den Meetups ist der Ein-Element-
                                      Fall theoretisch, hier ist er der Normalfall — Messung M2
-                                     zählte zwei Antragsräume auf Prod. --}}
+                                     zählte zwei Antragsräume auf Prod.
+
+                                     Die Pille sitzt vor dem Chevron, an genau der Stelle, an der
+                                     sie in `room-tile` steht — die Zeile hat die Zeilen unter
+                                     sich aufgesogen, also erbt sie deren Ort. Voller Cap (99,
+                                     der Default): der Glocken-Cap 9 gilt laut §4.2 allein für
+                                     die Kopfzeile, wo die Breite knapp ist; hier ist Platz, und
+                                     eine Summe über mehrere Räume erreicht zweistellige Werte
+                                     schneller als eine einzelne Zeile. `sr` bleibt an (Default):
+                                     der Knopf trägt kein `aria-label`, sein Name wächst also aus
+                                     dem Inhalt — der sr-Text hängt sich hinten an. --}}
                                 <template x-if="proposalCount() > 0">
                                     <button type="button" x-on:click="selectRoomType('proposals')"
                                             class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
@@ -488,6 +502,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             <span class="mt-0.5 block text-[0.8rem] text-muted"
                                                   x-text="proposalCount() + (proposalCount() === 1 ? @js(' '.__('Antragsraum')) : @js(' '.__('Antragsräume')))"></span>
                                         </span>
+                                        <x-group::unread-badge count="proposalUnread()" />
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
                                     </button>
                                 </template>

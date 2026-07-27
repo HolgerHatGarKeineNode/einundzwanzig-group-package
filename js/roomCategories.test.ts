@@ -113,15 +113,23 @@ test('isStandardRoom: nur unkategorisierte Raeume sind Standard', () => {
     assert.equal(isStandardRoom({ isMeetup: false, isProjectSupport: true }), false)
 })
 
-test('Raumliste: Antragsraum faellt aus „Andere", bleibt aber in „Meine Raeume"', () => {
-    // Spiegelt die beiden Filterstellen der Bridge (standardCount/_ensureFiltered):
-    // `otherRooms` laeuft durch `isStandardRoom`, `userRooms` bewusst NICHT.
+test('Raumliste: Antragsraum faellt aus „Andere" UND aus „Meine Raeume"', () => {
+    // Spiegelt die beiden Filterstellen der Bridge (standardCount/_ensureFiltered).
+    // Bis zum 2026-07-27 lief `userRooms` bewusst UNGEFILTERT durch — der eigene
+    // Antragsraum stand in „Meine Raeume". Seit die Kategorie vollstaendig hinter
+    // ihrer Entdecken-Zeile lebt (Nutzerentscheidung: nicht beimischen), gilt
+    // derselbe Ausschluss auf beiden Listen.
+    //
+    // Verstecken ist das NICHT: der Raum ist ueber die Entdecken-Zeile erreichbar,
+    // und sein Ungelesenes traegt dort die Summenpille (`proposalUnread` in der
+    // Bridge, `sumUnreadRooms` in unread.ts). Der Beleg dafuer, dass diese Summe
+    // nichts verschluckt, steht in `unread.test.ts`.
     const plain = { h: 'welcome', isMeetup: false, isProjectSupport: false }
     const meetup = { h: 'm1', isMeetup: true, isProjectSupport: false }
     const proposal = { h: 'p3f9a2b7c1d0', isMeetup: false, isProjectSupport: true }
 
     const otherRooms = [plain, meetup, proposal]
-    const userRooms = [proposal]
+    const userRooms = [meetup, proposal]
 
     assert.deepEqual(otherRooms.filter(isStandardRoom), [plain], 'Meetup UND Antragsraum raus')
     // Der Meetup-Pool (Positiv-Filter) zieht weiterhin nur Meetups — kein Seiteneffekt.
@@ -129,9 +137,12 @@ test('Raumliste: Antragsraum faellt aus „Andere", bleibt aber in „Meine Raeu
         otherRooms.filter((r) => r.isMeetup),
         [meetup],
     )
-    // Kein Verstecken: wer Mitglied ist, sieht seinen Antragsraum weiter.
-    assert.deepEqual(userRooms, [proposal])
-    assert.equal(userRooms.length + otherRooms.filter(isStandardRoom).length, 2, 'standardCount zaehlt Meine voll mit')
+    // „Meine Raeume": beigetretenes Meetup bleibt, beigetretener Antragsraum nicht.
+    const mine = userRooms.filter((r) => !r.isProjectSupport)
+    assert.deepEqual(mine, [meetup])
+    assert.equal(mine.length + otherRooms.filter(isStandardRoom).length, 2, 'standardCount zaehlt nur, was auch dasteht')
+    // Der Antragsraum ist nicht verloren, sondern im Pool hinter der Zeile.
+    assert.deepEqual(userRooms.filter((r) => r.isProjectSupport), [proposal])
 })
 
 // ── Zusatz-Tags am 9002 (`roomMetaEvent`) ───────────────────────────────────

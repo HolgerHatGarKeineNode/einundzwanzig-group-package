@@ -244,6 +244,43 @@ const sumValues = (counts: Record<string, number>): number => {
 }
 
 /**
+ * Teilsumme über eine AUSWAHL von Räumen — die Pille an einer Zeile, die mehrere Räume
+ * hinter sich versteckt (Entdecken-Zeile der Projektunterstützung, §4.1 Nr. 1).
+ *
+ * Sie ist bewusst eine PARTITION von {@link UnreadView.roomsTotal} und keine zweite
+ * Zählung: dieselbe `rooms`-Karte, nur über einen Teil der Schlüssel gefaltet. Damit
+ * kann die Zahl an der Zeile nie über der Zahl an der Tab-Pille stehen, und die Summe
+ * aller Teilmengen ergibt exakt `roomsTotal`. Eine eigene Ableitung über die Events
+ * hätte diese Eigenschaft nicht garantiert.
+ *
+ * Unbekannte `h` (ein Raum, in dem ich nicht bin — er hat gar keinen Schlüssel) zählen
+ * als 0 statt zu werfen: genau dieser Fall ist der Normalfall an der Entdecken-Zeile,
+ * hinter der auch FREMDE Räume liegen. Doppelte `h` in der Auswahl zählen einmal — die
+ * Karte wird pro Schlüssel gelesen, nicht pro Listeneintrag.
+ *
+ * @param rooms `UnreadView.rooms` (oder `undefined`, solange der Store leer ist).
+ * @param hs Die `h` der Räume, die hinter der Zeile liegen.
+ */
+export function sumUnreadRooms(rooms: Record<string, number> | null | undefined, hs: readonly string[]): number {
+    if (!rooms || hs.length === 0) {
+        return 0
+    }
+    let total = 0
+    const seen = new Set<string>()
+    for (const h of hs) {
+        if (seen.has(h)) {
+            continue
+        }
+        seen.add(h)
+        const count = rooms[h]
+        if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
+            total += count
+        }
+    }
+    return total
+}
+
+/**
  * Ist der Lesestand geladen?
  *
  * **Solange nicht, wird NICHTS gemeldet.** Ein leeres `readState` hieße Wasserzeichen 0

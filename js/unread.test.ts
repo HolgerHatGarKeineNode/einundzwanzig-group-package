@@ -23,6 +23,7 @@ import {
     EMPTY_UNREAD,
     computeUnread,
     formatUnreadCount,
+    sumUnreadRooms,
     unreadCommentRootId,
     type UnreadInput,
 } from './unread.ts'
@@ -294,4 +295,76 @@ test('Lotus-Kommentar MIT `h` zaehlt in den Thread — und NIE zusaetzlich in de
     assert.equal(view.threadsTotal, 1)
     assert.equal(view.rooms.raum, 0, 'der Raum zaehlt NICHT mit — Kommentare stehen nicht im Raum-Feed')
     assert.equal(view.roomsTotal, 0, 'sonst waere die Summe der beiden Tab-Pillen groesser als der Bestand')
+})
+
+// ── Teilsumme hinter einer Zeile (Entdecken-Zeile Projektunterstuetzung) ────
+//
+// Der Anlass ist eine Umbau-Falle, keine Formatierungsfrage: seit die Antragsraeume
+// samt der BEIGETRETENEN vollstaendig hinter ihrer Entdecken-Zeile liegen, ist die
+// Pille an dieser Zeile der EINZIGE Ort, an dem ihr Ungelesenes noch sichtbar ist.
+// Faellt sie aus oder zaehlt sie falsch, verschluckt der Umbau Nachrichten.
+
+test('sumUnreadRooms faltet genau die ausgewaehlten Raeume', () => {
+    const rooms = { a: 3, b: 0, c: 7, d: 1 }
+
+    assert.equal(sumUnreadRooms(rooms, ['a', 'c']), 10)
+    assert.equal(sumUnreadRooms(rooms, ['b']), 0, 'gelesener Raum steuert 0 bei')
+    assert.equal(sumUnreadRooms(rooms, []), 0, 'leere Auswahl → keine Pille')
+})
+
+test('sumUnreadRooms vertraegt fehlende Schluessel und einen leeren Store', () => {
+    // Der Normalfall an der Entdecken-Zeile: hinter ihr liegen auch FREMDE Raeume
+    // (Vorstandsblick). Die haben nach `computeUnread` Regel 1 gar keinen Schluessel
+    // — sie duerfen die Summe weder werfen noch zu NaN machen.
+    const rooms = { a: 4 }
+
+    assert.equal(sumUnreadRooms(rooms, ['a', 'fremd', 'auch-fremd']), 4)
+    assert.equal(sumUnreadRooms(undefined, ['a']), 0, 'Store noch nicht befuellt → 0, keine Ausnahme')
+    assert.equal(sumUnreadRooms(null, ['a']), 0)
+    assert.equal(sumUnreadRooms({ a: Number.NaN } as never, ['a']), 0, 'Unsinn zaehlt nicht als Zahl')
+})
+
+test('Ein Raum, der zweimal in der Auswahl steht, zaehlt einmal', () => {
+    // `_proposalPool()` dedupliziert selbst ueber `h`; die Summe verlaesst sich
+    // trotzdem nicht darauf. Doppelt gezaehlt waere die Zahl groesser als die
+    // Tab-Pille — genau die Divergenz, die eine Zahl unbrauchbar macht.
+    assert.equal(sumUnreadRooms({ a: 5 }, ['a', 'a']), 5)
+})
+
+test('Die Pille an der Zeile ist eine PARTITION von roomsTotal, keine zweite Zaehlung', () => {
+    // Der eigentliche Beleg fuer den Umbau: „Meine Raeume" zeigt die Standard-Raeume,
+    // die Entdecken-Zeile die Antragsraeume — zusammen ergeben sie exakt die Zahl an
+    // der Tab-Pille „Raeume". Und `roomsTotal` selbst bleibt kategorieblind: dass ein
+    // beigetretener Antragsraum aus einer LISTE verschwindet, aendert an `joined`
+    // nichts, denn `joinedRoomHs` faellt aus `userRooms` ohne Kategorie-Filter.
+    const state: ReadState = {
+        [roomKey(URL, 'welcome')]: 1000,
+        [roomKey(URL, 'antrag-1')]: 1000,
+        [roomKey(URL, 'antrag-2')]: 1000,
+    }
+    const view = computeUnread(
+        input({
+            joined: ['welcome', 'antrag-1', 'antrag-2'],
+            state,
+            events: [
+                message('m1', 1001, 'welcome'),
+                message('m2', 1002, 'antrag-1'),
+                message('m3', 1003, 'antrag-1'),
+                message('m4', 1004, 'antrag-2'),
+            ],
+        }),
+    )
+
+    const proposals = ['antrag-1', 'antrag-2']
+    const standard = ['welcome']
+
+    assert.equal(view.roomsTotal, 4, 'die Tab-Pille zaehlt ALLE beigetretenen Raeume, auch die Antraege')
+    assert.equal(sumUnreadRooms(view.rooms, proposals), 3, 'die Pille an der Entdecken-Zeile')
+    assert.equal(sumUnreadRooms(view.rooms, standard), 1)
+    assert.equal(
+        sumUnreadRooms(view.rooms, proposals) + sumUnreadRooms(view.rooms, standard),
+        view.roomsTotal,
+        'kein Ereignis faellt zwischen die beiden Orte, keins wird doppelt gezeigt',
+    )
+    assert.ok(sumUnreadRooms(view.rooms, proposals) <= view.roomsTotal, 'eine Teilsumme kann nie ueber der Gesamtsumme liegen')
 })

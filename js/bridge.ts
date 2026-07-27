@@ -176,7 +176,7 @@ import {
     restoreReadState,
     type ReadState,
 } from './readState'
-import { BADGE_CAP, deriveUnread, formatUnreadCount, type UnreadView } from './unread'
+import { BADGE_CAP, deriveUnread, formatUnreadCount, sumUnreadRooms, type UnreadView } from './unread'
 import { deriveUpdates, type UpdateItem } from './updates'
 import {
     countUnreadUpdates,
@@ -509,6 +509,7 @@ type SpacesState = {
     filteredOther(): RoomView[]
     filteredProposals(): RoomView[]
     proposalCount(): number
+    proposalUnread(): number
     _proposalPool(): RoomView[]
     activeFilterCount(): number
     visibleCount(): number
@@ -1069,6 +1070,23 @@ const joinedRoomNames: Readable<Record<string, string>> = derived(activeSpaceVie
 const UNDO_WINDOW_MS = 10_000
 
 let unreadWired = false
+/**
+ * Dieselbe REAKTIVE Store-Instanz, die auch die Templates lesen — hier hochgezogen,
+ * damit eine Alpine-Komponente eine Ungelesen-TEILSUMME rechnen kann (Entdecken-Zeile
+ * der Projektunterstützung), ohne sich auf `this.$store` zu verlassen.
+ *
+ * Warum nicht `this.$store.unread`: das wäre eine Annahme über Alpine-Magics im
+ * `Alpine.data`-Objekt, die dieser Modulbestand nirgends belegt — und ein `undefined`
+ * dort ergäbe still eine Pille, die für immer 0 bleibt. Die Referenz hier ist dieselbe,
+ * die `wireUnread` schon hält, und `wireUnread` läuft am Anfang von
+ * `registerNostrComponents`, also vor jeder Komponenten-Auswertung.
+ *
+ * Reaktiv bleibt es, weil `Alpine.store(name)` den reaktiven Proxy zurückgibt (genau
+ * deshalb liest `wireUnread` den Store nach dem Anlegen erneut aus): ein Lesezugriff
+ * innerhalb eines Alpine-Effekts trägt sich als Abhängigkeit ein, ein `store.rooms = …`
+ * beim nächsten Emit löst ihn aus.
+ */
+let unreadStore: UnreadStore | null = null
 let activityKey = ''
 let activityController: AbortController | null = null
 
@@ -1172,6 +1190,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
     }
     Alpine.store('unread', initial)
     const store = Alpine.store('unread') as UnreadStore
+    unreadStore = store
     let unsubUnread: (() => void) | null = null
     let unsubUpdateCount: (() => void) | null = null
 
@@ -1875,15 +1894,14 @@ export function registerNostrComponents(Alpine: {
         // Standard-Räume im Default-View (Meine + Andere ohne kategorisierte Räume) —
         // für den „Räume"-Tab-Zähler. Ehrlich: nicht die 304 Meetups mitzählen (die
         // stecken hinter der Entdecken-Zeile) und auch keine fremden Antragsräume
-        // (Projektunterstützung). `userRooms` bleibt ungefiltert: was mir gehört,
-        // zähle ich mit — sonst verschwände mein eigener Antragsraum aus der Liste.
-        // Der Filter auf `userRooms` ist am 2026-07-27 GEFALLEN: er widersprach
-        // sowohl diesem Kommentar als auch `roomCategories.test.ts` („standardCount
-        // zaehlt Meine voll mit") und stammte aus der Zeit, als der eigene
-        // Antragsraum in einer eigenen Sektion stand. Jetzt steht er in „Meine
-        // Räume" — also zählt er hier mit.
+        // (Projektunterstützung). Auch der EIGENE Antragsraum zählt hier nicht mit:
+        // er steht seit dem 2026-07-27 nicht mehr in „Meine Räume", sondern hinter
+        // der Entdecken-Zeile — und was man nicht sieht, zählt man nicht. Sein
+        // Ungelesenes ist trotzdem sichtbar (Pille an der Zeile, `proposalUnread()`)
+        // und trotzdem in der Tab-Summe (`roomsTotal` faltet ALLE beigetretenen
+        // Räume, kategorieblind).
         standardCount(): number {
-            const mine = (this.space?.userRooms ?? []).length
+            const mine = (this.space?.userRooms ?? []).filter((r) => !r.isProjectSupport).length
             const other = (this.space?.otherRooms ?? []).filter(isStandardRoom).length
             return mine + other
         },
@@ -1978,6 +1996,24 @@ export function registerNostrComponents(Alpine: {
         proposalCount(): number {
             return this._proposalPool().length
         },
+        // Ungelesene Ereignisse HINTER der Entdecken-Zeile — die Pille, die den
+        // Zähler der ausgeblendeten Antrags-Zeilen rettet.
+        //
+        // Eine TEILSUMME derselben `rooms`-Karte, aus der auch jede Zeilen-Pille und
+        // die Tab-Pille lesen (`sumUnreadRooms`, node-getestet). Keine zweite
+        // Ableitung über die Events: die Zahl an der Zeile ist damit per Konstruktion
+        // ein Teil von `roomsTotal` und kann nie darüber liegen.
+        //
+        // Über den ganzen Pool gefaltet, nicht nur über die eigenen: fremde
+        // Antragsräume (Vorstandsblick) haben gar keinen Schlüssel — `computeUnread`
+        // Regel 1 vergibt einen nur für beigetretene Räume — und steuern deshalb 0
+        // bei, ohne dass es hier eine zweite Rollen-Abfrage braucht.
+        proposalUnread(): number {
+            return sumUnreadRooms(
+                unreadStore?.rooms,
+                this._proposalPool().map((room) => room.h),
+            )
+        },
         // Datensignatur für die Filter-Memoisierung: ändert sich, sobald Filter,
         // die Räume ODER der Meetup-Join wechseln → dann (und nur dann) neu rechnen.
         // Die Getter laufen pro Render mehrfach; ohne Cache würde die 304er-Liste
@@ -2016,14 +2052,16 @@ export function registerNostrComponents(Alpine: {
             }
             const q = this.roomQuery.trim().toLowerCase()
             const cc = this.roomCountry
-            // „Meine Räume" = ALLE beigetretenen Räume, ohne Kategorie-Ausnahme.
-            // Der Ausschluss der Antragsräume (P5) fiel am 2026-07-27 mit ihrer
-            // Sektion: seit die Kategorie hinter einer Entdecken-Zeile liegt, wäre
-            // ein hier gefilterter Antragsraum aus der Standardliste VERSCHWUNDEN —
-            // samt seiner Ungelesen-Pille, denn nur beigetretene Räume tragen
-            // überhaupt eine (`computeUnread` Regel 1). Beigetretene Meetups liegen
-            // aus demselben Grund seit je hier.
-            const mineRooms = (this.space?.userRooms ?? []).filter((room) => this._matches(room, q))
+            // Antragsräume raus aus „Meine Räume" — auch die BEIGETRETENEN. Sie
+            // gehören ausschließlich hinter die Entdecken-Zeile (Nutzerentscheidung
+            // 2026-07-27: „nicht zu den Haupt-Meine-Räume beigemischt"). Beigetretene
+            // MEETUPS bleiben hier bewusst drin (dezentes Flaggen-Badge, gleiche
+            // Zeilenhöhe) — sie sind Räume wie andere, ein Antrag ist ein Vorgang.
+            //
+            // Damit verschwindet eine Zeile, die eine Ungelesen-Pille tragen KANN
+            // (beigetreten ⇒ Schlüssel in `computeUnread`). Der Zähler wandert
+            // deshalb an die Entdecken-Zeile: `proposalUnread()`.
+            const mineRooms = (this.space?.userRooms ?? []).filter((room) => !room.isProjectSupport && this._matches(room, q))
             const otherRooms = (this.space?.otherRooms ?? []).filter((room) => isStandardRoom(room) && this._matches(room, q))
             const meetupRows = this._meetupPool(true).filter((room) => {
                 if (cc && this._pres(room)?.country !== cc) {
@@ -2114,9 +2152,10 @@ export function registerNostrComponents(Alpine: {
         //
         // Die Anträge sind aus dem Default-Zweig RAUS (2026-07-27) — sie stehen dort
         // nicht mehr als Liste, sondern hinter einer Entdecken-Zeile, exakt wie die
-        // Meetups (die aus demselben Grund nie mitzählten). Beigetretene Anträge
-        // stecken jetzt in `filteredMine()`; sie hier zusätzlich zu addieren wäre
-        // eine Doppelzählung derselben Zeile.
+        // Meetups (die aus demselben Grund nie mitzählten). Auch die beigetretenen:
+        // `filteredMine()` filtert sie, der Zähler zählt also weiterhin genau die
+        // Zeilen, die untendrunter stehen. Der Zähler misst SICHTBARE ZEILEN, nicht
+        // Erreichbares — sonst stünde „7 Räume" über einer Liste mit fünf.
         visibleCount(): number {
             if (this.proposalMode()) {
                 return this.filteredProposals().length
