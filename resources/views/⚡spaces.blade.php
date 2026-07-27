@@ -352,10 +352,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  kostet damit KEINE zusätzliche Höhe.
                                  Die Form bleibt: farbige Pille = ungelesen, graue Mono-Zahl =
                                  Bestand (Nielsen #4). Bei 0 keine Zahl — das sagt der
-                                 Treffer-Leerzustand darunter besser. --}}
-                            <span x-show="visibleCount() > 0" x-cloak class="ms-auto shrink-0 font-mono text-xs text-muted">
-                                <span x-text="visibleCount()"></span> {{ __('Räume') }}
-                            </span>
+                                 Treffer-Leerzustand darunter besser.
+                                 Numerus im Hausmuster (`n === 1 ? Singular : Plural`, wie an
+                                 zehn weiteren Stellen): ein Treffer ist im Fokus der häufigste
+                                 Fall, „1 Räume" stand also ausgerechnet dort, wo man am
+                                 genauesten hinsieht. --}}
+                            <span x-show="visibleCount() > 0" x-cloak class="ms-auto shrink-0 font-mono text-xs text-muted"
+                                  x-text="visibleCount() + (visibleCount() === 1 ? @js(' '.__('Raum')) : @js(' '.__('Räume')))"></span>
                         </div>
 
                         {{-- Aktive Filter (Suche + Land) sichtbar + einzeln/gesamt entfernbar. --}}
@@ -553,9 +556,19 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         </span>
                                         <span class="min-w-0 flex-1">
                                             <span class="block font-medium">{{ __('Meetup-Räume entdecken') }}</span>
-                                            <span class="mt-0.5 block text-[0.8rem] text-muted">
-                                                <span x-text="meetupCount()"></span> {{ __('Gruppen in') }} <span x-text="availableCountries().length"></span> {{ __('Ländern') }}
-                                            </span>
+                                            {{-- Zwei Zahlen, zwei Numeri: „1 Gruppe in 1 Land".
+                                                 Auf dem Vereins-Relay ist das theoretisch (86
+                                                 Gruppen), auf einem anderen Space-Relay — das
+                                                 Package hat mehrere Konsumenten — nicht.
+                                                 Vorbestehende Schwäche, hier bewusst NICHT
+                                                 angefasst: die Fragmente „Gruppen in"/„Ländern"
+                                                 sind schlechte Übersetzungseinheiten, weil die
+                                                 Wortstellung fest verdrahtet ist. Das zu
+                                                 richten hieße einen Satz mit Platzhaltern
+                                                 einzuführen und alle sieben Sprachdateien
+                                                 anzufassen — eigener Auftrag. --}}
+                                            <span class="mt-0.5 block text-[0.8rem] text-muted"
+                                                  x-text="meetupCount() + (meetupCount() === 1 ? @js(' '.__('Gruppe in')) : @js(' '.__('Gruppen in'))) + ' ' + availableCountries().length + (availableCountries().length === 1 ? @js(' '.__('Land')) : @js(' '.__('Ländern')))"></span>
                                         </span>
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
                                     </button>
@@ -648,9 +661,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          verlässt die Pille, sonst hätte der eine Tab eine Regel und der
                          andere eine Ausnahme. --}}
                     <div x-show="threads.length > 0" x-cloak class="mb-1 flex justify-end px-2">
-                        <span class="shrink-0 font-mono text-xs text-muted">
-                            <span x-text="threads.length"></span> {{ __('Threads') }}
-                        </span>
+                        <span class="shrink-0 font-mono text-xs text-muted"
+                              x-text="threads.length + (threads.length === 1 ? @js(' '.__('Thread')) : @js(' '.__('Threads')))"></span>
                     </div>
 
                     <div class="surface-card overflow-hidden">
@@ -670,8 +682,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              `unread`-Store, liefert der Ausdruck '' (kein Hinweis).
                                              ZWEI Zahlen in einem Label, darum verschieden benannt: `t.count`
                                              ist der BESTAND („4 Antworten"), die Store-Zahl das UNGELESENE
-                                             („2 neue Antworten"). Ungekappt — siehe unread-badge. --}}
-                                        :aria-label="(t.authorName || @js(__('Nachricht'))) + ': ' + t.snippet + ' — ' + t.count + @js(__(' Antworten, öffnen')) + ($store.unread?.threads?.[t.rootId] ? ', ' + $store.unread.threads[t.rootId] + ($store.unread.threads[t.rootId] === 1 ? @js(' '.__('neue Antwort')) : @js(' '.__('neue Antworten'))) : '')"
+                                             („2 neue Antworten"). Ungekappt — siehe unread-badge.
+                                             Der Bestand beugt jetzt auch hier: die Store-Zahl tat es
+                                             schon, der Bestand nicht — bei genau einer Antwort sagte
+                                             der Screenreader „1 Antworten", während daneben sichtbar
+                                             „1 Antwort" stand. Ein Accessible Name, der dem sichtbaren
+                                             Text widerspricht, ist schlimmer als ein unschöner. --}}
+                                        :aria-label="(t.authorName || @js(__('Nachricht'))) + ': ' + t.snippet + ' — ' + t.count + (t.count === 1 ? @js(' '.__('Antwort, öffnen')) : @js(' '.__('Antworten, öffnen'))) + ($store.unread?.threads?.[t.rootId] ? ', ' + $store.unread.threads[t.rootId] + ($store.unread.threads[t.rootId] === 1 ? @js(' '.__('neue Antwort')) : @js(' '.__('neue Antworten'))) : '')"
                                         class="pressable flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-brand-500/5 disabled:cursor-default disabled:opacity-60">
                                     <span class="min-w-0 flex-1">
                                         {{-- Raum-Kontext (raumübergreifende Liste): nur zeigen, wenn `roomName`
