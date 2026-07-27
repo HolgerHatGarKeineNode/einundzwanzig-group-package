@@ -19,8 +19,10 @@ import assert from 'node:assert/strict'
 import { Nip01Signer } from '@welshman/signer'
 import {
     PUBLISH_DEBOUNCE_MS,
+    RELOAD_MIN_INTERVAL_MS,
     parseReadStateContent,
     readStateJson,
+    shouldReloadRemote,
     summarizeReadStatePublish,
     syncRelays,
 } from './readStateSync.ts'
@@ -184,4 +186,44 @@ test('die GEDECKELTE Karte bleibt weit unter jeder Relay-Obergrenze', async () =
 test('die Publish-Drossel ist deutlich groeber als der lokale IDB-Flush (2 s)', () => {
     assert.ok(PUBLISH_DEBOUNCE_MS >= 10_000, 'sonst wird aus jedem Wasserzeichen ein Relay-Write plus Signatur')
     assert.ok(PUBLISH_DEBOUNCE_MS <= 60_000, 'zu grob hiesse: das Zweitgeraet haengt spuerbar hinterher')
+})
+
+// ── Nachladen beim Vordergrund-Wechsel ─────────────────────────────────────
+//
+// `loadRemoteReadState()` war ein One-Shot aus `initReadStateSync()`: ein am Laptop
+// gesetzter Lesestand kam am Handy erst nach einem KOMPLETTEN Neustart an (gemessen
+// 2026-07-27). Der `visible`-Zweig laedt nach — und braucht genau zwei Riegel.
+
+test('erster Vordergrund-Wechsel nach dem Boot laedt nach', () => {
+    // `lastLoadAt` traegt den Init-Ladevorgang; danach muss die Pause abgelaufen sein.
+    const boot = 1_000_000
+    assert.equal(shouldReloadRemote(boot + RELOAD_MIN_INTERVAL_MS, boot, false), true)
+})
+
+test('App-Wechsel im Sekundentakt loest KEINE REQ-Flut aus', () => {
+    const t0 = 1_000_000
+    for (const dt of [0, 1_000, 10_000, RELOAD_MIN_INTERVAL_MS - 1]) {
+        assert.equal(shouldReloadRemote(t0 + dt, t0, false), false, `nach ${dt} ms darf nicht geladen werden`)
+    }
+    assert.equal(shouldReloadRemote(t0 + RELOAD_MIN_INTERVAL_MS, t0, false), true, 'genau auf der Pause zaehlt als abgelaufen')
+})
+
+test('nie geladen (lastLoadAt = 0) ist keine Sperre', () => {
+    assert.equal(shouldReloadRemote(Date.now(), 0, false), true)
+})
+
+test('ausstehender Publish sperrt das Nachladen — das schuetzt das Rueckgaengig von markAllRead', () => {
+    const t0 = 1_000_000
+    // Das Rueckgaengig SENKT `all`; der Merge ist grow-only und kann nur anheben. Solange
+    // die gesenkte Karte nicht publiziert ist, liegt auf dem Relay noch der hoehere Wert —
+    // ein Nachladen holte ihn zurueck und machte das Rueckgaengig zunichte.
+    assert.equal(shouldReloadRemote(t0 + 10 * RELOAD_MIN_INTERVAL_MS, t0, true), false, 'auch lange nach der Pause')
+    assert.equal(shouldReloadRemote(t0 + 10 * RELOAD_MIN_INTERVAL_MS, t0, false), true, 'nach dem Publish wieder frei')
+})
+
+test('die Lade-Pause ist mindestens so gross wie die Publish-Drossel', () => {
+    // Oefter zu laden kann per Konstruktion nichts finden: die Gegenseite schiebt ihren
+    // Stand fruehestens nach IHRER Drossel auf die Relays.
+    assert.ok(RELOAD_MIN_INTERVAL_MS >= PUBLISH_DEBOUNCE_MS, 'sonst laedt man Pausen, in denen niemand publiziert hat')
+    assert.ok(RELOAD_MIN_INTERVAL_MS <= 120_000, 'zu grob hiesse: das Badge haengt nach dem Vordergrund-Wechsel spuerbar')
 })

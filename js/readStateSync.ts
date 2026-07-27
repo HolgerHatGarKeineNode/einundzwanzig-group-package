@@ -66,6 +66,21 @@ import {
  */
 export const PUBLISH_DEBOUNCE_MS = 30_000
 
+/**
+ * Mindestpause zwischen zwei **Ladevorgängen** des Fremdstands: **30 s**, bewusst
+ * derselbe Wert wie {@link PUBLISH_DEBOUNCE_MS} — und zwar nicht aus Symmetrie-Ästhetik,
+ * sondern weil er die Schranke der Gegenseite ist. Ein anderes Gerät schiebt sein
+ * Wasserzeichen frühestens nach seiner eigenen 30-s-Drossel auf die Relays; öfter zu
+ * laden kann per Konstruktion nichts Neues finden, es kostet nur eine REQ je Relay
+ * (Outbox + Space) plus eine nip44-Entschlüsselung.
+ *
+ * Der Fall, den die Pause abwehrt: ein Nutzer, der im Minutentakt zwischen Apps wechselt,
+ * erzeugte sonst je Wechsel einen Relay-Roundtrip. Der Preis ist im schlechtesten Fall
+ * eine um 30 s verzögerte Badge-Aktualisierung — unter der Zeit, die der Publish auf der
+ * anderen Seite ohnehin schon gekostet hat.
+ */
+export const RELOAD_MIN_INTERVAL_MS = 30_000
+
 /** Ein Relay-Ergebnis: `ok=false` trägt den Relay-Grund. Form wie `profiles.ts:132`. */
 export type RelayPublishResult = { url: string; ok: boolean; reason: string }
 
@@ -164,11 +179,42 @@ export const syncRelays = (outbox: readonly string[], space: string): string[] =
     return out
 }
 
+/**
+ * Darf jetzt nachgeladen werden? Rein, damit die beiden Riegel unter `node --test`
+ * prüfbar sind — die unreine Hälfte ist {@link refreshRemoteReadState}.
+ *
+ * Riegel 1 — **Mindestpause** ({@link RELOAD_MIN_INTERVAL_MS}): ein App-Wechsel im
+ * Sekundentakt darf keine REQ-Flut auslösen.
+ *
+ * Riegel 2 — **kein Laden über einem noch nicht publizierten lokalen Stand**
+ * (`publishPending` = ein Publish ist eingeplant oder gerade unterwegs). Das ist der
+ * Riegel, der das Rückgängig von `markAllRead` schützt: der Merge ist grow-only, ein
+ * Nachladen könnte ein zurückgenommenes `all` also nur wieder ANHEBEN, nie senken.
+ * Solange der Publish der zurückgenommenen Karte aussteht, liegt auf den Relays noch der
+ * alte, höhere Wert — er käme postwendend zurück und machte das Rückgängig zunichte.
+ * Nach dem Publish trägt das Relay die gesenkte Karte (kind 30078 ist adressierbar, das
+ * Event wird ERSETZT, `zooid/events.go:353`) und das Nachladen ist wieder harmlos.
+ * Verzögern kostet ≤ 30 s Konvergenz; die Reihenfolge „erst schreiben, dann lesen" ist
+ * ohnehin die, die eine Divergenz auflöst statt sie zu verewigen.
+ *
+ * Verhungern kann das Laden dadurch nicht: `schedulePublish` setzt seinen Timer nur nach
+ * einer echten Änderung, und ein dauerhaft ablehnendes Relay löst bewusst keinen
+ * Dauer-Retry aus (siehe `finally` in {@link publishReadState}).
+ */
+export const shouldReloadRemote = (
+    now: number,
+    lastLoadAt: number,
+    publishPending: boolean,
+    minInterval = RELOAD_MIN_INTERVAL_MS,
+): boolean => !publishPending && now - lastLoadAt >= minInterval
+
 // ── Netz ───────────────────────────────────────────────────────────────────
 
 let started = false
 let timer: ReturnType<typeof setTimeout> | null = null
 let inFlight: Promise<RelayPublishResult[]> | null = null
+/** `Date.now()` des letzten Ladeversuchs (0 = noch nie), Basis der Mindestpause. */
+let lastRemoteLoadAt = 0
 /** Kanonisches JSON dessen, was die Relays nachweislich schon haben. */
 let lastPublishedJson = ''
 let warned = false
@@ -245,6 +291,39 @@ export const loadRemoteReadState = async (): Promise<ReadState> => {
         out = mergeReadState(out, parseReadStateContent(plaintext, nowSec()))
     }
     return out
+}
+
+/**
+ * Den Fremdstand NACHLADEN und einmergen — der Rückweg zum `hidden`-Publish.
+ *
+ * Ohne ihn lief {@link loadRemoteReadState} genau einmal pro Boot: wer am Laptop las,
+ * sah das Badge am Handy stehen, bis die App komplett neu startete — ein Wechsel in den
+ * Vordergrund reichte nicht (am Gerät gemessen 2026-07-27).
+ *
+ * Fail-soft und **nie senkend**: {@link mergeRemoteReadState} ist ein Grow-only-Max über
+ * {@link mergeReadState} und deckelt jeden empfangenen Wert auf `nowSec()`.
+ *
+ * `lastPublishedJson` wird hier BEWUSST nicht angefasst, anders als beim Erstlauf in
+ * {@link initReadStateSync}. Dort ist die Aussage „das haben die Relays schon" korrekt,
+ * weil vorher nichts publiziert wurde. Hier wäre sie riskant: ein Ladevorgang, der
+ * (Netz-Hickser, Relay antwortet nicht) leer zurückkommt, setzte den gemerkten Stand auf
+ * `{}` zurück und löste einen überflüssigen Voll-Publish aus. Hebt der Merge den lokalen
+ * Stand dagegen wirklich an, feuert ohnehin die `readState`-Subscription und der
+ * Nachhol-Publish schreibt die vereinigte Karte an alle Relays zurück — genau die
+ * Selbstheilung, die {@link loadRemoteReadState} beschreibt.
+ */
+export const refreshRemoteReadState = async (): Promise<void> => {
+    if (!shouldReloadRemote(Date.now(), lastRemoteLoadAt, timer !== null || inFlight !== null)) {
+        return
+    }
+    // VOR dem `await` gesetzt: sonst liefe die Pause erst ab dem Ende des Ladevorgangs,
+    // und zwei schnelle Vordergrund-Wechsel öffneten zwei REQs nebeneinander.
+    lastRemoteLoadAt = Date.now()
+    try {
+        mergeRemoteReadState(await loadRemoteReadState())
+    } catch (error) {
+        warnOnce(error)
+    }
 }
 
 /**
@@ -342,6 +421,7 @@ export function initReadStateSync(): void {
             if (!pubkey.get()) {
                 return // Gast: nichts zu holen, nichts zu senden
             }
+            lastRemoteLoadAt = Date.now()
             const remote = await loadRemoteReadState()
             lastPublishedJson = readStateJson(remote) // das haben die Relays schon
             mergeRemoteReadState(remote)
@@ -375,11 +455,19 @@ export function initReadStateSync(): void {
         // Publish verloren — abwarten kann man einen sterbenden Tab nicht. Der Verlust
         // ist folgenlos, weil er nicht dauerhaft ist: der Nachhol-Publish oben schickt
         // die Differenz beim nächsten Start.
+        //
+        // Die Gegenrichtung (`visible`) ist der Rückweg: ein am Zweitgerät gesetzter
+        // Lesestand kam vorher erst nach einem kompletten Neustart an, weil
+        // `loadRemoteReadState()` ein One-Shot aus diesem Init war. Gedrosselt über
+        // {@link shouldReloadRemote} — ein Nutzer, der im Sekundentakt zwischen Apps
+        // wechselt, darf keine REQ-Flut auslösen.
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'hidden') {
                     void publishReadState()
+                    return
                 }
+                void refreshRemoteReadState()
             })
         }
     })()
