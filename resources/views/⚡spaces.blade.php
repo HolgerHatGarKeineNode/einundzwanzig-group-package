@@ -277,9 +277,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </div>
 
                     {{-- ── Fokus-Kopf: Zurück · Suche · Land · Anzahl ────────────────────────
-                         Standard-Räume sind der Default; eine Kategorie-Liste (Meetups über
-                         die Entdecken-Karte, Projektunterstützung über „Alle anzeigen") öffnet
-                         man bewusst. Der Kopf ist kategorie-agnostisch: nur der Land-Filter
+                         Standard-Räume sind der Default; eine Kategorie-Liste (Meetups und
+                         Projektunterstützung über je eine Entdecken-Zeile) öffnet man
+                         bewusst. Der Kopf ist kategorie-agnostisch: nur der Land-Filter
                          hängt an den Meetups, weil allein sie ein Land tragen. --}}
                     <div x-show="space && focusMode()" x-cloak class="mb-2 space-y-2">
                         <button type="button" x-on:click="resetRoomFilters()"
@@ -411,7 +411,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         {{-- Meine Räume (beigetreten laut 39002). Einheitliche room-tile-Zeilen —
                              beigetretene Meetups tragen NUR ein dezentes Flaggen-Badge am Icon
                              (gleiche Zeilenhöhe). Die reiche Meetup-Kachel bleibt der
-                             Entdecken-Liste (focusMode) vorbehalten. --}}
+                             Entdecken-Liste (focusMode) vorbehalten.
+                             Hier stehen ALLE beigetretenen Räume, auch die kategorisierten:
+                             ein Raum, in dem ich bin, ist meiner — und nur er kann eine
+                             Ungelesen-Pille tragen. Das gilt seit dem Umbau der
+                             Projektunterstützung auf eine Entdecken-Zeile auch für den
+                             eigenen Antragsraum (vorher: eigene Sektion). --}}
                         <template x-if="!focusMode() && filteredMine().length > 0">
                             <div>
                                 <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Meine Räume') }}</p>
@@ -435,54 +440,76 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </div>
                         </template>
 
-                        {{-- Projektunterstützung (Antragsräume, ["t","project-support"]).
-                             Eigene Sektion statt verstreut zwischen den Standard-Räumen.
-                             Der Pool ist bereits gegated: eigene Anträge sieht jeder
-                             Antragsteller, FREMDE nur der Vorstand (isAdmin) — siehe
-                             _proposalPool(). Keine Sektion, wenn nichts sichtbar ist. --}}
-                        <template x-if="!focusMode() && filteredProposals().length > 0">
-                            <div :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2' : ''">
-                                {{-- Kopfzeile mit Einstieg in den Fokus: ein schlichter Textlink,
-                                     KEINE Entdecken-Karte. Gemessen (P0/M2, Prod-Relay) gibt es
-                                     zwei Antragsräume — eine Karte versteckte zwei Zeilen hinter
-                                     einem Klick und machte die Sektion unsichtbar. --}}
-                                <div class="flex items-center gap-2 px-2 pb-1">
-                                    <p class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Projektunterstützung') }}</p>
-                                    <button type="button" x-on:click="selectRoomType('proposals')"
-                                            class="pressable ms-auto shrink-0 rounded-pill px-1.5 py-0.5 text-[0.7rem] font-semibold text-accent hover:underline">
-                                        {{ __('Alle anzeigen') }}
-                                    </button>
-                                </div>
-                                <div class="space-y-0.5">
-                                    <template x-for="room in filteredProposals()" :key="room.h">
-                                        <x-group::room-tile />
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
-
-                        {{-- Noch keine Standard-Räume, aber Meetups existieren → kurzer Hinweis. --}}
-                        <template x-if="!focusMode() && !loading && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0 && filteredMine().length === 0 && filteredOther().length === 0 && filteredProposals().length === 0">
+                        {{-- Noch keine Standard-Räume, aber Meetups/Anträge existieren → Hinweis.
+                             Die Antragsräume stehen NICHT mehr in der Bedingung: seit sie hinter
+                             der Entdecken-Zeile liegen (wie die Meetups), ist „keine Standard-
+                             Räume" auch dann die Wahrheit, wenn es Anträge gibt. --}}
+                        <template x-if="!focusMode() && !loading && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0 && filteredMine().length === 0 && filteredOther().length === 0">
                             <p class="px-2 py-3 text-sm text-muted">{{ __('Noch keine Standard-Räume in diesem Space.') }}</p>
                         </template>
 
-                        {{-- Entdecken-Karte: der bewusste Schritt in die Meetup-Liste. Zeigt
-                             Umfang (Gruppen · Länder) an, damit der Klick sich lohnt. --}}
-                        <template x-if="!focusMode() && meetupCount() > 0">
-                            <button type="button" x-on:click="selectRoomType('meetups')"
-                                    :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 dark:border-zinc-800/60' : ''"
-                                    class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
-                                <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
-                                    <flux:icon.map-pin class="size-5" />
-                                </span>
-                                <span class="min-w-0 flex-1">
-                                    <span class="block font-medium">{{ __('Meetup-Räume entdecken') }}</span>
-                                    <span class="mt-0.5 block text-[0.8rem] text-muted">
-                                        <span x-text="meetupCount()"></span> {{ __('Gruppen in') }} <span x-text="availableCountries().length"></span> {{ __('Ländern') }}
-                                    </span>
-                                </span>
-                                <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
-                            </button>
+                        {{-- ── Entdecken: die Kategorie-Eingänge ───────────────────────────────
+                             Zwei Zeilen desselben Musters (Icon · Titel · Umfang · Chevron)
+                             unter EINER Trennlinie — beide führen aus der Standardliste in
+                             genau eine Kategorie-Liste. Die Projektunterstützung stand bis
+                             hierher als volle Zeilenliste mit „Alle anzeigen" im Sektionskopf
+                             (P5); sie ist auf dieselbe Zeile zusammengefallen, weil der Nutzer
+                             genau das Meetup-Muster wollte (Wunsch 2026-07-27).
+
+                             Ungelesenes geht dabei NICHT verloren, und zwar strukturell statt
+                             über eine Summenpille: beigetretene Antragsräume stehen wieder in
+                             „Meine Räume" (wie beigetretene Meetups) und tragen dort ihre
+                             eigene Pille. Hinter dieser Zeile bleiben ausschließlich FREMDE
+                             Antragsräume (Vorstandsblick) — und die können per Definition
+                             keinen Zähler tragen: `computeUnread` Regel 1 vergibt einen
+                             Schlüssel nur für BEIGETRETENE Räume (`joinedRoomHs` = `userRooms`).
+                             Eine Summe an dieser Zeile wäre also entweder immer 0 oder eine
+                             zweite Wahrheit über Zahlen, die zwei Zentimeter höher schon
+                             einzeln stehen. --}}
+                        <template x-if="!focusMode() && (proposalCount() > 0 || meetupCount() > 0)">
+                            <div class="flex flex-col gap-0.5"
+                                 :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 pt-1.5 dark:border-zinc-800/60' : ''">
+                                {{-- Projektunterstützung (Antragsräume, ["t","project-support"]).
+                                     Der Pool ist gegated: eigene Anträge sieht jeder
+                                     Antragsteller, FREMDE nur der Vorstand (isAdmin) — siehe
+                                     _proposalPool(). Keine Zeile, wenn nichts sichtbar ist.
+                                     Der Numerus steht hier ausformuliert (anders als in der
+                                     Meetup-Zeile darunter): bei den Meetups ist der Ein-Element-
+                                     Fall theoretisch, hier ist er der Normalfall — Messung M2
+                                     zählte zwei Antragsräume auf Prod. --}}
+                                <template x-if="proposalCount() > 0">
+                                    <button type="button" x-on:click="selectRoomType('proposals')"
+                                            class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
+                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
+                                            <flux:icon.document-text class="size-5" />
+                                        </span>
+                                        <span class="min-w-0 flex-1">
+                                            <span class="block font-medium">{{ __('Projektunterstützung entdecken') }}</span>
+                                            <span class="mt-0.5 block text-[0.8rem] text-muted"
+                                                  x-text="proposalCount() + (proposalCount() === 1 ? @js(' '.__('Antragsraum')) : @js(' '.__('Antragsräume')))"></span>
+                                        </span>
+                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
+                                    </button>
+                                </template>
+
+                                {{-- Meetup-Räume: unverändertes Muster, nur ohne eigene
+                                     Trennlinie — die trägt jetzt der gemeinsame Rahmen. --}}
+                                <template x-if="meetupCount() > 0">
+                                    <button type="button" x-on:click="selectRoomType('meetups')"
+                                            class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
+                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
+                                            <flux:icon.map-pin class="size-5" />
+                                        </span>
+                                        <span class="min-w-0 flex-1">
+                                            <span class="block font-medium">{{ __('Meetup-Räume entdecken') }}</span>
+                                            <span class="mt-0.5 block text-[0.8rem] text-muted">
+                                                <span x-text="meetupCount()"></span> {{ __('Gruppen in') }} <span x-text="availableCountries().length"></span> {{ __('Ländern') }}
+                                            </span>
+                                        </span>
+                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
+                                    </button>
+                                </template>
+                            </div>
                         </template>
 
                         {{-- ── Meetup-Fokus: aktivitätssortierte Liste (2-spaltig auf lg) ────── --}}

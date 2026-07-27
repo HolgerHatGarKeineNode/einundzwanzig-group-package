@@ -1838,8 +1838,9 @@ export function registerNostrComponents(Alpine: {
         },
         // ── P4: Raumübersicht — Standard-Räume default, Kategorien ein bewusster Schritt ─
         // Fokus-Modus = genau EINE Kategorie-Liste (Suche/Sort, Land nur wo es eins
-        // gibt). Default sind die Standard-Räume (Meine · Andere · Projektunterstützung);
-        // Meetups öffnet die Entdecken-Karte, Anträge der „Alle anzeigen"-Link.
+        // gibt). Default sind die Standard-Räume (Meine · Andere); BEIDE Kategorien
+        // öffnet je eine Entdecken-Zeile — die Projektunterstützung seit dem Umbau
+        // vom 2026-07-27 genau wie die Meetups (vorher: Liste + „Alle anzeigen").
         // Kategorie-agnostisch — jede neue Kategorie erbt das Verhalten (P5).
         focusMode(): boolean {
             return isFocusMode(this.roomType)
@@ -1873,11 +1874,16 @@ export function registerNostrComponents(Alpine: {
         },
         // Standard-Räume im Default-View (Meine + Andere ohne kategorisierte Räume) —
         // für den „Räume"-Tab-Zähler. Ehrlich: nicht die 304 Meetups mitzählen (die
-        // stecken hinter der Entdecken-Karte) und auch keine fremden Antragsräume
+        // stecken hinter der Entdecken-Zeile) und auch keine fremden Antragsräume
         // (Projektunterstützung). `userRooms` bleibt ungefiltert: was mir gehört,
         // zähle ich mit — sonst verschwände mein eigener Antragsraum aus der Liste.
+        // Der Filter auf `userRooms` ist am 2026-07-27 GEFALLEN: er widersprach
+        // sowohl diesem Kommentar als auch `roomCategories.test.ts` („standardCount
+        // zaehlt Meine voll mit") und stammte aus der Zeit, als der eigene
+        // Antragsraum in einer eigenen Sektion stand. Jetzt steht er in „Meine
+        // Räume" — also zählt er hier mit.
         standardCount(): number {
-            const mine = (this.space?.userRooms ?? []).filter((r) => !r.isProjectSupport).length
+            const mine = (this.space?.userRooms ?? []).length
             const other = (this.space?.otherRooms ?? []).filter(isStandardRoom).length
             return mine + other
         },
@@ -1948,11 +1954,16 @@ export function registerNostrComponents(Alpine: {
             const mine = (this.space?.userRooms ?? []).filter((r) => r.isMeetup)
             return [...mine, ...other]
         },
-        // Antragsräume (Projektunterstützung) — eigene Sektion statt verstreut in
-        // „Meine Räume". Wer Mitglied ist (userRooms), sieht seinen Antragsraum
-        // IMMER; FREMDE Antragsräume (otherRooms) bekommt nur der Space-Admin
-        // (Vorstand) zu sehen. Dedupliziert über `h`, falls ein Raum in beiden
-        // Listen auftaucht.
+        // Antragsräume (Projektunterstützung) — der Pool HINTER der Entdecken-Zeile
+        // und zugleich die Liste des Antrags-Fokus. Wer Mitglied ist (userRooms),
+        // sieht seinen Antragsraum IMMER; FREMDE Antragsräume (otherRooms) bekommt
+        // nur der Space-Admin (Vorstand) zu sehen. Dedupliziert über `h`, falls ein
+        // Raum in beiden Listen auftaucht.
+        //
+        // Die eigenen bleiben ABSICHTLICH im Pool, obwohl sie in „Meine Räume"
+        // schon stehen: dieselbe Doppelung wie bei den Meetups (beigetreten oben,
+        // im Fokus nochmal). Der Fokus beantwortet „welche Anträge gibt es", nicht
+        // „welche kenne ich noch nicht".
         _proposalPool(): RoomView[] {
             const mine = (this.space?.userRooms ?? []).filter((r) => r.isProjectSupport)
             if (!this.isAdmin) {
@@ -1963,7 +1974,7 @@ export function registerNostrComponents(Alpine: {
             return [...mine, ...other]
         },
         // Gesamtzahl der für mich sichtbaren Antragsräume (ungefiltert) — steuert,
-        // ob die Sektion überhaupt existiert.
+        // ob die Entdecken-Zeile existiert, und trägt ihre Umfangszeile.
         proposalCount(): number {
             return this._proposalPool().length
         },
@@ -2005,10 +2016,14 @@ export function registerNostrComponents(Alpine: {
             }
             const q = this.roomQuery.trim().toLowerCase()
             const cc = this.roomCountry
-            // Antragsräume raus aus „Meine Räume" — sie stehen in ihrer eigenen
-            // Sektion (kategorisieren, nicht verstecken). Beigetretene MEETUPS
-            // bleiben hier bewusst drin (dezentes Flaggen-Badge, gleiche Zeilenhöhe).
-            const mineRooms = (this.space?.userRooms ?? []).filter((room) => !room.isProjectSupport && this._matches(room, q))
+            // „Meine Räume" = ALLE beigetretenen Räume, ohne Kategorie-Ausnahme.
+            // Der Ausschluss der Antragsräume (P5) fiel am 2026-07-27 mit ihrer
+            // Sektion: seit die Kategorie hinter einer Entdecken-Zeile liegt, wäre
+            // ein hier gefilterter Antragsraum aus der Standardliste VERSCHWUNDEN —
+            // samt seiner Ungelesen-Pille, denn nur beigetretene Räume tragen
+            // überhaupt eine (`computeUnread` Regel 1). Beigetretene Meetups liegen
+            // aus demselben Grund seit je hier.
+            const mineRooms = (this.space?.userRooms ?? []).filter((room) => this._matches(room, q))
             const otherRooms = (this.space?.otherRooms ?? []).filter((room) => isStandardRoom(room) && this._matches(room, q))
             const meetupRows = this._meetupPool(true).filter((room) => {
                 if (cc && this._pres(room)?.country !== cc) {
@@ -2095,7 +2110,13 @@ export function registerNostrComponents(Alpine: {
         },
         // Sichtbare Räume über die aktuell eingeblendeten Sektionen — trägt den
         // Ergebnis-Zähler im Fokus-Kopf und den „keine Treffer"-Leerzustand.
-        // Rooms-Modus: Meine+Andere+Anträge; Fokus: genau die eine Liste.
+        // Rooms-Modus: Meine+Andere; Fokus: genau die eine Liste.
+        //
+        // Die Anträge sind aus dem Default-Zweig RAUS (2026-07-27) — sie stehen dort
+        // nicht mehr als Liste, sondern hinter einer Entdecken-Zeile, exakt wie die
+        // Meetups (die aus demselben Grund nie mitzählten). Beigetretene Anträge
+        // stecken jetzt in `filteredMine()`; sie hier zusätzlich zu addieren wäre
+        // eine Doppelzählung derselben Zeile.
         visibleCount(): number {
             if (this.proposalMode()) {
                 return this.filteredProposals().length
@@ -2103,7 +2124,7 @@ export function registerNostrComponents(Alpine: {
             if (this.meetupMode()) {
                 return this.filteredMeetups().length
             }
-            return this.filteredMine().length + this.filteredOther().length + this.filteredProposals().length
+            return this.filteredMine().length + this.filteredOther().length
         },
         // ── P4: Raum-Verwaltung (Admin, NIP-29 9007/9002/9008) ─────────────────
         openRoomCreate() {
