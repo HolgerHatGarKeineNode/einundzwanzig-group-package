@@ -269,13 +269,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </flux:tab>
                 </flux:tabs>
 
-                {{-- Tab „Räume" --}}
-                <flux:tab.panel name="rooms" class="mt-3">
-                    {{-- Admin: neuen Raum anlegen. Nur im Standard-Modus (Meetups sind Portal-verwaltet). --}}
-                    <div x-show="isAdmin && !focusMode()" x-cloak class="mb-2 flex justify-end">
-                        <flux:button size="sm" variant="primary" icon="plus" x-on:click="openRoomCreate()">{{ __('Raum') }}</flux:button>
-                    </div>
+                {{-- Tab „Räume".
 
+                     `pt-3` statt `mt-3` ist KEIN Stil-Geschmack, sondern der Fix für die
+                     leere Fläche zwischen Umschalter und Liste: `flux:tab.panel` bringt
+                     `[:where(&)]:pt-8` mit (vendor/livewire/flux-pro/…/flux/tab/panel.blade.php)
+                     — 32 px Innenabstand, die ein `mt-3` NICHT ersetzt, sondern um 12 px
+                     ERGÄNZT. Zusammen 44 px Nichts. `:where()` senkt die Spezifität des
+                     Flux-Defaults auf 0, jede echte Utility schlägt ihn also unabhängig von
+                     der Reihenfolge im gebauten Bundle — anders als bei zwei gleichrangigen
+                     Klassen (die Falle, die in P4 `line-clamp-2` gegen `block` verlieren
+                     ließ). Deshalb greift `pt-3` verlässlich und der Abstand ist 12 px. --}}
+                <flux:tab.panel name="rooms" class="pt-3">
                     {{-- ── Fokus-Kopf: Zurück · Suche · Land · Anzahl ────────────────────────
                          Standard-Räume sind der Default; eine Kategorie-Liste (Meetups und
                          Projektunterstützung über je eine Entdecken-Zeile) öffnet man
@@ -338,6 +343,19 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </template>
                                 </div>
                             </div>
+
+                            {{-- Trefferzahl des Fokus — die GRAUE MONO-ZAHL aus §4.4, jetzt am
+                                 Ende der Filterzeile statt in einer eigenen, freischwebenden
+                                 Zeile über der Karte. Hier hat sie einen Bezug: sie steht neben
+                                 den Bedienelementen, die sie verändern, und die Zeile existiert
+                                 in diesem Modus ohnehin (der Land-Knopf trägt sie) — die Zahl
+                                 kostet damit KEINE zusätzliche Höhe.
+                                 Die Form bleibt: farbige Pille = ungelesen, graue Mono-Zahl =
+                                 Bestand (Nielsen #4). Bei 0 keine Zahl — das sagt der
+                                 Treffer-Leerzustand darunter besser. --}}
+                            <span x-show="visibleCount() > 0" x-cloak class="ms-auto shrink-0 font-mono text-xs text-muted">
+                                <span x-text="visibleCount()"></span> {{ __('Räume') }}
+                            </span>
                         </div>
 
                         {{-- Aktive Filter (Suche + Land) sichtbar + einzeln/gesamt entfernbar. --}}
@@ -362,23 +380,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 {{ __('Filter leeren') }}
                             </button>
                         </div>
-                    </div>
-
-                    {{-- Bestands-/Ergebniszähler (§4.4). Stand HIER schon immer, aber nur im
-                         Fokus-Kopf — seit P6 in BEIDEN Modi, weil das Tab-Badge daneben jetzt
-                         Ungelesenes trägt. Damit gilt im ganzen Client eine Regel, die man
-                         ohne Legende liest: FARBIGE PILLE = ungelesen, GRAUE MONO-ZAHL =
-                         Bestand. Zwei Zahlen in derselben Form (getönte Pille) wären zwei
-                         Bedeutungen in einem Zeichen — Nielsen #4.
-                         `visibleCount()` ist in beiden Modi das, was die Liste unten zeigt
-                         (Standard: Meine+Andere+Anträge, Fokus: genau die eine gefilterte
-                         Liste) — keine zweite Zählwahrheit neben der sichtbaren Liste.
-                         Bei 0 keine Zeile: der Leerzustand in der Karte darunter sagt es
-                         besser als eine „0". --}}
-                    <div x-show="space && visibleCount() > 0" x-cloak class="mb-1 flex justify-end px-2">
-                        <span class="shrink-0 font-mono text-xs text-muted">
-                            <span x-text="visibleCount()"></span> {{ __('Räume') }}
-                        </span>
                     </div>
 
                     <div class="surface-card overflow-hidden p-2">
@@ -418,7 +419,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Summenpille — hier verschwindet eine Zeile, kein Zähler. --}}
                         <template x-if="!focusMode() && filteredMine().length > 0">
                             <div>
-                                <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Meine Räume') }}</p>
+                                {{-- Der Bestand steht AM SEKTIONSKOPF, nicht mehr als eigene
+                                     Zeile über der Karte (Nutzerkritik 2026-07-27: „nicht gut
+                                     platziert"). Hier beschreibt die Zahl genau das, was
+                                     unmittelbar darunter steht — eine Summe über mehrere
+                                     Abschnitte gehörte zu keinem davon.
+                                     Die Verwechslung mit den Ungelesen-Zahlen ist ausgeschlossen
+                                     und zwar an DREI Merkmalen zugleich: keine Fläche (die
+                                     Ungelesen-Pille ist deckend `bg-brand-500`), grau statt
+                                     Akzent, und der Ort ist eine Überschrift statt ein
+                                     Zeilenende. Die Regel aus §4.4 bleibt damit wörtlich
+                                     gültig: farbige Pille = ungelesen, graue Mono-Zahl =
+                                     Bestand. In die Tab-Pille gehört sie ausdrücklich NICHT —
+                                     dort stünde sie in identischer Form neben `roomsTotal`. --}}
+                                <p class="flex items-baseline gap-1.5 px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+                                    {{ __('Meine Räume') }}
+                                    <span class="font-mono font-normal normal-case tracking-normal" x-text="filteredMine().length"></span>
+                                </p>
                                 <div class="space-y-0.5">
                                     <template x-for="room in filteredMine()" :key="room.h">
                                         <x-group::room-tile />
@@ -430,7 +447,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         {{-- Andere Räume (entdeckbar; ohne kategorisierte: kein Meetup, keine Projektunterstützung). --}}
                         <template x-if="!focusMode() && filteredOther().length > 0">
                             <div :class="filteredMine().length > 0 ? 'mt-2' : ''">
-                                <p class="px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Andere Räume') }}</p>
+                                <p class="flex items-baseline gap-1.5 px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+                                    {{ __('Andere Räume') }}
+                                    <span class="font-mono font-normal normal-case tracking-normal" x-text="filteredOther().length"></span>
+                                </p>
                                 <div class="space-y-0.5">
                                     <template x-for="room in filteredOther()" :key="room.h">
                                         <x-group::room-tile />
@@ -447,7 +467,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <p class="px-2 py-3 text-sm text-muted">{{ __('Noch keine Standard-Räume in diesem Space.') }}</p>
                         </template>
 
-                        {{-- ── Entdecken: die Kategorie-Eingänge ───────────────────────────────
+                        {{-- ── Wege aus der Liste: entdecken · anlegen ─────────────────────────
+                             Drei Zeilen desselben Musters (Icon-Chip · Titel · Rest) unter
+                             EINER Trennlinie. Sie stehen zusammen, weil sie dieselbe Frage
+                             beantworten: „und was noch?". Zwei führen in eine Kategorie-Liste,
+                             die dritte legt einen Raum an — Navigation trägt ein Chevron, die
+                             Aktion keins. Das ist der Unterschied, den die Zeile encodiert:
+                             Chevron = führt woandershin, kein Chevron = öffnet hier.
+
+                             Die Anlegen-Zeile ersetzt den freischwebenden „+ Raum"-Knopf, der
+                             über der Karte auf einer eigenen Höhe stand und mit nichts in
+                             Beziehung war (Nutzerkritik 2026-07-27). Sie verliert damit die
+                             `variant="primary"`-Lautstärke — vertretbar: das Anlegen ist eine
+                             SELTENE Vorstandsaktion, und der Akzent im Titel markiert sie
+                             weiterhin als Aktion (Hierarchie durch Kontrast, nicht durch
+                             Fläche). Sie steht am Ende, weil man erst sieht, was es gibt,
+                             bevor man etwas Neues dazulegt.
+
                              Zwei Zeilen desselben Musters (Icon · Titel · Umfang · Chevron)
                              unter EINER Trennlinie — beide führen aus der Standardliste in
                              genau eine Kategorie-Liste. Die Projektunterstützung stand bis
@@ -470,7 +506,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Meetups stehen weiterhin in „Meine Räume" und zeigen ihre Zahl in
                              ihrer eigenen Zeile. Eine Pille hier wäre eine zweite Wahrheit über
                              eine sichtbare Zahl — die Regel ist „ein Zähler, ein Ort". --}}
-                        <template x-if="!focusMode() && (proposalCount() > 0 || meetupCount() > 0)">
+                        <template x-if="!focusMode() && (proposalCount() > 0 || meetupCount() > 0 || isAdmin)">
                             <div class="flex flex-col gap-0.5"
                                  :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 pt-1.5 dark:border-zinc-800/60' : ''">
                                 {{-- Projektunterstützung (Antragsräume, ["t","project-support"]).
@@ -522,6 +558,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             </span>
                                         </span>
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
+                                    </button>
+                                </template>
+
+                                {{-- Raum anlegen (Admin). Kein Chevron: die Zeile öffnet einen
+                                     Dialog, sie führt nicht weg. Der Titel trägt den Akzent, der
+                                     Chip bleibt in derselben Geometrie wie oben — gleiche Zeile,
+                                     andere Aufgabe. Meetups sind Portal-verwaltet, deshalb wie
+                                     bisher nur im Standard-Modus (der Wrapper trägt das
+                                     `!focusMode()` schon). --}}
+                                <template x-if="isAdmin">
+                                    <button type="button" x-on:click="openRoomCreate()"
+                                            class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
+                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
+                                            <flux:icon.plus class="size-5" />
+                                        </span>
+                                        <span class="min-w-0 flex-1 font-medium text-accent">{{ __('Neuen Raum anlegen') }}</span>
                                     </button>
                                 </template>
                             </div>
@@ -590,7 +642,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 {{-- Tab „Threads" (C6b): aktive Threads des Space, RAUMÜBERGREIFEND. Klick öffnet
                      den Thread direkt im jeweiligen Raum (Deep-Link ?thread=). Slack-Stil:
                      Gesichter + Autor + Raum-Badge + „N Antworten · vor …". --}}
-                <flux:tab.panel name="threads" class="mt-3">
+                <flux:tab.panel name="threads" class="pt-3">
                     {{-- Dieselbe Bestandszeile wie im Räume-Tab (§4.4). Sie steht hier, weil
                          das Threads-Tab-Badge dieselbe Wanderung mitmacht: die Bestandszahl
                          verlässt die Pille, sonst hätte der eine Tab eine Regel und der
