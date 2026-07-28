@@ -75,6 +75,7 @@ import { roomsFingerprint, type RoomLike } from './roomFingerprint'
 import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
+    deriveSpaceSupportsRoles,
     deriveVereinAccess,
     isVereinGatedOut,
     deriveUserIsSpaceAdmin,
@@ -603,8 +604,10 @@ type DirectoryState = {
     roles: RoleView[]
     query: string
     gatedOut: boolean
-    // Admin (NIP-86)
+    // Admin — zooid: NIP-86 · Buzz: native Kinds 9030/9031/9040/9041 (siehe members.ts)
     isAdmin: boolean
+    /** Kennt dieser Space benannte Rollen (33534)? Auf Buzz: nein (festes owner|admin|member). */
+    rolesSupported: boolean
     rolesFull: SpaceRole[]
     editingMember: MemberView | null
     roleForm: RoleForm
@@ -627,6 +630,7 @@ type DirectoryState = {
     _unsubActive: null | (() => void)
     _unsubDir: null | (() => void)
     _unsubRoles: null | (() => void)
+    _unsubRolesSupported: null | (() => void)
     _unsubAdmin: null | (() => void)
     _unsubAccess: null | (() => void)
     _unsubReports: null | (() => void)
@@ -2721,6 +2725,7 @@ export function registerNostrComponents(Alpine: {
         query: '',
         gatedOut: false,
         isAdmin: false,
+        rolesSupported: true,
         rolesFull: [],
         editingMember: null,
         roleForm: { id: '', label: '', description: '', hue: 210, lightness: 0.5, order: 0 },
@@ -2740,6 +2745,7 @@ export function registerNostrComponents(Alpine: {
         _unsubActive: null,
         _unsubDir: null,
         _unsubRoles: null,
+        _unsubRolesSupported: null,
         _unsubAdmin: null,
         _unsubAccess: null,
         _unsubReports: null,
@@ -2752,6 +2758,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubActive = activeSpace.subscribe((url: string) => {
                 this._unsubDir?.()
                 this._unsubRoles?.()
+                this._unsubRolesSupported?.()
                 this._unsubAdmin?.()
                 this._unsubAccess?.()
                 this._unsubReports?.()
@@ -2829,6 +2836,12 @@ export function registerNostrComponents(Alpine: {
                 })
                 this._unsubRoles = deriveSpaceRoles(url).subscribe((roles: SpaceRole[]) => {
                     this.rolesFull = roles
+                })
+                // Rollen-Verwaltung nur zeigen, wo es sie gibt (zooid). Buzz kennt nur
+                // ein festes owner|admin|member ohne Label/Farbe und keine Route zum
+                // Anlegen — die Buttons würden dort ins Leere greifen.
+                this._unsubRolesSupported = deriveSpaceSupportsRoles(url).subscribe((ok: boolean) => {
+                    this.rolesSupported = ok
                 })
                 this._unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
                     this.isAdmin = admin

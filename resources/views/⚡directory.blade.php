@@ -60,10 +60,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Space-Metadaten (Name/Beschreibung/Icon, NIP-86 changerelay*). openSpaceEdit
                  belegt aus dem NIP-11 vor + öffnet das Modal selbst (kein modal.trigger nötig). --}}
             <flux:button size="sm" variant="ghost" icon="pencil-square" x-on:click="openSpaceEdit()">{{ __('Space') }}</flux:button>
-            <flux:button size="sm" variant="primary" icon="plus" x-on:click="openRoleCreate()">{{ __('Rolle') }}</flux:button>
-            <flux:modal.trigger name="roles-list">
-                <flux:button size="sm" variant="ghost" icon="swatch">{{ __('Rollen verwalten') }}</flux:button>
-            </flux:modal.trigger>
+            {{-- Benannte Rollen (33534) gibt es nur auf zooid-Spaces; Buzz hat ein festes
+                 owner|admin|member ohne Label/Farbe (rolesSupported, siehe members.ts). --}}
+            <template x-if="rolesSupported">
+                <div class="contents">
+                    <flux:button size="sm" variant="primary" icon="plus" x-on:click="openRoleCreate()">{{ __('Rolle') }}</flux:button>
+                    <flux:modal.trigger name="roles-list">
+                        <flux:button size="sm" variant="ghost" icon="swatch">{{ __('Rollen verwalten') }}</flux:button>
+                    </flux:modal.trigger>
+                </div>
+            </template>
             <flux:modal.trigger name="banned">
                 <flux:button size="sm" variant="ghost" icon="no-symbol" x-on:click="loadBanned()">{{ __('Gebannt') }}</flux:button>
             </flux:modal.trigger>
@@ -131,8 +137,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:dropdown position="bottom" align="end">
                                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Mitglied verwalten') }}" />
                                 <flux:menu>
-                                    <flux:menu.item icon="swatch" x-on:click="openMemberRoles(m)">{{ __('Rollen bearbeiten') }}</flux:menu.item>
-                                    <flux:menu.separator />
+                                    <template x-if="rolesSupported">
+                                        <div class="contents">
+                                            <flux:menu.item icon="swatch" x-on:click="openMemberRoles(m)">{{ __('Rollen bearbeiten') }}</flux:menu.item>
+                                            <flux:menu.separator />
+                                        </div>
+                                    </template>
                                     <flux:menu.item icon="user-minus" x-on:click="removeMember(m)">{{ __('Entfernen') }}</flux:menu.item>
                                     <flux:menu.item variant="danger" icon="no-symbol" x-on:click="banMember(m)">{{ __('Bannen') }}</flux:menu.item>
                                 </flux:menu>
