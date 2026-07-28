@@ -15,6 +15,8 @@
  * einziger Fetch von /api/mobile/meetups genuegt fuer den kompletten Join.
  */
 
+import { parseAboutMarker, readAboutTag } from './roomAbout.ts'
+
 /** Die oeffentliche Portal-Meetup-Liste (CORS offen: access-control-allow-origin: *). */
 export const MEETUP_API_URL = 'https://portal.einundzwanzig.space/api/mobile/meetups'
 
@@ -30,6 +32,12 @@ export type MeetupTags = {
 
 /** Ein Record der oeffentlichen /api/mobile/meetups. */
 export type MeetupApiRecord = {
+    /**
+     * Stabile Meetup-id. Am 2026-07-28 gegen die Live-API geprueft: alle 308
+     * Records tragen sie. Sie ist der Join-Schluessel im Buzz-Pfad, wo der Slug
+     * nicht mehr im Event steht.
+     */
+    id?: number | string | null
     name: string
     slug: string
     city?: string | null
@@ -73,6 +81,21 @@ export const parseMeetupTags = (tags: string[][]): MeetupTags => {
             meetupSlug = tag[1]
         }
     }
+    // Fallback auf den `about`-Praefix, wenn keine Marker-Tags da sind: Buzz
+    // erzeugt das 39000 selbst und laesst eigene Tags nicht durch (siehe
+    // `roomAbout.ts`). Bewusst NUR als Fallback und ohne Relay-Weiche — welches
+    // Relay dahintersteht, entscheidet sich am Datenformat. Wo Marker-Tags
+    // vorliegen (zooid), gewinnen sie und der Pfad bleibt bit-identisch.
+    if (!isMeetup) {
+        const marker = parseAboutMarker(readAboutTag(tags))
+        if (marker?.kind === MEETUP_MARKER) {
+            isMeetup = true
+            meetupId = marker.id
+        }
+    }
+    // Der Slug fehlt im `about`-Praefix — er ist dort nicht noetig: die
+    // oeffentliche Portal-Liste traegt `id` (gemessen 2026-07-28, 308 Records),
+    // der Join laeuft also ueber die id und liefert den Slug mit.
     return { isMeetup, meetupId, meetupSlug }
 }
 
@@ -126,3 +149,40 @@ export const buildPresentationMap = (records: MeetupApiRecord[]): Map<string, Me
     }
     return map
 }
+
+/**
+ * Dieselbe Liste → Map **id** → Praesentation.
+ *
+ * Der zweite Join-Index fuer den Buzz-Pfad: dort traegt der `about`-Praefix nur
+ * die id (`einundzwanzig:meetup:1234`), nicht den Slug. Der Slug kommt dann aus
+ * dem API-Record — die Praesentation ist am Ende dieselbe, nur der Schluessel
+ * unterscheidet sich.
+ *
+ * Die id wird als String verschluesselt, weil sie in der API als Zahl und im
+ * Event-Text als Zeichenkette auftritt; ein Vergleich ueber `Map<number>` haette
+ * still nie getroffen.
+ */
+export const buildPresentationMapById = (records: MeetupApiRecord[]): Map<string, MeetupPresentation> => {
+    const map = new Map<string, MeetupPresentation>()
+    for (const rec of records) {
+        if (rec && rec.slug && rec.id !== null && rec.id !== undefined && String(rec.id) !== '') {
+            map.set(String(rec.id), buildPresentation(rec))
+        }
+    }
+    return map
+}
+
+/**
+ * Die Praesentation zu einem Raum — egal ob er seine Bindung ueber den Slug
+ * (zooid, Marker-Tags) oder ueber die id (Buzz, `about`-Praefix) traegt.
+ *
+ * Slug zuerst: wo er vorliegt, ist er der aeltere und breiter belegte Weg.
+ */
+export const presentationForRoom = (
+    tags: MeetupTags,
+    bySlug: Map<string, MeetupPresentation>,
+    byId: Map<string, MeetupPresentation>,
+): MeetupPresentation | null =>
+    (tags.meetupSlug ? bySlug.get(tags.meetupSlug) : undefined) ??
+    (tags.meetupId ? byId.get(tags.meetupId) : undefined) ??
+    null

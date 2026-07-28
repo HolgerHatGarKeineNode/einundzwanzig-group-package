@@ -29,11 +29,22 @@
  *   kann auch nicht brechen: Regressionsfreiheit vor Bequemlichkeit.
  */
 
+import { parseAboutMarker, readAboutTag } from './roomAbout.ts'
+
 /** Marker-Tagwert der Kategorie „Projektunterstuetzung" (`["t", …]`). */
 export const PROJECT_SUPPORT_MARKER = 'project-support'
 
 /** Praefix des stabilen Bindungs-Tags (`["i","proposal:<antrags-id>"]`). */
 export const PROPOSAL_ID_PREFIX = 'proposal:'
+
+/**
+ * Kategorie-Kuerzel im `about`-Praefix (Buzz-Pfad) — `einundzwanzig:proposal:<id>`.
+ *
+ * Bewusst aus [[PROPOSAL_ID_PREFIX]] abgeleitet statt daneben notiert: beide
+ * bezeichnen dieselbe Bindung an die Antrags-id, nur in zwei Transportformen.
+ * Zwei getrennte Literale waeren zwei Stellen, die auseinanderlaufen koennen.
+ */
+export const PROPOSAL_MARKER = PROPOSAL_ID_PREFIX.slice(0, -1)
 
 /** Marker/Bindungs-Tags der Kategorie, aus `room.event.tags` gehoben. */
 export type ProjectSupportTags = {
@@ -56,6 +67,21 @@ export const parseProjectSupportTags = (tags: string[][]): ProjectSupportTags =>
             isProjectSupport = true
         } else if (tag[0] === 'i' && typeof tag[1] === 'string' && tag[1].startsWith(PROPOSAL_ID_PREFIX)) {
             proposalId = tag[1].slice(PROPOSAL_ID_PREFIX.length)
+        }
+    }
+    // Fallback auf den `about`-Praefix (Buzz laesst eigene Marker-Tags nicht ins
+    // 39000 — siehe `roomAbout.ts`). Analog zu `parseMeetupTags`: nur als
+    // Fallback, ohne Relay-Weiche, das Datenformat entscheidet.
+    //
+    // Der Praefix heisst hier `proposal` und nicht `project-support`: er bildet
+    // die Bindung an die ANTRAGS-id ab (`["i","proposal:<id>"]`), nicht den
+    // Anzeigenamen der Kategorie. Das Vereins-Portal leitet die Raum-id aus
+    // derselben Groesse ab (`uuid5(ns, "proposal:<id>")`).
+    if (!isProjectSupport) {
+        const marker = parseAboutMarker(readAboutTag(tags))
+        if (marker?.kind === PROPOSAL_MARKER) {
+            isProjectSupport = true
+            proposalId = marker.id
         }
     }
     return { isProjectSupport, proposalId }
