@@ -14,7 +14,19 @@ import { derived, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
 import { profilesByPubkey, loadProfile } from '@welshman/app'
-import { REPORT, ROOM_JOIN, ROOM_LEAVE, getTag, getTagValue, displayProfile, type TrustedEvent, type PublishedProfile } from '@welshman/util'
+import {
+    REPORT,
+    ROOM_JOIN,
+    ROOM_LEAVE,
+    MESSAGE,
+    POLL,
+    COMMENT,
+    getTag,
+    getTagValue,
+    displayProfile,
+    type TrustedEvent,
+    type PublishedProfile,
+} from '@welshman/util'
 import { sortBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
@@ -30,6 +42,14 @@ const REASON_LABELS: Record<string, string> = {
 
 const shortNpub = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice(-6)}`
 
+/**
+ * Was im Raum überhaupt gemeldet werden kann — die Kinds, die der Chat-Feed als
+ * Zeile rendert und die deshalb den „Fork off!"-Knopf tragen. Dient hier nur als
+ * Filter für die Store-Quelle, aus der das `h` eines gemeldeten Events kommt;
+ * ein Kind zu viel oder zu wenig kostet nichts außer einem leeren `roomH`.
+ */
+const REPORTABLE_KINDS = [MESSAGE, POLL, COMMENT]
+
 export type ReportView = {
     id: string // Report-Event (Ziel von „Verwerfen")
     reportedId: string // gemeldetes Event (Ziel von „Inhalt entfernen")
@@ -38,6 +58,18 @@ export type ReportView = {
     reason: string
     reasonLabel: string
     text: string // optionaler Freitext des Melders
+    /**
+     * Raum (`h`) des GEMELDETEN Events — '' solange das Event nicht vorliegt.
+     *
+     * Der Report selbst trägt bewusst **kein** `h` (siehe `makeReport` in
+     * `interactions.ts`: er ist keine Group-Message). Buzz verlangt für die
+     * Admin-Löschung kind 9005 aber Raum-Bezug (`requires_h_channel_scope`,
+     * `ingest.rs:487`). Das `h` wird deshalb — nach der Hausregel „kein eigenes
+     * `h` raten, vom Parent übernehmen" (`parentRoomTags`) — aus dem gemeldeten
+     * Event gelesen. Auf zooid ist das Feld folgenlos: dessen NIP-86 `banevent`
+     * kennt nur die Event-ID.
+     */
+    roomH: string
 }
 
 /**
@@ -48,8 +80,16 @@ export type ReportView = {
  */
 export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
     derived(
-        [deriveEventsForUrl(url, [{ kinds: [REPORT] }]), throttled(300, profilesByPubkey)],
-        ([events, $profiles]) => {
+        [
+            deriveEventsForUrl(url, [{ kinds: [REPORT] }]),
+            // Die gemeldeten Events selbst — Quelle des `h` (siehe ReportView.roomH).
+            // Eigene Store-Quelle, damit die Queue neu rechnet, sobald ein per
+            // [[loadReportedEvents]] nachgeladenes Ziel eintrifft.
+            deriveEventsForUrl(url, [{ kinds: REPORTABLE_KINDS }]),
+            throttled(300, profilesByPubkey),
+        ],
+        ([events, reportable, $profiles]) => {
+            const byId = new Map((reportable as TrustedEvent[]).map((e) => [e.id, e]))
             const sorted = sortBy((e: TrustedEvent) => -e.created_at, events)
             return sorted.map((e): ReportView => {
                 const eTag = getTag('e', e.tags) ?? []
@@ -66,14 +106,17 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
                 const npub = reportedPubkey ? nip19.npubEncode(reportedPubkey) : ''
                 const profile = reportedPubkey ? ($profiles.get(reportedPubkey) as PublishedProfile | undefined) : undefined
                 const reason = eTag[2] ?? ''
+                const reportedId = eTag[1] ?? ''
+                const reported = reportedId ? byId.get(reportedId) : undefined
                 return {
                     id: e.id,
-                    reportedId: eTag[1] ?? '',
+                    reportedId,
                     reportedPubkey,
                     reportedName: reportedPubkey ? displayProfile(profile, shortNpub(npub)) : '?',
                     reason,
                     reasonLabel: REASON_LABELS[reason] ?? (reason || 'Meldung'),
                     text: e.content,
+                    roomH: reported ? (getTagValue('h', reported.tags) ?? '') : '',
                 }
             })
         },
@@ -82,6 +125,22 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
 /** Lädt die Meldungen (kind 1984) des Space frisch vom Relay. */
 export const loadSpaceReports = (url: string): Promise<unknown> =>
     load({ relays: [url], filters: [{ kinds: [REPORT] }] })
+
+/**
+ * Lädt die GEMELDETEN Events zu einer Menge von Report-Zielen nach — sie liefern
+ * das `h`, das die Admin-Löschung auf Buzz braucht (kind 9005, siehe
+ * [[ReportView.roomH]]). Auf der Directory-Seite lädt sonst niemand Raum-Inhalte,
+ * die Ziele wären also nie im Repository.
+ *
+ * Gezielt per `ids`-Filter statt breiter Raum-Abfrage: das ist genau ein REQ über
+ * die offenen Meldungen, unabhängig von der Größe der Räume. Leere Liste → No-op.
+ */
+export const loadReportedEvents = (url: string, ids: string[]): void => {
+    if (ids.length === 0) {
+        return
+    }
+    void load({ relays: [url], filters: [{ ids }] })
+}
 
 /** Live-Sub auf neue Meldungen (kind 1984) — Nachzügler erscheinen sofort. */
 export const watchSpaceReports = (url: string, signal: AbortSignal): void => {

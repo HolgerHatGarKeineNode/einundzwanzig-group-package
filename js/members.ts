@@ -1,12 +1,16 @@
 /**
- * Space-Directory: Mitglieder + Rollen — portiert aus dem Referenz-Client
+ * Space-Directory: Mitglieder — portiert aus dem Referenz-Client
  * `src/app/members.ts`. Lese-Teil (M3) + Admin-Mutationen (M6): Member-Zuweisung,
- * Ban/Entfernen, Admin-Erkennung, auf zooid zusätzlich benannte Rollen.
+ * Ban/Entfernen, Admin-Erkennung.
  *
- * Autoritativ ist die **relay-signierte** Mitgliederliste (13534) und die
- * Rollendefinitionen (33534, app-lokal). Beide filtert `deriveRelaySignedEvents`
- * auf `pubkey === relay.self`. Rollen-Zuweisungen stehen als Extra-Werte an den
- * `["member", pubkey, ...roleIds]`-Tags der 13534.
+ * Autoritativ ist die **relay-signierte** Mitgliederliste (13534), gefiltert von
+ * `deriveRelaySignedEvents` auf `pubkey === relay.self`. Am `member`-Tag steht
+ * hinter dem Pubkey die Relay-Rolle (`["member", pubkey, "owner"|"admin"|"member"]`)
+ * — daran hängt die Admin-Erkennung.
+ *
+ * **Benannte Rollen (kind 33534) gibt es nicht mehr** (Nutzerentscheidung
+ * 2026-07-28). Buzz kennt sie ohnehin nicht; die zooid-seitigen Label/Farben sind
+ * ersatzlos entfallen. Die drei Relay-Rollen aus der 13534 bleiben.
  *
  * **Zwei Relay-Strecken (P3, Buzz-Migration).** Die Mutationen laufen je nach
  * Relay über zwei verschiedene Protokolle — die Weiche steckt ausschließlich in
@@ -44,7 +48,7 @@ import {
     displayProfile,
     type PublishedProfile,
 } from '@welshman/util'
-import { first, randomId, sortBy, uniq } from '@welshman/lib'
+import { sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository'
 import { isBuzzRelay } from './relayCaps'
@@ -62,72 +66,7 @@ import {
 import { isVereinRelay, roomMembersByUrl } from './groups'
 import { warmHandles, verifiedNip05 } from './handles'
 
-/** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
-export const RELAY_ROLE = 33534
-
-// ── Rollenfarbe (HSL) ────────────────────────────────────────────────────────
-
-/**
- * HSL-Tupel aus dem `["color", hue, saturation, lightness]`-Tag; leere
- * Komponenten füllt der Client mit Defaults (lesbar in Light & Dark).
- */
-export type SpaceRoleColor = { hue: string; saturation: string; lightness: string }
-
-const DEFAULT_SATURATION = 0.7
-const DEFAULT_LIGHTNESS = 0.5
-
-const roleColorValue = (value: string, fallback: number): number => {
-    const parsed = parseFloat(value)
-    return isNaN(parsed) ? fallback : parsed
-}
-
-export const parseRoleColor = (tags: string[][]): SpaceRoleColor => {
-    const tag = first(getTags('color', tags)) ?? []
-    return { hue: tag[1] ?? '', saturation: tag[2] ?? '', lightness: tag[3] ?? '' }
-}
-
-/** `hue, saturation%, lightness%` einer Rollenfarbe (mit Defaults für leere Werte). */
-const roleColorParts = (color: SpaceRoleColor): string => {
-    const h = roleColorValue(color.hue, 0)
-    const s = roleColorValue(color.saturation, DEFAULT_SATURATION)
-    const l = roleColorValue(color.lightness, DEFAULT_LIGHTNESS)
-    return `${h}, ${s * 100}%, ${l * 100}%`
-}
-
-/** `hsl(...)`-String aus einer Rollenfarbe (mit Defaults für leere Werte). */
-export const roleColor = (color: SpaceRoleColor): string => `hsl(${roleColorParts(color)})`
-
-/** Durchscheinende Tönung derselben Farbe als Badge-Hintergrund. */
-export const roleColorSoft = (color: SpaceRoleColor): string => `hsl(${roleColorParts(color)}, 0.15)`
-
-// ── Rollen (33534) & Mitglieder (13534) ──────────────────────────────────────
-
-export type SpaceRole = {
-    id: string
-    label: string
-    description: string
-    color: SpaceRoleColor
-    order: number
-}
-
-/** Die relay-signierten Rollendefinitionen eines Space, nach `order` sortiert. */
-export const deriveSpaceRoles = (url: string): Readable<SpaceRole[]> =>
-    derived(deriveRelaySignedEvents(url, [{ kinds: [RELAY_ROLE] }]), ($events) => {
-        const roles: SpaceRole[] = []
-        for (const event of $events) {
-            const id = getTagValue('d', event.tags)
-            if (id) {
-                roles.push({
-                    id,
-                    label: getTagValue('label', event.tags) ?? '',
-                    description: getTagValue('description', event.tags) ?? '',
-                    color: parseRoleColor(event.tags),
-                    order: parseInt(getTagValue('order', event.tags) ?? '0', 10) || 0,
-                })
-            }
-        }
-        return sortBy((r) => [r.order, r.label] as [number, string], roles)
-    })
+// ── Mitglieder (13534) ───────────────────────────────────────────────────────
 
 /** Mitglieder-Pubkeys aus der relay-signierten 13534-Liste. */
 export const deriveSpaceMembers = (url: string): Readable<string[]> =>
@@ -152,7 +91,6 @@ export const deriveSpaceMemberRoles = (url: string): Readable<Map<string, string
 
 // ── Aggregierte UI-Sicht ─────────────────────────────────────────────────────
 
-export type RoleView = { id: string; label: string; color: string; soft: string }
 export type MemberView = {
     pubkey: string
     npub: string
@@ -160,12 +98,9 @@ export type MemberView = {
     name: string
     nip05: string // verifizierter NIP-05-Handle (leer = kein Häkchen)
     picture: string
-    roles: RoleView[]
-    roleIds: string[] // rohe Zuweisungen (für die Admin-Zuweisungs-UI)
     search: string
 }
-/** `roles` = alle Rollen des Space (für Verwaltung/Zuweisung, nicht nur belegte). */
-export type DirectoryView = { ready: boolean; members: MemberView[]; roles: RoleView[] }
+export type DirectoryView = { ready: boolean; members: MemberView[] }
 
 /** Kurzform eines npub für die Anzeige ohne Profil. */
 const shortNpub = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice(-6)}`
@@ -186,20 +121,10 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
         [
             deriveRelaySelfReady(url),
             deriveSpaceMembers(url),
-            deriveSpaceMemberRoles(url),
-            deriveSpaceRoles(url),
             throttled(300, profilesByPubkey),
             throttled(300, handlesByNip05),
         ],
-        ([ready, members, memberRoles, roles, $profiles, $handles]) => {
-            const roleById = new Map(roles.map((r) => [r.id, r]))
-            const toRoleView = (id: string): RoleView | null => {
-                const role = roleById.get(id)
-                return role
-                    ? { id, label: role.label || id, color: roleColor(role.color), soft: roleColorSoft(role.color) }
-                    : null
-            }
-
+        ([ready, members, $profiles, $handles]) => {
             // NIP-05-Handles der Mitglieder lazy verifizieren (dedupliziert, async).
             warmHandles(members)
 
@@ -207,8 +132,6 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
                 const npub = nip19.npubEncode(pubkey)
                 const profile = $profiles.get(pubkey) as PublishedProfile | undefined
                 const name = displayProfile(profile, shortNpub(npub))
-                const roleIds = memberRoles.get(pubkey) ?? []
-                const memberRoleViews = roleIds.map(toRoleView).filter((r): r is RoleView => r !== null)
                 return {
                     pubkey,
                     npub,
@@ -216,16 +139,11 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
                     name,
                     nip05: verifiedNip05(pubkey, $profiles, $handles),
                     picture: profile?.picture ?? '',
-                    roles: memberRoleViews,
-                    roleIds,
                     search: `${name} ${npub}`.toLowerCase(),
                 }
             })
 
-            const allRoles = roles
-                .map((r) => toRoleView(r.id))
-                .filter((r): r is RoleView => r !== null)
-            return { ready, members: sortBy((m) => m.name.toLowerCase(), views), roles: allRoles }
+            return { ready, members: sortBy((m) => m.name.toLowerCase(), views) }
         },
     )
 
@@ -291,7 +209,7 @@ export const watchSpaceDirectory = (url: string, signal: AbortSignal): void => {
     void request({
         relays: [url],
         signal,
-        filters: [{ kinds: [RELAY_MEMBERS, RELAY_ROLE] }],
+        filters: [{ kinds: [RELAY_MEMBERS] }],
         onEose: () => markDirectoryLoaded(url),
         onClosed: () => markDirectoryLoaded(url),
     })
@@ -337,15 +255,6 @@ const spaceIsBuzz = (url: string): boolean => {
     }
     return isBuzzRelay(profile)
 }
-
-/**
- * Werden benannte Rollen (kind 33534) auf diesem Space unterstuetzt? Nur zooid
- * kennt sie; Buzz hat ein festes `owner|admin|member` ohne Label/Farbe
- * (`buzz-db/src/relay_members.rs:20`) und keine Route, um Rollen anzulegen. Die
- * Rollen-Verwaltung der Directory-Insel blendet sich auf Buzz deshalb aus.
- */
-export const deriveSpaceSupportsRoles = (url: string): Readable<boolean> =>
-    derived(deriveRelay(url), (relay) => !isBuzzRelay(relay))
 
 // ── Admin-Erkennung ─────────────────────────────────────────────────────────
 
@@ -420,69 +329,6 @@ export const deriveUserIsSpaceAdmin = (url: string): Readable<boolean> => {
 type ManageResult = { error?: string }
 const manageError = (res: ManageResult): string => res.error ?? ''
 
-// Benannte Rollen (kind 33534) sind eine **zooid-Eigenheit**: `createrole`/… sind
-// relay-spezifische NIP-86-Erweiterungen (nicht im ManagementMethod-Enum) — der
-// Referenz-Client castet ebenso. Buzz kennt sie nicht und bekommt sie auch nicht
-// nachgebaut (Nutzerentscheidung 2026-07-28); dort blendet
-// [[deriveSpaceSupportsRoles]] die gesamte Rollen-Verwaltung aus, und diese fünf
-// Funktionen werden im Buzz-Pfad nie aufgerufen. Ein versehentlicher Aufruf
-// erreicht das Relay trotzdem nicht — der Guard unten bricht vorher ab, damit
-// kein `manageRelay` gegen einen Buzz-Relay läuft.
-const ROLES_UNSUPPORTED = 'Dieser Space unterstützt keine benannten Rollen.'
-
-const roleColorParams = (color: SpaceRoleColor): string =>
-    [color.hue, color.saturation, color.lightness] as unknown as string
-
-export const createRole = async (
-    url: string,
-    label: string,
-    description: string,
-    color: SpaceRoleColor,
-    order: number,
-): Promise<string> =>
-    spaceIsBuzz(url)
-        ? ROLES_UNSUPPORTED
-        : manageError(
-              await manageRelay(url, {
-                  method: 'createrole' as ManagementMethod,
-                  params: [randomId(), label, description, roleColorParams(color), order.toString()],
-              }),
-          )
-
-export const editRole = async (
-    url: string,
-    id: string,
-    label: string,
-    description: string,
-    color: SpaceRoleColor,
-    order: number,
-): Promise<string> =>
-    spaceIsBuzz(url)
-        ? ROLES_UNSUPPORTED
-        : manageError(
-              await manageRelay(url, {
-                  method: 'editrole' as ManagementMethod,
-                  params: [id, label, description, roleColorParams(color), order.toString()],
-              }),
-          )
-
-export const deleteRole = async (url: string, id: string): Promise<string> =>
-    spaceIsBuzz(url)
-        ? ROLES_UNSUPPORTED
-        : manageError(await manageRelay(url, { method: 'deleterole' as ManagementMethod, params: [id] }))
-
-export const assignRole = async (url: string, pubkey: string, roleId: string): Promise<string> =>
-    spaceIsBuzz(url)
-        ? ROLES_UNSUPPORTED
-        : manageError(await manageRelay(url, { method: 'assignrole' as ManagementMethod, params: [pubkey, roleId] }))
-
-export const unassignRole = async (url: string, pubkey: string, roleId: string): Promise<string> =>
-    spaceIsBuzz(url)
-        ? ROLES_UNSUPPORTED
-        : manageError(
-              await manageRelay(url, { method: 'unassignrole' as ManagementMethod, params: [pubkey, roleId] }),
-          )
-
 // Mitglieder — zooid: NIP-86 allow/ban · Buzz: native Kinds 9030/9031/9040/9041.
 // Die Signaturen bleiben identisch, damit `bridge.ts` und die Blades unberuehrt
 // bleiben; die Weiche steckt ausschliesslich hier.
@@ -530,6 +376,26 @@ export const setSpaceMemberRole = async (
 // trägt die id in die Banned-Events-Liste). Das ist die Admin-Löschung fremder
 // Nachrichten — im Gegensatz zum eigenen kind-5-Delete braucht sie kein Signatur-
 // Recht am Event, nur den Admin-Status am Relay. '' = Erfolg.
+/**
+ * Verwirft ein **Report-Event** (kind 1984) relay-seitig.
+ *
+ * - **zooid:** NIP-86 `banevent` — löscht den Report und merkt seine id vor.
+ * - **Buzz:** No-op mit Erfolg. Am laufenden Relay gemessen ist ein Report dort
+ *   **gar kein abfragbares Event**: der Ingest nimmt kind 1984 an, schreibt ihn in
+ *   die `moderation_reports`-Tabelle und kehrt vorher zurück
+ *   (`handlers/ingest.rs:1600-1608`) — ein `REQ -k 1984` liefert 0 Treffer. Es gibt
+ *   also nichts zu löschen, und der einzige Weg wäre kind 9005, das ohne `h`
+ *   abgewiesen wird (`invalid: channel-scoped events must include an h tag`) — ein
+ *   `h` hat der Report per Definition nicht. Ein Fehler-Toast wäre hier eine
+ *   Falschmeldung; das lokale Ausblenden bleibt korrekt.
+ */
+export const dismissReportEvent = async (url: string, id: string): Promise<string> =>
+    spaceIsBuzz(url)
+        ? ''
+        : manageError(
+              await manageRelay(url, { method: ManagementMethod.BanEvent, params: [id, 'dismissed by admin'] }),
+          )
+
 export const banEvent = async (url: string, id: string, reason = '', h = ''): Promise<string> =>
     spaceIsBuzz(url)
         ? await buzzDeleteEvent(url, id, h)
@@ -587,13 +453,13 @@ export const loadBannedMembers = async (url: string): Promise<BannedMember[]> =>
 
 // ── Laden ────────────────────────────────────────────────────────────────────
 
-/** Lädt Mitglieder- und Rollen-Events (13534/33534) vom Space-Relay. */
+/** Lädt die Mitglieder-Events (13534) vom Space-Relay. */
 export const loadSpaceDirectory = (url: string): Promise<unknown> =>
-    load({ relays: [url], filters: [{ kinds: [RELAY_MEMBERS, RELAY_ROLE] }] })
+    load({ relays: [url], filters: [{ kinds: [RELAY_MEMBERS] }] })
 
-/** Live-Sub auf 13534/33534 — Admin-Änderungen (Rollen/Member) sofort sichtbar. */
+/** Live-Sub auf die 13534 — Member-Änderungen sofort sichtbar. */
 export const listenSpaceDirectory = (url: string, signal: AbortSignal): void => {
-    void request({ relays: [url], signal, filters: [{ kinds: [RELAY_MEMBERS, RELAY_ROLE], limit: 0 }] })
+    void request({ relays: [url], signal, filters: [{ kinds: [RELAY_MEMBERS], limit: 0 }] })
 }
 
 /**

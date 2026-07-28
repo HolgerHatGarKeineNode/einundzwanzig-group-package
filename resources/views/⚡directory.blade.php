@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\View;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
-/** Directory (Mitglieder + Rollen des aktiven Space) als Livewire-SFC. */
+/** Directory (Mitglieder des aktiven Space) als Livewire-SFC. */
 new #[Layout('group::einundzwanzig')] class extends Component
 {
     public ?string $ogImage = null;
@@ -60,16 +60,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Space-Metadaten (Name/Beschreibung/Icon, NIP-86 changerelay*). openSpaceEdit
                  belegt aus dem NIP-11 vor + öffnet das Modal selbst (kein modal.trigger nötig). --}}
             <flux:button size="sm" variant="ghost" icon="pencil-square" x-on:click="openSpaceEdit()">{{ __('Space') }}</flux:button>
-            {{-- Benannte Rollen (33534) gibt es nur auf zooid-Spaces; Buzz hat ein festes
-                 owner|admin|member ohne Label/Farbe (rolesSupported, siehe members.ts). --}}
-            <template x-if="rolesSupported">
-                <div class="contents">
-                    <flux:button size="sm" variant="primary" icon="plus" x-on:click="openRoleCreate()">{{ __('Rolle') }}</flux:button>
-                    <flux:modal.trigger name="roles-list">
-                        <flux:button size="sm" variant="ghost" icon="swatch">{{ __('Rollen verwalten') }}</flux:button>
-                    </flux:modal.trigger>
-                </div>
-            </template>
             <flux:modal.trigger name="banned">
                 <flux:button size="sm" variant="ghost" icon="no-symbol" x-on:click="loadBanned()">{{ __('Gebannt') }}</flux:button>
             </flux:modal.trigger>
@@ -123,13 +113,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </div>
                             {{-- Verifizierter Handle ersetzt die npub-Kurzform, sonst npub. --}}
                             <div class="truncate font-mono text-xs text-muted" x-text="m.nip05 || m.short"></div>
-                            <div class="mt-1 flex flex-wrap gap-1" x-show="m.roles.length > 0">
-                                <template x-for="role in m.roles" :key="role.id">
-                                    <flux:badge size="sm" ::style="`color:${role.color};background-color:${role.soft}`">
-                                        <span x-text="role.label"></span>
-                                    </flux:badge>
-                                </template>
-                            </div>
                         </div>
 
                         {{-- Admin-Aktionen je Mitglied (NIP-86) --}}
@@ -137,12 +120,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:dropdown position="bottom" align="end">
                                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Mitglied verwalten') }}" />
                                 <flux:menu>
-                                    <template x-if="rolesSupported">
-                                        <div class="contents">
-                                            <flux:menu.item icon="swatch" x-on:click="openMemberRoles(m)">{{ __('Rollen bearbeiten') }}</flux:menu.item>
-                                            <flux:menu.separator />
-                                        </div>
-                                    </template>
                                     <flux:menu.item icon="user-minus" x-on:click="removeMember(m)">{{ __('Entfernen') }}</flux:menu.item>
                                     <flux:menu.item variant="danger" icon="no-symbol" x-on:click="banMember(m)">{{ __('Bannen') }}</flux:menu.item>
                                 </flux:menu>
@@ -160,80 +137,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </template>
 
-        {{-- ── Admin-Modals (NIP-86) ─────────────────────────────────────────── --}}
-
-        {{-- Rolle anlegen/bearbeiten (HSL via native range, §6) --}}
-        <flux:modal name="role-form" class="max-w-sm">
-            <div class="space-y-4">
-                <flux:heading size="lg" x-text="roleForm.id ? @js(__('Rolle bearbeiten')) : @js(__('Neue Rolle'))"></flux:heading>
-
-                <flux:input label="{{ __('Bezeichnung') }}" x-model="roleForm.label" placeholder="{{ __('z.B. Vorstand') }}" />
-                <flux:textarea label="{{ __('Beschreibung') }}" x-model="roleForm.description" rows="2" placeholder="{{ __('Optional') }}" />
-
-                <div>
-                    <flux:text class="mb-1 text-sm font-medium">{{ __('Farbe') }}</flux:text>
-                    <div class="flex items-center gap-3">
-                        <flux:badge x-bind:style="`color:hsl(${roleForm.hue},70%,${roleForm.lightness*100}%);background-color:hsl(${roleForm.hue},70%,${roleForm.lightness*100}%,0.15)`">
-                            <span x-text="roleForm.label || @js(__('Vorschau'))"></span>
-                        </flux:badge>
-                    </div>
-                    <label class="mt-2 block text-xs text-muted">{{ __('Farbton') }}</label>
-                    <input type="range" min="0" max="360" step="1" x-model.number="roleForm.hue" class="w-full accent-brand-500" />
-                    <label class="mt-1 block text-xs text-muted">{{ __('Helligkeit') }}</label>
-                    <input type="range" min="0.2" max="0.8" step="0.01" x-model.number="roleForm.lightness" class="w-full accent-brand-500" />
-                </div>
-
-                <div class="flex justify-end gap-2">
-                    <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
-                    <flux:button variant="primary" x-on:click="saveRole()" ::disabled="busy || !roleForm.label.trim()">{{ __('Speichern') }}</flux:button>
-                </div>
-            </div>
-        </flux:modal>
-
-        {{-- Rollen verwalten (Liste, bearbeiten/löschen) --}}
-        <flux:modal name="roles-list" class="max-w-sm">
-            <div class="space-y-4">
-                <flux:heading size="lg">{{ __('Rollen') }}</flux:heading>
-                <template x-if="rolesFull.length === 0">
-                    <flux:text class="text-sm text-muted">{{ __('Noch keine Rollen definiert.') }}</flux:text>
-                </template>
-                <div class="space-y-2">
-                    <template x-for="role in rolesFull" :key="role.id">
-                        <div class="surface-card flex items-center gap-2 p-2">
-                            <flux:badge size="sm" x-bind:style="`color:hsl(${parseFloat(role.color.hue)||0},70%,${(parseFloat(role.color.lightness)||0.5)*100}%);background-color:hsl(${parseFloat(role.color.hue)||0},70%,${(parseFloat(role.color.lightness)||0.5)*100}%,0.15)`">
-                                <span x-text="role.label || role.id"></span>
-                            </flux:badge>
-                            <span class="min-w-0 flex-1 truncate text-xs text-muted" x-text="role.description"></span>
-                            <flux:button size="xs" variant="ghost" icon="pencil-square" class="icon-btn-touch" x-on:click="openRoleEdit(role)" aria-label="{{ __('Bearbeiten') }}" />
-                            <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch" x-on:click="removeRole(role.id)" ::disabled="busy" aria-label="{{ __('Löschen') }}" />
-                        </div>
-                    </template>
-                </div>
-                <flux:button variant="primary" icon="plus" class="w-full" x-on:click="openRoleCreate()">{{ __('Neue Rolle') }}</flux:button>
-            </div>
-        </flux:modal>
-
-        {{-- Rollen eines Mitglieds zuweisen (Toggle je Rolle) --}}
-        <flux:modal name="member-roles" class="max-w-sm">
-            <div class="space-y-4" x-show="editingMember">
-                <flux:heading size="lg">{{ __('Rollen von') }} <span x-text="editingMember?.name"></span></flux:heading>
-                <template x-if="roles.length === 0">
-                    <flux:text class="text-sm text-muted">{{ __('Erst eine Rolle anlegen.') }}</flux:text>
-                </template>
-                <div class="space-y-1">
-                    {{-- Zeilen-Toggle (Check/Plus-Icon + farbiges Rollen-Badge) → rohes <button>,
-                         kein Flux-Icon-Pendant für dieses Komposit, §6. --}}
-                    <template x-for="role in roles" :key="role.id">
-                        <button type="button" x-on:click="toggleMemberRole(role.id)" ::disabled="busy"
-                                class="pressable flex w-full items-center gap-2 rounded-tile p-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                            <flux:icon.check-circle variant="solid" class="size-5 text-brand-500" x-show="memberHasRole(role.id)" x-cloak />
-                            <flux:icon.plus-circle class="size-5 text-zinc-400" x-show="!memberHasRole(role.id)" />
-                            <flux:badge size="sm" ::style="`color:${role.color};background-color:${role.soft}`"><span x-text="role.label"></span></flux:badge>
-                        </button>
-                    </template>
-                </div>
-            </div>
-        </flux:modal>
+        {{-- ── Admin-Modals ──────────────────────────────────────────────────── --}}
 
         {{-- Einladungs-Link generieren (Claim aus kind 28935) --}}
         <flux:modal name="invite" class="max-w-sm">

@@ -74,8 +74,6 @@ import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseRoomType, supports
 import { roomsFingerprint, type RoomLike } from './roomFingerprint'
 import {
     deriveSpaceDirectory,
-    deriveSpaceRoles,
-    deriveSpaceSupportsRoles,
     deriveVereinAccess,
     isVereinGatedOut,
     deriveUserIsSpaceAdmin,
@@ -85,16 +83,12 @@ import {
     loadMemberProfiles,
     settleMemberProfiles,
     loadBannedMembers,
-    createRole,
-    editRole,
-    deleteRole,
-    assignRole,
-    unassignRole,
     removeSpaceMember,
     banSpaceMember,
     unbanSpaceMember,
     addSpaceMember,
     banEvent,
+    dismissReportEvent,
     setRelayName,
     setRelayDescription,
     setRelayIcon,
@@ -102,14 +96,13 @@ import {
     type RoomMemberView,
     type DirectoryView,
     type MemberView,
-    type RoleView,
-    type SpaceRole,
     type BannedMember,
     type VereinAccess,
 } from './members'
 import {
     deriveSpaceReports,
     loadSpaceReports,
+    loadReportedEvents,
     watchSpaceReports,
     deriveSpaceJoinRequests,
     loadSpaceJoinRequests,
@@ -594,23 +587,14 @@ type VereinGateState = {
     destroy(): void
 }
 
-/** Formular-Zustand einer Rolle (hue 0–360, lightness 0–1; '' id = neu). */
-type RoleForm = { id: string; label: string; description: string; hue: number; lightness: number; order: number }
-
 type DirectoryState = {
     ready: boolean
     profilesReady: boolean
     members: MemberView[]
-    roles: RoleView[]
     query: string
     gatedOut: boolean
     // Admin — zooid: NIP-86 · Buzz: native Kinds 9030/9031/9040/9041 (siehe members.ts)
     isAdmin: boolean
-    /** Kennt dieser Space benannte Rollen (33534)? Auf Buzz: nein (festes owner|admin|member). */
-    rolesSupported: boolean
-    rolesFull: SpaceRole[]
-    editingMember: MemberView | null
-    roleForm: RoleForm
     banned: BannedMember[]
     inviteLink: string
     inviteBusy: boolean
@@ -629,26 +613,18 @@ type DirectoryState = {
     _controller: AbortController | null
     _unsubActive: null | (() => void)
     _unsubDir: null | (() => void)
-    _unsubRoles: null | (() => void)
-    _unsubRolesSupported: null | (() => void)
     _unsubAdmin: null | (() => void)
     _unsubAccess: null | (() => void)
     _unsubReports: null | (() => void)
     _unsubJoins: null | (() => void)
     _loadedDir: Set<string>
     _loadedProfiles: Set<string>
+    _loadedReported: Set<string>
     _settleStarted: boolean
     init(): void
     destroy(): void
     filtered(): MemberView[]
     reload(): void
-    openRoleCreate(): void
-    openRoleEdit(role: SpaceRole): void
-    saveRole(): Promise<void>
-    removeRole(id: string): Promise<void>
-    openMemberRoles(m: MemberView): void
-    memberHasRole(roleId: string): boolean
-    toggleMemberRole(roleId: string): Promise<void>
     removeMember(m: MemberView): Promise<void>
     banMember(m: MemberView): Promise<void>
     loadBanned(): Promise<void>
@@ -2721,14 +2697,9 @@ export function registerNostrComponents(Alpine: {
         ready: false,
         profilesReady: false,
         members: [],
-        roles: [],
         query: '',
         gatedOut: false,
         isAdmin: false,
-        rolesSupported: true,
-        rolesFull: [],
-        editingMember: null,
-        roleForm: { id: '', label: '', description: '', hue: 210, lightness: 0.5, order: 0 },
         banned: [],
         inviteLink: '',
         inviteBusy: false,
@@ -2744,21 +2715,18 @@ export function registerNostrComponents(Alpine: {
         _controller: null,
         _unsubActive: null,
         _unsubDir: null,
-        _unsubRoles: null,
-        _unsubRolesSupported: null,
         _unsubAdmin: null,
         _unsubAccess: null,
         _unsubReports: null,
         _unsubJoins: null,
         _loadedDir: new Set<string>(),
         _loadedProfiles: new Set<string>(),
+        _loadedReported: new Set<string>(),
         _settleStarted: false,
         init() {
             // Aktiver Space → dessen Directory laden + Subs neu aufbauen.
             this._unsubActive = activeSpace.subscribe((url: string) => {
                 this._unsubDir?.()
-                this._unsubRoles?.()
-                this._unsubRolesSupported?.()
                 this._unsubAdmin?.()
                 this._unsubAccess?.()
                 this._unsubReports?.()
@@ -2770,9 +2738,7 @@ export function registerNostrComponents(Alpine: {
                 this.reports = []
                 this.joinRequests = []
                 this.members = []
-                this.roles = []
                 this.gatedOut = false
-                this.editingMember = null
                 this._url = url
                 this._controller = new AbortController()
                 // Sicherheitsnetz: bleibt das Directory-Loaded-Signal (EOSE/CLOSED)
@@ -2818,12 +2784,6 @@ export function registerNostrComponents(Alpine: {
                     // wenn `profilesReady` steht (x-if, gesetzt vom Access-Gate oben) —
                     // kein progressives Umsortieren einer sichtbaren Liste.
                     this.members = view.members
-                    this.roles = view.roles
-                    // Falls das Rollen-Modal offen ist, die Auswahl frisch halten.
-                    if (this.editingMember) {
-                        this.editingMember =
-                            view.members.find((m) => m.pubkey === this.editingMember!.pubkey) ?? this.editingMember
-                    }
                     // Nachzügler (Live-Admin fügt nach dem Gate Mitglieder hinzu):
                     // deren Profile einzeln nachladen — je pubkey einmal.
                     if (this.profilesReady) {
@@ -2833,15 +2793,6 @@ export function registerNostrComponents(Alpine: {
                         missing.forEach((pk) => this._loadedProfiles.add(pk))
                         loadMemberProfiles(url, missing)
                     }
-                })
-                this._unsubRoles = deriveSpaceRoles(url).subscribe((roles: SpaceRole[]) => {
-                    this.rolesFull = roles
-                })
-                // Rollen-Verwaltung nur zeigen, wo es sie gibt (zooid). Buzz kennt nur
-                // ein festes owner|admin|member ohne Label/Farbe und keine Route zum
-                // Anlegen — die Buttons würden dort ins Leere greifen.
-                this._unsubRolesSupported = deriveSpaceSupportsRoles(url).subscribe((ok: boolean) => {
-                    this.rolesSupported = ok
                 })
                 this._unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
                     this.isAdmin = admin
@@ -2853,6 +2804,14 @@ export function registerNostrComponents(Alpine: {
                 watchSpaceReports(url, this._controller.signal)
                 this._unsubReports = deriveSpaceReports(url).subscribe((r: ReportView[]) => {
                     this.reports = r
+                    // Die gemeldeten Events nachladen — sie liefern das `h`, das die
+                    // Admin-Löschung auf Buzz braucht (kind 9005). Je Ziel-id genau
+                    // einmal; die Queue rechnet neu, sobald sie eintreffen.
+                    const missing = r
+                        .map((v) => v.reportedId)
+                        .filter((id) => id && !this._loadedReported.has(id))
+                    missing.forEach((id) => this._loadedReported.add(id))
+                    loadReportedEvents(url, missing)
                 })
                 // Beitritts-Queue (P4b): Räume (39000/39002) UND Join-Requests (9021/9022)
                 // laden — auf der Directory-Seite lädt sonst niemand die Räume, dann fehlte
@@ -2876,77 +2835,6 @@ export function registerNostrComponents(Alpine: {
             if (this._url) {
                 loadSpaceDirectory(this._url)
                 refreshSpaceAdmin(this._url)
-            }
-        },
-        openRoleCreate() {
-            this.roleForm = { id: '', label: '', description: '', hue: 210, lightness: 0.5, order: this.rolesFull.length }
-            dispatchModal('role-form')
-        },
-        openRoleEdit(role: SpaceRole) {
-            this.roleForm = {
-                id: role.id,
-                label: role.label,
-                description: role.description,
-                hue: parseFloat(role.color.hue) || 0,
-                lightness: parseFloat(role.color.lightness) || 0.5,
-                order: role.order,
-            }
-            dispatchModal('role-form')
-        },
-        async saveRole() {
-            if (!this._url || this.busy || !this.roleForm.label.trim()) {
-                return
-            }
-            this.busy = true
-            const { id, label, description, hue, lightness, order } = this.roleForm
-            const color = { hue: String(hue), saturation: '0.7', lightness: String(lightness) }
-            try {
-                const err = id
-                    ? await editRole(this._url, id, label, description, color, order)
-                    : await createRole(this._url, label, description, color, order)
-                if (err) {
-                    toast(err)
-                } else {
-                    dispatchModal('role-form', false)
-                    this.reload()
-                }
-            } finally {
-                this.busy = false
-            }
-        },
-        async removeRole(id: string) {
-            if (!this._url || this.busy) {
-                return
-            }
-            this.busy = true
-            try {
-                const err = await deleteRole(this._url, id)
-                err ? toast(err) : this.reload()
-            } finally {
-                this.busy = false
-            }
-        },
-        openMemberRoles(m: MemberView) {
-            this.editingMember = m
-            dispatchModal('member-roles')
-        },
-        memberHasRole(roleId: string) {
-            return Boolean(this.editingMember?.roleIds.includes(roleId))
-        },
-        async toggleMemberRole(roleId: string) {
-            if (!this._url || !this.editingMember || this.busy) {
-                return
-            }
-            this.busy = true
-            const pk = this.editingMember.pubkey
-            const has = this.editingMember.roleIds.includes(roleId)
-            try {
-                const err = has
-                    ? await unassignRole(this._url, pk, roleId)
-                    : await assignRole(this._url, pk, roleId)
-                err ? toast(err) : this.reload()
-            } finally {
-                this.busy = false
             }
         },
         async removeMember(m: MemberView) {
@@ -3043,7 +2931,7 @@ export function registerNostrComponents(Alpine: {
             }
             this.busy = true
             try {
-                const err = await banEvent(this._url, r.id, 'dismissed by admin')
+                const err = await dismissReportEvent(this._url, r.id)
                 if (err) {
                     toast(err)
                 } else {
@@ -3062,7 +2950,10 @@ export function registerNostrComponents(Alpine: {
             }
             this.busy = true
             try {
-                const err = (await banEvent(this._url, r.reportedId)) || (await banEvent(this._url, r.id))
+                // Das `h` des gemeldeten Events durchreichen: Buzz' kind 9005 verlangt
+                // Raum-Bezug (`invalid: channel-scoped events must include an h tag`,
+                // am laufenden Relay gemessen). Auf zooid ist der vierte Parameter folgenlos.
+                const err = (await banEvent(this._url, r.reportedId, '', r.roomH)) || (await dismissReportEvent(this._url, r.id))
                 if (err) {
                     toast(err)
                 } else {
@@ -3082,7 +2973,8 @@ export function registerNostrComponents(Alpine: {
             }
             this.busy = true
             try {
-                const err = (await banSpaceMember(this._url, r.reportedPubkey)) || (await banEvent(this._url, r.id))
+                const err =
+                    (await banSpaceMember(this._url, r.reportedPubkey)) || (await dismissReportEvent(this._url, r.id))
                 if (err) {
                     toast(err)
                 } else {
