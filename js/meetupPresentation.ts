@@ -59,6 +59,16 @@ export type MeetupPresentation = {
     name: string
     /** Naechster Termin (ISO-String der Portal-API) oder ''. */
     nextEventStart: string
+    /**
+     * Logo-URL aus der Portal-Liste ('' wenn keins hinterlegt).
+     *
+     * Ersetzt das `picture`-Tag, das Buzz nicht kennt: der Relay erzeugt das
+     * 39000 selbst und hat kein Bildfeld. Gebraucht wird dort auch keins — das
+     * Logo gehoert ohnehin dem Portal (Source of Truth) und kommt beim selben
+     * Join mit, der Flagge und Deep-Link liefert. Am 2026-07-28 gemessen:
+     * 266 von 308 Records tragen eins.
+     */
+    logo: string
 }
 
 const MEETUP_MARKER = 'meetup'
@@ -136,6 +146,7 @@ export const buildPresentation = (rec: MeetupApiRecord): MeetupPresentation => {
         city: rec.city || '',
         name: rec.name,
         nextEventStart: rec.next_event_start || '',
+        logo: rec.logo || '',
     }
 }
 
