@@ -12,14 +12,15 @@ import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, COMMENT, DELETE, REACTION, ZAP_RESPONSE, ROOM_DELETE_EVENT, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
+import { MESSAGE, DELETE, REACTION, ZAP_RESPONSE, ROOM_DELETE_EVENT, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { readState, roomWatermark } from './readState'
 import { throttled } from '@welshman/store'
 import { warmZappers } from './zaps'
-import { roomTags, makeReaction, makeEventDelete, makeReport, makeComment, mentionPubkeys } from './interactions'
+import { roomTags, makeReaction, makeEventDelete, makeReport, makeThreadReply, mentionPubkeys } from './interactions'
+import { isRootMessage, isThreadReply, threadParentId, threadRootId } from './threading'
 import { QUOTE_PREFIX } from './chatLinks'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
 import { linkDisplay, isPlausibleUrl } from './chatLinks'
@@ -89,35 +90,12 @@ const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
 const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
 
 /**
- * Lotus' In-Chat-Thread (NIP-29 Group Chat Threading): kind 10, wurzelt an einer normalen
- * kind-9-Nachricht via `["e", rootId, relay, "root"]`, direktes Parent via
- * `["e", parentId, relay, "reply"]`, plus `["h", groupId, relay]`. Wir LESEN diese Events
- * (P4, Interop) neben unseren kind-1111-Kommentaren; unser eigener Write bleibt kind-1111.
+ * Antworten eines Raums. **Derselbe Filter wie die Nachrichten** — bei Buzz IST eine
+ * Antwort eine kind-9-Nachricht mit `h` (`threading.ts`, Regel 7); getrennt werden die
+ * beiden erst client-seitig über den `reply`-Marker. Ein Relay-Filter kann das nicht:
+ * `#e` ist markerblind und die Roots sind vorher nicht bekannt.
  */
-const CHAT_THREAD = 10
-
-/**
- * Thread-Root eines Kommentars, format-übergreifend: unsere kind-1111 tragen `["E", rootId]`
- * (NIP-22, uppercase), Lotus' kind-10 tragen `["e", rootId, relay, "root"]` (NIP-29, marker).
- */
-const commentRootId = (event: TrustedEvent): string =>
-    getTagValue('E', event.tags) ?? event.tags.find((t) => t[0] === 'e' && t[3] === 'root')?.[1] ?? ''
-
-/**
- * Direkter Eltern-Kommentar: Lotus' kind-10 markiert ihn `["e", parentId, relay, "reply"]`;
- * unsere kind-1111 tragen den Parent im ersten kleinen `e` (NIP-22, ohne Marker). Der
- * Reply-Marker hat Vorrang → bei kind-10 wird nicht fälschlich der Root-`e` als Parent gelesen.
- */
-const commentParentId = (event: TrustedEvent): string =>
-    event.tags.find((t) => t[0] === 'e' && t[3] === 'reply')?.[1] ?? getTagValue('e', event.tags) ?? ''
-
-/**
- * kind-1111-Kommentare (NIP-22, C6b) — flotilla-kompatibel OHNE `#h` (Kommentare sind
- * keine Group-Events). Ungescopt je Space-Relay geladen; die Zuordnung zur Nachricht
- * läuft über den Thread-Root `["E", rootId]` (uppercase), nicht `#h`. Zusätzlich Lotus'
- * kind-10 In-Chat-Threads (P4) — dieselben Kanäle, gebündelt über {@link commentRootId}.
- */
-const roomCommentFilter = () => [{ kinds: [COMMENT, CHAT_THREAD] }]
+const roomReplyFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
 
 /**
  * kind-9735-Zap-Receipts (NIP-57): tragen KEIN `#h` — der LNURL-Server kopiert nur
@@ -126,9 +104,19 @@ const roomCommentFilter = () => [{ kinds: [COMMENT, CHAT_THREAD] }]
  */
 const roomZapReceiptFilter = () => [{ kinds: [ZAP_RESPONSE] }]
 
-/** Aufsteigend sortierter Chat-Verlauf eines Rooms (kind 9, reaktiv). */
+/**
+ * Aufsteigend sortierter Chat-Verlauf eines Rooms (kind 9, reaktiv) — **nur Wurzeln**.
+ *
+ * Buzz liefert Thread-Antworten im `#h`-Filter MIT (sie sind kind-9-Nachrichten desselben
+ * Raums). Der Slack-Schnitt „Antworten leben im Thread, nicht im Verlauf" wird deshalb
+ * hier gezogen, nicht am Relay: `isRootMessage` wirft alles mit `reply`-Marker raus.
+ */
 export const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
-    derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => sortEventsAsc(events))
+    derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => sortEventsAsc(events.filter(isRootMessage)))
+
+/** Die Thread-Antworten eines Raums (kind 9 mit `reply`-Marker), reaktiv. */
+export const deriveRoomReplies = (url: string, h: string): Readable<TrustedEvent[]> =>
+    derived(deriveEventsForUrl(url, roomReplyFilter(h)), (events) => events.filter(isThreadReply))
 
 /** Rohtext einer Nachricht ohne den vorangestellten Reply-Quote (für Snippets + Edit-Prefill). */
 export const bodyWithoutQuote = (event: TrustedEvent): string =>
@@ -223,7 +211,7 @@ export type ThreadFace = { pubkey: string; name: string; picture: string }
 /**
  * Slack-artige Thread-Zusammenfassung EINER Nachricht (C6b): Anzahl Antworten,
  * bis zu 3 Teilnehmer-Gesichter (jüngste zuerst) und ein relatives „vor …"-Label
- * der letzten Antwort. `null`, wenn es keine Kommentare (kind 1111) an dieser Nachricht gibt.
+ * der letzten Antwort. `null`, wenn es keine Antworten an dieser Nachricht gibt.
  */
 export type ThreadSummary = { count: number; faces: ThreadFace[]; lastLabel: string }
 
@@ -309,7 +297,7 @@ const aggregateReactions = (
 
 /**
  * Baut die Slack-artige Antworten-Zusammenfassung einer Nachricht aus ihren
- * kind-1111-Kommentaren (dem ganzen Thread, per Root-`E` gebündelt): Zähler,
+ * Antworten (dem ganzen Thread, per Wurzel-Marker gebündelt): Zähler,
  * bis zu 3 EINDEUTIGE Teilnehmer-Gesichter (jüngste zuerst) und das relative
  * „vor …"-Label der letzten Antwort. `null` = keine Antworten (kein Indikator).
  */
@@ -377,7 +365,7 @@ export type ChatMessage = {
     showAuthor: boolean // erster Beitrag eines Autor-Blocks (Gruppierung)
     mine: boolean // vom eingeloggten User verfasst (→ löschbar, M5)
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), im Fenster aufgelöst — sonst null
-    thread: ThreadSummary | null // Slack-artige Antworten-Zusammenfassung (kind 1111, C6b); null = keine Antworten
+    thread: ThreadSummary | null // Slack-artige Antworten-Zusammenfassung (kind 9 mit reply-Marker); null = keine Antworten
     reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
     zaps: ZapSummary // validierte kind-9735-Zap-Summe (Z3), count 0 = keine
     zappable: boolean // Autor kann Zaps empfangen (lud16/lud06) UND ist nicht man selbst
@@ -430,8 +418,9 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
     const reply: ReplyPreview | null = quoted
         ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(bodyWithoutQuote(quoted)) }
         : null
-    // Threading (C6b, Slack-Modell): JEDE Nachricht ist thread-fähig — der Thread wurzelt an
-    // ihr selbst (event.id), Kommentare (kind 1111) tragen ["E", event.id]. null = keine Antworten.
+    // Threading (Slack-Modell): JEDE Nachricht ist thread-fähig — der Thread wurzelt an ihr
+    // selbst (event.id), die Antworten (kind 9) tragen sie im `root`- bzw. `reply`-Marker.
+    // null = keine Antworten.
     const thread = buildThreadSummary(ctx.commentsByRoot.get(event.id) ?? [], ctx.$profiles, nameOf)
     const profile = ctx.$profiles.get(event.pubkey)
     // Zapper (lud16/lud06 → lnurl). `||` (nicht `??`): leeres lud16 muss auf lud06 durchfallen,
@@ -489,8 +478,9 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
  * Hover-only (auf der Touch-WebView praktisch unsichtbar), selbstkorrigierend beim nächsten Message-
  * relevanten Emit. Den request.pubkey pro Zap-Receipt zu extrahieren lohnt fürs Tooltip-Feld nicht.
  *
- * Nur der Raum-Feed nutzt den Cache; der Thread-Feed baut direkt (Kommentare = kind 1111,
- * disjunkte IDs; klein & selten offen → Memoization lohnt dort nicht, hält den Cache-Kontext eindeutig).
+ * Nur der Raum-Feed nutzt den Cache; der Thread-Feed baut direkt. Die IDs sind trotz gleichen
+ * Kinds disjunkt — der Raum-Feed zeigt nur Wurzeln, der Thread nur Antworten (`isRootMessage`
+ * vs. `isThreadReply`); klein & selten offen → Memoization lohnt dort nicht.
  */
 type ChatMsgFields = Omit<ChatMessage, 'divider' | 'unreadDivider' | 'showAuthor'>
 type ChatMsgMemo = {
@@ -635,7 +625,10 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             throttled(200, deriveEventsForUrl(url, roomReactionFilter(h))),
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
             throttled(200, zappersByLnurl),
-            throttled(200, deriveEventsForUrl(url, roomCommentFilter())),
+            // Antworten desselben Raums (kind 9 mit `reply`-Marker) — sie speisen den
+            // Antworten-Indikator. Kein eigener Relay-Filter mehr: sie kommen ohnehin
+            // über den `#h`-Strom herein, der schon für die Wurzeln offen ist.
+            throttled(200, deriveRoomReplies(url, h)),
         ],
         ([events, $profiles, $me, $handles, $reactions, $zaps, $zappers, $comments]) => {
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
@@ -644,10 +637,11 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // Zap-Receipts (9735) nach Ziel-Nachricht (`#e`) bündeln — je Nachricht validiert
         // getallyt. 9735 trägt kein `#h`, `#e` ist der einzige verlässliche Raumbezug.
         const zapsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $zaps)
-        // NIP-22-Kommentare (kind 1111, C6b) nach Thread-Root (`["E", rootId]`) bündeln —
-        // ALLE Kommentare eines Threads (auch verschachtelte) teilen dieses Root-`E`, also
-        // ist die Bucket-Größe die Gesamt-Thread-Zahl der zitierten Nachricht.
-        const commentsByRoot = groupBy(commentRootId, $comments)
+        // Antworten nach Thread-Wurzel bündeln: `threadRootId` liest den `root`-Marker,
+        // bei Tiefe 1 ersatzweise den `reply`-Marker (dort IST der Parent die Wurzel).
+        // Damit landen auch verschachtelte Antworten im Bucket ihrer Wurzel, die
+        // Bucket-Größe ist also die Gesamt-Thread-Zahl der Nachricht.
+        const commentsByRoot = groupBy(threadRootId, $comments)
         // First-Paint-Seed: fehlende Autor- UND erwähnte Profile (NIP-27) vom geteilten
         // Backend-Cache holen (dedupliziert intern; welshman löst parallel live auf).
         // Ohne die Mention-Pubkeys blieben extern referenzierte @-Mentions (Nicht-
@@ -689,8 +683,8 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
 /**
  * Öffnet eine Live-Subscription für NEUE Room-Events (bleibt bis abort offen):
  * Nachrichten (kind 9), Reactions (kind 7), Tombstones (kind 5) — alle `#h`.
- * Kommentare (kind 1111) tragen KEIN `#h` (flotilla-kompatibel)
- * → eigener, ungescopter Filter, damit der Live-Antworten-Zähler ohne separate Sub kommt.
+ * Thread-Antworten sind kind-9-Nachrichten desselben Raums und kommen über denselben
+ * Filter herein; der frühere zweite, ungescopte Kommentar-Filter entfällt ersatzlos.
  */
 /**
  * Honoriert ein eingehendes NIP-29-`delete-event` (kind 9005, nur von `can_manage`-
@@ -716,10 +710,7 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal): void =>
         relays: [url],
         signal,
         onEvent: honorDeleteEvent,
-        filters: [
-            { kinds: [MESSAGE, REACTION, DELETE, ROOM_DELETE_EVENT], '#h': [h], limit: 0 },
-            { kinds: [COMMENT, CHAT_THREAD], limit: 0 },
-        ],
+        filters: [{ kinds: [MESSAGE, REACTION, DELETE, ROOM_DELETE_EVENT], '#h': [h], limit: 0 }],
     })
 }
 
@@ -760,24 +751,22 @@ export const loadRoomDeletes = async (url: string, h: string): Promise<void> => 
 }
 
 /**
- * Lädt die bestehenden NIP-22-Kommentare (kind 1111) des Space-Relays, damit die
- * Antworten-Indikatoren schon beim ersten Öffnen stimmen (die Live-Sub liefert nur
- * Neues). OHNE `#h` (flotilla-kompatibel), Zuordnung über `["E", rootId]`.
- * ponytail: ungescopt je Relay — bei sehr vielen Threads später auf sichtbare Roots
- * (`#E`) eingrenzen; für die aktuelle Space-Größe unschädlich.
+ * Deckel des raumübergreifenden Nachrichten-Loads (Threads-Übersicht der Startseite).
  *
- * Der Filter trug bis P3 GAR KEIN `limit` und lief damit in die zooid-Falle: fehlt das
- * `limit`, greift der Relay-Deckel nicht und die SQL bekommt gar keins
- * (`zooid/events.go:104-106` und `:239-240`) — dieser Aufruf zog bei JEDEM Raum-Öffnen
- * sämtliche Kommentare des Relays. Der Wert entspricht exakt zooids eigenem Maximum
- * (`instance.go:319`); sortiert wird `created_at DESC` (`events.go:165`), es kommen also
- * die jüngsten. Für jeden Space unter 1000 Kommentaren ändert sich am Ergebnis nichts —
- * nur die Abfrage ist jetzt begrenzt.
+ * **`limit` ist Pflicht, nicht Kosmetik** — dieselbe Falle wie bei {@link ROOM_ACTIVITY_LIMIT}:
+ * ein limitloser Filter lief bei zooid ohne SQL-`LIMIT` durch. Sortiert wird
+ * `created_at DESC`, es kommen also die jüngsten.
  */
-const COMMENT_LOAD_LIMIT = 1000
+const SPACE_MESSAGE_LOAD_LIMIT = 1000
 
-export const loadRoomComments = (url: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ kinds: [COMMENT, CHAT_THREAD], limit: COMMENT_LOAD_LIMIT }] })
+/**
+ * Lädt die jüngsten Nachrichten des Space-Relays raumübergreifend — Wurzeln UND Antworten
+ * in EINEM Load, denn bei Buzz sind beide kind 9. Speist die Threads-Übersicht der
+ * Startseite; ältere Wurzeln, die jenseits des Fensters liegen, holt
+ * {@link loadSpaceThreads} anschließend gezielt per `ids` nach.
+ */
+export const loadSpaceMessages = (url: string): Promise<TrustedEvent[]> =>
+    load({ relays: [url], filters: [{ kinds: [MESSAGE], limit: SPACE_MESSAGE_LOAD_LIMIT }] })
 
 /**
  * Lädt bestehende kind-9735-Zap-Receipts für die übergebenen Nachrichten-IDs, damit
@@ -801,6 +790,28 @@ export const loadRoomComments = (url: string): Promise<TrustedEvent[]> =>
 export const loadRoomZaps = (url: string, eventIds: string[]): Promise<TrustedEvent[]> =>
     eventIds.length
         ? load({ relays: uniq([url, ...DEFAULT_RELAYS]), filters: [{ kinds: [ZAP_RESPONSE], '#e': eventIds }] })
+        : Promise.resolve([])
+
+/**
+ * Deckel des Antworten-Nachladens. Ein `limit` gehört an JEDEN Filter (Relay-Deckel greifen
+ * sonst nachweislich nicht, siehe {@link ROOM_ACTIVITY_LIMIT}); 1000 ist großzügig genug,
+ * dass eine Fenster-Ladung realer Threads vollständig ankommt.
+ */
+const THREAD_REPLY_LOAD_LIMIT = 1000
+
+/**
+ * Lädt die bestehenden Antworten zu den genannten WURZEL-IDs, damit die Antworten-Zähler
+ * schon beim ersten Öffnen stimmen (die Live-Sub liefert nur Neues).
+ *
+ * Warum nicht einfach der Raum-Filter: `loadRoomMessages` pagt 50 Events; liegen die
+ * Antworten einer sichtbaren Nachricht weiter zurück, fielen ihre Zähler aus. `#e` ist bei
+ * Buzz vollständig in SQL gepusht (JSONB-Containment auf einem GIN-Index), also genau der
+ * richtige Zugriff — dasselbe Muster wie {@link loadRoomZaps}. Markerblind (Regel 8): es
+ * kommen auch Erwähnungen mit, die client-seitig ohnehin nach `threadRootId` gefiltert werden.
+ */
+export const loadRoomThreadReplies = (url: string, rootIds: string[]): Promise<TrustedEvent[]> =>
+    rootIds.length
+        ? load({ relays: [url], filters: [{ kinds: [MESSAGE], '#e': rootIds, limit: THREAD_REPLY_LOAD_LIMIT }] })
         : Promise.resolve([])
 
 /**
@@ -953,13 +964,48 @@ const mapRelayError = (raw: string): string => {
  * Nachricht/Antwort/Reaction/Kommentar (Raum- UND Thread-Publish, P3 4.1).
  */
 const publishOptimistic = async (url: string, event: Parameters<typeof publishThunk>[0]['event']): Promise<string> => {
-    const thunk = publishThunk({ relays: [url], event })
-    const err = await waitForThunkError(thunk)
-    if (err) {
-        repository.removeEvent(thunk.event.id)
-    }
-    return err ? mapRelayError(err) : ''
+    const raw = await publishOptimisticRaw(url, event)
+    return raw ? mapRelayError(raw) : ''
 }
+
+/**
+ * Noch laufende eigene Publishes: `event.id` → Promise, die mit der ROHEN Relay-Antwort
+ * auflöst ('' = angenommen). Der Schlüssel steht schon vor dem Signieren fest — welshmans
+ * `Thunk`-Konstruktor `prep`t das Event synchron, die NIP-01-id hängt nicht an der Signatur.
+ *
+ * Existiert wegen Buzz-Regel 5 (`threading.ts`): eine Antwort, deren Parent das Relay noch
+ * nicht kennt, wird mit `invalid: reply parent not found` VERWORFEN. Wer im Slack-Modell
+ * sofort auf seine eigene, gerade abgeschickte Nachricht antwortet, läuft ohne diese Karte
+ * genau da hinein.
+ */
+const inFlightPublish = new Map<string, Promise<string>>()
+
+/** Wie {@link publishOptimistic}, gibt aber die ROHE Relay-Antwort zurück (für Regel-5-Erkennung). */
+const publishOptimisticRaw = async (url: string, event: Parameters<typeof publishThunk>[0]['event']): Promise<string> => {
+    const thunk = publishThunk({ relays: [url], event })
+    const settled = waitForThunkError(thunk).then((err) => {
+        if (err) {
+            repository.removeEvent(thunk.event.id)
+        }
+        return err ?? ''
+    })
+    inFlightPublish.set(thunk.event.id, settled)
+    try {
+        return await settled
+    } finally {
+        inFlightPublish.delete(thunk.event.id)
+    }
+}
+
+/**
+ * Wartet, bis ein SELBST gesendetes Event beim Relay durch ist; '' wenn nichts (mehr)
+ * offen ist oder es angenommen wurde, sonst die rohe Ablehnung. Kein Netzverkehr — die
+ * Antwort auf eine fremde oder längst bestätigte Nachricht wartet also auf nichts.
+ */
+const awaitPublished = (id: string): Promise<string> => inFlightPublish.get(id) ?? Promise.resolve('')
+
+/** Buzz' Ablehnung „der Parent liegt hier nicht" (ingest.rs:623) — der einzige nachfassbare Fall. */
+const isParentMissing = (raw: string): boolean => raw.toLowerCase().includes('parent not found')
 
 /**
  * Sendet eine Nachricht (kind 9) in einen Room. Signiert im Browser, publiziert
@@ -1059,7 +1105,7 @@ export const sendReaction = async (
     return publishOptimistic(url, makeReaction(target, content, url, emojiTag ? [emojiTag] : []))
 }
 
-// ─── C6b: NIP-22-Thread-Ansicht (kind 1111 COMMENT) ────────────────────────────
+// ─── Thread-Ansicht (Buzz-nativ: kind 9 mit NIP-10-Markern) ───────────────────
 
 /** Der Root eines Threads (die zitierte Nachricht). `missing`: noch nicht (nach)geladen. */
 export type ThreadRoot = {
@@ -1099,13 +1145,12 @@ const personFields = (
 }
 
 /**
- * Baut aus den kind-1111-Events die flache CHRONOLOGISCHE Kommentar-Liste (Slack-Stil, P3 4.2) als
+ * Baut aus den Antwort-Events die flache CHRONOLOGISCHE Liste (Slack-Stil, P3 4.2) als
  * vollwertige {@link ChatMessage} (via {@link toChatMessage}) → sie rendern durch die geteilte
  * Raum-Message-Row. divider/showAuthor werden wie im Raum-Feed gruppiert; `unreadDivider` gibt es im
- * Thread nicht. Der Elternautor (`replyToName`) kommt aus dem kleinen `["e"]` (NIP-22, direktes
- * Parent); leer, wenn das Parent der Root ist ODER außerhalb des Threads liegt (Waise sortiert per
- * Zeit ein). `ctx` trägt (im Thread) leere Aggregations-Maps → reactions/zaps neutral,
- * bis P3 Schritt 5 sie füllt.
+ * Thread nicht. Der Elternautor (`replyToName`) kommt aus dem `reply`-Marker (direktes Parent);
+ * leer, wenn das Parent der Root ist ODER außerhalb des Threads liegt (Waise sortiert per
+ * Zeit ein).
  */
 const buildCommentList = (comments: TrustedEvent[], rootId: string, ctx: ChatBuildCtx): ChatMessage[] => {
     const byId = new Map(comments.map((c) => [c.id, c]))
@@ -1117,7 +1162,7 @@ const buildCommentList = (comments: TrustedEvent[], rootId: string, ctx: ChatBui
         const showAuthor = c.pubkey !== prevPubkey || divider !== ''
         prevDay = day
         prevPubkey = c.pubkey
-        const parentId = commentParentId(c)
+        const parentId = threadParentId(c)
         const parent = parentId && parentId !== rootId ? byId.get(parentId) : undefined
         return {
             divider,
@@ -1131,23 +1176,21 @@ const buildCommentList = (comments: TrustedEvent[], rootId: string, ctx: ChatBui
 
 /**
  * Reaktive Thread-Sicht zu `rootId`: der aufgelöste Root (per id, raumübergreifend im
- * Repository gefunden) + alle Kommentare (kind 1111) mit `["E", rootId]`, flach chronologisch.
- * Kommentare laden über `#E` (Thread-Root-Tag). Reaktionen/Zaps (P3 Schritt 5): Kommentar-
- * Reaktionen (kind 7) tragen `#h` (via makeReaction vom Kommentar-`h`) → über `roomReactionFilter(h)`
- * mitgeladen; Zap-Receipts (9735) tragen kein `#h` → per `#e` der Kommentar-IDs geladen (bridge).
- * Beide werden client-seitig nach Ziel (`#e`) gebündelt und je Kommentar aggregiert wie im Raum.
+ * Repository gefunden) + alle Antworten (kind 9) dieses Threads, flach chronologisch.
+ *
+ * **Der `#e`-Filter ist markerblind** (`threading.ts`, Regel 8): er liefert jedes kind-9 mit
+ * DIESER id in irgendeinem `e`-Tag — also auch Antworten FREMDER Threads, die den Root nur
+ * als Parent zitieren, und Nachrichten, die ihn bloß erwähnen. Der Schnitt fällt
+ * client-seitig über `threadRootId(c) === rootId`. Reaktionen/Zaps: Reaktionen (kind 7)
+ * tragen `#h` → über `roomReactionFilter(h)` mitgeladen; Zap-Receipts (9735) tragen kein
+ * `#h` → per `#e` der Antwort-IDs geladen (bridge). Beide werden client-seitig nach Ziel
+ * (`#e`) gebündelt und je Antwort aggregiert wie im Raum.
  */
 export const deriveThread = (url: string, rootId: string, h: string): Readable<ThreadView> =>
     derived(
         [
             deriveEventsForUrl(url, [{ ids: [rootId] }]),
-            // kind-1111 bündelt per Root-`#E`; Lotus' kind-10 trägt den Root im kleinen `e`
-            // (marker "root") → nur per `#e` filterbar (P4). Client-seitig über commentRootId
-            // gebündelt, sodass fremde kind-10 anderer Wurzeln nicht durchrutschen.
-            deriveEventsForUrl(url, [
-                { kinds: [COMMENT], '#E': [rootId] },
-                { kinds: [CHAT_THREAD], '#e': [rootId] },
-            ]),
+            deriveEventsForUrl(url, [{ kinds: [MESSAGE], '#e': [rootId] }]),
             throttled(200, profilesByPubkey),
             pubkey,
             throttled(200, handlesByNip05),
@@ -1156,10 +1199,9 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
             throttled(200, zappersByLnurl),
         ],
         ([rootEvents, rawComments, $profiles, $me, $handles, $reactions, $zaps, $zappers]) => {
-            // Nur Kommentare, die WIRKLICH an diesem Root wurzeln: kind-10 kommt per `#e`
-            // (matcht jedes e-Tag) → die mit rootId nur als Reply-Parent (fremder Thread)
-            // fielen sonst rein. commentRootId liest den Root formatspezifisch (E bzw. e/root).
-            const commentEvents = rawComments.filter((c) => commentRootId(c) === rootId)
+            // Nur Antworten, die WIRKLICH an diesem Root wurzeln (Regel 8: `#e` matcht jedes
+            // e-Tag) — sonst rutschten Antworten fremder Threads und bloße Erwähnungen rein.
+            const commentEvents = rawComments.filter((c) => threadRootId(c) === rootId)
             void warmProfiles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
             warmHandles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
             warmZappers(commentEvents.map((e) => e.pubkey)) // Zapper der Kommentar-Autoren → 9735-Validierung/⚡-Chip
@@ -1182,16 +1224,16 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
     )
 
 /**
- * Lädt Root (per id) + bestehende Kommentare eines Threads: unsere kind-1111 (`#E`) UND
- * Lotus' kind-10 (`#e`, P4) — die Live-Sub liefert nur Neues. Root-Load per id trägt auch
- * raumfremde/ältere Wurzeln.
+ * Lädt Root (per id) + bestehende Antworten eines Threads (kind 9 per `#e`) — die Live-Sub
+ * liefert nur Neues. Root-Load per id trägt auch raumfremde/ältere Wurzeln. `kinds` ist
+ * Pflicht, nicht Stil: ein `kinds`-loser Filter wird von Buzz geschlossen (Regel 8).
  */
 export const loadThread = (url: string, rootId: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ ids: [rootId] }, { kinds: [COMMENT], '#E': [rootId] }, { kinds: [CHAT_THREAD], '#e': [rootId] }] })
+    load({ relays: [url], filters: [{ ids: [rootId] }, { kinds: [MESSAGE], '#e': [rootId] }] })
 
-/** Live-Sub für NEUE Kommentare eines offenen Threads (kind-1111 `#E` + Lotus' kind-10 `#e`), bis abort. */
+/** Live-Sub für NEUE Antworten eines offenen Threads (kind 9 per `#e`), bis abort. */
 export const listenThread = (url: string, rootId: string, signal: AbortSignal): void => {
-    void request({ relays: [url], signal, filters: [{ kinds: [COMMENT], '#E': [rootId], limit: 0 }, { kinds: [CHAT_THREAD], '#e': [rootId], limit: 0 }] })
+    void request({ relays: [url], signal, filters: [{ kinds: [MESSAGE], '#e': [rootId], limit: 0 }] })
 }
 
 /**
@@ -1211,23 +1253,23 @@ export type SpaceThread = {
 }
 
 /**
- * Reaktive Liste ALLER aktiven Threads eines Space (Startseite, C6b): gruppiert die
- * kind-1111-Kommentare nach Thread-Root (`["E"]`), löst je Root die Wurzel-Nachricht
- * (kind 9, per id im Repository) für Snippet/Autor/Raum auf und sortiert nach letzter
- * Aktivität. Wurzel-Events kommen über `loadSpaceThreads`; die kind-9-Ableitung als
- * Dependency sorgt dafür, dass die Liste nachzieht, sobald Wurzeln eintreffen.
+ * Reaktive Liste ALLER aktiven Threads eines Space (Startseite): gruppiert die Antworten
+ * nach Thread-Wurzel, löst je Wurzel die Nachricht (kind 9, per id im Repository) für
+ * Snippet/Autor/Raum auf und sortiert nach letzter Aktivität.
+ *
+ * **EINE Quelle statt zwei** — Wurzeln und Antworten sind bei Buzz dasselbe Kind und
+ * kommen aus demselben raumübergreifenden kind-9-Strom; getrennt wird über den
+ * `reply`-Marker. Events kommen über `loadSpaceThreads`.
  */
 export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
     derived(
         [
-            throttled(300, deriveEventsForUrl(url, roomCommentFilter())),
-            // Wurzeln gegen die Timeline auflösen (wie roomStreamFilter).
             throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE] }])),
             throttled(300, profilesByPubkey),
         ],
-        ([comments, roots, $profiles]) => {
-            const byId = new Map(roots.map((r) => [r.id, r]))
-            const byRoot = groupBy(commentRootId, comments)
+        ([messages, $profiles]) => {
+            const byId = new Map(messages.map((r) => [r.id, r]))
+            const byRoot = groupBy(threadRootId, messages.filter(isThreadReply))
             const out: SpaceThread[] = []
             for (const [rootId, cs] of byRoot.entries()) {
                 const root = rootId ? byId.get(rootId) : undefined
@@ -1258,25 +1300,66 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
     )
 
 /**
- * Lädt die Threads-Übersicht eines Space (Startseite): alle Kommentare (kind 1111),
- * dann ihre Wurzel-Nachrichten (kind 9, per id — raumübergreifend), plus Vorwärmen
- * der beteiligten Profile (Gesichter/Autor). Fire-and-forget beim Betreten der Startseite.
+ * Lädt die Threads-Übersicht eines Space (Startseite): die jüngsten Nachrichten
+ * raumübergreifend (Wurzeln UND Antworten in einem Zug, {@link loadSpaceMessages}), dann
+ * gezielt die Wurzeln, die jenseits dieses Fensters liegen (per `ids`), plus Vorwärmen der
+ * beteiligten Profile (Gesichter/Autor). Fire-and-forget beim Betreten der Startseite.
  */
 export const loadSpaceThreads = async (url: string): Promise<void> => {
-    const comments = await loadRoomComments(url)
-    const rootIds = uniq(comments.map(commentRootId).filter((id): id is string => Boolean(id)))
-    const roots = rootIds.length > 0 ? await load({ relays: [url], filters: [{ ids: rootIds }] }) : []
-    // Profile der Kommentar-Autoren (Gesichter) UND der Wurzel-Autoren (Snippet-Name) vorwärmen.
-    void warmProfiles([...comments.map((c) => c.pubkey), ...roots.map((r) => r.pubkey)])
+    const messages = await loadSpaceMessages(url)
+    const replies = messages.filter(isThreadReply)
+    const known = new Set(messages.map((m) => m.id))
+    const missingRoots = uniq(replies.map(threadRootId).filter((id) => Boolean(id) && !known.has(id)))
+    const roots = missingRoots.length > 0 ? await load({ relays: [url], filters: [{ ids: missingRoots }] }) : []
+    // Profile der Antwort-Autoren (Gesichter) UND der Wurzel-Autoren (Snippet-Name) vorwärmen.
+    void warmProfiles([...replies.map((c) => c.pubkey), ...roots.map((r) => r.pubkey)])
 }
 
 /**
- * Kommentiert `target` (Thread-Root ODER Eltern-Kommentar) mit einem kind-1111 (NIP-22).
- * Optimistisch: der Thunk legt den Kommentar sofort ins Repository (erscheint via
- * `deriveThread`); bei Relay-Reject zurückgenommen. Gibt '' bei Erfolg, sonst den Fehler.
+ * Antwortet im Thread `root` auf `parent` (bei einer Antwort direkt auf die Wurzel sind
+ * beide dasselbe Event) — Buzz-nativ als kind 9 mit markierten `e`-Tags.
+ *
+ * **Drei Stufen gegen Buzz-Regel 5** („der Parent muss beim Relay liegen"):
+ *
+ * 1. **Vorher warten.** Läuft der Publish von Wurzel oder Parent noch (eigene Nachricht,
+ *    Sekundenbruchteile vorher abgeschickt), wird er abgewartet. Das ist der Normalfall
+ *    im Slack-Modell und kostet bei allem anderen nichts (Map-Lookup, kein Netz).
+ *    Wurde der Bezug ABGELEHNT, geht die Antwort gar nicht erst raus — sie hätte keine
+ *    Verankerung und wäre für Buzz stiller Müll.
+ * 2. **Optimistisch senden.** Wie jede Nachricht: sofort im Repository, bei Reject zurück.
+ * 3. **Bei `reply parent not found` einmal nachfassen** — aber nicht blind: erst wird das
+ *    Parent-Event gezielt vom Relay nachgeladen. Kommt es, war es ein Wettlauf und die
+ *    Antwort geht erneut raus; kommt es nicht, liegt es wirklich nicht dort und der
+ *    Aufrufer bekommt eine Ansage, die das benennt, statt eines rohen Relay-Codes.
+ *
+ * Gibt '' bei Erfolg, sonst den (übersetzten) Fehler.
  */
-export const sendComment = async (url: string, target: TrustedEvent, content: string, attachment?: Attachment, rootH?: string): Promise<string> => {
-    return publishOptimistic(url, makeComment(target, content, url, attachment, rootH))
+export const sendThreadReply = async (
+    url: string,
+    root: TrustedEvent,
+    parent: TrustedEvent,
+    content: string,
+    attachment?: Attachment,
+): Promise<string> => {
+    for (const pendingErr of await Promise.all([awaitPublished(root.id), awaitPublished(parent.id)])) {
+        if (pendingErr) {
+            return `Die Nachricht, auf die du antwortest, wurde nicht angenommen (${mapRelayError(pendingErr)})`
+        }
+    }
+    const build = () => makeThreadReply(root, parent, content, url, attachment)
+    const raw = await publishOptimisticRaw(url, build())
+    if (!raw) {
+        return ''
+    }
+    if (!isParentMissing(raw)) {
+        return mapRelayError(raw)
+    }
+    const found = await load({ relays: [url], filters: [{ ids: [parent.id] }] })
+    if (found.length === 0) {
+        return 'Die Nachricht, auf die du antwortest, liegt nicht auf diesem Relay — Antwort nicht möglich.'
+    }
+    const retry = await publishOptimisticRaw(url, build())
+    return retry ? mapRelayError(retry) : ''
 }
 
 /**

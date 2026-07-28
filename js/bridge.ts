@@ -7,7 +7,7 @@
  */
 import { derived, get, type Readable } from 'svelte/store'
 import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, forceLoadZapper } from '@welshman/app'
-import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
+import { displayProfile, toNostrURI, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { randomId } from '@welshman/lib'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding } from './relayCaps'
@@ -117,9 +117,9 @@ import {
     listenRoom,
     loadRoomMessages,
     loadRoomReactions,
-    loadRoomComments,
     loadRoomDeletes,
     loadRoomZaps,
+    loadRoomThreadReplies,
     sendRoomMessage,
     deleteRoomMessage,
     moderateDeleteMessage,
@@ -131,7 +131,7 @@ import {
     deriveThread,
     loadThread,
     listenThread,
-    sendComment,
+    sendThreadReply,
     deriveSpaceThreads,
     loadSpaceThreads,
     loadRoomActivity,
@@ -316,8 +316,8 @@ const dispatchModal = (name: string, show = true): void => {
 const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
     const seen = [...tracker.getRelays(m.id)]
     const relays = seen.length ? seen : fallbackRelay ? [fallbackRelay] : []
-    // Echten Kind aus dem Repository (Thread-Kommentar = 1111, Nachricht = 9);
-    // die geteilte Row ruft copyNevent/openInfo auch auf Kommentaren → nicht hart MESSAGE annehmen.
+    // Kind aus dem Repository lesen statt anzunehmen: Wurzel wie Antwort sind zwar beide
+    // kind 9, aber die geteilte Row rendert auch fremde Events — der Fallback bleibt MESSAGE.
     const kind = repository.getEvent(m.id)?.kind ?? MESSAGE
     return toNostrURI(nip19.neventEncode({ id: m.id, relays, author: m.pubkey, kind }))
 }
@@ -697,6 +697,7 @@ type RoomChatState = {
     _zapper: Zapper | null // aufgelöster Zapper der zapFor-Nachricht (Vorabgate bestanden)
     _zapSub: AbortController | null // Live-Receipt-Sub im QR-Fallback (Abort bei Close)
     _zapLoadedIds: Set<string> // Nachrichten, deren 9735-History schon geladen wurde
+    _replyLoadedIds: Set<string> // Wurzeln, deren Thread-Antworten schon geladen wurden
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
     _menuInThread: boolean // Mobile-Menü aus dem Thread geöffnet → Raum-only-Aktionen ausblenden, Antworten→setThreadReply
@@ -2450,8 +2451,8 @@ export function registerNostrComponents(Alpine: {
             },
             /**
              * Nachladen aus dem Space. Zwei Quellen, weil die Liste zwei Ereignisarten
-             * führt: Raum-Aktivität (9/1068/9041) und Thread-Kommentare (1111 + Lotus'
-             * kind 10, die tragen kein `#h` und fallen deshalb aus dem Raum-Filter).
+             * führt: Raum-Aktivität (9/1068/9041) und Thread-Antworten (ebenfalls kind 9,
+             * aber raumübergreifend geladen — die Liste zeigt auch Threads nicht offener Räume).
              *
              * Die Reihenfolge ist lasttragend, nicht kosmetisch:
              *  1. Threads sofort anstoßen — sie brauchen weder Lesestand noch Raumliste.
@@ -3188,6 +3189,7 @@ export function registerNostrComponents(Alpine: {
         _zapper: null,
         _zapSub: null,
         _zapLoadedIds: new Set<string>(),
+        _replyLoadedIds: new Set<string>(),
         isMobile,
         menuFor: null,
         _menuInThread: false,
@@ -3393,9 +3395,6 @@ export function registerNostrComponents(Alpine: {
             // anwenden — holt eine Löschung nach, die dieser Client offline verpasst hat
             // (der Warm-Cache hätte die Nachricht sonst wieder auferstehen lassen).
             void loadRoomDeletes(url, this.h)
-            // NIP-22-Kommentare (kind 1111) nachladen, damit die Antworten-Indikatoren
-            // schon beim ersten Paint stimmen (Live-Sub = nur Neues). Ohne #h (flotilla-kompat).
-            void loadRoomComments(url)
             // Custom-Emoji (NIP-30) des eigenen Profils vorwärmen, solange die
             // Relay-Verbindung frisch AUTH'd ist — beim späteren Picker-Öffnen
             // würde ein one-shot-Load gegen den member-only Relay sonst hängen.
@@ -3441,6 +3440,16 @@ export function registerNostrComponents(Alpine: {
                 if (newZapIds.length > 0) {
                     newZapIds.forEach((id) => this._zapLoadedIds.add(id))
                     void loadRoomZaps(url, newZapIds)
+                }
+
+                // Bestehende Thread-Antworten neuer Wurzeln laden (je ID einmal) — der
+                // 50er-Seitenfilter des Raums enthält sie nicht zuverlässig, sobald ein
+                // Thread älter ist als das Fenster. Ohne das stünde der Antworten-Zähler
+                // einer sichtbaren Nachricht bis zum Öffnen des Threads auf null.
+                const newReplyIds = msgs.map((m) => m.id).filter((id) => !this._replyLoadedIds.has(id))
+                if (newReplyIds.length > 0) {
+                    newReplyIds.forEach((id) => this._replyLoadedIds.add(id))
+                    void loadRoomThreadReplies(url, newReplyIds)
                 }
 
                 // Nur wirklich am Ende angehängte Fremd-Nachrichten zählen (kein loadOlder-Prepend
@@ -3712,6 +3721,7 @@ export function registerNostrComponents(Alpine: {
             this._zapSub?.abort()
             this._zapSub = null
             this._zapLoadedIds.clear()
+            this._replyLoadedIds.clear()
             evictChatMsgCache(this._loadedMsgIds) // Memo-Cache des verlassenen Raums freigeben (vor clear)
             this._loadedMsgIds.clear()
             this._scroller?.stop()
@@ -3753,12 +3763,13 @@ export function registerNostrComponents(Alpine: {
             // Verpasste Admin-Löschungen (9005) nachholen — während der Client
             // im Hintergrund/getrennt war, kam kein Live-Broadcast an.
             void loadRoomDeletes(url, this.h)
-            void loadRoomComments(url)
             // Zap-Receipts (kind 9735) haben KEINE Live-Sub (kein #h, nicht im listenRoom-Filter) und
             // werden sonst nur je NEUER Nachricht geladen → im Hintergrund auf SCHON geladene
             // Nachrichten eingetroffene Fremd-Zaps blieben stale. Fürs sichtbare Fenster nachladen.
             if (this.messages.length > 0) {
                 void loadRoomZaps(url, this.messages.map((m) => m.id))
+                // Antworten, die während der Trennung eintrafen — die Live-Sub war zu.
+                void loadRoomThreadReplies(url, this.messages.map((m) => m.id))
             }
             // Offenen Thread ebenso neu verdrahten (eigener Controller + Live-Sub, eigener _unsub)
             // inkl. Zap-Nachladen der Kommentare.
@@ -3963,7 +3974,7 @@ export function registerNostrComponents(Alpine: {
             }
             dispatchModal('message-info')
         },
-        // ── C6b: Thread-Ansicht (NIP-22 kind 1111 COMMENT) ─────────────────────
+        // ── Thread-Ansicht (Buzz-nativ: kind 9 mit NIP-10-Markern) ─────────────
         // Öffnet das In-Room-Overlay zu EINER Nachricht: sie selbst ist die Thread-Wurzel
         // (Slack-Modell — jede Nachricht ist thread-fähig, nicht nur Quote-Only). Zeigt die
         // Wurzel + den verschachtelten Kommentar-Baum + Composer. Live-Sub hält ihn aktuell.
@@ -4047,9 +4058,9 @@ export function registerNostrComponents(Alpine: {
                     // die jüngste Antwort. Wer bewusst hochgescrollt hat, fällt aus `stick`
                     // heraus und quittiert NICHT (gleiche Regel wie der Raum).
                     //
-                    // Thread-Wasserzeichen sind vom Raum-Wasserzeichen ENTKOPPELT: unsere
-                    // kind-1111-Kommentare erscheinen nicht im Raum-Feed (eigener, `#h`-loser
-                    // Filter), Raum-Lesen kann sie also nicht mitquittieren (NIP-22).
+                    // Thread-Wasserzeichen sind vom Raum-Wasserzeichen ENTKOPPELT: Antworten
+                    // tragen zwar dasselbe `h` wie ihre Wurzel, werden aber aus dem Raum-Feed
+                    // gefiltert (`deriveRoomMessages`) — Raum-Lesen quittiert sie also nicht mit.
                     setRead(threadKey(rootId))
                 }
             })
@@ -4136,12 +4147,13 @@ export function registerNostrComponents(Alpine: {
         clearThreadReply() {
             this.threadReplyTo = null
         },
-        // Kommentar publizieren (kind 1111). Ziel = Eltern-Kommentar (verschachtelt)
-        // oder der Thread-Root. OPTIMISTISCH & nicht-blockierend (Slack-artig): der
-        // Composer wird sofort geleert (der Kommentar liegt via publishThunk schon im
-        // Repository → erscheint via deriveThread), der Relay-OK wird NICHT abgewartet.
-        // Das sofortige Leeren verhindert auch Doppel-Senden (ein zweiter Enter trifft
-        // auf leeren Draft). Fehler landen im Hintergrund als Toast (feeds rollt zurück).
+        // Antwort publizieren (kind 9 mit `reply`-Marker, Buzz-Form). Ziel = die
+        // beantwortete Antwort (verschachtelt) oder der Thread-Root. OPTIMISTISCH &
+        // nicht-blockierend (Slack-artig): der Composer wird sofort geleert (die Antwort
+        // liegt via publishThunk schon im Repository → erscheint via deriveThread), der
+        // Relay-OK wird NICHT abgewartet. Das sofortige Leeren verhindert auch
+        // Doppel-Senden (ein zweiter Enter trifft auf leeren Draft). Fehler landen im
+        // Hintergrund als Toast — und geben den Entwurf zurück (siehe unten).
         async sendComment() {
             if (!this._url || !this.threadRootId) {
                 return
@@ -4150,27 +4162,16 @@ export function registerNostrComponents(Alpine: {
             if (!content && !this.threadAttachment) {
                 return
             }
+            // Buzz braucht BEIDE Bezüge als echte Events: die Wurzel (liefert `h` und den
+            // `root`-Marker) und das direkt beantwortete Event (`reply`-Marker). Fehlt eines
+            // von beiden, wird NICHT geraten — ein Marker auf eine unbekannte id wäre
+            // entweder ein Reject oder, schlimmer, eine still unverknüpfte Nachricht.
             const root = repository.getEvent(this.threadRootId)
-            let target = repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
-            if (!target) {
+            const target = repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
+            if (!root || !target) {
                 toast('Bezugs-Nachricht noch nicht geladen — kurz warten.')
                 return
             }
-            // Antwort auf ein FREMDES Lotus-kind-10 (P4, Interop): das trägt nur lowercase
-            // NIP-29-Marker (kein uppercase E/K/P), also würde welshmans tagEventForComment
-            // unseren Kommentar fälschlich AUF das kind-10 rooten (E=kind10) → er fiele aus dem
-            // `#E`-Thread-Feed + Root-Guard → unsichtbar. Stattdessen auf die echte kind-9-Wurzel
-            // rooten (welshman self-rootet kind-9 korrekt, wie beim Top-Level-Reply). Der explizite
-            // Parent-Link zum kind-10 entfällt — im flachen Slack-Modell (P3) kosmetisch.
-            // ponytail: volle NIP-29→NIP-22-Parent-Übersetzung wäre mehr Code; bei Bedarf nachrüsten.
-            if (target.kind === 10 && root) {
-                target = root
-            }
-            // NIP-29-Scoping (Interop, P1): das `h` des Thread-ROOTS (kind 9) mitgeben, damit
-            // Lotus/#h-scopende Relays den Kommentar sehen. Vom Root, NICHT vom target — ein
-            // verschachtelter Reply-target ist ein h-loses kind-1111. Fehlt der Root (Race),
-            // bleibt rootH undefined → kein leeres `["h",""]` (makeComment lässt h dann weg).
-            const rootH = root ? getTagValue('h', root.tags) : undefined
             const url = this._url
             // Rohe (NICHT-reaktive) Kopie des Anhangs fürs Event — `imetaTag` ist sonst ein
             // Alpine-Proxy und bricht beim Signieren (DataCloneError), siehe C6a-Message-Send.
@@ -4178,12 +4179,22 @@ export function registerNostrComponents(Alpine: {
             const rawAttachment = prevAttachment
                 ? { url: prevAttachment.url, imetaTag: [...prevAttachment.imetaTag] }
                 : undefined
+            const prevReplyTo = this.threadReplyTo
             this.threadDraft = ''
             this.threadReplyTo = null
             this.threadAttachment = null
-            const err = await sendComment(url, target, content, rawAttachment, rootH)
+            const err = await sendThreadReply(url, root, target, content, rawAttachment)
             if (err) {
                 toast(err)
+                // Den Text NICHT verlieren: anders als eine Raum-Nachricht kann eine Antwort
+                // auch an einer Regel scheitern, die der Nutzer gar nicht sehen kann (Buzz
+                // verlangt den Parent VOR der Antwort). Ist der Composer seither leer
+                // geblieben, kommt der Entwurf inkl. Bezug zurück, statt weg zu sein.
+                if (!this.threadDraft) {
+                    this.threadDraft = content
+                    this.threadReplyTo = prevReplyTo
+                    this.threadAttachment = prevAttachment
+                }
             }
         },
         // ── C4: @-Mention-Autocomplete (NIP-08/NIP-27) ─────────────────────────
@@ -4564,9 +4575,9 @@ export function registerNostrComponents(Alpine: {
                     // geladenen Nachrichten des Autors optimistisch ausblenden. ponytail:
                     // nur das geladene Fenster — ältere räumt der nächste Load/die Live-Sub.
                     refreshSpaceAdmin(this._url)
-                    // Raum-Feed UND (falls offen) die Kommentare des aktuellen Threads:
-                    // Thread-Kommentare (kind 1111) liegen NICHT in this.messages, sondern
-                    // in threadComments (deriveThread) → sonst blieben die Antworten des
+                    // Raum-Feed UND (falls offen) die Antworten des aktuellen Threads:
+                    // Thread-Antworten liegen NICHT in this.messages (der Raum-Feed zeigt nur
+                    // Wurzeln), sondern in threadComments (deriveThread) → sonst blieben die des
                     // Gebannten im offenen Overlay stehen (wie confirmAdminDelete am Ziel).
                     for (const msg of [...this.messages, ...this.threadComments]) {
                         if (msg.pubkey === m.pubkey) {

@@ -14,8 +14,9 @@
  * - 0   PROFILE — Zap-Empfangsadresse publizieren (profiles.ts, ZAPS.md Z4)
  * - 5   DELETE — Nachricht/Reaktion löschen (interactions.ts)
  * - 7   REACTION — Emoji-Reaktion (interactions.ts)
- * - 9   MESSAGE — NIP-29-Gruppen-Chat (feeds.ts)
- * - 1111 COMMENT — NIP-22-Thread-Kommentar (interactions.ts `sendComment`)
+ * - 9   MESSAGE — NIP-29-Gruppen-Chat (feeds.ts) UND Thread-Antworten: die sind bei Buzz
+ *       dasselbe Kind, nur mit markierten `e`-Tags (`threading.ts`). Das frühere
+ *       `sign_event:1111` ist damit ersatzlos raus — ein Kind weniger im Signer-Prompt.
  * - 1984 REPORT — melden (interactions.ts)
  * - 9000/9001 ROOM_ADD_MEMBER/ROOM_REMOVE_MEMBER — NIP-29 Raum-Mitglieder (Admin, groups.ts)
  * - 9002/9007/9008 ROOM_EDIT_META/ROOM_CREATE/ROOM_DELETE — NIP-29 Raum-Verwaltung (Admin, groups.ts)
@@ -38,7 +39,6 @@ export const NIP46_PERMS = [
     'sign_event:5',
     'sign_event:7',
     'sign_event:9',
-    'sign_event:1111',
     'sign_event:1984',
     'sign_event:9000',
     'sign_event:9001',

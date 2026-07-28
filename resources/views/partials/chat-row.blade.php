@@ -74,9 +74,9 @@
                                     <div class="truncate text-xs text-muted" x-text="m.reply.text"></div>
                                 </button>
                             </template>
-                            {{-- Thread-Kommentar (P3): Eltern-Bezug „Antwort auf <Autor>" (NIP-22 kleines `e`,
-                                 via replyToName). Im Raum-Feed undefined → nie gerendert; ersetzt die
-                                 frühere depth-Einrückung (flach/Slack-Stil). --}}
+                            {{-- Thread-Antwort: Eltern-Bezug „Antwort auf <Autor>" (aus dem
+                                 `reply`-Marker, via replyToName). Im Raum-Feed undefined → nie
+                                 gerendert; ersetzt die frühere depth-Einrückung (flach/Slack-Stil). --}}
                             <template x-if="m.replyToName">
                                 <div class="mb-0.5 text-xs text-muted">
                                     {{ __('Antwort auf') }} <span class="text-brand-500" x-text="m.replyToName"></span>
@@ -118,7 +118,7 @@
                                  erfasst es). --}}
                             <div :id="'chips-'+m.id" class="mt-1 flex min-h-7 flex-wrap items-center gap-1">
                                 {{-- Antworten-Indikator (C6b, Slack-Stil): erscheint an JEDER Nachricht mit
-                                     ≥1 Antwort (kind 1111). Überlappende Teilnehmer-Gesichter + Zähler +
+                                     ≥1 Antwort (kind 9 mit reply-Marker). Gesichter + Zähler +
                                      „vor …" der letzten Antwort → öffnet den Thread. Passt in die reservierte
                                      Chip-Lane (h-7 = min-h-7), also kein Layout-Sprung beim Nachladen.
                                      REIHENFOLGE: Thread → Reaktionen → Zap. Der klickbare Thread-Pill steht
@@ -201,8 +201,8 @@
                                  ist thread-fähig). Nur im Raum — ein Kommentar wurzelt keinen Sub-Thread. --}}
                             <flux:button size="xs" variant="ghost" icon="chat-bubble-oval-left" class="icon-btn-touch"
                                          x-on:click.stop="openThread(m)" aria-label="{{ __('Im Thread antworten') }}" />
-                            {{-- Löschen: Raum-Nachricht (kind 9, deleteRoomMessage). Kommentar-Delete (kind
-                                 1111) ist nicht implementiert → im Thread aus. --}}
+                            {{-- Löschen: Raum-Nachricht (kind 9, deleteRoomMessage). Das Löschen einer
+                                 Thread-Antwort ist nicht implementiert → im Thread aus. --}}
                             <flux:button size="xs" variant="ghost" icon="trash" class="icon-btn-touch"
                                          x-show="m.mine" x-cloak x-on:click.stop="askDelete(m)" ::disabled="deleting"
                                          aria-label="{{ __('Nachricht löschen') }}" />

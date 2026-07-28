@@ -198,9 +198,10 @@ export function publishableReadState(
  * **Raum und Thread sind NICHT hierarchisch gekoppelt — das ist Absicht, nicht eine
  * vergessene Vereinfachung.** Flotilla matcht per Pfad-Präfix
  * (`flotilla/src/app/notifications.ts:191-203`), dort quittiert Raum-Lesen alles
- * darunter mit. Bei uns leben Thread-Kommentare (kind 1111) NICHT im Raum-Feed
- * (`feeds.ts` zieht sie über einen eigenen, `#h`-losen Filter) — wer den Raum bis unten
- * liest, hat die Kommentare also nachweislich NICHT gesehen. Ein „vereinfachtes"
+ * darunter mit. Bei uns erscheinen Thread-Antworten NICHT im Raum-Feed — sie tragen zwar
+ * seit P4 dasselbe `h` wie ihre Wurzel (Buzz-Form), werden aber in `feeds.ts`
+ * (`deriveRoomMessages`) über den `reply`-Marker herausgefiltert; wer den Raum bis unten
+ * liest, hat die Antworten also nachweislich NICHT gesehen. Ein „vereinfachtes"
  * `roomWatermark` als Boden für Threads würde ungelesene Antworten stumm schalten.
  * Nur `all` dominiert beides.
  */

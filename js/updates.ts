@@ -15,10 +15,7 @@
  * inklusive `href` mit `?from=updates` und deutschem `timeLabel`. Die View navigiert und
  * kürzt (`line-clamp`), sie rechnet nicht.
  *
- * **Warum hier dupliziert statt importiert wird** (drei Symbole, je gemessen):
- *   • `CHAT_THREAD = 10` und {@link updatesCommentRootId} stehen wörtlich auch in
- *     `feeds.ts` — `feeds.ts` zieht über `./core` den kompletten App-Boot (welshman-
- *     Kontext, IndexedDB) mit und ist unter `node --test` nicht ladbar.
+ * **Warum hier dupliziert statt importiert wird** (gemessen):
  *   • `mentionPubkeys` aus `interactions.ts` ist rein, das MODUL aber nicht ladbar:
  *     `node --experimental-strip-types -e "import('./js/interactions.ts')"` endet in
  *     `ERR_MODULE_NOT_FOUND: Cannot find module '…/js/relayCaps'` (extensionslose
@@ -26,8 +23,11 @@
  *   • `readState.ts`s Boot-Gate (`readStateBooted`) ist modul-privat und `unread.ts`
  *     gehört in dieser Phase einem anderen Arbeitsstrang — es wird hier nachgebaut,
  *     nicht angefasst.
- * `QUOTE_PREFIX` kommt dagegen ECHT aus `./chatLinks.ts`: das Modul importiert gar
- * nichts (weder welshman noch einen relativen Pfad), ist also node-ladbar.
+ * `QUOTE_PREFIX` (`./chatLinks.ts`) und die Threading-Regeln (`./threading.ts`) kommen
+ * dagegen ECHT als Import: beide Module haben keinerlei Laufzeit-Abhängigkeit (threading.ts
+ * nur einen `import type`) und sind damit node-ladbar. Die Tag-Regeln des Threadings sind
+ * ausdrücklich NICHT dupliziert — ihre Fehlbedienung verliert bei Buzz STILL Daten
+ * (`threading.ts`, Regel 1), da ist eine zweite Kopie das größere Risiko.
  *
  * Die relativen Importe tragen absichtlich ihre `.ts`-Endung (Begründung siehe
  * `unread.ts`): ohne sie liefe `node --test updates.test.ts` in ERR_MODULE_NOT_FOUND.
@@ -36,7 +36,6 @@ import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { profilesByPubkey, pubkey } from '@welshman/app'
 import {
-    COMMENT,
     MESSAGE,
     displayProfile,
     displayPubkey,
@@ -47,6 +46,7 @@ import {
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository.ts'
 import { QUOTE_PREFIX } from './chatLinks.ts'
+import { isThreadReply, threadRootId } from './threading.ts'
 import {
     readState,
     readStateReady,
@@ -55,9 +55,6 @@ import {
     threadWatermark,
     type ReadState,
 } from './readState.ts'
-
-/** Lotus' In-Chat-Thread (NIP-29 Group Chat Threading, kind 10). Siehe Modul-Docstring. */
-const CHAT_THREAD = 10
 
 /**
  * Wie lange eine GELESENE Zeile in der Liste bleibt (§3.4): 24 h.
@@ -121,10 +118,12 @@ export type UpdateInput = {
     url: string
     /** `h` der BEIGETRETENEN Räume (relay-signierte 39002). */
     joined: readonly string[]
-    /** Timeline-Events des Space (kind 9), bereits url-gescopt. Zugleich die Quelle, aus der Thread-Wurzeln aufgelöst werden. */
+    /**
+     * Timeline-Events des Space (kind 9), bereits url-gescopt — **Wurzeln UND Antworten**,
+     * denn bei Buzz sind beide kind 9 (getrennt über den `reply`-Marker, siehe
+     * `threading.ts`). Zugleich die Quelle, aus der Thread-Wurzeln aufgelöst werden.
+     */
     events: readonly TrustedEvent[]
-    /** Kommentare des Space (kind 1111 + Lotus' kind 10), bereits url-gescopt. */
-    comments: readonly TrustedEvent[]
     state: ReadState
     /** Eigener pubkey. Leer (Gast) ⇒ leere Liste. */
     me: string
@@ -142,11 +141,8 @@ export type UpdateInput = {
 const HEX64 = /^[0-9a-f]{64}$/
 
 /**
- * Thread-Wurzel eines Kommentars, format-übergreifend: unsere kind-1111 tragen
- * `["E", rootId]` (NIP-22, uppercase), Lotus' kind-10 tragen `["e", rootId, relay, "root"]`
- * (NIP-29, Marker). Gleiche Regel wie `feeds.ts commentRootId` — hier eigenständig.
- *
- * **Anders als dort wird der Wert hier geprüft, und das ist die eigentliche Pointe:**
+ * Thread-Wurzel einer Antwort nach der gemeinsamen Buzz-Regel ({@link threadRootId}:
+ * `root`-Marker, ersatzweise `reply`) — **plus einer Prüfung, und die ist die Pointe:**
  * P4 reicht diesen rohen Tag-Wert als Erstes an `nip19.neventEncode` durch (der Deep-Link
  * wird gebaut, OHNE dass die Wurzel im Cache aufgelöst sein muss). `neventEncode` wirft bei
  * Nicht-Hex oder ungerader Länge — gemessen 2026-07-23:
@@ -154,21 +150,21 @@ const HEX64 = /^[0-9a-f]{64}$/
  * Ein solcher Wurf verlässt den `derived`-Callback und bricht svelte 5.56.4s globale
  * `subscriber_queue` dauerhaft: ein danach gesetzter, völlig unabhängiger `writable`
  * erreicht seine Subscriber nicht mehr (eigenständig nachgemessen). Ein einziges
- * Fremd-Event mit krummem `E`-Tag — jedes Raum-Mitglied kann es publizieren, zooid prüft
- * Tag-Werte nicht — legte damit den gesamten welshman→Alpine-Zustand des Tabs still.
+ * Fremd-Event mit krummem Marker-Tag — jedes Raum-Mitglied kann es publizieren, und auch
+ * Buzz prüft nur die LÄNGE/Hex-Ziffern des `e`-Werts, nicht die Schreibweise — legte damit
+ * den gesamten welshman→Alpine-Zustand des Tabs still.
  *
  * Groß geschriebene Hex-Werte werden **normalisiert, nicht verworfen**: der `nevent` wäre
  * identisch (bech32 kodiert die Bytes, gemessen: `A×64` und `a×64` ergeben denselben
  * String), aber der rohe Wert würde als Gruppierungsschlüssel denselben Thread in zwei
- * Zeilen spalten und passte nicht zum byte-genauen `#E`-Filter am Relay.
+ * Zeilen spalten und passte nicht zum byte-genauen `#e`-Filter am Relay.
  *
- * Ein nicht kanonischer Wert liefert '' — die Aufrufstelle verwirft den Kommentar dann
+ * Ein nicht kanonischer Wert liefert '' — die Aufrufstelle verwirft die Antwort dann
  * (`if (!rootId) continue`). Ohne gültige Wurzel gibt es weder eine Gruppe noch ein Ziel;
  * eine Zeile „irgendein Thread, kein Link" wäre für niemanden brauchbar.
  */
 export const updatesCommentRootId = (event: TrustedEvent): string => {
-    const raw = getTagValue('E', event.tags) ?? event.tags.find((t) => t[0] === 'e' && t[3] === 'root')?.[1] ?? ''
-    const id = raw.toLowerCase()
+    const id = threadRootId(event).toLowerCase()
     return HEX64.test(id) ? id : ''
 }
 
@@ -354,8 +350,9 @@ export const updateTimeLabel = (ts: number, now: number): string => {
  * Ohne `t:`-Wasserzeichen ist der Boden das RAUM-Wasserzeichen, nicht 0 und nicht `all`:
  * ohne diesen Boden meldete jeder je im Space eröffnete Thread beim ersten Start seine ganze
  * Historie. Preis dieser Kopplung, offen benannt: wer einen Raum bis unten liest, quittiert
- * damit auch nie geöffnete Threads dieses Raums — obwohl deren Kommentare (kind 1111, ohne
- * `#h`) im Raum-Feed gar nicht standen (siehe `readState.roomWatermark`). Persönlich
+ * damit auch nie geöffnete Threads dieses Raums — obwohl deren Antworten im Raum-Feed gar
+ * nicht standen (sie werden dort über den `reply`-Marker ausgefiltert, siehe
+ * `readState.roomWatermark`). Persönlich
  * Adressiertes geht dabei nicht verloren: eine Erwähnung wird als eigene Zeile mit eigenem
  * Wasserzeichen geführt.
  */
@@ -565,8 +562,8 @@ const TYPE_ORDER: Record<UpdateType, number> = { mention: 0, message: 1, thread:
  *
  * Regeln, jede mit einem Grund:
  *
- * 1. **Scope = nur, wohin deep-gelinkt werden kann.** kind 9 → `/rooms/{h}`,
- *    kind 1111 und Lotus' kind 10 → `/rooms/{h}/thread/{nevent}`. Reaktionen (7) und Zaps
+ * 1. **Scope = nur, wohin deep-gelinkt werden kann.** kind 9 als Wurzel → `/rooms/{h}`,
+ *    kind 9 mit `reply`-Marker → `/rooms/{h}/thread/{nevent}`. Reaktionen (7) und Zaps
  *    (9735) sind ausgeschlossen — nicht „später", sondern gar nicht: für sie existiert kein
  *    Nachrichten-Anker (`?msg=` gibt es nicht), die Zeile führte ins Leere. Der Scope wird
  *    von den Filtern der Hülle UND hier nicht erweitert.
@@ -634,6 +631,9 @@ export function computeUpdates(input: UpdateInput): UpdateItem[] {
         if (event.kind !== MESSAGE) {
             continue
         }
+        if (isThreadReply(event)) {
+            continue // Antworten tragen eine Thread-Zeile, keine Raum-Zeile (unten)
+        }
         if (event.pubkey === input.me) {
             continue
         }
@@ -667,12 +667,12 @@ export function computeUpdates(input: UpdateInput): UpdateItem[] {
         })
     }
 
-    // ── Thread-Kommentare (kind 1111 + Lotus' kind 10) ──
+    // ── Thread-Antworten (kind 9 mit `reply`-Marker) ──
     const rootById = new Map(input.events.map((e) => [e.id, e]))
     const threads = new Map<string, { h: string; rootPubkey: string; events: TrustedEvent[] }>()
-    for (const comment of input.comments) {
-        if (comment.kind !== COMMENT && comment.kind !== CHAT_THREAD) {
-            continue // Regel 1 (siehe oben)
+    for (const comment of input.events) {
+        if (comment.kind !== MESSAGE || !isThreadReply(comment)) {
+            continue // Regel 1 (siehe oben) + Wurzeln wurden oben behandelt
         }
         if (comment.pubkey === input.me) {
             continue
@@ -683,8 +683,9 @@ export function computeUpdates(input: UpdateInput): UpdateItem[] {
         }
         const root = rootById.get(rootId)
         // `h` bevorzugt aus der WURZEL (autoritativ, wie `feeds.ts deriveSpaceThreads`);
-        // ersatzweise aus dem Kommentar selbst — unsere kind-1111 tragen das `h` des Roots
-        // additiv (Thread-Interop), flotilla-kompatible tragen keines.
+        // ersatzweise aus der Antwort selbst — bei Buzz trägt sie zwingend dasselbe `h`
+        // (Kanalwechsel im Thread wird vom Relay abgelehnt), der Fallback greift also,
+        // solange die Wurzel noch nicht geladen ist.
         const h = (root ? getTagValue('h', root.tags) : undefined) ?? getTagValue('h', comment.tags) ?? ''
         if (!h || !joined.has(h)) {
             continue // Regel 5
@@ -785,8 +786,8 @@ export const deriveUpdates = (
     watchReadStateBoot()
     return derived(
         [
+            // EINE Quelle: Wurzeln und Antworten sind bei Buzz dasselbe Kind.
             throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE] }])),
-            throttled(300, deriveEventsForUrl(url, [{ kinds: [COMMENT, CHAT_THREAD] }])),
             throttled(300, profilesByPubkey),
             readState,
             joined,
@@ -794,13 +795,12 @@ export const deriveUpdates = (
             pubkey,
             readStateBooted,
         ],
-        ([$events, $comments, $profiles, $state, $joined, $roomNames, $me, $booted]) =>
+        ([$events, $profiles, $state, $joined, $roomNames, $me, $booted]) =>
             $booted
                 ? computeUpdates({
                       url,
                       joined: $joined as string[],
                       events: $events as TrustedEvent[],
-                      comments: $comments as TrustedEvent[],
                       state: $state as ReadState,
                       me: ($me as string | undefined) ?? '',
                       roomNames: $roomNames as Record<string, string>,

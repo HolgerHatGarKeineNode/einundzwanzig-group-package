@@ -90,7 +90,8 @@ export type RelayPublishResult = { url: string; ok: boolean; reason: string }
  * Regel, gleiche Form). Bewusst dupliziert statt importiert: `./profiles` zieht `./core`
  * und damit den kompletten App-Boot (IndexedDB, welshman-Kontext) — dieses Modul wäre
  * dann nicht mehr unter `node --test` ladbar. Sieben Zeilen zu spiegeln ist der kleinere
- * Preis als ein untestbarer Sync (dasselbe Argument wie `unread.ts` für `CHAT_THREAD`).
+ * Preis als ein untestbarer Sync (dasselbe Argument, das `updates.ts` für `mentionPubkeys`
+ * führt — die Threading-Regeln liegen dagegen echt geteilt in `./threading.ts`).
  */
 export const summarizeReadStatePublish = (
     results: Record<string, { relay: string; status: string; detail?: string }>,

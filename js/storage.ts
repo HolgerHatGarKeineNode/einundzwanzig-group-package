@@ -25,7 +25,6 @@ import {
     ROOM_DELETE,
     ROOM_DELETE_EVENT,
     MESSAGE,
-    COMMENT,
     MUTES,
     RELAYS,
     RELAY_MEMBERS,
@@ -64,22 +63,18 @@ type TrackerItem = { id: string; relays: string[] }
  * „Meine Räume" und verschwand erst wieder, wenn die 9008 vom Relay nachströmte —
  * ein sichtbares Aufblitzen bei JEDEM Seitenaufbau, nicht nur einmal.
  *
- * kind 1111 (COMMENT, NIP-22-Thread-Kommentar) kam mit dem Ungelesen-Punkt (P3) dazu:
- * ohne ihn überlebt KEIN Thread-Marker den Kaltstart — die Ungelesen-Ableitung liest
- * Kommentare aus derselben `repository`, und die wäre beim Start leer. Die Spezifikation
- * riet davon ursprünglich ab, weil der Store dadurch unbegrenzt wüchse; genau deshalb
- * kappt {@link messagesToPrune} kind 1111 jetzt mit (siehe dort, §4.3). Persistenz OHNE
- * Kappung wäre der Fehler, den die Spezifikation meinte.
+ * **kind 1111 ist hier ersatzlos raus** (P4): Thread-Antworten sind bei Buzz kind-9-
+ * Nachrichten mit `reply`-Marker (`threading.ts`) — sie fallen also schon unter `MESSAGE`
+ * und überleben den Kaltstart ohne eigenen Eintrag. Der frühere Sonderweg (eigenes Kind,
+ * eigener globaler Deckel) entfällt damit; Antworten werden wie jede andere Nachricht pro
+ * RAUM gekappt ({@link messagesToPrune}). Preis: sie teilen sich das Raum-Budget mit den
+ * Wurzeln — richtig so, sie liegen ja auch im selben Raum.
  *
  * §4.2 raus:
- * Ephemeral/AUTH/Reaktionen/Zaps (kein `#h`, laden lazy nach dem Paint). Lotus' kind-10
- * (In-Chat-Thread, `feeds.ts CHAT_THREAD`) bleibt bewusst draußen: wir lesen ihn nur für
- * die Interop, schreiben ihn nie — ein Lotus-Thread-Marker ist beim Kaltstart also erst
- * nach dem Netz-Load da. Bekannte Grenze, kein Versehen.
+ * Ephemeral/AUTH/Reaktionen/Zaps (kein `#h`, laden lazy nach dem Paint).
  */
 const PERSIST_KINDS = new Set<number>([
     MESSAGE,
-    COMMENT,
     DELETE,
     ROOM_DELETE_EVENT,
     ROOM_DELETE,
@@ -123,39 +118,23 @@ export function tombstonedIds(events: TrustedEvent[]): Set<string> {
 }
 
 /**
- * §4.3 Pruning — kind 9 UND kind 1111 wachsen unbegrenzt (Control-Plane ist replaceable
- * → selbst-bounded, kein Cap). Nachrichten: per-Raum die neuesten N behalten;
- * Kommentare: ein globaler Deckel (Begründung bei {@link COMMENT_CAP_TOTAL}). Beide
- * zusätzlich mit Alters-Backstop als harte Obergrenze (fängt zugleich tombstone-lose
- * Relay-Purges, §6). Kein LRU-Framework.
+ * §4.3 Pruning — kind 9 wächst unbegrenzt (Control-Plane ist replaceable → selbst-bounded,
+ * kein Cap): per-Raum die neuesten N behalten, plus Alters-Backstop als harte Obergrenze
+ * (fängt zugleich tombstone-lose Relay-Purges, §6). Kein LRU-Framework.
+ *
+ * **Der frühere zweite Deckel für kind 1111 ist entfallen** (P4): Thread-Antworten sind
+ * kind-9-Nachrichten MIT `h` und werden damit vom Raum-Cap miterfasst. Das schließt sogar
+ * eine alte Lücke — der globale Kommentar-Deckel konnte Antworten eines geschwätzigen
+ * Threads gegen die eines anderen ausspielen; jetzt gilt für alles im Raum dieselbe Regel.
  */
 const MSG_CAP_PER_ROOM = 300
 const MSG_MAX_AGE_SEC = 30 * 24 * 60 * 60 // 30 Tage
-
-/**
- * Kommentare (kind 1111) werden GLOBAL gekappt, nicht per Thread — anders als
- * Nachrichten, die per Raum gekappt werden.
- *
- * Der Grund ist eine Asymmetrie im Datenmodell: Räume sind wenige und relay-verwaltet
- * (39000), ein Per-Raum-Cap ist deshalb faktisch beschränkt. Thread-WURZELN sind es
- * nicht — im Slack-Modell ist JEDE Nachricht thread-fähig, die Zahl möglicher Roots
- * wächst also mit der Zahl der Nachrichten. Ein Per-Root-Cap („100 je Thread") hätte
- * damit gar keine Obergrenze, sondern nur eine unauffälligere Wachstumskurve — genau
- * der unbegrenzte Store, vor dem die Spezifikation warnt. Ein globaler Deckel bindet
- * den Verbrauch hart.
- *
- * Preis: ein sehr geschwätziger Thread kann ältere Kommentare anderer Threads
- * verdrängen. Das kostet nur Kaltstart-Latenz, nie Korrektheit — `loadThread`/
- * `loadRoomComments` holen den Bestand ohnehin vom Relay nach.
- */
-const COMMENT_CAP_TOTAL = 500
 
 const nowSec = (): number => Math.floor(Date.now() / 1000)
 
 /**
  * Gibt die zu VERWERFENDEN event-ids zurück: kind 9 pro Raum (`#h`) alles jenseits der
- * neuesten `cap`, kind 1111 global alles jenseits der neuesten `commentCap`, dazu bei
- * beiden alles älter als `maxAgeSec`. Control-Plane bleibt unangetastet.
+ * neuesten `cap`, dazu alles älter als `maxAgeSec`. Control-Plane bleibt unangetastet.
  * Reine Funktion (now/Caps injizierbar) → deterministisch node-testbar.
  */
 export function messagesToPrune(
@@ -163,22 +142,16 @@ export function messagesToPrune(
     now: number,
     cap = MSG_CAP_PER_ROOM,
     maxAgeSec = MSG_MAX_AGE_SEC,
-    commentCap = COMMENT_CAP_TOTAL,
 ): string[] {
     const cutoff = now - maxAgeSec
     const byRoom = new Map<string, TrustedEvent[]>()
-    const comments: TrustedEvent[] = []
     const drop: string[] = []
     for (const event of events) {
-        if (event.kind !== MESSAGE && event.kind !== COMMENT) {
+        if (event.kind !== MESSAGE) {
             continue
         }
         if (event.created_at < cutoff) {
             drop.push(event.id)
-            continue
-        }
-        if (event.kind === COMMENT) {
-            comments.push(event)
             continue
         }
         const h = event.tags.find((tag) => tag[0] === 'h')?.[1]
@@ -204,7 +177,6 @@ export function messagesToPrune(
     for (const arr of byRoom.values()) {
         capOff(arr, cap)
     }
-    capOff(comments, commentCap)
     return drop
 }
 
@@ -393,11 +365,10 @@ function syncEvents(): () => void {
             }
             await bulkPut('events', add)
             await bulkDelete('events', remove)
-            // §4.3: nach neuen Nachrichten/Kommentaren den (bounded) Store kappen. Der
-            // events-Store ist durchs Cap selbst begrenzt → getAll bleibt günstig.
-            // kind 1111 MUSS hier mitgeprüft werden: ein reiner Kommentar-Burst (aktive
-            // Thread-Diskussion, kein neues kind 9) liefe sonst nie in die Kappung.
-            if (add.some((event) => event.kind === MESSAGE || event.kind === COMMENT)) {
+            // §4.3: nach neuen Nachrichten den (bounded) Store kappen. Der events-Store ist
+            // durchs Cap selbst begrenzt → getAll bleibt günstig. Thread-Antworten sind
+            // selbst kind 9 — ein reiner Antwort-Burst löst die Kappung also mit aus.
+            if (add.some((event) => event.kind === MESSAGE)) {
                 const prune = messagesToPrune(await getAll<TrustedEvent>('events'), nowSec())
                 if (prune.length > 0) {
                     await bulkDelete('events', prune)

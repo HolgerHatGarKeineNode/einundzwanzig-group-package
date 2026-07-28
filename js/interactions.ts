@@ -4,10 +4,11 @@
  * Reaction/Delete). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { COMMENT, DELETE, REACTION, REPORT, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
-import { getRelay, tagEvent, tagEventForComment, tagEventForReaction } from '@welshman/app'
+import { DELETE, MESSAGE, REACTION, REPORT, getTag, getTagValue, makeEvent, type TrustedEvent } from '@welshman/util'
+import { getRelay, tagEvent, tagEventForReaction } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps'
+import { threadTags } from './threading'
 
 /** NIP-70 PROTECTED-Marker: bittet das Relay, das Event nur vom Autor annehmbar zu halten. */
 export const PROTECTED = ['-']
@@ -80,35 +81,43 @@ export const makeReport = (event: Pick<TrustedEvent, 'id' | 'pubkey'>, reason: s
     })
 
 /**
- * NIP-22-Kommentar (kind 1111) auf `event` (Root-Nachricht ODER Eltern-Kommentar).
- * `tagEventForComment` setzt die NIP-22-Tags: `K/E/P` (Thread-Root, Großbuchstaben)
- * + `k/e/p` (direktes Parent, klein) — dadurch entsteht der Baum, und ALLE Kommentare
- * eines Threads teilen dasselbe `["E", rootId]` (Ladefilter der Thread-Ansicht).
+ * Thread-Antwort in **Buzz-Form**: eine ganz normale Raum-Nachricht (kind 9) mit `h` und
+ * markierten `e`-Tags. `root` ist die Thread-Wurzel, `parent` das direkt beantwortete
+ * Event (bei einer Antwort auf die Wurzel sind beide dasselbe Event — dann entsteht genau
+ * EIN `reply`-Tag, siehe {@link threadTags} und die acht Regeln in `threading.ts`).
  *
- * **NIP-22 + additives `h` für NIP-29-Scoping (Interop):** Grundgerüst = flotillas
- * `makeComment`-Rezept (`tagEventForComment` → `K/E/P` + `k/e/p`, + konditionales PROTECTED),
- * gelesen wird bei uns über `#E` (Thread-Root). ZUSÄTZLICH hängen wir das `h` des Thread-
- * ROOTS (kind 9) an, wenn der Aufrufer es kennt (`rootH`): additiv, damit `#h`-scopende
- * Clients/Relays (Lotus, member-only zooid als NIP-29-Group-Event) den Kommentar sehen.
- * NIP-22-Leser (Flotilla) ignorieren das Extra-`h` und lesen weiter per `#E` → wir sind ein
- * Superset, kein Fork. `h` MUSS vom Root kommen (nested target = h-loses kind-1111). Siehe
- * `plans/THREAD-INTEROP-UND-VEREINHEITLICHUNG.md` (P1).
+ * **Das `h` kommt aus der WURZEL**, nicht aus dem Parent und schon gar nicht geraten: Buzz
+ * lehnt eine Antwort ab, deren Parent in einem anderen Kanal liegt (`invalid: parent event
+ * belongs to a different channel`), und `h` ist zugleich Pflicht (`invalid: channel-scoped
+ * events must include an h tag`). Fehlt das `h` der Wurzel (Race beim Nachladen), fällt es
+ * auf das Parent zurück, statt ein leeres `["h",""]` zu schreiben.
+ *
+ * `roomTags` liefert `h` + konditionales NIP-70-PROTECTED — dieselbe Basis wie eine
+ * Wurzel-Nachricht (`sendRoomMessage`), denn genau das ist eine Antwort hier ja auch.
+ * KEINE `p`-Tags: Buzz wertet sie fürs Threading nie aus (Regel 6).
  *
  * Optionaler Bild-Anhang (C6a-Wiederverwendung): `imeta`-Tag (NIP-92) ans Event + die
  * URL mit Leerzeile in den Text (wie `sendRoomMessage`), damit `renderMessageLink` sie
- * als `<img>` rendert. Anhang ohne Text → URL steht allein. `imeta` ist flotilla-kompatibel.
+ * als `<img>` rendert. Anhang ohne Text → URL steht allein.
  */
-export const makeComment = (event: TrustedEvent, content: string, url: string, attachment?: { url: string; imetaTag: string[] }, rootH?: string) => {
-    const tags = canEnforceNip70(url) ? [...tagEventForComment(event, url), PROTECTED] : tagEventForComment(event, url)
-    if (rootH) {
-        tags.push(['h', rootH])
-    }
+export const makeThreadReply = (
+    root: TrustedEvent,
+    parent: TrustedEvent,
+    content: string,
+    url: string,
+    attachment?: { url: string; imetaTag: string[] },
+) => {
+    const h = getTagValue('h', root.tags) ?? getTagValue('h', parent.tags) ?? ''
+    // Ohne bekanntes `h` KEIN leeres `["h",""]` in ein signiertes Event schreiben — das
+    // Relay lehnt beides ab, aber nur die Auslassung sagt hinterher die Wahrheit.
+    const base = h ? roomTags(h, url) : canEnforceNip70(url) ? [PROTECTED] : []
+    const tags = [...base, ...threadTags(root.id, parent.id)]
     let body = content
     if (attachment) {
         tags.push(attachment.imetaTag)
         body = body ? `${body}\n\n${attachment.url}` : attachment.url
     }
-    return makeEvent(COMMENT, { content: body, tags })
+    return makeEvent(MESSAGE, { content: body, tags })
 }
 
 /** `nostr:npub…`/`nostr:nprofile…`-Mentions (NIP-27) im Nachrichtentext. */

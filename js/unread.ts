@@ -28,7 +28,7 @@
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { pubkey } from '@welshman/app'
-import { MESSAGE, COMMENT, getTagValue, type TrustedEvent } from '@welshman/util'
+import { MESSAGE, getTagValue, type TrustedEvent } from '@welshman/util'
 // Die beiden relativen Importe tragen ABSICHTLICH ihre `.ts`-Endung (anders als sonst
 // im Modul-Bestand): Nodes ESM-Auflösung kennt keine extensionslosen Pfade, und ohne
 // Endung liefe `node --test unread.test.ts` in ERR_MODULE_NOT_FOUND — die Ableitung wäre
@@ -36,15 +36,7 @@ import { MESSAGE, COMMENT, getTagValue, type TrustedEvent } from '@welshman/util
 // die Testdateien im Repo schreiben sie ohnehin schon so.
 import { deriveEventsForUrl } from './repository.ts'
 import { readState, readStateReady, threadKey, roomWatermark, threadWatermark, type ReadState } from './readState.ts'
-
-/**
- * Lotus' In-Chat-Thread (NIP-29 Group Chat Threading, kind 10) — hier bewusst als
- * lokale Konstante gespiegelt statt aus `feeds.ts` importiert: `feeds.ts` zieht über
- * `./core` den kompletten App-Boot (welshman-Kontext, IndexedDB) mit und wäre damit
- * nicht mehr unter `node --test` prüfbar. Eine Zahl zu duplizieren ist der kleinere
- * Preis als eine untestbare Ableitung.
- */
-const CHAT_THREAD = 10
+import { isThreadReply, threadRootId } from './threading.ts'
 
 /** Was die Oberfläche sieht. Werte sind ZAHLEN (P6) — gezählte Ereignisse, nicht Ja/Nein. */
 export type UnreadView = {
@@ -135,23 +127,26 @@ export function formatUnreadCount(count: number | null | undefined, cap: number 
 }
 
 /**
- * Thread-Wurzel eines Kommentars, format-übergreifend: unsere kind-1111 tragen
- * `["E", rootId]` (NIP-22, uppercase), Lotus' kind-10 tragen
- * `["e", rootId, relay, "root"]` (NIP-29, Marker). Gleiche Regel wie
- * `feeds.ts commentRootId` — hier eigenständig, siehe {@link CHAT_THREAD}.
+ * Thread-Wurzel einer Antwort — jetzt die gemeinsame Buzz-Regel aus `threading.ts`
+ * (`root`-Marker, ersatzweise `reply`). Bleibt als benannter Export bestehen, weil der
+ * Name in Tests und Aufrufstellen die FRAGE benennt („in welchen Thread zählt das?").
  */
-export const unreadCommentRootId = (event: TrustedEvent): string =>
-    getTagValue('E', event.tags) ?? event.tags.find((t) => t[0] === 'e' && t[3] === 'root')?.[1] ?? ''
+export const unreadCommentRootId = (event: TrustedEvent): string => threadRootId(event)
 
 export type UnreadInput = {
     /** Normalisierte Space-Relay-URL — Teil des Raum-Schlüssels im Wasserzeichen. */
     url: string
     /** `h` der BEIGETRETENEN Räume (relay-signierte 39002). */
     joined: readonly string[]
-    /** Timeline-Events des Space (kind 9), bereits url-gescopt. */
+    /**
+     * Timeline-Events des Space (kind 9), bereits url-gescopt — **Wurzeln UND Antworten**.
+     *
+     * Bis P4 waren das zwei Listen, weil Antworten ein eigenes Kind hatten (1111/10). Bei
+     * Buzz ist eine Antwort eine kind-9-Nachricht mit `reply`-Marker; die Trennung ist
+     * damit eine Frage an die Tags, keine an den Filter — und sie geschieht hier drin
+     * (`isThreadReply`), damit sie nachweislich EINMAL passiert.
+     */
     events: readonly TrustedEvent[]
-    /** Kommentare des Space (kind 1111 + Lotus' kind 10), bereits url-gescopt. */
-    comments: readonly TrustedEvent[]
     state: ReadState
     /** Eigener pubkey. Leer (Gast) ⇒ nichts ist ungelesen. */
     me: string
@@ -173,10 +168,12 @@ export type UnreadInput = {
  *    Thread beim ersten Blick ungelesen — der Punkt verlöre seine Bedeutung. Ein Thread,
  *    den man nie geöffnet hat, meldet sich in P4 über die Benachrichtigungs-Liste
  *    (Erwähnung/Antwort auf mich), nicht über diesen Punkt.
- * 5. **Raum und Thread sind entkoppelt.** Kommentare (kind 1111) erscheinen nicht im
- *    Raum-Feed (eigener, `#h`-loser Filter) — wer den Raum bis unten liest, hat sie
- *    nachweislich nicht gesehen. Nur `all` dominiert beides (in den Wasserzeichen
- *    selbst, siehe `readState.roomWatermark`).
+ * 5. **Raum und Thread sind entkoppelt.** Antworten tragen bei Buzz zwar dasselbe `h` wie
+ *    ihre Wurzel, erscheinen aber nicht im Raum-Feed (`feeds.ts deriveRoomMessages` zeigt
+ *    nur Wurzeln) — wer den Raum bis unten liest, hat sie nachweislich nicht gesehen. Die
+ *    Partition hier bildet genau das ab: ein Event zählt entweder in seinen Raum ODER in
+ *    seinen Thread. Nur `all` dominiert beides (in den Wasserzeichen selbst, siehe
+ *    `readState.roomWatermark`).
  * 6. **Gezählt werden EREIGNISSE, eins pro Event** (P6-Entscheidung, die der Plan
  *    offenließ). Zwei Nachrichten desselben Autors zählen zwei, nicht eine; ein Event
  *    zählt in genau einem Raum bzw. genau einem Thread. Begründung: die Pille steht neben
@@ -206,6 +203,9 @@ export function computeUnread(input: UnreadInput): UnreadView {
         if (event.pubkey === input.me) {
             continue
         }
+        if (isThreadReply(event)) {
+            continue // Regel 5: eine Antwort zählt in ihren Thread, NIE zusätzlich in den Raum
+        }
         const h = getTagValue('h', event.tags)
         if (!h) {
             continue
@@ -218,9 +218,12 @@ export function computeUnread(input: UnreadInput): UnreadView {
             rooms[h] += 1 // Regel 6: ein Ereignis, ein Zähler
         }
     }
-    for (const comment of input.comments) {
+    for (const comment of input.events) {
         if (comment.pubkey === input.me) {
             continue
+        }
+        if (!isThreadReply(comment)) {
+            continue // Wurzeln wurden oben gezählt
         }
         const rootId = unreadCommentRootId(comment)
         if (!rootId || input.state[threadKey(rootId)] === undefined) {
@@ -324,20 +327,20 @@ export const deriveUnread = (url: string, joined: Readable<string[]>): Readable<
     watchReadStateBoot()
     return derived(
         [
+            // EINE Quelle: Wurzeln und Antworten sind bei Buzz dasselbe Kind (siehe
+            // {@link UnreadInput.events}); der zweite, kommentar-eigene Filter entfällt.
             throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE] }])),
-            throttled(300, deriveEventsForUrl(url, [{ kinds: [COMMENT, CHAT_THREAD] }])),
             readState,
             joined,
             pubkey,
             readStateBooted,
         ],
-        ([$events, $comments, $state, $joined, $me, $booted]) =>
+        ([$events, $state, $joined, $me, $booted]) =>
             $booted
                 ? computeUnread({
                       url,
                       joined: $joined as string[],
                       events: $events as TrustedEvent[],
-                      comments: $comments as TrustedEvent[],
                       state: $state as ReadState,
                       me: ($me as string | undefined) ?? '',
                   })

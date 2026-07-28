@@ -17,7 +17,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { COMMENT, MESSAGE } from '@welshman/util'
+import { MESSAGE, type TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import {
     CLOCK_SKEW_SEC,
@@ -56,24 +56,35 @@ const message = (id: string, createdAt: number, over: { h?: string; author?: str
         sig: '',
     }) as never
 
+/**
+ * Antwort auf die WURZEL in Buzz-Form: kind 9 mit `["e", rootId, "", "reply"]`.
+ *
+ * `h` ist hier optional, obwohl Buzz es bei einer Antwort zwingend verlangt — genau das
+ * ist der Punkt: die Ableitung bekommt Events von FREMDEN Clients und muss die Zuordnung
+ * „welcher Raum?" auch dann treffen, wenn nur die Wurzel ein `h` hat (bzw. die Zeile
+ * ueberspringen, wenn keiner von beiden eins hat).
+ */
 const comment = (id: string, createdAt: number, over: { rootId?: string; author?: string; content?: string; h?: string } = {}) =>
     ({
         id,
-        kind: COMMENT,
+        kind: MESSAGE,
         created_at: createdAt,
         pubkey: over.author ?? OTHER,
-        tags: over.h ? [['E', over.rootId ?? ROOT], ['h', over.h]] : [['E', over.rootId ?? ROOT]],
+        tags: over.h
+            ? [['e', over.rootId ?? ROOT, '', 'reply'], ['h', over.h]]
+            : [['e', over.rootId ?? ROOT, '', 'reply']],
         content: over.content ?? '',
         sig: '',
     }) as never
 
-const lotusComment = (id: string, createdAt: number, rootId = ROOT) =>
+/** Antwort auf eine Antwort (Tiefe 2): `root` UND `reply` — so verlangt Buzz es ab Tiefe 2. */
+const nestedComment = (id: string, createdAt: number, rootId = ROOT, parentId = 'f'.repeat(64)) =>
     ({
         id,
-        kind: 10,
+        kind: MESSAGE,
         created_at: createdAt,
         pubkey: OTHER,
-        tags: [['e', rootId, URL, 'root'], ['h', H]],
+        tags: [['e', rootId, '', 'root'], ['e', parentId, '', 'reply'], ['h', H]],
         content: '',
         sig: '',
     }) as never
@@ -85,17 +96,22 @@ const mention = (pk: string): string => `Hallo nostr:${nip19.npubEncode(pk)}, sc
 
 const profiles = (entries: [string, { name?: string; picture?: string }][] = []) => new Map(entries) as never
 
-const input = (over: Partial<UpdateInput> = {}): UpdateInput => ({
+/**
+ * `comments` ist KEIN Feld von `UpdateInput` mehr — seit P4 sind Wurzeln und Antworten
+ * dieselbe kind-9-Liste (Buzz-Form). Der Helfer nimmt beide Gruppen weiter getrennt
+ * entgegen, weil die Testkoerper damit lesbar bleiben („das sind die Wurzeln, das die
+ * Antworten"), und legt sie hier zu EINER Liste zusammen — genau so, wie die Hülle es tut.
+ */
+const input = ({ comments = [], ...over }: Partial<UpdateInput> & { comments?: readonly TrustedEvent[] } = {}): UpdateInput => ({
     url: URL,
     joined: [H],
-    events: [],
-    comments: [],
     state: {},
     me: ME,
     roomNames: { [H]: 'Allgemein' },
     profiles: profiles(),
     now: NOW,
     ...over,
+    events: [...(over.events ?? []), ...comments],
 })
 
 /** Wasserzeichen, das alles vor `ts` als gelesen quittiert. */
@@ -135,18 +151,21 @@ test('Regel 1: Reaktionen (7) und Zap-Receipts (9735) erzeugen KEINE Zeile', () 
     assert.deepEqual(items, [])
 })
 
-test('Regel 1: Kommentare (1111) und Lotus-Threads (10) landen im Thread-Ziel mit nevent', () => {
+test('Regel 1: Antworten landen im Thread-Ziel mit nevent — Tiefe 1 wie Tiefe 2', () => {
     const state = readUpTo(NOW - HOUR)
     const expected = `/rooms/${H}/thread/${nip19.neventEncode({ id: ROOT, relays: [URL], author: THIRD })}?from=updates`
 
-    const [nip22] = computeUpdates(input({ state, events: [root()], comments: [comment('k1', NOW - MIN)] }))
-    assert.equal(nip22.type, 'thread')
-    assert.equal(nip22.rootId, ROOT)
-    assert.equal(nip22.href, expected)
+    // Tiefe 1: NUR ein `reply`-Marker (Buzz-Regel 1 — `root` allein waere hier falsch).
+    const [direkt] = computeUpdates(input({ state, events: [root()], comments: [comment('k1', NOW - MIN)] }))
+    assert.equal(direkt.type, 'thread')
+    assert.equal(direkt.rootId, ROOT)
+    assert.equal(direkt.href, expected)
+    assert.equal(updatesCommentRootId(comment('k1', 1) as never), ROOT)
 
-    const [lotus] = computeUpdates(input({ state, events: [root()], comments: [lotusComment('k2', NOW - MIN)] }))
-    assert.equal(lotus.href, expected, 'kind 10 wird ueber den root-Marker demselben Thread zugeordnet')
-    assert.equal(updatesCommentRootId(lotusComment('k2', 1)), ROOT)
+    // Tiefe 2: `root` + `reply` — muss demselben Thread zufallen, nicht dem Parent.
+    const [tief] = computeUpdates(input({ state, events: [root()], comments: [nestedComment('k2', NOW - MIN)] }))
+    assert.equal(tief.href, expected, 'die verschachtelte Antwort wird ueber den root-Marker zugeordnet')
+    assert.equal(updatesCommentRootId(nestedComment('k2', 1)), ROOT)
 })
 
 // ── Regel 2: Aggregation ───────────────────────────────────────────────────
@@ -275,13 +294,14 @@ test('Regel 5: ein Raum, in dem ich nicht bin, erzeugt keine Zeile — auch nich
 })
 
 test('Regel 5: ein Thread ohne zuordenbaren Raum wird uebersprungen, nicht als verwaist gefuehrt', () => {
-    // Weder die Wurzel im Cache noch ein `h` am Kommentar ⇒ niemand kann sagen, ob der
-    // Thread ueberhaupt zu einem meiner Raeume gehoert.
+    // Weder die Wurzel im Cache noch ein `h` an der Antwort ⇒ niemand kann sagen, ob der
+    // Thread ueberhaupt zu einem meiner Raeume gehoert. (Buzz selbst laesst so eine
+    // Antwort gar nicht erst zu — die Ableitung sieht aber auch Fremd-Events.)
     const items = computeUpdates(input({ state: readUpTo(NOW - HOUR), comments: [comment('k1', NOW - MIN)] }))
     assert.deepEqual(items, [])
 })
 
-test('Regel 5: das `h` des Kommentars traegt den Thread, wenn die Wurzel nicht im Cache liegt', () => {
+test('Regel 5: das `h` der Antwort traegt den Thread, wenn die Wurzel nicht im Cache liegt', () => {
     const items = computeUpdates(input({ state: readUpTo(NOW - HOUR), comments: [comment('k1', NOW - MIN, { h: H })] }))
     assert.equal(items.length, 1)
     assert.equal(items[0].h, H)

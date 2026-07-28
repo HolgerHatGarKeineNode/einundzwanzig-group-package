@@ -19,7 +19,6 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
     MESSAGE,
-    COMMENT,
     DELETE,
     ROOM_DELETE,
     ROOM_DELETE_EVENT,
@@ -37,8 +36,13 @@ const ev = (kind: number) => ({ kind }) as never
 const msg = (id: string, createdAt: number, h: string) =>
     ({ id, kind: MESSAGE, created_at: createdAt, tags: [['h', h]] }) as never
 
-const comment = (id: string, createdAt: number, rootId = 'root') =>
-    ({ id, kind: COMMENT, created_at: createdAt, tags: [['E', rootId]] }) as never
+/**
+ * Thread-Antwort in Buzz-Form: kind 9 mit `h` (des Raums der Wurzel) und `reply`-Marker.
+ * Genau deshalb braucht sie hier keinen eigenen Deckel mehr — sie faellt unter den
+ * Raum-Cap wie jede andere Nachricht desselben Raums.
+ */
+const comment = (id: string, createdAt: number, h = 'raum-a', rootId = 'root') =>
+    ({ id, kind: MESSAGE, created_at: createdAt, tags: [['h', h], ['e', rootId, '', 'reply']] }) as never
 
 const NOW = 1_800_000_000
 const DAY = 24 * 60 * 60
@@ -72,31 +76,32 @@ test('Was lazy nachlaedt, wird NICHT gespeichert', () => {
     assert.equal(shouldPersistEvent(ev(ZAP_RESPONSE)), false, 'kind 9735 (Zap-Quittung)')
 })
 
-test('Thread-Kommentare ueberleben den Kaltstart — Lotus-kind-10 bewusst nicht', () => {
-    // Ohne kind 1111 im Cache ist der Ungelesen-Punkt eines Threads beim Kaltstart
-    // immer aus: die Ableitung liest dieselbe repository, und die waere leer.
-    assert.equal(shouldPersistEvent(ev(COMMENT)), true, 'kind 1111 (Thread-Kommentar)')
-    // Bekannte Grenze, absichtlich festgenagelt: Lotus' kind-10 (In-Chat-Thread) lesen
-    // wir nur fuer die Interop und schreiben ihn nie — sein Marker kommt erst nach dem
-    // Netz-Load. Wer das aendert, aendert es hier bewusst, nicht versehentlich.
-    assert.equal(shouldPersistEvent(ev(10)), false, 'kind 10 (Lotus In-Chat-Thread)')
+test('Thread-Antworten ueberleben den Kaltstart — ohne eigenen Eintrag, weil sie kind 9 sind', () => {
+    // Ohne Antworten im Cache ist der Ungelesen-Punkt eines Threads beim Kaltstart immer
+    // aus: die Ableitung liest dieselbe repository, und die waere leer. Seit P4 braucht es
+    // dafuer KEIN zweites Kind mehr — eine Antwort IST eine kind-9-Nachricht (Buzz-Form).
+    assert.equal(shouldPersistEvent(comment('k1', NOW)), true, 'Antwort (kind 9 + reply-Marker)')
+    // Gegenprobe, absichtlich festgenagelt: die abgeloesten Thread-Kinds sind RAUS. Wer
+    // eines davon zurueckholt, tut es hier bewusst — beide sind bei Buzz nicht annehmbar
+    // (`restricted: unknown event kind`, gemessen 2026-07-28).
+    assert.equal(shouldPersistEvent(ev(1111)), false, 'kind 1111 (NIP-22) ist abgeloest')
+    assert.equal(shouldPersistEvent(ev(10)), false, 'kind 10 (Lotus In-Chat-Thread) ist abgeloest')
 })
 
-test('Was gespeichert wird UND waechst, wird auch gekappt', () => {
-    // Die eigentliche Bedingung fuer die Aufnahme von kind 1111: Persistenz OHNE
-    // Kappung waere ein unbegrenzt wachsender Store. Der Deckel ist global (nicht pro
-    // Thread), weil jede Nachricht eine Thread-Wurzel sein kann — ein Per-Root-Cap
-    // haette gar keine Obergrenze.
-    const comments = Array.from({ length: 12 }, (_, i) => comment('c' + i, NOW - i))
-    const drop = new Set(messagesToPrune(comments, NOW, 300, 30 * DAY, 5))
-    assert.equal(drop.size, 7, 'von 12 Kommentaren bleiben genau 5 (die juengsten)')
+test('Antworten wachsen NICHT unbegrenzt — sie fallen unter den Raum-Deckel', () => {
+    // Persistenz ohne Kappung waere ein unbegrenzt wachsender Store. Frueher brauchte es
+    // dafuer einen zweiten, globalen Deckel fuer kind 1111; jetzt genuegt der Raum-Cap,
+    // weil eine Antwort dasselbe `h` traegt wie ihre Wurzel.
+    const replies = Array.from({ length: 12 }, (_, i) => comment('c' + i, NOW - i))
+    const drop = new Set(messagesToPrune(replies, NOW, 5))
+    assert.equal(drop.size, 7, 'von 12 Antworten eines Raums bleiben genau 5 (die juengsten)')
     for (const keep of ['c0', 'c1', 'c2', 'c3', 'c4']) {
         assert.equal(drop.has(keep), false, `${keep} ist unter den juengsten 5 und bleibt`)
     }
-    assert.equal(drop.has('c11'), true, 'der aelteste Kommentar faellt raus')
+    assert.equal(drop.has('c11'), true, 'die aelteste Antwort faellt raus')
 })
 
-test('Der Alters-Backstop gilt fuer Kommentare wie fuer Nachrichten', () => {
+test('Der Alters-Backstop gilt fuer Antworten wie fuer Nachrichten', () => {
     const drop = new Set(
         messagesToPrune([comment('alt', NOW - 31 * DAY), comment('neu', NOW - 1 * DAY)], NOW),
     )
@@ -104,21 +109,20 @@ test('Der Alters-Backstop gilt fuer Kommentare wie fuer Nachrichten', () => {
     assert.equal(drop.has('neu'), false, 'innerhalb des Fensters → bleibt')
 })
 
-test('Nachrichten-Kappung bleibt per Raum und faellt nicht in den Kommentar-Topf', () => {
-    // Gegenprobe gegen den naheliegenden Fehler beim Erweitern: kind 9 und kind 1111
-    // duerfen sich ihre Deckel NICHT teilen, sonst verdraengt eine rege Thread-
-    // Diskussion den Verlauf eines stillen Raums.
+test('Die Kappung bleibt PER RAUM — ein reger Thread verdraengt keinen stillen Raum', () => {
+    // Der Deckel gilt pro `h`. Antworten eines Raums konkurrieren mit dessen Nachrichten
+    // (richtig so, sie liegen im selben Raum) — aber NIE mit denen eines anderen Raums.
     const events = [
         msg('a1', NOW - 1, 'raum-a'),
         msg('a2', NOW - 2, 'raum-a'),
-        msg('a3', NOW - 3, 'raum-a'),
+        comment('c1', NOW - 3, 'raum-a'),
         msg('b1', NOW - 4, 'raum-b'),
-        comment('c1', NOW - 5),
-        comment('c2', NOW - 6),
+        comment('c2', NOW - 5, 'raum-b'),
     ]
-    const drop = new Set(messagesToPrune(events, NOW, 2, 30 * DAY, 1))
-    assert.equal(drop.has('a3'), true, 'Raum A ist bei cap=2 um eine Nachricht zu voll')
-    assert.equal(drop.has('b1'), false, 'Raum B hat nur eine Nachricht und bleibt unberuehrt')
-    assert.equal(drop.has('c2'), true, 'der aeltere Kommentar faellt am Kommentar-Deckel')
-    assert.equal(drop.has('c1'), false, 'der juengere Kommentar bleibt')
+    const drop = new Set(messagesToPrune(events, NOW, 2))
+    assert.equal(drop.has('c1'), true, 'Raum A ist bei cap=2 um einen Eintrag zu voll — der aelteste faellt')
+    assert.equal(drop.has('a1'), false)
+    assert.equal(drop.has('a2'), false)
+    assert.equal(drop.has('b1'), false, 'Raum B liegt unter dem Deckel und bleibt vollstaendig')
+    assert.equal(drop.has('c2'), false, 'die Antwort in Raum B ebenso — Raeume teilen sich keinen Topf')
 })

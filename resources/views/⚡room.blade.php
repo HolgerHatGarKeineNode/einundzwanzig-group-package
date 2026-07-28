@@ -198,7 +198,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </div>
 
-    {{-- Thread-Mittelbereich (C6b, NIP-22 kind 1111): tauscht denselben Bereich wie der Raum-Feed,
+    {{-- Thread-Mittelbereich (Antworten = kind 9 mit reply-Marker): tauscht denselben Bereich wie der Raum-Feed,
          teilt aber Kopf + status-strip + Bühne → identisches Layout, KEIN Overlay, kein Überblenden.
          `role="dialog"` + Fokus-/Escape-Verwaltung bleiben (fokussierte Sub-Ansicht). Der Escape-Guard
          (`!lightboxSrc && !_cropSrc`) verhindert, dass ein Lightbox-/Cropper-Schließen den Thread mitreißt. --}}
@@ -572,8 +572,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Antworten: im Thread verschachtelte Kommentar-Antwort (setThreadReply), sonst Raum-q-Reply. --}}
             <flux:button variant="ghost" icon="arrow-uturn-left" class="w-full justify-start"
                          x-on:click="if (menuFor) { _menuInThread ? setThreadReply(menuFor) : setReply(menuFor); closeMessageMenu() }">{{ __('Antworten') }}</flux:button>
-            {{-- Raum-only (x-show="!_menuInThread"): an einem Thread-Kommentar (kind 1111) würden diese
-                 kind-9-Aktionen malformte Events erzeugen (Sub-Thread/Quote/Edit/Delete). Deshalb im Thread aus. --}}
+            {{-- Raum-only (x-show="!_menuInThread"): an einer Thread-Antwort würden diese Aktionen
+                 malformte Events erzeugen (Sub-Thread/Quote/Edit/Delete). Deshalb im Thread aus. --}}
             <flux:button variant="ghost" icon="chat-bubble-oval-left" class="w-full justify-start" x-show="!_menuInThread" x-cloak
                          x-on:click="if (menuFor) openThread(menuFor)">{{ __('Im Thread antworten') }}</flux:button>
             <flux:button variant="ghost" icon="chat-bubble-left-right" class="w-full justify-start" x-show="!_menuInThread" x-cloak

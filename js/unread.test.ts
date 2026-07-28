@@ -16,7 +16,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { MESSAGE, COMMENT } from '@welshman/util'
+import { MESSAGE } from '@welshman/util'
 import {
     BADGE_CAP,
     BELL_CAP,
@@ -37,22 +37,33 @@ const ROOT = 'c'.repeat(64)
 const message = (id: string, createdAt: number, h: string, author = OTHER, kind = MESSAGE) =>
     ({ id, kind, created_at: createdAt, pubkey: author, tags: [['h', h]], content: '', sig: '' }) as never
 
-const comment = (id: string, createdAt: number, rootId = ROOT, author = OTHER) =>
-    ({ id, kind: COMMENT, created_at: createdAt, pubkey: author, tags: [['E', rootId]], content: '', sig: '' }) as never
-
 /**
- * `h` ist optional, aber NICHT dekorativ: Lotus' kind-10 tragen laut `feeds.ts` neben dem
- * root-Marker ein `["h", groupId, relay]` — und genau diese Events laufen durch dieselbe
- * Kommentar-Schleife wie unsere kind-1111. Ein Helfer ohne `h` liesse eine Doppelzaehlung
- * (Kommentar zaehlt zusaetzlich in den Raum) unentdeckt durch die Suite.
+ * Antwort auf die WURZEL in Buzz-Form: kind 9, `h` wie die Wurzel, ein einzelnes
+ * `["e", rootId, "", "reply"]`.
+ *
+ * Das `h` ist hier NICHT dekorativ, es ist der Kern des Falls: seit P4 laufen Antworten
+ * durch dieselbe Liste und denselben `#h`-Filter wie Wurzeln. Ein Helfer ohne `h` liesse
+ * genau die Doppelzaehlung (Antwort zaehlt zusaetzlich in den Raum) unentdeckt durch.
  */
-const lotusComment = (id: string, createdAt: number, rootId = ROOT, h = '') =>
+const comment = (id: string, createdAt: number, rootId = ROOT, author = OTHER, h = 'raum') =>
     ({
         id,
-        kind: 10,
+        kind: MESSAGE,
+        created_at: createdAt,
+        pubkey: author,
+        tags: [['h', h], ['e', rootId, '', 'reply']],
+        content: '',
+        sig: '',
+    }) as never
+
+/** Antwort auf eine Antwort (Tiefe 2): `root` UND `reply`, wie Buzz es ab Tiefe 2 verlangt. */
+const nestedComment = (id: string, createdAt: number, rootId = ROOT, parentId = 'e'.repeat(64), h = 'raum') =>
+    ({
+        id,
+        kind: MESSAGE,
         created_at: createdAt,
         pubkey: OTHER,
-        tags: h ? [['e', rootId, URL, 'root'], ['h', h, URL]] : [['e', rootId, URL, 'root']],
+        tags: [['h', h], ['e', rootId, '', 'root'], ['e', parentId, '', 'reply']],
         content: '',
         sig: '',
     }) as never
@@ -61,7 +72,6 @@ const input = (over: Partial<UnreadInput> = {}): UnreadInput => ({
     url: URL,
     joined: ['raum'],
     events: [],
-    comments: [],
     state: {},
     me: ME,
     ...over,
@@ -116,40 +126,55 @@ test('Thread-Punkt nur fuer Threads, die ich schon einmal gelesen habe', () => {
     // Ohne diese Regel waere jeder je im Space eroeffnete Thread beim ersten Blick
     // ungelesen. Wer mich erwaehnt oder mir antwortet, erreicht mich in P4 ueber die
     // Benachrichtigungs-Liste — nicht ueber diesen Punkt.
-    const ungelesen = computeUnread(input({ comments: [comment('k1', 9999)] }))
+    const ungelesen = computeUnread(input({ events: [comment('k1', 9999)] }))
     assert.equal(ungelesen.threads[ROOT], undefined, 'nie geoeffnet ⇒ kein Punkt')
 
     const state: ReadState = { [threadKey(ROOT)]: 1000 }
-    const gelesen = computeUnread(input({ state, comments: [comment('k1', 1001)] }))
+    const gelesen = computeUnread(input({ state, events: [comment('k1', 1001)] }))
     assert.equal(gelesen.threads[ROOT], 1)
     assert.equal(gelesen.any, true)
 })
 
-test('Raum-Lesen quittiert KEINEN Thread (Kommentare stehen nicht im Raum-Feed)', () => {
-    // NIP-22: unsere kind-1111 tragen kein `#h` und erscheinen im Raum-Verlauf nicht.
-    // Ein Raum-Wasserzeichen als Boden fuer Threads wuerde ungelesene Antworten
-    // stummschalten — Flotilla macht genau das (Pfad-Praefix), wir bewusst nicht.
+test('Raum-Lesen quittiert KEINEN Thread (Antworten stehen nicht im Raum-Feed)', () => {
+    // Antworten tragen bei Buzz dasselbe `h` wie ihre Wurzel — der Raum-FEED filtert sie
+    // trotzdem heraus (`reply`-Marker). Ein Raum-Wasserzeichen als Boden fuer Threads
+    // wuerde ungelesene Antworten stummschalten — Flotilla macht das (Pfad-Praefix),
+    // wir bewusst nicht. Der Raum steht hier absichtlich auf „alles gelesen".
     const state: ReadState = { [roomKey(URL, 'raum')]: 9_999_999, [threadKey(ROOT)]: 1000 }
-    const view = computeUnread(input({ state, comments: [comment('k1', 1001)] }))
+    const view = computeUnread(input({ state, events: [comment('k1', 1001)] }))
     assert.equal(view.threads[ROOT], 1)
+    assert.equal(view.rooms.raum, 0, 'die Antwort darf NICHT zusaetzlich in den Raum zaehlen')
 })
 
-test('Der eigene Kommentar macht den eigenen Thread nicht ungelesen', () => {
+test('Die eigene Antwort macht den eigenen Thread nicht ungelesen', () => {
     const state: ReadState = { [threadKey(ROOT)]: 1000 }
-    const view = computeUnread(input({ state, comments: [comment('k1', 1001, ROOT, ME)] }))
+    const view = computeUnread(input({ state, events: [comment('k1', 1001, ROOT, ME)] }))
     assert.equal(view.threads[ROOT], undefined)
 })
 
-test('Lotus-Threads (kind 10) werden ueber den root-Marker erkannt', () => {
-    assert.equal(unreadCommentRootId(lotusComment('k1', 1)), ROOT)
+test('Antwort auf die Wurzel wird ueber den reply-Marker erkannt (Buzz-Regel 1)', () => {
+    // Der teuerste Unterschied zu NIP-10: eine direkte Antwort auf die Wurzel traegt
+    // `reply`, NICHT `root`. Faende die Ableitung die Wurzel nur ueber `root`, waere
+    // jede Antwort der Tiefe 1 heimatlos — genau die Klasse Fehler, die bei Buzz still
+    // Daten verliert.
+    assert.equal(unreadCommentRootId(comment('k1', 1)), ROOT)
     const state: ReadState = { [threadKey(ROOT)]: 1000 }
-    const view = computeUnread(input({ state, comments: [lotusComment('k1', 1001)] }))
+    const view = computeUnread(input({ state, events: [comment('k1', 1001)] }))
     assert.equal(view.threads[ROOT], 1)
+})
+
+test('Verschachtelte Antwort (Tiefe 2) zaehlt in die WURZEL, nicht in ihr Parent', () => {
+    const PARENT = 'e'.repeat(64)
+    assert.equal(unreadCommentRootId(nestedComment('k1', 1, ROOT, PARENT)), ROOT)
+    const state: ReadState = { [threadKey(ROOT)]: 1000, [threadKey(PARENT)]: 1000 }
+    const view = computeUnread(input({ state, events: [nestedComment('k1', 1001, ROOT, PARENT)] }))
+    assert.equal(view.threads[ROOT], 1)
+    assert.equal(PARENT in view.threads, false, 'ein Thread hat EINE Wurzel, nicht eine je Ebene')
 })
 
 test('`any` fasst Raeume UND Threads zusammen (der Punkt am Chat-Tab)', () => {
     const nurThread = computeUnread(
-        input({ state: { [threadKey(ROOT)]: 1000 }, comments: [comment('k1', 1001)] }),
+        input({ state: { [threadKey(ROOT)]: 1000 }, events: [comment('k1', 1001)] }),
     )
     assert.equal(nurThread.rooms.raum, 0)
     assert.equal(nurThread.any, true, 'ein ungelesener Thread allein reicht fuer den Tab-Punkt')
@@ -183,8 +208,9 @@ test('Gelesene Nachrichten zaehlen nicht mit — nur die jenseits des Wasserzeic
 })
 
 test('roomsTotal summiert ueber Raeume, threadsTotal ueber Threads — ohne Ueberschneidung', () => {
-    // Regel 5 in Zahlform: ein Kommentar zaehlt in seinen Thread und NIE zusaetzlich in
-    // den Raum. Die beiden Tab-Pillen zeigen deshalb disjunkte Mengen.
+    // Regel 5 in Zahlform: eine Antwort zaehlt in ihren Thread und NIE zusaetzlich in
+    // den Raum — obwohl sie seit P4 dasselbe `h` traegt und in derselben Liste steht.
+    // Die beiden Tab-Pillen zeigen deshalb disjunkte Mengen.
     const ROOT2 = 'd'.repeat(64)
     const state: ReadState = {
         [roomKey(URL, 'a')]: 1000,
@@ -196,8 +222,15 @@ test('roomsTotal summiert ueber Raeume, threadsTotal ueber Threads — ohne Uebe
         input({
             state,
             joined: ['a', 'b', 'c'],
-            events: [message('m1', 1001, 'a'), message('m2', 1002, 'a'), message('m3', 1001, 'b')],
-            comments: [comment('k1', 1001, ROOT), comment('k2', 1002, ROOT), comment('k3', 1001, ROOT2)],
+            events: [
+                message('m1', 1001, 'a'),
+                message('m2', 1002, 'a'),
+                message('m3', 1001, 'b'),
+                // Antworten liegen in DERSELBEN Liste — und muessen trotzdem disjunkt zaehlen.
+                comment('k1', 1001, ROOT, OTHER, 'a'),
+                comment('k2', 1002, ROOT, OTHER, 'a'),
+                comment('k3', 1001, ROOT2, OTHER, 'b'),
+            ],
         }),
     )
     assert.deepEqual(view.rooms, { a: 2, b: 1, c: 0 }, 'der stille Raum behaelt seinen Schluessel mit 0')
@@ -218,7 +251,7 @@ test('Ein Raum, in dem ich nicht bin, zaehlt auch nicht in die Tab-Summe', () =>
 
 test('Mehrere Antworten im selben Thread zaehlen einzeln', () => {
     const state: ReadState = { [threadKey(ROOT)]: 1000 }
-    const view = computeUnread(input({ state, comments: [comment('k1', 1001), comment('k2', 1002)] }))
+    const view = computeUnread(input({ state, events: [comment('k1', 1001), comment('k2', 1002)] }))
     assert.equal(view.threads[ROOT], 2)
     assert.equal(view.threadsTotal, 2)
 })
@@ -227,7 +260,7 @@ test('Ein gelesener Thread bekommt KEINEN Schluessel (anders als ein Raum)', () 
     // Bewusste Asymmetrie: `joined` ist klein und bekannt, die Menge je gelesener Threads
     // waechst grow-only mit. Nullen fuer jeden davon waeren Ballast, den niemand liest.
     const state: ReadState = { [threadKey(ROOT)]: 9999 }
-    const view = computeUnread(input({ state, comments: [comment('k1', 1001)] }))
+    const view = computeUnread(input({ state, events: [comment('k1', 1001)] }))
     assert.equal(ROOT in view.threads, false)
     assert.equal(view.threadsTotal, 0)
 })
@@ -275,20 +308,20 @@ test('Eine Cap unter 1 erzeugt keine `0+`-Pille', () => {
     assert.equal(formatUnreadCount(1, 0), '1')
 })
 
-test('Lotus-Kommentar MIT `h` zaehlt in den Thread — und NIE zusaetzlich in den Raum', () => {
-    // Der Fall, der ohne eigenen Anker durchrutscht: Lotus' kind-10 tragen ein
-    // `["h", groupId, relay]` (feeds.ts) und laufen durch DIESELBE Kommentar-Schleife.
-    // Wer dort das `h`-Muster der Nachrichten-Schleife hineinkopiert, zaehlt denselben
-    // Kommentar zweimal — einmal im Thread und einmal im Raum. Die Tab-Pillen „Raeume"
-    // und „Threads" waeren dann nicht mehr disjunkt und ihre Summe groesser als der
-    // Bestand: die Zahl liesse sich nicht mehr nachzaehlen, und genau das ist der
-    // Fehler, der eine Zahl dauerhaft verbrennt.
+test('Antwort MIT `h` zaehlt in den Thread — und NIE zusaetzlich in den Raum', () => {
+    // Seit P4 ist das der REGELFALL, nicht mehr ein Sonderfall: bei Buzz traegt JEDE
+    // Antwort das `h` ihrer Wurzel und liegt in derselben Liste wie die Nachrichten.
+    // Wer die Partition (`isThreadReply`) aus einer der beiden Schleifen entfernt,
+    // zaehlt dieselbe Antwort zweimal — einmal im Thread und einmal im Raum. Die
+    // Tab-Pillen „Raeume" und „Threads" waeren dann nicht mehr disjunkt und ihre Summe
+    // groesser als der Bestand: die Zahl liesse sich nicht mehr nachzaehlen, und genau
+    // das ist der Fehler, der eine Zahl dauerhaft verbrennt.
     const state: ReadState = { [roomKey(URL, 'raum')]: 1000, [threadKey(ROOT)]: 1000 }
-    const view = computeUnread(input({ state, comments: [lotusComment('k1', 1001, ROOT, 'raum')] }))
+    const view = computeUnread(input({ state, events: [comment('k1', 1001, ROOT, OTHER, 'raum')] }))
 
     assert.equal(view.threads[ROOT], 1, 'der Thread zaehlt')
     assert.equal(view.threadsTotal, 1)
-    assert.equal(view.rooms.raum, 0, 'der Raum zaehlt NICHT mit — Kommentare stehen nicht im Raum-Feed')
+    assert.equal(view.rooms.raum, 0, 'der Raum zaehlt NICHT mit — Antworten stehen nicht im Raum-Feed')
     assert.equal(view.roomsTotal, 0, 'sonst waere die Summe der beiden Tab-Pillen groesser als der Bestand')
 })
 
