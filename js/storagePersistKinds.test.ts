@@ -85,7 +85,7 @@ test('Thread-Antworten ueberleben den Kaltstart — ohne eigenen Eintrag, weil s
     // eines davon zurueckholt, tut es hier bewusst — beide sind bei Buzz nicht annehmbar
     // (`restricted: unknown event kind`, gemessen 2026-07-28).
     assert.equal(shouldPersistEvent(ev(1111)), false, 'kind 1111 (NIP-22) ist abgeloest')
-    assert.equal(shouldPersistEvent(ev(10)), false, 'kind 10 (Lotus In-Chat-Thread) ist abgeloest')
+    assert.equal(shouldPersistEvent(ev(10)), false, 'kind 10 (fremdes In-Chat-Thread-Kind) ist abgeloest')
 })
 
 test('Antworten wachsen NICHT unbegrenzt — sie fallen unter den Raum-Deckel', () => {
