@@ -88,7 +88,7 @@ import {
     unbanSpaceMember,
     addSpaceMember,
     banEvent,
-    dismissReportEvent,
+    resolveReport,
     setRelayName,
     setRelayDescription,
     setRelayIcon,
@@ -104,6 +104,7 @@ import {
     loadSpaceReports,
     loadReportedEvents,
     watchSpaceReports,
+    forgetBuzzReport,
     deriveSpaceJoinRequests,
     loadSpaceJoinRequests,
     watchSpaceJoinRequests,
@@ -599,7 +600,7 @@ type DirectoryState = {
     inviteLink: string
     inviteBusy: boolean
     busy: boolean
-    // Melde-Queue (P3, NIP-56 kind 1984)
+    // Melde-Queue — zooid: kind 1984 · Buzz: `GET /moderation/reports` (NIP-98)
     reports: ReportView[]
     // Beitritts-Queue (P4b, offene 9021 für closed-Räume)
     joinRequests: JoinRequestView[]
@@ -632,6 +633,7 @@ type DirectoryState = {
     restoreMember(pubkey: string): Promise<void>
     loadInvite(): Promise<void>
     copyInvite(): void
+    _reportDone(r: ReportView): void
     dismissReport(r: ReportView): Promise<void>
     removeReportedContent(r: ReportView): Promise<void>
     banReportedUser(r: ReportView): Promise<void>
@@ -2800,8 +2802,8 @@ export function registerNostrComponents(Alpine: {
                 // Melde-Queue (P3): Meldungen (kind 1984) laden + live halten. Die
                 // Ableitung ist billig; die UI zeigt sie nur Admins (x-show), also
                 // kein Gate auf den (async auflösenden) Admin-Status nötig.
-                loadSpaceReports(url)
-                watchSpaceReports(url, this._controller.signal)
+                void loadSpaceReports(url)
+                void watchSpaceReports(url, this._controller.signal)
                 this._unsubReports = deriveSpaceReports(url).subscribe((r: ReportView[]) => {
                     this.reports = r
                     // Die gemeldeten Events nachladen — sie liefern das `h`, das die
@@ -2920,52 +2922,71 @@ export function registerNostrComponents(Alpine: {
                 navigator.clipboard?.writeText(this.inviteLink).then(() => toast('Link kopiert.', 'success'))
             }
         },
-        // ── P3: Melde-Queue (NIP-56 kind 1984) ─────────────────────────────────
-        // Meldung verwerfen: den Report relay-seitig bannen (banevent) → er
-        // verschwindet aus der Queue (optimistisch lokal via removeEvent). Der
-        // gemeldete Inhalt bleibt unberührt. Gemeinsames busy-Gate wie die anderen
-        // Admin-Mutationen (immer nur eine Aktion offen).
+        // ── Melde-Queue ────────────────────────────────────────────────────────
+        // Zwei Relay-Strecken hinter identischen Knöpfen (Weiche in members.ts):
+        //   zooid → NIP-86 `banevent` auf das 1984-Event
+        //   Buzz  → kind 9044 auf die Report-Zeile (`resolveReport`)
+        //
+        // Wichtig für Buzz: 9044 ist die ENTSCHEIDUNG, nicht die Vollstreckung —
+        // der Handler löscht nichts und bannt niemanden (`moderation_commands.rs:430`).
+        // Die Maßnahme (9005 bzw. 9040) muss zusätzlich gesendet werden, und zwar
+        // ZUERST: scheitert sie, bleibt der Report offen statt als „erledigt"
+        // dazustehen, ohne dass etwas passiert wäre.
+        //
+        // Nach jeder Aktion: Zeile lokal wegnehmen (zooid via `repository.removeEvent`,
+        // Buzz via `forgetBuzzReport` — dort gibt es kein Event im Repository) und
+        // die Queue neu ziehen. Gemeinsames busy-Gate wie die anderen Admin-Mutationen.
+        _reportDone(r: ReportView) {
+            const url = this._url
+            if (!url) {
+                return
+            }
+            repository.removeEvent(r.id)
+            forgetBuzzReport(url, r.id)
+            void loadSpaceReports(url)
+        },
+        // Meldung verwerfen: der gemeldete Inhalt bleibt unberührt.
         async dismissReport(r: ReportView) {
             if (!this._url || this.busy) {
                 return
             }
             this.busy = true
             try {
-                const err = await dismissReportEvent(this._url, r.id)
+                const err = await resolveReport(this._url, r.id, 'dismiss')
                 if (err) {
                     toast(err)
                 } else {
-                    repository.removeEvent(r.id)
+                    this._reportDone(r)
                 }
             } finally {
                 this.busy = false
             }
         },
-        // Gemeldeten Inhalt entfernen: das gemeldete Event bannen (banevent) UND die
-        // Meldung verwerfen (erledigt → aus der Queue). Beides relay-seitig, lokal
-        // optimistisch ausgeblendet.
+        // Gemeldeten Inhalt entfernen: erst das Event löschen, dann die Meldung
+        // als erledigt schließen.
         async removeReportedContent(r: ReportView) {
             if (!this._url || this.busy || !r.reportedId) {
                 return
             }
             this.busy = true
             try {
-                // Das `h` des gemeldeten Events durchreichen: Buzz' kind 9005 verlangt
-                // Raum-Bezug (`invalid: channel-scoped events must include an h tag`,
-                // am laufenden Relay gemessen). Auf zooid ist der vierte Parameter folgenlos.
-                const err = (await banEvent(this._url, r.reportedId, '', r.roomH)) || (await dismissReportEvent(this._url, r.id))
+                // Das `h` durchreichen: Buzz' kind 9005 verlangt Raum-Bezug
+                // (`invalid: channel-scoped events must include an h tag`, am laufenden
+                // Relay gemessen). Es kommt dort aus `channel_id` des Report-Datensatzes.
+                // Auf zooid ist der vierte Parameter folgenlos.
+                const err = (await banEvent(this._url, r.reportedId, '', r.roomH)) || (await resolveReport(this._url, r.id, 'delete'))
                 if (err) {
                     toast(err)
                 } else {
                     repository.removeEvent(r.reportedId)
-                    repository.removeEvent(r.id)
+                    this._reportDone(r)
                 }
             } finally {
                 this.busy = false
             }
         },
-        // Gemeldeten Autor bannen (banpubkey — entfernt ihn + löscht alle seine
-        // Events) UND die Meldung verwerfen. Der Autor-Bann räumt den gemeldeten
+        // Gemeldeten Autor bannen (entfernt ihn + löscht seine Events) und die
+        // Meldung als erledigt schließen. Der Autor-Bann räumt den gemeldeten
         // Inhalt relay-seitig gleich mit weg.
         async banReportedUser(r: ReportView) {
             if (!this._url || this.busy || !r.reportedPubkey) {
@@ -2973,13 +2994,12 @@ export function registerNostrComponents(Alpine: {
             }
             this.busy = true
             try {
-                const err =
-                    (await banSpaceMember(this._url, r.reportedPubkey)) || (await dismissReportEvent(this._url, r.id))
+                const err = (await banSpaceMember(this._url, r.reportedPubkey)) || (await resolveReport(this._url, r.id, 'ban'))
                 if (err) {
                     toast(err)
                 } else {
                     refreshSpaceAdmin(this._url)
-                    repository.removeEvent(r.id)
+                    this._reportDone(r)
                 }
             } finally {
                 this.busy = false

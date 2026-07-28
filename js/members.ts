@@ -61,6 +61,8 @@ import {
     buzzDeleteEvent,
     buzzSetIcon,
     buzzLoadRestricted,
+    buzzResolveReport,
+    spaceIsBuzz,
     type BuzzRelayRole,
 } from './buzzAdmin'
 import { isVereinRelay, roomMembersByUrl } from './groups'
@@ -238,23 +240,9 @@ export const isVereinGatedOut = (a: VereinAccess): boolean => a.gated && a.ready
 
 // ── Relay-Modus-Weiche (zooid/NIP-86 ↔ Buzz-native Kinds) ───────────────────
 
-/**
- * Spricht dieser Space **Buzz** statt zooid? Synchroner Schnappschuss aus dem
- * bereits geladenen NIP-11-Profil (`getRelaysByUrl`, welshman-Cache).
- *
- * Ist das Profil noch nicht da, wird der Fetch angestossen und `false` gemeldet —
- * also **zooid-Verhalten als Default**. Das ist Absicht: die bestehende
- * NIP-86-Strecke darf sich durch diese Migration nicht aendern, und ein noch
- * unbekanntes Relay ist kein Buzz-Relay.
- */
-const spaceIsBuzz = (url: string): boolean => {
-    const profile = getRelaysByUrl().get(url)
-    if (!profile) {
-        void loadRelay(url)
-        return false
-    }
-    return isBuzzRelay(profile)
-}
+// Die Relay-Modus-Weiche `spaceIsBuzz` liegt seit P5 in `buzzAdmin.ts` — seit die
+// Melde-Queue (`actionItems.ts`) sie ebenfalls braucht, hat sie hier keine Heimat
+// mehr. EINE Erkennung, nicht zwei.
 
 // ── Admin-Erkennung ─────────────────────────────────────────────────────────
 
@@ -377,24 +365,38 @@ export const setSpaceMemberRole = async (
 // Nachrichten — im Gegensatz zum eigenen kind-5-Delete braucht sie kein Signatur-
 // Recht am Event, nur den Admin-Status am Relay. '' = Erfolg.
 /**
- * Verwirft ein **Report-Event** (kind 1984) relay-seitig.
- *
- * - **zooid:** NIP-86 `banevent` — löscht den Report und merkt seine id vor.
- * - **Buzz:** No-op mit Erfolg. Am laufenden Relay gemessen ist ein Report dort
- *   **gar kein abfragbares Event**: der Ingest nimmt kind 1984 an, schreibt ihn in
- *   die `moderation_reports`-Tabelle und kehrt vorher zurück
- *   (`handlers/ingest.rs:1600-1608`) — ein `REQ -k 1984` liefert 0 Treffer. Es gibt
- *   also nichts zu löschen, und der einzige Weg wäre kind 9005, das ohne `h`
- *   abgewiesen wird (`invalid: channel-scoped events must include an h tag`) — ein
- *   `h` hat der Report per Definition nicht. Ein Fehler-Toast wäre hier eine
- *   Falschmeldung; das lokale Ausblenden bleibt korrekt.
+ * Wie eine Meldung erledigt wurde — die Entscheidung, nicht die Vollstreckung.
+ * Die eigentliche Maßnahme (Löschen, Bannen) ist ein eigener Aufruf.
  */
-export const dismissReportEvent = async (url: string, id: string): Promise<string> =>
-    spaceIsBuzz(url)
-        ? ''
-        : manageError(
-              await manageRelay(url, { method: ManagementMethod.BanEvent, params: [id, 'dismissed by admin'] }),
-          )
+export type ReportResolution = 'dismiss' | 'delete' | 'ban'
+
+/**
+ * Schließt eine **Meldung** ab. `id` ist die Report-Kennung aus `ReportView.id`
+ * (zooid: Event-id des 1984 · Buzz: `report_event_id`). '' = Erfolg.
+ *
+ * - **Buzz:** kind 9044 (`KIND_MODERATION_RESOLVE_REPORT`,
+ *   `handlers/moderation_commands.rs:366`). Der Relay setzt die Report-Zeile auf
+ *   `resolved`/`dismissed` und schreibt eine Audit-Zeile; er löscht und bannt
+ *   dabei **nichts** (`:430-473`). Die Kopplungsregel `action=dismiss` ⇔
+ *   `status=dismissed` (`:393-397`) steckt in der Abbildung unten.
+ *
+ *   Vorher war das hier ein **No-op mit Erfolg**: ein Report ist auf Buzz kein
+ *   abfragbares Event (der Ingest schreibt ihn nach `moderation_reports` und kehrt
+ *   vorher zurück, `ingest.rs:1600-1608`), also gab es nichts zu bannen — die
+ *   Meldung blieb in der Relay-Datenbank ewig offen stehen. Genau diese Lücke
+ *   schließt 9044.
+ *
+ * - **zooid:** NIP-86 `banevent` auf das Report-Event, wie bisher — dort IST der
+ *   Report ein Event, und der Bann nimmt ihn aus der Queue.
+ */
+export const resolveReport = async (url: string, id: string, resolution: ReportResolution, reason = ''): Promise<string> => {
+    if (!spaceIsBuzz(url)) {
+        return manageError(await manageRelay(url, { method: ManagementMethod.BanEvent, params: [id, 'dismissed by admin'] }))
+    }
+    return resolution === 'dismiss'
+        ? await buzzResolveReport(url, id, 'dismissed', 'dismiss', reason)
+        : await buzzResolveReport(url, id, 'resolved', resolution, reason)
+}
 
 export const banEvent = async (url: string, id: string, reason = '', h = ''): Promise<string> =>
     spaceIsBuzz(url)

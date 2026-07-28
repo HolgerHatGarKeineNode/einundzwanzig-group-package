@@ -10,7 +10,7 @@
  * automatisch → „offene" Anfragen entstehen nur bei `closed`-Räumen (kind 9021 ohne
  * folgendes 39002-Mitglied bzw. jüngeres 9022-Leave). Annehmen/Ablehnen in bridge.ts.
  */
-import { derived, type Readable } from 'svelte/store'
+import { derived, writable, get, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
 import { profilesByPubkey, loadProfile } from '@welshman/app'
@@ -31,6 +31,8 @@ import { sortBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { roomsByUrl, roomMembersByUrl } from './groups'
+import { spaceIsBuzz, spaceIsBuzzAsync, buzzLoadReports, type BuzzReport } from './buzzAdmin'
+import { toast } from './toast'
 
 /** NIP-56-Maschinencodes → deutsche Labels (wie das Melde-Modal). */
 const REASON_LABELS: Record<string, string> = {
@@ -51,7 +53,7 @@ const shortNpub = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice
 const REPORTABLE_KINDS = [MESSAGE, POLL, COMMENT]
 
 export type ReportView = {
-    id: string // Report-Event (Ziel von „Verwerfen")
+    id: string // Report-Kennung (zooid: Event-id des 1984 · Buzz: `report_event_id`)
     reportedId: string // gemeldetes Event (Ziel von „Inhalt entfernen")
     reportedPubkey: string // gemeldeter Autor (Ziel von „Autor bannen")
     reportedName: string
@@ -59,39 +61,114 @@ export type ReportView = {
     reasonLabel: string
     text: string // optionaler Freitext des Melders
     /**
-     * Raum (`h`) des GEMELDETEN Events — '' solange das Event nicht vorliegt.
+     * Raum (`h`) des GEMELDETEN Events — '' wenn unbekannt.
      *
      * Der Report selbst trägt bewusst **kein** `h` (siehe `makeReport` in
      * `interactions.ts`: er ist keine Group-Message). Buzz verlangt für die
      * Admin-Löschung kind 9005 aber Raum-Bezug (`requires_h_channel_scope`,
-     * `ingest.rs:487`). Das `h` wird deshalb — nach der Hausregel „kein eigenes
-     * `h` raten, vom Parent übernehmen" (`parentRoomTags`) — aus dem gemeldeten
-     * Event gelesen. Auf zooid ist das Feld folgenlos: dessen NIP-86 `banevent`
-     * kennt nur die Event-ID.
+     * `ingest.rs:487`).
+     *
+     * - **Buzz:** kommt fertig vom Relay (`channel_id` im Report-Datensatz).
+     * - **zooid:** wird aus dem gemeldeten Event gelesen (dort ist das Feld für
+     *   die Aktion ohnehin folgenlos — NIP-86 `banevent` kennt nur die Event-id).
      */
     roomH: string
 }
 
+// ── Buzz: native Moderations-Queue ──────────────────────────────────────────
+//
+// Buzz speichert kind 1984 **nicht als Event**: der Ingest schreibt den Report
+// nach `moderation_reports` und kehrt vor der Speicherung zurück
+// (`handlers/ingest.rs:1600-1608`) — `nak req -k 1984` liefert dort 0 Treffer.
+// Die 1984-Ableitung unten findet auf Buzz also strukturell nie etwas. Gelesen
+// wird stattdessen `GET /moderation/reports` (NIP-98), gehalten in diesem Store.
+//
+// **Kein Migrationsversuch:** alte 1984-Reports werden nicht übernommen, nicht
+// umkopiert, nicht nachgebaut (Nutzerentscheidung 2026-07-28).
+
+const buzzReportsByUrl = writable(new Map<string, BuzzReport[]>())
+
+const setBuzzReports = (url: string, reports: BuzzReport[]): void =>
+    buzzReportsByUrl.update((m) => new Map(m).set(url, reports))
+
+/**
+ * Wirft einen erledigten Report sofort aus dem lokalen Store — die Zeile
+ * verschwindet, ohne auf den nächsten Abruf zu warten. Der Relay bleibt die
+ * Wahrheit; [[loadSpaceReports]] zieht direkt danach nach.
+ */
+export const forgetBuzzReport = (url: string, reportEventId: string): void =>
+    buzzReportsByUrl.update((m) => new Map(m).set(url, (m.get(url) ?? []).filter((r) => r.report_event_id !== reportEventId)))
+
+/**
+ * Ein Buzz-Report-Datensatz → `ReportView`. Rein (keine Stores, keine Netz-Zugriffe),
+ * damit die Abbildung testbar bleibt — `authorOf`/`nameOf` reichen die beiden
+ * Dinge herein, die aus der Umgebung kommen.
+ *
+ * **Was der Relay mitliefert und was nicht:** `channel_id` ist da — der frühere
+ * Umweg „gemeldetes Event nachladen, nur um an sein `h` zu kommen" entfällt damit
+ * vollständig. Der **Autor** des gemeldeten Events steht dagegen NICHT im
+ * Datensatz (`report_json`, `api/bridge.rs:2170-2191`, am laufenden Relay
+ * gegengeprüft): bei `target_kind: "event"` ist `target` die Event-id, mehr nicht.
+ * Der Name ist deshalb eine **Anzeige-Zugabe** — fehlt er, bleibt die Queue voll
+ * bedienbar (Verwerfen und Inhalt entfernen brauchen ihn nicht).
+ */
+export const mapBuzzReport = (
+    r: BuzzReport,
+    authorOf: (eventId: string) => string,
+    nameOf: (pubkey: string) => string,
+): ReportView => {
+    const reportedId = r.target_kind === 'event' ? r.target : ''
+    const reportedPubkey = r.target_kind === 'pubkey' ? r.target : reportedId ? authorOf(reportedId) : ''
+    return {
+        id: r.report_event_id,
+        reportedId,
+        reportedPubkey,
+        reportedName: reportedPubkey ? nameOf(reportedPubkey) : '?',
+        reason: r.report_type,
+        reasonLabel: REASON_LABELS[r.report_type] ?? (r.report_type || 'Meldung'),
+        text: r.note ?? '',
+        roomH: r.channel_id ?? '',
+    }
+}
+
+/** `created_at` ist bei Buzz ein ISO-8601-**String**, kein Unix-Int. Neueste zuerst. */
+const buzzReportOrder = (r: BuzzReport): number => -Date.parse(r.created_at || '')
+
 /**
  * Die offenen Meldungen des Space, neueste zuerst. Autoren-Profile werden lazy
  * nachgewärmt (Name/Avatar). `throttled`, damit das Neubauen nicht bei jedem
- * eintrudelnden Profil läuft. Ableitung rein aus der `repository` (via
- * `deriveEventsForUrl`) — geladen wird über `loadSpaceReports`/`watchSpaceReports`.
+ * eintrudelnden Profil läuft.
+ *
+ * **Zwei Quellen, eine Liste.** Der Store vereint die zooid-Ableitung (kind 1984
+ * aus der `repository`) mit dem Buzz-Store oben. Bewusst als Vereinigung statt
+ * als Entweder-Oder auf `spaceIsBuzz(url)`: die Relay-Erkennung hängt am
+ * NIP-11-Doc, das beim ersten Rendern noch unterwegs sein kann — eine Weiche
+ * hier würde je nach Ladereihenfolge die falsche Quelle festzurren. Auf zooid
+ * bleibt der Buzz-Teil leer (er wird nie befüllt), auf Buzz der 1984-Teil.
  */
 export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
     derived(
         [
             deriveEventsForUrl(url, [{ kinds: [REPORT] }]),
-            // Die gemeldeten Events selbst — Quelle des `h` (siehe ReportView.roomH).
-            // Eigene Store-Quelle, damit die Queue neu rechnet, sobald ein per
-            // [[loadReportedEvents]] nachgeladenes Ziel eintrifft.
+            // Die gemeldeten Events selbst — auf zooid Quelle des `h`, auf Buzz nur
+            // noch Quelle des Autoren-NAMENS (das `h` kommt dort aus `channel_id`).
             deriveEventsForUrl(url, [{ kinds: REPORTABLE_KINDS }]),
             throttled(300, profilesByPubkey),
+            buzzReportsByUrl,
         ],
-        ([events, reportable, $profiles]) => {
+        ([events, reportable, $profiles, $buzz]) => {
             const byId = new Map((reportable as TrustedEvent[]).map((e) => [e.id, e]))
+            const nameOf = (pk: string): string => {
+                if (!$profiles.has(pk)) {
+                    loadProfile(pk)
+                }
+                return displayProfile($profiles.get(pk) as PublishedProfile | undefined, shortNpub(nip19.npubEncode(pk)))
+            }
+            const buzzViews = sortBy(buzzReportOrder, $buzz.get(url) ?? []).map((r) =>
+                mapBuzzReport(r, (id) => byId.get(id)?.pubkey ?? '', nameOf),
+            )
             const sorted = sortBy((e: TrustedEvent) => -e.created_at, events)
-            return sorted.map((e): ReportView => {
+            return buzzViews.concat(sorted.map((e): ReportView => {
                 const eTag = getTag('e', e.tags) ?? []
                 // `p` ist UNGEPRÜFTER Relay-Input (Reports sind nicht relay-signiert, jedes
                 // Mitglied publiziert sie): ein kaputter Pubkey (odd-length/non-hex) ließe
@@ -118,34 +195,80 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
                     text: e.content,
                     roomH: reported ? (getTagValue('h', reported.tags) ?? '') : '',
                 }
-            })
+            }))
         },
     )
 
-/** Lädt die Meldungen (kind 1984) des Space frisch vom Relay. */
-export const loadSpaceReports = (url: string): Promise<unknown> =>
-    load({ relays: [url], filters: [{ kinds: [REPORT] }] })
+/**
+ * Lädt die Meldungen des Space frisch vom Relay.
+ *
+ * - **Buzz:** `GET /moderation/reports?status=open` (NIP-98-signiert). Ein
+ *   Fehlschlag wird als Toast gemeldet, NICHT als leere Liste geschluckt — sonst
+ *   sähe ein Admin bei kaputter Auth dasselbe wie bei „keine Meldungen".
+ * - **zooid:** REQ auf kind 1984 wie bisher.
+ *
+ * Die Weiche wartet hier auf das NIP-11-Doc ([[spaceIsBuzzAsync]]): das läuft
+ * einmal beim Seitenaufbau, und die synchrone Erkennung würde in genau diesem
+ * Moment noch `false` liefern.
+ */
+export const loadSpaceReports = async (url: string): Promise<unknown> => {
+    if (!(await spaceIsBuzzAsync(url))) {
+        return load({ relays: [url], filters: [{ kinds: [REPORT] }] })
+    }
+    try {
+        setBuzzReports(url, await buzzLoadReports(url))
+    } catch (e) {
+        toast(`Melde-Queue nicht abrufbar: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    return undefined
+}
 
 /**
- * Lädt die GEMELDETEN Events zu einer Menge von Report-Zielen nach — sie liefern
- * das `h`, das die Admin-Löschung auf Buzz braucht (kind 9005, siehe
- * [[ReportView.roomH]]). Auf der Directory-Seite lädt sonst niemand Raum-Inhalte,
- * die Ziele wären also nie im Repository.
+ * Lädt die GEMELDETEN Events zu einer Menge von Report-Zielen nach.
  *
- * Gezielt per `ids`-Filter statt breiter Raum-Abfrage: das ist genau ein REQ über
- * die offenen Meldungen, unabhängig von der Größe der Räume. Leere Liste → No-op.
+ * **Nur noch die zooid-Strecke.** Dort ist das der einzige Weg an das `h` des
+ * gemeldeten Events. Auf Buzz liefert der Relay `channel_id` im Report-Datensatz
+ * mit — der Umweg ist dort ersatzlos weg (und wäre auch brüchig: nach dem Löschen
+ * gibt es das Ziel-Event nicht mehr). Leere Liste → No-op.
  */
 export const loadReportedEvents = (url: string, ids: string[]): void => {
-    if (ids.length === 0) {
+    if (ids.length === 0 || spaceIsBuzz(url)) {
         return
     }
     void load({ relays: [url], filters: [{ ids }] })
 }
 
-/** Live-Sub auf neue Meldungen (kind 1984) — Nachzügler erscheinen sofort. */
-export const watchSpaceReports = (url: string, signal: AbortSignal): void => {
-    void request({ relays: [url], signal, filters: [{ kinds: [REPORT], limit: 0 }] })
+/**
+ * Sekunden zwischen zwei Abrufen der Buzz-Queue. Reports haben keinen Push-Kanal:
+ * sie sind kein Event, also kann kein REQ sie liefern (siehe oben). Bleibt Polling.
+ * 20 s ist der Kompromiss aus „ein Admin merkt eine neue Meldung zeitnah" und
+ * „drei signierte NIP-98-Abrufe pro Minute reichen als Last".
+ */
+const BUZZ_POLL_SECONDS = 20
+
+/**
+ * Hält die Meldungen aktuell — Nachzügler erscheinen ohne Neuladen.
+ *
+ * - **Buzz:** Polling (`setInterval`), abgeräumt am `signal`. Kein REQ möglich.
+ * - **zooid:** Live-Sub auf kind 1984 wie bisher.
+ */
+export const watchSpaceReports = async (url: string, signal: AbortSignal): Promise<void> => {
+    if (!(await spaceIsBuzzAsync(url))) {
+        void request({ relays: [url], signal, filters: [{ kinds: [REPORT], limit: 0 }] })
+        return
+    }
+    if (signal.aborted) {
+        return
+    }
+    const timer = setInterval(() => void loadSpaceReports(url), BUZZ_POLL_SECONDS * 1000)
+    signal.addEventListener('abort', () => clearInterval(timer), { once: true })
 }
+
+/**
+ * Der aktuelle Schnappschuss der Buzz-Queue eines Space — für Tests und für
+ * Aufrufer, die nach einer Aktion ohne Store-Abo nachsehen wollen.
+ */
+export const getBuzzReports = (url: string): BuzzReport[] => get(buzzReportsByUrl).get(url) ?? []
 
 // ── Beitritts-Queue (P4b/P3b: offene Join-Requests, nur bei `closed`-Räumen) ──
 // zooid trägt Beitritte offener Räume automatisch in die 39002 ein → keine offene
