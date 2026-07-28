@@ -1,14 +1,13 @@
 /**
  * Zentrale Publish-Helfer für schreibende Room-Aktionen (PLAN5). Hier lebt die
  * NIP-29/NIP-70-Tag-Logik, die JEDE Aktion teilt (Message, Reply — und ab C1
- * Reaction/Delete/Poll). Die konkreten `make*`-Event-Builder aus dem Referenz-
+ * Reaction/Delete). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { COMMENT, DELETE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
+import { COMMENT, DELETE, REACTION, REPORT, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
 import { getRelay, tagEvent, tagEventForComment, tagEventForReaction } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps'
-import type { PollOption, PollType } from './polls'
 
 /** NIP-70 PROTECTED-Marker: bittet das Relay, das Event nur vom Autor annehmbar zu halten. */
 export const PROTECTED = ['-']
@@ -22,7 +21,7 @@ export const canEnforceNip70 = (url: string): boolean => hasNip70(getRelay(url))
 /**
  * Basis-Tags JEDER schreibenden Room-Aktion: `["h", h]` (NIP-29-Group) plus
  * `["-"]` (NIP-70 PROTECTED), wenn das Relay es unterstützt. Message, Reply und
- * die Folgephasen (Reaction/Delete/Poll) hängen ihre spezifischen Tags an.
+ * die Folgephasen (Reaction/Delete) hängen ihre spezifischen Tags an.
  */
 export const roomTags = (h: string, url: string): string[][] =>
     canEnforceNip70(url) ? [['h', h], PROTECTED] : [['h', h]]
@@ -78,62 +77,6 @@ export const makeReport = (event: Pick<TrustedEvent, 'id' | 'pubkey'>, reason: s
     makeEvent(REPORT, {
         content,
         tags: [['p', event.pubkey], ['e', event.id, reason]],
-    })
-
-/**
- * Erstellt eine NIP-88-Poll (kind 1068) direkt im Raum: `content` = Frage, je Option
- * ein `["option", id, label]`, dazu `["polltype", …]`, `["relay", url]`, optional
- * `["endsAt", unix]` — plus `roomTags(h, url)` (`["h", h]` + PROTECTED), damit die
- * Poll wie eine Nachricht ins Space-Relay geroutet und member-only geschützt wird.
- * Poll-**Erstellen** ist bewusst Teil von C5 (Auftraggeber 2026-07-09).
- */
-export const makePoll = (
-    params: { title: string; options: PollOption[]; pollType: PollType; endsAt?: number },
-    h: string,
-    url: string,
-) => {
-    const tags: string[][] = [
-        ...params.options.map((o) => ['option', o.id, o.label]),
-        ['polltype', params.pollType],
-        ['relay', url],
-    ]
-    if (params.endsAt) {
-        tags.push(['endsAt', String(params.endsAt)])
-    }
-    return makeEvent(POLL, { content: params.title, tags: [...tags, ...roomTags(h, url)] })
-}
-
-/**
- * Erstellt ein NIP-75-Zap-Goal (kind 9041) im Raum (ZAPS.md Z5): `content` = Titel,
- * `["amount", <Sats>]` = Ziel (rohe Sats, Plan-Konvention — siehe `goals.ts`),
- * `["relays", url]` = wohin die Beitrags-Receipts sollen, optional `["summary", …]`
- * für Details — plus `roomTags(h, url)` (`["h", h]` + PROTECTED), damit die Goal-Karte
- * wie eine Nachricht ins Space-Relay geroutet und member-only geschützt wird.
- */
-export const makeGoal = (
-    params: { title: string; summary?: string; targetSats: number },
-    h: string,
-    url: string,
-) => {
-    const tags: string[][] = [['amount', String(params.targetSats)], ['relays', url]]
-    if (params.summary) {
-        tags.push(['summary', params.summary])
-    }
-    return makeEvent(ZAP_GOAL, { content: params.title, tags: [...tags, ...roomTags(h, url)] })
-}
-
-/**
- * Poll-Response (NIP-88 kind 1018): `["e", pollId]` + je gewählter Option
- * `["response", optionId]`, dazu `h` (vom Poll-Event) + PROTECTED. Erneutes Abstimmen
- * publiziert eine neue Response; das Tally wertet pro Wähler nur die jüngste aus.
- * `createdAt` wird über die vorige eigene Stimme gebumpt (Umwählen in derselben
- * Sekunde, analog zum Delete-Toggle) — sonst greift der strikt-größer-Vergleich nicht.
- */
-export const makePollResponse = (poll: TrustedEvent, selectedIds: string[], url: string, createdAt: number) =>
-    makeEvent(POLL_RESPONSE, {
-        created_at: createdAt,
-        content: '',
-        tags: [['e', poll.id], ...selectedIds.map((id) => ['response', id]), ...parentRoomTags(poll, url)],
     })
 
 /**

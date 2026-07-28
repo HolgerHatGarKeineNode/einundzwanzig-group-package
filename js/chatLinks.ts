@@ -54,3 +54,16 @@ export const linkDisplay = (href: string, fallback: string): string => {
  */
 export const isPlausibleUrl = (raw: string): boolean =>
     typeof raw === 'string' && /^https?:\/\//i.test(raw)
+
+/**
+ * Vorangestelltes `nostr:nevent…`/`note…`-Zitat einer Quote-Nachricht (`q`-Tag).
+ *
+ * Beim Zitieren stellen wir dem eigenen Text die Referenz als eigene Zeile voran.
+ * Für die Anzeige (Feed-Body, Benachrichtigungs-Vorschau) wird sie wieder abgezogen,
+ * damit nicht ein 60-Zeichen-`nevent1…` den Anfang jeder zitierenden Nachricht füllt;
+ * `feeds.ts` nutzt sie zusätzlich, um beim Bearbeiten das Präfix zu erhalten.
+ *
+ * Liegt hier statt bei den Quote-Erzeugern, weil das Konstant **rein** sein muss:
+ * `updates.ts` läuft unter `node --test` und darf keinen welshman-App-Import mitziehen.
+ */
+export const QUOTE_PREFIX = /^nostr:(?:nevent1|note1)[0-9a-z]+\n\n/

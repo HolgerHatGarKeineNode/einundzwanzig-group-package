@@ -283,7 +283,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="editingId ? cancelEdit() : clearReply()" aria-label="{{ __('Abbrechen') }}" />
         </div>
 
-        {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild, Umfrage/Zap-Ziel): geteilter Composer.
+        {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild): geteilter Composer.
              Sanftes Opacity-Einblenden statt hartem Aufploppen, sobald die Mitgliedschaft (39002)
              geladen ist (membershipReady). --}}
         <div x-show="membershipReady && joined" x-cloak x-transition.opacity.duration.200ms>
@@ -482,71 +482,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
                 <a href="{{ route('group.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">{{ __('Wallet verbinden für 1-Klick-Zaps') }}</a>
                 <flux:modal.close><flux:button variant="ghost" class="w-full">{{ __('Fertig') }}</flux:button></flux:modal.close>
-            </div>
-        </div>
-    </flux:modal>
-
-    {{-- Umfrage erstellen (C5, NIP-88 kind 1068): Frage + ≥2 Optionen + Einfach-/
-         Mehrfachwahl + optionales Enddatum. Publiziert mit `["h", h]` in den Raum
-         (erscheint als Poll-Karte im Verlauf). Poll-Erstellen ist Teil von C5. --}}
-    <flux:modal name="create-poll" class="max-w-md">
-        <div class="space-y-4">
-            <flux:heading size="lg">{{ __('Umfrage erstellen') }}</flux:heading>
-            <flux:input x-model="pollTitle" label="{{ __('Frage') }}" placeholder="{{ __('Was möchtest du fragen?') }}" />
-            <div class="space-y-2">
-                <flux:label>{{ __('Optionen') }}</flux:label>
-                {{-- Zeile = Drop-Zone; nur der Griff ist draggable (so bleibt das Input
-                     frei bedienbar). Live-Reorder beim Drüberziehen (pollReorder). --}}
-                <template x-for="(opt, i) in pollOptionList" :key="opt.id">
-                    <div class="flex items-center gap-2 transition-opacity"
-                         x-on:dragover.prevent="pollReorder(opt.id)" x-on:drop.prevent="pollDragEnd()"
-                         :class="_draggedOption === opt.id ? 'opacity-40' : ''">
-                        <span draggable="true" x-on:dragstart="pollDragStart(opt.id)" x-on:dragend="pollDragEnd()"
-                              class="shrink-0 cursor-grab text-muted active:cursor-grabbing" role="button"
-                              :aria-label="@js(__('Option ')) + (i + 1) + @js(__(' verschieben'))">
-                            <flux:icon.bars-3 variant="micro" />
-                        </span>
-                        {{-- ::attr (escaped) rendert den Wert LITERAL → `@js()` würde
-                             roh ins DOM leaken (Alpine: „Invalid token"). Js::from via
-                             {{ }} liefert das lokalisierte JS-String-Literal zur Compile-Zeit. --}}
-                        <flux:input x-model="opt.value" class="flex-1" ::placeholder="{{ \Illuminate\Support\Js::from(__('Option ')) }} + (i + 1)" />
-                        <flux:button size="sm" variant="ghost" icon="minus-circle"
-                                     x-on:click="removePollOption(opt.id)" aria-label="{{ __('Option entfernen') }}" />
-                    </div>
-                </template>
-                <flux:button size="sm" variant="ghost" icon="plus-circle" x-on:click="addPollOption()">
-                    {{ __('Option hinzufügen') }}
-                </flux:button>
-            </div>
-            <flux:select x-model="pollTypeSel" label="{{ __('Auswahl') }}">
-                <flux:select.option value="singlechoice">{{ __('Einfachwahl') }}</flux:select.option>
-                <flux:select.option value="multiplechoice">{{ __('Mehrfachwahl') }}</flux:select.option>
-            </flux:select>
-            <flux:input type="datetime-local" x-model="pollEndsAt" label="{{ __('Endet am (optional)') }}" />
-            <div class="flex justify-end gap-2">
-                <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
-                <flux:button variant="primary" x-on:click="submitPoll()" ::disabled="pollBusy">{{ __('Erstellen') }}</flux:button>
-            </div>
-        </div>
-    </flux:modal>
-
-    {{-- Zap-Ziel erstellen (Z5, NIP-75 kind 9041): Titel + optionale Details + Sats-Ziel.
-         Publiziert mit `["h", h]` in den Raum (erscheint als Ziel-Karte im Verlauf);
-         Beitragen läuft über den bestehenden Zap-Pfad (openZap auf die Ziel-Nachricht). --}}
-    <flux:modal name="create-goal" class="max-w-md">
-        <div class="space-y-4">
-            <div class="flex items-center gap-2">
-                <flux:icon.trophy variant="solid" class="size-6 text-brand-500" />
-                <flux:heading size="lg">{{ __('Zap-Ziel erstellen') }}</flux:heading>
-            </div>
-            <flux:input x-model="goalTitle" label="{{ __('Titel') }}" placeholder="{{ __('Wofür sammelst du?') }}" />
-            <flux:textarea x-model="goalSummary" label="{{ __('Details (optional)') }}" rows="2" placeholder="{{ __('Worum geht es?') }}" />
-            <flux:input type="number" min="1" x-model.number="goalTargetSats" label="{{ __('Ziel (Sats)') }}" />
-            <div class="flex justify-end gap-2">
-                <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
-                <flux:button variant="primary" icon="trophy" x-on:click="submitGoal()" ::disabled="goalBusy">
-                    <span x-text="goalBusy ? @js(__('Erstelle…')) : @js(__('Erstellen'))"></span>
-                </flux:button>
             </div>
         </div>
     </flux:modal>

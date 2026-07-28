@@ -118,7 +118,6 @@ import {
     loadRoomMessages,
     loadRoomReactions,
     loadRoomComments,
-    loadRoomPolls,
     loadRoomDeletes,
     loadRoomZaps,
     sendRoomMessage,
@@ -129,9 +128,6 @@ import {
     sendReaction,
     removeReaction,
     sendReport,
-    sendPoll,
-    sendPollResponse,
-    sendGoal,
     deriveThread,
     loadThread,
     listenThread,
@@ -146,7 +142,6 @@ import {
     type ThreadRoot,
     type SpaceThread,
 } from './feeds'
-import type { PollType } from './polls'
 import { uploadAttachment, type Attachment } from './uploads'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
 import {
@@ -321,7 +316,7 @@ const dispatchModal = (name: string, show = true): void => {
 const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
     const seen = [...tracker.getRelays(m.id)]
     const relays = seen.length ? seen : fallbackRelay ? [fallbackRelay] : []
-    // Echten Kind aus dem Repository (Thread-Kommentar = 1111, Nachricht = 9, Poll = 1068 …);
+    // Echten Kind aus dem Repository (Thread-Kommentar = 1111, Nachricht = 9);
     // die geteilte Row ruft copyNevent/openInfo auch auf Kommentaren → nicht hart MESSAGE annehmen.
     const kind = repository.getEvent(m.id)?.kind ?? MESSAGE
     return toNostrURI(nip19.neventEncode({ id: m.id, relays, author: m.pubkey, kind }))
@@ -702,16 +697,6 @@ type RoomChatState = {
     _zapper: Zapper | null // aufgelöster Zapper der zapFor-Nachricht (Vorabgate bestanden)
     _zapSub: AbortController | null // Live-Receipt-Sub im QR-Fallback (Abort bei Close)
     _zapLoadedIds: Set<string> // Nachrichten, deren 9735-History schon geladen wurde
-    pollTitle: string // Frage der zu erstellenden Poll (C5)
-    pollOptionList: { id: string; value: string }[] // Antwortoptionen des Poll-Formulars
-    pollTypeSel: PollType // Einfach-/Mehrfachwahl der zu erstellenden Poll
-    pollEndsAt: string // optionales Enddatum (datetime-local-String, '' = kein Ende)
-    pollBusy: boolean // Poll wird gerade publiziert
-    goalTitle: string // Titel des zu erstellenden Zap-Goals (Z5)
-    goalSummary: string // optionale Beschreibung des Zap-Goals
-    goalTargetSats: number // Ziel-Betrag in Sats
-    goalBusy: boolean // Goal wird gerade publiziert
-    _draggedOption: string | null // id der per Griff gezogenen Option (Reorder), sonst null
     isMobile: boolean // native App? → Interaktions-Menü als Vollbild-Modal statt Popover
     menuFor: ChatMessage | null // Nachricht des offenen Interaktions-Menüs (Mobile-Modal)
     _menuInThread: boolean // Mobile-Menü aus dem Thread geöffnet → Raum-only-Aktionen ausblenden, Antworten→setThreadReply
@@ -754,7 +739,7 @@ type RoomChatState = {
     _unsubJoined: null | (() => void)
     _controller: AbortController | null
     _loadedProfiles: Set<string>
-    _loadedMsgIds: Set<string> // ROH geladene kind-9-IDs (Pagination-Terminierung, robust ggü. Anzeige-Filter wie Poll-Share-Quotes)
+    _loadedMsgIds: Set<string> // ROH geladene kind-9-IDs (Pagination-Terminierung, robust ggü. Anzeige-Filtern)
     _scroller: Scroller | null // Auto-Nachlade-Scroller (createScroller) statt Virtualizer; Teardown stoppt ihn
     _destroyed: boolean // Insel via wire:navigate abgebaut, während init() noch auf storageReady wartete (M3 P1)
     _pendingMsgs: ChatMessage[] | null // rAF-Coalescing: letzter Feed-Emit, der noch aufs Rendern wartet
@@ -823,16 +808,6 @@ type RoomChatState = {
     openZap(m: ChatMessage): Promise<void>
     confirmZap(): Promise<void>
     closeZap(): void
-    votePoll(m: ChatMessage, optionId: string): Promise<void>
-    openPollCreate(): void
-    addPollOption(): void
-    removePollOption(id: string): void
-    pollDragStart(id: string): void
-    pollReorder(targetId: string): void
-    pollDragEnd(): void
-    submitPoll(): Promise<void>
-    openGoalCreate(): void
-    submitGoal(): Promise<void>
     join(): Promise<void>
     leave(): Promise<void>
     destroy(): void
@@ -3213,16 +3188,6 @@ export function registerNostrComponents(Alpine: {
         _zapper: null,
         _zapSub: null,
         _zapLoadedIds: new Set<string>(),
-        pollTitle: '',
-        pollOptionList: [],
-        pollTypeSel: 'singlechoice',
-        pollEndsAt: '',
-        pollBusy: false,
-        goalTitle: '',
-        goalSummary: '',
-        goalTargetSats: 21000,
-        goalBusy: false,
-        _draggedOption: null,
         isMobile,
         menuFor: null,
         _menuInThread: false,
@@ -3431,13 +3396,6 @@ export function registerNostrComponents(Alpine: {
             // NIP-22-Kommentare (kind 1111) nachladen, damit die Antworten-Indikatoren
             // schon beim ersten Paint stimmen (Live-Sub = nur Neues). Ohne #h (flotilla-kompat).
             void loadRoomComments(url)
-            // Poll-Responses (kind 1018) fürs Tally nachladen — NICHT die Poll-Karten (1068) selbst:
-            // die kommen jetzt übers gepagte roomFilter (limit:50 + loadOlder), liegen also IMMER im
-            // geladenen Fenster → sofort vermessen → kein Off-screen-Estimate → kein mittiger Sprung.
-            // Goals (kind 9041) ebenso: kommen übers Paging, Beiträge über loadRoomZaps (Feed-IDs) —
-            // kein eigener Bulk-Load mehr nötig. pollsReady bleibt im Reveal-Gate, damit das Tally
-            // einer bodennah geladenen Poll am First Paint stimmt.
-            const pollsReady = loadRoomPolls(url, this.h)
             // Custom-Emoji (NIP-30) des eigenen Profils vorwärmen, solange die
             // Relay-Verbindung frisch AUTH'd ist — beim späteren Picker-Öffnen
             // würde ein one-shot-Load gegen den member-only Relay sonst hängen.
@@ -3576,7 +3534,6 @@ export function registerNostrComponents(Alpine: {
                                 reactionsReady.catch(() => []),
                                 zapsReady,
                                 profilesReady,
-                                pollsReady.catch(() => []),
                             ]),
                             new Promise((resolve) => setTimeout(resolve, PREWARM_BUDGET_MS)),
                         ])
@@ -3638,7 +3595,7 @@ export function registerNostrComponents(Alpine: {
                     // Terminierung gegen die ROH geladenen IDs (welshmans `until` ist inklusiv +
                     // frischer Tracker pro Load → die Grenzseite kommt immer zurück; `length===0`
                     // wäre unerreichbar). Kein STRIKT neues kind-9 = Anfang erreicht. Roh-Vergleich,
-                    // weil `this.messages` Poll-Share-Quotes wegfiltert → sonst nie hasMore=false.
+                    // weil `this.messages` gefiltert sein kann → sonst nie hasMore=false.
                     const gotNew = events.some((e) => !this._loadedMsgIds.has(e.id))
                     events.forEach((e) => this._loadedMsgIds.add(e.id))
                     if (!gotNew) {
@@ -3797,7 +3754,6 @@ export function registerNostrComponents(Alpine: {
             // im Hintergrund/getrennt war, kam kein Live-Broadcast an.
             void loadRoomDeletes(url, this.h)
             void loadRoomComments(url)
-            void loadRoomPolls(url, this.h)
             // Zap-Receipts (kind 9735) haben KEINE Live-Sub (kein #h, nicht im listenRoom-Filter) und
             // werden sonst nur je NEUER Nachricht geladen → im Hintergrund auf SCHON geladene
             // Nachrichten eingetroffene Fremd-Zaps blieben stale. Fürs sichtbare Fenster nachladen.
@@ -3867,9 +3823,8 @@ export function registerNostrComponents(Alpine: {
         // dank Single-Space-Relay jederzeit; die Grenze ist eine bewusste UX-Konvention
         // (kein stilles Umschreiben alter History) — vom Referenz-5-min auf 30 min angehoben
         // (Auftraggeber). Zeit ist nicht reaktiv — im Menü bei jedem Öffnen frisch ausgewertet.
-        // Polls (kind 1068) NICHT: der Edit-Pfad republisht als kind-9 und zerstörte die Umfrage.
         canEdit(m: ChatMessage): boolean {
-            return m.mine && !m.poll && m.created_at >= Math.floor(Date.now() / 1000) - 1800
+            return m.mine && m.created_at >= Math.floor(Date.now() / 1000) - 1800
         },
         // Bearbeiten starten: Composer mit dem Klartext (ohne Zitat-Präfix) vorbefüllen,
         // Reply/Share verwerfen. Guard gegen zu alte Nachrichten (Menü zeigt es zwar nur
@@ -4823,151 +4778,6 @@ export function registerNostrComponents(Alpine: {
             this.zapInvoice = ''
             this.zapQr = ''
             dispatchModal('zap-message', false)
-        },
-        // ── C5: Poll-Vote (NIP-88 kind 1018) ───────────────────────────────────
-        // Auf eine Poll-Option klicken. Einfachwahl setzt genau diese Option;
-        // Mehrfachwahl toggelt sie in der bestehenden Auswahl. Optimistisch (die
-        // Response landet sofort im Repository → Balken/eigener Vote aktualisieren).
-        async votePoll(m: ChatMessage, optionId: string) {
-            // Frische Poll-Sicht aus dem aktuellen Feed holen — das per x-for übergebene
-            // `m` kann ein veralteter Closure-Stand sein (schnelles Mehrfach-Toggle läse
-            // sonst eine alte Auswahl und verlöre die vorige Stimme).
-            const fresh = this.messages.find((x) => x.id === m.id) ?? m
-            if (!this._url || !fresh.poll || fresh.poll.closed) {
-                return
-            }
-            const poll = repository.getEvent(m.id)
-            if (!poll) {
-                return
-            }
-            let selection: string[]
-            if (fresh.poll.multi) {
-                const current = fresh.poll.options.filter((o) => o.mine).map((o) => o.id)
-                selection = current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]
-                // Mehrfachwahl komplett abgewählt → keine leere Response senden (wie der Referenz-Client).
-                if (selection.length === 0) {
-                    return
-                }
-            } else {
-                selection = [optionId]
-            }
-            const err = await sendPollResponse(this._url, poll, selection)
-            if (err) {
-                toast(err)
-            }
-        },
-        // Poll-Erstellen öffnen: Formular auf zwei leere Optionen zurücksetzen, Modal auf.
-        openPollCreate() {
-            this.pollTitle = ''
-            this.pollOptionList = [
-                { id: crypto.randomUUID(), value: '' },
-                { id: crypto.randomUUID(), value: '' },
-            ]
-            this.pollTypeSel = 'singlechoice'
-            this.pollEndsAt = ''
-            dispatchModal('create-poll')
-        },
-        addPollOption() {
-            this.pollOptionList.push({ id: crypto.randomUUID(), value: '' })
-        },
-        removePollOption(id: string) {
-            this.pollOptionList = this.pollOptionList.filter((o) => o.id !== id)
-        },
-        // Optionen per Griff umsortieren (natives HTML5-DnD, wie der Referenz-Client —
-        // kein Sortable-Dep). `pollReorder` verschiebt live beim Drüberziehen: die gezogene
-        // Option wandert an die Position der überfahrenen.
-        pollDragStart(id: string) {
-            this._draggedOption = id
-        },
-        pollReorder(targetId: string) {
-            const src = this.pollOptionList.findIndex((o) => o.id === this._draggedOption)
-            const tgt = this.pollOptionList.findIndex((o) => o.id === targetId)
-            if (src === -1 || tgt === -1 || src === tgt) {
-                return
-            }
-            const [moved] = this.pollOptionList.splice(src, 1)
-            this.pollOptionList.splice(tgt, 0, moved)
-        },
-        pollDragEnd() {
-            this._draggedOption = null
-        },
-        // Poll publizieren (kind 1068). Validiert Frage + ≥2 nicht-leere Optionen +
-        // Enddatum in der Zukunft; baut die Options-IDs des Formulars in die `option`-Tags.
-        async submitPoll() {
-            if (this.pollBusy || !this._url) {
-                return
-            }
-            const title = this.pollTitle.trim()
-            if (!title) {
-                toast('Bitte gib eine Frage ein.')
-                return
-            }
-            const options = this.pollOptionList
-                .map((o) => ({ id: o.id, label: o.value.trim() }))
-                .filter((o) => o.label !== '')
-            if (options.length < 2) {
-                toast('Bitte gib mindestens zwei Optionen an.')
-                return
-            }
-            let endsAt: number | undefined
-            if (this.pollEndsAt) {
-                const ts = Math.floor(new Date(this.pollEndsAt).getTime() / 1000)
-                if (!Number.isFinite(ts) || ts <= Math.floor(Date.now() / 1000)) {
-                    toast('Das Enddatum muss in der Zukunft liegen.')
-                    return
-                }
-                endsAt = ts
-            }
-            this.pollBusy = true
-            try {
-                const err = await sendPoll(this._url, this.h, { title, options, pollType: this.pollTypeSel, endsAt })
-                if (err) {
-                    toast(err)
-                } else {
-                    dispatchModal('create-poll', false)
-                    this.scrollToBottom()
-                }
-            } finally {
-                this.pollBusy = false
-            }
-        },
-        // ── Z5: Zap-Goal-Erstellen (NIP-75 kind 9041) ──────────────────────────
-        // Goal-Formular zurücksetzen (Default-Ziel 21 000 Sats) + Modal auf.
-        openGoalCreate() {
-            this.goalTitle = ''
-            this.goalSummary = ''
-            this.goalTargetSats = 21000
-            dispatchModal('create-goal')
-        },
-        // Goal publizieren (kind 9041). Validiert Titel + Ziel > 0; die Karte
-        // erscheint optimistisch im Verlauf (wie eine Poll), Beitragen läuft über
-        // den bestehenden Zap-Pfad (openZap auf die Goal-Nachricht).
-        async submitGoal() {
-            if (this.goalBusy || !this._url) {
-                return
-            }
-            const title = this.goalTitle.trim()
-            if (!title) {
-                toast('Bitte gib dem Ziel einen Titel.')
-                return
-            }
-            const targetSats = Math.floor(this.goalTargetSats)
-            if (!Number.isFinite(targetSats) || targetSats <= 0) {
-                toast('Bitte gib ein gültiges Ziel in Sats an.')
-                return
-            }
-            this.goalBusy = true
-            try {
-                const err = await sendGoal(this._url, this.h, { title, summary: this.goalSummary.trim(), targetSats })
-                if (err) {
-                    toast(err)
-                } else {
-                    dispatchModal('create-goal', false)
-                    this.scrollToBottom()
-                }
-            } finally {
-                this.goalBusy = false
-            }
         },
         // Beitreten (kind 9021). Round-trip: `joined` flippt, sobald die vom Relay
         // aktualisierte 39002 über die Live-Sub eintrifft (kein optimistischer Fake).

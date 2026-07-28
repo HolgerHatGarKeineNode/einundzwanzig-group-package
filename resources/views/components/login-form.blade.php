@@ -48,7 +48,7 @@
 
             {{-- Reconnect-Hinweis: warum der Nutzer hier ist. --}}
             <flux:callout x-show="reconnect" x-cloak icon="arrow-path" class="mt-3">
-                <flux:callout.text>{{ __('Deine Amber-/Bunker-Verbindung stammt aus einer früheren Version. Verbinde einmal neu, um alle Berechtigungen (Zaps, Umfragen, Reaktionen, Admin) zu erteilen.') }}</flux:callout.text>
+                <flux:callout.text>{{ __('Deine Amber-/Bunker-Verbindung stammt aus einer früheren Version. Verbinde einmal neu, um alle Berechtigungen (Zaps, Reaktionen, Admin) zu erteilen.') }}</flux:callout.text>
             </flux:callout>
 
             {{-- QR-/Amber-Verbindungslauf (nostrconnect://). EINE Instanz, getriggert

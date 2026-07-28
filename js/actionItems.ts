@@ -19,7 +19,6 @@ import {
     ROOM_JOIN,
     ROOM_LEAVE,
     MESSAGE,
-    POLL,
     COMMENT,
     getTag,
     getTagValue,
@@ -50,7 +49,7 @@ const shortNpub = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice
  * Filter für die Store-Quelle, aus der das `h` eines gemeldeten Events kommt;
  * ein Kind zu viel oder zu wenig kostet nichts außer einem leeren `roomH`.
  */
-const REPORTABLE_KINDS = [MESSAGE, POLL, COMMENT]
+const REPORTABLE_KINDS = [MESSAGE, COMMENT]
 
 export type ReportView = {
     id: string // Report-Kennung (zooid: Event-id des 1984 · Buzz: `report_event_id`)

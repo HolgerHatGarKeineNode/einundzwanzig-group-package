@@ -31,8 +31,6 @@ import { load, request } from '@welshman/net'
 import {
     ROOMS,
     MESSAGE,
-    POLL,
-    ZAP_GOAL,
     ROOM_META,
     ROOM_CREATE,
     ROOM_DELETE,
@@ -159,14 +157,13 @@ export const roomsById = derived(roomsByUrl, ($byUrl) => {
 // ── Raum-Aktivität (`lastMessageAt`) ─────────────────────────────────────────
 
 /**
- * Timeline-Events (kind 9/1068/9041) aller Spaces, nach Herkunfts-Relay (tracker) —
- * dieselben Kinds, die auch im Raum-Verlauf stehen (`feeds.ts roomStreamFilter`), damit
- * eine Poll oder ein Spendenziel einen Raum genauso „aktiv" macht wie eine Nachricht.
+ * Timeline-Events (kind 9) aller Spaces, nach Herkunfts-Relay (tracker) — dieselben
+ * Kinds, die auch im Raum-Verlauf stehen (`feeds.ts roomStreamFilter`).
  */
 const timelineEventsByIdByUrl = deriveEventsByIdByUrl({
     tracker,
     repository,
-    filters: [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }],
+    filters: [{ kinds: [MESSAGE] }],
 })
 
 /**
@@ -276,7 +273,7 @@ export type RoomView = {
     /** Stabile Antrags-id aus `["i","proposal:<id>"]` ('' wenn keine). */
     proposalId: string
     /**
-     * `created_at` des jüngsten bekannten Timeline-Events (9/1068/9041) dieses Raums,
+     * `created_at` des jüngsten bekannten Timeline-Events (kind 9) dieses Raums,
      * `null` solange keins vorliegt. Quelle: {@link lastMessageAtByUrl}. Trägt die
      * Sortierung der Raumliste nach Aktivität.
      *

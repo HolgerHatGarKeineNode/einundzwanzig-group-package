@@ -96,82 +96,6 @@
                                          if (link) { $event.stopPropagation(); openChatLink(link.href, $event) }
                                      }
                                  "></div>
-                            {{-- Poll (C5, NIP-88 kind 1068): Optionen mit Live-Balken + Vote-Buttons.
-                                 Titel steht bereits in m.html (Poll-content = Frage). Option-Button
-                                 ist ein Komposit (Balken + Marker + Label + Zähler) → rohes <button>
-                                 wie die Zitat-Vorschau (§6), Flux hat kein Pendant. --}}
-                            <template x-if="m.poll">
-                                {{-- Einfachwahl = radiogroup (exklusiv), Mehrfachwahl = group aus Checkboxen.
-                                     Rolle/aria-checked tragen den Zustand → SR sagt „ausgewählt" an, nicht
-                                     die dekorative Glyphe (aria-hidden). --}}
-                                <div class="mt-1.5">
-                                    {{-- Optionen in einer GEDECKELTEN, innen scrollbaren Box (max-h-52): jede
-                                         Options-Zeile hat feste Höhe (truncate, kein Umbruch), viele Optionen
-                                         scrollen INNEN statt die Nachrichtenzeile wachsen zu lassen. So ist die
-                                         äußere Höhe deterministisch (Optionsanzahl × feste Zeilenhöhe, gedeckelt)
-                                         und async-stabil (Tally füllt nur die Balken) → der Virtualizer-Estimate
-                                         trifft exakt → kein Jitter beim Scrollen in Polls. --}}
-                                    <div class="max-h-52 space-y-1.5 overflow-y-auto" :role="m.poll.multi ? 'group' : 'radiogroup'" aria-label="{{ __('Umfrageoptionen') }}">
-                                        <template x-for="opt in m.poll.options" :key="opt.id">
-                                            <button type="button" x-on:click.stop="votePoll(m, opt.id)" :disabled="m.poll.closed"
-                                                    :role="m.poll.multi ? 'checkbox' : 'radio'" :aria-checked="opt.mine"
-                                                    class="pressable relative block w-full overflow-hidden rounded-tile border text-left disabled:opacity-70"
-                                                    :class="opt.mine ? 'border-brand-500' : 'border-white/10 hover:border-brand-500/50'">
-                                                <div class="absolute inset-y-0 left-0 bg-brand-500/15 transition-[width] duration-300 motion-reduce:transition-none" :style="`width:${opt.pct}%`"></div>
-                                                <div class="relative flex items-center justify-between gap-2 px-2 py-1.5">
-                                                    <span class="flex min-w-0 items-center gap-2">
-                                                        {{-- Marker signalisiert die Wahlart: Radio (●/○) bei Einfach-, Checkbox (☑/☐) bei Mehrfachwahl. --}}
-                                                        <span aria-hidden="true" class="shrink-0 text-sm" :class="opt.mine ? 'text-brand-500' : 'text-muted'"
-                                                              x-text="opt.mine ? (m.poll.multi ? '☑' : '●') : (m.poll.multi ? '☐' : '○')"></span>
-                                                        <span class="truncate text-sm" x-text="opt.label"></span>
-                                                    </span>
-                                                    <span class="shrink-0 font-mono text-xs text-muted" x-text="opt.votes"></span>
-                                                </div>
-                                            </button>
-                                        </template>
-                                    </div>
-                                    {{-- Footer außerhalb der Scrollbox → bleibt fix sichtbar. --}}
-                                    <div class="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted">
-                                        <span x-text="m.poll.typeLabel + (m.poll.endsLabel ? ' · ' + m.poll.endsLabel : '')"></span>
-                                        <span x-text="m.poll.voters + (m.poll.voters === 1 ? @js(__(' Stimme')) : @js(__(' Stimmen')))"></span>
-                                    </div>
-                                </div>
-                            </template>
-                            {{-- Zap-Goal (Z5, NIP-75 kind 9041): Titel steht in m.html (Goal-content),
-                                 hier Details + Fortschrittsbalken (aus validiertem 9735-Tally) +
-                                 „Beitragen"-Zap. Eigenes Ziel (!zappable) zeigt nur den Fortschritt. --}}
-                            <template x-if="m.goal">
-                                <div class="surface-card mt-1.5 space-y-2 rounded-tile border border-brand-500/20 p-3">
-                                    {{-- Summary auf eine Zeile abgeschnitten (+ Hover-Tooltip für die
-                                         Vollansicht): hält die Goal-Höhe fix, egal wie lang die Beschreibung
-                                         ist → async-stabil, Estimate trifft → kein Jitter (Nutzer-Vorgabe). --}}
-                                    <template x-if="m.goal.summary">
-                                        <p class="truncate text-sm text-muted" :title="m.goal.summary" x-text="m.goal.summary"></p>
-                                    </template>
-                                    <div>
-                                        <div class="flex items-center justify-between gap-2 font-mono text-xs tabular-nums">
-                                            <span class="font-semibold text-brand-500" x-text="m.goal.raisedSats.toLocaleString('de-DE') + ' Sats'"></span>
-                                            <span class="text-muted" x-text="@js(__('Ziel ')) + m.goal.targetSats.toLocaleString('de-DE')"></span>
-                                        </div>
-                                        {{-- Balken: role=progressbar trägt den Wert für SR; die Breite
-                                             animiert nur bei motion-safe (Reduced-Motion springt). --}}
-                                        <div class="mt-1 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar"
-                                             :aria-valuenow="m.goal.pct" aria-valuemin="0" aria-valuemax="100"
-                                             aria-label="{{ __('Ziel-Fortschritt') }}"
-                                             :aria-valuetext="m.goal.pct + @js(__(' Prozent — ')) + m.goal.raisedSats.toLocaleString('de-DE') + @js(__(' von ')) + m.goal.targetSats.toLocaleString('de-DE') + ' Sats'">
-                                            <div class="h-full rounded-full bg-brand-500 transition-[width] duration-500 motion-reduce:transition-none"
-                                                 :style="`width:${m.goal.pct}%`"></div>
-                                        </div>
-                                    </div>
-                                    <div class="flex items-center justify-between gap-2">
-                                        <span class="text-xs text-muted"
-                                              x-text="m.goal.contributors + (m.goal.contributors === 1 ? @js(__(' Beitragende:r')) : @js(__(' Beitragende'))) + (m.goal.reached ? @js(__(' · Ziel erreicht 🎉')) : '')"></span>
-                                        <flux:button size="xs" variant="primary" icon="bolt" class="shrink-0 icon-btn-touch"
-                                                     x-show="zapsEnabled && m.zappable" x-cloak
-                                                     x-on:click.stop="openZap(m)">{{ __('Beitragen') }}</flux:button>
-                                    </div>
-                                </div>
-                            </template>
                             {{-- Grow-only Chip-Bereich (Schritt 1, plans/chat-message-cache-no-flicker.md):
                                  EIN Container um Reaction- + Zap-Zeile mit stabiler :id. bridge.ts misst
                                  im $nextTick die Höhe und hält sie als min-height — nachladende oder
@@ -240,10 +164,9 @@
                                 {{-- ⚡-Zap-Chip (Z3): validierte 9735-Summe in Sats, Brand-Ramp,
                                      hervorgehoben wenn man selbst (mit)gezappt hat. Tap re-zappt
                                      (nur fremde Nachrichten → openZap gatet über m.zappable).
-                                     Bei Goals (Z5) unterdrückt — der Fortschrittsbalken zeigt die Summe.
                                      ZULETZT in der Lane (s. Reihenfolge-Hinweis oben): Thread-Pill zuerst,
                                      Reaktionen, dann Zap ganz rechts. --}}
-                                <template x-if="m.zaps.count && !m.goal">
+                                <template x-if="m.zaps.count">
                                     <button type="button"
                                             x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
                                             :title="m.zaps.names"

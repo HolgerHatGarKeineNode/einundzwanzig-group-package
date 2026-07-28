@@ -12,16 +12,15 @@ import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, COMMENT, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, ROOM_DELETE_EVENT, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
+import { MESSAGE, COMMENT, DELETE, REACTION, ZAP_RESPONSE, ROOM_DELETE_EVENT, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { readState, roomWatermark } from './readState'
 import { throttled } from '@welshman/store'
 import { warmZappers } from './zaps'
-import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, makeComment, mentionPubkeys } from './interactions'
-import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
-import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
+import { roomTags, makeReaction, makeEventDelete, makeReport, makeComment, mentionPubkeys } from './interactions'
+import { QUOTE_PREFIX } from './chatLinks'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
 import { linkDisplay, isPlausibleUrl } from './chatLinks'
 import { warmProfiles } from './profiles'
@@ -80,21 +79,14 @@ const renderEmojiImg = (name: string, url: string | undefined): string | null =>
     return img.outerHTML
 }
 
-// Polls (1068) und Zap-Goals (9041) MIT den Nachrichten laden (nicht nur MESSAGE): sie SIND
-// Timeline-Einträge und werden von deriveRoomMessages ohnehin angezeigt. Lud man sie nur über den
-// separaten loadRoomPolls/-Goals nach, erschien die Poll/Goal-Zeile erst verzögert (async) und
-// wuchs nach dem Paint in den Verlauf → Jitter. Im selben Query (initial + loadOlder-Paging) sind
-// sie sofort da → kein verstecktes Nachpoppen. (loadRoomPolls bleibt für die 1018-Responses/Tally.)
-const roomFilter = (h: string) => [{ kinds: [MESSAGE, POLL, ZAP_GOAL], '#h': [h] }]
+/** Nachrichten eines Raums — gepagt (initial + loadOlder). */
+const roomFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
 
-/** Nachrichten, Polls UND Zap-Goals eines Raums — alle zeitlich verwoben im Verlauf. */
-const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE, POLL, ZAP_GOAL], '#h': [h] }]
+/** Nachrichten eines Raums im Verlauf. */
+const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE], '#h': [h] }]
 
 /** kind-7-Reactions eines Raums (NIP-25) — tragen `#h` vom Parent (via makeReaction). */
 const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
-
-/** kind-1018-Poll-Responses eines Raums (NIP-88) — tragen `#h` vom Poll (via makePollResponse). */
-const roomPollResponseFilter = (h: string) => [{ kinds: [POLL_RESPONSE], '#h': [h] }]
 
 /**
  * Lotus' In-Chat-Thread (NIP-29 Group Chat Threading): kind 10, wurzelt an einer normalen
@@ -134,14 +126,9 @@ const roomCommentFilter = () => [{ kinds: [COMMENT, CHAT_THREAD] }]
  */
 const roomZapReceiptFilter = () => [{ kinds: [ZAP_RESPONSE] }]
 
-/** Aufsteigend sortierter Chat-Verlauf eines Rooms (Nachrichten + Polls, reaktiv). */
+/** Aufsteigend sortierter Chat-Verlauf eines Rooms (kind 9, reaktiv). */
 export const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
-    derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => {
-        // Native Poll-Karten (kind 1068) zeigen die Frage bereits — die kind-9-Share-Quote,
-        // die wir NUR für Flotilla mitposten, hier ausblenden, sonst erschiene sie doppelt.
-        const pollIds = new Set(events.filter((e) => e.kind === POLL).map((e) => e.id))
-        return sortEventsAsc(events.filter((e) => !isPollShareQuote(e, pollIds)))
-    })
+    derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => sortEventsAsc(events))
 
 /** Rohtext einer Nachricht ohne den vorangestellten Reply-Quote (für Snippets + Edit-Prefill). */
 export const bodyWithoutQuote = (event: TrustedEvent): string =>
@@ -344,7 +331,7 @@ const buildThreadSummary = (
 /** Aggregierte Zap-Sicht einer Nachricht (⚡-Chip): Anzahl, Sats-Summe, eigener Anteil. */
 export type ZapSummary = {
     count: number // Anzahl valider Zaps (nach `zapFromEvent`-Prüfung)
-    contributors: number // Anzahl EINDEUTIGER Zapper (Flotilla-Goal-Parität: uniq(request.pubkey))
+    contributors: number // Anzahl EINDEUTIGER Zapper (uniq(request.pubkey))
     sats: number // Summe in Sats (bolt11-`invoiceAmount`, msats→sats)
     mine: boolean // hat der eingeloggte User (mit)gezappt?
     names: string // Namen der Zapper (kommagetrennt, dedupliziert) → Chip-Tooltip
@@ -392,89 +379,10 @@ export type ChatMessage = {
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), im Fenster aufgelöst — sonst null
     thread: ThreadSummary | null // Slack-artige Antworten-Zusammenfassung (kind 1111, C6b); null = keine Antworten
     reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
-    poll: PollView | null // NIP-88-Poll (kind 1068) mit Live-Tally + eigenem Vote (C5), sonst null
-    goal: GoalView | null // NIP-75-Zap-Goal (kind 9041) mit Fortschritt aus dem Zap-Tally (Z5), sonst null
     zaps: ZapSummary // validierte kind-9735-Zap-Summe (Z3), count 0 = keine
     zappable: boolean // Autor kann Zaps empfangen (lud16/lud06) UND ist nicht man selbst
     replyToName?: string // NUR Thread-Kommentare (P3): Elternautor (NIP-22 kleines `e`) für die
     // „Antwort auf <Autor>"-Zeile; im Raum-Feed undefined (dort trägt `reply` den q-Quote).
-}
-
-/** Eine Poll-Option mit Live-Zähler, Balkenbreite (0–100 %) und eigenem Vote-Zustand. */
-export type PollOptionView = { id: string; label: string; votes: number; pct: number; mine: boolean }
-
-/**
- * Render-fertige NIP-88-Poll: Optionen mit Tally, Typ-/End-Label und Wählerzahl.
- * `multi` steuert die Auswahllogik (Einfach-/Mehrfachwahl), `closed` sperrt das Voten.
- */
-export type PollView = {
-    multi: boolean
-    typeLabel: string // 'Einfachwahl' | 'Mehrfachwahl'
-    closed: boolean
-    endsLabel: string // '' oder 'Endet …'/'Beendet …'
-    voters: number
-    options: PollOptionView[]
-}
-
-/**
- * Baut die Render-Sicht einer Poll aus dem kind-1068-Event + ihren kind-1018-Responses:
- * Stimmen (jüngste je Wähler zählt), Balkenbreite relativ zur Gewinner-Option, eigener
- * Vote markiert. Pure Logik aus `polls.ts`; hier nur zur UI-Form verdichtet.
- */
-const buildPollView = (event: TrustedEvent, responses: TrustedEvent[], me: string | null | undefined): PollView => {
-    const { options, voters } = getPollResults(event, responses)
-    const mine = new Set(ownPollSelection(event, responses, me))
-    const maxVotes = Math.max(...options.map((o) => o.votes), 1)
-    const endsAt = getPollEndsAt(event)
-    const closed = isPollClosed(event)
-    const multi = getPollType(event) === 'multiplechoice'
-    return {
-        multi,
-        typeLabel: multi ? 'Mehrfachwahl' : 'Einfachwahl',
-        closed,
-        endsLabel: endsAt ? `${closed ? 'Beendet' : 'Endet'} ${fullTimeLabel(endsAt)}` : '',
-        voters,
-        options: options.map((o) => ({
-            id: o.id,
-            label: o.label,
-            votes: o.votes,
-            pct: Math.round((o.votes / maxVotes) * 100),
-            mine: mine.has(o.id),
-        })),
-    }
-}
-
-/**
- * Render-fertiges NIP-75-Zap-Goal: Titel/Details, Ziel + gesammelte Sats (aus dem
- * validierten 9735-Tally, `ZapSummary`), Fortschritt (0–100 %) und Beitragenden-Zahl.
- */
-export type GoalView = {
-    title: string
-    summary: string
-    targetSats: number
-    raisedSats: number
-    pct: number
-    reached: boolean
-    contributors: number
-}
-
-/**
- * Verdichtet ein kind-9041-Event + seinen Zap-Tally zur Goal-Karte. `zaps` ist die
- * bereits validierte `aggregateZaps`-Summe der Receipts mit `#e` = goal.id (dieselbe
- * Anti-Spoof-Pipeline wie Nachrichten-Zaps) — hier NUR gegen das Ziel verglichen.
- */
-const buildGoalView = (event: TrustedEvent, zaps: ZapSummary): GoalView => {
-    const targetSats = getGoalTargetSats(event)
-    const { pct, reached } = goalProgress(targetSats, zaps.sats)
-    return {
-        title: getGoalTitle(event),
-        summary: getGoalSummary(event),
-        targetSats,
-        raisedSats: zaps.sats,
-        pct,
-        reached,
-        contributors: zaps.contributors,
-    }
 }
 
 // Der Alt-Lesestand (`room:lastread:${url}:${h}` in localStorage) stand bis P3 hier.
@@ -493,9 +401,9 @@ const snippet = (text: string, max = 120): string => {
 
 /**
  * Aggregations-Kontext für {@link toChatMessage}: die je-Nachricht gebündelten Reaktionen/
- * Zaps/Poll-Responses/Kommentare + Profile/Handles/Zapper. Der Thread-Feed reicht leere
- * Aggregations-Maps (Reaktionen/Zaps folgen in P3 Schritt 5) → reply/thread/reactions/poll/
- * goal/zaps kommen neutral heraus, ohne Sonderpfad.
+ * Zaps/Kommentare + Profile/Handles/Zapper. Der Thread-Feed reicht leere
+ * Aggregations-Maps (Reaktionen/Zaps folgen in P3 Schritt 5) → reply/thread/reactions/
+ * zaps kommen neutral heraus, ohne Sonderpfad.
  */
 export type ChatBuildCtx = {
     me: string | null | undefined
@@ -505,7 +413,6 @@ export type ChatBuildCtx = {
     byId: Map<string, TrustedEvent>
     commentsByRoot: Map<string, TrustedEvent[]>
     reactionsByTarget: Map<string, TrustedEvent[]>
-    pollResponsesByTarget: Map<string, TrustedEvent[]>
     zapsByTarget: Map<string, TrustedEvent[]>
 }
 
@@ -513,7 +420,7 @@ export type ChatBuildCtx = {
  * Baut die positions-UNABHÄNGIGEN ChatMessage-Felder eines Events — der gemeinsame Kern von
  * Raum- und Thread-Feed (P3 4.1, „gleiches Model"). divider/showAuthor/unreadDivider hängen von
  * der Position in der Liste ab und kommen aus dem aufrufenden Fold. Leere Aggregations-Maps
- * (Thread) → reply/thread/reactions/poll/goal neutral (null/leer), zappable=false.
+ * (Thread) → reply/thread/reactions neutral (null/leer), zappable=false.
  */
 const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage, 'divider' | 'unreadDivider' | 'showAuthor'> => {
     const nameOf = displayProfileByPubkey
@@ -531,7 +438,6 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
     // sonst Store-Miss und `aggregateZaps` zählt nichts.
     const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
     const zapper = lnurl ? ctx.$zappers.get(lnurl) : undefined
-    // Zap-Tally einmal — Nachrichten-Chip UND (kind 9041) Goal-Fortschritt teilen die Summe.
     const zaps = aggregateZaps(ctx.zapsByTarget.get(event.id) ?? [], zapper, ctx.me, nameOf)
     return {
         id: event.id,
@@ -543,8 +449,6 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
         reply,
         thread,
         reactions: aggregateReactions(ctx.reactionsByTarget.get(event.id) ?? [], ctx.me, nameOf),
-        poll: event.kind === POLL ? buildPollView(event, ctx.pollResponsesByTarget.get(event.id) ?? [], ctx.me) : null,
-        goal: event.kind === ZAP_GOAL ? buildGoalView(event, zaps) : null,
         zaps,
         zappable: !mine && Boolean(lnurl),
     }
@@ -567,7 +471,7 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
  *    dem npub-Fallback einfrieren (Review-Fund #1–#3/#5) — unterläuft genau den Mention-Skip des htmlCache.
  *  - fp: nip05-Verifikationsergebnis des Autors (deckt das spät verifizierte Häkchen: hängt an
  *    $handles, nicht am Autor-Profil-Feld) + je ein billiger ordnungsabhängiger Hash über die
- *    Aggregat-Bucket-Event-IDs (reactions/zaps/comments/poll-responses; `groupBy` liefert pro Compute
+ *    Aggregat-Bucket-Event-IDs (reactions/zaps/comments; `groupBy` liefert pro Compute
  *    NEUE Array-Refs → Referenzvergleich unbrauchbar). ponytail: 32-bit-Hash, Kollision ~bucketSize/2³²
  *    ⇒ schlimmstenfalls EIN Emit lang stale Chip-Zähler (rein visuell, KEIN Konsens-/Signaturpfad).
  *  - me: eingeloggter pubkey (stabil). quoted: Event-Ref des Zitats (undefined→Event, sobald das
@@ -689,7 +593,7 @@ export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Cha
     const fp =
         `${verifiedNip05(event.pubkey, ctx.$profiles, ctx.$handles)}` +
         `|${bucketFp(ctx.reactionsByTarget.get(event.id))}|${bucketFp(ctx.zapsByTarget.get(event.id))}` +
-        `|${bucketFp(ctx.commentsByRoot.get(event.id))}|${bucketFp(ctx.pollResponsesByTarget.get(event.id))}`
+        `|${bucketFp(ctx.commentsByRoot.get(event.id))}`
     const hit = chatMsgCache.get(event.id)
     if (hit && hit.me === ctx.me && hit.quoted === quoted && hit.zapperRef === zapperRef && hit.fp === fp && sameRefs(hit.profileRefs, profileRefs)) {
         return hit.msg
@@ -721,7 +625,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             // Event für Event herein) fällt so von ~25 auf ~8 Recomputes zusammen — jeder Recompute
             // baut die GANZE Liste neu + ruft warmProfiles/Handles/Zappers. 340ms-Block im CPU-Profil.
             throttled(100, deriveRoomMessages(url, h)),
-            // Zweite Welle (nicht warmgehalten): Profile, NIP-05, Reactions, Poll-Responses,
+            // Zweite Welle (nicht warmgehalten): Profile, NIP-05, Reactions,
             // Zap-Receipts, Zapper laden beim Kaltstart als Event-Burst nach. Gedrosselt, damit
             // der Chip-Einblende-Burst zu wenigen Emits zusammenfällt → weniger Layout-Shifts
             // und Anker-Scans (Muster: members.ts deriveSpaceDirectory). Reihenfolge = Destructuring.
@@ -729,17 +633,14 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             pubkey,
             throttled(200, handlesByNip05),
             throttled(200, deriveEventsForUrl(url, roomReactionFilter(h))),
-            throttled(200, deriveEventsForUrl(url, roomPollResponseFilter(h))),
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
             throttled(200, zappersByLnurl),
             throttled(200, deriveEventsForUrl(url, roomCommentFilter())),
         ],
-        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $comments]) => {
+        ([events, $profiles, $me, $handles, $reactions, $zaps, $zappers, $comments]) => {
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
         // Reactions ohne `e`-Tag landen im ''-Bucket und werden nie abgerufen (event.id ≠ '').
         const reactionsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions)
-        // Poll-Responses nach Ziel-Poll (`["e", pollId]`) bündeln — je Poll einmal getallyt.
-        const pollResponsesByTarget = groupBy((r) => pollResponseTarget(r), $pollResponses)
         // Zap-Receipts (9735) nach Ziel-Nachricht (`#e`) bündeln — je Nachricht validiert
         // getallyt. 9735 trägt kein `#h`, `#e` ist der einzige verlässliche Raumbezug.
         const zapsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $zaps)
@@ -763,7 +664,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         warmZappers(events.map((e) => e.pubkey))
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
         const byId = new Map(events.map((e) => [e.id, e]))
-        const ctx: ChatBuildCtx = { me: $me, $profiles, $handles, $zappers, byId, commentsByRoot, reactionsByTarget, pollResponsesByTarget, zapsByTarget }
+        const ctx: ChatBuildCtx = { me: $me, $profiles, $handles, $zappers, byId, commentsByRoot, reactionsByTarget, zapsByTarget }
 
         let prevDay = ''
         let prevPubkey = ''
@@ -787,8 +688,8 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
 
 /**
  * Öffnet eine Live-Subscription für NEUE Room-Events (bleibt bis abort offen):
- * Nachrichten (kind 9), Reactions (kind 7), Tombstones (kind 5), Poll(-Responses)
- * und Goals — alle `#h`. Kommentare (kind 1111) tragen KEIN `#h` (flotilla-kompatibel)
+ * Nachrichten (kind 9), Reactions (kind 7), Tombstones (kind 5) — alle `#h`.
+ * Kommentare (kind 1111) tragen KEIN `#h` (flotilla-kompatibel)
  * → eigener, ungescopter Filter, damit der Live-Antworten-Zähler ohne separate Sub kommt.
  */
 /**
@@ -816,7 +717,7 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal): void =>
         signal,
         onEvent: honorDeleteEvent,
         filters: [
-            { kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL, ROOM_DELETE_EVENT], '#h': [h], limit: 0 },
+            { kinds: [MESSAGE, REACTION, DELETE, ROOM_DELETE_EVENT], '#h': [h], limit: 0 },
             { kinds: [COMMENT, CHAT_THREAD], limit: 0 },
         ],
     })
@@ -833,19 +734,6 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal): void =>
  */
 export const moderateDeleteMessage = (url: string, h: string, id: string): Promise<string> =>
     waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE_EVENT, { tags: [['h', h], ['e', id]] }) }))
-
-/**
- * Lädt NUR die Poll-Responses (kind 1018) eines Raums fürs Tally — NICHT die Poll-Events
- * (kind 1068) selbst. Die Poll-KARTE (1068) ist eine große, variabel hohe Timeline-Zeile
- * und kommt jetzt ausschließlich übers gepagte `roomFilter` (limit:50 + loadOlder), damit
- * sie IMMER im gerade geladenen Fenster liegt → sofort via measureRow vermessen → kein
- * Off-screen-Estimate → kein mittiger Scroll-Sprung. (Vorher lud dies ALLE 1068 ungepaged
- * ins Repository, wodurch mittige Polls als nur-geschätzte Off-screen-Zeilen erschienen.)
- * Die 1018-Responses tragen kein Layout → raumweit laden ist unschädlich und hält das Tally
- * einer gerade eingepagten Poll sofort korrekt.
- */
-export const loadRoomPolls = (url: string, h: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ kinds: [POLL_RESPONSE], '#h': [h] }] })
 
 /**
  * Lädt die bestehenden Reactions (kind 7) + Tombstones (kind 5) eines Raums, damit
@@ -974,7 +862,7 @@ export const loadRoomActivity = async (url: string, hs: string[]): Promise<Trust
     const state = get(readState)
     const filters = chunk(hs, ROOM_ACTIVITY_CHUNK).flatMap((group) => [
         {
-            kinds: [MESSAGE, POLL, ZAP_GOAL],
+            kinds: [MESSAGE],
             '#h': group,
             since: Math.min(...group.map((h) => roomWatermark(state, url, h))) + 1,
             limit: ROOM_ACTIVITY_LIMIT,
@@ -1012,7 +900,7 @@ export const watchRoomActivity = (url: string, hs: string[], signal: AbortSignal
         // muss die Zeile SOFORT verschwinden — nicht erst, wenn jemand genau diesen Raum
         // öffnet. `onEvent: honorDeleteEvent` ist dabei Pflicht, nicht Zierde: kind 9005
         // ist kein NIP-09-Tombstone, das Repository entfernt sein Ziel nicht von selbst.
-        kinds: [MESSAGE, POLL, ZAP_GOAL, DELETE, ROOM_DELETE_EVENT],
+        kinds: [MESSAGE, DELETE, ROOM_DELETE_EVENT],
         '#h': group,
         limit: 0,
     }))
@@ -1062,7 +950,7 @@ const mapRelayError = (raw: string): string => {
  * optimistisch eingelegte Event zurückgenommen (welshman tut das nur bei Abort, nicht
  * bei Relay-Reject — sonst bliebe es sichtbar, obwohl es das Relay nie erreicht hat).
  * Gibt '' bei Erfolg, sonst die übersetzte Relay-Fehlermeldung. Der gemeinsame Kern von
- * Nachricht/Antwort/Reaction/Kommentar/Goal/Vote (Raum- UND Thread-Publish, P3 4.1).
+ * Nachricht/Antwort/Reaction/Kommentar (Raum- UND Thread-Publish, P3 4.1).
  */
 const publishOptimistic = async (url: string, event: Parameters<typeof publishThunk>[0]['event']): Promise<string> => {
     const thunk = publishThunk({ relays: [url], event })
@@ -1216,7 +1104,7 @@ const personFields = (
  * Raum-Message-Row. divider/showAuthor werden wie im Raum-Feed gruppiert; `unreadDivider` gibt es im
  * Thread nicht. Der Elternautor (`replyToName`) kommt aus dem kleinen `["e"]` (NIP-22, direktes
  * Parent); leer, wenn das Parent der Root ist ODER außerhalb des Threads liegt (Waise sortiert per
- * Zeit ein). `ctx` trägt (im Thread) leere Aggregations-Maps → reactions/zaps/poll/goal neutral,
+ * Zeit ein). `ctx` trägt (im Thread) leere Aggregations-Maps → reactions/zaps neutral,
  * bis P3 Schritt 5 sie füllt.
  */
 const buildCommentList = (comments: TrustedEvent[], rootId: string, ctx: ChatBuildCtx): ChatMessage[] => {
@@ -1287,7 +1175,6 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
                 byId: new Map(), // Kommentare tragen kein q-Zitat → reply bleibt null (Eltern-Bezug via replyToName)
                 commentsByRoot: new Map(), // Kommentare wurzeln keinen Sub-Thread → thread bleibt null
                 reactionsByTarget: groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions),
-                pollResponsesByTarget: new Map(),
                 zapsByTarget: groupBy((r) => getTagValue('e', r.tags) ?? '', $zaps),
             }
             return { rootId, root, comments: buildCommentList(commentEvents, rootId, ctx), count: commentEvents.length }
@@ -1334,9 +1221,8 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
     derived(
         [
             throttled(300, deriveEventsForUrl(url, roomCommentFilter())),
-            // Wurzeln gegen ALLE Timeline-Kinds auflösen (wie roomStreamFilter) — Threads können
-            // an Nachricht (9), Poll (1068) ODER Zap-Goal (9041) wurzeln, nicht nur kind-9.
-            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }])),
+            // Wurzeln gegen die Timeline auflösen (wie roomStreamFilter).
+            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE] }])),
             throttled(300, profilesByPubkey),
         ],
         ([comments, roots, $profiles]) => {
@@ -1418,72 +1304,3 @@ export const sendReport = (
     waitForThunkError(publishThunk({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
         err ? mapRelayError(err) : '',
     )
-
-/**
- * Postet zusätzlich zur Poll eine kind-9-Nachricht, die das Poll als `nostr:nevent…`
- * zitiert — **nur für Flotilla-Kompatibilität**: dessen Chat-Feed lädt kind-1068 nicht
- * direkt, ohne diese Quote bliebe die Poll dort unsichtbar. Unser eigener Feed blendet
- * die Quote via `isPollShareQuote` wieder aus (keine Doppelanzeige). Fire-and-forget:
- * scheitert die Quote, besteht die Poll trotzdem; die (lokal ohnehin verdeckte) Quote
- * braucht keinen Rollback.
- */
-const publishPollShareQuote = (url: string, h: string, poll: TrustedEvent): void => {
-    const nevent = nip19.neventEncode({ id: poll.id, relays: [url], author: poll.pubkey, kind: POLL })
-    const tags = [['q', poll.id, url, poll.pubkey], ['p', poll.pubkey, url], ...roomTags(h, url)]
-    void publishThunk({ relays: [url], event: makeEvent(MESSAGE, { content: `nostr:${nevent}\n\n`, tags }) })
-}
-
-/**
- * Erstellt eine NIP-88-Poll (kind 1068) im Raum. Optimistisch (die Poll erscheint
- * sofort via Live-Sub/Repository); gibt '' bei Erfolg, sonst die Relay-Fehlermeldung.
- * Nach Erfolg wird eine Flotilla-kompatible Share-Quote nachgeschoben (siehe oben).
- */
-export const sendPoll = async (
-    url: string,
-    h: string,
-    params: { title: string; options: PollOption[]; pollType: PollType; endsAt?: number },
-): Promise<string> => {
-    // Die Poll wird optimistisch aus dem Repository gerendert (roomStreamFilter zieht
-    // kind-1068). welshman entfernt sie bei Relay-Reject NICHT selbst → sonst bliebe die
-    // Karte sichtbar, obwohl sie das Relay nie erreicht hat (wie sendRoomMessage).
-    const thunk = publishThunk({ relays: [url], event: makePoll(params, h, url) })
-    const err = await waitForThunkError(thunk)
-    if (err) {
-        repository.removeEvent(thunk.event.id)
-        return mapRelayError(err)
-    }
-    publishPollShareQuote(url, h, thunk.event)
-    return ''
-}
-
-/**
- * Erstellt ein NIP-75-Zap-Goal (kind 9041) im Raum (ZAPS.md Z5). Optimistisch (die
- * Goal-Karte erscheint sofort via Repository/Live-Sub); gibt '' bei Erfolg, sonst die
- * Relay-Fehlermeldung und rollt die optimistische Karte zurück (wie `sendPoll`). Keine
- * Flotilla-Share-Quote — Goals sind kein Poll-Sonderfall.
- */
-export const sendGoal = async (
-    url: string,
-    h: string,
-    params: { title: string; summary?: string; targetSats: number },
-): Promise<string> => {
-    return publishOptimistic(url, makeGoal(params, h, url))
-}
-
-/**
- * Stimmt über eine Poll ab (kind 1018). Jeder Aufruf publiziert eine neue Response;
- * das Tally zählt pro Wähler nur die jüngste. Optimistisch: die Response landet sofort
- * im Repository (Balken/eigener Vote aktualisieren), bei Relay-Reject Rollback.
- */
-export const sendPollResponse = async (url: string, poll: TrustedEvent, selectedIds: string[]): Promise<string> => {
-    // `created_at` strikt über die jüngste eigene Response bumpen, damit ein Umwählen
-    // in derselben Sekunde das Tally sicher überschreibt (latest-per-pubkey = strikt größer).
-    const me = get(pubkey)
-    const prev = me
-        ? repository
-              .query([{ kinds: [POLL_RESPONSE], '#e': [poll.id], authors: [me] }])
-              .reduce((max, e) => Math.max(max, e.created_at), 0)
-        : 0
-    const createdAt = Math.max(Math.floor(Date.now() / 1000), prev + 1)
-    return publishOptimistic(url, makePollResponse(poll, selectedIds, url, createdAt))
-}

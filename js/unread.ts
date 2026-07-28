@@ -28,7 +28,7 @@
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { pubkey } from '@welshman/app'
-import { MESSAGE, COMMENT, POLL, ZAP_GOAL, getTagValue, type TrustedEvent } from '@welshman/util'
+import { MESSAGE, COMMENT, getTagValue, type TrustedEvent } from '@welshman/util'
 // Die beiden relativen Importe tragen ABSICHTLICH ihre `.ts`-Endung (anders als sonst
 // im Modul-Bestand): Nodes ESM-Auflösung kennt keine extensionslosen Pfade, und ohne
 // Endung liefe `node --test unread.test.ts` in ERR_MODULE_NOT_FOUND — die Ableitung wäre
@@ -148,7 +148,7 @@ export type UnreadInput = {
     url: string
     /** `h` der BEIGETRETENEN Räume (relay-signierte 39002). */
     joined: readonly string[]
-    /** Timeline-Events des Space (kind 9/1068/9041), bereits url-gescopt. */
+    /** Timeline-Events des Space (kind 9), bereits url-gescopt. */
     events: readonly TrustedEvent[]
     /** Kommentare des Space (kind 1111 + Lotus' kind 10), bereits url-gescopt. */
     comments: readonly TrustedEvent[]
@@ -324,7 +324,7 @@ export const deriveUnread = (url: string, joined: Readable<string[]>): Readable<
     watchReadStateBoot()
     return derived(
         [
-            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }])),
+            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE] }])),
             throttled(300, deriveEventsForUrl(url, [{ kinds: [COMMENT, CHAT_THREAD] }])),
             readState,
             joined,

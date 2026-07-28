@@ -26,8 +26,8 @@
  *   • `readState.ts`s Boot-Gate (`readStateBooted`) ist modul-privat und `unread.ts`
  *     gehört in dieser Phase einem anderen Arbeitsstrang — es wird hier nachgebaut,
  *     nicht angefasst.
- * `QUOTE_PREFIX` kommt dagegen ECHT aus `./polls.ts`: das Modul importiert nur
- * `@welshman/lib`/`@welshman/util` und keinen relativen Pfad, ist also node-ladbar.
+ * `QUOTE_PREFIX` kommt dagegen ECHT aus `./chatLinks.ts`: das Modul importiert gar
+ * nichts (weder welshman noch einen relativen Pfad), ist also node-ladbar.
  *
  * Die relativen Importe tragen absichtlich ihre `.ts`-Endung (Begründung siehe
  * `unread.ts`): ohne sie liefe `node --test updates.test.ts` in ERR_MODULE_NOT_FOUND.
@@ -38,8 +38,6 @@ import { profilesByPubkey, pubkey } from '@welshman/app'
 import {
     COMMENT,
     MESSAGE,
-    POLL,
-    ZAP_GOAL,
     displayProfile,
     displayPubkey,
     getTagValue,
@@ -48,7 +46,7 @@ import {
 } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository.ts'
-import { QUOTE_PREFIX } from './polls.ts'
+import { QUOTE_PREFIX } from './chatLinks.ts'
 import {
     readState,
     readStateReady,
@@ -123,7 +121,7 @@ export type UpdateInput = {
     url: string
     /** `h` der BEIGETRETENEN Räume (relay-signierte 39002). */
     joined: readonly string[]
-    /** Timeline-Events des Space (kind 9/1068/9041), bereits url-gescopt. Zugleich die Quelle, aus der Thread-Wurzeln aufgelöst werden. */
+    /** Timeline-Events des Space (kind 9), bereits url-gescopt. Zugleich die Quelle, aus der Thread-Wurzeln aufgelöst werden. */
     events: readonly TrustedEvent[]
     /** Kommentare des Space (kind 1111 + Lotus' kind 10), bereits url-gescopt. */
     comments: readonly TrustedEvent[]
@@ -567,7 +565,7 @@ const TYPE_ORDER: Record<UpdateType, number> = { mention: 0, message: 1, thread:
  *
  * Regeln, jede mit einem Grund:
  *
- * 1. **Scope = nur, wohin deep-gelinkt werden kann.** kind 9/1068/9041 → `/rooms/{h}`,
+ * 1. **Scope = nur, wohin deep-gelinkt werden kann.** kind 9 → `/rooms/{h}`,
  *    kind 1111 und Lotus' kind 10 → `/rooms/{h}/thread/{nevent}`. Reaktionen (7) und Zaps
  *    (9735) sind ausgeschlossen — nicht „später", sondern gar nicht: für sie existiert kein
  *    Nachrichten-Anker (`?msg=` gibt es nicht), die Zeile führte ins Leere. Der Scope wird
@@ -626,14 +624,14 @@ export function computeUpdates(input: UpdateInput): UpdateItem[] {
     const readFloor = input.now - UPDATES_RETENTION_SEC
     const items: UpdateItem[] = []
 
-    // ── Raum-Ereignisse (kind 9/1068/9041) ──
+    // ── Raum-Ereignisse (kind 9) ──
     const roomEvents = new Map<string, TrustedEvent[]>()
     for (const event of input.events) {
         // Regel 1, hier noch einmal hart: die Hülle filtert bereits per Relay-Filter, aber
         // der Scope ist eine Zusage der Ableitung, keine der Aufrufstelle. Eine Reaktion
         // (kind 7) oder ein Zap-Receipt (9735), die versehentlich in die Quelle geraten,
         // erzeugen sonst eine Zeile, deren Ziel es nicht gibt.
-        if (event.kind !== MESSAGE && event.kind !== POLL && event.kind !== ZAP_GOAL) {
+        if (event.kind !== MESSAGE) {
             continue
         }
         if (event.pubkey === input.me) {
@@ -787,7 +785,7 @@ export const deriveUpdates = (
     watchReadStateBoot()
     return derived(
         [
-            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }])),
+            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE] }])),
             throttled(300, deriveEventsForUrl(url, [{ kinds: [COMMENT, CHAT_THREAD] }])),
             throttled(300, profilesByPubkey),
             readState,

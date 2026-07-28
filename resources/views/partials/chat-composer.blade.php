@@ -43,24 +43,11 @@
         </div>
     </template>
 
-    @if ($isThread)
-        {{-- Thread: nur Bild anhängen. Umfrage/Zap-Ziel sind raum-scoped (eigene Kinds 1068/9041,
-             keine thread-Standard-Verankerung) → hier bewusst nicht. --}}
-        <flux:button type="button" variant="ghost" icon="photo" class="shrink-0 icon-btn-touch"
-                     x-on:click="$refs.{{ $imageRef }}.click()" aria-label="{{ __('Bild anhängen') }}" />
-    @else
-        {{-- Raum: „+"-Menü bündelt Bild + Umfrage + Zap-Ziel (spart Composer-Platz). --}}
-        <flux:dropdown position="top" align="start" class="shrink-0">
-            <flux:button type="button" variant="ghost" icon="plus" class="icon-btn-touch" aria-label="{{ __('Anhängen') }}" />
-            <flux:menu>
-                <flux:menu.item icon="photo" x-on:click="$refs.{{ $imageRef }}.click()">{{ __('Bild') }}</flux:menu.item>
-                <flux:menu.item icon="chart-bar" x-on:click="openPollCreate()">{{ __('Umfrage') }}</flux:menu.item>
-                <template x-if="zapsEnabled">
-                    <flux:menu.item icon="trophy" x-on:click="openGoalCreate()">{{ __('Zap-Ziel') }}</flux:menu.item>
-                </template>
-            </flux:menu>
-        </flux:dropdown>
-    @endif
+    {{-- Bild anhängen — in Raum und Thread identisch. Davor stand hier ein „+"-Menü, das
+         Bild, Umfrage und Zap-Ziel bündelte; seit die beiden Kinds (1068/9041) entfallen
+         sind, bliebe ein Menü mit genau einem Eintrag übrig, das nur einen Klick kostet. --}}
+    <flux:button type="button" variant="ghost" icon="photo" class="shrink-0 icon-btn-touch"
+                 x-on:click="$refs.{{ $imageRef }}.click()" aria-label="{{ __('Bild anhängen') }}" />
 
     <flux:textarea x-ref="{{ $composerRef }}" x-model="{{ $draft }}" rows="1" resize="none" class="flex-1"
                    placeholder="{{ $isThread ? __('Im Thread antworten…') : __('Nachricht schreiben…') }}"

@@ -17,7 +17,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { COMMENT, MESSAGE, POLL, ZAP_GOAL } from '@welshman/util'
+import { COMMENT, MESSAGE } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import {
     CLOCK_SKEW_SEC,
@@ -103,12 +103,21 @@ const readUpTo = (ts: number): ReadState => ({ [roomKey(URL, H)]: ts })
 
 // ── Regel 1: Scope — nur, wohin deep-gelinkt werden kann ────────────────────
 
-test('Regel 1: kind 9/1068/9041 landen im Raum-Ziel /rooms/{h}?from=updates', () => {
+test('Regel 1: kind 9 landet im Raum-Ziel /rooms/{h}?from=updates', () => {
     const state = readUpTo(NOW - HOUR)
-    for (const kind of [MESSAGE, POLL, ZAP_GOAL]) {
-        const [item] = computeUpdates(input({ state, events: [message('m1', NOW - MIN, { kind })] }))
-        assert.equal(item.type, 'message')
-        assert.equal(item.href, `/rooms/${H}?from=updates`, `kind ${kind} muss ins Raum-Ziel zeigen`)
+    const [item] = computeUpdates(input({ state, events: [message('m1', NOW - MIN, { kind: MESSAGE })] }))
+    assert.equal(item.type, 'message')
+    assert.equal(item.href, `/rooms/${H}?from=updates`)
+})
+
+test('Regel 1: gestrichene Kinds (1068 Umfrage, 9041 Spendenziel) erzeugen KEINE Zeile', () => {
+    // Buzz kennt diese Kinds nicht; sie sind aus dem Client entfernt. Ein Fremd-Client
+    // koennte sie trotzdem publizieren — die Ableitung muss sie still fallen lassen,
+    // sonst stuende eine Zeile ohne renderbares Ziel in der Liste.
+    const state = readUpTo(NOW - HOUR)
+    for (const kind of [1068, 9041, 1018]) {
+        const items = computeUpdates(input({ state, events: [message('m1', NOW - MIN, { kind })] }))
+        assert.equal(items.length, 0, `kind ${kind} darf keine Zeile erzeugen`)
     }
 })
 

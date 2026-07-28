@@ -15,14 +15,12 @@
  * - 5   DELETE — Nachricht/Reaktion löschen (interactions.ts)
  * - 7   REACTION — Emoji-Reaktion (interactions.ts)
  * - 9   MESSAGE — NIP-29-Gruppen-Chat (feeds.ts)
- * - 1018/1068 POLL_RESPONSE/POLL — NIP-88-Umfragen (interactions.ts)
  * - 1111 COMMENT — NIP-22-Thread-Kommentar (interactions.ts `sendComment`)
  * - 1984 REPORT — melden (interactions.ts)
  * - 9000/9001 ROOM_ADD_MEMBER/ROOM_REMOVE_MEMBER — NIP-29 Raum-Mitglieder (Admin, groups.ts)
  * - 9002/9007/9008 ROOM_EDIT_META/ROOM_CREATE/ROOM_DELETE — NIP-29 Raum-Verwaltung (Admin, groups.ts)
  * - 9005 ROOM_DELETE_EVENT — NIP-29 fremde Nachricht live entfernen (Admin, feeds.ts)
  * - 9021/9022 ROOM_JOIN/ROOM_LEAVE — NIP-29 (groups.ts)
- * - 9041 ZAP_GOAL — NIP-75-Spendenziel (interactions.ts)
  * - 9734 ZAP_REQUEST — NIP-57 (zaps.ts)
  * - 10009 ROOMS-Liste — NIP-51 (groups.ts)
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
@@ -40,8 +38,6 @@ export const NIP46_PERMS = [
     'sign_event:5',
     'sign_event:7',
     'sign_event:9',
-    'sign_event:1018',
-    'sign_event:1068',
     'sign_event:1111',
     'sign_event:1984',
     'sign_event:9000',
@@ -52,7 +48,6 @@ export const NIP46_PERMS = [
     'sign_event:9008',
     'sign_event:9021',
     'sign_event:9022',
-    'sign_event:9041',
     'sign_event:9734',
     'sign_event:10009',
     'sign_event:22242',

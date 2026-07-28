@@ -16,7 +16,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { MESSAGE, COMMENT, POLL } from '@welshman/util'
+import { MESSAGE, COMMENT } from '@welshman/util'
 import {
     BADGE_CAP,
     BELL_CAP,
@@ -86,11 +86,6 @@ test('Genau AUF dem Wasserzeichen zaehlt nicht (sonst ist Quittieren wirkungslos
 test('Die eigene Nachricht macht den eigenen Raum nicht ungelesen', () => {
     const view = computeUnread(input({ events: [message('m1', 9999, 'raum', ME)] }))
     assert.equal(view.rooms.raum, 0)
-})
-
-test('Polls und Spendenziele zaehlen wie Nachrichten (sie stehen im selben Verlauf)', () => {
-    const view = computeUnread(input({ events: [message('p1', 9999, 'raum', OTHER, POLL)] }))
-    assert.equal(view.rooms.raum, 1)
 })
 
 test('Ein Raum, in dem ich nicht bin, bekommt gar keinen Schluessel', () => {
