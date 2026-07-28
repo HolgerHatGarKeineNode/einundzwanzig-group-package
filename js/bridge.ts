@@ -1933,7 +1933,10 @@ export function registerNostrComponents(Alpine: {
             return diff >= -3600000 && diff <= 7 * 86400000
         },
         _pres(room: RoomView): MeetupPresentation | null {
-            return this.meetup(room.meetupSlug)
+            // Slug zuerst (zooid), dann id (Buzz): im Buzz-Pfad traegt der
+            // `about`-Praefix nur die id, ein `meetup_slug`-Tag gibt es dort nicht.
+            // Beide Schluessel liegen im selben Index (`meetups.ts`).
+            return this.meetup(room.meetupSlug || room.meetupId)
         },
         // Texttreffer auf Name ODER Stadt (Stadt kommt aus dem async Join → null-tolerant).
         _matches(room: RoomView, q: string): boolean {
@@ -3143,7 +3146,6 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._unsubActive?.()
             this._unsubDir?.()
-            this._unsubRoles?.()
             this._unsubAdmin?.()
             this._unsubAccess?.()
             this._unsubReports?.()

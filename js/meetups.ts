@@ -12,6 +12,7 @@ import { writable, get, type Readable } from 'svelte/store'
 import {
     MEETUP_API_URL,
     buildPresentationMap,
+    buildPresentationMapById,
     type MeetupApiRecord,
     type MeetupPresentation,
 } from './meetupPresentation'
@@ -45,7 +46,18 @@ export const loadMeetupPresentations = (): Promise<void> => {
                 throw new Error(`meetup api ${resp.status}`)
             }
             const records = (await resp.json()) as MeetupApiRecord[]
-            _presentationBySlug.set(buildPresentationMap(records))
+            // Ein Index mit BEIDEN Schluesseln: der Slug traegt die zooid-Raeume
+            // (`meetup_slug`-Tag), die id die Buzz-Raeume (dort steht im
+            // `about`-Praefix nur sie). Zusammengelegt statt zwei Maps, weil der
+            // Alpine-State nur ein Objekt spiegelt — und weil beide Schluesselraeume
+            // nachweislich disjunkt sind: gegen die Live-API geprueft (2026-07-28,
+            // 308 Records) gibt es null rein numerische Slugs und null Ueberschneidung
+            // zwischen Slug- und id-Menge.
+            const bySlug = buildPresentationMap(records)
+            for (const [id, pres] of buildPresentationMapById(records)) {
+                bySlug.set(id, pres)
+            }
+            _presentationBySlug.set(bySlug)
             _loaded = true
         } catch {
             // fail-soft: Index bleibt leer; ein spaeterer Aufruf darf erneut versuchen.
@@ -55,6 +67,10 @@ export const loadMeetupPresentations = (): Promise<void> => {
     return _inflight
 }
 
-/** Synchroner Lookup fuer die Render-Zeit ('' = noch nicht geladen / kein Meetup). */
-export const getMeetupPresentation = (slug: string): MeetupPresentation | undefined =>
-    slug ? get(_presentationBySlug).get(slug) : undefined
+/**
+ * Synchroner Lookup fuer die Render-Zeit ('' = noch nicht geladen / kein Meetup).
+ * Der Schluessel ist der Slug (zooid) ODER die Meetup-id (Buzz) — beide liegen im
+ * selben Index, siehe [[loadMeetupPresentations]].
+ */
+export const getMeetupPresentation = (key: string): MeetupPresentation | undefined =>
+    key ? get(_presentationBySlug).get(key) : undefined
