@@ -767,9 +767,12 @@ export const createRoom = async (url: string, input: RoomInput): Promise<string>
 export const editRoomMeta = (url: string, input: RoomInput): Promise<string> =>
     waitForThunkError(publishThunk({ relays: [url], event: roomMetaEvent(url, input) }))
 
-/** Löscht einen Raum (kind 9008 → 39000-Tombstone, roomsByUrl blendet ihn aus). */
-export const deleteRoom = (url: string, h: string): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE, { tags: [['h', h]] }) }))
+// `deleteRoom` (kind 9008) ist ersatzlos entfallen — der Client loescht keine Raeume mehr.
+// Der Raumbestand kommt aus `scripts/sync-meetup-rooms.sh` bzw. dem Portal; ein ueber ein
+// Menue versehentlich geloeschter Meetup-Raum kaeme erst in der naechsten Nacht wieder,
+// ein Antragsraum nie. Der 39000-Tombstone wird weiterhin GELESEN (siehe
+// `roomMetaEventsByIdByUrl`): loescht ihn jemand anders — Admin per `nak`, ein anderer
+// Client —, blendet die Liste den Raum korrekt aus.
 
 // ── Raum-Mitglieder (Admin, NIP-29 9000 → relay-signierte 39002) ────────────
 //

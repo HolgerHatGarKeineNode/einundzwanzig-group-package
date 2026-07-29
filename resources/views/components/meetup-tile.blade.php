@@ -94,19 +94,13 @@
         <div class="shrink-0 pr-1" x-on:click.stop>
             <flux:dropdown position="bottom" align="end">
                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Raum verwalten') }}" />
-                {{-- „Mitglieder" ist ersatzlos entfallen: Mitgliedschaften kommen ausschliesslich
-                     aus dem Sync der Vereinsmitglieder (kind 9030) und dem Beitritt des Nutzers
-                     selbst. „Löschen" erscheint nur beim EIGENEN Raum (`room.isOwner` = Rolle
-                     `owner` in der relay-signierten 39002). Beides bewusst nur in der
-                     Oberfläche — der Relay erlaubt Admins weiterhin beides. --}}
+                {{-- Nur noch „Bearbeiten" (Name), siehe die ausfuehrliche Begruendung in
+                     `room-tile.blade.php`: Mitglieder kommen aus dem Vereins-Sync, und der
+                     Raumbestand aus dem Sync-Skript bzw. dem Portal — ein hier versehentlich
+                     geloeschter Meetup-Raum kaeme erst in der naechsten Nacht wieder, ein
+                     Antragsraum nie. --}}
                 <flux:menu>
                     <flux:menu.item icon="pencil-square" x-on:click="openRoomEdit(room)">{{ __('Bearbeiten') }}</flux:menu.item>
-                    <template x-if="room.isOwner">
-                        <div>
-                            <flux:menu.separator />
-                            <flux:menu.item variant="danger" icon="trash" x-on:click="askDeleteRoom(room)">{{ __('Löschen') }}</flux:menu.item>
-                        </div>
-                    </template>
                 </flux:menu>
             </flux:dropdown>
         </div>

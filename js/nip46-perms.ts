@@ -22,7 +22,10 @@
  *   Beitrittsanfrage, `bridge.ts acceptJoin`). 9001 (remove-user) ist mit dem
  *   Mitglieder-Dialog entfallen und steht bewusst NICHT mehr in der Liste — jeder
  *   Eintrag hier kostet den Nutzer einen Zeile im Signer-Prompt.
- * - 9002/9007/9008 ROOM_EDIT_META/ROOM_CREATE/ROOM_DELETE — NIP-29 Raum-Verwaltung (Admin, groups.ts)
+ * - 9002/9007 ROOM_EDIT_META/ROOM_CREATE — NIP-29 Raum-Verwaltung (Admin, groups.ts).
+ *   9008 (Raum loeschen) ist mit der Menue-Aktion entfallen — der Client sendet es nicht
+ *   mehr, also gehoert es auch nicht in den Signer-Prompt (dieselbe Begruendung wie bei
+ *   9001 oben).
  * - 9005 ROOM_DELETE_EVENT — NIP-29 fremde Nachricht live entfernen (Admin, feeds.ts)
  * - 9021/9022 ROOM_JOIN/ROOM_LEAVE — NIP-29 (groups.ts)
  * - 9734 ZAP_REQUEST — NIP-57 (zaps.ts)
@@ -47,7 +50,6 @@ export const NIP46_PERMS = [
     'sign_event:9002',
     'sign_event:9005',
     'sign_event:9007',
-    'sign_event:9008',
     'sign_event:9021',
     'sign_event:9022',
     'sign_event:9734',

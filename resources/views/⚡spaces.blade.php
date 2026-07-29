@@ -789,18 +789,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </flux:modal>
 
-        {{-- Raum löschen (NIP-29 9008 → 39000-Tombstone). --}}
-        <flux:modal name="delete-room" class="max-w-sm">
-            <div class="space-y-4">
-                <flux:heading size="lg">{{ __('Raum löschen?') }}</flux:heading>
-                <flux:text>{{ __('Dieser Raum wird für alle entfernt. Das lässt sich nicht rückgängig machen.') }}</flux:text>
-                <div class="surface-card rounded-tile p-2 text-sm font-medium" x-text="pendingRoomDelete?.name"></div>
-                <div class="flex justify-end gap-2">
-                    <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
-                    <flux:button variant="danger" x-on:click="confirmDeleteRoom()" ::disabled="roomSaving">{{ __('Löschen') }}</flux:button>
-                </div>
-            </div>
-        </flux:modal>
+        {{-- Der „Raum löschen"-Dialog (NIP-29 9008) ist ersatzlos entfallen: der Raumbestand
+             kommt aus dem Sync-Skript bzw. dem Portal, nicht aus einer Menü-Aktion. Ein
+             versehentlich geloeschter Meetup-Raum kaeme erst in der naechsten Nacht wieder,
+             ein Antragsraum nie. --}}
 
         <x-group::profile-card />
     </div>

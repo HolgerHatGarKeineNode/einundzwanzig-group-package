@@ -58,7 +58,6 @@ import {
     isVereinRelay,
     createRoom,
     editRoomMeta,
-    deleteRoom,
     addRoomMember,
     type SpaceView,
     type RoomView,
@@ -461,7 +460,6 @@ type SpacesState = {
     _roomEditing: boolean // Bearbeiten (true) vs. Anlegen (false) — h ist in beiden Fällen gesetzt
     _roomIconFile: File | null // neu gewähltes Raumbild (Upload erst beim Speichern)
     roomSaving: boolean
-    pendingRoomDelete: RoomView | null // Zielraum der offenen Lösch-Bestätigung
     // Raum-Mitglieder (P4b): Liste + Hinzufügen/Entfernen
     // Meetup-Praesentations-Join (Plan E2): slug → {flag, portalLink, …}. Wird
     // EINMAL aus der Portal-Liste geladen; die Kachel joint per room.meetupSlug.
@@ -517,8 +515,6 @@ type SpacesState = {
     openRoomEdit(room: RoomView): void
     pickRoomPicture(input: HTMLInputElement): void
     saveRoom(): Promise<void>
-    askDeleteRoom(room: RoomView): void
-    confirmDeleteRoom(): Promise<void>
     destroy(): void
 }
 
@@ -1769,7 +1765,6 @@ export function registerNostrComponents(Alpine: {
         _roomEditing: false,
         _roomIconFile: null,
         roomSaving: false,
-        pendingRoomDelete: null,
         meetups: {},
         _unsubMeetups: null,
         // Filterzustand aus der URL übernehmen — spiegelbildlich zu den $watch-Hooks in
@@ -2197,28 +2192,6 @@ export function registerNostrComponents(Alpine: {
                 }
             } catch {
                 toast('Speichern fehlgeschlagen.')
-            } finally {
-                this.roomSaving = false
-            }
-        },
-        askDeleteRoom(room: RoomView) {
-            this.pendingRoomDelete = room
-            dispatchModal('delete-room')
-        },
-        async confirmDeleteRoom() {
-            const room = this.pendingRoomDelete
-            if (!room || !this._url || this.roomSaving) {
-                return
-            }
-            this.roomSaving = true
-            try {
-                const err = await deleteRoom(this._url, room.h)
-                if (err) {
-                    toast(err)
-                } else {
-                    dispatchModal('delete-room', false)
-                    this.pendingRoomDelete = null
-                }
             } finally {
                 this.roomSaving = false
             }
