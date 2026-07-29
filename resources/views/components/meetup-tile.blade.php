@@ -3,7 +3,7 @@
      eine Einheit, das Auge scannt eine lange Liste nach Land/Stadt. Kein Logo
      (41/304) → die Flagge wird selbst zum Avatar (groß, brand-getönt); fehlt auch
      die Flagge (Join lädt noch async) → Initiale. Präsentation (Flagge/Stadt/
-     Termin) kommt aus `meetup(room.meetupSlug)` und ist NULL-tolerant.
+     Termin) kommt aus `_pres(room)` und ist NULL-tolerant.
 
      Erwartet `room` (RoomView, isMeetup=true) aus dem x-for-Scope sowie die
      nostrSpaces-Helfer `meetup`/`fmtEventDate`/`isEventSoon`/`isAdmin` etc. per
@@ -18,32 +18,35 @@
                  selbst; defensiv gegen einen fehlenden `unread`-Store (dann '').
                  Seit P6 mit der ZAHL, und zwar der ungekappten: „150 ungelesene
                  Nachrichten" ist für einen Screenreader brauchbarer als „99+". --}}
-            :aria-label="room.name + (meetup(room.meetupSlug)?.city ? ' — {{ __('Meetup in') }} ' + meetup(room.meetupSlug).city : ' — {{ __('Meetup') }}') + ($store.unread?.rooms?.[room.h] ? ', ' + $store.unread.rooms[room.h] + ($store.unread.rooms[room.h] === 1 ? ' {{ __('ungelesene Nachricht') }}' : ' {{ __('ungelesene Nachrichten') }}') : '')"
+            :aria-label="room.name + (_pres(room)?.city ? ' — {{ __('Meetup in') }} ' + _pres(room).city : ' — {{ __('Meetup') }}') + ($store.unread?.rooms?.[room.h] ? ', ' + $store.unread.rooms[room.h] + ($store.unread.rooms[room.h] === 1 ? ' {{ __('ungelesene Nachricht') }}' : ' {{ __('ungelesene Nachrichten') }}') : '')"
             class="pressable flex min-w-0 flex-1 items-center gap-2.5 rounded-tile p-1.5 text-left">
 
         {{-- Logo + Flaggen-Pin (Signatur). --}}
         <span class="relative shrink-0">
-            {{-- Logo vorhanden: Proxy → Original → (bei erneutem Fehler) Flagge/Initiale. --}}
-            <template x-if="room.picture">
-                <img :src="$img(room.picture)" alt=""
-                     x-on:error="$el.dataset.orig ? (room.picture = '') : ($el.dataset.orig = 1, $el.src = room.picture)"
+            {{-- Logo vorhanden: Proxy → Original → (bei erneutem Fehler) Flagge/Initiale.
+                 Quelle ist `_logo(room)`: das `picture`-Tag ODER das Portal-Logo aus
+                 dem Join. Auf Buzz gibt es kein `picture` — ohne den Join blieben dort
+                 ALLE Kacheln bildlos. --}}
+            <template x-if="_logo(room)">
+                <img :src="$img(_logo(room))" alt=""
+                     x-on:error="$el.dataset.orig ? (room._logoFailed = true) : ($el.dataset.orig = 1, $el.src = _logo(room))"
                      class="size-10 rounded-tile object-cover ring-1 ring-black/5 dark:ring-white/10" />
             </template>
             {{-- Kein Logo, aber Flagge: Flagge groß als Avatar. --}}
-            <template x-if="!room.picture && meetup(room.meetupSlug)?.flag">
-                <span class="flex size-10 items-center justify-center rounded-tile bg-brand-500/10 text-2xl leading-none" x-text="meetup(room.meetupSlug).flag"></span>
+            <template x-if="!_logo(room) && _pres(room)?.flag">
+                <span class="flex size-10 items-center justify-center rounded-tile bg-brand-500/10 text-2xl leading-none" x-text="_pres(room).flag"></span>
             </template>
             {{-- Weder Logo noch Flagge (Join lädt noch): Initiale auf Brand-Tint. --}}
-            <template x-if="!room.picture && !meetup(room.meetupSlug)?.flag">
+            <template x-if="!_logo(room) && !_pres(room)?.flag">
                 <span class="flex size-10 items-center justify-center rounded-tile bg-brand-500/10 text-base font-semibold text-brand-700 dark:text-brand-400"
                       x-text="(room.name || '#').slice(0, 1).toUpperCase()"></span>
             </template>
             {{-- Flaggen-Pin an der unteren Ecke (nur wenn Logo UND Flagge da).
                  aria-hidden: das Land steht schon im aria-label des Buttons. --}}
-            <template x-if="room.picture && meetup(room.meetupSlug)?.flag">
+            <template x-if="_logo(room) && _pres(room)?.flag">
                 <span aria-hidden="true"
                       class="absolute -bottom-1 -end-1 rounded-full bg-white px-0.5 text-sm leading-none ring-2 ring-white dark:bg-zinc-900 dark:ring-zinc-900"
-                      x-text="meetup(room.meetupSlug).flag"></span>
+                      x-text="_pres(room).flag"></span>
             </template>
         </span>
 
@@ -52,23 +55,23 @@
         <span class="min-w-0 flex-1">
             <span class="block truncate font-medium" x-text="room.name"></span>
             <span class="mt-0.5 flex items-center gap-1 text-[0.8rem] leading-tight text-muted">
-                <template x-if="meetup(room.meetupSlug)?.city">
+                <template x-if="_pres(room)?.city">
                     <span class="inline-flex min-w-0 items-center gap-1">
                         <flux:icon.map-pin class="size-3.5 shrink-0" />
-                        <span class="truncate" x-text="meetup(room.meetupSlug).city"></span>
+                        <span class="truncate" x-text="_pres(room).city"></span>
                     </span>
                 </template>
-                <template x-if="meetup(room.meetupSlug)?.city && fmtEventDate(meetup(room.meetupSlug)?.nextEventStart || '')">
+                <template x-if="_pres(room)?.city && fmtEventDate(_pres(room)?.nextEventStart || '')">
                     <span aria-hidden="true" class="text-zinc-300 dark:text-zinc-600">·</span>
                 </template>
-                <template x-if="fmtEventDate(meetup(room.meetupSlug)?.nextEventStart || '')">
+                <template x-if="fmtEventDate(_pres(room)?.nextEventStart || '')">
                     <span class="inline-flex shrink-0 items-center gap-1"
-                          :class="isEventSoon(meetup(room.meetupSlug)?.nextEventStart || '') ? 'font-semibold text-brand-700 dark:text-brand-400' : ''">
+                          :class="isEventSoon(_pres(room)?.nextEventStart || '') ? 'font-semibold text-brand-700 dark:text-brand-400' : ''">
                         <flux:icon.calendar-days class="size-3.5 shrink-0" />
-                        <span x-text="fmtEventDate(meetup(room.meetupSlug)?.nextEventStart || '')"></span>
+                        <span x-text="fmtEventDate(_pres(room)?.nextEventStart || '')"></span>
                     </span>
                 </template>
-                <template x-if="!meetup(room.meetupSlug)?.city && !fmtEventDate(meetup(room.meetupSlug)?.nextEventStart || '')">
+                <template x-if="!_pres(room)?.city && !fmtEventDate(_pres(room)?.nextEventStart || '')">
                     <span>{{ __('Meetup') }}</span>
                 </template>
             </span>

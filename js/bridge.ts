@@ -506,6 +506,7 @@ type SpacesState = {
     selectCountry(iso: string): void
     resetRoomFilters(): void
     _pres(room: RoomView): MeetupPresentation | null
+    _logo(room: RoomView & { _logoFailed?: boolean }): string
     _matches(room: RoomView, q: string): boolean
     _meetupPool(all: boolean): RoomView[]
     _dataSig(): string
@@ -1913,6 +1914,22 @@ export function registerNostrComponents(Alpine: {
             // `about`-Praefix nur die id, ein `meetup_slug`-Tag gibt es dort nicht.
             // Beide Schluessel liegen im selben Index (`meetups.ts`).
             return this.meetup(room.meetupSlug || room.meetupId)
+        },
+        /**
+         * Die Bildquelle einer Meetup-Kachel — `picture`-Tag ODER Portal-Logo.
+         *
+         * Buzz erzeugt das 39000 selbst und kennt kein `picture`; das Logo gehoert
+         * ohnehin dem Portal und kommt beim selben Join mit, der Flagge und
+         * Deep-Link liefert (266 von 308 Records tragen eins, gemessen 2026-07-28).
+         * Ohne diesen Fallback blieben auf Buzz ALLE Meetup-Kacheln bildlos.
+         *
+         * `_logoFailed` statt `picture = ''`: die Kachel faellt nach zwei
+         * vergeblichen Ladeversuchen (Proxy, dann Original) auf Flagge/Initiale
+         * zurueck. Frueher setzte sie dafuer `room.picture` leer — das geht nicht
+         * mehr, wenn die Quelle auch aus dem Join stammen kann.
+         */
+        _logo(room: RoomView & { _logoFailed?: boolean }): string {
+            return room._logoFailed ? '' : room.picture || this._pres(room)?.logo || ''
         },
         // Texttreffer auf Name ODER Stadt (Stadt kommt aus dem async Join → null-tolerant).
         _matches(room: RoomView, q: string): boolean {
