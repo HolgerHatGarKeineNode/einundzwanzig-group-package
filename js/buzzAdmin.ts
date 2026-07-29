@@ -37,7 +37,7 @@
  * dieselbe Konvention wie bei den NIP-86-Wrappern in `members.ts`, damit die
  * Aufrufer in `bridge.ts` unveraendert bleiben.
  */
-import { publishThunk, waitForThunkError, signer, getRelaysByUrl, loadRelay } from '@welshman/app'
+import { publishThunk, waitForThunkError, signer, getRelaysByUrl, loadRelay, forceLoadRelay } from '@welshman/app'
 import { makeEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import { isBuzzRelay } from './relayCaps'
@@ -98,8 +98,25 @@ export const spaceIsBuzz = (url: string): boolean => {
  * auf der 1984-Strecke und bliebe auf Buzz strukturell leer. Fuer Klick-Aktionen
  * bleibt die synchrone Fassung richtig: da ist das Profil laengst da.
  */
-export const spaceIsBuzzAsync = async (url: string): Promise<boolean> =>
-    isBuzzRelay(getRelaysByUrl().get(url) ?? (await loadRelay(url)) ?? undefined)
+export const spaceIsBuzzAsync = async (url: string): Promise<boolean> => {
+    const cached = getRelaysByUrl().get(url)
+    if (cached) {
+        return isBuzzRelay(cached)
+    }
+    // **`forceLoadRelay`, nicht `loadRelay`** — Härtung, keine belegte Fehlerbehebung:
+    // welshmans `loadRelay` ist ein `makeLoadItem`-Wrapper, der sich merkt, dass diese
+    // URL schon angefragt wurde, und danach sofort `undefined` liefert, OHNE erneuten
+    // Fetch. `fetchRelay` schreibt zudem nur bei ERFOLG in `relaysByUrl` (Fehler landen
+    // in einem leeren `catch`). Ein früher Fehlversuch könnte die Weiche damit dauerhaft
+    // auf `false` nageln — `forceLoadRelay` umgeht den Merker.
+    //
+    // **Was das NICHT erklärt:** `buzz-moderation:95` bleibt auch damit rot. In der
+    // Directory-Insel meldet `isAdmin` false und `banEvent` sendet kein 9005 (Relay-Log:
+    // `report resolved` ohne vorangehendes `DELETE_EVENT processed`). Derselbe Pfad,
+    // direkt per `Alpine.$data(el).removeReportedContent(r)` aufgerufen, sendet das 9005
+    // und setzt `deleted_at` — gemessen. Der Unterschied liegt also nicht hier.
+    return isBuzzRelay((await forceLoadRelay(url)) ?? undefined)
+}
 
 /**
  * Signiert und sendet ein Admin-Event an EIN Relay; liefert die Relay-Fehlermeldung
