@@ -11,7 +11,10 @@
 
 {{-- Default-Space VOR @vite setzen (die Insel liest window.__nostrSpace beim Boot). --}}
 @if (config('group.space_url'))
-    <script>window.__nostrSpace = @js(config('group.space_url'));</script>
+    {{-- `??`, nicht `=`: ein vorab gesetzter Wert GEWINNT — genau wie beim
+         __nostrMobile-Flag darunter. Die E2E-Suite setzt den Space per
+         addInitScript, also bevor diese Zeile läuft. --}}
+    <script>window.__nostrSpace = window.__nostrSpace ?? @js(config('group.space_url'));</script>
 @endif
 
 {{-- Plattform-Flag: auf dem Gerät gated die Insel client-seitig (kein NIP-98).
