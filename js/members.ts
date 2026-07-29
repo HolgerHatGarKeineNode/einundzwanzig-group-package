@@ -11,7 +11,7 @@
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, loadProfile, manageRelay, pubkey, handlesByNip05 } from '@welshman/app'
+import { profilesByPubkey, loadProfile, manageRelay, pubkey, handlesByNip05, deriveRelay } from '@welshman/app'
 import {
     RELAY_MEMBERS,
     ManagementMethod,
@@ -25,6 +25,18 @@ import { first, randomId, sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository'
 import { isVereinRelay, roomMembersByUrl } from './groups'
+import { isBuzzRelay } from './relayCaps'
+import {
+    spaceIsBuzz,
+    spaceIsBuzzAsync,
+    buzzAddMember,
+    buzzRemoveMember,
+    buzzBanPubkey,
+    buzzUnbanPubkey,
+    buzzChangeRole,
+    buzzDeleteEvent,
+    type BuzzRelayRole,
+} from './buzzAdmin'
 import { warmHandles, verifiedNip05 } from './handles'
 
 /** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
@@ -294,6 +306,13 @@ export const isVereinGatedOut = (a: VereinAccess): boolean => a.gated && a.ready
  */
 const adminByUrl = new Map<string, ReturnType<typeof writable<boolean>>>()
 
+const nip86AdminStore = (url: string): ReturnType<typeof writable<boolean>> => {
+    if (!adminByUrl.has(url)) {
+        adminByUrl.set(url, writable(false))
+    }
+    return adminByUrl.get(url)!
+}
+
 export const refreshSpaceAdmin = (url: string): void => {
     const store = adminByUrl.get(url)
     if (!store) {
@@ -303,18 +322,57 @@ export const refreshSpaceAdmin = (url: string): void => {
         store.set(false)
         return
     }
-    manageRelay(url, { method: ManagementMethod.SupportedMethods, params: [] })
-        .then((res) => store.set(Boolean(res.result?.length)))
-        .catch(() => store.set(false))
+    // Die Weiche MUSS auf das NIP-11-Doc warten. Die synchrone `spaceIsBuzz`
+    // liefert beim ersten Rendern verlässlich `false` — das Profil ist da noch
+    // unterwegs, sie stößt das Laden nur an. Mit ihr als Wächter feuerte der
+    // NIP-86-Probe-Aufruf also GEGEN BUZZ, quittiert mit `405 Method Not Allowed`.
+    // Das kostete den Nutzer bei jedem Seitenaufbau eine Signatur-Anfrage im
+    // Signer für ein NIP-98-Event, das niemand auswertet.
+    void spaceIsBuzzAsync(url).then((isBuzz) => {
+        if (isBuzz) {
+            return
+        }
+        manageRelay(url, { method: ManagementMethod.SupportedMethods, params: [] })
+            .then((res) => store.set(Boolean(res.result?.length)))
+            .catch(() => store.set(false))
+    })
 }
 
-/** Ist der eingeloggte User Admin dieses Space? (reaktiv, invalidierbar) */
+/** Relay-weite Rollen, die auf Buzz Admin-Rechte tragen (13534, `["member",<pk>,<role>]`). */
+const BUZZ_ADMIN_ROLES = ['owner', 'admin']
+
+/**
+ * Ist der eingeloggte User Admin dieses Space? (reaktiv)
+ *
+ * - **zooid:** unverändert der NIP-86-`supportedmethods`-Probe.
+ * - **Buzz:** direkt aus der relay-signierten 13534. Buzz baut sie als
+ *   `["member", <pubkey>, <role>]` — also exakt in der Tag-Form, die zooid auch
+ *   nutzt, weshalb {@link deriveSpaceMemberRoles} hier ohne Änderung
+ *   weiterverwendet werden kann. Admin = Rolle `owner` oder `admin`. Das ist
+ *   obendrein besser als der Probe-Aufruf: kein Round-Trip, und die Live-Sub auf
+ *   13534 aktualisiert den Status von selbst.
+ *
+ * Buzz hat kein NIP-86 (`POST /` → 405), der Probe-Aufruf würde dort still
+ * scheitern und `isAdmin` dauerhaft auf false nageln.
+ */
 export const deriveUserIsSpaceAdmin = (url: string): Readable<boolean> => {
-    if (!adminByUrl.has(url)) {
-        adminByUrl.set(url, writable(false))
-        refreshSpaceAdmin(url)
-    }
-    return adminByUrl.get(url)!
+    const nip86 = nip86AdminStore(url)
+    // Ohne Vorab-Weiche: `refreshSpaceAdmin` wartet selbst auf das NIP-11-Doc und
+    // bricht auf Buzz ab. Eine synchrone Prüfung HIER wäre der Auslöser des
+    // 405-Aufrufs — sie sagt beim ersten Rendern immer „kein Buzz".
+    refreshSpaceAdmin(url)
+    return derived(
+        [deriveRelay(url), deriveSpaceMemberRoles(url), pubkey, nip86],
+        ([relay, memberRoles, pk, isNip86Admin]) => {
+            if (!isBuzzRelay(relay)) {
+                return isNip86Admin
+            }
+            if (!pk) {
+                return false
+            }
+            return (memberRoles.get(pk) ?? []).some((role) => BUZZ_ADMIN_ROLES.includes(role))
+        },
+    )
 }
 
 /** Extrahiert die Fehlermeldung aus einer manageRelay-Antwort ('' = Erfolg). */
@@ -366,33 +424,59 @@ export const unassignRole = async (url: string, pubkey: string, roleId: string):
 
 // Mitglieder (NIP-86 allow/ban)
 export const addSpaceMember = async (url: string, pubkey: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: ManagementMethod.AllowPubkey, params: [pubkey] }))
+    spaceIsBuzz(url)
+        ? await buzzAddMember(url, pubkey)
+        : manageError(await manageRelay(url, { method: ManagementMethod.AllowPubkey, params: [pubkey] }))
 
 export const removeSpaceMember = async (url: string, pubkey: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: ManagementMethod.UnallowPubkey, params: [pubkey] }))
+    spaceIsBuzz(url)
+        ? await buzzRemoveMember(url, pubkey)
+        : manageError(await manageRelay(url, { method: ManagementMethod.UnallowPubkey, params: [pubkey] }))
 
 export const banSpaceMember = async (url: string, pubkey: string, reason = ''): Promise<string> =>
-    manageError(
-        await manageRelay(url, {
-            method: ManagementMethod.BanPubkey,
-            params: reason ? [pubkey, reason] : [pubkey],
-        }),
-    )
+    spaceIsBuzz(url)
+        ? await buzzBanPubkey(url, pubkey, reason)
+        : manageError(
+              await manageRelay(url, {
+                  method: ManagementMethod.BanPubkey,
+                  params: reason ? [pubkey, reason] : [pubkey],
+              }),
+          )
 
 export const unbanSpaceMember = async (url: string, pubkey: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: ManagementMethod.UnbanPubkey, params: [pubkey] }))
+    spaceIsBuzz(url)
+        ? await buzzUnbanPubkey(url, pubkey)
+        : manageError(await manageRelay(url, { method: ManagementMethod.UnbanPubkey, params: [pubkey] }))
+
+/**
+ * Rolle eines bestehenden Mitglieds setzen (Buzz kind 9032, **nur Owner**). Auf
+ * zooid gibt es dafür kein Gegenstück — dort sind Rollen benannte 33534-Labels
+ * ohne Rechtewirkung, die Rechte stehen in der Relay-TOML. Deshalb liefert der
+ * zooid-Zweig eine klare Absage statt einer stillen Nicht-Aktion.
+ */
+export const setSpaceMemberRole = async (url: string, pubkey: string, role: BuzzRelayRole): Promise<string> =>
+    spaceIsBuzz(url)
+        ? await buzzChangeRole(url, pubkey, role)
+        : 'Dieser Space kennt keine Relay-Rollen (nur Buzz-Spaces unterstützen das).'
 
 // Event-Moderation (NIP-86 banevent): entfernt EIN Event relay-seitig (löscht es +
 // trägt die id in die Banned-Events-Liste). Das ist die Admin-Löschung fremder
 // Nachrichten — im Gegensatz zum eigenen kind-5-Delete braucht sie kein Signatur-
 // Recht am Event, nur den Admin-Status am Relay. '' = Erfolg.
-export const banEvent = async (url: string, id: string, reason = ''): Promise<string> =>
-    manageError(
-        await manageRelay(url, {
-            method: ManagementMethod.BanEvent,
-            params: reason ? [id, reason] : [id],
-        }),
-    )
+/**
+ * `h` ist auf Buzz **Pflicht**: kind 9005 ist kanal-gescopt und wird ohne `h` mit
+ * `requires_h_channel_scope` abgewiesen (`ingest.rs:487`). Auf zooid ist der
+ * Parameter bedeutungslos — NIP-86 `banevent` kennt nur die Event-id.
+ */
+export const banEvent = async (url: string, id: string, reason = '', h = ''): Promise<string> =>
+    spaceIsBuzz(url)
+        ? await buzzDeleteEvent(url, id, h)
+        : manageError(
+              await manageRelay(url, {
+                  method: ManagementMethod.BanEvent,
+                  params: reason ? [id, reason] : [id],
+              }),
+          )
 
 // Space-Metadaten (NIP-86 changerelay*): editiert Name/Beschreibung/Icon des
 // Relay-NIP-11-Info-Docs. Der Aufrufer sendet nur die GEÄNDERTEN Felder (wie der
