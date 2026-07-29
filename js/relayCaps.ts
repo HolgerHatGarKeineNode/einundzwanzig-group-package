@@ -25,6 +25,27 @@ export const spaceSupportsRooms = (isVerein: boolean, profile?: { supported_nips
 }
 
 /**
+ * Ist das ein **Buzz**-Relay (Block Inc., Rust) statt eines zooid-Relays?
+ *
+ * **Warum am `software`-Feld und nicht an `supported_nips`:** Die Space-Verwaltung
+ * lief bisher über NIP-86 (`manageRelay`). Buzz hat NIP-86 nicht — am laufenden
+ * Relay gemessen antwortet `POST /` mit `405 Method Not Allowed, allow: GET,HEAD`.
+ * Man koennte also auf „86 fehlt in `supported_nips`" pruefen — nur advertised es
+ * AUCH zooid nicht (zooid haengt nur `43`, `29`, `BUD-*`, `9a` an). Die Abwesenheit
+ * von 86 unterscheidet die beiden also gerade NICHT. `software` dagegen ist bei
+ * beiden gesetzt und eindeutig: zooid meldet `github.com/coracle-social/zooid`,
+ * Buzz `https://github.com/block/buzz`.
+ *
+ * Bewusst eine **Positiv**-Erkennung auf Buzz: alles Unbekannte bleibt auf der
+ * bestehenden zooid/NIP-86-Strecke, die sich dadurch nicht aendert. Fehlendes
+ * Profil → false (noch nicht geladen ⇒ nicht „Buzz").
+ *
+ * Rein & welshman-frei → testbar (`relayCaps.test.ts`).
+ */
+export const isBuzzRelay = (profile?: { software?: string }): boolean =>
+    (profile?.software ?? '').toLowerCase().includes('block/buzz')
+
+/**
  * Setzt das Relay NIP-70 („protected events", `["-"]`-Tag) durch? Aus dem
  * NIP-11-`supported_nips` (von welshman auf `string[]` normalisiert). Rein &
  * welshman-frei → testbar. Fehlendes Profil → false (kein PROTECTED, wie beim
