@@ -95,6 +95,7 @@ import {
     unbanSpaceMember,
     addSpaceMember,
     banEvent,
+    resolveReport,
     setRelayName,
     setRelayDescription,
     setRelayIcon,
@@ -110,6 +111,7 @@ import {
 import {
     deriveSpaceReports,
     loadSpaceReports,
+    forgetBuzzReport,
     watchSpaceReports,
     deriveSpaceJoinRequests,
     loadSpaceJoinRequests,
@@ -653,6 +655,7 @@ type DirectoryState = {
     restoreMember(pubkey: string): Promise<void>
     loadInvite(): Promise<void>
     copyInvite(): void
+    _reportDone(r: ReportView): void
     dismissReport(r: ReportView): Promise<void>
     removeReportedContent(r: ReportView): Promise<void>
     banReportedUser(r: ReportView): Promise<void>
@@ -3025,17 +3028,29 @@ export function registerNostrComponents(Alpine: {
         // verschwindet aus der Queue (optimistisch lokal via removeEvent). Der
         // gemeldete Inhalt bleibt unberührt. Gemeinsames busy-Gate wie die anderen
         // Admin-Mutationen (immer nur eine Aktion offen).
+        // Eine erledigte Meldung aus BEIDEN Quellen räumen: dem Repository (zooid,
+        // kind 1984) und dem Buzz-Report-Store. Danach frisch nachladen — die
+        // Relay-Datenbank ist die Wahrheit, das lokale Entfernen nur die Optik.
+        _reportDone(r: ReportView) {
+            const url = this._url
+            if (!url) {
+                return
+            }
+            repository.removeEvent(r.id)
+            forgetBuzzReport(url, r.id)
+            void loadSpaceReports(url)
+        },
         async dismissReport(r: ReportView) {
             if (!this._url || this.busy) {
                 return
             }
             this.busy = true
             try {
-                const err = await banEvent(this._url, r.id, 'dismissed by admin')
+                const err = await resolveReport(this._url, r.id, 'dismiss')
                 if (err) {
                     toast(err)
                 } else {
-                    repository.removeEvent(r.id)
+                    this._reportDone(r)
                 }
             } finally {
                 this.busy = false
@@ -3050,12 +3065,18 @@ export function registerNostrComponents(Alpine: {
             }
             this.busy = true
             try {
-                const err = (await banEvent(this._url, r.reportedId)) || (await banEvent(this._url, r.id))
+                // Das `h` durchreichen: Buzz' kind 9005 verlangt Raum-Bezug
+                // (`invalid: channel-scoped events must include an h tag`, am laufenden
+                // Relay gemessen). Es kommt dort aus `channel_id` des Report-Datensatzes.
+                // Auf zooid ist der vierte Parameter folgenlos.
+                const err =
+                    (await banEvent(this._url, r.reportedId, '', r.roomH)) ||
+                    (await resolveReport(this._url, r.id, 'delete'))
                 if (err) {
                     toast(err)
                 } else {
                     repository.removeEvent(r.reportedId)
-                    repository.removeEvent(r.id)
+                    this._reportDone(r)
                 }
             } finally {
                 this.busy = false
@@ -3070,12 +3091,14 @@ export function registerNostrComponents(Alpine: {
             }
             this.busy = true
             try {
-                const err = (await banSpaceMember(this._url, r.reportedPubkey)) || (await banEvent(this._url, r.id))
+                const err =
+                    (await banSpaceMember(this._url, r.reportedPubkey)) ||
+                    (await resolveReport(this._url, r.id, 'ban'))
                 if (err) {
                     toast(err)
                 } else {
                     refreshSpaceAdmin(this._url)
-                    repository.removeEvent(r.id)
+                    this._reportDone(r)
                 }
             } finally {
                 this.busy = false

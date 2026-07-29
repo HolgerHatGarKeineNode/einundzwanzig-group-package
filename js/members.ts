@@ -35,6 +35,7 @@ import {
     buzzUnbanPubkey,
     buzzChangeRole,
     buzzDeleteEvent,
+    buzzResolveReport,
     type BuzzRelayRole,
 } from './buzzAdmin'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -463,6 +464,45 @@ export const setSpaceMemberRole = async (url: string, pubkey: string, role: Buzz
 // trägt die id in die Banned-Events-Liste). Das ist die Admin-Löschung fremder
 // Nachrichten — im Gegensatz zum eigenen kind-5-Delete braucht sie kein Signatur-
 // Recht am Event, nur den Admin-Status am Relay. '' = Erfolg.
+/**
+ * Wie eine Meldung erledigt wurde — die Entscheidung, nicht die Vollstreckung.
+ * Die eigentliche Maßnahme (Löschen, Bannen) ist ein eigener Aufruf.
+ */
+export type ReportResolution = 'dismiss' | 'delete' | 'ban'
+
+/**
+ * Schließt eine **Meldung** ab. `id` ist die Report-Kennung aus `ReportView.id`
+ * (zooid: Event-id des 1984 · Buzz: `report_event_id`). '' = Erfolg.
+ *
+ * - **Buzz:** kind 9044. Der Relay setzt die Report-Zeile auf `resolved`/`dismissed`
+ *   und schreibt eine Audit-Zeile; er löscht und bannt dabei **nichts**. Die
+ *   Kopplungsregel `action=dismiss` ⇔ `status=dismissed` steckt in der Abbildung
+ *   unten.
+ *
+ *   Ohne 9044 wäre das ein **No-op mit Erfolgsmeldung**: ein Report ist auf Buzz
+ *   kein abfragbares Event (der Ingest schreibt ihn nach `moderation_reports` und
+ *   kehrt vorher zurück, `ingest.rs:1600-1608`), also gäbe es nichts zu bannen — die
+ *   Meldung bliebe in der Relay-Datenbank ewig offen stehen.
+ *
+ * - **zooid:** NIP-86 `banevent` auf das Report-Event, wie bisher — dort IST der
+ *   Report ein Event, und der Bann nimmt ihn aus der Queue.
+ */
+export const resolveReport = async (
+    url: string,
+    id: string,
+    resolution: ReportResolution,
+    reason = '',
+): Promise<string> => {
+    if (!spaceIsBuzz(url)) {
+        return manageError(
+            await manageRelay(url, { method: ManagementMethod.BanEvent, params: [id, 'dismissed by admin'] }),
+        )
+    }
+    return resolution === 'dismiss'
+        ? await buzzResolveReport(url, id, 'dismissed', 'dismiss', reason)
+        : await buzzResolveReport(url, id, 'resolved', resolution, reason)
+}
+
 /**
  * `h` ist auf Buzz **Pflicht**: kind 9005 ist kanal-gescopt und wird ohne `h` mit
  * `requires_h_channel_scope` abgewiesen (`ingest.rs:487`). Auf zooid ist der
