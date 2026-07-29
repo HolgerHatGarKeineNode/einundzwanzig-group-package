@@ -4535,7 +4535,9 @@ export function registerNostrComponents(Alpine: {
                 if (!blob) {
                     throw new Error('Bild konnte nicht verarbeitet werden.')
                 }
-                const up = await uploadAttachment(blob, `${canvas.width}x${canvas.height}`)
+                // `this._url` = Space-Relay: entscheidet, ob der Blob zum Vereins-Blossom
+                // oder in den eigenen Medien-Speicher des Buzz-Relays geht (uploads.ts).
+                const up = await uploadAttachment(blob, this._url, `${canvas.width}x${canvas.height}`)
                 // In den beim Öffnen erfassten Ziel-Composer schreiben (kein Übersprechen).
                 if (this._cropForThread) {
                     this.threadAttachment = up
