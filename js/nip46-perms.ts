@@ -22,7 +22,15 @@
  * - 9002/9007/9008 ROOM_EDIT_META/ROOM_CREATE/ROOM_DELETE — NIP-29 Raum-Verwaltung (Admin, groups.ts)
  * - 9005 ROOM_DELETE_EVENT — NIP-29 fremde Nachricht live entfernen (Admin, feeds.ts)
  * - 9021/9022 ROOM_JOIN/ROOM_LEAVE — NIP-29 (groups.ts)
- * - 9041 ZAP_GOAL — NIP-75-Spendenziel (interactions.ts)
+ * - 9030/9031/9032/9033 — **Buzz**-Relay-Admin (buzzAdmin.ts): Mitglied aufnehmen,
+ *   entfernen, Rolle ändern, Space-Icon. Buzz hat kein NIP-86, diese Kinds sind dort der
+ *   EINZIGE Weg zur Space-Verwaltung — fehlen sie hier, kann ein Amber-Nutzer auf einem
+ *   Buzz-Space keine einzige Admin-Aktion ausführen.
+ * - 9040 — **Buzz**: Pubkey aus der Community bannen (buzzAdmin.ts). Das Entbannen ist
+ *   9041, das schon wegen NIP-75 gelistet ist — bewusst nicht zweimal aufgeführt.
+ * - 9044 — **Buzz**: Meldung erledigen (buzzAdmin.ts `buzzResolveReport`). Ohne dieses
+ *   Kind bleibt jede Meldung in der Relay-Datenbank offen stehen.
+ * - 9041 ZAP_GOAL — NIP-75-Spendenziel (interactions.ts) UND Buzz-Entbannen (s.o.)
  * - 9734 ZAP_REQUEST — NIP-57 (zaps.ts)
  * - 10009 ROOMS-Liste — NIP-51 (groups.ts)
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
@@ -52,7 +60,13 @@ export const NIP46_PERMS = [
     'sign_event:9008',
     'sign_event:9021',
     'sign_event:9022',
+    'sign_event:9030',
+    'sign_event:9031',
+    'sign_event:9032',
+    'sign_event:9033',
+    'sign_event:9040',
     'sign_event:9041',
+    'sign_event:9044',
     'sign_event:9734',
     'sign_event:10009',
     'sign_event:22242',
