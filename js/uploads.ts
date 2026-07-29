@@ -21,6 +21,26 @@ export const BLOSSOM_SERVER = 'https://blossom.einundzwanzig.space'
 export type Attachment = { url: string; imetaTag: string[] }
 
 /**
+ * HTTP(S)-Origin eines Relays: `wss://host/` → `https://host`, `ws://host:3001/` →
+ * `http://host:3001`. Buzz bedient Nostr-WS und Medien-REST auf DEMSELBEN Port
+ * (`api/media.rs`), die Ableitung ist also keine Konvention, sondern die Adresse selbst.
+ * Rein → node-testbar.
+ *
+ * Noch OHNE Aufrufer: die eigentliche Server-Weiche (Vereins-Blossom für zooid-Spaces,
+ * Relay-Medien für Buzz) kommt erst mit den Feature-Weichen. Hier liegt sie, weil die
+ * Buzz-E2E-Specs sie brauchen.
+ */
+export const relayHttpOrigin = (relayUrl: string): string => {
+    const u = new URL(relayUrl)
+    if (u.protocol === 'wss:') {
+        u.protocol = 'https:'
+    } else if (u.protocol === 'ws:') {
+        u.protocol = 'http:'
+    }
+    return u.origin
+}
+
+/**
  * Baut URL + NIP-92-`imeta`-Tag aus dem Blossom-Ergebnis. Rein (kein Netzwerk/Store) →
  * als JS-Unit testbar. Die Server-URL ist **untrusted** (Antwort des konfigurierten
  * Servers): `new URL(...).href` normalisiert sie (entfernt eingeschleuste Whitespace/
