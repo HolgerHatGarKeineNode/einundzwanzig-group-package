@@ -578,18 +578,30 @@ const MEMBERSHIP_RELOAD_ATTEMPTS = 8
 const MEMBERSHIP_RELOAD_DELAY_MS = 400
 
 /**
- * Lädt die relay-signierte Mitgliederliste EINES Raums nach, bis `pubkey` darin steht
- * (oder das Budget aufgebraucht ist). Liefert `true`, wenn die Mitgliedschaft bestätigt ist.
+ * Lädt die relay-signierte Mitgliederliste EINES Raums nach, bis `pubkey` den
+ * erwarteten Zustand hat (oder das Budget aufgebraucht ist). Liefert `true`, wenn
+ * der Zustand bestätigt ist.
+ *
+ * `expectMember` schaltet die Richtung: `true` nach einem Beitritt (warten, bis der
+ * Pubkey DRINSTEHT), `false` nach einem Austritt (warten, bis er WEG ist). Beide
+ * Wege brauchen es, weil Buzz die aktualisierte 39002 in keinem der beiden Fälle
+ * über den Fan-out schickt.
  *
  * **Kein optimistisches Umschalten.** Die Mitgliedschaft bleibt relay-autoritativ (siehe
  * Modulkopf) — hier wird nur GELESEN, und zwar genau das Event, auf das die Ableitung
  * ohnehin hört. Der `#d`-Filter ist bei beiden Relays SQL-seitig auflösbar (39002 ist
  * parameterisiert-ersetzbar), das Nachladen kostet also einen indizierten Zugriff.
  */
-export const reloadRoomMembership = async (url: string, h: string, pubkey: string): Promise<boolean> => {
+export const reloadRoomMembership = async (
+    url: string,
+    h: string,
+    pubkey: string,
+    expectMember = true,
+): Promise<boolean> => {
     for (let attempt = 0; attempt < MEMBERSHIP_RELOAD_ATTEMPTS; attempt++) {
         const events = await load({ relays: [url], filters: [{ kinds: [ROOM_MEMBERS], '#d': [h] }] })
-        if (events.some((e) => e.tags.some((t) => t[0] === 'p' && t[1] === pubkey))) {
+        const listed = events.some((e) => e.tags.some((t) => t[0] === 'p' && t[1] === pubkey))
+        if (listed === expectMember) {
             return true
         }
         await new Promise((resolve) => setTimeout(resolve, MEMBERSHIP_RELOAD_DELAY_MS))

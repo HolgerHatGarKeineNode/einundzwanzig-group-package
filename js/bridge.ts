@@ -4846,6 +4846,16 @@ export function registerNostrComponents(Alpine: {
                 const err = await leaveRoom(this._url, this.h)
                 if (err) {
                     toast(err)
+                    return
+                }
+                // Spiegelbild zu `join()`: Buzz schickt die aktualisierte 39002 auch nach
+                // einem Austritt nicht ueber den Fan-out. Ohne das Nachladen bliebe der
+                // Composer stehen, obwohl der Nutzer den Raum verlassen hat — und der
+                // naechste Sendeversuch scheiterte am Relay. `false` = warten, bis der
+                // eigene Pubkey NICHT mehr in der Liste steht.
+                const me = pubkey.get()
+                if (me) {
+                    await reloadRoomMembership(this._url, this.h, me, false)
                 }
             } finally {
                 this.joining = false
