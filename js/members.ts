@@ -63,6 +63,7 @@ import {
     buzzLoadRestricted,
     buzzResolveReport,
     spaceIsBuzz,
+    spaceIsBuzzAsync,
     type BuzzRelayRole,
 } from './buzzAdmin'
 import { isVereinRelay, roomMembersByUrl } from './groups'
@@ -269,16 +270,29 @@ const nip86AdminStore = (url: string): ReturnType<typeof writable<boolean>> => {
 
 export const refreshSpaceAdmin = (url: string): void => {
     const store = adminByUrl.get(url)
-    if (!store || spaceIsBuzz(url)) {
+    if (!store) {
         return
     }
     if (!pubkey.get()) {
         store.set(false)
         return
     }
-    manageRelay(url, { method: ManagementMethod.SupportedMethods, params: [] })
-        .then((res) => store.set(Boolean(res.result?.length)))
-        .catch(() => store.set(false))
+    // Die Weiche MUSS auf das NIP-11-Doc warten. Die synchrone `spaceIsBuzz`
+    // liefert beim ersten Rendern verlaesslich `false` — das Profil ist da noch
+    // unterwegs, sie stoesst das Laden nur an. Mit ihr als Waechter feuerte der
+    // NIP-86-Probe-Aufruf also GEGEN BUZZ, quittiert mit `405 Method Not Allowed`
+    // (im Browser-Log belegt, 2026-07-29). Das kostete den Nutzer bei jedem
+    // Seitenaufbau eine Signatur-Anfrage im Signer fuer ein NIP-98-Event, das
+    // niemand auswertet. Dieselbe Falle war fuer die Melde-Queue schon geloest —
+    // siehe die Begruendung an `spaceIsBuzzAsync`.
+    void spaceIsBuzzAsync(url).then((isBuzz) => {
+        if (isBuzz) {
+            return
+        }
+        manageRelay(url, { method: ManagementMethod.SupportedMethods, params: [] })
+            .then((res) => store.set(Boolean(res.result?.length)))
+            .catch(() => store.set(false))
+    })
 }
 
 /**
@@ -296,9 +310,10 @@ const BUZZ_ADMIN_ROLES = ['owner', 'admin']
 
 export const deriveUserIsSpaceAdmin = (url: string): Readable<boolean> => {
     const nip86 = nip86AdminStore(url)
-    if (!spaceIsBuzz(url)) {
-        refreshSpaceAdmin(url)
-    }
+    // Ohne Vorab-Weiche: `refreshSpaceAdmin` wartet selbst auf das NIP-11-Doc und
+    // bricht auf Buzz ab. Die synchrone Pruefung HIER war der Ausloeser des
+    // 405-Aufrufs — sie sagt beim ersten Rendern immer „kein Buzz".
+    refreshSpaceAdmin(url)
     return derived(
         [deriveRelay(url), deriveSpaceMemberRoles(url), pubkey, nip86],
         ([relay, memberRoles, pk, isNip86Admin]) => {

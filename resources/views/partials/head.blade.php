@@ -9,9 +9,12 @@
 
 <title>{{ filled($title ?? null) ? $title.' – '.config('app.name') : config('app.name') }}</title>
 
-{{-- Default-Space VOR @vite setzen (die Insel liest window.__nostrSpace beim Boot). --}}
+{{-- Default-Space VOR @vite setzen (die Insel liest window.__nostrSpace beim Boot).
+     `??`, nicht `=`: ein vorab gesetzter Wert gewinnt (E2E setzt ihn per
+     addInitScript, also vor dieser Zeile) — sonst laufen die Specs gegen den
+     falschen Relay. Dieselbe Regel wie beim __nostrMobile-Flag darunter. --}}
 @if (config('group.space_url'))
-    <script>window.__nostrSpace = @js(config('group.space_url'));</script>
+    <script>window.__nostrSpace = window.__nostrSpace ?? @js(config('group.space_url'));</script>
 @endif
 
 {{-- Plattform-Flag: auf dem Gerät gated die Insel client-seitig (kein NIP-98).
