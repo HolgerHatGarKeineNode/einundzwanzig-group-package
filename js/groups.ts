@@ -63,7 +63,6 @@ import { uniq, sortBy, partition, randomId } from '@welshman/lib'
 import { spaceSupportsRooms, spaceBranding } from './relayCaps'
 import { parseMeetupTags } from './meetupPresentation'
 import { parseProjectSupportTags, withExtraTags } from './roomCategories'
-import { roleHoldersFromMembersTags } from './roomRoles'
 import type { RelayProfile } from '@welshman/util'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
@@ -229,32 +228,6 @@ export const roomMembersByUrl: Readable<Map<string, Map<string, Set<string>>>> =
     },
 )
 
-/**
- * **Eigentümer** je Room-`h` und Space-URL — dieselbe 39002, aber nur die `p`-Tags mit
- * der Rolle `owner` ({@link roleHoldersFromMembersTags}).
- *
- * Eigener Store statt eines erweiterten {@link roomMembersByUrl}: dessen Verbraucher
- * (Mitgliedschafts-Ableitung, Beitritts-Queue, Space-Ansicht) fragen eine andere Frage
- * und sollen von der Rollen-Auswertung nichts merken.
- */
-export const roomOwnersByUrl: Readable<Map<string, Map<string, Set<string>>>> = derived(
-    roomMembersEventsByIdByUrl,
-    ($byUrl) => {
-        const result = new Map<string, Map<string, Set<string>>>()
-        for (const [url, byId] of $byUrl) {
-            const byH = new Map<string, Set<string>>()
-            for (const event of byId.values()) {
-                const { tags } = event as TrustedEvent
-                const h = getTagValue('d', tags)
-                if (h) {
-                    byH.set(h, roleHoldersFromMembersTags(tags))
-                }
-            }
-            result.set(url, byH)
-        }
-        return result
-    },
-)
 
 /** Ist der eingeloggte User Mitglied des Raums (reaktiv, relay-autoritativ)? */
 export const deriveUserInRoom = (url: string, h: string): Readable<boolean> =>
@@ -308,21 +281,6 @@ export type RoomView = {
     /** Stabile Antrags-id aus `["i","proposal:<id>"]` ('' wenn keine). */
     proposalId: string
     /**
-     * Ist der eingeloggte Pubkey **Eigentümer** dieses Raums (Rolle `owner` in der
-     * relay-signierten 39002)? Trägt allein die Frage „darf die Oberfläche hier Löschen
-     * anbieten?".
-     *
-     * **Das ist ein Schutz gegen Versehen, keine Zugriffskontrolle.** Der Relay lässt
-     * jeden Owner/Admin weiterhin jeden Raum löschen — ein anderer Client oder ein
-     * `nak`-Aufruf kann es unverändert. Hier wird nur die Schaltfläche ausgeblendet.
-     *
-     * Auf zooid ist der Wert **immer false**, weil dessen 39002 gar keine Rollen führt
-     * (gemessen, siehe {@link roleHoldersFromMembersTags}) — dort bietet die Oberfläche
-     * also gar kein Löschen mehr an. Bewusst konservativ: lieber eine Funktion zu wenig
-     * als eine falsch freigegebene.
-     */
-    isOwner: boolean
-    /**
      * `created_at` des jüngsten bekannten Timeline-Events (kind 9) dieses Raums,
      * `null` solange keins vorliegt. Quelle: {@link lastMessageAtByUrl}. Trägt die
      * Sortierung der Raumliste nach Aktivität.
@@ -358,7 +316,6 @@ const buildSpaceView = (
     byUrl: Map<string, Room[]>,
     byId: Map<string, Room>,
     membersByH: Map<string, Set<string>>,
-    ownersByH: Map<string, Set<string>>,
     pk: string | undefined,
     profile: RelayProfile | undefined,
     lastByH: Map<string, number>,
@@ -397,7 +354,6 @@ const buildSpaceView = (
                 meetupSlug: meetup.meetupSlug,
                 isProjectSupport: projectSupport.isProjectSupport,
                 proposalId: projectSupport.proposalId,
-                isOwner: Boolean(pk && ownersByH.get(h)?.has(pk)),
                 lastMessageAt: lastByH.get(h) ?? null,
             }
         })
@@ -426,15 +382,14 @@ export const ensureRelayProfile = (
  * und entdeckbaren Räumen — die Grundlage der Space-Auswahl in den Einstellungen.
  */
 export const userSpacesView: Readable<SpaceView[]> = derived(
-    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, roomOwnersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
-    ([$urls, $byUrl, $byId, $members, $owners, $pk, $relays, $lastAt]) =>
+    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+    ([$urls, $byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
         $urls.map((url) =>
             buildSpaceView(
                 url,
                 $byUrl,
                 $byId,
                 $members.get(url) ?? new Map(),
-                $owners.get(url) ?? new Map(),
                 $pk,
                 ensureRelayProfile($relays, url),
                 $lastAt.get(url) ?? new Map(),
@@ -494,8 +449,8 @@ export const activeSpace: Readable<string> = derived(activeSpaceUrl, ($active) =
  * Space (noch) nicht beigetreten ist. Rooms streamen nach dem 39000-Load ein.
  */
 export const activeSpaceView: Readable<SpaceView> = derived(
-    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, roomOwnersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
-    ([$active, $byUrl, $byId, $members, $owners, $pk, $relays, $lastAt]) =>
+    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+    ([$active, $byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
         // NIP-11 auch für den aktiven Space anstoßen — inkl. Vereins-Relays, die
         // sonst nie geladen würden (nur `groupSpaceChoices` lädt non-verein).
         buildSpaceView(
@@ -503,7 +458,6 @@ export const activeSpaceView: Readable<SpaceView> = derived(
             $byUrl,
             $byId,
             $members.get($active) ?? new Map(),
-            $owners.get($active) ?? new Map(),
             $pk,
             ensureRelayProfile($relays, $active),
             $lastAt.get($active) ?? new Map(),

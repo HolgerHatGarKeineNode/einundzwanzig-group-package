@@ -2,8 +2,8 @@
      `room` (RoomView: `{ h, name, about, picture, locked, isPrivate, … }`) aus dem
      umschließenden `x-for`-Scope. Raum-`picture` (kind 39000) → Avatar, sonst
      Brand-Hashtag-Chip. `locked` (NIP-29 privat/eingeschränkt) → Schloss. Für Admins
-     (P4) trägt die Kachel ein „…"-Menü (Bearbeiten/Löschen) — `isAdmin`/`openRoomEdit`/
-     `askDeleteRoom` liegen im umschließenden nostrSpaces-Scope; fehlt der Scope
+     trägt die Kachel ein „…"-Menü mit genau EINEM Eintrag (Bearbeiten) — `isAdmin` und
+     `openRoomEdit` liegen im umschließenden nostrSpaces-Scope; fehlt der Scope
      (Fremdnutzung), ist `isAdmin` undefined → das Menü bleibt einfach aus. Container
      statt reiner Button, damit das Dropdown NICHT als Button-in-Button verschachtelt wird. --}}
 <div class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
