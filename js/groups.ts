@@ -36,7 +36,6 @@ import {
     ROOM_DELETE,
     ROOM_MEMBERS,
     ROOM_ADD_MEMBER,
-    ROOM_REMOVE_MEMBER,
     ROOM_JOIN,
     ROOM_LEAVE,
     RELAY_JOIN,
@@ -64,6 +63,7 @@ import { uniq, sortBy, partition, randomId } from '@welshman/lib'
 import { spaceSupportsRooms, spaceBranding } from './relayCaps'
 import { parseMeetupTags } from './meetupPresentation'
 import { parseProjectSupportTags, withExtraTags } from './roomCategories'
+import { roleHoldersFromMembersTags } from './roomRoles'
 import type { RelayProfile } from '@welshman/util'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
@@ -229,6 +229,33 @@ export const roomMembersByUrl: Readable<Map<string, Map<string, Set<string>>>> =
     },
 )
 
+/**
+ * **Eigentümer** je Room-`h` und Space-URL — dieselbe 39002, aber nur die `p`-Tags mit
+ * der Rolle `owner` ({@link roleHoldersFromMembersTags}).
+ *
+ * Eigener Store statt eines erweiterten {@link roomMembersByUrl}: dessen Verbraucher
+ * (Mitgliedschafts-Ableitung, Beitritts-Queue, Space-Ansicht) fragen eine andere Frage
+ * und sollen von der Rollen-Auswertung nichts merken.
+ */
+export const roomOwnersByUrl: Readable<Map<string, Map<string, Set<string>>>> = derived(
+    roomMembersEventsByIdByUrl,
+    ($byUrl) => {
+        const result = new Map<string, Map<string, Set<string>>>()
+        for (const [url, byId] of $byUrl) {
+            const byH = new Map<string, Set<string>>()
+            for (const event of byId.values()) {
+                const { tags } = event as TrustedEvent
+                const h = getTagValue('d', tags)
+                if (h) {
+                    byH.set(h, roleHoldersFromMembersTags(tags))
+                }
+            }
+            result.set(url, byH)
+        }
+        return result
+    },
+)
+
 /** Ist der eingeloggte User Mitglied des Raums (reaktiv, relay-autoritativ)? */
 export const deriveUserInRoom = (url: string, h: string): Readable<boolean> =>
     derived([roomMembersByUrl, pubkey], ([$byUrl, $pk]) =>
@@ -243,7 +270,15 @@ export const displayRoom = (room: Room | undefined, h: string): string => room?.
 export type RoomView = {
     h: string
     name: string
-    /** Beschreibung (39000 `about`), '' wenn keine — für den Edit-Prefill. */
+    /**
+     * Beschreibung (39000 `about`), '' wenn keine.
+     *
+     * **Wird seit P8 nicht mehr aus der Oberfläche geschrieben** — sie trägt die
+     * Kategorie-Konvention (`einundzwanzig:meetup:<id> — …`, `roomCategories.ts`), und ein
+     * versehentliches Überschreiben nähme dem Raum lautlos seine Kategorie. Bleibt hier,
+     * weil die Anzeige sie liest und `roomMetaEvent` sie beim Bearbeiten unverändert
+     * zurückschreiben muss.
+     */
     about: string
     picture: string
     /** Aggregiert (privat|eingeschränkt|geschlossen) → Schloss-Badge. */
@@ -272,6 +307,21 @@ export type RoomView = {
     isProjectSupport: boolean
     /** Stabile Antrags-id aus `["i","proposal:<id>"]` ('' wenn keine). */
     proposalId: string
+    /**
+     * Ist der eingeloggte Pubkey **Eigentümer** dieses Raums (Rolle `owner` in der
+     * relay-signierten 39002)? Trägt allein die Frage „darf die Oberfläche hier Löschen
+     * anbieten?".
+     *
+     * **Das ist ein Schutz gegen Versehen, keine Zugriffskontrolle.** Der Relay lässt
+     * jeden Owner/Admin weiterhin jeden Raum löschen — ein anderer Client oder ein
+     * `nak`-Aufruf kann es unverändert. Hier wird nur die Schaltfläche ausgeblendet.
+     *
+     * Auf zooid ist der Wert **immer false**, weil dessen 39002 gar keine Rollen führt
+     * (gemessen, siehe {@link roleHoldersFromMembersTags}) — dort bietet die Oberfläche
+     * also gar kein Löschen mehr an. Bewusst konservativ: lieber eine Funktion zu wenig
+     * als eine falsch freigegebene.
+     */
+    isOwner: boolean
     /**
      * `created_at` des jüngsten bekannten Timeline-Events (kind 9) dieses Raums,
      * `null` solange keins vorliegt. Quelle: {@link lastMessageAtByUrl}. Trägt die
@@ -308,6 +358,7 @@ const buildSpaceView = (
     byUrl: Map<string, Room[]>,
     byId: Map<string, Room>,
     membersByH: Map<string, Set<string>>,
+    ownersByH: Map<string, Set<string>>,
     pk: string | undefined,
     profile: RelayProfile | undefined,
     lastByH: Map<string, number>,
@@ -346,6 +397,7 @@ const buildSpaceView = (
                 meetupSlug: meetup.meetupSlug,
                 isProjectSupport: projectSupport.isProjectSupport,
                 proposalId: projectSupport.proposalId,
+                isOwner: Boolean(pk && ownersByH.get(h)?.has(pk)),
                 lastMessageAt: lastByH.get(h) ?? null,
             }
         })
@@ -374,14 +426,15 @@ export const ensureRelayProfile = (
  * und entdeckbaren Räumen — die Grundlage der Space-Auswahl in den Einstellungen.
  */
 export const userSpacesView: Readable<SpaceView[]> = derived(
-    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
-    ([$urls, $byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
+    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, roomOwnersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+    ([$urls, $byUrl, $byId, $members, $owners, $pk, $relays, $lastAt]) =>
         $urls.map((url) =>
             buildSpaceView(
                 url,
                 $byUrl,
                 $byId,
                 $members.get(url) ?? new Map(),
+                $owners.get(url) ?? new Map(),
                 $pk,
                 ensureRelayProfile($relays, url),
                 $lastAt.get(url) ?? new Map(),
@@ -441,8 +494,8 @@ export const activeSpace: Readable<string> = derived(activeSpaceUrl, ($active) =
  * Space (noch) nicht beigetreten ist. Rooms streamen nach dem 39000-Load ein.
  */
 export const activeSpaceView: Readable<SpaceView> = derived(
-    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
-    ([$active, $byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
+    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, roomOwnersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+    ([$active, $byUrl, $byId, $members, $owners, $pk, $relays, $lastAt]) =>
         // NIP-11 auch für den aktiven Space anstoßen — inkl. Vereins-Relays, die
         // sonst nie geladen würden (nur `groupSpaceChoices` lädt non-verein).
         buildSpaceView(
@@ -450,6 +503,7 @@ export const activeSpaceView: Readable<SpaceView> = derived(
             $byUrl,
             $byId,
             $members.get($active) ?? new Map(),
+            $owners.get($active) ?? new Map(),
             $pk,
             ensureRelayProfile($relays, $active),
             $lastAt.get($active) ?? new Map(),
@@ -663,8 +717,23 @@ export type RoomInput = {
  */
 const roomMetaEvent = (url: string, input: RoomInput) => {
     const existing = get(roomsById).get(makeRoomId(url, input.h))
+    // `about` wird beim BEARBEITEN nie aus dem Aufrufer übernommen, sondern aus dem
+    // bestehenden 39000 zurückgeschrieben. Grund: seit P5 trägt das Feld die
+    // Kategorie-Konvention (`einundzwanzig:meetup:<id> — …`, `roomCategories.ts`). Ginge sie
+    // bei einem Namens-Edit verloren, fiele der Raum lautlos aus seiner Kategorie — ohne
+    // Fehlermeldung, und das Sync-Skript stellte sie erst beim nächsten Lauf wieder her
+    // (bei Antragsräumen nie, die legt das Portal an).
+    //
+    // Das ersetzt kein Relay-Recht: Owner/Admins dürfen `about` weiterhin ändern, ein
+    // anderer Client oder ein `nak`-Aufruf tut es unverändert. Hier wird nur sichergestellt,
+    // dass DIESE Oberfläche es nicht aus Versehen tut.
+    //
+    // Auf die Tag-Übernahme in welshmans `makeRoomEditEvent` (ein leeres `about` ließe den
+    // alten Tag durchkopieren) wird bewusst NICHT vertraut: fehlt `existing.event` — etwa im
+    // Warm-Render-Rennen —, gäbe es nichts zu kopieren und die Beschreibung wäre weg.
+    const about = existing ? (existing.about ?? '') : input.about
     return withExtraTags(
-        makeRoomEditEvent({ ...input, pictureMeta: existing?.pictureMeta, event: existing?.event }),
+        makeRoomEditEvent({ ...input, about, pictureMeta: existing?.pictureMeta, event: existing?.event }),
         input.extraTags,
     )
 }
@@ -702,16 +771,23 @@ export const editRoomMeta = (url: string, input: RoomInput): Promise<string> =>
 export const deleteRoom = (url: string, h: string): Promise<string> =>
     waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE, { tags: [['h', h]] }) }))
 
-// ── Raum-Mitglieder (Admin, NIP-29 9000/9001 → relay-signierte 39002) ────────
+// ── Raum-Mitglieder (Admin, NIP-29 9000 → relay-signierte 39002) ────────────
+//
+// **Es gibt keine Mitglieder-Verwaltung je Raum mehr.** Mitgliedschaften entstehen
+// ausschliesslich aus dem Sync der Vereinsmitglieder (kind 9030 relay-weit,
+// `scripts/buzz-add-members.sh`) und aus dem Beitritt des Nutzers selbst (9021).
+// Der frühere Mitglieder-Dialog ist samt `removeRoomMember` (9001) entfallen; er hatte
+// nach dem Sync keine Aufgabe mehr, ausser eine per Hand gepflegte zweite Wahrheit
+// aufzubauen.
+//
+// `addRoomMember` BLEIBT — nicht aus Nostalgie: es trägt das Annehmen einer offenen
+// Beitrittsanfrage in der Vorstands-Queue (`bridge.ts acceptJoin`, kind 9000). Das ist
+// der einzige verbliebene Aufrufer.
 
 /** Fügt einen Pubkey der Raum-Mitgliederliste hinzu (kind 9000 put-user → 39002).
- *  Setzt Space-Mitgliedschaft (allowpubkey) voraus — der Aufrufer stellt das sicher. */
+ *  Setzt Space-Mitgliedschaft voraus — der Aufrufer stellt das sicher. */
 export const addRoomMember = (url: string, h: string, pubkey: string): Promise<string> =>
     waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_ADD_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
-
-/** Entfernt einen Pubkey aus der Raum-Mitgliederliste (kind 9001 remove-user → 39002). */
-export const removeRoomMember = (url: string, h: string, pubkey: string): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_REMOVE_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
 
 // ── Space beitreten/verlassen (Space-Ebene, NIP-29 kind 28934/28936) ─────────
 

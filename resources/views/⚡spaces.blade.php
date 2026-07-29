@@ -763,7 +763,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
 
                 <flux:input label="{{ __('Name') }}" x-model="roomForm.name" placeholder="{{ __('z.B. Allgemein') }}" />
-                <flux:textarea label="{{ __('Beschreibung') }}" x-model="roomForm.about" rows="2" placeholder="{{ __('Optional') }}" />
+                {{-- Die Beschreibung ist BEWUSST kein Feld mehr: sie trägt die Kategorie-
+                     Konvention (`einundzwanzig:meetup:<id> — …`), und wer sie überschreibt,
+                     nimmt dem Raum lautlos seine Kategorie. `roomMetaEvent` schreibt den
+                     bestehenden Wert beim Speichern unverändert zurück. Das ist ein Schutz
+                     gegen Versehen: der Relay erlaubt Owner/Admins die Änderung weiterhin,
+                     nur diese Oberfläche bietet sie nicht mehr an. --}}
 
                 {{-- Native Checkboxen (zuverlässiges x-model) statt Flux-Komponente.
                      „closed" = Beitritt braucht Admin-Freigabe → Anfragen landen in der
@@ -793,38 +798,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="flex justify-end gap-2">
                     <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
                     <flux:button variant="danger" x-on:click="confirmDeleteRoom()" ::disabled="roomSaving">{{ __('Löschen') }}</flux:button>
-                </div>
-            </div>
-        </flux:modal>
-
-        {{-- Raum-Mitglieder (P4b): 39002-Liste + Hinzufügen (npub → 9000)/Entfernen (9001).
-             x-on:close räumt die Live-Subscription ab. --}}
-        <flux:modal name="room-members" class="max-w-sm" x-on:close="closeRoomMembers()">
-            <div class="space-y-4">
-                <flux:heading size="lg">{{ __('Mitglieder') }} <span class="text-muted" x-text="membersRoom ? '# ' + membersRoom.name : ''"></span></flux:heading>
-
-                {{-- Hinzufügen per npub/hex. --}}
-                <div class="flex items-end gap-2">
-                    <flux:input class="flex-1" label="{{ __('npub hinzufügen') }}" x-model="memberNpub" placeholder="npub1…" />
-                    <flux:button variant="primary" icon="user-plus" x-on:click="addRoomMemberByNpub()" ::disabled="memberBusy || !memberNpub.trim()" aria-label="{{ __('Hinzufügen') }}" />
-                </div>
-
-                <template x-if="roomMembers.length === 0">
-                    <flux:text class="text-sm text-muted">{{ __('Noch keine Mitglieder in diesem Raum.') }}</flux:text>
-                </template>
-                <div class="space-y-2">
-                    <template x-for="m in roomMembers" :key="m.pubkey">
-                        <div class="surface-card flex items-center gap-3 p-2">
-                            <button type="button" x-on:click="$dispatch('open-profile', m.pubkey)" class="pressable shrink-0" aria-label="{{ __('Profil anzeigen') }}">
-                                <x-group::nostr-avatar picture="m.picture" name="m.name" />
-                            </button>
-                            <div class="min-w-0 flex-1">
-                                <div class="truncate text-sm font-medium" x-text="m.name"></div>
-                                <div class="truncate font-mono text-xs text-muted" x-text="m.short"></div>
-                            </div>
-                            <flux:button size="xs" variant="ghost" icon="user-minus" class="icon-btn-touch shrink-0" x-on:click="kickRoomMember(m.pubkey)" ::disabled="memberBusy" aria-label="{{ __('Entfernen') }}" />
-                        </div>
-                    </template>
                 </div>
             </div>
         </flux:modal>

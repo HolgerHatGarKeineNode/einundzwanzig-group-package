@@ -49,17 +49,25 @@
         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
 
-    {{-- Admin-Aktionen (P4): Bearbeiten/Löschen. `.stop`, damit der Klick nicht die
+    {{-- Admin-Aktionen: Bearbeiten (Löschen nur beim eigenen Raum). `.stop`, damit der Klick nicht die
          Raum-Navigation der Kachel auslöst. --}}
     <template x-if="isAdmin">
         <div class="shrink-0 pr-1" x-on:click.stop>
             <flux:dropdown position="bottom" align="end">
                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Raum verwalten') }}" />
+                {{-- „Mitglieder" ist ersatzlos entfallen: Mitgliedschaften kommen ausschliesslich
+                     aus dem Sync der Vereinsmitglieder (kind 9030) und dem Beitritt des Nutzers
+                     selbst. „Löschen" erscheint nur beim EIGENEN Raum (`room.isOwner` = Rolle
+                     `owner` in der relay-signierten 39002). Beides bewusst nur in der
+                     Oberfläche — der Relay erlaubt Admins weiterhin beides. --}}
                 <flux:menu>
                     <flux:menu.item icon="pencil-square" x-on:click="openRoomEdit(room)">{{ __('Bearbeiten') }}</flux:menu.item>
-                    <flux:menu.item icon="users" x-on:click="openRoomMembers(room)">{{ __('Mitglieder') }}</flux:menu.item>
-                    <flux:menu.separator />
-                    <flux:menu.item variant="danger" icon="trash" x-on:click="askDeleteRoom(room)">{{ __('Löschen') }}</flux:menu.item>
+                    <template x-if="room.isOwner">
+                        <div>
+                            <flux:menu.separator />
+                            <flux:menu.item variant="danger" icon="trash" x-on:click="askDeleteRoom(room)">{{ __('Löschen') }}</flux:menu.item>
+                        </div>
+                    </template>
                 </flux:menu>
             </flux:dropdown>
         </div>

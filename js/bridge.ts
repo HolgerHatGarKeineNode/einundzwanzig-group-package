@@ -60,7 +60,6 @@ import {
     editRoomMeta,
     deleteRoom,
     addRoomMember,
-    removeRoomMember,
     type SpaceView,
     type RoomView,
     type RoomInput,
@@ -93,8 +92,6 @@ import {
     setRelayName,
     setRelayDescription,
     setRelayIcon,
-    deriveRoomMemberViews,
-    type RoomMemberView,
     type DirectoryView,
     type MemberView,
     type BannedMember,
@@ -466,11 +463,6 @@ type SpacesState = {
     roomSaving: boolean
     pendingRoomDelete: RoomView | null // Zielraum der offenen Lösch-Bestätigung
     // Raum-Mitglieder (P4b): Liste + Hinzufügen/Entfernen
-    membersRoom: RoomView | null // Raum des offenen Mitglieder-Modals
-    roomMembers: RoomMemberView[]
-    memberNpub: string // npub/hex-Eingabe zum Hinzufügen
-    memberBusy: boolean
-    _unsubRoomMembers: null | (() => void)
     // Meetup-Praesentations-Join (Plan E2): slug → {flag, portalLink, …}. Wird
     // EINMAL aus der Portal-Liste geladen; die Kachel joint per room.meetupSlug.
     meetups: Record<string, MeetupPresentation>
@@ -527,10 +519,6 @@ type SpacesState = {
     saveRoom(): Promise<void>
     askDeleteRoom(room: RoomView): void
     confirmDeleteRoom(): Promise<void>
-    openRoomMembers(room: RoomView): void
-    closeRoomMembers(): void
-    addRoomMemberByNpub(): Promise<void>
-    kickRoomMember(pubkey: string): Promise<void>
     destroy(): void
 }
 
@@ -1782,11 +1770,6 @@ export function registerNostrComponents(Alpine: {
         _roomIconFile: null,
         roomSaving: false,
         pendingRoomDelete: null,
-        membersRoom: null,
-        roomMembers: [],
-        memberNpub: '',
-        memberBusy: false,
-        _unsubRoomMembers: null,
         meetups: {},
         _unsubMeetups: null,
         // Filterzustand aus der URL übernehmen — spiegelbildlich zu den $watch-Hooks in
@@ -2240,75 +2223,6 @@ export function registerNostrComponents(Alpine: {
                 this.roomSaving = false
             }
         },
-        // Raum-Mitglieder (P4b): live-Liste der 39002 des Raums, +hinzufügen/-entfernen.
-        openRoomMembers(room: RoomView) {
-            this._unsubRoomMembers?.()
-            this.membersRoom = room
-            this.roomMembers = []
-            this.memberNpub = ''
-            if (this._url) {
-                this._unsubRoomMembers = deriveRoomMemberViews(this._url, room.h).subscribe((m: RoomMemberView[]) => {
-                    this.roomMembers = m
-                })
-            }
-            dispatchModal('room-members')
-        },
-        closeRoomMembers() {
-            this._unsubRoomMembers?.()
-            this._unsubRoomMembers = null
-            this.membersRoom = null
-        },
-        // Hinzufügen per npub/hex: erst Space-Zulassung (allowpubkey), dann Raum-Beitritt
-        // (kind 9000). Ein noch nicht zugelassener Fremder wird so in EINEM Schritt Mitglied.
-        async addRoomMemberByNpub() {
-            const room = this.membersRoom
-            const raw = this.memberNpub.trim()
-            if (!room || !this._url || this.memberBusy || !raw) {
-                return
-            }
-            let pubkey = ''
-            try {
-                pubkey = raw.startsWith('npub') ? (nip19.decode(raw).data as string) : /^[0-9a-f]{64}$/.test(raw) ? raw : ''
-            } catch {
-                pubkey = ''
-            }
-            if (!pubkey) {
-                toast('Kein gültiger npub / Pubkey.')
-                return
-            }
-            this.memberBusy = true
-            try {
-                const allowErr = await addSpaceMember(this._url, pubkey)
-                if (allowErr) {
-                    toast(allowErr)
-                    return
-                }
-                const err = await addRoomMember(this._url, room.h, pubkey)
-                if (err) {
-                    toast(err)
-                } else {
-                    this.memberNpub = ''
-                }
-            } finally {
-                this.memberBusy = false
-            }
-        },
-        // Entfernen: kind 9001 (remove-user) → der Live-Sub aktualisiert die 39002-Liste.
-        async kickRoomMember(pubkey: string) {
-            const room = this.membersRoom
-            if (!room || !this._url || this.memberBusy) {
-                return
-            }
-            this.memberBusy = true
-            try {
-                const err = await removeRoomMember(this._url, room.h, pubkey)
-                if (err) {
-                    toast(err)
-                }
-            } finally {
-                this.memberBusy = false
-            }
-        },
         init() {
             // Filter-Caches (Modul-Scope) beim (Re-)Mount leeren → keine Stale-Arrays
             // aus einer vorherigen Space-Navigation.
@@ -2391,7 +2305,6 @@ export function registerNostrComponents(Alpine: {
             this._unsubAccess?.()
             this._unsubAdmin?.()
             this._unsubThreads?.()
-            this._unsubRoomMembers?.()
             this._unsubMeetups?.()
             this._controller?.abort()
         },
