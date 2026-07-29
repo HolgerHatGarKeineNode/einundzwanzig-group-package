@@ -17,6 +17,12 @@
     <script>window.__nostrSpace = window.__nostrSpace ?? @js(config('group.space_url'));</script>
 @endif
 
+{{-- Zweiter, fester Space für den Tab „Workspaces" (leer = Tab bleibt aus). Gleiche
+     `??`-Regel wie oben, damit die E2E-Suite ihn per addInitScript setzen kann. --}}
+@if (config('group.workspace_url'))
+    <script>window.__nostrWorkspace = window.__nostrWorkspace ?? @js(config('group.workspace_url'));</script>
+@endif
+
 {{-- Plattform-Flag: auf dem Gerät gated die Insel client-seitig (kein NIP-98).
      Ein vorab gesetztes Flag gewinnt (E2E via addInitScript, wie __nostrRelays). --}}
 <script>window.__nostrMobile = window.__nostrMobile ?? @js((bool) config('nativephp-internal.running'));</script>

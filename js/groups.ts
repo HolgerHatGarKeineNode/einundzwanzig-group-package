@@ -424,6 +424,21 @@ export const isVereinRelay = (url: string): boolean => VEREIN_RELAY_URLS.include
  * Es gibt KEINE Space-Rail und KEINE „Space wählen"-Pflicht — der Default-Space
  * lädt sofort; gewechselt wird nur in den Einstellungen (`/settings/space`).
  */
+/**
+ * Der zweite, FESTE Space des Tabs „Workspaces" — ein Buzz-Relay neben dem
+ * zooid-Space. Aus `config('group.workspace_url')` per `window.__nostrWorkspace`
+ * injiziert (siehe `partials/head.blade.php`); **leer = das Feature ist aus**.
+ *
+ * Bewusst KEIN Store und keine Liste: es ist genau einer, konfiguriert, nicht
+ * wählbar. Damit bleibt die App beim Single-Space-Fokus (§12) und bekommt nur eine
+ * zweite, klar benannte Bühne daneben.
+ */
+const workspaceOverride = (globalThis as { __nostrWorkspace?: string }).__nostrWorkspace
+export const WORKSPACE_URL = workspaceOverride ? normalizeRelayUrl(workspaceOverride) : ''
+
+/** Ist der Workspaces-Tab konfiguriert? Steuert, ob er überhaupt im DOM erscheint. */
+export const hasWorkspace = (): boolean => WORKSPACE_URL !== ''
+
 export const activeSpaceUrl = writable<string | null>(null)
 export const activeSpaceReady = sync({
     key: 'activeSpaceUrl',
@@ -431,12 +446,44 @@ export const activeSpaceReady = sync({
     storage: localStorageProvider,
 })
 
-/** Setzt den aktiven Space (aus der Einstellungsseite). */
+/** Setzt den aktiven Space (aus der Einstellungsseite) — persistiert die Wahl. */
 export const setActiveSpace = (url: string): void => activeSpaceUrl.set(url)
 
-/** Die effektive aktive Space-URL: die gewählte oder — Default — die fixierte. */
-export const activeSpace: Readable<string> = derived(activeSpaceUrl, ($active) =>
-    normalizeRelayUrl($active ?? DEFAULT_SPACE_URL),
+/**
+ * Setzt den aktiven Space **nur für diese Sitzung** — der localStorage bleibt, wie er
+ * ist. Für den Workspaces-Tab: dort ist der Space-Wechsel eine Navigation, keine Wahl.
+ *
+ * **Warum das nicht kosmetisch ist:** `activeSpaceUrl` wird persistiert (`sync` auf
+ * `localStorage`), und dieser Eintrag schlägt beim nächsten Start die Konfiguration.
+ * Würde ein Klick auf einen Workspace-Raum ihn schreiben, startete die App nach einem
+ * Reload oder Absturz im Workspace statt im Vereins-Space — ohne dass der Nutzer das je
+ * gewählt hat, und ohne Hinweis. Genau dieses Muster („die Konfiguration stimmte, der
+ * Browser nicht") hat lokal schon einmal eine Dreiviertelstunde Fehlersuche gekostet.
+ *
+ * Der Trick ist der `sync`-Mechanismus selbst: er schreibt bei jeder Store-Änderung.
+ * Also wird hier NICHT der Store gesetzt, sondern ein Override daneben gehalten, den
+ * `activeSpace` vorrangig liest.
+ */
+export const ephemeralSpaceUrl = writable<string | null>(null)
+
+export const setActiveSpaceEphemeral = (url: string): void => ephemeralSpaceUrl.set(url)
+
+/** Verlässt einen ephemeren Space wieder — zurück auf die persistierte Wahl. */
+export const clearEphemeralSpace = (): void => ephemeralSpaceUrl.set(null)
+
+/**
+ * Die effektive aktive Space-URL. Vorrang von oben nach unten:
+ *   1. ein ephemerer Space (Workspaces-Tab, nur diese Sitzung)
+ *   2. die persistierte Wahl aus den Einstellungen
+ *   3. der konfigurierte Default
+ *
+ * Der ephemere Vorrang ist bewusst NICHT persistiert — siehe
+ * {@link setActiveSpaceEphemeral}. Ein harter Reload landet damit immer wieder auf
+ * der persistierten Wahl, nie in einem Workspace.
+ */
+export const activeSpace: Readable<string> = derived(
+    [ephemeralSpaceUrl, activeSpaceUrl],
+    ([$ephemeral, $active]) => normalizeRelayUrl($ephemeral ?? $active ?? DEFAULT_SPACE_URL),
 )
 
 /**
@@ -458,6 +505,35 @@ export const activeSpaceView: Readable<SpaceView> = derived(
             $lastAt.get($active) ?? new Map(),
         ),
 )
+
+/**
+ * Dieselbe Sicht für eine **feste** Space-URL — die Grundlage des Workspaces-Tabs.
+ *
+ * `activeSpaceView` oben hängt an `activeSpace` und beantwortet damit „was zeigt die
+ * App gerade". Der Workspaces-Tab braucht etwas anderes: die Räume eines ZWEITEN
+ * Space, **während** der erste aktiv bleibt. Das geht ohne Umbau, weil die gesamte
+ * Datenschicht pro Relay-URL indiziert ist (`roomsByUrl`, `roomMembersByUrl`,
+ * `lastMessageAtByUrl`) — es ist derselbe Aufbau, nur mit konstanter URL statt Store.
+ *
+ * Wer sie nutzt, muss die Räume selbst anstoßen ({@link watchSpaceRooms}) — diese
+ * Ableitung liest nur.
+ */
+export const deriveSpaceViewFor = (url: string): Readable<SpaceView> => {
+    const normalized = normalizeRelayUrl(url)
+    return derived(
+        [roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+        ([$byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
+            buildSpaceView(
+                normalized,
+                $byUrl,
+                $byId,
+                $members.get(normalized) ?? new Map(),
+                $pk,
+                ensureRelayProfile($relays, normalized),
+                $lastAt.get(normalized) ?? new Map(),
+            ),
+    )
+}
 
 /**
  * Zustand für den nativen Push-Worker (Android): aktiver Space + die Räume, in

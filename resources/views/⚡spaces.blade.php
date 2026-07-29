@@ -267,6 +267,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <x-group::unread-badge count="$store.unread?.threadsTotal" badge-class="ms-1.5"
                                                :sr-one="__('neue Antwort')" :sr-many="__('neue Antworten')" />
                     </flux:tab>
+                    {{-- Dritter Tab „Workspaces": die Räume eines ZWEITEN, fest
+                         konfigurierten Space (Buzz neben zooid). Erscheint nur, wenn
+                         `group.workspace_url` gesetzt ist — ohne Config ist der Client
+                         zeichengleich zu vorher.
+
+                         Bewusst hier oben und NICHT in der Bottom-Nav: ein fünfter
+                         Bottom-Tab bräche `bottom-nav.blade.php` still auf drei Spalten
+                         und wäre ein Drei-Repo-Release inkl. neuem Mobile-App-Icon (siehe
+                         die Begründung am Tab-Block oben, gilt unverändert). --}}
+                    <template x-if="hasWorkspace">
+                        <flux:tab name="workspaces" icon="squares-2x2">
+                            {{ __('Workspaces') }}
+                        </flux:tab>
+                    </template>
                 </flux:tabs>
 
                 {{-- Tab „Räume".
@@ -740,6 +754,49 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </button>
                             </template>
                         </div>
+                    </div>
+                </flux:tab.panel>
+
+                {{-- Tab „Workspaces": die Räume des zweiten Space. Der Kopf der Seite
+                     zeigt weiter den Vereins-Space — dieser Tab wechselt ihn NICHT, er
+                     listet nur. Erst der Klick auf einen Raum stellt den aktiven Space
+                     ephemer um (`openWorkspaceRoom`, siehe bridge.ts) und navigiert. --}}
+                <flux:tab.panel name="workspaces" class="pt-3">
+                    <div class="rounded-card border border-zinc-200 p-1 dark:border-zinc-800">
+                        {{-- Kopfzeile: Name des Workspace-Relays aus dem NIP-11-Doc. --}}
+                        <div class="flex items-baseline justify-between px-2 py-1.5">
+                            <span class="text-xs font-semibold uppercase tracking-wide text-muted"
+                                  x-text="workspaceLabel || @js(__('Workspace'))"></span>
+                            <span class="font-mono text-xs text-muted" x-text="workspaceRooms.length"></span>
+                        </div>
+
+                        {{-- Lädt noch. --}}
+                        <template x-if="workspaceLoading">
+                            <p class="px-2 py-3 text-sm text-muted">{{ __('Räume werden geladen…') }}</p>
+                        </template>
+
+                        {{-- Geladen, aber leer: ein Zustand, keine Lücke. --}}
+                        <template x-if="!workspaceLoading && workspaceRooms.length === 0">
+                            <p class="px-2 py-3 text-sm text-muted">{{ __('Dieser Workspace hat noch keine Räume.') }}</p>
+                        </template>
+
+                        {{-- Die Räume. Eigene Zeile statt `x-group::room-tile`: die Kachel
+                             dort hängt am `nostrSpaces`-Scope des AKTIVEN Space (isAdmin,
+                             openRoomEdit, _logo) — hier wäre das der falsche Space. --}}
+                        <template x-for="room in workspaceRooms" :key="room.h">
+                            <div class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                                <button type="button"
+                                        class="flex min-h-[2.75rem] flex-1 items-center gap-3 rounded-tile px-2 py-2 text-start"
+                                        x-on:click="openWorkspaceRoom(room); Livewire.navigate('/rooms/' + encodeURIComponent(room.h))">
+                                    <span class="flex size-8 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-800 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
+                                    <span class="min-w-0 flex-1 truncate font-medium" x-text="room.name"></span>
+                                    <template x-if="room.locked">
+                                        <flux:icon.lock-closed variant="micro" class="size-4 shrink-0 text-zinc-400" />
+                                    </template>
+                                    <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
+                                </button>
+                            </div>
+                        </template>
                     </div>
                 </flux:tab.panel>
             </flux:tab.group>

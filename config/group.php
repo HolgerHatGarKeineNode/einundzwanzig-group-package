@@ -9,6 +9,20 @@ return [
     'space_url' => env('NOSTR_SPACE_URL'),
 
     /*
+     * Zweiter, FESTER Space für den Tab „Workspaces" — ein Buzz-Relay neben dem
+     * zooid-Space aus `space_url`. Leer (Default) = der Tab erscheint gar nicht;
+     * damit ist das Feature in jedem Host per .env-Zeile zuschaltbar und der
+     * bestehende Client verhält sich unverändert.
+     *
+     * Bewusst NICHT dieselbe Adresse wie `space_url`: zooid bleibt in Betrieb, Buzz
+     * bekommt eine eigene Subdomain. Die Adresse muss zeichengenau zu `BUZZ_DOMAIN`
+     * des Relays passen, sonst beantwortet er NIP-11 über HTTP, verweigert aber den
+     * WebSocket-Upgrade mit 404 — der Client zeigt dann Name und Beschreibung des
+     * Space an und keine Räume.
+     */
+    'workspace_url' => env('NOSTR_WORKSPACE_URL'),
+
+    /*
      * Head-Partial des Group-Vollbild-Layouts. Der Web-Client nutzt seine eigene
      * `partials.head` (mit OG/Favicons). Ein Fremdhost (Portal) setzt hier
      * `group::partials.head` — die lädt nur __nostrSpace + die `group.vite`-Entries.

@@ -39,6 +39,10 @@ import {
     activeSpace,
     activeSpaceView,
     setActiveSpace,
+    setActiveSpaceEphemeral,
+    deriveSpaceViewFor,
+    WORKSPACE_URL,
+    hasWorkspace,
     displayRelayUrl,
     ensureRelayProfile,
     loadUserGroupList,
@@ -470,6 +474,18 @@ type SpacesState = {
     gatedOut: boolean
     tab: string // aktiver Tab („rooms"/„threads"), aus ?tab= gelesen + dorthin gespiegelt (verlinkbar)
     threads: SpaceThread[] // aktive Threads des Space (C6b, Startseiten-Übersicht)
+    // ── Workspaces (zweiter, fester Space — Buzz neben zooid) ─────────────────
+    // Der Tab zeigt die Räume EINER zweiten Relay-URL, WÄHREND der zooid-Space
+    // aktiv bleibt: Kopf-Branding und die Tabs „Räume"/„Threads" ändern sich nicht.
+    // Möglich, weil die Datenschicht pro URL indiziert ist — siehe
+    // `deriveSpaceViewFor` in groups.ts.
+    hasWorkspace: boolean // ist ein Workspace konfiguriert? (sonst bleibt der Tab aus)
+    workspaceRooms: RoomView[] // Räume des Workspace-Space
+    workspaceLabel: string // Anzeigename aus dem NIP-11-Doc des Workspace-Relays
+    workspaceLoading: boolean
+    _unsubWorkspace: null | (() => void)
+    _wsController: AbortController | null
+    openWorkspaceRoom(room: RoomView): void
     // Raum-Verwaltung (P4, Admin): anlegen/bearbeiten/löschen
     isAdmin: boolean
     // Ist der aktive Space ein Buzz-Relay? Gatet die Kachel-Aktionen, die es dort
@@ -1824,6 +1840,12 @@ export function registerNostrComponents(Alpine: {
         // Tab aus der URL (?tab=threads) übernehmen → Startseite ist direkt verlinkbar.
         tab: new URLSearchParams(window.location.search).get('tab') === 'threads' ? 'threads' : 'rooms',
         threads: [],
+        hasWorkspace: hasWorkspace(),
+        workspaceRooms: [],
+        workspaceLabel: '',
+        workspaceLoading: true,
+        _unsubWorkspace: null,
+        _wsController: null,
         isAdmin: false,
         isBuzz: false,
         roomForm: { h: '', name: '', about: '', picture: '', isPrivate: false, isClosed: false, isHidden: false, isRestricted: false },
@@ -2184,6 +2206,24 @@ export function registerNostrComponents(Alpine: {
             this._roomIconFile = null
             dispatchModal('room-form')
         },
+        /**
+         * Einen Workspace-Raum öffnen: aktiven Space auf die Workspace-URL stellen und
+         * dorthin navigieren. Die 13 Bridge-Komponenten hängen alle an `activeSpace` und
+         * ziehen von selbst nach — deshalb ist hier keine weitere Verdrahtung nötig.
+         *
+         * **`setActiveSpaceEphemeral`, nicht `setActiveSpace`.** Der reguläre Setzer
+         * schreibt die Wahl in den localStorage. Für einen Workspace-Raum wäre das eine
+         * Falle: nach einem Absturz oder einem harten Reload startete die App im
+         * Workspace statt im Vereins-Space, ohne dass der Nutzer das je gewählt hätte.
+         * Der Vereins-Space bleibt die persistierte Wahl; der Workspace gilt nur für
+         * diese Sitzung.
+         */
+        openWorkspaceRoom(room: RoomView) {
+            setActiveSpaceEphemeral(WORKSPACE_URL)
+            // Die Navigation macht die Blade (`Livewire.navigate`), wie bei der
+            // normalen Raum-Kachel — dieses Modul kennt Livewire nicht.
+            void room
+        },
         // Bearbeiten: alle Felder + Flags aus der RoomView vorbelegen (die einzeln
         // getragenen Flags verhindern, dass ein Speichern bestehende wegwirft).
         openRoomEdit(room: RoomView) {
@@ -2401,6 +2441,23 @@ export function registerNostrComponents(Alpine: {
                 this._unsubIsBuzz = deriveRelay(url).subscribe((relay) => {
                     this.isBuzz = isBuzzRelay(relay)
                 })
+                // Workspace-Räume: EIGENE Sub-Bridge auf die zweite URL, unabhängig von
+                // `activeSpace`. Sie läuft genau einmal (die Workspace-URL ist fest) und
+                // hält den zooid-Space unberührt — deshalb steht sie hier hinter einem
+                // Null-Guard und nicht im activeSpace-Zweig.
+                if (this.hasWorkspace && !this._unsubWorkspace) {
+                    this._wsController = new AbortController()
+                    watchSpaceRooms(WORKSPACE_URL, this._wsController.signal)
+                    this._unsubWorkspace = deriveSpaceViewFor(WORKSPACE_URL).subscribe((view: SpaceView) => {
+                        // Nur die Räume und das Branding — der Kopf bleibt der zooid-Space.
+                        // Beigetretene zuerst, danach die entdeckbaren: dieselbe Ordnung
+                        // wie im Räume-Tab, aber in EINER Liste (der Workspace-Tab hat
+                        // keine Kategorie-Abschnitte).
+                        this.workspaceRooms = view.userRooms.concat(view.otherRooms)
+                        this.workspaceLabel = view.label
+                        this.workspaceLoading = false
+                    })
+                }
                 // Threads-Übersicht des Space (C6b): Kommentare + Wurzeln laden, reaktiv anzeigen.
                 this._unsubThreads?.()
                 this._unsubThreads = deriveSpaceThreads(url).subscribe((t: SpaceThread[]) => {
@@ -2431,6 +2488,8 @@ export function registerNostrComponents(Alpine: {
             this._unsubAccess?.()
             this._unsubAdmin?.()
             this._unsubIsBuzz?.()
+            this._unsubWorkspace?.()
+            this._wsController?.abort()
             this._unsubThreads?.()
             this._unsubRoomMembers?.()
             this._unsubMeetups?.()
