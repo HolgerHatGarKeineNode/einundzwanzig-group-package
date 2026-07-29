@@ -27,7 +27,6 @@ import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository'
 import { isVereinRelay, roomMembersByUrl } from './groups'
 import { isBuzzRelay } from './relayCaps'
 import {
-    spaceIsBuzz,
     spaceIsBuzzAsync,
     buzzAddMember,
     buzzRemoveMember,
@@ -423,19 +422,35 @@ export const assignRole = async (url: string, pubkey: string, roleId: string): P
 export const unassignRole = async (url: string, pubkey: string, roleId: string): Promise<string> =>
     manageError(await manageRelay(url, { method: 'unassignrole' as ManagementMethod, params: [pubkey, roleId] }))
 
-// Mitglieder (NIP-86 allow/ban)
+// ── Mutationen: die Weiche ist ÜBERALL asynchron ─────────────────────────────
+//
+// `spaceIsBuzzAsync`, nie die synchrone Fassung. Die synchrone liest nur den
+// NIP-11-Cache und meldet `false`, solange das Doc nicht da ist — sie stößt das
+// Laden bloß an. Eine Mutation lief damit gegen Buzz auf der NIP-86-Strecke, und
+// das scheitert STILL: `POST /` antwortet 405, die Antwort trägt kein `error`-Feld,
+// also liefert `manageError` einen Leerstring — und der Aufrufer hält den
+// Fehlschlag für einen Erfolg.
+//
+// Am laufenden Relay belegt (2026-07-30): Die Melde-Queue meldete „Inhalt
+// entfernt", der Report wurde per 9044 auf `resolved` gesetzt — aber in der
+// Datenbank des Test-Stacks lag **kein einziges 9005 vom Client**, und die
+// gemeldete Nachricht war noch da. Kein Toast, kein Log, nichts.
+//
+// Es ist dieselbe Falle wie bei der Admin-Erkennung, beim Upload-Ziel und beim
+// Raum-Menü — dort jeweils schon so gelöst. Deshalb hier durchgängig, nicht nur
+// an der einen Stelle, an der es aufgefallen ist.
 export const addSpaceMember = async (url: string, pubkey: string): Promise<string> =>
-    spaceIsBuzz(url)
+    (await spaceIsBuzzAsync(url))
         ? await buzzAddMember(url, pubkey)
         : manageError(await manageRelay(url, { method: ManagementMethod.AllowPubkey, params: [pubkey] }))
 
 export const removeSpaceMember = async (url: string, pubkey: string): Promise<string> =>
-    spaceIsBuzz(url)
+    (await spaceIsBuzzAsync(url))
         ? await buzzRemoveMember(url, pubkey)
         : manageError(await manageRelay(url, { method: ManagementMethod.UnallowPubkey, params: [pubkey] }))
 
 export const banSpaceMember = async (url: string, pubkey: string, reason = ''): Promise<string> =>
-    spaceIsBuzz(url)
+    (await spaceIsBuzzAsync(url))
         ? await buzzBanPubkey(url, pubkey, reason)
         : manageError(
               await manageRelay(url, {
@@ -445,7 +460,7 @@ export const banSpaceMember = async (url: string, pubkey: string, reason = ''): 
           )
 
 export const unbanSpaceMember = async (url: string, pubkey: string): Promise<string> =>
-    spaceIsBuzz(url)
+    (await spaceIsBuzzAsync(url))
         ? await buzzUnbanPubkey(url, pubkey)
         : manageError(await manageRelay(url, { method: ManagementMethod.UnbanPubkey, params: [pubkey] }))
 
@@ -456,7 +471,7 @@ export const unbanSpaceMember = async (url: string, pubkey: string): Promise<str
  * zooid-Zweig eine klare Absage statt einer stillen Nicht-Aktion.
  */
 export const setSpaceMemberRole = async (url: string, pubkey: string, role: BuzzRelayRole): Promise<string> =>
-    spaceIsBuzz(url)
+    (await spaceIsBuzzAsync(url))
         ? await buzzChangeRole(url, pubkey, role)
         : 'Dieser Space kennt keine Relay-Rollen (nur Buzz-Spaces unterstützen das).'
 
@@ -493,7 +508,7 @@ export const resolveReport = async (
     resolution: ReportResolution,
     reason = '',
 ): Promise<string> => {
-    if (!spaceIsBuzz(url)) {
+    if (!(await spaceIsBuzzAsync(url))) {
         return manageError(
             await manageRelay(url, { method: ManagementMethod.BanEvent, params: [id, 'dismissed by admin'] }),
         )
@@ -509,7 +524,7 @@ export const resolveReport = async (
  * Parameter bedeutungslos — NIP-86 `banevent` kennt nur die Event-id.
  */
 export const banEvent = async (url: string, id: string, reason = '', h = ''): Promise<string> =>
-    spaceIsBuzz(url)
+    (await spaceIsBuzzAsync(url))
         ? await buzzDeleteEvent(url, id, h)
         : manageError(
               await manageRelay(url, {
