@@ -6,11 +6,11 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { derived, get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, forceLoadZapper } from '@welshman/app'
+import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, forceLoadZapper, deriveRelay } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { randomId } from '@welshman/lib'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { spaceBranding } from './relayCaps'
+import { spaceBranding, isBuzzRelay } from './relayCaps'
 import { load } from '@welshman/net'
 import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
@@ -472,6 +472,9 @@ type SpacesState = {
     threads: SpaceThread[] // aktive Threads des Space (C6b, Startseiten-Übersicht)
     // Raum-Verwaltung (P4, Admin): anlegen/bearbeiten/löschen
     isAdmin: boolean
+    // Ist der aktive Space ein Buzz-Relay? Gatet die Kachel-Aktionen, die es dort
+    // nicht sinnvoll gibt (Löschen, Raum-Mitglieder) — siehe room-tile.blade.php.
+    isBuzz: boolean
     roomForm: RoomInput // beim Anlegen mit frisch gemintetem stabilem `h` (retry-sicher)
     _roomEditing: boolean // Bearbeiten (true) vs. Anlegen (false) — h ist in beiden Fällen gesetzt
     _roomIconFile: File | null // neu gewähltes Raumbild (Upload erst beim Speichern)
@@ -528,6 +531,7 @@ type SpacesState = {
     _unsubActive: null | (() => void)
     _unsubAccess: null | (() => void)
     _unsubAdmin: null | (() => void)
+    _unsubIsBuzz: null | (() => void)
     _unsubThreads: null | (() => void)
     _controller: AbortController | null
     init(): void
@@ -1821,6 +1825,7 @@ export function registerNostrComponents(Alpine: {
         tab: new URLSearchParams(window.location.search).get('tab') === 'threads' ? 'threads' : 'rooms',
         threads: [],
         isAdmin: false,
+        isBuzz: false,
         roomForm: { h: '', name: '', about: '', picture: '', isPrivate: false, isClosed: false, isHidden: false, isRestricted: false },
         _roomEditing: false,
         _roomIconFile: null,
@@ -1846,6 +1851,7 @@ export function registerNostrComponents(Alpine: {
         _unsubActive: null,
         _unsubAccess: null,
         _unsubAdmin: null,
+        _unsubIsBuzz: null,
         _unsubThreads: null,
         _controller: null,
         // Raumname zu einem h-Tag (aus den bereits geladenen Space-Räumen) — für die Thread-Liste.
@@ -2386,6 +2392,15 @@ export function registerNostrComponents(Alpine: {
                 this._unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
                     this.isAdmin = admin
                 })
+                // Relay-Art des aktiven Space: gatet die Kachel-Aktionen, die es auf
+                // Buzz nicht sinnvoll gibt (Löschen, Raum-Mitglieder — siehe
+                // `room-tile.blade.php`). Reaktiv über das NIP-11-Doc, nicht synchron:
+                // beim ersten Rendern ist das Profil noch unterwegs, ein synchroner
+                // Blick meldete verlässlich „kein Buzz" und die Einträge blitzten auf.
+                this._unsubIsBuzz?.()
+                this._unsubIsBuzz = deriveRelay(url).subscribe((relay) => {
+                    this.isBuzz = isBuzzRelay(relay)
+                })
                 // Threads-Übersicht des Space (C6b): Kommentare + Wurzeln laden, reaktiv anzeigen.
                 this._unsubThreads?.()
                 this._unsubThreads = deriveSpaceThreads(url).subscribe((t: SpaceThread[]) => {
@@ -2415,6 +2430,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubView?.()
             this._unsubAccess?.()
             this._unsubAdmin?.()
+            this._unsubIsBuzz?.()
             this._unsubThreads?.()
             this._unsubRoomMembers?.()
             this._unsubMeetups?.()

@@ -50,11 +50,28 @@
         <div class="shrink-0 pr-1" x-on:click.stop>
             <flux:dropdown position="bottom" align="end">
                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Raum verwalten') }}" />
+                {{-- „Mitglieder" und „Löschen" gibt es nur auf zooid-Spaces (`!isBuzz`):
+
+                     * Löschen: Buzz entfernt den Raum STILL, ohne Tombstone-Event (am
+                       laufenden Relay gemessen — nach einem 9008 ist das 39000 weg, aber
+                       kein Lösch-Event existiert). Clients, die das 39000 gecacht haben,
+                       zeigen den Raum dauerhaft weiter; beim Nutzer bereits als „alte
+                       verwaiste Räume" aufgetreten. Ein Menüpunkt, dessen Wirkung bei
+                       allen anderen unsichtbar bleibt, ist eine Falle.
+                     * Mitglieder: auf einem Buzz-Space kommen Mitgliedschaften aus dem
+                       Sync der Vereinsmitglieder (kind 9030) und dem Selbst-Beitritt —
+                       eine Raum-Mitgliederliste zu pflegen führt in die Irre.
+
+                     Nur die Oberfläche, nicht das Recht: der Relay erlaubt einem Admin
+                     beides weiterhin, ein anderer Client oder `nak` kommt daran vorbei. --}}
                 <flux:menu>
                     <flux:menu.item icon="pencil-square" x-on:click="openRoomEdit(room)">{{ __('Bearbeiten') }}</flux:menu.item>
-                    <flux:menu.item icon="users" x-on:click="openRoomMembers(room)">{{ __('Mitglieder') }}</flux:menu.item>
-                    <flux:menu.separator />
-                    <flux:menu.item variant="danger" icon="trash" x-on:click="askDeleteRoom(room)">{{ __('Löschen') }}</flux:menu.item>
+                    <template x-if="!isBuzz">
+                        <flux:menu.item icon="users" x-on:click="openRoomMembers(room)">{{ __('Mitglieder') }}</flux:menu.item>
+                    </template>
+                    <template x-if="!isBuzz">
+                        <flux:menu.item variant="danger" icon="trash" x-on:click="askDeleteRoom(room)">{{ __('Löschen') }}</flux:menu.item>
+                    </template>
                 </flux:menu>
             </flux:dropdown>
         </div>
