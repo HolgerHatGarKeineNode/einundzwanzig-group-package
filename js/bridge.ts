@@ -40,6 +40,7 @@ import {
     activeSpaceView,
     setActiveSpace,
     setActiveSpaceEphemeral,
+    clearEphemeralSpace,
     deriveSpaceViewFor,
     WORKSPACE_URL,
     hasWorkspace,
@@ -2381,6 +2382,16 @@ export function registerNostrComponents(Alpine: {
             }
         },
         init() {
+            // ── Rückweg aus einem Workspace-Raum ──────────────────────────────────
+            // Diese Seite IST der Vereins-Space. Wer hierher zurückkommt — über den
+            // Kopf-Pfeil, die Bottom-Nav oder einen Deep-Link — hat den Workspace
+            // verlassen, also fällt der ephemere Space weg. Ohne diesen Aufruf zeigte
+            // die Raumliste nach einem Besuch im Workspace weiter dessen Räume, und der
+            // Nutzer käme nur über die Einstellungen zurück.
+            //
+            // Steht VOR dem `activeSpace.subscribe` unten: sonst liefe der Aufbau einmal
+            // mit der Workspace-URL an und die Liste flackerte.
+            clearEphemeralSpace()
             // Filter-Caches (Modul-Scope) beim (Re-)Mount leeren → keine Stale-Arrays
             // aus einer vorherigen Space-Navigation.
             _roomFilterCache = null
