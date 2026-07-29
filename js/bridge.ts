@@ -49,6 +49,7 @@ import {
     deriveUserInRoom,
     joinRoom,
     leaveRoom,
+    reloadRoomMembership,
     joinSpace,
     leaveSpace,
     parseInviteLink,
@@ -5053,6 +5054,16 @@ export function registerNostrComponents(Alpine: {
                 const err = await joinRoom(this._url, this.h)
                 if (err) {
                     toast(err)
+                    return
+                }
+                // Mitgliederliste GEZIELT nachladen statt auf die Live-Sub zu hoffen: Buzz
+                // schickt die aktualisierte 39002 nicht über den Fan-out (Messung siehe
+                // `groups.ts reloadRoomMembership`), der Composer erschiene sonst erst nach
+                // einem Reload. Auf zooid ist das ein billiges Zusatz-REQ, das nichts ändert
+                // — die Live-Sub war dort meist ohnehin schneller.
+                const me = pubkey.get()
+                if (me) {
+                    await reloadRoomMembership(this._url, this.h, me)
                 }
             } finally {
                 this.joining = false
@@ -5068,6 +5079,16 @@ export function registerNostrComponents(Alpine: {
                 const err = await leaveRoom(this._url, this.h)
                 if (err) {
                     toast(err)
+                    return
+                }
+                // Spiegelbild zu `join()`: Buzz schickt die aktualisierte 39002 auch nach
+                // einem Austritt nicht über den Fan-out. Ohne das Nachladen bliebe der
+                // Composer stehen, obwohl der Nutzer den Raum verlassen hat — und der
+                // nächste Sendeversuch scheiterte am Relay. `false` = warten, bis der
+                // eigene Pubkey NICHT mehr in der Liste steht.
+                const me = pubkey.get()
+                if (me) {
+                    await reloadRoomMembership(this._url, this.h, me, false)
                 }
             } finally {
                 this.joining = false

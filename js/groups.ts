@@ -552,9 +552,68 @@ export const watchSpaceRooms = (url: string, signal: AbortSignal): void => {
     void request({ relays: [url], signal, filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS] }] })
 }
 
-/** Live-Sub für Mitglieder-Änderungen (39002) — Join/Leave reflektiert sofort. */
+/**
+ * Live-Sub für Mitglieder-Änderungen (39002) — auf zooid reflektiert das Join/Leave sofort.
+ *
+ * **Auf Buzz reicht sie NICHT**, und das ist keine Latenzfrage: Buzz speichert die
+ * Gruppen-Events kanal-gescopt und schickt sie deshalb gar nicht über den globalen
+ * Fan-out (`NOSTR.md:124`: „live global subscriptions won't receive these via fan-out.
+ * Clients discover groups via historical REQ queries"). Am Test-Relay nachgemessen
+ * (2026-07-29): nach einem angenommenen 9021 kam über `{kinds:[39002], limit:0}` in
+ * 19 s **kein einziges Event**, während ein historisches REQ die aktualisierte Liste
+ * (mit dem neuen Pubkey) sofort lieferte und `channel_members` die Zeile führte. Wer
+ * hier auf die Live-Sub wartet, wartet auf etwas, das nie kommt — daher
+ * {@link reloadRoomMembership} nach dem Join.
+ */
 export const listenRoomMembers = (url: string, signal: AbortSignal): void => {
     void request({ relays: [url], signal, filters: [{ kinds: [ROOM_MEMBERS], limit: 0 }] })
+}
+
+/**
+ * Anzahl der Nachlade-Versuche und Abstand für {@link reloadRoomMembership}.
+ *
+ * Ein einzelnes REQ direkt nach dem `OK` ist zu ungeduldig — gemessen: das erste REQ
+ * unmittelbar nach dem 9021 lieferte noch die ALTE Liste, wenige hundert Millisekunden
+ * später die neue. Das `OK` quittiert die Annahme des Join-Requests, nicht die
+ * Neuausstellung der relay-signierten 39002.
+ */
+const MEMBERSHIP_RELOAD_ATTEMPTS = 8
+const MEMBERSHIP_RELOAD_DELAY_MS = 400
+
+/**
+ * Lädt die relay-signierte Mitgliederliste EINES Raums nach, bis `pubkey` den
+ * erwarteten Zustand hat (oder das Budget aufgebraucht ist). Liefert `true`, wenn
+ * der Zustand bestätigt ist.
+ *
+ * `expectMember` schaltet die Richtung: `true` nach einem Beitritt (warten, bis der
+ * Pubkey DRINSTEHT), `false` nach einem Austritt (warten, bis er WEG ist). Beide
+ * Wege brauchen es, weil Buzz die aktualisierte 39002 in keinem der beiden Fälle
+ * über den Fan-out schickt.
+ *
+ * **Bewusst OHNE Relay-Weiche.** Auf zooid ist das ein billiges Zusatz-REQ, das nichts
+ * ändert — die Live-Sub ist dort ohnehin meist schneller, der erste Versuch bestätigt
+ * dann sofort. Eine Weiche wäre hier Komplexität ohne Gegenwert.
+ *
+ * **Kein optimistisches Umschalten.** Die Mitgliedschaft bleibt relay-autoritativ (siehe
+ * Modulkopf) — hier wird nur GELESEN, und zwar genau das Event, auf das die Ableitung
+ * ohnehin hört. Der `#d`-Filter ist bei beiden Relays SQL-seitig auflösbar (39002 ist
+ * parameterisiert-ersetzbar), das Nachladen kostet also einen indizierten Zugriff.
+ */
+export const reloadRoomMembership = async (
+    url: string,
+    h: string,
+    pubkey: string,
+    expectMember = true,
+): Promise<boolean> => {
+    for (let attempt = 0; attempt < MEMBERSHIP_RELOAD_ATTEMPTS; attempt++) {
+        const events = await load({ relays: [url], filters: [{ kinds: [ROOM_MEMBERS], '#d': [h] }] })
+        const listed = events.some((e) => e.tags.some((t) => t[0] === 'p' && t[1] === pubkey))
+        if (listed === expectMember) {
+            return true
+        }
+        await new Promise((resolve) => setTimeout(resolve, MEMBERSHIP_RELOAD_DELAY_MS))
+    }
+    return false
 }
 
 // ── Beitreten / Verlassen (NIP-29, relay-seitig) ─────────────────────────────
