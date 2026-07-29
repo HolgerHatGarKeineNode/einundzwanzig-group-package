@@ -46,6 +46,7 @@ import {
     watchSpaceRooms,
     roomsByUrl,
     listenRoomMembers,
+    reloadRoomMembership,
     deriveUserInRoom,
     joinRoom,
     leaveRoom,
@@ -2196,7 +2197,7 @@ export function registerNostrComponents(Alpine: {
             const editing = this._roomEditing
             try {
                 if (this._roomIconFile) {
-                    const uploaded = await uploadAttachment(this._roomIconFile)
+                    const uploaded = await uploadAttachment(this._roomIconFile, url)
                     this.roomForm.picture = uploaded.url
                     // Datei-Referenz lösen: bei einem Retry liegt die URL schon in
                     // roomForm.picture → kein zweiter Upload (Blossom ist ohnehin
@@ -3118,7 +3119,7 @@ export function registerNostrComponents(Alpine: {
                     }
                 }
                 if (this._spaceIconFile) {
-                    const uploaded = await uploadAttachment(this._spaceIconFile)
+                    const uploaded = await uploadAttachment(this._spaceIconFile, url)
                     const err = await setRelayIcon(url, uploaded.url)
                     if (err) {
                         toast(err)
@@ -4444,7 +4445,9 @@ export function registerNostrComponents(Alpine: {
                 if (!blob) {
                     throw new Error('Bild konnte nicht verarbeitet werden.')
                 }
-                const up = await uploadAttachment(blob, `${canvas.width}x${canvas.height}`)
+                // `this._url` = Space-Relay: entscheidet, ob der Blob zum Vereins-Blossom
+                // oder in den eigenen Medien-Speicher des Buzz-Relays geht (uploads.ts).
+                const up = await uploadAttachment(blob, this._url, `${canvas.width}x${canvas.height}`)
                 // In den beim Öffnen erfassten Ziel-Composer schreiben (kein Übersprechen).
                 if (this._cropForThread) {
                     this.threadAttachment = up
@@ -4818,6 +4821,16 @@ export function registerNostrComponents(Alpine: {
                 const err = await joinRoom(this._url, this.h)
                 if (err) {
                     toast(err)
+                    return
+                }
+                // Mitgliederliste GEZIELT nachladen statt auf die Live-Sub zu hoffen: Buzz
+                // schickt die aktualisierte 39002 nicht über den Fan-out (Messung siehe
+                // `groups.ts reloadRoomMembership`), der Composer erschiene sonst erst nach
+                // einem Reload. Auf zooid ist das ein billiges Zusatz-REQ, das nichts ändert
+                // — die Live-Sub war dort meist ohnehin schneller.
+                const me = pubkey.get()
+                if (me) {
+                    await reloadRoomMembership(this._url, this.h, me)
                 }
             } finally {
                 this.joining = false
