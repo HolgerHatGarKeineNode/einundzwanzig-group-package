@@ -28,6 +28,7 @@ import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
 import { waitForPublishError } from './publishResult'
+import { BUZZ_MESSAGE_V2 } from './relayCaps'
 
 /** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
 const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
@@ -86,10 +87,10 @@ const renderEmojiImg = (name: string, url: string | undefined): string | null =>
 // separaten loadRoomPolls/-Goals nach, erschien die Poll/Goal-Zeile erst verzögert (async) und
 // wuchs nach dem Paint in den Verlauf → Jitter. Im selben Query (initial + loadOlder-Paging) sind
 // sie sofort da → kein verstecktes Nachpoppen. (loadRoomPolls bleibt für die 1018-Responses/Tally.)
-const roomFilter = (h: string) => [{ kinds: [MESSAGE, POLL, ZAP_GOAL], '#h': [h] }]
+const roomFilter = (h: string) => [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL], '#h': [h] }]
 
 /** Nachrichten, Polls UND Zap-Goals eines Raums — alle zeitlich verwoben im Verlauf. */
-const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE, POLL, ZAP_GOAL], '#h': [h] }]
+const roomStreamFilter = (h: string) => [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL], '#h': [h] }]
 
 /** kind-7-Reactions eines Raums (NIP-25) — tragen `#h` vom Parent (via makeReaction). */
 const roomReactionFilter = (h: string) => [{ kinds: [REACTION], '#h': [h] }]
@@ -975,7 +976,7 @@ export const loadRoomActivity = async (url: string, hs: string[]): Promise<Trust
     const state = get(readState)
     const filters = chunk(hs, ROOM_ACTIVITY_CHUNK).flatMap((group) => [
         {
-            kinds: [MESSAGE, POLL, ZAP_GOAL],
+            kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL],
             '#h': group,
             since: Math.min(...group.map((h) => roomWatermark(state, url, h))) + 1,
             limit: ROOM_ACTIVITY_LIMIT,
@@ -1337,7 +1338,7 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
             throttled(300, deriveEventsForUrl(url, roomCommentFilter())),
             // Wurzeln gegen ALLE Timeline-Kinds auflösen (wie roomStreamFilter) — Threads können
             // an Nachricht (9), Poll (1068) ODER Zap-Goal (9041) wurzeln, nicht nur kind-9.
-            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }])),
+            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL] }])),
             throttled(300, profilesByPubkey),
         ],
         ([comments, roots, $profiles]) => {

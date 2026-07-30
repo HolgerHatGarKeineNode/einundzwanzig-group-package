@@ -57,6 +57,7 @@ import {
     threadWatermark,
     type ReadState,
 } from './readState.ts'
+import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 
 /** Lotus' In-Chat-Thread (NIP-29 Group Chat Threading, kind 10). Siehe Modul-Docstring. */
 const CHAT_THREAD = 10
@@ -787,7 +788,7 @@ export const deriveUpdates = (
     watchReadStateBoot()
     return derived(
         [
-            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }])),
+            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL] }])),
             throttled(300, deriveEventsForUrl(url, [{ kinds: [COMMENT, CHAT_THREAD] }])),
             throttled(300, profilesByPubkey),
             readState,

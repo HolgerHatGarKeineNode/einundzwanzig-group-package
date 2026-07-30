@@ -7,6 +7,27 @@
 const NIP29 = '29'
 
 /**
+ * **Buzz' zweite Chat-Nachricht: kind 40002** (`buzz-core/src/kind.rs:421`,
+ * `KIND_STREAM_MESSAGE_V2`).
+ *
+ * Buzz kennt ZWEI Kinds für dieselbe Sache im selben Raum: das klassische NIP-29
+ * `kind 9` und daneben `40002`. Buzz Desktop und Amethyst schreiben `40002`, unser
+ * Client schrieb und las nur `9` — im Ergebnis zwei Zeitleisten nebeneinander: am
+ * Prod-Relay lagen im Raum `general` ein `9` von uns und zwei `40002` von den anderen,
+ * und keine Seite sah die andere vollständig.
+ *
+ * **Nur LESEN, nicht schreiben.** Buzz Desktop stellt unsere `9`-Nachrichten
+ * nachweislich dar (Screenshot des Nutzers: „Hey Plebs!" steht dort zwischen den
+ * 40002-Nachrichten). Wer `9` schreibt, wird also überall gesehen; wer `40002`
+ * schreibt, verschwindet für reine NIP-29-Clients. Deshalb lesen wir beides und
+ * schreiben weiter das interoperable `9`.
+ *
+ * Auf zooid ist die Konstante folgenlos — dort existiert kein 40002, der Filter
+ * liefert schlicht nichts.
+ */
+export const BUZZ_MESSAGE_V2 = 40002
+
+/**
  * Darf dieser Space in der Auswahl stehen? Ein Space ist genau dann brauchbar,
  * wenn sein Relay NIP-29 spricht (`supported_nips` enthält 29).
  * - Vereins-Relays sind per Definition Group-Relays → immer true (ihr NIP-11

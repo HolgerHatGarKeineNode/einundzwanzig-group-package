@@ -62,7 +62,7 @@ import {
     type TrustedEvent,
 } from '@welshman/util'
 import { uniq, sortBy, partition } from '@welshman/lib'
-import { spaceSupportsRooms, spaceBranding } from './relayCaps'
+import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps'
 import { spaceIsBuzzAsync } from './buzzAdmin'
 import { parseMeetupTags } from './meetupPresentation'
 import { parseProjectSupportTags, withExtraTags } from './roomCategories'
@@ -167,7 +167,7 @@ export const roomsById = derived(roomsByUrl, ($byUrl) => {
 const timelineEventsByIdByUrl = deriveEventsByIdByUrl({
     tracker,
     repository,
-    filters: [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }],
+    filters: [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL] }],
 })
 
 /**

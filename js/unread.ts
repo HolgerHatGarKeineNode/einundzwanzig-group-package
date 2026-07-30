@@ -36,6 +36,7 @@ import { MESSAGE, COMMENT, POLL, ZAP_GOAL, getTagValue, type TrustedEvent } from
 // die Testdateien im Repo schreiben sie ohnehin schon so.
 import { deriveEventsForUrl } from './repository.ts'
 import { readState, readStateReady, threadKey, roomWatermark, threadWatermark, type ReadState } from './readState.ts'
+import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 
 /**
  * Lotus' In-Chat-Thread (NIP-29 Group Chat Threading, kind 10) — hier bewusst als
@@ -324,7 +325,7 @@ export const deriveUnread = (url: string, joined: Readable<string[]>): Readable<
     watchReadStateBoot()
     return derived(
         [
-            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, POLL, ZAP_GOAL] }])),
+            throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL] }])),
             throttled(300, deriveEventsForUrl(url, [{ kinds: [COMMENT, CHAT_THREAD] }])),
             readState,
             joined,

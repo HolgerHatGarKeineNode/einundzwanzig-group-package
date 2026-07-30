@@ -38,6 +38,7 @@ import {
     type TrustedEvent,
 } from '@welshman/util'
 import type { RepositoryUpdate } from '@welshman/net'
+import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 
 // §4.4 Multi-Account: EINE DB PRO pubkey (`…-<hex>`). Damit teilen zwei Accounts NIE
 // einen Store → kein Cross-Account-Leak (auch nicht über konkurrierende Web-Tabs, die
@@ -81,6 +82,7 @@ type TrackerItem = { id: string; relays: string[] }
  */
 const PERSIST_KINDS = new Set<number>([
     MESSAGE,
+    BUZZ_MESSAGE_V2, // Buzz' zweite Chat-Fassung — sonst fehlten fremde Nachrichten beim Kaltstart
     COMMENT,
     DELETE,
     ROOM_DELETE_EVENT,
@@ -174,7 +176,7 @@ export function messagesToPrune(
     const comments: TrustedEvent[] = []
     const drop: string[] = []
     for (const event of events) {
-        if (event.kind !== MESSAGE && event.kind !== COMMENT) {
+        if (event.kind !== MESSAGE && event.kind !== BUZZ_MESSAGE_V2 && event.kind !== COMMENT) {
             continue
         }
         if (event.created_at < cutoff) {
@@ -401,7 +403,7 @@ function syncEvents(): () => void {
             // events-Store ist durchs Cap selbst begrenzt → getAll bleibt günstig.
             // kind 1111 MUSS hier mitgeprüft werden: ein reiner Kommentar-Burst (aktive
             // Thread-Diskussion, kein neues kind 9) liefe sonst nie in die Kappung.
-            if (add.some((event) => event.kind === MESSAGE || event.kind === COMMENT)) {
+            if (add.some((event) => event.kind === MESSAGE || event.kind === BUZZ_MESSAGE_V2 || event.kind === COMMENT)) {
                 const prune = messagesToPrune(await getAll<TrustedEvent>('events'), nowSec())
                 if (prune.length > 0) {
                     await bulkDelete('events', prune)
