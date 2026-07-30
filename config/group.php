@@ -23,6 +23,18 @@ return [
     'workspace_url' => env('NOSTR_WORKSPACE_URL'),
 
     /*
+     * Profil-Indexer des SERVER-seitigen kind-0-Caches (`ProfileCache`). Bewusst
+     * konfigurierbar statt hartkodiert: es ist die einzige Stelle, an der der Server
+     * von sich aus ins öffentliche Internet greift, und in einer hermetischen
+     * Testumgebung muss sie abschaltbar sein — die E2E-Suite setzt sie leer
+     * (`tests/e2e/support/fixtures.ts`), sonst öffnete jeder Lauf eine echte
+     * WebSocket-Verbindung nach draußen.
+     *
+     * Leer = nur der eigene Space-Relay wird gefragt.
+     */
+    'profile_indexer' => env('NOSTR_PROFILE_INDEXER', 'wss://purplepag.es/'),
+
+    /*
      * Head-Partial des Group-Vollbild-Layouts. Der Web-Client nutzt seine eigene
      * `partials.head` (mit OG/Favicons). Ein Fremdhost (Portal) setzt hier
      * `group::partials.head` — die lädt nur __nostrSpace + die `group.vite`-Entries.

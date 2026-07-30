@@ -24,8 +24,21 @@ class ProfileCache
 {
     private const TTL = 86400;
 
-    /** Profil-Indexer mit bester kind-0-Abdeckung. */
-    private const INDEXER = 'wss://purplepag.es/';
+    /**
+     * Die Relays, die dieser Cache befragt: Profil-Indexer (beste kind-0-Abdeckung)
+     * + der eigene Space. Der Indexer ist konfigurierbar und in der E2E-Suite LEER —
+     * er ist die einzige Stelle, an der der Server von sich aus ins öffentliche
+     * Internet greift, und ein Testlauf darf das nicht tun.
+     *
+     * @return array<int, string>
+     */
+    private static function sources(): array
+    {
+        return array_values(array_filter([
+            (string) config('group.profile_indexer', ''),
+            SpaceCache::spaceUrl(),
+        ]));
+    }
 
     /**
      * Roh-kind-0-Events für die pubkeys (aus Cache; Misses werden geholt + gecacht).
@@ -45,7 +58,7 @@ class ProfileCache
         $events = [];
         $missing = [];
         foreach ($pubkeys as $pk) {
-            $cached = Cache::get(self::key($pk));
+            $cached = Cache::get(self::cacheKey($pk));
             if ($cached === null) {
                 $missing[] = $pk;
             } elseif ($cached !== false) {
@@ -57,7 +70,7 @@ class ProfileCache
             $fetched = $this->fetchProfiles($missing);
             foreach ($missing as $pk) {
                 $event = $fetched[$pk] ?? null;
-                Cache::put(self::key($pk), $event ?? false, self::TTL);
+                Cache::put(self::cacheKey($pk), $event ?? false, self::TTL);
                 if ($event !== null) {
                     $events[] = $event;
                 }
@@ -76,7 +89,7 @@ class ProfileCache
     private function fetchProfiles(array $pubkeys): array
     {
         $byPubkey = [];
-        foreach (array_filter([self::INDEXER, SpaceCache::spaceUrl()]) as $url) {
+        foreach (self::sources() as $url) {
             foreach ($this->fetchFrom($url, $pubkeys) as $event) {
                 $pk = $event->pubkey ?? null;
                 if ($pk !== null && ($event->created_at ?? 0) > ($byPubkey[$pk]->created_at ?? -1)) {
@@ -119,8 +132,22 @@ class ProfileCache
         }
     }
 
-    private static function key(string $pubkey): string
+    /**
+     * Cache-Schlüssel je pubkey UND je Relay-Quellenmenge.
+     *
+     * Der Zusatz ist nicht kosmetisch: gecacht wird auch die ABWESENHEIT (`false`,
+     * 24 h). „Bei diesen Relays nicht gefunden" sagt aber nichts über eine andere
+     * Relay-Menge aus — und der Cache-Store ist geteilt. Ohne die Namensräume
+     * schrieb ein E2E-Lauf (worker-eigener Test-Relay, kein Indexer) sein
+     * „abwesend" in denselben Schlüssel, aus dem die Dev-App liest, und umgekehrt.
+     * Genau diese Verschränkung stand hinter der Profil-Verseuchung, die den
+     * wochenlangen `storage-cache`-Flake getragen hat.
+     *
+     * Ein Konfigurationswechsel invalidiert damit automatisch — richtig so, denn
+     * die Antwort hing an der alten Quelle.
+     */
+    public static function cacheKey(string $pubkey): string
     {
-        return 'nostr:profile:'.$pubkey;
+        return 'nostr:profile:'.substr(md5(implode('|', self::sources())), 0, 8).':'.$pubkey;
     }
 }
