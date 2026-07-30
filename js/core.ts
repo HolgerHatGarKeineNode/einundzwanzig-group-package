@@ -11,7 +11,7 @@ import { appContext, pubkey, sign } from '@welshman/app'
 import { netContext, defaultSocketPolicies, makeSocketPolicyAuth } from '@welshman/net'
 import { routerContext } from '@welshman/router'
 import { always } from '@welshman/lib'
-import { verifyEvent, type TrustedEvent } from '@welshman/util'
+import { verifyEvent, normalizeRelayUrl, PROFILE, type TrustedEvent } from '@welshman/util'
 import { initStorage } from './storage'
 import { initReadState } from './readState'
 
@@ -147,7 +147,42 @@ export const SIGNER_RELAYS = relayOverride?.signer ?? [
 appContext.dufflepudUrl = ''
 routerContext.getIndexerRelays = always(INDEXER_RELAYS)
 routerContext.getDefaultRelays = always(DEFAULT_RELAYS)
-netContext.isEventValid = (event: TrustedEvent, _url: string) => verifyEvent(event)
+/**
+ * Die Workspace-URL, normalisiert — oder `''`, wenn kein zweiter Space konfiguriert
+ * ist. Bewusst direkt aus `globalThis` statt aus `groups.ts` importiert: `core.ts`
+ * ist das Fundament, `groups.ts` baut darauf auf; ein Import zurück wäre ein Zyklus.
+ */
+const WORKSPACE = (() => {
+    const raw = (globalThis as { __nostrWorkspace?: string }).__nostrWorkspace
+    return raw ? normalizeRelayUrl(raw) : ''
+})()
+
+/**
+ * **Kein kind-0 vom Workspace-Relay ins Repository.**
+ *
+ * Buzz legt beim Onboarding eigene Profile an (am Prod-Relay nachgesehen: generierte
+ * Namen, eigene Bilder, Zeitstempel von heute). kind 0 ist ersetzbar, im Repository
+ * gewinnt pro Pubkey der jüngste Zeitstempel — das Buzz-Profil verdrängt damit
+ * app-weit das echte, denn `profilesByPubkey` hat EINE Quelle pro Pubkey.
+ *
+ * **Warum die Abwehr hier steht und nicht bei den Ladeaufrufen:** genau das war der
+ * erste Versuch, und er reichte nicht. Es genügt nicht, kind 0 nicht mehr aktiv beim
+ * Space-Relay anzufragen — welshmans `loadProfile` routet Profil-Abfragen auch zu
+ * Relays, auf denen der Autor schon gesehen wurde. Wer im Workspace schreibt, WIRD
+ * dort gesehen; die Anfrage geht also weiterhin an Buzz, nur über einen anderen Weg.
+ * Messbar: der Test `das Buzz-Profil verdrängt das echte Nostr-Profil nicht` blieb
+ * mit der Lade-Weiche allein rot, sobald er im Dateiverbund lief.
+ *
+ * `isEventValid` ist der EINE Punkt, durch den jedes eingehende Event geht — hier
+ * greift die Regel unabhängig davon, wer die Abfrage gestellt hat. Alle anderen Kinds
+ * des Workspace-Relays (Nachrichten, Räume, Mitgliederlisten) bleiben unangetastet.
+ */
+netContext.isEventValid = (event: TrustedEvent, url: string) => {
+    if (WORKSPACE && event.kind === PROFILE && normalizeRelayUrl(url) === WORKSPACE) {
+        return false
+    }
+    return verifyEvent(event)
+}
 
 /**
  * NIP-42-AUTH: sobald ein Signer aktiv ist, signiert welshman AUTH-Challenges

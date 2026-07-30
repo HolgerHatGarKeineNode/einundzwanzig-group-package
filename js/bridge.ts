@@ -10,6 +10,7 @@ import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveH
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps'
+import { purgeSpaceLocalProfiles } from './spaceProfiles'
 import { load } from '@welshman/net'
 import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
@@ -2452,6 +2453,19 @@ export function registerNostrComponents(Alpine: {
                 this._unsubIsBuzz?.()
                 this._unsubIsBuzz = deriveRelay(url).subscribe((relay) => {
                     this.isBuzz = isBuzzRelay(relay)
+                    // Sobald FESTSTEHT, dass der aktive Space ein Buzz-Relay ist: dessen
+                    // relay-eigene kind-0 aus Repository und Cache werfen (siehe
+                    // [[spaceProfiles]]). Buzz legt beim Onboarding eigene Profile an;
+                    // kind 0 ist ersetzbar und der jüngste Zeitstempel gewinnt, also
+                    // verdrängen sie app-weit das echte Nostr-Profil.
+                    //
+                    // Der Aufräumer hing zuerst in `loadMemberProfiles` — zu beiläufig:
+                    // die Funktion läuft nur für Autoren, die in DIESER Sitzung noch
+                    // nicht geladen waren. Das eigene Profil ist beim Login längst da,
+                    // also lief der Aufräumer für genau den Fall nie, der auffiel.
+                    if (this.isBuzz) {
+                        purgeSpaceLocalProfiles(url)
+                    }
                 })
                 // Workspace-Räume: EIGENE Sub-Bridge auf die zweite URL, unabhängig von
                 // `activeSpace`. Sie läuft genau einmal (die Workspace-URL ist fest) und
