@@ -83,6 +83,7 @@ import {
 } from './meetups'
 import { flagEmoji } from './meetupPresentation'
 import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
+import { splitMine } from './railGroups'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam'
 import {
@@ -564,6 +565,7 @@ type SpacesState = {
     availableCountries(): Array<{ country: string; flag: string; name: string; count: number }>
     filteredMeetups(): RoomView[]
     filteredMine(): RoomView[]
+    mineSections(): { key: 'rooms' | 'meetups'; rooms: RoomView[] }[]
     filteredOther(): RoomView[]
     filteredProposals(): RoomView[]
     proposalCount(): number
@@ -2192,6 +2194,23 @@ export function registerNostrComponents(Alpine: {
         // Gefilterte + sortierte Meetup-Liste (mein Land → nächster Termin → Name).
         filteredMeetups(): RoomView[] {
             return this._ensureFiltered().meetups
+        },
+        /**
+         * „Meine Räume", nach Typ untergliedert — die mobile Fassung des
+         * Gruppenschnitts, den der Desktop-Navigator schon fährt.
+         *
+         * Die Regel selbst liegt in `railGroups.ts` (`splitMine`, node-getestet)
+         * und wird hier nur angewandt: derselbe Schnitt an zwei Orten, nicht zwei
+         * Algorithmen für dieselbe Frage. Unter der Schwelle oder bei nur einem
+         * vorkommenden Typ kommt genau EINE Sektion zurück — dann sieht der Nutzer
+         * exakt das, was er vorher sah.
+         *
+         * KEINE Sortierung, kein Filter, keine Kappung hier: `filteredMine()` hat
+         * beides bereits erledigt, und eine zweite Stelle, die daran dreht, wäre
+         * genau die zweite Wahrheit, die dieser Schnitt vermeidet.
+         */
+        mineSections(): { key: 'rooms' | 'meetups'; rooms: RoomView[] }[] {
+            return splitMine(this.filteredMine())
         },
         filteredMine(): RoomView[] {
             return this._ensureFiltered().mine

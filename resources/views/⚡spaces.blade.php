@@ -434,30 +434,51 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Projektunterstützung lebt vollständig hinter ihrer Entdecken-Zeile
                              (Nutzerentscheidung 2026-07-27). Ihr Ungelesenes trägt dort die
                              Summenpille — hier verschwindet eine Zeile, kein Zähler. --}}
+                        {{-- „Meine Räume", ab 5 Zeilen nach Typ untergliedert.
+
+                             EIN `x-for` über `mineSections()`, nicht zwei parallele Blöcke:
+                             sonst stünde die heutige Darstellung zweimal im Quelltext und
+                             driftete beim ersten Umbau auseinander. Unter der Schwelle oder
+                             bei nur einem vorkommenden Typ liefert `mineSections()` genau
+                             EINE Sektion — dann rendert dieser Block zeichengleich zu vorher.
+
+                             Die Regel liegt in `js/railGroups.ts` (`splitMine`, node-getestet)
+                             und ist dieselbe, die der Desktop-Navigator fährt. `bridge.ts`
+                             bleibt sprachfrei: die Labels stehen hier, wo `__()` zur
+                             Render-Zeit die Request-Locale sieht.
+
+                             `x-bind:class` ausgeschrieben statt `::class` — der `::`-Escape
+                             ist eine Blade-Regel für Komponenten-Tags; auf einem rohen <div>
+                             bliebe die Bindung tot. --}}
                         <template x-if="!focusMode() && filteredMine().length > 0">
-                            <div>
-                                {{-- Der Bestand steht AM SEKTIONSKOPF, nicht mehr als eigene
-                                     Zeile über der Karte (Nutzerkritik 2026-07-27: „nicht gut
-                                     platziert"). Hier beschreibt die Zahl genau das, was
-                                     unmittelbar darunter steht — eine Summe über mehrere
-                                     Abschnitte gehörte zu keinem davon.
-                                     Die Verwechslung mit den Ungelesen-Zahlen ist ausgeschlossen
-                                     und zwar an DREI Merkmalen zugleich: keine Fläche (die
-                                     Ungelesen-Pille ist deckend `bg-brand-500`), grau statt
-                                     Akzent, und der Ort ist eine Überschrift statt ein
-                                     Zeilenende. Die Regel aus §4.4 bleibt damit wörtlich
-                                     gültig: farbige Pille = ungelesen, graue Mono-Zahl =
-                                     Bestand. In die Tab-Pille gehört sie ausdrücklich NICHT —
-                                     dort stünde sie in identischer Form neben `roomsTotal`. --}}
-                                <p class="flex items-baseline gap-1.5 px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
-                                    {{ __('Meine Räume') }}
-                                    <span class="font-mono font-normal normal-case tracking-normal" x-text="filteredMine().length"></span>
-                                </p>
-                                <div class="space-y-0.5">
-                                    <template x-for="room in filteredMine()" :key="room.h">
-                                        <x-group::room-tile />
-                                    </template>
-                                </div>
+                            <div x-data="{ secLabels: { rooms: @js(__('Meine Räume')), meetups: @js(__('Meine Meetups')) } }">
+                                <template x-for="(sec, i) in mineSections()" :key="sec.key">
+                                    {{-- 8px Weißraum tragen die Grenze zwischen den Sektionen.
+                                         Eine zweite Trennlinie wäre die dritte in einer Karte,
+                                         die schon eine hat. --}}
+                                    <div x-bind:class="i > 0 ? 'mt-2' : ''">
+                                        {{-- Der Bestand steht AM SEKTIONSKOPF, nicht als eigene
+                                             Zeile über der Karte (Nutzerkritik 2026-07-27: „nicht
+                                             gut platziert"). Hier beschreibt die Zahl genau das,
+                                             was unmittelbar darunter steht — eine Summe über
+                                             mehrere Abschnitte gehörte zu keinem davon. Genau
+                                             deshalb teilt sie sich mit den Sektionen.
+                                             Die Verwechslung mit den Ungelesen-Zahlen ist an DREI
+                                             Merkmalen zugleich ausgeschlossen: keine Fläche (die
+                                             Ungelesen-Pille ist deckend `bg-brand-500`), grau statt
+                                             Akzent, und der Ort ist eine Überschrift statt ein
+                                             Zeilenende. --}}
+                                        <p class="flex items-baseline gap-1.5 px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+                                            <span x-text="secLabels[sec.key]"></span>
+                                            <span class="font-mono font-normal normal-case tracking-normal" x-text="sec.rooms.length"></span>
+                                        </p>
+                                        <div class="space-y-0.5">
+                                            <template x-for="room in sec.rooms" :key="room.h">
+                                                <x-group::room-tile />
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
                             </div>
                         </template>
 

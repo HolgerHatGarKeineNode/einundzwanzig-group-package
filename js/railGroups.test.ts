@@ -16,6 +16,7 @@ import {
     middleTruncate,
     parseScope,
     scopeToken,
+    splitMine,
     type RailGroupKey,
     type RailRoom,
 } from './railGroups.ts'
@@ -129,4 +130,57 @@ test('middleTruncate erhält das unterscheidende Ende', () => {
     assert.ok(cut.startsWith('bitcoin'), 'Kopf bleibt erkennbar')
     assert.ok(long.endsWith(cut.slice(cut.indexOf('…') + 1)), 'Ende bleibt erhalten')
     assert.equal(middleTruncate('kurz', 20), 'kurz', 'kurze Namen bleiben unangetastet')
+})
+
+// ── Mobile Untergliederung von „Meine Räume" ────────────────────────────────
+
+const mine = (h: string, isMeetup = false): RailRoom => room({ h, isMeetup, joined: true })
+
+test('splitMine: unter der Schwelle bleibt es EINE Sektion', () => {
+    const rooms = [mine('a'), mine('b'), mine('c', true), mine('d', true)]
+    const secs = splitMine(rooms)
+
+    assert.equal(secs.length, 1, '4 Zeilen sind noch keine Gruppe')
+    assert.equal(secs[0].key, 'rooms')
+    assert.equal(secs[0].rooms.length, 4)
+})
+
+test('splitMine: ab der Schwelle zwei Sektionen, Räume vor Meetups', () => {
+    const rooms = [mine('a'), mine('m1', true), mine('b'), mine('m2', true), mine('c')]
+    const secs = splitMine(rooms)
+
+    assert.deepEqual(secs.map((s) => s.key), ['rooms', 'meetups'])
+    assert.deepEqual(secs[0].rooms.map((r) => r.h), ['a', 'b', 'c'])
+    assert.deepEqual(secs[1].rooms.map((r) => r.h), ['m1', 'm2'])
+})
+
+test('splitMine: nur ein Typ bleibt EINE Sektion — mit dem passenden Namen', () => {
+    const nurRaeume = splitMine(Array.from({ length: 6 }, (_, i) => mine(`r${i}`)))
+    assert.equal(nurRaeume.length, 1)
+    assert.equal(nurRaeume[0].key, 'rooms')
+
+    const nurMeetups = splitMine(Array.from({ length: 6 }, (_, i) => mine(`m${i}`, true)))
+    assert.equal(nurMeetups.length, 1)
+    assert.equal(nurMeetups[0].key, 'meetups', 'eine Überschrift über allem ist keine Gruppe')
+})
+
+test('splitMine: leere Liste ergibt keine Sektion', () => {
+    assert.deepEqual(splitMine([]), [])
+})
+
+test('splitMine gibt die ORIGINAL-Objekte zurück, keine Kopien', () => {
+    // `room-tile` setzt bei einem Bildfehler `room.picture = ''`, damit der
+    // Fallback greift — an einer Kopie liefe das ins Leere.
+    const a = mine('a')
+    const m = mine('m', true)
+    const secs = splitMine([a, mine('b'), mine('c'), m, mine('n', true)])
+
+    assert.equal(secs[0].rooms[0], a, 'Identität, nicht Gleichheit')
+    assert.equal(secs[1].rooms[0], m)
+})
+
+test('splitMine sortiert NICHT um — die Eingabereihenfolge gilt', () => {
+    const secs = splitMine([mine('zulu'), mine('alpha'), mine('m'), mine('mm', true), mine('nn', true)])
+
+    assert.deepEqual(secs[0].rooms.map((r) => r.h), ['zulu', 'alpha', 'm'])
 })

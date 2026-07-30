@@ -255,3 +255,53 @@ export const middleTruncate = (name: string, max = 34): string => {
 
     return name.slice(0, head) + '…' + name.slice(name.length - (keep - head))
 }
+
+/**
+ * Ab wie vielen Zeilen lohnt eine Untergliederung der Liste „Meine Räume"?
+ *
+ * Fünf, aus zwei unabhängigen Richtungen: bei 375×667 passen mit Space-Kopf und
+ * Segment-Umschalter rund fünf Zeilen ins Bild — bis dahin sieht man die Liste
+ * ohnehin als Ganzes. Und bis dahin trägt der Flaggen-Pin am Avatar den Typ
+ * bereits ohne Überschrift; ein Label kostet 21px, also fast eine halbe Zeile.
+ *
+ * Darunter ändert sich für den Nutzer NICHTS — das ist der Punkt der Schwelle.
+ */
+export const MINE_SPLIT_THRESHOLD = 5
+
+/**
+ * Teilt eine reine Mitgliederliste in „Räume" und „Meetups" — die mobile Fassung
+ * des Gruppenschnitts.
+ *
+ * **Warum nicht `buildGroups()`.** Dessen Bestandteile passen hier nicht: die
+ * joined/others-Achse ist gegenstandslos (diese Liste ist zu 100 % beigetreten,
+ * ohne gesetztes `joined` fiele alles in `others` und Meetups würden nach
+ * Aktivität statt nach Namen sortiert), die Kappung bei 12 wäre stiller
+ * Datenverlust, und Länder-/Scope-Filter gibt es mobil nicht. Geteilt wird
+ * deshalb genau das, was geteilt gehört: `groupOf`.
+ *
+ * **Identitätserhaltend.** Gibt die ORIGINAL-Objekte zurück, keine Kopien:
+ * `room-tile` setzt bei einem Bildfehler `room.picture = ''`, damit der Fallback
+ * greift — an einer Kopie liefe das ins Leere.
+ *
+ * **Sortiert nicht um.** Die Reihenfolge innerhalb einer Sektion ist die der
+ * Eingabe; wer sie ändern will, ändert sie beim Aufrufer.
+ *
+ * Unter der Schwelle oder bei nur einem vorkommenden Typ: genau EINE Sektion —
+ * eine Überschrift über allem ist keine Gruppe.
+ */
+export const splitMine = <T extends RailRoom>(rooms: T[]): { key: 'rooms' | 'meetups'; rooms: T[] }[] => {
+    const standard = rooms.filter((r) => groupOf(r) !== 'meetups')
+    const meetups = rooms.filter((r) => groupOf(r) === 'meetups')
+
+    if (rooms.length < MINE_SPLIT_THRESHOLD || standard.length === 0 || meetups.length === 0) {
+        return rooms.length === 0
+            ? []
+            : [{ key: meetups.length === rooms.length ? 'meetups' : 'rooms', rooms }]
+    }
+
+    // Reihenfolge wie `RAIL_GROUP_ORDER`: Räume vor Meetups.
+    return [
+        { key: 'rooms', rooms: standard },
+        { key: 'meetups', rooms: meetups },
+    ]
+}
