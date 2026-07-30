@@ -9,7 +9,7 @@
  */
 import { derived, get, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, publishThunk, waitForThunkError, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
+import { profilesByPubkey, publishThunk, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { MESSAGE, COMMENT, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, ROOM_DELETE_EVENT, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
@@ -27,6 +27,7 @@ import { linkDisplay, isPlausibleUrl } from './chatLinks'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
+import { waitForPublishError } from './publishResult'
 
 /** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
 const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
@@ -832,7 +833,7 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal): void =>
  * Re-Publish desselben Events). '' = Erfolg.
  */
 export const moderateDeleteMessage = (url: string, h: string, id: string): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE_EVENT, { tags: [['h', h], ['e', id]] }) }))
+    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE_EVENT, { tags: [['h', h], ['e', id]] }) }))
 
 /**
  * Lädt NUR die Poll-Responses (kind 1018) eines Raums fürs Tally — NICHT die Poll-Events
@@ -1066,7 +1067,7 @@ const mapRelayError = (raw: string): string => {
  */
 const publishOptimistic = async (url: string, event: Parameters<typeof publishThunk>[0]['event']): Promise<string> => {
     const thunk = publishThunk({ relays: [url], event })
-    const err = await waitForThunkError(thunk)
+    const err = await waitForPublishError(thunk)
     if (err) {
         repository.removeEvent(thunk.event.id)
     }
@@ -1114,7 +1115,7 @@ export const sendRoomMessage = async (
  * das Löschen direkt nach dem Senden (gleiche Unix-Sekunde) nicht.
  */
 export const deleteRoomMessage = (url: string, h: string, id: string, createdAt: number): Promise<string> =>
-    waitForThunkError(
+    waitForPublishError(
         publishThunk({
             relays: [url],
             event: makeEvent(DELETE, {
@@ -1400,7 +1401,7 @@ export const sendComment = async (url: string, target: TrustedEvent, content: st
  * (das Relay hat den Tombstone nie erhalten — wie beim Nachricht-Löschen).
  */
 export const removeReaction = (url: string, reaction: TrustedEvent): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEventDelete(reaction, url) })).then((err) =>
+    waitForPublishError(publishThunk({ relays: [url], event: makeEventDelete(reaction, url) })).then((err) =>
         err ? mapRelayError(err) : '',
     )
 
@@ -1415,7 +1416,7 @@ export const sendReport = (
     reason: string,
     content: string,
 ): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
+    waitForPublishError(publishThunk({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
         err ? mapRelayError(err) : '',
     )
 
@@ -1447,7 +1448,7 @@ export const sendPoll = async (
     // kind-1068). welshman entfernt sie bei Relay-Reject NICHT selbst → sonst bliebe die
     // Karte sichtbar, obwohl sie das Relay nie erreicht hat (wie sendRoomMessage).
     const thunk = publishThunk({ relays: [url], event: makePoll(params, h, url) })
-    const err = await waitForThunkError(thunk)
+    const err = await waitForPublishError(thunk)
     if (err) {
         repository.removeEvent(thunk.event.id)
         return mapRelayError(err)

@@ -20,7 +20,6 @@ import {
     makeUserData,
     makeOutboxLoader,
     publishThunk,
-    waitForThunkError,
     nip44EncryptToSelf,
     relaysByUrl,
     loadRelay,
@@ -68,6 +67,7 @@ import { spaceIsBuzzAsync } from './buzzAdmin'
 import { parseMeetupTags } from './meetupPresentation'
 import { parseProjectSupportTags, withExtraTags } from './roomCategories'
 import type { RelayProfile } from '@welshman/util'
+import { waitForPublishError } from './publishResult'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
 
@@ -703,11 +703,11 @@ export const reloadRoomMembership = async (
  * sobald die aktualisierte 39002 (via Live-Sub) eintrifft. '' = Erfolg.
  */
 export const joinRoom = (url: string, h: string): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_JOIN, { tags: [['h', h]] }) }))
+    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_JOIN, { tags: [['h', h]] }) }))
 
 /** Verlässt einen Raum: Leave-Request (kind 9022) → Relay entfernt aus der 39002. */
 export const leaveRoom = (url: string, h: string): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_LEAVE, { tags: [['h', h]] }) }))
+    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_LEAVE, { tags: [['h', h]] }) }))
 
 // ── Raum-Verwaltung (Admin, NIP-29 9007/9002/9008 → relay-signierte 39000) ───
 // Nur `can_manage`-Admins dürfen diese Moderations-Events schreiben; der Relay
@@ -807,11 +807,11 @@ export const createRoom = async (url: string, input: RoomInput): Promise<string>
     const h = input.h || newRoomId()
     const isBuzz = await spaceIsBuzzAsync(url)
     const createTags = isBuzz ? buzzCreateTags(h, input) : [['h', h]]
-    const createErr = await waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_CREATE, { tags: createTags }) }))
+    const createErr = await waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_CREATE, { tags: createTags }) }))
     if (createErr && !isAlreadyError(createErr)) {
         return createErr
     }
-    const metaErr = await waitForThunkError(publishThunk({ relays: [url], event: roomMetaEvent(url, { ...input, h }) }))
+    const metaErr = await waitForPublishError(publishThunk({ relays: [url], event: roomMetaEvent(url, { ...input, h }) }))
     if (metaErr) {
         return metaErr
     }
@@ -838,7 +838,7 @@ export const createRoom = async (url: string, input: RoomInput): Promise<string>
  * Kachel (Mitglieder/Löschen sind gegatet) — ohne das Nachladen wirkte er wirkungslos.
  */
 export const editRoomMeta = async (url: string, input: RoomInput): Promise<string> => {
-    const err = await waitForThunkError(publishThunk({ relays: [url], event: roomMetaEvent(url, input) }))
+    const err = await waitForPublishError(publishThunk({ relays: [url], event: roomMetaEvent(url, input) }))
     if (err) {
         return err
     }
@@ -850,18 +850,18 @@ export const editRoomMeta = async (url: string, input: RoomInput): Promise<strin
 
 /** Löscht einen Raum (kind 9008 → 39000-Tombstone, roomsByUrl blendet ihn aus). */
 export const deleteRoom = (url: string, h: string): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE, { tags: [['h', h]] }) }))
+    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE, { tags: [['h', h]] }) }))
 
 // ── Raum-Mitglieder (Admin, NIP-29 9000/9001 → relay-signierte 39002) ────────
 
 /** Fügt einen Pubkey der Raum-Mitgliederliste hinzu (kind 9000 put-user → 39002).
  *  Setzt Space-Mitgliedschaft (allowpubkey) voraus — der Aufrufer stellt das sicher. */
 export const addRoomMember = (url: string, h: string, pubkey: string): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_ADD_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
+    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_ADD_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
 
 /** Entfernt einen Pubkey aus der Raum-Mitgliederliste (kind 9001 remove-user → 39002). */
 export const removeRoomMember = (url: string, h: string, pubkey: string): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_REMOVE_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
+    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_REMOVE_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
 
 // ── Space beitreten/verlassen (Space-Ebene, NIP-29 kind 28934/28936) ─────────
 
@@ -870,7 +870,7 @@ const addSpaceToList = async (url: string): Promise<void> => {
     const list = get(userGroupList) ?? makeList({ kind: ROOMS })
     const event = await addToListPublicly(list, ['r', url]).reconcile(nip44EncryptToSelf)
     const relays = uniq([...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
-    await waitForThunkError(publishThunk({ event, relays }))
+    await waitForPublishError(publishThunk({ event, relays }))
 }
 
 /** Entfernt den Space aus der 10009-Liste (`r`- oder `group`-Tag). */
@@ -882,7 +882,7 @@ const removeSpaceFromList = async (url: string): Promise<void> => {
     const pred = (t: string[]) => normalizeRelayUrl(t[t[0] === 'r' ? 1 : 2] ?? '') === url
     const event = await removeFromListByPredicate(list, pred).reconcile(nip44EncryptToSelf)
     const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
-    await waitForThunkError(publishThunk({ event, relays }))
+    await waitForPublishError(publishThunk({ event, relays }))
 }
 
 /**
@@ -892,7 +892,7 @@ const removeSpaceFromList = async (url: string): Promise<void> => {
  */
 export const joinSpace = async (url: string, claim = ''): Promise<string> => {
     const tags = claim ? [['claim', claim]] : []
-    const err = await waitForThunkError(publishThunk({ relays: [url], event: makeEvent(RELAY_JOIN, { tags }) }))
+    const err = await waitForPublishError(publishThunk({ relays: [url], event: makeEvent(RELAY_JOIN, { tags }) }))
     if (err) {
         return err
     }
@@ -903,7 +903,7 @@ export const joinSpace = async (url: string, claim = ''): Promise<string> => {
 /** Verlässt einen Space: aus der 10009 entfernen + Leave-Request (kind 28936). */
 export const leaveSpace = async (url: string): Promise<string> => {
     await removeSpaceFromList(url)
-    return waitForThunkError(publishThunk({ relays: [url], event: makeEvent(RELAY_LEAVE) }))
+    return waitForPublishError(publishThunk({ relays: [url], event: makeEvent(RELAY_LEAVE) }))
 }
 
 /** Ist der Space in der persönlichen 10009-Liste (reaktiv)? */

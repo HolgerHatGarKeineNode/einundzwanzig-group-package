@@ -37,11 +37,12 @@
  * dieselbe Konvention wie bei den NIP-86-Wrappern in `members.ts`, damit die
  * Aufrufer in `bridge.ts` unveraendert bleiben.
  */
-import { publishThunk, waitForThunkError, signer, getRelaysByUrl, loadRelay, forceLoadRelay } from '@welshman/app'
+import { publishThunk, signer, getRelaysByUrl, loadRelay, forceLoadRelay } from '@welshman/app'
 import { makeEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import { isBuzzRelay } from './relayCaps'
 import { nip98Url, nip98AuthHeader, httpBase, type SignedLike } from './nip98'
+import { waitForPublishError } from './publishResult'
 
 // ── Buzz-Kind-Konstanten ────────────────────────────────────────────────────
 // Bewusst hier lokal statt in @welshman/util: das sind Buzz-Erweiterungen, kein
@@ -123,7 +124,7 @@ export const spaceIsBuzzAsync = async (url: string): Promise<boolean> => {
  * (`''` = OK). Das Event entsteht hier drin — siehe Fallstrick 1 im Modulkopf.
  */
 const publishAdminEvent = (url: string, kind: number, tags: string[][]): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: makeEvent(kind, { tags }) }))
+    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(kind, { tags }) }))
 
 // ── Mitglieder ──────────────────────────────────────────────────────────────
 
