@@ -1,0 +1,21 @@
+{
+    // Eigener tsconfig für die Insel-Module des Packages.
+    //
+    // Ohne ihn lagen diese Dateien AUSSERHALB jedes Projekts: der Wurzel-tsconfig
+    // listet nur `resources/js/**/*.ts`. Der Editor fiel damit auf seine Defaults
+    // zurück — andere `strict`-Einstellung, keine `allowImportingTsExtensions`, keine
+    // Node-Typen — und meldete Dutzende Fehler in Dateien, die Build (`vite`) und
+    // Tests (`node --test`, Playwright, Pest) grün fahren.
+    //
+    // Bewusst hier und nicht als zweiter Glob im Wurzel-tsconfig: die Testdateien
+    // daneben (`*.test.ts`) brauchen Node-Globals, `resources/js/**` ausdrücklich
+    // nicht (dort steht `"types": []`, damit kein @types-Paket ungefragt einwandert).
+    // Zwei Verzeichnisse, zwei Bedürfnisse, zwei Konfigurationen.
+    "extends": "../../../tsconfig.json",
+    "compilerOptions": {
+        // `node:test`, `node:assert`, `process` — die reinen Logik-Module werden per
+        // `node --test` gefahren (siehe Kopf von `railGroups.test.ts`).
+        "types": ["node"]
+    },
+    "include": ["**/*.ts"]
+}

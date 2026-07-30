@@ -364,8 +364,12 @@ test('Autoren der Zeilen: entdoppelt, in Reihenfolge des ersten Auftretens', () 
  * echten Karte nachgestellt; hier steht die Regel selbst.
  */
 test('zweiter Klick behaelt den ERSTEN Undo-Puffer', () => {
-    const erster = { 'r:a': 1000 }
-    const zweiter = { all: 20000 }
+    // Beide sind Lesestände (`Record<string, number>`), nur mit verschiedenen
+    // Schlüsseln — genau das macht die Identitätsprüfung unten aussagekräftig.
+    // Ohne die Annotation leitet TypeScript `T` aus dem ERSTEN Argument ab und
+    // hält den zweiten Aufnahmestand für einen Typfehler.
+    const erster: Record<string, number> = { 'r:a': 1000 }
+    const zweiter: Record<string, number> = { all: 20000 }
 
     assert.equal(undoSnapshotFor(null, erster), erster, 'ohne Puffer gilt die frische Aufnahme')
     assert.equal(undoSnapshotFor(erster, zweiter), erster, 'mit Puffer gilt WEITER der erste')
