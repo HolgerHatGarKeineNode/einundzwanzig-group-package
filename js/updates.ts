@@ -58,6 +58,7 @@ import {
     type ReadState,
 } from './readState.ts'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
+import { isThreadReply, threadRootId } from './threading.ts'
 
 /** Lotus' In-Chat-Thread (NIP-29 Group Chat Threading, kind 10). Siehe Modul-Docstring. */
 const CHAT_THREAD = 10
@@ -146,8 +147,9 @@ const HEX64 = /^[0-9a-f]{64}$/
 
 /**
  * Thread-Wurzel eines Kommentars, format-übergreifend: unsere kind-1111 tragen
- * `["E", rootId]` (NIP-22, uppercase), Lotus' kind-10 tragen `["e", rootId, relay, "root"]`
- * (NIP-29, Marker). Gleiche Regel wie `feeds.ts commentRootId` — hier eigenständig.
+ * `["E", rootId]` (NIP-22, uppercase), Lotus' kind-10 und Buzz' kind-9-Antworten tragen ihn
+ * im markierten `e`-Tag ({@link threadRootId}). Gleiche Regel wie `feeds.ts commentRootId`
+ * — hier eigenständig.
  *
  * **Anders als dort wird der Wert hier geprüft, und das ist die eigentliche Pointe:**
  * P4 reicht diesen rohen Tag-Wert als Erstes an `nip19.neventEncode` durch (der Deep-Link
@@ -170,7 +172,7 @@ const HEX64 = /^[0-9a-f]{64}$/
  * eine Zeile „irgendein Thread, kein Link" wäre für niemanden brauchbar.
  */
 export const updatesCommentRootId = (event: TrustedEvent): string => {
-    const raw = getTagValue('E', event.tags) ?? event.tags.find((t) => t[0] === 'e' && t[3] === 'root')?.[1] ?? ''
+    const raw = getTagValue('E', event.tags) ?? threadRootId(event)
     const id = raw.toLowerCase()
     return HEX64.test(id) ? id : ''
 }
@@ -637,6 +639,13 @@ export function computeUpdates(input: UpdateInput): UpdateItem[] {
         if (event.kind !== MESSAGE && event.kind !== POLL && event.kind !== ZAP_GOAL) {
             continue
         }
+        // Buzz-Antworten kommen im selben `#h`-Strom (threading.ts Regel 7). Sie gehören in
+        // die Thread-Schleife unten — dort bekommen sie den Deep-Link auf den Thread und
+        // das Thread-Wasserzeichen. Hier stünden sie als Raum-Nachricht mit vollem Text und
+        // einem Link, der auf den Raum zeigt, wo sie gar nicht auftauchen.
+        if (isThreadReply(event)) {
+            continue
+        }
         if (event.pubkey === input.me) {
             continue
         }
@@ -673,8 +682,8 @@ export function computeUpdates(input: UpdateInput): UpdateItem[] {
     // ── Thread-Kommentare (kind 1111 + Lotus' kind 10) ──
     const rootById = new Map(input.events.map((e) => [e.id, e]))
     const threads = new Map<string, { h: string; rootPubkey: string; events: TrustedEvent[] }>()
-    for (const comment of input.comments) {
-        if (comment.kind !== COMMENT && comment.kind !== CHAT_THREAD) {
+    for (const comment of [...input.comments, ...input.events.filter(isThreadReply)]) {
+        if (comment.kind !== COMMENT && comment.kind !== CHAT_THREAD && !isThreadReply(comment)) {
             continue // Regel 1 (siehe oben)
         }
         if (comment.pubkey === input.me) {

@@ -19,7 +19,7 @@ import { deriveEventsForUrl } from './repository'
 import { readState, roomWatermark } from './readState'
 import { throttled } from '@welshman/store'
 import { warmZappers } from './zaps'
-import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, makeComment, mentionPubkeys } from './interactions'
+import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePollResponse, makeGoal, makeComment, makeThreadReply, mentionPubkeys } from './interactions'
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
@@ -29,6 +29,8 @@ import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
 import { waitForPublishError } from './publishResult'
 import { BUZZ_MESSAGE_V2 } from './relayCaps'
+import { isRootMessage, isThreadReply, replyTargetIds, threadRootId } from './threading'
+import { spaceIsBuzzAsync } from './buzzAdmin'
 
 /** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
 const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
@@ -108,10 +110,16 @@ const CHAT_THREAD = 10
 
 /**
  * Thread-Root eines Kommentars, format-übergreifend: unsere kind-1111 tragen `["E", rootId]`
- * (NIP-22, uppercase), Lotus' kind-10 tragen `["e", rootId, relay, "root"]` (NIP-29, marker).
+ * (NIP-22, uppercase), Lotus' kind-10 und Buzz' kind-9-Antworten tragen den Root im
+ * markierten `e`-Tag ({@link threadRootId}: `root`, bei Tiefe 1 ersatzweise `reply`).
+ *
+ * Der `reply`-Fallback ist der Buzz-Anteil und **kein** Sonderfall: eine Antwort direkt auf
+ * die Wurzel trägt dort ausschließlich `reply` (Regel 1 in `threading.ts`) — die
+ * NIP-10-konforme `root`-only-Form wird vom Relay angenommen und stillschweigend NICHT
+ * verknüpft. Ohne den Fallback fiele genau die häufigste Antwort in den ''-Bucket.
  */
 const commentRootId = (event: TrustedEvent): string =>
-    getTagValue('E', event.tags) ?? event.tags.find((t) => t[0] === 'e' && t[3] === 'root')?.[1] ?? ''
+    getTagValue('E', event.tags) ?? threadRootId(event)
 
 /**
  * Direkter Eltern-Kommentar: Lotus' kind-10 markiert ihn `["e", parentId, relay, "reply"]`;
@@ -130,20 +138,58 @@ const commentParentId = (event: TrustedEvent): string =>
 const roomCommentFilter = () => [{ kinds: [COMMENT, CHAT_THREAD] }]
 
 /**
+ * **Buzz-Antworten in einem Thread — `#e` mit Kinds, und immer nachgefiltert.**
+ *
+ * Auf Buzz ist eine Antwort kein eigenes Kind, sondern eine ganz normale Raum-Nachricht
+ * (kind 9) mit markierten `e`-Tags. Zwei Regeln aus `threading.ts` stecken in dieser einen
+ * Zeile: `#e` ist bei Buzz **markerblind** (Regel 8) — der Filter liefert also auch
+ * Erwähnungen und fremde Threads zurück, weshalb jeder Aufrufer über
+ * {@link commentRootId} nachfiltert. Und ein `kinds`-loser `#e`-Filter wird relayweit
+ * abgelehnt (`restricted: p-gated events require #p matching your pubkey`), deshalb stehen
+ * die Kinds hier explizit.
+ */
+const threadReplyFilter = (rootId: string) => [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2], '#e': [rootId] }]
+
+/**
  * kind-9735-Zap-Receipts (NIP-57): tragen KEIN `#h` — der LNURL-Server kopiert nur
  * `p`/`e`/`bolt11`/`description` ins Receipt. Deshalb hier ungefiltert je Space-Relay;
  * die Zuordnung zur Nachricht + Validierung läuft in `aggregateZaps` über `#e`.
  */
 const roomZapReceiptFilter = () => [{ kinds: [ZAP_RESPONSE] }]
 
-/** Aufsteigend sortierter Chat-Verlauf eines Rooms (Nachrichten + Polls, reaktiv). */
+/**
+ * Aufsteigend sortierter Chat-Verlauf eines Rooms (Nachrichten + Polls, reaktiv).
+ *
+ * **Thread-Antworten stehen hier NICHT.** Auf Buzz liegen sie im selben `#h`-Raum wie die
+ * Wurzel (Regel 7) und kämen ohne diesen Schnitt doppelt an: einmal als eigene Zeile im
+ * Verlauf, einmal im Thread. Das Slack-Modell zeigt sie nur im Thread.
+ *
+ * Der Schnitt ist **strukturell, nicht relay-abhängig** — und das ist Absicht. Er fragt
+ * „trägt dieses Event einen `reply`-Marker?", nicht „ist das ein Buzz-Space?". Unsere
+ * zooid-kind-9 zitieren über `q`, nie über ein markiertes `e`; dort trifft er also nichts.
+ * Eine Weiche auf `isBuzzRelay` wäre hier zusätzlich gefährlich: sie meldet beim ersten
+ * Rendern verlässlich `false` (NIP-11 noch unterwegs) — der Verlauf zeigte dann für einen
+ * Frame jede Antwort als eigene Zeile und ruckelte sie danach weg.
+ */
 export const deriveRoomMessages = (url: string, h: string): Readable<TrustedEvent[]> =>
     derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => {
         // Native Poll-Karten (kind 1068) zeigen die Frage bereits — die kind-9-Share-Quote,
         // die wir NUR für Flotilla mitposten, hier ausblenden, sonst erschiene sie doppelt.
         const pollIds = new Set(events.filter((e) => e.kind === POLL).map((e) => e.id))
-        return sortEventsAsc(events.filter((e) => !isPollShareQuote(e, pollIds)))
+        return sortEventsAsc(events.filter((e) => !isPollShareQuote(e, pollIds) && isRootMessage(e)))
     })
+
+/**
+ * Die Thread-Antworten eines Raums — der Gegenschnitt zu {@link deriveRoomMessages}.
+ *
+ * Speist den Antworten-Indikator (Zähler + Gesichter) an der Wurzel-Zeile, ohne eine
+ * zweite Subscription zu brauchen: die Events liegen bereits im Repository, weil der
+ * Raum-Filter sie mitbringt. Auf zooid ist die Liste leer (unsere Kommentare sind kind
+ * 1111 und tragen kein `#h`) — die Ableitung kostet dort einen Filterdurchlauf und sonst
+ * nichts.
+ */
+export const deriveRoomThreadReplies = (url: string, h: string): Readable<TrustedEvent[]> =>
+    derived(deriveEventsForUrl(url, roomStreamFilter(h)), (events) => events.filter(isThreadReply))
 
 /** Rohtext einer Nachricht ohne den vorangestellten Reply-Quote (für Snippets + Edit-Prefill). */
 export const bodyWithoutQuote = (event: TrustedEvent): string =>
@@ -735,8 +781,15 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
             throttled(200, zappersByLnurl),
             throttled(200, deriveEventsForUrl(url, roomCommentFilter())),
+            // Buzz-Antworten (kind 9 mit `reply`-Marker) — auf zooid immer leer.
+            throttled(200, deriveRoomThreadReplies(url, h)),
         ],
-        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $comments]) => {
+        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies]) => {
+        // Beide Antwort-Formate in EINEN Strom: kind-1111/kind-10 (zooid) und Buzz'
+        // kind-9-Antworten. `commentRootId` liest den Root aus beiden, der Rest des Feeds
+        // sieht keinen Unterschied — Zähler, Gesichter und „zuletzt geantwortet" gelten für
+        // beide Relay-Arten aus derselben Codezeile.
+        const $comments = $threadReplies.length > 0 ? [...$nip22Comments, ...$threadReplies] : $nip22Comments
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
         // Reactions ohne `e`-Tag landen im ''-Bucket und werden nie abgerufen (event.id ≠ '').
         const reactionsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions)
@@ -892,6 +945,27 @@ const COMMENT_LOAD_LIMIT = 1000
 
 export const loadRoomComments = (url: string): Promise<TrustedEvent[]> =>
     load({ relays: [url], filters: [{ kinds: [COMMENT, CHAT_THREAD], limit: COMMENT_LOAD_LIMIT }] })
+
+/**
+ * Der Buzz-Gegenpart zu {@link loadRoomComments} für die Space-Startseite: Antworten sind
+ * dort kind-9-Raum-Nachrichten und lassen sich **nicht** gezielt abfragen — es gibt keinen
+ * Filter „hat irgendein `e`-Tag". Also die jüngsten Raum-Nachrichten des Relays holen und
+ * client-seitig auf Antworten schneiden.
+ *
+ * **Hier steht eine Weiche, obwohl der Rest des Lesepfads ohne auskommt** — und zwar aus
+ * Kostengründen, nicht aus Korrektheitsgründen: auf zooid fände dieser Query nie eine
+ * Antwort (unsere Kommentare sind kind 1111) und zöge trotzdem bei jedem Besuch der
+ * Startseite bis zu 1000 Nachrichten. Ein falsches `false` (NIP-11 noch unterwegs) kostet
+ * hier nichts als einen späteren Nachzieher: die Ableitung liest ohnehin reaktiv weiter,
+ * und der Raum-Besuch lädt dieselben Events erneut.
+ */
+const loadSpaceThreadReplies = async (url: string): Promise<TrustedEvent[]> => {
+    if (!(await spaceIsBuzzAsync(url))) {
+        return []
+    }
+    const events = await load({ relays: [url], filters: [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2], limit: COMMENT_LOAD_LIMIT }] })
+    return events.filter(isThreadReply)
+}
 
 /**
  * Lädt bestehende kind-9735-Zap-Receipts für die übergebenen Nachrichten-IDs, damit
@@ -1257,10 +1331,12 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
             deriveEventsForUrl(url, [{ ids: [rootId] }]),
             // kind-1111 bündelt per Root-`#E`; Lotus' kind-10 trägt den Root im kleinen `e`
             // (marker "root") → nur per `#e` filterbar (P4). Client-seitig über commentRootId
-            // gebündelt, sodass fremde kind-10 anderer Wurzeln nicht durchrutschen.
+            // gebündelt, sodass fremde kind-10 anderer Wurzeln nicht durchrutschen. Buzz'
+            // kind-9-Antworten kommen über denselben `#e`-Filter mit.
             deriveEventsForUrl(url, [
                 { kinds: [COMMENT], '#E': [rootId] },
                 { kinds: [CHAT_THREAD], '#e': [rootId] },
+                ...threadReplyFilter(rootId),
             ]),
             throttled(200, profilesByPubkey),
             pubkey,
@@ -1302,11 +1378,30 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
  * raumfremde/ältere Wurzeln.
  */
 export const loadThread = (url: string, rootId: string): Promise<TrustedEvent[]> =>
-    load({ relays: [url], filters: [{ ids: [rootId] }, { kinds: [COMMENT], '#E': [rootId] }, { kinds: [CHAT_THREAD], '#e': [rootId] }] })
+    load({
+        relays: [url],
+        filters: [
+            { ids: [rootId] },
+            { kinds: [COMMENT], '#E': [rootId] },
+            { kinds: [CHAT_THREAD], '#e': [rootId] },
+            ...threadReplyFilter(rootId),
+        ],
+    })
 
-/** Live-Sub für NEUE Kommentare eines offenen Threads (kind-1111 `#E` + Lotus' kind-10 `#e`), bis abort. */
+/**
+ * Live-Sub für NEUE Kommentare eines offenen Threads (kind-1111 `#E` + Lotus' kind-10 `#e`
+ * + Buzz' kind-9-Antworten per `#e`), bis abort.
+ */
 export const listenThread = (url: string, rootId: string, signal: AbortSignal): void => {
-    void request({ relays: [url], signal, filters: [{ kinds: [COMMENT], '#E': [rootId], limit: 0 }, { kinds: [CHAT_THREAD], '#e': [rootId], limit: 0 }] })
+    void request({
+        relays: [url],
+        signal,
+        filters: [
+            { kinds: [COMMENT], '#E': [rootId], limit: 0 },
+            { kinds: [CHAT_THREAD], '#e': [rootId], limit: 0 },
+            ...threadReplyFilter(rootId).map((f) => ({ ...f, limit: 0 })),
+        ],
+    })
 }
 
 /**
@@ -1341,7 +1436,12 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
             throttled(300, deriveEventsForUrl(url, [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL] }])),
             throttled(300, profilesByPubkey),
         ],
-        ([comments, roots, $profiles]) => {
+        ([nip22Comments, timeline, $profiles]) => {
+            // Der Timeline-Strom enthält auf Buzz BEIDE Rollen: Wurzeln und Antworten. Der
+            // Schnitt läuft über den `reply`-Marker, nicht über die Relay-Art — sonst zählte
+            // eine Antwort sich selbst als eigenen Thread mit 0 Antworten (Geisterzeile).
+            const roots = timeline.filter(isRootMessage)
+            const comments = [...nip22Comments, ...timeline.filter(isThreadReply)]
             const byId = new Map(roots.map((r) => [r.id, r]))
             const byRoot = groupBy(commentRootId, comments)
             const out: SpaceThread[] = []
@@ -1379,7 +1479,7 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
  * der beteiligten Profile (Gesichter/Autor). Fire-and-forget beim Betreten der Startseite.
  */
 export const loadSpaceThreads = async (url: string): Promise<void> => {
-    const comments = await loadRoomComments(url)
+    const comments = [...(await loadRoomComments(url)), ...(await loadSpaceThreadReplies(url))]
     const rootIds = uniq(comments.map(commentRootId).filter((id): id is string => Boolean(id)))
     const roots = rootIds.length > 0 ? await load({ relays: [url], filters: [{ ids: rootIds }] }) : []
     // Profile der Kommentar-Autoren (Gesichter) UND der Wurzel-Autoren (Snippet-Name) vorwärmen.
@@ -1387,11 +1487,29 @@ export const loadSpaceThreads = async (url: string): Promise<void> => {
 }
 
 /**
- * Kommentiert `target` (Thread-Root ODER Eltern-Kommentar) mit einem kind-1111 (NIP-22).
- * Optimistisch: der Thunk legt den Kommentar sofort ins Repository (erscheint via
- * `deriveThread`); bei Relay-Reject zurückgenommen. Gibt '' bei Erfolg, sonst den Fehler.
+ * Kommentiert `target` (Thread-Root ODER Eltern-Kommentar). Optimistisch: der Thunk legt
+ * den Kommentar sofort ins Repository (erscheint via `deriveThread`); bei Relay-Reject
+ * zurückgenommen. Gibt '' bei Erfolg, sonst den Fehler.
+ *
+ * **Die einzige Threading-Weiche im Client — und sie ist unvermeidlich.** zooid bekommt ein
+ * kind-1111 (NIP-22), Buzz eine kind-9-Raum-Nachricht mit markierten `e`-Tags. Buzz weist
+ * kind 1111 hart ab (`restricted: unknown event kind`, am laufenden Relay gemessen); ohne
+ * die Weiche wäre Antworten dort keine eingeschränkte Funktion, sondern eine kaputte.
+ *
+ * **`spaceIsBuzzAsync`, nicht die synchrone Fassung.** Die synchrone liest nur den
+ * NIP-11-Cache und meldet beim ersten Rendern verlässlich `false` — die erste Antwort eines
+ * frischen Tabs liefe damit immer ins falsche Format. Dieselbe Falle hat in diesem Umbau
+ * schon Upload, Admin-Erkennung und Raum-Menü erwischt.
+ *
+ * `rootH` ist auf Buzz **Pflicht** (eine Antwort ohne `h` ist keine Raum-Nachricht). Fehlt
+ * es, bleibt der NIP-22-Pfad die einzig ehrliche Antwort: er scheitert am Relay sichtbar,
+ * statt ein `["h",""]` zu erfinden, das der Relay schweigend in den falschen Kanal legt.
  */
 export const sendComment = async (url: string, target: TrustedEvent, content: string, attachment?: Attachment, rootH?: string): Promise<string> => {
+    if (rootH && (await spaceIsBuzzAsync(url))) {
+        const { rootId, parentId } = replyTargetIds(target)
+        return publishOptimistic(url, makeThreadReply(rootId, parentId, rootH, url, content, attachment))
+    }
     return publishOptimistic(url, makeComment(target, content, url, attachment, rootH))
 }
 

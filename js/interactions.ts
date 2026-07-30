@@ -4,10 +4,11 @@
  * Reaction/Delete/Poll). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { COMMENT, DELETE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
+import { COMMENT, DELETE, MESSAGE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
 import { getRelay, tagEvent, tagEventForComment, tagEventForReaction } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps'
+import { threadTags } from './threading'
 import type { PollOption, PollType } from './polls'
 
 /** NIP-70 PROTECTED-Marker: bittet das Relay, das Event nur vom Autor annehmbar zu halten. */
@@ -166,6 +167,41 @@ export const makeComment = (event: TrustedEvent, content: string, url: string, a
         body = body ? `${body}\n\n${attachment.url}` : attachment.url
     }
     return makeEvent(COMMENT, { content: body, tags })
+}
+
+/**
+ * **Buzz-Antwort auf `target`: eine ganz normale Raum-Nachricht (kind 9) mit markierten
+ * `e`-Tags** — der Gegenpart zu {@link makeComment}, nicht dessen Variante.
+ *
+ * Warum es diesen zweiten Bauer überhaupt gibt: Buzz weist kind 1111 **hart ab**
+ * (`restricted: unknown event kind`, am laufenden Relay gemessen). Auf einem Buzz-Space
+ * wäre die Antwort-Funktion mit dem NIP-22-Pfad nicht „eingeschränkt", sondern tot — jede
+ * Antwort liefe in eine Fehlermeldung. Deshalb ist die Weiche in `sendComment` ein echtes
+ * Entweder-oder und keine Optimierung.
+ *
+ * Die Tag-Regeln stecken vollständig in {@link threadTags} (Regeln 1–4 aus `threading.ts`);
+ * hier kommt nur der Raum-Bezug dazu. Das `h` ist auf Buzz **Pflicht** und muss vom Root
+ * kommen: eine Antwort im falschen Kanal wird abgelehnt (Regel 7), eine ohne `h` wäre gar
+ * keine Raum-Nachricht.
+ *
+ * `rootId`/`parentId` bestimmt der Aufrufer, weil nur er weiß, ob `target` die Wurzel oder
+ * ein Geschwister-Kommentar ist.
+ */
+export const makeThreadReply = (
+    rootId: string,
+    parentId: string,
+    h: string,
+    url: string,
+    content: string,
+    attachment?: { url: string; imetaTag: string[] },
+) => {
+    const tags = [...roomTags(h, url), ...threadTags(rootId, parentId)]
+    let body = content
+    if (attachment) {
+        tags.push(attachment.imetaTag)
+        body = body ? `${body}\n\n${attachment.url}` : attachment.url
+    }
+    return makeEvent(MESSAGE, { content: body, tags })
 }
 
 /** `nostr:npub…`/`nostr:nprofile…`-Mentions (NIP-27) im Nachrichtentext. */

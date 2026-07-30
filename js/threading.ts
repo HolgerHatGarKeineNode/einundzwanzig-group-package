@@ -111,3 +111,18 @@ export const threadTags = (rootId: string, parentId: string): string[][] =>
               ['e', rootId, '', THREAD_ROOT_MARKER],
               ['e', parentId, '', THREAD_REPLY_MARKER],
           ]
+
+/**
+ * Wurzel und Parent einer Antwort auf `target` — `target` ist die Wurzel selbst ODER eine
+ * Antwort darin. Der Aufrufer (die Antwort-Box) kennt diesen Unterschied nicht und soll ihn
+ * auch nicht kennen müssen.
+ *
+ * Der Kern ist der Fall „Antwort auf eine Antwort": die Wurzel steht dann in `target`s
+ * EIGENEN Tags, nicht in `target.id`. Nähme man hier `target.id` als Wurzel, entstünde ein
+ * Tiefe-2-Event, dessen `root` auf eine Antwort zeigt — Buzz lehnt das hart ab
+ * (`invalid: root tag does not match thread ancestry`, Regel 2), und die Antwort wäre weg.
+ */
+export const replyTargetIds = (target: Tagged & { id: string }): { rootId: string; parentId: string } => ({
+    rootId: threadRootId(target) || target.id,
+    parentId: target.id,
+})

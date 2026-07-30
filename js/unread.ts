@@ -37,6 +37,7 @@ import { MESSAGE, COMMENT, POLL, ZAP_GOAL, getTagValue, type TrustedEvent } from
 import { deriveEventsForUrl } from './repository.ts'
 import { readState, readStateReady, threadKey, roomWatermark, threadWatermark, type ReadState } from './readState.ts'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
+import { isThreadReply, threadRootId } from './threading.ts'
 
 /**
  * Lotus' In-Chat-Thread (NIP-29 Group Chat Threading, kind 10) — hier bewusst als
@@ -137,12 +138,12 @@ export function formatUnreadCount(count: number | null | undefined, cap: number 
 
 /**
  * Thread-Wurzel eines Kommentars, format-übergreifend: unsere kind-1111 tragen
- * `["E", rootId]` (NIP-22, uppercase), Lotus' kind-10 tragen
- * `["e", rootId, relay, "root"]` (NIP-29, Marker). Gleiche Regel wie
+ * `["E", rootId]` (NIP-22, uppercase), Lotus' kind-10 und Buzz' kind-9-Antworten tragen
+ * ihn im markierten `e`-Tag ({@link threadRootId}). Gleiche Regel wie
  * `feeds.ts commentRootId` — hier eigenständig, siehe {@link CHAT_THREAD}.
  */
 export const unreadCommentRootId = (event: TrustedEvent): string =>
-    getTagValue('E', event.tags) ?? event.tags.find((t) => t[0] === 'e' && t[3] === 'root')?.[1] ?? ''
+    getTagValue('E', event.tags) ?? threadRootId(event)
 
 export type UnreadInput = {
     /** Normalisierte Space-Relay-URL — Teil des Raum-Schlüssels im Wasserzeichen. */
@@ -203,8 +204,15 @@ export function computeUnread(input: UnreadInput): UnreadView {
         rooms[h] = 0
         watermarkByH.set(h, roomWatermark(input.state, input.url, h))
     }
+    // Buzz-Antworten liegen im SELBEN `#h`-Strom wie die Wurzeln (threading.ts Regel 7) und
+    // kämen ohne diesen Schnitt in den Raum-Zähler — für eine Zeile, die der Raum-Feed gar
+    // nicht zeigt. Regel 5/6 verlangen das Gegenteil: ein Kommentar zählt ausschließlich in
+    // seinen Thread. Der Schnitt ist strukturell (`reply`-Marker), nicht relay-abhängig;
+    // auf zooid ist `replies` immer leer.
+    const replies = input.events.filter(isThreadReply)
+    const comments = replies.length > 0 ? [...input.comments, ...replies] : input.comments
     for (const event of input.events) {
-        if (event.pubkey === input.me) {
+        if (event.pubkey === input.me || isThreadReply(event)) {
             continue
         }
         const h = getTagValue('h', event.tags)
@@ -219,7 +227,7 @@ export function computeUnread(input: UnreadInput): UnreadView {
             rooms[h] += 1 // Regel 6: ein Ereignis, ein Zähler
         }
     }
-    for (const comment of input.comments) {
+    for (const comment of comments) {
         if (comment.pubkey === input.me) {
             continue
         }

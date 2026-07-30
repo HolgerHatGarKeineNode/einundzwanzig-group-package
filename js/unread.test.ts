@@ -368,3 +368,62 @@ test('Die Pille an der Zeile ist eine PARTITION von roomsTotal, keine zweite Zae
     )
     assert.ok(sumUnreadRooms(view.rooms, proposals) <= view.roomsTotal, 'eine Teilsumme kann nie ueber der Gesamtsumme liegen')
 })
+
+// ── Buzz-Antworten: kind 9 im selben `#h`-Strom wie die Wurzeln ────────────
+
+/**
+ * Eine Buzz-Antwort ist eine Raum-Nachricht mit `reply`-Marker — sie kommt durch
+ * `input.events`, nicht durch `input.comments`. Das ist der ganze Unterschied.
+ */
+const buzzReply = (id: string, createdAt: number, h: string, rootId = ROOT, author = OTHER) =>
+    ({
+        id,
+        kind: MESSAGE,
+        created_at: createdAt,
+        pubkey: author,
+        tags: [['h', h], ['e', rootId, '', 'reply']],
+        content: '',
+        sig: '',
+    }) as never
+
+test('Buzz-Antwort zaehlt in ihren THREAD, nicht in den Raum', () => {
+    // Regel 5/6 in Buzz-Form: der Raum-Feed zeigt die Antwort nicht (sie steht im Thread),
+    // also darf die Raum-Pille sie auch nicht behaupten. Ohne den Schnitt zaehlte dieselbe
+    // Antwort im Raum — eine Zahl, die im Raum darunter nicht nachzuzaehlen waere.
+    const state: ReadState = { [roomKey(URL, 'raum')]: 1000, [threadKey(ROOT)]: 1000 }
+    const view = computeUnread(input({ state, events: [buzzReply('r1', 1001, 'raum')] }))
+
+    assert.equal(view.rooms.raum, 0, 'kein Raum-Punkt fuer eine Thread-Antwort')
+    assert.equal(view.threads[ROOT], 1)
+    assert.equal(view.roomsTotal, 0)
+    assert.equal(view.threadsTotal, 1)
+})
+
+test('Wurzel und Antwort im selben Strom werden getrennt gezaehlt', () => {
+    const state: ReadState = { [roomKey(URL, 'raum')]: 1000, [threadKey(ROOT)]: 1000 }
+    const view = computeUnread(
+        input({ state, events: [message('m1', 1001, 'raum'), buzzReply('r1', 1002, 'raum')] }),
+    )
+
+    assert.equal(view.rooms.raum, 1, 'nur die Wurzel')
+    assert.equal(view.threads[ROOT], 1, 'nur die Antwort')
+    assert.equal(view.roomsTotal + view.threadsTotal, 2, 'kein Ereignis doppelt, keins verloren')
+})
+
+test('Buzz-Antwort in einem NIE gelesenen Thread zaehlt nirgends (Regel 4 gilt auch hier)', () => {
+    // Ohne `t:`-Wasserzeichen gibt es keinen Thread-Punkt. Der Fehler waere, sie
+    // ersatzweise dem Raum zuzuschlagen — dann leuchtete jeder je eroeffnete Thread
+    // als Raum-Nachricht auf, und zwar dauerhaft.
+    const state: ReadState = { [roomKey(URL, 'raum')]: 1000 }
+    const view = computeUnread(input({ state, events: [buzzReply('r1', 1001, 'raum')] }))
+
+    assert.equal(view.rooms.raum, 0)
+    assert.equal(view.threads[ROOT], undefined)
+    assert.equal(view.any, false)
+})
+
+test('Die Wurzel einer Buzz-Antwort wird aus dem `reply`-Marker gelesen (Tiefe 1)', () => {
+    // Bei Tiefe 1 gibt es KEINEN root-Marker (Buzz-Regel 1). Ein Leser, der nur `root`
+    // kennt, faende hier '' und liesse die Antwort still fallen.
+    assert.equal(unreadCommentRootId(buzzReply('r1', 1, 'raum')), ROOT)
+})

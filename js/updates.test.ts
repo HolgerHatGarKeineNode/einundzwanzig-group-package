@@ -769,3 +769,68 @@ test('B3: der Scan bleibt an der Ableitung wirksam — Attrappen erzeugen keine 
     )
     assert.deepEqual(items.map((i) => i.type), ['message'], 'Attrappen sind Text, keine Erwaehnung')
 })
+
+// ── Buzz-Antworten: kind 9 im selben `#h`-Strom wie die Wurzeln ─────────────
+
+/** Buzz-Antwort = Raum-Nachricht mit `reply`-Marker; kommt durch `events`, nicht `comments`. */
+const buzzReply = (id: string, createdAt: number, rootId = ROOT, over: { author?: string; content?: string } = {}) =>
+    message(id, createdAt, {
+        author: over.author,
+        content: over.content,
+        tags: [['h', H], ['e', rootId, '', 'reply']],
+    })
+
+test('Buzz-Antwort ergibt eine THREAD-Zeile mit Deep-Link, keine Raum-Zeile', () => {
+    // Ohne den Schnitt stuende sie als Raum-Nachricht da — mit vollem Text und einem Link
+    // auf den Raum, in dem sie gar nicht auftaucht (der Raum-Feed zeigt nur Wurzeln).
+    const state = readUpTo(NOW - HOUR)
+    const items = computeUpdates(input({ state, events: [root(), buzzReply('r1', NOW - MIN)] }))
+
+    assert.equal(items.length, 1)
+    assert.equal(items[0].type, 'thread')
+    assert.equal(items[0].rootId, ROOT)
+    assert.equal(
+        items[0].href,
+        `/rooms/${H}/thread/${nip19.neventEncode({ id: ROOT, relays: [URL], author: THIRD })}?from=updates`,
+    )
+})
+
+test('Wurzel und Buzz-Antwort im selben Strom ergeben ZWEI Zeilen, nicht eine', () => {
+    const state = readUpTo(NOW - HOUR)
+    const items = computeUpdates(
+        input({ state, events: [root(), message('m1', NOW - 2 * MIN), buzzReply('r1', NOW - MIN)] }),
+    )
+
+    // Die Raum-Zeile buendelt NUR die Wurzel-Nachricht; die Antwort steht in ihrer eigenen
+    // Thread-Zeile. Ohne den Schnitt waere es eine Raum-Zeile mit zwei Nachrichten — und der
+    // Thread haette gar keine.
+    assert.deepEqual(
+        items.map((i) => i.key).sort(),
+        [`message:${H}`, `thread:${ROOT}`],
+    )
+    const raum = items.find((i) => i.type === 'message')!
+    assert.equal(raum.rootId, '', 'die Raum-Zeile gehoert zu keinem Thread')
+    assert.equal(raum.href, `/rooms/${H}?from=updates`)
+})
+
+test('Eine @-Erwaehnung IN einer Buzz-Antwort verlinkt in den THREAD, nicht in den Raum', () => {
+    // Regel 3 (Erwaehnung schlaegt Buendelung) gilt weiter — aber sie muss in der
+    // THREAD-Schleife greifen. Lief die Antwort noch durch die Raum-Schleife, entstuende
+    // dieselbe Zeile mit `rootId: ''` und einem Link auf den Raum, in dem sie nicht steht.
+    const state = readUpTo(NOW - HOUR)
+    const items = computeUpdates(
+        input({ state, events: [root(), buzzReply('r1', NOW - MIN, ROOT, { content: mention(ME) })] }),
+    )
+
+    assert.equal(items.length, 1)
+    assert.equal(items[0].type, 'mention')
+    assert.equal(items[0].rootId, ROOT, 'die Erwaehnung zeigt auf den Thread')
+    assert.equal(
+        items[0].href,
+        `/rooms/${H}/thread/${nip19.neventEncode({ id: ROOT, relays: [URL], author: THIRD })}?from=updates`,
+    )
+})
+
+test('Die Wurzel einer Buzz-Antwort wird aus dem `reply`-Marker gelesen (Tiefe 1)', () => {
+    assert.equal(updatesCommentRootId(buzzReply('r1', 1)), ROOT)
+})

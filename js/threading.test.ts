@@ -17,6 +17,7 @@ import {
     THREAD_ROOT_MARKER,
     isRootMessage,
     isThreadReply,
+    replyTargetIds,
     threadParentId,
     threadRootId,
     threadTags,
@@ -155,4 +156,52 @@ test('Was `threadTags` schreibt, liest `threadRootId`/`threadParentId` zurück',
     // Und beide sind für den Raum-Feed Antworten, nicht Wurzeln.
     assert.equal(isRootMessage(direkt), false)
     assert.equal(isRootMessage(tief), false)
+})
+
+// ── `replyTargetIds`: derselbe Aufruf für Wurzel und Antwort ───────────────
+
+test('Antwort auf die WURZEL: rootId = parentId = die Wurzel selbst → ein reply-Tag', () => {
+    const wurzel = { id: ROOT, tags: [['h', 'raum']] }
+    const { rootId, parentId } = replyTargetIds(wurzel)
+
+    assert.equal(rootId, ROOT)
+    assert.equal(parentId, ROOT)
+    // Und die daraus gebaute Form ist die einzige, die Buzz bei Tiefe 1 verknüpft.
+    assert.deepEqual(threadTags(rootId, parentId), [['e', ROOT, '', THREAD_REPLY_MARKER]])
+})
+
+test('Antwort auf eine ANTWORT: die Wurzel kommt aus deren Tags, NICHT aus ihrer id', () => {
+    // Die Antwort der Tiefe 1 trägt nur `reply` (Regel 1) — dort steht die Wurzel.
+    const antwort = { id: PARENT, tags: [['h', 'raum'], ['e', ROOT, '', THREAD_REPLY_MARKER]] }
+    const { rootId, parentId } = replyTargetIds(antwort)
+
+    assert.equal(rootId, ROOT, 'die Wurzel des Threads, nicht das Ziel')
+    assert.equal(parentId, PARENT)
+    assert.deepEqual(threadTags(rootId, parentId), [
+        ['e', ROOT, '', THREAD_ROOT_MARKER],
+        ['e', PARENT, '', THREAD_REPLY_MARKER],
+    ])
+})
+
+test('Der Fehler, der Antworten verschwinden ließe: target.id als Wurzel bei Tiefe ≥ 2', () => {
+    // Genau das entsteht ohne `replyTargetIds` — `root` zeigt auf eine ANTWORT statt auf
+    // die Wurzel. Buzz lehnt das hart ab („root tag does not match thread ancestry"), die
+    // Antwort ist weg. Hier steht der Unterschied als Tatsache, nicht als Kommentar.
+    const antwort = { id: PARENT, tags: [['e', ROOT, '', THREAD_REPLY_MARKER]] }
+    const falsch = threadTags(antwort.id, antwort.id)
+    const richtig = threadTags(replyTargetIds(antwort).rootId, replyTargetIds(antwort).parentId)
+
+    assert.notDeepEqual(falsch, richtig)
+    assert.equal(threadRootId({ tags: falsch }), PARENT, 'die falsche Form wurzelt an der Antwort')
+    assert.equal(threadRootId({ tags: richtig }), ROOT, 'die richtige an der Wurzel')
+})
+
+test('Antwort der Tiefe 3: die Wurzel bleibt die Wurzel (root-Marker gewinnt vor reply)', () => {
+    // Ein Tiefe-2-Event trägt BEIDE Marker. Wer darauf antwortet, muss `root` lesen —
+    // läse er `reply`, wanderte die „Wurzel" mit jeder Ebene weiter und der Thread zerfiele.
+    const tief = { id: OTHER, tags: [['e', ROOT, '', THREAD_ROOT_MARKER], ['e', PARENT, '', THREAD_REPLY_MARKER]] }
+    const { rootId, parentId } = replyTargetIds(tief)
+
+    assert.equal(rootId, ROOT)
+    assert.equal(parentId, OTHER)
 })
