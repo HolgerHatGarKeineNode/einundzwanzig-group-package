@@ -86,18 +86,13 @@
         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
 
-    {{-- Admin-Aktionen (identisch zu room-tile): Bearbeiten/Mitglieder/Löschen. --}}
-    <template x-if="isAdmin">
-        <div class="shrink-0 pr-1" x-on:click.stop>
-            <flux:dropdown position="bottom" align="end">
-                <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Raum verwalten') }}" />
-                <flux:menu>
-                    <flux:menu.item icon="pencil-square" x-on:click="openRoomEdit(room)">{{ __('Bearbeiten') }}</flux:menu.item>
-                    <flux:menu.item icon="users" x-on:click="openRoomMembers(room)">{{ __('Mitglieder') }}</flux:menu.item>
-                    <flux:menu.separator />
-                    <flux:menu.item variant="danger" icon="trash" x-on:click="askDeleteRoom(room)">{{ __('Löschen') }}</flux:menu.item>
-                </flux:menu>
-            </flux:dropdown>
-        </div>
-    </template>
+    {{-- KEIN Verwalten-Menü. Diese Kachel zeigt ausschließlich Meetup-Räume, und die
+         werden vom Vereins-Portal erzeugt und gepflegt (`["t","meetup"]` + `meetup_slug`).
+         Ihr 39000 ist abgeleitet: wer es hier von Hand ändert oder den Raum löscht,
+         bricht die Bindung zur Quelle, ohne dass die Quelle davon erfährt — beim
+         nächsten Abgleich steht der Raum wieder da, nur mit widersprüchlichen Daten.
+         Begründung ausführlich in `room-tile.blade.php`.
+
+         Nur die Oberfläche, nicht das Recht: der Relay erlaubt einem Admin beides
+         weiterhin. Wer es hart verhindern will, braucht eine Regel am Relay. --}}
 </div>

@@ -36,6 +36,7 @@ import { nip55Available, startNip55Login } from './nip55-signer'
 import { schedulePortalHandoff } from './portal-handoff'
 // Desktop-Shell: beide bewusst in eigenen Modulen, nicht hier inline — diese Datei
 // ist die meistberührte im Package, und Rail/Viewport haben mit dem Rest nichts zu tun.
+import { regionName } from './countryNames'
 import { wireViewport } from './viewport'
 import { wireRail } from './rail'
 import {
@@ -1060,7 +1061,9 @@ function installResizeObserverLoopFilter(): void {
 // Zugleich vermeidet der Modul-Scope reaktive Writes während des Renderns.
 // Die Formatter sind zustandslos → prozessweit teilbar; die Filter-Caches sind
 // per Schlüssel invalidiert (Single-Space-Seite → genau eine nostrSpaces-Insel).
-let _regionNamesCache: Intl.DisplayNames | null | undefined
+// `regionNames` ist seit der gruppierten Rail nach `countryNames.ts` gewandert —
+// der Navigator braucht dieselbe Auflösung, und zwei Caches für dieselbe Frage
+// wären zwei Wahrheiten. Die Begründung für den Modul-Scope steht dort.
 let _dateFmtCache: Intl.DateTimeFormat | null | undefined
 let _myCCCache: string | undefined
 // Aktivitäts-Feld der Datenschicht (`groups.ts lastMessageAtByUrl`). Räume ohne
@@ -1071,16 +1074,6 @@ let _roomFilterCache: RoomFilterResult | null = null
 type CountryOption = { country: string; flag: string; name: string; count: number }
 let _countryCache: { key: string; list: CountryOption[] } | null = null
 
-const regionNames = (): Intl.DisplayNames | null => {
-    if (_regionNamesCache === undefined) {
-        try {
-            _regionNamesCache = new Intl.DisplayNames(['de'], { type: 'region' })
-        } catch {
-            _regionNamesCache = null
-        }
-    }
-    return _regionNamesCache
-}
 const dateFmt = (): Intl.DateTimeFormat | null => {
     if (_dateFmtCache === undefined) {
         try {
@@ -2000,11 +1993,7 @@ export function registerNostrComponents(Alpine: {
             if (!iso) {
                 return ''
             }
-            try {
-                return regionNames()?.of(iso) ?? iso
-            } catch {
-                return iso
-            }
+            return regionName(iso)
         },
         countryFlag(iso: string): string {
             return flagEmoji(iso)

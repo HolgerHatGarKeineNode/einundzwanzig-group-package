@@ -1,5 +1,5 @@
 /**
- * `nostrRail` — die Insel des Desktop-Navigators (P4 der Desktop-Shell).
+ * `nostrRail` — die Insel des Desktop-Navigators.
  *
  * **Warum das nicht `nostrSpaces` ist.** Die Rail steht auf JEDER Seite, auch auf
  * `/rooms/{h}`. `nostrSpaces.init()` ruft als erstes `clearEphemeralSpace()`
@@ -7,61 +7,128 @@
  * Raumseite instanziiert wäre das fatal: ein Workspace-Raum fiele beim Öffnen
  * sofort auf zooid zurück, der Verlauf bliebe leer, und der Rückweg wäre kaputt.
  * Dieselbe Insel ein zweites Mal zu mounten verbietet zusätzlich der
- * Ein-Insel-Vorbehalt in `bridge.ts` (Modul-Scope-Caches `_roomFilterCache`,
- * `_countryCache`).
+ * Ein-Insel-Vorbehalt in `bridge.ts` (Modul-Scope-Caches).
  *
- * Deshalb diese eigene, bewusst ARME Insel. Ihre Regeln:
- *   - Sie LIEST. Sie ruft `clearEphemeralSpace()` niemals, setzt keinen Space und
- *     schreibt kein Event.
- *   - Sie benutzt die Modul-Scope-Caches von `nostrSpaces` nicht mit.
- *   - Sie kennt weder Filter noch Kategorien noch Raum-Verwaltung. Wer suchen,
- *     filtern oder Räume anlegen will, geht auf `/spaces` — die Rail ist eine
- *     Sprungliste, keine zweite Raumübersicht.
+ * **Die Leseregel und ihre einzige Ausnahme.** Die Rail mutiert den aktiven Space
+ * nicht als Nebenwirkung ihres Lebenszyklus — nie in `init()`, nie in `destroy()`.
+ * Eine vom Nutzer angeforderte Navigation in einen anderen Space ist aber keine
+ * Nebenwirkung, sondern die Navigation selbst; deshalb genau zwei Stellen, beide
+ * im Klick-Handler (`openRoom`), keine im Lebenszyklus.
  *
- * `watchSpaceRooms` ruft sie hingegen sehr wohl: auf `/rooms/{h}` ist sonst
- * niemand da, der die Raumliste des aktiven Space überhaupt lädt. Das ist eine
- * Subscription, keine Mutation — der aktive Space bleibt, was er war.
+ * **Heim-Space vs. Workspace.** Gruppen 1–3 binden an den HEIM-Space (die
+ * persistierte Wahl, ohne ephemere Übersteuerung), Gruppe 4 fest an den Workspace.
+ * Vorher hing alles an `activeSpace` — deshalb zeigte die Rail in einem
+ * Workspace-Raum die falsche Raumliste. Jetzt zeigt sie beide, korrekt beschriftet.
+ *
+ * Die Gruppierung selbst ist reine, node-getestete Logik (`railGroups.ts`). Hier
+ * lebt nur, was ohne Browser nicht geht: Subscriptions, Navigation, localStorage.
  */
 
 import { get } from 'svelte/store'
 import {
-    activeSpace,
-    activeSpaceView,
-    watchSpaceRooms,
-    displayRelayUrl,
+    DEFAULT_SPACE_URL,
     WORKSPACE_URL,
-    type SpaceView,
+    activeSpaceUrl,
+    activeSpaceView,
+    clearEphemeralSpace,
+    deriveSpaceViewFor,
+    displayRelayUrl,
+    ephemeralSpaceUrl,
+    hasWorkspace,
+    setActiveSpaceEphemeral,
+    watchSpaceRooms,
     type RoomView,
+    type SpaceView,
 } from './groups'
+import { loadMeetupPresentations, meetupPresentationBySlug } from './meetups'
+import { type MeetupPresentation } from './meetupPresentation'
 import { workspaceRoomHref } from './spaceParam'
+import { regionName } from './countryNames'
+import { sumUnreadRooms } from './unread'
+import {
+    EMPTY_SCOPE,
+    RAIL_GROUP_ORDER,
+    buildGroups,
+    matchedViaCity,
+    middleTruncate,
+    parseScope,
+    scopeToken,
+    type RailGroup,
+    type RailGroupKey,
+    type RailRoom,
+    type RailScope,
+} from './railGroups'
+
+/** localStorage-Schlüssel des Auf/Zu-Zustands. */
+const OPEN_KEY = 'railGroups.open'
+
+/** Default-Zustand: nur „Räume" offen; der Rest kostet sonst die halbe Spalte. */
+const DEFAULT_OPEN: Record<RailGroupKey, boolean> = {
+    rooms: true,
+    meetups: false,
+    proposals: false,
+    workspace: false,
+}
+
+/** Beschriftungen der vier Gruppen — geteilt zwischen Chip und Gruppenkopf. */
+const GROUP_LABEL: Record<RailGroupKey, string> = {
+    rooms: 'Räume',
+    meetups: 'Meetups',
+    proposals: 'Projektunterstützung',
+    workspace: 'Workspace',
+}
+
+type CountryOption = { country: string; flag: string; name: string; count: number }
 
 export type RailState = {
     space: SpaceView | null
+    workspace: SpaceView | null
     url: string
     query: string
+    scope: RailScope
     focused: boolean
     activeRoomH: string
+    open: Record<RailGroupKey, boolean>
+    presentations: Record<string, MeetupPresentation>
     _unsubView: (() => void) | null
     _unsubActive: (() => void) | null
+    _unsubWorkspace: (() => void) | null
+    _unsubMeetups: (() => void) | null
     _controller: AbortController | null
+    _wsController: AbortController | null
     _onKey: ((e: KeyboardEvent) => void) | null
-    readonly rooms: RoomView[]
+    readonly groups: RailGroup[]
+    readonly rooms: RailRoom[]
     readonly spaceLabel: string
-    readonly userRooms: RoomView[]
-    readonly otherRooms: RoomView[]
-    readonly matchCount: number
-    roomHref(h: string): string
-    openRoom(h: string): void
+    readonly workspaceLabel: string
+    readonly hasWorkspaceSection: boolean
+    readonly countryOptions: CountryOption[]
+    groupFor(key: RailGroupKey): RailGroup
+    groupUnread(key: RailGroupKey): number
+    isOpen(key: RailGroupKey): boolean
+    toggleGroup(key: RailGroupKey): void
+    scopeToGroup(key: RailGroupKey): void
+    toggleCountry(iso: string): void
+    clearScope(): void
+    railName(room: RailRoom): string
+    roomFlag(room: RailRoom): string
+    cityHint(room: RailRoom): string
+    openRoom(room: RailRoom): void
     jumpToFirst(): void
     step(delta: number): void
+    onEscape(el: HTMLInputElement): void
+    focusPrompt(): void
+    /** In welcher Gruppe liegt der aktive Raum? `null`, wenn keiner offen ist. */
+    activeGroup(): RailGroupKey | null
+    readonly scopeLabel: string
     init(): void
     destroy(): void
 }
 
 /**
- * Der aktive Raum steht im Pfad, nicht im Zustand — `/rooms/{h}`. Ihn aus der URL
- * zu lesen statt ihn zu führen ist der einzige Weg, der `wire:navigate` überlebt:
- * Alpine wird bei jeder Navigation neu aufgebaut, die Adressleiste nicht.
+ * Der aktive Raum steht im Pfad, nicht im Zustand — ihn aus der URL zu lesen statt
+ * ihn zu führen ist der einzige Weg, der `wire:navigate` überlebt: Alpine wird bei
+ * jeder Navigation neu aufgebaut, die Adressleiste nicht.
  */
 const roomHFromPath = (pathname: string): string => {
     const m = /^\/rooms\/([^/?#]+)/.exec(pathname)
@@ -69,69 +136,259 @@ const roomHFromPath = (pathname: string): string => {
     return m ? decodeURIComponent(m[1]) : ''
 }
 
-/** Diakritika-tolerantes Enthaltensein — „Kempten" findet auch „KEMPTEN". */
-const matches = (haystack: string, needle: string): boolean =>
-    haystack.toLocaleLowerCase().includes(needle.toLocaleLowerCase())
+/** `SpaceView` → flache Rail-Räume; `joined` kommt aus der Herkunftsliste. */
+const toRailRooms = (view: SpaceView | null): RailRoom[] => [
+    ...(view?.userRooms ?? []).map((r: RoomView) => ({ ...r, joined: true })),
+    ...(view?.otherRooms ?? []).map((r: RoomView) => ({ ...r, joined: false })),
+]
 
+const readOpen = (): Record<RailGroupKey, boolean> => {
+    try {
+        const raw = localStorage.getItem(OPEN_KEY)
+        if (!raw) {
+            return { ...DEFAULT_OPEN }
+        }
+
+        return { ...DEFAULT_OPEN, ...(JSON.parse(raw) as Partial<Record<RailGroupKey, boolean>>) }
+    } catch {
+        return { ...DEFAULT_OPEN } // kaputter/gesperrter Storage → Default, kein Fehler
+    }
+}
+
+/**
+ * Zwei TypeScript-Eigenheiten, die den Aufbau hier erklären:
+ *
+ * 1. Das Literal wird DIREKT zurückgegeben (`=> ({…})`), nicht über eine
+ *    Zwischenvariable. Nur so ist es kontextuell durch `RailState` typisiert und
+ *    `this` in den Methoden dadurch bekannt — dasselbe Muster wie alle Inseln in
+ *    `bridge.ts`. Mit `const state: RailState = {…}; return state` fällt `this`
+ *    auf `{}` zurück und jeder Feldzugriff ist ein Fehler (gemessen, nicht vermutet).
+ * 2. Für ACCESSOREN greift auch das nicht — dort pinnt jeder Getter sein `this`
+ *    selbst per `const self = this as RailState`. Bewusst NICHT über eine
+ *    Closure-Variable: Alpine reicht den reaktiven Proxy als `this` herein, ein
+ *    Getter am rohen Objekt verlöre genau die Reaktivität, für die er da ist.
+ */
 export const createRail = (): RailState => ({
     space: null,
+    workspace: null,
     url: '',
     query: '',
+    scope: { ...EMPTY_SCOPE },
     focused: false,
     activeRoomH: '',
+    open: { ...DEFAULT_OPEN },
+    presentations: {},
     _unsubView: null,
     _unsubActive: null,
+    _unsubWorkspace: null,
+    _unsubMeetups: null,
     _controller: null,
+    _wsController: null,
     _onKey: null,
 
-    /** Beide Sektionen als EINE Reihenfolge — die Grundlage für Alt+↑/↓. */
-    get rooms(): RoomView[] {
-        return [...this.userRooms, ...this.otherRooms]
-    },
-
     get spaceLabel(): string {
-        return this.space?.label || displayRelayUrl(this.url) || ''
+        const self = this as RailState
+
+        return self.space?.label || displayRelayUrl(self.url) || ''
     },
 
-    // Beide Listen laufen durch denselben Filter. Getter statt `$watch`: die
-    // Filterung ist reines Ableiten aus `query` + `space`, und Alpine wertet
-    // Getter reaktiv aus — ein gespiegeltes Feld wäre eine zweite Wahrheit.
-    get userRooms(): RoomView[] {
-        const q = this.query.trim()
-        const rooms = this.space?.userRooms ?? []
+    get workspaceLabel(): string {
+        const self = this as RailState
 
-        return q === '' ? rooms : rooms.filter((r) => matches(r.name || r.h, q))
+        return self.workspace?.label || displayRelayUrl(WORKSPACE_URL) || ''
     },
 
-    get otherRooms(): RoomView[] {
-        const q = this.query.trim()
-        const rooms = this.space?.otherRooms ?? []
-
-        return q === '' ? rooms : rooms.filter((r) => matches(r.name || r.h, q))
+    get hasWorkspaceSection(): boolean {
+        return hasWorkspace()
     },
 
-    get matchCount(): number {
-        return this.userRooms.length + this.otherRooms.length
+    // Getter statt gespiegelter Felder: die Gruppierung ist reines Ableiten aus
+    // (Räume, Präsentationen, Suchtext, Scope), und Alpine wertet Getter reaktiv aus.
+    // Ein gespiegeltes Feld wäre eine zweite Wahrheit über dieselbe Frage.
+    get groups(): RailGroup[] {
+        const self = this as RailState
+
+        return buildGroups(toRailRooms(self.space), {
+            presentations: self.presentations,
+            query: self.query,
+            scope: self.scope,
+            workspaceRooms: toRailRooms(self.workspace),
+        })
     },
 
     /**
-     * Die Raum-URL trägt die Space-Markierung mit, wenn der aktive Space der
-     * Workspace ist (`?space=workspace`, siehe `spaceParam.ts`). Ohne sie landete
-     * ein Reload des Ziels wieder auf dem Vereins-Relay und der Raum bliebe leer.
+     * Die SICHTBARE Reihenfolge über alle offenen Gruppen — die Grundlage für
+     * Alt+↑/↓ und Enter. Zeilen aus zugeklappten Gruppen gehören nicht dazu:
+     * eine Tastatur-Navigation an unsichtbaren Zeilen entlang wäre eine Blackbox.
      */
-    roomHref(h: string): string {
-        return WORKSPACE_URL !== '' && this.url === WORKSPACE_URL
-            ? workspaceRoomHref(h)
-            : `/rooms/${encodeURIComponent(h)}`
+    get rooms(): RailRoom[] {
+        const self = this as RailState
+
+        const out: RailRoom[] = []
+        for (const g of self.groups) {
+            if (self.isOpen(g.key)) {
+                out.push(...g.joined, ...g.others)
+            }
+        }
+
+        return out
     },
 
-    openRoom(h: string): void {
+    /** Länder der Meetup-Gruppe mit Bestand, das eigene Land zuerst — wie die Bühne. */
+    get countryOptions(): CountryOption[] {
+        const self = this as RailState
+
+        const counts = new Map<string, number>()
+        for (const room of toRailRooms(self.space)) {
+            if (!room.isMeetup) {
+                continue
+            }
+            const iso = self.presentations[room.meetupSlug ?? '']?.country ?? ''
+            if (iso) {
+                counts.set(iso, (counts.get(iso) ?? 0) + 1)
+            }
+        }
+
+        return [...counts.entries()]
+            .map(([country, count]) => ({
+                country,
+                count,
+                flag: self.presentations[
+                    Object.keys(self.presentations).find((s) => self.presentations[s].country === country) ?? ''
+                ]?.flag ?? '',
+                name: regionName(country),
+            }))
+            .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    },
+
+    groupFor(key: RailGroupKey): RailGroup {
+        return this.groups.find((g) => g.key === key) ?? { key, joined: [], others: [], hiddenCount: 0, total: 0 }
+    },
+
+    /**
+     * Ungelesen-Summe einer Gruppe — erscheint NUR am zugeklappten Kopf. Ist die
+     * Gruppe offen, tragen die Zeilen die Pillen. Ein Zähler, ein Ort.
+     * Gerechnet über den ungekappten Bestand: eine Summe, die die Kappung mitmacht,
+     * wäre falsch.
+     */
+    groupUnread(key: RailGroupKey): number {
+        const store = (window as unknown as { Alpine?: { store(n: string): { rooms?: Record<string, number> } } })
+            .Alpine?.store('unread')
+        const all = key === 'workspace' ? toRailRooms(this.workspace) : toRailRooms(this.space)
+        const hs = all.filter((r) => (key === 'workspace' ? true : groupKeyOf(r) === key)).map((r) => r.h)
+
+        return sumUnreadRooms(store?.rooms, hs)
+    },
+
+    /** Beschriftung des Scope-Chips: „Meetups · Österreich", „Räume", „🇩🇪 Deutschland". */
+    get scopeLabel(): string {
+        const self = this as RailState
+
+        const parts: string[] = []
+        if (self.scope.group) {
+            parts.push(GROUP_LABEL[self.scope.group])
+        }
+        if (self.scope.country) {
+            parts.push(regionName(self.scope.country))
+        }
+
+        return parts.join(' · ')
+    },
+
+    focusPrompt(): void {
+        const el = (this as unknown as { $refs?: { prompt?: HTMLInputElement } }).$refs?.prompt
+        el?.focus()
+        el?.select()
+    },
+
+    activeGroup(): RailGroupKey | null {
+        if (this.activeRoomH === '') {
+            return null
+        }
+        for (const key of RAIL_GROUP_ORDER) {
+            const g = this.groupFor(key)
+            if ([...g.joined, ...g.others].some((r) => r.h === this.activeRoomH)) {
+                return key
+            }
+        }
+
+        return null
+    },
+
+    isOpen(key: RailGroupKey): boolean {
+        // Die Gruppe des aktiven Raums klappt IMMER auf — sonst beantwortet die
+        // Rail „wo bin ich" nicht mehr, ihren ersten Zweck.
+        if (this.activeRoomH !== '' && this.activeGroup() === key) {
+            return true
+        }
+        // Während einer Suche klappt jede Gruppe mit Treffern auf, sonst bliebe das
+        // Ergebnis hinter einem zugeklappten Kopf verborgen.
+        if ((this.query.trim() !== '' || this.scope.group !== null) && this.groupFor(key).total > 0) {
+            return true
+        }
+
+        return this.open[key] === true
+    },
+
+    toggleGroup(key: RailGroupKey): void {
+        this.open = { ...this.open, [key]: !this.open[key] }
+        try {
+            localStorage.setItem(OPEN_KEY, JSON.stringify(this.open))
+        } catch {
+            /* gesperrter Storage → der Zustand gilt nur für diese Seite. Kein Fehler. */
+        }
+    },
+
+    scopeToGroup(key: RailGroupKey): void {
+        this.scope = { group: key, country: '' }
+        this.focusPrompt()
+    },
+
+    toggleCountry(iso: string): void {
+        this.scope = this.scope.country === iso
+            ? { ...this.scope, country: '' }
+            : { group: 'meetups', country: iso }
+    },
+
+    clearScope(): void {
+        this.scope = { ...EMPTY_SCOPE }
+    },
+
+    railName(room: RailRoom): string {
+        return middleTruncate(room.name || room.h)
+    },
+
+    roomFlag(room: RailRoom): string {
+        return this.presentations[room.meetupSlug ?? '']?.flag ?? ''
+    },
+
+    /** Stadt als Trefferbegründung — nur, wenn die Suche NICHT über den Namen traf. */
+    cityHint(room: RailRoom): string {
+        const pres = this.presentations[room.meetupSlug ?? '']
+
+        return matchedViaCity(room, pres, this.query) ? (pres?.city ?? '') : ''
+    },
+
+    openRoom(room: RailRoom): void {
         const w = window as unknown as { Livewire?: { navigate: (href: string) => void } }
-        const href = this.roomHref(h)
-        // `activeRoomH` sofort mitziehen: `wire:navigate` tauscht den Body erst
-        // nach dem Netz-Roundtrip. Ohne das bliebe die alte Zeile bis dahin
-        // markiert und der Klick fühlte sich tot an.
-        this.activeRoomH = h
+        const isWorkspaceRoom = this.workspace !== null
+            && (this.workspace.userRooms.some((r) => r.h === room.h) || this.workspace.otherRooms.some((r) => r.h === room.h))
+
+        // ── Die einzigen zwei Mutationen der Rail, beide vom Nutzer angefordert ──
+        if (isWorkspaceRoom) {
+            setActiveSpaceEphemeral(WORKSPACE_URL)
+        } else if (get(ephemeralSpaceUrl) !== null) {
+            // Aus einem Workspace-Raum zurück in einen Heim-Raum. NÖTIG: `/rooms/{h}`
+            // ohne `?space=` setzt beim Mount nichts, und `clearEphemeralSpace()` läuft
+            // sonst nur auf `/spaces`. Ohne diese Zeile lüde der Raum gegen das FALSCHE
+            // Relay — leerer Verlauf, Beitritt als `invalid: group not found`.
+            clearEphemeralSpace()
+        }
+
+        const href = isWorkspaceRoom ? workspaceRoomHref(room.h) : `/rooms/${encodeURIComponent(room.h)}`
+        // `activeRoomH` sofort mitziehen: `wire:navigate` tauscht den Body erst nach
+        // dem Netz-Roundtrip; ohne das bliebe die alte Zeile markiert.
+        this.activeRoomH = room.h
         if (w.Livewire) {
             w.Livewire.navigate(href)
         } else {
@@ -139,21 +396,14 @@ export const createRail = (): RailState => ({
         }
     },
 
-    /** Enter im `#`-Prompt springt in den ersten Treffer. */
     jumpToFirst(): void {
-        const first = this.userRooms[0] ?? this.otherRooms[0]
+        const first = this.rooms[0]
         if (first) {
             this.query = ''
-            this.openRoom(first.h)
+            this.openRoom(first)
         }
     },
 
-    /**
-     * Einen Raum weiter/zurück (Alt+↓ / Alt+↑) über BEIDE Sektionen hinweg.
-     * Ohne aktiven Raum (z.B. auf `/spaces`) beginnt Alt+↓ oben, Alt+↑ unten.
-     * Kein Umlauf: am Ende der Liste passiert nichts. Ein Umlauf wäre auf einer
-     * 95-Zeilen-Liste eine Überraschung, keine Hilfe.
-     */
     step(delta: number): void {
         const list = this.rooms
         if (list.length === 0) {
@@ -162,26 +412,79 @@ export const createRail = (): RailState => ({
         const at = list.findIndex((r) => r.h === this.activeRoomH)
         const next = at === -1 ? (delta > 0 ? 0 : list.length - 1) : at + delta
         if (next >= 0 && next < list.length) {
-            this.openRoom(list[next].h)
+            this.openRoom(list[next])
         }
+    },
+
+    /** Escape in drei Stufen: Text leeren → Scope lösen → Feld verlassen. */
+    onEscape(el: HTMLInputElement): void {
+        if (this.query !== '') {
+            this.query = ''
+
+            return
+        }
+        if (this.scope.group !== null || this.scope.country !== '') {
+            this.clearScope()
+
+            return
+        }
+        el.blur()
     },
 
     init(): void {
         this.activeRoomH = roomHFromPath(window.location.pathname)
+        this.open = readOpen()
 
-        // ── Tastatur ─────────────────────────────────────────────────────────
+        // Startwerte synchron, damit die Rail nicht leer aufblitzt: beide sind
+        // derived Stores und haben bereits einen Wert.
+        this.space = get(activeSpaceView)
+
+        // ── Heim-Space (Gruppen 1–3) ────────────────────────────────────────────
+        // Bewusst `activeSpaceUrl`, NICHT `activeSpace`: letzteres schließt den
+        // ephemeren Workspace ein, und dann zeigte die Rail in einem Workspace-Raum
+        // dessen Räume als „Räume". Der Heim-Space ist die persistierte Wahl.
+        this._unsubActive = activeSpaceUrl.subscribe((url: string | null) => {
+            this.url = url ?? DEFAULT_SPACE_URL
+            this._controller?.abort()
+            this._controller = new AbortController()
+            watchSpaceRooms(this.url, this._controller.signal)
+            // Die Sicht hängt an DIESER URL, nicht an einer einmal gelesenen: wechselt
+            // der Heim-Space in den Einstellungen, muss die Rail mitziehen. Deshalb
+            // steht das Abo INNERHALB der Subscription und wird bei jedem Wechsel
+            // neu aufgebaut — sonst zeigte die Rail bis zum Reload den alten Space.
+            this._unsubView?.()
+            this._unsubView = deriveSpaceViewFor(this.url).subscribe((view: SpaceView) => {
+                this.space = view
+            })
+        })
+
+        // ── Workspace (Gruppe 4) ────────────────────────────────────────────────
+        // Feste URL, eigener Watch — dasselbe Muster, das `nostrSpaces` für seinen
+        // Workspaces-Tab bereits fährt. Zwei Watches auf dieselbe URL sind kein
+        // neues Risiko: die Repository dedupliziert, Kosten sind ein REQ.
+        if (hasWorkspace()) {
+            this._wsController = new AbortController()
+            watchSpaceRooms(WORKSPACE_URL, this._wsController.signal)
+            this._unsubWorkspace = deriveSpaceViewFor(WORKSPACE_URL).subscribe((view: SpaceView) => {
+                this.workspace = view
+            })
+        }
+
+        // Meetup-Präsentation (Land/Flagge/Stadt) EINMAL laden, fail-soft, und den
+        // Index nach Alpine spiegeln — die Zeile joint dann über `room.meetupSlug`.
+        void loadMeetupPresentations()
+        this._unsubMeetups = meetupPresentationBySlug.subscribe((bySlug: Map<string, MeetupPresentation>) => {
+            this.presentations = Object.fromEntries(bySlug)
+        })
+
+        // ── Tastatur ────────────────────────────────────────────────────────────
         // Nur hier registriert, und die Rail existiert nur ab xl (`x-if` am
         // Viewport-Store) — auf dem Telefon läuft dieser Listener also nie.
-        //
-        // ⌘K/Strg+K greift AUCH aus dem Composer heraus: es ist der Sprung weg
-        // vom Schreiben, genau dann braucht man ihn. Alt+Pfeil dagegen ist ohne
-        // Textfeld-Ausnahme sicher — die Kombination erzeugt keine Eingabe.
+        // ⌘K greift AUCH aus dem Composer: es ist der Sprung WEG vom Schreiben.
         this._onKey = (e: KeyboardEvent): void => {
             if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
                 e.preventDefault()
-                const el = (this as unknown as { $refs?: { prompt?: HTMLInputElement } }).$refs?.prompt
-                el?.focus()
-                el?.select()
+                this.focusPrompt()
 
                 return
             }
@@ -191,33 +494,18 @@ export const createRail = (): RailState => ({
             }
         }
         window.addEventListener('keydown', this._onKey)
-
-        // Startwert synchron setzen, damit die Rail nicht erst leer aufblitzt:
-        // `activeSpaceView` ist ein derived Store und hat bereits einen Wert.
-        this.space = get(activeSpaceView)
-
-        this._unsubActive = activeSpace.subscribe((url: string) => {
-            this.url = url
-            // Ein Space-Wechsel bricht die Subscription des alten ab — sonst
-            // liefen zwei Relay-Watches nebeneinander und die Liste mischte.
-            this._controller?.abort()
-            this._controller = new AbortController()
-            watchSpaceRooms(url, this._controller.signal)
-        })
-
-        this._unsubView = activeSpaceView.subscribe((view: SpaceView) => {
-            this.space = view
-        })
     },
 
     destroy(): void {
         this._unsubActive?.()
         this._unsubView?.()
+        this._unsubWorkspace?.()
+        this._unsubMeetups?.()
         this._controller?.abort()
-        // Pflicht, nicht Kosmetik: `wire:navigate` baut die Insel bei JEDEM
-        // Raumwechsel neu auf. Ein nicht abgemeldeter window-Listener sammelte
-        // sich sonst pro Navigation an, und nach zwanzig Wechseln liefe ein
-        // Tastendruck zwanzig Mal.
+        this._wsController?.abort()
+        // Pflicht: `wire:navigate` baut die Insel bei JEDEM Raumwechsel neu auf. Ein
+        // nicht abgemeldeter window-Listener sammelte sich sonst an, und nach zwanzig
+        // Wechseln liefe ein Tastendruck zwanzig Mal.
         if (this._onKey) {
             window.removeEventListener('keydown', this._onKey)
             this._onKey = null
@@ -225,6 +513,12 @@ export const createRail = (): RailState => ({
     },
 })
 
+/** Typ eines Raums für die Ungelesen-Summe — spiegelt `groupOf` aus `railGroups`. */
+const groupKeyOf = (room: RailRoom): RailGroupKey =>
+    room.isProjectSupport ? 'proposals' : room.isMeetup ? 'meetups' : 'rooms'
+
 export function wireRail(Alpine: { data: (name: string, factory: () => unknown) => void }): void {
     Alpine.data('nostrRail', createRail)
 }
+
+export { parseScope, scopeToken }

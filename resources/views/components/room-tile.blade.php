@@ -46,7 +46,26 @@
 
     {{-- Admin-Aktionen (P4): Bearbeiten/Löschen. `.stop`, damit der Klick nicht die
          Raum-Navigation der Kachel auslöst. --}}
-    <template x-if="isAdmin">
+    {{-- KEIN Verwalten-Menü für Meetup- und Antragsräume.
+
+         Beide werden NICHT von Hand angelegt, sondern dynamisch aus einer anderen
+         Quelle erzeugt und gepflegt: Meetup-Räume tragen `["t","meetup"]` samt
+         `meetup_slug` aus dem Vereins-Portal, Antragsräume `["t","project-support"]`
+         samt `["i","proposal:<id>"]`. Ihr 39000 ist damit ABGELEITET — wer es hier
+         von Hand bearbeitet oder den Raum löscht, bricht die Bindung zur Quelle,
+         ohne dass die Quelle davon erfährt. Beim nächsten Abgleich steht der Raum
+         wieder da, nur mit widersprüchlichen Daten; ein gelöschter Raum lässt einen
+         Antrag ins Leere zeigen.
+
+         Nur die Oberfläche, nicht das Recht: der Relay erlaubt einem Admin beides
+         weiterhin, ein anderer Client oder `nak` kommt daran vorbei. Wer das hart
+         verhindern will, braucht eine Regel am Relay — dieselbe Abgrenzung wie bei
+         der Buzz-Ausblendung unten.
+
+         Der Marker liegt am Raum (`RoomView.isMeetup` / `.isProjectSupport`,
+         `js/groups.ts`), nicht an der Kachel — die Bedingung gilt deshalb überall
+         gleich, egal in welcher Liste die Kachel steht. --}}
+    <template x-if="isAdmin && !room.isMeetup && !room.isProjectSupport">
         <div class="shrink-0 pr-1" x-on:click.stop>
             <flux:dropdown position="bottom" align="end">
                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Raum verwalten') }}" />
