@@ -34,6 +34,36 @@ class WarmNostrCache extends Command
 
         $this->info(count($rooms).' Räume gecacht für '.$url);
 
+        $this->warmWorkspace($cache);
+
         return self::SUCCESS;
+    }
+
+    /**
+     * Denselben Cache für den zweiten Space wärmen, falls konfiguriert.
+     *
+     * Seit Workspace-Räume über `/rooms/{h}?space=workspace` direkt erreichbar sind
+     * (Reload, Bookmark, geteilter Link), braucht auch dieser Space seine Raum-Namen
+     * server-seitig — sonst steht im Kopf und im OG-Tag die rohe Raum-UUID.
+     *
+     * Eigenes try/catch: der zweite Space darf den Exit-Code des ersten nicht kippen.
+     * Der Vereins-Space ist der tragende; ein stiller Workspace ist ein Schönheitsfehler,
+     * kein Fehlschlag des Warmlaufs.
+     */
+    private function warmWorkspace(SpaceCache $cache): void
+    {
+        $url = SpaceCache::workspaceUrl();
+
+        if ($url === '') {
+            return;
+        }
+
+        try {
+            $rooms = $cache->refreshRooms($url);
+            $cache->refreshRelayInfo($url);
+            $this->info(count($rooms).' Räume gecacht für '.$url);
+        } catch (\Throwable $e) {
+            $this->warn('Warmen fehlgeschlagen ('.$url.'): '.$e->getMessage());
+        }
     }
 }

@@ -79,6 +79,7 @@ import {
 import { flagEmoji } from './meetupPresentation'
 import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint'
+import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam'
 import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
@@ -488,6 +489,7 @@ type SpacesState = {
     _unsubWorkspace: null | (() => void)
     _wsController: AbortController | null
     openWorkspaceRoom(room: RoomView): void
+    workspaceRoomHref(room: RoomView): string // Ziel-URL MIT Space-Markierung (reload-fest)
     // Raum-Verwaltung (P4, Admin): anlegen/bearbeiten/löschen
     isAdmin: boolean
     // Ist der aktive Space ein Buzz-Relay? Gatet die Kachel-Aktionen, die es dort
@@ -2220,12 +2222,22 @@ export function registerNostrComponents(Alpine: {
          * Workspace statt im Vereins-Space, ohne dass der Nutzer das je gewählt hätte.
          * Der Vereins-Space bleibt die persistierte Wahl; der Workspace gilt nur für
          * diese Sitzung.
+         *
+         * **Die Sitzung ist aber nicht die ganze Wahrheit** — der ephemere Zustand
+         * überlebt keinen Reload. Deshalb trägt das Ziel die Zuordnung selbst:
+         * {@link workspaceRoomHref}. Ohne sie stand nach F5 in einem Workspace-Raum
+         * wieder das Vereins-Relay als aktiver Space, der Beitritt (9021) ging dorthin
+         * und kam als `invalid: group not found` zurück.
          */
         openWorkspaceRoom(room: RoomView) {
             setActiveSpaceEphemeral(WORKSPACE_URL)
             // Die Navigation macht die Blade (`Livewire.navigate`), wie bei der
             // normalen Raum-Kachel — dieses Modul kennt Livewire nicht.
             void room
+        },
+        /** Ziel der Workspace-Kachel: `/rooms/{h}?space=workspace` (siehe spaceParam.ts). */
+        workspaceRoomHref(room: RoomView) {
+            return workspaceRoomHref(room.h)
         },
         // Bearbeiten: alle Felder + Flags aus der RoomView vorbelegen (die einzeln
         // getragenen Flags verhindern, dass ein Speichern bestehende wegwirft).
@@ -3466,6 +3478,21 @@ export function registerNostrComponents(Alpine: {
         _pendingMsgs: null,
         _rafMsgs: 0,
         init() {
+            // ── Welcher Space trägt DIESEN Raum? ──────────────────────────────────
+            // Ein Raum lebt auf genau einem Relay, `/rooms/{h}` allein sagt aber nicht,
+            // auf welchem. Trägt die URL die Workspace-Markierung (`?space=workspace`,
+            // siehe spaceParam.ts), gehört der Raum dem zweiten Space — dann muss der
+            // aktive Space DAS sein, und zwar bevor unten das erste Mal `setup()` läuft.
+            //
+            // Der Aufruf steht deshalb SYNCHRON hier und nicht im `storageReady`-Zweig:
+            // sonst liefe der erste Aufbau gegen den Vereins-Space, und mit ihm der
+            // Beitritt (kind 9021) — genau der Fehler, der als `invalid: group not found`
+            // sichtbar wurde, samt leerem Verlauf. Nur ephemer, wie beim Klick aus dem
+            // Workspaces-Tab: persistiert wird die Zuordnung nie, sie steht im Link.
+            if (readSpaceParam(window.location.search) !== null && hasWorkspace()) {
+                setActiveSpaceEphemeral(WORKSPACE_URL)
+            }
+
             // Aktiver Space → dessen Room-Feed (Wechsel baut Sub + Live neu auf).
             // M3 P1: ERST wenn der Kaltstart-Cache in die repository gespiegelt ist
             // (storageReady) abonnieren — sonst misst der Warm-Peek in setup() ein noch
@@ -4219,9 +4246,12 @@ export function registerNostrComponents(Alpine: {
         // Thread-URL (§6.2). Ohne ihn verlöre der warme Thread-Wechsel die Herkunft —
         // der Kopf-Pfeil führte aus einem aus „Neu" geöffneten Thread zwar zurück in den
         // Raum, von dort aber auf die Übersicht statt nach „Neu".
+        // `withSpace`: dieselbe Pflicht wie bei der Herkunft, aus demselben Grund — die
+        // Space-Markierung eines Workspace-Raums muss in die Thread-URL mit, sonst
+        // öffnete ein Reload/geteilter Thread-Link ihn gegen den Vereins-Space.
         threadHref(m: ChatMessage): string {
             const base = `/rooms/${encodeURIComponent(this.h)}/thread/${neventFor(m, this._url).replace(/^nostr:/, '')}`
-            return withOrigin(base, window.location.search)
+            return withSpace(withOrigin(base, window.location.search), window.location.search)
         },
         openThread(m: ChatMessage, full = true, syncUrl = true) {
             this.activeId = null
@@ -4360,7 +4390,12 @@ export function registerNostrComponents(Alpine: {
                 // gerettet werden — sonst schnitte das blanke `/rooms/{h}` das `?from=`
                 // weg und der nächste Zurück-Druck landete auf /spaces statt auf „Neu"
                 // (siehe threadBackTarget).
-                const target = threadBackTarget(prevUrl, '/rooms/' + encodeURIComponent(this.h), window.location.search)
+                // Dasselbe gilt für die Space-Markierung: das blanke `/rooms/{h}` verlöre
+                // sie, und ein Reload nach dem Schließen des Threads stünde wieder im
+                // falschen Space. `withSpace` steht INNEN, weil `threadBackTarget` eine
+                // gemerkte Raum-URL unverändert vorzieht — die trägt beides schon.
+                const roomHref = withSpace('/rooms/' + encodeURIComponent(this.h), window.location.search)
+                const target = threadBackTarget(prevUrl, roomHref, window.location.search)
                 if (window.location.pathname + window.location.search !== target) {
                     window.history.replaceState(window.history.state, '', target)
                 }

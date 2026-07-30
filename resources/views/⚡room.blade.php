@@ -35,7 +35,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
     {
         $this->h = $h;
         $this->nevent = $nevent;
-        $url = SpaceCache::spaceUrl();
+        // Welcher Space trägt diesen Raum? `?space=workspace` an der URL zeigt auf den
+        // zweiten Space (siehe `js/spaceParam.ts`) — ohne diese Weiche schlüge der
+        // Cache-Blick immer im Vereins-Space nach, und ein Workspace-Raum trüge im
+        // Kopf/OG-Tag seine rohe UUID statt seines Namens.
+        $url = SpaceCache::urlForSpaceParam(request()->query('space'));
         $room = $cache->rooms($url)[$h] ?? null;
         $this->roomName = $room['name'] ?? null;
         $this->roomAbout = $room['about'] ?? '';

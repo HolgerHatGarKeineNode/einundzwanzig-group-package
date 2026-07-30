@@ -32,6 +32,29 @@ class SpaceCache
         return config('group.space_url') ?: 'ws://localhost:3334/';
     }
 
+    /** Zweiter, fester Space (Tab „Workspaces"). Leer = nicht konfiguriert. */
+    public static function workspaceUrl(): string
+    {
+        return (string) (config('group.workspace_url') ?: '');
+    }
+
+    /**
+     * Die Space-URL zu einer Raum-Ansicht, aus dem Query-Parameter `?space=`.
+     *
+     * Der Parameter ist fremde Eingabe aus der Adressleiste und wird deshalb NICHT als
+     * URL gelesen, sondern gegen genau ein bekanntes Wort geprüft (`workspace`, siehe
+     * `js/spaceParam.ts`) — sonst zeigte ein präparierter Link den Server auf ein
+     * beliebiges Relay. Alles andere fällt auf den Default-Space zurück — auch ein
+     * Array (`?space[]=…`), deshalb `mixed` statt `?string`: ein Typfehler wäre ein 500er
+     * auf eine Adresszeile hin.
+     */
+    public static function urlForSpaceParam(mixed $param): string
+    {
+        return $param === 'workspace' && self::workspaceUrl() !== ''
+            ? self::workspaceUrl()
+            : self::spaceUrl();
+    }
+
     /**
      * Gecachte Raum-Metadaten je `h`. Leer bei Cache-Miss.
      *
