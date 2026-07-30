@@ -8,7 +8,6 @@
 import { derived, get, type Readable } from 'svelte/store'
 import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, forceLoadZapper, deriveRelay } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
-import { randomId } from '@welshman/lib'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps'
 import { load } from '@welshman/net'
@@ -62,6 +61,7 @@ import {
     userSpaceUrls,
     isVereinRelay,
     createRoom,
+    newRoomId,
     editRoomMeta,
     deleteRoom,
     addRoomMember,
@@ -2202,7 +2202,8 @@ export function registerNostrComponents(Alpine: {
         openRoomCreate() {
             // `h` EINMALIG minten (retry-sicher): schlägt ein Publish-Schritt fehl, füllt
             // ein erneutes Speichern denselben Raum weiter, statt einen zweiten anzulegen.
-            this.roomForm = { h: randomId(), name: '', about: '', picture: '', isPrivate: false, isClosed: false, isHidden: false, isRestricted: false }
+            // `newRoomId` liefert eine UUIDv4 — Buzz übernimmt nur die (siehe dort).
+            this.roomForm = { h: newRoomId(), name: '', about: '', picture: '', isPrivate: false, isClosed: false, isHidden: false, isRestricted: false }
             this._roomEditing = false
             this._roomIconFile = null
             dispatchModal('room-form')

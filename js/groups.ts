@@ -62,8 +62,9 @@ import {
     type PublishedList,
     type TrustedEvent,
 } from '@welshman/util'
-import { uniq, sortBy, partition, randomId } from '@welshman/lib'
+import { uniq, sortBy, partition } from '@welshman/lib'
 import { spaceSupportsRooms, spaceBranding } from './relayCaps'
+import { spaceIsBuzzAsync } from './buzzAdmin'
 import { parseMeetupTags } from './meetupPresentation'
 import { parseProjectSupportTags, withExtraTags } from './roomCategories'
 import type { RelayProfile } from '@welshman/util'
@@ -756,22 +757,72 @@ const roomMetaEvent = (url: string, input: RoomInput) => {
 const isAlreadyError = (err: string): boolean => /already|duplicate/i.test(err)
 
 /**
- * Legt einen neuen Raum an (wie der Referenz-Client): kind 9007 (Create, nur `h`) →
- * kind 9002 (Metadaten) → kind 9021 (der Ersteller tritt bei, erscheint in „Meine
- * Räume"). `h` MUSS vom Aufrufer stabil vergeben sein (openRoomCreate mintet es
- * einmalig) — so vervollständigt ein Retry nach partiellem Fehler denselben Raum,
- * statt einen zweiten Waisen anzulegen. „already/duplicate" auf Create/Join wird
- * daher toleriert. '' = Erfolg.
+ * Vergibt die Raum-ID (`h`) — **immer eine UUIDv4**, auf beiden Relay-Arten.
+ *
+ * zooid ist die ID egal (opaker String, welshmans `randomId()` reichte). **Buzz
+ * übernimmt ein mitgeschicktes `h` nur, wenn es als UUID parst** — dann legt es den
+ * Kanal unter genau dieser ID an (`ingest.rs:2132 create_channel_with_id`). Parst es
+ * nicht, fällt der Wert still weg und das Relay mintet eine eigene UUID; die
+ * nachfolgenden 9002/9021 zeigten dann auf einen Raum, den es nicht gibt — Raum ohne
+ * Namen, Ersteller nicht drin, keine Fehlermeldung. Am laufenden Buzz gemessen:
+ * `h=k3f9x2m7q1` → Kanal `ea57c807-…`; `h=11111111-2222-4333-8444-555555555555` →
+ * Kanal exakt so.
+ *
+ * Eine UUID ist auch für zooid ein gültiges `h`, deshalb EIN Pfad statt einer Weiche.
+ */
+export const newRoomId = (): string => crypto.randomUUID()
+
+/**
+ * Tags des 9007 auf **Buzz**. Anders als bei zooid trägt das Create-Event dort die
+ * Metadaten schon selbst — und `name` ist PFLICHT: ein 9007 mit nur `h` beantwortet
+ * Buzz mit `invalid: channel name is required` (`ingest.rs:2085-2097`, am laufenden
+ * Relay gegengeprüft). Die NIP-29-Flag-Tags (`["private"]`) kennt Buzz hier nicht, es
+ * will `["visibility","private"|"open"]` (`buzz-sdk/src/builders.rs:674-699`).
+ */
+const buzzCreateTags = (h: string, input: RoomInput): string[][] => {
+    const tags = [['h', h], ['name', input.name], ['visibility', input.isPrivate ? 'private' : 'open']]
+    if (input.about) {
+        tags.push(['about', input.about])
+    }
+    return tags
+}
+
+/**
+ * Legt einen neuen Raum an. `h` MUSS vom Aufrufer stabil vergeben sein
+ * (openRoomCreate mintet es einmalig) — so vervollständigt ein Retry nach partiellem
+ * Fehler denselben Raum, statt einen zweiten Waisen anzulegen. „already/duplicate"
+ * wird daher toleriert. '' = Erfolg.
+ *
+ * **zooid:** 9007 (Create, nur `h`) → 9002 (Metadaten) → 9021 (der Ersteller tritt
+ * bei und erscheint in „Meine Räume").
+ *
+ * **Buzz:** 9007 trägt Name/Sichtbarkeit/Beschreibung selbst (s. `buzzCreateTags`) →
+ * 9002 für den Rest. **Kein 9021** — der Ersteller steht nach dem 9007 bereits als
+ * `owner` in der 39002 (`ingest.rs:1806`, gemessen). Schlimmer als überflüssig wäre
+ * es: auf einem privaten Raum antwortet Buzz dem Beitritt mit
+ * `restricted: channel is private` (`ingest.rs:2189`) — das Anlegen meldete einen
+ * Fehler, obwohl der Raum fertig dasteht.
  */
 export const createRoom = async (url: string, input: RoomInput): Promise<string> => {
-    const h = input.h || randomId()
-    const createErr = await waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_CREATE, { tags: [['h', h]] }) }))
+    const h = input.h || newRoomId()
+    const isBuzz = await spaceIsBuzzAsync(url)
+    const createTags = isBuzz ? buzzCreateTags(h, input) : [['h', h]]
+    const createErr = await waitForThunkError(publishThunk({ relays: [url], event: makeEvent(ROOM_CREATE, { tags: createTags }) }))
     if (createErr && !isAlreadyError(createErr)) {
         return createErr
     }
     const metaErr = await waitForThunkError(publishThunk({ relays: [url], event: roomMetaEvent(url, { ...input, h }) }))
     if (metaErr) {
         return metaErr
+    }
+    if (isBuzz) {
+        // Nachladen, sonst bleibt der frische Raum unsichtbar: Buzz schiebt die
+        // relay-signierte 39000 NICHT in die offene Live-Sub. Gemessen — der Raum lag
+        // sofort am Relay und stand nach dem Anlegen 16 s lang nicht in der Liste,
+        // erschien aber nach einem Reload sofort unter „Meine Räume". Ein zweiter REQ
+        // holt ihn ohne Reload. zooid braucht das nicht, dort kommt er über die Sub.
+        await loadSpaceRooms(url)
+        return ''
     }
     const joinErr = await joinRoom(url, h)
     return joinErr && !isAlreadyError(joinErr) ? joinErr : ''
