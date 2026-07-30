@@ -214,7 +214,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     {{-- Zeilen-Toggle (Check/Plus-Icon + farbiges Rollen-Badge) → rohes <button>,
                          kein Flux-Icon-Pendant für dieses Komposit, §6. --}}
                     <template x-for="role in roles" :key="role.id">
-                        <button type="button" x-on:click="toggleMemberRole(role.id)" ::disabled="busy"
+                        {{-- `x-bind:disabled`, nicht `::disabled`: der `::`-Escape gilt nur für
+                             Komponenten-Tags. Auf diesem <button> war die Bindung tot — die
+                             Rollen-Umschaltung ließ sich während eines laufenden Schreibvorgangs
+                             mehrfach auslösen. --}}
+                        <button type="button" x-on:click="toggleMemberRole(role.id)" x-bind:disabled="busy"
                                 class="pressable flex w-full items-center gap-2 rounded-tile p-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800">
                             <flux:icon.check-circle variant="solid" class="size-5 text-brand-500" x-show="memberHasRole(role.id)" x-cloak />
                             <flux:icon.plus-circle class="size-5 text-zinc-400" x-show="!memberHasRole(role.id)" />

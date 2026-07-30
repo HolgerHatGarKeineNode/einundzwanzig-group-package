@@ -287,3 +287,35 @@ textarea:focus[data-flux-control],
 select:focus[data-flux-control] {
     @apply outline-hidden ring-2 ring-accent ring-offset-2 ring-offset-accent-foreground;
 }
+
+/* ── Maus-Affordanz (Desktop-Shell P6) ────────────────────────────────────────
+   Der UA-Default für <button> ist `cursor: default`; im Repo setzt nichts
+   `cursor: pointer`. Auf einem Touch-Gerät fällt das nicht auf — auf Desktop ist
+   es der Unterschied zwischen „das ist anklickbar" und „das ist Text".
+
+   Gebunden an den ZEIGER, nicht an die Breite: ein Touch-Laptop bei 1440px soll
+   die Regel nicht bekommen, ein Tablet mit Maus schon. Breite wäre hier der
+   falsche Proxy — dieselbe Begründung wie bei der 44px-Zielgröße weiter oben. */
+@media (hover: hover) and (pointer: fine) {
+    button:not(:disabled),
+    [role='button']:not(:disabled),
+    a[href] {
+        cursor: pointer;
+    }
+}
+
+/* Zeilen-Hover im Chat-Verlauf (Desktop-Shell P7).
+   Nicht Kosmetik: die schwebende Aktions-Toolbar (`chat-row.blade.php`) erscheint
+   heute, OHNE dass die zugehörige Zeile markiert wäre — bei dichten Zeilen rät man,
+   zu welcher Nachricht sie gehört.
+   Als eigene Regel statt `hover:bg-*`-Utility, damit die Bindung an den Zeiger
+   AUSGESCHRIEBEN im Quelltext steht und nicht von der Variant-Semantik einer
+   Tailwind-Version abhängt. */
+@media (hover: hover) and (pointer: fine) {
+    .chat-row:hover {
+        background-color: color-mix(in oklab, var(--color-zinc-100) 70%, transparent);
+    }
+    .dark .chat-row:hover {
+        background-color: color-mix(in oklab, var(--color-zinc-800) 40%, transparent);
+    }
+}

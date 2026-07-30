@@ -13,8 +13,15 @@
         : "sending || ({$draft}.trim().length === 0 && !sharing && !{$attachment})";
 @endphp
 
-{{-- Anhang-Vorschau: zugeschnittenes Bild wartet auf Senden (Proxy-Preset `msg`). --}}
-<div x-show="{{ $attachment }}" x-cloak class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
+{{-- Anhang-Vorschau: zugeschnittenes Bild wartet auf Senden (Proxy-Preset `msg`).
+
+     `data-composer` benennt den Kontext im DOM. Grund: beide Composer rendern
+     dieselbe Vorschau mit demselben Text, und Tests unterschieden sie bisher über
+     die DOM-REIHENFOLGE (`.first()`). Die ist mit der Desktop-Shell gekippt — der
+     Thread-Composer sitzt seit dem Panel-Umbau IM Thread-Block und damit vor dem
+     Raum-Composer. Eine Reihenfolge ist kein Vertrag; dieser Haken ist einer. --}}
+<div x-show="{{ $attachment }}" x-cloak data-composer="{{ $context }}"
+     class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
     <img :src="$img({{ $attachment }}?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
          class="size-14 shrink-0 rounded-tile object-cover" />
     <div class="min-w-0 flex-1 text-xs text-muted">{{ __('Bild angehängt') }}</div>
@@ -62,7 +69,11 @@
         </flux:dropdown>
     @endif
 
-    <flux:textarea x-ref="{{ $composerRef }}" x-model="{{ $draft }}" rows="1" resize="none" class="flex-1"
+    {{-- Ab xl eine Spur größer (15px statt 14px). NUR auf Desktop: eine Schriftgröße
+         im Chat zu ändern verschiebt Zeilenumbrüche und damit die Scroll-Arithmetik
+         (`atBottom`, Chip-Lane-Reservierung) — mobil bleibt es deshalb bei 14px, bis
+         das jemand eigens misst. --}}
+    <flux:textarea x-ref="{{ $composerRef }}" x-model="{{ $draft }}" rows="1" resize="none" class="flex-1 xl:text-[0.9375rem]"
                    placeholder="{{ $isThread ? __('Im Thread antworten…') : __('Nachricht schreiben…') }}"
                    aria-label="{{ $isThread ? __('Antwort schreiben') : __('Nachricht schreiben') }}"
                    x-on:focus="{!! $isThread ? '' : 'atBottom && scrollToBottom()' !!}"

@@ -58,8 +58,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
     }
 }; ?>
 
-{{-- Chat-Bühne: Kopf + Verlauf + Composer unter EINEM Alpine-Scope (M4 lesen, M5 schreiben). --}}
-<div x-data="nostrRoomChat(@js($h), @js($roomName ?? $h), @js($nevent))" class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)]">
+{{-- Chat-Bühne: Kopf + Verlauf + Composer unter EINEM Alpine-Scope (M4 lesen, M5 schreiben).
+
+     `app-frame` ist seit der Desktop-Shell die Wurzel — auch hier, obwohl der Raum
+     KEINE `app-shell` trägt (er ist eine chrome-lose Detail-Ebene, siehe unten).
+     Genau deshalb sind Frame und Shell zwei Bauteile: der Navigator gehört an
+     BEIDE Wurzeln, die Bottom-Bar nur an eine. Unterhalb xl rendert `app-frame`
+     nur `contents` → das DOM ist zeichengleich zu vorher, und Livewire sieht
+     weiterhin genau eine Wurzel. --}}
+<x-group::app-frame>
+{{-- `2xl:me-[28rem]` bei offenem Thread: ab 1536px ist Platz für beide Spalten
+     NEBENEINANDER — die Bühne rückt zur Seite, statt sich verdecken zu lassen.
+     Zwischen 1280 und 1535px bleibt das Panel bewusst ein Overlay: dort fiele die
+     Nachrichtenspalte sonst unter ihr Textmaß, und ein zu schmaler Verlauf ist
+     schlechter als ein teilweise verdeckter. --}}
+<div x-data="nostrRoomChat(@js($h), @js($roomName ?? $h), @js($nevent))"
+     :class="threadRootId ? '2xl:me-[28rem]' : ''"
+     class="mx-auto flex h-dvh w-full max-w-md md:max-w-lg lg:max-w-2xl flex-col px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)] xl:mx-0 xl:h-full xl:min-h-0 xl:max-w-none xl:px-8 xl:pt-6 xl:transition-[margin] xl:duration-200 2xl:px-12">
 
     {{-- P2: Der Raum ist eine chrome-lose Detail-Ebene (kein Tab, keine Bottom-Nav)
          und rendert daher den globalen Signer/Reconnect-Strip selbst — die app-shell
@@ -93,7 +108,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
         // zweites Literal im JS steht.
         $backExpr = 'threadRootId ? backFromThread() : backFromRoom(originHref('.json_encode(route('group.spaces')).'))';
     @endphp
-    <x-group::app-header :title="'# '.($roomName ?? $h)" :title-expr="$titleExpr" :back-expr="$backExpr" class="shrink-0">
+    <x-group::app-header :title="'# '.($roomName ?? $h)" :title-expr="$titleExpr" :back-expr="$backExpr"
+                         back-class="xl:hidden" class="shrink-0">
         @if ($roomPicture)
             <x-slot:leading>
                 <flux:avatar circle size="sm" src="{{ \Einundzwanzig\Group\ImageProxy::url($roomPicture) }}" name="{{ $roomName ?? $h }}" />
@@ -113,9 +129,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </x-slot:actions>
     </x-group::app-header>
 
-    {{-- Raum-Feed: nur sichtbar, wenn KEIN Thread offen ist (der Thread tauscht denselben
-         Mittelbereich, teilt aber Kopf + Bühne → identisches Layout, kein Overlay). --}}
-    <div x-show="!threadRootId" class="relative flex min-h-0 flex-1 flex-col">
+    {{-- Raum-Feed. Unterhalb xl: nur sichtbar, wenn KEIN Thread offen ist — der Thread
+         tauscht denselben Mittelbereich, teilt aber Kopf + Bühne (identisches Layout,
+         kein Overlay, kein Überblenden).
+         Ab xl: IMMER sichtbar. Der Thread legt sich als eigene Spalte rechts daneben,
+         und ein Feed, der beim Öffnen einer Antwort verschwindet, wäre auf einem
+         Monitor mit 1900px Breite eine Zumutung — genau der mobile Reflex, der auf
+         Desktop schlecht altert. --}}
+    <div x-show="!threadRootId || $store.viewport?.desktop" class="relative flex min-h-0 flex-1 flex-col">
 
         {{-- Ladefehler (Relay nicht erreichbar / AUTH-Reject): persistenter Callout + Retry. --}}
         <template x-if="error">
@@ -139,8 +160,19 @@ new #[Layout('group::einundzwanzig')] class extends Component
              selbst geguardet → ungedrosselt ist billig genug (Scroll-Events sind rAF-getaktet). --}}
         <div x-ref="scroll" wire:ignore x-on:scroll="onScroll()"
              role="log" aria-live="polite" aria-relevant="additions" aria-label="{{ __('Chat-Verlauf') }}"
-             ::aria-busy="loading && messages.length === 0"
-             class="flex flex-col-reverse min-h-0 flex-1 overflow-y-auto px-1 pb-2 transition-opacity"
+             {{-- `x-bind:` ausgeschrieben, nicht `::`. Der `::`-Escape ist eine BLADE-Regel
+                  für Komponenten-Tags; auf einem normalen <div> reicht Blade ihn wörtlich
+                  durch und Alpine kennt ihn nicht — das Attribut war hier tot, die
+                  Ladeansage kam bei keinem Screenreader an. --}}
+             x-bind:aria-busy="loading && messages.length === 0"
+             {{-- Ab xl bekommt die Verlaufsspalte einen Deckel und wird zentriert. Der
+                  Deckel sitzt am SCROLL-Container selbst, nicht an einem Wrapper darin:
+                  `flex-col-reverse` pinnt den Boden nativ, und ein zwischengeschobenes
+                  Wrapper-Div machte aus den Nachrichten EIN Flex-Kind — die Umkehrung
+                  griffe dann auf den Wrapper statt auf die Zeilen, und die Pinnung wäre weg.
+                  Nebeneffekt, gewollt: die Bildlaufleiste sitzt an der Spaltenkante,
+                  nicht am Fensterrand. --}}
+             class="flex flex-col-reverse min-h-0 flex-1 overflow-y-auto px-1 pb-2 transition-opacity xl:mx-auto xl:w-full xl:max-w-[62rem]"
              :class="(!firstPaintDone && messages.length > 0) ? 'opacity-0' : 'opacity-100'">
 
             {{-- Erstes Laden: SERVER-SEITIG gerendertes Skeleton (kein x-cloak/x-if, statische
@@ -206,12 +238,51 @@ new #[Layout('group::einundzwanzig')] class extends Component
          teilt aber Kopf + status-strip + Bühne → identisches Layout, KEIN Overlay, kein Überblenden.
          `role="dialog"` + Fokus-/Escape-Verwaltung bleiben (fokussierte Sub-Ansicht). Der Escape-Guard
          (`!lightboxSrc && !_cropSrc`) verhindert, dass ein Lightbox-/Cropper-Schließen den Thread mitreißt. --}}
-    <div x-show="threadRootId" x-cloak role="dialog" aria-modal="true" aria-label="{{ __('Thread') }}"
-         x-effect="threadRootId && $nextTick(() => $refs.threadClose?.focus())"
+    {{-- Ab xl ist derselbe Block KEIN Dialog mehr, sondern eine begleitende Spalte:
+         `role`/`aria-modal` wechseln reaktiv mit `$store.viewport.desktop`. Das ist
+         keine Kosmetik — `aria-modal="true"` sagt Screenreadern, der Rest der Seite
+         sei inert. Solange der Feed daneben sichtbar UND bedienbar ist, wäre das
+         schlicht gelogen.
+         Ebenso der Fokus-Fang: einen Fokus zu stehlen ist im Vollbild-Takeover
+         richtig (es gibt nichts anderes) und in einem Nebenpanel falsch.
+         Escape schließt in BEIDEN Formen — der Guard gegen Lightbox/Cropper bleibt. --}}
+    {{-- `role`/`aria-modal` stehen STATISCH im Markup und werden von Alpine nur
+         überschrieben. Zwei Gründe, und der zweite ist gemessen:
+         1. Ohne JS (und in der Zeit vor dem Alpine-Boot) ist die Rolle korrekt da.
+         2. `::role` funktioniert hier NICHT. Der `::`-Escape ist eine BLADE-Regel für
+            Komponenten-Tags (`<flux:button ::disabled>`); auf einem normalen <div>
+            reicht Blade `::role` unverändert durch, und Alpine kennt kein `::`.
+            Ergebnis wäre ein Element ganz ohne Rolle — gemessen an 19 roten E2E-Tests,
+            die `getByRole('dialog', { name: 'Thread' })` nicht mehr fanden.
+         Deshalb ausgeschrieben `x-bind:` — unmissverständlich, keine Blade-Interaktion. --}}
+    <div x-show="threadRootId" x-cloak
+         role="dialog" aria-modal="true"
+         x-bind:role="$store.viewport?.desktop ? 'complementary' : 'dialog'"
+         x-bind:aria-modal="$store.viewport?.desktop ? null : 'true'"
+         aria-label="{{ __('Thread') }}"
+         x-effect="threadRootId && !$store.viewport?.desktop && $nextTick(() => $refs.threadClose?.focus())"
          x-on:keydown.escape.window="threadRootId && !lightboxSrc && !_cropSrc && backFromThread()"
-         class="relative flex min-h-0 flex-1 flex-col">
+         class="relative flex min-h-0 flex-1 flex-col
+                xl:fixed xl:inset-y-0 xl:end-0 xl:z-40 xl:w-[26rem] xl:flex-none
+                xl:border-s xl:border-zinc-200 xl:bg-white xl:pb-4 xl:shadow-pop
+                2xl:w-[28rem] dark:xl:border-zinc-800 dark:xl:bg-zinc-900">
+
+        {{-- Panel-Kopf: existiert NUR ab xl. Darunter trägt der geteilte Seitenkopf
+             den Titel und den Zurück-Pfeil (`x-ref="threadClose"`) — hier wäre er
+             eine zweite Überschrift. Ab xl gibt es diesen Kopf nicht mehr über dem
+             Thread, also braucht die Spalte ihren eigenen Namen und ihren eigenen
+             Ausgang. --}}
+        <div class="hidden shrink-0 items-center gap-2 border-b border-zinc-200 px-4 py-3 xl:flex dark:border-zinc-800">
+            <flux:icon.chat-bubble-left-right variant="micro" class="size-4 shrink-0 text-muted" />
+            <span class="min-w-0 flex-1 truncate text-sm font-semibold">{{ __('Thread') }}</span>
+            <span class="shrink-0 font-mono text-[0.7rem] tabular-nums text-muted"
+                  x-text="threadComments.length"></span>
+            <flux:button variant="ghost" size="sm" icon="x-mark" x-on:click="backFromThread()"
+                         aria-label="{{ __('Thread schließen') }}" />
+        </div>
+
         {{-- Root + Kommentare (scrollbar). px-1 wie der Raum-Verlauf. --}}
-        <div x-ref="threadScroll" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 py-3">
+        <div x-ref="threadScroll" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 py-3 xl:px-4">
             {{-- Zitat-Anker statt Karte: der Root ist untergeordneter KONTEXT, kein Inhalt.
                  Ein linker brand-Rail ist die klassische Zitat-Metapher und trägt Bedeutung
                  („dies ist die zitierte Ursprungsnachricht") — kein voller Rahmen, keine
@@ -261,6 +332,39 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </template>
         </div>
+
+        {{-- Thread-Composer. Er steht INNERHALB des Thread-Blocks, nicht daneben:
+             unterhalb xl ist das visuell dasselbe wie zuvor (er war schon immer der
+             letzte `shrink-0`-Streifen derselben Flex-Spalte), ab xl ist es Pflicht —
+             der Thread ist dort ein `fixed` Panel, und ein Composer, der draußen
+             bliebe, klebte am Fuß der Bühne statt am Fuß seines Threads.
+             context='thread' → sendComment(), threadDraft/threadComposer. --}}
+        <div x-show="threadRootId" x-cloak class="shrink-0 pt-2 xl:px-4">
+            <template x-if="joined">
+                <div>
+                    {{-- Antwort-Kontext (verschachtelt) mit Abbrechen. --}}
+                    <div x-show="threadReplyTo" x-cloak
+                         class="mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-2 py-1 text-xs">
+                        <span class="min-w-0 flex-1 truncate text-muted">
+                            {{ __('Antwort auf') }} <span class="text-brand-500" x-text="threadReplyTo?.name"></span>
+                        </span>
+                        <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
+                                     x-on:click="clearThreadReply()" aria-label="{{ __('Abbrechen') }}" />
+                    </div>
+                    @include('group::partials.chat-composer', ['context' => 'thread'])
+                </div>
+            </template>
+            {{-- Nicht-Mitglied: Beitreten direkt aus dem Thread. --}}
+            <template x-if="!joined">
+                <div class="surface-card flex items-center justify-between gap-3 p-3">
+                    <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu antworten.') }}</flux:text>
+                    <flux:button size="sm" variant="primary" icon="plus" class="shrink-0 icon-btn-touch"
+                                 x-on:click="join()" ::disabled="joining">
+                        <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
+                    </flux:button>
+                </div>
+            </template>
+        </div>
     </div>
 
     {{-- Fehler (Relay lehnt ab, AUTH etc.) erscheinen als globaler Toast. --}}
@@ -269,7 +373,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
          relay-seitig (NIP-29 39002) und persistent. `membershipReady` verhindert,
          dass der Hinweis kurz aufblitzt, bevor die Members-Liste geladen ist.
          Senden ist eine reine Alpine-Aktion (welshman signiert im Browser). --}}
-    <div x-show="!threadRootId" class="shrink-0 pt-2">
+    {{-- Ab xl bleibt der Raum-Composer stehen, während ein Thread offen ist — dort ist
+         der Thread eine Spalte daneben, kein Ersatz. Wer im Thread antwortet, benutzt
+         den Composer IM Panel; wer in den Raum schreibt, diesen hier. Zwei Composer
+         nebeneinander sind kein Widerspruch, sondern zwei Ziele. --}}
+    {{-- Gleicher Deckel und gleiche Zentrierung wie der Verlauf darüber — sonst stünde
+         der Composer auf einer 1900px-Bühne unter einer 992px-Spalte. --}}
+    <div x-show="!threadRootId || $store.viewport?.desktop" class="shrink-0 pt-2 xl:mx-auto xl:w-full xl:max-w-[62rem]">
         {{-- SSR-sichtbar (kein x-cloak): der Composer-Platz zeigt beim F5 sofort ein Skeleton
              statt weiß, bis die Mitgliedschaft geladen ist. --}}
         <div x-show="!membershipReady" class="skeleton h-11 rounded-card"></div>
@@ -310,36 +420,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
             </flux:button>
         </div>
-    </div>
-
-    {{-- Thread-Composer: tauscht denselben Composer-Platz wie der Raum (gleiche `shrink-0 pt-2`-
-         Bühne unten) → keine Layout-Verschiebung beim Wechsel. Root kommentieren oder auf einen
-         Kommentar antworten; context='thread' → sendComment(), threadDraft/threadComposer. --}}
-    <div x-show="threadRootId" x-cloak class="shrink-0 pt-2">
-        <template x-if="joined">
-            <div>
-                {{-- Antwort-Kontext (verschachtelt) mit Abbrechen. --}}
-                <div x-show="threadReplyTo" x-cloak
-                     class="mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-2 py-1 text-xs">
-                    <span class="min-w-0 flex-1 truncate text-muted">
-                        {{ __('Antwort auf') }} <span class="text-brand-500" x-text="threadReplyTo?.name"></span>
-                    </span>
-                    <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
-                                 x-on:click="clearThreadReply()" aria-label="{{ __('Abbrechen') }}" />
-                </div>
-                @include('group::partials.chat-composer', ['context' => 'thread'])
-            </div>
-        </template>
-        {{-- Nicht-Mitglied: Beitreten direkt aus dem Thread. --}}
-        <template x-if="!joined">
-            <div class="surface-card flex items-center justify-between gap-3 p-3">
-                <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu antworten.') }}</flux:text>
-                <flux:button size="sm" variant="primary" icon="plus" class="shrink-0 icon-btn-touch"
-                             x-on:click="join()" ::disabled="joining">
-                    <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
-                </flux:button>
-            </div>
-        </template>
     </div>
 
     {{-- Löschen bestätigen (NIP-09 ist unwiderruflich). --}}
@@ -765,3 +845,4 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     <x-group::profile-card />
 </div>
+</x-group::app-frame>

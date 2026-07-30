@@ -246,7 +246,9 @@
                         <div class="text-muted">{{ __('Letztes Speichern:') }}</div>
                         <template x-for="r in saveResults" :key="r.url">
                             <div class="flex items-start gap-2 rounded-tile bg-zinc-100/60 px-3 py-1.5 dark:bg-zinc-900/50">
-                                <span x-text="r.ok ? '✓' : '✗'" ::class="r.ok ? 'text-green-500' : 'text-red-500'" class="shrink-0"></span>
+                                {{-- `x-bind:class`, nicht `::class` (Blade-Escape nur für
+                                     Komponenten-Tags) — sonst blieb ✓ und ✗ farblos gleich. --}}
+                                <span x-text="r.ok ? '✓' : '✗'" x-bind:class="r.ok ? 'text-green-500' : 'text-red-500'" class="shrink-0"></span>
                                 <span class="min-w-0 flex-1 break-all font-mono" x-text="shortRelay(r.url)"></span>
                                 <span x-show="!r.ok" x-cloak class="shrink-0 text-right text-red-500/90" x-text="r.reason"></span>
                             </div>

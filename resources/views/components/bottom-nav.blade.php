@@ -6,7 +6,33 @@
      Fixiert am unteren Rand, in der max-w-md-Spalte zentriert (skaliert auf
      Desktop mit). @web wird dieselbe Komponente in P2 zur linken Rail — hier
      bleibt sie zunächst die Bottom-Bar (additiv). --}}
+@props([
+    // 'bottom' = die fixe Bar am unteren Rand (Mobil, unverändert).
+    // 'rail'   = derselbe Tab-Satz senkrecht in der Fußzeile des Desktop-Navigators.
+    'orientation' => 'bottom',
+])
 @php($items = config('group.nav', []))
+@php($rail = $orientation === 'rail')
+
+{{-- Rail-Form: kein `fixed`, kein Raster, keine Backdrop-Frage — eine schlichte
+     senkrechte Liste in der Rail-Fußzeile. Sie rendert NUR innerhalb der Rail,
+     die selbst schon hinter `$store.viewport.desktop` steht; ein zweites
+     Breakpoint-Gate wäre hier eine zweite Wahrheit. --}}
+@if ($rail)
+    <nav aria-label="{{ __('Hauptnavigation') }}" class="flex flex-col gap-0.5">
+        @foreach ($items as $item)
+            <x-group::nav-tab
+                orientation="rail"
+                :route="$item['route']"
+                :match="$item['match'] ?? null"
+                :icon="$item['icon']"
+                :label="$item['label']"
+                :gate="$item['gate'] ?? 'guest'"
+                :unread-dot="($item['key'] ?? null) === 'chat'"
+            />
+        @endforeach
+    </nav>
+@else
 
 {{-- backdrop-blur nur auf Web: eine fixe Nav mit backdrop-filter über
      scrollendem Inhalt ist der klassische Mobile-WebView-Scroll-Killer (Blur wird
@@ -19,6 +45,10 @@
         'fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-zinc-200 px-2 pb-safe md:max-w-lg lg:max-w-2xl dark:border-zinc-800',
         'bg-zinc-50 dark:bg-zinc-950' => $native,
         'bg-zinc-50/90 backdrop-blur-md dark:bg-zinc-950/90' => ! $native,
+        // Ab xl trägt der Navigator dieselben Ziele senkrecht — zwei Navigationen
+        // gleichzeitig wären eine zu viel. In der NativePHP-App gibt es kein
+        // Desktop-Chassis (siehe app-frame), dort bleibt die Bar auf JEDER Breite.
+        'xl:hidden' => ! $native,
     ])
 >
     {{-- Statische Spaltenklasse (JIT-sicher, beide Literale im Quelltext) je realer
@@ -43,3 +73,4 @@
         @endforeach
     </div>
 </nav>
+@endif

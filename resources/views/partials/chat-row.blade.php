@@ -31,7 +31,7 @@
                     {{-- Zeile: Tap blendet die Aktionen ein/aus (Touch); :title = volles Datum. --}}
                     <div :id="'msg-'+m.id" :title="m.fullTime"
                          x-on:click="activeId = (activeId===m.id ? null : m.id)"
-                         class="group relative flex gap-2 rounded-card px-1 transition-shadow"
+                         class="chat-row group relative flex gap-2 rounded-card px-1 transition-shadow"
                          :class="flashId===m.id ? 'ring-2 ring-brand-500/70' : ''">
                         <div class="w-8 shrink-0">
                             <template x-if="m.showAuthor">
@@ -86,7 +86,12 @@
                                  Beides DELEGIERT, weil der Inhalt per x-html kommt (kein Alpine im Markup).
                                  Der Link-Zweig ist Pflicht für die native App: dort verpufft ein
                                  `target=_blank`-Anker in der WebView, der Tap täte sonst nichts. --}}
-                            <div class="chat-content text-sm break-words whitespace-pre-wrap" x-html="m.html"
+                            {{-- Textmaß ab xl: 72ch. Bewusst am OBEREN Ende des 45–75-Korridors,
+                                 nicht in dessen Mitte — ein npub ist 63 Zeichen und muss auf eine
+                                 Zeile passen. Inconsolata ist 0.5em breit, 72ch sind damit ~504px
+                                 bei 14px. Der Deckel sitzt am Textkörper, nicht an der Zeile:
+                                 Bilder, Umfragen und Zap-Karten dürfen breiter werden. --}}
+                            <div class="chat-content text-sm break-words whitespace-pre-wrap xl:max-w-[72ch]" x-html="m.html"
                                  x-on:click="
                                      if ($event.target.matches('img.chat-image')) {
                                          $event.stopPropagation();

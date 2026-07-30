@@ -5,7 +5,12 @@
     'match' => null,
     'gate' => 'guest',
     'unreadDot' => false,
+    // 'bottom' = die Mobil-Bottom-Bar (Icon über Label, Balken oben).
+    // 'rail'   = der Desktop-Navigator (Icon neben Label, Balken links).
+    // Default ist zeichengleich mit dem Markup vor der Desktop-Shell.
+    'orientation' => 'bottom',
 ])
+@php($rail = $orientation === 'rail')
 
 {{-- Ein Tab der Shell-Nav. Aus der bottom-nav-Schleife extrahiert, damit Web
      (linke Rail) und Mobile (Bottom-Bar) DASSELBE Item-Markup teilen (§3.1/§8.2).
@@ -41,15 +46,26 @@
         x-on:mousedown.capture="$store.authGate.gateTap($event, { label: @js(__($label)), returnUrl: $el.pathname + $el.search })"
         x-on:keydown.enter.capture="$store.authGate.gateTap($event, { label: @js(__($label)), returnUrl: $el.pathname + $el.search })"
     @endif
+    {{-- Beide Geometrie-Literale stehen vollständig im Quelltext (JIT-sicher,
+         Muster wie die Spaltenklasse in `bottom-nav`). --}}
     @class([
-        'pressable relative flex min-h-14 flex-col items-center justify-center gap-1 py-2.5',
+        'pressable relative flex',
+        'min-h-14 flex-col items-center justify-center gap-1 py-2.5' => ! $rail,
+        'min-h-9 items-center gap-2.5 rounded-tile px-2' => $rail,
+        'transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800' => $rail,
         'text-brand-700 dark:text-brand-400' => $active,
         'text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200' => ! $active,
     ])
 >
     @if ($active)
-        {{-- Indicator im Light-Mode brand-700 (≥3:1 auf hellem Nav-Grund), Dark brand-500. --}}
-        <span class="nav-pill absolute inset-x-0 top-0 mx-auto h-1 w-8 rounded-pill bg-brand-700 dark:bg-accent" aria-hidden="true"></span>
+        {{-- Indicator im Light-Mode brand-700 (≥3:1 auf hellem Nav-Grund), Dark brand-500.
+             Bottom-Bar: Balken OBEN quer. Rail: Balken LINKS senkrecht — dieselbe
+             Rolle, an die Leserichtung der jeweiligen Nav angepasst. --}}
+        <span @class([
+            'nav-pill absolute rounded-pill bg-brand-700 dark:bg-accent',
+            'inset-x-0 top-0 mx-auto h-1 w-8' => ! $rail,
+            'inset-y-1 start-0 w-0.5' => $rail,
+        ]) aria-hidden="true"></span>
     @endif
     {{-- Icon im relative-Wrapper: der Ungelesen-Punkt hängt an der ECKE DES ICONS,
          nicht an einer gerechneten Prozentposition im Tab — er bleibt damit richtig,
@@ -60,18 +76,25 @@
          rein?". Der Ring trennt ihn vom Icon-Strich und gibt der Kontrastmessung
          einen bekannten flachen Nachbarn (Nav-Grund zinc-50/zinc-950). --}}
     <span class="relative inline-flex">
-        <flux:icon :name="$icon" :variant="$active ? 'solid' : 'outline'" class="size-6" />
+        <flux:icon :name="$icon" :variant="$active ? 'solid' : 'outline'" @class(['size-6' => ! $rail, 'size-5' => $rail]) />
         @if ($unreadDot)
+            {{-- Der Ring nimmt die Farbe des jeweiligen Nav-Grundes an: die
+                 Bottom-Bar sitzt auf zinc-50/zinc-950, die Rail auf white/zinc-900.
+                 Ein falscher Ring sähe aus wie ein Rand am Punkt. --}}
             <x-group::unread-dot
                 when="$store.unread?.any"
                 :sr="false"
-                dot-class="absolute -end-1 -top-1 ring-2 ring-zinc-50 dark:ring-zinc-950" />
+                :dot-class="'absolute -end-1 -top-1 ring-2 '.($rail ? 'ring-white dark:ring-zinc-900' : 'ring-zinc-50 dark:ring-zinc-950')" />
         @endif
     </span>
     {{-- Label zur Render-Zeit übersetzen: die Nav-Labels kommen aus config('group.nav'),
          die beim Boot VOR der Locale-Middleware lädt — ein `__()` in der Config löste
          darum immer die Default-Sprache auf. Hier greift die Request-Locale (z.B. „Mehr"→„More"). --}}
-    <span class="text-[11px] font-semibold leading-none">{{ __($label) }}</span>
+    <span @class([
+        'font-semibold leading-none',
+        'text-[11px]' => ! $rail,
+        'text-sm' => $rail,
+    ])>{{ __($label) }}</span>
     {{-- Der sr-only-Text steht NACH dem Label (Lesereihenfolge „Chat, ungelesene
          Nachrichten"); das <a> trägt kein aria-label, der Kindtext kommt also an. --}}
     @if ($unreadDot)

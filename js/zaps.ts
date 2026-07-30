@@ -9,10 +9,10 @@
  * 9735-Receipt publiziert der LNURL-Server des Empfängers — nicht der EINUNDZWANZIG-
  * Server, der an diesem Pfad gar nicht beteiligt ist.
  */
-import { loadZapperForPubkey, signer } from '@welshman/app'
+import { getZapper, loadProfile, loadZapperForPubkey, notifyZapper, signer, zappersByLnurl } from '@welshman/app'
 import { getTagValue, getZapResponseFilter, makeZapRequest, toMsats, type SignedEvent, type Zapper } from '@welshman/util'
 import { request } from '@welshman/net'
-import { uniq } from '@welshman/lib'
+import { bech32ToHex, uniq } from '@welshman/lib'
 import { Router } from '@welshman/router'
 import { payInvoice as walletPayInvoice } from './wallet'
 
@@ -173,16 +173,74 @@ const warmedZappers = new Set<string>()
 /**
  * Zapper der Nachrichtenautoren vorwärmen (fire-and-forget, je Pubkey genau einmal):
  * füllt welshmans `zappersByLnurl`, damit der Feed-Tally (Z3) ihre 9735-Receipts über
- * `zapFromEvent` validieren (Signer-Check) und summieren kann. `loadZapperForPubkey`
- * löst intern Profil → lnurl → Zapper auf.
+ * `zapFromEvent` validieren (Signer-Check) und summieren kann. Aufgelöst wird
+ * Profil → lnurl → LNURL-Metadaten (s. `warmZapper` unten).
+ *
+ * **Warum hier NICHT welshmans `loadZapperForPubkey` steht.** Dessen LNURL-Abruf ist bei
+ * einem unerreichbaren Endpoint (tote Domain, DNS weg, Nutzer offline, Wallet-Host down —
+ * im Alltag ein Normalfall) nicht abfangbar, und zwar an KEINER Stelle des Aufrufers:
+ *
+ *  1. `@welshman/lib` `tryCatch` hängt nur ein `.catch` an die Promise und gibt DIESELBE,
+ *     weiterhin rejectete Promise zurück → das `await tryCatch(...)` in `fetchZapper` wirft
+ *     erneut, das umgebende `Promise.all` rejectet.
+ *  2. `fetchZapper` ist ein `batcher(800, …)`, und `batcher` startet sein `_execute` per
+ *     `setTimeout(_execute, t)` — die Promise von `_execute` wird **weggeworfen**. Die
+ *     Rejection ist damit eine Waise: ein `.catch` am Aufrufer erreicht sie nicht mehr
+ *     (die Aufrufer-Promise settlet obendrein nie, weil `resolve` nach dem Wurf ausbleibt).
+ *
+ * Ergebnis mit welshmans Loader: eine unhandled rejection („TypeError: Failed to fetch") im
+ * Browser JEDES Nutzers, dessen Gegenüber eine gerade unerreichbare Lightning-Adresse im
+ * Profil stehen hat. Genau das hat `storage-cache.spec.ts` P4 wochenlang als vermeintlichen
+ * „Flake" gemeldet. Deshalb holt der Warm-Pfad die LNURL-Metadaten selbst (ein `fetch` mit
+ * echtem try/catch) und schreibt sie in denselben welshman-Store (`zappersByLnurl` +
+ * `notifyZapper`), aus dem der Feed sie ohnehin liest — gleicher Zustand, ohne die Waise.
+ * Anker dagegen: `tests/e2e/zapper-warm.spec.ts`.
  */
 export const warmZappers = (pubkeys: string[]): void => {
     for (const pk of pubkeys) {
         if (!warmedZappers.has(pk)) {
             warmedZappers.add(pk)
-            void loadZapperForPubkey(pk)
+            void warmZapper(pk)
         }
     }
+}
+
+/**
+ * LNURL-pay-Dokument (LUD-06) holen. **Hier** sitzt das `try/catch` — und NUR hier: ein
+ * unerreichbarer Endpoint ist der erwartete Normalfall, ein Fehler beim Eintragen in den
+ * Store dagegen wäre ein echter Bug und soll laut sein statt still verschluckt zu werden.
+ */
+const fetchLnurlDoc = async (lnurl: string): Promise<Record<string, unknown> | undefined> => {
+    try {
+        const res = await fetch(bech32ToHex(lnurl), { headers: { Accept: 'application/json' } })
+        if (!res.ok) {
+            return undefined
+        }
+        const info = (await res.json()) as Record<string, unknown> | null
+        // Kein LUD-06-Dokument (z. B. HTML-Fehlerseite mit Status 200) ⇒ kein Zapper.
+        return info && typeof info === 'object' && info.callback ? info : undefined
+    } catch {
+        return undefined // Endpoint nicht erreichbar / kein JSON ⇒ kein Zapper ⇒ kein ⚡-Chip
+    }
+}
+
+/** Profil → lnurl → LNURL-Metadaten in welshmans Store (s. `warmZappers`). */
+const warmZapper = async (pk: string): Promise<void> => {
+    const profile = await loadProfile(pk).catch(() => undefined)
+    const lnurl = profile?.lnurl
+    if (!lnurl || getZapper(lnurl)) {
+        return // kein lud16/lud06 — oder schon (von wem auch immer) geladen
+    }
+    const info = await fetchLnurlDoc(lnurl)
+    if (!info) {
+        return
+    }
+    const zapper = { ...info, lnurl } as unknown as Zapper
+    zappersByLnurl.update(($zappers) => {
+        $zappers.set(lnurl, zapper)
+        return $zappers
+    })
+    notifyZapper(zapper) // wie welshmans fetchZapper — Abonnenten (⚡-Tally) informieren
 }
 
 /**

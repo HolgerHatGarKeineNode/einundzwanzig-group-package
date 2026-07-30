@@ -3,6 +3,14 @@
     'titleExpr' => null,
     'back' => null,
     'backExpr' => null,
+    // Zusatzklassen für die Zurück-Aktion. Der Raum blendet sie ab xl aus: mit
+    // stehender Rail gibt es kein „zurück", es gibt „woanders hin" — und der
+    // Thread bringt dort seinen eigenen Schließen-Knopf mit.
+    // Bewusst per CSS (`xl:hidden`) statt durch bedingtes Rendern: `x-ref="threadClose"`
+    // muss im DOM bleiben, sonst liefe der Fokus-Effekt des Threads ins Leere.
+    // (Und: eine Blade-Direktive gehört nicht einmal in einen Kommentar — Blade
+    // kompiliert sie auch dort, was hier 33 Tests mit einem ParseError gekippt hat.)
+    'backClass' => '',
 ])
 
 {{-- Einheitlicher Kopf aller Kern-Screens (Space/Directory/Einstellungen).
@@ -23,7 +31,7 @@
              Der Zurück-Button ist das Fokus-Ziel (Escape-Control) beim Öffnen des Dialogs,
              und dieser Zweig existiert NUR im Thread (kein anderer Screen setzt backExpr). --}}
         <flux:button variant="ghost" size="sm" icon="arrow-left" x-on:click="{{ $backExpr }}"
-                     x-ref="threadClose" aria-label="{{ __('Zurück') }}" />
+                     x-ref="threadClose" :class="$backClass" aria-label="{{ __('Zurück') }}" />
     @elseif ($back)
         <flux:button variant="ghost" size="sm" icon="arrow-left" :href="$back" wire:navigate aria-label="{{ __('Zurück') }}" />
     @elseif ($exit)

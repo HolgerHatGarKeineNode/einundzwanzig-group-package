@@ -34,6 +34,10 @@ import {
 } from './session'
 import { nip55Available, startNip55Login } from './nip55-signer'
 import { schedulePortalHandoff } from './portal-handoff'
+// Desktop-Shell: beide bewusst in eigenen Modulen, nicht hier inline — diese Datei
+// ist die meistberührte im Package, und Rail/Viewport haben mit dem Rest nichts zu tun.
+import { wireViewport } from './viewport'
+import { wireRail } from './rail'
 import {
     groupSpaceChoices,
     activeSpace,
@@ -1323,6 +1327,10 @@ export function registerNostrComponents(Alpine: {
 }) {
     installResizeObserverLoopFilter()
     wireUnread(Alpine)
+    // Desktop-Shell: `$store.viewport.desktop` gatet die EXISTENZ der Rail-Insel
+    // (`<template x-if>`), `nostrRail` ist ihre lesende Datenquelle.
+    wireViewport(Alpine)
+    wireRail(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').

@@ -12,12 +12,23 @@ import { loadHandleForPubkey, displayNip05 } from '@welshman/app'
 /** Bereits angestoßene Handle-Loads (pro Insel-Leben) — kein Doppel-Fetch. */
 const requested = new Set<string>()
 
-/** Fehlende Handles der übergebenen pubkeys nachladen (dedupliziert, async). */
+/**
+ * Fehlende Handles der übergebenen pubkeys nachladen (dedupliziert, async).
+ *
+ * Der `.catch` deckt die `loadProfile`-Etappe ab. Die zweite Etappe (`.well-known/nostr.json`
+ * per `fetch`) ist hier NUR deshalb ungefährlich, weil welshmans `queryProfile` ein eigenes
+ * try/catch hat: an welshmans `tryCatch` läge es nicht (das reicht Rejections durch), und
+ * ein Aufrufer-`catch` käme an eine Rejection aus dem `batcher` gar nicht mehr heran — die
+ * ist eine Waise im `setTimeout`. Die ausführliche Herleitung steht bei
+ * `warmZappers` in `js/zaps.ts`; ändert welshman dort etwas, ist DIESER Pfad der nächste.
+ */
 export const warmHandles = (pubkeys: Iterable<string>): void => {
     for (const pubkey of pubkeys) {
         if (pubkey && !requested.has(pubkey)) {
             requested.add(pubkey)
-            void loadHandleForPubkey(pubkey)
+            void loadHandleForPubkey(pubkey).catch(() => {
+                // Kein Handle ⇒ kein NIP-05-Häkchen. Vorgesehener Zustand, kein Fehler.
+            })
         }
     }
 }
