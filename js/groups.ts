@@ -828,9 +828,25 @@ export const createRoom = async (url: string, input: RoomInput): Promise<string>
     return joinErr && !isAlreadyError(joinErr) ? joinErr : ''
 }
 
-/** Ändert die Raum-Metadaten (kind 9002, bestehende 39000-Tags werden bewahrt). */
-export const editRoomMeta = (url: string, input: RoomInput): Promise<string> =>
-    waitForThunkError(publishThunk({ relays: [url], event: roomMetaEvent(url, input) }))
+/**
+ * Ändert die Raum-Metadaten (kind 9002, bestehende 39000-Tags werden bewahrt).
+ *
+ * Auf **Buzz** danach nachladen, aus demselben Grund wie beim Anlegen: die neu
+ * signierte 39000 kommt nicht über die offene Live-Sub. Gemessen — der umbenannte
+ * Raum trug in der Liste 25 s lang weiter den ALTEN Namen, obwohl das 9002 am Relay
+ * lag. „Bearbeiten" ist auf einem Buzz-Space der einzige verbliebene Menüpunkt der
+ * Kachel (Mitglieder/Löschen sind gegatet) — ohne das Nachladen wirkte er wirkungslos.
+ */
+export const editRoomMeta = async (url: string, input: RoomInput): Promise<string> => {
+    const err = await waitForThunkError(publishThunk({ relays: [url], event: roomMetaEvent(url, input) }))
+    if (err) {
+        return err
+    }
+    if (await spaceIsBuzzAsync(url)) {
+        await loadSpaceRooms(url)
+    }
+    return ''
+}
 
 /** Löscht einen Raum (kind 9008 → 39000-Tombstone, roomsByUrl blendet ihn aus). */
 export const deleteRoom = (url: string, h: string): Promise<string> =>
