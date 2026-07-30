@@ -224,16 +224,29 @@ const fetchLnurlDoc = async (lnurl: string): Promise<Record<string, unknown> | u
     }
 }
 
-/** Profil → lnurl → LNURL-Metadaten in welshmans Store (s. `warmZappers`). */
-const warmZapper = async (pk: string): Promise<void> => {
-    const profile = await loadProfile(pk).catch(() => undefined)
-    const lnurl = profile?.lnurl
-    if (!lnurl || getZapper(lnurl)) {
-        return // kein lud16/lud06 — oder schon (von wem auch immer) geladen
+/**
+ * LNURL-Metadaten zu EINER lnurl holen und in welshmans Store schreiben. Löst
+ * `undefined` auf, wenn der Endpoint nichts Brauchbares liefert — sie **wirft nie**.
+ *
+ * Zwei Aufrufer, ein Weg:
+ *  - {@link warmZappers} (Hintergrund, je Autor einmal),
+ *  - das Zap-Sheet in `bridge.ts` (expliziter Nutzer-Tap).
+ *
+ * Der Tap braucht sie ebenso dringend wie der Warmlauf. welshmans `forceLoadZapper`
+ * stand dort aus einem guten Grund (`loadZapper` drosselt mit exponentiellem Backoff,
+ * und ein Nutzer-Tap darf nie gedrosselt werden) — es schleppt aber denselben
+ * Batcher-Defekt mit: bei totem Endpoint settlet seine Promise NIE (nur der
+ * `withTimeout` rettete die UI) und es feuert dieselbe verwaiste Rejection.
+ * Diese Funktion drosselt ebenfalls nicht und settlet immer.
+ */
+export const loadZapperNow = async (lnurl: string): Promise<Zapper | undefined> => {
+    const cached = getZapper(lnurl)
+    if (cached) {
+        return cached
     }
     const info = await fetchLnurlDoc(lnurl)
     if (!info) {
-        return
+        return undefined
     }
     const zapper = { ...info, lnurl } as unknown as Zapper
     zappersByLnurl.update(($zappers) => {
@@ -241,6 +254,16 @@ const warmZapper = async (pk: string): Promise<void> => {
         return $zappers
     })
     notifyZapper(zapper) // wie welshmans fetchZapper — Abonnenten (⚡-Tally) informieren
+
+    return zapper
+}
+
+/** Profil → lnurl → LNURL-Metadaten in welshmans Store (s. `warmZappers`). */
+const warmZapper = async (pk: string): Promise<void> => {
+    const profile = await loadProfile(pk).catch(() => undefined)
+    if (profile?.lnurl) {
+        await loadZapperNow(profile.lnurl)
+    }
 }
 
 /**

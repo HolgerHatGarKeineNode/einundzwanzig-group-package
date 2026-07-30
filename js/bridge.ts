@@ -6,7 +6,7 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { derived, get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, forceLoadZapper, deriveRelay } from '@welshman/app'
+import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, deriveRelay } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps'
@@ -231,7 +231,7 @@ import {
     type NWCInfo,
 } from './wallet'
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
-import { warmZappers, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
+import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
@@ -4913,7 +4913,10 @@ export function registerNostrComponents(Alpine: {
                 //    `await loadProfile` über die Outbox-Relays → hing hinter der AUTH-Lawine und
                 //    meldete fälschlich „nicht erreichbar" bei validen Adressen (walletofsatoshi.com).
                 //
-                //    `forceLoadZapper`, NICHT `loadZapper`: `loadZapper` läuft über welshmans
+                //    Beides über `loadZapperNow` (js/zaps.ts) statt über welshmans Loader —
+                //    aus ZWEI Gründen, die zusammenfallen:
+                //
+                //    (a) `loadZapper` läuft über welshmans
                 //    `makeLoadItem` (@welshman/store repository.js:275) mit EXPONENTIELLEM BACKOFF —
                 //    nach n erfolglosen Versuchen liefert es innerhalb von 2^n Sekunden sofort
                 //    `undefined` zurück, OHNE zu fetchen. Die Versuche verbraucht `warmZappers`
@@ -4921,6 +4924,12 @@ export function registerNostrComponents(Alpine: {
                 //    Antwort aus dem Backoff statt vom Server → „Zahlungs-Endpoint nicht erreichbar"
                 //    bei einer kerngesunden Adresse. Genau dieses „mal geht's, mal nicht".
                 //    Ein expliziter Nutzer-Tap darf nie gedrosselt werden.
+                //
+                //    (b) `forceLoadZapper` umgeht zwar den Backoff, schleppt aber welshmans
+                //    Batcher-Defekt mit: bei totem Endpoint settlet seine Promise NIE (nur der
+                //    `withTimeout` unten rettete die UI) und die Rejection ist eine Waise, die
+                //    kein Aufrufer abfangen kann — Herleitung in `js/zaps.ts` bei `warmZappers`.
+                //    `loadZapperNow` drosselt ebenfalls nicht, settlet aber immer und wirft nie.
                 const profile = getProfile(m.pubkey)
                 const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
                 let zapper = lnurl ? getZapper(lnurl) : undefined
@@ -4932,9 +4941,11 @@ export function registerNostrComponents(Alpine: {
                 if (!zapper && lnurl) {
                     try {
                         // 15 s, nicht 8: der LNURL-Fetch des Empfängers braucht gemessen
-                        // 1,3–1,6 s, mit Ausreißern bis 5,5 s — plus welshmans 800-ms-Batcher.
-                        // Bei 8 s hätte ein langsamer Empfänger-Server als „nicht erreichbar" gegolten.
-                        zapper = await withTimeout(forceLoadZapper(lnurl), 15000)
+                        // 1,3–1,6 s, mit Ausreißern bis 5,5 s. Der `withTimeout` bleibt als
+                        // Netz gegen einen Server, der die Verbindung offen hält und nie
+                        // antwortet — `loadZapperNow` settlet zwar immer, aber „immer" heißt
+                        // „sobald der Fetch settlet", und darauf hat der Client keinen Einfluss.
+                        zapper = await withTimeout(loadZapperNow(lnurl), 15000)
                     } catch {
                         if (this.zapFor === m) {
                             this.zapResolveFailed = true
