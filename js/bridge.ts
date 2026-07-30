@@ -566,6 +566,8 @@ type SpacesState = {
     filteredMeetups(): RoomView[]
     filteredMine(): RoomView[]
     mineSections(): { key: 'rooms' | 'meetups'; rooms: RoomView[] }[]
+    standardRoomTotal(): number
+    showRoomSearch(): boolean
     filteredOther(): RoomView[]
     filteredProposals(): RoomView[]
     proposalCount(): number
@@ -2211,6 +2213,34 @@ export function registerNostrComponents(Alpine: {
          */
         mineSections(): { key: 'rooms' | 'meetups'; rooms: RoomView[] }[] {
             return splitMine(this.filteredMine())
+        },
+        /**
+         * Wie viele Räume könnte die Standardliste zeigen — OHNE Suchtext.
+         *
+         * Die Zahl entscheidet, ob das Suchfeld erscheint, und muss deshalb
+         * unabhängig von der Suche sein: an `filteredMine()` gemessen verschwände
+         * das Feld, sobald es wirkt, und der Nutzer verlöre mitten im Tippen sein
+         * Werkzeug. Dieselbe Kategorien-Regel wie im Filter, nur ohne `_matches`.
+         */
+        standardRoomTotal(): number {
+            const mine = (this.space?.userRooms ?? []).filter((room) => !room.isProjectSupport)
+            const other = (this.space?.otherRooms ?? []).filter((room) => isStandardRoom(room))
+
+            return mine.length + other.length
+        },
+        /**
+         * Ab 10 Zeilen bekommt die Standardliste ein Suchfeld.
+         *
+         * Nicht ab 8 (dem rechnerischen Break-even aus „7 sichtbare Zeilen + 1 Zeile
+         * Eigenkosten"): bei 8 käme und ginge das Feld bei jedem Beitritt oder
+         * Austritt, und ein Bedienelement, das erscheint und verschwindet, kostet
+         * mehr Orientierung als es an Weg spart.
+         *
+         * Ab xl gibt es das Feld nicht — dort trägt der Navigator seinen `#`-Prompt,
+         * der obendrein über ALLE Gruppen und beide Spaces sucht.
+         */
+        showRoomSearch(): boolean {
+            return this.standardRoomTotal() >= 10
         },
         filteredMine(): RoomView[] {
             return this._ensureFiltered().mine

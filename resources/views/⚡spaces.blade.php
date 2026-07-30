@@ -426,6 +426,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                         {{-- ── Standard-Modus: Meine · Andere · Entdecken ──────────────────── --}}
 
+                        {{-- Suchfeld der Standardliste — erst ab 10 Räumen.
+
+                             `roomQuery` filtert „Meine Räume" und „Andere Räume" bereits
+                             (`_ensureFiltered`); es war bisher nur hinter dem Fokus-Modus
+                             versteckt. Hier wird also kein zweiter Filter gebaut, sondern der
+                             vorhandene sichtbar gemacht.
+
+                             Die Schwelle liest `showRoomSearch()` aus dem UNGEFILTERTEN
+                             Bestand: an der gefilterten Liste gemessen verschwände das Feld,
+                             sobald es wirkt — der Nutzer verlöre mitten im Tippen sein Werkzeug.
+
+                             `xl:hidden`, weil der Navigator dort seinen eigenen Prompt trägt,
+                             der obendrein über alle Gruppen und beide Spaces sucht. --}}
+                        <template x-if="!focusMode() && showRoomSearch()">
+                            <div data-room-search class="mb-2 xl:hidden" x-data="{ ph: @js(__('Raum suchen…')) }">
+                                <flux:input x-model="roomQuery" icon="magnifying-glass" clearable
+                                            ::placeholder="ph" />
+                            </div>
+                        </template>
+
                         {{-- Meine Räume (beigetreten laut 39002). Einheitliche room-tile-Zeilen —
                              beigetretene Meetups tragen NUR ein dezentes Flaggen-Badge am Icon
                              (gleiche Zeilenhöhe). Die reiche Meetup-Kachel bleibt der
@@ -551,8 +571,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              ihrer eigenen Zeile. Eine Pille hier wäre eine zweite Wahrheit über
                              eine sichtbare Zahl — die Regel ist „ein Zähler, ein Ort". --}}
                         <template x-if="!focusMode() && (proposalCount() > 0 || meetupCount() > 0 || isAdmin)">
-                            <div class="flex flex-col gap-0.5"
-                                 :class="(filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 pt-1.5 dark:border-zinc-800/60' : ''">
+                            <div data-discover class="flex flex-col gap-0.5"
+                                 {{-- Die Trennlinie sitzt zwischen den Raumlisten und diesen
+                                      Wegen — sie braucht also etwas ÜBER sich. Ab xl blendet die
+                                      Bühne die Listen aus (der Navigator führt sie), und die Linie
+                                      stünde über nichts: ein Strich am oberen Rand der Karte.
+                                      Deshalb fragt die Bedingung nicht nur „gibt es Räume?",
+                                      sondern „ist über mir etwas SICHTBAR?".
+                                      `$store.viewport` ist dabei keine zweite Wahrheit über den
+                                      Breakpoint, sondern dieselbe, aus der auch die Rail ihre
+                                      Existenz bezieht. --}}
+                                 x-bind:class="!$store.viewport?.desktop && (filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 pt-1.5 dark:border-zinc-800/60' : ''">
                                 {{-- Projektunterstützung (Antragsräume, ["t","project-support"]).
                                      Der Pool ist gegated: eigene Anträge sieht jeder
                                      Antragsteller, FREMDE nur der Vorstand (isAdmin) — siehe
