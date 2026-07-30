@@ -451,7 +451,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              ist eine Blade-Regel für Komponenten-Tags; auf einem rohen <div>
                              bliebe die Bindung tot. --}}
                         <template x-if="!focusMode() && filteredMine().length > 0">
-                            <div x-data="{ secLabels: { rooms: @js(__('Meine Räume')), meetups: @js(__('Meine Meetups')) } }">
+{{-- Ab xl trägt der Navigator diese Liste — hier wäre sie eine Dopplung
+                             derselben Räume im selben Blick. Ausgeblendet per CSS, nicht per
+                             `x-if`: die Bedingung bliebe sonst eine zweite Wahrheit über den
+                             Breakpoint, und unterhalb xl muss dieser Block zeichengleich
+                             bleiben. Was auf der Bühne stehen bleibt, ist das, was die Rail
+                             bewusst NICHT kann: Banner, Entdecken-Wege, Threads. --}}
+                            <div class="xl:hidden" x-data="{ secLabels: { rooms: @js(__('Meine Räume')), meetups: @js(__('Meine Meetups')) } }">
                                 <template x-for="(sec, i) in mineSections()" :key="sec.key">
                                     {{-- 8px Weißraum tragen die Grenze zwischen den Sektionen.
                                          Eine zweite Trennlinie wäre die dritte in einer Karte,
@@ -484,7 +490,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                         {{-- Andere Räume (entdeckbar; ohne kategorisierte: kein Meetup, keine Projektunterstützung). --}}
                         <template x-if="!focusMode() && filteredOther().length > 0">
-                            <div :class="filteredMine().length > 0 ? 'mt-2' : ''">
+                            <div class="xl:hidden" x-bind:class="filteredMine().length > 0 ? 'mt-2' : ''">
                                 <p class="flex items-baseline gap-1.5 px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
                                     {{ __('Andere Räume') }}
                                     <span class="font-mono font-normal normal-case tracking-normal" x-text="filteredOther().length"></span>
@@ -502,7 +508,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              der Entdecken-Zeile liegen (wie die Meetups), ist „keine Standard-
                              Räume" auch dann die Wahrheit, wenn es Anträge gibt. --}}
                         <template x-if="!focusMode() && !loading && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0 && filteredMine().length === 0 && filteredOther().length === 0">
-                            <p class="px-2 py-3 text-sm text-muted">{{ __('Noch keine Standard-Räume in diesem Space.') }}</p>
+                            <p class="px-2 py-3 text-sm text-muted xl:hidden">{{ __('Noch keine Standard-Räume in diesem Space.') }}</p>
                         </template>
 
                         {{-- ── Wege aus der Liste: entdecken · anlegen ─────────────────────────
