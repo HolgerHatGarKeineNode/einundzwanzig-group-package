@@ -38,6 +38,7 @@ import {
     type BuzzRelayRole,
 } from './buzzAdmin'
 import { warmHandles, verifiedNip05 } from './handles'
+import { purgeSpaceLocalProfiles } from './spaceProfiles'
 
 /** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
 export const RELAY_ROLE = 33534
@@ -571,15 +572,33 @@ export const listenSpaceDirectory = (url: string, signal: AbortSignal): void => 
 }
 
 /**
- * Lädt die kind-0-Profile der Mitglieder nach (Namen/Avatare) — vom Space-Relay
- * (dort veröffentlichen Mitglieder ihr Profil oft direkt) UND über die
- * Outbox-Relais der jeweiligen Autoren.
+ * kind 0 zusätzlich vom SPACE-Relay holen — aber **nicht von einem Buzz-Space**.
+ *
+ * Auf zooid ist das wertvoll: dort veröffentlichen Mitglieder ihr Profil oft direkt
+ * am Space-Relay, und es ist dasselbe Profil wie im nativen Nostr. Buzz dagegen legt
+ * beim Onboarding ein EIGENES kind-0 an (am Prod-Relay nachgesehen: generierte Namen,
+ * eigene Bilder, Zeitstempel von heute). kind 0 ist ersetzbar, der jüngste Zeitstempel
+ * gewinnt — das Buzz-Profil verdrängt damit app-weit das echte, sobald man den
+ * Workspace betritt. Siehe [[spaceProfiles]] für die zweite Hälfte (Aufräumen).
+ */
+const loadProfilesFromSpace = async (url: string, pubkeys: string[]): Promise<void> => {
+    if (await spaceIsBuzzAsync(url)) {
+        purgeSpaceLocalProfiles(url)
+        return
+    }
+    await load({ relays: [url], filters: [{ kinds: [0], authors: pubkeys }] })
+}
+
+/**
+ * Lädt die kind-0-Profile der Mitglieder nach (Namen/Avatare) — über die
+ * Outbox-Relais der jeweiligen Autoren und, wo es passt, zusätzlich vom Space-Relay
+ * (siehe [[loadProfilesFromSpace]]).
  */
 export const loadMemberProfiles = (url: string, pubkeys: string[]): void => {
     if (pubkeys.length === 0) {
         return
     }
-    load({ relays: [url], filters: [{ kinds: [0], authors: pubkeys }] })
+    void loadProfilesFromSpace(url, pubkeys)
     for (const pubkey of pubkeys) {
         loadProfile(pubkey)
     }
@@ -599,9 +618,6 @@ export const settleMemberProfiles = async (url: string, pubkeys: string[]): Prom
         return
     }
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, 8000))
-    const loads = Promise.all([
-        load({ relays: [url], filters: [{ kinds: [0], authors: pubkeys }] }),
-        ...pubkeys.map((pubkey) => loadProfile(pubkey)),
-    ])
+    const loads = Promise.all([loadProfilesFromSpace(url, pubkeys), ...pubkeys.map((pubkey) => loadProfile(pubkey))])
     await Promise.race([loads, timeout])
 }
