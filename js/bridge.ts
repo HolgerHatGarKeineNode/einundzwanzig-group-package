@@ -241,26 +241,53 @@ type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => 
 const zapsEnabled = (): boolean => (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false
 
 /**
- * sessionStorage-Marker „in diesem Tab wurde schon App-intern navigiert" (Rückweg).
- * Tab-lokal — ein frischer Deep-Link-Tab startet ohne ihn. Siehe Setzer beim
- * `livewire:navigate`-Listener und Leser in {@link hasInternalHistory}.
+ * sessionStorage: die zuletzt VERLASSENE App-URL („woher komme ich?"), tab-lokal.
+ *
+ * Vorgänger war ein reines Bit („in diesem Tab wurde schon einmal navigiert"). Das
+ * beantwortete die falsche Frage. Der Kopf-Pfeil ist UP (Hierarchie), und
+ * `history.back()` ist nur dann die richtige Umsetzung von UP, wenn der vorherige
+ * Eintrag TATSÄCHLICH das UP-Ziel ist. Das Bit war nach der ersten Navigation für
+ * immer gesetzt — danach führte der Pfeil aus JEDEM Raum blind zurück, egal ob der
+ * Vorgänger die Raumliste, ein anderer Raum, die Wallet oder die Einstellungen war.
+ * Genau das ist das „geht komisch zurück", das der Nutzer gemeldet hat.
+ *
+ * Es bleibt bei EINEM Wert, keinem Stack — der ursprüngliche Grund dagegen gilt
+ * unverändert: ein selbst geführter Herkunfts-Stack wäre eine zweite
+ * Navigationsgeschichte neben der echten und driftet (Reload, Resume, Deep-Link).
+ * Ein einzelner, bei jeder Navigation überschriebener Wert kann nicht driften.
  */
-const APP_NAV_KEY = 'appNav'
+const APP_NAV_PREV_KEY = 'appNavPrev'
+
+/** Die zuletzt verlassene App-URL, oder '' (unbekannt/nicht verfügbar). */
+const lastLeftUrl = (): string => {
+    try {
+        return sessionStorage.getItem(APP_NAV_PREV_KEY) ?? ''
+    } catch {
+        return ''
+    }
+}
 
 /**
- * Gibt es einen App-internen Vorgänger, auf den `history.back()` zielen darf?
+ * Darf `history.back()` als Umsetzung von UP dienen — führt es also auf `upTarget`?
  *
- * Zwei Bedingungen, beide nötig:
- * - der Tab hat schon einmal per `wire:navigate` navigiert (Marker), und
- * - der History-Stack hat überhaupt einen Vorgänger.
+ * Drei Bedingungen, alle nötig:
+ * - der History-Stack hat überhaupt einen Vorgänger,
+ * - wir wissen, welche App-URL wir zuletzt verlassen haben, und
+ * - das war genau das UP-Ziel (Pfad-Vergleich; die Query bleibt bewusst außen vor,
+ *   denn sie trägt den Filterzustand, den `history.back()` ja gerade zurückholen soll).
  *
- * Ist eine davon falsch, ist der Nutzer per Deep-Link/Kaltstart hier gelandet und
- * `history.back()` führte aus der App heraus (oder ins Leere) — dann gilt das
- * explizite UP-Ziel.
+ * Trifft eines nicht zu — Deep-Link-Kaltstart, Sprung aus einem anderen Raum, aus der
+ * Wallet, nach einem Browser-Zurück — gilt das explizite UP-Ziel. Das ist die sichere
+ * Richtung: eine Navigation auf das UP-Ziel verlässt die App nie und überrascht nie.
  */
-const hasInternalHistory = (): boolean => {
+const backLeadsTo = (upTarget: string): boolean => {
     try {
-        return sessionStorage.getItem(APP_NAV_KEY) === '1' && window.history.length > 1
+        if (window.history.length <= 1) {
+            return false
+        }
+        const prev = lastLeftUrl()
+
+        return prev !== '' && new URL(prev, window.location.origin).pathname === new URL(upTarget, window.location.origin).pathname
     } catch {
         return false
     }
@@ -1397,12 +1424,27 @@ export function registerNostrComponents(Alpine: {
     // (Reload, Resume, Deep-Link). Gespeichert wird nur ein Bit — „in diesem Tab hat
     // schon einmal eine App-interne Navigation stattgefunden". sessionStorage ist
     // tab-lokal, ein frischer Deep-Link-Tab startet also korrekt ohne Marker.
+    // Das Event feuert auf dem NOCH aktuellen Dokument, bevor getauscht wird — die
+    // Adressleiste zeigt hier also die URL, die wir gerade verlassen. Genau die ist
+    // der Vorgänger des gleich entstehenden History-Eintrags.
     document.addEventListener('livewire:navigate', () => {
         try {
-            sessionStorage.setItem(APP_NAV_KEY, '1')
+            sessionStorage.setItem(APP_NAV_PREV_KEY, window.location.pathname + window.location.search)
         } catch {
-            // sessionStorage nicht verfügbar (Private-Mode/Quota) → Marker bleibt aus,
-            // der Rückweg fällt auf das explizite UP-Ziel zurück. Kein Fehler.
+            // sessionStorage nicht verfügbar (Private-Mode/Quota) → der Rückweg fällt
+            // auf das explizite UP-Ziel zurück. Kein Fehler.
+        }
+    })
+
+    // Nach einem Browser-Zurück/-Vorwärts wissen wir NICHT mehr, was der Vorgänger des
+    // neuen Eintrags ist — der Wert oben beschreibt eine Navigation, die nicht mehr die
+    // letzte ist. Ihn stehen zu lassen hieße raten; also löschen. Der Pfeil fällt damit
+    // auf das UP-Ziel zurück, und das ist nie falsch, nur manchmal weniger komfortabel.
+    window.addEventListener('popstate', () => {
+        try {
+            sessionStorage.removeItem(APP_NAV_PREV_KEY)
+        } catch {
+            /* nicht verfügbar — dann war ohnehin nichts gespeichert */
         }
     })
 
@@ -4383,7 +4425,11 @@ export function registerNostrComponents(Alpine: {
             return originTarget(window.location.search, fallback)
         },
         backFromRoom(upTarget: string) {
-            if (hasInternalHistory()) {
+            // `history.back()` NUR, wenn der Vorgänger wirklich das UP-Ziel ist — dann
+            // kommen Filterzustand und Scrollposition der Liste gratis mit. In jedem
+            // anderen Fall (aus einem anderen Raum, aus der Wallet, Deep-Link) wäre es
+            // ein Sprung an eine Stelle, die der Pfeil nie versprochen hat.
+            if (backLeadsTo(upTarget)) {
                 window.history.back()
                 return
             }
