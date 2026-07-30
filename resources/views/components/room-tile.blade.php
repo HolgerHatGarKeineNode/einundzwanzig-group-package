@@ -65,8 +65,15 @@
          Der Marker liegt am Raum (`RoomView.isMeetup` / `.isProjectSupport`,
          `js/groups.ts`), nicht an der Kachel — die Bedingung gilt deshalb überall
          gleich, egal in welcher Liste die Kachel steht. --}}
-    <template x-if="isAdmin && !room.isMeetup && !room.isProjectSupport">
-        <div class="shrink-0 pr-1" x-on:click.stop>
+    {{-- Der Platz des Menüs wird für JEDE Zeile reserviert, sobald der Nutzer Admin
+         ist — auch für die abgeleiteten Räume ohne Menü. Sonst rutschen Schloss und
+         Ungelesen-Pille genau in den Zeilen nach rechts, in denen das Menü fehlt, und
+         die Liste bekommt zwei verschiedene rechte Kanten (vom Nutzer gemeldet,
+         2026-07-30). Ein Nicht-Admin sieht nirgends ein Menü — dort ist die Spalte
+         durchgehend weg und die Kante wieder einheitlich. --}}
+    <template x-if="isAdmin">
+        <div class="flex min-w-11 shrink-0 items-center justify-center pr-1" x-on:click.stop>
+            <template x-if="!room.isMeetup && !room.isProjectSupport">
             <flux:dropdown position="bottom" align="end">
                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Raum verwalten') }}" />
                 {{-- „Mitglieder" und „Löschen" gibt es nur auf zooid-Spaces (`!isBuzz`):
@@ -92,7 +99,8 @@
                         <flux:menu.item variant="danger" icon="trash" x-on:click="askDeleteRoom(room)">{{ __('Löschen') }}</flux:menu.item>
                     </template>
                 </flux:menu>
-            </flux:dropdown>
+                </flux:dropdown>
+            </template>
         </div>
     </template>
 </div>
