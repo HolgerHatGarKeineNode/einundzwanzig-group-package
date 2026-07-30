@@ -116,6 +116,7 @@ export type RailState = {
     openRoom(room: RailRoom): void
     jumpToFirst(): void
     step(delta: number): void
+    liftToken(): void
     onEscape(el: HTMLInputElement): void
     focusPrompt(): void
     /** In welcher Gruppe liegt der aktive Raum? `null`, wenn keiner offen ist. */
@@ -417,6 +418,33 @@ export const createRail = (): RailState => ({
     },
 
     /** Escape in drei Stufen: Text leeren → Scope lösen → Feld verlassen. */
+    /**
+     * Token-Lift: ein getipptes `de:` / `m:` wandert aus dem Textfeld in den Chip.
+     *
+     * Das Präfix ist genau die Zeichenfolge, die ein Klick auf die Lupe bzw. einen
+     * Land-Chip schreibt — wer geklickt hat, hat sie gesehen und tippt sie beim
+     * nächsten Mal selbst. Damit das nicht zwei getrennte Wege bleiben, wird sie
+     * hier erkannt und in denselben Zustand gehoben.
+     *
+     * Läuft im `input`-Ereignis, NICHT in einem `$watch` auf `query`: der Lift
+     * schreibt `query` selbst, und ein Watch riefe sich sonst rekursiv auf.
+     * Unbekannte Präfixe bleiben stehen — ein `foo:` ist eine Suche nach „foo:",
+     * keine stille Filterung auf nichts (`parseScope` entscheidet das).
+     */
+    liftToken(): void {
+        const { scope, rest } = parseScope(this.query)
+        if (scope.group === null && scope.country === '') {
+            return
+        }
+        // Ein bereits gesetztes Land nicht durch eine Gruppenangabe verlieren:
+        // `de:` + später `m:` soll „Meetups in Deutschland" ergeben, nicht „Meetups".
+        this.scope = {
+            group: scope.group ?? this.scope.group,
+            country: scope.country !== '' ? scope.country : this.scope.country,
+        }
+        this.query = rest
+    },
+
     onEscape(el: HTMLInputElement): void {
         if (this.query !== '') {
             this.query = ''

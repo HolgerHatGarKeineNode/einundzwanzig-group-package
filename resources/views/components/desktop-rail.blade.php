@@ -57,6 +57,9 @@
                    x-on:focus="focused = true" x-on:blur="focused = false"
                    x-on:keydown.enter.prevent="jumpToFirst()"
                    x-on:keydown.escape.prevent="onEscape($el)"
+                   {{-- Der Lift hängt am `input`-Ereignis, nicht an einem `$watch` auf
+                        `query` — er schreibt `query` selbst, ein Watch riefe sich rekursiv. --}}
+                   x-on:input="liftToken()"
                    class="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-zinc-900 placeholder:text-muted focus:ring-0 dark:text-zinc-100"
                    x-bind:placeholder="scope.group || scope.country ? @js(__('Filtern…')) : @js(__('Raum springen'))"
                    aria-label="{{ __('Raum springen') }}" />
