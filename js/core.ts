@@ -13,6 +13,7 @@ import { routerContext } from '@welshman/router'
 import { always } from '@welshman/lib'
 import { verifyEvent, normalizeRelayUrl, PROFILE, type TrustedEvent } from '@welshman/util'
 import { initStorage } from './storage'
+import { watchRelayNotices } from './relayNotices'
 import { initReadState } from './readState'
 
 // M3 P1: `storageReady` für die Insel re-exportieren (bridge.ts gated den Warm-Peek darauf).
@@ -215,4 +216,9 @@ if (!bootGuard.__ezGroupBooted) {
     // BEWUSST hier und nicht in der Insel: der Ungelesen-Punkt hängt in der
     // App-Shell (Bottom-Nav) auf JEDER Seite, nicht nur auf denen mit Raum-Insel.
     initReadState()
+    // Relay-NOTICEs mitschneiden. Sie sind das EINZIGE, was Buzz zu einem
+    // ratenbegrenzt verworfenen Event sagt — ein `OK` kommt dann nie, und ohne diesen
+    // Mitschnitt liefe jede betroffene Mutation in eine Zeitgrenze ohne Begründung.
+    // Muss VOR der ersten Verbindung stehen, greift aber auch später (siehe Modul).
+    watchRelayNotices()
 }

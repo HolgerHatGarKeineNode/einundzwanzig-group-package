@@ -59,25 +59,75 @@ export const publishError = (results: Record<string, PublishResultRow> | undefin
 
 type ThunkLike = {
     results?: Record<string, PublishResultRow>
+    /** welshmans `Thunk` trägt hier seine Zielrelays — die Quelle für die NOTICE-Nachfrage. */
+    options?: { relays?: readonly string[] }
     subscribe: (cb: (t: { results?: Record<string, PublishResultRow> }) => void) => unknown
 }
+
+/**
+ * Liest die Relay-Begründung (`NOTICE`), die seit `since` für `url` eintraf.
+ *
+ * Wird von `relayNotices.ts` beim App-Boot gesetzt. Der Default liefert '' — dieses Modul
+ * bleibt damit frei von `@welshman/net` und unter `node --test` ladbar, und ein Host ohne
+ * den Mitschnitt bekommt eine etwas ärmere, aber nicht falsche Meldung.
+ */
+let readNotice: (url: string, since: number) => string = () => ''
+
+export const setRelayNoticeReader = (fn: (url: string, since: number) => string): void => {
+    readNotice = fn
+}
+
+/**
+ * Wie lange auf ein Verdikt gewartet wird, bevor der Vorgang als fehlgeschlagen gilt.
+ *
+ * Der Wert liegt bewusst über welshmans eigenem Publish-Timeout (dessen `timeout`-Status
+ * ist ein regulärer Endstatus und wird oben schon als Fehler gewertet): diese Grenze fängt
+ * nur den Fall ab, in dem **gar kein Verdikt kommt** — dann greift auch welshmans Timer
+ * nicht, weil es nichts gibt, dem er ein Ergebnis zuordnen könnte.
+ */
+export const PUBLISH_VERDICT_TIMEOUT_MS = 20_000
+
+/** Die Meldung, wenn das Relay überhaupt nichts zum Event gesagt hat. */
+export const NO_VERDICT_ERROR = 'Das Relay hat den Vorgang nicht bestätigt.'
 
 /**
  * Ersatz für `waitForThunkError`: wartet, bis jedes Relay einen Endstatus hat, und
  * meldet alles außer `success` als Fehler. `''` = Erfolg — dieselbe Konvention wie
  * überall sonst im Client, damit die Aufrufer unverändert bleiben.
+ *
+ * **Es gibt eine Zeitgrenze, und die ist kein Sicherheitsnetz, sondern eine gemessene
+ * Notwendigkeit.** Buzz antwortet auf ein ratenbegrenztes `EVENT` mit einer nackten
+ * `NOTICE` statt mit einem `OK` (NIP-01 verlangt das `OK`; Fundstelle und Mitschnitt in
+ * `relayNotices.ts`). welshman ordnet Publish-Ergebnisse über die Event-Id aus dem `OK`
+ * zu — ohne `OK` bleibt der Thunk für IMMER `pending`. Ohne diese Grenze wartete der
+ * Aufrufer ewig: kein Fehler, keine Meldung, der Knopf bleibt `busy`. Genau so verschwand
+ * eine Moderations-Löschung spurlos, und genau das trug den `buzz-moderation:95`-Flake.
+ *
+ * Läuft die Grenze ab, nennt die Meldung die **echte** Relay-Begründung, sofern in dieser
+ * Zeit eine NOTICE kam („rate-limited: quota exceeded; retry in 2s") — statt einer
+ * Vermutung. Die Zielrelays kommen aus dem Thunk selbst, damit die Härtung an ALLEN
+ * Aufrufstellen gleichzeitig greift: betroffen ist nicht eine Aktion, sondern jede Mutation.
  */
 export const waitForPublishError = (thunk: ThunkLike): Promise<string> =>
     new Promise((resolve) => {
+        const started = Date.now()
         let settled = false
-        thunk.subscribe(($thunk) => {
+        const settle = (err: string) => {
             if (settled) {
                 return
             }
+            settled = true
+            clearTimeout(timer)
+            resolve(err)
+        }
+        const timer = setTimeout(() => {
+            const reason = (thunk.options?.relays ?? []).map((url) => readNotice(url, started)).find(Boolean) ?? ''
+            settle(reason ? `${NO_VERDICT_ERROR} ${reason}` : NO_VERDICT_ERROR)
+        }, PUBLISH_VERDICT_TIMEOUT_MS)
+        thunk.subscribe(($thunk) => {
             const err = publishError($thunk.results)
             if (err !== undefined) {
-                settled = true
-                resolve(err)
+                settle(err)
             }
         })
     })
