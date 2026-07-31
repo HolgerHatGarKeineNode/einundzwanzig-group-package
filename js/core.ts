@@ -14,6 +14,7 @@ import { always } from '@welshman/lib'
 import { verifyEvent, normalizeRelayUrl, PROFILE, type TrustedEvent } from '@welshman/util'
 import { initStorage } from './storage'
 import { watchRelayNotices } from './relayNotices'
+import { socketPolicyAuthHold } from './authHold'
 import { initReadState } from './readState'
 
 // M3 P1: `storageReady` für die Insel re-exportieren (bridge.ts gated den Warm-Peek darauf).
@@ -205,6 +206,10 @@ if (!bootGuard.__ezGroupBooted) {
             sign,
             shouldAuth: () => Boolean(pubkey.get()),
         }),
+        // Doppelte REQs während der AUTH-Runde streichen — siehe `authHold.ts`. Steht
+        // NEBEN welshmans `socketPolicyAuthBuffer`, nicht an dessen Stelle: der bleibt
+        // der Zustellweg, diese Policy löscht nur den ersten, ohnehin abgelehnten Versuch.
+        socketPolicyAuthHold,
     )
     // M3 P1: Kaltstart-Cache aus IndexedDB in die welshman-repository spiegeln,
     // BEVOR der erste Raum öffnet (Room-init gated auf `storageReady`). Idempotent.
