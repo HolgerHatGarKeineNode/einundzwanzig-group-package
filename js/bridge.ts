@@ -1156,31 +1156,31 @@ let activityController: AbortController | null = null
  * ohne ihn risse jede eingehende Nachricht die Live-Subscription ab und baute sie neu auf.
  */
 /**
- * Sammelfrist, bevor die Aktivitäts-Subscription (neu) aufgebaut wird.
+ * **Hier stand eine 300-ms-Sammelfrist. Sie ist wieder draußen — bewusst.**
  *
- * Beim Start streamt die relay-signierte 39002 die Mitgliedschaften EINZELN herein: die
- * Raumliste wächst 1 → 2 → 3, und ohne Frist baut `syncRoomActivity` die Subscription für
- * jede Zwischenstufe neu auf. Im Frame-Mitschnitt gegen Buzz stand deshalb derselbe Filter
- * dreimal mit wachsender `#h`-Liste — sechs Frames für ein Ergebnis.
+ * Der Gedanke war richtig gemessen: die relay-signierte 39002 streamt die
+ * Mitgliedschaften einzeln, die Raumliste wächst 1 → 2 → 3, und `syncRoomActivity`
+ * baute für jede Zwischenstufe neu auf (im Buzz-Mitschnitt derselbe Filter dreimal mit
+ * wachsender `#h`-Liste). Die Frist sparte gemessen **5 von 40** zählenden Frames.
  *
- * Das zählt, weil Buzz FRAMES deckelt (50 je 5 s je Pubkey) und beim Reißen des Deckels
- * das nächste `EVENT` still verwirft (siehe `relayNotices.ts`). 300 ms sind großzügig
- * gegenüber dem Abstand der Zwischenstufen (im Mitschnitt ~120 ms) und für den Nutzer
- * unsichtbar: es geht um den Ungelesen-Punkt, nicht um den offenen Raum.
+ * Sie ist trotzdem weg, weil beide Seiten der Rechnung sich änderten:
+ *
+ * - **Der Nutzen war nie belegt nötig.** Buzz deckelt 50 Frames je 5 s; der Client lag im
+ *   schlimmsten Fenster bei 33, nach der AUTH-Härtung (`authHold.ts`) bei 23. Gerissen
+ *   wurde der Deckel nur im E2E-Setup, das den Relay zusätzlich mit `nak`-Seeds belastet.
+ *   Ob Produktion ihn je erreicht, ist **nicht gemessen** — der Prod-Relay wird nicht
+ *   gescrapet, `buzz_admission_rejections_total` liegt nirgends vor.
+ * - **Die Kosten waren offen.** Die Frist verzögert genau die Projektion, an der die
+ *   `updates`-Anker hängen, und die fielen danach unter Volllast sporadisch mit
+ *   `toBeVisible` (Anker 2, 8, 13, 20 — je isoliert grün). Ein Zusammenhang ist
+ *   **unbewiesen**; ihn auszuschließen hätte zwei Messreihen à sechs Vollläufe gekostet.
+ *
+ * 5 Frames von 50 sind diesen Preis nicht wert. Der eigentliche Defekt dieser Runde — der
+ * stille Verlust bei ratenbegrenzten Events — ist ohnehin an seiner Wurzel behoben
+ * (`publishResult.ts` meldet jetzt einen Fehler statt zu hängen).
+ *
+ * Wer sie zurückholt, braucht vorher eine Prod-Messung, dass der Deckel überhaupt greift.
  */
-const ACTIVITY_SETTLE_MS = 300
-let activityTimer: ReturnType<typeof setTimeout> | null = null
-
-/** Wartet die Sammelfrist ab und baut dann EINMAL auf. */
-const scheduleRoomActivity = (url: string, hs: string[]): void => {
-    if (activityTimer) {
-        clearTimeout(activityTimer)
-    }
-    activityTimer = setTimeout(() => {
-        activityTimer = null
-        syncRoomActivity(url, hs)
-    }, ACTIVITY_SETTLE_MS)
-}
 
 const syncRoomActivity = (url: string, hs: string[]): void => {
     const key = url + '|' + [...hs].sort().join(',')
@@ -1371,7 +1371,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
     })
     // Ohne diese Subscription bewegte sich der Punkt NUR beim Kaltstart aus dem Cache:
     // `watchSpaceRooms` holt bloß Raum-Metadaten, `listenRoom` nur den EINEN offenen Raum.
-    joinedRoomHs.subscribe((hs: string[]) => scheduleRoomActivity(get(activeSpace), hs))
+    joinedRoomHs.subscribe((hs: string[]) => syncRoomActivity(get(activeSpace), hs))
 }
 
 export function registerNostrComponents(Alpine: {
