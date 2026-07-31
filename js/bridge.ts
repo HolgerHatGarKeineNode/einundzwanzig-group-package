@@ -1152,6 +1152,33 @@ let activityController: AbortController | null = null
  * `activeSpaceView`, und das emittiert seit `lastMessageAt` bei jeder Aktivitätswelle —
  * ohne ihn risse jede eingehende Nachricht die Live-Subscription ab und baute sie neu auf.
  */
+/**
+ * Sammelfrist, bevor die Aktivitäts-Subscription (neu) aufgebaut wird.
+ *
+ * Beim Start streamt die relay-signierte 39002 die Mitgliedschaften EINZELN herein: die
+ * Raumliste wächst 1 → 2 → 3, und ohne Frist baut `syncRoomActivity` die Subscription für
+ * jede Zwischenstufe neu auf. Im Frame-Mitschnitt gegen Buzz stand deshalb derselbe Filter
+ * dreimal mit wachsender `#h`-Liste — sechs Frames für ein Ergebnis.
+ *
+ * Das zählt, weil Buzz FRAMES deckelt (50 je 5 s je Pubkey) und beim Reißen des Deckels
+ * das nächste `EVENT` still verwirft (siehe `relayNotices.ts`). 300 ms sind großzügig
+ * gegenüber dem Abstand der Zwischenstufen (im Mitschnitt ~120 ms) und für den Nutzer
+ * unsichtbar: es geht um den Ungelesen-Punkt, nicht um den offenen Raum.
+ */
+const ACTIVITY_SETTLE_MS = 300
+let activityTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Wartet die Sammelfrist ab und baut dann EINMAL auf. */
+const scheduleRoomActivity = (url: string, hs: string[]): void => {
+    if (activityTimer) {
+        clearTimeout(activityTimer)
+    }
+    activityTimer = setTimeout(() => {
+        activityTimer = null
+        syncRoomActivity(url, hs)
+    }, ACTIVITY_SETTLE_MS)
+}
+
 const syncRoomActivity = (url: string, hs: string[]): void => {
     const key = url + '|' + [...hs].sort().join(',')
     if (key === activityKey) {
@@ -1341,7 +1368,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
     })
     // Ohne diese Subscription bewegte sich der Punkt NUR beim Kaltstart aus dem Cache:
     // `watchSpaceRooms` holt bloß Raum-Metadaten, `listenRoom` nur den EINEN offenen Raum.
-    joinedRoomHs.subscribe((hs: string[]) => syncRoomActivity(get(activeSpace), hs))
+    joinedRoomHs.subscribe((hs: string[]) => scheduleRoomActivity(get(activeSpace), hs))
 }
 
 export function registerNostrComponents(Alpine: {
