@@ -119,6 +119,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Im Thread: Antwort-Zahl unter dem Titel (gleiche Singular/Plural-Logik wie zuvor). --}}
             <span x-show="threadRootId" x-cloak class="text-xs text-muted"
                   x-text="threadCount + (threadCount === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
+            {{-- Herkunft, aber nur wenn sie überrascht: `spaceHint` ist LEER, solange der Raum
+                 im Vereins-Space liegt — für so gut wie jeden Raum ändert sich hier nichts.
+                 Steht der Nutzer dagegen in einem Workspace-Raum, sagte ihm bis hierher
+                 nichts, wo er ist: der Kopf zeigt nur `# Raumname`, und der Navigator trägt
+                 oben weiter den Vereins-Space (am 1440px-Lauf gemessen). --}}
+            <span x-show="!threadRootId && spaceHint" x-cloak data-space-hint
+                  class="truncate text-xs text-muted" x-text="spaceHint"></span>
         </x-slot:subtitle>
         <x-slot:actions>
             {{-- Mitglied → Verlassen (kind 9022). Nur im Raum, nicht im Thread. Beitreten liegt beim Composer. --}}

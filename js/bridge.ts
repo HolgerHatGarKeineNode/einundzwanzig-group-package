@@ -6,8 +6,8 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { derived, get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getZapper, deriveRelay } from '@welshman/app'
-import { displayProfile, toNostrURI, getTagValue, getLnUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
+import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getRelay, getZapper, deriveRelay } from '@welshman/app'
+import { displayProfile, toNostrURI, getTagValue, getLnUrl, normalizeRelayUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps'
 import { purgeSpaceLocalProfiles } from './spaceProfiles'
@@ -42,6 +42,8 @@ import { wireRail } from './rail'
 import {
     groupSpaceChoices,
     activeSpace,
+    activeSpaceUrl,
+    DEFAULT_SPACE_URL,
     activeSpaceView,
     setActiveSpace,
     setActiveSpaceEphemeral,
@@ -736,6 +738,7 @@ type MessageInfo = { nevent: string; npub: string; json: string; createdAt: stri
 type RoomChatState = {
     h: string
     roomName: string // Anzeigename des Raums (Client-Meta 39000); Fallback = Server-Wert/`h`
+    spaceHint: string // Space-Name, NUR wenn der Raum nicht im Vereins-Space liegt; sonst ''
     messages: ChatMessage[] // aufsteigend (Quelle): loadOlder/scrollToMessage arbeiten hierauf
     messagesReversed: ChatMessage[] // newest-first fürs `flex-col-reverse`-Rendering (neweste am Boden)
     loading: boolean
@@ -3490,6 +3493,7 @@ export function registerNostrComponents(Alpine: {
         // ihn reaktiv in setup(), sobald sie vom Relay da ist — der Server-Cache kann
         // den Namen am member-only-Relay ohne AUTH nicht lesen und zeigt sonst den Slug.
         roomName: String(initialName ?? h),
+        spaceHint: '',
         messages: [],
         messagesReversed: [],
         loading: true,
@@ -3662,6 +3666,18 @@ export function registerNostrComponents(Alpine: {
         setup(url: string) {
             this.teardown()
             this._url = url
+            // **Woher kommt dieser Raum?** Solange er im Vereins-Space liegt — also fast
+            // immer — bleibt der Hinweis leer und der Kopf sieht aus wie bisher. Steht der
+            // Nutzer aber in einem WORKSPACE-Raum, sagt ihm bis hierher nichts, in welchem
+            // Space er ist: der Kopf zeigt nur `# Raumname`, und der Navigator trägt oben
+            // weiter den Vereins-Space (am 1440px-Lauf gemessen: Raum aus
+            // `ws://localhost:3001/` offen, Rail-Kopf „Zooid Test Space").
+            //
+            // Verglichen wird gegen die PERSISTIERTE Wahl, nicht gegen `activeSpace`:
+            // letzteres IST im Workspace-Raum der Workspace, der Vergleich wäre immer wahr
+            // und der Hinweis nie sichtbar.
+            const heimat = normalizeRelayUrl(get(activeSpaceUrl) ?? DEFAULT_SPACE_URL)
+            this.spaceHint = url === heimat ? '' : spaceBranding(displayRelayUrl(url), getRelay(url)).label
             this._initialLoadDone = false // Resync erst nach diesem Load wieder erlauben (Prewarm-Race)
             this.loading = true
             this.membershipReady = false
