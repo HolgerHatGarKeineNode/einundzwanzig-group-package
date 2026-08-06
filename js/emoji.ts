@@ -11,6 +11,10 @@ import { repository, pubkey } from '@welshman/app'
 import type { Filter, TrustedEvent } from '@welshman/util'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
 import { emojiTagsForContent } from './emojiTags'
+// `?url`: Vite gibt nur den Pfad zurück und kopiert die Datei unverändert ins Build,
+// statt sie in ein JS-Modul zu verwandeln. Begründung an `loadEmojiGroups()`.
+import compactUrl from 'emojibase-data/de/compact.json?url'
+import messagesUrl from 'emojibase-data/de/messages.json?url'
 
 /** NIP-30-Kinds: kuratierte User-Liste bzw. benanntes Emoji-Set. */
 const USER_EMOJI_LIST = 10030
@@ -34,18 +38,29 @@ type EmojiMessages = { groups: { key: string; message: string; order: number }[]
 let groupsPromise: Promise<EmojiGroup[]> | null = null
 
 /**
- * Lädt & indiziert das Standard-Emoji-Set einmalig (memoized). Die JSON kommt als
- * dynamischer Import → eigener Chunk, der erst beim ersten Öffnen des Pickers lädt.
+ * Lädt & indiziert das Standard-Emoji-Set einmalig (memoized).
+ *
+ * `?url` + `fetch` statt eines direkten JSON-Imports, und das ist der Unterschied
+ * zwischen „geht auf" und „lädt gefühlt drei Sekunden". Ein `import(…json)` schiebt
+ * die Datei durch Vites Modul-Transformation: aus 600 kB JSON wird ein ES-Modul mit
+ * JS-Objektliteral. Im Dev-Server gemessen **4,2 MB**, die der Browser als
+ * JavaScript parsen muss — siebenmal die Nutzlast, und JS-Parsing ist pro Byte
+ * teurer als `JSON.parse`. Im Produktions-Build fällt der Aufwand kleiner aus
+ * (89 kB gzip), bleibt aber ein JS-Literal.
+ *
+ * Mit `?url` liefert Vite nur den Pfad und kopiert die Datei unangetastet ins
+ * Build. Der Dev-Server reicht sie statisch durch, `fetch` + `.json()` nutzt den
+ * nativen Parser. Die Datei bleibt ein eigener, lazy geladener Brocken — sie liegt
+ * jetzt nur in `assets/` statt in einem JS-Chunk.
+ *
  * Die Skin-Tone-Komponenten-Gruppe (`component`) wird verworfen (keine Skin-Tones).
  */
 export const loadEmojiGroups = (): Promise<EmojiGroup[]> => {
     if (!groupsPromise) {
         groupsPromise = Promise.all([
-            import('emojibase-data/de/compact.json'),
-            import('emojibase-data/de/messages.json'),
-        ]).then(([data, messages]) => {
-            const list = ((data as { default?: CompactEmoji[] }).default ?? data) as unknown as CompactEmoji[]
-            const groups = ((messages as { default?: EmojiMessages }).default ?? messages) as unknown as EmojiMessages
+            fetch(compactUrl).then((r) => r.json() as Promise<CompactEmoji[]>),
+            fetch(messagesUrl).then((r) => r.json() as Promise<EmojiMessages>),
+        ]).then(([list, groups]) => {
             return groups.groups
                 .filter((g) => g.key !== 'component')
                 .sort((a, b) => a.order - b.order)
