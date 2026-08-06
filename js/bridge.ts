@@ -3801,6 +3801,27 @@ export function registerNostrComponents(Alpine: {
             // Relay-Verbindung frisch AUTH'd ist — beim späteren Picker-Öffnen
             // würde ein one-shot-Load gegen den member-only Relay sonst hängen.
             void loadUserCustomEmojis()
+            // Das Standard-Set (emojibase, ~89 kB gzip als eigener Chunk) ebenfalls
+            // vorwärmen — aber erst, wenn der Hauptthread nichts Besseres zu tun hat.
+            // Vorher lud es erst BEIM KLICK auf den Picker, und zwar über den ganzen
+            // Weg: Download, Modul-Eval, Indizierung, Grid-Aufbau. Im Idle vorgeladen
+            // ist beim Öffnen nur noch das Markup zu bauen.
+            //
+            // `requestIdleCallback` und nicht sofort: der Raum-Init hat hier gerade
+            // Feed, Polls und Profile in der Leitung, und ein Emoji-Grid, das niemand
+            // geöffnet hat, darf keinem davon die Bandbreite nehmen. Der Timeout ist
+            // die Obergrenze, falls der Thread nie ruhig wird. Safari kennt
+            // `requestIdleCallback` bis heute nicht — dort der setTimeout-Fallback.
+            const warmEmoji = () => {
+                void loadEmojiGroups()
+            }
+            const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void })
+                .requestIdleCallback
+            if (typeof ric === 'function') {
+                ric(warmEmoji, { timeout: 4000 })
+            } else {
+                setTimeout(warmEmoji, 2000)
+            }
             // Feed-Subscription als Factory: erst NACH dem Viewport-Prewarm abonnieren, damit
             // der erste (synchrone, leading-edge) Emit schon Reaction-/Zap-Chips trägt → First
             // Paint und scrollToBottom sind warm; es folgt keine chip-einblendende zweite Welle.
@@ -5979,6 +6000,8 @@ export function registerNostrComponents(Alpine: {
         rebuildTabs(): void
         preloadCustom(): void
         readonly results: PickerEmoji[]
+        readonly customResults: PickerEmoji[]
+        readonly standardResults: PickerEmoji[]
     }
     Alpine.data('emojiPicker', (): EmojiPickerState => {
         let groups: Awaited<ReturnType<typeof loadEmojiGroups>> = []
@@ -6046,6 +6069,32 @@ export function registerNostrComponents(Alpine: {
                     return this.customReady.map((c) => ({ ...c, custom: true as const }))
                 }
                 return groups.find((g) => g.key === this.activeTab)?.emojis ?? []
+            },
+            // Getrennt nach Darstellungsart, weil das Markup sonst PRO KACHEL zwei
+            // `<template x-if>` bräuchte (Bild oder Zeichen). Gemessen: 171 Kacheln
+            // erzeugten 347 Template-Knoten, und der Aufbau des Panels dauerte 148 ms
+            // — bei nur 18 ms Modul-Eval und 0,6 ms Indizierung. Jedes `<template>`
+            // ist eine eigene Alpine-Reaktivitätseinheit mit eigenem DOM-Klon; zwei
+            // davon je Kachel sind der Löwenanteil dieser Zeit. Zwei flache Schleifen
+            // über vorsortierte Listen brauchen keine einzige.
+            //
+            // `results` wird dabei zweimal ausgewertet. Das ist bewusst in Kauf
+            // genommen: im Tab-Modus ist es ein `find()` auf neun Gruppen, bei Suche
+            // ein Durchlauf über ~1950 Einträge (~1 ms, zusätzlich debounced). Ein
+            // Memo dafür wäre ein Cache im reaktiven Objekt — mehr Risiko als Gewinn.
+            get customResults() {
+                return this.results.filter((e) => 'custom' in e && e.custom)
+            },
+            // Ungedeckelt, und das ist gemessen und nicht bloß einfacher: ein Versuch,
+            // beim Öffnen erst 48 Kacheln zu rendern und den Rest nach dem ersten
+            // Paint nachzuschieben, brachte die ersten sichtbaren Kacheln von 86 ms
+            // auf 68 ms. 18 ms liegen unter der Wahrnehmungsschwelle und rechtfertigen
+            // weder den Zustand (`renderLimit`) noch das doppelte `requestAnimation
+            // Frame`, das ihn aufhebt. Wer es erneut versucht, misst bitte den ERSTEN
+            // PAINT (Kachelzahl je Frame) — „Tabs sichtbar" bewegt sich dabei nicht
+            // und sieht deshalb wie ein Nullergebnis aus.
+            get standardResults() {
+                return this.results.filter((e) => !('custom' in e) || !e.custom)
             },
         }
     })
