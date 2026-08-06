@@ -69,6 +69,26 @@
        drei Zeilen höher. */
     --color-muted: var(--color-zinc-600);
 
+    /* Kante aller Bedienelemente (Felder, Auswahl, Ankreuzfelder). EIN Wert für
+       die ganze App, damit ein Feld nirgends anders aussieht als ein anderes —
+       die Regel dazu steht unten bei den Utilities.
+
+       Warum das ein eigenes Token ist und keine gestreute Klasse: die Kante ist
+       kein Dekor, sondern die Grenze eines Bedienelements und fällt damit unter
+       WCAG 1.4.11 (≥ 3:1). Flux liefert dafür Haarlinien aus — gemessen
+       zinc-200 auf hellem Grund (1,26:1) und im Dunklen eine Kante aus
+       `white/10` ÜBER einer Fläche aus `white/10`, die zu exakt derselben Farbe
+       komponiert: 1,00:1, also eine Kante, die auf ihrer Innenseite rechnerisch
+       nicht existiert. Zwei verschiedene Ursachen, eine gemeinsame Wirkung.
+
+       Deckend, nicht halbtransparent: genau die Alpha-Kante war es, die im
+       Dunklen mit ihrer eigenen Füllung verschmolz. Ein deckender Wert kann das
+       nicht. zinc-500/zinc-400 sind die hellsten Stufen der Hausrampe, die
+       gegen die Feldfläche noch 3:1 halten (gemessen 4,35:1 hell, 5,35:1
+       dunkel) — die nächstweichere Stufe reißt die Schwelle, deshalb steht hier
+       kein weicherer Wert. */
+    --color-control-edge: var(--color-zinc-500);
+
     /* ── AAA Design-Tokens (übernommen aus einundzwanzig-mobile-app) ──────
        Radius-, Shadow- und Motion-Skala. Alle Cards/Sheets/Tiles greifen
        darauf zu, statt rounded-* punktuell zu streuen. */
@@ -107,6 +127,7 @@
         --color-accent-content: var(--color-brand-400);
         --color-accent-foreground: var(--color-zinc-950);
         --color-muted: var(--color-zinc-400);
+        --color-control-edge: var(--color-zinc-400);
     }
 }
 
@@ -302,6 +323,37 @@ input:focus[data-flux-control],
 textarea:focus[data-flux-control],
 select:focus[data-flux-control] {
     @apply outline-hidden ring-2 ring-accent ring-offset-2 ring-offset-accent-foreground;
+}
+
+/* ── Kante der Bedienelemente auf WCAG 1.4.11 (≥ 3:1) ─────────────────────────
+   EIN Ort für alle Sorten: Flux setzt die Kante nirgends bei uns im Markup,
+   sondern einmal in seinen eigenen Views. Deshalb steht hier ein Override und
+   keine Änderung an 56 Aufrufstellen. Der Wert kommt aus dem Token oben.
+
+   INNERHALB von `@layer utilities`, und das ist der Kern der Konstruktion:
+   Regeln, die in dieser Datei auf oberster Ebene stehen, landen im Build
+   UNLAYERED und schlagen damit jede Utility — auch `focus:`, `disabled:` und
+   den Fehlerzustand. Eine unlayered Kante hätte die Fokus- und Fehlerfarben der
+   ganzen App stillgelegt. In der Layer gilt wieder normale Spezifität, und die
+   ist hier bewusst gewählt: unsere Selektoren wiegen 0,1,1 (Element +
+   Attribut) und stechen damit Flux' ruhende Kante aus einer einzelnen Klasse
+   (0,1,0), verlieren aber gegen alles Zustandsbehaftete — `data-invalid:`
+   (0,2,0), `focus:` (0,2,0) und die Angekreuzt-Regeln der Ankreuzfelder
+   (0,2,1). Zustände bleiben also unangetastet; nur der Ruhezustand wechselt.
+
+   Woran man merkt, dass die Regel nicht mehr greift: der Kontrast-Anker misst
+   je Sorte eine Kante (`a11y-contrast.spec.ts`, Einträge „Kante"). Er wird rot,
+   sobald Flux eines der beiden Anker-Attribute umbenennt oder seine eigene
+   ruhende Kante über 0,1,1 hebt — beides würde diesen Override still aushebeln
+   und wäre am Bildschirm nur als „etwas blasser" zu sehen. */
+@layer utilities {
+    input[data-flux-control],
+    textarea[data-flux-control],
+    select[data-flux-control],
+    ui-checkbox [data-flux-checkbox-indicator],
+    ui-radio [data-flux-radio-indicator] {
+        border-color: var(--color-control-edge);
+    }
 }
 
 /* ── Maus-Affordanz (Desktop-Shell P6) ────────────────────────────────────────

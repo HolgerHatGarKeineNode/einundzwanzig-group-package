@@ -75,15 +75,12 @@
          als Bildunterschrift über dem Grid, nicht als Eingabe. Die leicht vertiefte
          Fläche (`bg-zinc-100`, dark `bg-white/10`) trennt es vom Kartengrund.
 
-         KANTE auf 1.4.11 gezogen: `border-zinc-500 dark:border-zinc-400` statt der
-         zinc-200/white-10-Kante, die jede andere Eingabe dieser App trägt. Die lag
-         gegen die Feldfläche bei 1,21:1 — unter den 3:1, die 1.4.11 für die Grenze
-         eines Bedienelements verlangt. Die neuen Werte messen 4,35:1 (hell) und
-         5,35:1 (dunkel), jeweils gegen die Fläche IM Feld, das ist die strengere der
-         beiden Nachbarfarben. Der Preis ist ausdrücklich gewählt: das Feld trägt
-         damit eine sichtbar kräftigere Kante als der Rest der App — solange die
-         übrigen Felder auf der schwachen Kante stehen, ist dieses hier das einzige,
-         das die Norm erfüllt, und fällt genau deshalb optisch auf.
+         KANTE über das Haus-Token (`border-control-edge`, definiert in `theme.css`)
+         statt über eigene Werte. Dieses Feld ist keine Flux-Komponente, die
+         System-Regel dort greift also nicht auf es — es zeigt aber auf denselben
+         Wert und kann damit nicht mehr vom Rest abweichen. Hier standen vorher zwei
+         hart kodierte Stufen; die waren nötig, solange das Feld als einziges die
+         Norm erfüllte, und ihr Grund ist mit der systemweiten Kante entfallen.
 
          Platzhalterfarbe wieder über den Sekundärtext-Token (hinter der
          Platzhalter-Variante). Das ging monatelang NICHT: die Utility verlor hinter
@@ -101,7 +98,7 @@
         </svg>
         <input x-model.debounce.150ms="search" type="search"
                placeholder="{{ __('Emoji suchen…') }}" aria-label="{{ __('Emoji suchen') }}"
-               class="w-full rounded-tile border border-zinc-500 bg-zinc-100 py-1.5 pl-8 pr-3 text-sm text-zinc-800 placeholder:text-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40 dark:border-zinc-400 dark:bg-white/10 dark:text-white" />
+               class="w-full rounded-tile border border-control-edge bg-zinc-100 py-1.5 pl-8 pr-3 text-sm text-zinc-800 placeholder:text-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40 dark:bg-white/10 dark:text-white" />
     </div>
 
     {{-- Kategorie-Tabs: aktiver Tab mit Bitcoin-Underline. Bei aktiver Suche verborgen.
