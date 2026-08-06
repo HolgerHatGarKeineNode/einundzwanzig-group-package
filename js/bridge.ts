@@ -3800,7 +3800,38 @@ export function registerNostrComponents(Alpine: {
             // Custom-Emoji (NIP-30) des eigenen Profils vorwärmen, solange die
             // Relay-Verbindung frisch AUTH'd ist — beim späteren Picker-Öffnen
             // würde ein one-shot-Load gegen den member-only Relay sonst hängen.
-            void loadUserCustomEmojis()
+            //
+            // ERST WENN DER PUBKEY STEHT, und das ist der eigentliche Punkt:
+            // `loadUserCustomEmojis()` steigt ohne Pubkey mit einem leeren Ergebnis
+            // aus und legt dabei KEINEN Cache-Eintrag an (siehe dort). Lief die
+            // Vorwärmung zu früh, verpuffte sie folgenlos — und der volle Load
+            // passierte erst beim Öffnen des Pickers, mitsamt den vier zusätzlichen
+            // Relay-Verbindungen aus DEFAULT_RELAYS. Jede davon kann NIP-42-AUTH
+            // verlangen, und AUTH läuft über den Signer; bei einem NIP-46-Bunker ist
+            // das ein Roundtrip pro Relay. Genau dann meldet die Kopfzeile „Signer
+            // antwortet langsam" (Schwelle: Mittel über 1000 ms, s. signer-health.ts)
+            // — und der Picker wartet, statt aufzugehen.
+            //
+            // Beim Login per nsec ist der Pubkey sofort da und dieser Zweig kostet
+            // nichts. Beim Bunker kommt er erst, wenn die Verbindung steht.
+            const warmCustomEmojis = () => {
+                if (pubkey.get()) {
+                    void loadUserCustomEmojis()
+                    return
+                }
+                let unsub: (() => void) | undefined
+                unsub = pubkey.subscribe((pk) => {
+                    if (!pk) {
+                        return
+                    }
+                    void loadUserCustomEmojis()
+                    unsub?.()
+                })
+                // Raumwechsel/Abbruch, bevor je ein Pubkey kam: sonst bliebe je
+                // besuchtem Raum eine Subscription auf dem Store liegen.
+                this._controller?.signal.addEventListener('abort', () => unsub?.(), { once: true })
+            }
+            warmCustomEmojis()
             // Das Standard-Set (emojibase, ~89 kB gzip als eigener Chunk) ebenfalls
             // vorwärmen — aber erst, wenn der Hauptthread nichts Besseres zu tun hat.
             // Vorher lud es erst BEIM KLICK auf den Picker, und zwar über den ganzen

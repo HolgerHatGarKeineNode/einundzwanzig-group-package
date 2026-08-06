@@ -137,7 +137,15 @@ let loadedEmojis: CustomEmoji[] = []
  * Lädt „alle Custom-Emojis, die dein Nostr-Profil nutzt" (NIP-30): die eigene
  * kind-10030-Liste plus die per `["a", "30030:…"]` referenzierten Sets. Ergebnis
  * ist pro Pubkey memoized (der Picker öffnet oft, die Liste ändert sich selten);
- * dedupliziert per Shortcode. Ohne eingeloggten Pubkey leer.
+ * dedupliziert per Shortcode.
+ *
+ * OHNE PUBKEY leer — und ohne Cache-Eintrag, denn ohne Schlüssel gibt es keinen,
+ * unter dem er stehen könnte. Wer vorwärmt, muss deshalb warten, bis der Pubkey
+ * steht: ein zu früher Aufruf sieht aus wie erledigt, hinterlässt aber nichts, und
+ * der volle Load samt der vier DEFAULT_RELAYS unten passiert dann erst beim Öffnen
+ * des Pickers. Jede dieser Verbindungen kann NIP-42-AUTH verlangen, und AUTH läuft
+ * über den Signer — bei einem NIP-46-Bunker ein Roundtrip pro Relay. Der Aufrufer
+ * im Raum-Init hält sich daran (s. `warmCustomEmojis` in bridge.ts).
  */
 export const loadUserCustomEmojis = (pk = pubkey.get()): Promise<CustomEmoji[]> => {
     if (!pk) {
