@@ -60,7 +60,19 @@
                    {{-- Der Lift hängt am `input`-Ereignis, nicht an einem `$watch` auf
                         `query` — er schreibt `query` selbst, ein Watch riefe sich rekursiv. --}}
                    x-on:input="liftToken()"
-                   class="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-zinc-900 placeholder:text-muted focus:ring-0 dark:text-zinc-100"
+                   {{-- Platzhalterfarbe ausgeschrieben statt über die `text-muted`-Utility:
+                        die verliert ihre Dark-Hälfte, sobald eine Variante davorsteht.
+                        Im gebauten Stylesheet stand für die Platzhalter-Variante wörtlich
+                        `::placeholder:where(){…}` — ein leeres `:where()`, das nie matcht.
+                        Der Platzhalter blieb dark auf zinc-600 und lag bei 1,94:1 (WCAG
+                        1.4.3 verlangt 4,5:1). Ohne Variante davor ist die Utility heil,
+                        siehe das `<kbd>` ein paar Zeilen weiter.
+
+                        Der Klassenname steht hier bewusst NICHT ausgeschrieben: Tailwind
+                        scannt Blade als reinen Text und erzeugt aus einem Kommentar echte
+                        Regeln — der erklärende Hinweis hielte die kaputte Regel sonst im
+                        gebauten CSS am Leben. --}}
+                   class="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-zinc-900 placeholder:text-zinc-600 focus:ring-0 dark:text-zinc-100 dark:placeholder:text-zinc-400"
                    x-bind:placeholder="scope.group || scope.country ? @js(__('Filtern…')) : @js(__('Raum springen'))"
                    aria-label="{{ __('Raum springen') }}" />
 

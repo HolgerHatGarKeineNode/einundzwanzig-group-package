@@ -68,7 +68,34 @@
          Screenshot dazu liegt im Bericht. WCAG 1.4.3 verlangt 4.5:1; zinc-800 auf Weiß
          misst 14.7:1 und ist zugleich die Tinte, die die Icon-Knöpfe daneben tragen.
          Betrifft beide Modi der Komponente (Reagieren wie Einfügen) — die Reaktions-
-         Ansicht war genauso betroffen, das ist kein Nebeneffekt, sondern derselbe Fehler. --}}
+         Ansicht war genauso betroffen, das ist kein Nebeneffekt, sondern derselbe Fehler.
+
+         FLÄCHE UND KANTE (B14): vorher `border-white/10 bg-white/5`. Auf der weißen
+         Karte komponieren BEIDE zu exakt #FFFFFF — das Feld hatte im hellen Theme
+         keinerlei Grenze und las sich als Bildunterschrift über dem Grid, nicht als
+         Eingabe. Die Werte hier sind nicht erfunden, sondern vom Eingabefeld dieser App
+         abgelesen (Flux-Textarea im Composer, gemessen): hell `border-zinc-200`, dunkel
+         `border-white/10 bg-white/10`. Dazu im hellen Theme eine leicht vertiefte
+         Fläche (`bg-zinc-100`) — auf weißem Grund trägt die Kante allein zu wenig,
+         auf dem grauen Seitengrund der App trägt sie. Damit sieht das Feld aus wie
+         jedes andere Feld hier, statt wie eine Sonderlösung.
+
+         Platzhalterfarbe als ausgeschriebenes Paar statt über die `text-muted`-Utility:
+         die VERLIERT ihre Dark-Hälfte, sobald sie hinter einer weiteren Variante steht.
+         Im gebauten Stylesheet stand für die Platzhalter-Variante wörtlich
+         `::placeholder:where(){color:zinc-400}` — ein leeres `:where()` matcht nie, die
+         `.dark`-Bedingung aus dem @custom-variant ist beim @apply verlorengegangen.
+         Ergebnis war zinc-600 auf dem dunklen Feld: im Kalibrierlauf des Kontrast-Ankers
+         gemessene 1,74:1 gegen die geforderten 4,5:1 (1.4.3) — auf der alten, dunkleren
+         Feldfläche entsprechend noch etwas weniger. Dieselbe Lücke stand im
+         Rail-Suchfeld (`desktop-rail.blade.php`, gemessen 1,94:1) und ist dort
+         mitbehoben.
+
+         Der kaputte Klassenname steht hier bewusst NICHT ausgeschrieben: Tailwind
+         scannt Blade als reinen Text und erzeugt aus einem Kommentar echte Regeln —
+         der erklärende Hinweis hielte die tote Regel sonst im gebauten CSS am
+         Leben (nachgewiesen: nach dem Fix blieb sie allein wegen dieses Kommentars
+         übrig). --}}
     <div class="relative">
         <svg class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
              viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
@@ -76,20 +103,39 @@
         </svg>
         <input x-model.debounce.150ms="search" type="search"
                placeholder="{{ __('Emoji suchen…') }}" aria-label="{{ __('Emoji suchen') }}"
-               class="w-full rounded-tile border border-white/10 bg-white/5 py-1.5 pl-8 pr-3 text-sm text-zinc-800 placeholder:text-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40 dark:text-white" />
+               class="w-full rounded-tile border border-zinc-200 bg-zinc-100 py-1.5 pl-8 pr-3 text-sm text-zinc-800 placeholder:text-zinc-600 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40 dark:border-white/10 dark:bg-white/10 dark:text-white dark:placeholder:text-zinc-400" />
     </div>
 
-    {{-- Kategorie-Tabs: aktiver Tab mit Bitcoin-Underline. Bei aktiver Suche verborgen. --}}
+    {{-- Kategorie-Tabs: aktiver Tab mit Bitcoin-Underline. Bei aktiver Suche verborgen.
+
+         Der Unterstrich trägt den Aktiv-Zustand und fällt damit unter WCAG 1.4.11
+         (≥ 3:1). Als `bg-brand-500` lag er auf der weißen Karte bei 2,21:1 — derselbe
+         Fall, den der Kontrast-Anker für die Zähler-Pille schon notiert hat („gegen
+         Weiß ~2,3:1, als Grafikobjekt unzulässig"). `bg-brand-700 dark:bg-brand-400`
+         ist die im Repo eingeführte Paarung für genau diese Schwelle (unread-dot,
+         nav-tab, rail-room-row) — und weil sie es ist, findet der Anker den Unterstrich
+         jetzt über dieselbe Klassen-Regel wie die anderen Flächen.
+
+         `text-white` am aktiven Tab ist ersatzlos weg: die Beschriftung ist ein
+         Farb-Emoji, `color` malt daran nichts. Im hellen Theme wäre es weiß auf Weiß
+         gewesen — eine Regel, die nur deshalb nie aufgefallen ist, weil sie ohnehin
+         wirkungslos war. Aktiv = volle Deckkraft + Unterstrich, das reicht.
+
+         Deckkraft der inaktiven Tabs von 55 % auf 70 %: 55 % liegt im Band, in dem
+         Material 3 DEAKTIVIERTE Elemente zeichnet (38 %) — ein bedienbarer Tab darf
+         nicht aussehen wie ein gesperrter. 70 % hält den Abstand zum aktiven Tab
+         (100 % + Unterstrich) und bleibt lesbar. Eine Kontrastzahl gibt es dafür
+         bewusst nicht, siehe die Begründung im Kontrast-Anker. --}}
     <div x-show="ready && !search.trim()" class="-mx-0.5 flex gap-0.5 overflow-x-auto px-0.5 pb-1"
          role="tablist" aria-label="{{ __('Emoji-Kategorien') }}" style="scrollbar-width: thin;">
         <template x-for="t in tabs" :key="t.key">
             <button type="button" role="tab" x-on:click="activeTab = t.key" :aria-selected="activeTab === t.key"
                     :title="t.name" :aria-label="t.name"
                     class="pressable relative shrink-0 rounded-tile px-1.5 pb-1.5 pt-1 text-lg leading-none transition-colors"
-                    :class="activeTab === t.key ? 'text-white' : 'opacity-55 hover:opacity-100'">
+                    :class="activeTab === t.key ? '' : 'opacity-70 hover:opacity-100'">
                 <span x-text="t.icon"></span>
                 <span x-show="activeTab === t.key"
-                      class="absolute inset-x-1 -bottom-0.5 h-0.5 rounded-full bg-brand-500"></span>
+                      class="absolute inset-x-1 -bottom-0.5 h-0.5 rounded-full bg-brand-700 dark:bg-brand-400"></span>
             </button>
         </template>
     </div>

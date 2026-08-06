@@ -6092,10 +6092,34 @@ export function registerNostrComponents(Alpine: {
      * über der Navigations-Rail). `'start'` legt die linke Panel- an die linke
      * Trigger-Kante; die Viewport-Klemme darunter bleibt für beide dieselbe.
      */
+    /**
+     * `HIDDEN` — der Zustand VOR der ersten Rechnung. `x-if` mountet das Panel, und
+     * `reposition()` läuft erst im `$nextTick` danach: dazwischen liegt ein Frame, in
+     * dem `fixed` ohne `top`/`left` das Panel an seiner statischen Stelle stehen lässt.
+     * Die ist das Ende des `<body>` — gemessen `top 720` bei `vh 720`, also einen Frame
+     * lang voll deckend unterhalb des Fensterrands. Unsichtbar, solange die Seite hoch
+     * genug ist; bei einer kurzen läge dieselbe Stelle mitten im Bild.
+     *
+     * `visibility:hidden` statt `opacity:0`, weil `x-transition.opacity` die Opazität
+     * selbst animiert und beide sich sonst überschrieben.
+     *
+     * Zurückgesetzt wird auf dem ÖFFNUNGS-, nicht auf dem Schließweg — synchron, bevor
+     * `open = true` den Mount auslöst. Geschlossen wird nämlich auf vier Wegen, von
+     * denen drei an `toggle()` vorbeigehen: Escape und `click.outside` setzen `open`
+     * direkt, und `onpick` tut es aus dem Picker heraus. Ein Reset im Schließzweig
+     * deckte nur einen davon. Die Komponente überlebt das Unmounten des Panels, ihr
+     * `panelStyle` also auch — ein stehengebliebener Wert aus dem letzten Öffnen ist
+     * genau der Grund, aus dem der Positionierungsfehler früher nur JEDES ZWEITE Mal
+     * auftrat und dadurch so schwer zu fassen war.
+     */
+    const HIDDEN = 'visibility:hidden'
     Alpine.data('reactionPopover', (options?: unknown): ReactionPopoverState => ({
         open: false,
-        panelStyle: '',
+        panelStyle: HIDDEN,
         toggle() {
+            if (!this.open) {
+                this.panelStyle = HIDDEN
+            }
             this.open = !this.open
             if (this.open) {
                 ;(this as unknown as AlpineMagics).$nextTick(() => this.reposition())
