@@ -6034,6 +6034,13 @@ export function registerNostrComponents(Alpine: {
         readonly customResults: PickerEmoji[]
         readonly standardResults: PickerEmoji[]
     }
+    // Bild-URLs, die in dieser Sitzung schon einmal erfolgreich geladen wurden.
+    // AUSSERHALB der Komponente, damit sie das Schließen des Panels überleben —
+    // `x-if` verwirft die Instanz bei jedem Zuklappen, und mit ihr fiel bisher auch
+    // das Wissen weg, welche Bilder bereits tragen. Begründung an `preloadCustom()`.
+    // Nur Erfolge landen hier: ein Bild, das nicht lud, soll beim nächsten Öffnen
+    // wieder versucht werden.
+    const geladeneEmojiBilder = new Set<string>()
     Alpine.data('emojiPicker', (): EmojiPickerState => {
         let groups: Awaited<ReturnType<typeof loadEmojiGroups>> = []
         let custom: CustomEmoji[] = []
@@ -6069,11 +6076,32 @@ export function registerNostrComponents(Alpine: {
             },
             // Jedes Custom-Bild vorladen; erst bei `onload` ans Grid anhängen (fehlende
             // Bilder werden nie gezeigt). Die Reihenfolge ist bewusst egal.
+            //
+            // Was schon einmal geladen wurde, erscheint SOFORT wieder. Vorher setzte
+            // diese Methode `customReady` bei jedem Öffnen auf leer und wartete auf
+            // `onload` für jedes einzelne Bild — auch für die, die längst im
+            // Browser-Cache lagen. Der Picker mountet bei jedem Öffnen neu (`x-if`),
+            // also passierte das JEDES MAL: „Emojis laden…", dann tröpfelten die
+            // Kacheln nach. Custom-Emoji-Bilder liegen auf fremden Servern, von denen
+            // manche träge sind; genau deshalb fiel es auf.
+            //
+            // Der Browser-Cache selbst ist nicht das Problem — der Proxy liefert
+            // `public, max-age=31536000, immutable` (ImageProxyController), die Bilder
+            // kommen also aus dem Cache. Aber auch ein Cache-Treffer läuft über
+            // `onload`, und bis der feuert, ist die Kachel leer. Was fehlte, war das
+            // WISSEN, dass ein Bild bereits trägt. Das steht jetzt auf Modul-Ebene und
+            // überlebt damit das Schließen des Panels.
             preloadCustom() {
-                this.customReady = []
+                this.customReady = custom.filter((e) => geladeneEmojiBilder.has(e.src))
                 for (const emoji of custom) {
+                    if (geladeneEmojiBilder.has(emoji.src)) {
+                        continue
+                    }
                     const img = new Image()
-                    img.onload = () => this.customReady.push(emoji)
+                    img.onload = () => {
+                        geladeneEmojiBilder.add(emoji.src)
+                        this.customReady.push(emoji)
+                    }
                     img.src = emoji.src
                 }
             },
