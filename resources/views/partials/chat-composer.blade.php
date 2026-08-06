@@ -69,6 +69,83 @@
         </flux:dropdown>
     @endif
 
+    {{-- Emoji-Picker für den ENTWURF (C1). Nur wo mit einem echten Zeigegerät bedient
+         wird und nicht in der nativen App — auf Touch liefert die Systemtastatur
+         Emojis, ein Knopf wäre dort doppelt.
+
+         `x-if` und nicht `hidden`/`x-show`: der Picker lädt emojibase nach und mountet
+         ein Grid mit hunderten Knoten. Ein per CSS verstecktes `x-data` bootet trotzdem
+         mit (derselbe Grund, aus dem die Rail an `$store.viewport.desktop` per x-if
+         hängt — siehe viewport.ts). `$store.viewport.mouse` ist die Bedienungs-, nicht
+         die Breitenfrage: ein breites Tablet ist Desktop-Layout und trotzdem Touch.
+
+         Konstruktion wie der Reaktions-Picker der Zeile: Panel ans <body> teleportiert
+         (der Composer-Container würde es abschneiden), `fixed` positioniert und nach
+         OBEN aufgeklappt (reactionPopover kippt nur nach unten, wenn oben kein Platz
+         ist). `reactionPopover` ist trotz des Namens der generische Panel-Positionierer;
+         nicht umbenannt, weil das den Reaktionspfad angefasst hätte.
+
+         `align: 'start'` — dieser Trigger sitzt am LINKEN Rand des Composers, der
+         Reaktions-Trigger am rechten Ende einer Zeile. Mit dem Default (`'end'`,
+         rechtsbündig, nach links auslaufend) lag das Panel im Desktop-Chassis zu
+         189 von 354 px über der Navigations-Rail und bei 1279 px zu zwei Dritteln
+         im leeren Seitenrand — es gehörte optisch zu allem außer zu seinem Knopf.
+         Linksbündig wächst es in die Chat-Spalte, bündig zur Knopfkante. --}}
+    <template x-if="$store.viewport.mouse">
+        <div x-data="reactionPopover({ align: 'start' })" x-on:click.stop class="shrink-0">
+            {{-- `::aria-expanded` (nicht `:aria-expanded`): auf einer flux:-Komponente
+                 hielte Blade das einfache `:` für seine eigene PHP-Bindung. Der
+                 Aufklapp-Zustand gehört an den Knopf (ARIA-APG Disclosure) — ohne ihn
+                 meldet der Screenreader denselben Knopf offen wie geschlossen.
+                 `!text-brand-*` mit Bang: Flux' eigenes `text-zinc-800 dark:text-white`
+                 steht bei gleicher Spezifität im gebauten Stylesheet HINTER den
+                 brand-Farben (Reihenfolge der @theme-Deklaration) und gewänne sonst. --}}
+            <flux:button type="button" x-ref="trigger" variant="ghost" icon="face-smile" class="icon-btn-touch"
+                         x-on:click="toggle()" ::aria-expanded="open"
+                         ::class="open ? '!text-brand-700 dark:!text-brand-400' : ''"
+                         aria-label="{{ __('Emoji einfügen') }}" />
+            {{-- x-if (lazy-mount) + x-teleport getrennt verschachteln — beides auf EINEM
+                 template teleportiert bei jedem Tick neu (Leak). --}}
+            <template x-if="open">
+                <div>
+                    <template x-teleport="body">
+                        {{-- x-on:click.stop: nach <body> teleportiert ist der .stop-Wrapper
+                             kein Vorfahre mehr → ohne .stop schlösse ein Klick im Picker das
+                             Thread-Overlay (click.outside).
+
+                             x-init, zwei Dinge:
+                             1. Fokus ins Suchfeld. Das Panel hängt am ENDE des <body> und
+                                damit hinter allem in der Tab-Reihenfolge; ohne diesen Schritt
+                                tabbt man aus dem Knopf erst durch Textarea und Senden. Escape
+                                gibt den Fokus an den Knopf zurück (APG), sonst landete er am
+                                Seitenanfang.
+                             2. ResizeObserver → reposition(). Zweiter Gurt, nicht der Träger:
+                                seit reposition() das nach oben öffnende Panel an seiner
+                                UNTERkante verankert, überlebt eine Höhenänderung (Ladezustand →
+                                volles Grid, Suchfilter, MRU-Reihe) die Position von selbst — die
+                                Panelhöhe steht gar nicht mehr in der Rechnung (Begründung am
+                                reactionPopover in bridge.ts). Der Beobachter deckt noch, was
+                                dort nicht hingehört: eine Trigger-Bewegung, während das Panel
+                                offen ist (Composer wächst beim Tippen mit). Er ruft dieselbe
+                                Rechnung erneut auf; sie ist idempotent. Die globale Loop-Bremse
+                                für ResizeObserver steht in bridge.ts
+                                (installResizeObserverLoopFilter). --}}
+                        <div x-ref="panel" x-transition.opacity :style="panelStyle"
+                             x-on:click.stop
+                             x-on:click.outside="closeUnless($event)"
+                             x-on:keydown.escape.window="open = false; $refs.trigger?.focus()"
+                             x-init="$nextTick(() => $el.querySelector('input[type=search]')?.focus());
+                                     new ResizeObserver(() => reposition()).observe($el)"
+                             class="surface-card fixed z-50 rounded-card p-2 shadow-xl">
+                            <x-group::emoji-picker mode="insert" target="{{ $isThread ? 'thread' : 'main' }}"
+                                                   onpick="open = false" />
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </template>
+
     {{-- Ab xl eine Spur größer (15px statt 14px). NUR auf Desktop: eine Schriftgröße
          im Chat zu ändern verschiebt Zeilenumbrüche und damit die Scroll-Arithmetik
          (`atBottom`, Chip-Lane-Reservierung) — mobil bleibt es deshalb bei 14px, bis

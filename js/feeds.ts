@@ -23,6 +23,7 @@ import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePoll
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
+import { contentEmojiTags } from './emoji'
 import { linkDisplay, isPlausibleUrl } from './chatLinks'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
@@ -1173,6 +1174,10 @@ export const sendRoomMessage = async (
         body = `nostr:${nevent}\n\n${content}`
     }
     withMentionTags(tags, content, url)
+    // NIP-30: `["emoji", code, url]` für jeden bekannten `:shortcode:` im Text. Aus
+    // `content`, nicht aus `body` — der nevent-Präfix und die Anhang-URL sind kein
+    // Nutzertext (dieselbe Wahl wie bei withMentionTags).
+    tags.push(...contentEmojiTags(content))
     if (attachment) {
         // NIP-92: `imeta`-Tag ans Event. Die URL zusätzlich in den Text (mit Leerzeile
         // getrennt) — `renderMessageLink` macht Bild-URLs zu <img>, deshalb muss sie im
@@ -1227,7 +1232,12 @@ export const editRoomMessage = async (
         makeEvent(MESSAGE, {
             content: prefix + content,
             created_at: original.created_at,
-            tags: withMentionTags([...preserved, ...roomTags(h, url)], content, url),
+            // NIP-30-Tags aus dem BEARBEITETEN Text neu ableiten (nicht aus dem Original
+            // übernehmen): beim Bearbeiten kann ein `:shortcode:` dazukommen oder wegfallen.
+            tags: [
+                ...withMentionTags([...preserved, ...roomTags(h, url)], content, url),
+                ...contentEmojiTags(content),
+            ],
         }),
     )
 }
@@ -1506,11 +1516,14 @@ export const loadSpaceThreads = async (url: string): Promise<void> => {
  * statt ein `["h",""]` zu erfinden, das der Relay schweigend in den falschen Kanal legt.
  */
 export const sendComment = async (url: string, target: TrustedEvent, content: string, attachment?: Attachment, rootH?: string): Promise<string> => {
+    // NIP-30-Tags einmal ableiten und in BEIDE Zweige geben — ein Custom-Emoji darf
+    // nicht davon abhängen, ob der Space zooid (kind 1111) oder Buzz (kind 9) ist.
+    const emojiTags = contentEmojiTags(content)
     if (rootH && (await spaceIsBuzzAsync(url))) {
         const { rootId, parentId } = replyTargetIds(target)
-        return publishOptimistic(url, makeThreadReply(rootId, parentId, rootH, url, content, attachment))
+        return publishOptimistic(url, makeThreadReply(rootId, parentId, rootH, url, content, attachment, emojiTags))
     }
-    return publishOptimistic(url, makeComment(target, content, url, attachment, rootH))
+    return publishOptimistic(url, makeComment(target, content, url, attachment, rootH, emojiTags))
 }
 
 /**

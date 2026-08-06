@@ -10,6 +10,7 @@ import { load } from '@welshman/net'
 import { repository, pubkey } from '@welshman/app'
 import type { Filter, TrustedEvent } from '@welshman/util'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
+import { emojiTagsForContent } from './emojiTags'
 
 /** NIP-30-Kinds: kuratierte User-Liste bzw. benanntes Emoji-Set. */
 const USER_EMOJI_LIST = 10030
@@ -110,6 +111,14 @@ const firstEvent = (filter: Filter): TrustedEvent | undefined =>
 const customEmojiCache = new Map<string, Promise<CustomEmoji[]>>()
 
 /**
+ * Letzter FERTIG geladener Custom-Emoji-Satz + der Pubkey, für den er gilt. Das
+ * ist der synchrone Schnappschuss, den der Sendepfad liest (siehe
+ * {@link knownCustomEmojis}) — bewusst neben dem Promise-Cache, nicht statt seiner.
+ */
+let loadedFor = ''
+let loadedEmojis: CustomEmoji[] = []
+
+/**
  * Lädt „alle Custom-Emojis, die dein Nostr-Profil nutzt" (NIP-30): die eigene
  * kind-10030-Liste plus die per `["a", "30030:…"]` referenzierten Sets. Ergebnis
  * ist pro Pubkey memoized (der Picker öffnet oft, die Liste ändert sich selten);
@@ -147,11 +156,37 @@ export const loadUserCustomEmojis = (pk = pubkey.get()): Promise<CustomEmoji[]> 
             }
         }
         const seen = new Set<string>()
-        return collected.filter((e) => (seen.has(e.shortcode) ? false : seen.add(e.shortcode)))
+        const unique = collected.filter((e) => (seen.has(e.shortcode) ? false : seen.add(e.shortcode)))
+        // Synchronen Schnappschuss mitziehen (siehe knownCustomEmojis).
+        loadedFor = pk
+        loadedEmojis = unique
+        return unique
     })()
     customEmojiCache.set(pk, promise)
     return promise
 }
+
+/**
+ * Synchroner Schnappschuss der bekannten Custom-Emojis des angemeldeten Nutzers —
+ * leer, solange {@link loadUserCustomEmojis} noch läuft oder der Pubkey wechselte.
+ *
+ * **Warum synchron und nicht `await loadUserCustomEmojis()`:** der Sendepfad darf
+ * nie auf einen Relay-Load warten. Derselbe Load hängt am member-only-Space
+ * bekanntermaßen (deshalb wird er beim Raum-Init vorgewärmt und im Picker bewusst
+ * entkoppelt geladen) — ein `await` hier hieße: eine Nachricht mit `:shortcode:`
+ * geht gar nicht raus, bis das Relay antwortet. Die harmlose Ausfallrichtung ist
+ * „Nachricht geht raus, das Emoji bleibt für Empfänger Text".
+ */
+export const knownCustomEmojis = (pk = pubkey.get()): CustomEmoji[] =>
+    pk && pk === loadedFor ? loadedEmojis : []
+
+/**
+ * Die NIP-30-Tags eines zu sendenden Textes, gegen den Schnappschuss der eigenen
+ * Custom-Emojis. Die Regel selbst steht pur (und damit testbar) in `emojiTags.ts`;
+ * hier kommt nur die Datenquelle dazu.
+ */
+export const contentEmojiTags = (content: string): string[][] =>
+    emojiTagsForContent(content, knownCustomEmojis())
 
 /**
  * Flache Volltext-Suche über Standard- + Custom-Emojis (Label, Keywords, Shortcode).

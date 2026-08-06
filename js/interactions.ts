@@ -156,11 +156,14 @@ export const makePollResponse = (poll: TrustedEvent, selectedIds: string[], url:
  * URL mit Leerzeile in den Text (wie `sendRoomMessage`), damit `renderMessageLink` sie
  * als `<img>` rendert. Anhang ohne Text → URL steht allein. `imeta` ist flotilla-kompatibel.
  */
-export const makeComment = (event: TrustedEvent, content: string, url: string, attachment?: { url: string; imetaTag: string[] }, rootH?: string) => {
+export const makeComment = (event: TrustedEvent, content: string, url: string, attachment?: { url: string; imetaTag: string[] }, rootH?: string, emojiTags: string[][] = []) => {
     const tags = canEnforceNip70(url) ? [...tagEventForComment(event, url), PROTECTED] : tagEventForComment(event, url)
     if (rootH) {
         tags.push(['h', rootH])
     }
+    // NIP-30-Emoji-Tags reicht der Aufrufer fertig herein (aus dem Content abgeleitet) —
+    // dieses Modul kennt die Custom-Emoji-Quelle nicht und soll sie nicht kennen.
+    tags.push(...emojiTags)
     let body = content
     if (attachment) {
         tags.push(attachment.imetaTag)
@@ -194,8 +197,9 @@ export const makeThreadReply = (
     url: string,
     content: string,
     attachment?: { url: string; imetaTag: string[] },
+    emojiTags: string[][] = [],
 ) => {
-    const tags = [...roomTags(h, url), ...threadTags(rootId, parentId)]
+    const tags = [...roomTags(h, url), ...threadTags(rootId, parentId), ...emojiTags]
     let body = content
     if (attachment) {
         tags.push(attachment.imetaTag)

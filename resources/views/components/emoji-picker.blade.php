@@ -1,21 +1,37 @@
 @props([
     // Alpine-Ausdruck der Ziel-Nachricht (`m` in der Zeile, `menuFor` im Modal).
+    // Nur im Modus 'react' benutzt.
     'message' => 'm',
     // Optionaler Alpine-Ausdruck NACH dem Reagieren (Web-Popover: `open = false`).
     // Das native Modal schließt react() selbst (closeMessageMenu) — dort leer.
     'onpick' => '',
+    // 'react' = Reaktion auf die Ziel-Nachricht (kind 7) · 'insert' = Emoji in den
+    // Nachrichten-Entwurf des Composers. EINE Komponente, weil sich die beiden Modi
+    // nur im Klick-Handler unterscheiden — Grid, Suche, Tabs, MRU sind identisch.
+    // (Keine doppelt-geschweiften Echo-Klammern in diesem Block — auch nicht im
+    // Kommentar: Blade kompiliert sie IN @props mit, und heraus fällt ein
+    // PHP-Syntaxfehler, der auf die Hash-Datei zeigt statt auf diese Zeile.)
+    'mode' => 'react',
+    // Nur im Modus 'insert': welcher Composer ('main'|'thread') den Picker geöffnet
+    // hat. Steht im Markup fest, statt zur Laufzeit erraten zu werden.
+    'target' => 'main',
 ])
 
 @php
     $after = $onpick ? '; '.$onpick : '';
+    $isInsert = $mode === 'insert';
     // Emoji-Tile-Verhalten einmal definiert (MRU-Reihe + Grid teilen es sich).
     // Custom-Emoji originalgetreu (`:shortcode:` + roher emoji-Tag), Standard mit Label
     // für die MRU. `{!! !!}`: die Ausdrücke enthalten Anführungszeichen → nicht escapen.
-    $pick = "(e.custom ? react($message, ':' + e.shortcode + ':', ['emoji', e.shortcode, e.url]) : react($message, e.u, undefined, e.label))$after";
+    // Beide Modi haben dieselbe Signatur (content, emojiTag?, label?) — im Insert-Modus
+    // dient das emojiTag NUR der MRU; das Event-Tag leitet der Sendepfad aus dem Text ab.
+    $pick = $isInsert
+        ? "(e.custom ? insertEmoji('$target', ':' + e.shortcode + ':', ['emoji', e.shortcode, e.url]) : insertEmoji('$target', e.u, undefined, e.label))$after"
+        : "(e.custom ? react($message, ':' + e.shortcode + ':', ['emoji', e.shortcode, e.url]) : react($message, e.u, undefined, e.label))$after";
     // aria-label übersetzbar: EIN Präfix-Key + der Emoji-Token am Ende (Fragment-
     // Übersetzung „Mit … reagieren" bräche in jeder Zielsprache die Grammatik).
     // Einfach-gequotetes JS-Literal (das Attribut :aria-label ist doppelt gequotet).
-    $pickPrefix = "'".str_replace("'", "\\'", __('Reagieren mit '))."'";
+    $pickPrefix = "'".str_replace("'", "\\'", $isInsert ? __('Einfügen: ') : __('Reagieren mit '))."'";
     $pickLabel = "$pickPrefix + (e.custom ? (':' + e.shortcode + ':') : e.label)";
     $pickTitle = 'e.custom ? e.shortcode : e.label';
 @endphp
@@ -44,7 +60,15 @@
         </div>
     </template>
 
-    {{-- Suchfeld: eigenes Styling (Flux passt hier nicht), Auto-Fokus beim Öffnen. --}}
+    {{-- Suchfeld: eigenes Styling (Flux passt hier nicht).
+
+         `text-zinc-800 dark:text-white` statt `text-white`: im HELLEN Theme stand hier
+         weißer Text auf der weißen Karte (`bg-white/5` über `surface-card` = #FFFFFF) —
+         gemessen 1:1, also unsichtbar, während das Grid darunter munter filterte. Der
+         Screenshot dazu liegt im Bericht. WCAG 1.4.3 verlangt 4.5:1; zinc-800 auf Weiß
+         misst 14.7:1 und ist zugleich die Tinte, die die Icon-Knöpfe daneben tragen.
+         Betrifft beide Modi der Komponente (Reagieren wie Einfügen) — die Reaktions-
+         Ansicht war genauso betroffen, das ist kein Nebeneffekt, sondern derselbe Fehler. --}}
     <div class="relative">
         <svg class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
              viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
@@ -52,7 +76,7 @@
         </svg>
         <input x-model.debounce.150ms="search" type="search"
                placeholder="{{ __('Emoji suchen…') }}" aria-label="{{ __('Emoji suchen') }}"
-               class="w-full rounded-tile border border-white/10 bg-white/5 py-1.5 pl-8 pr-3 text-sm text-white placeholder:text-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40" />
+               class="w-full rounded-tile border border-white/10 bg-white/5 py-1.5 pl-8 pr-3 text-sm text-zinc-800 placeholder:text-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40 dark:text-white" />
     </div>
 
     {{-- Kategorie-Tabs: aktiver Tab mit Bitcoin-Underline. Bei aktiver Suche verborgen. --}}

@@ -884,6 +884,7 @@ type RoomChatState = {
     onComposerInput(el: HTMLTextAreaElement, target?: 'main' | 'thread'): void
     pickMention(item: MentionItem): void
     closeMentions(): void
+    insertEmoji(target: 'main' | 'thread', text: string, emojiTag?: string[], label?: string): void
     react(m: ChatMessage, content: string, emojiTag?: string[], label?: string): Promise<void>
     toggleReaction(m: ChatMessage, r: ReactionChip): Promise<void>
     send(): Promise<void>
@@ -1383,7 +1384,9 @@ export function registerNostrComponents(Alpine: {
     wireUnread(Alpine)
     // Desktop-Shell: `$store.viewport.desktop` gatet die EXISTENZ der Rail-Insel
     // (`<template x-if>`), `nostrRail` ist ihre lesende Datenquelle.
-    wireViewport(Alpine)
+    // `$store.viewport.mouse` ist die zweite, unabhängige Frage („echtes Zeigegerät,
+    // keine native App?") — `isMobile` kennt nur dieses Modul, also reicht es das durch.
+    wireViewport(Alpine, { nativeApp: isMobile })
     wireRail(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
@@ -4648,6 +4651,52 @@ export function registerNostrComponents(Alpine: {
             this.mentionItems = []
             this._mentionStart = -1
         },
+        // ── C1: Emoji aus dem Composer-Picker einfügen (nur Zeigegerät-Chassis) ──
+        // `text` ist das Unicode-Zeichen bzw. `:shortcode:` (NIP-30). Das
+        // `["emoji", …]`-Event-Tag entsteht hier BEWUSST nicht: es wird beim Senden
+        // aus dem finalen Text abgeleitet (`emojiTagsForContent`) — ein wieder
+        // gelöschtes Emoji hinterließe sonst ein verwaistes Tag, ein von Hand
+        // getipptes bekäme keins. `emojiTag`/`label` dienen nur der MRU-Reihe.
+        // `target` kommt aus dem Markup (welcher Composer den Picker geöffnet hat)
+        // und nicht aus `_mentionTarget` — das merkt sich, wo zuletzt GETIPPT wurde,
+        // und stünde nach „im Raum tippen, dann Thread öffnen" auf dem falschen Fuß.
+        insertEmoji(target: 'main' | 'thread', text: string, emojiTag?: string[], label?: string) {
+            const isThread = target === 'thread'
+            const magics = this as unknown as AlpineMagics
+            const el = (isThread ? magics.$refs.threadComposer : magics.$refs.composer) as HTMLTextAreaElement | undefined
+            const draft = isThread ? this.threadDraft : this.draft
+            // Caret direkt aus der Textarea: `selectionStart` überlebt den
+            // Fokusverlust durch den Picker-Klick — ein mitgeführter Caret-Zustand
+            // (wie `_mentionStart`) bräuchte dafür eigene Listener. Nie fokussiert →
+            // 0, was beim leeren Entwurf zugleich das Ende ist. Eine markierte
+            // Auswahl wird ersetzt (Verhalten jeder Texteingabe).
+            const start = el?.selectionStart ?? draft.length
+            const end = el?.selectionEnd ?? draft.length
+            const next = draft.slice(0, start) + text + draft.slice(end)
+            if (isThread) {
+                this.threadDraft = next
+            } else {
+                this.draft = next
+            }
+            // MRU teilen sich Reagieren und Einfügen (eine Liste, ein localStorage-Key).
+            // Frische Strings statt des Alpine-Proxy-Arrays aus dem Picker-Ausdruck.
+            pushRecentEmoji(
+                emojiTag
+                    ? { custom: true, shortcode: emojiTag[1], url: emojiTag[2], src: proxifyImage(emojiTag[2], 'avatar') }
+                    : { u: text, label: label ?? text },
+            )
+            // x-model schreibt den neuen Wert erst im nächsten Tick in die Textarea —
+            // erst danach lassen sich Caret und Höhe setzen (wie bei pickMention).
+            magics.$nextTick(() => {
+                const c = (isThread ? magics.$refs.threadComposer : magics.$refs.composer) as HTMLTextAreaElement | undefined
+                if (c) {
+                    const pos = start + text.length
+                    c.focus()
+                    c.setSelectionRange(pos, pos)
+                    this.autoGrow(c)
+                }
+            })
+        },
         // Reagiert auf eine Nachricht (kind 7). `content` = Unicode-Emoji bzw.
         // `:shortcode:` (+ `emojiTag` für Custom-Emoji, NIP-30). Optimistisch: die
         // kind-7 landet sofort im Repository → Chip erscheint via deriveRoomChat.
@@ -6002,10 +6051,28 @@ export function registerNostrComponents(Alpine: {
     })
 
     // Web-Popover für das Emoji-Panel: teleportiert ans <body> (kein Clipping im
-    // Chat-Scroll-Container) und `fixed` mit Flip positioniert, damit das große
-    // Panel nie aus dem Viewport ragt — öffnet nach oben, sonst nach unten. Der
-    // Inhalt hängt an `x-if="open"` → nur die eine offene Instanz mountet den
-    // schweren emojiPicker (kein DOM-Bloat über N Nachrichtenzeilen).
+    // Chat-Scroll-Container) und `fixed` positioniert. Der Inhalt hängt an
+    // `x-if="open"` → nur die eine offene Instanz mountet den schweren emojiPicker
+    // (kein DOM-Bloat über N Nachrichtenzeilen).
+    //
+    // Die Rechnung kommt OHNE die Panelhöhe aus — das ist der Kern, nicht ein Detail.
+    // Vorher lautete sie `top = trigger.top - panelHöhe - gap`, gemessen einmal im
+    // $nextTick nach dem Öffnen. Beim ERSTEN Öffnen einer Sitzung steht dort aber noch
+    // „Emojis laden…": 132 px statt 292 px. Das Panel bekam ein `top` für die kleine
+    // Höhe, wuchs danach nach unten und stand 98 px unter dem Viewport-Rand — die
+    // untersten Emoji-Reihen abgeschnitten, vom Nutzer im Betrieb gemeldet. Dieselbe
+    // Klasse traf jede spätere Höhenänderung (Suche filtert, MRU-Reihe erscheint) und
+    // beide Trigger, den Reaktions-Popover eingeschlossen (dort 9 px Überlauf).
+    //
+    // Eine Höhe, die man zum falschen Zeitpunkt misst, ist nicht durch besseres Timing
+    // zu retten — sie darf gar nicht erst in die Rechnung. Deshalb ankert das nach oben
+    // öffnende Panel an seiner UNTERkante: wächst es, wächst es vom Trigger weg nach
+    // oben, und `max-height` verhindert, dass es dabei den Viewport verlässt.
+    //
+    // Verhaltensänderung, bewusst: die Richtung entscheidet jetzt die größere freie
+    // Seite (`above >= below`) statt „oben, außer es passt nicht". Ohne die Panelhöhe
+    // ist „passt es?" nicht beantwortbar — und die größere Seite ist ohnehin die
+    // bessere Wahl. Für den Composer-Knopf (sitzt unten) ändert das nichts.
     type ReactionPopoverState = {
         open: boolean
         panelStyle: string
@@ -6013,7 +6080,19 @@ export function registerNostrComponents(Alpine: {
         reposition(): void
         closeUnless(event: Event): void
     }
-    Alpine.data('reactionPopover', (): ReactionPopoverState => ({
+    /**
+     * `align` — an WELCHER Kante des Triggers das Panel hängt (Default `'end'`:
+     * rechte Panel- an rechter Trigger-Kante, also nach links auslaufend).
+     *
+     * Der Default ist der Bestand und bleibt es: der Reaktions-Trigger sitzt am
+     * RECHTEN Ende einer Nachrichtenzeile, dort ist „nach links auslaufen" die
+     * einzige Richtung, die im Viewport bleibt. Ein Trigger am LINKEN Rand (der
+     * Composer-Emoji-Knopf) braucht das Gegenteil — sonst hängt das Panel über
+     * dem, was links davon liegt (gemessen im Desktop-Chassis: 189 von 354 px
+     * über der Navigations-Rail). `'start'` legt die linke Panel- an die linke
+     * Trigger-Kante; die Viewport-Klemme darunter bleibt für beide dieselbe.
+     */
+    Alpine.data('reactionPopover', (options?: unknown): ReactionPopoverState => ({
         open: false,
         panelStyle: '',
         toggle() {
@@ -6031,15 +6110,21 @@ export function registerNostrComponents(Alpine: {
             }
             const t = trigger.getBoundingClientRect()
             const pw = panel.offsetWidth
-            const ph = panel.offsetHeight
             const pad = 8
             const gap = 6
-            const left = Math.min(Math.max(pad, t.right - pw), window.innerWidth - pw - pad)
-            let top = t.top - ph - gap
-            if (top < pad) {
-                top = Math.min(t.bottom + gap, window.innerHeight - ph - pad)
-            }
-            this.panelStyle = `left:${Math.round(left)}px;top:${Math.round(Math.max(pad, top))}px`
+            const alignStart = (options as { align?: string } | undefined)?.align === 'start'
+            const left = Math.min(Math.max(pad, alignStart ? t.left : t.right - pw), window.innerWidth - pw - pad)
+            const above = t.top - gap - pad
+            const below = window.innerHeight - t.bottom - gap - pad
+            // Nach OBEN: die UNTERkante am Trigger festnageln (`bottom`), nach unten die
+            // OBERkante (`top`). Beides ohne die Panelhöhe. Die ungenutzte Kante wird
+            // ausdrücklich auf `auto` gesetzt, damit ein Richtungswechsel nicht beide
+            // stehen lässt. `max-height` ist die Garantie, nicht die Rechnung: mehr Platz
+            // als da ist kann das Panel nicht beanspruchen, es scrollt stattdessen.
+            const edge = above >= below
+                ? `top:auto;bottom:${Math.round(window.innerHeight - t.top + gap)}px;max-height:${Math.round(above)}px`
+                : `bottom:auto;top:${Math.round(t.bottom + gap)}px;max-height:${Math.round(below)}px`
+            this.panelStyle = `left:${Math.round(left)}px;${edge};overflow-y:auto`
         },
         closeUnless(event: Event) {
             const trigger = (this as unknown as AlpineMagics).$refs.trigger
