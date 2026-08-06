@@ -11,10 +11,6 @@ import { repository, pubkey } from '@welshman/app'
 import type { Filter, TrustedEvent } from '@welshman/util'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
 import { emojiTagsForContent } from './emojiTags'
-// `?url`: Vite gibt nur den Pfad zurück und kopiert die Datei unverändert ins Build,
-// statt sie in ein JS-Modul zu verwandeln. Begründung an `loadEmojiGroups()`.
-import compactUrl from 'emojibase-data/de/compact.json?url'
-import messagesUrl from 'emojibase-data/de/messages.json?url'
 
 /** NIP-30-Kinds: kuratierte User-Liste bzw. benanntes Emoji-Set. */
 const USER_EMOJI_LIST = 10030
@@ -53,14 +49,26 @@ let groupsPromise: Promise<EmojiGroup[]> | null = null
  * nativen Parser. Die Datei bleibt ein eigener, lazy geladener Brocken — sie liegt
  * jetzt nur in `assets/` statt in einem JS-Chunk.
  *
+ * Der `?url`-Import steht DYNAMISCH hier drin und nicht statisch am Dateikopf, und
+ * das ist kein Stil: Playwright sammelt seine Testdateien in **Node**, nicht im
+ * Browser. Mehrere Logic-Specs importieren `feeds.ts`, das transitiv dieses Modul
+ * zieht — ein Suffix-Import am Dateikopf wird dabei von Node ausgewertet und wirft
+ * `Module … needs an import attribute of "type: json"`. Das riss die gesamte
+ * Test-Collection mit, bevor ein einziger Test lief (`npx playwright test`, ohne
+ * Pfad-Filter). Dynamisch importiert wird die Zeile nur ausgeführt, wenn jemand
+ * wirklich Emojis lädt — in Node also nie. Vite behandelt beide Formen gleich.
+ *
  * Die Skin-Tone-Komponenten-Gruppe (`component`) wird verworfen (keine Skin-Tones).
  */
 export const loadEmojiGroups = (): Promise<EmojiGroup[]> => {
     if (!groupsPromise) {
         groupsPromise = Promise.all([
-            fetch(compactUrl).then((r) => r.json() as Promise<CompactEmoji[]>),
-            fetch(messagesUrl).then((r) => r.json() as Promise<EmojiMessages>),
-        ]).then(([list, groups]) => {
+            import('emojibase-data/de/compact.json?url'),
+            import('emojibase-data/de/messages.json?url'),
+        ]).then(([compact, messages]) => Promise.all([
+            fetch(compact.default).then((r) => r.json() as Promise<CompactEmoji[]>),
+            fetch(messages.default).then((r) => r.json() as Promise<EmojiMessages>),
+        ])).then(([list, groups]) => {
             return groups.groups
                 .filter((g) => g.key !== 'component')
                 .sort((a, b) => a.order - b.order)
