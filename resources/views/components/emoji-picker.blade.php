@@ -70,32 +70,30 @@
          Betrifft beide Modi der Komponente (Reagieren wie Einfügen) — die Reaktions-
          Ansicht war genauso betroffen, das ist kein Nebeneffekt, sondern derselbe Fehler.
 
-         FLÄCHE UND KANTE (B14): vorher `border-white/10 bg-white/5`. Auf der weißen
-         Karte komponieren BEIDE zu exakt #FFFFFF — das Feld hatte im hellen Theme
-         keinerlei Grenze und las sich als Bildunterschrift über dem Grid, nicht als
-         Eingabe. Die Werte hier sind nicht erfunden, sondern vom Eingabefeld dieser App
-         abgelesen (Flux-Textarea im Composer, gemessen): hell `border-zinc-200`, dunkel
-         `border-white/10 bg-white/10`. Dazu im hellen Theme eine leicht vertiefte
-         Fläche (`bg-zinc-100`) — auf weißem Grund trägt die Kante allein zu wenig,
-         auf dem grauen Seitengrund der App trägt sie. Damit sieht das Feld aus wie
-         jedes andere Feld hier, statt wie eine Sonderlösung.
+         FLÄCHE (B14): vorher `bg-white/5`. Auf der weißen Karte komponierte das zu
+         exakt #FFFFFF — das Feld hatte im hellen Theme keinerlei Grenze und las sich
+         als Bildunterschrift über dem Grid, nicht als Eingabe. Die leicht vertiefte
+         Fläche (`bg-zinc-100`, dark `bg-white/10`) trennt es vom Kartengrund.
 
-         Platzhalterfarbe als ausgeschriebenes Paar statt über die `text-muted`-Utility:
-         die VERLIERT ihre Dark-Hälfte, sobald sie hinter einer weiteren Variante steht.
-         Im gebauten Stylesheet stand für die Platzhalter-Variante wörtlich
-         `::placeholder:where(){color:zinc-400}` — ein leeres `:where()` matcht nie, die
-         `.dark`-Bedingung aus dem @custom-variant ist beim @apply verlorengegangen.
-         Ergebnis war zinc-600 auf dem dunklen Feld: im Kalibrierlauf des Kontrast-Ankers
-         gemessene 1,74:1 gegen die geforderten 4,5:1 (1.4.3) — auf der alten, dunkleren
-         Feldfläche entsprechend noch etwas weniger. Dieselbe Lücke stand im
-         Rail-Suchfeld (`desktop-rail.blade.php`, gemessen 1,94:1) und ist dort
-         mitbehoben.
+         KANTE auf 1.4.11 gezogen: `border-zinc-500 dark:border-zinc-400` statt der
+         zinc-200/white-10-Kante, die jede andere Eingabe dieser App trägt. Die lag
+         gegen die Feldfläche bei 1,21:1 — unter den 3:1, die 1.4.11 für die Grenze
+         eines Bedienelements verlangt. Die neuen Werte messen 4,35:1 (hell) und
+         5,35:1 (dunkel), jeweils gegen die Fläche IM Feld, das ist die strengere der
+         beiden Nachbarfarben. Der Preis ist ausdrücklich gewählt: das Feld trägt
+         damit eine sichtbar kräftigere Kante als der Rest der App — solange die
+         übrigen Felder auf der schwachen Kante stehen, ist dieses hier das einzige,
+         das die Norm erfüllt, und fällt genau deshalb optisch auf.
 
-         Der kaputte Klassenname steht hier bewusst NICHT ausgeschrieben: Tailwind
-         scannt Blade als reinen Text und erzeugt aus einem Kommentar echte Regeln —
-         der erklärende Hinweis hielte die tote Regel sonst im gebauten CSS am
-         Leben (nachgewiesen: nach dem Fix blieb sie allein wegen dieses Kommentars
-         übrig). --}}
+         Platzhalterfarbe wieder über den Sekundärtext-Token (hinter der
+         Platzhalter-Variante). Das ging monatelang NICHT: die Utility verlor hinter
+         einer vorangestellten Variante ihre Dark-Hälfte, im dunklen Theme blieben
+         gemessene 1,74:1 gegen geforderte 4,5:1. Ursache war die Bauform der Utility,
+         nicht die Farbe; sie ist in `theme.css` behoben (echte Farb-Variable statt
+         eigener Utility, Begründung dort). Diese Stelle ist zugleich der lebende
+         Nachweis, dass der Variantenfall trägt — der Kontrast-Anker misst genau
+         diesen Platzhalter in beiden Themes und wird rot, wenn die Falle
+         zurückkehrt. --}}
     <div class="relative">
         <svg class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
              viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
@@ -103,7 +101,7 @@
         </svg>
         <input x-model.debounce.150ms="search" type="search"
                placeholder="{{ __('Emoji suchen…') }}" aria-label="{{ __('Emoji suchen') }}"
-               class="w-full rounded-tile border border-zinc-200 bg-zinc-100 py-1.5 pl-8 pr-3 text-sm text-zinc-800 placeholder:text-zinc-600 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40 dark:border-white/10 dark:bg-white/10 dark:text-white dark:placeholder:text-zinc-400" />
+               class="w-full rounded-tile border border-zinc-500 bg-zinc-100 py-1.5 pl-8 pr-3 text-sm text-zinc-800 placeholder:text-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40 dark:border-zinc-400 dark:bg-white/10 dark:text-white" />
     </div>
 
     {{-- Kategorie-Tabs: aktiver Tab mit Bitcoin-Underline. Bei aktiver Suche verborgen.

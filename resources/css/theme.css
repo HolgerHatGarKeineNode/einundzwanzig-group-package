@@ -48,6 +48,27 @@
     --color-accent-content: var(--color-brand-700);
     --color-accent-foreground: var(--color-zinc-950);
 
+    /* Sekundärtext mit tragfähigem Kontrast in BEIDEN Themes (zinc-500 riss AA/AAA):
+       zinc-600 auf hellem, zinc-400 auf dunklem Grund. Ersetzt gestreutes text-zinc-500.
+
+       ECHTE Farb-Variable statt einer eigenen `@utility` — und das ist kein
+       Geschmack, sondern eine Reparatur. Als `@utility` mit eingebautem
+       Dark-Zweig entstanden ZWEI Regeln, und die zweite trug die
+       `.dark`-Bedingung im Selektor. Wurde die Utility ein weiteres Mal
+       verschachtelt (irgendeine vorangestellte Variante), fiel genau diese
+       Bedingung zu einem LEEREN `:where()` zusammen — einem Selektor, der nie
+       matcht. Die Dark-Farbe war dann im Stylesheet vorhanden und wirkungslos:
+       der Sekundärtext blieb dunkel auf dunklem Grund, gemessen 1,74:1 im
+       Emoji-Suchfeld und 1,94:1 im Rail-Suchfeld. Beide Male sah es aus wie eine
+       schlecht gewählte Farbe, war aber ein stiller Compilerfall.
+
+       Als Farb-Variable erzeugt Tailwind die Utility selbst: EINE Regel
+       (`color: var(--color-muted)`), der Theme-Wechsel passiert an der Variablen
+       im `.dark`-Block unten. Damit trägt jede Variante, weil keine mehr
+       verschachtelt werden muss. Dasselbe Muster wie `--color-accent-content`
+       drei Zeilen höher. */
+    --color-muted: var(--color-zinc-600);
+
     /* ── AAA Design-Tokens (übernommen aus einundzwanzig-mobile-app) ──────
        Radius-, Shadow- und Motion-Skala. Alle Cards/Sheets/Tiles greifen
        darauf zu, statt rounded-* punktuell zu streuen. */
@@ -85,6 +106,7 @@
         --color-accent: var(--color-brand-500);
         --color-accent-content: var(--color-brand-400);
         --color-accent-foreground: var(--color-zinc-950);
+        --color-muted: var(--color-zinc-400);
     }
 }
 
@@ -110,12 +132,6 @@
    der Border die Abgrenzung (kein sichtbarer Schatten). */
 @utility surface-card {
     @apply rounded-card border border-zinc-200 bg-white shadow-card dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none;
-}
-
-/* Sekundärtext mit tragfähigem Kontrast in BEIDEN Themes (zinc-500 riss AA/AAA):
-   zinc-600 auf hellem, zinc-400 auf dunklem Grund. Ersetzt gestreutes text-zinc-500. */
-@utility text-muted {
-    @apply text-zinc-600 dark:text-zinc-400;
 }
 
 /* Touch-Ziel ≥ 44px (WCAG 2.5.5) nur auf grobem Pointer — Desktop-Maus bleibt
