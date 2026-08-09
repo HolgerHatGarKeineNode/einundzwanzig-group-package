@@ -199,11 +199,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 @endfor
             </div>
 
-            {{-- Leerer Raum --}}
+            {{-- Leerer Raum. Eine Aussage, EIN Weg — und der Weg ist kein Link: der
+                 Raum IST schon das Ziel, es fehlt nur der erste Satz. Der Knopf
+                 übergibt darum den Fokus dorthin, wo das Ergebnis der Handlung
+                 entsteht (dieselbe Regel wie in ⚡updates), statt irgendwohin zu
+                 navigieren.
+
+                 WELCHES Ziel, hängt am Zustand des Fußes: Mitglied → das Textfeld;
+                 angemeldet, aber nicht beigetreten → der Beitreten-Knopf; Gast →
+                 der gatende Composer. Das wird entschieden und nicht geraten:
+                 `.focus()` auf ein per `x-show` verborgenes Element ist ein stiller
+                 No-Op, der Fokus fiele dann auf <body>. --}}
             <template x-if="!loading && messages.length === 0">
                 <div class="surface-card empty-state mt-8 p-6 text-center">
                     <flux:icon.chat-bubble-left-right class="mx-auto size-8 text-zinc-400" />
                     <flux:text class="mt-2">{{ __('Noch keine Nachrichten in diesem Raum.') }}</flux:text>
+                    <div class="mt-4">
+                        <flux:button size="sm" variant="ghost" icon="pencil-square"
+                                     x-on:click="(joined ? $refs.composer : ($store.authGate?.authed ? $refs.joinButton : $refs.guestComposer))?.focus()">{{ __('Schreib die erste.') }}</flux:button>
+                    </div>
                 </div>
             </template>
 
@@ -361,8 +375,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     @include('group::partials.chat-composer', ['context' => 'thread'])
                 </div>
             </template>
-            {{-- Nicht-Mitglied: Beitreten direkt aus dem Thread. --}}
-            <template x-if="!joined">
+            {{-- Nicht-Mitglied: Beitreten direkt aus dem Thread. Nur für ANGEMELDETE
+                 — einem Gast fehlt nicht die Mitgliedschaft, sondern der Signer.
+                 Der Thread ist ein eigener Landeplatz (`/rooms/{h}/thread/{nevent}`
+                 ist teilbar), also braucht er denselben Gast-Fuß wie der Raum und
+                 nicht einen Knopf, der beim Signieren ins Leere läuft. --}}
+            <template x-if="!joined && $store.authGate?.authed">
                 <div class="surface-card flex items-center justify-between gap-3 p-3">
                     <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu antworten.') }}</flux:text>
                     <flux:button size="sm" variant="primary" icon="plus" class="shrink-0 icon-btn-touch"
@@ -370,6 +388,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
                     </flux:button>
                 </div>
+            </template>
+
+            {{-- Gast im Thread: gatender Composer, gleicher Bau wie am Raum-Fuß. --}}
+            <template x-if="!joined && ! $store.authGate?.authed">
+                <x-group::guest-composer :placeholder="__('Im Thread antworten…')"
+                                         :intent="__('Melde dich an, um in diesem Thread zu antworten.')" />
             </template>
         </div>
     </div>
@@ -390,6 +414,44 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- SSR-sichtbar (kein x-cloak): der Composer-Platz zeigt beim F5 sofort ein Skeleton
              statt weiß, bis die Mitgliedschaft geladen ist. --}}
         <div x-show="!membershipReady" class="skeleton h-11 rounded-card"></div>
+
+        {{-- Einstieg für Gäste (P3.2): EINE ruhige Zeile am Fuß der Bühne. Kein
+             Tour-Overlay, kein Willkommens-Modal — der Gast steht bereits lesend in
+             einem echten Raum, das IST die Demo; die Zeile benennt nur, was ihm
+             fehlt, und bietet genau einen Weg.
+
+             Sie hängt NICHT an `membershipReady`: für einen Gast ist die
+             Mitgliedschaft keine offene Frage, und eine Zeile, die erst nach einem
+             Relay-Roundtrip erscheint, kommt nach dem ersten Blick.
+
+             Zustand in `localStorage`, nicht in der Session: der WebView der
+             Android-App startet neu, ohne dass eine Server-Session endet — ein
+             „einmal", das den Neustart nicht überlebt, ist kein einmal.
+
+             EIN Lesevorgang in `x-init` statt `x-show="localStorage…"`: letzteres
+             läse den Schlüssel bei jedem Render-Tick und wäre obendrein nicht
+             reaktiv (localStorage meldet keine Änderung an Alpine). --}}
+        <div x-data="{ show: false }"
+             x-init="show = ! $store.authGate?.authed && localStorage.getItem('e21:guest-hint') !== 'closed'"
+             x-show="show" x-cloak x-transition.opacity.duration.200ms
+             class="surface-card mb-1 flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+            {{-- `min-w-56` ist der Boden, nicht Kosmetik: `flex-1` ist Basis 0, die
+                 beiden Knöpfe daneben haben Basis `auto` und drückten den Satz sonst
+                 auf 320px in eine dreizeilige Schlucht. Mit Boden + `flex-wrap`
+                 rutschen stattdessen die Knöpfe in die zweite Zeile. --}}
+            <flux:text class="min-w-56 flex-1 text-sm text-muted">{{ __('Du liest mit. Zum Mitschreiben anmelden.') }}</flux:text>
+            {{-- `requireAuth` statt eines handgeschriebenen `open-login-sheet`:
+                 derselbe Weg wie bei jeder gegateten Tab (nav-tab) — er dispatcht
+                 dasselbe Event, merkt aber ZUSÄTZLICH den Rückweg vor
+                 (`pendingReturn` → `postLoginRedirect`, §4.2) und trägt den
+                 Fallback auf den Login-View, falls kein Sheet montiert ist. Ein
+                 direkter Dispatch verlöre beides still. --}}
+            <flux:button size="sm" variant="primary" class="icon-btn-touch"
+                         x-on:click="$store.authGate.requireAuth({ label: @js(__('Zum Mitschreiben anmelden.')) })">{{ __('Anmelden') }}</flux:button>
+            <flux:button size="sm" variant="ghost" icon="x-mark" square class="icon-btn-touch"
+                         x-on:click="show = false; localStorage.setItem('e21:guest-hint', 'closed')"
+                         aria-label="{{ __('Hinweis schließen') }}" />
+        </div>
 
         {{-- Compose-Kontext über dem Composer: Antworten (replyTo), Zitieren (sharing)
              oder Bearbeiten (editingId) — mit Abbrechen. --}}
@@ -420,12 +482,30 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </button>
         </div>
 
-        <div x-show="membershipReady && !joined" x-cloak x-transition.opacity.duration.200ms
+        {{-- Beitreten — nur für ANGEMELDETE Nicht-Mitglieder. Einem Gast fehlt nicht
+             die Mitgliedschaft, sondern der Signer: `join()` würde ein kind 9021
+             signieren wollen und im Nichts enden. Deshalb trägt der Gast-Zweig
+             darunter seinen eigenen Zustand.
+             `join()` löst diesen Knopf selbst auf (die 39002 kommt zurück, `joined`
+             kippt) — ohne die Fokus-Übergabe fiele der Fokus auf <body>. Ist der
+             Composer noch verborgen, ist `.focus()` ein No-Op und es bleibt beim
+             Status quo, also kein Rückschritt. --}}
+        <div x-show="membershipReady && !joined && $store.authGate?.authed" x-cloak x-transition.opacity.duration.200ms
              class="surface-card flex items-center justify-between gap-3 p-3">
             <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um mitzuschreiben.') }}</flux:text>
-            <flux:button size="sm" variant="primary" icon="plus" class="icon-btn-touch" x-on:click="join()" ::disabled="joining">
+            <flux:button size="sm" variant="primary" icon="plus" class="icon-btn-touch" x-ref="joinButton"
+                         x-on:click="join().then(() => $nextTick(() => $refs.composer?.focus()))" ::disabled="joining">
                 <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
             </flux:button>
+        </div>
+
+        {{-- Gast: derselbe Fuß, aber gatend statt beitretend (siehe
+             `guest-composer`). Der Wortlaut im Feld ist zeichengleich zum
+             Platzhalter des echten Composers — es soll dasselbe Ding sein. --}}
+        <div x-show="membershipReady && !joined && ! $store.authGate?.authed" x-cloak x-transition.opacity.duration.200ms>
+            <x-group::guest-composer ref="guestComposer"
+                                     :placeholder="__('Nachricht schreiben…')"
+                                     :intent="__('Melde dich an, um in diesem Raum zu schreiben.')" />
         </div>
     </div>
 

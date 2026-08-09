@@ -1408,8 +1408,26 @@ export function registerNostrComponents(Alpine: {
     // nur durchgereicht, das Sheet rendert ihn.
     type AuthIntent = { label?: string; returnUrl?: string; resume?: () => void }
     const authGateStore = {
+        // P3 — dieselbe Frage wie in `requireAuth`, nur als LESBARER Zustand für
+        // Views: „ist hier ein Gast?" (Gast-Composer, Einstiegszeile, Beitreten-
+        // Karte in ⚡room). Ohne ihn müsste jede Insel `isAuthed(localStorage…)`
+        // selbst nachbauen — dieselbe Sentinel-Falle („undefined"/"null", siehe
+        // auth-gate.ts) an vier Orten statt an einem.
+        //
+        // EINMAL beim Boot gelesen und danach ein normales Store-Feld. Das ist
+        // kein Cache-Risiko, sondern folgt dem Lebenszyklus: JEDER Login endet in
+        // einer HARTEN Navigation (`location.assign(postLoginRedirect())`), jeder
+        // Logout ebenso — der Wert kann sich also nicht ändern, ohne dass dieses
+        // Modul neu bootet. Ein Getter auf `localStorage` wäre dagegen bei jedem
+        // Render-Tick eine Lesung UND trotzdem nicht reaktiv (localStorage meldet
+        // Alpine keine Änderung).
+        authed: isAuthed(localStorage.getItem('pubkey')),
         requireAuth(intent: AuthIntent = {}): boolean {
-            if (isAuthed(localStorage.getItem('pubkey'))) {
+            // Die Wahrheit bleibt localStorage; `authed` wird hier nachgezogen,
+            // damit ein Login in einem ZWEITEN Tab die Views dieses Tabs beim
+            // nächsten Gate-Tap nicht mehr als Gast behandelt.
+            this.authed = isAuthed(localStorage.getItem('pubkey'))
+            if (this.authed) {
                 intent.resume?.()
                 return true
             }

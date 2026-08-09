@@ -40,8 +40,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Suche — für Nicht-Vereinsmitglieder ausgeblendet: die Mitgliederliste
              liefert der Relay nicht aus, eine Suche liefe ins Leere. Wrapper-Div,
              weil flux:input x-show sonst nur ans innere <input> hängt (Icon bliebe). --}}
+        {{-- `x-ref` landet auf dem <input> selbst (flux:input reicht die Attribute
+             dorthin durch) — der Treffer-Leerzustand weiter unten gibt den Fokus
+             hierher zurück, wenn er sich selbst wegräumt. --}}
         <div x-show="!gatedOut">
-            <flux:input x-model="query" icon="magnifying-glass" placeholder="{{ __('Mitglied suchen…') }}" clearable />
+            <flux:input x-ref="search" x-model="query" icon="magnifying-glass" placeholder="{{ __('Mitglied suchen…') }}" clearable />
         </div>
 
         {{-- Admin-Werkzeuge (nur wenn der Relay dem User NIP-86-Methoden erlaubt) --}}
@@ -97,6 +100,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.users class="mx-auto size-8 text-zinc-400" />
                 <flux:text class="mt-2">{{ __('Noch keine Mitglieder in diesem Space.') }}</flux:text>
+                {{-- Genau EIN Weg — und nur für den, der ihn gehen darf: einladen
+                     kann ausschließlich ein Relay-Admin (NIP-86). Für alle anderen
+                     bleibt der Zustand bewusst handlungslos; ein Knopf, der beim
+                     Drücken am Relay abprallt, ist schlimmer als kein Knopf.
+                     Derselbe Auslöser wie in der Admin-Leiste oben (`invite`-Modal
+                     + `loadInvite()`), kein zweiter Pfad zur selben Sache. --}}
+                <div x-show="isAdmin" x-cloak class="mt-4">
+                    <flux:modal.trigger name="invite">
+                        <flux:button size="sm" variant="ghost" icon="user-plus" x-on:click="loadInvite()">{{ __('Mitglied einladen') }}</flux:button>
+                    </flux:modal.trigger>
+                </div>
             </div>
         </template>
 
@@ -141,10 +155,36 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </div>
                 </template>
 
-                {{-- Suche ohne Treffer --}}
+                {{-- Suche ohne Treffer. Bis hierher eine graue Zeile ohne Ausweg —
+                     jetzt dieselbe Form wie jeder andere Leerzustand des Clients und
+                     derselbe Ausweg wie in ⚡updates: der Filter, der die Liste
+                     geleert hat, ist auch der Weg zurück.
+                     Der Fokus MUSS mitwandern: der Knopf räumt mit dem Zustand sich
+                     selbst weg, der Fokus fiele sonst auf <body>. Ziel ist das
+                     Suchfeld — dort steht das, was der Nutzer als Nächstes ändert.
+
+                     ERST fokussieren, DANN leeren — die Reihenfolge ist der ganze
+                     Punkt und keine Stilfrage. `query = ''` löst das umschließende
+                     `x-if` auf, und Alpine entfernt den Knopf synchron im
+                     Reaktivitäts-Effekt. `$nextTick` schiebt seinen Rückruf dagegen
+                     in einen MAKRO-Task (`queueMicrotask` → `setTimeout` →
+                     `releaseNextTicks`, Alpine 3.15.12). Der Rückruf läuft dann zwar
+                     — der `tickStack` ist global —, aber `$refs` ist ein DOM-AUFSTIEG
+                     vom Handler-Element (`findClosest` bricht bei `!el.parentElement`
+                     ab). Am detachierten Knopf liefert er einen LEEREN Proxy, und
+                     `undefined?.focus()` schweigt. Gemessen: 0 focus()-Aufrufe,
+                     `document.activeElement` blieb `<body>`.
+                     Synchron gibt es das Problem nicht: der Knopf hängt beim
+                     Fokussieren noch im Baum, und das Entfernen eines Teilbaums, der
+                     das fokussierte Feld NICHT enthält, rührt den Fokus nicht an. --}}
                 <template x-if="filtered().length === 0">
-                    <div class="surface-card p-4 text-center text-sm text-muted">
-                        {{ __('Kein Mitglied passt zu „') }}<span x-text="query"></span>{{ __('".') }}
+                    <div class="surface-card empty-state p-6 text-center">
+                        <flux:icon.magnifying-glass class="mx-auto size-8 text-zinc-400" />
+                        <flux:text class="mt-2 text-sm text-muted">{{ __('Kein Mitglied passt zu „') }}<span x-text="query"></span>{{ __('".') }}</flux:text>
+                        <div class="mt-4">
+                            <flux:button size="sm" variant="ghost" icon="arrow-path"
+                                         x-on:click="$refs.search?.focus(); query = ''">{{ __('Suche leeren') }}</flux:button>
+                        </div>
                     </div>
                 </template>
             </div>

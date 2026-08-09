@@ -399,7 +399,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </div>
                     </div>
 
-                    <div class="surface-card overflow-hidden p-2">
+                    {{-- `x-ref` + `tabindex="-1"`: der Auffang für die Fokus-Übergabe des
+                         `room-form`-Modals (siehe dort). Nicht tabbierbar (-1), nur
+                         programmatisch anspringbar — dasselbe Muster wie die Liste in
+                         ⚡updates. --}}
+                    <div x-ref="roomList" tabindex="-1" class="surface-card overflow-hidden p-2">
                         {{-- Räume laden noch --}}
                         <template x-if="loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0">
                             <div class="space-y-2 p-1">
@@ -416,11 +420,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </div>
                         </template>
 
-                        {{-- Wirklich leer: kein einziger Raum (auch kein Meetup). --}}
+                        {{-- Wirklich leer: kein einziger Raum (auch kein Meetup).
+                             Genau EIN Weg, und nur für den, der ihn gehen darf —
+                             anlegen ist eine Vorstandsaktion (NIP-29 9007).
+                             Kein `surface-card` am Wrapper: dieser Zustand steht
+                             bereits IN einer Karte (`surface-card overflow-hidden
+                             p-2` oben), eine zweite darin wäre eine Karte in einer
+                             Karte. Gleiche Entscheidung wie beim gated-Zustand und
+                             beim Meetup-Filter-Zustand in derselben Karte. --}}
                         <template x-if="!loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0 && !gatedOut">
                             <div class="empty-state py-6 text-center">
                                 <flux:icon.hashtag class="mx-auto size-8 text-zinc-400" />
                                 <flux:text class="mt-2 text-sm">{{ __('Dieser Space hat noch keine Räume.') }}</flux:text>
+                                <div x-show="isAdmin" x-cloak class="mt-3">
+                                    <flux:button size="sm" variant="ghost" icon="plus" x-on:click="openRoomCreate()">{{ __('Raum anlegen') }}</flux:button>
+                                </div>
                             </div>
                         </template>
 
@@ -526,9 +540,56 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         {{-- Noch keine Standard-Räume, aber Meetups/Anträge existieren → Hinweis.
                              Die Antragsräume stehen NICHT mehr in der Bedingung: seit sie hinter
                              der Entdecken-Zeile liegen (wie die Meetups), ist „keine Standard-
-                             Räume" auch dann die Wahrheit, wenn es Anträge gibt. --}}
-                        <template x-if="!focusMode() && !loading && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0 && filteredMine().length === 0 && filteredOther().length === 0">
-                            <p class="px-2 py-3 text-sm text-muted xl:hidden">{{ __('Noch keine Standard-Räume in diesem Space.') }}</p>
+                             Räume" auch dann die Wahrheit, wenn es Anträge gibt.
+
+                             AUFGETEILT (P3): dieser eine Zustand hatte ZWEI Ursachen und nannte
+                             nur eine. `filteredMine()`/`filteredOther()` filtern mit `roomQuery`
+                             (`_ensureFiltered`) — wer im Suchfeld darüber etwas tippt, das nicht
+                             trifft, bekam „Noch keine Standard-Räume in diesem Space." zu lesen,
+                             und das ist schlicht falsch. Getrennt wie in ⚡updates: erst der
+                             Filter, dann der Bestand. --}}
+
+                        {{-- Leer NACH Suche. Der Filter, der die Liste geleert hat, ist auch der
+                             Weg zurück; der Fokus geht ins Suchfeld, weil dieser Knopf sich mit
+                             dem Zustand selbst wegräumt. `$root` statt `$refs`: das Feld sitzt in
+                             einer eigenen `x-data`-Insel (`{ ph: … }`), ein `x-ref` würde sich
+                             dort registrieren und wäre von hier aus unsichtbar. `[data-room-search]`
+                             ist der bereits vorhandene Haken, kein neuer Vertrag.
+
+                             ERST fokussieren, DANN leeren — dieselbe Ursache wie im
+                             Mitglieder-Verzeichnis, hier mit lauterem Ausgang: `roomQuery = ''`
+                             räumt das `x-if` samt Knopf synchron ab, `$nextTick` läuft erst im
+                             Makro-Task danach, und `$root` ist wie `$refs` ein DOM-Aufstieg vom
+                             Handler-Element (`findClosest`, Alpine 3.15.12). Am detachierten Knopf
+                             ist `$root` `undefined` — `undefined.querySelector(…)` WIRFT dann im
+                             Tick, statt still nichts zu tun. Gemessen, beide Formen.
+
+                             Der `??`-Auffang ist kein Gürtel zum Hosenträger: `roomQuery` kann aus
+                             `?q=` an der URL stammen, während `showRoomSearch()` (≥10 Räume) das
+                             Feld gar nicht rendert. Dann gibt es nichts zu fokussieren, und der
+                             Fokus landete wieder auf `<body>` — genau der Fehler, den wir hier
+                             beheben. `roomList` ist die Karte mit `tabindex="-1"` direkt darüber. --}}
+                        <template x-if="!focusMode() && !loading && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0 && filteredMine().length === 0 && filteredOther().length === 0 && roomQuery.trim() !== ''">
+                            <div class="empty-state py-6 text-center xl:hidden">
+                                <flux:icon.magnifying-glass class="mx-auto size-8 text-zinc-400" />
+                                <flux:text class="mt-2 text-sm">{{ __('Kein Raum passt zu deiner Suche.') }}</flux:text>
+                                <div class="mt-3">
+                                    <flux:button size="sm" variant="ghost" icon="arrow-path"
+                                                 x-on:click="($root.querySelector('[data-room-search] input') ?? $refs.roomList)?.focus(); roomQuery = ''">{{ __('Suche leeren') }}</flux:button>
+                                </div>
+                            </div>
+                        </template>
+
+                        {{-- Wirklich keine Standard-Räume (nur Meetups/Anträge). BEWUSST ohne
+                             Handlung: die Wege stehen als eigene Zeilen unmittelbar darunter
+                             („… entdecken", „Neuen Raum anlegen"). Ein Knopf hier wäre derselbe
+                             Weg acht Pixel höher — eine zweite Wahrheit über dieselbe Auswahl,
+                             und die Regel dieses Screens ist „ein Weg, ein Ort". --}}
+                        <template x-if="!focusMode() && !loading && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0 && filteredMine().length === 0 && filteredOther().length === 0 && roomQuery.trim() === ''">
+                            <div class="empty-state py-6 text-center xl:hidden">
+                                <flux:icon.hashtag class="mx-auto size-8 text-zinc-400" />
+                                <flux:text class="mt-2 text-sm">{{ __('Noch keine Standard-Räume in diesem Space.') }}</flux:text>
+                            </div>
                         </template>
 
                         {{-- ── Wege aus der Liste: entdecken · anlegen ─────────────────────────
@@ -650,7 +711,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      andere Aufgabe. Meetups sind Portal-verwaltet, deshalb wie
                                      bisher nur im Standard-Modus (der Wrapper trägt das
                                      `!focusMode()` schon). --}}
-                                <template x-if="isAdmin">
+                                {{-- Zusatzbedingung seit P3: hat der Space ÜBERHAUPT keinen Raum,
+                                     trägt der Leerzustand darüber („Dieser Space hat noch keine
+                                     Räume." + „Raum anlegen") bereits genau diese Aktion. Beide
+                                     zugleich wären derselbe Knopf zweimal in einer Karte, ~40px
+                                     auseinander. Der Leerzustand gewinnt, weil er die Lage
+                                     ERKLÄRT; diese Zeile ist nur ein Weg unter mehreren.
+                                     `loading ||` hält den Ladezustand zeichengleich zu vorher. --}}
+                                <template x-if="isAdmin && (loading || !space || (space.userRooms.length + space.otherRooms.length) > 0)">
                                     <button type="button" x-on:click="openRoomCreate()"
                                             class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
                                         <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
@@ -863,7 +931,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- ── Raum-Verwaltung (P4, Admin) ──────────────────────────────────── --}}
 
         {{-- Raum anlegen/bearbeiten (NIP-29 9007/9002). Leeres roomForm.h = Anlegen. --}}
-        <flux:modal name="room-form" class="max-w-sm">
+        {{-- Fokus-Rückgabe, aber nur als AUFFANG. Der `<dialog>` gibt den Fokus beim
+             Schließen von sich aus an das zuvor fokussierte Element zurück (HTML-Spec)
+             — solange es das noch gibt. Genau das ist seit P3 nicht mehr sicher: den
+             Dialog öffnet jetzt auch der Leerzustand „Dieser Space hat noch keine
+             Räume." + „Raum anlegen", und dessen Knopf ist nach dem Anlegen weg (das
+             `x-if` kippt). Ein detachierter Auslöser heißt Fokus auf <body>.
+             Deshalb NUR dann eingreifen, wenn der Fokus tatsächlich verloren ging —
+             im Normalfall (Auslöser lebt noch) rührt dieser Handler nichts an, statt
+             gegen die native Rückgabe zu arbeiten. --}}
+        <flux:modal name="room-form" class="max-w-sm"
+                    x-on:close="$nextTick(() => { if (document.activeElement === document.body) $refs.roomList?.focus() })">
             <div class="space-y-4">
                 <flux:heading size="lg" x-text="roomForm.h ? @js(__('Raum bearbeiten')) : @js(__('Neuer Raum'))"></flux:heading>
 
