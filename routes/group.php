@@ -1,5 +1,6 @@
 <?php
 
+use Einundzwanzig\Group\Http\Controllers\LocaleController;
 use Einundzwanzig\Group\Http\Controllers\NostrAuthController;
 use Einundzwanzig\Group\Http\Middleware\ContentSecurityPolicy;
 use Illuminate\Support\Facades\Route;
@@ -17,6 +18,12 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
     Route::get('/nostr/challenge', [NostrAuthController::class, 'challenge'])->name('nostr.challenge');
     Route::post('/nostr/login', [NostrAuthController::class, 'login'])->name('nostr.login');
     Route::post('/nostr/logout', [NostrAuthController::class, 'logout'])->name('nostr.logout');
+
+    // P2 — Sprachwahl. BEWUSST außerhalb von `nostr.auth`: Sprache ist eine
+    // Anzeige-Einstellung, kein Konto-Zustand; ein Gast auf der Login-Seite muss
+    // sie umstellen können. Antwort ist ein 302 → volles Neuladen (der Cookie
+    // muss vor dem nächsten Render stehen, `wire:navigate` reicht dafür nicht).
+    Route::post('/locale', [LocaleController::class, 'update'])->name('locale');
 
     // Geschützt durch das Nostr-Gate: aktiver Space + Raum-Liste (Single-Space §12).
     Route::middleware('nostr.auth')->group(function (): void {

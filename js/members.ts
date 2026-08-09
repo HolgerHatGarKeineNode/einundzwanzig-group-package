@@ -39,6 +39,7 @@ import {
 } from './buzzAdmin'
 import { warmHandles, verifiedNip05 } from './handles'
 import { purgeSpaceLocalProfiles } from './spaceProfiles'
+import { t } from './i18n'
 
 /** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
 export const RELAY_ROLE = 33534
@@ -474,7 +475,7 @@ export const unbanSpaceMember = async (url: string, pubkey: string): Promise<str
 export const setSpaceMemberRole = async (url: string, pubkey: string, role: BuzzRelayRole): Promise<string> =>
     (await spaceIsBuzzAsync(url))
         ? await buzzChangeRole(url, pubkey, role)
-        : 'Dieser Space kennt keine Relay-Rollen (nur Buzz-Spaces unterstützen das).'
+        : t('Dieser Space kennt keine Relay-Rollen (nur Buzz-Spaces unterstützen das).')
 
 // Event-Moderation (NIP-86 banevent): entfernt EIN Event relay-seitig (löscht es +
 // trägt die id in die Banned-Events-Liste). Das ist die Admin-Löschung fremder

@@ -104,5 +104,37 @@ return [
      *
      * @var list<string>
      */
-    'settings' => ['account', 'space', 'wallet', 'relays', 'blossom', 'appearance', 'session'],
+    'settings' => ['account', 'space', 'wallet', 'relays', 'blossom', 'appearance', 'language', 'session'],
+
+    /*
+     * Sprach-Registry (P2): die Whitelist, gegen die `SetLocale` Cookie und
+     * `Accept-Language` prüft, und zugleich die Auswahl des Sprach-Pickers
+     * (`partials/settings/language`). Schlüssel = Locale-Code, Wert = ENDONYM
+     * (die Sprachbezeichnung IN dieser Sprache).
+     *
+     * Endonyme laufen bewusst NICHT durch `__()` — anders als die übrigen Labels.
+     * Zwei Gründe: (a) Config lädt VOR der Locale-Middleware (dieselbe Falle wie
+     * `nav`/`settings`), (b) „Español" heißt in jeder Oberflächensprache Español;
+     * ein übersetztes Sprachmenü („Spanisch") ist genau für den unlesbar, der es
+     * braucht — er liest die aktuelle Sprache ja nicht.
+     *
+     * Der ERSTE Eintrag ist der Rückfall, wenn weder Cookie noch Session noch
+     * `Accept-Language` etwas Passendes hergeben.
+     *
+     * Die Codes müssen zu `lang/<code>.json` passen. `de` hat bewusst KEINE Datei:
+     * die Quell-Keys sind deutsch (`__('Deutscher Text')`), Laravel gibt den Key
+     * zurück, wenn keine Übersetzung existiert.
+     *
+     * @var array<string, string>
+     */
+    'locales' => [
+        'de' => 'Deutsch',
+        'en' => 'English',
+        'es' => 'Español',
+        'hu' => 'Magyar',
+        'lv' => 'Latviešu',
+        'nl' => 'Nederlands',
+        'pl' => 'Polski',
+        'pt' => 'Português',
+    ],
 ];

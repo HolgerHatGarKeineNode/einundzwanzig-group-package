@@ -28,6 +28,7 @@ import { runScheduledPortalHandoff } from './portal-handoff'
 import { clearWallet } from './wallet'
 import { clearCache } from './storage'
 import { clearReadState } from './readState'
+import { t } from './i18n'
 
 /** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
 export const authReady = Promise.all([
@@ -78,7 +79,7 @@ export function loginWithNip55(pk: string): void {
 export async function loginWithExtension(): Promise<void> {
     const pk = await getNip07()?.getPublicKey()
     if (!pk) {
-        throw new Error('Keine NIP-07-Erweiterung gefunden (window.nostr).')
+        throw new Error(t('Keine NIP-07-Erweiterung gefunden (window.nostr).'))
     }
     loginWithNip07(pk)
 }
@@ -94,13 +95,13 @@ export function loginWithSecretKey(input: string): void {
     if (trimmed.startsWith('nsec1')) {
         const { type, data } = nip19.decode(trimmed)
         if (type !== 'nsec') {
-            throw new Error('Ungültiger nsec-Key.')
+            throw new Error(t('Ungültiger nsec-Key.'))
         }
         secret = bytesToHex(data as Uint8Array)
     } else if (/^[0-9a-f]{64}$/i.test(trimmed)) {
         secret = trimmed.toLowerCase()
     } else {
-        throw new Error('Bitte einen nsec1…- oder 64-stelligen hex-Key eingeben.')
+        throw new Error(t('Bitte einen nsec1…- oder 64-stelligen hex-Key eingeben.'))
     }
     loginWithNip01(secret)
 }
@@ -121,7 +122,7 @@ export async function loginWithBunker(bunkerUri: string): Promise<void> {
         loginWithNip46(pk, clientSecret, signerPubkey, broker.params.relays)
         markNip46PermsFresh()
     } else {
-        throw new Error('Bunker-Verbindung fehlgeschlagen.')
+        throw new Error(t('Bunker-Verbindung fehlgeschlagen.'))
     }
 }
 
@@ -155,17 +156,17 @@ export function nip46PermsStale(): boolean {
 export function currentSignerLabel(): string {
     const pk = pubkey.get()
     if (!pk) {
-        return 'Nicht verbunden'
+        return t('Nicht verbunden')
     }
     switch (sessions.get()[pk]?.method) {
         case 'nip07':
-            return isMobile ? 'Amber (NIP-55)' : 'Browser-Erweiterung (NIP-07)'
+            return isMobile ? t('Amber (NIP-55)') : t('Browser-Erweiterung (NIP-07)')
         case 'nip46':
-            return 'Bunker (NIP-46)'
+            return t('Bunker (NIP-46)')
         case 'nip01':
-            return 'Privater Schlüssel (nsec)'
+            return t('Privater Schlüssel (nsec)')
         default:
-            return 'Verbunden'
+            return t('Verbunden')
     }
 }
 
@@ -227,14 +228,14 @@ export function handoffToServer(): Promise<string> {
 async function doHandoff(): Promise<string> {
     const activeSigner = signer.get()
     if (!activeSigner) {
-        throw new Error('Kein aktiver Signer für den Server-Login.')
+        throw new Error(t('Kein aktiver Signer für den Server-Login.'))
     }
 
     const challengeRes = await fetch('/nostr/challenge', {
         headers: { Accept: 'application/json' },
     })
     if (!challengeRes.ok) {
-        throw new Error('Challenge konnte nicht geladen werden.')
+        throw new Error(t('Challenge konnte nicht geladen werden.'))
     }
     const { challenge, url } = (await challengeRes.json()) as { challenge: string; url: string }
 
@@ -253,7 +254,7 @@ async function doHandoff(): Promise<string> {
     })
     const data = (await loginRes.json()) as { ok?: boolean; error?: string; redirect?: string }
     if (!loginRes.ok || !data.ok) {
-        throw new Error(data.error ?? 'Server-Login fehlgeschlagen.')
+        throw new Error(data.error ?? t('Server-Login fehlgeschlagen.'))
     }
     return data.redirect ?? '/spaces'
 }

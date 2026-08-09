@@ -32,6 +32,8 @@
  * Diese Auswertung ist bewusst umgekehrt gebaut: **alles außer `success` ist ein
  * Fehler**, auch ein künftiger Status, den es heute noch nicht gibt.
  */
+import { t } from './i18n.ts'
+
 /** Ergebniszeile eines Relays, so wie `thunk.results` sie führt. */
 export type PublishResultRow = { status?: string; detail?: string }
 
@@ -54,7 +56,7 @@ export const publishError = (results: Record<string, PublishResultRow> | undefin
     if (!bad) {
         return ''
     }
-    return bad.detail || bad.status || 'Publish fehlgeschlagen'
+    return bad.detail || bad.status || t('Publish fehlgeschlagen')
 }
 
 type ThunkLike = {
@@ -88,7 +90,7 @@ export const setRelayNoticeReader = (fn: (url: string, since: number) => string)
 export const PUBLISH_VERDICT_TIMEOUT_MS = 20_000
 
 /** Die Meldung, wenn das Relay überhaupt nichts zum Event gesagt hat. */
-export const NO_VERDICT_ERROR = 'Das Relay hat den Vorgang nicht bestätigt.'
+export const NO_VERDICT_ERROR = t('Das Relay hat den Vorgang nicht bestätigt.')
 
 /**
  * Ersatz für `waitForThunkError`: wartet, bis jedes Relay einen Endstatus hat, und

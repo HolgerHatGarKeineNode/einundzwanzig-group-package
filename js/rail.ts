@@ -58,6 +58,7 @@ import {
     type RailRoom,
     type RailScope,
 } from './railGroups'
+import { t } from './i18n'
 
 /** localStorage-Schlüssel des Auf/Zu-Zustands. */
 const OPEN_KEY = 'railGroups.open'
@@ -72,10 +73,10 @@ const DEFAULT_OPEN: Record<RailGroupKey, boolean> = {
 
 /** Beschriftungen der vier Gruppen — geteilt zwischen Chip und Gruppenkopf. */
 const GROUP_LABEL: Record<RailGroupKey, string> = {
-    rooms: 'Räume',
-    meetups: 'Meetups',
-    proposals: 'Projektunterstützung',
-    workspace: 'Workspace',
+    rooms: t('Räume'),
+    meetups: t('Meetups'),
+    proposals: t('Projektunterstützung'),
+    workspace: t('Workspace'),
 }
 
 type CountryOption = { country: string; flag: string; name: string; count: number }

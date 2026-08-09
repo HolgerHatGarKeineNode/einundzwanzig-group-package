@@ -10,6 +10,7 @@
  */
 import { readable, type Readable } from 'svelte/store'
 import { signerLog, type SignerLogEntry } from '@welshman/app'
+import { t } from './i18n'
 
 export type SignerHealth = 'ok' | 'slow' | 'disconnected'
 
@@ -52,9 +53,9 @@ export const signerHealth: Readable<SignerHealth> = readable<SignerHealth>('ok',
 export const signerHealthLabel = (health: SignerHealth): string => {
     switch (health) {
         case 'disconnected':
-            return 'Signer antwortet nicht — bitte neu anmelden.'
+            return t('Signer antwortet nicht — bitte neu anmelden.')
         case 'slow':
-            return 'Signer antwortet langsam …'
+            return t('Signer antwortet langsam …')
         default:
             return ''
     }

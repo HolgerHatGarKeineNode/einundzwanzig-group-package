@@ -16,6 +16,7 @@ import { pubkey } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
 import { nativeCall, isMobile } from './core'
 import { NIP46_PERMS, permsToNip55Json } from './nip46-perms'
+import { t } from './i18n'
 
 const AMBER_PACKAGE = 'com.greenart7c3.nostrsigner'
 
@@ -73,7 +74,7 @@ function awaitCoordinatorResult<T>(
         document.addEventListener('native-event', handler)
         timer = setTimeout(() => {
             cleanup()
-            reject(new Error('Amber: Zeitüberschreitung — bitte erneut versuchen.'))
+            reject(new Error(t('Amber: Zeitüberschreitung — bitte erneut versuchen.')))
         }, COORDINATOR_TIMEOUT_MS)
         void nativeCall(nativeMethod, params).catch((err) => {
             cleanup()
@@ -99,7 +100,7 @@ function intentSignerOp(op: SignerOp, payload: string, currentUser: string, coun
         (p) => {
             const value = op === 'sign_event' ? p.event : p.result
             if (p.rejected || value == null) {
-                throw new Error('Amber: Anfrage abgelehnt.')
+                throw new Error(t('Amber: Anfrage abgelehnt.'))
             }
             return value
         },
@@ -112,7 +113,7 @@ export function normalizePubkey(input: string): string {
     const hex = trimmed.startsWith('npub1') ? (nip19.decode(trimmed).data as string) : trimmed
     const lower = hex.toLowerCase()
     if (!/^[0-9a-f]{64}$/.test(lower)) {
-        throw new Error('Ungültiger pubkey von Amber.')
+        throw new Error(t('Ungültiger pubkey von Amber.'))
     }
     return lower
 }
@@ -154,7 +155,7 @@ export function installNip55WindowNostr(): void {
     ): Promise<string> => {
         const res = (await nativeCall(crMethod, { ...crParams, currentUser: currentUser(), amberPackage: AMBER_PACKAGE })) as CrResult
         if (res?.rejected) {
-            throw new Error('Amber: Anfrage abgelehnt.')
+            throw new Error(t('Amber: Anfrage abgelehnt.'))
         }
         if (res?.authorized && res[field] != null) {
             return res[field] as string
@@ -184,10 +185,10 @@ export function installNip55WindowNostr(): void {
         },
         nip04: {
             encrypt: async () => {
-                throw new Error('nip04 wird nicht unterstützt.')
+                throw new Error(t('nip04 wird nicht unterstützt.'))
             },
             decrypt: async () => {
-                throw new Error('nip04 wird nicht unterstützt.')
+                throw new Error(t('nip04 wird nicht unterstützt.'))
             },
         },
     }
@@ -207,7 +208,7 @@ export function startNip55Login(): Promise<string> {
         () => true,
         (payload) => {
             if (payload.rejected || !payload.pubkey) {
-                throw new Error('Amber-Login abgebrochen oder abgelehnt.')
+                throw new Error(t('Amber-Login abgebrochen oder abgelehnt.'))
             }
             return normalizePubkey(String(payload.pubkey))
         },

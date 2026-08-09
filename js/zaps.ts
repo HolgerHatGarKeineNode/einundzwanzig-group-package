@@ -15,6 +15,7 @@ import { request } from '@welshman/net'
 import { bech32ToHex, uniq } from '@welshman/lib'
 import { Router } from '@welshman/router'
 import { payInvoice as walletPayInvoice } from './wallet'
+import { t } from './i18n'
 
 /** Standard-Zap-Kommentar (flotilla legt den Reaktions-Emoji in den 9734-`content`). */
 export const DEFAULT_ZAP_CONTENT = '⚡'
@@ -29,20 +30,26 @@ export const DEFAULT_ZAP_CONTENT = '⚡'
 export const mapZapError = (error: unknown): string => {
     const raw = error instanceof Error ? error.message : String(error ?? '')
     const s = raw.toLowerCase()
-    if (s.includes('kein aktiver signer')) {
-        return 'Bitte zuerst anmelden, um zu zappen.'
+    // Der Substring-Treffer prüft UNSEREN eigenen Wurf (`buildZapRequest`,
+    // `session.doHandoff`). Seit P2 ist dessen Text übersetzt, der deutsche
+    // Substring greift also nur noch unter `de` — deshalb zusätzlich gegen die
+    // übersetzte Form. Ohne diese Zeile fiele der Fall in nicht-deutschen
+    // Sprachen still auf `return raw` zurück und der Nutzer bekäme statt
+    // „bitte anmelden" eine technische Meldung.
+    if (s.includes('kein aktiver signer') || raw === t('Kein aktiver Signer.') || raw === t('Kein aktiver Signer für den Server-Login.')) {
+        return t('Bitte zuerst anmelden, um zu zappen.')
     }
     if (s.includes('failed to fetch') || s.includes('networkerror') || s.includes('load failed')) {
-        return 'Zapper nicht erreichbar — bitte später erneut versuchen.'
+        return t('Zapper nicht erreichbar — bitte später erneut versuchen.')
     }
     if (s.includes('rechnung') || s.includes('lnurl') || s.includes('callback')) {
         return raw // schon deutsch aus createZapInvoice / requestZap
     }
     if (s.includes('insufficient') || s.includes('balance')) {
-        return 'Zahlung fehlgeschlagen — Wallet-Guthaben reicht nicht.'
+        return t('Zahlung fehlgeschlagen — Wallet-Guthaben reicht nicht.')
     }
     if (s.includes('reject') || s.includes('denied') || s.includes('unauthorized')) {
-        return 'Wallet hat die Zahlung abgelehnt.'
+        return t('Wallet hat die Zahlung abgelehnt.')
     }
     if (s.includes('nullbetrag') || s.includes('webln')) {
         return raw // schon deutsch (payInvoice-Guard)
@@ -50,7 +57,7 @@ export const mapZapError = (error: unknown): string => {
     if (s.includes('kann keine zaps')) {
         return raw // schon deutsch (canZap-Gate)
     }
-    return raw || 'Zap fehlgeschlagen.'
+    return raw || t('Zap fehlgeschlagen.')
 }
 
 /** Zapper (LNURL-pay-Metadaten) des Empfängers auflösen; undefined ohne lud16/lud06. */
@@ -104,7 +111,7 @@ const fetchInvoice = async (url: string): Promise<{ invoice?: string; error?: st
     } catch (e) {
         // Kommt der Request gar nicht erst raus (Offline, DNS, CORS, blockierender
         // Tracking-Schutz), ist das UNSER Ende der Leitung — nicht das des Empfängers.
-        return { error: `Der Server des Empfängers war nicht erreichbar (${e instanceof Error ? e.message : String(e)}).` }
+        return { error: t('Der Server des Empfängers war nicht erreichbar (:reason).', { reason: e instanceof Error ? e.message : String(e) }) }
     }
     const body = (await res.text().catch(() => '')).trim()
     let json: unknown
@@ -146,7 +153,7 @@ export const plainInvoiceUrl = (zapper: Zapper, sats: number, comment = ''): str
  */
 export const requestPlainInvoice = async ({ zapper, sats, comment }: { zapper: Zapper; sats: number; comment?: string }): Promise<string> => {
     if (!zapper.callback) {
-        throw new Error('Empfänger hat keinen Zahlungs-Endpoint.')
+        throw new Error(t('Empfänger hat keinen Zahlungs-Endpoint.'))
     }
     const res = await fetchInvoice(plainInvoiceUrl(zapper, sats, comment ?? ''))
     if (!res.invoice) {
@@ -329,7 +336,7 @@ export type ZapRequestInput = {
 export const buildZapRequest = async ({ pubkey, zapper, sats, content, eventId, relays }: Omit<ZapRequestInput, 'url'> & { relays: string[] }): Promise<SignedEvent> => {
     const activeSigner = signer.get()
     if (!activeSigner) {
-        throw new Error('Kein aktiver Signer.')
+        throw new Error(t('Kein aktiver Signer.'))
     }
     return activeSigner.sign(zapRequestTemplate({ pubkey, zapper, sats, relays, content, eventId }))
 }
@@ -345,7 +352,7 @@ export const createZapInvoice = async (
 ): Promise<{ invoice: string; event: SignedEvent; zapper: Zapper; relays: string[] }> => {
     const zapper = input.zapper ?? (await resolveZapper(input.pubkey))
     if (!canZap(zapper)) {
-        throw new Error('Dieser Empfänger kann keine Zaps annehmen.')
+        throw new Error(t('Dieser Empfänger kann keine Zaps annehmen.'))
     }
     const relays = zapRelays(input.pubkey, input.url)
     const event = await buildZapRequest({ ...input, zapper, relays })
@@ -365,7 +372,7 @@ export const createZapInvoice = async (
  */
 export const requestZapInvoice = async ({ zapper, event }: { zapper: Zapper; event: SignedEvent }): Promise<{ invoice?: string; error?: string }> => {
     if (!zapper.callback) {
-        return { error: 'Empfänger hat keinen Zahlungs-Endpoint.' }
+        return { error: t('Empfänger hat keinen Zahlungs-Endpoint.') }
     }
     return fetchInvoice(
         lnurlCallbackUrl(zapper.callback, {
@@ -406,8 +413,8 @@ export const lnurlErrorReason = (res: unknown): string | undefined => {
 export const invoiceRequestError = (rawError?: string, status?: number): string => {
     const detail = [status && status >= 400 ? `HTTP ${status}` : '', rawError?.trim()].filter(Boolean).join(': ')
     return detail
-        ? `Der Server des Empfängers hat keine Rechnung ausgestellt — ${detail}`
-        : 'Der Server des Empfängers hat keine Rechnung ausgestellt (ohne Begründung).'
+        ? t('Der Server des Empfängers hat keine Rechnung ausgestellt — :detail', { detail })
+        : t('Der Server des Empfängers hat keine Rechnung ausgestellt (ohne Begründung).')
 }
 
 /**

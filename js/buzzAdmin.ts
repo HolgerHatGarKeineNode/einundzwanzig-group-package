@@ -43,6 +43,7 @@ import * as nip19 from 'nostr-tools/nip19'
 import { isBuzzRelay } from './relayCaps'
 import { nip98Url, nip98AuthHeader, httpBase, type SignedLike } from './nip98'
 import { waitForPublishError } from './publishResult'
+import { t } from './i18n'
 
 // ── Buzz-Kind-Konstanten ────────────────────────────────────────────────────
 // Bewusst hier lokal statt in @welshman/util: das sind Buzz-Erweiterungen, kein
@@ -214,7 +215,7 @@ const buzzModerationGet = async (
 ): Promise<unknown> => {
     const sign = signer.get()
     if (!sign) {
-        throw new Error('Nicht angemeldet — die Moderations-Abfrage braucht eine Signatur (NIP-98).')
+        throw new Error(t('Nicht angemeldet — die Moderations-Abfrage braucht eine Signatur (NIP-98).'))
     }
     const target = nip98Url(url, path, query)
     const auth = await nip98AuthHeader((e) => sign.sign(e) as Promise<SignedLike>, target, 'GET')
@@ -303,7 +304,7 @@ const isHex64 = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]
 export const buzzLoadReports = async (url: string, status = 'open', limit = 100): Promise<BuzzReport[]> => {
     const body = await buzzModerationGet(url, '/moderation/reports', { status, limit })
     if (!Array.isArray(body)) {
-        throw new Error('/moderation/reports: unerwartete Antwortform (kein Array)')
+        throw new Error(t('/moderation/reports: unerwartete Antwortform (kein Array)'))
     }
     // Nur Reports mit brauchbarer Event-id: der `report`-Tag von 9044 verlangt
     // 64-hex (`extract_report_tag`), ein kaputter Eintrag waere ein Knopf, der
@@ -342,10 +343,10 @@ export const buzzResolveReport = (
     reason = '',
 ): Promise<string> => {
     if ((action === 'dismiss') !== (status === 'dismissed')) {
-        return Promise.resolve('Ungültige Kombination: „dismiss" gehört zu „dismissed" (und nur dazu).')
+        return Promise.resolve(t('Ungültige Kombination: „dismiss" gehört zu „dismissed" (und nur dazu).'))
     }
     if (!isHex64(reportEventId)) {
-        return Promise.resolve('Ungültige Report-Kennung (erwartet 64-stellige Event-id).')
+        return Promise.resolve(t('Ungültige Report-Kennung (erwartet 64-stellige Event-id).'))
     }
     const tags = [
         ['report', reportEventId],

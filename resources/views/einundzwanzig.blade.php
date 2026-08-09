@@ -7,9 +7,15 @@
     liegen hier. Theme (Hell/Auto/Dunkel) steuert @fluxAppearance flackerfrei aus
     dem geteilten `flux.appearance`-Store — daher KEIN hartes class="dark" hier
     (würde Light toten Code machen und den Portal-WebView-Sync brechen).
+
+    P2: `lang` folgt der aufgelösten Sprache (SetLocale-Middleware), nie hart „de".
+    Ein Screenreader wählt seine Aussprache-Engine an genau diesem Attribut —
+    spanischer Text unter lang="de" wird deutsch vorgelesen (WCAG 3.1.1). Der
+    Sprachwechsel lädt deshalb voll neu: `wire:navigate` tauscht nur den Body und
+    ließe ein falsches `lang` am <html> stehen.
 --}}
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     {{-- Head pro Host: Web-Client nutzt seine reiche partials.head (OG/Favicons);
          ein Fremdhost (Portal) setzt config('group.head_partial')='group::partials.head'. --}}

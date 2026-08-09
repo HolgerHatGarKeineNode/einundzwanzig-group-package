@@ -32,6 +32,7 @@ import { waitForPublishError } from './publishResult'
 import { BUZZ_MESSAGE_V2 } from './relayCaps'
 import { isRootMessage, isThreadReply, replyTargetIds, threadRootId } from './threading'
 import { spaceIsBuzzAsync } from './buzzAdmin'
+import { t } from './i18n'
 
 /** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
 const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
@@ -261,10 +262,10 @@ const dayLabel = (ts: number): string => {
     const d = new Date(ts * 1000)
     const diffDays = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86_400_000)
     if (diffDays === 0) {
-        return 'Heute'
+        return t('Heute')
     }
     if (diffDays === 1) {
-        return 'Gestern'
+        return t('Gestern')
     }
     return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
 }
@@ -293,18 +294,18 @@ export type ThreadSummary = { count: number; faces: ThreadFace[]; lastLabel: str
 const relativeTime = (ts: number): string => {
     const s = Math.floor(Date.now() / 1000) - ts
     if (s < 60) {
-        return 'gerade eben'
+        return t('gerade eben')
     }
     const m = Math.floor(s / 60)
     if (m < 60) {
-        return `vor ${m} Min`
+        return t('vor :count Min', { count: m })
     }
     const h = Math.floor(m / 60)
     if (h < 24) {
-        return `vor ${h} Std`
+        return t('vor :count Std', { count: h })
     }
     const d = Math.floor(h / 24)
-    return d < 7 ? `vor ${d} Tg` : dayLabel(ts)
+    return d < 7 ? t('vor :count Tg', { count: d }) : dayLabel(ts)
 }
 
 /**
@@ -479,9 +480,9 @@ const buildPollView = (event: TrustedEvent, responses: TrustedEvent[], me: strin
     const multi = getPollType(event) === 'multiplechoice'
     return {
         multi,
-        typeLabel: multi ? 'Mehrfachwahl' : 'Einfachwahl',
+        typeLabel: multi ? t('Mehrfachwahl') : t('Einfachwahl'),
         closed,
-        endsLabel: endsAt ? `${closed ? 'Beendet' : 'Endet'} ${fullTimeLabel(endsAt)}` : '',
+        endsLabel: endsAt ? `${closed ? t('Beendet') : t('Endet')} ${fullTimeLabel(endsAt)}` : '',
         voters,
         options: options.map((o) => ({
             id: o.id,
@@ -1122,15 +1123,15 @@ const withMentionTags = (tags: string[][], content: string, url: string): string
 const mapRelayError = (raw: string): string => {
     const s = raw.toLowerCase()
     if (s.includes('rate') && s.includes('limit')) {
-        return 'Zu viele Nachrichten in kurzer Zeit — kurz warten und erneut senden.'
+        return t('Zu viele Nachrichten in kurzer Zeit — kurz warten und erneut senden.')
     }
     if (s.includes('auth')) {
-        return 'Am Relay nicht angemeldet — bitte erneut senden.'
+        return t('Am Relay nicht angemeldet — bitte erneut senden.')
     }
     if (s.includes('restrict') || s.includes('blocked') || s.includes('not allowed') || s.includes('forbidden')) {
-        return 'Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.'
+        return t('Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.')
     }
-    return raw || 'Konnte nicht gesendet werden.'
+    return raw || t('Konnte nicht gesendet werden.')
 }
 
 /**

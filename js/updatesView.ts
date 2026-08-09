@@ -15,6 +15,7 @@
  * `unread.ts`): ohne sie liefe `node --test updatesView.test.ts` in ERR_MODULE_NOT_FOUND.
  */
 import type { UpdateBucket, UpdateItem } from './updates.ts'
+import { t } from './i18n.ts'
 
 // ── Filter (die drei Tabs) ─────────────────────────────────────────────────
 
@@ -71,10 +72,10 @@ export const BUCKET_SEQUENCE: readonly UpdateBucket[] = ['today', 'yesterday', '
  * ist normal geschrieben und wird per CSS versalisiert.
  */
 export const BUCKET_LABELS: Record<UpdateBucket, string> = {
-    today: 'Heute',
-    yesterday: 'Gestern',
-    week: 'Diese Woche',
-    older: 'Älter',
+    today: t('Heute'),
+    yesterday: t('Gestern'),
+    week: t('Diese Woche'),
+    older: t('Älter'),
 }
 
 /**
@@ -123,9 +124,9 @@ export function groupUpdates(items: readonly UpdateItem[]): UpdateGroup[] {
  */
 export function updatesSubtitle(items: readonly UpdateItem[], filtered = false): string {
     if (items.length === 0) {
-        return filtered ? '' : 'Alles gelesen'
+        return filtered ? '' : t('Alles gelesen')
     }
-    return items.length === 1 ? '1 Hinweis' : `${items.length} Hinweise`
+    return items.length === 1 ? t('1 Hinweis') : t(':count Hinweise', { count: items.length })
 }
 
 /**
@@ -140,7 +141,7 @@ export function updatesSubtitle(items: readonly UpdateItem[], filtered = false):
  * Nicht der Bestandstext `', ungelesene Nachrichten'` aus `unread-dot.blade.php`:
  * vorangestellt liest der sich nicht.
  */
-export const UNREAD_SR_PREFIX = 'Ungelesen. '
+export const UNREAD_SR_PREFIX = t('Ungelesen. ')
 
 /** Snippet-Länge IM LABEL. Der volle Text steht in der Zeile, nicht im Namen des Knopfes. */
 export const LABEL_SNIPPET_MAX = 120
@@ -298,7 +299,7 @@ export const updatesLiveText = (count: number): string => {
         return ''
     }
     const exact = Math.floor(count)
-    return exact === 1 ? '1 ungelesener Hinweis' : `${exact} ungelesene Hinweise`
+    return exact === 1 ? t('1 ungelesener Hinweis') : t(':count ungelesene Hinweise', { count: exact })
 }
 
 /**

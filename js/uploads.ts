@@ -34,6 +34,7 @@ import { makeBlossomAuthEvent, uploadBlob } from '@welshman/util'
 import { signer } from '@welshman/app'
 import { parseJson, sha256 } from '@welshman/lib'
 import { spaceIsBuzzAsync } from './buzzAdmin'
+import { t } from './i18n'
 
 // ponytail: fixer Server statt kind-10063-Auflösung; Profil-Serverliste wieder einbauen,
 // wenn Nutzer außerhalb des Vereins-Blossom hochladen sollen (git log hat die alte Logik).
@@ -86,7 +87,7 @@ export const uploadServerFor = async (spaceUrl: string | null | undefined): Prom
 export const buildAttachment = (rawUrl: string, mime: string, hash: string, size: number, dim?: string): Attachment => {
     const u = new URL(rawUrl)
     if (u.protocol !== 'https:' && u.protocol !== 'http:') {
-        throw new Error('Ungültige Upload-URL vom Server')
+        throw new Error(t('Ungültige Upload-URL vom Server'))
     }
     const lastSegment = u.pathname.split('/').pop() ?? ''
     if (!lastSegment.includes('.')) {
@@ -127,7 +128,7 @@ const HEX64 = /^[0-9a-f]{64}$/
 export const uploadAttachment = async (blob: Blob, spaceUrl?: string | null, dim?: string): Promise<Attachment> => {
     const activeSigner = signer.get()
     if (!activeSigner) {
-        throw new Error('Kein aktiver Signer — bitte anmelden.')
+        throw new Error(t('Kein aktiver Signer — bitte anmelden.'))
     }
     const server = await uploadServerFor(spaceUrl)
     const isOwnRelay = server !== BLOSSOM_SERVER
@@ -146,16 +147,16 @@ export const uploadAttachment = async (blob: Blob, spaceUrl?: string | null, dim
     try {
         res = await uploadBlob(server, blob, { authEvent, headers })
     } catch {
-        throw new Error(`Blossom-Server ${host} nicht erreichbar (Netzwerkfehler) — bitte erneut versuchen.`)
+        throw new Error(t('Blossom-Server :host nicht erreichbar (Netzwerkfehler) — bitte erneut versuchen.', { host }))
     }
     const text = await res.text()
     if (!res.ok) {
         const reason = res.headers.get('X-Reason') || text.trim()
-        throw new Error(`${host} lehnte den Upload ab (HTTP ${res.status}${reason ? `: ${reason}` : ''}).`)
+        throw new Error(t(':host lehnte den Upload ab (HTTP :status:reason).', { host, status: res.status, reason: reason ? `: ${reason}` : '' }))
     }
     const task = parseJson<BlobDescriptor>(text)
     if (!task?.url) {
-        throw new Error(`${host} lieferte keine Upload-URL${text.trim() ? `: ${text.trim()}` : ''}.`)
+        throw new Error(t(':host lieferte keine Upload-URL:reason.', { host, reason: text.trim() ? `: ${text.trim()}` : '' }))
     }
     return buildAttachment(
         task.url,

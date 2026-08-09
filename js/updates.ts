@@ -59,6 +59,7 @@ import {
 } from './readState.ts'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 import { isThreadReply, threadRootId } from './threading.ts'
+import { t } from './i18n.ts'
 
 /** Lotus' In-Chat-Thread (NIP-29 Group Chat Threading, kind 10). Siehe Modul-Docstring. */
 const CHAT_THREAD = 10
@@ -308,7 +309,10 @@ export const updateBucket = (ts: number, now: number): UpdateBucket => {
     return diffDays < 7 ? 'week' : 'older'
 }
 
-const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
+const MONTHS = [
+    t('Januar'), t('Februar'), t('März'), t('April'), t('Mai'), t('Juni'),
+    t('Juli'), t('August'), t('September'), t('Oktober'), t('November'), t('Dezember'),
+]
 
 /**
  * Datum ohne `toLocaleDateString`. Ausgabe ist identisch zu
@@ -318,7 +322,9 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
  */
 const germanDate = (ts: number): string => {
     const d = new Date(ts * 1000)
-    return `${d.getDate()}. ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+    // Auch die REIHENFOLGE ist sprachabhängig („1. Januar 2026" vs. „January 1, 2026"),
+    // deshalb ist das Muster selbst ein Schlüssel und nicht fest verdrahtet.
+    return t(':day. :month :year', { day: d.getDate(), month: MONTHS[d.getMonth()], year: d.getFullYear() })
 }
 
 /**
@@ -334,17 +340,17 @@ const germanDate = (ts: number): string => {
 export const updateTimeLabel = (ts: number, now: number): string => {
     const s = Math.max(0, now - ts)
     if (s < 60) {
-        return 'gerade eben'
+        return t('gerade eben')
     }
     const m = Math.floor(s / 60)
     if (m < 60) {
-        return `vor ${m} Min`
+        return t('vor :count Min', { count: m })
     }
     const h = Math.floor(m / 60)
     if (h < 24) {
-        return `vor ${h} Std`
+        return t('vor :count Std', { count: h })
     }
-    return updateBucket(ts, now) === 'yesterday' ? 'gestern' : germanDate(ts)
+    return updateBucket(ts, now) === 'yesterday' ? t('gestern') : germanDate(ts)
 }
 
 /**
@@ -470,7 +476,12 @@ const threadHref = (url: string, h: string, rootId: string, rootPubkey: string):
     return `/rooms/${encodeURIComponent(h)}/thread/${nevent}?from=updates`
 }
 
-const plural = (count: number, one: string, many: string): string => (count === 1 ? `1 ${one}` : `${count} ${many}`)
+/**
+ * Zähl-Label. **Beide Formen sind eigene Übersetzungsschlüssel** (`'1 neue Antwort'`
+ * / `':count neue Antworten'`) statt eines zusammengesetzten Strings: nur so kann
+ * eine Sprache die Zahl anders stellen oder eine dritte Form gar nicht brauchen.
+ */
+const plural = (count: number, one: () => string, many: () => string): string => (count === 1 ? one() : many())
 
 type RowSpec = {
     type: UpdateType
@@ -506,17 +517,22 @@ const buildItem = (input: UpdateInput, spec: RowSpec): UpdateItem => {
     const orphan = roomName === ''
     const authorName = displayProfile(input.profiles.get(newest.pubkey), displayPubkey(newest.pubkey))
     const context = spec.rootId
-        ? `${roomName || 'Unbekannter Raum'} · Thread`
-        : roomName || 'Unbekannter Raum'
+        ? t(':room · Thread', { room: roomName || t('Unbekannter Raum') })
+        : roomName || t('Unbekannter Raum')
     let title: string
     if (orphan) {
-        title = 'Nachricht nicht mehr verfügbar'
+        title = t('Nachricht nicht mehr verfügbar')
     } else if (spec.type === 'mention') {
-        title = `${authorName} hat dich erwähnt`
+        title = t(':name hat dich erwähnt', { name: authorName })
     } else if (spec.type === 'thread') {
-        title = spec.unread ? plural(count, 'neue Antwort', 'neue Antworten') : plural(count, 'Antwort', 'Antworten')
+        title = spec.unread
+            ? plural(count, () => t('1 neue Antwort'), () => t(':count neue Antworten', { count }))
+            : plural(count, () => t('1 Antwort'), () => t(':count Antworten', { count }))
     } else {
-        title = `${authorName} · ${spec.unread ? plural(count, 'neue Nachricht', 'neue Nachrichten') : plural(count, 'Nachricht', 'Nachrichten')}`
+        const replies = spec.unread
+            ? plural(count, () => t('1 neue Nachricht'), () => t(':count neue Nachrichten', { count }))
+            : plural(count, () => t('1 Nachricht'), () => t(':count Nachrichten', { count }))
+        title = t(':name · :replies', { name: authorName, replies })
     }
     return {
         key: spec.type === 'mention' ? `mention:${newest.id}` : `${spec.type}:${spec.rootId || spec.h}`,

@@ -12,6 +12,7 @@ import { pubkey } from '@welshman/app'
 import { fromMsats, getLnUrl, type NWCInfo, type Wallet } from '@welshman/util'
 import { bech32ToHex, fetchJson } from '@welshman/lib'
 import { secureGet, secureRemove, secureSet } from './secure-storage'
+import { t } from './i18n'
 
 // Lazy-load: @getalby/sdk erst beim ersten Wallet-Gebrauch laden, gecacht (Z0.1).
 let _nwcModule: Promise<typeof import('@getalby/sdk')> | null = null
@@ -42,7 +43,7 @@ export async function loadWallet(): Promise<Wallet | null> {
 export async function saveWallet(wallet: Wallet): Promise<void> {
     const pk = pubkey.get()
     if (!pk) {
-        throw new Error('Nicht angemeldet.')
+        throw new Error(t('Nicht angemeldet.'))
     }
     await secureSet(walletKey(pk), JSON.stringify(wallet))
     _cache = { pk, wallet }
@@ -63,7 +64,7 @@ export const getWebLn = () => (window as { webln?: WebLNProvider }).webln
 export const getNwcClient = async () => {
     const wallet = await loadWallet()
     if (!wallet || wallet.type !== 'nwc') {
-        throw new Error('Kein NWC-Wallet verbunden')
+        throw new Error(t('Kein NWC-Wallet verbunden'))
     }
     const { nwc } = await getNwcModule()
     // `info` = gespeicherte `client.options` ({relayUrl, walletPubkey, secret, lud16}).
@@ -76,7 +77,7 @@ export const getNwcClient = async () => {
 export const payInvoice = async (invoice: string, msats?: number) => {
     const wallet = await loadWallet()
     if (!wallet) {
-        throw new Error('Kein Wallet verbunden')
+        throw new Error(t('Kein Wallet verbunden'))
     }
     if (wallet.type === 'nwc') {
         const params: { invoice: string; amount?: number } = { invoice }
@@ -86,11 +87,11 @@ export const payInvoice = async (invoice: string, msats?: number) => {
         return (await getNwcClient()).payInvoice(params)
     }
     if (msats) {
-        throw new Error('WebLN kann keine Nullbetrag-Rechnung zahlen')
+        throw new Error(t('WebLN kann keine Nullbetrag-Rechnung zahlen'))
     }
     const webln = getWebLn()
     if (!webln) {
-        throw new Error('WebLN nicht verfügbar')
+        throw new Error(t('WebLN nicht verfügbar'))
     }
     await webln.enable()
     return webln.sendPayment(invoice)
@@ -99,35 +100,35 @@ export const payInvoice = async (invoice: string, msats?: number) => {
 /** Empfangs-Rechnung erzeugen. NWC: makeInvoice(msats); WebLN: makeInvoice(sats). */
 export const createInvoice = async ({
     sats,
-    description = 'Empfangen via Lightning',
+    description = t('Empfangen via Lightning'),
 }: {
     sats: number
     description?: string
 }): Promise<string> => {
     const wallet = await loadWallet()
     if (!wallet) {
-        throw new Error('Kein Wallet verbunden')
+        throw new Error(t('Kein Wallet verbunden'))
     }
     const amount = Math.floor(sats)
     if (!Number.isFinite(amount) || amount <= 0) {
-        throw new Error('Ungültiger Sats-Betrag')
+        throw new Error(t('Ungültiger Sats-Betrag'))
     }
     if (wallet.type === 'nwc') {
         const res = await (await getNwcClient()).makeInvoice({ amount: amount * 1000, description })
         if (!res.invoice) {
-            throw new Error('Wallet lieferte keine Rechnung')
+            throw new Error(t('Wallet lieferte keine Rechnung'))
         }
         return res.invoice
     }
     const webln = getWebLn()
     if (!webln) {
-        throw new Error('WebLN nicht verfügbar')
+        throw new Error(t('WebLN nicht verfügbar'))
     }
     await webln.enable()
     const res = await webln.makeInvoice({ amount, defaultMemo: description })
     const pr = typeof res === 'string' ? res : res?.paymentRequest || res?.pr || ''
     if (!pr) {
-        throw new Error('Ungültige Rechnung von WebLN')
+        throw new Error(t('Ungültige Rechnung von WebLN'))
     }
     return pr
 }
@@ -142,23 +143,23 @@ export const getWalletBalance = async () => (await getNwcClient()).getBalance() 
 export const lnurlInvoice = async (address: string, sats: number): Promise<string> => {
     const lnurl = getLnUrl(address.trim())
     if (!lnurl) {
-        throw new Error('Keine gültige Lightning-Adresse')
+        throw new Error(t('Keine gültige Lightning-Adresse'))
     }
     const meta = await fetchJson(bech32ToHex(lnurl))
     if (!meta?.callback) {
-        throw new Error('Lightning-Adresse antwortet nicht')
+        throw new Error(t('Lightning-Adresse antwortet nicht'))
     }
     const msats = sats * 1000
     if (meta.minSendable && msats < meta.minSendable) {
-        throw new Error('Betrag zu klein für diese Adresse')
+        throw new Error(t('Betrag zu klein für diese Adresse'))
     }
     if (meta.maxSendable && msats > meta.maxSendable) {
-        throw new Error('Betrag zu groß für diese Adresse')
+        throw new Error(t('Betrag zu groß für diese Adresse'))
     }
     const sep = meta.callback.includes('?') ? '&' : '?'
     const res = await fetchJson(`${meta.callback}${sep}amount=${msats}`)
     if (!res?.pr) {
-        throw new Error(res?.reason || 'Keine Rechnung erhalten')
+        throw new Error(res?.reason || t('Keine Rechnung erhalten'))
     }
     return res.pr as string
 }

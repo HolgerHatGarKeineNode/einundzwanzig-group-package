@@ -31,13 +31,14 @@ import { deriveEventsForUrl } from './repository'
 import { roomsByUrl, roomMembersByUrl } from './groups'
 import { spaceIsBuzz, spaceIsBuzzAsync, buzzLoadReports, type BuzzReport } from './buzzAdmin'
 import { toast } from './toast'
+import { t } from './i18n'
 
 /** NIP-56-Maschinencodes → deutsche Labels (wie das Melde-Modal). */
 const REASON_LABELS: Record<string, string> = {
-    spam: 'Spam',
-    profanity: 'Beleidigung',
-    impersonation: 'Identitätsdiebstahl',
-    other: 'Sonstiges',
+    spam: t('Spam'),
+    profanity: t('Beleidigung'),
+    impersonation: t('Identitätsdiebstahl'),
+    other: t('Sonstiges'),
 }
 
 const shortNpub = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice(-6)}`
@@ -123,7 +124,7 @@ export const mapBuzzReport = (
         reportedPubkey,
         reportedName: reportedPubkey ? nameOf(reportedPubkey) : '?',
         reason: r.report_type,
-        reasonLabel: REASON_LABELS[r.report_type] ?? (r.report_type || 'Meldung'),
+        reasonLabel: REASON_LABELS[r.report_type] ?? (r.report_type || t('Meldung')),
         text: r.note ?? '',
         roomH: r.channel_id ?? '',
     }
@@ -189,7 +190,7 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
                     reportedPubkey,
                     reportedName: reportedPubkey ? displayProfile(profile, shortNpub(npub)) : '?',
                     reason,
-                    reasonLabel: REASON_LABELS[reason] ?? (reason || 'Meldung'),
+                    reasonLabel: REASON_LABELS[reason] ?? (reason || t('Meldung')),
                     text: e.content,
                     roomH: reported ? (getTagValue('h', reported.tags) ?? '') : '',
                 }
@@ -216,7 +217,7 @@ export const loadSpaceReports = async (url: string): Promise<unknown> => {
     try {
         setBuzzReports(url, await buzzLoadReports(url))
     } catch (e) {
-        toast(`Melde-Queue nicht abrufbar: ${e instanceof Error ? e.message : String(e)}`)
+        toast(t('Melde-Queue nicht abrufbar: :reason', { reason: e instanceof Error ? e.message : String(e) }))
     }
     return undefined
 }

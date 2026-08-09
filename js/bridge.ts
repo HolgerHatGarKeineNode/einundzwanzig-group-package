@@ -237,6 +237,7 @@ import {
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles'
+import { t } from './i18n'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
@@ -1543,7 +1544,7 @@ export function registerNostrComponents(Alpine: {
         },
         copy(text: string, label: string) {
             if (text) {
-                void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
+                void navigator.clipboard?.writeText(text).then(() => toast(t(':label kopiert.', { label }), 'success'))
             }
         },
         destroy() {
@@ -1667,22 +1668,22 @@ export function registerNostrComponents(Alpine: {
             try {
                 const url = this.connectUrl.trim()
                 if (!url.startsWith('nostr+walletconnect://')) {
-                    throw new Error('Ungültige Verbindung (nostr+walletconnect://…)')
+                    throw new Error(t('Ungültige Verbindung (nostr+walletconnect://…)'))
                 }
                 const { nwc } = await getNwcModule()
                 const client = new nwc.NWCClient({ nostrWalletConnectUrl: url })
                 const info = await client.getInfo() // validiert die Verbindung
                 if (!info) {
-                    throw new Error('Wallet nicht erreichbar')
+                    throw new Error(t('Wallet nicht erreichbar'))
                 }
                 const wallet: Wallet = { type: WalletType.NWC, info: client.options as unknown as NWCInfo }
                 await saveWallet(wallet)
                 this._apply(wallet)
                 this.connectUrl = ''
-                toast('Wallet verbunden', 'success')
+                toast(t('Wallet verbunden'), 'success')
                 void this.refreshBalance()
             } catch (e) {
-                this.error = e instanceof Error ? e.message : 'Verbindung fehlgeschlagen'
+                this.error = e instanceof Error ? e.message : t('Verbindung fehlgeschlagen')
                 toast(this.error)
             } finally {
                 this.busy = false
@@ -1697,19 +1698,19 @@ export function registerNostrComponents(Alpine: {
             try {
                 const webln = getWebLn()
                 if (!webln) {
-                    throw new Error('Keine WebLN-Erweiterung gefunden')
+                    throw new Error(t('Keine WebLN-Erweiterung gefunden'))
                 }
                 await webln.enable()
                 const info = await webln.getInfo()
                 if (!info?.supports?.includes('lightning')) {
-                    throw new Error('Erweiterung unterstützt kein Lightning')
+                    throw new Error(t('Erweiterung unterstützt kein Lightning'))
                 }
                 const wallet: Wallet = { type: WalletType.WebLN, info }
                 await saveWallet(wallet)
                 this._apply(wallet)
-                toast('Wallet verbunden', 'success')
+                toast(t('Wallet verbunden'), 'success')
             } catch (e) {
-                this.error = e instanceof Error ? e.message : 'Verbindung fehlgeschlagen'
+                this.error = e instanceof Error ? e.message : t('Verbindung fehlgeschlagen')
                 toast(this.error)
             } finally {
                 this.busy = false
@@ -1722,7 +1723,7 @@ export function registerNostrComponents(Alpine: {
             this.lud16 = ''
             this.relayUrl = ''
             this.balanceSats = null
-            toast('Wallet getrennt', 'success')
+            toast(t('Wallet getrennt'), 'success')
         },
         async refreshBalance() {
             if (this.walletType !== WalletType.NWC) {
@@ -1751,13 +1752,13 @@ export function registerNostrComponents(Alpine: {
             try {
                 const req = this.payReq.trim()
                 if (!req) {
-                    throw new Error('Rechnung oder Lightning-Adresse eingeben')
+                    throw new Error(t('Rechnung oder Lightning-Adresse eingeben'))
                 }
                 const isBolt11 = /^ln(bc|tb)/i.test(req)
                 let invoice = req
                 if (!isBolt11) {
                     if (!this.payAmountSats || this.payAmountSats <= 0) {
-                        throw new Error('Betrag (Sats) eingeben')
+                        throw new Error(t('Betrag (Sats) eingeben'))
                     }
                     invoice = await lnurlInvoice(req, this.payAmountSats)
                 }
@@ -1766,17 +1767,17 @@ export function registerNostrComponents(Alpine: {
                 // Betragslose bolt11 braucht einen expliziten Betrag — sonst ginge 0 msats
                 // an payInvoice (dort falsy → kein amount → NWC lehnt kryptisch ab).
                 if (parsed.satoshi <= 0 && (!this.payAmountSats || this.payAmountSats <= 0)) {
-                    throw new Error('Betrag (Sats) eingeben')
+                    throw new Error(t('Betrag (Sats) eingeben'))
                 }
                 // Betragslose bolt11 → msats mitgeben (WebLN kann das nicht, payInvoice wirft).
                 await payInvoice(invoice, parsed.satoshi > 0 ? undefined : (this.payAmountSats ?? 0) * 1000)
-                toast(`Gesendet: ${(parsed.satoshi || this.payAmountSats || 0).toLocaleString('de-DE')} Sats`, 'success')
+                toast(t('Gesendet: :sats Sats', { sats: (parsed.satoshi || this.payAmountSats || 0).toLocaleString('de-DE') }), 'success')
                 this.payReq = ''
                 this.payAmountSats = null
                 dispatchModal('wallet-send', false)
                 void this.refreshBalance()
             } catch (e) {
-                this.error = e instanceof Error ? e.message : 'Zahlung fehlgeschlagen'
+                this.error = e instanceof Error ? e.message : t('Zahlung fehlgeschlagen')
                 toast(this.error)
             } finally {
                 this.paying = false
@@ -1798,17 +1799,17 @@ export function registerNostrComponents(Alpine: {
             this.error = ''
             try {
                 if (!this.recvAmountSats || this.recvAmountSats <= 0) {
-                    throw new Error('Betrag (Sats) eingeben')
+                    throw new Error(t('Betrag (Sats) eingeben'))
                 }
                 const pr = await createInvoice({
                     sats: this.recvAmountSats,
-                    description: this.recvMemo || 'Empfangen via Lightning',
+                    description: this.recvMemo || t('Empfangen via Lightning'),
                 })
                 this.recvInvoice = pr
                 this.recvQr = await QRCode.toDataURL(pr.toUpperCase(), { width: 256, margin: 1 })
-                toast('Rechnung erstellt', 'success')
+                toast(t('Rechnung erstellt'), 'success')
             } catch (e) {
-                this.error = e instanceof Error ? e.message : 'Rechnung fehlgeschlagen'
+                this.error = e instanceof Error ? e.message : t('Rechnung fehlgeschlagen')
                 toast(this.error)
             } finally {
                 this.receiving = false
@@ -1846,7 +1847,7 @@ export function registerNostrComponents(Alpine: {
                 // Nur wenn KEIN Relay annimmt, ist es ein echter Fehlschlag.
                 if (accepted.length === 0) {
                     this.showDiag = true
-                    throw new Error('Auf keinem Relay gespeichert — Details in der Diagnose.')
+                    throw new Error(t('Auf keinem Relay gespeichert — Details in der Diagnose.'))
                 }
                 this.addressTouched = false
                 if (rejected.length > 0) {
@@ -1854,15 +1855,15 @@ export function registerNostrComponents(Alpine: {
                     // mit NIP-05-Pflicht) hat abgelehnt. Diagnose aufklappen, damit der User
                     // sieht, WO und WARUM — und was zu tun ist (NIP-05-Hinweis unten).
                     this.showDiag = true
-                    toast(`Gespeichert auf ${accepted.length}/${results.length} Relays.`, 'success')
+                    toast(t('Gespeichert auf :ok/:total Relays.', { ok: accepted.length, total: results.length }), 'success')
                 } else {
                     // Voller Erfolg → nichts zu diagnostizieren: das (evtl. auto-geöffnete) Panel
                     // wieder schließen, damit es nur auftaucht, wenn es etwas zu sehen gibt.
                     this.showDiag = false
-                    toast('Empfangsadresse gespeichert', 'success')
+                    toast(t('Empfangsadresse gespeichert'), 'success')
                 }
             } catch (e) {
-                this.error = e instanceof Error ? e.message : 'Speichern fehlgeschlagen'
+                this.error = e instanceof Error ? e.message : t('Speichern fehlgeschlagen')
                 toast(this.error)
             } finally {
                 this.savingAddress = false
@@ -1913,12 +1914,12 @@ export function registerNostrComponents(Alpine: {
         copyPubkeyHex() {
             const pk = get(pubkey)
             if (pk) {
-                this.copy(pk, 'Public Key (hex)')
+                this.copy(pk, t('Public Key (hex)'))
             }
         },
         copy(text: string, label: string) {
             if (text) {
-                void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
+                void navigator.clipboard?.writeText(text).then(() => toast(t(':label kopiert.', { label }), 'success'))
             }
         },
         destroy() {
@@ -2055,18 +2056,20 @@ export function registerNostrComponents(Alpine: {
         },
         // Nächster Termin → kurzes deutsches Datum („Heute"/„Morgen"/„Di, 4. Feb").
         fmtEventDate(iso: string): string {
-            const t = Date.parse(iso)
-            if (!iso || Number.isNaN(t)) {
+            // `ms` statt `t`: `t` ist seit P2 der Übersetzungs-Helfer (`./i18n`),
+            // eine lokale Bindung desselben Namens würde ihn hier verdecken.
+            const ms = Date.parse(iso)
+            if (!iso || Number.isNaN(ms)) {
                 return ''
             }
-            const d = new Date(t)
+            const d = new Date(ms)
             const startOfToday = new Date().setHours(0, 0, 0, 0)
             const day = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - startOfToday) / 86400000)
             if (day === 0) {
-                return 'Heute'
+                return t('Heute')
             }
             if (day === 1) {
-                return 'Morgen'
+                return t('Morgen')
             }
             const fmt = dateFmt()
             return fmt ? fmt.format(d) : ''
@@ -2435,10 +2438,10 @@ export function registerNostrComponents(Alpine: {
                     toast(err)
                 } else {
                     dispatchModal('room-form', false)
-                    toast(editing ? 'Raum gespeichert.' : 'Raum erstellt.', 'success')
+                    toast(editing ? t('Raum gespeichert.') : t('Raum erstellt.'), 'success')
                 }
             } catch {
-                toast('Speichern fehlgeschlagen.')
+                toast(t('Speichern fehlgeschlagen.'))
             } finally {
                 this.roomSaving = false
             }
@@ -2498,7 +2501,7 @@ export function registerNostrComponents(Alpine: {
                 pubkey = ''
             }
             if (!pubkey) {
-                toast('Kein gültiger npub / Pubkey.')
+                toast(t('Kein gültiger npub / Pubkey.'))
                 return
             }
             this.memberBusy = true
@@ -2778,7 +2781,7 @@ export function registerNostrComponents(Alpine: {
                 } catch {
                     // Der Gerätespeicher trägt weiter — die Liste ist unvollständig, nicht
                     // falsch. Genau das sagt der Wortlaut (§3.5, Nielsen #1).
-                    this.error = 'Der Space ist gerade nicht erreichbar. Ältere Hinweise stammen aus dem Gerätespeicher.'
+                    this.error = t('Der Space ist gerade nicht erreichbar. Ältere Hinweise stammen aus dem Gerätespeicher.')
                 } finally {
                     this.loading = false
                 }
@@ -3272,7 +3275,7 @@ export function registerNostrComponents(Alpine: {
         },
         copyInvite() {
             if (this.inviteLink) {
-                navigator.clipboard?.writeText(this.inviteLink).then(() => toast('Link kopiert.', 'success'))
+                navigator.clipboard?.writeText(this.inviteLink).then(() => toast(t('Link kopiert.'), 'success'))
             }
         },
         // ── P3: Melde-Queue (NIP-56 kind 1984) ─────────────────────────────────
@@ -3484,9 +3487,9 @@ export function registerNostrComponents(Alpine: {
                 // damit das Branding vor dem Toast steht.
                 await forceLoadRelay(url)
                 dispatchModal('space-edit', false)
-                toast('Space gespeichert.', 'success')
+                toast(t('Space gespeichert.'), 'success')
             } catch {
-                toast('Speichern fehlgeschlagen.')
+                toast(t('Speichern fehlgeschlagen.'))
             } finally {
                 this.spaceSaving = false
             }
@@ -4017,7 +4020,7 @@ export function registerNostrComponents(Alpine: {
                         if (signal?.aborted) {
                             return
                         }
-                        this.error = 'Der Verlauf konnte nicht geladen werden — Relay nicht erreichbar?'
+                        this.error = t('Der Verlauf konnte nicht geladen werden — Relay nicht erreichbar?')
                     },
                 )
                 .finally(() => {
@@ -4307,7 +4310,7 @@ export function registerNostrComponents(Alpine: {
             this.activeId = null
             this.closeMessageMenu()
             if (!this.canEdit(m)) {
-                toast('Diese Nachricht ist zu alt zum Bearbeiten.')
+                toast(t('Diese Nachricht ist zu alt zum Bearbeiten.'))
                 return
             }
             const ev = repository.getEvent(m.id)
@@ -4394,7 +4397,7 @@ export function registerNostrComponents(Alpine: {
         // In die Zwischenablage + Bestätigungs-Toast (wie die Profilkarte).
         copy(text: string, label: string) {
             if (text) {
-                void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
+                void navigator.clipboard?.writeText(text).then(() => toast(t(':label kopiert.', { label }), 'success'))
             }
         },
         // `nostr:nevent…` der Nachricht (mit gesehenen Relays als Hints, sonst dem
@@ -4402,7 +4405,7 @@ export function registerNostrComponents(Alpine: {
         copyNevent(m: ChatMessage) {
             this.activeId = null
             this.closeMessageMenu()
-            this.copy(neventFor(m, this._url), 'Event-Link')
+            this.copy(neventFor(m, this._url), t('Event-Link'))
         },
         // `npub…` des Autors.
         copyNpub(m: ChatMessage) {
@@ -4639,7 +4642,7 @@ export function registerNostrComponents(Alpine: {
             const root = repository.getEvent(this.threadRootId)
             let target = repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
             if (!target) {
-                toast('Bezugs-Nachricht noch nicht geladen — kurz warten.')
+                toast(t('Bezugs-Nachricht noch nicht geladen — kurz warten.'))
                 return
             }
             // Antwort auf ein FREMDES Lotus-kind-10 (P4, Interop): das trägt nur lowercase
@@ -4946,7 +4949,7 @@ export function registerNostrComponents(Alpine: {
                 const canvas = cropperInstance.getCroppedCanvas({ maxWidth: 2048, maxHeight: 2048 })
                 const blob = canvas && (await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.85)))
                 if (!blob) {
-                    throw new Error('Bild konnte nicht verarbeitet werden.')
+                    throw new Error(t('Bild konnte nicht verarbeitet werden.'))
                 }
                 // `this._url` = Space-Relay: entscheidet, ob der Blob zum Vereins-Blossom
                 // oder in den eigenen Medien-Speicher des Buzz-Relays geht (uploads.ts).
@@ -5227,7 +5230,7 @@ export function registerNostrComponents(Alpine: {
             }
             const sats = Math.floor(Number(this.zapAmount))
             if (!Number.isFinite(sats) || sats <= 0) {
-                toast('Bitte einen gültigen Betrag angeben.', 'warning')
+                toast(t('Bitte einen gültigen Betrag angeben.'), 'warning')
                 return
             }
             this.zapping = true
@@ -5247,7 +5250,7 @@ export function registerNostrComponents(Alpine: {
                         await payZapPlain({ zapper, sats, comment: this.zapContent })
                         if (this.zapFor === m) {
                             haptic(20)
-                            toast('Zahlung gesendet ⚡ (ohne Nostr-Event — im Raum nicht sichtbar).', 'success')
+                            toast(t('Zahlung gesendet ⚡ (ohne Nostr-Event — im Raum nicht sichtbar).'), 'success')
                             this.closeZap()
                         }
                     } else {
@@ -5274,7 +5277,7 @@ export function registerNostrComponents(Alpine: {
                     // mehr. Ob das 9735-Receipt schon da ist, ist eine SEPARATE Aussage —
                     // fehlt es, sagen wir das, statt einen Fehler zu melden (das Geld ist raus).
                     const { receiptSeen } = await payZapAuto(input)
-                    toast(receiptSeen ? 'Zap gesendet ⚡' : 'Bezahlt ⚡ — Bestätigung steht noch aus.', 'success')
+                    toast(receiptSeen ? t('Zap gesendet ⚡') : t('Bezahlt ⚡ — Bestätigung steht noch aus.'), 'success')
                     if (this.zapFor === m) {
                         this.closeZap()
                     }
@@ -5295,7 +5298,7 @@ export function registerNostrComponents(Alpine: {
                         relays,
                         signal: this._zapSub.signal,
                         onReceived: () => {
-                            toast('Zahlung erhalten ⚡', 'success')
+                            toast(t('Zahlung erhalten ⚡'), 'success')
                             this.closeZap()
                         },
                     })
@@ -5399,21 +5402,21 @@ export function registerNostrComponents(Alpine: {
             }
             const title = this.pollTitle.trim()
             if (!title) {
-                toast('Bitte gib eine Frage ein.')
+                toast(t('Bitte gib eine Frage ein.'))
                 return
             }
             const options = this.pollOptionList
                 .map((o) => ({ id: o.id, label: o.value.trim() }))
                 .filter((o) => o.label !== '')
             if (options.length < 2) {
-                toast('Bitte gib mindestens zwei Optionen an.')
+                toast(t('Bitte gib mindestens zwei Optionen an.'))
                 return
             }
             let endsAt: number | undefined
             if (this.pollEndsAt) {
                 const ts = Math.floor(new Date(this.pollEndsAt).getTime() / 1000)
                 if (!Number.isFinite(ts) || ts <= Math.floor(Date.now() / 1000)) {
-                    toast('Das Enddatum muss in der Zukunft liegen.')
+                    toast(t('Das Enddatum muss in der Zukunft liegen.'))
                     return
                 }
                 endsAt = ts
@@ -5448,12 +5451,12 @@ export function registerNostrComponents(Alpine: {
             }
             const title = this.goalTitle.trim()
             if (!title) {
-                toast('Bitte gib dem Ziel einen Titel.')
+                toast(t('Bitte gib dem Ziel einen Titel.'))
                 return
             }
             const targetSats = Math.floor(this.goalTargetSats)
             if (!Number.isFinite(targetSats) || targetSats <= 0) {
-                toast('Bitte gib ein gültiges Ziel in Sats an.')
+                toast(t('Bitte gib ein gültiges Ziel in Sats an.'))
                 return
             }
             this.goalBusy = true
@@ -5599,7 +5602,7 @@ export function registerNostrComponents(Alpine: {
             // Vereins-Relay gewählt → Hinweis als Toast (übersteht die Navigation).
             if (isVereinRelay(url)) {
                 flashToast(
-                    'EINUNDZWANZIG-Vereins-Relay — voller Zugang zu Räumen & Chat nur für Vereinsmitglieder. Mitglied werden: verein.einundzwanzig.space',
+                    t('EINUNDZWANZIG-Vereins-Relay — voller Zugang zu Räumen & Chat nur für Vereinsmitglieder. Mitglied werden: verein.einundzwanzig.space'),
                     'info',
                 )
             }
@@ -5659,7 +5662,7 @@ export function registerNostrComponents(Alpine: {
                 this.label = displayRelayUrl(data.url)
                 this.claim = data.claim
             } else {
-                this.error = 'Ungültiger Einladungslink.'
+                this.error = t('Ungültiger Einladungslink.')
             }
         },
         async accept() {
@@ -5688,7 +5691,7 @@ export function registerNostrComponents(Alpine: {
     Alpine.data('nostrAuth', (): AuthState => ({
         pubkey: null,
         npub: '',
-        signerLabel: 'Nicht verbunden',
+        signerLabel: t('Nicht verbunden'),
         hasExtension: false,
         keyInput: '',
         bunkerInput: '',
@@ -5884,7 +5887,7 @@ export function registerNostrComponents(Alpine: {
         // npub o. Ä. in die Zwischenablage (Profil-Popover). Gleiches Muster wie profile-card.
         copy(text, label) {
             if (text) {
-                void navigator.clipboard?.writeText(text).then(() => toast(`${label} kopiert.`, 'success'))
+                void navigator.clipboard?.writeText(text).then(() => toast(t(':label kopiert.', { label }), 'success'))
             }
         },
         async doLogout() {
@@ -6127,7 +6130,7 @@ export function registerNostrComponents(Alpine: {
             // Standard-Kategorien. Aktiven Tab behalten, solange er noch existiert.
             rebuildTabs() {
                 this.tabs = [
-                    ...(custom.length ? [{ key: 'custom', name: 'Deine Emojis', icon: '⚡', custom: true }] : []),
+                    ...(custom.length ? [{ key: 'custom', name: t('Deine Emojis'), icon: '⚡', custom: true }] : []),
                     ...groups.map((g) => ({ key: g.key, name: g.name, icon: g.icon, custom: false })),
                 ]
                 if (!this.activeTab || !this.tabs.some((t) => t.key === this.activeTab)) {
