@@ -3,6 +3,14 @@
      kontextspezifischen Aktionen. Alle Alpine-Methoden/State leben im gemeinsamen
      nostrRoomChat-Component, also funktionieren react/zap/reply hier wie im Raum.
      Divider/unreadDivider inline; unreadDivider ist im Thread immer false (nie gerendert). --}}
+@php
+    // Randmarke der drei Zitat-/Referenz-Flächen einer Zeile: Reply-Vorschau (q-Tag),
+    // Zitatkarte und Profil-Chip (P5). Sie sind DIESELBE Sache in drei Ausprägungen und
+    // sollen nie auseinanderlaufen — deshalb steht die Kette einmal hier statt dreimal im
+    // Markup. Die Display-Klasse bleibt bewusst an der Fundstelle (`block` bzw. `flex …`),
+    // weil sie das Einzige ist, worin sich die drei unterscheiden.
+    $quoteRail = 'pressable mt-0.5 mb-1 w-full border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500';
+@endphp
                     <template x-if="m.divider">
                         <div class="my-3 flex items-center gap-3">
                             <flux:separator class="flex-1" />
@@ -69,14 +77,14 @@
                                  Zwei-Zeilen-Komposit → rohes <button> (kein Flux-Icon-Pendant), §6. --}}
                             <template x-if="m.reply">
                                 <button type="button" x-on:click.stop="scrollToMessage(m.reply.id)"
-                                        class="pressable mt-0.5 mb-1 block w-full border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500">
+                                        class="{{ $quoteRail }} block">
                                     <div class="truncate text-xs font-semibold text-brand-500" x-text="m.reply.name"></div>
                                     <div class="truncate text-xs text-muted" x-text="m.reply.text"></div>
                                 </button>
                             </template>
                             {{-- Zitatkarte (P5): eine im TEXT referenzierte Nachricht (`nostr:nevent…`/`note…`).
-                                 Erbt die Form der Reply-Vorschau darüber (`border-l-2 border-brand-500/60 pl-2`,
-                                 `truncate`) — dieselbe Sache, dieselbe Gestalt. Höchstens drei Zeilen:
+                                 Teilt die Randmarke der Reply-Vorschau darüber (`$quoteRail`, oben) —
+                                 dieselbe Sache, dieselbe Gestalt. Höchstens drei Zeilen:
                                  Autor (1) + Ausschnitt (2). `m.refCard` ist bereits exklusiv: eine Nachricht
                                  mit `m.reply` bekommt keine Karte (feeds.ts buildRefCard), es steht also nie
                                  beides übereinander.
@@ -103,7 +111,7 @@
                                        if (m.refCard.scroll) { $event.preventDefault(); scrollToMessage(m.refCard.id) }
                                        else if (m.refCard.resolved) { $event.preventDefault(); openThread({ id: m.refCard.id, pubkey: m.refCard.pubkey }) }
                                    "
-                                   class="pressable mt-0.5 mb-1 block w-full border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500">
+                                   class="{{ $quoteRail }} block">
                                     <div class="truncate text-xs font-semibold text-brand-500"
                                          x-text="m.refCard.resolved ? m.refCard.name : @js(__('Zitiertes Ereignis'))"></div>
                                     {{-- HIER NIEMALS `block` dazuschreiben: `line-clamp-2` bringt sein eigenes
@@ -124,7 +132,7 @@
                             <template x-if="m.refCard && m.refCard.kind === 'profile'">
                                 <button type="button" x-on:click.stop="$dispatch('open-profile', m.refCard.pubkey)"
                                         :aria-label="@js(__('Profil anzeigen')) + ': ' + m.refCard.name"
-                                        class="pressable mt-0.5 mb-1 flex w-full min-w-0 items-center gap-1.5 border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500">
+                                        class="{{ $quoteRail }} flex min-w-0 items-center gap-1.5">
                                     <x-group::nostr-avatar picture="m.refCard.picture" name="m.refCard.name" size="1.5rem" />
                                     <span class="min-w-0 truncate text-xs font-semibold text-brand-500" x-text="m.refCard.name"></span>
                                     <span class="inline-flex size-4 shrink-0 items-center justify-center">

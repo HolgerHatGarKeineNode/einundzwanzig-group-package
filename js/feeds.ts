@@ -771,9 +771,12 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
         }
     }
     const quoted = ctx.refEvents.get(ref.id)
+    const resolved = Boolean(quoted)
     // Der Deep-Link steht auch ohne aufgelöstes Ereignis: die Ziel-ID steckt in der Kennung
-    // selbst, `openThread` lädt daraus per id. So bleibt kein Klickfall ohne Wirkung.
-    const base = refThreadPath(ref.entity, quoted ? (getTagValue('h', quoted.tags) ?? '') : '', ctx.h)
+    // selbst, `openThread` lädt daraus per id. So bleibt kein Klickfall ohne Wirkung. Der
+    // Zielraum ist nur bei aufgelöstem Ereignis bekannt; sonst leer (→ Rückfall auf `ctx.h`).
+    const quotedRoom = quoted ? (getTagValue('h', quoted.tags) ?? '') : ''
+    const base = refThreadPath(ref.entity, quotedRoom, ctx.h)
     return {
         kind: 'event',
         id: ref.id,
@@ -782,8 +785,8 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
         href: withSpace(withOrigin(base, ctx.search), ctx.search),
         // `scroll` nur bei nachweislicher Anwesenheit im geladenen Fenster (`byId`) —
         // `scrollToMessage` kehrt sonst wortlos zurück (`bridge.ts:4106-4108`).
-        scroll: refClickTarget(Boolean(quoted), ctx.byId.has(ref.id)) === 'scroll',
-        resolved: Boolean(quoted),
+        scroll: refClickTarget(resolved, ctx.byId.has(ref.id)) === 'scroll',
+        resolved,
         pubkey: quoted?.pubkey ?? '',
         name: quoted ? displayProfileByPubkey(quoted.pubkey) : '',
         text: quoted ? withShortRefTokens(snippet(bodyWithoutQuote(quoted))) : '',
@@ -995,7 +998,8 @@ export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Cha
     // (hängt an $handles, nicht am Profil-Wert des Autors — derselbe Grund wie beim Häkchen
     // des Autors eine Zeile darüber).
     const fp =
-        `${ctx.cards ? '1' : '0'}${ref?.kind === 'profile' ? verifiedNip05(ref.pubkey, ctx.$profiles, ctx.$handles) : ''}` +
+        `${ctx.cards ? '1' : '0'}` +
+        `|${ref?.kind === 'profile' ? verifiedNip05(ref.pubkey, ctx.$profiles, ctx.$handles) : ''}` +
         `|${verifiedNip05(event.pubkey, ctx.$profiles, ctx.$handles)}` +
         `|${bucketFp(ctx.reactionsByTarget.get(event.id))}|${bucketFp(ctx.zapsByTarget.get(event.id))}` +
         `|${bucketFp(ctx.commentsByRoot.get(event.id))}|${bucketFp(ctx.pollResponsesByTarget.get(event.id))}`
@@ -1666,8 +1670,10 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
             const commentEvents = rawComments.filter((c) => commentRootId(c) === rootId)
             const refEvents = $cards ? collectRefEvents(url, commentEvents, $refEvents) : new Map<string, TrustedEvent>()
             const cardPubkeys = $cards ? refCardPubkeys(commentEvents, refEvents) : []
-            void warmProfiles([...[...rootEvents, ...commentEvents].map((e) => e.pubkey), ...cardPubkeys])
-            warmHandles([...[...rootEvents, ...commentEvents].map((e) => e.pubkey), ...cardPubkeys])
+            // Autoren der Wurzel + aller Kommentare, dazu die Personen der Karten (P5).
+            const feedPubkeys = [...rootEvents, ...commentEvents].map((e) => e.pubkey).concat(cardPubkeys)
+            void warmProfiles(feedPubkeys)
+            warmHandles(feedPubkeys)
             warmZappers(commentEvents.map((e) => e.pubkey)) // Zapper der Kommentar-Autoren → 9735-Validierung/⚡-Chip
             const rootEvent = rootEvents.find((e) => e.id === rootId)
             const root: ThreadRoot = rootEvent
