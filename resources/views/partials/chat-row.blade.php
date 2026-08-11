@@ -406,6 +406,21 @@
                                             <template x-if="canEdit(m)">
                                                 <flux:menu.item icon="pencil-square" x-on:click="startEdit(m)">{{ __('Bearbeiten') }}</flux:menu.item>
                                             </template>
+                                            {{-- Anpinnen/Loslösen (P6b). Zustand und Rechte liegen in `$store.roomPins`
+                                                 (js/roomPins.ts), nicht in `nostrRoomChat` — hier wird nur gelesen.
+                                                 Die beiden Bedingungen sind NICHT komplementär, und das ist der Punkt:
+                                                 `canPin` fragt „darf dieser Nutzer in diesem Raum pinnen?" (zooid: nur
+                                                 `can_manage`; Buzz: jedes Mitglied), `canUnpin(id)` zusätzlich „darf er
+                                                 GENAU diesen Pin lösen?" (Buzz erlaubt es dem Autor des Pins auch ohne
+                                                 Admin-Rolle). Wer nichts darf, sieht keinen der beiden Einträge — der
+                                                 Relay hat beide Fälle gemessen mit `OK false` abgelehnt, ein Knopf
+                                                 dorthin wäre ein Knopf, der nichts tut. --}}
+                                            <template x-if="$store.roomPins?.canPin && !$store.roomPins?.isPinned(m.id)">
+                                                <flux:menu.item icon="map-pin" x-on:click="$store.roomPins.toggle(m.id)">{{ __('Anpinnen') }}</flux:menu.item>
+                                            </template>
+                                            <template x-if="$store.roomPins?.canUnpin(m.id)">
+                                                <flux:menu.item icon="map-pin" x-on:click="$store.roomPins.toggle(m.id)">{{ __('Loslösen') }}</flux:menu.item>
+                                            </template>
                                             @endif
                                             {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984) — generisch, auch im Thread. --}}
                                             <template x-if="!m.mine">

@@ -42,6 +42,7 @@ import { wireRail } from './rail'
 import { wirePalette } from './palette'
 import { wireDisplayPrefs } from './displayPrefs'
 import { wireRoomSearch } from './roomSearch'
+import { wireRoomPins } from './roomPins'
 import { dispatchModal } from './modal'
 import {
     groupSpaceChoices,
@@ -1384,6 +1385,13 @@ export function registerNostrComponents(Alpine: {
     // Berührung mit `nostrRoomChat` ist ein `scrollToMessage(id)` aus dem Markup heraus
     // (Scope-Kette), so wie es die Zitat-Vorschau in `chat-row` schon tut.
     wireRoomSearch(Alpine)
+    // P6b — Angepinnte Nachrichten. Ausnahmsweise ein STORE statt einer Insel: der
+    // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (Leiste
+    // über dem Verlauf, Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat`).
+    // Zwei Inseln bräuchten zwei Wahrheiten; Begründung im Kopf von `roomPins.ts`.
+    // In `nostrRoomChat` entsteht dadurch KEIN neues Feld — das Markup liest
+    // `$store.roomPins.*` und reicht `menuFor`/`isAdmin`/`joined` lesend hinein.
+    wireRoomPins(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').

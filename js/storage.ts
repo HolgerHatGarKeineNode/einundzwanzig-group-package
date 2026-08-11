@@ -39,6 +39,7 @@ import {
 } from '@welshman/util'
 import type { RepositoryUpdate } from '@welshman/net'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
+import { BUZZ_PIN, ZOOID_PIN_LIST, isZooidPinList } from './pins.ts'
 
 // §4.4 Multi-Account: EINE DB PRO pubkey (`…-<hex>`). Damit teilen zwei Accounts NIE
 // einen Store → kein Cross-Account-Leak (auch nicht über konkurrierende Web-Tabs, die
@@ -98,9 +99,32 @@ const PERSIST_KINDS = new Set<number>([
     ROOM_META,
     ROOM_ADMINS,
     ROOM_MEMBERS,
+    BUZZ_PIN, // P6b — sonst ist die Pin-Leiste auf Buzz beim Kaltstart leer
 ])
 
+/**
+ * P6b — angepinnte Nachrichten. Beide Relays brauchen Persistenz, sonst flackert die
+ * Pin-Leiste bei jedem Kaltstart leer, bis das Netz antwortet: **genau der 9008-Fehler,
+ * der oben schon dokumentiert ist.**
+ *
+ * Buzz' `40004` steht dafür schlicht in `PERSIST_KINDS`. zooids `39005` steht bewusst
+ * NICHT dort, sondern hier — denn `39005` ist bei Buzz `KIND_THREAD_SUMMARY`, und die
+ * darf **nicht** in den Cache:
+ *
+ *  - Buzz speichert sie relay-seitig gar nicht erst (`kind.rs:417-422`: „synthesized at
+ *    query time, never stored"); sie entsteht nur live, wenn sich Thread-Zähler ändern.
+ *  - Ein persistierter Stand wäre also dauerhaft veraltet und würde nie korrigiert —
+ *    schlimmer als gar keiner.
+ *
+ * Getrennt wird an der Struktur, nicht an der Herkunfts-URL: `shouldPersistEvent` sieht
+ * nur das Ereignis, nicht den `tracker`. {@link isZooidPinList} prüft `["-"]` (NIP-70),
+ * die Abwesenheit von `["h"]` und leeren `content` — drei gemessene Merkmale, jedes für
+ * sich ausreichend.
+ */
 export function shouldPersistEvent(event: TrustedEvent): boolean {
+    if (event.kind === ZOOID_PIN_LIST) {
+        return isZooidPinList(event)
+    }
     return PERSIST_KINDS.has(event.kind)
 }
 

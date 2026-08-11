@@ -271,6 +271,105 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </div>
 
+        {{-- ── Angepinnte Nachrichten (P6b) ───────────────────────────────────────────
+             Der Zustand liegt in `$store.roomPins` (js/roomPins.ts), NICHT in
+             `nostrRoomChat` — er wird an zwei Stellen gebraucht, die einander im DOM nicht
+             sehen: hier und im Nachrichten-Menü. Zwei Inseln bräuchten zwei Wahrheiten;
+             ausführliche Begründung im Kopf von `roomPins.ts`.
+
+             Der Pin ist NICHT portabel: NIP-29 kennt kein Pin-Kind, zooid benutzt
+             9010→39005, Buzz 40004. Fremde Clients sehen ihn nicht, und zwischen den beiden
+             Relay-Arten ist er nicht übertragbar. Bewusste Entscheidung des Plans, hier
+             notiert, weil hier die Fläche steht, die ihn verspricht.
+
+             An- und Abmelden laufen über `init()`/`destroy()` AM `x-data`-Objekt, nicht
+             über ein `x-destroy`-Attribut: **eine solche Direktive gibt es in Alpine
+             nicht.** Alpine wertet beim Aufräumen ausschliesslich `reactiveData["destroy"]`
+             aus (`vendor/livewire/livewire/dist/livewire.esm.js`, im `x-data`-Handler);
+             ein `x-destroy="…"` wäre ein totes Attribut gewesen — lautlos, und der Store
+             hinge nach dem ersten Raumwechsel an einem Raum, den niemand mehr sieht.
+
+             `unmount($h)` mit Raum-Argument, weil `wire:navigate` den neuen Body VOR dem
+             Abräumen des alten einhängt (Begründung an `unmount` in `roomPins.ts`).
+
+             Im Thread ausgeblendet: gepinnt wird im RAUM, und eine Leiste über einer
+             Thread-Spalte zeigte Nachrichten, die dort nicht stehen. --}}
+        <div x-data="{
+                 init() { $store.roomPins?.mount(@js($h)) },
+                 destroy() { $store.roomPins?.unmount(@js($h)) },
+             }"
+             x-show="!threadRootId && $store.roomPins?.entries?.length" x-cloak
+             class="mb-2 shrink-0">
+            <div class="surface-card flex flex-col gap-1 p-2">
+                <div class="flex items-center gap-2 px-1">
+                    <flux:icon.map-pin variant="micro" class="text-brand-500" />
+                    {{-- Zahl statt bloßem Wort: die Leiste ist einklappbar, und eingeklappt
+                         wäre „Angepinnt" ohne Zahl eine Fläche, die nichts sagt. --}}
+                    <span class="text-xs font-semibold"
+                          x-text="$store.roomPins.entries.length === 1
+                                  ? @js(__('Angepinnt'))
+                                  : @js(__('Angepinnt (:count)')).replace(':count', $store.roomPins.entries.length)"></span>
+                    {{-- Das Icon wird GEDREHT, nicht getauscht: `flux:button` löst seinen
+                         `icon`-Prop serverseitig auf (`flux/button/index.blade.php`:
+                         `$iconLeading = $icon ??= $iconLeading`), ein `x-bind:icon` wäre
+                         also ein totes Attribut. Dieselbe Lösung wie in
+                         `components/desktop-rail.blade.php:159`. --}}
+                    <flux:button size="xs" variant="ghost" square class="icon-btn-touch ms-auto"
+                                 x-bind:aria-expanded="$store.roomPins.collapsed ? 'false' : 'true'"
+                                 aria-expanded="true" aria-controls="room-pin-list"
+                                 x-on:click="$store.roomPins.collapsed = !$store.roomPins.collapsed"
+                                 x-bind:aria-label="$store.roomPins.collapsed ? @js(__('Angepinnte Nachrichten zeigen')) : @js(__('Angepinnte Nachrichten ausblenden'))">
+                        <flux:icon.chevron-up variant="micro" class="size-4 shrink-0 transition-transform"
+                                              x-bind:class="$store.roomPins.collapsed ? 'rotate-180' : ''" />
+                    </flux:button>
+                </div>
+
+                {{-- Wörtliche Begründung des Relays. Sie wird NICHT übersetzt und nicht
+                     geschönt: die drei Ablehnungen von zooid („you are not authorized to
+                     manage groups", „group metadata cannot be set directly", „you are not a
+                     member of this relay") sind unterscheidbar, und nur der Originaltext
+                     trägt diese Unterscheidung bis zum Nutzer. --}}
+                <template x-if="$store.roomPins.error">
+                    <flux:callout variant="danger" icon="exclamation-triangle" class="mx-1">
+                        <flux:callout.text x-text="$store.roomPins.error"></flux:callout.text>
+                        <x-slot name="actions">
+                            <flux:button size="sm" variant="ghost" x-on:click="$store.roomPins.dismissError()">{{ __('Verstanden') }}</flux:button>
+                        </x-slot>
+                    </flux:callout>
+                </template>
+
+                <ul x-show="!$store.roomPins.collapsed" id="room-pin-list" class="max-h-40 overflow-y-auto">
+                    <template x-for="pin in $store.roomPins.entries" :key="pin.id">
+                        <li class="flex items-center gap-1">
+                            {{-- Springt in den Verlauf — `scrollToMessage` kommt über die
+                                 Alpine-Scope-Kette aus `nostrRoomChat`, genau wie bei der
+                                 Suche (P6a) und der Zitat-Vorschau. Lesender Gebrauch einer
+                                 bestehenden Fähigkeit, kein neuer Zustand.
+                                 Solange die Nachricht noch nachgeladen wird (`resolved`
+                                 false), ist der Knopf abgeschaltet: ein Sprung ins Leere
+                                 kehrt wortlos zurück und sähe aus wie ein defekter Knopf. --}}
+                            <button type="button" x-on:click="scrollToMessage(pin.id)"
+                                    x-bind:disabled="!pin.resolved"
+                                    class="pressable min-w-0 flex-1 rounded-tile px-2 py-1.5 text-left hover:bg-brand-500/5 disabled:opacity-60">
+                                <span class="flex items-baseline gap-2">
+                                    <span class="min-w-0 truncate text-xs font-semibold" x-text="pin.name"></span>
+                                    <span class="ms-auto shrink-0 font-mono text-[0.7rem] text-muted" x-text="pin.time"></span>
+                                </span>
+                                <span class="mt-0.5 block truncate text-sm"
+                                      x-text="pin.resolved ? pin.text : @js(__('Nachricht wird geladen…'))"></span>
+                            </button>
+                            <template x-if="$store.roomPins.canUnpin(pin.id)">
+                                <flux:button size="xs" variant="ghost" icon="x-mark" square class="icon-btn-touch"
+                                             x-bind:disabled="$store.roomPins.busy"
+                                             x-on:click="$store.roomPins.toggle(pin.id)"
+                                             aria-label="{{ __('Loslösen') }}" />
+                            </template>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+        </div>
+
         {{-- Ladefehler (Relay nicht erreichbar / AUTH-Reject): persistenter Callout + Retry. --}}
         <template x-if="error">
             <flux:callout variant="danger" icon="exclamation-triangle" class="mb-2 shrink-0">
@@ -943,6 +1042,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:button variant="ghost" icon="pencil-square" class="w-full justify-start"
                          x-show="!_menuInThread && menuFor && canEdit(menuFor)" x-cloak
                          x-on:click="if (menuFor) startEdit(menuFor)">{{ __('Bearbeiten') }}</flux:button>
+            {{-- Anpinnen/Loslösen (P6b) — dieselben zwei Bedingungen wie im Web-Popover
+                 (`partials/chat-row.blade.php`), Begründung dort. Gelesen wird aus
+                 `$store.roomPins`; `nostrRoomChat` bekommt dafür kein eigenes Feld. --}}
+            <flux:button variant="ghost" icon="map-pin" class="w-full justify-start"
+                         x-show="!_menuInThread && menuFor && $store.roomPins?.canPin && !$store.roomPins?.isPinned(menuFor.id)" x-cloak
+                         x-on:click="if (menuFor) { $store.roomPins.toggle(menuFor.id); closeMessageMenu() }">{{ __('Anpinnen') }}</flux:button>
+            <flux:button variant="ghost" icon="map-pin" class="w-full justify-start"
+                         x-show="!_menuInThread && menuFor && $store.roomPins?.canUnpin(menuFor.id)" x-cloak
+                         x-on:click="if (menuFor) { $store.roomPins.toggle(menuFor.id); closeMessageMenu() }">{{ __('Loslösen') }}</flux:button>
             {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
                  dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}
             <flux:button variant="ghost" icon="flag" class="w-full justify-start" x-show="!menuFor?.mine" x-cloak
