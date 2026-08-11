@@ -1045,11 +1045,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Anpinnen/Loslösen (P6b) — dieselben zwei Bedingungen wie im Web-Popover
                  (`partials/chat-row.blade.php`), Begründung dort. Gelesen wird aus
                  `$store.roomPins`; `nostrRoomChat` bekommt dafür kein eigenes Feld. --}}
+            {{-- `::disabled` an `busy` — Begründung wie im Web-Popover
+                 (`partials/chat-row.blade.php`): ohne die Bindung wäre der Eintrag
+                 während eines laufenden Pin/Unpin ein stiller Blindgänger. --}}
             <flux:button variant="ghost" icon="map-pin" class="w-full justify-start"
                          x-show="!_menuInThread && menuFor && $store.roomPins?.canPin && !$store.roomPins?.isPinned(menuFor.id)" x-cloak
+                         ::disabled="$store.roomPins.busy"
                          x-on:click="if (menuFor) { $store.roomPins.toggle(menuFor.id); closeMessageMenu() }">{{ __('Anpinnen') }}</flux:button>
             <flux:button variant="ghost" icon="map-pin" class="w-full justify-start"
                          x-show="!_menuInThread && menuFor && $store.roomPins?.canUnpin(menuFor.id)" x-cloak
+                         ::disabled="$store.roomPins.busy"
                          x-on:click="if (menuFor) { $store.roomPins.toggle(menuFor.id); closeMessageMenu() }">{{ __('Loslösen') }}</flux:button>
             {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
                  dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}

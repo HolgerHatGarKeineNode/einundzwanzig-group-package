@@ -43,14 +43,15 @@
  * gezielt per `ids`-Filter und nur für Pins, die im Repository fehlen.
  */
 
-import { pubkey, repository } from '@welshman/app'
+import { deriveRelay, profilesByPubkey, pubkey, repository } from '@welshman/app'
 import { load, request } from '@welshman/net'
+import { throttled } from '@welshman/store'
 import { makeEvent, type Filter, type TrustedEvent } from '@welshman/util'
 import { publishThunk } from '@welshman/app'
 import { derived, get, type Readable } from 'svelte/store'
 import { activeSpace, deriveUserInRoom } from './groups'
-import { deriveUserIsSpaceAdmin } from './members'
-import { spaceIsBuzz } from './buzzAdmin'
+import { deriveSpaceMembers, deriveUserIsSpaceAdmin } from './members'
+import { isBuzzRelay } from './relayCaps'
 import { deriveEventsForUrl } from './repository'
 import { bodyWithoutQuote, fullTimeLabel } from './feeds'
 import { displayProfileByPubkey } from '@welshman/app'
@@ -156,6 +157,30 @@ const pinFilters = (h: string, isBuzz: boolean): Filter[] =>
     isBuzz ? [{ kinds: [BUZZ_PIN], '#h': [h] }] : [{ kinds: [ZOOID_PIN_LIST], '#d': [h] }]
 
 /**
+ * „Darf der eingeloggte Nutzer in diesem Raum schreiben?" — die Quelle unterscheidet sich
+ * je Relay, die Frage nicht.
+ *
+ * **zooid:** die relay-signierte Raum-Mitgliederliste 39002 (`deriveUserInRoom`).
+ * **Buzz:** die relay-signierte **Relay**-Mitgliederliste 13534 (`deriveSpaceMembers`) —
+ * dort steht die Antwort, denn Buzz' 39002 führt nur explizit vergebene Kanal-Rollen
+ * (am Testrelay: nur der Owner), während jedes Relay-Mitglied in einem offen sichtbaren
+ * Kanal schreiben und pinnen darf.
+ *
+ * Die Relay-Art steckt bewusst **in** dieser Ableitung und nicht im Aufrufer: alle vier
+ * Eingaben — Info-Dokument, Raum-Liste, Relay-Liste und der eingeloggte Pubkey — treffen
+ * zu unterschiedlichen Zeiten ein, und jede einzelne davon einmal synchron zu lesen war
+ * genau der Fehler, der P6b zurückgeworfen hat.
+ */
+const deriveCanWriteHere = (url: string, h: string): Readable<boolean> =>
+    derived(
+        [deriveRelay(url), deriveUserInRoom(url, h), deriveSpaceMembers(url), pubkey],
+        ([relay, inRoom, members, pk]) =>
+            isBuzzRelay((relay as { software?: string } | undefined) ?? undefined)
+                ? Boolean(pk && (members as string[]).includes(pk as string))
+                : Boolean(inRoom),
+    )
+
+/**
  * Erzeugt den Store **und** einen Binder.
  *
  * **Warum der Binder nötig ist:** `Alpine.store(name, obj)` legt `obj` in einen
@@ -172,6 +197,15 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
     let unsubSource: () => void = noop
     let unsubAdmin: () => void = noop
     let unsubMember: () => void = noop
+    /** Abo der Relay-Art (NIP-11). Siehe die Begründung in `mount`. */
+    let unsubBuzz: () => void = noop
+    /** Abo der Profile — zieht den Autornamen eines alten Pins nach. Siehe `mount`. */
+    let unsubProfiles: () => void = noop
+    /**
+     * Für welche Kombination aus URL, Raum und Relay-Art die Lesequelle gerade aufgezogen
+     * ist — `null` = für keine. Siehe {@link armSource}.
+     */
+    let armedFor: string | null = null
     /** Live-Sub der Pin-Ereignisse; wird beim Raumwechsel abgebrochen. */
     let controller: AbortController | null = null
     /** Roh-Pins, wie sie vom Relay kommen — Grundlage für Lösch-Kommandos. */
@@ -179,9 +213,30 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
     /** Die aktuelle zooid-Pin-Liste (das eine 39005) — Grundlage für „Liste ohne X". */
     let pinList: PinEventLike | null = null
     let isAdmin = false
-    let inRoom = false
+    /** Darf hier geschrieben werden? Quelle je Relay verschieden — {@link deriveCanWriteHere}. */
+    let canWriteHere = false
     /** Ids, die bereits gezielt nachgeladen wurden (kein zweiter REQ je Id). */
     const requested = new Set<string>()
+    /**
+     * Pin-Ereignisse (`40004`), deren Löschung der Relay **bestätigt** hat.
+     *
+     * **Warum das nötig ist — gemessen, nicht vermutet:** Ein `kind 5` entfernt das
+     * Ziel-Ereignis auf dem Relay (nachgewiesen: die anschliessende `40004`-Abfrage ist
+     * leer), aber der lokale welshman-`repository` erfährt davon nicht von selbst. Seine
+     * Lösch-Buchführung greift nur, wenn das `kind 5` DORT ankommt und
+     * `isDeleted(target)` wahr wird (`@welshman/net/dist/net/src/repository.js:175-181`);
+     * unsere Pin-Subscription fragt aber ausschliesslich `{kinds:[40004]}`, und ein
+     * gelöschtes Ereignis wird vom Relay nicht noch einmal geschickt. Ergebnis ohne diese
+     * Menge, im Browser gemessen: nach dem Klick blieb der Eintrag stehen, `busy` lief
+     * 6,6 s in die Wirkungs-Zeitgrenze und der Nutzer bekam
+     * „Das Relay hat den Pin nicht übernommen." — obwohl der Pin weg war.
+     *
+     * Das ist **kein** Rückfall auf „`OK true` heisst Erfolg": die Quittung gehört hier zu
+     * einem LÖSCH-Kommando, sie ist also genau die Aussage, die wir brauchen. Und sie ist
+     * selbstkorrigierend: hätte der Relay gelogen, brächte der nächste Bestands-`load`
+     * den Pin zurück (die Menge unterdrückt nur, was der Relay nicht mehr liefert).
+     */
+    const confirmedUnpinned = new Set<string>()
     /**
      * Wie viele Insel-Knoten den Store gerade halten.
      *
@@ -223,35 +278,69 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
                     return
                 }
                 self.url = url
-                self.isBuzz = spaceIsBuzz(url)
                 unsubAdmin()
                 unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
                     isAdmin = admin
                     recomputePermissions()
                 })
+                // „Darf hier überhaupt geschrieben werden?" — und die Antwort steht auf den
+                // beiden Relays an **verschiedenen Orten**. Wieder eine Matrix, keine Zeile:
+                //
+                //  - **zooid** führt die Raum-Mitgliedschaft in der relay-signierten 39002
+                //    (`d` = Raum-`h`, `p` = Mitglieder). `deriveUserInRoom` liest genau die.
+                //  - **Buzz** tut das NICHT. Am Testrelay nachgemessen enthält die 39002 des
+                //    Kanals `welcome` ausschließlich den Owner
+                //    (`[["d","a956ca5e-…"],["p","4b3cac49…","","owner"]]`), während das
+                //    normale Mitglied `9db3b9da…` dort fehlt — und trotzdem nachweislich
+                //    pinnen darf (`OK true` auf sein 40004). Buzz gatet Schreibrechte an der
+                //    **Relay**-Mitgliedschaft plus offener Kanal-Sichtbarkeit
+                //    (`ingest.rs`, `check_channel_membership`: „member OR open-visibility
+                //    channel"), nicht an einer Kanal-Mitgliederliste.
+                //
+                // Mit `deriveUserInRoom` als Buzz-Signal war `canPin` für jedes normale
+                // Mitglied dauerhaft `false` — der Menüpunkt „Anpinnen" erschien nie, obwohl
+                // der Pin funktioniert hätte. Dass das Signal auf Buzz nicht trägt, ist
+                // unabhängig belegt: derselbe `joined`-Wert hält dort schon den Composer zu
+                // (bekannter Befund `buzz-room.spec.ts:429`, älter als P6).
                 unsubMember()
-                unsubMember = deriveUserInRoom(url, h).subscribe((member: boolean) => {
-                    inRoom = member
+                unsubMember = deriveCanWriteHere(url, h).subscribe((may: boolean) => {
+                    canWriteHere = may
                     recomputePermissions()
                 })
-                unsubSource()
-                unsubSource = derivePinSource(url, h, self.isBuzz).subscribe((events: PinEventLike[]) => {
-                    rawPins = events
-                    recompute()
+                // Die Relay-Art **reaktiv**, genau wie die beiden Nachbarfelder darüber.
+                // `deriveRelay` stößt den NIP-11-Fetch selbst an (`makeDeriveItem` ruft
+                // `onDerive` = `loadRelay`, `@welshman/store/dist/store/src/repository.js:264-270`)
+                // und meldet erneut, sobald das Dokument da ist.
+                //
+                // **Hier stand vorher `spaceIsBuzz(url)` — synchron und genau einmal.**
+                // Diese Funktion liefert dokumentiert `false`, solange NIP-11 unterwegs
+                // ist (`buzzAdmin.ts:73-91`); für ihre übrigen Aufrufer ist das richtig,
+                // weil die synchron kurz vor einem Klick fragen. Beim Mount gefragt und
+                // nie wieder, blieb die Antwort für die ganze Lebensdauer der Insel bei
+                // `false`: auf Buzz schickte `toggle()` dann `kind 9010` (zooid) und
+                // erntete `restricted: unknown event kind`, und ein normales Mitglied sah
+                // den Menüpunkt gar nicht erst, weil `mayPin(false, isAdmin=false, …)`
+                // falsch ist. Dieselbe Begründung steht seit P4 in `bridge.ts:2606-2609` —
+                // dort wurde sie befolgt, hier nicht.
+                // Dritte Stelle derselben Bauart, gefunden beim Nachaudit: der Autorname
+                // kommt aus `displayProfileByPubkey` und wird in `recompute` **einmal**
+                // gelesen. Ein Pin kann aber älter sein als das geladene Fenster — dann
+                // lädt die Rauminsel das Profil seines Autors nie, und in der Leiste
+                // stünde dauerhaft die npub-Kurzform (`profiles.js:19` fällt darauf
+                // zurück). Gedrosselt wie in `feeds.ts:1768`, damit nicht jede
+                // Profil-Lieferung der App die Leiste neu baut.
+                unsubProfiles()
+                unsubProfiles = throttled(300, profilesByPubkey).subscribe(() => {
+                    if (self.entries.some((e) => !e.resolved || !e.name)) {
+                        recompute()
+                    }
                 })
-                // Bestand holen und live weiterhören. Beides gehört HIERHER und nicht in
-                // `listenRoom`: dort müsste `feeds.ts` die Relay-Art kennen, um zwischen
-                // `#d` (zooid) und `#h` (Buzz) zu wählen — die Weiche säße dann an zwei
-                // Stellen. Das Lösen ist davon nicht betroffen: die Lösch-Ereignisse
-                // (kind 5 / 9005) tragen `h` und kommen über die bestehende
-                // Raum-Subscription (Begründung bei `buzzUnpinCommands`).
-                controller?.abort()
-                controller = new AbortController()
-                void load({ relays: [url], filters: pinFilters(h, self.isBuzz) })
-                void request({
-                    relays: [url],
-                    signal: controller.signal,
-                    filters: pinFilters(h, self.isBuzz).map((f) => ({ ...f, limit: 0 })),
+                unsubBuzz()
+                unsubBuzz = deriveRelay(url).subscribe((relay) => {
+                    const isBuzz = isBuzzRelay(relay ?? undefined)
+                    self.isBuzz = isBuzz
+                    recomputePermissions()
+                    armSource(url, h, isBuzz)
                 })
             })
         },
@@ -296,7 +385,7 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
             if (!entry) {
                 return false
             }
-            return mayUnpin(self.isBuzz, isAdmin, inRoom, entry.pinnedBy, get(pubkey) ?? '')
+            return mayUnpin(self.isBuzz, isAdmin, canWriteHere, entry.pinnedBy, get(pubkey) ?? '')
         },
 
         async toggle(id: string): Promise<void> {
@@ -337,14 +426,23 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
         unsubSource()
         unsubAdmin()
         unsubMember()
+        // Das Relay-Art-Abo läuft über DENSELBEN Aufräumer wie die anderen — es ist
+        // damit durch BEIDE Riegel aus `unmount` gedeckt (Zähler und Raum-Argument),
+        // sonst hinge nach einem Raumwechsel ein Abo an einem Raum, den niemand sieht.
+        unsubBuzz()
+        unsubProfiles()
         unsubSpace()
         unsubSource = noop
         unsubAdmin = noop
         unsubMember = noop
+        unsubBuzz = noop
+        unsubProfiles = noop
         unsubSpace = noop
+        armedFor = null
         rawPins = []
         pinList = null
         requested.clear()
+        confirmedUnpinned.clear()
         self.h = ''
         self.url = ''
         self.entries = []
@@ -353,8 +451,51 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
         self.error = ''
     }
 
+    /**
+     * Lesequelle, Bestands-Load und Live-Sub auf **eine** Relay-Art aufziehen.
+     *
+     * Warum das eine eigene Funktion ist und nicht in der `activeSpace`-Subscription
+     * bleibt: die Relay-Art vergiftete nicht nur die Rechte, sondern **drei** Dinge —
+     * den Lesefilter ({@link derivePinSource}), den einmaligen Bestands-`load` und die
+     * Live-`request`. `isBuzz` bloß reaktiv zu machen hätte die Rechte geheilt und den
+     * Client weiter auf dem falschen Filter lauschen lassen: die Pin-Leiste bliebe auf
+     * Buzz leer, nur eben mit sichtbarem Knopf. Ändert sich die Antwort, wird alles drei
+     * neu aufgezogen.
+     *
+     * `armedFor` verhindert das überflüssige Neuaufziehen bei jeder weiteren Meldung von
+     * `deriveRelay` (die feuert auch, wenn sich am Info-Dokument etwas anderes ändert).
+     * Verglichen wird der **Schlüssel**, nicht der Wert — sonst käme der allererste Lauf
+     * nie durch, weil `isBuzz` dort zufällig dem Anfangswert `false` gleicht.
+     */
+    const armSource = (url: string, h: string, isBuzz: boolean): void => {
+        const key = `${url}|${h}|${isBuzz ? 'buzz' : 'zooid'}`
+        if (armedFor === key) {
+            return
+        }
+        armedFor = key
+        unsubSource()
+        unsubSource = derivePinSource(url, h, isBuzz).subscribe((events: PinEventLike[]) => {
+            rawPins = events
+            recompute()
+        })
+        // Bestand holen und live weiterhören. Beides gehört HIERHER und nicht in
+        // `listenRoom`: dort müsste `feeds.ts` die Relay-Art kennen, um zwischen
+        // `#d` (zooid) und `#h` (Buzz) zu wählen — die Weiche säße dann an zwei
+        // Stellen. Das Lösen ist davon nicht betroffen: die Lösch-Ereignisse
+        // (kind 5 / 9005) tragen `h` und kommen über die bestehende
+        // Raum-Subscription (Begründung bei `buzzUnpinCommands`).
+        controller?.abort()
+        controller = new AbortController()
+        void load({ relays: [url], filters: pinFilters(h, isBuzz) })
+        void request({
+            relays: [url],
+            signal: controller.signal,
+            filters: pinFilters(h, isBuzz).map((f) => ({ ...f, limit: 0 })),
+        })
+    }
+
     const recomputePermissions = (): void => {
-        self.canPin = mayPin(self.isBuzz, isAdmin, inRoom)
+        self.canPin = mayPin(self.isBuzz, isAdmin, canWriteHere)
     }
 
     /** Aus den Roh-Pins die Anzeige-Zeilen bauen und Fehlendes gezielt nachladen. */
@@ -362,15 +503,17 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
         let ids: string[]
         let pinnedByById = new Map<string, string>()
 
+        const visiblePins = rawPins.filter((e) => !confirmedUnpinned.has(e.id))
+
         if (self.isBuzz) {
-            const entries = buzzPinEntries(rawPins)
+            const entries = buzzPinEntries(visiblePins)
             ids = entries.map((e) => e.targetId)
             pinnedByById = new Map(entries.map((e) => [e.targetId, e.pinnedBy]))
         } else {
             // Zweiter Riegel gegen die 39005-Kollision, unabhängig von der Relay-Bindung
             // oben: eine Buzz-Thread-Zusammenfassung ist kein Pin, auch wenn sie je durch
             // einen Filter ohne `tracker` hierher fände.
-            pinList = rawPins.find((e) => isZooidPinList(e)) ?? null
+            pinList = visiblePins.find((e) => isZooidPinList(e)) ?? null
             ids = pinList ? pinnedIdsFromList(pinList, self.h) : []
         }
 
@@ -383,9 +526,19 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
             missing.forEach((id) => requested.add(id))
             // Gezielt und einmalig: eine gepinnte Nachricht kann älter sein als das
             // geladene Fenster. Ohne diesen Load bliebe die Leiste bei einem alten Pin
-            // dauerhaft ein Platzhalter. Das Ergebnis landet im Repository und löst
-            // `recompute` über die Ableitung oben erneut aus.
-            void load({ relays: [self.url], filters: [{ ids: missing }] })
+            // dauerhaft ein Platzhalter.
+            //
+            // **`.then(recompute)` ist nicht optional.** Hier stand, das Ergebnis lande im
+            // Repository und löse `recompute` „über die Ableitung oben" erneut aus — das
+            // war schlicht falsch: die Ableitung hört auf `{kinds:[39005],'#d':[h]}` bzw.
+            // `{kinds:[40004],'#h':[h]}`, und eine nachgeladene **Nachricht** (kind 9 /
+            // 40002) passt auf keinen der beiden Filter. Sie feuert also nicht, die Zeile
+            // bliebe für immer auf „Nachricht wird geladen…" stehen und ihr Sprung-Knopf
+            // abgeschaltet. Dieselbe Klasse Fehler wie die Relay-Art weiter oben: ein Wert
+            // trifft später ein und wird nie wieder gelesen. Der `requested`-Wächter
+            // verhindert dabei die Endlosschleife — der zweite Durchlauf findet nichts
+            // Fehlendes mehr und lädt nicht erneut.
+            void load({ relays: [self.url], filters: [{ ids: missing }] }).then(() => recompute())
         }
     }
 
@@ -421,15 +574,19 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
         const targets = [entry.pinEventId, ...olderDuplicatePinIds(rawPins, id, entry.pinEventId)]
         const authors = new Map(rawPins.map((e) => [e.id, e.pubkey]))
         const commands = buzzUnpinCommands(self.h, targets, get(pubkey) ?? '', authors)
-        for (const command of commands) {
-            const failure = await publishPin(command.kind, command.tags)
+        for (let i = 0; i < commands.length; i++) {
+            const failure = await publishPin(commands[i].kind, commands[i].tags)
             // „Ziel nicht gefunden" heißt: schon weg. Das ist der gewünschte Zustand,
             // kein Fehlschlag — und ein Toast lüde hier zum Wiederholen ein, das
             // denselben Fehler erneut erzeugte.
             if (failure && !isAlreadyGoneError(failure)) {
                 return failure
             }
+            // Bestätigt gelöscht (oder ohnehin schon weg) → lokal ausblenden. Begründung
+            // an {@link confirmedUnpinned}.
+            confirmedUnpinned.add(targets[i])
         }
+        recompute()
         return ''
     }
 

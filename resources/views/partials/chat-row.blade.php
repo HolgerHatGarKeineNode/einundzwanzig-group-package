@@ -415,11 +415,21 @@
                                                  Admin-Rolle). Wer nichts darf, sieht keinen der beiden Einträge — der
                                                  Relay hat beide Fälle gemessen mit `OK false` abgelehnt, ein Knopf
                                                  dorthin wäre ein Knopf, der nichts tut. --}}
+                                            {{-- `disabled` an `busy` — sonst ist der Eintrag ein STILLER Blindgänger.
+                                                 `toggle()` verwirft einen Klick, solange ein Pin/Unpin läuft
+                                                 (Doppelklick-Sperre), und dieses Fenster ist nicht kurz: es endet
+                                                 erst, wenn der Relay das Verdikt geliefert hat — die Leiste zeigt
+                                                 den neuen Pin aber schon vorher, weil das Ereignis der Live-Sub
+                                                 VOR dem `OK` eintrifft (gemessen). Wer in diesem Fenster
+                                                 „Loslösen" tippt, bekäme ohne diese Bindung keinerlei Reaktion.
+                                                 Das ✕ in der Pin-Leiste ist seit jeher so gebunden; hier fehlte es. --}}
                                             <template x-if="$store.roomPins?.canPin && !$store.roomPins?.isPinned(m.id)">
-                                                <flux:menu.item icon="map-pin" x-on:click="$store.roomPins.toggle(m.id)">{{ __('Anpinnen') }}</flux:menu.item>
+                                                <flux:menu.item icon="map-pin" x-bind:disabled="$store.roomPins.busy"
+                                                                x-on:click="$store.roomPins.toggle(m.id)">{{ __('Anpinnen') }}</flux:menu.item>
                                             </template>
                                             <template x-if="$store.roomPins?.canUnpin(m.id)">
-                                                <flux:menu.item icon="map-pin" x-on:click="$store.roomPins.toggle(m.id)">{{ __('Loslösen') }}</flux:menu.item>
+                                                <flux:menu.item icon="map-pin" x-bind:disabled="$store.roomPins.busy"
+                                                                x-on:click="$store.roomPins.toggle(m.id)">{{ __('Loslösen') }}</flux:menu.item>
                                             </template>
                                             @endif
                                             {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984) — generisch, auch im Thread. --}}
