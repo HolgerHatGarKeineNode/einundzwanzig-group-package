@@ -50,4 +50,17 @@
     <div @class(['contents', 'xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden' => $desktop])>
         {{ $slot }}
     </div>
+
+    {{-- P4: Die Profilkarte stand bis hierher dreimal einzeln (Raum, Directory,
+         Spaces). Die Befehlspalette adressiert Mitglieder von JEDER Seite aus —
+         auf Einstellungen, Wallet und Neu wäre die Zeile sonst ein Klick ohne
+         Wirkung.
+
+         Bewusst hier und nicht im Layout: `app-frame` ist die Wurzel genau der
+         Seiten, die hinter dem Gate liegen (Spaces, Directory, Updates,
+         Einstellungen, Wallet, Raum) — Login und Beitritt tragen sie nicht. Das
+         ist dieselbe Menge, die `EnsureNostrAuth` schützt, ohne dessen Bedingung
+         ein zweites Mal auszuschreiben. Die Insel ist bis zum ersten
+         `open-profile` untätig (keine Abos im `init`). --}}
+    <x-group::profile-card />
 </div>

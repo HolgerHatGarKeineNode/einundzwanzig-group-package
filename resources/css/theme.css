@@ -387,3 +387,46 @@ select:focus[data-flux-control] {
         background-color: color-mix(in oklab, var(--color-zinc-800) 40%, transparent);
     }
 }
+
+/* ── Befehlspalette (P4) ────────────────────────────────────────────────────
+   Drei Regeln, die Flux' `command`-Stubs ergänzen. Alle drei sind Reparaturen an
+   Stub-Verhalten, keine Kosmetik — die Begründung steht jeweils dabei. */
+
+/* 1. Das Sektions-Sigel einer Zeile (`#` Raum · `@` Mitglied · `/` Space ·
+      `>` Aktion) kommt als `::before` aus dem Attribut, NICHT als Textknoten.
+      Grund: Flux filtert die Optionen über `textContent`
+      (`FilterableGroup.matches`, flux-pro/dist/flux.js) — ein Zeichen im Markup
+      wanderte in jede Suche und träfe Wörter, die es gar nicht enthalten.
+      Generierter Inhalt zählt für `textContent` nicht. */
+[data-palette-sigil]::before {
+    content: attr(data-palette-sigil);
+    flex: none;
+    width: 1ch;
+    margin-inline-end: 0.5rem;
+    color: var(--color-muted);
+    font-weight: 700;
+    text-align: center;
+}
+
+/* Auf der aktiven Zeile brennt das Sigel an — der eine Akzent der Palette, an
+   genau einer Stelle. Die Werte sind gemessen, nicht gewählt: brand-800 auf
+   zinc-100 = 5,9:1, brand-400 auf zinc-800 = 7,4:1 (WCAG 1.4.3 verlangt 4,5:1).
+   brand-700 (der Token `--color-accent-content`) läge im Hellen bei 4,0:1 und
+   fiele damit durch — deshalb steht hier eine Stufe dunkler. */
+[data-palette-sigil][data-active]::before { color: var(--color-brand-800); }
+.dark [data-palette-sigil][data-active]::before { color: var(--color-brand-400); }
+
+/* 2. `flux:command.items` hängt IMMER ein eigenes, englisches `ui-option-empty`
+      an seinen Slot (Stub, nicht abschaltbar) — und sein Sichtbarkeitsschluss
+      trägt hier ohnehin nicht: Flux rechnet ihn nur bei geändertem SUCHTEXT
+      nach, unsere Zeilen entstehen aber aus Alpine bei gleichem Text (Messung
+      und Begründung in `palette.ts`, `_syncHeadings`). Die Palette bringt
+      deshalb ihren eigenen, übersetzten Leerzustand mit; Flux' Knoten bleibt im
+      DOM (er gehört dem Stub) und aus dem Bild. */
+[data-palette-items] > ui-option-empty { display: none; }
+
+/* 3. Der Icon-Slot von `flux:command.input` rendert seinen absolut positionierten
+      Streifen auch dann, wenn kein Icon übergeben wurde (`{{ $icon }}`-Zweig des
+      Stubs). Leer schluckt er die Klicks über den ersten 14px des Feldes — ein
+      Tap dorthin fokussierte das Feld nicht mehr. */
+[data-flux-command-input] > div:first-child:not(:has(svg)) { display: none; }

@@ -390,7 +390,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </flux:modal>
 
-        <x-group::profile-card />
 
     </div>
 
