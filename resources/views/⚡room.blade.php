@@ -128,6 +128,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
                   class="truncate text-xs text-muted" x-text="spaceHint"></span>
         </x-slot:subtitle>
         <x-slot:actions>
+            {{-- Suche im geladenen Verlauf (P6a). Der Knopf steht im Kopf, die Fläche unten in
+                 der Verlaufsspalte — deshalb ein Ereignis statt eines geteilten Zustands
+                 (dasselbe Muster wie `open-command-palette` aus der Bottom-Bar).
+                 Sichtbar genau dann, wenn die Verlaufsspalte selbst sichtbar ist: unterhalb xl
+                 verdrängt ein offener Thread den Verlauf, und eine Suche, deren Ergebnisliste
+                 hinter einem Thread liegt, wäre ein Knopf ins Nichts. --}}
+            {{-- `aria-expanded`/Aktiv-Zustand hängen an einer MELDUNG der Insel
+                 (`room-search-state`), nicht an einem zweiten eigenen Schalter: der Knopf
+                 steht ausserhalb ihres Scopes und wüsste sonst nichts davon, wenn die
+                 Fläche über Escape oder ✕ zugeht. Statisches `aria-expanded="false"` steht
+                 im Markup, damit es vor dem Alpine-Boot stimmt (gleiche Begründung wie
+                 `role`/`aria-modal` am Thread-Panel weiter unten). --}}
+            <flux:button size="xs" variant="ghost" icon="magnifying-glass" square class="icon-btn-touch"
+                         x-show="!threadRootId || $store.viewport?.desktop" x-cloak
+                         x-data="{ expanded: false }"
+                         x-on:room-search-state.window="expanded = $event.detail.open"
+                         aria-expanded="false" aria-controls="room-search-panel"
+                         x-bind:aria-expanded="expanded ? 'true' : 'false'"
+                         x-bind:class="expanded ? 'bg-brand-500/15 text-brand-500!' : ''"
+                         x-on:click="$dispatch('open-room-search')" aria-label="{{ __('Im Raum suchen') }}" />
             {{-- Mitglied → Verlassen (kind 9022). Nur im Raum, nicht im Thread. Beitreten liegt beim Composer. --}}
             <flux:button size="xs" variant="ghost" icon="arrow-right-start-on-rectangle" class="icon-btn-touch"
                          x-show="joined && !threadRootId" x-cloak x-on:click="leave()" ::disabled="joining" aria-label="{{ __('Raum verlassen') }}">
@@ -144,6 +164,112 @@ new #[Layout('group::einundzwanzig')] class extends Component
          Monitor mit 1900px Breite eine Zumutung — genau der mobile Reflex, der auf
          Desktop schlecht altert. --}}
     <div x-show="!threadRootId || $store.viewport?.desktop" class="relative flex min-h-0 flex-1 flex-col">
+
+        {{-- ── Suche im geladenen Verlauf (P6a) ────────────────────────────────────────
+             Eigene Insel (`js/roomSearch.ts`), kein Zustand in `nostrRoomChat` — wie
+             Befehlspalette (P4) und Darstellungs-Schalter (P5). Sie steht IMMER im DOM
+             (nur die Fläche darin ist geschaltet), weil sie sonst das Öffnen-Ereignis aus
+             dem Kopf gar nicht hören könnte.
+
+             Die einzige Naht zur Rauminsel ist `scrollToMessage(hit.id)` weiter unten: eine
+             bestehende Methode über die Scope-Kette, genau wie sie die Zitat-Vorschau in
+             `chat-row` schon benutzt.
+
+             Es wird KEIN Relay gefragt — weder beim Öffnen noch beim Tippen. Gesucht wird im
+             Speicher, in derselben Menge, die der Verlauf darunter rendert (Begründung im
+             Kopf von `js/roomSearch.ts`). Deshalb ist „nichts gefunden" hier auch keine
+             Aussage über den Raum, sondern nur über den geladenen Ausschnitt — und genau das
+             steht unter dem Feld, nicht in einer Fußnote. --}}
+        <div x-data="nostrRoomSearch(@js($h))"
+             x-on:open-room-search.window="toggle(); $nextTick(() => open && $refs.searchInput?.focus())"
+             class="shrink-0">
+            <div x-show="open" x-cloak x-transition.opacity.duration.150ms
+                 id="room-search-panel" role="search"
+                 x-on:keydown.escape.stop.prevent="close()"
+                 class="surface-card mb-2 flex flex-col gap-1.5 p-2">
+
+                <div class="flex items-center gap-2">
+                    {{-- Wrapper-Div: `flux:input` reicht alles ausser `class` an das innere
+                         <input> durch (Stub `flux/input/index.blade.php`), die Breite muss
+                         also aussen sitzen. `x-ref` landet dagegen genau richtig, nämlich
+                         auf dem <input> selbst (gleiches Vorgehen wie in ⚡directory). --}}
+                    <div class="min-w-0 flex-1">
+                        {{-- `class:input` statt `class`: der Stub legt `class` an die HÜLLE
+                             und nur `class:input` ans <input>. Was hier hin muss, ist das
+                             Abschalten der browsereigenen Löschtaste von `type="search"` —
+                             sonst stünden drei Knöpfe nebeneinander, von denen zwei dasselbe
+                             tun (die native, unbeschriftete und die eigene daneben). Bewusst
+                             hier und nicht in `theme.css`: die Rail und der Emoji-Filter
+                             benutzen dieselbe Eingabeart OHNE eigenen Löschknopf, dort ist
+                             die native Taste die einzige. --}}
+                        <flux:input type="search" size="sm" icon="magnifying-glass"
+                                    class:input="[&::-webkit-search-cancel-button]:hidden"
+                                    x-ref="searchInput" x-model="query"
+                                    autocomplete="off" autocorrect="off" spellcheck="false"
+                                    placeholder="{{ __('Nachricht finden…') }}"
+                                    aria-label="{{ __('Im Raum suchen') }}" />
+                    </div>
+                    {{-- Eigener Leeren-Knopf statt Flux' `clearable`: dessen Beschriftung
+                         kommt aus Flux' eigenem Katalog („Clear input", `input/clearable`)
+                         und liegt damit ausserhalb unserer Sprachdateien — ein englisches
+                         Label mitten in einer deutschen Fläche. Eigenes Symbol, nicht
+                         zweimal `x-mark`: leeren und schliessen stünden sonst zeichengleich
+                         nebeneinander. --}}
+                    <flux:button size="sm" variant="ghost" icon="backspace" square class="icon-btn-touch shrink-0"
+                                 x-show="query !== ''" x-cloak x-on:click="clear(); $refs.searchInput?.focus()"
+                                 aria-label="{{ __('Eingabe leeren') }}" />
+                    <flux:button size="sm" variant="ghost" icon="x-mark" square class="icon-btn-touch shrink-0"
+                                 x-on:click="close()" aria-label="{{ __('Suche schließen') }}" />
+                </div>
+
+                {{-- Die Grenze, immer sichtbar — auch bei null Treffern und auch ohne Eingabe.
+                     `role="status"` meldet sie zusätzlich dem Screenreader, sobald sich die
+                     Zahl ändert. Sie nennt den GEMESSENEN Umfang des geladenen Verlaufs;
+                     der Kaltstart-Cache liefert davon höchstens 300 Nachrichten je Raum und
+                     nichts älter als 30 Tage (`js/storage.ts:138-139`), im Laufe der Sitzung
+                     wächst er durch Nachladen. Deshalb steht hier die laufende Zahl und nicht
+                     die Konstante — sie wäre nur beim Kaltstart wahr. --}}
+                <p role="status" class="px-1 text-xs text-muted"
+                   x-text="query.trim() === ''
+                       ? @js(__('Durchsucht wird nur der geladene Verlauf dieses Raums: :count Nachrichten.')).replace(':count', searched)
+                       : @js(__(':total Treffer im geladenen Verlauf (:count Nachrichten durchsucht).')).replace(':total', total).replace(':count', searched)"></p>
+
+                {{-- Null Treffer ist NICHT „gibt es nicht". Der Satz sagt, was fehlt und was
+                     dagegen hilft — Nachladen passiert beim Hochscrollen von selbst. --}}
+                <p x-show="query.trim() !== '' && total === 0" x-cloak class="px-1 text-xs text-muted">
+                    {{ __('Ältere Nachrichten sind erst durchsuchbar, wenn sie geladen sind — scroll dazu im Verlauf nach oben.') }}
+                </p>
+
+                <p x-show="capped" x-cloak class="px-1 text-xs text-muted"
+                   x-text="@js(__('Gezeigt werden die neuesten :limit Treffer — grenze die Suche weiter ein.')).replace(':limit', limit)"></p>
+
+                {{-- Trefferliste. Gedeckelte Höhe: die Fläche sitzt ÜBER dem Verlauf und darf
+                     ihn nicht verdrängen. Klick springt in den Verlauf und lässt die Liste
+                     stehen — wer sucht, prüft meist mehr als einen Treffer. --}}
+                <ul x-show="hits.length > 0" x-cloak class="max-h-64 overflow-y-auto">
+                    <template x-for="hit in hits" :key="hit.id">
+                        <li>
+                            <button type="button" x-on:click="scrollToMessage(hit.id)"
+                                    class="pressable block w-full rounded-tile px-2 py-1.5 text-left hover:bg-brand-500/5">
+                                <span class="flex items-baseline gap-2">
+                                    <span class="min-w-0 truncate text-xs font-semibold">
+                                        <template x-for="(seg, i) in hit.nameSegments" :key="i">
+                                            <span :class="seg.hit ? 'rounded-sm bg-brand-500/25' : ''" x-text="seg.text"></span>
+                                        </template>
+                                    </span>
+                                    <span class="ms-auto shrink-0 font-mono text-[0.7rem] text-muted" x-text="hit.time"></span>
+                                </span>
+                                <span class="mt-0.5 block text-sm break-words">
+                                    <template x-for="(seg, i) in hit.segments" :key="i">
+                                        <span :class="seg.hit ? 'rounded-sm bg-brand-500/25 font-semibold' : ''" x-text="seg.text"></span>
+                                    </template>
+                                </span>
+                            </button>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+        </div>
 
         {{-- Ladefehler (Relay nicht erreichbar / AUTH-Reject): persistenter Callout + Retry. --}}
         <template x-if="error">

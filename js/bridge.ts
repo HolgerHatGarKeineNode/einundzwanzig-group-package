@@ -41,6 +41,7 @@ import { wireViewport } from './viewport'
 import { wireRail } from './rail'
 import { wirePalette } from './palette'
 import { wireDisplayPrefs } from './displayPrefs'
+import { wireRoomSearch } from './roomSearch'
 import { dispatchModal } from './modal'
 import {
     groupSpaceChoices,
@@ -1379,6 +1380,10 @@ export function registerNostrComponents(Alpine: {
     // P5 — Darstellungs-Schalter der Einstellungen (Zitat-/Profilkarten). Gleiche Bauart
     // und gleiche Begründung wie die Palette: eigene Insel, kein Zustand in `nostrRoomChat`.
     wireDisplayPrefs(Alpine)
+    // P6a — Suche im geladenen Verlauf eines Raums. Wieder eigene Insel; die einzige
+    // Berührung mit `nostrRoomChat` ist ein `scrollToMessage(id)` aus dem Markup heraus
+    // (Scope-Kette), so wie es die Zitat-Vorschau in `chat-row` schon tut.
+    wireRoomSearch(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').

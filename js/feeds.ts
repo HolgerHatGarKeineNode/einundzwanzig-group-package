@@ -277,8 +277,13 @@ const dayLabel = (ts: number): string => {
 const timeLabel = (ts: number): string =>
     new Date(ts * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 
-/** Volles Datum+Uhrzeit für den Zeilen-Tooltip (`:title`). */
-const fullTimeLabel = (ts: number): string =>
+/**
+ * Volles Datum+Uhrzeit für den Zeilen-Tooltip (`:title`) — und für jede Zeile, die
+ * ausserhalb des Verlaufs steht (P6a: die Trefferliste der Raumsuche). Dort ist die
+ * blosse Uhrzeit wertlos: die Treffer stammen aus mehreren Tagen und stehen ohne
+ * Datumstrenner untereinander.
+ */
+export const fullTimeLabel = (ts: number): string =>
     new Date(ts * 1000).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
 
 /** Kompakte Vorschau der zitierten Nachricht (aufgelöst im selben Raum). */
