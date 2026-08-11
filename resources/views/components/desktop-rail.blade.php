@@ -72,8 +72,16 @@
                    x-bind:placeholder="scope.group || scope.country ? @js(__('Filtern…')) : @js(__('Raum springen'))"
                    aria-label="{{ __('Raum springen') }}" />
 
-            <kbd x-show="!query && !focused" aria-hidden="true"
-                 class="shrink-0 rounded bg-black/5 px-1 font-mono text-[0.65rem] text-muted dark:bg-white/10">⌘K</kbd>
+            {{-- Seit P4 öffnet ⌘K die Befehlspalette, nicht mehr dieses Feld. Die
+                 Kappe blieb deshalb nicht als Dekoration stehen, sondern wurde zu
+                 dem Knopf, den sie beschriftet — sonst bewürbe sie an dieser
+                 Stelle eine Taste, die etwas anderes tut. Das Feld daneben bleibt,
+                 was es war: der lokale Filter dieser Spalte. --}}
+            <button type="button" x-show="!query && !focused"
+                    x-on:click.stop.prevent="$dispatch('open-command-palette')"
+                    aria-label="{{ __('Befehlspalette öffnen') }}" aria-haspopup="dialog"
+                    aria-keyshortcuts="Meta+K Control+K"
+                    class="pressable inline-flex h-6 shrink-0 items-center rounded bg-black/5 px-1.5 font-mono text-[0.65rem] text-muted transition-colors hover:text-zinc-900 dark:bg-white/10 dark:hover:text-zinc-100">⌘K</button>
         </label>
 
         {{-- Die einzige Fläche, die scrollt. `min-h-0` ist Pflicht: ohne das

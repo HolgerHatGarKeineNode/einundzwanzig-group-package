@@ -930,6 +930,5 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      aria-label="{{ __('Schließen') }}" />
     </div>
 
-    <x-group::profile-card />
 </div>
 </x-group::app-frame>

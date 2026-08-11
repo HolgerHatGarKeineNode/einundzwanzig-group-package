@@ -39,6 +39,8 @@ import { schedulePortalHandoff } from './portal-handoff'
 import { regionName } from './countryNames'
 import { wireViewport } from './viewport'
 import { wireRail } from './rail'
+import { wirePalette } from './palette'
+import { dispatchModal } from './modal'
 import {
     groupSpaceChoices,
     activeSpace,
@@ -345,25 +347,6 @@ type CropperLike = {
 // (offset-Messungen, Element-Identität) verfälscht → versetzte Doppelanzeige. Es gibt
 // nie mehr als einen offenen Cropper, darum genügt eine Modul-Variable.
 let cropperInstance: CropperLike | null = null
-
-/**
- * Öffnet/schließt ein Flux-Modal per Name (Flux lauscht auf modal-show/-close).
- * Beim Öffnen den auslösenden Fokus merken und beim Schließen zurückgeben — nur
- * `flux:modal.trigger` macht das von selbst; JS-geöffnete Modals (role-form,
- * member-roles, delete-message) ließen den Fokus sonst ins Leere fallen (A11y).
- * Hängt einmalig am nativen `close`-Event des <dialog> (feuert auch bei Escape/
- * Backdrop) → deckt jeden Schließweg ab, ohne pro Modal Markup zu berühren.
- */
-const dispatchModal = (name: string, show = true): void => {
-    if (show) {
-        const trigger = document.activeElement
-        const dialog = document.querySelector(`dialog[data-modal="${name}"]`)
-        if (dialog && trigger instanceof HTMLElement) {
-            dialog.addEventListener('close', () => trigger.focus(), { once: true })
-        }
-    }
-    document.dispatchEvent(new CustomEvent(show ? 'modal-show' : 'modal-close', { detail: { name } }))
-}
 
 /**
  * `nostr:nevent…` einer Nachricht (NIP-19/21): gesehene Relays als Hints, sonst
@@ -1389,6 +1372,9 @@ export function registerNostrComponents(Alpine: {
     // keine native App?") — `isMobile` kennt nur dieses Modul, also reicht es das durch.
     wireViewport(Alpine, { nativeApp: isMobile })
     wireRail(Alpine)
+    // P4 — Befehlspalette (⌘K) und Kürzel-Register. Eigene Insel im Layout, kein
+    // Zustand in `nostrRoomChat`; das hier ist alles, was `bridge.ts` von ihr weiß.
+    wirePalette(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').

@@ -508,15 +508,13 @@ export const createRail = (): RailState => ({
 
         // ── Tastatur ────────────────────────────────────────────────────────────
         // Nur hier registriert, und die Rail existiert nur ab xl (`x-if` am
-        // Viewport-Store) — auf dem Telefon läuft dieser Listener also nie.
-        // ⌘K greift AUCH aus dem Composer: es ist der Sprung WEG vom Schreiben.
+        // Viewport-Store) — auf dem Telefon läuft dieser Listener also nie. Genau
+        // das ist der Grund, warum ⌘K hier NICHT mehr steht: es ist in P4 in die
+        // Befehlspalette umgezogen (`palette.ts`, einmal im Layout, viewport-
+        // unabhängig). Ein zweiter Zweig hier wäre kein Zusatz, sondern ein
+        // zweiter Handler pro Tastendruck. Alt+↑/↓ bleibt, weil die Raumliste,
+        // durch die es blättert, hier liegt.
         this._onKey = (e: KeyboardEvent): void => {
-            if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
-                e.preventDefault()
-                this.focusPrompt()
-
-                return
-            }
             if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
                 e.preventDefault()
                 this.step(e.key === 'ArrowDown' ? 1 : -1)

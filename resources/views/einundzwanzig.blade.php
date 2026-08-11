@@ -34,6 +34,12 @@
          `authGate`-Store sein `open-login-sheet`-Event immer abfangen kann. --}}
     <x-group::login-sheet />
 
+    {{-- P4: Befehlspalette (⌘K) und Kürzel-Register. Aus demselben Grund hier und
+         nicht in der Rail: außerhalb des $slot überlebt sie `wire:navigate` und
+         steht auf JEDER Breite. Die Rail existiert erst ab `xl` — dort hing der
+         Listener vorher, unterhalb gab es ⌘K also gar nicht. --}}
+    <x-group::command-palette />
+
     {{-- Ziel für Insel-Toasts (Publish-Fehler etc.), per `toast-show`-Event. --}}
     <flux:toast position="bottom center" />
 

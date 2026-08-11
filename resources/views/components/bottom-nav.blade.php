@@ -54,23 +54,40 @@
     {{-- Statische Spaltenklasse (JIT-sicher, beide Literale im Quelltext) je realer
          Tab-Zahl: Web 3 · Mobile 4. --}}
     @php($cols = count($items) === 4 ? 'grid-cols-4' : 'grid-cols-3')
-    <div class="grid {{ $cols }}">
-        {{-- `unreadDot` ist eine reine LESE-Ableitung aus dem bestehenden `key`
-             (existiert in allen drei Nav-Registries: Package-Default, Web-Host,
-             Mobile-Host-Unified). Die Config bleibt unangetastet, kein Eintrag
-             kommt hinzu, `count($items)` und damit die Spaltenklasse ändern sich
-             nicht. Fehlt der Key in einer fremden Registry, ist das Ergebnis
-             `false` → kein Punkt, kein Fehler. --}}
-        @foreach ($items as $item)
-            <x-group::nav-tab
-                :route="$item['route']"
-                :match="$item['match'] ?? null"
-                :icon="$item['icon']"
-                :label="$item['label']"
-                :gate="$item['gate'] ?? 'guest'"
-                :unread-dot="($item['key'] ?? null) === 'chat'"
-            />
-        @endforeach
+    {{-- P4: Die Lupe ist der mobile Eingang in die Befehlspalette — hier gibt es
+         kein ⌘K. Bewusst NEBEN dem Raster statt als weiterer Eintrag in
+         `config('group.nav')`: die Spaltenklasse hängt an `count($items)`, ein
+         zusätzlicher Eintrag verschöbe sie in drei Hosts gleichzeitig. Als feste
+         Spalte davor bleibt das Raster unverändert, in jedem Host. --}}
+    <div class="flex items-stretch">
+        <button type="button" data-palette-open
+                x-data
+                x-on:click="$dispatch('open-command-palette')"
+                aria-label="{{ __('Suchen und springen') }}"
+                aria-haspopup="dialog"
+                class="pressable flex min-h-14 w-14 shrink-0 flex-col items-center justify-center gap-1 text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200">
+            <flux:icon.magnifying-glass class="size-6" />
+            <span class="text-[11px] font-semibold leading-none">{{ __('Suche') }}</span>
+        </button>
+
+        <div class="grid flex-1 {{ $cols }}">
+            {{-- `unreadDot` ist eine reine LESE-Ableitung aus dem bestehenden `key`
+                 (existiert in allen drei Nav-Registries: Package-Default, Web-Host,
+                 Mobile-Host-Unified). Die Config bleibt unangetastet, kein Eintrag
+                 kommt hinzu, `count($items)` und damit die Spaltenklasse ändern sich
+                 nicht. Fehlt der Key in einer fremden Registry, ist das Ergebnis
+                 `false` → kein Punkt, kein Fehler. --}}
+            @foreach ($items as $item)
+                <x-group::nav-tab
+                    :route="$item['route']"
+                    :match="$item['match'] ?? null"
+                    :icon="$item['icon']"
+                    :label="$item['label']"
+                    :gate="$item['gate'] ?? 'guest'"
+                    :unread-dot="($item['key'] ?? null) === 'chat'"
+                />
+            @endforeach
+        </div>
     </div>
 </nav>
 @endif
