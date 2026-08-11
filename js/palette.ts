@@ -271,12 +271,11 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         const all = [...toPaletteRooms(self._space, false), ...toPaletteRooms(self._workspace, true)]
         // Ruhezustand: die zuletzt benutzten fünf. Sobald gesucht oder eingegrenzt
         // wird, der volle Bestand — Flux blendet daraus aus, was nicht passt.
-        if (!self.hasScope && self.query.trim() === '') {
-            return recentRooms(all).map((r) => ({ ...r, hint: self._hintFor(r) }))
-        }
+        const shown = !self.hasScope && self.query.trim() === ''
+            ? recentRooms(all)
+            : scopedRooms(all, self.scope, (r) => self.presentations[r.meetupSlug ?? '']?.country ?? '')
 
-        return scopedRooms(all, self.scope, (r) => self.presentations[r.meetupSlug ?? '']?.country ?? '')
-            .map((r) => ({ ...r, hint: self._hintFor(r) }))
+        return shown.map((r) => ({ ...r, hint: self._hintFor(r) }))
     },
 
     get memberItems(): MemberView[] {
@@ -483,13 +482,6 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
     // ── Sektionsköpfe ───────────────────────────────────────────────────────
 
     /**
-     * Eine Überschrift ohne sichtbare Zeile darunter ist eine Lüge über das
-     * Ergebnis. Flux kennt keine Gruppen (kein `command.group` in den Stubs), also
-     * wird die Sichtbarkeit hier geführt — aber ABGELEITET aus Flux' Ergebnis:
-     * gelesen wird `[data-hidden]`, das der Filter selbst setzt. Kein zweiter
-     * Textabgleich, keine zweite Wahrheit.
-     */
-    /**
      * Der Wurzelknoten dieser Insel. Bewusst `$el` und nicht `$refs`: Alpine
      * initialisiert die Wurzel VOR ihren Kindern, in `init()` ist `$refs` also
      * noch leer — der Beobachter unten hing damit an nichts, und die
@@ -499,6 +491,13 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         return (this as unknown as { $el?: HTMLElement }).$el ?? null
     },
 
+    /**
+     * Eine Überschrift ohne sichtbare Zeile darunter ist eine Lüge über das
+     * Ergebnis. Flux kennt keine Gruppen (kein `command.group` in den Stubs), also
+     * wird die Sichtbarkeit hier geführt — aber ABGELEITET aus Flux' Ergebnis:
+     * gelesen wird `[data-hidden]`, das der Filter selbst setzt. Kein zweiter
+     * Textabgleich, keine zweite Wahrheit.
+     */
     _syncHeadings(): void {
         const root = this._el()?.querySelector<HTMLElement>('[data-palette-items]')
         if (!root) {
@@ -662,5 +661,5 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
 })
 
 export function wirePalette(Alpine: { data: (name: string, factory: (...args: unknown[]) => unknown) => void }): void {
-    Alpine.data('nostrPalette', ((config: PaletteConfig = {}) => createPalette(config)) as (...args: unknown[]) => unknown)
+    Alpine.data('nostrPalette', createPalette as (...args: unknown[]) => unknown)
 }
