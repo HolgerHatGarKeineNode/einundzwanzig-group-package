@@ -74,6 +74,64 @@
                                     <div class="truncate text-xs text-muted" x-text="m.reply.text"></div>
                                 </button>
                             </template>
+                            {{-- Zitatkarte (P5): eine im TEXT referenzierte Nachricht (`nostr:nevent…`/`note…`).
+                                 Erbt die Form der Reply-Vorschau darüber (`border-l-2 border-brand-500/60 pl-2`,
+                                 `truncate`) — dieselbe Sache, dieselbe Gestalt. Höchstens drei Zeilen:
+                                 Autor (1) + Ausschnitt (2). `m.refCard` ist bereits exklusiv: eine Nachricht
+                                 mit `m.reply` bekommt keine Karte (feeds.ts buildRefCard), es steht also nie
+                                 beides übereinander.
+
+                                 Unaufgelöst bleibt die Karte STEHEN und zeigt die gekürzte Kennung — beide
+                                 Zeilen sind dann gefüllt, sie fällt nicht zusammen.
+
+                                 Ein `<a>` und kein `<button>`, weil der Deep-Link teilbar sein muss
+                                 (Mittelklick/„in neuem Tab") — gleiche Bauart wie die Thread-Pille weiter
+                                 unten. Der Klick hat drei Ausgänge, und keiner davon ist wirkungslos:
+                                 im geladenen Fenster springt er dorthin; sonst öffnet ein AUFGELÖSTES Zitat
+                                 den Thread warm (openThread braucht id + pubkey, beide liegen vor); ein
+                                 unaufgelöstes navigiert normal über den href, weil dafür die Wurzel fehlt. --}}
+                            <template x-if="m.refCard && m.refCard.kind === 'event'">
+                                {{-- BEWUSST OHNE `aria-label`: der zugängliche Name entsteht aus dem Inhalt
+                                     (Autor + Ausschnitt bzw. „Zitiertes Ereignis" + Kennung) und ist damit
+                                     genauer als jede feste Beschriftung. Ein zusammengesetzter Label
+                                     (`__('… von ') + name + __(' öffnen')`) hätte zudem die deutsche
+                                     Wortstellung in alle sieben Sprachen gezwungen. --}}
+                                <a :href="m.refCard.href"
+                                   x-on:click="
+                                       $event.stopPropagation();
+                                       if ($event.metaKey || $event.ctrlKey || $event.shiftKey) { return }
+                                       if (m.refCard.scroll) { $event.preventDefault(); scrollToMessage(m.refCard.id) }
+                                       else if (m.refCard.resolved) { $event.preventDefault(); openThread({ id: m.refCard.id, pubkey: m.refCard.pubkey }) }
+                                   "
+                                   class="pressable mt-0.5 mb-1 block w-full border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500">
+                                    <div class="truncate text-xs font-semibold text-brand-500"
+                                         x-text="m.refCard.resolved ? m.refCard.name : @js(__('Zitiertes Ereignis'))"></div>
+                                    {{-- HIER NIEMALS `block` dazuschreiben: `line-clamp-2` bringt sein eigenes
+                                         `display:-webkit-box` mit, `.block` hat dieselbe Spezifität und steht im
+                                         gebauten Bundle SPÄTER — die Kappung fiele still aus (gemessen in P4,
+                                         siehe ⚡updates.blade.php:233). Das `block` dieser Karte sitzt am <a>,
+                                         also an einem anderen Element, und ist deshalb unbedenklich. --}}
+                                    <div class="line-clamp-2 text-xs text-muted"
+                                         x-text="m.refCard.resolved ? m.refCard.text : m.refCard.short"></div>
+                                </a>
+                            </template>
+                            {{-- Profil-Chip (P5): ein im Text referenziertes Profil (`nostr:npub…`/`nprofile…`).
+                                 EINE Zeile, gleiche Randmarke wie das Zitat. Der Klick geht an das bestehende
+                                 `profile-card`-Modal — mit HEX-pubkey, nicht npub (das erwartet `open-profile`).
+                                 `.stop`, weil die Zeile selbst einen Klick-Handler trägt. Das Häkchen sitzt im
+                                 gleichen festen 16px-Slot wie in der Autorenzeile, damit das spät verifizierte
+                                 NIP-05 den Namen nicht verschiebt. --}}
+                            <template x-if="m.refCard && m.refCard.kind === 'profile'">
+                                <button type="button" x-on:click.stop="$dispatch('open-profile', m.refCard.pubkey)"
+                                        :aria-label="@js(__('Profil anzeigen')) + ': ' + m.refCard.name"
+                                        class="pressable mt-0.5 mb-1 flex w-full min-w-0 items-center gap-1.5 border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500">
+                                    <x-group::nostr-avatar picture="m.refCard.picture" name="m.refCard.name" size="1.5rem" />
+                                    <span class="min-w-0 truncate text-xs font-semibold text-brand-500" x-text="m.refCard.name"></span>
+                                    <span class="inline-flex size-4 shrink-0 items-center justify-center">
+                                        <x-group::nostr-nip05 nip05="m.refCard.nip05" />
+                                    </span>
+                                </button>
+                            </template>
                             {{-- Thread-Kommentar (P3): Eltern-Bezug „Antwort auf <Autor>" (NIP-22 kleines `e`,
                                  via replyToName). Im Raum-Feed undefined → nie gerendert; ersetzt die
                                  frühere depth-Einrückung (flach/Slack-Stil). --}}

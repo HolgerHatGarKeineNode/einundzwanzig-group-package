@@ -40,6 +40,7 @@ import { regionName } from './countryNames'
 import { wireViewport } from './viewport'
 import { wireRail } from './rail'
 import { wirePalette } from './palette'
+import { wireDisplayPrefs } from './displayPrefs'
 import { dispatchModal } from './modal'
 import {
     groupSpaceChoices,
@@ -1375,6 +1376,9 @@ export function registerNostrComponents(Alpine: {
     // P4 — Befehlspalette (⌘K) und Kürzel-Register. Eigene Insel im Layout, kein
     // Zustand in `nostrRoomChat`; das hier ist alles, was `bridge.ts` von ihr weiß.
     wirePalette(Alpine)
+    // P5 — Darstellungs-Schalter der Einstellungen (Zitat-/Profilkarten). Gleiche Bauart
+    // und gleiche Begründung wie die Palette: eigene Insel, kein Zustand in `nostrRoomChat`.
+    wireDisplayPrefs(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').

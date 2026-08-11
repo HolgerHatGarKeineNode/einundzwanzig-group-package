@@ -7,7 +7,7 @@
  * NIP-29: Room-Nachrichten sind **kind 9** (`MESSAGE`) mit `#h`=Room-ID, auf dem
  * Space-Relay. AUTH (NIP-42) läuft automatisch über die Socket-Policy.
  */
-import { derived, get, type Readable } from 'svelte/store'
+import { derived, get, writable, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
 import { profilesByPubkey, publishThunk, pubkey, repository, displayProfileByPubkey, handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
@@ -25,6 +25,10 @@ import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from '.
 import { DEFAULT_RELAYS, proxifyImage } from './core'
 import { contentEmojiTags } from './emoji'
 import { linkDisplay, isPlausibleUrl } from './chatLinks'
+import { firstNostrRef, refClickTarget, refThreadPath, shortenEntity, withShortRefTokens, type NostrRef } from './nostrEventLink'
+import { quoteCardsEnabled } from './displayPrefs'
+import { withSpace } from './spaceParam'
+import { withOrigin } from './updatesView'
 import { warmProfiles } from './profiles'
 import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
@@ -280,6 +284,46 @@ const fullTimeLabel = (ts: number): string =>
 /** Kompakte Vorschau der zitierten Nachricht (aufgelöst im selben Raum). */
 export type ReplyPreview = { id: string; name: string; text: string }
 
+/**
+ * Zitatkarte (P5): eine im Nachrichtentext referenzierte Nachricht (`nostr:nevent…`/`note…`).
+ *
+ * `resolved=false` ist ein vollwertiger Zustand, kein Ladefehler: die Karte steht, zeigt die
+ * gekürzte Kennung und behält ihre Fläche. `href` ist IMMER gesetzt — auch unaufgelöst —
+ * damit in keinem der drei Klickfälle ein toter Knopf entsteht.
+ */
+export type QuoteCard = {
+    kind: 'event'
+    id: string
+    /** bech32 ohne `nostr:` (Deep-Link-Bauteil). */
+    entity: string
+    /** Gekürzte Kennung für den unaufgelösten Zustand. */
+    short: string
+    /** Thread-Deep-Link inkl. `?from=`/`?space=` — immer gesetzt. */
+    href: string
+    /** `true` ⇒ Klick springt im Verlauf (`scrollToMessage`), sonst Deep-Link. */
+    scroll: boolean
+    resolved: boolean
+    /**
+     * Autor der zitierten Nachricht (hex); `''`, solange unaufgelöst. Er ist der Grund, warum
+     * ein aufgelöstes Zitat WARM geöffnet werden kann (`openThread` braucht id + pubkey), ein
+     * unaufgelöstes dagegen über den `href` normal navigiert.
+     */
+    pubkey: string
+    /** Anzeigename der zitierten Nachricht; `''`, solange unaufgelöst. */
+    name: string
+    /** Textausschnitt der zitierten Nachricht; `''`, solange unaufgelöst. */
+    text: string
+}
+
+/**
+ * Profil-Chip (P5): ein im Nachrichtentext referenziertes Profil (`nostr:npub…`/`nprofile…`).
+ * `pubkey` ist HEX — `open-profile` erwartet hex, nicht npub.
+ */
+export type ProfileCard = { kind: 'profile'; pubkey: string; name: string; picture: string; nip05: string }
+
+/** Die eine Karte einer Nachricht (P5) — Ereignis schlägt Profil, `reply` schlägt beide. */
+export type RefCard = QuoteCard | ProfileCard
+
 /** Ein Gesicht (Teilnehmer) im Antworten-Indikator eines Threads. */
 export type ThreadFace = { pubkey: string; name: string; picture: string }
 
@@ -440,6 +484,12 @@ export type ChatMessage = {
     showAuthor: boolean // erster Beitrag eines Autor-Blocks (Gruppierung)
     mine: boolean // vom eingeloggten User verfasst (→ löschbar, M5)
     reply: ReplyPreview | null // zitierte Nachricht (q-Tag), im Fenster aufgelöst — sonst null
+    // Genau EINE Karte aus dem Nachrichtentext (P5): Zitat (`nostr:nevent…`/`note…`) oder
+    // Profil-Chip (`nostr:npub…`/`nprofile…`). null, wenn der Text keine NIP-21-Referenz
+    // trägt, die Nachricht bereits eine `reply`-Vorschau zeigt, oder der Nutzer die Karten
+    // abgeschaltet hat. Bewusst ein eigenes Feld und NICHT Teil von `html`: der `htmlCache`
+    // friert ein, was er aufnimmt — ein Auflösungszustand hätte dort nichts zu suchen.
+    refCard: RefCard | null
     thread: ThreadSummary | null // Slack-artige Antworten-Zusammenfassung (kind 1111, C6b); null = keine Antworten
     reactions: ReactionChip[] // aggregierte kind-7-Reactions (C1), leer = keine
     poll: PollView | null // NIP-88-Poll (kind 1068) mit Live-Tally + eigenem Vote (C5), sonst null
@@ -553,10 +603,191 @@ export type ChatBuildCtx = {
     $handles: Parameters<typeof verifiedNip05>[2]
     $zappers: Map<string, Zapper>
     byId: Map<string, TrustedEvent>
+    // ── P5-Karten ────────────────────────────────────────────────────────────────────
+    // Aufgelöste Ereignisse der Zitatkarten, nach id. Der Bau liest AUSSCHLIESSLICH hier
+    // (nicht direkt im Repository), damit `toChatMessage` eine Funktion seines Kontexts
+    // bleibt und ohne Store-Runtime prüfbar ist.
+    refEvents: Map<string, TrustedEvent>
+    // Aktueller Raum (`h`) — Rückfall für den Deep-Link, wenn der Raum des zitierten
+    // Ereignisses unbekannt ist.
+    h: string
+    // `window.location.search` zum Emit-Zeitpunkt: `withOrigin`/`withSpace` reichen Herkunft
+    // und Space-Markierung an den Deep-Link durch (gleiche Pflicht wie `bridge.ts threadHref`).
+    search: string
+    // Karten überhaupt bauen? Aus = gar keine Karte, nicht bloß eine unsichtbare.
+    cards: boolean
     commentsByRoot: Map<string, TrustedEvent[]>
     reactionsByTarget: Map<string, TrustedEvent[]>
     pollResponsesByTarget: Map<string, TrustedEvent[]>
     zapsByTarget: Map<string, TrustedEvent[]>
+}
+
+/**
+ * Die NIP-21-Referenz eines Events, memoisiert (P5).
+ *
+ * Der Body eines Events ändert sich nie → einmal suchen reicht. Ohne diesen Cache liefe
+ * {@link firstNostrRef} bei JEDEM Emit über JEDE Nachricht, und das sind bei zehn reaktiven
+ * Quellen einige Durchläufe pro Sekunde. Gleiche Bauart und gleicher Zweck wie
+ * {@link mentionPkCache}; wird zusammen mit ihm geräumt ({@link evictChatMsgCache}).
+ */
+const refCache = new Map<string, NostrRef | null>()
+const eventRef = (event: TrustedEvent): NostrRef | null => {
+    let ref = refCache.get(event.id)
+    if (ref === undefined) {
+        ref = firstNostrRef(bodyWithoutQuote(event))
+        refCache.set(event.id, ref)
+    }
+    return ref
+}
+
+/**
+ * Nachgeladene Zitat-Ereignisse — und der Grund, warum es diesen Store überhaupt gibt.
+ *
+ * **Ohne ihn bliebe jede Karte für immer im Leerzustand.** Alle Ableitungsquellen des
+ * Chat-Feeds sind auf `#h` (Raum) oder einen Kind gefiltert; welshmans `deriveEventsById`
+ * emittiert nur, wenn ein eintreffendes Event `matchFilters` erfüllt
+ * (`@welshman/store` `repository.js:16-19`). Ein per `load({ids})` nachgeholtes Zitat aus
+ * einem anderen Raum passt in KEINEN dieser Filter: es landet im Repository, ohne dass
+ * `deriveRoomChat` davon erfährt. Der Store ist die fehlende Benachrichtigung — er hängt als
+ * eigene Quelle in der Ableitung und emittiert genau dann, wenn ein Nachladen etwas erbracht
+ * hat.
+ *
+ * Er wird ausschließlich ASYNCHRON beschrieben (im `then` des Ladens), nie während eines
+ * Ableitungsdurchlaufs — ein synchrones `set` auf eine eigene Abhängigkeit löste den Durchlauf
+ * mitten in sich selbst erneut aus.
+ */
+const refEventStore = writable<Map<string, TrustedEvent>>(new Map())
+
+/** Bereits angefragte Zitat-IDs — kein zweiter Netzweg für dasselbe Ereignis. */
+const refRequested = new Set<string>()
+
+/**
+ * Fehlende Zitat-Ereignisse nachladen (fire-and-forget, dedupliziert) — Muster
+ * {@link warmProfiles}/`warmZappers`.
+ *
+ * **Relay-Wahl: Space-Relay + `DEFAULT_RELAYS`, ausdrücklich NICHT die Hints aus dem
+ * `nevent`.** Ein `nevent` steht im Text einer fremden Nachricht; seine Relay-Hints sind
+ * damit vom Absender frei wählbar, und ein Verbindungsversuch dorthin wäre eine vom Absender
+ * gesteuerte Preisgabe der IP-Adresse jedes Lesers. Der Gegenwert wäre gering: ein Zitat aus
+ * unserem Space liegt ohnehin auf dem Space-Relay. Dieselbe feste, app-eigene Relay-Menge
+ * benutzt bereits {@link loadRoomZaps}. Wer die Reichweite später doch braucht, hebt die
+ * Entscheidung hier auf — an einer Stelle, mit dieser Begründung davor.
+ */
+const warmRefEvents = (url: string, ids: string[]): void => {
+    const missing = ids.filter((id) => !refRequested.has(id) && !repository.getEvent(id))
+    if (missing.length === 0) {
+        return
+    }
+    missing.forEach((id) => refRequested.add(id))
+    void load({ relays: uniq([url, ...DEFAULT_RELAYS]), filters: [{ ids: missing }] })
+        .then((events) => {
+            const found = events.filter((e) => missing.includes(e.id))
+            if (found.length === 0) {
+                // Nichts gefunden: die Karte bleibt im Leerzustand — kein Emit, kein Neubau.
+                return
+            }
+            refEventStore.update((current) => {
+                const next = new Map(current)
+                for (const event of found) {
+                    next.set(event.id, event)
+                }
+                return next
+            })
+        })
+        .catch(() => {
+            // Netz/Relay weg → die Karte bleibt bei ihrer Kennung. Ein erneuter Versuch
+            // käme beim nächsten Insel-Start (`refRequested` lebt nur in diesem Modul).
+        })
+}
+
+/**
+ * Auflösungstabelle der Zitat-Ereignisse für EINEN Ableitungsdurchlauf.
+ *
+ * Zwei Quellen, in dieser Reihenfolge: das Repository (synchron, deckt alles ab, was der
+ * Client ohnehin schon hat) und der Nachlade-Store. Was hier fehlt, wird angefragt.
+ */
+const collectRefEvents = (url: string, events: TrustedEvent[], loaded: Map<string, TrustedEvent>): Map<string, TrustedEvent> => {
+    const resolved = new Map<string, TrustedEvent>()
+    const missing: string[] = []
+    for (const event of events) {
+        const ref = eventRef(event)
+        if (ref?.kind !== 'event') {
+            continue
+        }
+        const found = repository.getEvent(ref.id) ?? loaded.get(ref.id)
+        if (found) {
+            resolved.set(ref.id, found)
+        } else {
+            missing.push(ref.id)
+        }
+    }
+    if (missing.length > 0) {
+        warmRefEvents(url, uniq(missing))
+    }
+    return resolved
+}
+
+/** Die pubkeys, deren Profil eine Karte dieses Feeds anzeigt (Chip-Person + Zitat-Autor). */
+const refCardPubkeys = (events: TrustedEvent[], refEvents: Map<string, TrustedEvent>): string[] => {
+    const pks: string[] = []
+    for (const event of events) {
+        const ref = eventRef(event)
+        if (ref?.kind === 'profile') {
+            pks.push(ref.pubkey)
+        } else if (ref?.kind === 'event') {
+            const quoted = refEvents.get(ref.id)
+            if (quoted) {
+                pks.push(quoted.pubkey)
+            }
+        }
+    }
+    return pks
+}
+
+/**
+ * Die eine Karte einer Nachricht (P5) — oder `null`.
+ *
+ * Rangfolge, absichtlich in dieser Reihenfolge:
+ * 1. Karten abgeschaltet ⇒ nichts.
+ * 2. Die Nachricht zeigt bereits eine `reply`-Vorschau (q-Tag) ⇒ nichts. Sonst stünden zwei
+ *    Zitate übereinander — und bei einer Antwort wäre das zweite dasselbe wie das erste.
+ * 3. Ereignis-Referenz ⇒ Zitatkarte. 4. Profil-Referenz ⇒ Chip.
+ */
+const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPreview | null): RefCard | null => {
+    if (!ctx.cards || reply) {
+        return null
+    }
+    const ref = eventRef(event)
+    if (ref === null) {
+        return null
+    }
+    if (ref.kind === 'profile') {
+        return {
+            kind: 'profile',
+            pubkey: ref.pubkey,
+            name: displayProfileByPubkey(ref.pubkey),
+            picture: ctx.$profiles.get(ref.pubkey)?.picture ?? '',
+            nip05: verifiedNip05(ref.pubkey, ctx.$profiles, ctx.$handles),
+        }
+    }
+    const quoted = ctx.refEvents.get(ref.id)
+    // Der Deep-Link steht auch ohne aufgelöstes Ereignis: die Ziel-ID steckt in der Kennung
+    // selbst, `openThread` lädt daraus per id. So bleibt kein Klickfall ohne Wirkung.
+    const base = refThreadPath(ref.entity, quoted ? (getTagValue('h', quoted.tags) ?? '') : '', ctx.h)
+    return {
+        kind: 'event',
+        id: ref.id,
+        entity: ref.entity,
+        short: shortenEntity(ref.entity),
+        href: withSpace(withOrigin(base, ctx.search), ctx.search),
+        // `scroll` nur bei nachweislicher Anwesenheit im geladenen Fenster (`byId`) —
+        // `scrollToMessage` kehrt sonst wortlos zurück (`bridge.ts:4106-4108`).
+        scroll: refClickTarget(Boolean(quoted), ctx.byId.has(ref.id)) === 'scroll',
+        resolved: Boolean(quoted),
+        pubkey: quoted?.pubkey ?? '',
+        name: quoted ? displayProfileByPubkey(quoted.pubkey) : '',
+        text: quoted ? withShortRefTokens(snippet(bodyWithoutQuote(quoted))) : '',
+    }
 }
 
 /**
@@ -591,6 +822,7 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
         ...personFields(event, ctx.$profiles, ctx.$handles),
         mine,
         reply,
+        refCard: buildRefCard(event, ctx, reply),
         thread,
         reactions: aggregateReactions(ctx.reactionsByTarget.get(event.id) ?? [], ctx.me, nameOf),
         poll: event.kind === POLL ? buildPollView(event, ctx.pollResponsesByTarget.get(event.id) ?? [], ctx.me) : null,
@@ -643,6 +875,8 @@ type ChatMsgMemo = {
     profileRefs: unknown[]
     me: string | null | undefined
     quoted: unknown
+    /** Aufgelöstes Ereignis der Zitatkarte (P5) — bustet, sobald es nachlädt. */
+    refQuoted: unknown
     zapperRef: unknown
     fp: string
     msg: ChatMsgFields
@@ -661,11 +895,23 @@ const eventMentionPks = (event: TrustedEvent): string[] => {
 }
 
 /** Profil-Werte-Refs aller pubkeys, deren Name/Avatar ins Rendering DIESER Message einfließt. */
-const renderedProfileRefs = (event: TrustedEvent, ctx: ChatBuildCtx, quoted: TrustedEvent | undefined): unknown[] => {
+const renderedProfileRefs = (
+    event: TrustedEvent,
+    ctx: ChatBuildCtx,
+    quoted: TrustedEvent | undefined,
+    refQuoted: TrustedEvent | undefined,
+): unknown[] => {
     const pks = new Set<string>()
     pks.add(event.pubkey)
     if (quoted) {
         pks.add(quoted.pubkey)
+    }
+    // Autor der ZITATKARTE (P5). Die Person eines Profil-Chips steckt bereits in
+    // `eventMentionPks` (dieselben `nostr:npub…`/`nprofile…`-Token), der Autor eines zitierten
+    // EREIGNISSES dagegen in keinem der anderen Zweige — ohne ihn bliebe sein Name auf dem
+    // npub-Fallback stehen, sobald die Karte einmal gebaut ist.
+    if (refQuoted) {
+        pks.add(refQuoted.pubkey)
     }
     for (const pk of eventMentionPks(event)) {
         pks.add(pk)
@@ -703,6 +949,7 @@ export const evictChatMsgCache = (ids: Iterable<string>): void => {
     for (const id of ids) {
         chatMsgCache.delete(id)
         mentionPkCache.delete(id)
+        refCache.delete(id)
     }
 }
 
@@ -725,7 +972,14 @@ const bucketFp = (evs?: TrustedEvent[]): string => {
 export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): ChatMsgFields => {
     const quotedId = getTagValue('q', event.tags)
     const quoted = quotedId ? ctx.byId.get(quotedId) : undefined
-    const profileRefs = renderedProfileRefs(event, ctx, quoted)
+    // Das aufgelöste Ereignis der ZITATKARTE (P5) — undefined, solange es fehlt. Genau dieser
+    // Wechsel undefined→Event ist der Moment, in dem die Karte aus dem Leerzustand in die
+    // Vorschau kippt; ohne ihn im Key bliebe sie für immer bei ihrer Kennung stehen, obwohl
+    // das Ereignis längst da ist. Derselbe Fehler wie beim eingefrorenen Mention-Namen
+    // (Review-Fund #1–#3/#5) und beim ⚡-Chip ohne Zapper.
+    const ref = ctx.cards ? eventRef(event) : null
+    const refQuoted = ref?.kind === 'event' ? ctx.refEvents.get(ref.id) : undefined
+    const profileRefs = renderedProfileRefs(event, ctx, quoted, refQuoted)
     // Zapper-Ref in den Key — ABER NUR wenn dieses Event Zap-Receipts hat. Ohne aufgelösten
     // Zapper zählt aggregateZaps 0 (der Receipt-Signer-Check gegen zapper.nostrPubkey schlägt
     // fehl). Der Zapper lädt via warmZappers fast IMMER erst NACH den 9735-Receipts nach
@@ -736,16 +990,29 @@ export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Cha
     const profile = ctx.$profiles.get(event.pubkey)
     const lnurl = ctx.zapsByTarget.get(event.id)?.length ? getLnUrl(profile?.lud16 || profile?.lud06 || '') : ''
     const zapperRef = lnurl ? ctx.$zappers.get(lnurl) : undefined
+    // Im Key, weil beides SICHTBAR ist und aus keiner anderen Zutat folgt: der Schalter
+    // (aus ⇒ gar keine Karte) und das spät verifizierte NIP-05-Häkchen des Profil-Chips
+    // (hängt an $handles, nicht am Profil-Wert des Autors — derselbe Grund wie beim Häkchen
+    // des Autors eine Zeile darüber).
     const fp =
-        `${verifiedNip05(event.pubkey, ctx.$profiles, ctx.$handles)}` +
+        `${ctx.cards ? '1' : '0'}${ref?.kind === 'profile' ? verifiedNip05(ref.pubkey, ctx.$profiles, ctx.$handles) : ''}` +
+        `|${verifiedNip05(event.pubkey, ctx.$profiles, ctx.$handles)}` +
         `|${bucketFp(ctx.reactionsByTarget.get(event.id))}|${bucketFp(ctx.zapsByTarget.get(event.id))}` +
         `|${bucketFp(ctx.commentsByRoot.get(event.id))}|${bucketFp(ctx.pollResponsesByTarget.get(event.id))}`
     const hit = chatMsgCache.get(event.id)
-    if (hit && hit.me === ctx.me && hit.quoted === quoted && hit.zapperRef === zapperRef && hit.fp === fp && sameRefs(hit.profileRefs, profileRefs)) {
+    if (
+        hit &&
+        hit.me === ctx.me &&
+        hit.quoted === quoted &&
+        hit.refQuoted === refQuoted &&
+        hit.zapperRef === zapperRef &&
+        hit.fp === fp &&
+        sameRefs(hit.profileRefs, profileRefs)
+    ) {
         return hit.msg
     }
     const msg = toChatMessage(event, ctx)
-    chatMsgCache.set(event.id, { profileRefs, me: ctx.me, quoted, zapperRef, fp, msg })
+    chatMsgCache.set(event.id, { profileRefs, me: ctx.me, quoted, refQuoted, zapperRef, fp, msg })
     return msg
 }
 
@@ -785,8 +1052,16 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             throttled(200, deriveEventsForUrl(url, roomCommentFilter())),
             // Buzz-Antworten (kind 9 mit `reply`-Marker) — auf zooid immer leer.
             throttled(200, deriveRoomThreadReplies(url, h)),
+            // P5: nachgeladene Zitat-Ereignisse. Diese Quelle ist PFLICHT, nicht Beiwerk —
+            // ohne sie erfährt der Feed nie, dass ein per `load({ids})` geholtes Zitat
+            // angekommen ist (jede andere Quelle hier ist auf `#h` oder einen Kind gefiltert
+            // und passt auf ein raumfremdes Ereignis nicht), und die Karte bliebe für immer
+            // im Leerzustand. Siehe {@link refEventStore}.
+            throttled(200, refEventStore),
+            // Der Abschalter. Ungedrosselt: er hängt an einem Klick, nicht an einer Welle.
+            quoteCardsEnabled,
         ],
-        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies]) => {
+        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies, $refEvents, $cards]) => {
         // Beide Antwort-Formate in EINEN Strom: kind-1111/kind-10 (zooid) und Buzz'
         // kind-9-Antworten. `commentRootId` liest den Root aus beiden, der Rest des Feeds
         // sieht keinen Unterschied — Zähler, Gesichter und „zuletzt geantwortet" gelten für
@@ -804,6 +1079,12 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // ALLE Kommentare eines Threads (auch verschachtelte) teilen dieses Root-`E`, also
         // ist die Bucket-Größe die Gesamt-Thread-Zahl der zitierten Nachricht.
         const commentsByRoot = groupBy(commentRootId, $comments)
+        // P5: zitierte Ereignisse auflösen (Repository + bereits Nachgeladenes) und Fehlendes
+        // anfragen. Abgeschaltet ⇒ leere Tabelle, kein Auflösen, kein Nachladen — der Schalter
+        // spart die Relay-Anfragen mit, nicht nur die Fläche. Steht VOR dem Profil-Wärmen,
+        // damit der Autor eines gerade aufgelösten Zitats in derselben Runde mitgewärmt wird.
+        const refEvents = $cards ? collectRefEvents(url, events, $refEvents) : new Map<string, TrustedEvent>()
+        const cardPubkeys = $cards ? refCardPubkeys(events, refEvents) : []
         // First-Paint-Seed: fehlende Autor- UND erwähnte Profile (NIP-27) vom geteilten
         // Backend-Cache holen (dedupliziert intern; welshman löst parallel live auf).
         // Ohne die Mention-Pubkeys blieben extern referenzierte @-Mentions (Nicht-
@@ -812,15 +1093,32 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             ...events.map((e) => e.pubkey),
             ...events.flatMap((e) => mentionPubkeys(bodyWithoutQuote(e))),
             ...$comments.map((c) => c.pubkey), // Kommentar-Autoren → Gesichter im Antworten-Indikator (C6b)
+            ...cardPubkeys, // P5: Person des Profil-Chips + Autor der Zitatkarte
         ])
-        // NIP-05-Handles der Autoren lazy verifizieren (dedupliziert, fire-and-forget).
-        warmHandles(events.map((e) => e.pubkey))
+        // NIP-05-Handles lazy verifizieren (dedupliziert, fire-and-forget): Autoren UND die
+        // Personen der Karten — ein Profil-Chip trägt dasselbe Häkchen wie eine Autorenzeile,
+        // und ohne diesen Zusatz bliebe es dort für immer aus.
+        warmHandles([...events.map((e) => e.pubkey), ...cardPubkeys])
         // Zapper (LNURL-pay-Meta) der Autoren lazy laden — nötig, um ihre 9735-Receipts
         // zu validieren (Signer-Check) und den ⚡-Chip zu summieren (dedupliziert intern).
         warmZappers(events.map((e) => e.pubkey))
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
         const byId = new Map(events.map((e) => [e.id, e]))
-        const ctx: ChatBuildCtx = { me: $me, $profiles, $handles, $zappers, byId, commentsByRoot, reactionsByTarget, pollResponsesByTarget, zapsByTarget }
+        const ctx: ChatBuildCtx = {
+            me: $me,
+            $profiles,
+            $handles,
+            $zappers,
+            byId,
+            refEvents,
+            h,
+            search: window.location.search,
+            cards: $cards,
+            commentsByRoot,
+            reactionsByTarget,
+            pollResponsesByTarget,
+            zapsByTarget,
+        }
 
         let prevDay = ''
         let prevPubkey = ''
@@ -1355,14 +1653,21 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
             throttled(200, deriveEventsForUrl(url, roomReactionFilter(h))),
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
             throttled(200, zappersByLnurl),
+            // P5: dieselbe Zeile (`chat-row`) rendert Raum UND Thread — also trägt der Thread
+            // dieselben Karten und braucht dieselben zwei Quellen. Ohne sie zeigte ein
+            // Kommentar mit Zitat eine Karte, die nie auflöst.
+            throttled(200, refEventStore),
+            quoteCardsEnabled,
         ],
-        ([rootEvents, rawComments, $profiles, $me, $handles, $reactions, $zaps, $zappers]) => {
+        ([rootEvents, rawComments, $profiles, $me, $handles, $reactions, $zaps, $zappers, $refEvents, $cards]) => {
             // Nur Kommentare, die WIRKLICH an diesem Root wurzeln: kind-10 kommt per `#e`
             // (matcht jedes e-Tag) → die mit rootId nur als Reply-Parent (fremder Thread)
             // fielen sonst rein. commentRootId liest den Root formatspezifisch (E bzw. e/root).
             const commentEvents = rawComments.filter((c) => commentRootId(c) === rootId)
-            void warmProfiles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
-            warmHandles([...rootEvents, ...commentEvents].map((e) => e.pubkey))
+            const refEvents = $cards ? collectRefEvents(url, commentEvents, $refEvents) : new Map<string, TrustedEvent>()
+            const cardPubkeys = $cards ? refCardPubkeys(commentEvents, refEvents) : []
+            void warmProfiles([...[...rootEvents, ...commentEvents].map((e) => e.pubkey), ...cardPubkeys])
+            warmHandles([...[...rootEvents, ...commentEvents].map((e) => e.pubkey), ...cardPubkeys])
             warmZappers(commentEvents.map((e) => e.pubkey)) // Zapper der Kommentar-Autoren → 9735-Validierung/⚡-Chip
             const rootEvent = rootEvents.find((e) => e.id === rootId)
             const root: ThreadRoot = rootEvent
@@ -1374,6 +1679,10 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
                 $handles,
                 $zappers,
                 byId: new Map(), // Kommentare tragen kein q-Zitat → reply bleibt null (Eltern-Bezug via replyToName)
+                refEvents,
+                h,
+                search: window.location.search,
+                cards: $cards,
                 commentsByRoot: new Map(), // Kommentare wurzeln keinen Sub-Thread → thread bleibt null
                 reactionsByTarget: groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions),
                 pollResponsesByTarget: new Map(),
