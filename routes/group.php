@@ -3,6 +3,7 @@
 use Einundzwanzig\Group\Http\Controllers\LocaleController;
 use Einundzwanzig\Group\Http\Controllers\NostrAuthController;
 use Einundzwanzig\Group\Http\Middleware\ContentSecurityPolicy;
+use Illuminate\Routing\RedirectController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -59,5 +60,40 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         Route::redirect('/settings/space', '/settings')->name('space.settings');
         Route::livewire('/settings/wallet', 'group::settings.wallet')->name('wallet');
         Route::livewire('/join', 'group::join')->name('join');
+
+        /*
+         * P5 — Vereins-Onboarding. Statisches erstes Segment, kollidiert mit
+         * keinem `/rooms/{h}`. Interstitial ohne Bottom-Nav (wie `/join`): der
+         * Nutzer ist auf einer Strecke, kein Tab-Wechsel dazwischen.
+         */
+        Route::livewire('/verein/beitritt', 'group::verein')->name('verein.join');
+
+        /*
+         * Der Rücksprung aus dem BTCPay-Checkout.
+         *
+         * Ein eigener, statischer Pfad und keine Query-Variante des Flows: der
+         * Verein prüft `return_url` gegen eine **serverseitige Allowlist**
+         * (`app/Support/InvoiceReturnUrl.php` dort, P3). Was dort eingetragen
+         * wird, muss zeichengenau und dauerhaft sein — `https://<host>/verein/zurueck`
+         * ist genau ein Eintrag, eine Query-Variante wäre je nach Zustand eine
+         * andere Zeichenkette und fiele mit 422 durch.
+         *
+         * Der Sprung landet im WARTEZUSTAND, nicht am Anfang: wer gerade bezahlt
+         * hat, darf nicht auf einen Knopf schauen, der eine zweite Rechnung aus
+         * einem Kontingent von drei pro Tag zieht.
+         *
+         * Aufgebaut wie `Route::redirect()`, aber als `GET` statt `ANY`: der
+         * Rücksprung aus einem Browser-Checkout ist ein GET, und eine Route, die
+         * jede Methode annimmt, ist eine Methode-Fläche ohne Zweck. Dieselbe
+         * Bauart wie der Proxy nebenan (`routes/verein.php`) — dort ist die
+         * Routentabelle die Erlaubnisliste, hier gilt derselbe Grundsatz.
+         *
+         * `RedirectController` statt einer Closure: Closures überleben
+         * `route:cache` nicht, und der Mobile-Build cacht.
+         */
+        Route::get('/verein/zurueck', RedirectController::class)
+            ->defaults('destination', '/verein/beitritt?schritt=warten')
+            ->defaults('status', 302)
+            ->name('verein.return');
     });
 });

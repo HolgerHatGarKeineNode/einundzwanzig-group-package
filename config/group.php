@@ -41,6 +41,70 @@ return [
     'board_relay_url' => env('NOSTR_BOARD_URL'),
 
     /*
+     * P5 (Onboarding) — Origin der Vereins-API, z.B. `https://verein.einundzwanzig.space`.
+     *
+     * Das ist KEIN Geheimnis (der Schlüssel dazu ist eins und bleibt im Proxy,
+     * siehe `config/verein.php` des Hosts), aber die Insel braucht den Wert im
+     * Browser: der `u`-Tag des NIP-98-Ausweises zielt auf den VEREIN, nicht auf
+     * unsere Proxy-Route, und der Verein vergleicht ihn byteweise. Ohne die
+     * Basis-URL im Browser wäre jede Signatur wertlos.
+     *
+     * Dieselbe Env-Variable wie der Proxy (`VEREIN_API_URL`) — eine Adresse, ein
+     * Wert. Zwei Quellen könnten auseinanderlaufen, und die Abweichung fiele
+     * erst als 401 beim Verein auf.
+     *
+     * Leer = der Beitritts-Flow existiert nicht; das Vereins-Gate fällt auf
+     * seinen Link nach außen zurück (`components/verein-gate.blade.php`).
+     */
+    'verein_api_url' => env('VEREIN_API_URL', ''),
+
+    /*
+     * Origin des Vereins-Proxys. Leer (Default) = derselbe Origin wie die Seite.
+     *
+     * Der Proxy ist NUR in der gehosteten Web-Instanz registriert
+     * (`bootstrap/app.php`: nicht im NativePHP-Lauf, weil „Server-Konfiguration"
+     * dort dasselbe wäre wie „Bundle"). Der Mobile-Build ruft deshalb denselben
+     * Proxy über HTTPS bei der Web-Instanz auf und trägt kein Geheimnis — dafür
+     * und nur dafür gibt es diesen Wert.
+     */
+    'verein_proxy_base' => env('VEREIN_PROXY_BASE', ''),
+
+    /*
+     * P5 — wie lange es nach der Zahlung bis zur Freischaltung dauert, in Minuten.
+     *
+     * DER EINE WERT. Der Wartezustand nennt bei jedem Übergang eine Dauer, und
+     * jede dieser Stellen liest diese Zahl (`vereinFlow.formatWait`). Heute ist
+     * die Wahrheit `1440` — der Abgleich läuft als nächtlicher Cron um 00:30
+     * (Forge Scheduled Job 2092398). Nach P1 (Frequenz auf viertelstündlich) wird
+     * hier `15` eingetragen und KEIN Satz umgeschrieben.
+     *
+     * `0` = keine Dauer nennen. Eine Zahl zu zeigen, die nicht stimmt, ist an
+     * dieser Stelle schlimmer als gar keine — deshalb gibt es diesen Ausweg
+     * überhaupt, und deshalb ist er nicht der Default.
+     *
+     * `is_numeric` statt eines `env()`-Defaults: Laravels Default greift NUR,
+     * wenn der Schlüssel ganz fehlt. Eine leere Zeile in der `.env` — genau die
+     * Form, in der `.env.example` sie ausliefert — liefert `''`, und `(int) ''`
+     * wäre `0`. Der Wartezustand nennte dann keine Dauer, obwohl 1440 gemeint
+     * war, und niemand würde es merken.
+     */
+    'verein_activation_minutes' => is_numeric(env('VEREIN_ACTIVATION_MINUTES'))
+        ? (int) env('VEREIN_ACTIVATION_MINUTES')
+        : 1440,
+
+    /*
+     * Öffentliche Vereinsseite — der Ausweg, wenn der Weg im Client nicht trägt
+     * (Proxy nicht konfiguriert, unerwartete Weiterleitung, keine Zahlmethode).
+     * Bewusst eine eigene Adresse und nicht `verein_api_url`: die API-Basis kann
+     * auf einem eigenen Host liegen, dem eine Beitrittsseite fehlt.
+     *
+     * `?:` statt eines `env()`-Defaults — gleiche Falle wie oben: eine leere
+     * Zeile in der `.env` liefert `''`, und dann führte der letzte Ausweg des
+     * Nutzers ins Nichts.
+     */
+    'verein_public_url' => env('VEREIN_PUBLIC_URL') ?: 'https://verein.einundzwanzig.space/',
+
+    /*
      * Profil-Indexer des SERVER-seitigen kind-0-Caches (`ProfileCache`). Bewusst
      * konfigurierbar statt hartkodiert: es ist die einzige Stelle, an der der Server
      * von sich aus ins öffentliche Internet greift, und in einer hermetischen

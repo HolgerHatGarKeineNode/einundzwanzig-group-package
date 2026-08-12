@@ -93,13 +93,46 @@ const randomNonce = (): string => {
 }
 
 /**
- * Das unsignierte NIP-98-Event zu (url, method). `content` bleibt leer (NIP-98),
- * `payload` entfällt — die Moderations-Routen sind GETs ohne Body.
+ * sha256 als Kleinbuchstaben-Hex über die UTF-8-Bytes von `text` — der Wert des
+ * `payload`-Tags (NIP-98).
+ *
+ * Bewusst über `crypto.subtle` und nicht über `sha256` aus `@welshman/lib`: das
+ * Modul ist welshman-frei (siehe Kopf), und `crypto.subtle` gibt es sowohl im
+ * Browser als auch unter `node --test` — sonst wäre der `payload`-Zweig genau
+ * der Teil, der nicht ohne Browser-Runtime prüfbar ist.
+ */
+export const sha256Hex = async (text: string): Promise<string> => {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Das unsignierte NIP-98-Event zu (url, method). `content` bleibt leer (NIP-98).
+ *
+ * `payloadHash` ist der sha256-Hex des **rohen Request-Bodys** und gehört an
+ * jeden Aufruf MIT Body. Für Buzz' Moderations-Routen (reine GETs) bleibt er
+ * weg; die Vereins-Strecke (`POST /applications`, `POST /payments/…`) braucht
+ * ihn zwingend, weil der Verein den Hash gegen die rohen Bytes prüft
+ * (einundzwanzig-verein `app/Support/Nip98.php:337-347`) — und unser eigener
+ * Proxy davor ebenso (`app/Support/VereinNip98.php`, Schritt 5).
+ *
+ * **Der Hash muss über GENAU DIE Zeichenkette gebildet werden, die anschließend
+ * an `fetch` geht.** Zwei `JSON.stringify`-Aufrufe auf dasselbe Objekt können
+ * verschiedene Bytes liefern (Schlüsselreihenfolge, Unicode-Escapes); der Hash
+ * passte dann zum einen und der Body zum anderen, und der Verein antwortet mit
+ * einem 401, das nach einem Signaturproblem aussieht. Dieselbe Regel wie bei
+ * [[nip98Url]] für den `u`-Tag, nur für den Inhalt.
  *
  * `created_at` wird hereingereicht statt hier gezogen, damit der Test ohne
  * Zeitmanipulation prüfen kann.
  */
-export const nip98Template = (url: string, method: string, createdAt: number, nonce: string = randomNonce()) => ({
+export const nip98Template = (
+    url: string,
+    method: string,
+    createdAt: number,
+    nonce: string = randomNonce(),
+    payloadHash?: string,
+) => ({
     kind: HTTP_AUTH_KIND,
     created_at: createdAt,
     content: '',
@@ -107,6 +140,7 @@ export const nip98Template = (url: string, method: string, createdAt: number, no
         ['u', url],
         ['method', method.toUpperCase()],
         ['nonce', nonce],
+        ...(payloadHash ? [['payload', payloadHash]] : []),
     ],
 })
 
@@ -130,6 +164,15 @@ export const encodeNip98Header = (event: SignedLike): string => {
 /**
  * Der fertige `Authorization`-Wert für (url, method) — signiert mit `sign`.
  * Der URL muss **derselbe String** sein, der anschliessend an `fetch` geht.
+ *
+ * `body` ist der ROHE Request-Body als String; ist er gesetzt, trägt das Event
+ * einen `payload`-Tag über genau diese Zeichenkette. Auch hier gilt: derselbe
+ * String muss an `fetch` gehen, nicht ein zweites Mal serialisiert werden.
  */
-export const nip98AuthHeader = async (sign: SignFn, url: string, method = 'GET'): Promise<string> =>
-    encodeNip98Header(await sign(nip98Template(url, method, Math.floor(Date.now() / 1000))))
+export const nip98AuthHeader = async (sign: SignFn, url: string, method = 'GET', body?: string): Promise<string> => {
+    const payloadHash = body ? await sha256Hex(body) : undefined
+
+    return encodeNip98Header(
+        await sign(nip98Template(url, method, Math.floor(Date.now() / 1000), randomNonce(), payloadHash)),
+    )
+}

@@ -34,6 +34,20 @@
      Ein vorab gesetztes Flag gewinnt (E2E via addInitScript, wie __nostrRelays). --}}
 <script>window.__nostrMobile = window.__nostrMobile ?? @js((bool) config('nativephp-internal.running'));</script>
 
+{{-- P5 (Onboarding): Vereins-Basis-URL, Proxy-Origin, Wartezeit und die
+     öffentliche Ausweichadresse. Die Basis-URL ist KEIN Geheimnis (der
+     `X-Api-Key` bleibt im Proxy), muss aber in den Browser: der `u`-Tag des
+     NIP-98-Ausweises zielt auf den VEREIN, nicht auf unsere Proxy-Route.
+     Leeres `api` = der Flow existiert nicht, das Gate verlinkt nach außen.
+     `proxy` ist für den Fremdhost/Mobile-Build gedacht, der den Proxy NICHT
+     selbst registriert (er läuft nur in der gehosteten Web-Instanz). --}}
+<script>window.__nostrVerein = window.__nostrVerein ?? @js([
+    'api' => (string) config('group.verein_api_url'),
+    'proxy' => (string) config('group.verein_proxy_base'),
+    'activationMinutes' => (int) config('group.verein_activation_minutes'),
+    'publicUrl' => (string) config('group.verein_public_url'),
+]);</script>
+
 {{-- P2: Übersetzungskatalog der aktiven Sprache für die Insel (`js/i18n.ts`).
      Muss VOR @vite stehen — siehe Begründung im Partial. --}}
 @include('group::partials.i18n')

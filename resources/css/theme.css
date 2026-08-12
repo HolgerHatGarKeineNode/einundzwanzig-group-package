@@ -298,6 +298,25 @@
 }
 .chip-in { animation: chip-in var(--duration-tap) var(--ease-spring) backwards; }
 
+/* ── Statusring (Vereins-Wartezustand, P5) ───────────────────────────────────
+   Ein Ring, der aus dem Statussymbol herauswandert — er läuft GENAU DANN, wenn
+   der Client wirklich gerade nachfragt (`checking`), und steht sonst still.
+
+   Der Unterschied zu einem Dauer-Spinner ist die ganze Aussage: „Kein Spinner
+   ohne Aussage" heißt auch umgekehrt, dass keine Bewegung ohne Vorgang laufen
+   darf. Eine Animation, die immer läuft, sagt nichts — sie beruhigt nur, und
+   zwar auch dann, wenn nichts passiert. Deshalb hängt diese hier an einem Wert
+   aus dem Zustandsautomaten und nicht an der Anwesenheit der Seite.
+
+   `scale` + `opacity` statt `width`/`height`: läuft auf dem Compositor, kein
+   Layout je Bild — im Mobile-WebView der Unterschied zwischen weich und hakelig. */
+@keyframes status-pulse {
+    0% { transform: scale(1); opacity: 0.5; }
+    70% { transform: scale(1.6); opacity: 0; }
+    100% { transform: scale(1.6); opacity: 0; }
+}
+.status-pulse { animation: status-pulse 1.8s var(--ease-emphasized) infinite; }
+
 @media (prefers-reduced-motion: reduce) {
     .empty-state > *,
     .page-enter,
@@ -305,9 +324,14 @@
     .chip-in,
     .nav-pill,
     .skeleton,
+    .status-pulse,
     .caret {
         animation: none;
     }
+    /* Der Ring verschwindet nicht — er bleibt als ruhender Rahmen stehen, damit
+       „es läuft gerade" auch ohne Bewegung ablesbar ist (die Textzeile daneben
+       sagt es ohnehin; der Ring ist die zweite, nicht die einzige Spur). */
+    .status-pulse { opacity: 0.5; }
     .caret { opacity: 1; }
     .pressable { transition: none; }
     .pressable:active { transform: none; }

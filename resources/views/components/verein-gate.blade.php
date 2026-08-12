@@ -37,21 +37,59 @@
             </flux:text>
         </div>
 
-        {{-- Web: normales <a target=_blank>. Native: WebView reicht den Link nicht
-             extern weiter → openExternal() öffnet ihn über die In-App-Browser-Bridge. --}}
-        <flux:button
-            href="https://verein.einundzwanzig.space/"
-            target="_blank"
-            rel="noopener"
-            x-on:click="openExternal('https://verein.einundzwanzig.space/', $event)"
-            variant="primary"
-            icon:trailing="arrow-up-right"
-            class="mt-5 w-full">
-            {{ __('Vereinsmitglied werden') }}
-        </flux:button>
+        {{-- P5: Aus dem Link nach außen wird ein Weg nach innen.
 
-        <flux:text class="mt-3 text-xs text-zinc-400">
-            verein.einundzwanzig.space
-        </flux:text>
+             Die Weiche ist eine SERVER-Entscheidung und keine Insel-Prüfung: ohne
+             `verein_api_url` könnte die Onboarding-Insel den `u`-Tag ihrer
+             NIP-98-Ausweise nicht auf den Verein setzen (der prüft ihn byteweise
+             gegen seinen eigenen Origin), jeder Aufruf endete in einem 401 bzw. im
+             503 des Proxys. Ein Knopf, der zuverlässig scheitert, ist schlechter als
+             der ehrliche Weg nach draußen — deshalb hier `@if` und nicht `x-if`. --}}
+        @if (config('group.verein_api_url'))
+            <flux:button
+                :href="route('group.verein.join')"
+                wire:navigate
+                variant="primary"
+                icon:trailing="arrow-right"
+                data-testid="verein-gate-beitreten"
+                class="mt-5 w-full">
+                {{ __('Vereinsmitglied werden') }}
+            </flux:button>
+
+            {{-- `text-muted` statt `text-zinc-400`: gemessen 2,52:1 auf hellem
+                 Grund (WCAG 1.4.3 verlangt 4,5:1). Im Dunklen war derselbe Wert
+                 unauffällig (7,11:1) — genau die Sorte Fehler, die man im Dark
+                 Mode entwickelt und nie sieht. `--color-muted` ist das Haus-Token
+                 dafür: zinc-600 im Hellen, zinc-400 im Dunklen.
+
+                 Und es ist die Zeile, die aus der Sackgasse eine Einladung macht
+                 („direkt hier in der App") — sie ausgerechnet unlesbar zu setzen,
+                 hätte den ganzen Umbau dieser Phase am Bildschirm kassiert. --}}
+            <flux:text class="mt-3 text-xs text-muted">
+                {{ __('Statuten, Antrag und Beitrag — direkt hier in der App.') }}
+            </flux:text>
+        @else
+            {{-- Web: normales <a target=_blank>. Native: WebView reicht den Link nicht
+                 extern weiter → openExternal() öffnet ihn über die In-App-Browser-Bridge. --}}
+            <flux:button
+                href="{{ config('group.verein_public_url') }}"
+                target="_blank"
+                rel="noopener"
+                x-on:click="openExternal(@js(config('group.verein_public_url')), $event)"
+                variant="primary"
+                icon:trailing="arrow-up-right"
+                data-testid="verein-gate-extern"
+                class="mt-5 w-full">
+                {{ __('Vereinsmitglied werden') }}
+            </flux:button>
+
+            {{-- Gleiche Reparatur wie im Zweig darüber (2,52:1 → text-muted). Die
+                 nackte Adresse ist hier kein Zierrat, sondern die Ansage, WOHIN
+                 der Knopf führt — sie muss lesbar sein, gerade weil sie aus der
+                 App hinausführt. --}}
+            <flux:text class="mt-3 text-xs text-muted">
+                {{ Str::of(config('group.verein_public_url'))->after('://')->rtrim('/') }}
+            </flux:text>
+        @endif
     </div>
 </div>

@@ -43,6 +43,7 @@ import { wirePalette } from './palette'
 import { wireDisplayPrefs } from './displayPrefs'
 import { wireRoomSearch } from './roomSearch'
 import { wireRoomPins } from './roomPins'
+import { wireVerein } from './verein'
 import { dispatchModal } from './modal'
 import {
     groupSpaceChoices,
@@ -1440,6 +1441,12 @@ export function registerNostrComponents(Alpine: {
     // In `nostrRoomChat` entsteht dadurch KEIN neues Feld — das Markup liest
     // `$store.roomPins.*` und reicht `menuFor`/`isAdmin`/`joined` lesend hinein.
     wireRoomPins(Alpine)
+    // P5 (Onboarding) — Vereins-Beitritt (`/verein/beitritt`). Wieder eine eigene Insel:
+    // der Flow hat seinen eigenen Screen und seinen eigenen Geltungsbereich, und die REINE
+    // Logik (Schritt-Entscheid, Fehler→Ausweg, Nachfass-Plan) liegt nochmals daneben in
+    // `vereinFlow.ts`, damit sie ohne Browser prüfbar ist. `bridge.ts` weiß von beidem nur
+    // diese Zeile.
+    wireVerein(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').
