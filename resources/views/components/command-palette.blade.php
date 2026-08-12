@@ -30,6 +30,7 @@
 @php($paletteActions = [
     ['id' => 'spaces', 'label' => __('Alle Räume & Entdecken'), 'href' => route('group.spaces')],
     ['id' => 'directory', 'label' => __('Mitgliederverzeichnis'), 'href' => route('group.directory')],
+    ['id' => 'articles', 'label' => __('Artikel'), 'href' => route('group.articles')],
     ['id' => 'updates', 'label' => __('Neu'), 'href' => route('group.updates')],
     ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.wallet')],
     ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route('group.settings')],

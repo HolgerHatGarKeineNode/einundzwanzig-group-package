@@ -23,6 +23,13 @@
     <script>window.__nostrWorkspace = window.__nostrWorkspace ?? @js(config('group.workspace_url'));</script>
 @endif
 
+{{-- Quelle der Longform-Artikel (P7). Leer = der Artikel-Screen zeigt seinen
+     Leerzustand und fragt keinen Relay. Gleiche `??`-Regel wie oben: ein per
+     addInitScript vorbesetzter Wert gewinnt gegen die Konfiguration. --}}
+@if (config('group.board_relay_url'))
+    <script>window.__nostrBoard = window.__nostrBoard ?? @js(config('group.board_relay_url'));</script>
+@endif
+
 {{-- Plattform-Flag: auf dem Gerät gated die Insel client-seitig (kein NIP-98).
      Ein vorab gesetztes Flag gewinnt (E2E via addInitScript, wie __nostrRelays). --}}
 <script>window.__nostrMobile = window.__nostrMobile ?? @js((bool) config('nativephp-internal.running'));</script>

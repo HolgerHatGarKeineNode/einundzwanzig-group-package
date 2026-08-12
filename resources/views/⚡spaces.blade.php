@@ -631,7 +631,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Meetups stehen weiterhin in „Meine Räume" und zeigen ihre Zahl in
                              ihrer eigenen Zeile. Eine Pille hier wäre eine zweite Wahrheit über
                              eine sichtbare Zahl — die Regel ist „ein Zähler, ein Ort". --}}
-                        <template x-if="!focusMode() && (proposalCount() > 0 || meetupCount() > 0 || isAdmin)">
+                        {{-- P7: `@js($hasBoard)` erweitert die Bedingung um die Artikel-
+                             Zeile. Sie hängt nicht an einer Client-Zahl, sondern an der
+                             Konfiguration — ohne Artikel-Relay bleibt der Block exakt so,
+                             wie er vorher war. --}}
+                        @php($hasBoard = (bool) config('group.board_relay_url'))
+                        <template x-if="!focusMode() && (@js($hasBoard) || proposalCount() > 0 || meetupCount() > 0 || isAdmin)">
                             <div data-discover class="flex flex-col gap-0.5"
                                  {{-- Die Trennlinie sitzt zwischen den Raumlisten und diesen
                                       Wegen — sie braucht also etwas ÜBER sich. Ab xl blendet die
@@ -704,6 +709,31 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
                                     </button>
                                 </template>
+
+                                {{-- Artikel (P7). Dieselbe Zeilenform wie die beiden
+                                     darüber: Icon-Chip · Titel · Rest · Chevron — sie
+                                     beantwortet dieselbe Frage („und was noch?") und führt
+                                     wie sie in eine eigene Liste.
+
+                                     KEINE Zahl darunter: die Artikel liegen auf einem
+                                     anderen Relay und sind hier noch gar nicht geladen. Eine
+                                     Zahl müsste dafür beim Aufbau der Raumübersicht einen
+                                     dritten Relay anfragen — für eine Zeile, die ohnehin
+                                     nur weiterführt. Der Untertitel sagt stattdessen, was
+                                     dort liegt. --}}
+                                @if ($hasBoard)
+                                    <a href="{{ route('group.articles') }}" wire:navigate
+                                       class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
+                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
+                                            <flux:icon.document-text class="size-5" />
+                                        </span>
+                                        <span class="min-w-0 flex-1">
+                                            <span class="block font-medium">{{ __('Artikel lesen') }}</span>
+                                            <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Longform aus der Community') }}</span>
+                                        </span>
+                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
+                                    </a>
+                                @endif
 
                                 {{-- Raum anlegen (Admin). Kein Chevron: die Zeile öffnet einen
                                      Dialog, sie führt nicht weg. Der Titel trägt den Akzent, der

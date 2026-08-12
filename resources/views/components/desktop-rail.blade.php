@@ -128,6 +128,16 @@
                 <flux:icon.squares-2x2 variant="micro" class="size-4 shrink-0" />
                 <span>{{ __('Alle Räume & Entdecken') }}</span>
             </a>
+
+            {{-- Artikel (P7). Steht hier und NICHT als fünfte Rail-Gruppe: die Gruppen
+                 oben sind Räume (`RailRoom` verlangt ein `h`), ein Artikel ist keiner.
+                 Als Zeile neben „Alle Räume & Entdecken" beantwortet er dieselbe Frage
+                 wie diese — „und was noch?" — ohne die Gruppen-Achse zu verwässern. --}}
+            <a href="{{ route('group.articles') }}" wire:navigate
+               class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+                <flux:icon.document-text variant="micro" class="size-4 shrink-0" />
+                <span>{{ __('Artikel') }}</span>
+            </a>
         </div>
 
         {{-- Fußzeile: die drei Nav-Ziele, darunter Glocke und Identität. --}}

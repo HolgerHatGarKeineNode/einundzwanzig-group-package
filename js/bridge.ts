@@ -89,6 +89,12 @@ import {
     type MeetupPresentation,
 } from './meetups'
 import { flagEmoji } from './meetupPresentation'
+/**
+ * **Nur die Typen statisch** — der Code kommt per `import()` erst, wenn jemand die
+ * Artikelfläche öffnet (siehe `nostrArticles`). `import type` wird beim Übersetzen
+ * restlos entfernt und erzeugt keine Abhängigkeit im Bundle.
+ */
+import type { ArticleRow, ArticleView } from './longformFeed'
 import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
 import { splitMine } from './railGroups'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint'
@@ -631,6 +637,45 @@ type UpdatesState = {
     canUndo(): boolean
     labelFor(item: UpdateItem): string
     subtitleText(): string
+}
+
+/** Bildschirm-Zustand der Artikelliste (P7). Alles Fachliche liegt in `longformFeed.ts`. */
+type ArticlesState = {
+    loading: boolean
+    /** Deutsche Fehlerzeile, '' = kein Fehler. */
+    error: string
+    items: ArticleRow[]
+    /** Basis-Pfad der Artikel-Route, aus Blade gereicht (ohne Schrägstrich am Ende). */
+    _base: string
+    /** Ist der Screen weg, bevor der dynamische Import zurückkam? */
+    _dead: boolean
+    _controller: AbortController | null
+    _unsub: null | (() => void)
+    init(): void
+    _boot(): Promise<void>
+    destroy(): void
+    _load(): Promise<void>
+    isEmpty(): boolean
+    href(row: ArticleRow): string
+    retry(): void
+}
+
+/** Bildschirm-Zustand der Artikel-Vollansicht (P7). */
+type ArticleState = {
+    loading: boolean
+    /** Hat der Relay geantwortet, ohne den Artikel zu kennen? */
+    missing: boolean
+    article: ArticleView | null
+    _naddr: string
+    /** Ist der Screen weg, bevor der dynamische Import zurückkam? */
+    _dead: boolean
+    _controller: AbortController | null
+    _unsub: null | (() => void)
+    init(): void
+    _boot(): Promise<void>
+    destroy(): void
+    _load(): Promise<void>
+    hasArticle(): boolean
 }
 
 type VereinGateState = {
@@ -2919,6 +2964,176 @@ export function registerNostrComponents(Alpine: {
              */
             subtitleText() {
                 return updatesSubtitle(visibleUpdates(this.items, this.feed, this.limit), this.isFiltered())
+            },
+        }
+    })
+
+    /**
+     * Artikelliste (P7, `/articles`) — Longform vom Board-Relay.
+     *
+     * Dünn mit Absicht: Filter, Rendering und `naddr` liegen in `longform.ts` (rein) und
+     * `longformFeed.ts` (welshman). Hier bleibt nur der Bildschirm-Zustand.
+     *
+     * **Kein Zustand in `nostrRoomChat`** — diese Fläche hat mit dem Raum-Chat nichts zu
+     * tun und teilt mit ihm keinen einzigen Wert.
+     *
+     * ── Warum die Fachmodule per `import()` kommen ─────────────────────────────────
+     *
+     * `longformFeed.ts` zieht `markdown-it` nach, und das sind gemessene **50 kB
+     * gzip** (`gzip -9c` auf das ausgelieferte Browser-Bundle des Pakets). Statisch
+     * importiert lägen sie im `app`-Chunk, den JEDE Seite lädt — für einen Screen, den
+     * die meisten Sitzungen nie öffnen. Als dynamischer Import entsteht daraus ein
+     * eigener Chunk, der genau hier geholt wird.
+     *
+     * **Sichtbar kostet das nichts:** die Fläche startet ohnehin im Ladezustand, und der
+     * Chunk ist da, lange bevor der Relay antwortet. Der Preis ist ein Zustand mehr
+     * (`_dead`) — ein `wire:navigate` weg von der Seite kann das `destroy()` vor die
+     * aufgelöste Zusage schieben, und ohne den Riegel abonnierte ein Screen, der gar
+     * nicht mehr existiert.
+     *
+     * Ob überhaupt eine Quelle konfiguriert ist, entscheidet die **Blade-Seite** (Server);
+     * ohne Quelle wird diese Insel gar nicht erst gerendert. Die Prüfung auf `BOARD_URL`
+     * hier ist nur der Riegel dagegen, dass ein REQ ohne Ziel rausgeht.
+     */
+    Alpine.data('nostrArticles', (base: unknown): ArticlesState => {
+        // Bewusst in der Closure statt als Feld: Alpine legt jedes Feld in einen
+        // reaktiven Proxy, und ein Proxy über ein Modul-Namensraum-Objekt ist teuer und
+        // sinnlos — reaktiv muss hier nichts davon sein. Gleiche Begründung wie beim
+        // Undo-Puffer in `nostrUpdates`.
+        let feed: typeof import('./longformFeed') | null = null
+
+        return {
+            loading: true,
+            error: '',
+            items: [],
+            _base: String(base ?? '').replace(/\/+$/, ''),
+            _dead: false,
+            _controller: null,
+            _unsub: null,
+            init() {
+                this._controller = new AbortController()
+                void this._boot()
+            },
+            async _boot() {
+                feed = await import('./longformFeed')
+                if (this._dead) {
+                    return
+                }
+                if (feed.BOARD_URL === '') {
+                    this.loading = false
+
+                    return
+                }
+                // Die Liste hängt am Store, nicht am Ergebnis des `load` — die Artikel
+                // erscheinen, sobald sie da sind, und der Autorname zieht nach, wenn das
+                // kind-0 eintrifft. Ein einmaliges Auslesen nach dem `await` wäre genau
+                // der Schnappschuss, der P6b zurückgeworfen hat.
+                this._unsub = feed.deriveArticles().subscribe((rows: ArticleRow[]) => {
+                    this.items = rows
+                })
+                await this._load()
+            },
+            destroy() {
+                this._dead = true
+                this._unsub?.()
+                this._controller?.abort()
+            },
+            async _load() {
+                if (!feed) {
+                    return
+                }
+                this.loading = true
+                try {
+                    await feed.loadArticles(this._controller?.signal)
+                    this.error = ''
+                } catch {
+                    // Wortlaut wie auf `/updates`: die Liste ist UNVOLLSTÄNDIG, nicht
+                    // falsch — was schon im Repository liegt, steht weiter da.
+                    this.error = t('Die Artikel sind gerade nicht erreichbar.')
+                } finally {
+                    this.loading = false
+                }
+            },
+            isEmpty() {
+                return this.items.length === 0
+            },
+            /** Ziel der Zeile. Leerer `naddr` (Artikel ohne `d`) ⇒ kein Link. */
+            href(row: ArticleRow) {
+                return row.naddr ? `${this._base}/${row.naddr}` : ''
+            },
+            retry() {
+                this.error = ''
+                this._controller?.abort()
+                this._controller = new AbortController()
+                void this._load()
+            },
+        }
+    })
+
+    /**
+     * Ein einzelner Artikel (P7, `/articles/{naddr}`).
+     *
+     * Der kalte Direkteinstieg ist der Normalfall dieser Fläche — ein geteilter Link
+     * trifft auf ein leeres Repository. Deshalb lädt sie IMMER nach und entscheidet über
+     * „gibt es nicht" erst, wenn der Relay geantwortet hat.
+     *
+     * Der Fachcode kommt per `import()`, aus demselben Grund wie bei `nostrArticles`.
+     */
+    Alpine.data('nostrArticle', (naddr: unknown): ArticleState => {
+        let feed: typeof import('./longformFeed') | null = null
+
+        return {
+            loading: true,
+            missing: false,
+            article: null,
+            _naddr: String(naddr ?? ''),
+            _dead: false,
+            _controller: null,
+            _unsub: null,
+            init() {
+                this._controller = new AbortController()
+                void this._boot()
+            },
+            async _boot() {
+                feed = await import('./longformFeed')
+                if (this._dead) {
+                    return
+                }
+                this._unsub = feed.deriveArticle(this._naddr).subscribe((view: ArticleView | null) => {
+                    this.article = view
+                    if (view) {
+                        // Steht der Artikel, ist die Frage beantwortet — auch wenn der
+                        // `load` noch läuft (aus dem Kaltstart-Cache kann er schon da sein).
+                        this.loading = false
+                        this.missing = false
+                    }
+                })
+                await this._load()
+            },
+            destroy() {
+                this._dead = true
+                this._unsub?.()
+                this._controller?.abort()
+            },
+            async _load() {
+                if (!feed) {
+                    return
+                }
+                try {
+                    const found = await feed.loadArticle(this._naddr, this._controller?.signal)
+                    // `missing` NUR aus dem Ergebnis des Ladens, nicht aus
+                    // `article === null`: die Ableitung meldet ihren ersten Wert, bevor
+                    // das Netz antwortet, und eine daraus abgeleitete Fehlanzeige blitzte
+                    // bei jedem Aufruf kurz auf.
+                    this.missing = !found && !this.article
+                } catch {
+                    this.missing = !this.article
+                } finally {
+                    this.loading = false
+                }
+            },
+            hasArticle() {
+                return this.article !== null
             },
         }
     })

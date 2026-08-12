@@ -23,6 +23,24 @@ return [
     'workspace_url' => env('NOSTR_WORKSPACE_URL'),
 
     /*
+     * Quelle der Longform-Artikel (P7, NIP-23 kind 30023) — der öffentliche
+     * Vereins-Relay, NICHT der Space aus `space_url`. Leer (Default) = der Screen
+     * zeigt seinen Leerzustand und schickt keinen einzigen REQ.
+     *
+     * Bewusst ohne Code-Default auf die echte Adresse: ein Default machte aus einer
+     * fehlenden Konfiguration eine stille WebSocket-Verbindung ins öffentliche
+     * Internet — genau das, was `profile_indexer` oben für die Testumgebung
+     * ausdrücklich abschaltbar hält. Ein E2E-Lauf, der Artikel prüfen will, setzt die
+     * Variable auf seinen eigenen Relay (oder `window.__nostrBoard` per
+     * `addInitScript`, siehe `partials/head.blade.php`).
+     *
+     * Der Relay ist zugleich der Kurationsfilter: er ist `restricted_writes`, wer
+     * dort schreiben darf, ist kuratiert. Deshalb genügt clientseitig ein Filter auf
+     * das Kind — keine Autorenliste, kein `#t`, kein Muster auf dem `d`-Tag.
+     */
+    'board_relay_url' => env('NOSTR_BOARD_URL'),
+
+    /*
      * Profil-Indexer des SERVER-seitigen kind-0-Caches (`ProfileCache`). Bewusst
      * konfigurierbar statt hartkodiert: es ist die einzige Stelle, an der der Server
      * von sich aus ins öffentliche Internet greift, und in einer hermetischen

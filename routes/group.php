@@ -34,6 +34,18 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         // kollidiert also mit keinem `/rooms/{h}`.
         Route::livewire('/updates', 'group::updates')->name('updates');
         Route::livewire('/directory', 'group::directory')->name('directory');
+        // Longform-Artikel (P7, NIP-23). Eigener Screen, KEIN Bottom-Nav-Tab und kein
+        // Rail-Eintrag: die Spaltenklasse der Bottom-Nav hängt an `count($items)`
+        // (`bottom-nav.blade.php:56`) — ein vierter Tab wäre ein Drei-Repo-Release; und
+        // die Rail ist eine Sprungliste für RÄUME (`RailRoom` verlangt ein `h`), ein
+        // Artikel hat keins. Einstiege sind deshalb Befehlspalette, Rail-Fußzeile und
+        // eine Zeile auf der Übersicht. Statisches erstes Segment, kollidiert mit keinem
+        // `/rooms/{h}`.
+        Route::livewire('/articles', 'group::articles')->name('articles');
+        // Die Vollansicht adressiert über `naddr` (NIP-19), nicht über die Event-Id: ein
+        // 30023 ist ersetzbar, seine Id wechselt mit jeder Überarbeitung — der `naddr`
+        // (Kind + Autor + `d`) bleibt und funktioniert auch in fremden Clients.
+        Route::livewire('/articles/{naddr}', 'group::article')->name('article');
         Route::livewire('/rooms/{h}', 'group::room')->name('room');
         // Direkt verlinkbarer Thread (C6b): dieselbe Room-SFC, öffnet den Thread als
         // Vollansicht. `{nevent}` = bech32-Referenz auf die Wurzel-Nachricht (portabel/teilbar).

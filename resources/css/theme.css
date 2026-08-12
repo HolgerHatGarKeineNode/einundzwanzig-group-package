@@ -430,3 +430,124 @@ select:focus[data-flux-control] {
       Stubs). Leer schluckt er die Klicks über den ersten 14px des Feldes — ein
       Tap dorthin fokussierte das Feld nicht mehr. */
 [data-flux-command-input] > div:first-child:not(:has(svg)) { display: none; }
+
+/* ── Longform-Artikel (P7): der gerenderte Markdown-Körper ────────────────────
+   Die HTML dahinter entsteht AUSSCHLIESSLICH in `renderArticleHtml`
+   (`js/longform.ts`) mit markdown-its `html: false` — es kann hier also nur eine
+   bekannte, kleine Menge Elemente ankommen: Überschriften, Absätze, Links,
+   Betonung, Listen, Zitate, Code, Bilder, Tabellen, Trennlinien und das einzige
+   bewusst durchgelassene `<br>`. Diese Liste ist der Grund, warum hier kein
+   generisches Prose-Plugin steht: eine Typografie-Bibliothek deckte hundert
+   Elemente ab, von denen keins je vorkommt.
+
+   Bewusst OHNE `@apply`: dieselbe Bauform wie `.chat-content` darüber. */
+.article-content {
+    /* Zeilenlänge deckeln. Bei 1280px Fensterbreite lief der Text ohne diese Zeile
+       über rund 110 Zeichen — lesbar sind 60–80. Dieselbe Bauform und dieselbe Zahl
+       wie im Chat-Inhalt (`xl:max-w-[72ch]`, `chat-row.blade.php:160`); hier ohne
+       Breakpoint, weil ein Artikel auf JEDER Breite ein Lesetext ist. */
+    max-width: 72ch;
+    color: var(--color-zinc-800);
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+}
+.dark .article-content { color: var(--color-zinc-200); }
+
+.article-content > :first-child { margin-top: 0; }
+.article-content p { margin-block: 0.9em; }
+
+/* Überschriften: die H1 des Artikels steht im Kopf der Seite (Titel-Tag), im Text
+   beginnt die Hierarchie deshalb optisch eine Stufe tiefer — die Ränge bleiben
+   für Hilfstechnik aber die des Autors, hier wird nur Größe vergeben. */
+.article-content h1,
+.article-content h2,
+.article-content h3,
+.article-content h4,
+.article-content h5,
+.article-content h6 {
+    margin-top: 1.6em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--color-zinc-900);
+}
+.dark .article-content :is(h1, h2, h3, h4, h5, h6) { color: var(--color-zinc-100); }
+.article-content h1 { font-size: 1.5rem; }
+.article-content h2 { font-size: 1.3rem; }
+.article-content h3 { font-size: 1.15rem; }
+.article-content :is(h4, h5, h6) { font-size: 1rem; }
+
+.article-content a {
+    color: var(--color-brand-500);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.article-content :is(ul, ol) { margin-block: 0.9em; padding-inline-start: 1.5rem; }
+.article-content ul { list-style: disc; }
+.article-content ol { list-style: decimal; }
+.article-content li { margin-block: 0.3em; }
+.article-content li > :is(ul, ol) { margin-block: 0.3em; }
+
+/* Zitat: dieselbe 2px-Kante wie die Herkunfts-Rail in der Hinweisliste — ein
+   Motiv, eine Bedeutung („das hier kommt von woanders"). */
+.article-content blockquote {
+    margin-block: 1em;
+    padding-inline-start: 1rem;
+    border-inline-start: 2px solid var(--color-brand-500);
+    color: var(--color-muted);
+    font-style: italic;
+}
+
+.article-content code {
+    padding: 0.1em 0.35em;
+    border-radius: 0.3rem;
+    background-color: color-mix(in oklab, var(--color-zinc-500) 14%, transparent);
+    font-family: var(--font-mono, monospace);
+    font-size: 0.9em;
+}
+.article-content pre {
+    margin-block: 1em;
+    padding: 0.9rem 1rem;
+    border-radius: var(--radius-card, 0.75rem);
+    background-color: color-mix(in oklab, var(--color-zinc-500) 14%, transparent);
+    overflow-x: auto;
+}
+/* Im Block trägt der Rahmen den Hintergrund — sonst läge Grau auf Grau. */
+.article-content pre code { padding: 0; background: none; font-size: 0.85rem; }
+
+/* Bilder laufen über den Proxy (`proxifyImage`, in der Renderer-Regel gesetzt).
+   `height: auto` ist Pflicht: die Proxy-Presets skalieren, ohne das Seitenverhältnis
+   im Markup zu hinterlegen. */
+.article-content img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin-block: 1.2em;
+    border-radius: var(--radius-card, 0.75rem);
+}
+
+.article-content hr {
+    margin-block: 2em;
+    border: 0;
+    border-top: 1px solid color-mix(in oklab, var(--color-zinc-500) 30%, transparent);
+}
+
+/* Tabellen (4 der 99 Artikel). `display: block` + Scroll am Wrapper wäre eine
+   zweite Wahrheit über die Breite — stattdessen scrollt die Tabelle selbst, und
+   der Text bricht nicht mitten im Wort. */
+.article-content table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    margin-block: 1.2em;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.article-content :is(th, td) {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid color-mix(in oklab, var(--color-zinc-500) 30%, transparent);
+    text-align: start;
+}
+.article-content th { font-weight: 600; }
