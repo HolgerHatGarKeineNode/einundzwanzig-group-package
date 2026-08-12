@@ -665,6 +665,8 @@ type ArticleState = {
     loading: boolean
     /** Hat der Relay geantwortet, ohne den Artikel zu kennen? */
     missing: boolean
+    /** Deutsche Fehlerzeile, '' = kein Fehler. Getrennt von `missing` — siehe `_load`. */
+    error: string
     article: ArticleView | null
     _naddr: string
     /** Ist der Screen weg, bevor der dynamische Import zurückkam? */
@@ -675,6 +677,7 @@ type ArticleState = {
     _boot(): Promise<void>
     destroy(): void
     _load(): Promise<void>
+    retry(): void
     hasArticle(): boolean
 }
 
@@ -3014,8 +3017,31 @@ export function registerNostrComponents(Alpine: {
                 this._controller = new AbortController()
                 void this._boot()
             },
+            /**
+             * Fachmodul holen und die Quelle aufziehen.
+             *
+             * **Das `try` um den Import ist kein Zierrat.** Zwei reale Wege enden hier in
+             * einer Ablehnung: (1) eine kaputte `NOSTR_BOARD_URL` — `normalizeRelayUrl`
+             * wirft `TypeError: Invalid URL` im Modul-Toplevel von `longformFeed.ts`, und
+             * der Server fängt das NICHT ab, weil sein Gate auf LEER prüft und eine
+             * kaputte URL nicht leer ist; (2) ein Chunk, der nach einem Deploy nicht mehr
+             * liegt. Ohne diesen Riegel lief die Ablehnung an `_load()` samt seinem
+             * try/catch vorbei ins Leere (`void this._boot()` ohne `.catch`), und der
+             * Bildschirm blieb dauerhaft im Skeleton — im Zustand also, der nichts sagt
+             * und nichts anbietet, obwohl zwei Zeilen weiter ein Callout mit
+             * Retry-Knopf steht.
+             */
             async _boot() {
-                feed = await import('./longformFeed')
+                try {
+                    feed = await import('./longformFeed')
+                } catch {
+                    if (!this._dead) {
+                        this.error = t('Die Artikel sind gerade nicht erreichbar.')
+                        this.loading = false
+                    }
+
+                    return
+                }
                 if (this._dead) {
                     return
                 }
@@ -3044,8 +3070,14 @@ export function registerNostrComponents(Alpine: {
                 }
                 this.loading = true
                 try {
-                    await feed.loadArticles(this._controller?.signal)
-                    this.error = ''
+                    const outcome = await feed.loadArticles(this._controller?.signal)
+                    // **Ein schweigender Relay ist kein leerer Relay.** `load()` wirft
+                    // nicht, wenn niemand antwortet — es löst mit einer leeren Liste auf.
+                    // Ohne diese Zeile stünde „Noch keine Artikel." über einem Relay, mit
+                    // dem nie gesprochen wurde (Begründung und Messtabelle bei
+                    // `LoadOutcome`). Nur wenn auch nichts im Speicher liegt: alles, was
+                    // schon da ist, ist mehr wert als eine Fehlerzeile darüber.
+                    this.error = outcome.complete || !this.isEmpty() ? '' : t('Die Artikel sind gerade nicht erreichbar.')
                 } catch {
                     // Wortlaut wie auf `/updates`: die Liste ist UNVOLLSTÄNDIG, nicht
                     // falsch — was schon im Repository liegt, steht weiter da.
@@ -3061,11 +3093,19 @@ export function registerNostrComponents(Alpine: {
             href(row: ArticleRow) {
                 return row.naddr ? `${this._base}/${row.naddr}` : ''
             },
+            /**
+             * Erneut versuchen — und zwar am richtigen Punkt: kam der Fehler schon beim
+             * Import, ist `feed` null und ein `_load()` täte gar nichts. Dann fängt der
+             * Versuch beim Import an. (Ein Modul, das beim Auswerten geworfen hat, bleibt
+             * fehlerhaft — der zweite Import lehnt wieder ab, und der Fehler steht dann
+             * ehrlich wieder da, statt zu verschwinden.)
+             */
             retry() {
                 this.error = ''
                 this._controller?.abort()
                 this._controller = new AbortController()
-                void this._load()
+                this.loading = true
+                void (feed ? this._load() : this._boot())
             },
         }
     })
@@ -3085,6 +3125,7 @@ export function registerNostrComponents(Alpine: {
         return {
             loading: true,
             missing: false,
+            error: '',
             article: null,
             _naddr: String(naddr ?? ''),
             _dead: false,
@@ -3094,8 +3135,18 @@ export function registerNostrComponents(Alpine: {
                 this._controller = new AbortController()
                 void this._boot()
             },
+            /** Siehe die Begründung des `try` bei `nostrArticles._boot`. */
             async _boot() {
-                feed = await import('./longformFeed')
+                try {
+                    feed = await import('./longformFeed')
+                } catch {
+                    if (!this._dead) {
+                        this.error = t('Der Artikel ist gerade nicht erreichbar.')
+                        this.loading = false
+                    }
+
+                    return
+                }
                 if (this._dead) {
                     return
                 }
@@ -3106,6 +3157,7 @@ export function registerNostrComponents(Alpine: {
                         // `load` noch läuft (aus dem Kaltstart-Cache kann er schon da sein).
                         this.loading = false
                         this.missing = false
+                        this.error = ''
                     }
                 })
                 await this._load()
@@ -3120,17 +3172,33 @@ export function registerNostrComponents(Alpine: {
                     return
                 }
                 try {
-                    const found = await feed.loadArticle(this._naddr, this._controller?.signal)
-                    // `missing` NUR aus dem Ergebnis des Ladens, nicht aus
-                    // `article === null`: die Ableitung meldet ihren ersten Wert, bevor
-                    // das Netz antwortet, und eine daraus abgeleitete Fehlanzeige blitzte
-                    // bei jedem Aufruf kurz auf.
-                    this.missing = !found && !this.article
+                    const outcome = await feed.loadArticle(this._naddr, this._controller?.signal)
+                    // Drei Ausgänge, und sie dürfen nicht zu zweien verschmelzen:
+                    //  - Relay hat geantwortet, kennt den Artikel nicht → `missing`.
+                    //    Das ist eine Aussage ÜBER den Relay, und sie ist jetzt gedeckt.
+                    //  - Relay hat NICHT geantwortet → `error` samt „Erneut laden".
+                    //    Vorher stand hier „Der Link zeigt auf keinen Artikel, den dieses
+                    //    Relay kennt." — eine Behauptung, die nie festgestellt wurde.
+                    //  - Artikel liegt schon vor (Kaltstart-Cache) → beides bleibt aus.
+                    // `missing` bewusst NICHT aus `article === null` ableiten: die
+                    // Ableitung meldet ihren ersten Wert, bevor das Netz antwortet, und
+                    // eine daraus gezogene Fehlanzeige blitzte bei jedem Aufruf auf.
+                    this.missing = outcome.complete && outcome.count === 0 && !this.article
+                    this.error = !outcome.complete && !this.article ? t('Der Artikel ist gerade nicht erreichbar.') : ''
                 } catch {
-                    this.missing = !this.article
+                    this.error = this.article ? '' : t('Der Artikel ist gerade nicht erreichbar.')
                 } finally {
                     this.loading = false
                 }
+            },
+            /** Siehe die Begründung bei `nostrArticles.retry`. */
+            retry() {
+                this.error = ''
+                this.missing = false
+                this._controller?.abort()
+                this._controller = new AbortController()
+                this.loading = true
+                void (feed ? this._load() : this._boot())
             },
             hasArticle() {
                 return this.article !== null

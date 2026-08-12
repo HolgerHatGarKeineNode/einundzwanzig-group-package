@@ -94,8 +94,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </div>
 
                         {{-- Leer und fertig geladen: Aussage, Erwartung, Ausweg — kein
-                             nackter Bildschirm (Nielsen #1/#3). --}}
-                        <div x-show="!loading" x-cloak class="surface-card empty-state px-4 py-10 text-center">
+                             nackter Bildschirm (Nielsen #1/#3).
+
+                             `&& !error` ist der Kern von B3: „Noch keine Artikel." ist eine
+                             Aussage ÜBER den Relay. Wenn er nicht geantwortet hat, ist sie
+                             nicht gedeckt — und stünde sonst direkt unter dem Callout, das
+                             das Gegenteil sagt. Ein Bildschirm, zwei widersprechende
+                             Sätze: genau das, was der Leser nicht auflösen kann. --}}
+                        <div x-show="!loading && !error" x-cloak class="surface-card empty-state px-4 py-10 text-center">
                             <flux:icon.document-text class="mx-auto size-8 text-zinc-400" />
                             <flux:heading class="mt-2">{{ __('Noch keine Artikel.') }}</flux:heading>
                             <flux:text class="mt-1 text-sm text-muted">{{ __('Sobald jemand einen Artikel veröffentlicht, erscheint er hier.') }}</flux:text>
@@ -123,9 +129,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <template x-if="row.image">
                                     <div class="aspect-[16/9] w-full overflow-hidden bg-zinc-200/60 dark:bg-zinc-800/60">
                                         {{-- `$img(…, 'msg')` ist der bestehende Bild-Proxy
-                                             (600 px, WebP). Rohe Fremd-URLs gehen nie
-                                             direkt ins `src`. `loading="lazy"`: bis zu 99
-                                             Karten. --}}
+                                             (600 px, WebP).
+
+                                             Hier stand „Rohe Fremd-URLs gehen nie direkt
+                                             ins `src`" — das war **falsch**, solange
+                                             `proxifyImage` nur `http(s)` erwischte: ein
+                                             `image`-Tag `//evil.example/p.png` lief roh
+                                             durch und holte für jeden Leser dieser LISTE
+                                             ein Bild vom fremden Host, ohne einen Klick.
+                                             Die Zusage stimmt erst, seit die Erlaubnis auf
+                                             der Ausnahme steht (`core.ts`, `INLINE_SRC`):
+                                             alles außer `data:`/`blob:` geht durch den
+                                             Proxy. Eine falsche Sicherheitszusage im
+                                             Kommentar trägt die nächste Entscheidung —
+                                             deshalb steht der Grund hier und nicht nur die
+                                             Behauptung.
+
+                                             `loading="lazy"`: bis zu 99 Karten. --}}
                                         <img :src="$img(row.image, 'msg')" alt="" loading="lazy"
                                              class="size-full object-cover" />
                                     </div>

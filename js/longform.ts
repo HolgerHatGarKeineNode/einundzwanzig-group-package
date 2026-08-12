@@ -33,7 +33,16 @@
  * Gemessen statt geglaubt (2026-08-12, alle 99 Artikel des Board-Relays plus 25
  * Angriffsvektoren): **0** Treffer für `<script`, `<iframe`, `on…=`, `javascript:`,
  * `vbscript:`, `<svg`, `<object`, `<embed`, `<form` in der Ausgabe. Rohdaten und Skripte
- * im Artefakt-Ordner des Plans (`p7-recon.md` §2.4/§3.6, Host-Repo).
+ * im Artefakt-Ordner des Plans (`p7-recon.md` §2.4/§3.6, Host-Repo). Der
+ * `security-auditor` hat die Grenze anschließend mit 300.000 Fuzz-Eingaben plus 269.389
+ * gezielten Sentinel-Fällen gegen eine Tag-/Attribut-Allowlist geprüft: 0 Verstöße.
+ *
+ * **Ein Satz für den, der hier ein Plugin einhängen will:** Die Ausgabe landet über
+ * Alpines `x-html`, und das ruft `initTree()` auf dem eingefügten Teilbaum — ein
+ * `x-…`-Attribut in dieser HTML wäre also nicht bloß Markup, sondern sofort
+ * ausgeführter Alpine-Ausdruck. Heute ist das unerreichbar (markdown-it schreibt keine
+ * `x-`-Attribute, und Autorentext wird escaped); ein Plugin, das eigene Attribute
+ * ausgibt, macht daraus einen Ausführungspfad.
  *
  * ── Zwei Entscheidungen über sichtbaren Fremdtext ───────────────────────────────────
  *
@@ -77,6 +86,18 @@ export type ArticleTags = {
     topics: string[]
 }
 
+/**
+ * Obergrenze für `published_at` in Sekunden: **4e9 = 2096-10-02**.
+ *
+ * Eine feste Zahl, kein `Date.now()`. Ein Artikel darf in der Zukunft datiert sein
+ * (geplante Veröffentlichung ist ein legitimer Fall, und die Uhr des Lesers ist keine
+ * Autorität) — er darf nur nicht in einer Zukunft liegen, die niemand gemeint haben kann.
+ * Dieselbe Grenze, an der die Millisekunden-Frage gemessen wurde: **0 von 99** Artikeln
+ * liegen darüber. Wer sie überschreitet, wird nach `created_at` einsortiert und verliert
+ * damit genau die Wirkung, die er gesucht hat.
+ */
+export const PUBLISHED_AT_MAX = 4_000_000_000
+
 /** Erster Wert eines Tags, `''` wenn keins da ist. */
 const firstTag = (tags: string[][], name: string): string => {
     for (const tag of tags) {
@@ -101,16 +122,23 @@ const firstTag = (tags: string[][], name: string): string => {
  * zu erzeugen. Millisekunden-Zeitstempel werden NICHT umgerechnet: im Bestand gibt es
  * keinen einzigen (0 von 99, Grenze 4e9 geprüft), und eine Umrechnung „auf Verdacht"
  * verschöbe im Zweifel echte Daten.
+ *
+ * **Die Grenze gilt in BEIDE Richtungen** — hier stand nur `> 0`, und das war einseitig:
+ * ein Tag `["published_at","9e15"]` kam durch, `toLocaleDateString` machte daraus
+ * „Invalid Date", und weil die Liste absteigend nach dieser Zahl sortiert, nagelte der
+ * Artikel sich **dauerhaft auf Platz 1**. Ein Autor braucht dafür keinen Fehler im Client,
+ * nur einen Tippfehler oder Absicht. Siehe {@link PUBLISHED_AT_MAX}.
  */
 export const readArticleTags = (tags: string[][], createdAt = 0): ArticleTags => {
     const published = Number(firstTag(tags, 'published_at'))
+    const plausible = Number.isFinite(published) && published > 0 && published <= PUBLISHED_AT_MAX
 
     return {
         identifier: firstTag(tags, 'd'),
         title: firstTag(tags, 'title'),
         summary: firstTag(tags, 'summary'),
         image: firstTag(tags, 'image'),
-        publishedAt: Number.isFinite(published) && published > 0 ? Math.floor(published) : createdAt,
+        publishedAt: plausible ? Math.floor(published) : createdAt,
         topics: tags.filter((tag) => tag[0] === 't' && tag[1]).map((tag) => tag[1]),
     }
 }
@@ -178,12 +206,26 @@ export const stripFrontmatter = (content: string): string => {
  * Rendern wird `<br>` durch dieses Zeichen ersetzt, nach dem Rendern das Zeichen durch
  * ein `<br>`.
  *
- * **Warum ein fester Platzhalter sicher ist — und nicht nur „unwahrscheinlich":** Selbst
- * wenn ein Autor dieses Zeichen (U+E000, Private Use Area) selbst in seinen Text
- * schriebe, ist das Ergebnis exakt ein zusätzlicher Zeilenumbruch. Das Ersetzungsziel ist
- * eine **Konstante**, kein vom Autor kontrollierter String — es gibt nichts, was sich
- * darüber einschleusen ließe. Deshalb braucht es hier keinen Zufallswert, und die
- * Funktion bleibt deterministisch (und damit prüfbar).
+ * **Warum das sicher ist — die tragende Begründung ist die REIHENFOLGE, nicht die
+ * Konstanz des Ersatzes.**
+ *
+ * Hier stand zuerst: „das Ersetzungsziel ist eine Konstante, also kann sich nichts
+ * einschleusen". Das stimmt als Aussage, trägt aber nicht: es erklärt nur, warum ein
+ * Autor, der U+E000 selbst schreibt, höchstens einen überzähligen Zeilenumbruch bekommt.
+ * Es sagt **nichts** über den Fall, in dem der Rücktausch ein `<br>` mitten in einem
+ * **Attributwert** ablegt — und genau der tritt auf (im Audit 11.132-mal gemessen, etwa
+ * über `alt`- und `title`-Texte).
+ *
+ * Tragend ist: **der Rücktausch läuft NACH dem Escaping.** Wenn `md.render()` fertig ist,
+ * hat markdown-it jedes `"` im Autorentext bereits zu `&quot;` gemacht und quotet jeden
+ * Attributwert doppelt. Ein `<br>`, das danach in einen Attributwert fällt, kann diesen
+ * Wert also nicht verlassen — im Attributwert-Zustand ist `<` für den HTML-Tokenizer
+ * schlicht Text. Der Sentinel ist damit sicher, **solange er nach dem Rendern
+ * zurückgetauscht wird**; wer die beiden Schritte je vertauscht oder das Escaping
+ * dazwischen abschaltet, hebt genau diese Zusage auf.
+ *
+ * Der Nebeneffekt der Konstanz bleibt richtig und nützlich: der Ersatz braucht keinen
+ * Zufallswert, und die Funktion bleibt deterministisch (und damit prüfbar).
  */
 export const BR_SENTINEL = ''
 

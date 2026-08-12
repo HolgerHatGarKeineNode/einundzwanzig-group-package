@@ -235,6 +235,40 @@ const warmAuthors = (events: TrustedEvent[]): void => {
 }
 
 /**
+ * Das Ergebnis eines Ladevorgangs — und zwar mehr als „wie viele Ereignisse".
+ *
+ * ── Warum `complete` existiert ─────────────────────────────────────────────────────
+ *
+ * `load()` **wirft nicht**, wenn der Relay unerreichbar ist: es löst nach kurzer Zeit mit
+ * einer leeren Liste auf. Ohne dieses Feld wäre „der Relay ist tot" von „der Relay hat
+ * nichts" nicht zu unterscheiden — und die Oberfläche sagte „Noch keine Artikel." über
+ * einen Relay, mit dem sie nie gesprochen hat.
+ *
+ * Gemessen (2026-08-12, `load()` direkt aus `@welshman/net`, je ein Lauf):
+ *
+ * | Fall                              | events | EOSE  | disconnect | Dauer   |
+ * |-----------------------------------|--------|-------|------------|---------|
+ * | gesunder Relay (Prod-Board)       | 5      | true  | false      |  916 ms |
+ * | Relay lebt, AUTH fehlt (zooid)    | 0      | false | false      | 3206 ms |
+ * | toter Port (`ws://127.0.0.1:1/`)  | 0      | false | true       |  203 ms |
+ * | Host nicht auflösbar              | 0      | false | true       |  205 ms |
+ *
+ * Deshalb hängt `complete` am **EOSE**, nicht an `onDisconnect`: `disconnect` fängt nur
+ * den toten Socket und verpasst genau den Fall, den ein member-only-Relay erzeugt
+ * (Verbindung steht, Abfrage wird abgelehnt, kein EOSE). EOSE beantwortet dagegen die
+ * Frage, auf die es ankommt — „haben wir eine VOLLSTÄNDIGE Antwort bekommen?".
+ */
+export type LoadOutcome = {
+    /** Hat der Relay die Abfrage vollständig beantwortet (EOSE gesehen)? */
+    complete: boolean
+    /** Wie viele Ereignisse dabei hereinkamen. */
+    count: number
+}
+
+/** Nichts gefragt, nichts erfahren — aber auch kein Relay, der schweigt. */
+const NOT_ASKED: LoadOutcome = { complete: true, count: 0 }
+
+/**
  * Bestand laden. Einmalig je Aufruf — die Liste selbst bleibt über
  * {@link deriveArticles} reaktiv.
  *
@@ -242,27 +276,46 @@ const warmAuthors = (events: TrustedEvent[]): void => {
  * höchstens einen neuen Beitrag bis zum nächsten Aufruf, und dafür lohnt keine dauerhaft
  * offene Subscription auf einem dritten Relay.
  */
-export const loadArticles = async (signal?: AbortSignal): Promise<void> => {
+export const loadArticles = async (signal?: AbortSignal): Promise<LoadOutcome> => {
     if (!BOARD_URL) {
-        return
+        return NOT_ASKED
     }
-    const events = await load({ relays: [BOARD_URL], filters: listFilters(ARTICLE_LOAD_LIMIT), signal })
+    let complete = false
+    const events = await load({
+        relays: [BOARD_URL],
+        filters: listFilters(ARTICLE_LOAD_LIMIT),
+        signal,
+        onEose: () => {
+            complete = true
+        },
+    })
     warmAuthors(events)
+
+    return { complete, count: events.length }
 }
 
 /**
  * Einen einzelnen Artikel nachladen (kalter Direkteinstieg).
  *
- * Liefert `false`, wenn der `naddr` nicht lesbar ist oder der Relay nichts dazu hat —
- * die Insel zeigt dann ihren „gibt es nicht"-Zustand statt endlos zu laden.
+ * Ein unlesbarer `naddr` gilt als **vollständig beantwortet mit null Treffern**: da war
+ * kein Relay im Spiel, der schweigen könnte — der Link selbst ist kaputt, und genau das
+ * darf die Oberfläche dann auch sagen.
  */
-export const loadArticle = async (naddr: string, signal?: AbortSignal): Promise<boolean> => {
+export const loadArticle = async (naddr: string, signal?: AbortSignal): Promise<LoadOutcome> => {
     const address = decodeArticleNaddr(naddr)
     if (!address || !BOARD_URL) {
-        return false
+        return NOT_ASKED
     }
-    const events = await load({ relays: [BOARD_URL], filters: addressFilters(address), signal })
+    let complete = false
+    const events = await load({
+        relays: [BOARD_URL],
+        filters: addressFilters(address),
+        signal,
+        onEose: () => {
+            complete = true
+        },
+    })
     warmAuthors(events)
 
-    return events.length > 0
+    return { complete, count: events.length }
 }

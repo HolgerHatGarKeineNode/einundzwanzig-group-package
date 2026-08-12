@@ -40,13 +40,44 @@ export const isMobile = Boolean((globalThis as { __nostrMobile?: boolean }).__no
  * PLAN4 IMG — Bild-Proxy-URL bauen: leitet remote Nostr-Bilder über den
  * gehosteten Zuschnitt-/WebP-Proxy (`/img/{preset}`). Web = relativ (gleicher
  * Host); Mobile = absolut gegen den festen Web-Host (die App hostet den Proxy
- * nicht). Nur http(s) wird proxifiziert — data:/blob: bleiben unangetastet.
+ * nicht).
+ *
+ * ── Die Erlaubnisliste steht auf der AUSNAHME, nicht auf dem Normalfall ─────────
+ *
+ * Hier stand `if (! /^https?:\/\//i.test(src)) return src` — „nur http(s) wird
+ * proxifiziert, der Rest bleibt unangetastet". Das war der falsche Herum: alles,
+ * was kein Schema trug, ging **roh** ins `src`-Attribut. Eine protokoll-relative
+ * URL ist genau so ein Fall, und sie ist eine vollwertige Fremdadresse —
+ * `new URL('//evil.example/p.png', 'https://group.einundzwanzig.space/articles/x')`
+ * ergibt gemessen `https://evil.example/p.png`. Der Browser jedes Lesers stellte
+ * dann eine direkte Anfrage an den fremden Host: IP und User-Agent, still, pro
+ * Leser. Die CSP hält das nicht auf (`img-src * data: blob:`), und markdown-its
+ * `validateLink` auch nicht (es sperrt `javascript:|vbscript:|file:|data:`,
+ * nicht `//host`).
+ *
+ * **Deshalb: proxifiziert wird ALLES — außer den zwei Schemata, die gar keine
+ * Fremdanfrage auslösen können.** `data:` trägt die Bytes selbst (fünf Artikel im
+ * Bestand hängen daran), `blob:` zeigt auf ein Objekt im selben Dokument. Beide
+ * kann der Proxy nicht holen, und beide erreichen keinen fremden Host.
+ *
+ * Alles andere — `//host`, `http:`, ein relativer Pfad, ein unbekanntes Schema —
+ * läuft durch den Proxy und scheitert dort **sichtbar** statt still: der
+ * Controller verlangt `https` plus öffentlichen Host (`isSafeUrl`,
+ * `ImageProxyController:246-253`) und antwortet sonst mit 400. Ergebnis für den
+ * Leser ist ein kaputtes Bild — und keine Verbindung zum Angreifer.
+ *
+ * `trimStart()`, weil der Browser führenden Leerraum in einem `src` ignoriert:
+ * ohne ihn entschiede ein vorangestelltes Leerzeichen darüber, ob ein `data:`
+ * noch als `data:` erkannt wird.
  */
 const IMG_PROXY_HOST = 'https://group.einundzwanzig.space'
 
+/** Schemata ohne Fremdanfrage — die einzige Ausnahme vom Proxy. */
+const INLINE_SRC = /^(?:data|blob):/i
+
 export function proxifyImage(url: unknown, preset = 'avatar'): string {
     const src = typeof url === 'string' ? url : ''
-    if (! /^https?:\/\//i.test(src)) {
+    if (src === '' || INLINE_SRC.test(src.trimStart())) {
         return src
     }
     const base = isMobile ? IMG_PROXY_HOST : ''
