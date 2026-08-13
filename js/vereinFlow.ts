@@ -851,7 +851,22 @@ export const applicationBody = (input: {
     noEmail?: boolean
     nip05?: string
 }): string => {
-    const body: Record<string, string | boolean> = { statutes_accepted: 'accepted' }
+    // `true`, NICHT `'accepted'`. Der Verein prüft das Feld mit Laravels
+    // `accepted`-Regel, und die kennt genau sechs Werte:
+    //
+    //     ['yes', 'on', '1', 1, true, 'true']
+    //
+    // verglichen mit `in_array(..., true)`, also STRIKT
+    // (`Illuminate/Validation/Concerns/ValidatesAttributes.php:45-49`). Der
+    // sprechende String `'accepted'` steht nicht darin — er sah nach dem
+    // richtigen Wert aus und war der einzige, der garantiert scheitert.
+    //
+    // Der Antrag fiel damit IMMER mit 422 „The statutes must be accepted to
+    // apply for membership." Kein Test hat es gesehen: die E2E-Fälle stubben den
+    // Proxy und antworten 201, ohne je zu validieren, und die reinen Fälle
+    // prüften nur, DASS der Schlüssel im Body steht — nicht, dass sein Wert die
+    // Gegenseite passiert. Gefunden hat es der erste echte Durchlauf von Hand.
+    const body: Record<string, string | boolean> = { statutes_accepted: true }
 
     const text = input.applicationText?.trim()
     if (text) {

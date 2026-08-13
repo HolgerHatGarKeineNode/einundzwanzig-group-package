@@ -619,13 +619,35 @@ test('der Antrag trägt niemals einen Pubkey — das wäre beim Verein ein 403',
     assert.equal('pubkey' in parsed, false)
     assert.equal('npub' in parsed, false)
     assert.equal('key' in parsed, false)
-    assert.equal(parsed.statutes_accepted, 'accepted')
+})
+
+test('statutes_accepted trägt einen Wert, den Laravels accepted-Regel wirklich durchlässt', () => {
+    // Der Grund für diesen Fall: hier stand `assert.equal(parsed.statutes_accepted,
+    // 'accepted')` — er prüfte den Wert gegen sich selbst und hätte jeden beliebigen
+    // String durchgelassen. Genau das ist passiert: `'accepted'` sah nach dem
+    // richtigen Wert aus, ist aber der einzige, der garantiert scheitert.
+    //
+    // Diese Liste ist die aus Laravels `ValidatesAttributes::validateAccepted`,
+    // verglichen mit `in_array(..., true)` — also STRIKT. Ändert Laravel sie, muss
+    // dieser Fall nachziehen; dann fällt er auf und niemand rät.
+    const ACCEPTED_BY_LARAVEL: unknown[] = ['yes', 'on', '1', 1, true, 'true']
+
+    const parsed = JSON.parse(applicationBody({})) as Record<string, unknown>
+
+    assert.ok(
+        ACCEPTED_BY_LARAVEL.some((v) => v === parsed.statutes_accepted),
+        `statutes_accepted=${JSON.stringify(parsed.statutes_accepted)} passiert Laravels accepted-Regel nicht — ` +
+            `erlaubt sind ${JSON.stringify(ACCEPTED_BY_LARAVEL)}, strikt verglichen. ` +
+            'Der Antrag fiele damit immer mit 422.',
+    )
 })
 
 test('leere optionale Felder werden weggelassen, nicht als leerer String gesendet', () => {
     const parsed = JSON.parse(applicationBody({ applicationText: '   ', email: '', nip05: '  ' })) as Record<string, unknown>
 
-    assert.deepEqual(parsed, { statutes_accepted: 'accepted' })
+    // Der Wert selbst wird eine Ebene tiefer geprüft („trägt einen Wert, den Laravels
+    // accepted-Regel wirklich durchlässt"). Hier zählt nur: sonst steht nichts drin.
+    assert.deepEqual(Object.keys(parsed), ['statutes_accepted'])
 })
 
 test('no_email wird nur gesetzt, wenn es gewählt wurde', () => {
