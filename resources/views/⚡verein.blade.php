@@ -333,7 +333,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                             </template>
 
                             {{-- In der App zahlen --}}
-                            <template x-if="bolt11 && hasWallet">
+                            <template x-if="payInApp()">
                                 <flux:button variant="primary" class="w-full" icon="bolt"
                                              data-testid="verein-wallet-zahlen"
                                              ::disabled="busy !== ''"
@@ -350,7 +350,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                                  `variant` serverseitig zu Klassen auf, ein `x-bind:variant`
                                  wäre ein Attribut ohne Wirkung. Nur einer der beiden
                                  Knöpfe ist je sichtbar. --}}
-                            <template x-if="checkoutUrl && bolt11 && hasWallet">
+                            <template x-if="checkoutUrl && payInApp()">
                                 <flux:button variant="ghost" class="w-full" icon:trailing="arrow-up-right"
                                              data-testid="verein-checkout"
                                              x-on:click="openCheckout($event)">
@@ -358,7 +358,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                                 </flux:button>
                             </template>
 
-                            <template x-if="checkoutUrl && !(bolt11 && hasWallet)">
+                            <template x-if="checkoutUrl && !payInApp()">
                                 <flux:button variant="primary" class="w-full" icon:trailing="arrow-up-right"
                                              data-testid="verein-checkout"
                                              x-on:click="openCheckout($event)">
@@ -377,7 +377,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                             {{-- Rechnung da, aber keine Wallet verbunden: der Hinweis
                                  darauf, dass es auch in der App ginge — ohne den
                                  Checkout-Weg zu verstellen. --}}
-                            <template x-if="bolt11 && !hasWallet">
+                            <template x-if="bolt11 && !payInApp()">
                                 <flux:text class="text-center text-xs text-muted">
                                     {{ __('Mit einer verbundenen Wallet zahlst du direkt in der App.') }}
                                     <a class="underline" href="{{ route('group.wallet') }}" wire:navigate>{{ __('Wallet verbinden') }}</a>

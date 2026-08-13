@@ -461,6 +461,7 @@ type VereinState = {
     errorAction(): string
     errorFields(): Record<string, string[]>
     fieldLabel(field: string): string
+    payInApp(): boolean
     stepState(step: string): 'done' | 'active' | 'todo'
     // Innenleben
     _boot(): Promise<void>
@@ -972,6 +973,30 @@ const createVerein = (startInWaiting = false): VereinState => ({
         return (conf().api ?? '') !== ''
     },
 
+    /**
+     * Die Wallet/Checkout-Weiche — **die eine Stelle**, die sie beantwortet.
+     *
+     * Vorher stand die Regel zweimal da: einmal hier in `canPayInApp` (ueber alle
+     * 2^10 Eingaben geprueft) und einmal als `bolt11 && hasWallet` direkt im
+     * Markup. Zwei Formulierungen derselben Regel sind kein Fehler, solange sie
+     * uebereinstimmen — sie sind ein Fehler, sobald sich eine aendert. Und
+     * geschuetzt war nur die eine: eine Mutation an `canPayInApp` traf keinen
+     * einzigen Fall, weil die Flaeche die Frage selbst beantwortete.
+     *
+     * Jetzt liest das Markup nur noch das Ergebnis. Damit deckt der Reduzierer-
+     * Test auch die Flaeche ab, und die Weiche kann nicht mehr an einer Stelle
+     * korrigiert und an der anderen vergessen werden.
+     *
+     * Bewusst eine Methode und kein Feld: nichts am Zustandsautomaten aendert
+     * sich, `_recompute` kennt die Frage nicht, es gibt kein drittes Feld, das
+     * mit `bolt11`/`hasWallet` synchron gehalten werden muesste — genau das waere
+     * wieder eine zweite Wahrheit. Alpine wertet den Aufruf bei jeder Aenderung
+     * der gelesenen Felder neu aus, wie bei `feeLabel()` und `stepState()` auch.
+     */
+    payInApp() {
+        return canPayInApp({ bolt11: this.bolt11, checkoutUrl: this.checkoutUrl, invoiceId: null }, this.hasWallet)
+    },
+
     /** Beschriftung des sichtbaren Auswegs — nie leer, solange ein Fehler steht. */
     errorAction() {
         return this.error ? escapeLabel(this.error.escape, t) : ''
@@ -1134,7 +1159,10 @@ const createVerein = (startInWaiting = false): VereinState => ({
         // Checkout. Fehlt AUCH der Checkout, ist der Weg im Client zu Ende und
         // der Ausweg ist der Browser; das ist ein Fehlerzustand mit Ausweg, kein
         // stiller Stillstand.
-        if (!canPayInApp(invoice, this.hasWallet) && !this.checkoutUrl) {
+        // Dieselbe Ableitung wie das Markup — `bolt11`/`checkoutUrl` stehen oben
+        // bereits, ein zweiter direkter `canPayInApp`-Aufruf waere wieder eine
+        // eigene Formulierung derselben Frage.
+        if (!this.payInApp() && !this.checkoutUrl) {
             this._fail({
                 status: 0,
                 message: t('Der Verein hat keine Zahlungsmöglichkeit geliefert.'),
