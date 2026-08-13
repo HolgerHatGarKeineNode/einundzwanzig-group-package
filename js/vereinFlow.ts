@@ -170,6 +170,65 @@ export const formatWait = (minutes: number, t: (key: string, replace?: Record<st
     return whole === 1 ? t('bis zu einer Minute') : t('bis zu :count Minuten', { count: whole })
 }
 
+// ── Ganze Sätze fürs Markup ──────────────────────────────────────────────────
+
+/**
+ * Die Übersetzungs-Funktion, wie sie hier hereingereicht wird. Ausgeschrieben
+ * statt `typeof t` importiert: diese Datei hat bewusst KEINEN Import und bleibt
+ * damit unter `node --test` ohne i18n-Runtime prüfbar.
+ */
+export type Translate = (key: string, replace?: Record<string, string | number>) => string
+
+/*
+ * ── Warum diese vier Funktionen überhaupt existieren ─────────────────────────
+ *
+ * Bis hierher standen vier Sätze im Markup **in Stücken**, weil ein reaktives
+ * `<span x-text>` mittendrin steht:
+ *
+ *     {{ __('Bitte noch') }} <span x-text="error.retryAfter"></span> {{ __('Sekunden warten.') }}
+ *
+ * Deutsch liest sich das richtig — für jede andere Sprache ist es unlösbar. Der
+ * Übersetzer bekommt „Bitte noch" und „Sekunden warten." als zwei Einträge und
+ * kann weder die Wortstellung ändern (Ungarisch stellt das Verb ans Ende) noch
+ * den Kasus wählen (Lettisch, Polnisch), weil beides von dem abhängt, was
+ * dazwischen steht — und das sieht er nie. Belegt in den sieben Katalogen: die
+ * ungarischen Wartezeit-Texte tragen `-ig`-Endungen, die NUR in dieser einen
+ * deutschen Satzstellung aufgehen.
+ *
+ * Deshalb ist der Satz jetzt EIN Schlüssel mit Platzhalter, und die Ersetzung
+ * passiert hier in JS statt in Blade: `__()` würde serverseitig füllen und den
+ * reaktiven Wert damit einfrieren.
+ *
+ * **Was das NICHT löst — und bewusst nicht:** `t()` kennt nur `:name`-Ersetzung,
+ * keine Numerus-Regeln (kein `trans_choice`-Gegenstück). Sprachen mit mehreren
+ * Numerus-Klassen (pl: 3, lv: 2) sind hier über die FORMULIERUNG gelöst — die
+ * Einheit steht abgekürzt bzw. als Beschriftung vor dem Zähler, wo sie sich
+ * nicht nach der Zahl richtet. Eine echte Pluralmechanik in `t()` wäre ein
+ * eigener Vorgang.
+ */
+
+/** „Bitte noch 42 Sekunden warten." — die Bremse nach einem 429. */
+export const formatRetry = (seconds: number, t: Translate): string =>
+    t('Bitte noch :seconds Sekunden warten.', { seconds })
+
+/**
+ * „Fassung 1.2, beschlossen am 01.03.2024" — der Kopf über den Statuten.
+ *
+ * Der Gedankenstrich für einen fehlenden Wert stand vorher im Markup
+ * (`x-text="statutesVersion || '—'"`); er gehört zur Formatierung und damit
+ * hierher, wo er prüfbar ist.
+ */
+export const formatStatutes = (version: string, adoptedAt: string, t: Translate): string =>
+    t('Fassung :version, beschlossen am :date', { version: version || '—', date: adoptedAt || '—' })
+
+/** „0 / 2000 Zeichen" — der Zähler unter dem Nachrichtenfeld. */
+export const formatCharCount = (used: number, max: number, t: Translate): string =>
+    t(':used / :max Zeichen', { used, max })
+
+/** „Das dauert bis zu 24 Stunden." — {@link formatWait} liefert den Einschub. */
+export const formatWaitSentence = (waitText: string, t: Translate): string =>
+    t('Das dauert :duration.', { duration: waitText })
+
 // ── Nachfassen ───────────────────────────────────────────────────────────────
 
 /**

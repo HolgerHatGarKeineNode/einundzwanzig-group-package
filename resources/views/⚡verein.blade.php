@@ -135,9 +135,18 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                             <span x-text="error.message"></span>
                         </flux:callout.text>
 
+                        {{-- Ein Satz, ein Schlüssel: der Wert steckt IM Satz
+                             (`Bitte noch :seconds Sekunden warten.`) und nicht
+                             zwischen zwei Bruchstücken. Vorher standen hier zwei
+                             Übersetzungsaufrufe mit einem reaktiven `<span x-text>`
+                             dazwischen — für Deutsch richtig, für jede Sprache mit
+                             anderer Wortstellung oder anderem Kasus unlösbar.
+                             Gefüllt wird in JS (`retryLine()`), nicht in Blade:
+                             `__()` ersetzte serverseitig und fröre den reaktiven
+                             Wert ein. --}}
                         <template x-if="error.retryAfter">
                             <flux:callout.text class="text-xs">
-                                {{ __('Bitte noch') }} <span x-text="error.retryAfter"></span> {{ __('Sekunden warten.') }}
+                                <span x-text="retryLine()"></span>
                             </flux:callout.text>
                         </template>
 
@@ -185,9 +194,17 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
 
                         <div class="space-y-2">
                             <flux:heading size="lg">{{ __('Statuten') }}</flux:heading>
+                            {{-- Ein Satz statt vier Stücken (`Fassung :version,
+                                 beschlossen am :date`). Der Preis ist sichtbar
+                                 und bewusst bezahlt: die beiden Werte tragen
+                                 kein `font-medium`/`whitespace-nowrap` mehr —
+                                 eine Auszeichnung INNERHALB eines Satzes gäbe es
+                                 nur über `x-html`, und dafür ist eine Hervorhebung
+                                 kein Grund. Der Gedankenstrich für fehlende Werte
+                                 sitzt jetzt in `formatStatutes` (vereinFlow.ts),
+                                 wo er geprüft ist. --}}
                             <flux:text class="text-sm text-muted">
-                                {{ __('Fassung') }} <span class="font-medium" x-text="statutesVersion || '—'"></span>,
-                                {{ __('beschlossen am') }} <span class="whitespace-nowrap font-medium" x-text="statutesAdoptedAt || '—'"></span>
+                                <span x-text="statutesLine()"></span>
                             </flux:text>
                             {{-- Plain <a> statt flux:button: `href` entscheidet bei
                                  Flux SERVERSEITIG, ob ein <a> oder ein <button>
@@ -277,10 +294,14 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                                 <flux:textarea x-model="applicationText" rows="3" data-testid="verein-antrag-text"
                                                ::maxlength="applicationTextMax" />
                                 {{-- Rechtsbündig am Feldende und mit Einheit: „0 / 2000"
-                                     allein sagt nicht, wovon 2000. --}}
+                                     allein sagt nicht, wovon 2000. Zähler UND Einheit
+                                     sind ein Schlüssel (`:used / :max Zeichen`) — als
+                                     bloßes „Zeichen" hinter zwei Zahlen konnte keine
+                                     Sprache die Einheit vor den Zähler stellen, und
+                                     genau das brauchen Polnisch und Lettisch, um dem
+                                     Numerus nach der Zahl zu entgehen. --}}
                                 <flux:text class="text-right text-xs text-muted">
-                                    <span x-text="applicationText.length"></span> / <span x-text="applicationTextMax"></span>
-                                    {{ __('Zeichen') }}
+                                    <span x-text="charCountLine()"></span>
                                 </flux:text>
                             </flux:field>
                         </div>
@@ -515,8 +536,15 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                              konfiguriert, steht hier „in Kürze" statt einer
                              Zahl, die nicht stimmt. --}}
                         <div class="rounded-tile bg-zinc-100 px-4 py-3 text-sm dark:bg-zinc-800/60" data-testid="verein-wartezeit">
+                            {{-- `Das dauert :duration.` als ein Schlüssel. Der
+                                 Einschub kommt aus `formatWait` und trägt im
+                                 Ungarischen die `-ig`-Endung („legfeljebb egy
+                                 óráig") — die geht nur auf, wenn der Rahmensatz
+                                 als Ganzes übersetzbar ist. Die Halbfettung des
+                                 Einschubs entfällt damit, wie oben bei der
+                                 Fassung. --}}
                             <template x-if="waitText">
-                                <p>{{ __('Das dauert') }} <span class="font-semibold" x-text="waitText"></span>.</p>
+                                <p x-text="waitLine()"></p>
                             </template>
                             <template x-if="!waitText">
                                 <p>{{ __('Das dauert in der Regel nur kurz.') }}</p>

@@ -46,7 +46,11 @@ import {
     canPayInApp,
     escapeLabel,
     followUpDelay,
+    formatCharCount,
+    formatRetry,
+    formatStatutes,
     formatWait,
+    formatWaitSentence,
     mapVereinError,
     OPAQUE_REDIRECT_STATUS,
     readConfig,
@@ -461,6 +465,10 @@ type VereinState = {
     errorAction(): string
     errorFields(): Record<string, string[]>
     fieldLabel(field: string): string
+    retryLine(): string
+    statutesLine(): string
+    charCountLine(): string
+    waitLine(): string
     payInApp(): boolean
     stepState(step: string): 'done' | 'active' | 'todo'
     // Innenleben
@@ -1041,6 +1049,38 @@ const createVerein = (startInWaiting = false): VereinState => ({
             default:
                 return field
         }
+    },
+
+    /*
+     * ── Die vier ganzen Sätze ────────────────────────────────────────────────
+     *
+     * Sie stehen hier und nicht mehr im Markup, weil dort ein reaktives
+     * `<span x-text>` mitten im Satz stand und ihn damit für jeden Übersetzer in
+     * Bruchstücke zerlegte (die lange Begründung: `vereinFlow.ts`, Abschnitt
+     * „Ganze Sätze fürs Markup"). Methoden und nicht Felder, aus demselben Grund
+     * wie bei `feeLabel()`/`payInApp()`: Alpine wertet sie bei jeder Änderung
+     * der gelesenen Felder neu aus, und es entsteht kein zweiter Zustand, der
+     * mit `error`/`waitText` synchron gehalten werden müsste.
+     */
+
+    /** Die Wartebremse nach einem 429 — leer, solange keine steht. */
+    retryLine() {
+        return this.error?.retryAfter ? formatRetry(this.error.retryAfter, t) : ''
+    },
+
+    /** Fassung und Beschlussdatum der Statuten als ein Satz. */
+    statutesLine() {
+        return formatStatutes(this.statutesVersion, this.statutesAdoptedAt, t)
+    },
+
+    /** Der Zeichenzähler unter dem Nachrichtenfeld. */
+    charCountLine() {
+        return formatCharCount(this.applicationText.length, this.applicationTextMax, t)
+    },
+
+    /** Die Dauer im Wartezustand — nur gezeigt, wenn `waitText` steht. */
+    waitLine() {
+        return formatWaitSentence(this.waitText, t)
     },
 
     /**

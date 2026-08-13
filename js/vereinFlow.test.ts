@@ -18,7 +18,11 @@ import {
     clampRetryAfter,
     escapeLabel,
     followUpDelay,
+    formatCharCount,
+    formatRetry,
+    formatStatutes,
     formatWait,
+    formatWaitSentence,
     FOLLOW_UP_SECONDS,
     isSafeExternalUrl,
     mapVereinError,
@@ -209,6 +213,48 @@ test('keine Dauer ist besser als eine falsche', () => {
     assert.equal(formatWait(0, t), null)
     assert.equal(formatWait(-5, t), null)
     assert.equal(formatWait(Number.NaN, t), null)
+})
+
+// ── Ganze Sätze statt Fragmente ──────────────────────────────────────────────
+
+/*
+ * Vier Sätze standen im Markup in Stücken, weil ein reaktives `<span x-text>`
+ * mitten im Satz saß. Der Übersetzer bekam „Bitte noch" und „Sekunden warten."
+ * als zwei Einträge — Wortstellung und Kasus hingen an dem, was dazwischen
+ * steht, und das sah er nie.
+ *
+ * Diese Fälle verankern die andere Bauform: **ein** Schlüssel, **ein** Satz,
+ * der Wert im Satz. Sie sind zugleich der Riegel gegen die billigste Art von
+ * Rückfall — ein Platzhalter im Schlüssel, den niemand füllt, weil er im Code
+ * anders heißt. Das sieht in der deutschen Oberfläche wie ein Tippfehler aus
+ * und in jeder anderen Sprache wie gar nichts, weil dort der ganze Satz fehlt.
+ */
+
+test('die vier Sätze sind ganze Sätze — der Wert steht IM Satz, nicht daneben', () => {
+    assert.equal(formatRetry(42, t), 'Bitte noch 42 Sekunden warten.')
+    assert.equal(formatStatutes('1.2', '01.03.2024', t), 'Fassung 1.2, beschlossen am 01.03.2024')
+    assert.equal(formatCharCount(0, 2000, t), '0 / 2000 Zeichen')
+    // Der Einschub kommt aus derselben Quelle wie bisher — nur der Rahmen ist neu.
+    assert.equal(formatWaitSentence(formatWait(1440, t) ?? '', t), 'Das dauert bis zu 24 Stunden.')
+})
+
+test('kein Platzhalter bleibt stehen: jeder der vier Sätze ist vollständig gefüllt', () => {
+    const lines = [
+        formatRetry(1, t),
+        formatStatutes('1.0', '2024-01-01', t),
+        formatCharCount(1, 2, t),
+        formatWaitSentence('bis zu einer Minute', t),
+    ]
+
+    for (const line of lines) {
+        assert.doesNotMatch(line, /:[a-z]+/, `ungefüllter Platzhalter in: ${line}`)
+    }
+})
+
+test('fehlende Statuten-Angaben werden zum Gedankenstrich, nicht zu einer Lücke', () => {
+    // Der Rückfall stand vorher im Markup (`statutesVersion || '—'`) und ist
+    // damit erst hier prüfbar geworden.
+    assert.equal(formatStatutes('', '', t), 'Fassung —, beschlossen am —')
 })
 
 // ── Nachfass-Plan ────────────────────────────────────────────────────────────
