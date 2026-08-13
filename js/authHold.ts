@@ -39,25 +39,50 @@
  * Relay ohne AUTH für immer liegen zu lassen.
  */
 import { AuthStatus, SocketEvent, isClientAuth } from '@welshman/net'
+import { on } from '@welshman/lib'
 
 /** Zustände, in denen eine AUTH-Runde läuft — nur hier wird zurückgehalten. */
 const PENDING: string[] = [AuthStatus.Requested, AuthStatus.PendingSignature, AuthStatus.PendingResponse]
 
+type Listener = (message: unknown, url: string) => void
 type QueueLike = { remove: (item: unknown) => void }
 type SocketLike = {
     auth: { status: string }
     _sendQueue: QueueLike
-    on: (event: string, cb: (message: unknown, url: string) => void) => () => void
+    on: (event: string, cb: Listener) => unknown
+    off: (event: string, cb: Listener) => unknown
 }
 
 /**
  * Socket-Policy im Sinne von `defaultSocketPolicies`. Wird in `core.ts` einmalig
  * dazugestellt — NEBEN `socketPolicyAuthBuffer`, nicht an dessen Stelle. Der Rückgabewert
  * ist der Abmelder, den welshman beim Aufräumen des Sockets ruft.
+ *
+ * ── Abgemeldet wird über welshmans `on()`, NICHT über `socket.on()` ────────────
+ *
+ * Hier stand `return s.on(SocketEvent.Sending, cb)` — im Glauben, das liefere den
+ * Abmelder. Tut es nicht: `Socket extends EventEmitter` (`net/dist/net/src/socket.js:22`),
+ * und `EventEmitter.prototype.on` gibt zum Verketten **`this`** zurück, also das
+ * Socket-Objekt selbst. welshman sammelt die Policy-Rückgaben (`socket.js:58`
+ * `this.unsubscribers = policies.map(p => p(this))`) und ruft sie beim Aufräumen
+ * (`socket.js:114` `this.unsubscribers.forEach(call)`, mit `call = f => f()`) — auf
+ * ein Socket-Objekt angewandt ergibt das `TypeError: f is not a function`.
+ *
+ * Gemessen an der echten welshman-Socket (0.8.x): `Socket.cleanup()` UND
+ * `Pool.remove(url)` warfen. Und weil der Wurf in `Pool.remove` VOR
+ * `this._data.delete(url)` liegt (`pool.js:44-50`), blieb der tote Socket danach
+ * sogar in der Registry stehen. Das traf jede Socket, denn `core.ts` hängt diese
+ * Policy an welshmans geteiltes `defaultSocketPolicies`.
+ *
+ * `on()` aus `@welshman/lib` (`Tools.js:1198`) registriert identisch und gibt
+ * `() => target.off(event, cb)` zurück — genau das, was jede welshman-eigene Policy
+ * in `policy.js` benutzt (`socketPolicyPing`, `socketPolicyAuthBuffer`). Am
+ * Zurückhalte-Verhalten ändert sich dadurch nichts: der Callback und seine
+ * Registrierung sind unverändert, nur der Rückgabewert ist jetzt aufrufbar.
  */
 export const socketPolicyAuthHold = (socket: unknown): (() => void) => {
     const s = socket as SocketLike
-    return s.on(SocketEvent.Sending, (message) => {
+    return on<Record<string, [unknown, string]>, string>(s, SocketEvent.Sending, (message) => {
         // Die AUTH-Antwort selbst muss durch — sonst käme die Runde nie zum Abschluss.
         if (isClientAuth(message as Parameters<typeof isClientAuth>[0])) {
             return
