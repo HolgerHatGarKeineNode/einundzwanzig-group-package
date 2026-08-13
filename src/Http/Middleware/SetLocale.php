@@ -15,8 +15,23 @@ use Symfony\Component\HttpFoundation\Response;
  * Auflösung, erste Übereinstimmung gewinnt:
  *   1. Cookie `locale` — die ausdrückliche Wahl des Nutzers, 1 Jahr haltbar.
  *   2. Session — dieselbe Wahl, für die Lebensdauer der Sitzung.
- *   3. `Accept-Language` gegen die Whitelist (`config('group.locales')`).
- *   4. Rückfall auf den ERSTEN Whitelist-Eintrag (`de`).
+ *   3. Der ERSTE Whitelist-Eintrag (`de`).
+ *
+ * **`Accept-Language` entscheidet bewusst NICHT** (Entscheidung des Nutzers,
+ * 2026-08-13). Vorher stand die Verhandlung auf Platz 3, und damit bekam jeder
+ * Besucher mit englischem Browser eine englische Oberfläche, ohne je etwas
+ * gewählt zu haben. Das ist für einen deutschsprachigen Verein die falsche
+ * Vorgabe: Deutsch ist hier nicht eine Sprache unter acht, sondern die Sprache
+ * des Hauses — die Schlüssel der Kataloge SIND der deutsche Text.
+ *
+ * Der Preis ist benannt und in Kauf genommen: ein spanischer oder polnischer
+ * Besucher sieht beim ersten Mal Deutsch, obwohl die App seine Sprache hätte.
+ * Er kommt mit einem Klick heraus, und die Wahl hält ein Jahr. Umgekehrt hatte
+ * ein deutscher Nutzer mit englischem Systembrowser keinen Weg, ohne dieselbe
+ * Handlung Deutsch zu sehen — und das ist der häufigere Fall.
+ *
+ * Die Whitelist bleibt vollständig: alle acht Sprachen sind weiter wählbar,
+ * nur nicht mehr automatisch.
  *
  * Warum Cookie und nicht `localStorage` oder ein kind-30078-Event: `__()` läuft
  * SERVERSEITIG, bevor irgendein Skript startet. Ein client-seitig gehaltener Wert
@@ -74,10 +89,10 @@ class SetLocale
             }
         }
 
-        // Symfony verhandelt q-Werte und Regionen (`es-AR` → `es`, `de-CH` → `de`)
-        // und gibt bei KEINER Übereinstimmung den ersten übergebenen Eintrag
-        // zurück — deshalb steht der Rückfall hier vorn.
-        return $request->getPreferredLanguage($supported) ?? $fallback;
+        // Hier stand `$request->getPreferredLanguage($supported)`. Es ist bewusst
+        // WEG, nicht vergessen: ohne ausdrückliche Wahl gilt die Sprache des
+        // Hauses, nicht die des Browsers. Siehe Klassenkommentar.
+        return $fallback;
     }
 
     /**
