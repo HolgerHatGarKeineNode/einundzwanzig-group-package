@@ -37,8 +37,11 @@ import {
     RETRY_AFTER_MIN_SECONDS,
     safeExternalUrl,
     shouldFollowUpOnResume,
+    splitSentence,
     STAGE_REQUIRES_DIRECTORY,
+    statutesSegments,
     vereinView,
+    waitSentenceSegments,
     type VereinEscape,
     type VereinSnapshot,
 } from './vereinFlow.ts'
@@ -231,11 +234,28 @@ test('keine Dauer ist besser als eine falsche', () => {
  */
 
 test('die vier Sätze sind ganze Sätze — der Wert steht IM Satz, nicht daneben', () => {
-    assert.equal(formatRetry(42, t), 'Bitte noch 42 Sekunden warten.')
+    assert.equal(formatRetry(42, t), 'Bitte noch 42 Sek. warten.')
     assert.equal(formatStatutes('1.2', '01.03.2024', t), 'Fassung 1.2, beschlossen am 01.03.2024')
     assert.equal(formatCharCount(0, 2000, t), '0 / 2000 Zeichen')
     // Der Einschub kommt aus derselben Quelle wie bisher — nur der Rahmen ist neu.
     assert.equal(formatWaitSentence(formatWait(1440, t) ?? '', t), 'Das dauert bis zu 24 Stunden.')
+})
+
+test('die Wartebremse stimmt auch für 1 — die Einheit richtet sich nach keiner Zahl', () => {
+    /*
+     * `RETRY_AFTER_MIN_SECONDS` ist 1, der Fall also erreichbar und nicht
+     * theoretisch. „Bitte noch 1 Sekunden warten." war deutsch falsch, und
+     * `t()` kennt keine Numerus-Regeln — die Abkürzung ist der Ausweg, nicht
+     * eine Pluralmechanik (Begründung im Modulkopf).
+     */
+    assert.equal(formatRetry(RETRY_AFTER_MIN_SECONDS, t), 'Bitte noch 1 Sek. warten.')
+    assert.equal(formatRetry(2, t), 'Bitte noch 2 Sek. warten.')
+    assert.equal(formatRetry(RETRY_AFTER_MAX_SECONDS, t), `Bitte noch ${RETRY_AFTER_MAX_SECONDS} Sek. warten.`)
+
+    // Und der ausgeschriebene Numerus ist nirgends zurück.
+    for (const seconds of [1, 2, 11, 21, 42]) {
+        assert.doesNotMatch(formatRetry(seconds, t), /Sekunden?\b/, `ausgeschriebene Einheit bei ${seconds}`)
+    }
 })
 
 test('kein Platzhalter bleibt stehen: jeder der vier Sätze ist vollständig gefüllt', () => {
@@ -255,6 +275,100 @@ test('fehlende Statuten-Angaben werden zum Gedankenstrich, nicht zu einer Lücke
     // Der Rückfall stand vorher im Markup (`statutesVersion || '—'`) und ist
     // damit erst hier prüfbar geworden.
     assert.equal(formatStatutes('', '', t), 'Fassung —, beschlossen am —')
+})
+
+// ── Ein Satz, ein Schlüssel — und trotzdem ein hervorgehobenes Teilstück ─────
+
+/*
+ * Drei Auszeichnungen waren beim Fragment-Umbau gefallen (`font-medium` auf
+ * Fassung und Datum, `whitespace-nowrap` auf dem Datum, `font-semibold` auf der
+ * Wartedauer): innerhalb EINES `x-text` gibt es kein Teilstück. Die Rückkehr
+ * darf zwei Dinge nicht kosten — `x-html` (dort fließen fremde Vereinsdaten
+ * ein) und die gerade behobene Zerstückelung des Katalogs.
+ *
+ * `splitSentence` löst das, indem es den Schnitt eine Ebene später setzt: der
+ * Katalog trägt weiter EINEN ganzen Satz, geteilt wird erst dessen ÜBERSETZTES
+ * Ergebnis, an den Platzhaltern. Die Fälle hier bewachen genau diese Grenze.
+ */
+
+test('splitSentence teilt hinter t() — der Satz bleibt ganz, die Werte werden zu eigenen Stücken', () => {
+    assert.deepEqual(splitSentence('Fassung :version, beschlossen am :date', { version: '1.2', date: '01.03.2024' }, t), [
+        { text: 'Fassung ', value: false },
+        { text: '1.2', value: true },
+        { text: ', beschlossen am ', value: false },
+        { text: '01.03.2024', value: true },
+    ])
+})
+
+test('splitSentence sortiert die Platzhalter LÄNGSTEN ZUERST — sonst schneidet :c das :count entzwei', () => {
+    /*
+     * Dieselbe Regel wie in `fill()` (i18n.ts) und aus demselben Grund. Ohne die
+     * Sortierung träfe die Alternative erst `:c`, ließe ein „ount" als Rahmentext
+     * stehen und setzte den falschen Wert ein — ein Fehler, der in der deutschen
+     * Oberfläche wie ein Tippfehler aussieht.
+     */
+    assert.deepEqual(splitSentence('A :count B :c C', { c: 'X', count: 'Y' }, t), [
+        { text: 'A ', value: false },
+        { text: 'Y', value: true },
+        { text: ' B ', value: false },
+        { text: 'X', value: true },
+        { text: ' C', value: false },
+    ])
+})
+
+test('splitSentence liest den Wert nie erneut — ein Wert, der wie ein Platzhalter aussieht, bleibt Wert', () => {
+    /*
+     * `version` und `date` kommen aus `GET /config`, also von der Gegenseite.
+     * Eine Fassung namens „:date" darf nicht dazu führen, dass dort das Datum
+     * landet. Geteilt wird die ÜBERSETZUNG, eingesetzt wird danach — ein Wert
+     * wird nie wieder durchsucht.
+     */
+    assert.deepEqual(splitSentence('Fassung :version, beschlossen am :date', { version: ':date', date: '2024' }, t), [
+        { text: 'Fassung ', value: false },
+        { text: ':date', value: true },
+        { text: ', beschlossen am ', value: false },
+        { text: '2024', value: true },
+    ])
+})
+
+test('fehlt ein Platzhalter in der Übersetzung, fällt sein Wert weg — wie bei t() selbst', () => {
+    // Kein stiller Zusatz und keine Ausnahme: dasselbe Verhalten wie bisher.
+    // Dagegen steht der Katalog-Fall in tests/Feature/GroupI18nTest.php.
+    assert.deepEqual(splitSentence('Ganz ohne', { version: '1.2' }, t), [{ text: 'Ganz ohne', value: false }])
+    assert.deepEqual(splitSentence('', { version: '1.2' }, t), [])
+})
+
+test('die Stücke ergeben wieder GENAU den einen Satz — Text und Auszeichnung driften nicht auseinander', () => {
+    /*
+     * Der eigentliche Riegel: `formatStatutes`/`formatWaitSentence` sind aus den
+     * Stücken abgeleitet, nicht daneben gebaut. Damit gibt es keinen zweiten Ort
+     * mit demselben Schlüssel, der sich unbemerkt anders entwickeln könnte —
+     * genau der Fehler, gegen den auch die Wallet/Checkout-Weiche verriegelt ist.
+     */
+    assert.equal(
+        statutesSegments('1.2', '01.03.2024', t).map((s) => s.text).join(''),
+        formatStatutes('1.2', '01.03.2024', t),
+    )
+    assert.equal(
+        waitSentenceSegments('bis zu 24 Stunden', t).map((s) => s.text).join(''),
+        formatWaitSentence('bis zu 24 Stunden', t),
+    )
+})
+
+test('ausgezeichnet wird NUR der eingesetzte Wert — nie der Rahmentext des Übersetzers', () => {
+    /*
+     * Die Auszeichnung hängt am `value`-Merkmal, und das Markup macht daraus
+     * `font-medium`/`font-semibold`. Stünde es auch auf dem Rahmentext, wäre der
+     * ganze Satz fett und die Hervorhebung bedeutungslos.
+     */
+    const statuten = statutesSegments('1.2', '01.03.2024', t)
+    assert.deepEqual(statuten.filter((s) => s.value).map((s) => s.text), ['1.2', '01.03.2024'])
+
+    const dauer = waitSentenceSegments('bis zu 24 Stunden', t)
+    assert.deepEqual(dauer.filter((s) => s.value).map((s) => s.text), ['bis zu 24 Stunden'])
+
+    // Auch der Gedankenstrich für einen fehlenden Wert IST ein Wert.
+    assert.deepEqual(statutesSegments('', '', t).filter((s) => s.value).map((s) => s.text), ['—', '—'])
 })
 
 // ── Nachfass-Plan ────────────────────────────────────────────────────────────

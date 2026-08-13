@@ -136,8 +136,11 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                         </flux:callout.text>
 
                         {{-- Ein Satz, ein Schlüssel: der Wert steckt IM Satz
-                             (`Bitte noch :seconds Sekunden warten.`) und nicht
-                             zwischen zwei Bruchstücken. Vorher standen hier zwei
+                             (`Bitte noch :seconds Sek. warten.`) und nicht
+                             zwischen zwei Bruchstücken. Die Einheit ist
+                             abgekürzt, weil `RETRY_AFTER_MIN_SECONDS` 1 ist:
+                             „1 Sekunden" wäre falsches Deutsch, und `t()` kennt
+                             keine Numerus-Regeln. Vorher standen hier zwei
                              Übersetzungsaufrufe mit einem reaktiven `<span x-text>`
                              dazwischen — für Deutsch richtig, für jede Sprache mit
                              anderer Wortstellung oder anderem Kasus unlösbar.
@@ -195,16 +198,31 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                         <div class="space-y-2">
                             <flux:heading size="lg">{{ __('Statuten') }}</flux:heading>
                             {{-- Ein Satz statt vier Stücken (`Fassung :version,
-                                 beschlossen am :date`). Der Preis ist sichtbar
-                                 und bewusst bezahlt: die beiden Werte tragen
-                                 kein `font-medium`/`whitespace-nowrap` mehr —
-                                 eine Auszeichnung INNERHALB eines Satzes gäbe es
-                                 nur über `x-html`, und dafür ist eine Hervorhebung
-                                 kein Grund. Der Gedankenstrich für fehlende Werte
-                                 sitzt jetzt in `formatStatutes` (vereinFlow.ts),
-                                 wo er geprüft ist. --}}
+                                 beschlossen am :date`) — und die Auszeichnung
+                                 der beiden Werte ist trotzdem zurück.
+
+                                 Der Satz bleibt EIN Katalogeintrag; geteilt
+                                 wird erst hinter `t()`, an den Platzhaltern
+                                 (`statutesSegments`, vereinFlow.ts). Jedes
+                                 Stück rendert als `x-text` — also weiterhin als
+                                 Text, nie als Markup. Das ist der Punkt: hier
+                                 fließen fremde Vereinsdaten aus `GET /config`
+                                 ein, und `x-html` wäre für eine Hervorhebung
+                                 der falsche Preis.
+
+                                 `seg.value` markiert die eingesetzten Werte
+                                 (Fassung, Datum) — sie tragen `font-medium`,
+                                 und das `whitespace-nowrap` hält das Datum
+                                 zusammen, auch wenn der Verein es mit
+                                 Leerzeichen liefert („1. März 2024").
+
+                                 Der Gedankenstrich für fehlende Werte sitzt in
+                                 `statutesSegments`, wo er geprüft ist. --}}
                             <flux:text class="text-sm text-muted">
-                                <span x-text="statutesLine()"></span>
+                                <template x-for="(seg, i) in statutesSegments()" :key="i">
+                                    <span x-text="seg.text"
+                                          x-bind:class="seg.value ? 'font-medium whitespace-nowrap' : ''"></span>
+                                </template>
                             </flux:text>
                             {{-- Plain <a> statt flux:button: `href` entscheidet bei
                                  Flux SERVERSEITIG, ob ein <a> oder ein <button>
@@ -277,8 +295,20 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
 
                             <flux:field>
                                 <flux:label>{{ __('E-Mail (optional)') }}</flux:label>
+                                {{-- Der Platzhalter läuft NICHT durch `__()`, und
+                                     das ist die Entscheidung, nicht die
+                                     Nachlässigkeit: „name@example.org" stand in
+                                     allen sieben Katalogen als identische
+                                     Zeichenkette — ein Schlüssel, der nichts
+                                     übersetzt, aber jeden Übersetzer einlädt,
+                                     `example.org` durch etwas Echtes oder
+                                     Kaputtes zu ersetzen. `example.org` ist
+                                     nach RFC 2606 dauerhaft reserviert und soll
+                                     genau deshalb stehen bleiben. Das
+                                     Nachbarfeld darunter hält es schon immer so
+                                     (`name@einundzwanzig.space`). --}}
                                 <flux:input type="email" x-model="email" data-testid="verein-antrag-email"
-                                            ::disabled="noEmail" placeholder="{{ __('name@example.org') }}" />
+                                            ::disabled="noEmail" placeholder="name@example.org" />
                             </flux:field>
 
                             <flux:checkbox x-model="noEmail" data-testid="verein-antrag-keine-email"
@@ -540,11 +570,21 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                                  Einschub kommt aus `formatWait` und trägt im
                                  Ungarischen die `-ig`-Endung („legfeljebb egy
                                  óráig") — die geht nur auf, wenn der Rahmensatz
-                                 als Ganzes übersetzbar ist. Die Halbfettung des
-                                 Einschubs entfällt damit, wie oben bei der
-                                 Fassung. --}}
+                                 als Ganzes übersetzbar ist.
+
+                                 Die Halbfettung des Einschubs ist zurück, auf
+                                 demselben Weg wie oben bei der Fassung: der
+                                 Satz bleibt ein Katalogeintrag, geteilt wird
+                                 erst hinter `t()` an seinem Platzhalter
+                                 (`waitSentenceSegments`), gerendert wird jedes
+                                 Stück als `x-text`. --}}
                             <template x-if="waitText">
-                                <p x-text="waitLine()"></p>
+                                <p>
+                                    <template x-for="(seg, i) in waitSegments()" :key="i">
+                                        <span x-text="seg.text"
+                                              x-bind:class="seg.value ? 'font-semibold' : ''"></span>
+                                    </template>
+                                </p>
                             </template>
                             <template x-if="!waitText">
                                 <p>{{ __('Das dauert in der Regel nur kurz.') }}</p>

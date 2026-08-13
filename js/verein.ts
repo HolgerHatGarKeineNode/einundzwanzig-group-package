@@ -37,6 +37,7 @@ import { Pool } from '@welshman/net'
 import { activeSpace } from './groups'
 import { deriveVereinAccess, watchSpaceDirectory, type VereinAccess } from './members'
 import { spaceIsBuzzAsync } from './buzzAdmin'
+import { reconnectDue } from './reconnectGap'
 import { loadWallet, payInvoice } from './wallet'
 import { nip98AuthHeader, type SignedLike } from './nip98'
 import { isMobile, nativeBrowserInApp } from './core'
@@ -48,9 +49,7 @@ import {
     followUpDelay,
     formatCharCount,
     formatRetry,
-    formatStatutes,
     formatWait,
-    formatWaitSentence,
     mapVereinError,
     OPAQUE_REDIRECT_STATUS,
     readConfig,
@@ -58,9 +57,12 @@ import {
     readMe,
     safeExternalUrl,
     shouldFollowUpOnResume,
+    statutesSegments,
     vereinView,
+    waitSentenceSegments,
     type ConfigData,
     type InvoiceData,
+    type Segment,
     type VereinError,
     type VereinPhase,
     type WaitStage,
@@ -114,6 +116,13 @@ const call = async (path: string, method: string, body?: string, needsAuth = tru
     if (api === '') {
         // Fail closed statt fail confusing: ohne Basis-URL könnten wir den
         // `u`-Tag nicht auf den Verein setzen, und jede Signatur wäre wertlos.
+        // Derselbe Satz wie im Proxy (`VereinProxyController::forward`) — dort
+        // fehlt die Basis-URL oder der API-Schlüssel, hier die Basis-URL. Für
+        // den Nutzer ist das EIN Zustand: diese Installation ist für den
+        // Beitritt nicht eingerichtet, dauerhaft, und niemand am Bildschirm
+        // kann etwas daran tun. Zwei Formulierungen dafür („eingerichtet" /
+        // „konfiguriert") waren im Deutschen nicht zu unterscheiden und
+        // zwangen es/pt/pl zu einem erfundenen Unterschied.
         return { ok: false, status: 503, body: { message: t('Die Vereins-Anbindung ist nicht eingerichtet.') }, retryAfter: null }
     }
 
@@ -466,9 +475,9 @@ type VereinState = {
     errorFields(): Record<string, string[]>
     fieldLabel(field: string): string
     retryLine(): string
-    statutesLine(): string
+    statutesSegments(): Segment[]
     charCountLine(): string
-    waitLine(): string
+    waitSegments(): Segment[]
     payInApp(): boolean
     stepState(step: string): 'done' | 'active' | 'todo'
     // Innenleben
@@ -1061,6 +1070,13 @@ const createVerein = (startInWaiting = false): VereinState => ({
      * wie bei `feeLabel()`/`payInApp()`: Alpine wertet sie bei jeder Änderung
      * der gelesenen Felder neu aus, und es entsteht kein zweiter Zustand, der
      * mit `error`/`waitText` synchron gehalten werden müsste.
+     *
+     * **Zwei davon liefern Stücke statt einer Zeichenkette** (`…Segments()`),
+     * weil in ihnen ein Teilstück ausgezeichnet wird. Der Satz bleibt trotzdem
+     * EIN Katalogeintrag — geteilt wird erst hinter `t()`, an den
+     * Platzhaltern. Das Markup rendert jedes Stück als `x-text`; `x-html` kommt
+     * an keiner Stelle vor, und für die beiden Werte aus `GET /config` ist das
+     * der eigentliche Punkt.
      */
 
     /** Die Wartebremse nach einem 429 — leer, solange keine steht. */
@@ -1068,9 +1084,9 @@ const createVerein = (startInWaiting = false): VereinState => ({
         return this.error?.retryAfter ? formatRetry(this.error.retryAfter, t) : ''
     },
 
-    /** Fassung und Beschlussdatum der Statuten als ein Satz. */
-    statutesLine() {
-        return formatStatutes(this.statutesVersion, this.statutesAdoptedAt, t)
+    /** Fassung und Beschlussdatum der Statuten als ein Satz, in Stücken. */
+    statutesSegments() {
+        return statutesSegments(this.statutesVersion, this.statutesAdoptedAt, t)
     },
 
     /** Der Zeichenzähler unter dem Nachrichtenfeld. */
@@ -1079,8 +1095,8 @@ const createVerein = (startInWaiting = false): VereinState => ({
     },
 
     /** Die Dauer im Wartezustand — nur gezeigt, wenn `waitText` steht. */
-    waitLine() {
-        return formatWaitSentence(this.waitText, t)
+    waitSegments() {
+        return waitSentenceSegments(this.waitText, t)
     },
 
     /**
@@ -1433,7 +1449,7 @@ const createVerein = (startInWaiting = false): VereinState => ({
          * zooid ist das ohnehin der ganze Vorgang, und auf Buzz kostet es
          * nichts, wenn der Socket seit dem letzten Abriss gesund ist.
          */
-        const abrissFaellig = Date.now() - this._lastReconnectAt >= RECONNECT_MIN_GAP_MS
+        const abrissFaellig = reconnectDue(Date.now(), this._lastReconnectAt, RECONNECT_MIN_GAP_MS)
 
         if (abrissFaellig && (await spaceIsBuzzAsync(url))) {
             this._lastReconnectAt = Date.now()

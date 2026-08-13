@@ -199,35 +199,145 @@ export type Translate = (key: string, replace?: Record<string, string | number>)
  * passiert hier in JS statt in Blade: `__()` würde serverseitig füllen und den
  * reaktiven Wert damit einfrieren.
  *
- * **Was das NICHT löst — und bewusst nicht:** `t()` kennt nur `:name`-Ersetzung,
- * keine Numerus-Regeln (kein `trans_choice`-Gegenstück). Sprachen mit mehreren
- * Numerus-Klassen (pl: 3, lv: 2) sind hier über die FORMULIERUNG gelöst — die
- * Einheit steht abgekürzt bzw. als Beschriftung vor dem Zähler, wo sie sich
- * nicht nach der Zahl richtet. Eine echte Pluralmechanik in `t()` wäre ein
- * eigener Vorgang.
+ * ── Numerus: die Entscheidung, nicht die Vertagung ──────────────────────────
+ *
+ * `t()` kennt nur `:name`-Ersetzung, keine Numerus-Regeln (kein
+ * `trans_choice`-Gegenstück). **Das bleibt so, ausdrücklich.** Gezählt wurde,
+ * nicht geschätzt: von 746 Katalogschlüsseln tragen 35 überhaupt einen
+ * Platzhalter, und im Vereins-Flow sind es nach dieser Runde **null**, bei
+ * denen eine Zahl die Form eines Wortes bestimmt. Eine echte Pluralmechanik
+ * bräuchte Regeln für acht Sprachen (pl hat drei Klassen, lv zwei), einen
+ * Katalog, der pro Schlüssel mehrere Formen trägt, und Tests für beide — für
+ * eine Menge, die leer ist. Der Aufwand hätte kein Ziel.
+ *
+ * Gelöst ist es stattdessen über die FORMULIERUNG, an drei Stellen dieselbe
+ * Technik in drei Ausprägungen:
+ *
+ *  · **Einheit abgekürzt** — `Bitte noch :seconds Sek. warten.` („Sek." richtet
+ *    sich nach keiner Zahl; `RETRY_AFTER_MIN_SECONDS` ist 1, der Fall also
+ *    erreichbar). In `pl`/`lv` ebenso, in `hu` unnötig: Ungarisch setzt nach
+ *    einem Zahlwort ohnehin den Singular.
+ *  · **Einheit vor den Zähler** — `:used / :max Zeichen`: als „Zeichen" hinter
+ *    zwei Zahlen konnte keine Sprache die Einheit voranstellen, und genau das
+ *    brauchen Polnisch und Lettisch, um dem Numerus zu entgehen.
+ *  · **Singular als eigener Schlüssel** — `bis zu einer Stunde` neben
+ *    `bis zu :count Stunden`; `formatWait` wählt. Deshalb ist `:count` dort nie
+ *    1. Übrig blieb allein Lettisch: `līdz` regiert den Dativ, und der ist dort
+ *    zahlabhängig (21 → Singular „stundai"). Behoben in `lv.json` durch
+ *    dieselbe Abkürzung („līdz :count st."), **nicht** durch Mechanik. Die
+ *    anderen sieben Sprachen wurden auf dieselbe Klasse geprüft: de/en/es/pt
+ *    bilden für jede Zahl ≠ 1 den Plural, nl setzt nach Zahlen „uur", hu den
+ *    Singular, pl steht hinter „do" im Genitiv Plural — alle unauffällig.
  */
-
-/** „Bitte noch 42 Sekunden warten." — die Bremse nach einem 429. */
-export const formatRetry = (seconds: number, t: Translate): string =>
-    t('Bitte noch :seconds Sekunden warten.', { seconds })
 
 /**
- * „Fassung 1.2, beschlossen am 01.03.2024" — der Kopf über den Statuten.
+ * „Bitte noch 42 Sek. warten." — die Bremse nach einem 429.
  *
- * Der Gedankenstrich für einen fehlenden Wert stand vorher im Markup
- * (`x-text="statutesVersion || '—'"`); er gehört zur Formatierung und damit
- * hierher, wo er prüfbar ist.
+ * **Die Einheit ist abgekürzt, und das ist kein Stilentscheid.**
+ * `RETRY_AFTER_MIN_SECONDS` ist 1, der Wert 1 also erreichbar — „Bitte noch 1
+ * Sekunden warten." wäre im Deutschen schlicht falsch, und `t()` kennt keine
+ * Numerus-Regeln. Eine Abkürzung richtet sich nach keiner Zahl. Dieselbe
+ * Umgehung wie beim Zeichenzähler, nur an der Einheit statt an der Stellung
+ * (die lange Begründung steht im Block darüber).
  */
-export const formatStatutes = (version: string, adoptedAt: string, t: Translate): string =>
-    t('Fassung :version, beschlossen am :date', { version: version || '—', date: adoptedAt || '—' })
+export const formatRetry = (seconds: number, t: Translate): string =>
+    t('Bitte noch :seconds Sek. warten.', { seconds })
 
 /** „0 / 2000 Zeichen" — der Zähler unter dem Nachrichtenfeld. */
 export const formatCharCount = (used: number, max: number, t: Translate): string =>
     t(':used / :max Zeichen', { used, max })
 
+// ── Ein Satz, ein Schlüssel — und trotzdem ein hervorgehobenes Teilstück ─────
+
+/**
+ * Ein Stück eines übersetzten Satzes. `value` = dieses Stück ist ein
+ * eingesetzter Wert (Fassung, Datum, Dauer) und darf ausgezeichnet werden;
+ * `false` = Rahmentext des Übersetzers.
+ */
+export type Segment = { text: string; value: boolean }
+
+/**
+ * Der übersetzte Satz, an seinen Platzhaltern aufgeteilt statt gefüllt.
+ *
+ * ── Wozu das gut ist ────────────────────────────────────────────────────────
+ * Beim Fragment-Umbau sind drei Auszeichnungen verloren gegangen (`font-medium`
+ * auf Fassung und Datum, `whitespace-nowrap` auf dem Datum, `font-semibold` auf
+ * der Wartedauer): innerhalb EINES `x-text` lässt sich kein Teilstück
+ * hervorheben. Die beiden naheliegenden Wege sind beide falsch —
+ *
+ *  · **`x-html`**: dort fließen fremde Vereinsdaten ein (`version`, `date`
+ *    kommen aus `GET /config`). Eine Hervorhebung ist kein Grund, eine
+ *    Injektionsfläche aufzumachen.
+ *  · **wieder zerstückeln**: genau der Zustand, der gerade behoben wurde. Der
+ *    Übersetzer bekäme wieder Bruchstücke ohne Wortstellung und ohne Kasus.
+ *
+ * Der dritte Weg kostet keines von beidem: der Satz bleibt EIN Katalogeintrag,
+ * der Übersetzer sieht ihn ganz, und geteilt wird erst **hinter** `t()` — an
+ * den Platzhaltern, die in JEDER Sprache dieselben sind. Gerendert wird jedes
+ * Stück als `x-text`, also weiterhin als Text und nie als Markup.
+ *
+ * ── Zwei Feinheiten ─────────────────────────────────────────────────────────
+ *  1. `t(key)` wird OHNE `replace` gerufen — sonst wären die Platzhalter schon
+ *     weg, bevor hier geteilt werden kann.
+ *  2. Die Alternative ist **längster Name zuerst** sortiert, wie `fill()` in
+ *     `i18n.ts`. Ohne das schnitte ein gleichzeitig übergebenes `:c` das
+ *     `:count` mitten entzwei.
+ *
+ * Fehlt ein Platzhalter in der Übersetzung, fällt sein Wert weg — dasselbe
+ * Verhalten wie bei `t()` mit `replace`, und dagegen steht der Katalog-Test in
+ * `tests/Feature/GroupI18nTest.php`.
+ */
+export const splitSentence = (
+    key: string,
+    replace: Record<string, string | number>,
+    t: Translate,
+): Segment[] => {
+    const line = t(key)
+    const names = Object.keys(replace).sort((a, b) => b.length - a.length)
+
+    if (names.length === 0) {
+        return line === '' ? [] : [{ text: line, value: false }]
+    }
+
+    const pattern = new RegExp(`(${names.map((n) => `:${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).join('|')})`)
+
+    return line
+        .split(pattern)
+        .filter((part) => part !== '')
+        .map((part) => {
+            const name = part.startsWith(':') ? part.slice(1) : ''
+
+            return Object.prototype.hasOwnProperty.call(replace, name)
+                ? { text: String(replace[name]), value: true }
+                : { text: part, value: false }
+        })
+}
+
+/** Die Stücke wieder zu dem einen Satz zusammen — die Textwahrheit dazu. */
+export const joinSegments = (segments: Segment[]): string => segments.map((s) => s.text).join('')
+
+/**
+ * „Fassung 1.2, beschlossen am 01.03.2024" — der Kopf über den Statuten, in
+ * Stücken. Fassung und Datum tragen `value: true` und damit die Auszeichnung.
+ *
+ * Der Gedankenstrich für einen fehlenden Wert stand vorher im Markup
+ * (`x-text="statutesVersion || '—'"`); er gehört zur Formatierung und damit
+ * hierher, wo er prüfbar ist.
+ */
+export const statutesSegments = (version: string, adoptedAt: string, t: Translate): Segment[] =>
+    splitSentence('Fassung :version, beschlossen am :date', { version: version || '—', date: adoptedAt || '—' }, t)
+
+/** Derselbe Satz als reiner Text — abgeleitet, damit der Schlüssel EINMAL dasteht. */
+export const formatStatutes = (version: string, adoptedAt: string, t: Translate): string =>
+    joinSegments(statutesSegments(version, adoptedAt, t))
+
 /** „Das dauert bis zu 24 Stunden." — {@link formatWait} liefert den Einschub. */
+export const waitSentenceSegments = (waitText: string, t: Translate): Segment[] =>
+    splitSentence('Das dauert :duration.', { duration: waitText }, t)
+
+/** Derselbe Satz als reiner Text — abgeleitet, damit der Schlüssel EINMAL dasteht. */
 export const formatWaitSentence = (waitText: string, t: Translate): string =>
-    t('Das dauert :duration.', { duration: waitText })
+    joinSegments(waitSentenceSegments(waitText, t))
 
 // ── Nachfassen ───────────────────────────────────────────────────────────────
 
