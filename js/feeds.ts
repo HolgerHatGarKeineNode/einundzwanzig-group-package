@@ -37,6 +37,7 @@ import { BUZZ_MESSAGE_V2 } from './relayCaps'
 import { isRootMessage, isThreadReply, replyTargetIds, threadRootId } from './threading'
 import { spaceIsBuzzAsync } from './buzzAdmin'
 import { t } from './i18n'
+import { formatTimestamp } from './locale'
 
 /** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
 const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
@@ -271,11 +272,10 @@ const dayLabel = (ts: number): string => {
     if (diffDays === 1) {
         return t('Gestern')
     }
-    return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+    return formatTimestamp(ts, { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-const timeLabel = (ts: number): string =>
-    new Date(ts * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+const timeLabel = (ts: number): string => formatTimestamp(ts, { hour: '2-digit', minute: '2-digit' })
 
 /**
  * Volles Datum+Uhrzeit für den Zeilen-Tooltip (`:title`) — und für jede Zeile, die
@@ -283,8 +283,7 @@ const timeLabel = (ts: number): string =>
  * blosse Uhrzeit wertlos: die Treffer stammen aus mehreren Tagen und stehen ohne
  * Datumstrenner untereinander.
  */
-export const fullTimeLabel = (ts: number): string =>
-    new Date(ts * 1000).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
+export const fullTimeLabel = (ts: number): string => formatTimestamp(ts, { dateStyle: 'medium', timeStyle: 'short' })
 
 /** Kompakte Vorschau der zitierten Nachricht (aufgelöst im selben Raum). */
 export type ReplyPreview = { id: string; name: string; text: string }

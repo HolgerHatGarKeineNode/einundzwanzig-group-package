@@ -92,7 +92,7 @@
                      x-init="tween(balanceSats, null); $watch('balanceSats', (v, old) => tween(v, old))">
                     <span class="text-4xl font-bold tabular-nums tracking-tight transition-colors duration-300 motion-reduce:transition-none"
                           :class="flash ? 'text-green-500 dark:text-green-400' : ''"
-                          x-text="shown === null ? '—' : shown.toLocaleString('de-DE')"></span>
+                          x-text="shown === null ? '—' : $num(shown)"></span>
                     <span class="text-lg font-medium text-muted">{{ __('Sats') }}</span>
                 </div>
 
@@ -105,7 +105,7 @@
 
                 {{-- lud16-Empfangsadresse (kopierbar). --}}
                 <button type="button" x-show="lud16" x-cloak
-                        x-on:click="copy(lud16, @js(__('Lightning-Adresse')))"
+                        x-on:click="copy(lud16, @js(__('Lightning-Adresse kopiert.')))"
                         :aria-label="@js(__('Lightning-Adresse kopieren'))"
                         class="pressable mt-3 flex w-full min-w-0 items-center gap-2 rounded-tile border border-brand-500/30 bg-brand-500/5 px-3 py-2">
                     <flux:icon.bolt variant="solid" class="size-4 shrink-0 text-brand-500" />
@@ -311,7 +311,7 @@
                     <img :src="recvQr" :alt="@js(__('QR-Code der Rechnung'))"
                          class="size-56 rounded-tile bg-white p-2" />
                 </div>
-                <button type="button" x-on:click="copy(recvInvoice, @js(__('Rechnung')))"
+                <button type="button" x-on:click="copy(recvInvoice, @js(__('Rechnung kopiert.')))"
                         :aria-label="@js(__('Rechnung kopieren'))"
                         class="pressable flex w-full min-w-0 items-center gap-2 rounded-tile border border-zinc-200 px-3 py-2 dark:border-zinc-800">
                     <span class="min-w-0 truncate font-mono text-xs" x-text="recvInvoice"></span>

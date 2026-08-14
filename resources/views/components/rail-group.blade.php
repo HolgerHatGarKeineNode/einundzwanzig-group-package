@@ -54,7 +54,7 @@
 
             <button type="button" x-on:click="scopeToGroup(@js($group))"
                     class="pressable inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                    x-bind:aria-label="@js(__('In ')) + @js($label) + @js(__(' suchen'))">
+                    x-bind:aria-label="@js(__('In :label suchen', ['label' => $label]))">
                 <flux:icon.magnifying-glass variant="micro" aria-hidden="true" class="size-3.5" />
             </button>
         </div>
@@ -103,7 +103,7 @@
             <template x-if="groupFor(@js($group)).hiddenCount > 0">
                 <button type="button" x-on:click="scopeToGroup(@js($group))"
                         class="pressable flex min-h-7 w-full items-center gap-1 rounded-tile px-2 text-start text-[0.7rem] text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
-                    <span x-text="@js(__('Noch ')) + groupFor(@js($group)).hiddenCount + @js(__(' — tippen zum Filtern'))"></span>
+                    <span x-text="@js(__('Noch :count — tippen zum Filtern')).replace(':count', groupFor(@js($group)).hiddenCount)"></span>
                 </button>
             </template>
 

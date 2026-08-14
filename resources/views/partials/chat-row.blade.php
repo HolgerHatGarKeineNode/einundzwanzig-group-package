@@ -204,7 +204,7 @@
                                     {{-- Footer außerhalb der Scrollbox → bleibt fix sichtbar. --}}
                                     <div class="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted">
                                         <span x-text="m.poll.typeLabel + (m.poll.endsLabel ? ' · ' + m.poll.endsLabel : '')"></span>
-                                        <span x-text="m.poll.voters + (m.poll.voters === 1 ? @js(__(' Stimme')) : @js(__(' Stimmen')))"></span>
+                                        <span x-text="$plural(m.poll.voters, '1 Stimme', ':count Stimmen')"></span>
                                     </div>
                                 </div>
                             </template>
@@ -221,22 +221,29 @@
                                     </template>
                                     <div>
                                         <div class="flex items-center justify-between gap-2 font-mono text-xs tabular-nums">
-                                            <span class="font-semibold text-brand-500" x-text="m.goal.raisedSats.toLocaleString('de-DE') + ' Sats'"></span>
-                                            <span class="text-muted" x-text="@js(__('Ziel ')) + m.goal.targetSats.toLocaleString('de-DE')"></span>
+                                            <span class="font-semibold text-brand-500" x-text="$num(m.goal.raisedSats) + ' Sats'"></span>
+                                            <span class="text-muted" x-text="@js(__('Ziel :amount')).replace(':amount', $num(m.goal.targetSats))"></span>
                                         </div>
                                         {{-- Balken: role=progressbar trägt den Wert für SR; die Breite
                                              animiert nur bei motion-safe (Reduced-Motion springt). --}}
                                         <div class="mt-1 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar"
                                              :aria-valuenow="m.goal.pct" aria-valuemin="0" aria-valuemax="100"
                                              aria-label="{{ __('Ziel-Fortschritt') }}"
-                                             :aria-valuetext="m.goal.pct + @js(__(' Prozent — ')) + m.goal.raisedSats.toLocaleString('de-DE') + @js(__(' von ')) + m.goal.targetSats.toLocaleString('de-DE') + ' Sats'">
+                                             :aria-valuetext="@js(__(':pct Prozent — :raised von :target Sats')).replace(':pct', m.goal.pct).replace(':raised', $num(m.goal.raisedSats)).replace(':target', $num(m.goal.targetSats))">
                                             <div class="h-full rounded-full bg-brand-500 transition-[width] duration-500 motion-reduce:transition-none"
                                                  :style="`width:${m.goal.pct}%`"></div>
                                         </div>
                                     </div>
                                     <div class="flex items-center justify-between gap-2">
                                         <span class="text-xs text-muted"
-                                              x-text="m.goal.contributors + (m.goal.contributors === 1 ? @js(__(' Beitragende:r')) : @js(__(' Beitragende'))) + (m.goal.reached ? @js(__(' · Ziel erreicht 🎉')) : '')"></span>
+                                              {{-- Der Zusatz („· Ziel erreicht") umHÜLLT die Zählform, statt an sie
+                                                   angehängt zu werden: angehängt wäre er wieder ein Fragment mit
+                                                   führendem Leerzeichen, und die Zählform in alle vier Kombinationen
+                                                   auszuschreiben hieße, jede pl-/lv-Sonderform doppelt zu pflegen.
+                                                   Der Zweig ohne Zusatz ist die nackte Vorlage `:contributors` —
+                                                   dieselbe Ersetzung, nur ohne Rahmen. --}}
+                                              x-text="(m.goal.reached ? @js(__(':contributors · Ziel erreicht 🎉')) : ':contributors')
+                                                 .split(':contributors').join($plural(m.goal.contributors, '1 Beitragende:r', ':count Beitragende'))"></span>
                                         <flux:button size="xs" variant="primary" icon="bolt" class="shrink-0 icon-btn-touch"
                                                      x-show="zapsEnabled && m.zappable" x-cloak
                                                      x-on:click.stop="openZap(m)">{{ __('Beitragen') }}</flux:button>
@@ -280,7 +287,7 @@
                                          spiegelt die URL selbst kosmetisch per replaceState → teilbar. --}}
                                     <a :href="threadHref(m)"
                                             x-on:click="if (!$event.metaKey && !$event.ctrlKey && !$event.shiftKey) { $event.preventDefault(); $event.stopPropagation(); openThread(m) }"
-                                            :aria-label="m.thread.count + (m.thread.count === 1 ? @js(__(' Antwort, letzte ')) : @js(__(' Antworten, letzte '))) + m.thread.lastLabel + @js(__(' — Thread öffnen'))"
+                                            :aria-label="$plural(m.thread.count, '1 Antwort, letzte :time — Thread öffnen', ':count Antworten, letzte :time — Thread öffnen', { time: m.thread.lastLabel })"
                                             class="chip-in pressable group/th inline-flex h-7 items-center gap-1.5 rounded-full border border-brand-500/40 bg-brand-500/10 pl-1 pr-2.5 text-brand-500 transition-colors motion-reduce:transition-none hover:border-brand-500 hover:bg-brand-500/15">
                                         <span class="flex -space-x-1.5">
                                             <template x-for="f in m.thread.faces" :key="f.pubkey">
@@ -289,7 +296,7 @@
                                                 </span>
                                             </template>
                                         </span>
-                                        <span class="text-xs font-semibold" x-text="m.thread.count + (m.thread.count === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
+                                        <span class="text-xs font-semibold" x-text="$plural(m.thread.count, '1 Antwort', ':count Antworten')"></span>
                                         <span class="text-xs text-muted" x-text="'· ' + m.thread.lastLabel"></span>
                                         <flux:icon.chevron-right class="size-3.5 shrink-0 opacity-60 transition-transform motion-reduce:transition-none group-hover/th:translate-x-0.5" />
                                     </a>
@@ -318,7 +325,10 @@
                                     <button type="button"
                                             x-on:click.stop="zapsEnabled && m.zappable && openZap(m)"
                                             :title="m.zaps.names"
-                                            :aria-label="(m.zaps.mine ? @js(__('Du hast gezappt. ')) : '') + m.zaps.sats + @js(__(' Sats gezappt von ')) + m.zaps.names + (zapsEnabled && m.zappable ? @js(__(' – tippen zum erneuten Zappen')) : '')"
+                                            :aria-label="(m.zaps.mine
+                                                ? (zapsEnabled && m.zappable ? @js(__('Du hast gezappt. :sats Sats gezappt von :names – tippen zum erneuten Zappen')) : @js(__('Du hast gezappt. :sats Sats gezappt von :names')))
+                                                : (zapsEnabled && m.zappable ? @js(__(':sats Sats gezappt von :names – tippen zum erneuten Zappen')) : @js(__(':sats Sats gezappt von :names'))))
+                                               .replace(':sats', m.zaps.sats).split(':names').join(m.zaps.names)"
                                             class="chip-in pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none transition-colors motion-reduce:transition-none"
                                             :class="m.zaps.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
                                         <flux:icon.bolt variant="solid" class="size-3.5 shrink-0 text-brand-500" />

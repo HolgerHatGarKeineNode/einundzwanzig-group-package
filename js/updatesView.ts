@@ -15,7 +15,7 @@
  * `unread.ts`): ohne sie liefe `node --test updatesView.test.ts` in ERR_MODULE_NOT_FOUND.
  */
 import type { UpdateBucket, UpdateItem } from './updates.ts'
-import { t } from './i18n.ts'
+import { t, tPlural } from './i18n.ts'
 
 // ── Filter (die drei Tabs) ─────────────────────────────────────────────────
 
@@ -126,7 +126,7 @@ export function updatesSubtitle(items: readonly UpdateItem[], filtered = false):
     if (items.length === 0) {
         return filtered ? '' : t('Alles gelesen')
     }
-    return items.length === 1 ? t('1 Hinweis') : t(':count Hinweise', { count: items.length })
+    return tPlural({ one: '1 Hinweis', other: ':count Hinweise' }, items.length)
 }
 
 /**
@@ -299,7 +299,7 @@ export const updatesLiveText = (count: number): string => {
         return ''
     }
     const exact = Math.floor(count)
-    return exact === 1 ? t('1 ungelesener Hinweis') : t(':count ungelesene Hinweise', { count: exact })
+    return tPlural({ one: '1 ungelesener Hinweis', other: ':count ungelesene Hinweise' }, exact)
 }
 
 /**

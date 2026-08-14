@@ -36,6 +36,7 @@ import { throttled } from '@welshman/store'
 import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
 import { derived, readable, type Readable } from 'svelte/store'
 import { proxifyImage } from './core'
+import { formatTimestamp } from './locale'
 import {
     LONGFORM,
     articleSnippet,
@@ -105,14 +106,12 @@ export type ArticleView = ArticleRow & {
 /**
  * Datum einer Artikelzeile.
  *
- * Ohne Uhrzeit: ein Artikel ist ein Tagesdatum, keine Minute. `de-DE` ist an dieser
- * Stelle bewusst dieselbe bekannte Grobheit wie in `feeds.ts:274` — die Formatierung
- * hängt dort wie hier an einer festen Locale statt an der gewählten Sprache. Das ist ein
- * eigener, bereits notierter Auftrag (offene Frage 10 des Plans) und wird hier nicht
- * nebenbei anders gelöst, sonst gäbe es zwei Wahrheiten über dasselbe Format.
+ * Ohne Uhrzeit: ein Artikel ist ein Tagesdatum, keine Minute. Die Sprache kommt seit P3
+ * aus `locale.ts` (also aus `<html lang>` und damit aus `app()->getLocale()`), genau wie
+ * beim Tagestrenner des Verlaufs in `feeds.ts` — EIN Mechanismus für dasselbe Format,
+ * damit es nicht zwei Wahrheiten darüber gibt. Die Feldwahl selbst bleibt hier gesetzt.
  */
-const dateLabel = (ts: number): string =>
-    new Date(ts * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+const dateLabel = (ts: number): string => formatTimestamp(ts, { day: 'numeric', month: 'long', year: 'numeric' })
 
 /** Filter des Bestands — bewusst nur Kind und Limit (siehe Modulkopf). */
 const listFilters = (limit: number): Filter[] => [{ kinds: [LONGFORM], limit }]

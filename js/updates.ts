@@ -59,7 +59,7 @@ import {
 } from './readState.ts'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 import { isThreadReply, threadRootId } from './threading.ts'
-import { t } from './i18n.ts'
+import { t, tPlural } from './i18n.ts'
 
 /** Lotus' In-Chat-Thread (NIP-29 Group Chat Threading, kind 10). Siehe Modul-Docstring. */
 const CHAT_THREAD = 10
@@ -315,12 +315,16 @@ const MONTHS = [
 ]
 
 /**
- * Datum ohne `toLocaleDateString`. Ausgabe ist identisch zu
- * `toLocaleDateString('de-DE', {day:'numeric', month:'long', year:'numeric'})`, hängt aber
- * nicht an der ICU-Ausstattung der Laufzeit — sonst wäre die Ableitung nur dort testbar,
- * wo Node mit vollem ICU gebaut wurde.
+ * Datum ohne `toLocaleDateString` — bewusst NICHT über `locale.ts` wie die übrigen
+ * Datumslabels der Insel. Der Grund ist die Testbarkeit: diese Ableitung soll auch dort
+ * prüfbar sein, wo Node ohne volles ICU gebaut wurde. Der Preis dafür ist, dass Monatsname
+ * UND Reihenfolge über `t()` laufen müssen (siehe unten) statt über `Intl` — die Sprache
+ * folgt also derselben Quelle, nur über den Katalog statt über den Formatter.
+ *
+ * Unter `de` ist die Ausgabe identisch zu
+ * `toLocaleDateString('de', {day:'numeric', month:'long', year:'numeric'})`.
  */
-const germanDate = (ts: number): string => {
+const localeDate = (ts: number): string => {
     const d = new Date(ts * 1000)
     // Auch die REIHENFOLGE ist sprachabhängig („1. Januar 2026" vs. „January 1, 2026"),
     // deshalb ist das Muster selbst ein Schlüssel und nicht fest verdrahtet.
@@ -350,7 +354,7 @@ export const updateTimeLabel = (ts: number, now: number): string => {
     if (h < 24) {
         return t('vor :count Std', { count: h })
     }
-    return updateBucket(ts, now) === 'yesterday' ? t('gestern') : germanDate(ts)
+    return updateBucket(ts, now) === 'yesterday' ? t('gestern') : localeDate(ts)
 }
 
 /**
@@ -476,13 +480,6 @@ const threadHref = (url: string, h: string, rootId: string, rootPubkey: string):
     return `/rooms/${encodeURIComponent(h)}/thread/${nevent}?from=updates`
 }
 
-/**
- * Zähl-Label. **Beide Formen sind eigene Übersetzungsschlüssel** (`'1 neue Antwort'`
- * / `':count neue Antworten'`) statt eines zusammengesetzten Strings: nur so kann
- * eine Sprache die Zahl anders stellen oder eine dritte Form gar nicht brauchen.
- */
-const plural = (count: number, one: () => string, many: () => string): string => (count === 1 ? one() : many())
-
 type RowSpec = {
     type: UpdateType
     h: string
@@ -526,12 +523,12 @@ const buildItem = (input: UpdateInput, spec: RowSpec): UpdateItem => {
         title = t(':name hat dich erwähnt', { name: authorName })
     } else if (spec.type === 'thread') {
         title = spec.unread
-            ? plural(count, () => t('1 neue Antwort'), () => t(':count neue Antworten', { count }))
-            : plural(count, () => t('1 Antwort'), () => t(':count Antworten', { count }))
+            ? tPlural({ one: '1 neue Antwort', other: ':count neue Antworten' }, count)
+            : tPlural({ one: '1 Antwort', other: ':count Antworten' }, count)
     } else {
         const replies = spec.unread
-            ? plural(count, () => t('1 neue Nachricht'), () => t(':count neue Nachrichten', { count }))
-            : plural(count, () => t('1 Nachricht'), () => t(':count Nachrichten', { count }))
+            ? tPlural({ one: '1 neue Nachricht', other: ':count neue Nachrichten' }, count)
+            : tPlural({ one: '1 Nachricht', other: ':count Nachrichten' }, count)
         title = t(':name · :replies', { name: authorName, replies })
     }
     return {

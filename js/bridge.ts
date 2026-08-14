@@ -249,7 +249,8 @@ import {
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles'
-import { t } from './i18n'
+import { t, tPlural, type Replacements } from './i18n'
+import { dateTimeFormat, formatNumber } from './locale'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
@@ -439,7 +440,7 @@ type ProfileCardState = {
     _unsub: null | (() => void)
     _unsubHandle: null | (() => void)
     open(pubkey: string): void
-    copy(text: string, label: string): void
+    copy(text: string, message: string): void
     destroy(): void
 }
 
@@ -487,7 +488,7 @@ type AuthState = {
     startConnect(): Promise<void>
     stopConnect(): void
     openAmber(): void
-    copy(text: string, label: string): void
+    copy(text: string, message: string): void
     doLogout(): Promise<void>
 }
 
@@ -916,7 +917,7 @@ type RoomChatState = {
     setThreadReply(c: ChatMessage): void
     clearThreadReply(): void
     sendComment(): Promise<void>
-    copy(text: string, label: string): void
+    copy(text: string, message: string): void
     onComposerInput(el: HTMLTextAreaElement, target?: 'main' | 'thread'): void
     pickMention(item: MentionItem): void
     closeMentions(): void
@@ -1065,7 +1066,7 @@ type WalletState = {
     copyNpub(): void
     pubkeyHexShort(): string
     copyPubkeyHex(): void
-    copy(text: string, label: string): void
+    copy(text: string, message: string): void
     destroy(): void
 }
 
@@ -1108,7 +1109,9 @@ function installResizeObserverLoopFilter(): void {
 // `regionNames` ist seit der gruppierten Rail nach `countryNames.ts` gewandert —
 // der Navigator braucht dieselbe Auflösung, und zwei Caches für dieselbe Frage
 // wären zwei Wahrheiten. Die Begründung für den Modul-Scope steht dort.
-let _dateFmtCache: Intl.DateTimeFormat | null | undefined
+// P3: der Termin-Formatter hängt nicht mehr hier, sondern in `locale.ts` — und
+// damit an der gewählten Sprache statt hart an `de-DE`. Der Cache liegt weiterhin
+// im Modul-Scope (dort), er trägt die Sprache jetzt nur im Schlüssel.
 let _myCCCache: string | undefined
 // Aktivitäts-Feld der Datenschicht (`groups.ts lastMessageAtByUrl`). Räume ohne
 // bekannte Aktivität sortieren ans Ende und fallen damit auf den Alphabet-Zweig.
@@ -1118,16 +1121,7 @@ let _roomFilterCache: RoomFilterResult | null = null
 type CountryOption = { country: string; flag: string; name: string; count: number }
 let _countryCache: { key: string; list: CountryOption[] } | null = null
 
-const dateFmt = (): Intl.DateTimeFormat | null => {
-    if (_dateFmtCache === undefined) {
-        try {
-            _dateFmtCache = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
-        } catch {
-            _dateFmtCache = null
-        }
-    }
-    return _dateFmtCache
-}
+const dateFmt = (): Intl.DateTimeFormat | null => dateTimeFormat({ weekday: 'short', day: 'numeric', month: 'short' })
 const myCountryCode = (): string => {
     if (_myCCCache === undefined) {
         try {
@@ -1452,6 +1446,33 @@ export function registerNostrComponents(Alpine: {
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').
     Alpine.magic('img', () => (url: unknown, preset?: string) => proxifyImage(url, preset))
 
+    // P3 LOCALE — `$num(1234)` formatiert eine Zahl in der GEWÄHLTEN Sprache
+    // („1.234" unter de, „1,234" unter en), in jedem Alpine-Ausdruck. Dieselbe
+    // Bauform wie `$img` darüber, und aus demselben Grund: die Blade-Ausdrücke
+    // sollen keinen Formatierer nachbauen und erst recht keine Sprache raten.
+    // Vorher stand dort `toLocaleString('de-DE')` — hart deutsch, mitten in einer
+    // Oberfläche, die acht Sprachen spricht.
+    Alpine.magic('num', () => (value: unknown) => formatNumber(Number(value) || 0))
+
+    // P3 NUMERUS — `$plural(n, '1 Raum', ':count Räume')` wählt die Zählform nach
+    // den Regeln der GEWÄHLTEN Sprache, nicht nach `n === 1`.
+    //
+    // Warum als Magic und nicht als `@js(__(…))` im Markup: die Wahl muss im
+    // Browser fallen (der Zähler ist reaktiv), und welche Formen eine Sprache
+    // überhaupt kennt, weiß erst `Intl` zur Laufzeit. Ein Blade-Ausdruck müsste
+    // sonst alle Formen einzeln einbetten und die Auswahl nachbauen. Der Katalog
+    // liegt ohnehin komplett im Browser (`window.__nostrI18n`), also schlägt
+    // `tPlural` dort direkt nach — dieselbe Quelle, die `__()` serverseitig liest.
+    //
+    // Deshalb stehen im Markup die deutschen QUELLTEXTE als Schlüssel, nicht
+    // `__()`-Aufrufe: unter `de` ist der Katalog leer und der Schlüssel IST die
+    // Ausgabe, unter jeder anderen Sprache löst `tPlural` ihn auf.
+    Alpine.magic(
+        'plural',
+        () => (count: unknown, one: string, other: string, replace?: Replacements) =>
+            tPlural({ one, other }, Number(count) || 0, replace)
+    )
+
     // PLAN P4 — Kontextueller Auth-Gate (§4.2). EIN globaler Store, den jede
     // gegatete Tab/Aktion (nav-tab, später FAB/„Bearbeiten") konsultiert, statt
     // selbst zu prüfen/navigieren:
@@ -1600,9 +1621,26 @@ export function registerNostrComponents(Alpine: {
             })
             dispatchModal('profile-card')
         },
-        copy(text: string, label: string) {
+        /**
+         * In die Zwischenablage, mit fertiger Erfolgsmeldung.
+         *
+         * **`message` ist der GANZE Satz, nicht das Substantiv** (P3). Vorher
+         * stand hier EIN Schlüssel, in den das Nomen als Platzhalter eingesetzt
+         * wurde („… kopiert." mit `label` davor). Deutsch trägt das, weil sich „kopiert" nach
+         * nichts richtet; in sieben der acht Sprachen richtet sich das Partizip
+         * nach Genus und Numerus des Eingesetzten: „Rechnung kopiert." heißt auf
+         * Spanisch „Factura copiada", „npub kopiert." aber „npub copiado". Mit
+         * EINEM Schlüssel muss der Übersetzer eine der Formen erraten und liegt
+         * an der Hälfte der Aufrufstellen daneben.
+         *
+         * Die Menge ist endlich und steht im Markup (fünf Sätze an zehn
+         * Stellen), also bekommt jede Meldung ihren eigenen Schlüssel — derselbe
+         * Weg wie bei den Zählformen: getrennte Vollsätze statt eines Satzes mit
+         * eingesetztem Wort.
+         */
+        copy(text: string, message: string) {
             if (text) {
-                void navigator.clipboard?.writeText(text).then(() => toast(t(':label kopiert.', { label }), 'success'))
+                void navigator.clipboard?.writeText(text).then(() => toast(message, 'success'))
             }
         },
         destroy() {
@@ -1829,7 +1867,7 @@ export function registerNostrComponents(Alpine: {
                 }
                 // Betragslose bolt11 → msats mitgeben (WebLN kann das nicht, payInvoice wirft).
                 await payInvoice(invoice, parsed.satoshi > 0 ? undefined : (this.payAmountSats ?? 0) * 1000)
-                toast(t('Gesendet: :sats Sats', { sats: (parsed.satoshi || this.payAmountSats || 0).toLocaleString('de-DE') }), 'success')
+                toast(t('Gesendet: :sats Sats', { sats: formatNumber(parsed.satoshi || this.payAmountSats || 0) }), 'success')
                 this.payReq = ''
                 this.payAmountSats = null
                 dispatchModal('wallet-send', false)
@@ -1975,9 +2013,10 @@ export function registerNostrComponents(Alpine: {
                 this.copy(pk, t('Public Key (hex)'))
             }
         },
-        copy(text: string, label: string) {
+        /** Wie oben: `message` ist der FERTIGE Satz, nicht das Substantiv (P3). */
+        copy(text: string, message: string) {
             if (text) {
-                void navigator.clipboard?.writeText(text).then(() => toast(t(':label kopiert.', { label }), 'success'))
+                void navigator.clipboard?.writeText(text).then(() => toast(message, 'success'))
             }
         },
         destroy() {
@@ -2098,7 +2137,10 @@ export function registerNostrComponents(Alpine: {
             const other = (this.space?.otherRooms ?? []).filter(isStandardRoom).length
             return mine + other
         },
-        // Heimatland aus der Browser-Sprache (de-DE → DE) für „mein Land zuerst".
+        // Heimatland aus der BROWSER-Sprache (`navigator.language`, z. B. de-DE → DE)
+        // für „mein Land zuerst". Bewusst NICHT die Oberflächensprache aus
+        // `locale.ts`: die trägt keine Region (Laravel liefert `de`, nicht `de-DE`),
+        // und wo jemand wohnt, ist eine andere Frage als in welcher Sprache er liest.
         myCountry(): string {
             return myCountryCode()
         },
@@ -4688,9 +4730,10 @@ export function registerNostrComponents(Alpine: {
         },
         // ── C4: Kopieren / Info (nur lesen, kein Publish) ──────────────────────
         // In die Zwischenablage + Bestätigungs-Toast (wie die Profilkarte).
-        copy(text: string, label: string) {
+        /** Wie oben: `message` ist der FERTIGE Satz, nicht das Substantiv (P3). */
+        copy(text: string, message: string) {
             if (text) {
-                void navigator.clipboard?.writeText(text).then(() => toast(t(':label kopiert.', { label }), 'success'))
+                void navigator.clipboard?.writeText(text).then(() => toast(message, 'success'))
             }
         },
         // `nostr:nevent…` der Nachricht (mit gesehenen Relays als Hints, sonst dem
@@ -6178,9 +6221,10 @@ export function registerNostrComponents(Alpine: {
             }
         },
         // npub o. Ä. in die Zwischenablage (Profil-Popover). Gleiches Muster wie profile-card.
-        copy(text, label) {
+        // `message` ist der FERTIGE Satz — Begründung an der Schwester-Implementierung.
+        copy(text, message) {
             if (text) {
-                void navigator.clipboard?.writeText(text).then(() => toast(t(':label kopiert.', { label }), 'success'))
+                void navigator.clipboard?.writeText(text).then(() => toast(message, 'success'))
             }
         },
         async doLogout() {

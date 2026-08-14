@@ -93,7 +93,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
         // wäre bereits attributsicher und würde hier ein zweites Mal escaped. json_encode liefert
         // ein rohes JS-String-Literal ("…"), das `{{ }}` genau EINMAL escaped (wie der Raum-Titel zuvor).
         $hashName = json_encode('# ').' + roomName';
-        $titleExpr = 'threadRootId ? ('.$hashName.' + '.json_encode(' · '.__('Thread')).') : ('.$hashName.')';
+        // ':room · Thread' ist EIN Schlüssel (er steht schon im Katalog, `js/updates.ts`
+        // benutzt ihn) statt „# Raum" + „ · Thread" — sonst legte die deutsche Stellung
+        // fest, auf welcher Seite des Trenners der Raumname steht.
+        // `.split().join()`, weil `roomName` aus einem fremden 39000 kommt.
+        $titleExpr = 'threadRootId ? ('.json_encode(__(':room · Thread')).'.split('.json_encode(':room').').join('.$hashName.')) : ('.$hashName.')';
         // Zwei getrennte Rückwege, die NICHT vertauscht werden dürfen:
         //  - Thread offen → backFromThread(): warmer In-Place-Abbau. Der Thread pusht
         //    bewusst keinen History-Eintrag, ein history.back() spränge hier am Raum
@@ -118,7 +122,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <x-slot:subtitle>
             {{-- Im Thread: Antwort-Zahl unter dem Titel (gleiche Singular/Plural-Logik wie zuvor). --}}
             <span x-show="threadRootId" x-cloak class="text-xs text-muted"
-                  x-text="threadCount + (threadCount === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
+                  x-text="$plural(threadCount, '1 Antwort', ':count Antworten')"></span>
             {{-- Herkunft, aber nur wenn sie überrascht: `spaceHint` ist LEER, solange der Raum
                  im Vereins-Space liegt — für so gut wie jeden Raum ändert sich hier nichts.
                  Steht der Nutzer dagegen in einem Workspace-Raum, sagte ihm bis hierher
@@ -684,7 +688,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              class="surface-card mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-3 py-1.5">
             <div class="min-w-0 flex-1">
                 <div class="text-xs font-semibold text-brand-500"
-                     x-text="editingId ? @js(__('Nachricht bearbeiten')) : (sharing ? @js(__('Zitieren')) : (@js(__('Antwort an ')) + (replyTo?.name ?? '')))"></div>
+                     x-text="editingId ? @js(__('Nachricht bearbeiten')) : (sharing ? @js(__('Zitieren')) : @js(__('Antwort an :name')).split(':name').join(replyTo?.name ?? ''))"></div>
                 <div class="truncate text-xs text-muted" x-show="replyTo" x-text="replyTo?.text"></div>
             </div>
             <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
@@ -874,7 +878,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
                 <div class="flex items-center gap-2">
                     <flux:input readonly ::value="zapInvoice" class="flex-1 font-mono text-xs" />
-                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, @js(__('Rechnung')))" aria-label="{{ __('Rechnung kopieren') }}" />
+                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, @js(__('Rechnung kopiert.')))" aria-label="{{ __('Rechnung kopieren') }}" />
                 </div>
                 <a href="{{ route('group.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">{{ __('Wallet verbinden für 1-Klick-Zaps') }}</a>
                 <flux:modal.close><flux:button variant="ghost" class="w-full">{{ __('Fertig') }}</flux:button></flux:modal.close>
@@ -899,13 +903,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          :class="_draggedOption === opt.id ? 'opacity-40' : ''">
                         <span draggable="true" x-on:dragstart="pollDragStart(opt.id)" x-on:dragend="pollDragEnd()"
                               class="shrink-0 cursor-grab text-muted active:cursor-grabbing" role="button"
-                              :aria-label="@js(__('Option ')) + (i + 1) + @js(__(' verschieben'))">
+                              :aria-label="@js(__('Option :n verschieben')).replace(':n', i + 1)">
                             <flux:icon.bars-3 variant="micro" />
                         </span>
                         {{-- ::attr (escaped) rendert den Wert LITERAL → `@js()` würde
                              roh ins DOM leaken (Alpine: „Invalid token"). Js::from via
                              {{ }} liefert das lokalisierte JS-String-Literal zur Compile-Zeit. --}}
-                        <flux:input x-model="opt.value" class="flex-1" ::placeholder="{{ \Illuminate\Support\Js::from(__('Option ')) }} + (i + 1)" />
+                        <flux:input x-model="opt.value" class="flex-1" ::placeholder="{{ \Illuminate\Support\Js::from(__('Option :n')) }}.replace(':n', i + 1)" />
                         <flux:button size="sm" variant="ghost" icon="minus-circle"
                                      x-on:click="removePollOption(opt.id)" aria-label="{{ __('Option entfernen') }}" />
                     </div>
@@ -1096,13 +1100,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
                 <div class="space-y-1">
                     <flux:text class="text-xs text-muted">{{ __('Event-Link') }}</flux:text>
-                    <button type="button" x-on:click="copy(infoFor.nevent, @js(__('Event-Link')))"
+                    <button type="button" x-on:click="copy(infoFor.nevent, @js(__('Event-Link kopiert.')))"
                             class="pressable surface-card block w-full truncate rounded-tile px-2 py-1.5 text-left font-mono text-xs"
                             x-text="infoFor.nevent"></button>
                 </div>
                 <div class="space-y-1">
                     <flux:text class="text-xs text-muted">{{ __('Autor (npub)') }}</flux:text>
-                    <button type="button" x-on:click="copy(infoFor.npub, 'npub')"
+                    <button type="button" x-on:click="copy(infoFor.npub, @js(__('npub kopiert.')))"
                             class="pressable surface-card block w-full truncate rounded-tile px-2 py-1.5 text-left font-mono text-xs"
                             x-text="infoFor.npub"></button>
                 </div>
@@ -1117,7 +1121,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="space-y-1">
                     <div class="flex items-center justify-between">
                         <flux:text class="text-xs text-muted">{{ __('Roh-Event') }}</flux:text>
-                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, 'JSON')">{{ __('Kopieren') }}</flux:button>
+                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, @js(__('JSON kopiert.')))">{{ __('Kopieren') }}</flux:button>
                     </div>
                     <pre class="surface-card max-h-60 overflow-auto rounded-tile p-2 text-xs"><code x-text="infoFor.json"></code></pre>
                 </div>

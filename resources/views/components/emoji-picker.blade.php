@@ -28,11 +28,18 @@
     $pick = $isInsert
         ? "(e.custom ? insertEmoji('$target', ':' + e.shortcode + ':', ['emoji', e.shortcode, e.url]) : insertEmoji('$target', e.u, undefined, e.label))$after"
         : "(e.custom ? react($message, ':' + e.shortcode + ':', ['emoji', e.shortcode, e.url]) : react($message, e.u, undefined, e.label))$after";
-    // aria-label übersetzbar: EIN Präfix-Key + der Emoji-Token am Ende (Fragment-
-    // Übersetzung „Mit … reagieren" bräche in jeder Zielsprache die Grammatik).
-    // Einfach-gequotetes JS-Literal (das Attribut :aria-label ist doppelt gequotet).
-    $pickPrefix = "'".str_replace("'", "\\'", $isInsert ? __('Einfügen: ') : __('Reagieren mit '))."'";
-    $pickLabel = "$pickPrefix + (e.custom ? (':' + e.shortcode + ':') : e.label)";
+    // aria-label übersetzbar: EIN GANZER Satz mit Platzhalter, nicht mehr ein
+    // Präfix-Schlüssel plus angehängter Token (P3). Der Präfix-Key gab dem
+    // Übersetzer nur „Einfügen: " zu sehen und nagelte damit die Stellung fest;
+    // mit `:emoji` im Schlüssel wählt er sie selbst.
+    // `.split().join()` statt `.replace()`: der Shortcode kommt aus einem fremden
+    // kind-30030/NIP-30-Ereignis, und in `String.replace` wären `$&`/`$$` im
+    // Ersatz Sonderzeichen (dieselbe Regel wie `fill()` in `js/i18n.ts`).
+    // Einfach-gequotetes JS-Literal, KEIN Js::from: `$pickLabel` wird per {!! !!}
+    // in ein doppelt gequotetes :aria-label echot — Js::from lieferte ein mit `"`
+    // umschlossenes Literal und risse das Attribut auf.
+    $pickTemplate = "'".str_replace("'", "\\'", $isInsert ? __('Einfügen: :emoji') : __('Reagieren mit :emoji'))."'";
+    $pickLabel = "$pickTemplate.split(':emoji').join(e.custom ? (':' + e.shortcode + ':') : e.label)";
     $pickTitle = 'e.custom ? e.shortcode : e.label';
 @endphp
 

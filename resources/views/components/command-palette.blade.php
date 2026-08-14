@@ -73,9 +73,18 @@
                     <span aria-hidden="true" x-text="sigil"
                           class="w-[1ch] shrink-0 text-center font-mono text-base font-bold text-brand-800 dark:text-brand-400"></span>
 
+                    {{-- P3: die fünf Labels hier waren ein Präfix-Schlüssel plus angehängter
+                         Name („Raum: " + room.name). Der Übersetzer sah den Doppelpunkt ohne
+                         das, was danach kommt, und konnte die Stellung nicht wählen. Jetzt EIN Satz
+                         mit Platzhalter, gefüllt im Browser (der Name ist reaktiv).
+                         `.split(…).join(…)` statt `.replace(…)`, weil die Werte aus fremden
+                         kind-0/39000-Ereignissen stammen: in `String.replace` sind `$&`,
+                         `$'` und `$$` im ERSATZ Sonderzeichen, in `join` nicht. Dieselbe
+                         Regel wie `fill()` in `js/i18n.ts`. Wo der Wert eine Zahl ist,
+                         steht weiterhin `.replace()`. --}}
                     <template x-if="hasScope">
                         <button type="button" x-on:click.stop.prevent="clearScope()"
-                                x-bind:aria-label="@js(__('Suchbereich aufheben: ')) + scopeLabel"
+                                x-bind:aria-label="@js(__('Suchbereich aufheben: :label')).split(':label').join(scopeLabel)"
                                 data-palette-chip
                                 class="pressable inline-flex min-h-8 shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-2 text-[0.7rem] font-semibold text-zinc-900 dark:text-zinc-50">
                             <span x-text="scopeLabel"></span>
@@ -140,7 +149,7 @@
                             data-palette-section="rooms"
                             data-palette-sigil="#"
                             x-bind:data-palette-h="room.h"
-                            x-bind:aria-label="@js(__('Raum: ')) + room.name"
+                            x-bind:aria-label="@js(__('Raum: :name')).split(':name').join(room.name)"
                             x-on:click="openRoom(room)"
                             class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
                             <span class="min-w-0 flex-1 truncate" x-text="room.name"></span>
@@ -156,7 +165,7 @@
                             data-palette-section="members"
                             data-palette-sigil="@"
                             x-bind:data-palette-pubkey="member.pubkey"
-                            x-bind:aria-label="@js(__('Mitglied: ')) + member.name"
+                            x-bind:aria-label="@js(__('Mitglied: :name')).split(':name').join(member.name)"
                             x-on:click="openMember(member)"
                             class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
                             <span class="min-w-0 flex-1 truncate" x-text="member.name"></span>
@@ -172,7 +181,7 @@
                             data-palette-section="spaces"
                             data-palette-sigil="/"
                             x-bind:data-palette-url="space.url"
-                            x-bind:aria-label="@js(__('Space: ')) + space.label"
+                            x-bind:aria-label="@js(__('Space: :label')).split(':label').join(space.label)"
                             x-on:click="openSpace(space)"
                             class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
                             <span class="min-w-0 flex-1 truncate" x-text="space.label"></span>
@@ -188,7 +197,7 @@
                             data-palette-section="actions"
                             data-palette-sigil=">"
                             x-bind:data-palette-action="action.id"
-                            x-bind:aria-label="@js(__('Aktion: ')) + action.label"
+                            x-bind:aria-label="@js(__('Aktion: :label')).split(':label').join(action.label)"
                             x-on:click="runAction(action)"
                             class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
                             <span class="min-w-0 flex-1 truncate" x-text="action.label"></span>

@@ -98,13 +98,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          dem Fallback einen Dauerpunkt. Fällt das Feld weg, ist das eine
                          Zeile weniger — kein Umbau. --}}
                     <a href="{{ route('group.updates') }}" wire:navigate
-                       {{-- Die Leerzeichen stehen IN den Literalen, nicht zwischen den
-                            Operanden: `'Neu, ' + 1 + 'ungelesener Hinweis'` ergäbe
-                            „Neu, 1ungelesener Hinweis" — im Markup unsichtbar, im
-                            Screenreader hörbar (vom E2E-Anker gefangen, nicht vermutet).
+                       {{-- P3: EIN Schlüssel je Zählform statt Präfix + Zahl + Nomen. Der
+                            alte Bau setzte drei Literale zusammen und hing damit an einer
+                            Feinheit, die nur im Screenreader hörbar war (fehlte ein
+                            Leerzeichen IM Literal, kam „Neu, 1ungelesener Hinweis" heraus —
+                            vom E2E-Anker gefangen, nicht vermutet). Im ganzen Satz kann das
+                            nicht mehr passieren, und der Übersetzer sieht endlich, wo die
+                            Zahl steht.
                             Dritter Zweig = derselbe Fallback wie beim Marker: ohne Zahl die
                             P3-Formulierung, damit der Hinweis nicht mit der Pille verschwindet. --}}
-                       :aria-label="$store.unread?.updates ? @js(__('Neu, ')) + $store.unread.updates + ($store.unread.updates === 1 ? @js(' '.__('ungelesener Hinweis')) : @js(' '.__('ungelesene Hinweise'))) : ($store.unread?.updates === undefined && $store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu')))"
+                       :aria-label="$store.unread?.updates ? @js(__('Neu, :hints')).split(':hints').join($plural($store.unread.updates, '1 ungelesener Hinweis', ':count ungelesene Hinweise')) : ($store.unread?.updates === undefined && $store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu')))"
                        class="pressable relative flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                         <flux:icon.bell class="size-5 text-muted" />
                         {{-- `sr=false` an beiden Formen: der Hinweis steckt im aria-label des
@@ -137,7 +140,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          verschluckt rohe Alpine-Kinder). Nur `open` lokal, Rest aus nostrAuth. --}}
                     <div x-data="{ open: false }" class="relative shrink-0">
                         <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
-                                :aria-label="@js(__('Angemeldet als ')) + myName"
+                                :aria-label="@js(__('Angemeldet als :name')).split(':name').join(myName)"
                                 class="pressable flex min-h-[44px] items-center gap-2 rounded-full py-1 pe-2 ps-1 ring-1 ring-black/5 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:ring-white/10 dark:hover:bg-white/5">
                             <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem" />
                             <span class="min-w-0 max-w-[7rem] truncate text-sm font-semibold text-zinc-900 sm:max-w-[12rem] dark:text-zinc-100" x-text="myName"></span>
@@ -164,14 +167,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                             <div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
                                 {{-- npub: 1-Klick-Kopieren (copy() im nostrAuth-Island, „Kopiert"-Toast). --}}
-                                <button type="button" x-on:click="copy(npub, 'npub')" aria-label="{{ __('npub kopieren') }}"
+                                <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
                                         class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
                                     <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
                                     <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
                                 </button>
                                 <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
                                     <flux:icon.key variant="micro" class="size-3 shrink-0" />
-                                    <span x-text="@js(__('Angemeldet über ')) + signerLabel"></span>
+                                    <span x-text="@js(__('Angemeldet über :signer')).split(':signer').join(signerLabel)"></span>
                                 </div>
                             </div>
 
@@ -392,7 +395,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  Fall, „1 Räume" stand also ausgerechnet dort, wo man am
                                  genauesten hinsieht. --}}
                             <span x-show="visibleCount() > 0" x-cloak class="ms-auto shrink-0 font-mono text-xs text-muted"
-                                  x-text="visibleCount() + (visibleCount() === 1 ? @js(' '.__('Raum')) : @js(' '.__('Räume')))"></span>
+                                  x-text="$plural(visibleCount(), '1 Raum', ':count Räume')"></span>
                         </div>
 
                         {{-- Aktive Filter (Suche + Land) sichtbar + einzeln/gesamt entfernbar. --}}
@@ -700,7 +703,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <span class="min-w-0 flex-1">
                                             <span class="block font-medium">{{ __('Projektunterstützung entdecken') }}</span>
                                             <span class="mt-0.5 block text-[0.8rem] text-muted"
-                                                  x-text="proposalCount() + (proposalCount() === 1 ? @js(' '.__('Antragsraum')) : @js(' '.__('Antragsräume')))"></span>
+                                                  x-text="$plural(proposalCount(), '1 Antragsraum', ':count Antragsräume')"></span>
                                         </span>
                                         <x-group::unread-badge count="proposalUnread()" />
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
@@ -729,7 +732,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                  einzuführen und alle sieben Sprachdateien
                                                  anzufassen — eigener Auftrag. --}}
                                             <span class="mt-0.5 block text-[0.8rem] text-muted"
-                                                  x-text="meetupCount() + (meetupCount() === 1 ? @js(' '.__('Gruppe in')) : @js(' '.__('Gruppen in'))) + ' ' + availableCountries().length + (availableCountries().length === 1 ? @js(' '.__('Land')) : @js(' '.__('Ländern')))"></span>
+                                                  x-text="@js(__(':groups in :countries'))
+                                                         .split(':groups').join($plural(meetupCount(), '1 Gruppe', ':count Gruppen'))
+                                                         .split(':countries').join($plural(availableCountries().length, '1 Land', ':count Ländern'))"></span>
                                         </span>
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
                                     </button>
@@ -855,7 +860,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          andere eine Ausnahme. --}}
                     <div x-show="threads.length > 0" x-cloak class="mb-1 flex justify-end px-2">
                         <span class="shrink-0 font-mono text-xs text-muted"
-                              x-text="threads.length + (threads.length === 1 ? @js(' '.__('Thread')) : @js(' '.__('Threads')))"></span>
+                              x-text="$plural(threads.length, '1 Thread', ':count Threads')"></span>
                     </div>
 
                     <div class="surface-card overflow-hidden">
@@ -881,7 +886,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              der Screenreader „1 Antworten", während daneben sichtbar
                                              „1 Antwort" stand. Ein Accessible Name, der dem sichtbaren
                                              Text widerspricht, ist schlimmer als ein unschöner. --}}
-                                        :aria-label="(t.authorName || @js(__('Nachricht'))) + ': ' + t.snippet + ' — ' + t.count + (t.count === 1 ? @js(' '.__('Antwort, öffnen')) : @js(' '.__('Antworten, öffnen'))) + ($store.unread?.threads?.[t.rootId] ? ', ' + $store.unread.threads[t.rootId] + ($store.unread.threads[t.rootId] === 1 ? @js(' '.__('neue Antwort')) : @js(' '.__('neue Antworten'))) : '')"
+                                        :aria-label="($store.unread?.threads?.[t.rootId] ? @js(__(':author: :snippet — :replies, :unread')) : @js(__(':author: :snippet — :replies')))
+                                             .split(':replies').join($plural(t.count, '1 Antwort, öffnen', ':count Antworten, öffnen'))
+                                             .split(':unread').join($plural($store.unread?.threads?.[t.rootId], '1 neue Antwort', ':count neue Antworten'))
+                                             .split(':snippet').join(t.snippet)
+                                             .split(':author').join(t.authorName || @js(__('Nachricht')))"
                                         class="pressable flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-brand-500/5 disabled:cursor-default disabled:opacity-60">
                                     <span class="min-w-0 flex-1">
                                         {{-- Raum-Kontext (raumübergreifende Liste): nur zeigen, wenn `roomName`
@@ -919,7 +928,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </template>
                                             </span>
                                             <span class="min-w-0 truncate">
-                                                <span class="font-semibold text-brand-800 dark:text-brand-400" x-text="t.count + (t.count === 1 ? @js(__(' Antwort')) : @js(__(' Antworten')))"></span>
+                                                <span class="font-semibold text-brand-800 dark:text-brand-400" x-text="$plural(t.count, '1 Antwort', ':count Antworten')"></span>
                                                 <span class="text-muted" x-text="' · ' + t.lastLabel"></span>
                                             </span>
                                         </span>

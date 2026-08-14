@@ -64,6 +64,8 @@
  * ebenfalls leer → die Pure-Tests sehen weiterhin die deutschen Texte.
  */
 
+import { pluralCategory } from './locale.ts'
+
 /** Platzhalter-Werte für `:name`-Ersetzungen, wie `__('…', [...])` in PHP. */
 export type Replacements = Record<string, string | number>
 
@@ -101,4 +103,85 @@ export const t = (key: string, replace?: Replacements): string => {
     const line = catalog()[key] ?? key
 
     return replace ? fill(line, replace) : line
+}
+
+/**
+ * Die zwei Formen, in denen Deutsch zählt — zugleich die zwei Katalogschlüssel.
+ *
+ * `one` schreibt die Eins aus (`'1 Raum'`), `other` trägt den Platzhalter
+ * (`':count Räume'`). Beide sind der deutsche Quelltext, also nach der Hausregel
+ * zugleich der Schlüssel; beide stehen in ALLEN sieben Katalogen.
+ */
+export type PluralForms = { one: string; other: string }
+
+/**
+ * Zählform-Schlüssel: `<other-Schlüssel>#<CLDR-Kategorie>`, z. B.
+ * `':count Räume#few'`. Getrennt vom Basisschlüssel durch `#`, weil das Zeichen
+ * in keinem der 757 deutschen Quelltexte vorkommt (geprüft) und der Schlüssel
+ * dadurch eindeutig zerlegbar bleibt.
+ */
+export const pluralVariantKey = (other: string, category: string): string => `${other}#${category}`
+
+/**
+ * Numerus MIT den Regeln der Zielsprache — das Gegenstück zum alten
+ * `count === 1 ? eine : viele`.
+ *
+ * ── Die Katalog-Konvention ──────────────────────────────────────────────────
+ *
+ * Zwei Ebenen, und die untere ist die, die es vorher schon gab:
+ *
+ *  1. **Die zwei Grundformen** (`forms.one`, `forms.other`) stehen unverändert
+ *     in allen sieben Katalogen. Sie tragen jede Sprache, deren CLDR-Kategorien
+ *     sich auf „eins" und „nicht eins" abbilden lassen — das sind sechs der
+ *     acht: de, en, es, hu, nl und (mit der Einschränkung unten) pt.
+ *  2. **Sonderformen** `':count Räume#few'`, `…#many'`, `…#zero'`, `…#one'`
+ *     stehen NUR in den Katalogen der Sprachen, die sie brauchen. `en.json` hat
+ *     kein `#few`, weil Englisch kein `few` kennt; ein `#few` dort wäre toter
+ *     Text, den ein Übersetzer trotzdem pflegen müsste. Welche Sprache welche
+ *     Sonderform tragen MUSS, ist gemessen und in `GroupI18nTest` verankert —
+ *     nicht dem Augenmaß überlassen.
+ *
+ * ── Die Suchreihenfolge, und warum sie so herum ist ─────────────────────────
+ *
+ * Gesucht wird über den `other`-Schlüssel, NICHT über den `one`-Schlüssel: nur
+ * er trägt `:count`. Das ist der Grund, warum auch die `one`-Kategorie eine
+ * Sonderform bekommen kann. In `lv` fallen 21, 31 und 101 in `one`, in `pt`
+ * fällt die 0 dorthin — der ausgeschriebene Schlüssel „1 sala" verschluckte die
+ * Zahl. `':count sala#one'` behebt genau das, ohne die anderen Sprachen zu
+ * berühren.
+ *
+ * ── Der Rückfall ist der Normalfall, nicht der Notfall ──────────────────────
+ *
+ * Fehlt die Sonderform, wird NICHT der rohe Schlüssel gezeigt, sondern die
+ * passende Grundform — also exakt das, was vor dieser Änderung erschien. Fehlt
+ * auch die (weil die Sprache den Eintrag nicht hat), greift dieselbe Regel wie
+ * bei {@link t}: der Schlüssel selbst, also der deutsche Quelltext. Nie
+ * `undefined`, nie der leere String, nie ein sichtbares `#few`.
+ *
+ * Ein leerer Katalogwert zählt dabei ausdrücklich als „fehlt". Ein leerer String
+ * ist die Narbe der alten Fragment-Verkettung; er darf eine gültige Grundform
+ * nicht verdrängen.
+ *
+ * Unter `de` ist der Katalog leer → beide Ebenen greifen ins Leere → heraus
+ * kommt der Schlüssel, und `Intl.PluralRules('de')` liefert `one` genau für 1.
+ * **Die deutsche Ausgabe ist damit bitgleich zu vorher.**
+ *
+ * @param forms   Die zwei deutschen Formen (= Katalogschlüssel).
+ * @param count   Der Zählwert. Steht als `:count` zur Verfügung.
+ * @param replace Weitere `:name`-Werte; `:count` wird ergänzt, kann aber
+ *                überschrieben werden (etwa mit einer formatierten Zahl).
+ */
+export const tPlural = (forms: PluralForms, count: number, replace?: Replacements): string => {
+    const values: Replacements = { count, ...replace }
+    const lines = catalog()
+
+    const variant = lines[pluralVariantKey(forms.other, pluralCategory(count))]
+    if (variant) {
+        return fill(variant, values)
+    }
+
+    const base = pluralCategory(count) === 'one' ? forms.one : forms.other
+    const line = lines[base]
+
+    return fill(line || base, values)
 }

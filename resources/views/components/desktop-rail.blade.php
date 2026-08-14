@@ -46,7 +46,7 @@
 
             <template x-if="scope.group || scope.country">
                 <button type="button" x-on:click="clearScope()"
-                        x-bind:aria-label="@js(__('Suchbereich aufheben: ')) + scopeLabel"
+                        x-bind:aria-label="@js(__('Suchbereich aufheben: :label')).split(':label').join(scopeLabel)"
                         class="pressable inline-flex shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-1.5 py-0.5 text-[0.7rem] font-semibold text-zinc-900 dark:text-zinc-50">
                     <span x-text="scopeLabel"></span>
                     <flux:icon.x-mark variant="micro" aria-hidden="true" class="size-3" />
@@ -150,7 +150,7 @@
 
             <div x-data="nostrAuth" class="mt-2 flex items-center gap-1 border-t border-zinc-200 pt-2 dark:border-zinc-800">
                 <a href="{{ route('group.updates') }}" wire:navigate
-                   :aria-label="$store.unread?.updates ? @js(__('Neu, ')) + $store.unread.updates + ($store.unread.updates === 1 ? @js(' '.__('ungelesener Hinweis')) : @js(' '.__('ungelesene Hinweise'))) : ($store.unread?.updates === undefined && $store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu')))"
+                   :aria-label="$store.unread?.updates ? @js(__('Neu, :hints')).split(':hints').join($plural($store.unread.updates, '1 ungelesener Hinweis', ':count ungelesene Hinweise')) : ($store.unread?.updates === undefined && $store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu')))"
                    class="pressable relative flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                     <flux:icon.bell class="size-5 text-muted" />
                     <x-group::unread-badge count="$store.unread?.updates" :cap="9" size="sm" :sr="false"
@@ -165,7 +165,7 @@
                      es aus dem Fenster. --}}
                 <div x-data="{ open: false }" class="relative min-w-0 flex-1">
                     <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
-                            :aria-label="@js(__('Angemeldet als ')) + myName"
+                            :aria-label="@js(__('Angemeldet als :name')).split(':name').join(myName)"
                             class="pressable flex w-full min-w-0 items-center gap-2 rounded-tile px-1.5 py-1 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5">
                         <x-group::nostr-avatar picture="myPicture" name="myName" size="1.75rem" />
                         <span class="min-w-0 flex-1 truncate text-start text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
@@ -190,14 +190,14 @@
                         <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
 
                         <div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
-                            <button type="button" x-on:click="copy(npub, 'npub')" aria-label="{{ __('npub kopieren') }}"
+                            <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
                                     class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
                                 <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
                                 <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
                             </button>
                             <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
                                 <flux:icon.key variant="micro" class="size-3 shrink-0" />
-                                <span x-text="@js(__('Angemeldet über ')) + signerLabel"></span>
+                                <span x-text="@js(__('Angemeldet über :signer')).split(':signer').join(signerLabel)"></span>
                             </div>
                         </div>
 
