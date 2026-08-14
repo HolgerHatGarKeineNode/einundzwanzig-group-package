@@ -48,12 +48,18 @@
     @endif
     {{-- Beide Geometrie-Literale stehen vollständig im Quelltext (JIT-sicher,
          Muster wie die Spaltenklasse in `bottom-nav`). --}}
+    {{-- Aktiv-Farbe `brand-800`, nicht `brand-700`: sie färbt hier das LABEL (der
+         `<span>` weiter unten) und fällt damit unter 1.4.3 (≥ 4,5:1). `brand-700`
+         liegt auf beiden Nav-Gründen darunter — gemessen 4,21:1 auf der Bottom-Bar
+         (zinc-50) und gerechnet 4,40:1 auf der Rail (weiß). `brand-800` schafft
+         6,15:1 bzw. 6,42:1. Der Balken darunter bleibt `brand-700`: er ist ein
+         Grafikobjekt (1.4.11, ≥ 3:1) und trägt dort mit gemessenen 4,21:1. --}}
     @class([
         'pressable relative flex',
         'min-h-14 flex-col items-center justify-center gap-1 py-2.5' => ! $rail,
         'min-h-9 items-center gap-2.5 rounded-tile px-2' => $rail,
         'transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800' => $rail,
-        'text-brand-700 dark:text-brand-400' => $active,
+        'text-brand-800 dark:text-brand-400' => $active,
         'text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200' => ! $active,
     ])
 >

@@ -77,9 +77,11 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                      (brand-500 auf der hellen Seite gemessen 2,30:1 < 3:1).
 
                      `accent-content` statt `brand-500`: das Haus-Token ist
-                     brand-700 im Hellen (4,24:1 auf zinc-50) und brand-400 im
-                     Dunklen (10,0:1) — dieselbe Marke, aber tragfähig auf beiden
-                     Untergründen. Für TEXT reicht brand-700 nicht (4,24 < 4,5),
+                     brand-700 im Hellen (4,21:1 auf zinc-50, gerechnet
+                     `p2-kontrast.mjs brand-700 zinc-50`, gerendert bestätigt)
+                     und brand-400 im Dunklen (10,01:1) — dieselbe Marke, aber
+                     tragfähig auf beiden
+                     Untergründen. Für TEXT reicht brand-700 nicht (4,21 < 4,5),
                      deshalb ist die aktive Beschriftung neutral-dunkel und
                      halbfett statt farbig; die Marke lebt im Balken. --}}
                 <ol class="flex items-end justify-between gap-1.5 text-xs" data-testid="verein-fortschritt"

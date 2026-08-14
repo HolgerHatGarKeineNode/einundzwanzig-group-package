@@ -28,10 +28,18 @@
      Farbe (§4.6-Rollenregel): brand-700 (light) / brand-400 (dark) sind die
      Linien- und Punktfarben. brand-500 ist Fläche, brand-600 Icon/Hover — beide
      hier NICHT zulässig. Als Grafikobjekt gilt WCAG 1.4.11 (≥ 3:1) gegen den
-     ECHTEN Untergrund. Erwartet (GERECHNET, NICHT GEMESSEN): brand-700 #c05c08 auf
-     weißer Kachel ≈ 4,4:1, auf Hover-zinc-100 ≈ 4,0:1; brand-400 #fda537 auf
-     zinc-900 ≈ 9,1:1. Verbindlich ist erst die Messung im gerenderten Baum
-     (`tests/e2e/a11y-contrast.spec.ts` im Host-Repo). --}}
+     ECHTEN Untergrund.
+
+     GEMESSEN im gerenderten Baum (`tests/e2e/a11y-contrast.spec.ts` im Host-Repo,
+     Lauf 2026-08-14) — und die Messung ist verbindlich, nicht die Rechnung:
+       · hell:   brand-700 #c05c08 auf zinc-50  = 4,21:1
+       · dunkel: brand-400 #fda537 auf zinc-950 = 10,01:1
+     Der Punkt sitzt dort, wo er heute rendert: in der Bottom-Nav, und die steht auf
+     zinc-50 bzw. zinc-950. Hier stand bis 2026-08-14 „auf weißer Kachel ≈ 4,4:1 /
+     auf zinc-900 ≈ 9,1:1" — beides gerechnete Werte für Untergründe, auf denen der
+     Punkt gar nicht landet. Die gerechneten Werte für die genannten Flächen wären
+     4,40:1 (weiß), 4,03:1 (Hover-zinc-100) und 9,06:1 (zinc-900); alle vier tragen
+     die 3:1, der Befund war also nie falsch — nur der Untergrund. --}}
 <template x-if="{{ $when }}">
     <span class="inline-flex shrink-0 items-center">
         <span aria-hidden="true"

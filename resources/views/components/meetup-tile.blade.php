@@ -33,9 +33,14 @@
             <template x-if="!room.picture && meetup(room.meetupSlug)?.flag">
                 <span class="flex size-10 items-center justify-center rounded-tile bg-brand-500/10 text-2xl leading-none" x-text="meetup(room.meetupSlug).flag"></span>
             </template>
-            {{-- Weder Logo noch Flagge (Join lädt noch): Initiale auf Brand-Tint. --}}
+            {{-- Weder Logo noch Flagge (Join lädt noch): Initiale auf Brand-Tint.
+                 Die Initiale ist TEXT, kein Zeichen-Ornament: 16px/600 ist keine
+                 „große Schrift" im Sinne von 1.4.3 (die beginnt bei 18,66px fett),
+                 also gilt 4,5:1. Auf dem Tint (`brand-500/10` über Weiß) rechnet
+                 `brand-700` 4,05:1 und risse; `brand-800` rechnet 5,92:1 und ist
+                 zugleich gemessen (5,91:1 am gleichen Träger der Raum-Kacheln). --}}
             <template x-if="!room.picture && !meetup(room.meetupSlug)?.flag">
-                <span class="flex size-10 items-center justify-center rounded-tile bg-brand-500/10 text-base font-semibold text-brand-700 dark:text-brand-400"
+                <span class="flex size-10 items-center justify-center rounded-tile bg-brand-500/10 text-base font-semibold text-brand-800 dark:text-brand-400"
                       x-text="(room.name || '#').slice(0, 1).toUpperCase()"></span>
             </template>
             {{-- Flaggen-Pin an der unteren Ecke (nur wenn Logo UND Flagge da).
@@ -62,8 +67,13 @@
                     <span aria-hidden="true" class="text-zinc-300 dark:text-zinc-600">·</span>
                 </template>
                 <template x-if="fmtEventDate(meetup(room.meetupSlug)?.nextEventStart || '')">
+                    {{-- „Bald"-Hervorhebung: die Farbe trägt hier das Datum, also TEXT
+                         (1.4.3, ≥ 4,5:1) — `brand-700` läge auf der Kachel bei 4,40:1
+                         (weiß) bzw. 4,21:1 (zinc-50), `brand-800` bei 6,42:1 / 6,15:1.
+                         Das Kalender-Icon daneben erbt die Farbe und bleibt damit
+                         ebenfalls über seinen 3:1. --}}
                     <span class="inline-flex shrink-0 items-center gap-1"
-                          :class="isEventSoon(meetup(room.meetupSlug)?.nextEventStart || '') ? 'font-semibold text-brand-700 dark:text-brand-400' : ''">
+                          :class="isEventSoon(meetup(room.meetupSlug)?.nextEventStart || '') ? 'font-semibold text-brand-800 dark:text-brand-400' : ''">
                         <flux:icon.calendar-days class="size-3.5 shrink-0" />
                         <span x-text="fmtEventDate(meetup(room.meetupSlug)?.nextEventStart || '')"></span>
                     </span>

@@ -38,10 +38,14 @@
             {{-- `outline`, nicht `primary`: die Marken-Orange ist auf diesem Screen
                  dem situativen CTA („Beitreten") vorbehalten. Ein zweiter oranger
                  Knopf in Sektion 5 von 6 zöge den Blick zuerst auf die Sprache und
-                 verkehrte die Hierarchie. Gerechnet: Knopftext 14,89:1 (hell) und
-                 10,44:1 (dunkel) — die Identifikation trägt der Text, nicht die
-                 Kante (die liegt bei 1,27:1 hell / 1,70:1 dunkel, das ist
-                 Flux-Bestand und gilt für jeden Knopf dieser App). --}}
+                 verkehrte die Hierarchie. Gerechnet (2026-08-14 mit `p2-kontrast.mjs`
+                 nachgezogen): Knopftext 15,13:1 hell (zinc-800 auf `bg-white`) und
+                 10,37:1 dunkel (weiß auf `dark:bg-zinc-700`) — die Identifikation
+                 trägt der Text, nicht die Kante (die liegt bei 1,26:1 hell und
+                 1,33:1 dunkel, das ist Flux-Bestand und gilt für jeden Knopf dieser
+                 App). Vorher standen hier 14,89 / 10,44 / 1,27 / 1,70; die erste
+                 Zahl stammte aus Tailwinds zinc-Rampe (#27272a), die dieses Projekt
+                 gar nicht führt — unser `--color-zinc-800` ist #262626. --}}
             <flux:button type="submit" variant="outline" size="sm" class="shrink-0">
                 {{ __('Sprache wechseln') }}
             </flux:button>

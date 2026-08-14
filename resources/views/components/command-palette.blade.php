@@ -203,8 +203,14 @@
 
                          Die Kappe steht NICHT über das `kbd`-Prop des Stubs: das
                          rendert `text-xs text-zinc-500` fest ein, und der Hausstil
-                         für Sekundärtext ist seit P7 `text-muted` (zinc-500 riss die
-                         AA-Schwelle, deshalb gibt es den Token überhaupt). Hier
+                         für Sekundärtext ist seit P7 `text-muted`. Die AA-Schwelle
+                         hängt bei zinc-500 am Untergrund, deshalb hier beide Werte
+                         statt einer pauschalen Aussage (gerechnet mit
+                         `p2-kontrast.mjs`, 2026-08-14): auf der Flux-`kbd`-Fläche
+                         (`bg-zinc-800/5` über Weiß) sind es 4,32:1 und damit UNTER
+                         den 4,5:1 aus 1.4.3 — auf blankem Weiß dagegen 4,74:1, also
+                         darüber. Genau diese Abhängigkeit ist der Grund für den
+                         Token: `text-muted` (zinc-600) hält auf Weiß 7,81:1. Hier
                          steht dieselbe Kappe wie in der Fußzeile und im Register —
                          ein Stil für dieselbe Sache. --}}
                     <template x-if="shows('actions') && $store.viewport?.desktop">

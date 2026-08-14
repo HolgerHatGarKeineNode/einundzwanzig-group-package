@@ -42,9 +42,19 @@
                 {{-- Kontextzeile (§4.2, `intent.label`): warum das Sheet gerade aufging.
                      Runtime-Wert → hier im Sheet-Scope, nicht in der server-gerenderten
                      Form. --}}
-                {{-- Orange-Kleintext auf weißem Sheet: Light-Mode brand-700 (≥4.5:1),
-                     Dark brand-400 (≈9:1) — brand-600 riss im Light die AA-Schwelle (§7.6). --}}
-                <flux:text x-show="label" x-cloak class="mb-3 px-4 text-brand-700 dark:text-brand-400" x-text="label"></flux:text>
+                {{-- Orange-Kleintext auf weißem Sheet (`surface-card` = `bg-white`).
+                     Alle Werte gerechnet mit `p2-kontrast.mjs` (WCAG-2.2-Formel),
+                     der helle Wert zusätzlich im gerenderten Baum bestätigt:
+                       · brand-800 auf Weiß  6,42:1  → trägt (1.4.3 verlangt 4,5:1)
+                       · brand-700 auf Weiß  4,40:1  → RISSE, gemessen wie gerechnet
+                       · brand-600 auf Weiß  2,97:1  → riss deutlich (§7.6)
+                       · brand-400 auf zinc-900 (Dark) 9,06:1 → trägt
+                     Hier stand bis 2026-08-14 „brand-700 (≥4.5:1)". Das war falsch und
+                     ist der Anlass dieser Korrektur: 4,40 < 4,5. Die Zeile ist TEXT,
+                     nicht Grafik — es gilt 1.4.3 mit 4,5:1, nicht die 3:1 aus 1.4.11.
+                     Der Dark-Zweig bleibt `brand-400`; die Rollentrennung des Hauses
+                     lautet brand-700 = Linie/Grafik, brand-800 = Text. --}}
+                <flux:text x-show="label" x-cloak class="mb-3 px-4 text-brand-800 dark:text-brand-400" x-text="label"></flux:text>
                 {{-- Insel erst bei geöffnetem Sheet mounten (deferred). Sheet öffnet
                      nur für Gäste → kein „Angemeldet"/Abmelden-Zweig (Logout bleibt
                      an EINEM Ort, §5.4). --}}

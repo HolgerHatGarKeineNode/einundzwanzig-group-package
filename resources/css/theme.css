@@ -48,8 +48,19 @@
     --color-accent-content: var(--color-brand-700);
     --color-accent-foreground: var(--color-zinc-950);
 
-    /* Sekundärtext mit tragfähigem Kontrast in BEIDEN Themes (zinc-500 riss AA/AAA):
+    /* Sekundärtext mit tragfähigem Kontrast in BEIDEN Themes:
        zinc-600 auf hellem, zinc-400 auf dunklem Grund. Ersetzt gestreutes text-zinc-500.
+
+       Warum zinc-500 nicht reicht, untergrundgenau statt pauschal (2026-08-14 mit
+       `p2-kontrast.mjs` nachgerechnet — hier stand vorher nur „riss AA/AAA"):
+         · auf Weiß            4,74:1 → hält AA (4,5), reißt AAA (7)
+         · auf zinc-50         4,54:1 → hält AA knapp, reißt AAA
+         · auf zinc-100        4,35:1 → REISST AA
+         · auf bg-zinc-800/5   4,32:1 → REISST AA (Flux' `kbd`-Fläche)
+       zinc-500 ist also nicht überall zu schwach, aber überall zu knapp: es hängt am
+       Untergrund, und das ist für einen Haus-Token die falsche Eigenschaft. zinc-600
+       hält 7,81:1 auf Weiß, zinc-400 im Dunklen 7,11:1 auf zinc-900 — beide mit
+       Reserve bis AAA.
 
        ECHTE Farb-Variable statt einer eigenen `@utility` — und das ist kein
        Geschmack, sondern eine Reparatur. Als `@utility` mit eingebautem
@@ -77,15 +88,24 @@
        kein Dekor, sondern die Grenze eines Bedienelements und fällt damit unter
        WCAG 1.4.11 (≥ 3:1). Flux liefert dafür Haarlinien aus — gemessen
        zinc-200 auf hellem Grund (1,26:1) und im Dunklen eine Kante aus
-       `white/10` ÜBER einer Fläche aus `white/10`, die zu exakt derselben Farbe
-       komponiert: 1,00:1, also eine Kante, die auf ihrer Innenseite rechnerisch
-       nicht existiert. Zwei verschiedene Ursachen, eine gemeinsame Wirkung.
+       `white/10` ÜBER einer Fläche aus `white/10`: 1,37:1, also eine Kante, die
+       auf ihrer Innenseite praktisch nicht existiert. Zwei verschiedene Ursachen,
+       eine gemeinsame Wirkung.
+
+       Zur 1,37: hier stand bis 2026-08-14 „1,00:1, weil beide zu exakt derselben
+       Farbe komponieren". Das gilt nur, wenn man Kante und Fläche je einzeln über
+       den ELTERN-Grund rechnet — beide ergäben rgb(46,46,46). So malt der Browser
+       aber nicht: `background-clip` steht auf `border-box`, die Fläche liegt also
+       UNTER der Kante, und die Kante ist `white/10` AUF rgb(46,46,46) = rgb(67,67,67).
+       Gerechnet mit `p2-kontrast.mjs`; über zinc-950 statt zinc-900 ebenfalls 1,37.
+       Am Urteil ändert das nichts — 1,37 wie 1,00 liegen weit unter den 3:1.
 
        Deckend, nicht halbtransparent: genau die Alpha-Kante war es, die im
        Dunklen mit ihrer eigenen Füllung verschmolz. Ein deckender Wert kann das
        nicht. zinc-500/zinc-400 sind die hellsten Stufen der Hausrampe, die
-       gegen die Feldfläche noch 3:1 halten (gemessen 4,35:1 hell, 5,35:1
-       dunkel) — die nächstweichere Stufe reißt die Schwelle, deshalb steht hier
+       gegen die Feldfläche noch 3:1 halten (gemessen 4,35:1 hell, 5,37:1
+       dunkel — gerechnet `p2-kontrast.mjs`, gerendert 5,38 im Kontrast-Anker;
+       siehe E09) — die nächstweichere Stufe reißt die Schwelle, deshalb steht hier
        kein weicherer Wert. */
     --color-control-edge: var(--color-zinc-500);
 
@@ -433,10 +453,18 @@ select:focus[data-flux-control] {
 }
 
 /* Auf der aktiven Zeile brennt das Sigel an — der eine Akzent der Palette, an
-   genau einer Stelle. Die Werte sind gemessen, nicht gewählt: brand-800 auf
-   zinc-100 = 5,9:1, brand-400 auf zinc-800 = 7,4:1 (WCAG 1.4.3 verlangt 4,5:1).
-   brand-700 (der Token `--color-accent-content`) läge im Hellen bei 4,0:1 und
-   fiele damit durch — deshalb steht hier eine Stufe dunkler. */
+   genau einer Stelle. Die Werte sind gerechnet, nicht gewählt (2026-08-14 mit
+   `p2-kontrast.mjs` nachgezogen, vorher standen hier 5,9 / 7,4 / 4,0):
+   brand-800 auf zinc-100 = 5,89:1, brand-400 auf zinc-800 = 7,65:1
+   (WCAG 1.4.3 verlangt 4,5:1). brand-700 (der Token `--color-accent-content`)
+   läge im Hellen bei 4,03:1 und fiele damit durch — deshalb steht hier eine
+   Stufe dunkler.
+
+   Die Aktiv-Fläche kommt NICHT aus unserem Markup: hell setzt sie Flux' eigener
+   Stub (`command/item.blade.php`, `data-active:bg-zinc-100`), dunkel unser
+   `dark:data-active:bg-zinc-800`. Und zinc-100 heißt hier #f5f5f5 — die
+   Hausrampe trägt neutral-Werte, nicht Tailwinds zinc (#f4f4f5). Wer mit den
+   Tailwind-Defaults nachrechnet, rechnet an dieser App vorbei. */
 [data-palette-sigil][data-active]::before { color: var(--color-brand-800); }
 .dark [data-palette-sigil][data-active]::before { color: var(--color-brand-400); }
 

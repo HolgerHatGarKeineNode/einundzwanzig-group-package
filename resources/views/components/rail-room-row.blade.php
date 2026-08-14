@@ -19,10 +19,22 @@
      ist der Grund, warum die Rail vier Gruppen hat statt 2 × 4 × n Zellen.
 
      ── Aktiver Zustand ─────────────────────────────────────────────────────
-     Fläche + Gewicht + Balken, KEIN Markentext: `brand-800` auf `bg-brand-500/10`
-     wurde im Repo mit 4,41:1 gemessen und liegt damit unter 4,5:1. Der Balken ist
-     zugleich das nicht-farbliche Unterscheidungsmerkmal (WCAG 1.4.1), `aria-current`
-     trägt es für Screenreader. --}}
+     Fläche + Gewicht + Balken, KEIN Markentext. Der Balken ist zugleich das
+     nicht-farbliche Unterscheidungsmerkmal (WCAG 1.4.1), `aria-current` trägt es
+     für Screenreader.
+
+     ── Richtigstellung 2026-08-14 (P2 des Restposten-Plans) ─────────────────
+     Hier stand als BEGRÜNDUNG: „`brand-800` auf `bg-brand-500/10` wurde im Repo mit
+     4,41:1 gemessen und liegt damit unter 4,5:1." Die Zahl gehört zu einer anderen
+     Fläche. Sie stammt aus dem Kopf des Kontrast-Ankers (`a11y-contrast.spec.ts`,
+     Tab-Badge auf dem Segment-Control von `flux:tabs`), nicht von einer Rail-Zeile.
+     Auf dem Rail-Grund (`bg-white`, `desktop-rail.blade.php:24`) misst dieselbe
+     Paarung **5,91:1** im gerenderten Baum — gerechnet 5,92:1. Sie RISSE also nicht,
+     sie trüge.
+     Die Gestaltungsentscheidung „kein Markentext in der aktiven Zeile" bleibt
+     trotzdem stehen: sie ist als solche zu entscheiden und wurde in diesem Auftrag
+     nicht neu aufgerollt. Was fällt, ist nur ihre falsche Begründung — eine an
+     Fläche A gemessene Zahl trägt keine Regel an Fläche B. --}}
 <div>
 <button type="button" x-on:click="openRoom(room)"
         x-bind:aria-current="room.h === activeRoomH ? 'page' : null"

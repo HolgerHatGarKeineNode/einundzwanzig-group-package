@@ -78,8 +78,11 @@
          `text-zinc-800 dark:text-white` statt `text-white`: im HELLEN Theme stand hier
          weißer Text auf der weißen Karte (`bg-white/5` über `surface-card` = #FFFFFF) —
          gemessen 1:1, also unsichtbar, während das Grid darunter munter filterte. Der
-         Screenshot dazu liegt im Bericht. WCAG 1.4.3 verlangt 4.5:1; zinc-800 auf Weiß
-         misst 14.7:1 und ist zugleich die Tinte, die die Icon-Knöpfe daneben tragen.
+         Screenshot dazu liegt im Bericht. WCAG 1.4.3 verlangt 4,5:1; zinc-800 misst im
+         gerenderten Baum 13,88:1 — gegen die HEUTIGE Feldfläche `bg-zinc-100`, nicht
+         gegen Weiß (auf Weiß wären es gerechnet 15,13:1). Hier standen bis 2026-08-14
+         „14.7:1 auf Weiß": weder der Untergrund noch die Zahl. Es ist zugleich die
+         Tinte, die die Icon-Knöpfe daneben tragen.
          Betrifft beide Modi der Komponente (Reagieren wie Einfügen) — die Reaktions-
          Ansicht war genauso betroffen, das ist kein Nebeneffekt, sondern derselbe Fehler.
 

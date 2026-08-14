@@ -325,7 +325,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <button type="button" x-on:click="open = !open"
                                         aria-haspopup="true" :aria-expanded="open"
                                         class="pressable inline-flex min-h-[2.75rem] items-center gap-2 rounded-pill px-3 text-sm font-medium ring-1 ring-inset transition-colors"
-                                        :class="roomCountry ? 'bg-brand-500/10 text-brand-700 ring-brand-500/30 dark:text-brand-400' : 'text-zinc-700 ring-black/10 hover:bg-black/5 dark:text-zinc-200 dark:ring-white/15 dark:hover:bg-white/5'">
+                                        {{-- Gesetzter Filter: `brand-800`, nicht `brand-700`.
+                                             Die Farbe trägt die Beschriftung (Flagge +
+                                             Ländername, 14px/500) — TEXT, also 1.4.3 mit
+                                             4,5:1. Auf dem eigenen Tint (`brand-500/10`
+                                             über Weiß) rechnet brand-700 4,05:1 und risse,
+                                             brand-800 5,92:1 (gerendert 5,91:1). Der
+                                             `ring-brand-500/30` bleibt: er ist die Grenze
+                                             eines Bedienelements (1.4.11) und hier nicht
+                                             der Prüfgegenstand. --}}
+                                        :class="roomCountry ? 'bg-brand-500/10 text-brand-800 ring-brand-500/30 dark:text-brand-400' : 'text-zinc-700 ring-black/10 hover:bg-black/5 dark:text-zinc-200 dark:ring-white/15 dark:hover:bg-white/5'">
                                     <span x-show="!roomCountry" class="inline-flex items-center gap-1.5">
                                         <flux:icon.globe-alt variant="micro" class="size-4" />
                                         {{ __('Land') }}
@@ -341,7 +350,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      class="surface-card absolute start-0 z-30 mt-2 max-h-80 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto p-1 shadow-lg">
                                     <button type="button" x-on:click="selectCountry(''); open = false"
                                             class="pressable flex min-h-[2.75rem] w-full items-center gap-2 rounded-tile px-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                                            :class="!roomCountry ? 'font-semibold text-brand-700 dark:text-brand-400' : ''">
+                                            {{-- Ausgewählte Zeile: die Farbe trägt den
+                                                 Zeilentext (TEXT, 1.4.3, 4,5:1) — auf der
+                                                 weißen Popover-Karte rechnet brand-700
+                                                 4,40:1 (gemessen ebenso) und risse,
+                                                 brand-800 6,42:1. Das Häkchen daneben
+                                                 behält `brand-700`: es ist ein
+                                                 Grafikobjekt (1.4.11, ≥ 3:1) und trägt
+                                                 dort mit 4,40:1. --}}
+                                            :class="!roomCountry ? 'font-semibold text-brand-800 dark:text-brand-400' : ''">
                                         <flux:icon.globe-alt class="size-4 shrink-0 text-muted" />
                                         <span class="flex-1">{{ __('Alle Länder') }}</span>
                                         <flux:icon.check x-show="!roomCountry" x-cloak class="size-4 shrink-0 text-brand-700 dark:text-brand-400" />
@@ -349,7 +366,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <template x-for="c in availableCountries()" :key="c.country">
                                         <button type="button" x-on:click="selectCountry(c.country); open = false"
                                                 class="pressable flex min-h-[2.75rem] w-full items-center gap-2 rounded-tile px-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                                                :class="roomCountry === c.country ? 'font-semibold text-brand-700 dark:text-brand-400' : ''">
+                                                {{-- Wie die Zeile darüber: TEXT (Ländername
+                                                     + Zähler), also brand-800 mit 6,42:1
+                                                     statt brand-700 mit 4,40:1. --}}
+                                                :class="roomCountry === c.country ? 'font-semibold text-brand-800 dark:text-brand-400' : ''">
                                             <span class="shrink-0 text-base leading-none" x-text="c.flag" aria-hidden="true"></span>
                                             <span class="min-w-0 flex-1 truncate" x-text="c.name"></span>
                                             <span class="shrink-0 font-mono text-xs text-muted" x-text="c.count"></span>
@@ -379,7 +399,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <div x-show="activeFilterCount() > 0" x-cloak class="flex flex-wrap items-center gap-1.5">
                             <template x-if="roomCountry && countryFilterAvailable()">
                                 <button type="button" x-on:click="roomCountry = ''"
-                                        class="chip-in pressable inline-flex items-center gap-1 rounded-pill bg-brand-500/10 py-1 pe-1.5 ps-2.5 text-xs font-medium text-brand-700 hover:bg-brand-500/20 dark:text-brand-400">
+                                        {{-- Aktiver Filter-Chip: die Farbe trägt Flagge und
+                                             Ländername (12px), also TEXT unter 1.4.3.
+                                             Auf `brand-500/10` über Weiß rechnet brand-700
+                                             4,05:1 und risse, brand-800 5,92:1 (gerendert
+                                             5,91:1). Das x-Icon im Chip erbt die Farbe. --}}
+                                        class="chip-in pressable inline-flex items-center gap-1 rounded-pill bg-brand-500/10 py-1 pe-1.5 ps-2.5 text-xs font-medium text-brand-800 hover:bg-brand-500/20 dark:text-brand-400">
                                     <span aria-hidden="true" x-text="countryFlag(roomCountry)"></span>
                                     <span x-text="countryName(roomCountry)"></span>
                                     <flux:icon.x-mark variant="micro" class="size-3.5" />

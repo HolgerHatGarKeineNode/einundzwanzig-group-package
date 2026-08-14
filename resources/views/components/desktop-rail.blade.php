@@ -104,7 +104,11 @@
                 <div>
                     <x-group::rail-group group="workspace" :label="__('Workspace')">
                         <x-slot:suffix>
-                            <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-400"
+                            {{-- TEXT (11,2px), also 1.4.3 mit 4,5:1 — nicht die
+                                 Icon-Schwelle. Auf dem Rail-Grund (`bg-white`, ganz
+                                 oben) rechnet `brand-700` 4,40:1 und risse;
+                                 `brand-800` rechnet 6,42:1. --}}
+                            <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider text-brand-800 dark:text-brand-400"
                                   x-text="'· ' + workspaceLabel"></span>
                         </x-slot:suffix>
                     </x-group::rail-group>

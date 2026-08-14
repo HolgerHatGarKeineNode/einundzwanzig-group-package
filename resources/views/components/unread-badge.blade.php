@@ -44,8 +44,12 @@
      Farbe (§4.6-Rollenregel): `bg-brand-500` ist FLÄCHE, `text-zinc-950` die Ziffer
      darauf — identisch in Light und Dark, weil die Fläche deckend ist und den
      Untergrund damit nicht mehr sehen kann. `brand-500` als TEXT auf getönter
-     Fläche wäre unzulässig (2,7:1), `brand-800`/`brand-900` sind die Textfarben auf
-     Tint. Die Pillenfläche selbst liegt gegen Weiß unter 3:1 — deshalb trägt die
+     Fläche wäre unzulässig (gerechnet 2,12:1 auf `brand-500/10` über Weiß; die hier
+     bis 2026-08-14 notierten 2,7:1 gehören zu `brand-600` auf derselben Fläche —
+     2,74:1, dem Anlassfall des Kontrast-Ankers. Die Folgerung stimmt, die Zahl war
+     die eines anderen Vordergrunds), `brand-800`/`brand-900` sind die Textfarben auf
+     Tint. Die Pillenfläche selbst liegt gegen Weiß bei 2,30:1 und damit unter den
+     3:1 aus 1.4.11 — deshalb trägt die
      ZIFFER die Bedeutung, nicht die Pillenform; ein zahlloser Marker (Punkt) fällt
      unter 1.4.11 und nutzt darum brand-700/brand-400 (siehe `unread-dot`).
      Verbindlich ist die Messung im gerenderten Baum, nicht diese Rechnung:
