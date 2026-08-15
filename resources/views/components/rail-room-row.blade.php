@@ -31,10 +31,19 @@
      Auf dem Rail-Grund (`bg-white`, `desktop-rail.blade.php:24`) misst dieselbe
      Paarung **5,91:1** im gerenderten Baum — gerechnet 5,92:1. Sie RISSE also nicht,
      sie trüge.
-     Die Gestaltungsentscheidung „kein Markentext in der aktiven Zeile" bleibt
-     trotzdem stehen: sie ist als solche zu entscheiden und wurde in diesem Auftrag
-     nicht neu aufgerollt. Was fällt, ist nur ihre falsche Begründung — eine an
-     Fläche A gemessene Zahl trägt keine Regel an Fläche B. --}}
+     Die Gestaltungsentscheidung „kein Markentext in der aktiven Zeile" blieb damals
+     stehen — eine an Fläche A gemessene Zahl trägt keine Regel an Fläche B.
+
+     ── Entscheidung 2026-08-15 (P9.1 des Restposten-Plans) ──────────────────
+     Zinc bleibt; der Verzicht ist neu begründet. Die Zahl steht inzwischen fest
+     (5,91:1 gerendert, 5,92:1 gerechnet — `brand-800` trüge die AA-Schwelle 4,5),
+     aber sie entscheidet die Frage nicht allein: Die Rail hält ALLE Zustands-
+     farben bei ≥7:1 („Mitgliedschaft ist eine Kontraststufe", Abschnitt oben;
+     E36: 15,13 · 7,81 · 16,44 · 7,11). `brand-800` bliebe die einzige Zeile
+     unter dem hausinternen 7:1-Ziel — die AA-Schwelle ist im Client die Grenze,
+     nicht der Anspruch. Die Marke bleibt reserviert auf Balken (`brand-700`,
+     1.4.11) und Tonfläche; die aktiven Nav-Tabs derselben Rail tragen dagegen
+     Markentext (6,15:1) — andere Schicht (Navigation), andere Aktiv-Sprache. --}}
 <div>
 <button type="button" x-on:click="openRoom(room)"
         x-bind:aria-current="room.h === activeRoomH ? 'page' : null"
