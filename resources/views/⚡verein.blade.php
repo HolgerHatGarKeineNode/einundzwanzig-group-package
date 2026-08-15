@@ -20,6 +20,8 @@ use Livewire\Component;
  */
 new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends Component {}; ?>
 
+@php($jsVar1 = config('group.verein_public_url'); $jsVar2 = __('Antrag senden'); $jsVar3 = __('Zahlung starten'); $jsVar4 = __('Mit verbundener Wallet zahlen'); $jsVar5 = __('Wird geprüft…'); $jsVar6 = __('Jetzt prüfen'); $jsVar7 = __('Zurück zu den Räumen'); $jsVar8 = __('Abbrechen');)
+
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
     {{-- Interstitial ohne app-shell → Signer-/Reconnect-Strip selbst tragen: jeder
          Schritt hier signiert (NIP-98), der Banner darf nicht fehlen. --}}
@@ -46,7 +48,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                 <flux:text>{{ __('Der Beitritt ist in dieser App gerade nicht eingerichtet.') }}</flux:text>
                 <flux:button variant="primary" class="mt-4 w-full" icon:trailing="arrow-up-right"
                              href="{{ config('group.verein_public_url') }}" target="_blank" rel="noopener"
-                             x-on:click="openExternal(@js(config('group.verein_public_url')), $event)">
+                             x-on:click="openExternal(@js($jsVar1), $event)">
                     {{ __('Beitritt im Browser öffnen') }}
                 </flux:button>
                 {{-- Wohin der Knopf führt, steht darunter — derselbe Handgriff wie
@@ -345,7 +347,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                                          data-testid="verein-antrag-senden"
                                          ::disabled="busy !== ''"
                                          x-on:click="submitApplication()">
-                                <span x-text="busy || @js(__('Antrag senden'))"></span>
+                                <span x-text="busy || @js($jsVar2)"></span>
                             </flux:button>
 
                             <flux:button variant="ghost" size="sm" class="w-full"
@@ -381,7 +383,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                                              data-testid="verein-rechnung-erzeugen"
                                              ::disabled="busy !== ''"
                                              x-on:click="startPayment()">
-                                    <span x-text="busy || @js(__('Zahlung starten'))"></span>
+                                    <span x-text="busy || @js($jsVar3)"></span>
                                 </flux:button>
                             </template>
 
@@ -391,7 +393,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                                              data-testid="verein-wallet-zahlen"
                                              ::disabled="busy !== ''"
                                              x-on:click="payWithWallet()">
-                                    <span x-text="busy || @js(__('Mit verbundener Wallet zahlen'))"></span>
+                                    <span x-text="busy || @js($jsVar4)"></span>
                                 </flux:button>
                             </template>
 
@@ -603,7 +605,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                                          data-testid="verein-jetzt-pruefen"
                                          ::disabled="busy !== '' || checking"
                                          x-on:click="checkNow()">
-                                <span x-text="checking ? @js(__('Wird geprüft…')) : (busy || @js(__('Jetzt prüfen')))"></span>
+                                <span x-text="checking ? @js($jsVar5) : (busy || @js($jsVar6))"></span>
                             </flux:button>
 
                             {{-- Solange der Plan läuft: sagen, DASS er läuft. Sonst
@@ -682,8 +684,8 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
              `__()`, der Katalog bleibt die einzige Textquelle. --}}
         <flux:button variant="ghost" size="sm" class="w-full" href="{{ route('group.spaces') }}" wire:navigate>
             <span x-text="['warten', 'freigeschaltet'].includes(phase)
-                      ? @js(__('Zurück zu den Räumen'))
-                      : @js(__('Abbrechen'))"></span>
+                      ? @js($jsVar7)
+                      : @js($jsVar8)"></span>
         </flux:button>
     </div>
 </main>

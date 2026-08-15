@@ -58,6 +58,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
     }
 }; ?>
 
+@php($jsVar1 = __('Durchsucht wird nur der geladene Verlauf dieses Raums: :count Nachrichten.'); $jsVar2 = __(':total Treffer im geladenen Verlauf (:count Nachrichten durchsucht).'); $jsVar3 = __('Gezeigt werden die neuesten :limit Treffer — grenze die Suche weiter ein.'); $jsVar4 = __('Angepinnt'); $jsVar5 = __('Angepinnt (:count)'); $jsVar6 = __('Angepinnte Nachrichten zeigen'); $jsVar7 = __('Angepinnte Nachrichten ausblenden'); $jsVar8 = __('Nachricht wird geladen…'); $jsVar9 = __('Trete bei…'); $jsVar10 = __('Beitreten'); $jsVar11 = __('Nachricht bearbeiten'); $jsVar12 = __('Zitieren'); $jsVar13 = __('Antwort an :name'); $jsVar14 = __('Prüfe …'); $jsVar15 = __('Sende…'); $jsVar16 = __('Trotzdem zahlen'); $jsVar17 = __('Zap senden'); $jsVar18 = __('Rechnung kopiert.'); $jsVar19 = __('Option :n verschieben'); $jsVar20 = __('Erstelle…'); $jsVar21 = __('Erstellen'); $jsVar22 = __('Frei'); $jsVar23 = __('Lade hoch…'); $jsVar24 = __('Anhängen'); $jsVar25 = __('Event-Link kopiert.'); $jsVar26 = __('npub kopiert.'); $jsVar27 = __('JSON kopiert.');)
+
 {{-- Chat-Bühne: Kopf + Verlauf + Composer unter EINEM Alpine-Scope (M4 lesen, M5 schreiben).
 
      `app-frame` ist seit der Desktop-Shell die Wurzel — auch hier, obwohl der Raum
@@ -235,8 +237,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      die Konstante — sie wäre nur beim Kaltstart wahr. --}}
                 <p role="status" class="px-1 text-xs text-muted"
                    x-text="query.trim() === ''
-                       ? @js(__('Durchsucht wird nur der geladene Verlauf dieses Raums: :count Nachrichten.')).replace(':count', searched)
-                       : @js(__(':total Treffer im geladenen Verlauf (:count Nachrichten durchsucht).')).replace(':total', total).replace(':count', searched)"></p>
+                       ? @js($jsVar1).replace(':count', searched)
+                       : @js($jsVar2).replace(':total', total).replace(':count', searched)"></p>
 
                 {{-- Null Treffer ist NICHT „gibt es nicht". Der Satz sagt, was fehlt und was
                      dagegen hilft — Nachladen passiert beim Hochscrollen von selbst. --}}
@@ -245,7 +247,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </p>
 
                 <p x-show="capped" x-cloak class="px-1 text-xs text-muted"
-                   x-text="@js(__('Gezeigt werden die neuesten :limit Treffer — grenze die Suche weiter ein.')).replace(':limit', limit)"></p>
+                   x-text="@js($jsVar3).replace(':limit', limit)"></p>
 
                 {{-- Trefferliste. Gedeckelte Höhe: die Fläche sitzt ÜBER dem Verlauf und darf
                      ihn nicht verdrängen. Klick springt in den Verlauf und lässt die Liste
@@ -311,8 +313,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          wäre „Angepinnt" ohne Zahl eine Fläche, die nichts sagt. --}}
                     <span class="text-xs font-semibold"
                           x-text="$store.roomPins.entries.length === 1
-                                  ? @js(__('Angepinnt'))
-                                  : @js(__('Angepinnt (:count)')).replace(':count', $store.roomPins.entries.length)"></span>
+                                  ? @js($jsVar4)
+                                  : @js($jsVar5).replace(':count', $store.roomPins.entries.length)"></span>
                     {{-- Das Icon wird GEDREHT, nicht getauscht: `flux:button` löst seinen
                          `icon`-Prop serverseitig auf (`flux/button/index.blade.php`:
                          `$iconLeading = $icon ??= $iconLeading`), ein `x-bind:icon` wäre
@@ -322,7 +324,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  x-bind:aria-expanded="$store.roomPins.collapsed ? 'false' : 'true'"
                                  aria-expanded="true" aria-controls="room-pin-list"
                                  x-on:click="$store.roomPins.collapsed = !$store.roomPins.collapsed"
-                                 x-bind:aria-label="$store.roomPins.collapsed ? @js(__('Angepinnte Nachrichten zeigen')) : @js(__('Angepinnte Nachrichten ausblenden'))">
+                                 x-bind:aria-label="$store.roomPins.collapsed ? @js($jsVar6) : @js($jsVar7)">
                         <flux:icon.chevron-up variant="micro" class="size-4 shrink-0 transition-transform"
                                               x-bind:class="$store.roomPins.collapsed ? 'rotate-180' : ''" />
                     </flux:button>
@@ -360,7 +362,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="ms-auto shrink-0 font-mono text-[0.7rem] text-muted" x-text="pin.time"></span>
                                 </span>
                                 <span class="mt-0.5 block truncate text-sm"
-                                      x-text="pin.resolved ? pin.text : @js(__('Nachricht wird geladen…'))"></span>
+                                      x-text="pin.resolved ? pin.text : @js($jsVar8)"></span>
                             </button>
                             <template x-if="$store.roomPins.canUnpin(pin.id)">
                                 <flux:button size="xs" variant="ghost" icon="x-mark" square class="icon-btn-touch"
@@ -652,7 +654,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu antworten.') }}</flux:text>
                     <flux:button size="sm" variant="primary" icon="plus" class="shrink-0 icon-btn-touch"
                                  x-on:click="join()" ::disabled="joining">
-                        <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
+                        <span x-text="joining ? @js($jsVar9) : @js($jsVar10)"></span>
                     </flux:button>
                 </div>
             </template>
@@ -704,7 +706,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              class="surface-card mb-1 flex items-center gap-2 border-l-2 border-brand-500/60 px-3 py-1.5">
             <div class="min-w-0 flex-1">
                 <div class="text-xs font-semibold text-brand-500"
-                     x-text="editingId ? @js(__('Nachricht bearbeiten')) : (sharing ? @js(__('Zitieren')) : @js(__('Antwort an :name')).split(':name').join(replyTo?.name ?? ''))"></div>
+                     x-text="editingId ? @js($jsVar11) : (sharing ? @js($jsVar12) : @js($jsVar13).split(':name').join(replyTo?.name ?? ''))"></div>
                 <div class="truncate text-xs text-muted" x-show="replyTo" x-text="replyTo?.text"></div>
             </div>
             <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
@@ -740,7 +742,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um mitzuschreiben.') }}</flux:text>
             <flux:button size="sm" variant="primary" icon="plus" class="icon-btn-touch" x-ref="joinButton"
                          x-on:click="join().then(() => $nextTick(() => $refs.composer?.focus()))" ::disabled="joining">
-                <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Beitreten'))"></span>
+                <span x-text="joining ? @js($jsVar9) : @js($jsVar10)"></span>
             </flux:button>
         </div>
 
@@ -889,7 +891,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="flex justify-end gap-2">
                     <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
                     <flux:button variant="primary" icon="bolt" x-on:click="confirmZap()" ::disabled="zapping || zapResolving || zapUnavailable || zapResolveFailed">
-                        <span x-text="zapResolving ? @js(__('Prüfe …')) : (zapping ? @js(__('Sende…')) : (zapNostrless ? @js(__('Trotzdem zahlen')) : @js(__('Zap senden'))))"></span>
+                        <span x-text="zapResolving ? @js($jsVar14) : (zapping ? @js($jsVar15) : (zapNostrless ? @js($jsVar16) : @js($jsVar17)))"></span>
                     </flux:button>
                 </div>
             </div>
@@ -904,7 +906,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
                 <div class="flex items-center gap-2">
                     <flux:input readonly ::value="zapInvoice" class="flex-1 font-mono text-xs" />
-                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, @js(__('Rechnung kopiert.')))" aria-label="{{ __('Rechnung kopieren') }}" />
+                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, @js($jsVar18))" aria-label="{{ __('Rechnung kopieren') }}" />
                 </div>
                 <a href="{{ route('group.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">{{ __('Wallet verbinden für 1-Klick-Zaps') }}</a>
                 <flux:modal.close><flux:button variant="ghost" class="w-full">{{ __('Fertig') }}</flux:button></flux:modal.close>
@@ -929,7 +931,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          :class="_draggedOption === opt.id ? 'opacity-40' : ''">
                         <span draggable="true" x-on:dragstart="pollDragStart(opt.id)" x-on:dragend="pollDragEnd()"
                               class="shrink-0 cursor-grab text-muted active:cursor-grabbing" role="button"
-                              :aria-label="@js(__('Option :n verschieben')).replace(':n', i + 1)">
+                              :aria-label="@js($jsVar19).replace(':n', i + 1)">
                             <flux:icon.bars-3 variant="micro" />
                         </span>
                         {{-- ::attr (escaped) rendert den Wert LITERAL → `@js()` würde
@@ -971,7 +973,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
                 <flux:button variant="primary" icon="trophy" x-on:click="submitGoal()" ::disabled="goalBusy">
-                    <span x-text="goalBusy ? @js(__('Erstelle…')) : @js(__('Erstellen'))"></span>
+                    <span x-text="goalBusy ? @js($jsVar20) : @js($jsVar21)"></span>
                 </flux:button>
             </div>
         </div>
@@ -1008,7 +1010,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- Werkzeugleiste: Seitenverhältnisse (Frei/quadratisch/quer/hoch) + Drehen/Spiegeln. --}}
             <div class="flex flex-wrap items-center justify-center gap-2" role="group" aria-label="{{ __('Zuschnitt-Werkzeuge') }}">
                 <template x-for="r in [
-                    { label: @js(__('Frei')), v: NaN },
+                    { label: @js($jsVar22), v: NaN },
                     { label: '1:1', v: 1 },
                     { label: '4:3', v: 4/3 },
                     { label: '3:4', v: 3/4 },
@@ -1033,7 +1035,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <flux:button variant="ghost" x-on:click="cancelCrop()" ::disabled="uploadingImage">{{ __('Abbrechen') }}</flux:button>
                 <flux:button variant="primary" icon="check" x-ref="cropConfirm" x-on:click="confirmCrop()"
                              ::data-loading="uploadingImage" ::disabled="uploadingImage">
-                    <span x-text="uploadingImage ? @js(__('Lade hoch…')) : @js(__('Anhängen'))"></span>
+                    <span x-text="uploadingImage ? @js($jsVar23) : @js($jsVar24)"></span>
                 </flux:button>
             </div>
         </div>
@@ -1126,13 +1128,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
                 <div class="space-y-1">
                     <flux:text class="text-xs text-muted">{{ __('Event-Link') }}</flux:text>
-                    <button type="button" x-on:click="copy(infoFor.nevent, @js(__('Event-Link kopiert.')))"
+                    <button type="button" x-on:click="copy(infoFor.nevent, @js($jsVar25))"
                             class="pressable surface-card block w-full truncate rounded-tile px-2 py-1.5 text-left font-mono text-xs"
                             x-text="infoFor.nevent"></button>
                 </div>
                 <div class="space-y-1">
                     <flux:text class="text-xs text-muted">{{ __('Autor (npub)') }}</flux:text>
-                    <button type="button" x-on:click="copy(infoFor.npub, @js(__('npub kopiert.')))"
+                    <button type="button" x-on:click="copy(infoFor.npub, @js($jsVar26))"
                             class="pressable surface-card block w-full truncate rounded-tile px-2 py-1.5 text-left font-mono text-xs"
                             x-text="infoFor.npub"></button>
                 </div>
@@ -1147,7 +1149,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="space-y-1">
                     <div class="flex items-center justify-between">
                         <flux:text class="text-xs text-muted">{{ __('Roh-Event') }}</flux:text>
-                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, @js(__('JSON kopiert.')))">{{ __('Kopieren') }}</flux:button>
+                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, @js($jsVar27))">{{ __('Kopieren') }}</flux:button>
                     </div>
                     <pre class="surface-card max-h-60 overflow-auto rounded-tile p-2 text-xs"><code x-text="infoFor.json"></code></pre>
                 </div>
