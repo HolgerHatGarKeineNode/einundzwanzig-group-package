@@ -790,6 +790,7 @@ type RoomChatState = {
     joined: boolean
     joining: boolean
     membershipReady: boolean
+    gatedOut: boolean // Relay hat den Read mit `restricted:` abgewiesen (P11) — Raumzustand unbekannt
     draft: string
     sending: boolean
     sendError: string
@@ -3881,6 +3882,7 @@ export function registerNostrComponents(Alpine: {
         joined: false,
         joining: false,
         membershipReady: false,
+        gatedOut: false,
         draft: '',
         sending: false,
         sendError: '',
@@ -4056,6 +4058,7 @@ export function registerNostrComponents(Alpine: {
             this._initialLoadDone = false // Resync erst nach diesem Load wieder erlauben (Prewarm-Race)
             this.loading = true
             this.membershipReady = false
+            this.gatedOut = false
             this.error = ''
             this.messages = []
             this.messagesReversed = []
@@ -4151,7 +4154,24 @@ export function registerNostrComponents(Alpine: {
                     document.title = `# ${room.name}`
                 }
             })
-            listenRoom(url, this.h, this._controller.signal)
+            // P11: Ablehnung des Relays von der Live-Sub ableiten. Für ein
+            // ANGEMELDETES Relay-Nicht-Mitglied kommt JEDE Sub dieser Seite mit
+            // `CLOSED restricted: …` zurück (gemessen, p11-05) — AUTH wurde
+            // angenommen, der Read verweigert. `onClosed(reason)` ist der einzige
+            // Weg, der den GRUND trägt (load().onClose feuert ohne Argument und
+            // zusätzlich im Timeout-Pfad, siehe feeds.ts listenRoom). Nur das
+            // `restricted:`-Präfix setzt den Zustand: andere CLOSED-Gründe (z. B.
+            // Rate-Limit) sagen nichts über die Berechtigung und ändern die Fläche
+            // nicht. Für einen Gast feuert onClosed nie (`auth-required:` wird vom
+            // Auth-Buffer entfernt) — sein Gate regelt weiterhin der `authed`-Zweig
+            // aus P4. Kein zweiter Read: die Live-Sub läuft ohnehin (listenRoom).
+            // Reaktiv statt Poll: der Zustand steht mit dem ersten restricted-CLOSED
+            // (~0,5 s nach Betreten, p11-05) und wird je Raum im setup() zurückgesetzt.
+            listenRoom(url, this.h, this._controller.signal, (reason: string) => {
+                if (reason.startsWith('restricted:')) {
+                    this.gatedOut = true
+                }
+            })
             // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
             // Promise fürs Prewarm-Gate behalten: der Reveal wartet (budgetiert) darauf.
             const reactionsReady = loadRoomReactions(url, this.h)

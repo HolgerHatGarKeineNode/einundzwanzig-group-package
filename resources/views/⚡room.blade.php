@@ -481,7 +481,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  (belegt: der Messraum hatte GENAU EINE echte Nachricht). Für
                  Angemeldete bleibt die Karte unverändert — dort ist die Aussage
                  so belastbar wie zuvor. Sein Fuß ist das verein-gate. --}}
-            <template x-if="!loading && messages.length === 0 && $store.authGate?.authed">
+            {{-- P11: `&& !gatedOut` — wurde der Read vom Relay abgewiesen
+                 (`CLOSED restricted:`), ist `messages.length === 0` KEINE Aussage
+                 über den Raum, sondern die Quittung der verweigerten Anfrage —
+                 dieselbe Unwahrheit wie beim Gast, nur eine Zielgruppe weiter
+                 (gemessen: Messraum trug GENAU EINE echte Nachricht, die Karte
+                 behauptete trotzdem „Noch keine Nachrichten", p11-05). Die
+                 Ersatzfläche ist das room-gate weiter unten im Fuß. --}}
+            <template x-if="!loading && messages.length === 0 && $store.authGate?.authed && !gatedOut">
                 <div class="surface-card empty-state mt-8 p-6 text-center">
                     <flux:icon.chat-bubble-left-right class="mx-auto size-8 text-zinc-400" />
                     <flux:text class="mt-2">{{ __('Noch keine Nachrichten in diesem Raum.') }}</flux:text>
@@ -651,7 +658,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  Der Thread ist ein eigener Landeplatz (`/rooms/{h}/thread/{nevent}`
                  ist teilbar), also braucht er denselben Gast-Fuß wie der Raum und
                  nicht einen Knopf, der beim Signieren ins Leere läuft. --}}
-            <template x-if="!joined && $store.authGate?.authed">
+            {{-- P11: `&& !gatedOut` — für ein Relay-Nicht-Mitglied scheitert `join()`
+                 nachweislich (`restricted:`); der Knopf gehört nur denen, deren Join
+                 durchgehen kann (Angemeldete MIT Relay-Mitgliedschaft, ohne Raum-Mitgliedschaft). --}}
+            <template x-if="!joined && $store.authGate?.authed && !gatedOut">
                 <div class="surface-card flex items-center justify-between gap-3 p-3">
                     <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um zu antworten.') }}</flux:text>
                     <flux:button size="sm" variant="primary" icon="plus" class="shrink-0 icon-btn-touch"
@@ -673,6 +683,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  zweite in einem `display:none`-Vorfahren.) --}}
             <template x-if="threadRootId && !joined && ! $store.authGate?.authed">
                 <x-group::verein-gate context="{{ __('Räume und Chat') }}" />
+            </template>
+
+            {{-- P11: dasselbe Relay-Gate für den restricted-Fall — der Thread ist
+                 ein eigener teilbarer Landeplatz (P4-Logik, s. o.), also braucht er
+                 die Aussage genauso. `threadRootId` in der Bedingung aus demselben
+                 Grund wie beim Gast-Gate: keine stille zweite Karte im DOM; die
+                 room-gate-Komponente startet zwar keine eigene Sub, einheitlich
+                 bleibt es trotzdem. --}}
+            <template x-if="threadRootId && gatedOut">
+                <x-group::room-gate />
             </template>
         </div>
     </div>
@@ -739,7 +759,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
              kippt) — ohne die Fokus-Übergabe fiele der Fokus auf <body>. Ist der
              Composer noch verborgen, ist `.focus()` ein No-Op und es bleibt beim
              Status quo, also kein Rückschritt. --}}
-        <div x-show="membershipReady && !joined && $store.authGate?.authed" x-cloak x-transition.opacity.duration.200ms
+        {{-- P11: `&& !gatedOut` — der Knopf scheitert für ein Relay-Nicht-Mitglied
+             garantiert (`join()` → `CLOSED restricted`, P4: p4-raw-join-nichtmitglied.log);
+             die Ersatzfläche ist das room-gate darunter. Für Angemeldete MIT
+             Relay-Mitgliedschaft ohne Raum-Mitgliedschaft bleibt alles wie zuvor. --}}
+        <div x-show="membershipReady && !joined && $store.authGate?.authed && !gatedOut" x-cloak x-transition.opacity.duration.200ms
              class="surface-card flex items-center justify-between gap-3 p-3">
             <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um mitzuschreiben.') }}</flux:text>
             <flux:button size="sm" variant="primary" icon="plus" class="icon-btn-touch" x-ref="joinButton"
@@ -747,6 +771,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <span x-text="joining ? @js($jsVar9) : @js($jsVar10)"></span>
             </flux:button>
         </div>
+
+        {{-- P11: Relay-Gate — der Relay hat den Read abgewiesen; Raumzustand
+             unbekannt, also weder Leerkarte darüber noch ein Beitreten-Knopf.
+             `x-if` wie beim Gast-Gate: kein Grund, die Karte für Mitglieder im
+             DOM zu tragen. Kein Knopf: es gibt keine Handlung, die von hier aus
+             gelingen kann (Anmeldung vorhanden, Join scheitert nachweislich). --}}
+        <template x-if="gatedOut">
+            <x-group::room-gate />
+        </template>
 
         {{-- Gast: die Aussage statt eines Composers, der nichts kann.
 

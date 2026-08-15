@@ -1204,12 +1204,6 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
     )
 
 /**
- * Öffnet eine Live-Subscription für NEUE Room-Events (bleibt bis abort offen):
- * Nachrichten (kind 9), Reactions (kind 7), Tombstones (kind 5), Poll(-Responses)
- * und Goals — alle `#h`. Kommentare (kind 1111) tragen KEIN `#h` (flotilla-kompatibel)
- * → eigener, ungescopter Filter, damit der Live-Antworten-Zähler ohne separate Sub kommt.
- */
-/**
  * Honoriert ein eingehendes NIP-29-`delete-event` (kind 9005, nur von `can_manage`-
  * Admins signiert — das Relay gatet die Annahme, siehe zooid `CheckWrite`): entfernt
  * die per `e`-Tag referenzierten Ziel-Events aus dem Repository, worauf der abgeleitete
@@ -1228,11 +1222,29 @@ const honorDeleteEvent = (event: TrustedEvent): void => {
     }
 }
 
-export const listenRoom = (url: string, h: string, signal: AbortSignal): void => {
+/**
+ * Öffnet eine Live-Subscription für NEUE Room-Events (bleibt bis abort offen):
+ * Nachrichten (kind 9), Reactions (kind 7), Tombstones (kind 5), Poll(-Responses)
+ * und Goals — alle `#h`. Kommentare (kind 1111) tragen KEIN `#h` (flotilla-kompatibel)
+ * → eigener, ungescopter Filter, damit der Live-Antworten-Zähler ohne separate Sub kommt.
+ *
+ * `onClosed` (P11): feuert mit dem CLOSED-GRUND des Relays, wenn eine Sub nicht mit
+ * EOSE, sondern mit `["CLOSED", id, reason]` abgewiesen wird. `request` spreadd seine
+ * Optionen an jedes `requestOne` durch, und `requestOne.onClosed(reason, url)` ist der
+ * einzige Punkt, an dem der Grund noch vorhanden ist (`load()`/`makeLoader` ruft sein
+ * `onClose` ohne Argument und zusätzlich im Timeout-Pfad — dort sind „abgelehnt" und
+ * „Zeit übergelaufen" nicht unterscheidbar). Gemessen in P11: für ein angemeldetes
+ * Relay-Nicht-Mitglied kommt für JEDE Sub dieser Seite `restricted: you are not a
+ * member of this relay` (p11-02/p11-05), für einen Gast wird `auth-required:` vorher
+ * vom Auth-Buffer aus der Empfangsschlange entfernt und onClosed feuert nie
+ * (p11-04). Kein zusätzlicher Request — die Live-Sub läuft ohnehin.
+ */
+export const listenRoom = (url: string, h: string, signal: AbortSignal, onClosed?: (reason: string) => void): void => {
     void request({
         relays: [url],
         signal,
         onEvent: honorDeleteEvent,
+        onClosed,
         filters: [
             { kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL, ROOM_DELETE_EVENT], '#h': [h], limit: 0 },
             { kinds: [COMMENT, CHAT_THREAD], limit: 0 },
