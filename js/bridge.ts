@@ -868,6 +868,7 @@ type RoomChatState = {
     _unsubMembers: null | (() => void)
     _unsubAdmin: null | (() => void) // deriveUserIsSpaceAdmin-Subscription (P1)
     _unsubRoomMeta: null | (() => void)
+    _unsubRelay: null | (() => void) // deriveRelay-Subscription: korrigiert spaceHint nach, wenn NIP-11 nach dem Mount eintrifft (P13)
     _url: string | null
     _lastRead: number
     _onViewport: null | (() => void)
@@ -3957,6 +3958,7 @@ export function registerNostrComponents(Alpine: {
         _unsubMembers: null,
         _unsubAdmin: null,
         _unsubRoomMeta: null,
+        _unsubRelay: null,
         _url: null,
         _lastRead: 0,
         _onViewport: null,
@@ -4055,6 +4057,18 @@ export function registerNostrComponents(Alpine: {
             // und der Hinweis nie sichtbar.
             const heimat = normalizeRelayUrl(get(activeSpaceUrl) ?? DEFAULT_SPACE_URL)
             this.spaceHint = url === heimat ? '' : spaceBranding(displayRelayUrl(url), getRelay(url)).label
+            // P13: Der Read oben ist ein Schnappschuss — bei KALTEM Raum-Lauf (F5/Bookmark/
+            // geteilter Link mit ?space=workspace) liest er den leeren Cache und friert den
+            // Hinweis auf der URL-Form ein; das NIP-11-Doc trifft erst NACH dem Mount ein
+            // (im Browser reproduziert: 10 s nach Ankunft unverändert localhost:3001). Das
+            // korrigierende Abo läuft über dieselbe Ableitung, die die Insel für den Admin-
+            // Status ohnehin hält (deriveUserIsSpaceAdmin → deriveRelay, members.ts) und die
+            // den Fetch anstößt — kein zweiter synchroner Read, kein Poll. Dasselbe Muster
+            // wie das isBuzz-Abo der Spaces-Insel. Warm (Cache gefüllt) feuert die Sub sofort
+            // mit demselben Wert → No-op.
+            this._unsubRelay = deriveRelay(url).subscribe((relay) => {
+                this.spaceHint = url === heimat ? '' : spaceBranding(displayRelayUrl(url), relay).label
+            })
             this._initialLoadDone = false // Resync erst nach diesem Load wieder erlauben (Prewarm-Race)
             this.loading = true
             this.membershipReady = false
@@ -4555,6 +4569,8 @@ export function registerNostrComponents(Alpine: {
             this._unsubAdmin = null
             this._unsubRoomMeta?.()
             this._unsubRoomMeta = null
+            this._unsubRelay?.()
+            this._unsubRelay = null
             this._zapSub?.abort()
             this._zapSub = null
             this._zapLoadedIds.clear()
