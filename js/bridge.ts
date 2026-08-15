@@ -16,7 +16,7 @@ import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
-import { DEFAULT_RELAYS, isMobile, nativeBrowserOpen, nativeBrowserInApp, proxifyImage, storageReady } from './core'
+import { DEFAULT_RELAYS, isMobile, mayFallbackToRaw, nativeBrowserOpen, nativeBrowserInApp, proxifyImage, storageReady } from './core'
 import { sanitizeReturnUrl, isAuthed } from './auth-gate'
 import { createLightboxZoom } from './lightbox'
 import {
@@ -1447,6 +1447,12 @@ export function registerNostrComponents(Alpine: {
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').
     Alpine.magic('img', () => (url: unknown, preset?: string) => proxifyImage(url, preset))
+
+    // P7 — `$imgFallback(url)` entscheidet in onerror-Ketten, ob der Zweitversuch
+    // die ROHE URL laden darf (nur wenn der Proxy sie nicht schon per Policy
+    // ablehnt — Begründung und Grenzen: `imageFallback.ts`). Dieselbe Bauform wie
+    // `$img` darüber: die Blade-Türen sollen die Policy nicht nachbauen.
+    Alpine.magic('imgFallback', () => (url: unknown) => mayFallbackToRaw(url))
 
     // P3 LOCALE — `$num(1234)` formatiert eine Zahl in der GEWÄHLTEN Sprache
     // („1.234" unter de, „1,234" unter en), in jedem Alpine-Ausdruck. Dieselbe

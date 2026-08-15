@@ -11,15 +11,18 @@
             x-on:click="Livewire.navigate('/rooms/' + encodeURIComponent(room.h))"
             class="pressable flex min-w-0 flex-1 items-center gap-2.5 rounded-tile p-1.5 text-left">
         {{-- flux:avatar verzweigt server-seitig auf `$src` → bei reinem Alpine-Bind bliebe
-             es Initialen. Darum natives `<img>` über den IMG-Proxy ($img, Zuschnitt/WebP).
-             Zweistufiger Fallback: Proxy-Fehler → Original (Offline), dann → #-Chip. --}}
+              es Initialen. Darum natives `<img>` über den IMG-Proxy ($img, Zuschnitt/WebP).
+              Zweistufiger Fallback: Proxy-Fehler → Original (Offline), dann → #-Chip.
+              Der Original-Schritt nur, wenn der Proxy das Ziel nicht schon per POLICY
+              ablehnt ($imgFallback, P7) — sonst wäre eine protokoll-relative picture-URL
+              ein direkter Abruf beim Angreifer-Host. --}}
         {{-- Avatar im relative-Wrapper: trägt bei einem beigetretenen Meetup ein
-             dezentes Flaggen-Badge an der Ecke (Land-Marker), ohne die Zeilenhöhe zu
-             ändern — der Pin ist absolut positioniert. Normale Räume: kein Badge. --}}
+              dezentes Flaggen-Badge an der Ecke (Land-Marker), ohne die Zeilenhöhe zu
+              ändern — der Pin ist absolut positioniert. Normale Räume: kein Badge. --}}
         <span class="relative shrink-0">
             <template x-if="room.picture">
                 <img :src="$img(room.picture)" :alt="room.name"
-                     x-on:error="$el.dataset.orig ? (room.picture = '') : ($el.dataset.orig = 1, $el.src = room.picture)"
+                     x-on:error="$el.dataset.orig ? (room.picture = '') : ($imgFallback(room.picture) ? ($el.dataset.orig = 1, $el.src = room.picture) : (room.picture = ''))"
                      class="size-8 rounded-tile object-cover" />
             </template>
             <template x-if="!room.picture">

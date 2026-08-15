@@ -1160,7 +1160,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds (Proxy-Preset `full`), mit
          Zoom (Pinch/Doppeltipp/Mausrad — s. `js/lightbox.ts`). Proxy-Fehler → Original-URL
-         (Offline-Fallback).
+         (Offline-Fallback) — nur wenn der Proxy das Ziel nicht per POLICY ablehnt
+         ($imgFallback auf das zurückdekodierte Original, P7).
 
          Schließen geht über Hintergrund-Klick, das ✕ und Escape — NICHT über einen Klick
          aufs Bild: ein schließender Erst-Klick würde den Doppeltipp/-klick zum Zoomen
@@ -1185,7 +1186,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <img x-ref="img" :src="lightboxSrc" alt="" x-on:click.stop=""
              class="max-h-full max-w-full rounded-card will-change-transform"
              :style="imageStyle"
-             x-on:error="$el.dataset.orig || ($el.dataset.orig = 1, $el.src = decodeURIComponent(($el.src.split('src=')[1] || '')))" />
+             x-on:error="$el.dataset.orig || ($el.dataset.orig = 1, ($imgFallback(decodeURIComponent($el.src.split('src=')[1] || '')) ? ($el.src = decodeURIComponent($el.src.split('src=')[1] || '')) : null))" />
 
         {{-- Sichtbarer Ausgang: seit der Klick aufs Bild zoomt statt schließt, ist das ✕
              auf dem Handy der einzige verlässliche Weg raus (kein Escape).

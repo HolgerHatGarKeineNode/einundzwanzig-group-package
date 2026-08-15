@@ -23,10 +23,12 @@
 
         {{-- Logo + Flaggen-Pin (Signatur). --}}
         <span class="relative shrink-0">
-            {{-- Logo vorhanden: Proxy → Original → (bei erneutem Fehler) Flagge/Initiale. --}}
+            {{-- Logo vorhanden: Proxy → Original → (bei erneutem Fehler) Flagge/Initiale.
+                 Original-Schritt nur bei proxyfähigem Ziel ($imgFallback, P7) — die
+                 Policy des Proxys entscheidet, nicht der Ladefehler allein. --}}
             <template x-if="room.picture">
                 <img :src="$img(room.picture)" alt=""
-                     x-on:error="$el.dataset.orig ? (room.picture = '') : ($el.dataset.orig = 1, $el.src = room.picture)"
+                     x-on:error="$el.dataset.orig ? (room.picture = '') : ($imgFallback(room.picture) ? ($el.dataset.orig = 1, $el.src = room.picture) : (room.picture = ''))"
                      class="size-10 rounded-tile object-cover ring-1 ring-black/5 dark:ring-white/10" />
             </template>
             {{-- Kein Logo, aber Flagge: Flagge groß als Avatar. --}}

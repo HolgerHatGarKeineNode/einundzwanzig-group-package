@@ -322,10 +322,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <flux:heading size="lg">{{ __('Space bearbeiten') }}</flux:heading>
 
                 {{-- Icon: runde Vorschau + „Ändern". Verstecktes File-Input via x-ref; die
-                     Datei wird erst beim Speichern hochgeladen (Abbrechen lädt nichts). --}}
+                     Datei wird erst beim Speichern hochgeladen (Abbrechen lädt nichts).
+                     `$img` (P7): remote Icon-URLs (beim Bearbeiten vorbefüllt) über den
+                     Proxy, die data:-URL einer frisch gewählten Datei unverändert. --}}
                 <div class="flex items-center gap-3">
                     <div class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                        <img x-show="spaceIconPreview" :src="spaceIconPreview" alt="" class="size-full object-cover" />
+                        <img x-show="spaceIconPreview" :src="$img(spaceIconPreview)" alt="" class="size-full object-cover" />
                         <flux:icon.server x-show="!spaceIconPreview" class="size-6 text-zinc-400" />
                     </div>
                     <flux:button size="sm" variant="ghost" icon="photo" x-on:click="$refs.spaceIcon.click()">{{ __('Icon ändern') }}</flux:button>

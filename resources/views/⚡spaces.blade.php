@@ -1009,10 +1009,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <div class="space-y-4">
                 <flux:heading size="lg" x-text="roomForm.h ? @js(__('Raum bearbeiten')) : @js(__('Neuer Raum'))"></flux:heading>
 
-                {{-- Raumbild: runde-eckige Vorschau + „wählen". Upload erst beim Speichern. --}}
+                {{-- Raumbild: runde-eckige Vorschau + „wählen". Upload erst beim Speichern.
+                     `$img` (P7): die Vorschau einer REMOTEN picture (beim Bearbeiten
+                     vorbefüllt, angreiferkontrolliert) läuft über den Proxy — die
+                     data:-URL einer frisch gewählten Datei kommt unverändert durch. --}}
                 <div class="flex items-center gap-3">
                     <div class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-tile bg-zinc-100 dark:bg-zinc-800">
-                        <img x-show="roomForm.picture" :src="roomForm.picture" alt="" class="size-full object-cover" />
+                        <img x-show="roomForm.picture" :src="$img(roomForm.picture)" alt="" class="size-full object-cover" />
                         <span x-show="!roomForm.picture" class="font-mono text-lg font-semibold text-zinc-400">#</span>
                     </div>
                     <flux:button size="sm" variant="ghost" icon="photo" x-on:click="$refs.roomPic.click()">{{ __('Bild wählen') }}</flux:button>

@@ -85,6 +85,16 @@ export function proxifyImage(url: unknown, preset = 'avatar'): string {
 }
 
 /**
+ * P7 — Gegenstück zu `proxifyImage` für den FEHLERFALL: entscheidet, ob der
+ * Zweitversuch einer <img>-Kette die ROHE URL laden darf. Die Unterscheidung
+ * („Proxy konnte nicht" vs. „Ziel ist nicht proxyfähig") und ihre Begründung
+ * stehen in `imageFallback.ts`; das Modul ist Import-frei, damit es unter
+ * `node --test` direkt prüfbar ist — hier nur re-exportiert, damit Client-Code
+ * beides aus demselben Ort zieht.
+ */
+export { mayFallbackToRaw } from './imageFallback'
+
+/**
  * Wartet, bis NativePHPs POST-Shim scharf ist. **Ohne dieses Gate verliert jeder
  * frühe Bridge-Aufruf seinen Body.**
  *

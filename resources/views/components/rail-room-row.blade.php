@@ -49,7 +49,8 @@
     {{-- Logo-Box: 20px, immer dieselbe Geometrie. Räume OHNE Bild zeigen exakt das
          `#` von vorher — kein getönter Chip, keine neue Form. Nur Räume MIT Bild
          tauschen das Zeichen gegen ihre Marke. Fallback-Kette wie in `room-tile`:
-         Proxy → Original → `#`. --}}
+         Proxy → Original → `#`; der Original-Schritt nur bei proxyfähigem Ziel
+         ($imgFallback, P7 — Policy schlägt Ladefehler). --}}
     <span x-data="{ imgOrig: false, imgBroken: false }"
           class="relative inline-flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md">
         <template x-if="!room.picture || imgBroken">
@@ -58,7 +59,7 @@
         <template x-if="room.picture && !imgBroken">
             <img alt="" class="size-full object-cover"
                  x-bind:src="imgOrig ? room.picture : $img(room.picture)"
-                 x-on:error="imgOrig ? (imgBroken = true) : (imgOrig = true)" />
+                 x-on:error="imgOrig ? (imgBroken = true) : ($imgFallback(room.picture) ? (imgOrig = true) : (imgBroken = true))" />
         </template>
     </span>
 
