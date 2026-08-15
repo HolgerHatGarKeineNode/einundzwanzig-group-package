@@ -214,9 +214,59 @@ const renderMentionSpan = (pubkey: string): string => {
     return span.outerHTML
 }
 
+/**
+ * Entfernt die EINE Mention, für die bereits ein Profil-Chip über dem Text steht (P5.3).
+ *
+ * **Nutzerentscheidung 2026-08-15: der Chip ersetzt den `@Name`-Span.** Vorher stand dieselbe
+ * Person zweimal untereinander — bei ungeladenem `kind 0` sogar zeichengleich als gekürzte
+ * npub-Kette (gemessen: Chip `n npub18s7…5kgc0`, Span `@npub18s7…5kgc0`).
+ *
+ * `chipPubkey` kommt NICHT aus einer zweiten Ableitung, sondern aus genau dem `RefCard`, das
+ * die Zeile auch rendert (siehe {@link toChatMessage}). Damit ist die Kopplung exakt: fällt der
+ * Chip aus IRGENDEINEM Grund weg — Karten abgeschaltet, Nachricht ist ein Reply, keine
+ * NIP-21-Referenz im Text, oder ein `nevent` gewinnt das Rennen gegen das `npub`
+ * ({@link firstNostrRef} wertet Event-Token VOR Profil-Token) — dann ist `chipPubkey` null und
+ * der Span bleibt stehen. Ein Span darf nur verschwinden, wo der Chip WIRKLICH steht, nicht wo
+ * er stehen könnte.
+ *
+ * Nur das ERSTE Vorkommen fällt: der Chip steht für genau eine Referenz (die erste dekodierbare).
+ * Nennt ein Text dieselbe Person später erneut, ist das eine eigene Erwähnung, für die kein Chip
+ * einspringt — sie zu löschen würde Text entfernen, den nichts ersetzt.
+ *
+ * Die angrenzende Leerstelle wird mit eingezogen, sonst bliebe im `whitespace-pre-wrap`-Textkörper
+ * ein sichtbarer doppelter Abstand („schaut mal ␣␣ an") bzw. ein Abstand am Zeilenende.
+ */
+const dropChipMention = (nodes: ReturnType<typeof parse>, chipPubkey: string | null): ReturnType<typeof parse> => {
+    if (!chipPubkey) {
+        return nodes
+    }
+    const i = nodes.findIndex((n) => n.type === ParsedType.Profile && n.value.pubkey === chipPubkey)
+    if (i === -1) {
+        return nodes
+    }
+    const out = nodes.slice(0, i).concat(nodes.slice(i + 1))
+    const prev = out[i - 1]
+    const next = out[i]
+    const isText = (n: unknown): n is { type: string; value: string; raw: string } =>
+        Boolean(n) && (n as { type: string }).type === ParsedType.Text
+    if (isText(prev) && isText(next) && /\s$/.test(prev.value) && /^\s/.test(next.value)) {
+        next.value = next.value.replace(/^\s/, '')
+        next.raw = next.raw.replace(/^\s/, '')
+    } else if (next === undefined && isText(prev)) {
+        prev.value = prev.value.replace(/\s+$/, '')
+        prev.raw = prev.raw.replace(/\s+$/, '')
+    }
+    return out
+}
+
 const htmlCache = new Map<string, string>()
-const renderMessageHtml = (event: TrustedEvent): string => {
-    let html = htmlCache.get(event.id)
+const renderMessageHtml = (event: TrustedEvent, chipPubkey: string | null = null): string => {
+    // Der Chip-pubkey gehört IN den Cache-Schlüssel: schaltet der Nutzer die Karten ab, muss
+    // derselbe Event andere HTML liefern (Span wieder da). Ein Schlüssel nur aus `event.id`
+    // hätte die unterdrückte Fassung für immer festgehalten — genau die Kopplung, die dieser
+    // Umbau herstellen soll, wäre am Cache still gescheitert.
+    const cacheKey = chipPubkey ? `${event.id}|${chipPubkey}` : event.id
+    let html = htmlCache.get(cacheKey)
     if (html === undefined) {
         // welshman rendert Custom-Emoji (NIP-30) per Default als Text-Shortcode
         // (`renderEmoji` ist NICHT als Option überschreibbar) — darum Emoji-Nodes
@@ -225,7 +275,7 @@ const renderMessageHtml = (event: TrustedEvent): string => {
         // Profil-Mentions (NIP-27) rendert welshman als gekürztes `nprofile…` —
         // wir lösen sie stattdessen zu `@Name` auf (displayProfileByPubkey).
         let hasMention = false
-        html = parse({ content: bodyWithoutQuote(event), tags: event.tags })
+        html = dropChipMention(parse({ content: bodyWithoutQuote(event), tags: event.tags }), chipPubkey)
             .map((node) => {
                 if (node.type === ParsedType.Emoji) {
                     const img = renderEmojiImg(node.value.name, node.value.url)
@@ -255,7 +305,7 @@ const renderMessageHtml = (event: TrustedEvent): string => {
         // nach (Profil kommt später) → ein gecachtes `@npub…`-Fallback bliebe für
         // immer eingefroren. Ohne Mention ist die HTML statisch (Cache lohnt sich).
         if (!hasMention) {
-            htmlCache.set(event.id, html)
+            htmlCache.set(cacheKey, html)
         }
     }
     return html
@@ -821,15 +871,20 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
     const zapper = lnurl ? ctx.$zappers.get(lnurl) : undefined
     // Zap-Tally einmal — Nachrichten-Chip UND (kind 9041) Goal-Fortschritt teilen die Summe.
     const zaps = aggregateZaps(ctx.zapsByTarget.get(event.id) ?? [], zapper, ctx.me, nameOf)
+    // EINMAL bauen und BEIDES daraus speisen: die Karte selbst und die Frage, ob der
+    // `@Name`-Span im Fließtext entfällt (P5.3). Zwei getrennte Ableitungen hätten
+    // auseinanderlaufen können — genau dann verschwände ein Span, ohne dass ein Chip
+    // an seine Stelle tritt.
+    const card = buildRefCard(event, ctx, reply)
     return {
         id: event.id,
         pubkey: event.pubkey,
         created_at: event.created_at,
         // name/nip05/picture/profileReady/html/time/fullTime — geteilter Personen-Baustein.
-        ...personFields(event, ctx.$profiles, ctx.$handles),
+        ...personFields(event, ctx.$profiles, ctx.$handles, card?.kind === 'profile' ? card.pubkey : null),
         mine,
         reply,
-        refCard: buildRefCard(event, ctx, reply),
+        refCard: card,
         thread,
         reactions: aggregateReactions(ctx.reactionsByTarget.get(event.id) ?? [], ctx.me, nameOf),
         poll: event.kind === POLL ? buildPollView(event, ctx.pollResponsesByTarget.get(event.id) ?? [], ctx.me) : null,
@@ -1585,11 +1640,19 @@ export type ThreadRoot = {
  *  Raum-Message-Row (Reaktionen/Zaps/Toolbar/Crop geerbt); `replyToName` trägt den Eltern-Bezug. */
 export type ThreadView = { rootId: string; root: ThreadRoot; comments: ChatMessage[]; count: number }
 
-/** Personen-/Render-Felder eines Events (geteilt von Root + Kommentar). */
+/**
+ * Personen-/Render-Felder eines Events (geteilt von Root + Kommentar).
+ *
+ * `chipPubkey` ist der Default-Fall `null` — und das ist Absicht, nicht Bequemlichkeit: der
+ * Thread-ROOT wird über diese Funktion gebaut, trägt aber gar kein `refCard` (siehe
+ * `ThreadView`), bekommt also nie einen Profil-Chip. Dort MUSS der Span stehen bleiben. Nur
+ * wer nachweislich einen Chip rendert, reicht einen pubkey herein.
+ */
 const personFields = (
     event: TrustedEvent,
     $profiles: Map<string, { picture?: string; nip05?: string }>,
     $handles: Parameters<typeof verifiedNip05>[2],
+    chipPubkey: string | null = null,
 ) => {
     const profile = $profiles.get(event.pubkey)
     return {
@@ -1597,7 +1660,7 @@ const personFields = (
         picture: profile?.picture ?? '',
         profileReady: profileHasName(profile),
         nip05: verifiedNip05(event.pubkey, $profiles, $handles),
-        html: renderMessageHtml(event),
+        html: renderMessageHtml(event, chipPubkey),
         time: timeLabel(event.created_at),
         fullTime: fullTimeLabel(event.created_at),
     }
