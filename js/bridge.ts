@@ -105,6 +105,7 @@ import {
     deriveSpaceRoles,
     deriveVereinAccess,
     isVereinGatedOut,
+    isVereinGuestGated,
     deriveUserIsSpaceAdmin,
     refreshSpaceAdmin,
     loadSpaceDirectory,
@@ -685,6 +686,7 @@ type ArticleState = {
 
 type VereinGateState = {
     show: boolean
+    isGuest: boolean
     _access: VereinAccess
     _unsubActive: null | (() => void)
     _unsubAccess: null | (() => void)
@@ -3260,7 +3262,8 @@ export function registerNostrComponents(Alpine: {
     // `show` erst wenn relay.self da ist (Fix A) — kein falsches Aufblitzen.
     Alpine.data('nostrVereinGate', (): VereinGateState => ({
         show: false,
-        _access: { gated: false, ready: false, isMember: false },
+        isGuest: false,
+        _access: { gated: false, ready: false, isMember: false, isGuest: false },
         _unsubActive: null,
         _unsubAccess: null,
         _controller: null,
@@ -3269,7 +3272,7 @@ export function registerNostrComponents(Alpine: {
                 this._unsubAccess?.()
                 this._controller?.abort()
                 this.show = false
-                this._access = { gated: isVereinRelay(url), ready: false, isMember: false }
+                this._access = { gated: isVereinRelay(url), ready: false, isMember: false, isGuest: false }
                 // Directory (13534/33534) als LIVE-Sub laden — auf /spaces tut das
                 // sonst niemand. Live statt One-Shot: überlebt langsames NIP-42-AUTH.
                 // `access.ready` wird erst nach dem post-AUTH-EOSE wahr (siehe
@@ -3286,7 +3289,14 @@ export function registerNostrComponents(Alpine: {
             })
         },
         _refresh() {
-            this.show = isVereinGatedOut(this._access)
+            // Zwei Zielgruppen, zwei Bedingungen — und der Gast ist NICHT der
+            // Sonderfall des Nicht-Mitglieds, sondern ein eigener Zustand:
+            // von ihm wissen wir gar nicht, ob er Mitglied ist. Der Text
+            // unterscheidet das (siehe verein-gate.blade.php); hier fällt nur die
+            // Entscheidung, ob überhaupt etwas steht. `isVereinGuestGated` kommt
+            // ohne `ready` aus — Begründung dort.
+            this.isGuest = this._access.isGuest
+            this.show = isVereinGatedOut(this._access) || isVereinGuestGated(this._access)
         },
         // Vereins-Beitritts-Link öffnen: in der nativen App via In-App-Browser
         // (Custom Tab / SFSafariViewController) — ein `target=_blank`-Link

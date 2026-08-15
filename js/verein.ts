@@ -525,7 +525,7 @@ const createVerein = (startInWaiting = false): VereinState => ({
     memberSince: false,
     checking: false,
 
-    _access: { gated: false, ready: false, isMember: false },
+    _access: { gated: false, ready: false, isMember: false, isGuest: false },
     _dirFailed: false,
     _loaded: false,
     _paid: false,
@@ -1377,7 +1377,7 @@ const createVerein = (startInWaiting = false): VereinState => ({
         }
 
         this._dirFailed = false
-        this._access = { gated: false, ready: false, isMember: false }
+        this._access = { gated: false, ready: false, isMember: false, isGuest: false }
         this._controller = new AbortController()
 
         watchSpaceDirectory(url, this._controller.signal)

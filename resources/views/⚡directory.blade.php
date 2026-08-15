@@ -95,8 +95,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </template>
 
         {{-- Geladen, aber keine Mitglieder. Für Nicht-Vereinsmitglieder ausgeblendet
-             (kein falsches „keine Mitglieder" — die Gate-Karte oben erklärt es). --}}
-        <template x-if="profilesReady && members.length === 0 && !gatedOut">
+             (kein falsches „keine Mitglieder" — die Gate-Karte oben erklärt es).
+
+             `authed` zusätzlich zu `gatedOut`, weil `gatedOut` den Gast NICHT
+             erfasst: es ist `isVereinGatedOut`, und dessen `ready` wird ohne Signer
+             nie wahr (die 13534 ist selbst AUTH-pflichtig, p4-messung.md 20.4).
+             Gemessen am 2026-08-15 stand einem Gast hier deshalb „Noch keine
+             Mitglieder in diesem Space." auf dem Schirm, obwohl der Space Mitglieder
+             hat — er darf die Liste nur nicht lesen. Das ist genau der Fehler, den
+             der Kommentar oben verhindern wollte, nur für die Zielgruppe, an die
+             `gatedOut` nicht heranreicht. --}}
+        <template x-if="profilesReady && members.length === 0 && !gatedOut && $store.authGate?.authed">
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.users class="mx-auto size-8 text-zinc-400" />
                 <flux:text class="mt-2">{{ __('Noch keine Mitglieder in diesem Space.') }}</flux:text>

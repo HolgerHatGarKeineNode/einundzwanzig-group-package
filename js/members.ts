@@ -242,7 +242,7 @@ export const deriveRoomMemberViews = (url: string, h: string): Readable<RoomMemb
 
 // ── Vereins-Zugang (nur EINUNDZWANZIG-Vereins-Relays) ────────────────────────
 
-export type VereinAccess = { gated: boolean; ready: boolean; isMember: boolean }
+export type VereinAccess = { gated: boolean; ready: boolean; isMember: boolean; isGuest: boolean }
 
 /**
  * Pro Space-URL: ist die relay-signierte Directory (13534/33534) **fertig**
@@ -290,12 +290,36 @@ export const deriveVereinAccess = (url: string): Readable<VereinAccess> =>
             gated: isVereinRelay(url),
             ready: selfReady && loaded.has(url),
             isMember: Boolean(pk && members.includes(pk)),
+            isGuest: !pk,
         }),
     )
 
 /** Gate/„keine Räume"-Hinweis zeigen? Nur wenn Vereins-Relay, fertig geladen
  *  (kein Flackern, siehe [[spaceDirectoryLoaded]]) und der User kein Mitglied ist. */
 export const isVereinGatedOut = (a: VereinAccess): boolean => a.gated && a.ready && !a.isMember
+
+/**
+ * Dasselbe Gate für den Fall OHNE Signer — und bewusst **ohne** `ready`.
+ *
+ * `ready` ist ein Flacker-Schutz: es wartet darauf, dass die AUTH-pflichtige
+ * Directory fertig ist, damit niemand „kein Mitglied" zu sehen bekommt, während
+ * sein Signer noch arbeitet. Für einen Gast ist das kein Zwischenzustand, sondern
+ * der Endzustand: **es gibt keinen Signer, auf den man warten könnte.**
+ *
+ * Und er wird auch nie eintreten — gemessen am 2026-08-15: der Relay beantwortet
+ * den Directory-REQ eines signerlosen Clients mit
+ * `CLOSED … auth-required:`, und welshmans `socketPolicyAuthBuffer`
+ * (`policy.js:64-67`) **entfernt genau diese Nachricht aus der Empfangsschlange**
+ * („we'll retry it"), damit sie nach dem AUTH wiederholt werden kann. Ohne Signer
+ * kommt das AUTH nie, der Retry nie, und damit weder `onEose` noch `onClosed` —
+ * `spaceDirectoryLoaded` bleibt für diese URL für immer leer. Der Kommentar an
+ * [[spaceDirectoryLoaded]] rechnet mit dem `restricted:`-CLOSED (angemeldetes
+ * Nicht-Mitglied) und trifft dafür zu; der signerlose Fall fällt hindurch.
+ *
+ * Ein Gate, dessen Sichtbarkeit an Daten hinter derselben Sperre hängt, ist genau
+ * dann unsichtbar, wenn es gebraucht wird. Deshalb hier die Trennung.
+ */
+export const isVereinGuestGated = (a: VereinAccess): boolean => a.gated && a.isGuest
 
 // ── Admin (NIP-86 manageRelay) ───────────────────────────────────────────────
 

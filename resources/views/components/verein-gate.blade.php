@@ -8,7 +8,21 @@
      zeigen, dass voller Zugang eine Mitgliedschaft braucht — mit direktem Link
      zum Vereinsbeitritt. `context` benennt, was gerade gesperrt ist (Räume /
      Mitglieder). Sichtbarkeit steuert die Insel (nostrVereinGate) reaktiv über
-     die relay-signierte 13534-Liste; `x-cloak` verhindert Aufblitzen. --}}
+     die relay-signierte 13534-Liste; `x-cloak` verhindert Aufblitzen.
+
+     ZWEI Zielgruppen, und sie bekommen NICHT denselben Satz (`isGuest`):
+
+     • **Angemeldetes Nicht-Mitglied** — von ihm wissen wir es: er steht nicht in
+       der relay-signierten 13534. „Du bist (noch) kein Mitglied" ist eine
+       belegte Aussage, und der richtige Weg ist der Vereinsbeitritt.
+
+     • **Gast ohne Signer** — von ihm wissen wir es NICHT. Er kann sehr wohl
+       Vereinsmitglied sein und nur nicht angemeldet; die Mitgliedschaftsfrage
+       ist ohne Pubkey gar nicht gestellt. Ihm „du bist kein Mitglied" zu sagen,
+       wäre eine zweite falsche Behauptung an der Stelle, an der P4 gerade die
+       erste entfernt hat („Du liest mit", während nichts lädt). Er bekommt
+       deshalb nur, was wirklich feststeht: der Bereich verlangt Mitgliedschaft,
+       und sein nächster Schritt ist die Anmeldung. --}}
 <div x-data="nostrVereinGate" x-show="show" x-cloak x-transition.opacity.duration.300ms
      {{ $attributes->class('page-enter surface-card relative overflow-hidden !border-brand-500/30') }}>
 
@@ -22,20 +36,53 @@
             <x-group::app-brand-mark class="size-14 shadow-pop" />
         </div>
 
-        <flux:badge size="sm" color="orange" icon="lock-closed" class="mb-3">{{ __('Vereinszugang') }}</flux:badge>
+        {{-- Gast: nur das, was ohne Pubkey feststeht. --}}
+        <div x-show="isGuest">
+            <flux:badge size="sm" color="orange" icon="lock-closed" class="mb-3">{{ __('Anmeldung nötig') }}</flux:badge>
 
-        <flux:heading size="lg" class="text-balance">{{ __('Noch kein Vereinsmitglied') }}</flux:heading>
+            <flux:heading size="lg" class="text-balance">{{ __('Nur für Mitglieder') }}</flux:heading>
 
-        <flux:text class="mx-auto mt-2 max-w-xs text-balance text-sm text-muted">
-            {{ __('Du bist (noch) kein Mitglied im Verein') }} <span class="font-semibold text-zinc-700 dark:text-zinc-200">EINUNDZWANZIG</span>.
-            {{ $context }} {{ __('in diesem Space bleiben deshalb gesperrt.') }}
-        </flux:text>
+            <flux:text class="mx-auto mt-2 max-w-xs text-balance text-sm text-muted">
+                {{ __('Dieser Bereich ist Mitgliedern vorbehalten.') }}
+            </flux:text>
 
-        <div class="mx-auto mt-4 max-w-xs rounded-tile bg-brand-500/10 px-4 py-3">
-            <flux:text class="text-sm text-zinc-600 dark:text-zinc-300">
-                {{ __('Eine Mitgliedschaft schaltet') }} <span class="font-semibold">{{ __('automatisch') }}</span> {{ __('den Zugang zu diesem Space und Relay frei.') }}
+            {{-- `requireAuth` statt eines handgeschriebenen `open-login-sheet`:
+                 derselbe Weg wie bei jeder gegateten Tab (`nav-tab`). Er dispatcht
+                 dasselbe Event, merkt aber ZUSÄTZLICH den Rückweg vor
+                 (`pendingReturn` → `postLoginRedirect`) und trägt den Fallback auf
+                 den Login-View, falls kein Sheet montiert ist. Ein direkter
+                 Dispatch verlöre beides still — und genau dieser Rückweg ist die
+                 Eigenschaft, die der zurückgebaute Gast-Composer hier hinterlässt. --}}
+            <flux:button
+                variant="primary"
+                icon:trailing="arrow-right"
+                data-testid="verein-gate-anmelden"
+                class="mt-5 w-full"
+                x-on:click="$store.authGate.requireAuth({ label: @js(__('Melde dich an, um fortzufahren.')) })">
+                {{ __('Anmelden') }}
+            </flux:button>
+
+            <flux:text class="mt-3 text-xs text-muted">
+                {{ __('Melde dich an, um fortzufahren.') }}
             </flux:text>
         </div>
+
+        {{-- Angemeldetes Nicht-Mitglied: die belegte Aussage plus der Weg dorthin. --}}
+        <div x-show="!isGuest">
+            <flux:badge size="sm" color="orange" icon="lock-closed" class="mb-3">{{ __('Vereinszugang') }}</flux:badge>
+
+            <flux:heading size="lg" class="text-balance">{{ __('Noch kein Vereinsmitglied') }}</flux:heading>
+
+            <flux:text class="mx-auto mt-2 max-w-xs text-balance text-sm text-muted">
+                {{ __('Du bist (noch) kein Mitglied im Verein') }} <span class="font-semibold text-zinc-700 dark:text-zinc-200">EINUNDZWANZIG</span>.
+                {{ $context }} {{ __('in diesem Space bleiben deshalb gesperrt.') }}
+            </flux:text>
+
+            <div class="mx-auto mt-4 max-w-xs rounded-tile bg-brand-500/10 px-4 py-3">
+                <flux:text class="text-sm text-zinc-600 dark:text-zinc-300">
+                    {{ __('Eine Mitgliedschaft schaltet') }} <span class="font-semibold">{{ __('automatisch') }}</span> {{ __('den Zugang zu diesem Space und Relay frei.') }}
+                </flux:text>
+            </div>
 
         {{-- P5: Aus dem Link nach außen wird ein Weg nach innen.
 
@@ -91,5 +138,6 @@
                 {{ Str::of(config('group.verein_public_url'))->after('://')->rtrim('/') }}
             </flux:text>
         @endif
+        </div>
     </div>
 </div>

@@ -415,7 +415,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  Rows via @for) → steht ab dem ERSTEN Paint da. Sonst blitzte der Chat-Bereich
                  beim F5 weiß auf, bis Alpine bootet (~165ms) und die x-if/x-for-Templates
                  auswertet. `x-show` blendet es aus, sobald Nachrichten geladen sind. --}}
-            <div x-show="loading && messages.length === 0" class="space-y-3 pt-4">
+            {{-- `authed` im Guard, nicht nur `loading`: der Relay beantwortet jeden
+                 REQ eines signerlosen Clients mit `CLOSED auth-required` (gemessen
+                 2026-08-15, P4) — es kommt also nie ein EOSE mit Inhalt.
+
+                 `loading` kippt trotzdem, nur eben ohne Ergebnis: nach **3401 ms**
+                 (gemessen), weil welshmans `load()` einen 3-Sekunden-Timeout hat
+                 (`request.js:226`) und dann mit LEERER Liste resolved — das
+                 `CLOSED` selbst hat der Auth-Buffer verschluckt (`policy.js:62-67`).
+                 Dieser Guard deckt also genau das Fenster DAVOR: ohne ihn stand ein
+                 Gast 3,4 Sekunden lang vor 18 Skelett-Zeilen, also vor dem
+                 Versprechen, dass gleich etwas kommt (per Mutation belegt: ohne
+                 Guard 18 sichtbare Skelette bei ms=0, mit Guard 0). Was danach
+                 kommt, regelt der Guard an der Leerzustands-Karte weiter unten.
+                 Was er stattdessen sieht, steht im Fuß (verein-gate). --}}
+            <div x-show="loading && messages.length === 0 && $store.authGate?.authed" class="space-y-3 pt-4">
                 <span class="sr-only" aria-live="polite">{{ __('Verlauf wird geladen…') }}</span>
                 @for ($i = 0; $i < 6; $i++)
                     <div class="flex gap-2">
@@ -435,17 +449,41 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  navigieren.
 
                  WELCHES Ziel, hängt am Zustand des Fußes: Mitglied → das Textfeld;
-                 angemeldet, aber nicht beigetreten → der Beitreten-Knopf; Gast →
-                 der gatende Composer. Das wird entschieden und nicht geraten:
-                 `.focus()` auf ein per `x-show` verborgenes Element ist ein stiller
-                 No-Op, der Fokus fiele dann auf <body>. --}}
-            <template x-if="!loading && messages.length === 0">
+                 angemeldet, aber nicht beigetreten → der Beitreten-Knopf. Das wird
+                 entschieden und nicht geraten: `.focus()` auf ein per `x-show`
+                 verborgenes Element ist ein stiller No-Op, der Fokus fiele dann
+                 auf <body>.
+
+                 Der dritte Fall (Gast → gatender Composer) ist mit P4 entfallen —
+                 aber NICHT, weil der Gast diese Karte nie erreichte. Genau das
+                 stand hier zuerst und war falsch: gemessen am 2026-08-15 kippt
+                 `loading` für ihn nach **3401 ms**, und danach stand die Karte
+                 dauerhaft auf seinem Schirm (bei ms≈3401/7453/15523 gleich).
+
+                 Warum sie kippt: `loading = false` hängt im `.finally()` von
+                 `loadRoomMessages()` (`js/bridge.ts:4378`), und welshmans `load()`
+                 trägt einen 3-Sekunden-Timeout (`@welshman/net` `request.js:226`,
+                 `makeLoader({delay: 200, timeout: 3000, threshold: 0.5})`). Der
+                 Timeout bricht den Request ab und **resolved mit leerer Liste** —
+                 das `CLOSED auth-required` des Relays hat der Auth-Buffer vorher
+                 aus der Empfangsschlange entfernt (`policy.js:62-67`). Der Client
+                 kann „abgelehnt" und „nichts da" also gar nicht auseinanderhalten.
+
+                 Deshalb der `authed`-Guard an der Karte: für einen Nutzer OHNE
+                 Signer ist `messages.length === 0` keine Aussage über den Raum,
+                 sondern nur die Quittung einer verweigerten Leseanfrage — und
+                 „Noch keine Nachrichten in diesem Raum." wäre dann dieselbe
+                 Unwahrheit wie das zurückgebaute „Du liest mit", nur andersherum
+                 (belegt: der Messraum hatte GENAU EINE echte Nachricht). Für
+                 Angemeldete bleibt die Karte unverändert — dort ist die Aussage
+                 so belastbar wie zuvor. Sein Fuß ist das verein-gate. --}}
+            <template x-if="!loading && messages.length === 0 && $store.authGate?.authed">
                 <div class="surface-card empty-state mt-8 p-6 text-center">
                     <flux:icon.chat-bubble-left-right class="mx-auto size-8 text-zinc-400" />
                     <flux:text class="mt-2">{{ __('Noch keine Nachrichten in diesem Raum.') }}</flux:text>
                     <div class="mt-4">
                         <flux:button size="sm" variant="ghost" icon="pencil-square"
-                                     x-on:click="(joined ? $refs.composer : ($store.authGate?.authed ? $refs.joinButton : $refs.guestComposer))?.focus()">{{ __('Schreib die erste.') }}</flux:button>
+                                     x-on:click="(joined ? $refs.composer : $refs.joinButton)?.focus()">{{ __('Schreib die erste.') }}</flux:button>
                     </div>
                 </div>
             </template>
@@ -619,10 +657,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </template>
 
-            {{-- Gast im Thread: gatender Composer, gleicher Bau wie am Raum-Fuß. --}}
-            <template x-if="!joined && ! $store.authGate?.authed">
-                <x-group::guest-composer :placeholder="__('Im Thread antworten…')"
-                                         :intent="__('Melde dich an, um in diesem Thread zu antworten.')" />
+            {{-- Gast im Thread: dieselbe ehrliche Aussage wie am Raum-Fuß.
+                 Der Thread ist ein eigener, teilbarer Landeplatz
+                 (`/rooms/{h}/thread/{nevent}`) — wer ihn auslässt, hinterlässt
+                 genau dort wieder eine wortlose leere Fläche.
+                 `x-if` statt `x-show`, und `threadRootId` MIT in die Bedingung: die
+                 Gate-Insel startet beim Mount einen eigenen Directory-Sub, und das
+                 Thread-Panel hängt an einem `x-show` — ohne den Zusatz stünde eine
+                 zweite, unsichtbare Gate-Karte samt zweitem Sub auf JEDER Raumseite
+                 eines Gastes. (Gemessen: zwei `nostrVereinGate`-Inseln im DOM, die
+                 zweite in einem `display:none`-Vorfahren.) --}}
+            <template x-if="threadRootId && !joined && ! $store.authGate?.authed">
+                <x-group::verein-gate context="{{ __('Räume und Chat') }}" />
             </template>
         </div>
     </div>
@@ -644,43 +690,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
              statt weiß, bis die Mitgliedschaft geladen ist. --}}
         <div x-show="!membershipReady" class="skeleton h-11 rounded-card"></div>
 
-        {{-- Einstieg für Gäste (P3.2): EINE ruhige Zeile am Fuß der Bühne. Kein
-             Tour-Overlay, kein Willkommens-Modal — der Gast steht bereits lesend in
-             einem echten Raum, das IST die Demo; die Zeile benennt nur, was ihm
-             fehlt, und bietet genau einen Weg.
-
-             Sie hängt NICHT an `membershipReady`: für einen Gast ist die
-             Mitgliedschaft keine offene Frage, und eine Zeile, die erst nach einem
-             Relay-Roundtrip erscheint, kommt nach dem ersten Blick.
-
-             Zustand in `localStorage`, nicht in der Session: der WebView der
-             Android-App startet neu, ohne dass eine Server-Session endet — ein
-             „einmal", das den Neustart nicht überlebt, ist kein einmal.
-
-             EIN Lesevorgang in `x-init` statt `x-show="localStorage…"`: letzteres
-             läse den Schlüssel bei jedem Render-Tick und wäre obendrein nicht
-             reaktiv (localStorage meldet keine Änderung an Alpine). --}}
-        <div x-data="{ show: false }"
-             x-init="show = ! $store.authGate?.authed && localStorage.getItem('e21:guest-hint') !== 'closed'"
-             x-show="show" x-cloak x-transition.opacity.duration.200ms
-             class="surface-card mb-1 flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-            {{-- `min-w-56` ist der Boden, nicht Kosmetik: `flex-1` ist Basis 0, die
-                 beiden Knöpfe daneben haben Basis `auto` und drückten den Satz sonst
-                 auf 320px in eine dreizeilige Schlucht. Mit Boden + `flex-wrap`
-                 rutschen stattdessen die Knöpfe in die zweite Zeile. --}}
-            <flux:text class="min-w-56 flex-1 text-sm text-muted">{{ __('Du liest mit. Zum Mitschreiben anmelden.') }}</flux:text>
-            {{-- `requireAuth` statt eines handgeschriebenen `open-login-sheet`:
-                 derselbe Weg wie bei jeder gegateten Tab (nav-tab) — er dispatcht
-                 dasselbe Event, merkt aber ZUSÄTZLICH den Rückweg vor
-                 (`pendingReturn` → `postLoginRedirect`, §4.2) und trägt den
-                 Fallback auf den Login-View, falls kein Sheet montiert ist. Ein
-                 direkter Dispatch verlöre beides still. --}}
-            <flux:button size="sm" variant="primary" class="icon-btn-touch"
-                         x-on:click="$store.authGate.requireAuth({ label: @js(__('Zum Mitschreiben anmelden.')) })">{{ __('Anmelden') }}</flux:button>
-            <flux:button size="sm" variant="ghost" icon="x-mark" square class="icon-btn-touch"
-                         x-on:click="show = false; localStorage.setItem('e21:guest-hint', 'closed')"
-                         aria-label="{{ __('Hinweis schließen') }}" />
-        </div>
+        {{-- Hier stand bis P4 die Gast-Einstiegszeile („Du liest mit. Zum
+             Mitschreiben anmelden.", schließbar, mit eigenem localStorage-Schlüssel).
+             Sie ist entfernt, weil ihre Prämisse gemessen falsch war: ein Gast liest
+             NICHT mit. Beide Prod-Relays und die lokale Instanz beantworten jeden
+             REQ eines signerlosen Clients mit `CLOSED auth-required` — die Zeile
+             stand über einer leeren Bühne und behauptete das Gegenteil. Was an
+             ihrer Stelle steht, ist das verein-gate weiter unten. --}}
 
         {{-- Compose-Kontext über dem Composer: Antworten (replyTo), Zitieren (sharing)
              oder Bearbeiten (editingId) — mit Abbrechen. --}}
@@ -728,14 +744,24 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </flux:button>
         </div>
 
-        {{-- Gast: derselbe Fuß, aber gatend statt beitretend (siehe
-             `guest-composer`). Der Wortlaut im Feld ist zeichengleich zum
-             Platzhalter des echten Composers — es soll dasselbe Ding sein. --}}
-        <div x-show="membershipReady && !joined && ! $store.authGate?.authed" x-cloak x-transition.opacity.duration.200ms>
-            <x-group::guest-composer ref="guestComposer"
-                                     :placeholder="__('Nachricht schreiben…')"
-                                     :intent="__('Melde dich an, um in diesem Raum zu schreiben.')" />
-        </div>
+        {{-- Gast: die Aussage statt eines Composers, der nichts kann.
+
+             Hier stand bis P4 ein feld-förmiger Gast-Composer. Er war gut gebaut,
+             aber er versprach eine Bühne, die es nicht gibt: ohne Signer gibt es
+             kein NIP-42-AUTH und ohne AUTH keinen Lesezugriff, der Raum bleibt
+             also leer. Ein Schreibfeld über einem leeren Verlauf lädt zu etwas ein,
+             das erst nach der Anmeldung überhaupt beginnt.
+
+             KEINE Bindung mehr an `membershipReady`: für einen Gast ist die
+             Mitgliedschaft keine offene Frage — und der 39002-REQ, aus dem der
+             Zustand käme, wird ihm ohnehin verweigert.
+
+             `x-if` statt `x-show`: die Gate-Insel startet beim Mount einen eigenen
+             Directory-Sub. Mit `x-show` liefe der bei JEDEM Raumbesuch mit, auch
+             für Mitglieder, die die Fläche nie sehen. --}}
+        <template x-if="! $store.authGate?.authed">
+            <x-group::verein-gate context="{{ __('Räume und Chat') }}" />
+        </template>
     </div>
 
     {{-- Löschen bestätigen (NIP-09 ist unwiderruflich). --}}
