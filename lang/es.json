@@ -620,7 +620,7 @@
     "Unbekannter Raum": "Sala desconocida",
     "Unbekanntes Jahr.": "Año desconocido.",
     "Unerwartete Antwort vom Verein.": "Respuesta inesperada de la asociación.",
-    "Ungelesen. ": "Sin leer. ",
+    "Ungelesen. :label": "Sin leer. :label",
     "Ungültige Kombination: „dismiss\" gehört zu „dismissed\" (und nur dazu).": "Combinación no válida: «dismiss» va con «dismissed» (y solo con eso).",
     "Ungültige Rechnung von WebLN": "Factura no válida de WebLN",
     "Ungültige Report-Kennung (erwartet 64-stellige Event-id).": "Identificador de denuncia no válido (se espera un event id de 64 caracteres).",

@@ -18,7 +18,6 @@ import {
     ORIGIN_FALLBACK,
     ORIGIN_KEYS,
     LABEL_SNIPPET_MAX,
-    UNREAD_SR_PREFIX,
     UPDATES_PAGE,
     countUnreadUpdates,
     filterUpdates,
@@ -234,7 +233,7 @@ test('aria-label traegt alle vier sichtbaren Ebenen (es ersetzt den Kindtext)', 
  */
 test('aria-label nennt „Ungelesen" im ERSTEN Wort, nicht am Ende', () => {
     const label = updateAriaLabel(item({ key: 'a', unread: true }))
-    assert.ok(label.startsWith(UNREAD_SR_PREFIX), `Label beginnt nicht mit dem Zustand: „${label}"`)
+    assert.ok(label.startsWith('Ungelesen. '), `Label beginnt nicht mit dem Zustand: „${label}"`)
     assert.doesNotMatch(label, /ungelesen[^.]*$/i, 'der Hinweis darf nicht (nur) hinten stehen')
 })
 
@@ -266,11 +265,16 @@ test('aria-label traegt den Ungelesen-Hinweis — und nur bei ungelesen', () => 
 
     assert.ok(ungelesen.includes('Ungelesen'), 'ungelesene Zeile muss den Hinweis tragen')
     assert.ok(!gelesen.toLowerCase().includes('ungelesen'), 'gelesene Zeile darf ihn nicht tragen')
-    assert.equal(ungelesen, UNREAD_SR_PREFIX + gelesen, 'sonst ist nichts anders')
+    // Unter node (Katalog leer) ist der Platzhalter-Schlussel der deutsche Text
+    // selbst — der Zusammensetzung nach ist die Ausgabe bitgleich zum alten
+    // Praefix-Umbau: Praefix + Rest, sonst nichts.
+    assert.equal(ungelesen, 'Ungelesen. ' + gelesen, 'sonst ist nichts anders')
 })
 
 test('der Ungelesen-Hinweis ist ein vorangestelltes, eigenes Satzglied', () => {
-    assert.equal(UNREAD_SR_PREFIX, 'Ungelesen. ')
+    const label = updateAriaLabel(item({ key: 'a', unread: true }))
+    assert.ok(label.startsWith('Ungelesen. '), 'Punkt und Leerzeichen schliessen den Hinweis als Satzglied ab')
+    assert.ok(!label.startsWith('Ungelesen '), 'ohne Punkt waere er mit dem Kontext verschmolzen')
 })
 
 // ── Undo-Frist ────────────────────────────────────────────────────────────

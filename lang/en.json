@@ -620,7 +620,7 @@
     "Unbekannter Raum": "Unknown room",
     "Unbekanntes Jahr.": "Unknown year.",
     "Unerwartete Antwort vom Verein.": "Unexpected response from the association.",
-    "Ungelesen. ": "Unread. ",
+    "Ungelesen. :label": "Unread. :label",
     "Ungültige Kombination: „dismiss\" gehört zu „dismissed\" (und nur dazu).": "Invalid combination: \"dismiss\" belongs with \"dismissed\" (and only with it).",
     "Ungültige Rechnung von WebLN": "Invalid invoice from WebLN",
     "Ungültige Report-Kennung (erwartet 64-stellige Event-id).": "Invalid report identifier (expected a 64-character event id).",

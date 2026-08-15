@@ -635,7 +635,7 @@
     "Unbekannter Raum": "Nieznany pokój",
     "Unbekanntes Jahr.": "Nieznany rok.",
     "Unerwartete Antwort vom Verein.": "Nieoczekiwana odpowiedź od stowarzyszenia.",
-    "Ungelesen. ": "Nieprzeczytane. ",
+    "Ungelesen. :label": "Nieprzeczytane. :label",
     "Ungültige Kombination: „dismiss\" gehört zu „dismissed\" (und nur dazu).": "Nieprawidłowa kombinacja: „dismiss\" należy do „dismissed\" (i tylko do niego).",
     "Ungültige Rechnung von WebLN": "Nieprawidłowy rachunek z WebLN",
     "Ungültige Report-Kennung (erwartet 64-stellige Event-id).": "Nieprawidłowy identyfikator zgłoszenia (oczekiwano 64-znakowego event id).",

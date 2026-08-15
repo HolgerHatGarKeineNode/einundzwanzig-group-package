@@ -138,10 +138,15 @@ export function updatesSubtitle(items: readonly UpdateItem[], filtered = false):
  * textlos, und ein `sr-only`-Geschwister wäre unter einem `aria-label` totes Markup.
  * Der Zustand muss deshalb im ersten Wort stehen.
  *
+ * Als GANZER Satz mit `:label`-Platzhalter statt `t('Ungelesen. ')` + Konkatenation
+ * (P10, Punkt 3 — dieselbe Klasse, die P3 in 64 Blade-Stellen abgestellt hat): der
+ * Schlüssel endet nicht mehr auf einem Leerzeichen, und der Übersetzer bekommt den
+ * ganzen Satz statt eines Präfix-Fragments. Unter `de` (Katalog leer) liefert
+ * `t('Ungelesen. :label', { label })` zeichen für Zeichen die alte Ausgabe.
+ *
  * Nicht der Bestandstext `', ungelesene Nachrichten'` aus `unread-dot.blade.php`:
  * vorangestellt liest der sich nicht.
  */
-export const UNREAD_SR_PREFIX = t('Ungelesen. ')
 
 /** Snippet-Länge IM LABEL. Der volle Text steht in der Zeile, nicht im Namen des Knopfes. */
 export const LABEL_SNIPPET_MAX = 120
@@ -159,7 +164,10 @@ export const updateAriaLabel = (item: UpdateItem): string => {
     const text = [item.context, item.title, shortenForLabel(item.snippet), item.timeLabel]
         .filter((part) => part !== '')
         .join('. ')
-    return item.unread ? UNREAD_SR_PREFIX + text : text
+    // Das Literal steht direkt im Aufruf (nicht als Konstante): der i18n-Scanner
+    // der Host-Seite liest nur literale erste Argumente — eine Zwischenkonstante
+    // nähme den Schlüssel aus jeder Vollständigkeitsmessung.
+    return item.unread ? t('Ungelesen. :label', { label: text }) : text
 }
 
 // ── Ladeentscheidung: auf die Raumliste warten ────────────────────────────

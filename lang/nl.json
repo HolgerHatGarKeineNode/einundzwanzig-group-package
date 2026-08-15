@@ -620,7 +620,7 @@
     "Unbekannter Raum": "Onbekende kamer",
     "Unbekanntes Jahr.": "Onbekend jaar.",
     "Unerwartete Antwort vom Verein.": "Onverwacht antwoord van de vereniging.",
-    "Ungelesen. ": "Ongelezen. ",
+    "Ungelesen. :label": "Ongelezen. :label",
     "Ungültige Kombination: „dismiss\" gehört zu „dismissed\" (und nur dazu).": "Ongeldige combinatie: \"dismiss\" hoort bij \"dismissed\" (en alleen daarbij).",
     "Ungültige Rechnung von WebLN": "Ongeldige factuur van WebLN",
     "Ungültige Report-Kennung (erwartet 64-stellige Event-id).": "Ongeldige melding-identificatie (64-tekens event id verwacht).",

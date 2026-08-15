@@ -650,7 +650,7 @@
     "Unbekannter Raum": "Nezināma telpa",
     "Unbekanntes Jahr.": "Nezināms gads.",
     "Unerwartete Antwort vom Verein.": "Negaidīta atbilde no biedrības.",
-    "Ungelesen. ": "Neizlasīts. ",
+    "Ungelesen. :label": "Neizlasīts. :label",
     "Ungültige Kombination: „dismiss\" gehört zu „dismissed\" (und nur dazu).": "Nederīga kombinācija: „dismiss\" pieder pie „dismissed\" (un tikai pie tā).",
     "Ungültige Rechnung von WebLN": "Nederīgs rēķins no WebLN",
     "Ungültige Report-Kennung (erwartet 64-stellige Event-id).": "Nederīgs ziņojuma identifikators (gaidīts 64 rakstzīmju event id).",
