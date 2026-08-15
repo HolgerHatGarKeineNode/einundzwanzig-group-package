@@ -20,7 +20,9 @@ use Livewire\Component;
  */
 new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends Component {}; ?>
 
-@php($jsVar1 = config('group.verein_public_url'); $jsVar2 = __('Antrag senden'); $jsVar3 = __('Zahlung starten'); $jsVar4 = __('Mit verbundener Wallet zahlen'); $jsVar5 = __('Wird geprüft…'); $jsVar6 = __('Jetzt prüfen'); $jsVar7 = __('Zurück zu den Räumen'); $jsVar8 = __('Abbrechen');)
+@php
+    $jsVar1 = config('group.verein_public_url'); $jsVar2 = __('Antrag senden'); $jsVar3 = __('Zahlung starten'); $jsVar4 = __('Mit verbundener Wallet zahlen'); $jsVar5 = __('Wird geprüft…'); $jsVar6 = __('Jetzt prüfen'); $jsVar7 = __('Zurück zu den Räumen'); $jsVar8 = __('Abbrechen');
+@endphp
 
 <main class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10 pt-safe">
     {{-- Interstitial ohne app-shell → Signer-/Reconnect-Strip selbst tragen: jeder
