@@ -238,6 +238,56 @@
     overflow-wrap: anywhere;
 }
 
+/* Die schmale Auszeichnungs-Schicht des Chats (2026-08-16, `js/chatMarkup.ts`).
+   BEWUSST nur diese vier: `**fett**`, `~~durchgestrichen~~`, `code` inline und als Block.
+   Kein Markdown-Parser, keine Überschriften, keine Listen, keine `[Text](URL)` — die
+   Begründung je Element steht im Kopf von `chatMarkup.ts` und ist eine Produkt-, keine
+   Stilentscheidung. */
+.chat-content strong {
+    font-weight: 600;
+}
+.chat-content del {
+    text-decoration-line: line-through;
+    /* Der Durchstrich ist die ganze Aussage — auf `text-muted` gedimmt wäre er bei
+       0,875rem an der 4,5:1-Grenze und die Streichung selbst kaum zu sehen. Farbe bleibt. */
+    text-decoration-thickness: 1px;
+}
+/* Inline-Code: getönte Fläche statt Rahmen — ein Rahmen um ein paar Zeichen mitten im
+   Fließtext bricht die Zeilenhöhe, eine Fläche nicht. Werte bewusst ZEICHENGLEICH zu
+   `.article-content code` weiter unten: derselbe Nutzer sieht Code im Artikel und im
+   Chat, zwei Grautöne für dieselbe Sache wären ein Zufallsunterschied. `overflow-wrap`
+   ist der eine Zusatz — ein gepasteter Hash oder Pfad ist länger als die Chat-Spalte. */
+.chat-content .chat-code {
+    padding: 0.1em 0.35em;
+    border-radius: 0.3rem;
+    background-color: color-mix(in oklab, var(--color-zinc-500) 14%, transparent);
+    font-family: var(--font-mono, monospace);
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}
+/* Code-BLOCK: eigene Fläche, eigener Scroller. Er dehnt die Spalte NICHT — ein
+   gepastetes Fehlerprotokoll darf den Verlauf nicht auseinanderziehen, es scrollt in
+   sich (dieselbe Regel wie bei Tabellen). Enger als im Artikel: dort steht ein Block
+   in einer Lesespalte, hier in einer Chat-Zeile zwischen zwei anderen Nachrichten. */
+.chat-content .chat-pre {
+    margin-block: 0.375rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: var(--radius-tile, 0.5rem);
+    background-color: color-mix(in oklab, var(--color-zinc-500) 14%, transparent);
+    overflow-x: auto;
+    /* Der Textkörper trägt `whitespace-pre-wrap`; ein Codeblock erbt das NICHT, sonst
+       bricht jede Zeile mitten im Bezeichner statt zu scrollen. */
+    white-space: pre;
+}
+/* Im Block trägt die Fläche den Hintergrund — sonst läge Grau auf Grau (gleiche
+   Aufteilung wie bei `.article-content pre code`). */
+.chat-content .chat-pre code {
+    padding: 0;
+    background: none;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.85em;
+}
+
 /* @-Mention (NIP-27): der zu `@Name` aufgelöste Profil-Node, brand-getönt.
 
    Seit 2026-08-16 ist das ein <button> und kein <span> mehr: mit dem Profil-Chip (siehe

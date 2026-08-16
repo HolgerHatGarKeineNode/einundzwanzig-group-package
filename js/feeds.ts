@@ -25,6 +25,7 @@ import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from '.
 import { DEFAULT_RELAYS, proxifyImage } from './core'
 import { contentEmojiTags } from './emoji'
 import { linkDisplay, isPlausibleUrl } from './chatLinks'
+import { applyInlineMarkup, stripInlineMarkup } from './chatMarkup'
 import { firstNostrRef, refClickTarget, refThreadPath, shortenEntity, withShortRefTokens, type NostrRef } from './nostrEventLink'
 import { quoteCardsEnabled } from './displayPrefs'
 import { withSpace } from './spaceParam'
@@ -252,6 +253,30 @@ const renderMentionSpan = (pubkey: string): string => {
  * Der Cache-Schlüssel ist deshalb wieder die blanke `event.id`: die HTML einer Nachricht hängt
  * an nichts mehr außer ihrem Body.
  */
+/**
+ * Ein Code-Knoten als HTML — inline `<code>`, als Block `<pre><code>`.
+ *
+ * Die Unterscheidung steht in `raw` und nirgends sonst: welshman legt beide Formen in
+ * DENSELBEN Knotentyp (`parser.js:57/63`), der `value` ist bereits ohne Zäune. Ein Block
+ * behält seine Zeilenumbrüche und scrollt notfalls quer — im Chat ist er meist ein
+ * gepastes Fehlerprotokoll, und das darf die Spalte nicht auseinanderdrücken.
+ *
+ * Der führende Zeilenumbruch fällt: ```` ```\ncode\n``` ```` (die Form, die jeder tippt)
+ * brächte sonst eine Leerzeile vor dem ersten Zeichen mit.
+ */
+const renderCodeHtml = (value: string, block: boolean): string => {
+    const code = document.createElement('code')
+    code.textContent = block ? value.replace(/^\n/, '').replace(/\n$/, '') : value
+    if (!block) {
+        code.className = 'chat-code'
+        return code.outerHTML
+    }
+    const pre = document.createElement('pre')
+    pre.className = 'chat-pre'
+    pre.appendChild(code)
+    return pre.outerHTML
+}
+
 const htmlCache = new Map<string, string>()
 const renderMessageHtml = (event: TrustedEvent): string => {
     const cacheKey = event.id
@@ -276,6 +301,18 @@ const renderMessageHtml = (event: TrustedEvent): string => {
                     hasMention = true
                     return renderMentionSpan(node.value.pubkey)
                 }
+                // Code (2026-08-16): welshman ERKENNT `` `inline` `` und ```` ```block```` ````
+                // längst als eigenen Knoten — es rendert ihn nur als nackten Text
+                // (`render.js:52`, `renderCode` = `addText`). Die Zäune verschwanden
+                // dadurch, ohne dass etwas an ihre Stelle trat: ein halber Zustand, in dem
+                // die Auszeichnung verbraucht, aber nicht gezeigt wurde. Flotilla, die
+                // Referenz für diesen Client, gibt denselben Knoten an eine eigene
+                // Code-Komponente — hier ist es das passende Element. Der Wert ist
+                // Nutzertext und wird deshalb über einen DOM-Knoten escapt, nie per
+                // Template-String zusammengesetzt.
+                if (node.type === ParsedType.Code) {
+                    return renderCodeHtml(node.value, node.raw.startsWith('```'))
+                }
                 // welshman linkt jedes wort.wort und setzt https:// davor —
                 // Code-Token wie `Alpine.store`, `readState.ts`, `$store.unread`
                 // fallen hier durch. isPlausibleUrl entscheidet, ob der Token
@@ -287,7 +324,12 @@ const renderMessageHtml = (event: TrustedEvent): string => {
                         { renderLink: renderMessageLink },
                     ).toString()
                 }
-                return renderAsHtml([node], { renderLink: renderMessageLink }).toString()
+                const gerendert = renderAsHtml([node], { renderLink: renderMessageLink }).toString()
+                // `**fett**`/`~~durchgestrichen~~` NUR auf Textknoten, und erst NACH dem
+                // Escaping (Begründung in `chatMarkup.ts`). Ein Link-, Emoji- oder
+                // Mention-Knoten bringt eigenes Markup mit — dort stünde das Muster sonst
+                // plötzlich in einem Attributwert.
+                return node.type === ParsedType.Text ? applyInlineMarkup(gerendert) : gerendert
             })
             .join('')
         // Nur Mention-freie Nachrichten cachen: der Name eines Mentions lädt async
@@ -628,9 +670,17 @@ const buildGoalView = (event: TrustedEvent, zaps: ZapSummary): GoalView => {
 // Der `lastRead`-Parameter von {@link deriveRoomChat} bleibt — er speist nur noch die
 // „Neu"-Trennlinie und kommt jetzt aus `roomWatermark(...)`.
 
-/** Snippet aus Rohtext: Whitespace kollabiert + auf Länge gekürzt. */
+/**
+ * Snippet aus Rohtext: Auszeichnungs-Marker raus, Whitespace kollabiert, auf Länge gekürzt.
+ *
+ * Das Entfernen der Marker (2026-08-16) gehört UNTRENNBAR zum Rendern von `**fett**` im
+ * Verlauf: ein Ausschnitt wird als reiner Text angezeigt, er kann kein `<strong>` tragen.
+ * Ohne diesen Schritt stünde die Auszeichnung genau dort wieder sichtbar, wo sie niemand
+ * lesen will — in der Antwort-Vorschau, auf der Zitatkarte und im Thread-Kopf —, und ein
+ * Screenreader spräche die Sterne mit.
+ */
 const snippet = (text: string, max = 120): string => {
-    const clean = text.replace(/\s+/g, ' ').trim()
+    const clean = stripInlineMarkup(text).replace(/\s+/g, ' ').trim()
     return clean.length > max ? `${clean.slice(0, max)}…` : clean
 }
 

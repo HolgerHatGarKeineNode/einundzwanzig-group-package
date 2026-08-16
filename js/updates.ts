@@ -49,6 +49,7 @@ import {
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository.ts'
 import { QUOTE_PREFIX } from './polls.ts'
+import { stripInlineMarkup } from './chatMarkup.ts'
 import {
     readState,
     readStateReady,
@@ -536,7 +537,11 @@ const buildItem = (input: UpdateInput, spec: RowSpec): UpdateItem => {
         type: spec.type,
         context,
         title,
-        snippet: bodyWithoutQuote(newest),
+        // Auszeichnungs-Marker raus (2026-08-16): die Update-Zeile zeigt reinen Text und
+        // trägt ihn zusätzlich in ihr `aria-label` — ein `**fett**` stünde hier sichtbar
+        // da und würde vorgelesen. Dieselbe Pflicht wie bei `feeds.ts snippet`, nur für
+        // den anderen Vorschau-Pfad; beide hängen an `chatMarkup.ts`.
+        snippet: stripInlineMarkup(bodyWithoutQuote(newest)),
         timeLabel: updateTimeLabel(newest.created_at, input.now),
         picture: input.profiles.get(newest.pubkey)?.picture ?? '',
         authorName,
