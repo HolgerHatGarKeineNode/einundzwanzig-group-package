@@ -612,10 +612,17 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
 
                             {{-- Solange der Plan läuft: sagen, DASS er läuft. Sonst
                                  sieht ein Bildschirm, der sich zwei Minuten nicht
-                                 rührt, aus wie einer, der hängt. --}}
-                            <template x-if="!exhausted">
+                                 rührt, aus wie einer, der hängt. In der App (P8)
+                                 läuft kein Plan — dort sagt derselbe Platz, was
+                                 WIRKLICH von selbst läuft: die Freischaltung. --}}
+                            <template x-if="!exhausted && autoAsk()">
                                 <flux:text class="text-xs text-muted" data-testid="verein-warten-automatik">
                                     {{ __('Wir fragen automatisch weiter nach.') }}
+                                </flux:text>
+                            </template>
+                            <template x-if="!exhausted && !autoAsk()">
+                                <flux:text class="text-xs text-muted" data-testid="verein-warten-app">
+                                    {{ __('Die Freischaltung kommt automatisch – auch ohne offene App.') }}
                                 </flux:text>
                             </template>
 

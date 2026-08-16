@@ -89,6 +89,13 @@ const API_PREFIX = '/api/v1/membership'
 /** Präfix unserer eigenen Proxy-Routen (`bootstrap/app.php`). */
 const PROXY_PREFIX = '/api/verein'
 
+/**
+ * P8 — APP-Zweig desselben Proxys: weder Session noch NIP-98, das Subjekt
+ * reist im Body (Vertrag: VereinAppProxyController / StoreAppApplicationRequest).
+ * NICHT mit PROXY_PREFIX vereinheitlichen — die Türen tragen verschiedene Auth.
+ */
+const APP_PROXY_PREFIX = '/api/app/verein'
+
 const csrfToken = (): string =>
     document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? ''
 
@@ -109,6 +116,12 @@ type ProxyResult = { ok: boolean; status: number; body: unknown; retryAfter: str
  * Verein kein NIP-98, und unser Proxy reicht dort auch keinen
  * `Authorization`-Header weiter. Ein Ausweis wäre also nicht bloß überflüssig,
  * sondern eine verschenkte Signatur.
+ *
+ * P8, App-Modus (`isMobile`): ein anderer Präfix, keine Signatur, und der
+ * Body bekommt den angemeldeten Pubkey eingesetzt. Neu-Serialisieren ist
+ * dort zulässig, weil OHNE Signatur kein `payload`-Tag an den Bytes hängt —
+ * das einzige.Invariantenpaar (Bytes EINMAL, `u` aufs Vereins-Ziel) lebt im
+ * Web-Zweig weiter.
  */
 const call = async (path: string, method: string, body?: string, needsAuth = true): Promise<ProxyResult> => {
     const { api = '', proxy = '' } = conf()
@@ -126,6 +139,25 @@ const call = async (path: string, method: string, body?: string, needsAuth = tru
         return { ok: false, status: 503, body: { message: t('Die Vereins-Anbindung ist nicht eingerichtet.') }, retryAfter: null }
     }
 
+    /*
+     * P8 — App-Modus: Pubkey in JEDEN schreibenden Body. Der App-Zweig beim
+     * Verein kennt kein Subjekt aus Signatur oder Session; fehlte der Pubkey,
+     * wäre jede Anwendung und jede Rechnung ein 422. Zentral hier statt an
+     * jeder Aufrufstelle, damit ein künftiger POST ihn nicht vergessen kann.
+     */
+    if (isMobile && body !== undefined && method !== 'GET') {
+        try {
+            const parsed = JSON.parse(body) as Record<string, unknown>
+            const pk = pubkey.get()
+
+            if (pk && parsed.pubkey === undefined) {
+                body = JSON.stringify({ ...parsed, pubkey: pk })
+            }
+        } catch {
+            // Kein JSON-Body: durchreichen, der Proxy lehnt ihn mit 415 ab.
+        }
+    }
+
     const headers: Record<string, string> = {
         Accept: 'application/json',
         'X-CSRF-TOKEN': csrfToken(),
@@ -136,7 +168,12 @@ const call = async (path: string, method: string, body?: string, needsAuth = tru
         headers['Content-Type'] = 'application/json'
     }
 
-    if (needsAuth) {
+    /*
+     * P8 — der App-Zweig signiert nicht (Entscheid des Auftraggebers); der
+     * gesamte Ausweis-Block inklusive seiner Fehlerfälle entfällt dort.
+     * `needsAuth` regelt weiter den Web-Fall.
+     */
+    if (needsAuth && !isMobile) {
         const s = signer.get()
 
         if (!s) {
@@ -188,7 +225,7 @@ const call = async (path: string, method: string, body?: string, needsAuth = tru
     let res: Response
 
     try {
-        res = await fetch(`${proxy.replace(/\/+$/, '')}${PROXY_PREFIX}${path}`, {
+        res = await fetch(`${proxy.replace(/\/+$/, '')}${isMobile ? APP_PROXY_PREFIX : PROXY_PREFIX}${path}`, {
             method,
             headers,
             body,
@@ -471,6 +508,8 @@ type VereinState = {
     // Ableitungen fürs Markup
     feeLabel(): string
     hasFlow(): boolean
+
+    autoAsk(): boolean
     errorAction(): string
     errorFields(): Record<string, string[]>
     fieldLabel(field: string): string
@@ -990,6 +1029,11 @@ const createVerein = (startInWaiting = false): VereinState => ({
         return (conf().api ?? '') !== ''
     },
 
+    // P8: Web fragt beim Verein nach, App wartet auf die relay-signierte Liste.
+    autoAsk() {
+        return !isMobile
+    },
+
     /**
      * Die Wallet/Checkout-Weiche — **die eine Stelle**, die sie beantwortet.
      *
@@ -1126,10 +1170,23 @@ const createVerein = (startInWaiting = false): VereinState => ({
             this._applyConfig(cached)
         }
 
+        /*
+         * P8 — der App-Zweig hat KEIN /me (es gäbe ohne Signatur die
+         * Mitgliedsdaten fremder Pubkeys her). Was /me im Web liefert, kommt
+         * in der App aus zwei ehrlichen Quellen: die Zustimmung aus dem
+         * Fortschritts-Eintrag (eine Checkout-Adresse setzt eine Akte und
+         * damit eine recorded consent voraus), der Zahlstatus aus dem, was
+         * der Nutzer getan hat — und die Freischaltung selbst aus der
+         * relay-signierten Liste, die ohnehin beobachtet wird.
+         */
         const [cfg, me] = await Promise.all([
             cached ? Promise.resolve(null) : call('/config', 'GET', undefined, false),
-            call('/me', 'GET'),
+            isMobile ? Promise.resolve(null) : call('/me', 'GET'),
         ])
+
+        if (isMobile && readProgress()?.checkoutUrl) {
+            this._statutesAccepted = true
+        }
 
         if (cfg) {
             if (!cfg.ok) {
@@ -1141,7 +1198,7 @@ const createVerein = (startInWaiting = false): VereinState => ({
             }
         }
 
-        if (me.ok) {
+        if (me && me.ok) {
             const parsed = readMe(me.body)
             this._statutesAccepted = parsed.statutesAccepted
             this._paid = parsed.paid
@@ -1149,12 +1206,11 @@ const createVerein = (startInWaiting = false): VereinState => ({
             if (parsed.year !== null) {
                 this.year = parsed.year
             }
-        } else if (me.status !== 404) {
+        } else if (me && me.status !== 404) {
             // 404 heißt hier „noch keine Akte" — das ist der Normalfall für einen
             // Gast und kein Fehler. Alles andere ist einer.
             this._fail(mapVereinError(me.status, me.body, me.retryAfter, t))
         }
-
         // `loadWallet` entschlüsselt aus dem gehärteten Speicher und kann werfen
         // (fehlender Keystore, gesperrter Storage, beschädigter Eintrag). Ein
         // Wurf hier riss den ganzen Boot mit und ließ die Fläche in `laden`
@@ -1249,6 +1305,18 @@ const createVerein = (startInWaiting = false): VereinState => ({
         }
 
         /*
+         * P8 — im App-Modus gibt es keinen Nachfass-Plan: jede Runde würde
+         * einen signierten `refresh` verlangen, den es dort nicht gibt. Was
+         * von selbst weiterläuft, ist die relay-signierte Liste — sie schiebt
+         * den Zustand, sobald der nächtliche Abgleich den Pubkey führt. Der
+         * Nutzer prüft von Hand („Jetzt prüfen"), der Automatik-Satz der
+         * Warte­fläche entfällt (siehe `autoAsk()`).
+         */
+        if (isMobile) {
+            return
+        }
+
+        /*
          * Nichts läuft automatisch, was dieser Browser nicht selbst begonnen hat
          * oder was der Verein nicht bestätigt hat — siehe [[_selfInitiated]].
          * Ohne diesen Riegel genügte ein Link mit `?schritt=warten`, um beim
@@ -1319,6 +1387,18 @@ const createVerein = (startInWaiting = false): VereinState => ({
     /** Der Inhalt einer Runde — abgetrennt, damit `checking` genau einen Ein- und
      *  einen Ausstieg hat und kein Rückgabepfad ihn stehen lässt. */
     async _runFollowUp() {
+        /*
+         * P8 — „Jetzt prüfen" in der App: nachsehen heißt, die relay-signierte
+         * Liste neu lesen. Ein `refresh` beim Verein gäbe es nur mit Signatur,
+         * und die Zahlungsbuchung (Webhook) macht der Verein von selbst.
+         */
+        if (isMobile) {
+            await this._reconnectDirectory()
+            this._recompute()
+
+            return
+        }
+
         if (!this._paid) {
             if (this.year === null) {
                 this._scheduleFollowUp()
