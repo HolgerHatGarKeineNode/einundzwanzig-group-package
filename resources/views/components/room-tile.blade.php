@@ -19,13 +19,34 @@
         {{-- Avatar im relative-Wrapper: trägt bei einem beigetretenen Meetup ein
               dezentes Flaggen-Badge an der Ecke (Land-Marker), ohne die Zeilenhöhe zu
               ändern — der Pin ist absolut positioniert. Normale Räume: kein Badge. --}}
-        <span class="relative shrink-0">
-            <template x-if="room.picture">
-                <img :src="$img(room.picture)" :alt="room.name"
-                     x-on:error="$el.dataset.orig ? (room.picture = '') : ($imgFallback(room.picture) ? ($el.dataset.orig = 1, $el.src = room.picture) : (room.picture = ''))"
+        {{-- Der Fallback-Zustand lebt im Alpine-Scope, NICHT im `dataset` — und `src` wird
+             gebunden statt imperativ gesetzt. Das ist der Unterschied zwischen einem Bild,
+             das nach dem Rückfall stehen bleibt, und einem, das verschwindet:
+
+             Bis 2026-08-16 stand hier `$el.dataset.orig = 1, $el.src = room.picture`. Die
+             `:src`-Bindung daneben kennt das `dataset` nicht — beim nächsten Re-Render des
+             umschließenden `x-for` (jede eintreffende Relay-Welle löst eins aus) wendet
+             Alpine wieder `$img(room.picture)` an und schickt das Bild zurück auf die
+             Proxy-URL, die gerade gescheitert war. Der zweite Ladefehler traf dann auf ein
+             gesetztes `dataset.orig`, wurde als „auch das Original ist kaputt" gedeutet und
+             löschte das Bild. Gemessen: 11 von 40 Läufen unter Last, mit Rekorder bis zum
+             zurückspringenden `src` belegt.
+
+             Reaktiv gebunden führt dasselbe Re-Render die Kachel in den bereits erreichten
+             Zustand zurück statt an den Anfang. `imgBroken` statt `room.picture = ''`, weil
+             der Fehlerpfad sonst in das abgeleitete `RoomView` zurückschreibt — ein
+             Darstellungsfehler darf keine Daten verändern.
+
+             `$imgFallback` bleibt das EINZIGE Tor zum Original (P7-Sicherheitsgrenze: eine
+             protokoll-relative `picture`-URL schickte den Browser jedes Lesers sonst direkt
+             zum Angreifer-Host). Der Umbau verschiebt den Aufruf, er umgeht ihn nicht. --}}
+        <span class="relative shrink-0" x-data="{ imgOrig: false, imgBroken: false }">
+            <template x-if="room.picture && !imgBroken">
+                <img :src="imgOrig ? room.picture : $img(room.picture)" :alt="room.name"
+                     x-on:error="imgOrig ? (imgBroken = true) : ($imgFallback(room.picture) ? (imgOrig = true) : (imgBroken = true))"
                      class="size-8 rounded-tile object-cover" />
             </template>
-            <template x-if="!room.picture">
+            <template x-if="!room.picture || imgBroken">
                 <span class="flex size-8 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-800 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
             </template>
             {{-- Meetup-Marker: kleines Flaggen-Badge (aria-hidden — der Raumname trägt

@@ -22,17 +22,24 @@
             class="pressable flex min-w-0 flex-1 items-center gap-2.5 rounded-tile p-1.5 text-left">
 
         {{-- Logo + Flaggen-Pin (Signatur). --}}
-        <span class="relative shrink-0">
+        <span class="relative shrink-0" x-data="{ imgOrig: false, imgBroken: false }">
             {{-- Logo vorhanden: Proxy → Original → (bei erneutem Fehler) Flagge/Initiale.
                  Original-Schritt nur bei proxyfähigem Ziel ($imgFallback, P7) — die
-                 Policy des Proxys entscheidet, nicht der Ladefehler allein. --}}
-            <template x-if="room.picture">
-                <img :src="$img(room.picture)" alt=""
-                     x-on:error="$el.dataset.orig ? (room.picture = '') : ($imgFallback(room.picture) ? ($el.dataset.orig = 1, $el.src = room.picture) : (room.picture = ''))"
+                 Policy des Proxys entscheidet, nicht der Ladefehler allein.
+
+                 Zustand im Alpine-Scope und `src` GEBUNDEN statt imperativ gesetzt: das
+                 `dataset`-Muster von vorher überlebte kein Re-Render des umschließenden
+                 `x-for` — Alpine wendete `$img(room.picture)` erneut an, das Bild sprang
+                 auf die gescheiterte Proxy-URL zurück, und der zweite Ladefehler löschte
+                 es. Vollständige Herleitung samt Messung in `room-tile.blade.php`; diese
+                 Kachel trug denselben Fehler zeichengleich. --}}
+            <template x-if="room.picture && !imgBroken">
+                <img :src="imgOrig ? room.picture : $img(room.picture)" alt=""
+                     x-on:error="imgOrig ? (imgBroken = true) : ($imgFallback(room.picture) ? (imgOrig = true) : (imgBroken = true))"
                      class="size-10 rounded-tile object-cover ring-1 ring-black/5 dark:ring-white/10" />
             </template>
             {{-- Kein Logo, aber Flagge: Flagge groß als Avatar. --}}
-            <template x-if="!room.picture && meetup(room.meetupSlug)?.flag">
+            <template x-if="(!room.picture || imgBroken) && meetup(room.meetupSlug)?.flag">
                 <span class="flex size-10 items-center justify-center rounded-tile bg-brand-500/10 text-2xl leading-none" x-text="meetup(room.meetupSlug).flag"></span>
             </template>
             {{-- Weder Logo noch Flagge (Join lädt noch): Initiale auf Brand-Tint.
@@ -41,13 +48,20 @@
                  also gilt 4,5:1. Auf dem Tint (`brand-500/10` über Weiß) rechnet
                  `brand-700` 4,05:1 und risse; `brand-800` rechnet 5,92:1 und ist
                  zugleich gemessen (5,91:1 am gleichen Träger der Raum-Kacheln). --}}
-            <template x-if="!room.picture && !meetup(room.meetupSlug)?.flag">
+            <template x-if="(!room.picture || imgBroken) && !meetup(room.meetupSlug)?.flag">
                 <span class="flex size-10 items-center justify-center rounded-tile bg-brand-500/10 text-base font-semibold text-brand-800 dark:text-brand-400"
                       x-text="(room.name || '#').slice(0, 1).toUpperCase()"></span>
             </template>
-            {{-- Flaggen-Pin an der unteren Ecke (nur wenn Logo UND Flagge da).
+            {{-- Flaggen-Pin an der unteren Ecke (nur wenn ein SICHTBARES Logo da ist und
+                 eine Flagge). `!imgBroken` gehört zwingend dazu: ohne das stünde bei
+                 kaputtem Logo die große Flagge (Zweig oben) UND dieser Pin zugleich — die
+                 Flagge doppelt an einer Kachel. Vor 2026-08-16 schaltete sich der Pin
+                 selbst ab, weil der Fehlerpfad `room.picture = ''` setzte; diese Zeile ist
+                 mit dem Umbau zu Recht entfallen (sie schrieb in das abgeleitete RoomView
+                 zurück), und die Bedingung muss den Wegfall hier nachvollziehen. Gemessen
+                 als `toHaveCount(1)` → `Received: 2`.
                  aria-hidden: das Land steht schon im aria-label des Buttons. --}}
-            <template x-if="room.picture && meetup(room.meetupSlug)?.flag">
+            <template x-if="room.picture && !imgBroken && meetup(room.meetupSlug)?.flag">
                 <span aria-hidden="true"
                       class="absolute -bottom-1 -end-1 rounded-full bg-white px-0.5 text-sm leading-none ring-2 ring-white dark:bg-zinc-900 dark:ring-zinc-900"
                       x-text="meetup(room.meetupSlug).flag"></span>
