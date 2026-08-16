@@ -606,10 +606,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <flux:icon.chevron-down x-show="overflow" x-cloak class="size-3.5 shrink-0 text-muted transition-transform" ::class="expanded ? 'rotate-180' : ''" />
                     </button>
                     {{-- Auszug unter dem Namen eingerückt (Avatar 1.25rem + gap-2 = 1.75rem).
-                         text-muted = untergeordnet, aber AA-tragfähig; Links/Mentions bleiben brand. --}}
+                         text-muted = untergeordnet, aber AA-tragfähig; Links/Mentions bleiben brand.
+
+                         Der Mention-Zweig im Klick-Handler ist hier nicht Kür, sondern die Bedingung
+                         dafür, dass der Kopf dieselbe Erwähnung wie jede Kommentarzeile behandelt:
+                         Der Thread-ROOT rendert NICHT über `chat-row`, sondern über dieses eigene
+                         Markup (`personFields` ohne Karte) — ein Handler nur in `chat-row` ließe die
+                         Erwähnung genau hier tot. `.stop`, weil die Kopf-Leiste darüber selbst
+                         ein Klickziel ist (Auf-/Zuklappen). --}}
                     <div x-ref="rootBody" class="chat-content mt-0.5 pl-7 text-sm break-words whitespace-pre-wrap text-muted"
                          :class="expanded ? '' : 'line-clamp-1'" x-html="threadRoot.html"
-                         x-on:click="if ($event.target.matches('img.chat-image')) { $event.stopPropagation(); lightboxSrc = $event.target.dataset.full }"></div>
+                         x-on:click="
+                             if ($event.target.matches('img.chat-image')) {
+                                 $event.stopPropagation();
+                                 lightboxSrc = $event.target.dataset.full
+                             } else {
+                                 const mention = $event.target.closest('button.mention[data-pubkey]');
+                                 if (mention) { $event.stopPropagation(); $dispatch('open-profile', mention.dataset.pubkey) }
+                             }
+                         "></div>
                 </div>
             </template>
             <template x-if="threadRoot?.missing">

@@ -238,10 +238,37 @@
     overflow-wrap: anywhere;
 }
 
-/* @-Mention (NIP-27): der zu `@Name` aufgelöste Profil-Node, brand-getönt. */
+/* @-Mention (NIP-27): der zu `@Name` aufgelöste Profil-Node, brand-getönt.
+
+   Seit 2026-08-16 ist das ein <button> und kein <span> mehr: mit dem Profil-Chip (siehe
+   `feeds.ts buildRefCard`) fiel der einzige Weg weg, ein im Text genanntes Profil zu öffnen.
+   Ein echtes <button> statt `role="button"` am <span>, weil Enter und Leertaste dann nativ
+   auslösen — sonst müsste jeder x-html-Container zusätzlich Tastatur-Ereignisse delegieren.
+
+   `font: inherit` VOR `font-weight`: die Kurzform setzt das Gewicht mit zurück und würde die
+   Zeile darunter sonst überschreiben. `display: inline` ist Pflicht — als `inline-block`
+   (Browser-Default für Buttons) risse ein langer Name die Zeile, statt mit ihr umzubrechen. */
 .chat-content .mention {
-    color: var(--color-brand-500);
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
     font-weight: 600;
+    color: var(--color-brand-500);
+    text-align: inherit;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+.chat-content .mention:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.chat-content .mention:focus-visible {
+    border-radius: 0.125rem;
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
 }
 
 /* Inline-Bilder im Chat-Inhalt (Bild-Proxy): begrenzte Vorschau, Klick = Lightbox. */

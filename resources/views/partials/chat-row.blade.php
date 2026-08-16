@@ -4,11 +4,20 @@
      nostrRoomChat-Component, also funktionieren react/zap/reply hier wie im Raum.
      Divider/unreadDivider inline; unreadDivider ist im Thread immer false (nie gerendert). --}}
 @php
-    // Randmarke der drei Zitat-/Referenz-Flächen einer Zeile: Reply-Vorschau (q-Tag),
-    // Zitatkarte und Profil-Chip (P5). Sie sind DIESELBE Sache in drei Ausprägungen und
-    // sollen nie auseinanderlaufen — deshalb steht die Kette einmal hier statt dreimal im
-    // Markup. Die Display-Klasse bleibt bewusst an der Fundstelle (`block` bzw. `flex …`),
-    // weil sie das Einzige ist, worin sich die drei unterscheiden.
+    // Randmarke der Zitat-/Referenz-Flächen einer Zeile: Reply-Vorschau (q-Tag) und
+    // Zitatkarte (P5; bis 2026-08-16 zusätzlich der Profil-Chip). Sie sind DIESELBE Sache
+    // in mehreren Ausprägungen und sollen nie auseinanderlaufen — deshalb steht die Kette
+    // einmal hier statt an jeder Fundstelle. Die Display-Klasse bleibt bewusst an der
+    // Fundstelle (`block` bzw. `flex …`), weil sie das Einzige ist, worin sie sich
+    // unterscheiden.
+    //
+    // JEDE Fläche, die diese Kette trägt, trägt zusätzlich `data-quote-rail`. Das Attribut
+    // ist die Adresse für Tests („hat diese Zeile überhaupt eine Karte?") und steht neben
+    // der Klasse, nicht in ihr: `$quoteRail` wird in ein `class="…"` interpoliert und kann
+    // dort kein Attribut mitbringen. Grund für das Attribut (2026-08-16): der Test hing
+    // vorher an der Tailwind-Utility `border-l-2` und wäre bei deren Umbenennung still auf
+    // null Treffer gefallen — eine Prüfung, die dann nichts mehr misst und trotzdem grün ist.
+    // Wer hier eine weitere Fläche ergänzt, ergänzt BEIDES.
     $quoteRail = 'pressable mt-0.5 mb-1 w-full border-l-2 border-brand-500/60 pl-2 text-left hover:border-brand-500';
 @endphp
                     <template x-if="m.divider">
@@ -77,7 +86,7 @@
                                  Zwei-Zeilen-Komposit → rohes <button> (kein Flux-Icon-Pendant), §6. --}}
                             <template x-if="m.reply">
                                 <button type="button" x-on:click.stop="scrollToMessage(m.reply.id)"
-                                        class="{{ $quoteRail }} block">
+                                        data-quote-rail class="{{ $quoteRail }} block">
                                     <div class="truncate text-xs font-semibold text-brand-500" x-text="m.reply.name"></div>
                                     <div class="truncate text-xs text-muted" x-text="m.reply.text"></div>
                                 </button>
@@ -111,7 +120,7 @@
                                        if (m.refCard.scroll) { $event.preventDefault(); scrollToMessage(m.refCard.id) }
                                        else if (m.refCard.resolved) { $event.preventDefault(); openThread({ id: m.refCard.id, pubkey: m.refCard.pubkey }) }
                                    "
-                                   class="{{ $quoteRail }} block">
+                                   data-quote-rail class="{{ $quoteRail }} block">
                                     <div class="truncate text-xs font-semibold text-brand-500"
                                          x-text="m.refCard.resolved ? m.refCard.name : @js(__('Zitiertes Ereignis'))"></div>
                                     {{-- HIER NIEMALS `block` dazuschreiben: `line-clamp-2` bringt sein eigenes
@@ -123,23 +132,14 @@
                                          x-text="m.refCard.resolved ? m.refCard.text : m.refCard.short"></div>
                                 </a>
                             </template>
-                            {{-- Profil-Chip (P5): ein im Text referenziertes Profil (`nostr:npub…`/`nprofile…`).
-                                 EINE Zeile, gleiche Randmarke wie das Zitat. Der Klick geht an das bestehende
-                                 `profile-card`-Modal — mit HEX-pubkey, nicht npub (das erwartet `open-profile`).
-                                 `.stop`, weil die Zeile selbst einen Klick-Handler trägt. Das Häkchen sitzt im
-                                 gleichen festen 16px-Slot wie in der Autorenzeile, damit das spät verifizierte
-                                 NIP-05 den Namen nicht verschiebt. --}}
-                            <template x-if="m.refCard && m.refCard.kind === 'profile'">
-                                <button type="button" x-on:click.stop="$dispatch('open-profile', m.refCard.pubkey)"
-                                        :aria-label="@js(__('Profil anzeigen')) + ': ' + m.refCard.name"
-                                        class="{{ $quoteRail }} flex min-w-0 items-center gap-1.5">
-                                    <x-group::nostr-avatar picture="m.refCard.picture" name="m.refCard.name" size="1.5rem" />
-                                    <span class="min-w-0 truncate text-xs font-semibold text-brand-500" x-text="m.refCard.name"></span>
-                                    <span class="inline-flex size-4 shrink-0 items-center justify-center">
-                                        <x-group::nostr-nip05 nip05="m.refCard.nip05" />
-                                    </span>
-                                </button>
-                            </template>
+                            {{-- Hier stand bis 2026-08-16 der Profil-Chip (P5): ein im Text referenziertes
+                                 Profil (`nostr:npub…`) bekam eine eigene Zeile über der Nachricht, und sein
+                                 `@Name` wurde dafür AUS dem Fließtext geschnitten. Bei mehreren genannten
+                                 Personen — dem Normalfall einer Ankündigung — zerriss das den Satz: „**Raum**
+                                 von " ohne Namen, während die Person oben ohne Bezug zu dieser Zeile stand.
+                                 Personen stehen jetzt ausnahmslos inline als `@Name`; die Karte bleibt dem
+                                 ZITAT vorbehalten, das fremden Inhalt mitbringt. Begründung: `feeds.ts
+                                 buildRefCard`. --}}
                             {{-- Thread-Kommentar (P3): Eltern-Bezug „Antwort auf <Autor>" (NIP-22 kleines `e`,
                                  via replyToName). Im Raum-Feed undefined → nie gerendert; ersetzt die
                                  frühere depth-Einrückung (flach/Slack-Stil). --}}
@@ -148,10 +148,19 @@
                                     {{ __('Antwort auf') }} <span class="text-brand-500" x-text="m.replyToName"></span>
                                 </div>
                             </template>
-                            {{-- Inline-Bild anklicken → Lightbox; Link anklicken → In-App-Browser.
-                                 Beides DELEGIERT, weil der Inhalt per x-html kommt (kein Alpine im Markup).
-                                 Der Link-Zweig ist Pflicht für die native App: dort verpufft ein
-                                 `target=_blank`-Anker in der WebView, der Tap täte sonst nichts. --}}
+                            {{-- Inline-Bild anklicken → Lightbox; Erwähnung anklicken → Profilkarte;
+                                 Link anklicken → In-App-Browser. Alle drei DELEGIERT, weil der Inhalt per
+                                 x-html kommt (kein Alpine im Markup). Der Link-Zweig ist Pflicht für die
+                                 native App: dort verpufft ein `target=_blank`-Anker in der WebView, der
+                                 Tap täte sonst nichts.
+
+                                 Der Mention-Zweig steht VOR dem Link-Zweig, obwohl sich beide nicht
+                                 überschneiden — die Reihenfolge ist die billigere Prüfung zuerst und
+                                 hält den Fall offen, dass eine Erwähnung eines Tages in einem Anker
+                                 steckt. Er ersetzt den Klick auf den früheren Profil-Chip (entfallen am
+                                 2026-08-16, siehe `feeds.ts buildRefCard`): ohne ihn wäre ein im Text
+                                 genanntes Profil überhaupt nicht mehr zu öffnen. `data-pubkey` trägt
+                                 HEX — `open-profile` erwartet hex, nicht npub. --}}
                             {{-- Textmaß ab xl: 72ch. Bewusst am OBEREN Ende des 45–75-Korridors,
                                  nicht in dessen Mitte — ein npub ist 63 Zeichen und muss auf eine
                                  Zeile passen. Inconsolata ist 0.5em breit, 72ch sind damit ~504px
@@ -163,8 +172,14 @@
                                          $event.stopPropagation();
                                          lightboxSrc = $event.target.dataset.full
                                      } else {
-                                         const link = $event.target.closest('a[href]');
-                                         if (link) { $event.stopPropagation(); openChatLink(link.href, $event) }
+                                         const mention = $event.target.closest('button.mention[data-pubkey]');
+                                         if (mention) {
+                                             $event.stopPropagation();
+                                             $dispatch('open-profile', mention.dataset.pubkey)
+                                         } else {
+                                             const link = $event.target.closest('a[href]');
+                                             if (link) { $event.stopPropagation(); openChatLink(link.href, $event) }
+                                         }
                                      }
                                  "></div>
                             {{-- Poll (C5, NIP-88 kind 1068): Optionen mit Live-Balken + Vote-Buttons.
