@@ -8,8 +8,10 @@ import assert from 'node:assert/strict'
 import {
     EMPTY_PALETTE_SCOPE,
     PALETTE_SECTIONS,
+    WORKSPACE_SIGIL,
     hasPaletteScope,
     isTextEntry,
+    isWorkspaceScope,
     mergePaletteScope,
     parsePaletteScope,
     paletteSigil,
@@ -126,6 +128,36 @@ test('visibleSections: mit Eingabe alle vier, in fester Reihenfolge Räume · Mi
 test('visibleSections: mit gesetztem Scope genau die eine adressierte Sektion', () => {
     assert.deepEqual(visibleSections({ section: 'members', group: null, country: '' }, ''), ['members'])
     assert.deepEqual(visibleSections({ section: 'actions', group: null, country: '' }, 'suche'), ['actions'])
+})
+
+// ── P5: der Workspace-Scope ─────────────────────────────────────────────────
+
+test('isWorkspaceScope erkennt genau die Gruppe workspace, unabhängig von der Sektion', () => {
+    assert.equal(isWorkspaceScope(parsePaletteScope('w:pinguin').scope), true)
+    assert.equal(isWorkspaceScope({ ...EMPTY_PALETTE_SCOPE }), false)
+    assert.equal(isWorkspaceScope({ section: 'rooms', group: 'meetups', country: '' }), false)
+    assert.equal(isWorkspaceScope({ section: 'members', group: null, country: '' }), false)
+})
+
+/**
+ * **Das ist kein Kosmetik-Test.** Solange im Workspace-Scope auch nur EINE
+ * `ui-option` entsteht, aktiviert Flux sie bei jeder Textänderung
+ * (`_filterable.onChange` → `activateFirst()`) und öffnet sie bei Enter
+ * (`handleKeyboardSelection`) — die Enter-Taste spränge dann in einen Raum,
+ * statt den Relay zu fragen. Die leere Liste IST der Mechanismus.
+ */
+test('visibleSections: der Workspace-Scope erzeugt KEINE Flux-Option — sonst frisst Flux das Enter', () => {
+    const scope = parsePaletteScope('w:').scope
+
+    assert.deepEqual(visibleSections(scope, ''), [])
+    assert.deepEqual(visibleSections(scope, 'pinguin'), [])
+})
+
+test('paletteSigil: der Workspace-Scope trägt die Lupe, nicht das Raum-Sigel', () => {
+    assert.equal(paletteSigil(parsePaletteScope('w:x').scope), WORKSPACE_SIGIL)
+    // Die übrigen Scopes bleiben unverändert — der Workspace ist ein Sonderfall,
+    // keine neue Regel für alle.
+    assert.equal(paletteSigil({ section: 'rooms', group: 'meetups', country: '' }), '#')
 })
 
 // ── recentRooms: der Ruhezustand ────────────────────────────────────────────

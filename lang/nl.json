@@ -339,7 +339,6 @@
     "Im Thread antworten": "In thread antwoorden",
     "Im Thread antworten…": "In thread antwoorden…",
     "In :label suchen": "Zoeken in :label",
-    "In der Palette grenzen r: m: p: w: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen.": "In het palet beperken r: m: p: w: en een landcode zoals de: de zoekopdracht tot één gebied. @ zoekt leden, > toont acties.",
     "In der Palette navigieren": "Navigeren in het palet",
     "In die nostr.json gehört genau dieser hex-Schlüssel (nicht der npub):": "In de nostr.json hoort precies deze hex-sleutel (niet de npub):",
     "Info": "Info",
@@ -754,5 +753,16 @@
     "Ältere Nachrichten sind erst durchsuchbar, wenn sie geladen sind — scroll dazu im Verlauf nach oben.": "Oudere berichten zijn pas doorzoekbaar als ze geladen zijn — scroll omhoog in de geschiedenis.",
     "Ältere anzeigen": "Oudere tonen",
     "Öffentlicher Schlüssel": "Publieke sleutel",
-    "Öffnen": "Openen"
+    "Öffnen": "Openen",
+    "Workspace wird geprüft…": "Workspace wordt gecontroleerd…",
+    "Dieser Workspace beantwortet keine Volltextsuche. Die Sofort-Treffer unten stammen aus dem bereits geladenen Bestand.": "Deze workspace beantwoordt geen volledige-tekstzoekopdrachten. De directe resultaten hieronder komen uit wat al geladen is.",
+    "Sofort — aus dem geladenen Bestand": "Direct — uit wat al geladen is",
+    "Am Relay gefunden — ganze Wörter": "Gevonden op de relay — hele woorden",
+    "Mit ↵ den ganzen Workspace durchsuchen. Der Relay findet ganze Wörter, keine Wortanfänge — „meetup“ statt „meet“.": "Druk op ↵ om de hele workspace te doorzoeken. De relay vindt hele woorden, geen woordbegin — “meetup” in plaats van “meet”.",
+    "Wird am Relay gesucht…": "Zoeken op de relay…",
+    "Der Relay hat die Suche abgelehnt:": "De relay heeft de zoekopdracht geweigerd:",
+    "Der Relay hat nicht vollständig geantwortet — das Ergebnis kann unvollständig sein. Mit ↵ erneut versuchen.": "De relay heeft niet volledig geantwoord — het resultaat kan onvolledig zijn. Druk op ↵ om het opnieuw te proberen.",
+    "Keine Treffer im Workspace.": "Geen resultaten in de workspace.",
+    "Personen": "Personen",
+    "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "In het palet beperken r: m: p: en een landcode zoals de: de zoekopdracht tot één gebied. @ zoekt leden, > toont acties. w: doorzoekt de workspace — druk daar op ↵, de relay vindt hele woorden."
 }

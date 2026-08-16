@@ -43,14 +43,33 @@
      unter dem hausinternen 7:1-Ziel — die AA-Schwelle ist im Client die Grenze,
      nicht der Anspruch. Die Marke bleibt reserviert auf Balken (`brand-700`,
      1.4.11) und Tonfläche; die aktiven Nav-Tabs derselben Rail tragen dagegen
-     Markentext (6,15:1) — andere Schicht (Navigation), andere Aktiv-Sprache. --}}
+     Markentext (6,15:1) — andere Schicht (Navigation), andere Aktiv-Sprache.
+
+     ── Stumm & angeheftet (P3, NIP-78 aus Buzz Desktop) ─────────────────────
+     Beides nur im Workspace-Arm; `isMuted`/`isPinned` liefern im zooid-Arm
+     immer `false` (`rail.ts`, gespeist aus `channelPrefs.ts`).
+
+     **Stumm ist KEINE Opazität.** Buzz dimmt seine stummen Zeilen mit
+     `opacity-50` (`SidebarSection.tsx:294-300`) — das ist hier verboten, siehe
+     „Mitgliedschaft ist eine Kontraststufe" oben: Opazität risse den Kontrast.
+     Stumm fällt deshalb auf dieselbe ≥7:1-Stufe wie „nicht beigetreten"
+     (`font-normal text-muted`) und wird durch die durchgestrichene Glocke
+     eindeutig — sonst wäre ein stummer Mitgliedsraum von einem fremden Raum
+     nicht zu unterscheiden. Die Glocke ist zugleich das nicht-farbliche
+     Merkmal (WCAG 1.4.1), der sr-only-Text trägt es für Screenreader.
+
+     **Der Ungelesen-Zähler entfällt bei stumm.** Genau die Zahl fordert zum
+     Hineinschauen auf; bliebe sie stehen, wäre die Stummschaltung Optik. Die
+     Gruppen-Summe am Kopf lässt denselben Raum aus (`rail.ts groupUnread`). --}}
 <div>
 <button type="button" x-on:click="openRoom(room)"
         x-bind:aria-current="room.h === activeRoomH ? 'page' : null"
         class="pressable group relative flex min-h-8 w-full items-center gap-2 rounded-tile px-2 py-1 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
         x-bind:class="room.h === activeRoomH
             ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
-            : (room.joined ? 'font-medium text-zinc-800 dark:text-zinc-100' : 'font-normal text-muted')">
+            : (isMuted(room)
+                ? 'font-normal text-muted'
+                : (room.joined ? 'font-medium text-zinc-800 dark:text-zinc-100' : 'font-normal text-muted'))">
 
     <span x-show="room.h === activeRoomH" aria-hidden="true"
           class="absolute inset-y-1 start-0 w-0.5 rounded-pill bg-brand-700 dark:bg-brand-500"></span>
@@ -84,7 +103,30 @@
     <flux:icon.lock-closed x-show="room.locked" x-cloak variant="micro" aria-hidden="true"
                            class="size-3.5 shrink-0 text-muted" />
 
-    <x-group::unread-badge count="$store.unread?.rooms?.[room.h]" size="sm" :sr="false" />
+    <template x-if="isPinned(room)">
+        <span class="inline-flex shrink-0 items-center">
+            <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-3.5 text-muted" />
+            <span class="sr-only">{{ __(', angeheftet') }}</span>
+        </span>
+    </template>
+
+    <template x-if="isMuted(room)">
+        <span class="inline-flex shrink-0 items-center">
+            <flux:icon.bell-slash variant="micro" aria-hidden="true" class="size-3.5 text-muted" />
+            <span class="sr-only">{{ __(', stummgeschaltet') }}</span>
+        </span>
+    </template>
+
+    {{-- `!isMuted(room) && …` statt eines zweiten `x-if` außen herum: der Zähler
+         ist bereits ein `x-if`, und der Ausdruck ist dort die einzige Bedingung.
+         Bei stumm ist er `false` → es rendert nichts, `capped()` läuft nie.
+
+         Im Quelltext steht danach `&amp;&amp;`, nicht `&&`: `unread-badge` echot den
+         Ausdruck über `{{ }}`, und das escapt. Der HTML-Parser dekodiert Entities in
+         Attributwerten wieder, Alpine bekommt also `&&`. Sieht in „Seitenquelltext
+         anzeigen" falsch aus, ist es nicht — hier notiert, damit es niemand
+         zweimal nachschlägt. --}}
+    <x-group::unread-badge count="!isMuted(room) && $store.unread?.rooms?.[room.h]" size="sm" :sr="false" />
 </button>
 
 {{-- Trefferbegründung: traf die Suche über die STADT und nicht über den Namen,

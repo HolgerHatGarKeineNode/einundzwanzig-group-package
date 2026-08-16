@@ -83,6 +83,71 @@
                 </template>
             @endif
 
+            {{-- ── Angeheftete zuerst (P3, NIP-78) ─────────────────────────────
+                 Was der Nutzer in Buzz Desktop angeheftet hat (`channel-stars`),
+                 steht oben und wird NIE gekappt. Nur die Gruppe `workspace` kann
+                 hier etwas haben — die Präferenzen beschreiben Buzz-Kanäle, der
+                 zooid-Arm bleibt unverändert.
+
+                 KEINE eigene Überschrift: dieselbe Begründung wie bei der Haarlinie
+                 unten — ein zweites Sektionslabel brächte eine Achse zurück, die der
+                 Gruppenschnitt gerade entfernt hat. Die Zeile selbst trägt stattdessen
+                 ein Nadel-Icon (nicht-farbliches Merkmal, WCAG 1.4.1) und einen
+                 sr-only-Text; die Position allein wäre für Screenreader nichts. --}}
+            <template x-for="room in groupFor(@js($group)).pinned" :key="room.h">
+                <x-group::rail-room-row />
+            </template>
+
+            <template x-if="groupFor(@js($group)).pinned.length && (groupFor(@js($group)).sections.length || groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
+                <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+            </template>
+
+            {{-- ── Sektionen (P7, `channel-sections`) ──────────────────────────
+                 Die benannten Untergliederungen aus Buzz Desktop, in der
+                 Reihenfolge ihres `order` (`orderedSections`, aufgelöst in
+                 `channelPrefs.ts`). Leere Sektionen liefert `buildGroups` gar
+                 nicht erst — bei uns wäre eine Überschrift ohne Zeilen eine
+                 Beschriftung über nichts, weil man hier nichts hineinziehen kann.
+
+                 HIER trägt eine Überschrift, anders als bei „angeheftet" und
+                 „nicht beigetreten": die beiden sind Zustände, die die Zeile
+                 selbst zeigt (Nadel, Kontraststufe) — eine Sektion ist ein NAME,
+                 den der Nutzer vergeben hat. Ohne ihn wäre die Gruppierung
+                 unsichtbar und damit sinnlos.
+
+                 Statischer <p>, kein Auf/Zu-Knopf: der Klappzustand je Sektion
+                 wäre neuer, zu persistierender Zustand — und die Gruppe darüber
+                 klappt bereits. Dieselbe Form wie die Sektionsköpfe der Bühne
+                 („Meine Räume"/„Meine Meetups" in ⚡spaces.blade.php), nur eine
+                 Stufe kleiner als der Gruppenkopf: Bestand grau und mono, damit
+                 die Zahl nicht mit einer Ungelesen-Pille verwechselt wird.
+
+                 `sec.icon` ist ein EMOJI (Buzz lässt es aus einem Emoji-Picker
+                 wählen), deshalb `x-text` + `aria-hidden` — für Screenreader
+                 trägt der Name. --}}
+            <template x-for="sec in groupFor(@js($group)).sections" :key="sec.id">
+                <div class="mt-1">
+                    <p class="flex items-baseline gap-1 px-2 pb-0.5 text-[0.7rem] font-semibold text-muted">
+                        <span x-show="sec.icon" x-cloak aria-hidden="true" class="shrink-0" x-text="sec.icon"></span>
+                        <span class="min-w-0 truncate" x-text="sec.name"></span>
+                        <span class="shrink-0 font-mono font-normal tabular-nums" x-text="sec.rooms.length"></span>
+                    </p>
+                    <div class="space-y-px">
+                        <template x-for="room in sec.rooms" :key="room.h">
+                            <x-group::rail-room-row />
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+            {{-- Haarlinie zwischen der letzten Sektion und dem Rest-Block: die
+                 Kanäle OHNE Sektionszuordnung stehen unter den Sektionen (Buzz'
+                 Gruppe „Channels", `AppSidebar.tsx:731`) und brauchen dieselbe
+                 Grenze, die auch die Angehefteten vom Rest trennt. --}}
+            <template x-if="groupFor(@js($group)).sections.length && (groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
+                <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+            </template>
+
             <template x-for="room in groupFor(@js($group)).joined" :key="room.h">
                 <x-group::rail-room-row />
             </template>

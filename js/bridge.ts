@@ -97,7 +97,14 @@ import { flagEmoji } from './meetupPresentation'
  */
 import type { ArticleRow, ArticleView } from './longformFeed'
 import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
-import { splitMine } from './railGroups'
+import { buildWorkspaceList, splitMine, type WorkspacePrefs } from './railGroups'
+// P7/NIP-78 — die in Buzz Desktop gesetzten Kanal-Präferenzen auch auf der Bühne
+// anwenden. `subscribeWorkspacePrefs` ist der EINZIGE Einstieg: er schaltet den
+// Netzweg beim ersten Abonnenten scharf (siehe `channelPrefs.ts`).
+import { subscribeWorkspacePrefs } from './channelPrefs'
+// P2/NIP-38 — Status lesen. `deriveStatusPending` ist der dreiwertige Zustand aus P1,
+// auf eine UI-Frage heruntergebrochen; `warmUserStatuses` ist der einzige Netz-Einstieg.
+import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserStatuses, warmUserStatuses, type UserStatus } from './userStatus'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam'
 import {
@@ -438,8 +445,13 @@ type ProfileCardState = {
     website: string // sanitized href ('' wenn keins/unsicher)
     lud16: string
     nip05: string // verifizierter NIP-05-Handle ('' = kein Häkchen)
+    // NIP-38-Status (P2). Immer ein Objekt, nie null — die Karte bindet `status.text`
+    // direkt, und ein null-Wechsel mitten im geöffneten Modal wäre eine Fehlerquelle
+    // ohne Gegenwert. Leere Felder = kein Status.
+    status: { text: string; emoji: string }
     _unsub: null | (() => void)
     _unsubHandle: null | (() => void)
+    _unsubStatus: null | (() => void)
     open(pubkey: string): void
     copy(text: string, message: string): void
     destroy(): void
@@ -502,6 +514,15 @@ type RelaysState = {
     destroy(): void
 }
 
+/**
+ * Ein Workspace-Raum, wie ihn der Tab „Workspaces" führt: die Sicht aus
+ * `deriveSpaceViewFor` plus die Mitgliedschaft, die dort in der Herkunftsliste
+ * steckt (`userRooms` vs. `otherRooms`). `buildWorkspaceList` braucht sie, um die
+ * beigetretenen Räume oben zu halten — ohne sie sortierte der Default `'alpha'`
+ * alles in einen Topf und die Liste sähe für jeden anders aus als bisher.
+ */
+type WorkspaceRoomView = RoomView & { joined: boolean }
+
 type SpacesState = {
     space: SpaceView | null
     loading: boolean
@@ -514,10 +535,23 @@ type SpacesState = {
     // Möglich, weil die Datenschicht pro URL indiziert ist — siehe
     // `deriveSpaceViewFor` in groups.ts.
     hasWorkspace: boolean // ist ein Workspace konfiguriert? (sonst bleibt der Tab aus)
-    workspaceRooms: RoomView[] // Räume des Workspace-Space
+    workspaceRooms: WorkspaceRoomView[] // Räume des Workspace-Space, in Anzeige-Reihenfolge
     workspaceLabel: string // Anzeigename aus dem NIP-11-Doc des Workspace-Relays
     workspaceLoading: boolean
+    // ── Kanal-Präferenzen aus Buzz Desktop (NIP-78, P7) ───────────────────────
+    // Dieselbe Quelle wie in der Rail (`channelPrefs.ts`), nur die andere Fläche:
+    // die Bühne existiert ohne `xl`-Breakpoint und ist auf dem Telefon die EINZIGE
+    // Raumliste des Workspace. Ohne diese drei Felder liefe der Netzweg dort ins
+    // Leere — Verkehr ohne Empfänger.
+    _workspaceView: SpaceView | null // Rohsicht, aus der die Liste neu gebaut wird
+    _workspacePrefs: WorkspacePrefs
+    workspaceMuted: string[] // `h` der in Buzz stummgeschalteten Räume
+    workspacePinned: string[] // `h` der in Buzz angehefteten Räume
+    isWorkspaceMuted(room: RoomView): boolean
+    isWorkspacePinned(room: RoomView): boolean
+    _applyWorkspacePrefs(): void
     _unsubWorkspace: null | (() => void)
+    _unsubWorkspacePrefs: null | (() => void)
     _wsController: AbortController | null
     openWorkspaceRoom(room: RoomView): void
     workspaceRoomHref(room: RoomView): string // Ziel-URL MIT Space-Markierung (reload-fest)
@@ -697,6 +731,13 @@ type VereinGateState = {
     destroy(): void
 }
 
+/**
+ * Der „kein Status"-Wert der Directory-Zeile — eine geteilte, eingefrorene Instanz.
+ * Ein frisches Objektliteral je Aufruf sähe für Alpine bei jedem Durchlauf wie eine
+ * Änderung aus und triebe die Liste in eine Neuberechnung pro Emit.
+ */
+const EMPTY_STATUS: { text: string; emoji: string } = Object.freeze({ text: '', emoji: '' })
+
 /** Formular-Zustand einer Rolle (hue 0–360, lightness 0–1; '' id = neu). */
 type RoleForm = { id: string; label: string; description: string; hue: number; lightness: number; order: number }
 
@@ -707,6 +748,17 @@ type DirectoryState = {
     roles: RoleView[]
     query: string
     gatedOut: boolean
+    // NIP-38-Status je Mitglied (P2). Ein einfaches Objekt statt einer Map, weil Alpine
+    // nur auf zugewiesene Eigenschaften reagiert; je Emit wird es KOMPLETT ersetzt.
+    // Bewusst NICHT in `MemberView` gelegt: `deriveSpaceDirectory` ist die Liste der
+    // Mitgliedschaft (13534/33534, relay-signiert), der Status eine flüchtige Beigabe —
+    // sie in eine Ableitung zu ziehen hieße, die Liste bei jedem Statuswechsel neu zu
+    // bauen und zu sortieren.
+    statuses: Record<string, { text: string; emoji: string }>
+    statusPending: boolean
+    statusOf(pubkey: string): { text: string; emoji: string }
+    _unsubStatuses: null | (() => void)
+    _unsubStatusPending: null | (() => void)
     // Admin (NIP-86)
     isAdmin: boolean
     rolesFull: SpaceRole[]
@@ -867,6 +919,11 @@ type RoomChatState = {
     _members: MentionItem[] // Space-Mitglieder als Mention-Quelle (Directory)
     _unsubMembers: null | (() => void)
     _unsubAdmin: null | (() => void) // deriveUserIsSpaceAdmin-Subscription (P1)
+    // P2/NIP-38: die Relay-Art ist noch `'unknown'` → die Statusspalte zeigt einen
+    // Platzhalter statt „kein Status" zu behaupten. Außerhalb des Workspace-Arms
+    // konstant false (siehe `userStatus.ts deriveStatusPending`).
+    statusPending: boolean
+    _unsubStatusPending: null | (() => void)
     _unsubRoomMeta: null | (() => void)
     _unsubRelay: null | (() => void) // deriveRelay-Subscription: korrigiert spaceHint nach, wenn NIP-11 nach dem Mount eintrifft (P13)
     _url: string | null
@@ -1601,19 +1658,32 @@ export function registerNostrComponents(Alpine: {
         website: '',
         lud16: '',
         nip05: '',
+        status: { text: '', emoji: '' },
         _unsub: null,
         _unsubHandle: null,
+        _unsubStatus: null,
         open(pk: string) {
             if (!pk) {
                 return
             }
             this._unsub?.()
             this._unsubHandle?.()
+            this._unsubStatus?.()
             this.pubkey = pk
             this.npub = nip19.npubEncode(pk)
             const fallback = `${this.npub.slice(0, 12)}…${this.npub.slice(-6)}`
             this.name = fallback
             this.picture = this.banner = this.about = this.website = this.lud16 = this.nip05 = ''
+            this.status = { text: '', emoji: '' }
+            // NIP-38-Status (P2) des aktiven Space. Die Karte ist die einzige Fläche, die
+            // den Status als TEXT zeigt (Chat-Zeile: gekürzt, Avatar: nur das Emoji) — und
+            // damit die einzige, an der ein Screenreader ihn vollständig hört. Außerhalb
+            // des Workspace-Arms liefert die Ableitung dauerhaft `undefined`.
+            const statusUrl = get(activeSpace)
+            warmUserStatuses(statusUrl, [pk])
+            this._unsubStatus = deriveUserStatus(statusUrl, pk).subscribe((s: UserStatus | undefined) => {
+                this.status = { text: s?.text ?? '', emoji: s?.emoji ?? '' }
+            })
             // NIP-05: welshman verifiziert den Handle (nostr.json ↔ pubkey); der Store
             // liefert nur bei bestätigtem Match einen Wert → Häkchen erst dann.
             this._unsubHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
@@ -1656,6 +1726,7 @@ export function registerNostrComponents(Alpine: {
         destroy() {
             this._unsub?.()
             this._unsubHandle?.()
+            this._unsubStatus?.()
         },
     }))
 
@@ -2054,7 +2125,12 @@ export function registerNostrComponents(Alpine: {
         workspaceRooms: [],
         workspaceLabel: '',
         workspaceLoading: true,
+        _workspaceView: null,
+        _workspacePrefs: {},
+        workspaceMuted: [],
+        workspacePinned: [],
         _unsubWorkspace: null,
+        _unsubWorkspacePrefs: null,
         _wsController: null,
         isAdmin: false,
         isBuzz: false,
@@ -2491,6 +2567,40 @@ export function registerNostrComponents(Alpine: {
         workspaceRoomHref(room: RoomView) {
             return workspaceRoomHref(room.h)
         },
+        /**
+         * Raumliste des Workspace-Tabs aus Rohsicht + Präferenzen neu bauen.
+         *
+         * Läuft aus BEIDEN Quellen (Raumsicht und Präferenz-Store), weil beide
+         * unabhängig voneinander nachziehen: die Räume kommen über `watchSpaceRooms`,
+         * die Präferenzen über einen eigenen REQ nach NIP-42-AUTH. Wer nur eine Seite
+         * abonniert, zeigt die halbe Wahrheit — meist die ohne Präferenzen, weil sie
+         * schneller da ist.
+         */
+        _applyWorkspacePrefs() {
+            const view = this._workspaceView
+            if (!view) {
+                return
+            }
+            const list = buildWorkspaceList<WorkspaceRoomView>([
+                ...view.userRooms.map((r) => ({ ...r, joined: true })),
+                ...view.otherRooms.map((r) => ({ ...r, joined: false })),
+            ], this._workspacePrefs)
+            this.workspaceRooms = list.rooms
+            this.workspaceMuted = list.muted
+            this.workspacePinned = list.pinned
+        },
+        /**
+         * Stummgeschaltet? Gelesen aus der fertigen Liste, nicht neu gerechnet —
+         * dieselbe Aufteilung wie in der Rail (`rail.ts isMuted`): das Markup stellt
+         * diese Frage EINMAL PRO ZEILE.
+         */
+        isWorkspaceMuted(room: RoomView) {
+            return this.workspaceMuted.includes(room.h)
+        },
+        /** Angeheftet? Trägt das Nadel-Icon der Zeile — dieselbe Quelle wie {@link isWorkspaceMuted}. */
+        isWorkspacePinned(room: RoomView) {
+            return this.workspacePinned.includes(room.h)
+        },
         // Bearbeiten: alle Felder + Flags aus der RoomView vorbelegen (die einzeln
         // getragenen Flags verhindern, dass ein Speichern bestehende wegwirft).
         openRoomEdit(room: RoomView) {
@@ -2742,10 +2852,22 @@ export function registerNostrComponents(Alpine: {
                         // Nur die Räume und das Branding — der Kopf bleibt der zooid-Space.
                         // Beigetretene zuerst, danach die entdeckbaren: dieselbe Ordnung
                         // wie im Räume-Tab, aber in EINER Liste (der Workspace-Tab hat
-                        // keine Kategorie-Abschnitte).
-                        this.workspaceRooms = view.userRooms.concat(view.otherRooms)
+                        // keine Kategorie-Abschnitte). Die Reihenfolge INNERHALB der
+                        // beiden Hälften bestimmt seit P7 der in Buzz Desktop gesetzte
+                        // Sortiermodus (`buildWorkspaceList`).
+                        this._workspaceView = view
                         this.workspaceLabel = view.label
                         this.workspaceLoading = false
+                        this._applyWorkspacePrefs()
+                    })
+                    // Kanal-Präferenzen (NIP-78). DIESE Fläche ist auf dem Telefon die
+                    // einzige Raumliste des Workspace — die Rail existiert erst ab `xl`.
+                    // Der Netzweg hängt am ersten Abonnenten, nicht am Seitenaufruf:
+                    // ohne konfigurierten Workspace (`hasWorkspace`, der Guard oben)
+                    // kommt es gar nicht hierher und es läuft kein REQ.
+                    this._unsubWorkspacePrefs = subscribeWorkspacePrefs((prefs: WorkspacePrefs) => {
+                        this._workspacePrefs = prefs
+                        this._applyWorkspacePrefs()
                     })
                 }
                 // Threads-Übersicht des Space (C6b): Kommentare + Wurzeln laden, reaktiv anzeigen.
@@ -2779,6 +2901,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubAdmin?.()
             this._unsubIsBuzz?.()
             this._unsubWorkspace?.()
+            this._unsubWorkspacePrefs?.()
             this._wsController?.abort()
             this._unsubThreads?.()
             this._unsubRoomMembers?.()
@@ -3332,6 +3455,13 @@ export function registerNostrComponents(Alpine: {
         roles: [],
         query: '',
         gatedOut: false,
+        statuses: {},
+        statusPending: false,
+        statusOf(pubkey: string) {
+            return this.statuses[pubkey] ?? EMPTY_STATUS
+        },
+        _unsubStatuses: null,
+        _unsubStatusPending: null,
         isAdmin: false,
         rolesFull: [],
         editingMember: null,
@@ -3368,6 +3498,8 @@ export function registerNostrComponents(Alpine: {
                 this._unsubAccess?.()
                 this._unsubReports?.()
                 this._unsubJoins?.()
+                this._unsubStatuses?.()
+                this._unsubStatusPending?.()
                 this._controller?.abort()
                 this.ready = false
                 this.profilesReady = false
@@ -3376,6 +3508,7 @@ export function registerNostrComponents(Alpine: {
                 this.joinRequests = []
                 this.members = []
                 this.roles = []
+                this.statuses = {}
                 this.gatedOut = false
                 this.editingMember = null
                 this._url = url
@@ -3417,8 +3550,23 @@ export function registerNostrComponents(Alpine: {
                 // EOSE/CLOSED, dass das Directory fertig ist ([[spaceDirectoryLoaded]]) —
                 // das Signal, an dem `a.ready` oben hängt. Bleibt offen (Live-Updates).
                 watchSpaceDirectory(url, this._controller.signal)
+                // NIP-38-Statuse (P2): eine Subscription für die ganze Liste, plus der
+                // dreiwertige Wartezustand aus P1. `warmUserStatuses` läuft unten mit der
+                // Mitgliederliste — hier steht sie noch nicht.
+                this._unsubStatusPending = deriveStatusPending(url).subscribe((pending: boolean) => {
+                    this.statusPending = pending
+                })
+                this._unsubStatuses = deriveUserStatuses(url).subscribe((table: ReadonlyMap<string, UserStatus>) => {
+                    // Neues Objekt je Emit: Alpine beobachtet Zuweisungen, keine Map-Mutation.
+                    const next: Record<string, { text: string; emoji: string }> = {}
+                    for (const [pk, status] of table) {
+                        next[pk] = { text: status.text, emoji: status.emoji }
+                    }
+                    this.statuses = next
+                })
                 this._unsubDir = deriveSpaceDirectory(url).subscribe((view: DirectoryView) => {
                     this.ready = view.ready
+                    warmUserStatuses(url, view.members.map((m) => m.pubkey))
                     // Liste im Hintergrund aktuell halten; die View zeigt sie erst,
                     // wenn `profilesReady` steht (x-if, gesetzt vom Access-Gate oben) —
                     // kein progressives Umsortieren einer sichtbaren Liste.
@@ -3855,6 +4003,8 @@ export function registerNostrComponents(Alpine: {
             this._unsubAccess?.()
             this._unsubReports?.()
             this._unsubJoins?.()
+            this._unsubStatuses?.()
+            this._unsubStatusPending?.()
             this._controller?.abort()
         },
     }))
@@ -3957,6 +4107,8 @@ export function registerNostrComponents(Alpine: {
         _members: [],
         _unsubMembers: null,
         _unsubAdmin: null,
+        statusPending: false,
+        _unsubStatusPending: null,
         _unsubRoomMeta: null,
         _unsubRelay: null,
         _url: null,
@@ -4148,6 +4300,14 @@ export function registerNostrComponents(Alpine: {
             })
             this._unsubJoined = deriveUserInRoom(url, this.h).subscribe((isMember: boolean) => {
                 this.joined = isMember
+            })
+            // P2/NIP-38: der dritte Zustand der Statusspalte. Er hängt an der Relay-Weiche
+            // aus P1 und nicht an den Daten — deshalb eine eigene Subscription und kein
+            // abgeleitetes `messages.length === 0`: „noch nicht bekannt" ist eine Aussage
+            // über den RELAY, nicht über die Autoren.
+            this._unsubStatusPending?.()
+            this._unsubStatusPending = deriveStatusPending(url).subscribe((pending: boolean) => {
+                this.statusPending = pending
             })
             // Admin-Status des aktiven Space (P1): gatet die Moderations-Einträge im
             // Nachrichten-Menü. Relay-autoritativ (SupportedMethods), pubkey-abhängig →
@@ -4571,6 +4731,8 @@ export function registerNostrComponents(Alpine: {
             this._unsubRoomMeta = null
             this._unsubRelay?.()
             this._unsubRelay = null
+            this._unsubStatusPending?.()
+            this._unsubStatusPending = null
             this._zapSub?.abort()
             this._zapSub = null
             this._zapLoadedIds.clear()
@@ -4606,6 +4768,12 @@ export function registerNostrComponents(Alpine: {
             listenRoom(url, this.h, signal)
             listenRoomMembers(url, signal)
             watchSpaceDirectory(url, signal)
+            // P2/NIP-38: das Status-Abo hängt NICHT an diesem Controller (es überlebt
+            // den Raumwechsel bewusst) — und genau deshalb fällt es hier sonst durchs
+            // Raster. Ein WebView im Hintergrund verliert den Socket, welshman sendet
+            // ein REQ danach nicht neu, und die Statusspalte fröre ein, ohne dass es
+            // aussähe wie ein Fehler.
+            resyncUserStatuses(url)
             // … + einmal nachladen, was im Hintergrund verpasst wurde. loadSpaceRooms backfillt die
             // 39002/39000 (Mitgliedschaft → joined/Composer, Raumname); listenRoomMembers ist limit:0
             // (nur Neues) und deckt das NICHT ab.

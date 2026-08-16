@@ -369,7 +369,6 @@
     "Im Thread antworten": "Atbildēt pavedienā",
     "Im Thread antworten…": "Atbildēt pavedienā…",
     "In :label suchen": "Meklēt sadaļā :label",
-    "In der Palette grenzen r: m: p: w: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen.": "Paletē r: m: p: w: un valsts kods, piemēram, de:, sašaurina meklēšanu līdz vienam apgabalam. @ meklē dalībniekus, > uzskaita darbības.",
     "In der Palette navigieren": "Pārvietoties paletē",
     "In die nostr.json gehört genau dieser hex-Schlüssel (nicht der npub):": "nostr.json failā jāievieto tieši šī hex atslēga (nevis npub):",
     "Info": "Info",
@@ -784,5 +783,16 @@
     "Ältere Nachrichten sind erst durchsuchbar, wenn sie geladen sind — scroll dazu im Verlauf nach oben.": "Vecākas ziņas ir meklējamas tikai pēc ielādes — ritini vēsturē uz augšu.",
     "Ältere anzeigen": "Rādīt vecākas",
     "Öffentlicher Schlüssel": "Publiskā atslēga",
-    "Öffnen": "Atvērt"
+    "Öffnen": "Atvērt",
+    "Workspace wird geprüft…": "Pārbauda darbvietu…",
+    "Dieser Workspace beantwortet keine Volltextsuche. Die Sofort-Treffer unten stammen aus dem bereits geladenen Bestand.": "Šī darbvieta neatbild uz pilnteksta meklējumiem. Tūlītējie rezultāti zemāk nāk no jau ielādētajiem datiem.",
+    "Sofort — aus dem geladenen Bestand": "Tūlīt — no jau ielādētajiem datiem",
+    "Am Relay gefunden — ganze Wörter": "Atrasts relejā — veseli vārdi",
+    "Mit ↵ den ganzen Workspace durchsuchen. Der Relay findet ganze Wörter, keine Wortanfänge — „meetup“ statt „meet“.": "Nospied ↵, lai meklētu visā darbvietā. Relejs atrod veselus vārdus, nevis vārdu sākumus — “meetup”, nevis “meet”.",
+    "Wird am Relay gesucht…": "Meklē relejā…",
+    "Der Relay hat die Suche abgelehnt:": "Relejs noraidīja meklēšanu:",
+    "Der Relay hat nicht vollständig geantwortet — das Ergebnis kann unvollständig sein. Mit ↵ erneut versuchen.": "Relejs neatbildēja pilnībā — rezultāts var būt nepilnīgs. Nospied ↵, lai mēģinātu vēlreiz.",
+    "Keine Treffer im Workspace.": "Darbvietā nav rezultātu.",
+    "Personen": "Personas",
+    "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "Paletē r: m: p: un valsts kods, piemēram, de:, sašaurina meklēšanu līdz vienai jomai. @ meklē dalībniekus, > uzskaita darbības. w: meklē darbvietā — nospied tur ↵, relejs atrod veselus vārdus."
 }

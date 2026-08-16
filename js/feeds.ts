@@ -31,6 +31,7 @@ import { quoteCardsEnabled } from './displayPrefs'
 import { withSpace } from './spaceParam'
 import { withOrigin } from './updatesView'
 import { warmProfiles } from './profiles'
+import { deriveUserStatuses, statusFingerprint, warmUserStatuses, type UserStatus } from './userStatus'
 import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
 import { waitForPublishError } from './publishResult'
@@ -581,6 +582,13 @@ export type ChatMessage = {
     goal: GoalView | null // NIP-75-Zap-Goal (kind 9041) mit Fortschritt aus dem Zap-Tally (Z5), sonst null
     zaps: ZapSummary // validierte kind-9735-Zap-Summe (Z3), count 0 = keine
     zappable: boolean // Autor kann Zaps empfangen (lud16/lud06) UND ist nicht man selbst
+    // NIP-38-Status des AUTORS (kind 30315, `d=general`), null = keiner/abgelaufen/gelöscht.
+    // Nur im Workspace-Arm gefüllt (`userStatus.ts isStatusRelay`); auf zooid immer null.
+    // Er steht NICHT in `personFields`, weil der Thread-Root dieselbe Funktion nutzt und
+    // dort keine Statuszeile hat — und weil er als EINZIGES Feld dieser Zeile eine eigene
+    // Lebensdauer hat: er ändert sich, ohne dass das Event sich ändert. Genau deshalb muss
+    // er im Cache-Schlüssel stehen (siehe {@link memoedToChatMessage}).
+    status: UserStatus | null
     replyToName?: string // NUR Thread-Kommentare (P3): Elternautor (NIP-22 kleines `e`) für die
     // „Antwort auf <Autor>"-Zeile; im Raum-Feed undefined (dort trägt `reply` den q-Quote).
 }
@@ -695,6 +703,9 @@ export type ChatBuildCtx = {
     $profiles: Map<string, { picture?: string; nip05?: string; lud16?: string; lud06?: string }>
     $handles: Parameters<typeof verifiedNip05>[2]
     $zappers: Map<string, Zapper>
+    /** NIP-38-Statuse des Relays (`userStatus.ts`). Leer im zooid-Arm und solange die
+     *  Relay-Art `'unknown'` ist — die Zeile entscheidet dann nichts, sie zeigt nichts. */
+    $statuses: ReadonlyMap<string, UserStatus>
     byId: Map<string, TrustedEvent>
     // ── P5-Karten ────────────────────────────────────────────────────────────────────
     // Aufgelöste Ereignisse der Zitatkarten, nach id. Der Bau liest AUSSCHLIESSLICH hier
@@ -945,6 +956,7 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
         goal: event.kind === ZAP_GOAL ? buildGoalView(event, zaps) : null,
         zaps,
         zappable: !mine && Boolean(lnurl),
+        status: ctx.$statuses.get(event.pubkey) ?? null,
     }
 }
 
@@ -964,7 +976,9 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
  *    (Faces) + Reaktoren (Chip-Tooltip). Ein reiner Autor-Key ließ Nicht-Autor-Namen für immer auf
  *    dem npub-Fallback einfrieren (Review-Fund #1–#3/#5) — unterläuft genau den Mention-Skip des htmlCache.
  *  - fp: nip05-Verifikationsergebnis des Autors (deckt das spät verifizierte Häkchen: hängt an
- *    $handles, nicht am Autor-Profil-Feld) + je ein billiger ordnungsabhängiger Hash über die
+ *    $handles, nicht am Autor-Profil-Feld) + der NIP-38-Status des Autors als WERT
+ *    (`statusFingerprint`; die Status-Tabelle wird bei jedem Emit neu gebaut, ein
+ *    Referenzvergleich bustete jede Zeile bei jedem Emit) + je ein billiger ordnungsabhängiger Hash über die
  *    Aggregat-Bucket-Event-IDs (reactions/zaps/comments/poll-responses; `groupBy` liefert pro Compute
  *    NEUE Array-Refs → Referenzvergleich unbrauchbar). ponytail: 32-bit-Hash, Kollision ~bucketSize/2³²
  *    ⇒ schlimmstenfalls EIN Emit lang stale Chip-Zähler (rein visuell, KEIN Konsens-/Signaturpfad).
@@ -1112,9 +1126,23 @@ export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Cha
     // Profil-Chips; mit dem Chip ist es entfallen (siehe `buildRefCard`). Das Häkchen des
     // AUTORS bleibt — es hängt an `$handles`, nicht am Profil-Wert, und wird eine Zeile
     // weiter unten eingerechnet.
+    // NIP-38-Status des Autors im Schlüssel — und zwar als WERT, nicht als Referenz.
+    // Er gehört aus demselben Grund hierher wie `zapperRef` eine Zeile höher: er ändert
+    // sich, ohne dass sich das Event ändert (jemand tippt am anderen Ende „bin gleich
+    // zurück"), und ohne ihn läge die Zeile für immer als Cache-Treffer ohne Status vor —
+    // stumm kaputt, auch nach Reload, weil der Status beim nächsten Kaltstart schlicht
+    // wieder später kommt als die Nachricht.
+    //
+    // WERTvergleich statt Referenz ist Pflicht: `foldUserStatuses` baut die Tabelle bei
+    // JEDEM Emit neu, jedes Status-Objekt darin ist frisch. Ein `hit.statusRef === ref`
+    // wie beim Zapper meldete deshalb bei jedem Emit „geändert" und machte die
+    // Memoisierung für den ganzen Raum wertlos — der teure Fehler in die andere Richtung.
+    // {@link statusFingerprint} deckelt die Länge (`STATUS_TEXT_CAP`), der String bleibt
+    // also kurz, auch wenn der Relay 64 KB `content` erlaubt.
     const fp =
         `${ctx.cards ? '1' : '0'}` +
         `|${verifiedNip05(event.pubkey, ctx.$profiles, ctx.$handles)}` +
+        `|${statusFingerprint(ctx.$statuses.get(event.pubkey))}` +
         `|${bucketFp(ctx.reactionsByTarget.get(event.id))}|${bucketFp(ctx.zapsByTarget.get(event.id))}` +
         `|${bucketFp(ctx.commentsByRoot.get(event.id))}|${bucketFp(ctx.pollResponsesByTarget.get(event.id))}`
     const hit = chatMsgCache.get(event.id)
@@ -1176,10 +1204,15 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             // und passt auf ein raumfremdes Ereignis nicht), und die Karte bliebe für immer
             // im Leerzustand. Siehe {@link refEventStore}.
             throttled(200, refEventStore),
+            // P2 (NIP-38): die Statustabelle des Relays. Eigene Quelle und nicht etwa aus
+            // `profilesByPubkey` gezogen — ein Status hat eine andere Lebensdauer als ein
+            // Profil und fällt sonst unter den kind-0-Riegel des Workspace (`core.ts:223`).
+            // Im zooid-Arm ist sie konstant leer, kostet dort also einen Referenzvergleich.
+            throttled(200, deriveUserStatuses(url)),
             // Der Abschalter. Ungedrosselt: er hängt an einem Klick, nicht an einer Welle.
             quoteCardsEnabled,
         ],
-        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies, $refEvents, $cards]) => {
+        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies, $refEvents, $statuses, $cards]) => {
         // Beide Antwort-Formate in EINEN Strom: kind-1111/kind-10 (zooid) und Buzz'
         // kind-9-Antworten. `commentRootId` liest den Root aus beiden, der Rest des Feeds
         // sieht keinen Unterschied — Zähler, Gesichter und „zuletzt geantwortet" gelten für
@@ -1220,6 +1253,10 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         // Zapper (LNURL-pay-Meta) der Autoren lazy laden — nötig, um ihre 9735-Receipts
         // zu validieren (Signer-Check) und den ⚡-Chip zu summieren (dedupliziert intern).
         warmZappers(events.map((e) => e.pubkey))
+        // NIP-38-Statuse der Autoren wärmen (P2). No-op außerhalb des Workspace-Arms und
+        // solange die Relay-Art `'unknown'` ist — der Loader wartet die Weiche ab, statt
+        // ein „kein Buzz" zu lesen, das nur „noch nicht bekannt" heißt.
+        warmUserStatuses(url, events.map((e) => e.pubkey))
         // Index für die Reply-Auflösung im selben Raum (q-Tag → zitierte Nachricht).
         const byId = new Map(events.map((e) => [e.id, e]))
         const ctx: ChatBuildCtx = {
@@ -1227,6 +1264,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             $profiles,
             $handles,
             $zappers,
+            $statuses,
             byId,
             refEvents,
             h,
@@ -1794,9 +1832,12 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
             // dieselben Karten und braucht dieselben zwei Quellen. Ohne sie zeigte ein
             // Kommentar mit Zitat eine Karte, die nie auflöst.
             throttled(200, refEventStore),
+            // P2 (NIP-38): dieselbe Zeile (`chat-row`) rendert Raum UND Thread — also
+            // braucht der Thread dieselbe Quelle, sonst stünde der Status nur im Raum.
+            throttled(200, deriveUserStatuses(url)),
             quoteCardsEnabled,
         ],
-        ([rootEvents, rawComments, $profiles, $me, $handles, $reactions, $zaps, $zappers, $refEvents, $cards]) => {
+        ([rootEvents, rawComments, $profiles, $me, $handles, $reactions, $zaps, $zappers, $refEvents, $statuses, $cards]) => {
             // Nur Kommentare, die WIRKLICH an diesem Root wurzeln: kind-10 kommt per `#e`
             // (matcht jedes e-Tag) → die mit rootId nur als Reply-Parent (fremder Thread)
             // fielen sonst rein. commentRootId liest den Root formatspezifisch (E bzw. e/root).
@@ -1808,6 +1849,7 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
             void warmProfiles(feedPubkeys)
             warmHandles(feedPubkeys)
             warmZappers(commentEvents.map((e) => e.pubkey)) // Zapper der Kommentar-Autoren → 9735-Validierung/⚡-Chip
+            warmUserStatuses(url, feedPubkeys) // P2: Statuse der Wurzel- und Kommentar-Autoren
             const rootEvent = rootEvents.find((e) => e.id === rootId)
             const root: ThreadRoot = rootEvent
                 ? { id: rootEvent.id, pubkey: rootEvent.pubkey, missing: false, ...personFields(rootEvent, $profiles, $handles) }
@@ -1817,6 +1859,7 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
                 $profiles,
                 $handles,
                 $zappers,
+                $statuses,
                 byId: new Map(), // Kommentare tragen kein q-Zitat → reply bleibt null (Eltern-Bezug via replyToName)
                 refEvents,
                 h,

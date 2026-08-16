@@ -339,7 +339,6 @@
     "Im Thread antworten": "Reply in thread",
     "Im Thread antworten…": "Reply in thread…",
     "In :label suchen": "Search in :label",
-    "In der Palette grenzen r: m: p: w: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen.": "In the palette, r: m: p: w: and a country code like de: narrow the search down to one area. @ searches members, > lists actions.",
     "In der Palette navigieren": "Navigate in the palette",
     "In die nostr.json gehört genau dieser hex-Schlüssel (nicht der npub):": "This exact hex key belongs in the nostr.json (not the npub):",
     "Info": "Info",
@@ -754,5 +753,16 @@
     "Ältere Nachrichten sind erst durchsuchbar, wenn sie geladen sind — scroll dazu im Verlauf nach oben.": "Older messages become searchable once they are loaded — scroll up in the history to load them.",
     "Ältere anzeigen": "Show older",
     "Öffentlicher Schlüssel": "Public key",
-    "Öffnen": "Open"
+    "Öffnen": "Open",
+    "Workspace wird geprüft…": "Checking workspace…",
+    "Dieser Workspace beantwortet keine Volltextsuche. Die Sofort-Treffer unten stammen aus dem bereits geladenen Bestand.": "This workspace does not answer full-text searches. The instant results below come from what is already loaded.",
+    "Sofort — aus dem geladenen Bestand": "Instant — from what is already loaded",
+    "Am Relay gefunden — ganze Wörter": "Found on the relay — whole words",
+    "Mit ↵ den ganzen Workspace durchsuchen. Der Relay findet ganze Wörter, keine Wortanfänge — „meetup“ statt „meet“.": "Press ↵ to search the whole workspace. The relay finds whole words, not word beginnings — “meetup” instead of “meet”.",
+    "Wird am Relay gesucht…": "Searching on the relay…",
+    "Der Relay hat die Suche abgelehnt:": "The relay rejected the search:",
+    "Der Relay hat nicht vollständig geantwortet — das Ergebnis kann unvollständig sein. Mit ↵ erneut versuchen.": "The relay did not answer completely — the result may be incomplete. Press ↵ to try again.",
+    "Keine Treffer im Workspace.": "No matches in the workspace.",
+    "Personen": "People",
+    "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "In the palette, r: m: p: and a country code like de: narrow the search down to one area. @ searches members, > lists actions. w: searches the workspace — press ↵ there, the relay finds whole words."
 }

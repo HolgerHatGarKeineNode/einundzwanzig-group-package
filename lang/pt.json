@@ -354,7 +354,6 @@
     "Im Thread antworten": "Responder no tópico",
     "Im Thread antworten…": "Responder no tópico…",
     "In :label suchen": "Procurar em :label",
-    "In der Palette grenzen r: m: p: w: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen.": "Na paleta, r: m: p: w: e um código de país como de: restringem a procura a uma área. @ procura membros, > lista ações.",
     "In der Palette navigieren": "Navegar na paleta",
     "In die nostr.json gehört genau dieser hex-Schlüssel (nicht der npub):": "No nostr.json entra exatamente esta chave hex (não o npub):",
     "Info": "Info",
@@ -769,5 +768,16 @@
     "Ältere Nachrichten sind erst durchsuchbar, wenn sie geladen sind — scroll dazu im Verlauf nach oben.": "As mensagens mais antigas só podem ser procuradas depois de carregadas — desloque o histórico para cima.",
     "Ältere anzeigen": "Mostrar mais antigas",
     "Öffentlicher Schlüssel": "Chave pública",
-    "Öffnen": "Abrir"
+    "Öffnen": "Abrir",
+    "Workspace wird geprüft…": "A verificar o espaço de trabalho…",
+    "Dieser Workspace beantwortet keine Volltextsuche. Die Sofort-Treffer unten stammen aus dem bereits geladenen Bestand.": "Este espaço de trabalho não responde a pesquisas de texto integral. Os resultados imediatos abaixo vêm do que já está carregado.",
+    "Sofort — aus dem geladenen Bestand": "Imediato — do que já está carregado",
+    "Am Relay gefunden — ganze Wörter": "Encontrado no relay — palavras inteiras",
+    "Mit ↵ den ganzen Workspace durchsuchen. Der Relay findet ganze Wörter, keine Wortanfänge — „meetup“ statt „meet“.": "Prime ↵ para pesquisar todo o espaço de trabalho. O relay encontra palavras inteiras, não inícios de palavra — «meetup» em vez de «meet».",
+    "Wird am Relay gesucht…": "A pesquisar no relay…",
+    "Der Relay hat die Suche abgelehnt:": "O relay rejeitou a pesquisa:",
+    "Der Relay hat nicht vollständig geantwortet — das Ergebnis kann unvollständig sein. Mit ↵ erneut versuchen.": "O relay não respondeu por completo — o resultado pode estar incompleto. Prime ↵ para tentar de novo.",
+    "Keine Treffer im Workspace.": "Sem resultados no espaço de trabalho.",
+    "Personen": "Pessoas",
+    "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "Na paleta, r: m: p: e um código de país como de: limitam a pesquisa a uma área. @ pesquisa membros, > lista ações. w: pesquisa o espaço de trabalho — prime ↵ aí, o relay encontra palavras inteiras."
 }

@@ -972,14 +972,45 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                         {{-- Die Räume. Eigene Zeile statt `x-group::room-tile`: die Kachel
                              dort hängt am `nostrSpaces`-Scope des AKTIVEN Space (isAdmin,
-                             openRoomEdit, _logo) — hier wäre das der falsche Space. --}}
+                             openRoomEdit, _logo) — hier wäre das der falsche Space.
+
+                             ── Kanal-Präferenzen aus Buzz Desktop (P7, NIP-78) ─────────
+                             Diese Liste ist unterhalb von `xl` die EINZIGE Raumliste des
+                             Workspace — die Rail gibt es dort nicht. Sie wendet deshalb
+                             dieselben Präferenzen an wie die Rail: `buildWorkspaceList`
+                             (node-getestet) ordnet angeheftet · beigetreten · entdeckbar
+                             und sortiert innerhalb nach dem in Buzz gesetzten Modus.
+
+                             **Stumm ist keine Opazität** (gleiche Regel wie in
+                             `rail-room-row.blade.php`): die Zeile fällt auf die
+                             `text-muted`-Stufe und trägt die durchgestrichene Glocke als
+                             nicht-farbliches Merkmal (WCAG 1.4.1) plus sr-only-Text.
+                             Einen Ungelesen-Zähler gibt es auf dieser Fläche nicht — der
+                             Ungelesen-Store folgt dem AKTIVEN Space (`deriveUnread` in
+                             bridge.ts), und der ist hier der zooid-Space. Es gibt hier
+                             also auch keine Summe, die die Stummschaltung auslassen
+                             müsste; die Zahl im Kopf ist der Bestand, und stumme Räume
+                             bleiben in der Liste stehen. --}}
                         <template x-for="room in workspaceRooms" :key="room.h">
                             <div class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
                                 <button type="button"
                                         class="flex min-h-[2.75rem] flex-1 items-center gap-3 rounded-tile px-2 py-2 text-start"
                                         x-on:click="openWorkspaceRoom(room); Livewire.navigate(workspaceRoomHref(room))">
                                     <span class="flex size-8 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-800 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
-                                    <span class="min-w-0 flex-1 truncate font-medium" x-text="room.name"></span>
+                                    <span class="min-w-0 flex-1 truncate" x-text="room.name"
+                                          x-bind:class="isWorkspaceMuted(room) ? 'font-normal text-muted' : 'font-medium'"></span>
+                                    <template x-if="isWorkspacePinned(room)">
+                                        <span class="inline-flex shrink-0 items-center">
+                                            <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 text-zinc-400" />
+                                            <span class="sr-only">{{ __(', angeheftet') }}</span>
+                                        </span>
+                                    </template>
+                                    <template x-if="isWorkspaceMuted(room)">
+                                        <span class="inline-flex shrink-0 items-center">
+                                            <flux:icon.bell-slash variant="micro" aria-hidden="true" class="size-4 text-zinc-400" />
+                                            <span class="sr-only">{{ __(', stummgeschaltet') }}</span>
+                                        </span>
+                                    </template>
                                     <template x-if="room.locked">
                                         <flux:icon.lock-closed variant="micro" class="size-4 shrink-0 text-zinc-400" />
                                     </template>

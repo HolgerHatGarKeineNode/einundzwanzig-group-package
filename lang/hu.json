@@ -339,7 +339,6 @@
     "Im Thread antworten": "Válasz a szálban",
     "Im Thread antworten…": "Válasz a szálban…",
     "In :label suchen": "Keresés itt: :label",
-    "In der Palette grenzen r: m: p: w: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen.": "A palettában az r: m: p: w: és egy országkód, például a de:, egy területre szűkíti a keresést. A @ tagokat keres, a > műveleteket sorol fel.",
     "In der Palette navigieren": "Navigálás a palettában",
     "In die nostr.json gehört genau dieser hex-Schlüssel (nicht der npub):": "A nostr.json fájlba pontosan ez a hex kulcs tartozik (nem az npub):",
     "Info": "Infó",
@@ -754,5 +753,16 @@
     "Ältere Nachrichten sind erst durchsuchbar, wenn sie geladen sind — scroll dazu im Verlauf nach oben.": "A régebbi üzenetek csak betöltés után kereshetők — görgess felfelé az előzményekben.",
     "Ältere anzeigen": "Régebbiek megjelenítése",
     "Öffentlicher Schlüssel": "Nyilvános kulcs",
-    "Öffnen": "Megnyitás"
+    "Öffnen": "Megnyitás",
+    "Workspace wird geprüft…": "Munkaterület ellenőrzése…",
+    "Dieser Workspace beantwortet keine Volltextsuche. Die Sofort-Treffer unten stammen aus dem bereits geladenen Bestand.": "Ez a munkaterület nem válaszol teljes szöveges keresésre. Az alábbi azonnali találatok a már betöltött adatokból származnak.",
+    "Sofort — aus dem geladenen Bestand": "Azonnal — a már betöltött adatokból",
+    "Am Relay gefunden — ganze Wörter": "A relayen találva — teljes szavak",
+    "Mit ↵ den ganzen Workspace durchsuchen. Der Relay findet ganze Wörter, keine Wortanfänge — „meetup“ statt „meet“.": "Nyomd meg a ↵ billentyűt az egész munkaterület átkutatásához. A relay teljes szavakat talál, nem szókezdeteket — „meetup”, nem „meet”.",
+    "Wird am Relay gesucht…": "Keresés a relayen…",
+    "Der Relay hat die Suche abgelehnt:": "A relay elutasította a keresést:",
+    "Der Relay hat nicht vollständig geantwortet — das Ergebnis kann unvollständig sein. Mit ↵ erneut versuchen.": "A relay nem válaszolt teljesen — az eredmény hiányos lehet. Nyomd meg a ↵ billentyűt az újrapróbálkozáshoz.",
+    "Keine Treffer im Workspace.": "Nincs találat a munkaterületen.",
+    "Personen": "Személyek",
+    "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "A palettán az r: m: p: és egy országkód, például de:, egy területre szűkíti a keresést. A @ tagokra keres, a > műveleteket sorol fel. A w: a munkaterületen keres — ott nyomd meg a ↵ billentyűt, a relay teljes szavakat talál."
 }

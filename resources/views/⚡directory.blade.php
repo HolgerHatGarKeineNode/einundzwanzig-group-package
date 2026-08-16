@@ -130,7 +130,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <div class="surface-card flex items-center gap-3 p-3" :style="`--i:${idx}`">
                         <button type="button" x-on:click="$dispatch('open-profile', m.pubkey)"
                                 class="pressable shrink-0" aria-label="{{ __('Profil anzeigen') }}">
-                            <x-group::nostr-avatar picture="m.picture" name="m.name" />
+                            {{-- Status-Emoji (NIP-38) als Plakette; der Text steht unten in der Zeile. --}}
+                            <x-group::nostr-avatar picture="m.picture" name="m.name" emoji="statusOf(m.pubkey).emoji" />
                         </button>
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5">
@@ -140,6 +141,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </div>
                             {{-- Verifizierter Handle ersetzt die npub-Kurzform, sonst npub. --}}
                             <div class="truncate font-mono text-xs text-muted" x-text="m.nip05 || m.short"></div>
+                            {{-- NIP-38-Status (P2). Drei Zustände, nicht zwei: solange die Relay-Art
+                                 unbekannt ist (`statusPending`, aus js/spaceCaps.ts), steht hier ein
+                                 Platzhalter — „hat keinen Status" und „weiß ich noch nicht" dürfen
+                                 nicht gleich aussehen. Im zooid-Arm ist beides leer und die Zeile
+                                 sieht aus wie vorher. --}}
+                            <template x-if="statusPending">
+                                <div data-status-skeleton aria-hidden="true" class="skeleton mt-1 h-3 w-28 rounded-full"></div>
+                            </template>
+                            <template x-if="!statusPending && (statusOf(m.pubkey).text || statusOf(m.pubkey).emoji)">
+                                <div data-user-status class="mt-0.5 flex items-center gap-1 text-xs text-muted">
+                                    <span x-show="statusOf(m.pubkey).emoji" x-text="statusOf(m.pubkey).emoji"></span>
+                                    <span class="min-w-0 truncate" x-text="statusOf(m.pubkey).text"></span>
+                                </div>
+                            </template>
                             <div class="mt-1 flex flex-wrap gap-1" x-show="m.roles.length > 0">
                                 <template x-for="role in m.roles" :key="role.id">
                                     <flux:badge size="sm" ::style="`color:${role.color};background-color:${role.soft}`">

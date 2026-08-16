@@ -34,8 +34,8 @@
  */
 
 import { get } from 'svelte/store'
-import { relaysByUrl } from '@welshman/app'
-import { type RelayProfile } from '@welshman/util'
+import { displayProfileByPubkey, relaysByUrl } from '@welshman/app'
+import { type RelayProfile, type TrustedEvent } from '@welshman/util'
 import {
     DEFAULT_SPACE_URL,
     WORKSPACE_URL,
@@ -69,6 +69,7 @@ import {
     PALETTE_SECTIONS,
     hasPaletteScope,
     isTextEntry,
+    isWorkspaceScope,
     mergePaletteScope,
     parsePaletteScope,
     paletteSigil,
@@ -79,6 +80,17 @@ import {
     type PaletteScope,
     type PaletteSection,
 } from './paletteItems'
+import { deriveSpaceKind, type SpaceKind } from './spaceCaps'
+import { deriveEventsForUrl } from './repository'
+import { searchMessages, type SearchHit, type SearchableRow } from './search'
+import {
+    SEARCH_CONTENT_KINDS,
+    runSpaceSearch,
+    toMessageHits,
+    toPersonHits,
+    type MessageHit,
+    type PersonHit,
+} from './spaceSearch'
 
 /** Der Name der beiden Flux-Modals — geteilt zwischen Insel und Blade. */
 export const PALETTE_MODAL = 'command-palette'
@@ -109,6 +121,34 @@ export type PaletteAction = {
 }
 
 export type PaletteSpace = { url: string; label: string; hint: string; active: boolean }
+
+// ── P5: Workspace-Suche ─────────────────────────────────────────────────────
+
+/**
+ * Eine Zeile der SOFORT-Treffer: aus dem bereits geladenen Bestand, ohne Netz,
+ * bei jedem Tastendruck neu. Sie ist die ehrliche Ergänzung zur Relay-Suche,
+ * kein Notnagel — der Relay kann konstruktionsbedingt kein Typeahead
+ * (`SearchMode::FullText` fest verdrahtet, `buzz/…/handlers/req.rs:627`), und
+ * ohne diese Liste stünde das Feld bis zum Enter stumm da.
+ */
+export type InstantRow = SearchableRow & {
+    /** Raum oder Nachricht — entscheidet Symbol, Rangfolge und Ziel. */
+    sort: 'room' | 'message'
+    /** Kanal-UUID: bei `'room'` der Raum selbst, bei `'message'` sein Kanal. */
+    h: string
+    pubkey: string
+}
+
+export type InstantHit = SearchHit<InstantRow>
+
+/** Höchstzahl Sofort-Treffer. Bewusst klein: darunter steht die Relay-Liste. */
+const INSTANT_LIMIT = 12
+
+/**
+ * Kinds, deren geladener Bestand die Sofort-Treffer trägt — dieselben, die auch
+ * an den Relay gehen. Zwei Listen wären zwei Wahrheiten über dieselbe Frage.
+ */
+const INSTANT_FILTERS = [{ kinds: [...SEARCH_CONTENT_KINDS] }]
 
 type PaletteConfig = { actions?: PaletteAction[] }
 
@@ -172,6 +212,25 @@ export type PaletteState = {
     _onKey: ((e: KeyboardEvent) => void) | null
     _observer: MutationObserver | null
     _syncQueued: boolean
+    // ── P5: Workspace-Suche ─────────────────────────────────────────────────
+    /** Relay-Art des Workspace: `'unknown'` heißt Skeleton, nicht „geht nicht". */
+    spaceKind: SpaceKind
+    /** Läuft gerade eine Relay-Anfrage? */
+    searching: boolean
+    /** Wurde in dieser Runde überhaupt schon gesucht? */
+    searchRan: boolean
+    /** Haben beide Anfragen EOSE gesehen? Trennt „nichts da" von „keine Antwort". */
+    searchComplete: boolean
+    /** Grund einer Relay-Ablehnung (`CLOSED`), sonst `null`. */
+    searchRejected: string | null
+    /** Der Text, mit dem zuletzt gesucht wurde (nicht der im Feld stehende). */
+    searchQuery: string
+    searchMessages: MessageHit[]
+    searchPeople: PersonHit[]
+    _wsEvents: TrustedEvent[]
+    _unsubWsEvents: (() => void) | null
+    _unsubSpaceKind: (() => void) | null
+    _searchController: AbortController | null
     readonly sigil: string
     readonly hasScope: boolean
     readonly scopeLabel: string
@@ -179,7 +238,17 @@ export type PaletteState = {
     readonly memberItems: MemberView[]
     readonly spaceItems: PaletteSpace[]
     readonly actionItems: PaletteAction[]
+    /** Steht die Palette im Workspace-Scope UND gibt es einen Workspace? */
+    readonly workspaceActive: boolean
+    readonly instantHits: InstantHit[]
+    readonly searchHitCount: number
     shows(section: PaletteSection): boolean
+    runWorkspaceSearch(): void
+    onEnter(): void
+    resetSearch(): void
+    openInstant(hit: InstantHit): void
+    openMessageHit(hit: MessageHit): void
+    openPersonHit(hit: PersonHit): void
     open(): void
     close(): void
     toggle(): void
@@ -235,6 +304,18 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
     _onKey: null,
     _observer: null,
     _syncQueued: false,
+    spaceKind: 'unknown',
+    searching: false,
+    searchRan: false,
+    searchComplete: false,
+    searchRejected: null,
+    searchQuery: '',
+    searchMessages: [],
+    searchPeople: [],
+    _wsEvents: [],
+    _unsubWsEvents: null,
+    _unsubSpaceKind: null,
+    _searchController: null,
 
     get sigil(): string {
         return paletteSigil((this as PaletteState).scope)
@@ -323,6 +404,184 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         return visibleSections(self.scope, self.query).includes(section)
     },
 
+    // ── P5: Workspace-Suche ─────────────────────────────────────────────────
+
+    /**
+     * `hasWorkspace()` entscheidet SYNCHRON und ohne Netz (Ebene 1 aus
+     * `spaceCaps.ts`) — kein NIP-11 im kritischen Pfad, also kein Mount-Rennen.
+     * Ob der Relay wirklich Buzz spricht (und damit NIP-50 kann), steht in
+     * {@link PaletteState.spaceKind} und ist dreiwertig; die Fläche existiert
+     * währenddessen bereits und zeigt ein Skeleton.
+     */
+    get workspaceActive(): boolean {
+        const self = this as PaletteState
+
+        return hasWorkspace() && isWorkspaceScope(self.scope)
+    },
+
+    /**
+     * Die Sofort-Treffer: Workspace-Räume und der geladene Nachrichtenbestand,
+     * durch `search.ts` gefiltert — diakritika-blind, UND über alle Begriffe,
+     * Autorname zählt mit. Ohne Netz, ohne Entprellung, bei jedem Tastendruck.
+     *
+     * Räume stehen vor Nachrichten: wer `w:` tippt, will meistens hinspringen,
+     * nicht lesen. Innerhalb beider Gruppen bleibt die Ordnung von
+     * `searchMessages` (neueste zuerst).
+     */
+    get instantHits(): InstantHit[] {
+        const self = this as PaletteState
+        if (!self.workspaceActive || self.query.trim() === '') {
+            return []
+        }
+
+        // Direkt aus der `SpaceView` und nicht über `toPaletteRooms`: die
+        // Beschreibung (`about`) gehört zu `RoomView`, nicht zu `RailRoom` — sie
+        // fiele auf dem Weg über den Palette-Typ weg, und genau sie macht einen
+        // Raum über sein Thema auffindbar.
+        const roomViews: RoomView[] = [
+            ...(self._workspace?.userRooms ?? []),
+            ...(self._workspace?.otherRooms ?? []),
+        ]
+        const rooms: InstantRow[] = roomViews.map((room) => ({
+            id: `room:${room.h}`,
+            sort: 'room',
+            h: room.h,
+            pubkey: '',
+            text: room.about,
+            name: room.name || room.h,
+            created_at: room.lastMessageAt ?? 0,
+        }))
+        const messages: InstantRow[] = self._wsEvents.map((event) => ({
+            id: event.id,
+            sort: 'message',
+            h: event.tags.find((tag) => tag[0] === 'h')?.[1] ?? '',
+            pubkey: event.pubkey,
+            text: event.content,
+            name: displayProfileByPubkey(event.pubkey),
+            created_at: event.created_at,
+        }))
+
+        const { hits } = searchMessages([...rooms, ...messages], self.query, INSTANT_LIMIT)
+
+        return [...hits.filter((hit) => hit.sort === 'room'), ...hits.filter((hit) => hit.sort === 'message')]
+    },
+
+    get searchHitCount(): number {
+        const self = this as PaletteState
+
+        return self.searchMessages.length + self.searchPeople.length
+    },
+
+    /**
+     * Eine Runde Relay-Suche. **Auf Enter, nicht pro Tastendruck** — der Relay
+     * kann kein Präfix-Matching (`SearchMode::FullText`, `req.rs:627`), ein
+     * Roundtrip je Taste lieferte also bis zum letzten Buchstaben nichts und
+     * verbrauchte dabei Buzz' Frame-Budget.
+     *
+     * Der laufende Lauf wird bei jedem neuen abgebrochen; `runSpaceSearch`
+     * reicht das Signal an beide Anfragen durch.
+     */
+    runWorkspaceSearch(): void {
+        const self = this as PaletteState
+        const query = self.query.trim()
+        if (!self.workspaceActive || query === '') {
+            self.resetSearch()
+
+            return
+        }
+
+        self._searchController?.abort()
+        const controller = new AbortController()
+        self._searchController = controller
+        self.searchQuery = query
+        self.searching = true
+        self.searchRan = true
+        self.searchComplete = false
+        self.searchRejected = null
+        self.searchMessages = []
+        self.searchPeople = []
+
+        void runSpaceSearch(WORKSPACE_URL, { q: query }, controller.signal)
+            .then((outcome) => {
+                if (controller.signal.aborted) {
+                    return
+                }
+                self.searching = false
+                self.searchComplete = outcome.complete
+                self.searchRejected = outcome.rejected
+                self.searchMessages = toMessageHits(outcome.messages, query, displayProfileByPubkey)
+                self.searchPeople = toPersonHits(outcome.profiles, query)
+            })
+            .catch((error: unknown) => {
+                if (controller.signal.aborted) {
+                    return
+                }
+                self.searching = false
+                // Kein erfundener Grund: was der Fehler sagt, steht da — mehr
+                // wissen wir an dieser Stelle nicht.
+                self.searchRejected = error instanceof Error ? error.message : String(error)
+            })
+    },
+
+    /**
+     * Enter im Feld. Außerhalb des Workspace-Scopes passiert hier NICHTS: dort
+     * trägt Flux die Auswahl (`handleKeyboardSelection`), und ein zweiter
+     * Handler wäre eine zweite Wahrheit über dieselbe Taste.
+     */
+    onEnter(): void {
+        const self = this as PaletteState
+        if (self.workspaceActive) {
+            self.runWorkspaceSearch()
+        }
+    },
+
+    resetSearch(): void {
+        const self = this as PaletteState
+        self._searchController?.abort()
+        self._searchController = null
+        self.searching = false
+        self.searchRan = false
+        self.searchComplete = false
+        self.searchRejected = null
+        self.searchQuery = ''
+        self.searchMessages = []
+        self.searchPeople = []
+    },
+
+    /** Sofort-Treffer öffnen — Raum direkt, Nachricht über ihren Kanal. */
+    openInstant(hit: InstantHit): void {
+        const self = this as PaletteState
+        if (hit.sort === 'room') {
+            self.openRoom({ h: hit.h, name: hit.name, workspace: true } as PaletteRoom)
+
+            return
+        }
+        self.openMessageHit({ h: hit.h, name: hit.name } as MessageHit)
+    },
+
+    /**
+     * Ein Nachrichten-Treffer führt in seinen Kanal. Eine Sprungmarke auf das
+     * einzelne Ereignis gibt es bewusst nicht: der Raum lädt sein eigenes
+     * Fenster, und ein Deep-Link auf eine Nachricht, die dort noch gar nicht
+     * geladen ist, führte in eine leere Stelle statt zum Treffer.
+     */
+    openMessageHit(hit: MessageHit): void {
+        const self = this as PaletteState
+        if (!hit.h) {
+            self.close()
+
+            return
+        }
+        setActiveSpaceEphemeral(WORKSPACE_URL)
+        self._go(workspaceRoomHref(hit.h), hit.name || hit.h)
+    },
+
+    /** Personen-Treffer → dieselbe Profilkarte wie die Mitglieder-Sektion. */
+    openPersonHit(hit: PersonHit): void {
+        this.close()
+        window.dispatchEvent(new CustomEvent('open-profile', { detail: hit.pubkey }))
+    },
+
     // ── Öffnen/Schließen ────────────────────────────────────────────────────
 
     open(): void {
@@ -337,11 +596,16 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         if (input) {
             input.value = ''
         }
+        this.resetSearch()
         this.shown = true
         dispatchModal(PALETTE_MODAL)
     },
 
     close(): void {
+        // Ein laufender Such-Roundtrip gehört zur offenen Palette. Bleibt er
+        // stehen, schreibt er beim nächsten Öffnen in eine Fläche, die eine
+        // andere Frage stellt.
+        this.resetSearch()
         this.shown = false
         dispatchModal(PALETTE_MODAL, false)
     },
@@ -363,6 +627,10 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
     onEscape(): void {
         if (this.query !== '') {
             this.query = ''
+            // Die Trefferliste gehört zum Suchtext, nicht zur offenen Palette:
+            // ein geleertes Feld über einer stehen gebliebenen Trefferliste wäre
+            // eine Antwort auf eine Frage, die niemand mehr stellt.
+            this.resetSearch()
 
             return
         }
@@ -387,12 +655,21 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         if (scope.section === null) {
             return
         }
+        // **Hier stand kurz eine Sperre „`w:` nur mit konfiguriertem Workspace"**
+        // — sie ist wieder raus, und der Grund steht in
+        // `command-palette.spec.ts:260`: der Chip soll auch OHNE Workspace
+        // greifen („auch ohne dass eine Zeile erscheint"). Das ist eine
+        // ausdrücklich geprüfte Zusage, kein Versehen. Ohne Workspace bleibt es
+        // damit beim alten Verhalten: Chip da, keine Zeile, „Nichts gefunden."
+        // — die Suchfläche hängt an `workspaceActive` und erscheint nicht.
         this.scope = mergePaletteScope(this.scope, scope)
         this.query = rest
+        this.resetSearch()
     },
 
     clearScope(): void {
         this.scope = { ...EMPTY_PALETTE_SCOPE }
+        this.resetSearch()
     },
 
     // ── Ziele ───────────────────────────────────────────────────────────────
@@ -532,7 +809,14 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
          */
         const empty = root.querySelector<HTMLElement>('[data-palette-empty]')
         if (empty) {
-            empty.hidden = root.querySelector('[data-palette-section]:not([data-hidden])') !== null
+            // Im Workspace-Scope entsteht bewusst KEINE Flux-Option (siehe
+            // `visibleSections`) — die pauschale Regel „keine sichtbare Zeile →
+            // nichts gefunden" wäre dort eine Lüge über die Trefferliste, die
+            // direkt darunter steht. Diese Fläche meldet ihren Leerzustand
+            // selbst, mit dem Unterschied zwischen „keine Treffer" und „keine
+            // Antwort".
+            empty.hidden = this.workspaceActive
+                || root.querySelector('[data-palette-section]:not([data-hidden])') !== null
         }
     },
 
@@ -586,6 +870,21 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
             watchSpaceRooms(WORKSPACE_URL, this._wsController.signal)
             this._unsubWorkspace = deriveSpaceViewFor(WORKSPACE_URL).subscribe((view: SpaceView) => {
                 this._workspace = view
+            })
+            // P5 — die Sofort-Treffer. `deriveEventsForUrl` liest ausschließlich
+            // das Repository (herkunftsgenau über den `tracker`) und fragt KEIN
+            // Relay: die Liste ist das, was ohnehin schon geladen ist. Ein
+            // eigener Netz-Load stünde hier falsch — die Relay-Hälfte der Suche
+            // läuft über `runSpaceSearch`, auf Enter.
+            this._unsubWsEvents = deriveEventsForUrl(WORKSPACE_URL, INSTANT_FILTERS).subscribe(
+                (events: TrustedEvent[]) => {
+                    this._wsEvents = events
+                },
+            )
+            // Dreiwertig, nachziehend (P1): `'unknown'` ist ein eigener Zustand,
+            // an dem ein Skeleton hängt — kein „kann kein NIP-50".
+            this._unsubSpaceKind = deriveSpaceKind(WORKSPACE_URL).subscribe((kind: SpaceKind) => {
+                this.spaceKind = kind
             })
         }
 
@@ -645,9 +944,12 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         this._unsubRelays?.()
         this._unsubDirectory?.()
         this._unsubMeetups?.()
+        this._unsubWsEvents?.()
+        this._unsubSpaceKind?.()
         this._controller?.abort()
         this._wsController?.abort()
         this._dirController?.abort()
+        this._searchController?.abort()
         this._observer?.disconnect()
         this._observer = null
         // Pflicht: `wire:navigate` baut die Insel bei jeder Navigation neu auf. Ein
