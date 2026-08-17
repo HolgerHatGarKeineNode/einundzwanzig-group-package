@@ -4873,7 +4873,9 @@ export function registerNostrComponents(Alpine: {
          *
          * - **`restricted: channel access revoked`** — die RAUM-Mitgliedschaft hat
          *   sich geändert (eigener Austritt per 9022, Entfernen durch einen Admin,
-         *   Archivieren, offen→privat). Der Relay-Zugang besteht weiter; ob der Raum
+         *   Archivieren, offen→privat — beim Umschalten allerdings NUR an
+         *   Nicht-Mitglieder, gemessen in N8, siehe `roomGate.ts`). Der
+         *   Relay-Zugang besteht weiter; ob der Raum
          *   noch lesbar ist, sagt der Grund NICHT. Also wird er nicht geraten,
          *   sondern **erfragt**: derselbe Filter wird neu aufgesetzt, und dessen
          *   Antwort entscheidet (`EOSE` → weiterhin lesbar, der Nutzer ist schlicht

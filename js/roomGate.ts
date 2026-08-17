@@ -28,6 +28,31 @@
  * beantwortet erst der nächste REQ (gemessen: offener Raum → `EOSE`,
  * privater/gelöschter Raum → `restricted: not a channel member`).
  *
+ * **Beim Umschalten offen→privat trifft er NICHT jeden (N8, 2026-08-18).** Hier
+ * stand, der Relay räume dabei „die laufenden Subs dieses Raums" ab — das gilt
+ * nur für Nicht-Mitglieder. Der Relay ruft in diesem Fall
+ * `evict_non_member_channel_subscriptions` auf (`side_effects.rs`,
+ * `visibility`-Arm von `handle_edit_metadata`, Bedingung `was_open && val ==
+ * "private"`) und vergleicht je Verbindung den authentifizierten Pubkey gegen
+ * die Mitgliederliste. Am laufenden Relay mit zwei Verbindungen auf denselben
+ * Kanal und demselben REQ gemessen:
+ *
+ * | Verbindung    | direkt nach dem 9002 | frisches REQ danach |
+ * |---------------|----------------------|---------------------|
+ * | Kanalmitglied | **nichts**, die Sub läuft weiter | `EOSE` |
+ * | Nichtmitglied | `CLOSED restricted: channel access revoked` (+7 ms) | `CLOSED restricted: not a channel member` |
+ *
+ * Das ist der Grund, warum ein Kanalmitglied beim Umschalten seinen Composer
+ * behält: es kommt gar kein Signal, aus dem die Insel etwas ableiten könnte.
+ * Die Zusicherung dafür steht in `tests/e2e/buzz-room-gate.spec.ts` (Fall 4/5)
+ * — sie gehört dorthin und nicht hierher, weil sie eine Aussage über das
+ * Verhalten des RELAYS ist, nicht über diese Zuordnung.
+ *
+ * Nebenbefund derselben Messung: der Relay stellt beim Umschalten eine **neue
+ * 39002 mit unverändertem Inhalt** aus (andere Id, `created_at` +3 s). Für die
+ * Marke aus `roomMembership.ts` ist das die freundliche Richtung — sie listet
+ * das Mitglied weiter und ist die neuere Aussage.
+ *
  * **Die Zuordnung hängt an einer Zeichenkette — und das ist bewusst eine
  * ALLOWLIST.** Genau ein Grund öffnet den freundlichen Weg, alles andere mit
  * `restricted:`-Präfix fällt auf „kein Zugriff". Ändert eine Relay-Version
