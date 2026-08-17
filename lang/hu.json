@@ -840,5 +840,8 @@
     "Dieses Ziel lässt sich nicht adressieren.": "Ez a cél nem címezhető.",
     "Der vorige Versuch läuft noch.": "Az előző próbálkozás még fut.",
     "Dieser Zustand lässt sich nicht setzen.": "Ez az állapot nem állítható be.",
-    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "A relay elfogadta a változtatást, de nem érvényesült — egy újabb állapotváltozás van érvényben."
+    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "A relay elfogadta a változtatást, de nem érvényesült — egy újabb állapotváltozás van érvényben.",
+    ":name, angeheftet und stummgeschaltet": ":name, kitűzve és némítva",
+    ":name, angeheftet": ":name, kitűzve",
+    ":name, stummgeschaltet": ":name, némítva"
 }

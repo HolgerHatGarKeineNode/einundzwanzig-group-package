@@ -92,8 +92,9 @@
                  KEINE eigene Überschrift: dieselbe Begründung wie bei der Haarlinie
                  unten — ein zweites Sektionslabel brächte eine Achse zurück, die der
                  Gruppenschnitt gerade entfernt hat. Die Zeile selbst trägt stattdessen
-                 ein Nadel-Icon (nicht-farbliches Merkmal, WCAG 1.4.1) und einen
-                 sr-only-Text; die Position allein wäre für Screenreader nichts. --}}
+                 ein Nadel-Icon (nicht-farbliches Merkmal, WCAG 1.4.1) und den Zustand
+                 im `aria-label` der Zeile (seit 2026-08-17, siehe `rail-room-row.blade.php`);
+                 die Position allein wäre für Screenreader nichts. --}}
             <template x-for="room in groupFor(@js($group)).pinned" :key="room.h">
                 <x-group::rail-room-row />
             </template>

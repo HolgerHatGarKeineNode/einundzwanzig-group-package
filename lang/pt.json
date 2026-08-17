@@ -859,5 +859,8 @@
     "Dieses Ziel lässt sich nicht adressieren.": "Este destino não é endereçável.",
     "Der vorige Versuch läuft noch.": "A tentativa anterior ainda está a decorrer.",
     "Dieser Zustand lässt sich nicht setzen.": "Este estado não pode ser definido.",
-    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "O relay aceitou a alteração, mas ela não vingou — vigora uma alteração de estado mais recente."
+    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "O relay aceitou a alteração, mas ela não vingou — vigora uma alteração de estado mais recente.",
+    ":name, angeheftet und stummgeschaltet": ":name, fixado e silenciado",
+    ":name, angeheftet": ":name, fixado",
+    ":name, stummgeschaltet": ":name, silenciado"
 }

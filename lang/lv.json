@@ -878,5 +878,8 @@
     "Dieses Ziel lässt sich nicht adressieren.": "Šo mērķi nevar adresēt.",
     "Der vorige Versuch läuft noch.": "Iepriekšējais mēģinājums vēl notiek.",
     "Dieser Zustand lässt sich nicht setzen.": "Šo stāvokli nevar iestatīt.",
-    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "Relejs izmaiņas pieņēma, bet tās nav stājušās spēkā — spēkā ir jaunāka statusa maiņa."
+    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "Relejs izmaiņas pieņēma, bet tās nav stājušās spēkā — spēkā ir jaunāka statusa maiņa.",
+    ":name, angeheftet und stummgeschaltet": ":name, piesprausts un apklusināts",
+    ":name, angeheftet": ":name, piesprausts",
+    ":name, stummgeschaltet": ":name, apklusināts"
 }

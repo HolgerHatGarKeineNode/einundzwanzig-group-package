@@ -1020,20 +1020,30 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <div class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
                                 <button type="button"
                                         class="flex min-h-[2.75rem] flex-1 items-center gap-3 rounded-tile px-2 py-2 text-start"
-                                        x-on:click="openWorkspaceRoom(room); Livewire.navigate(workspaceRoomHref(room))">
+                                        x-on:click="openWorkspaceRoom(room); Livewire.navigate(workspaceRoomHref(room))"
+                                        {{-- Dieselbe Reparatur wie in `rail-room-row.blade.php`: kein sr-only-Fragment
+                                             (', angeheftet' / ', stummgeschaltet') mehr, das an den sichtbaren Namen
+                                             angehängt wird — drei ganze Übersetzungsschlüssel mit `:name`-Platzhalter
+                                             im `aria-label`, `null` ohne Pin/Stumm (Attribut entfällt, Standard-Name
+                                             aus dem sichtbaren `x-text` bleibt). --}}
+                                        x-bind:aria-label="isWorkspacePinned(room) && isWorkspaceMuted(room)
+                                            ? @js(__(':name, angeheftet und stummgeschaltet')).split(':name').join(room.name)
+                                            : (isWorkspacePinned(room)
+                                                ? @js(__(':name, angeheftet')).split(':name').join(room.name)
+                                                : (isWorkspaceMuted(room)
+                                                    ? @js(__(':name, stummgeschaltet')).split(':name').join(room.name)
+                                                    : null))">
                                     <span class="flex size-8 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-800 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
                                     <span class="min-w-0 flex-1 truncate" x-text="room.name"
                                           x-bind:class="isWorkspaceMuted(room) ? 'font-normal text-muted' : 'font-medium'"></span>
                                     <template x-if="isWorkspacePinned(room)">
                                         <span class="inline-flex shrink-0 items-center">
                                             <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 text-zinc-400" />
-                                            <span class="sr-only">{{ __(', angeheftet') }}</span>
                                         </span>
                                     </template>
                                     <template x-if="isWorkspaceMuted(room)">
                                         <span class="inline-flex shrink-0 items-center">
                                             <flux:icon.bell-slash variant="micro" aria-hidden="true" class="size-4 text-zinc-400" />
-                                            <span class="sr-only">{{ __(', stummgeschaltet') }}</span>
                                         </span>
                                     </template>
                                     <template x-if="room.locked">

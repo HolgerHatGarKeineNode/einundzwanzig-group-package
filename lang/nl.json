@@ -840,5 +840,8 @@
     "Dieses Ziel lässt sich nicht adressieren.": "Dit doel is niet adresseerbaar.",
     "Der vorige Versuch läuft noch.": "De vorige poging loopt nog.",
     "Dieser Zustand lässt sich nicht setzen.": "Deze status kan niet worden ingesteld.",
-    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "De relay heeft de wijziging aangenomen, maar ze is niet doorgevoerd — een nieuwere statuswijziging geldt."
+    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "De relay heeft de wijziging aangenomen, maar ze is niet doorgevoerd — een nieuwere statuswijziging geldt.",
+    ":name, angeheftet und stummgeschaltet": ":name, vastgezet en gedempt",
+    ":name, angeheftet": ":name, vastgezet",
+    ":name, stummgeschaltet": ":name, gedempt"
 }

@@ -840,5 +840,8 @@
     "Dieses Ziel lässt sich nicht adressieren.": "This target cannot be addressed.",
     "Der vorige Versuch läuft noch.": "The previous attempt is still running.",
     "Dieser Zustand lässt sich nicht setzen.": "This state cannot be set.",
-    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "The relay accepted the change, but it did not take effect — a newer status change applies."
+    "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "The relay accepted the change, but it did not take effect — a newer status change applies.",
+    ":name, angeheftet und stummgeschaltet": ":name, pinned and muted",
+    ":name, angeheftet": ":name, pinned",
+    ":name, stummgeschaltet": ":name, muted"
 }

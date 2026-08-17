@@ -56,7 +56,22 @@
      (`font-normal text-muted`) und wird durch die durchgestrichene Glocke
      eindeutig — sonst wäre ein stummer Mitgliedsraum von einem fremden Raum
      nicht zu unterscheiden. Die Glocke ist zugleich das nicht-farbliche
-     Merkmal (WCAG 1.4.1), der sr-only-Text trägt es für Screenreader.
+     Merkmal (WCAG 1.4.1), der `aria-label` des Buttons trägt es für Screenreader.
+
+     ── Korrektur 2026-08-17 (I18n-Gate) ──────────────────────────────────────
+     Hier stand je ein sr-only-Fragment (`', angeheftet'` / `', stummgeschaltet'`),
+     das an den sichtbaren Namen angehängt wurde — für Screenreader also dieselbe
+     Verkettung wie `__('In ') . $label . __(' suchen')`, nur über den DOM statt
+     über PHP zusammengesetzt: nicht in jeder Sprache ist „Name, angeheftet" die
+     richtige Wortstellung, und `I18nCatalogGateTest` verbietet genau das. Die drei
+     möglichen Zustände (angeheftet / stumm / beides) tragen jetzt je einen EIGENEN,
+     ganzen Übersetzungsschlüssel mit `:name`-Platzhalter im `aria-label` des Buttons
+     — kein Fragment, das eine andere Sprache in die deutsche Reihenfolge zwingt.
+     `aria-label` ERSETZT den Kindtext des Buttons (daher `room.name`, nicht die
+     gekürzte `railName(room)` — eine abgeschnittene Mitte ist für einen Screenreader
+     kein Name). Ohne Pin/Stumm bleibt der aria-label-Ausdruck `null`: Alpine entfernt
+     das Attribut dann ganz, und die weit häufigere unmarkierte Zeile bleibt exakt wie
+     vorher (Name aus dem sichtbaren `x-text`).
 
      **Der Ungelesen-Zähler entfällt bei stumm.** Genau die Zahl fordert zum
      Hineinschauen auf; bliebe sie stehen, wäre die Stummschaltung Optik. Die
@@ -64,6 +79,13 @@
 <div>
 <button type="button" x-on:click="openRoom(room)"
         x-bind:aria-current="room.h === activeRoomH ? 'page' : null"
+        x-bind:aria-label="isPinned(room) && isMuted(room)
+            ? @js(__(':name, angeheftet und stummgeschaltet')).split(':name').join(room.name || room.h)
+            : (isPinned(room)
+                ? @js(__(':name, angeheftet')).split(':name').join(room.name || room.h)
+                : (isMuted(room)
+                    ? @js(__(':name, stummgeschaltet')).split(':name').join(room.name || room.h)
+                    : null))"
         class="pressable group relative flex min-h-8 w-full items-center gap-2 rounded-tile px-2 py-1 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
         x-bind:class="room.h === activeRoomH
             ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
@@ -106,14 +128,12 @@
     <template x-if="isPinned(room)">
         <span class="inline-flex shrink-0 items-center">
             <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-3.5 text-muted" />
-            <span class="sr-only">{{ __(', angeheftet') }}</span>
         </span>
     </template>
 
     <template x-if="isMuted(room)">
         <span class="inline-flex shrink-0 items-center">
             <flux:icon.bell-slash variant="micro" aria-hidden="true" class="size-3.5 text-muted" />
-            <span class="sr-only">{{ __(', stummgeschaltet') }}</span>
         </span>
     </template>
 
