@@ -511,3 +511,73 @@ test('buildWorkspaceList: leere Liste bleibt leer', () => {
     assert.deepEqual(list.pinned, [])
     assert.deepEqual(list.muted, [])
 })
+
+// ── Repo-gebundene Kanäle (P1) ──────────────────────────────────────────────
+
+test('claimedRoomHs: ein repo-gebundener Kanal fällt aus der flachen Liste — und NUR dort', () => {
+    const groups = buildGroups([], {
+        workspaceRooms: [ws({ h: 'kanal' }), ws({ h: 'general' })],
+        claimedRoomHs: ['kanal'],
+    })
+    const g = group(groups, 'workspace')
+
+    assert.deepEqual(g.claimed.map((r) => r.h), ['kanal'])
+    assert.deepEqual(g.joined.map((r) => r.h), ['general'], 'genau einmal, nicht zweimal')
+    assert.deepEqual(g.others, [])
+    assert.equal(g.total, 2, 'der Kopf zählt ihn mit — er ist sichtbar, nur woanders')
+})
+
+test('claimedRoomHs: ein Kanal OHNE Bindung bleibt flach, wo er war', () => {
+    const g = group(buildGroups([], {
+        workspaceRooms: [ws({ h: 'general' }), ws({ h: 'welcome', joined: false })],
+        claimedRoomHs: ['gibt-es-nicht'],
+    }), 'workspace')
+
+    assert.deepEqual(g.claimed, [])
+    assert.deepEqual(g.joined.map((r) => r.h), ['general'])
+    assert.deepEqual(g.others.map((r) => r.h), ['welcome'])
+})
+
+test('Anheften schlägt die Repo-Bindung — die ausdrückliche Wahl gewinnt', () => {
+    const g = group(buildGroups([], {
+        workspaceRooms: [ws({ h: 'kanal' })],
+        workspacePrefs: { pinned: ['kanal'] },
+        claimedRoomHs: ['kanal'],
+    }), 'workspace')
+
+    assert.deepEqual(g.pinned.map((r) => r.h), ['kanal'])
+    assert.deepEqual(g.claimed, [], 'nicht in beidem — sonst stünde er zweimal in der Spalte')
+    assert.equal(g.total, 1)
+})
+
+test('Die Repo-Bindung schlägt die Sektion — sie ist die genauere Aussage', () => {
+    const sections: WorkspaceSections = {
+        sections: [{ id: 's1', name: 'Projekte' }],
+        assignments: { kanal: 's1', general: 's1' },
+    }
+    const g = group(buildGroups([], {
+        workspaceRooms: [ws({ h: 'kanal' }), ws({ h: 'general' })],
+        workspacePrefs: { sections },
+        claimedRoomHs: ['kanal'],
+    }), 'workspace')
+
+    assert.deepEqual(g.claimed.map((r) => r.h), ['kanal'])
+    assert.deepEqual(g.sections.map((s) => s.rooms.map((r) => r.h)), [['general']])
+    assert.equal(g.total, 2)
+})
+
+test('claimedRoomHs greift NUR auf den Workspace — der zooid-Arm bleibt unberührt', () => {
+    const g = group(buildGroups([room({ h: 'kanal', joined: true })], { claimedRoomHs: ['kanal'] }), 'rooms')
+
+    assert.deepEqual(g.claimed, [])
+    assert.deepEqual(g.joined.map((r) => r.h), ['kanal'])
+})
+
+test('ohne claimedRoomHs ist das Ergebnis bitgleich zu vorher', () => {
+    const rooms = [ws({ h: 'a' }), ws({ h: 'b', joined: false })]
+
+    assert.deepEqual(
+        group(buildGroups([], { workspaceRooms: rooms }), 'workspace'),
+        group(buildGroups([], { workspaceRooms: rooms, claimedRoomHs: [] }), 'workspace'),
+    )
+})

@@ -881,5 +881,12 @@
     "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "Relejs izmaiņas pieņēma, bet tās nav stājušās spēkā — spēkā ir jaunāka statusa maiņa.",
     ":name, angeheftet und stummgeschaltet": ":name, piesprausts un apklusināts",
     ":name, angeheftet": ":name, piesprausts",
-    ":name, stummgeschaltet": ":name, apklusināts"
+    ":name, stummgeschaltet": ":name, apklusināts",
+    "Alle Projekte": "Visi projekti",
+    "Alle Projekte anzeigen (:count)": "Rādīt visus projektus (:count)",
+    "Bereich :label auf- oder zuklappen": "Izvērst vai sakļaut sadaļu :label",
+    "Eintrag :name auf- oder zuklappen": "Izvērst vai sakļaut ierakstu :name",
+    "Forge-Übersicht öffnen": "Atvērt Forge pārskatu",
+    "Issues des Repositorys öffnen (:count)": "Atvērt repozitorija pieteikumus (:count)",
+    "Pull Requests des Repositorys öffnen (:count)": "Atvērt repozitorija pull request pieprasījumus (:count)"
 }

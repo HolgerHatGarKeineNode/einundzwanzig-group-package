@@ -100,9 +100,18 @@
                  ohne Config ist die Rail zeichengleich zu vorher. Die Räume kommen
                  aus einem EIGENEN Watch auf die Workspace-URL, nicht aus dem aktiven
                  Space — deshalb stehen hier beide nebeneinander statt abwechselnd. --}}
+            {{-- Seit P1 IST der Workspace die Forge: kein eigener `Forge`-Eintrag mehr
+                 unten, sondern der Baum in dieser Sektion. Drei Wege führen auf die
+                 Übersichtsseite, weil ein nacktes Icon allein zu wenig wäre: der
+                 Sektionsname, das `</>`-Icon daneben und — sobald gefaltet wird — die
+                 Zeile „Alle Projekte · N". Ein vierter steht in der Befehlspalette
+                 (`command-palette.blade.php`, Aktion `forge`). --}}
             <template x-if="hasWorkspaceSection">
                 <div>
-                    <x-group::rail-group group="workspace" :label="__('Workspace')">
+                    <x-group::rail-group group="workspace" :label="__('Workspace')"
+                                         :tree="true"
+                                         heading-href="{{ route('group.forge') }}"
+                                         :overview-label="__('Forge-Übersicht öffnen')">
                         <x-slot:suffix>
                             {{-- TEXT (11,2px), also 1.4.3 mit 4,5:1 — nicht die
                                  Icon-Schwelle. Auf dem Rail-Grund (`bg-white`, ganz
@@ -143,18 +152,13 @@
                 <span>{{ __('Artikel') }}</span>
             </a>
 
-            {{-- Forge (P6). Steht wie „Artikel" hier und nicht als Rail-Gruppe: die
-                 Gruppen oben sind RÄUME (`RailRoom` verlangt ein `h`), ein Repository
-                 ist keiner. Server-seitig gegated — ohne Workspace gibt es die Fläche
-                 nicht, und eine Zeile, die in einen Leerzustand führt, ist schlechter
-                 als keine. --}}
-            @if (config('group.workspace_url'))
-                <a href="{{ route('group.forge') }}" wire:navigate
-                   class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
-                    <flux:icon.code-bracket variant="micro" class="size-4 shrink-0" />
-                    <span>{{ __('Forge') }}</span>
-                </a>
-            @endif
+            {{-- Hier stand bis P1 ein eigener „Forge"-Eintrag. Er ist weggefallen, weil
+                 er den Workspace zweimal beschrieb: die Repos liegen auf demselben
+                 Relay wie die Kanäle darüber, und der Repo-Kanal `0V_…` stand flach
+                 daneben, obwohl das 30617 per `buzz-channel` sagt, wohin er gehört.
+                 Die Übersichtsseite ist NICHT weggefallen — sie hängt jetzt am
+                 Sektionskopf (Name + `</>`-Icon), an der Faltungszeile und in der
+                 Befehlspalette. --}}
         </div>
 
         {{-- Fußzeile: die drei Nav-Ziele, darunter Glocke und Identität. --}}

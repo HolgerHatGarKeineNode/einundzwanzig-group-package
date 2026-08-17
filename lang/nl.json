@@ -843,5 +843,12 @@
     "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "De relay heeft de wijziging aangenomen, maar ze is niet doorgevoerd — een nieuwere statuswijziging geldt.",
     ":name, angeheftet und stummgeschaltet": ":name, vastgezet en gedempt",
     ":name, angeheftet": ":name, vastgezet",
-    ":name, stummgeschaltet": ":name, gedempt"
+    ":name, stummgeschaltet": ":name, gedempt",
+    "Alle Projekte": "Alle projecten",
+    "Alle Projekte anzeigen (:count)": "Alle projecten tonen (:count)",
+    "Bereich :label auf- oder zuklappen": "Sectie :label uit- of invouwen",
+    "Eintrag :name auf- oder zuklappen": "Item :name uit- of invouwen",
+    "Forge-Übersicht öffnen": "Forge-overzicht openen",
+    "Issues des Repositorys öffnen (:count)": "Issues van de repository openen (:count)",
+    "Pull Requests des Repositorys öffnen (:count)": "Pull requests van de repository openen (:count)"
 }

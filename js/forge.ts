@@ -45,6 +45,7 @@ import { warmProfiles } from './profiles'
 import { deriveEventsForUrl } from './repository'
 import { WORKSPACE_URL, deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
+import type { ForgeNavProject, ForgeNavRepo } from './railForge.ts'
 import {
     DELETION,
     FORGE_COMMENT,
@@ -429,6 +430,131 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
     )
 }
 
+// ── Der Bestand für die RAIL (P1) ───────────────────────────────────────────
+
+/**
+ * Was der Forge-Baum der Workspace-Sektion braucht: Repos, Projekte, Zähler.
+ *
+ * **Eine eigene Ableitung neben {@link deriveForgeOverview}, kein zweiter
+ * Aufrufer davon.** Die Übersicht rechnet bei jeder Änderung Zeitleiste,
+ * Datumsbeschriftungen, Branch-Zustände und Personenkarten aus — die Rail steht
+ * auf JEDER Seite und braucht davon nichts. Was hier geteilt wird, ist die
+ * Faltung selbst (`buildRepos`/`buildProjects`/`buildIssues`), also genau das,
+ * was auseinanderlaufen dürfte; die Aufbereitung ist je Fläche eine andere.
+ *
+ * Die Zähler sind bewusst DIESELBE Zahl wie die Kacheln der Übersicht (alle
+ * Issues bzw. PRs eines Repos, nicht nur die offenen): zwei Zahlen für dieselbe
+ * Frage an zwei Orten sind ein Fehlerbericht in Wartestellung.
+ */
+export const deriveForgeNav = (): Readable<{ repos: ForgeNavRepo[]; projects: ForgeNavProject[] }> => {
+    if (!WORKSPACE_URL) {
+        return readable({ repos: [], projects: [] })
+    }
+
+    return derived(forgeEvents(), (events) => {
+        const all = events as ForgeEvent[]
+        const deletions = all.filter((event) => event.kind === DELETION)
+        const repos = buildRepos(all, deletions)
+        const projects = buildProjects(all, repos, deletions)
+        const addresses = new Set(repos.map((repo) => repo.address))
+
+        const issuesByRepo = new Map<string, number>()
+        for (const issue of buildIssues(all)) {
+            if (addresses.has(issue.repoAddress)) {
+                issuesByRepo.set(issue.repoAddress, (issuesByRepo.get(issue.repoAddress) ?? 0) + 1)
+            }
+        }
+        const pullsByRepo = new Map<string, number>()
+        for (const pull of buildPullRequests(all)) {
+            if (addresses.has(pull.repoAddress)) {
+                pullsByRepo.set(pull.repoAddress, (pullsByRepo.get(pull.repoAddress) ?? 0) + 1)
+            }
+        }
+
+        return {
+            repos: repos.map((repo) => ({
+                address: repo.address,
+                name: repo.name,
+                naddr: naddrForRepo(repo.owner, repo.dtag, WORKSPACE_URL ? [WORKSPACE_URL] : []),
+                channelId: repo.channelId,
+                issueCount: issuesByRepo.get(repo.address) ?? 0,
+                pullRequestCount: pullsByRepo.get(repo.address) ?? 0,
+            })),
+            projects: projects.map((project) => ({
+                address: project.address,
+                name: project.name,
+                repoAddresses: project.repos.map((repo) => repo.address),
+            })),
+        }
+    })
+}
+
+/**
+ * Bestand für die Rail laden — **dieselben Filter wie die Übersicht, weniger
+ * davon**: keine Branch-Zustände (die Rail zeigt keine Branches), keine
+ * PR-Updates, keine Statuswechsel, keine Kommentare, kein Markdown-Renderer und
+ * kein Profil-Warmup. Die Rail braucht Namen von Repos, nicht von Menschen.
+ *
+ * Zwei Runden, weil die zweite die Adressen der ersten braucht — dieselbe
+ * Reihenfolge wie {@link loadForge}, nur mit dem kleineren Zuschnitt.
+ */
+const loadForgeNav = async (signal?: AbortSignal): Promise<void> => {
+    if (!WORKSPACE_URL) {
+        return
+    }
+    const base = await load({
+        relays: [WORKSPACE_URL],
+        filters: [
+            { kinds: [REPO_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
+            { kinds: [PROJECT_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
+        ],
+        signal,
+    })
+
+    const addresses = repoAddressesOf(base)
+    if (addresses.length === 0 || signal?.aborted) {
+        return
+    }
+
+    await load({
+        relays: [WORKSPACE_URL],
+        filters: [
+            { kinds: [GIT_ISSUE], '#a': addresses, limit: FORGE_ROOT_LIMIT },
+            { kinds: [GIT_PULL_REQUEST], '#a': addresses, limit: FORGE_ROOT_LIMIT },
+            ...tombstoneFilters(addresses),
+        ],
+        signal,
+    })
+}
+
+let navStarted = false
+
+/**
+ * **Der einzige Einstieg für eine Fläche**, die den Forge-Baum zeigt: schaltet den
+ * Netzweg scharf (idempotent, modulweit) und abonniert {@link deriveForgeNav}.
+ * Gibt den Abmelder zurück — die Fläche ruft ihn in `destroy()`.
+ *
+ * Dasselbe Muster und dieselbe Begründung wie `subscribeWorkspacePrefs`
+ * (`channelPrefs.ts`): gebunden an den ERSTEN Abonnenten, nicht an den
+ * Seitenaufruf. `wire:navigate` baut die Rail bei jedem Raumwechsel neu auf —
+ * hinge der `load` am Mount, liefe er bei jedem Klick erneut. Der Netzweg bleibt
+ * deshalb modulweit stehen; abgemeldet wird nur dieses eine Abo.
+ */
+export const subscribeForgeNav = (
+    listener: (data: { repos: ForgeNavRepo[]; projects: ForgeNavProject[] }) => void,
+): (() => void) => {
+    if (!navStarted && WORKSPACE_URL) {
+        navStarted = true
+        void loadForgeNav().catch((error: unknown) => {
+            // Fail-soft wie überall im Lesepfad: ohne Bestand bleibt der Baum leer
+            // und die Kanäle stehen flach — also genau der Zustand von vor P1.
+            console.warn('[forge] Der Forge-Baum konnte nicht geladen werden', error)
+        })
+    }
+
+    return deriveForgeNav().subscribe(listener)
+}
+
 /** Ein Kommentar, anzeigefertig (Markdown bereits gerendert). */
 export type CommentRow = {
     id: string
@@ -632,6 +758,26 @@ const warm = (events: TrustedEvent[]): void => {
 }
 
 /**
+ * Die Repo-Koordinaten eines Ereignis-Bestands — der Schlüssel für die zweite
+ * Laderunde. Steht einmal hier, weil zwei Laderunden ihn brauchen
+ * ({@link loadForge} und der schlanke Rail-Zwilling): eine zweite Kopie wäre
+ * genau die Stelle, an der eine Klein-/Großschreibung auseinanderliefe und der
+ * `#a`-Filter still nichts mehr fände.
+ */
+const repoAddressesOf = (events: TrustedEvent[]): string[] => [
+    ...new Set(
+        events
+            .filter((event) => event.kind === REPO_ANNOUNCEMENT)
+            .map((event) => {
+                const dtag = event.tags.find((tag) => tag[0] === 'd')?.[1] ?? ''
+
+                return dtag ? `${REPO_ANNOUNCEMENT}:${event.pubkey.toLowerCase()}:${dtag}` : ''
+            })
+            .filter((address) => address !== ''),
+    ),
+]
+
+/**
  * Bestand der Übersicht laden — in zwei Runden, weil die zweite die Ergebnisse
  * der ersten braucht: erst Repos/Projekte/Zustände, dann alles, was per `#a` an
  * ihnen hängt (Issues, PRs, Status, Kommentare, Grabsteine).
@@ -655,18 +801,7 @@ export const loadForge = async (relaySelf: string, signal?: AbortSignal): Promis
     })
     warm(base)
 
-    const addresses = [
-        ...new Set(
-            base
-                .filter((event) => event.kind === REPO_ANNOUNCEMENT)
-                .map((event) => {
-                    const dtag = event.tags.find((tag) => tag[0] === 'd')?.[1] ?? ''
-
-                    return dtag ? `${REPO_ANNOUNCEMENT}:${event.pubkey.toLowerCase()}:${dtag}` : ''
-                })
-                .filter((address) => address !== ''),
-        ),
-    ]
+    const addresses = repoAddressesOf(base)
     if (addresses.length === 0 || signal?.aborted) {
         return { complete, count: base.length }
     }
@@ -848,6 +983,24 @@ type ForgeRepoState = {
  * Importzeile und ein Aufruf, wie bei `wireRail`, `wirePalette`,
  * `wireDisplayPrefs` und `wireRoomSearch`.
  */
+
+/**
+ * Der Tab aus `?tab=` — die einzige Stelle, an der die Repo-Seite ihren
+ * Startzustand von außen bekommt.
+ *
+ * Nur die beiden Werte, die die Rail verlinkt; alles andere (auch ein
+ * `?tab=activity` von Hand) fällt auf den bisherigen Startwert zurück. Ein
+ * ungeprüfter Query-Wert in `x-model="tab"` zeigte sonst schlicht keinen Tab.
+ */
+const tabFromLocation = (): string => {
+    try {
+        const tab = new URLSearchParams(window.location.search).get('tab')
+
+        return tab === 'issues' || tab === 'pulls' ? tab : 'issues'
+    } catch {
+        return 'issues'
+    }
+}
 export function wireForge(Alpine: {
     data: (name: string, factory: (...args: unknown[]) => unknown) => void
 }): void {
@@ -959,7 +1112,12 @@ export function wireForge(Alpine: {
             error: '',
             missing: false,
             kind: 'unknown',
-            tab: 'issues',
+            // Der Tab kommt aus `?tab=`, wenn er dort steht: die Rail verlinkt
+            // „Issues · 3" und „Pull Requests · 1" gezielt auf ihre Liste, und
+            // eine Zeile, die etwas anderes zeigt als ihre Beschriftung, wäre
+            // schlimmer als keine. Ohne Parameter bleibt es beim bisherigen
+            // Startwert.
+            tab: tabFromLocation(),
             view: null,
             open: {},
             viewer: '',

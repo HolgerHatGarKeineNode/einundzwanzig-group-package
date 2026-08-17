@@ -862,5 +862,12 @@
     "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "Relay przyjął zmianę, ale nie weszła w życie — obowiązuje nowsza zmiana statusu.",
     ":name, angeheftet und stummgeschaltet": ":name, przypięty i wyciszony",
     ":name, angeheftet": ":name, przypięty",
-    ":name, stummgeschaltet": ":name, wyciszony"
+    ":name, stummgeschaltet": ":name, wyciszony",
+    "Alle Projekte": "Wszystkie projekty",
+    "Alle Projekte anzeigen (:count)": "Pokaż wszystkie projekty (:count)",
+    "Bereich :label auf- oder zuklappen": "Rozwiń lub zwiń sekcję :label",
+    "Eintrag :name auf- oder zuklappen": "Rozwiń lub zwiń wpis :name",
+    "Forge-Übersicht öffnen": "Otwórz przegląd Forge",
+    "Issues des Repositorys öffnen (:count)": "Otwórz zgłoszenia repozytorium (:count)",
+    "Pull Requests des Repositorys öffnen (:count)": "Otwórz pull requesty repozytorium (:count)"
 }

@@ -843,5 +843,12 @@
     "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "A relay elfogadta a változtatást, de nem érvényesült — egy újabb állapotváltozás van érvényben.",
     ":name, angeheftet und stummgeschaltet": ":name, kitűzve és némítva",
     ":name, angeheftet": ":name, kitűzve",
-    ":name, stummgeschaltet": ":name, némítva"
+    ":name, stummgeschaltet": ":name, némítva",
+    "Alle Projekte": "Összes projekt",
+    "Alle Projekte anzeigen (:count)": "Összes projekt megjelenítése (:count)",
+    "Bereich :label auf- oder zuklappen": "A(z) :label szakasz kinyitása vagy összecsukása",
+    "Eintrag :name auf- oder zuklappen": "A(z) :name bejegyzés kinyitása vagy összecsukása",
+    "Forge-Übersicht öffnen": "A Forge áttekintés megnyitása",
+    "Issues des Repositorys öffnen (:count)": "A repository hibajegyeinek megnyitása (:count)",
+    "Pull Requests des Repositorys öffnen (:count)": "A repository pull requestjeinek megnyitása (:count)"
 }

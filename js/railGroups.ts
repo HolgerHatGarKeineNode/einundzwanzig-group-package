@@ -94,6 +94,20 @@ export type RailGroup = {
      * ein Raum, der zweimal in der Spalte steht, macht jede Zahl daneben falsch.
      */
     sections: RailSection[]
+    /**
+     * Räume, die ein Repository per `buzz-channel` für sich beansprucht hat (P1).
+     *
+     * Sie stehen im Forge-Baum der Sektion (`railForge.ts`) und deshalb NICHT
+     * mehr in {@link joined}/{@link others} — dieselbe Regel wie bei
+     * {@link pinned} und aus demselben Grund: ein Raum, der zweimal in der Spalte
+     * steht, macht jede Zahl daneben falsch.
+     *
+     * **In {@link total} zählen sie trotzdem mit.** Sie sind ja sichtbar, nur an
+     * einer anderen Stelle; ein Kopf, der sie ausließe, zeigte weniger an, als in
+     * der Gruppe steht. Ausgegeben werden sie hier, damit der Aufrufer sie NICHT
+     * ein zweites Mal aus einer eigenen Liste zusammensuchen muss.
+     */
+    claimed: RailRoom[]
     /** Beigetretene Räume ohne Sektion, alphabetisch. Nie gekappt. */
     joined: RailRoom[]
     /** Nicht beigetretene ohne Sektion, nach Gruppenregel sortiert und ggf. gekappt. */
@@ -284,6 +298,15 @@ export type BuildOptions = {
     workspaceRooms?: RailRoom[]
     /** Kanal-Präferenzen aus Buzz Desktop; greifen NUR auf `workspace`. */
     workspacePrefs?: WorkspacePrefs
+    /**
+     * `h` der Kanäle, die im Forge-Baum stehen und deshalb aus der flachen Liste
+     * fallen (P1, Regel 3). Kommt aus `railForge.buildForgeNav().claimed` — diese
+     * Datei entscheidet die Bindung NICHT selbst, sie vollzieht sie nur.
+     *
+     * Greift wie {@link workspacePrefs} ausschließlich auf `workspace`: Repos
+     * liegen am Buzz-Relay, der zooid-Arm kennt keine.
+     */
+    claimedRoomHs?: readonly string[]
 }
 
 /** Der Vergleicher zu einem Modus. `'alpha'` ist der Default in Buzz wie bei uns. */
@@ -365,6 +388,7 @@ export const buildGroups = (rooms: RailRoom[], opts: BuildOptions = {}): RailGro
     const prefs = opts.workspacePrefs ?? {}
     const pinnedSet = new Set(prefs.pinned ?? [])
     const mutedSet = new Set(prefs.muted ?? [])
+    const claimedSet = new Set(opts.claimedRoomHs ?? [])
 
     const buckets: Record<RailGroupKey, RailRoom[]> = { rooms: [], meetups: [], proposals: [], workspace: [] }
     for (const room of rooms) {
@@ -402,9 +426,21 @@ export const buildGroups = (rooms: RailRoom[], opts: BuildOptions = {}): RailGro
         // gar nicht mehr. Genau Buzz' Reihenfolge (`AppSidebar.tsx:399`:
         // `if (starredChannelIds?.has(id)) continue` steht VOR der Sektions-Zuordnung)
         // — ein angehefteter Raum steht oben, nicht in seiner Sektion, und nie in beidem.
-        const sections = isWorkspace ? buildSections(afterPinned, prefs.sections) : []
+        // Die Repo-Bindung greift NACH dem Anheften und VOR der Sektion. Beide
+        // Reihenfolgen sind eine Entscheidung, keine Bequemlichkeit:
+        //   · Der Pin schlägt die Bindung — er ist die ausdrückliche Wahl „steht
+        //     oben", die Bindung eine strukturelle Aussage des Announcements.
+        //     Dieselbe Rangfolge, mit der der Pin schon die Sektion schlägt.
+        //   · Die Bindung schlägt die Sektion — beide sortieren dieselbe Zeile
+        //     ein, und die Bindung ist die genauere Aussage: sie nennt das Repo,
+        //     zu dem der Kanal GEHÖRT, nicht nur die Schublade, in die ihn jemand
+        //     gelegt hat.
+        const claimed = isWorkspace ? afterPinned.filter((r) => claimedSet.has(r.h)) : []
+        const afterClaimed = claimed.length > 0 ? afterPinned.filter((r) => !claimedSet.has(r.h)) : afterPinned
+
+        const sections = isWorkspace ? buildSections(afterClaimed, prefs.sections) : []
         const inSection = new Set(sections.flatMap((s) => s.rooms.map((r) => r.h)))
-        const rest = inSection.size > 0 ? afterPinned.filter((r) => !inSection.has(r.h)) : afterPinned
+        const rest = inSection.size > 0 ? afterClaimed.filter((r) => !inSection.has(r.h)) : afterClaimed
 
         // Der Sortiermodus gilt nur im Workspace; überall sonst bleibt die
         // bisherige Regel (beigetreten alphabetisch, Meetups nach Aktivität).
@@ -418,13 +454,14 @@ export const buildGroups = (rooms: RailRoom[], opts: BuildOptions = {}): RailGro
             key,
             pinned: pinned.sort(comparatorFor(prefs.pinnedSort)),
             sections,
+            claimed: claimed.sort(byName),
             joined,
             others: capped,
             hiddenCount: others.length - capped.length,
-            // Gerechnet über den UNGEKAPPTEN Bestand inklusive der Angehefteten und
-            // der Sektions-Zeilen — der Kopf zeigt, was da ist, nicht was gerade
-            // sichtbar ist.
-            total: pinned.length + inSectionCount + joined.length + others.length,
+            // Gerechnet über den UNGEKAPPTEN Bestand inklusive der Angehefteten,
+            // der Sektions-Zeilen und der repo-gebundenen Kanäle — der Kopf zeigt,
+            // was da ist, nicht was gerade sichtbar ist.
+            total: pinned.length + claimed.length + inSectionCount + joined.length + others.length,
             muted: isWorkspace ? members.filter((r) => mutedSet.has(r.h)).map((r) => r.h) : [],
         }
     })
