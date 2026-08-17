@@ -31,10 +31,15 @@
     ['id' => 'spaces', 'label' => __('Alle Räume & Entdecken'), 'href' => route('group.spaces')],
     ['id' => 'directory', 'label' => __('Mitgliederverzeichnis'), 'href' => route('group.directory')],
     ['id' => 'articles', 'label' => __('Artikel'), 'href' => route('group.articles')],
+    // P6 — die Forge gibt es nur mit konfiguriertem Workspace. `array_filter` unten
+    // wirft den Eintrag sonst raus: ein Palettenbefehl, der in einen Leerzustand
+    // führt, ist schlechter als kein Befehl.
+    config('group.workspace_url') ? ['id' => 'forge', 'label' => __('Forge'), 'href' => route('group.forge')] : null,
     ['id' => 'updates', 'label' => __('Neu'), 'href' => route('group.updates')],
     ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.wallet')],
     ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route('group.settings')],
 ])
+@php($paletteActions = array_values(array_filter($paletteActions)))
 {{-- Ein Stil für alle Tastenkappen: derselbe wie am Rail-Prompt. --}}
 @php($kbd = 'shrink-0 rounded bg-black/5 px-1 py-0.5 font-mono text-[0.7rem] leading-none text-muted dark:bg-white/10')
 

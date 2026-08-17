@@ -142,6 +142,19 @@
                 <flux:icon.document-text variant="micro" class="size-4 shrink-0" />
                 <span>{{ __('Artikel') }}</span>
             </a>
+
+            {{-- Forge (P6). Steht wie „Artikel" hier und nicht als Rail-Gruppe: die
+                 Gruppen oben sind RÄUME (`RailRoom` verlangt ein `h`), ein Repository
+                 ist keiner. Server-seitig gegated — ohne Workspace gibt es die Fläche
+                 nicht, und eine Zeile, die in einen Leerzustand führt, ist schlechter
+                 als keine. --}}
+            @if (config('group.workspace_url'))
+                <a href="{{ route('group.forge') }}" wire:navigate
+                   class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+                    <flux:icon.code-bracket variant="micro" class="size-4 shrink-0" />
+                    <span>{{ __('Forge') }}</span>
+                </a>
+            @endif
         </div>
 
         {{-- Fußzeile: die drei Nav-Ziele, darunter Glocke und Identität. --}}

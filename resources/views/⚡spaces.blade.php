@@ -664,7 +664,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Konfiguration — ohne Artikel-Relay bleibt der Block exakt so,
                              wie er vorher war. --}}
                         @php($hasBoard = (bool) config('group.board_relay_url'))
-                        <template x-if="!focusMode() && (@js($hasBoard) || proposalCount() > 0 || meetupCount() > 0 || isAdmin)">
+                        {{-- P6: dieselbe Bauart für die Forge — auch sie hängt an der
+                             Konfiguration, nicht an einer Client-Zahl. Ohne Workspace
+                             bleibt der Block exakt so, wie er vorher war. --}}
+                        @php($hasForge = (bool) config('group.workspace_url'))
+                        <template x-if="!focusMode() && (@js($hasBoard) || @js($hasForge) || proposalCount() > 0 || meetupCount() > 0 || isAdmin)">
                             <div data-discover class="flex flex-col gap-0.5"
                                  {{-- Die Trennlinie sitzt zwischen den Raumlisten und diesen
                                       Wegen — sie braucht also etwas ÜBER sich. Ab xl blendet die
@@ -760,6 +764,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <span class="min-w-0 flex-1">
                                             <span class="block font-medium">{{ __('Artikel lesen') }}</span>
                                             <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Longform aus der Community') }}</span>
+                                        </span>
+                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
+                                    </a>
+                                @endif
+
+                                {{-- Forge (P6). Gleiche Zeilenform wie „Artikel lesen"
+                                     darüber: Icon-Chip · Titel · Rest · Chevron. KEINE
+                                     Zahl darunter — die Repositories liegen auf dem
+                                     Workspace-Relay und sind hier noch gar nicht
+                                     geladen; eine Zahl müsste dafür beim Aufbau der
+                                     Raumübersicht ein weiteres Relay anfragen, für eine
+                                     Zeile, die ohnehin nur weiterführt. --}}
+                                @if ($hasForge)
+                                    <a href="{{ route('group.forge') }}" wire:navigate
+                                       class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
+                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
+                                            <flux:icon.code-bracket class="size-5" />
+                                        </span>
+                                        <span class="min-w-0 flex-1">
+                                            <span class="block font-medium">{{ __('Forge öffnen') }}</span>
+                                            <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Repositories, Issues und Pull Requests') }}</span>
                                         </span>
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
                                     </a>

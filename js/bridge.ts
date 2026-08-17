@@ -44,6 +44,7 @@ import { wireDisplayPrefs } from './displayPrefs'
 import { wireRoomSearch } from './roomSearch'
 import { wireRoomPins } from './roomPins'
 import { wireVerein } from './verein'
+import { wireForge } from './forge'
 import { dispatchModal } from './modal'
 import {
     groupSpaceChoices,
@@ -1502,6 +1503,12 @@ export function registerNostrComponents(Alpine: {
     // `vereinFlow.ts`, damit sie ohne Browser prüfbar ist. `bridge.ts` weiß von beidem nur
     // diese Zeile.
     wireVerein(Alpine)
+    // P6 (Buzz-Workspace) — Forge: Repositories, Issues, Pull Requests, Projekte,
+    // Aktivität. Zwei Inseln (`nostrForge`, `nostrForgeRepo`), beide in `forge.ts`
+    // registriert; die reine Faltung liegt nochmals daneben in `forgeModels.ts` und
+    // `forgeActivity.ts`, damit sie ohne Browser prüfbar ist. `bridge.ts` weiß von
+    // allem dreien nur diese Zeile.
+    wireForge(Alpine)
 
     // PLAN4 IMG — `$img(url)` proxifiziert jedes remote Bild (Zuschnitt/WebP) in
     // jedem Alpine-Ausdruck. Zweites Arg = Preset (Default 'avatar').
