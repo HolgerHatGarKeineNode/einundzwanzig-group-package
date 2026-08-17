@@ -48,6 +48,14 @@ export const SECTION_SIGIL: Readonly<Record<PaletteSection, string>> = {
     actions: '>',
 }
 
+/**
+ * Das Zeichen des Workspace-Scopes (`w:`) — die einzige Fläche, die den Relay
+ * fragt statt den geladenen Bestand zu filtern (P5, NIP-50). Bewusst ein
+ * Lupen-Zeichen und kein Buchstabe: es steht für eine andere ART von Ergebnis,
+ * nicht für eine weitere Sektion.
+ */
+export const WORKSPACE_SIGIL = '⌕'
+
 /** Der aktive Suchbereich der Palette: Sektion + (bei Räumen) Gruppe und Land. */
 export type PaletteScope = {
     section: PaletteSection | null
@@ -117,9 +125,25 @@ export const mergePaletteScope = (current: PaletteScope, next: PaletteScope): Pa
 export const hasPaletteScope = (scope: PaletteScope): boolean =>
     scope.section !== null || scope.group !== null || scope.country !== ''
 
-/** Das Zeichen vor dem Prompt — folgt der Sektion, sonst `#`. */
-export const paletteSigil = (scope: PaletteScope): string =>
-    scope.section === null ? SECTION_SIGIL.rooms : SECTION_SIGIL[scope.section]
+/**
+ * Steht die Palette im Workspace-Scope (`w:`)?
+ *
+ * Das ist der eine Scope, der nicht den geladenen Bestand einschränkt, sondern
+ * eine ANDERE Quelle aufmacht: die relay-seitige Volltextsuche (NIP-50) über
+ * Nachrichten und Profile des Workspace-Relays, plus die Sofort-Treffer aus dem
+ * bereits geladenen Bestand. Deshalb steht die Frage hier als eigene Funktion
+ * und nicht als `scope.group === 'workspace'` an fünf Stellen.
+ */
+export const isWorkspaceScope = (scope: PaletteScope): boolean => scope.group === 'workspace'
+
+/** Das Zeichen vor dem Prompt — Workspace-Lupe, sonst Sektion, sonst `#`. */
+export const paletteSigil = (scope: PaletteScope): string => {
+    if (isWorkspaceScope(scope)) {
+        return WORKSPACE_SIGIL
+    }
+
+    return scope.section === null ? SECTION_SIGIL.rooms : SECTION_SIGIL[scope.section]
+}
 
 /**
  * Der Text, den ein Klick auf eine Sektion ins Feld schriebe. Für Räume ist das
@@ -147,6 +171,26 @@ export const paletteScopeToken = (scope: PaletteScope): string => {
  * dann auch keine hundert Zeilen im DOM.
  */
 export const visibleSections = (scope: PaletteScope, query: string): PaletteSection[] => {
+    // Der Workspace-Scope erzeugt BEWUSST keine einzige Flux-Option — und das
+    // ist kein Sparen, sondern die Bedingung dafür, dass die Enter-Taste dort
+    // die Suche auslöst:
+    //
+    // `ui-select[filter]` aktiviert bei jeder Textänderung wieder die erste
+    // sichtbare Option (`flux.js`, `_filterable.onChange` → `activateFirst()`),
+    // und `handleKeyboardSelection` klickt sie bei Enter an. Stünde hier auch
+    // nur eine Raumzeile, spränge Enter in diesen Raum statt zu suchen. Ohne
+    // Optionen bleibt `getActive()` leer, Flux' Handler kehrt nach seinem
+    // `preventDefault` sofort zurück, und der eigene Listener am selben Feld
+    // kommt zum Zug (`stopPropagation` hält keine Geschwister auf demselben
+    // Element auf).
+    //
+    // Verloren geht dabei nichts: die Workspace-Räume erscheinen in der
+    // Trefferliste als Sofort-Treffer — mit besserer Übereinstimmung als Flux'
+    // Teilzeichenkette (Diakritika, UND über mehrere Begriffe).
+    if (isWorkspaceScope(scope)) {
+        return []
+    }
+
     if (scope.section !== null) {
         return [scope.section]
     }

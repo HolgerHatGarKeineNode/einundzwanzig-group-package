@@ -20,7 +20,7 @@
                 {{-- Avatar überlappt den Banner-Rand; der Ring stanzt ihn frei (Brand-Glow). --}}
                 <div class="-mt-12 mb-3">
                     <div class="inline-block rounded-full ring-4 ring-white dark:ring-zinc-900" style="box-shadow: var(--shadow-glow)">
-                        <x-group::nostr-avatar picture="picture" name="name" size="5rem" />
+                        <x-group::nostr-avatar picture="picture" name="name" size="5rem" emoji="status.emoji" />
                     </div>
                 </div>
 
@@ -31,6 +31,19 @@
 
                 {{-- Verifizierter NIP-05-Handle (nur bei bestätigtem Match, PLAN4 B4). --}}
                 <div x-show="nip05" x-cloak class="mt-0.5 truncate text-sm text-muted" x-text="nip05"></div>
+
+                {{-- NIP-38-Status (P2). Die Karte ist die EINZIGE Fläche, die ihn vollständig
+                     als Text zeigt: die Chat-Zeile kürzt per CSS, die Avatar-Plakette trägt nur
+                     das Emoji und ist `aria-hidden`. Also ist dies auch die einzige Stelle, an
+                     der ein Screenreader den Status hört — deshalb steht das Emoji hier als
+                     echter Text neben dem Satz und nicht als Dekor.
+                     Kein Skeleton: die Karte öffnet auf Tastendruck, lange nachdem die
+                     Relay-Weiche gefallen ist; ein Platzhalter wäre hier reine Unruhe. --}}
+                <div x-show="status.text || status.emoji" x-cloak data-user-status
+                     class="mt-1.5 flex items-start gap-1.5 text-sm">
+                    <span x-show="status.emoji" x-text="status.emoji"></span>
+                    <span class="min-w-0 break-words text-muted" x-text="status.text"></span>
+                </div>
 
                 {{-- npub — kopierbarer Mono-Chip (npub ist ein Wert zum Kopieren). --}}
                 <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"

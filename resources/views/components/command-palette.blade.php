@@ -31,10 +31,15 @@
     ['id' => 'spaces', 'label' => __('Alle Räume & Entdecken'), 'href' => route('group.spaces')],
     ['id' => 'directory', 'label' => __('Mitgliederverzeichnis'), 'href' => route('group.directory')],
     ['id' => 'articles', 'label' => __('Artikel'), 'href' => route('group.articles')],
+    // P6 — die Forge gibt es nur mit konfiguriertem Workspace. `array_filter` unten
+    // wirft den Eintrag sonst raus: ein Palettenbefehl, der in einen Leerzustand
+    // führt, ist schlechter als kein Befehl.
+    config('group.workspace_url') ? ['id' => 'forge', 'label' => __('Forge'), 'href' => route('group.forge')] : null,
     ['id' => 'updates', 'label' => __('Neu'), 'href' => route('group.updates')],
     ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.wallet')],
     ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route('group.settings')],
 ])
+@php($paletteActions = array_values(array_filter($paletteActions)))
 {{-- Ein Stil für alle Tastenkappen: derselbe wie am Rail-Prompt. --}}
 @php($kbd = 'shrink-0 rounded bg-black/5 px-1 py-0.5 font-mono text-[0.7rem] leading-none text-muted dark:bg-white/10')
 
@@ -105,6 +110,14 @@
                             x-model="query"
                             x-on:input="lift()"
                             x-on:keydown.escape.stop.prevent="onEscape()"
+                            {{-- P5 — Enter löst die Relay-Suche aus, aber NUR im
+                                 Workspace-Scope (`onEnter()` prüft das selbst).
+                                 Kein `.stop`: Flux' eigener Enter-Handler hängt am
+                                 SELBEN Element, und `stopPropagation` hielte ihn
+                                 ohnehin nicht auf. Er läuft ins Leere, weil im
+                                 Workspace-Scope keine Option existiert, die er
+                                 aktivieren könnte (siehe `visibleSections`). --}}
+                            x-on:keydown.enter="onEnter()"
                             autocomplete="off"
                             autocorrect="off"
                             spellcheck="false"
@@ -237,6 +250,13 @@
                 </flux:command.items>
             </flux:command>
 
+            {{-- P5 — die Workspace-Suche (`w:`). Bewusst AUSSERHALB von
+                 `<flux:command>`: Flux' Filter blendet jede Option aus, deren
+                 Text den Suchbegriff nicht als Teilzeichenkette enthält, und
+                 genau das würde relay-seitige Stammform-Treffer wieder
+                 wegwerfen. Ausführlich im Kopf der Komponente. --}}
+            <x-group::space-search-results />
+
             {{-- Kürzel-Zeile. Blendet unter `xl` aus, statt tote Tasten zu
                  bewerben: dort gibt es kein ⌘K, kein Alt+↑/↓ und kein `?`. --}}
             <div class="hidden shrink-0 items-center gap-3 border-t border-zinc-200 bg-white px-3 py-2 text-[0.7rem] text-muted dark:border-zinc-800 dark:bg-zinc-900 xl:flex">
@@ -281,6 +301,6 @@
             @endforeach
         </dl>
 
-        <p class="mt-4 text-sm text-muted">{{ __('In der Palette grenzen r: m: p: w: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen.') }}</p>
+        <p class="mt-4 text-sm text-muted">{{ __('In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.') }}</p>
     </flux:modal>
 </div>

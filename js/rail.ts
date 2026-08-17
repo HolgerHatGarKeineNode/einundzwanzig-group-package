@@ -57,7 +57,9 @@ import {
     type RailGroupKey,
     type RailRoom,
     type RailScope,
+    type WorkspacePrefs,
 } from './railGroups'
+import { subscribeWorkspacePrefs } from './channelPrefs'
 import { t } from './i18n'
 
 /** localStorage-Schlüssel des Auf/Zu-Zustands. */
@@ -91,10 +93,13 @@ export type RailState = {
     activeRoomH: string
     open: Record<RailGroupKey, boolean>
     presentations: Record<string, MeetupPresentation>
+    /** In Buzz Desktop gesetzte Kanal-Präferenzen (NIP-78) — nur für den Workspace. */
+    prefs: WorkspacePrefs
     _unsubView: (() => void) | null
     _unsubActive: (() => void) | null
     _unsubWorkspace: (() => void) | null
     _unsubMeetups: (() => void) | null
+    _unsubPrefs: (() => void) | null
     _controller: AbortController | null
     _wsController: AbortController | null
     _onKey: ((e: KeyboardEvent) => void) | null
@@ -114,6 +119,10 @@ export type RailState = {
     railName(room: RailRoom): string
     roomFlag(room: RailRoom): string
     cityHint(room: RailRoom): string
+    /** Ist dieser Raum in Buzz Desktop stummgeschaltet? */
+    isMuted(room: RailRoom): boolean
+    /** Ist dieser Raum in Buzz Desktop angeheftet (`channel-stars`)? */
+    isPinned(room: RailRoom): boolean
     openRoom(room: RailRoom): void
     jumpToFirst(): void
     step(delta: number): void
@@ -180,10 +189,12 @@ export const createRail = (): RailState => ({
     activeRoomH: '',
     open: { ...DEFAULT_OPEN },
     presentations: {},
+    prefs: {},
     _unsubView: null,
     _unsubActive: null,
     _unsubWorkspace: null,
     _unsubMeetups: null,
+    _unsubPrefs: null,
     _controller: null,
     _wsController: null,
     _onKey: null,
@@ -215,6 +226,7 @@ export const createRail = (): RailState => ({
             query: self.query,
             scope: self.scope,
             workspaceRooms: toRailRooms(self.workspace),
+            workspacePrefs: self.prefs,
         })
     },
 
@@ -229,7 +241,11 @@ export const createRail = (): RailState => ({
         const out: RailRoom[] = []
         for (const g of self.groups) {
             if (self.isOpen(g.key)) {
-                out.push(...g.joined, ...g.others)
+                // Reihenfolge wie im Markup: angeheftet, Sektionen, beigetreten,
+                // andere. Alt+↑/↓ muss dieselbe Folge laufen, die das Auge sieht —
+                // in P3 fielen genau hier die angehefteten Zeilen durch, weil das
+                // Markup sie schon zeigte und diese Liste sie noch nicht kannte.
+                out.push(...g.pinned, ...visibleSectionRooms(g), ...g.joined, ...g.others)
             }
         }
 
@@ -264,7 +280,8 @@ export const createRail = (): RailState => ({
     },
 
     groupFor(key: RailGroupKey): RailGroup {
-        return this.groups.find((g) => g.key === key) ?? { key, joined: [], others: [], hiddenCount: 0, total: 0 }
+        return this.groups.find((g) => g.key === key)
+            ?? { key, pinned: [], sections: [], joined: [], others: [], hiddenCount: 0, total: 0, muted: [] }
     },
 
     /**
@@ -272,12 +289,20 @@ export const createRail = (): RailState => ({
      * Gruppe offen, tragen die Zeilen die Pillen. Ein Zähler, ein Ort.
      * Gerechnet über den ungekappten Bestand: eine Summe, die die Kappung mitmacht,
      * wäre falsch.
+     *
+     * **Stummgeschaltete Räume zählen nicht mit.** Sonst bliebe die Stummschaltung
+     * eine Optik: die Zeile wäre blass, der Kopf schriebe die Zahl trotzdem an —
+     * und genau die Zahl ist es, die zum Hineinschauen auffordert. Buzz macht das
+     * ebenso (`communityUnreadObserver.ts:207,286`).
      */
     groupUnread(key: RailGroupKey): number {
         const store = (window as unknown as { Alpine?: { store(n: string): { rooms?: Record<string, number> } } })
             .Alpine?.store('unread')
         const all = key === 'workspace' ? toRailRooms(this.workspace) : toRailRooms(this.space)
-        const hs = all.filter((r) => (key === 'workspace' ? true : groupKeyOf(r) === key)).map((r) => r.h)
+        const muted = new Set(this.prefs.muted ?? [])
+        const hs = all
+            .filter((r) => (key === 'workspace' ? !muted.has(r.h) : groupKeyOf(r) === key))
+            .map((r) => r.h)
 
         return sumUnreadRooms(store?.rooms, hs)
     },
@@ -309,7 +334,9 @@ export const createRail = (): RailState => ({
         }
         for (const key of RAIL_GROUP_ORDER) {
             const g = this.groupFor(key)
-            if ([...g.joined, ...g.others].some((r) => r.h === this.activeRoomH)) {
+            // Sektions-Zeilen zählen mit: ein Raum in einer Sektion ist der aktive
+            // Raum wie jeder andere, und seine Gruppe muss dafür aufklappen.
+            if ([...g.pinned, ...visibleSectionRooms(g), ...g.joined, ...g.others].some((r) => r.h === this.activeRoomH)) {
                 return key
             }
         }
@@ -362,6 +389,22 @@ export const createRail = (): RailState => ({
 
     roomFlag(room: RailRoom): string {
         return this.presentations[room.meetupSlug ?? '']?.flag ?? ''
+    },
+
+    /**
+     * Stummgeschaltet? Gelesen wird aus `prefs.muted` und NICHT aus
+     * `groupFor('workspace').muted`: der Getter `groups` baut bei jedem Zugriff
+     * alle vier Gruppen neu, und diese Frage stellt das Markup einmal PRO ZEILE.
+     * Die Gruppen-Liste trägt dieselbe Auskunft für die Kopf-Summe, wo sie einmal
+     * je Gruppe kostet — dieselbe Quelle, zwei Verbrauchsstellen.
+     */
+    isMuted(room: RailRoom): boolean {
+        return (this.prefs.muted ?? []).includes(room.h)
+    },
+
+    /** Angeheftet? Trägt das Nadel-Icon der Zeile — dieselbe Quelle wie {@link isMuted}. */
+    isPinned(room: RailRoom): boolean {
+        return (this.prefs.pinned ?? []).includes(room.h)
     },
 
     /** Stadt als Trefferbegründung — nur, wenn die Suche NICHT über den Namen traf. */
@@ -497,6 +540,17 @@ export const createRail = (): RailState => ({
             this._unsubWorkspace = deriveSpaceViewFor(WORKSPACE_URL).subscribe((view: SpaceView) => {
                 this.workspace = view
             })
+
+            // ── Kanal-Präferenzen aus Buzz Desktop (NIP-78, P3) ──────────────────
+            // `subscribeWorkspacePrefs` schaltet den Netzweg beim ersten Abonnenten
+            // scharf (idempotent, modulweit) und gibt den Abmelder zurück: der Weg
+            // bleibt über `wire:navigate` stehen, nur das Abo hier wird pro Insel
+            // auf- und wieder abgebaut. Seit P7 hängt die Bühne am selben Einstieg —
+            // deshalb steht hier kein eigener `initChannelPrefs()`-Aufruf mehr.
+            // Die Präferenzen sind rein lesend — gesetzt werden sie in Buzz Desktop.
+            this._unsubPrefs = subscribeWorkspacePrefs((prefs: WorkspacePrefs) => {
+                this.prefs = prefs
+            })
         }
 
         // Meetup-Präsentation (Land/Flagge/Stadt) EINMAL laden, fail-soft, und den
@@ -528,6 +582,7 @@ export const createRail = (): RailState => ({
         this._unsubView?.()
         this._unsubWorkspace?.()
         this._unsubMeetups?.()
+        this._unsubPrefs?.()
         this._controller?.abort()
         this._wsController?.abort()
         // Pflicht: `wire:navigate` baut die Insel bei JEDEM Raumwechsel neu auf. Ein
@@ -539,6 +594,17 @@ export const createRail = (): RailState => ({
         }
     },
 })
+
+/**
+ * Die Räume aller Sektionen einer Gruppe, in Anzeige-Reihenfolge — die Zeilen, die
+ * `rail-group.blade.php` zwischen Angehefteten und Rest-Block rendert.
+ *
+ * Eigene Funktion statt zweimal `flatMap` inline: `rooms` (Tastatur) und
+ * `activeGroup()` (Aufklappen) MÜSSEN dieselbe Menge sehen. Liefen die beiden
+ * auseinander, wäre eine Zeile sichtbar, aber nicht anspringbar — genau der
+ * Fehler, den P3 mit den Angehefteten schon einmal hatte.
+ */
+const visibleSectionRooms = (group: RailGroup): RailRoom[] => group.sections.flatMap((s) => s.rooms)
 
 /** Typ eines Raums für die Ungelesen-Summe — spiegelt `groupOf` aus `railGroups`. */
 const groupKeyOf = (room: RailRoom): RailGroupKey =>

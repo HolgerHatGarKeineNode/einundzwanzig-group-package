@@ -426,19 +426,18 @@ export const isVereinRelay = (url: string): boolean => VEREIN_RELAY_URLS.include
  * lädt sofort; gewechselt wird nur in den Einstellungen (`/settings/space`).
  */
 /**
- * Der zweite, FESTE Space des Tabs „Workspaces" — ein Buzz-Relay neben dem
- * zooid-Space. Aus `config('group.workspace_url')` per `window.__nostrWorkspace`
- * injiziert (siehe `partials/head.blade.php`); **leer = das Feature ist aus**.
+ * Der zweite, FESTE Space des Tabs „Workspaces" (`WORKSPACE_URL`) und die Frage,
+ * ob er überhaupt konfiguriert ist (`hasWorkspace`) — **definiert in
+ * `spaceCaps.ts`**, hier nur unverändert weitergereicht, damit kein Aufrufer sich
+ * ändern muss.
  *
- * Bewusst KEIN Store und keine Liste: es ist genau einer, konfiguriert, nicht
- * wählbar. Damit bleibt die App beim Single-Space-Fokus (§12) und bekommt nur eine
- * zweite, klar benannte Bühne daneben.
+ * Warum dort und nicht hier: `spaceCaps.ts` trägt die zweite Gating-Ebene
+ * (`deriveSpaceKind`) und muss aus `node --test` ladbar bleiben. Diese Datei ist
+ * es nicht — endungslose relative Importe und ein localStorage-Zugriff beim Laden.
+ * Importierte `spaceCaps.ts` von hier, waere es selbst untestbar. Die
+ * Abhaengigkeit zeigt deshalb in genau eine Richtung: `groups.ts` → `spaceCaps.ts`.
  */
-const workspaceOverride = (globalThis as { __nostrWorkspace?: string }).__nostrWorkspace
-export const WORKSPACE_URL = workspaceOverride ? normalizeRelayUrl(workspaceOverride) : ''
-
-/** Ist der Workspaces-Tab konfiguriert? Steuert, ob er überhaupt im DOM erscheint. */
-export const hasWorkspace = (): boolean => WORKSPACE_URL !== ''
+export { WORKSPACE_URL, hasWorkspace } from './spaceCaps'
 
 export const activeSpaceUrl = writable<string | null>(null)
 export const activeSpaceReady = sync({

@@ -47,6 +47,24 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         // 30023 ist ersetzbar, seine Id wechselt mit jeder Überarbeitung — der `naddr`
         // (Kind + Autor + `d`) bleibt und funktioniert auch in fremden Clients.
         Route::livewire('/articles/{naddr}', 'group::article')->name('article');
+
+        /*
+         * Forge (P6, NIP-34 + NIP-MP). Nur der Workspace-Arm trägt sie — der
+         * zooid-Space kennt weder Repos noch Issues. Ob überhaupt ein Workspace
+         * konfiguriert ist, entscheidet die SEITE (server-seitig, wie bei den
+         * Artikeln); die Route existiert unabhängig davon, damit ein geteilter
+         * Link nicht auf einen 404 läuft, sondern auf eine erklärende Fläche.
+         *
+         * Statisches erstes Segment, kollidiert mit keinem `/rooms/{h}`.
+         */
+        Route::livewire('/forge', 'group::forge')->name('forge');
+        /*
+         * Ein Repository, adressiert über `naddr` (NIP-19) — nicht über die
+         * Event-Id: ein 30617 ist ersetzbar und seine Id wechselt mit jeder
+         * Neuankündigung. Kind + Autor + `d` bleiben und funktionieren auch in
+         * einem fremden Client. Gleiche Begründung wie beim Artikel.
+         */
+        Route::livewire('/forge/{naddr}', 'group::forge-repo')->name('forge.repo');
         Route::livewire('/rooms/{h}', 'group::room')->name('room');
         // Direkt verlinkbarer Thread (C6b): dieselbe Room-SFC, öffnet den Thread als
         // Vollansicht. `{nevent}` = bech32-Referenz auf die Wurzel-Nachricht (portabel/teilbar).

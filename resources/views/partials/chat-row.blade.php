@@ -56,7 +56,11 @@
                                         class="pressable" aria-label="{{ __('Profil anzeigen') }}">
                                     {{-- Unaufgelöst (kind-0 noch nicht da) → ruhiges „?" statt der irreführenden
                                          npub-Initiale „n". Profile sind dank Prewarm (Schritt 4) meist warm. --}}
-                                    <x-group::nostr-avatar picture="m.picture" name="m.profileReady ? m.name : ''" />
+                                    {{-- Status-Emoji (NIP-38) als Plakette am Avatar; der Statustext steht
+                                         hinter dem Namen (unten). Beide sind im Workspace-Arm gefüllt und
+                                         auf zooid immer leer — `m.status` ist dort null. --}}
+                                    <x-group::nostr-avatar picture="m.picture" name="m.profileReady ? m.name : ''"
+                                                           emoji="m.status?.emoji" />
                                 </button>
                             </template>
                             {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
@@ -80,6 +84,29 @@
                                         <x-group::nostr-nip05 nip05="m.nip05" />
                                     </span>
                                     <span class="shrink-0 font-mono text-[0.7rem] text-muted" x-text="m.time"></span>
+                                    {{-- NIP-38-Statustext (P2), hinter dem Namen und per CSS gekürzt.
+                                         `min-w-0 truncate` statt einer Zeichenzahl: die Zeile darf den
+                                         Namen und die Uhrzeit nie verdrängen (beide `shrink-0`), und wo
+                                         Platz ist, steht mehr da.
+
+                                         ── Der Skeleton ist kein Schmuck ──
+                                         `statusPending` ist wahr, solange die Relay-Art `'unknown'` ist
+                                         (js/spaceCaps.ts). In diesem Zustand darf die Fläche NICHTS
+                                         entscheiden: „kein Status" und „noch nicht bekannt" sähen sonst
+                                         gleich aus, und genau diese Verwechslung ist die Mount-Falle, die
+                                         P1 aufgelöst hat. Der Platzhalter sagt „gleich", die Leere sagt
+                                         „keiner" — zwei Aussagen, zwei Darstellungen.
+                                         Im zooid-Arm ist `statusPending` konstant false (kein Workspace),
+                                         dort erscheint also weder Skeleton noch Status. --}}
+                                    <template x-if="statusPending">
+                                        <span data-status-skeleton aria-hidden="true"
+                                              class="skeleton h-3 w-20 shrink-0 rounded-full"></span>
+                                    </template>
+                                    <template x-if="!statusPending && m.status && m.status.text">
+                                        <span data-user-status class="min-w-0 truncate text-xs text-muted"
+                                              :title="(m.status.emoji ? m.status.emoji + ' ' : '') + m.status.text"
+                                              x-text="m.status.text"></span>
+                                    </template>
                                 </div>
                             </template>
                             {{-- Zitat-Vorschau: Klick springt zur zitierten Original-Nachricht.
