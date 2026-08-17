@@ -93,7 +93,19 @@
      Information trägt (`middleTruncate`, Begründung dort). Für Screenreader
      trägt der ungekürzte `node.label` im `aria-label` — eine abgeschnittene
      Mitte ist für sie kein Name. --}}
+{{-- `data-node-id`: die Knoten-id am Markup, wie `data-rail` an der Spalte.
+
+     Kein Schmuck, sondern die Antwort auf eine echte Zweideutigkeit: die Zeilen
+     `issues`/`pulls` tragen ihre Beschriftung aus dem Katalog („Issues des
+     Repositorys öffnen (1)") und NENNEN ihr Repo nicht — bei zwei Repos mit je
+     einem Issue sind zwei Zeilen wortgleich. Solange alles zugeklappt startete,
+     fiel das nicht auf; seit P2 die Repo-Zeilen offen stehen, stehen beide
+     zugleich da. Für den Menschen löst das die Einrückung unter dem Repo-Namen
+     — für einen Test-Locator nicht, und `.first()` wäre dort geraten statt
+     gemeint. Die id ist die Koordinate (`30617:<owner>:<d>#issues`) und damit
+     genau die Zeile, die gemeint ist. --}}
 <div class="relative flex min-h-8 w-full items-center"
+     x-bind:data-node-id="node.id"
      x-bind:style="node.depth > 0 ? 'padding-inline-start:' + (node.depth * 12) + 'px' : null">
 
     {{-- Führungslinien: eine je Vorfahren-Ebene. `x-for` über einen Zahlenbereich

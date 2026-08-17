@@ -869,5 +869,6 @@
     "Eintrag :name auf- oder zuklappen": "Rozwiń lub zwiń wpis :name",
     "Forge-Übersicht öffnen": "Otwórz przegląd Forge",
     "Issues des Repositorys öffnen (:count)": "Otwórz zgłoszenia repozytorium (:count)",
-    "Pull Requests des Repositorys öffnen (:count)": "Otwórz pull requesty repozytorium (:count)"
+    "Pull Requests des Repositorys öffnen (:count)": "Otwórz pull requesty repozytorium (:count)",
+    "Workspace auf :wert": "Workspace w: :wert"
 }

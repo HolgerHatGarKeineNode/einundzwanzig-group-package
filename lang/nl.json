@@ -850,5 +850,6 @@
     "Eintrag :name auf- oder zuklappen": "Item :name uit- of invouwen",
     "Forge-Übersicht öffnen": "Forge-overzicht openen",
     "Issues des Repositorys öffnen (:count)": "Issues van de repository openen (:count)",
-    "Pull Requests des Repositorys öffnen (:count)": "Pull requests van de repository openen (:count)"
+    "Pull Requests des Repositorys öffnen (:count)": "Pull requests van de repository openen (:count)",
+    "Workspace auf :wert": "Workspace op :wert"
 }

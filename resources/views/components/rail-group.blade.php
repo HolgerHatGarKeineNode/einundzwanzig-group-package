@@ -9,6 +9,13 @@
     'headingHref' => null,
     // Beschriftung des Icon-Knopfes neben Zahl und Lupe; null = kein Knopf.
     'overviewLabel' => null,
+    // Tooltip des Sektionsnamens: ein GANZER Satz mit dem Platzhalter `:wert`,
+    // dazu der Alpine-Ausdruck, der ihn füllt. Zwei Props statt einem fertigen
+    // Ausdruck, damit `@js()` HIER läuft — es escapt für den Attributkontext
+    // (Anfuehrungszeichen als Entity); ein durchgereichter Ausdruck bräuchte den
+    // ungeschützten Echo-Ausdruck, und der ist eine Injektionsfläche.
+    'headingTitle' => null,
+    'headingTitleValue' => null,
     // Rendert den Forge-Baum zwischen Angehefteten und Sektionen (nur 'workspace').
     'tree' => false,
 ])
@@ -33,10 +40,12 @@
      erreichbar. Sie ist immer da, nicht nur bei Hover — sonst existiert sie für
      Tastaturnutzer gar nicht. --}}
 @php($id = 'rail-group-'.$group)
-{{-- Ein Workspace mit Repos, aber ohne sichtbare Kanäle hat `total === 0` und
-     verschwände samt Baum — deshalb zählen die Baum-Zeilen bei der Existenzfrage
-     mit (nur dort, wo es einen Baum gibt). --}}
-@php($present = 'groupFor('.json_encode($group).').total > 0'.($tree ? ' || forgeRows.length > 0' : ''))
+{{-- `groupTotal()` statt `groupFor().total`: im Workspace zählen die Repos und
+     Projekte mit (Begründung dort). Das löst zugleich die Existenzfrage — ein
+     Workspace mit Repos, aber ohne sichtbare Kanäle hatte `total === 0` und
+     verschwand samt Baum. Eine Zahl, eine Bedingung, keine zwei Wahrheiten
+     darüber, ob diese Sektion etwas enthält. --}}
+@php($present = 'groupTotal('.json_encode($group).') > 0')
 
 <template x-if="{{ $present }} || @js($group) === 'rooms'">
     <section class="pt-2">
@@ -47,54 +56,92 @@
                  den Namen darf nicht zusätzlich klappen, und ein `<a>` in einem
                  `<button>` wäre ungültiges HTML und für die Tastatur kaputt.
                  `aria-expanded`/`aria-controls` sitzen dort, wo geklappt wird. --}}
-            {{-- 24×24 statt 20×16 (Design-Pass 2026-08-17). WCAG 2.2 SC 2.5.8
-                 verlangt 24×24 CSS-px; die Ausnahme „genügend Abstand" greift
-                 nicht, weil im `headingHref`-Fall der Namens-Link unmittelbar
-                 daneben liegt. Gemessen wurde 20×16 — ein echter Verstoß.
-                 Zugleich bekommt das Chevron dieselbe Hover-Fläche wie die zwei
-                 Icon-Knöpfe am anderen Ende der Zeile: drei Bedienelemente in
-                 einem Kopf, die sich unter der Maus verschieden verhalten, sehen
-                 aus wie zwei Knöpfe und ein Zufall.
+            {{-- ── EINE Chevron-Spalte für die ganze Rail (Design-Pass 2026-08-17b) ──
+                 P1 vergrößerte NUR das Chevron des Workspace-Kopfes auf 24×24 und
+                 ließ die drei übrigen Köpfe stehen. Ergebnis am Gesamtbild: das
+                 Chevron stand 2 px rechts von den anderen, die Beschriftung 12 px
+                 — sichtbar schief, und zwar nur, wenn man alle vier Köpfe
+                 nebeneinander sieht. Gemessen (1440 px, Rail-Innenbreite 295 px):
 
-                 Der reine Namens-Fall (ohne `headingHref`) bleibt breit — dort
-                 ist die ganze Zeile der Knopf, die Zielgröße war nie das Problem.
-                 `text-muted` steht jetzt am KNOPF, nicht am Icon: sonst überschriebe
-                 die Icon-Klasse den Hover-Wechsel des Elternteils. --}}
+                     Kopf         Glyph-x   Zielfläche      Beschriftung-x
+                     rooms        20,00     237,56 × 20,8   36
+                     meetups      20,00     244,28 × 20,8   36
+                     proposals    20,00     244,28 × 20,8   36
+                     workspace    22,00      24,00 × 24,0   48
+
+                 Die 20,8 px Höhe der ersten drei sind zugleich ein BESTEHENDER
+                 Verstoß gegen WCAG 2.2 SC 2.5.8 (24×24): P1 hat einen von vier
+                 Fällen geheilt. Also nicht die Vergrößerung zurücknehmen, sondern
+                 sie auf alle vier ziehen — halb umgestellt ist der schlechteste
+                 Zustand.
+
+                 Die Zahlen danach, alle vier gleich: Zielfläche ab x = 12
+                 (`-ms-2` zieht sie über das `px-2` der Kopfzeile hinaus), 24×24,
+                 Glyph bei x = 18, Beschriftung bei x = 40. x = 12 ist keine neue
+                 Erfindung: es ist EXAKT die Spalte, in der die Chevrons der
+                 Forge-Baumzeilen schon stehen (`rail-forge-row`, Ebene 0, gemessen
+                 18). Damit hat jedes Auf/Zu in dieser Spalte dieselbe Kante — und
+                 der Baum musste dafür nicht angefasst werden.
+
+                 Das Chevron sitzt in beiden Zweigen in derselben 24-px-Hülle. Im
+                 `headingHref`-Fall ist die Hülle der Knopf selbst; ohne Ziel ist
+                 der ganze Streifen der Knopf (große Trefferfläche bleibt), und die
+                 Hülle steht darin — sie gibt dem Knopf zugleich seine 24 px Höhe.
+
+                 Hover jetzt einheitlich über die TEXTFARBE, nicht über eine
+                 Fläche. P1 hatte dem Chevron die Flächen-Hover der beiden
+                 Icon-Knöpfe am Zeilenende gegeben; das stellt es zu den AKTIONEN,
+                 wo es nicht hingehört. Die Regel dieser Zeile ist jetzt: der Kopf
+                 (Chevron + Name) reagiert mit Farbe, die zwei Aktionen am Ende mit
+                 Fläche. `text-muted` steht deshalb am KNOPF bzw. am LINK und NICHT
+                 mehr am Beschriftungs-Span — sonst gewönne dessen eigene
+                 `color`-Deklaration gegen den Hover des Elternteils, und genau das
+                 war der Fall: der Workspace-Name, der einzige anklickbare
+                 Sektionsname der Rail, hatte gar keine Hover-Rückmeldung. --}}
             <button type="button"
                     x-on:click="toggleGroup(@js($group))"
                     x-bind:aria-expanded="isOpen(@js($group)) ? 'true' : 'false'"
                     aria-controls="{{ $id }}"
                     @if ($headingHref)
                         aria-label="{{ __('Bereich :label auf- oder zuklappen', ['label' => $label]) }}"
-                        class="pressable -ms-1 inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                        class="pressable -ms-2 inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
                     @else
-                        class="pressable -ms-1 flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-start text-muted"
+                        class="pressable -ms-2 flex min-w-0 flex-1 items-center gap-1 rounded text-start text-muted transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
                     @endif>
-                <flux:icon.chevron-right variant="micro" aria-hidden="true"
-                                         class="size-3 shrink-0 transition-transform"
-                                         x-bind:class="isOpen(@js($group)) ? 'rotate-90' : ''" />
+                <span aria-hidden="true" class="inline-flex size-6 shrink-0 items-center justify-center">
+                    <flux:icon.chevron-right variant="micro"
+                                             class="size-3 shrink-0 transition-transform"
+                                             x-bind:class="isOpen(@js($group)) ? 'rotate-90' : ''" />
+                </span>
                 @unless ($headingHref)
-                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $label }}</span>
-                    @isset($suffix)
-                        {{ $suffix }}
-                    @endisset
+                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider">{{ $label }}</span>
                 @endunless
             </button>
 
             @if ($headingHref)
+                {{-- Die Herkunft steht im `title`, nicht in der Zeile. Sie ist die
+                     Antwort auf eine Frage, die genau einmal gestellt wird („welches
+                     Relay ist das?"), und stand bis hierher in jedem Bildaufbau —
+                     bei 295 px Rail-Innenbreite hat sie den Sektionsnamen mit sich
+                     gerissen: gemessen `scrollWidth`/`clientWidth` 55/44 für
+                     „Workspace" und 160/126 für „· buzz.einundzwanzig.space", also
+                     BEIDE Teile gekappt und kein ganzes Wort mehr übrig. --}}
                 <a href="{{ $headingHref }}" wire:navigate
-                   class="pressable flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-start transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">
-                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $label }}</span>
-                    @isset($suffix)
-                        {{ $suffix }}
-                    @endisset
+                   @if ($headingTitle && $headingTitleValue)
+                       x-bind:title="@js($headingTitle).split(':wert').join({{ $headingTitleValue }})"
+                   @endif
+                   {{-- `min-h-6`: der Namens-Link ist eine eigene Zielfläche und lag
+                        bei 19,7 px Höhe — SC 2.5.8 verlangt 24, und die
+                        Abstands-Ausnahme greift nicht, das Chevron liegt 4 px daneben. --}}
+                   class="pressable flex min-h-6 min-w-0 flex-1 items-center rounded text-start text-muted transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">
+                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider">{{ $label }}</span>
                 </a>
             @endif
 
             {{-- Bestand grau, immer. Bei ZUGEKLAPPTER Gruppe zusätzlich die
                  Ungelesen-Summe — der einzige Ort, an dem sie erscheint. --}}
             <span class="shrink-0 font-mono text-[0.7rem] tabular-nums text-muted"
-                  x-text="groupFor(@js($group)).total"></span>
+                  x-text="groupTotal(@js($group))"></span>
             <template x-if="!isOpen(@js($group))">
                 <x-group::unread-badge :count="'groupUnread(\''.$group.'\')'" size="sm" :sr="false" />
             </template>

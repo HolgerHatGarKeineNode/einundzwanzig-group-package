@@ -91,10 +91,18 @@
             {{-- Vier Gruppen, feste Reihenfolge. Die zweite Achse (Mitgliedschaft)
                  wird bewusst NICHT zur Überschrift — sie ist Reihenfolge, Textgewicht
                  und eine Haarlinie INNERHALB der Gruppe. Sonst entstünden 2 × 4 × n
-                 Zellen statt vier. --}}
+                 Zellen statt vier.
+
+                 ── Die Folge steht in `railGroups.ts`, nicht hier (P2) ──────────
+                 Diese Blockfolge MUSS `RAIL_GROUP_ORDER` entsprechen: dieselbe
+                 Konstante ordnet die Sprungliste von Alt+↑/↓ (`railTargets`).
+                 Wer hier umstellt und dort nicht, baut die zweite, konkurrierende
+                 Ordnung — das Auge sieht eine Folge, die Tastatur läuft eine
+                 andere. Der Workspace steht seit P2 an zweiter Stelle;
+                 die Begründung steht an der Konstante, damit sie EINEN Ort hat.
+                 `railGroups.test.ts` hält die Konstante fest, `buzz-rail-forge`
+                 hält Markup und Tastatur gegen sie. --}}
             <x-group::rail-group group="rooms" :label="__('Räume')" />
-            <x-group::rail-group group="meetups" :label="__('Meetups')" :countries="true" />
-            <x-group::rail-group group="proposals" :label="__('Projektunterstützung')" />
 
             {{-- Der zweite Space. Existiert nur bei gesetztem `NOSTR_WORKSPACE_URL`;
                  ohne Config ist die Rail zeichengleich zu vorher. Die Räume kommen
@@ -106,23 +114,39 @@
                  Sektionsname, das `</>`-Icon daneben und — sobald gefaltet wird — die
                  Zeile „Alle Projekte · N". Ein vierter steht in der Befehlspalette
                  (`command-palette.blade.php`, Aktion `forge`). --}}
+            {{-- ── Der Relay-Host ist aus der Zeile heraus und in den Tooltip ──
+                 Bis 2026-08-17 stand hinter „WORKSPACE" der Name des Workspace-
+                 Relays. Bei 295 px Rail-Innenbreite kappte das BEIDE Teile
+                 (gemessen: „Workspace" 55 px in einen 44-px-Kasten,
+                 „· buzz.einundzwanzig.space" 160 px in 126) — der Kopf las sich
+                 als „WORKSP… · BUZZ.EINUNDZWANZIG…", und kein ganzes Wort blieb
+                 stehen, während die drei Nachbarköpfe vollständig lesbar waren.
+
+                 Es gibt genau EINEN Workspace (Entscheid 2026-08-17), die Herkunft
+                 ist also keine Unterscheidung, sondern eine einmalige Auskunft. Sie
+                 gehört damit an den Ort für einmalige Auskünfte: den `title` des
+                 Sektionsnamens. Der Wert kommt aus `workspaceLabel` und nicht aus
+                 der Server-Config — der Tooltip soll das Relay nennen, mit dem die
+                 Fläche gerade WIRKLICH spricht.
+
+                 Der Nebeneffekt, offen gesagt: dieser Span war der einzige kleine
+                 Marken-TEXT der Rail und damit der namentliche Träger des
+                 Kontrast-Ankers (`desktop-a11y-contrast.spec.ts`). Der Anker zeigt
+                 jetzt auf den `#`-Prompt oben — dieselbe Farbe, dieselbe
+                 Größenklasse, aber ohne Abhängigkeit von Relay und Ladezustand. --}}
             <template x-if="hasWorkspaceSection">
                 <div>
                     <x-group::rail-group group="workspace" :label="__('Workspace')"
                                          :tree="true"
                                          heading-href="{{ route('group.forge') }}"
-                                         :overview-label="__('Forge-Übersicht öffnen')">
-                        <x-slot:suffix>
-                            {{-- TEXT (11,2px), also 1.4.3 mit 4,5:1 — nicht die
-                                 Icon-Schwelle. Auf dem Rail-Grund (`bg-white`, ganz
-                                 oben) rechnet `brand-700` 4,40:1 und risse;
-                                 `brand-800` rechnet 6,42:1. --}}
-                            <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider text-brand-800 dark:text-brand-400"
-                                  x-text="'· ' + workspaceLabel"></span>
-                        </x-slot:suffix>
-                    </x-group::rail-group>
+                                         :overview-label="__('Forge-Übersicht öffnen')"
+                                         :heading-title="__('Workspace auf :wert')"
+                                         heading-title-value="workspaceLabel" />
                 </div>
             </template>
+
+            <x-group::rail-group group="meetups" :label="__('Meetups')" :countries="true" />
+            <x-group::rail-group group="proposals" :label="__('Projektunterstützung')" />
 
             {{-- Leerer Filter ist ein Zustand, keine Panne — er bekommt einen Satz.
                  Und den Ort für den Tastatur-Hinweis: im Ruhezustand wäre er eine
