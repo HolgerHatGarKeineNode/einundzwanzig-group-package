@@ -71,7 +71,7 @@ import {
 import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps'
 import { spaceIsBuzzAsync } from './buzzAdmin'
 import { parseMeetupTags } from './meetupPresentation'
-import { parseProjectSupportTags, withExtraTags } from './roomCategories'
+import { parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories'
 import type { RelayProfile } from '@welshman/util'
 import { waitForPublishError } from './publishResult'
 
@@ -341,6 +341,14 @@ export type RoomView = {
     isProjectSupport: boolean
     /** Stabile Antrags-id aus `["i","proposal:<id>"]` ('' wenn keine). */
     proposalId: string
+    // ── Forum (Buzz, P3) ───────────────────────────────────────────────────────
+    /**
+     * Traegt das 39000 den Buzz-Kanaltyp `["t","forum"]`? Dann rendert `/rooms/{h}`
+     * eine Themenliste (45001) statt des Chat-Verlaufs (kind 9), und die Rail
+     * zeigt die Zeile mit dem Forum-Icon. Quelle ist der Relay-eigene
+     * `channel_type` — siehe `FORUM_CHANNEL_TYPE` in `roomCategories.ts`.
+     */
+    isForum: boolean
     /**
      * `created_at` des jüngsten bekannten Timeline-Events (9/1068/9041) dieses Raums,
      * `null` solange keins vorliegt. Quelle: {@link lastMessageAtByUrl}. Trägt die
@@ -415,6 +423,7 @@ const buildSpaceView = (
                 meetupSlug: meetup.meetupSlug,
                 isProjectSupport: projectSupport.isProjectSupport,
                 proposalId: projectSupport.proposalId,
+                isForum: parseForumTag(room?.event?.tags ?? []),
                 lastMessageAt: lastByH.get(h) ?? null,
             }
         })

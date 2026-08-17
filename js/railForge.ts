@@ -18,21 +18,16 @@
  * das Markup beschriftet sie über {@link ForgeNavNode.kind}. Dieselbe Trennung
  * wie zwischen `forgeActivity.ts` (Struktur) und `forge.ts` (Verben).
  *
- * ── Wo eine weitere Sorte Kind-Zeile andockt (P2, Foren) ────────────────────
- * Ein Forum-Kanal ist strukturell dasselbe wie ein Repo-Kanal: eine Zeile mit
- * einem Raum dahinter, nur mit anderem Icon und anderem Ziel. Er dockt an genau
- * drei Stellen an, alle in dieser Datei:
- *   1. {@link ForgeNavKind} um `'forum'` erweitern (das Markup verzweigt über
- *      `kind`, nicht über eine Sorten-Liste — eine neue Variante kostet dort
- *      einen `x-if`-Zweig, keinen Umbau).
- *   2. In {@link buildForgeNav} den Kindknoten in `childrenFor` anhängen bzw.
- *      einen eigenen Top-Level-Zweig neben den Repos aufmachen; die Zuweisung
- *      „ein Raum gehört genau einem Knoten" läuft bereits über `usedRooms` und
- *      trägt eine weitere Quelle ohne Änderung.
- *   3. Nichts weiter: Einrückung (`depth`), Klappzustand, Faltung, `claimed`
- *      und der Tastaturweg über {@link flattenForgeNav} gelten für jeden Knoten,
- *      unabhängig von seiner Sorte. Insbesondere braucht die Tastatur KEINE
- *      zweite Funktion — genau der Fehler, den P3 und P7 schon zweimal hatten.
+ * ── Foren (P3) — die Vorhersage von P1 hat gehalten ─────────────────────────
+ * Hier stand bis P3 eine Anleitung, wie eine weitere Sorte Zeile andockt. Sie
+ * ist eingelöst und kostete genau das Vorhergesagte: zwei neue Werte in
+ * {@link ForgeNavKind}, ein Zweig in {@link buildForgeNav} (Abschnitt 3b) und
+ * ein `x-if` im Markup. **Nichts weiter** — Einrückung (`depth`), Klappzustand,
+ * Faltung, `claimed` und der Tastaturweg über {@link flattenForgeNav} gelten für
+ * jeden Knoten unabhängig von seiner Sorte, und ein Forum-Knoten trägt seinen
+ * Raum im selben Feld `room` wie eine Kanal-Zeile. Insbesondere gibt es KEINE
+ * zweite Funktion für die Tastatur — genau der Fehler, den P3 und P7 der
+ * Vorgängerpläne schon zweimal hatten.
  */
 
 import type { RailGroup, RailGroupKey, RailRoom } from './railGroups.ts'
@@ -62,7 +57,7 @@ export type ForgeNavProject = {
  * Was eine Zeile ist. Das Markup verzweigt über diesen Wert (Icon, Beschriftung,
  * Zielart) — deshalb ist es ein enger Union-Typ und kein freier String.
  */
-export type ForgeNavKind = 'project' | 'repo' | 'room' | 'issues' | 'pulls' | 'more'
+export type ForgeNavKind = 'project' | 'repo' | 'room' | 'forum' | 'forums' | 'issues' | 'pulls' | 'more'
 
 export type ForgeNavNode = {
     /**
@@ -182,8 +177,23 @@ const tabHref = (naddr: string, tab: 'issues' | 'pulls'): string => {
     return base === '' ? '' : `${base}?tab=${tab}`
 }
 
-const byLabel = (a: ForgeNavNode, b: ForgeNavNode): number =>
-    a.label.toLocaleLowerCase().localeCompare(b.label.toLocaleLowerCase()) || a.id.localeCompare(b.id)
+/**
+ * Sortierung der Zeilen einer Ebene: nach Namen, **Namenlose ans Ende**.
+ *
+ * Der zweite Teil kam mit P3 dazu und ist keine Kosmetik: die Forum-Gruppe
+ * (`forums`) traegt bewusst kein `label` aus den Daten — ihre Beschriftung kommt
+ * aus dem Katalog (Modulkopf: sprachfrei). Ohne diese Regel sortierte ein leerer
+ * String vor jeden echten Namen, und der einzige Knoten OHNE Namen staende ganz
+ * oben ueber allen benannten. Namenlose Behaelter stehen hinten, da wo auch die
+ * `more`-Zeile steht.
+ */
+const byLabel = (a: ForgeNavNode, b: ForgeNavNode): number => {
+    if ((a.label === '') !== (b.label === '')) {
+        return a.label === '' ? 1 : -1
+    }
+
+    return a.label.toLocaleLowerCase().localeCompare(b.label.toLocaleLowerCase()) || a.id.localeCompare(b.id)
+}
 
 /** Ein Knoten mit Vorbelegung — spart sechs Wiederholungen der Vollform. */
 const node = (over: Partial<ForgeNavNode> & { id: string; kind: ForgeNavKind; depth: number }): ForgeNavNode => ({
@@ -292,7 +302,12 @@ export const buildForgeNav = (input: ForgeNavInput): ForgeNav => {
         if (room) {
             children.push(node({
                 id: `room:${room.h}`,
-                kind: 'room',
+                // Auch der Kanal EINES REPOS kann ein Forum sein — dann trägt die
+                // Zeile das Forum-Icon und führt in eine Themenliste. Der Ort im
+                // Baum entscheidet über die Zugehörigkeit, nicht über die Sorte;
+                // wären es hier zwei verschiedene Aussagen, müsste das Markup an
+                // zwei Stellen dieselbe Frage stellen.
+                kind: room.isForum ? 'forum' : 'room',
                 label: room.name || room.h,
                 depth: depth + 1,
                 room,
@@ -362,6 +377,50 @@ export const buildForgeNav = (input: ForgeNavInput): ForgeNav => {
             entries.push(repoNode(repo.address, 0))
         }
     }
+
+    // ── 3b. Foren (P3) ──────────────────────────────────────────────────────
+    //
+    // **Die Repo-Bindung gewinnt, und zwar ohne eine einzige Sonderregel.** Ein
+    // Forum-Kanal, den ein 30617 per `buzz-channel` beansprucht, liegt bereits in
+    // `usedRooms` — er ist dann das Forum DIESES Repos und steht unter ihm. Der
+    // Filter unten ist damit die ganze Umsetzung von „ein Kanal erscheint genau
+    // einmal": es gibt keinen zweiten Ort, an dem ein Kanal entstehen könnte.
+    //
+    // **Eine Ebene entsteht nur, wenn sie etwas unterscheidet** — dieselbe Regel,
+    // die ein Projekt mit genau einem Repo zu EINER Zeile verschmelzen lässt
+    // (Regel 2). Ein einzelnes Forum ist deshalb eine Zeile zwischen den Repos,
+    // keine Gruppe mit einem Kind: eine Überschrift über genau einer Zeile kostet
+    // eine Einrückungsstufe in einer 290 px schmalen Spalte und sagt nichts, was
+    // das Icon der Zeile nicht schon sagt. Ab dem zweiten Forum trägt die Gruppe
+    // etwas — dann steht sie da. Buzz Desktop führt „Forums" dagegen als feste
+    // Top-Ebene neben „Channels", auch wenn kein einziges existiert; genau das
+    // ist der Bloat, den diese Datei vermeidet.
+    //
+    // **Ohne Forum keine Zeile** ist damit kein Sonderfall, sondern der leere
+    // Fall dieser Schleife.
+    const forumRooms = input.rooms
+        .filter((room) => room.isForum && !usedRooms.has(room.h.toLowerCase()))
+        .sort((a, b) => (a.name || a.h).toLocaleLowerCase().localeCompare((b.name || b.h).toLocaleLowerCase()))
+    const forumNode = (room: RailRoom, depth: number): ForgeNavNode => node({
+        id: `room:${room.h}`,
+        kind: 'forum',
+        label: room.name || room.h,
+        depth,
+        room,
+        onActivePath: activeRoomH !== '' && room.h === activeRoomH,
+    })
+    if (forumRooms.length === 1) {
+        entries.push(forumNode(forumRooms[0], 0))
+    } else if (forumRooms.length > 1) {
+        entries.push(node({
+            id: 'forge:forums',
+            kind: 'forums',
+            depth: 0,
+            count: forumRooms.length,
+            children: forumRooms.map((room) => forumNode(room, 1)),
+        }))
+    }
+
     for (const entry of entries) {
         markActivePath(entry)
     }
@@ -390,14 +449,15 @@ export const buildForgeNav = (input: ForgeNavInput): ForgeNav => {
  * EBENEN im Baum gedacht und hat die Sektion mit erfasst — Ergebnis war eine
  * Fläche, deren Kern (die Repos) man erst nach zwei Klicks sah.
  *
- * Offen sind die BEHÄLTER (`project`, `repo`) — sie tragen den Bestand, um den
- * es geht. Zu bleiben die MERKMALE (`issues`, `pulls`) und die Blätter (`room`,
- * `more`): sie haben heute gar keine Kinder, der Wert ist für sie also
- * unbeobachtbar. Er steht trotzdem hier und nicht als `true` für alles, weil
- * P2 (Foren) eine Kind-Ebene unter einem Kanal bringt — dann ist die Aussage
- * „nur Behälter starten offen" die, die gemeint war.
+ * Offen sind die BEHÄLTER (`project`, `repo`, seit P3 auch `forums`) — sie
+ * tragen den Bestand, um den es geht. Zu bleiben die MERKMALE (`issues`,
+ * `pulls`) und die Blätter (`room`, `forum`, `more`): sie haben heute gar keine
+ * Kinder, der Wert ist für sie also unbeobachtbar. Er steht trotzdem hier und
+ * nicht als `true` für alles, weil die Aussage „nur Behälter starten offen" die
+ * ist, die gemeint war — eine zugeklappte Forum-Gruppe versteckte beim ersten
+ * Laden genau den Bestand, für den sie existiert.
  */
-export const OPEN_BY_DEFAULT: readonly ForgeNavKind[] = ['project', 'repo']
+export const OPEN_BY_DEFAULT: readonly ForgeNavKind[] = ['project', 'repo', 'forums']
 
 /**
  * Ist dieser Knoten aufgeklappt?

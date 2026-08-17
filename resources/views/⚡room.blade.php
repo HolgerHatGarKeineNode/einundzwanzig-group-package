@@ -398,7 +398,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Boden ankommt. `atBottom` blieb dann auf dem vorletzten Wert stehen und der „Zum
              Ende"-Pfeil klebte fest. onScroll() ist reine Arithmetik; markRead/loadOlder sind
              selbst geguardet → ungedrosselt ist billig genug (Scroll-Events sind rAF-getaktet). --}}
-        <div x-ref="scroll" wire:ignore x-on:scroll="onScroll()"
+        {{-- P3: Im FORUM-Kanal (`["t","forum"]` im 39000) rendert dieselbe Fläche
+             eine Themenliste statt des Verlaufs — siehe den Block direkt darunter.
+             `x-show` und nicht `x-if`, weil der Verlauf beim Wechsel weder neu
+             gebaut noch neu abonniert werden soll: `isForum` kippt erst, wenn das
+             39000 vom Relay da ist (typisch nach dem ersten Frame). --}}
+        <div x-ref="scroll" wire:ignore x-on:scroll="onScroll()" x-show="!isForum"
              role="log" aria-live="polite" aria-relevant="additions" aria-label="{{ __('Chat-Verlauf') }}"
              {{-- `x-bind:` ausgeschrieben, nicht `::`. Der `::`-Escape ist eine BLADE-Regel
                   für Komponenten-Tags; auf einem normalen <div> reicht Blade ihn wörtlich
@@ -509,9 +514,91 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </template>
         </div>
 
+        {{-- ── Forum: die Themenliste (P3) ──────────────────────────────────────
+             Ein Forum ist kein Verlauf, und deshalb sieht es auch nicht aus wie
+             einer: normale Leserichtung (oben die jüngste AKTIVITÄT, nicht die
+             jüngste Erstellung), kein Auto-Scroll, kein Boden-Pin, keine
+             Ungelesen-Pille am Ende. Sortierung und Zähler kommen aus
+             `buildForumTopics` (`js/forumModels.ts`) — der Relay liefert für
+             Forum-Wurzeln KEINE Zusammenfassung (kein 39005, am Teststack
+             abgefragt), die Zahl ist also gerechnet und nicht abgeschrieben.
+
+             `role="list"`: die Zeilen sind Sprungmarken in eine Liste von Themen,
+             kein `log` wie der Chat — ein `aria-live` wäre hier falsch, weil
+             nichts unten „ankommt". --}}
+        <div x-show="isForum" x-cloak
+             class="min-h-0 flex-1 overflow-y-auto px-1 pb-2 xl:mx-auto xl:w-full xl:max-w-[62rem]">
+
+            {{-- Skeleton, solange der Bestand lädt — dieselbe Regel wie beim Verlauf:
+                 nur für Angemeldete, sonst verspricht die Fläche einem Gast etwas,
+                 das der Relay ihm gar nicht liefert (`CLOSED auth-required`). --}}
+            <div x-show="topicsLoading && topics.length === 0 && $store.authGate?.authed" class="space-y-3 pt-4">
+                <span class="sr-only" aria-live="polite">{{ __('Themen werden geladen…') }}</span>
+                @for ($i = 0; $i < 4; $i++)
+                    <div class="surface-card space-y-2 p-3">
+                        <div class="skeleton h-3 w-2/3"></div>
+                        <div class="skeleton h-3 w-1/3"></div>
+                    </div>
+                @endfor
+            </div>
+
+            {{-- Leeres Forum. Kein „Schreib das erste Thema"-Knopf: Themen anlegen
+                 ist eine Schreibrichtung und in dieser Phase bewusst nicht gebaut —
+                 ein Knopf, der nichts tut, wäre schlimmer als keiner. Der Satz sagt
+                 deshalb genau das, was gilt. --}}
+            <template x-if="!topicsLoading && topics.length === 0 && $store.authGate?.authed && !gatedOut">
+                <div class="surface-card empty-state mt-8 p-6 text-center">
+                    <flux:icon.chat-bubble-oval-left class="mx-auto size-8 text-zinc-400" />
+                    <flux:text class="mt-2">{{ __('Noch keine Themen in diesem Forum.') }}</flux:text>
+                </div>
+            </template>
+
+            <ul role="list" class="space-y-2 py-2" x-show="topics.length > 0" x-cloak>
+                <template x-for="topic in topics" :key="topic.id">
+                    <li>
+                        {{-- Die ganze Karte ist der Knopf: ein Thema hat genau ein Ziel
+                             (seinen Thread), also gibt es auch nur eine Trefferfläche.
+                             `aria-label` trägt den ganzen Satz inklusive Antwortzahl —
+                             der sichtbare Titel allein sagt einer Sprachausgabe nicht,
+                             dass hier ein Thread wartet. --}}
+                        <button type="button" x-on:click="openTopic(topic)"
+                                {{-- Der Satz wird aus ZWEI Katalogschlüsseln gebaut und nicht
+                                     aus einem mit hartem „Antworten": die Zahl steht sonst in
+                                     jeder Sprache im Plural, auch bei genau einer Antwort.
+                                     `$plural` entscheidet über `Intl.PluralRules` (siehe
+                                     `lang/README.md`). --}}
+                                x-bind:aria-label="@js(__('Thema :title öffnen'))
+                                    .split(':title').join(topic.title || @js(__('Ohne Titel')))
+                                    + ' — ' + $plural(topic.replyCount, '1 Antwort', ':count Antworten')"
+                                class="pressable surface-card flex w-full flex-col gap-1 p-3 text-start transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                            <span class="flex min-w-0 items-start gap-2">
+                                <x-group::nostr-avatar picture="topic.picture" name="topic.authorName" size="1.5rem" />
+                                <span class="min-w-0 flex-1">
+                                    <span class="line-clamp-2 text-sm font-semibold break-words"
+                                          x-text="topic.title || @js(__('Ohne Titel'))"></span>
+                                    <span class="mt-0.5 block truncate text-xs text-muted" x-show="topic.preview"
+                                          x-text="topic.preview"></span>
+                                </span>
+                            </span>
+                            <span class="flex items-center gap-2 text-xs text-muted">
+                                <span class="truncate" x-text="topic.authorName"></span>
+                                <span aria-hidden="true">·</span>
+                                {{-- Antwortzahl inline hinter der Beschriftung, nicht
+                                     rechtsbündig: sie ist BESTAND, keine Aufmerksamkeit
+                                     (die Regel aus `rail-forge-row`). --}}
+                                <span x-text="$plural(topic.replyCount, '1 Antwort', ':count Antworten')"></span>
+                                <span aria-hidden="true">·</span>
+                                <span x-bind:title="topic.lastFullLabel" x-text="topic.lastLabel"></span>
+                            </span>
+                        </button>
+                    </li>
+                </template>
+            </ul>
+        </div>
+
         {{-- Lade-Spinner oben, während der Auto-Scroller (createScroller) ältere Nachrichten
              nachzieht — reines Feedback; das Laden selbst passiert beim Hochscrollen von allein. --}}
-        <div class="pointer-events-none absolute inset-x-0 top-2 flex justify-center" x-show="loadingMore" x-cloak
+        <div class="pointer-events-none absolute inset-x-0 top-2 flex justify-center" x-show="loadingMore && !isForum" x-cloak
              x-transition.opacity>
             <span class="surface-card rounded-full px-3 py-1 text-xs text-muted shadow-md">{{ __('Lädt ältere…') }}</span>
         </div>
@@ -520,7 +607,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Zwei Buttons: flux erkennt „Icon-only vs. Pille" server-seitig am Slot (ein
              x-show-Span bliebe immer „nicht leer" → Pfeil säße links statt zentriert). --}}
         {{-- Zeigt, sobald der User nicht mehr am Boden ist (atBottom = Math.abs(scrollTop) < 60, column-reverse). --}}
-        <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="firstPaintDone && !atBottom" x-cloak
+        <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" x-show="firstPaintDone && !atBottom && !isForum" x-cloak
              x-transition.opacity>
             {{-- Keine ungelesenen → quadratischer Button, Pfeil zentriert. --}}
             <flux:button x-show="unread === 0" size="xs" variant="primary" square icon="arrow-down"
@@ -753,8 +840,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild, Umfrage/Zap-Ziel): geteilter Composer.
              Sanftes Opacity-Einblenden statt hartem Aufploppen, sobald die Mitgliedschaft (39002)
              geladen ist (membershipReady). --}}
-        <div x-show="membershipReady && joined" x-cloak x-transition.opacity.duration.200ms>
+        {{-- Im FORUM steht hier KEIN Composer (P3).
+
+             Nicht aus Bequemlichkeit, sondern weil er das Falsche täte: Er
+             schickte eine kind-9-Wurzel in den Kanal, und ein Forum-Thema ist ein
+             45001. Buzz Desktop listet ausschließlich 45001 als Thema — die
+             Nachricht verschwände also spurlos, bei uns wie dort. Ein Composer,
+             dessen Ergebnis niemand je sieht, ist schlimmer als keiner.
+
+             Antworten IN einem Thema gehen sehr wohl: der Thread-Composer schickt
+             ein kind 9 mit `["e",<root>,"","reply"]`, und genau diese Form nimmt
+             der Relay im Forumkanal an und liest Buzz Desktop als Forum-Antwort
+             (`get_forum_thread` fragt `kinds:[9,45003]`) — beides am Teststack
+             gemessen. Themen ANLEGEN (45001) ist eine Schreibrichtung und
+             ausdrücklich nicht Teil dieser Phase. --}}
+        <div x-show="membershipReady && joined && !isForum" x-cloak x-transition.opacity.duration.200ms>
             @include('group::partials.chat-composer', ['context' => 'room'])
+        </div>
+        <div x-show="membershipReady && joined && isForum" x-cloak
+             class="surface-card flex items-center gap-2 px-3 py-2 text-xs text-muted">
+            <flux:icon.information-circle variant="micro" aria-hidden="true" class="size-4 shrink-0" />
+            <span>{{ __('Neue Themen werden hier noch nicht verfasst — Antworten in einem Thema schon.') }}</span>
         </div>
 
         {{-- Fehlgeschlagen: aktionable Hinweiszeile statt flüchtigem Toast (Draft ist gefüllt). --}}

@@ -36,6 +36,7 @@ import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
 import { waitForPublishError } from './publishResult'
 import { BUZZ_MESSAGE_V2 } from './relayCaps'
+import { FORUM_COMMENT } from './forumModels'
 import { isRootMessage, isThreadReply, replyTargetIds, threadRootId } from './threading'
 import { spaceIsBuzzAsync } from './buzzAdmin'
 import { t } from './i18n'
@@ -156,8 +157,14 @@ const roomCommentFilter = () => [{ kinds: [COMMENT, CHAT_THREAD] }]
  * {@link commentRootId} nachfiltert. Und ein `kinds`-loser `#e`-Filter wird relayweit
  * abgelehnt (`restricted: p-gated events require #p matching your pubkey`), deshalb stehen
  * die Kinds hier explizit.
+ *
+ * **45003 steht seit P3 dabei** — die Forum-Antwort. Ein Forum-Thread ist
+ * strukturell derselbe Thread (Wurzel 45001, Antworten 45003 **und** kind 9, am
+ * Teststack gemessen), also läuft er durch dieselbe Maschine; eine zweite wäre
+ * die konkurrierende Ordnung, vor der P1 warnt. Auf zooid kostet der zusätzliche
+ * Kind nichts: dort gibt es kein einziges 45003, der Filter läuft leer mit.
  */
-const threadReplyFilter = (rootId: string) => [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2], '#e': [rootId] }]
+const threadReplyFilter = (rootId: string) => [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, FORUM_COMMENT], '#e': [rootId] }]
 
 /**
  * kind-9735-Zap-Receipts (NIP-57): tragen KEIN `#h` — der LNURL-Server kopiert nur

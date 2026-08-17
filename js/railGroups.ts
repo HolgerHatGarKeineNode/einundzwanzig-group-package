@@ -24,6 +24,8 @@ export type RailRoom = {
     locked?: boolean
     isMeetup?: boolean
     isProjectSupport?: boolean
+    /** Buzz-Kanaltyp `["t","forum"]` — die Zeile fuehrt in eine Themenliste, nicht in einen Chat. */
+    isForum?: boolean
     meetupSlug?: string
     /** `created_at` des jüngsten Timeline-Events, `null` wenn keins bekannt. */
     lastMessageAt?: number | null

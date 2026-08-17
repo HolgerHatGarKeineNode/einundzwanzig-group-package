@@ -347,10 +347,12 @@ test('isForgeNodeOpen: die Sorte entscheidet, solange der Nutzer nichts gesagt h
     })
     const byKind = new Map(allRows(nav.nodes).map((n) => [n.kind, n]))
 
-    assert.deepEqual([...OPEN_BY_DEFAULT], ['project', 'repo'])
+    // Seit P3 steht `forums` dabei: es ist ein BEHÄLTER, und eine zugeklappte
+    // Forum-Gruppe versteckte beim ersten Laden genau ihren Bestand.
+    assert.deepEqual([...OPEN_BY_DEFAULT], ['project', 'repo', 'forums'])
     assert.equal(isForgeNodeOpen(byKind.get('repo')!, undefined), true)
     // Blätter: heute unbeobachtbar (kein Chevron ohne Kinder), aber die Aussage
-    // muss stimmen, bevor P2 eine Kind-Ebene unter den Kanal hängt.
+    // muss stimmen, bevor eine Kind-Ebene unter den Kanal kommt.
     assert.equal(isForgeNodeOpen(byKind.get('room')!, undefined), false)
     assert.equal(isForgeNodeOpen(byKind.get('issues')!, undefined), false)
 })
@@ -540,4 +542,143 @@ test('groupTargets und railTargets sehen dieselbe Menge — eine Funktion, zwei 
         groupTargets(workspace, rows).map((t) => t.id),
         railTargets([workspace], rows, () => true).map((t) => t.id),
     )
+})
+
+// ── Zustand E: Foren (P3) ───────────────────────────────────────────────────
+//
+// Ein Forum-Kanal ist ein 39000 mit `["t","forum"]` (am Buzz-Teststack gemessen).
+// Er ist ein Kanal wie jeder andere — also gelten für ihn dieselben Regeln, und
+// genau das prüfen die folgenden Fälle.
+
+const forumRoom = (h: string, name = h): RailRoom => room({ h, name, isForum: true })
+
+test('E: ohne Forum entsteht keine Forum-Zeile — es gibt keine leere Gruppe', () => {
+    const nav = buildForgeNav({ repos: [], projects: [], rooms: [room({ h: 'general' })] })
+
+    assert.deepEqual(nav.nodes, [])
+})
+
+test('E: ein einzelnes Forum ist EINE Zeile, keine Gruppe mit einem Kind', () => {
+    const nav = buildForgeNav({ repos: [], projects: [], rooms: [forumRoom('f1', 'Bierforum'), room({ h: 'general' })] })
+
+    assert.deepEqual(shape(visibleRows(nav.nodes)), ['forum:Bierforum'])
+    assert.deepEqual(nav.claimed, ['f1'])
+})
+
+test('E: ab dem zweiten Forum trägt die Gruppe etwas — und sie steht offen', () => {
+    const nav = buildForgeNav({
+        repos: [],
+        projects: [],
+        rooms: [forumRoom('f2', 'Zweites'), forumRoom('f1', 'Erstes')],
+    })
+
+    assert.deepEqual(shape(visibleRows(nav.nodes)), ['forums · 2', '  forum:Erstes', '  forum:Zweites'])
+    assert.ok(OPEN_BY_DEFAULT.includes('forums'))
+    assert.deepEqual(nav.claimed.slice().sort(), ['f1', 'f2'])
+})
+
+test('E: die namenlose Forum-Gruppe steht HINTER den benannten Zeilen', () => {
+    const nav = buildForgeNav({
+        repos: [repo({ name: 'zzz-repo' })],
+        projects: [],
+        rooms: [forumRoom('f1'), forumRoom('f2')],
+    })
+
+    assert.deepEqual(nav.nodes.map((n) => n.kind), ['repo', 'forums'])
+})
+
+/**
+ * **Der Test zur Einmaligkeits-Regel.** Nimmt man in `buildForgeNav` den
+ * `usedRooms`-Filter aus dem Forum-Zweig heraus, steht derselbe Kanal zweimal im
+ * Baum (einmal unter dem Repo, einmal als Forum-Zeile) und zweimal in `claimed` —
+ * beide Zusagen hier fallen dann.
+ */
+test('E: Repo-Bindung gewinnt — ein gebundenes Forum steht NUR unter dem Repo', () => {
+    const nav = buildForgeNav({
+        repos: [repo({ name: 'werkzeug', channelId: 'f1' })],
+        projects: [],
+        rooms: [forumRoom('f1', 'Werkzeug-Forum')],
+    })
+
+    assert.deepEqual(shape(allRows(nav.nodes)), ['repo:werkzeug', '  forum:Werkzeug-Forum'])
+    assert.deepEqual(nav.claimed, ['f1'])
+    assert.equal(allRows(nav.nodes).filter((r) => r.room?.h === 'f1').length, 1)
+})
+
+test('E: ein gebundenes UND ein freies Forum — jedes genau einmal, an seinem Ort', () => {
+    const nav = buildForgeNav({
+        repos: [repo({ name: 'werkzeug', channelId: 'f1' })],
+        projects: [],
+        rooms: [forumRoom('f1', 'Werkzeug-Forum'), forumRoom('f2', 'Stammtisch')],
+    })
+
+    // Sortiert wird nach Namen, über alle Sorten hinweg (`byLabel`) — „Stammtisch"
+    // steht vor „werkzeug", das freie Forum also vor dem Repo.
+    assert.deepEqual(shape(allRows(nav.nodes)), [
+        'forum:Stammtisch',
+        'repo:werkzeug',
+        '  forum:Werkzeug-Forum',
+    ])
+    assert.deepEqual(nav.claimed.slice().sort(), ['f1', 'f2'])
+})
+
+test('E: ein angehefteter Forum-Kanal steht oben und NICHT im Baum (der Pin schlägt alles)', () => {
+    // `rail.ts` nimmt angeheftete Kanäle aus `rooms` heraus — genau diese Lage.
+    const nav = buildForgeNav({ repos: [], projects: [], rooms: [] })
+
+    assert.deepEqual(nav.nodes, [])
+    assert.deepEqual(nav.claimed, [])
+})
+
+test('E: Alt+↑/↓ erreicht Forum-Zeilen über DIESELBE Funktion wie alles andere', () => {
+    const nav = buildForgeNav({
+        repos: [],
+        projects: [],
+        rooms: [forumRoom('f1', 'Erstes'), forumRoom('f2', 'Zweites')],
+    })
+    const workspace = railGroup({ key: 'workspace', joined: [room({ h: 'general' })] })
+    const rows = visibleRows(nav.nodes)
+
+    // Die Gruppe selbst ist ein reiner Klappknoten und darf NICHT anspringbar sein.
+    assert.deepEqual(railTargets([workspace], rows, () => true).map((t) => t.id), [
+        'room:f1',
+        'room:f2',
+        'room:general',
+    ])
+    assert.deepEqual(
+        groupTargets(workspace, rows).map((t) => t.id),
+        railTargets([workspace], rows, () => true).map((t) => t.id),
+    )
+})
+
+test('E: eine zugeklappte Forum-Gruppe verbirgt ihre Kinder — auch vor der Tastatur', () => {
+    const nav = buildForgeNav({
+        repos: [],
+        projects: [],
+        rooms: [forumRoom('f1', 'Erstes'), forumRoom('f2', 'Zweites')],
+    })
+    const rows = collapsedRows(nav.nodes)
+
+    assert.deepEqual(shape(rows), ['forums · 2'])
+    assert.deepEqual(railTargets([railGroup({ key: 'workspace' })], rows, () => true), [])
+})
+
+test('E: der aktive Forum-Kanal zwingt seine Gruppe auf', () => {
+    const nav = buildForgeNav({
+        repos: [],
+        projects: [],
+        rooms: [forumRoom('f1', 'Erstes'), forumRoom('f2', 'Zweites')],
+        activeRoomH: 'f2',
+    })
+
+    assert.deepEqual(shape(collapsedRows(nav.nodes)), ['forums · 2', '  forum:Erstes', '  forum:Zweites'])
+})
+
+test('E: von der Faltung weggeschnittene Foren geben ihren Kanal an die flache Liste zurück', () => {
+    const repos = ['a', 'b', 'c', 'd'].map((name) => repo({ name, address: `30617:${OWNER}:${name}` }))
+    const nav = buildForgeNav({ repos, projects: [], rooms: [forumRoom('f1'), forumRoom('f2')] })
+
+    assert.equal(nav.collapsed, true)
+    assert.equal(nav.total, PROJECT_FOLD_THRESHOLD)
+    assert.deepEqual(nav.claimed, [])
 })

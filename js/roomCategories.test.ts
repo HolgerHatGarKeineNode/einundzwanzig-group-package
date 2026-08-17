@@ -14,8 +14,10 @@ import assert from 'node:assert/strict'
 import { makeRoomEditEvent } from '@welshman/util'
 import {
     DEFAULT_ROOM_TYPE,
+    FORUM_CHANNEL_TYPE,
     PROJECT_SUPPORT_MARKER,
     isFocusMode,
+    parseForumTag,
     isStandardRoom,
     parseProjectSupportTags,
     parseRoomType,
@@ -280,4 +282,31 @@ test('Land-Filter gibt es NUR bei Meetups — Antragsraeume tragen kein Land', (
     assert.equal(supportsCountryFilter('meetups'), true)
     assert.equal(supportsCountryFilter('proposals'), false)
     assert.equal(supportsCountryFilter('rooms'), false)
+})
+
+// ── Forum-Kanaele (Buzz, P3) ────────────────────────────────────────────────
+
+test('parseForumTag liest den Buzz-Kanaltyp aus den ROH-Tags des 39000', () => {
+    // Genau die am Teststack gemessene Tag-Folge eines Forum-Kanals.
+    const forum = [
+        ['d', '177e0faf-0ff5-553e-aaca-84d0632084c0'],
+        ['name', 'E2E-Forum'],
+        ['about', 'E2E-Forumkanal'],
+        ['public'],
+        ['closed'],
+        ['t', 'forum'],
+    ]
+    assert.equal(parseForumTag(forum), true)
+    assert.equal(FORUM_CHANNEL_TYPE, 'forum')
+})
+
+test('ein Stream-Kanal ist kein Forum — und ein tagloses 39000 auch nicht', () => {
+    assert.equal(parseForumTag([['d', 'x'], ['name', 'general'], ['t', 'stream']]), false)
+    assert.equal(parseForumTag([]), false)
+})
+
+test('unsere zooid-Kategorien kollidieren NICHT mit dem Kanaltyp', () => {
+    // `t` traegt auf zooid unsere Marker; keiner davon heisst `forum`.
+    assert.equal(parseForumTag([['t', 'meetup']]), false)
+    assert.equal(parseForumTag([['t', PROJECT_SUPPORT_MARKER]]), false)
 })

@@ -99,7 +99,8 @@ import { flagEmoji } from './meetupPresentation'
  * restlos entfernt und erzeugt keine Abhängigkeit im Bundle.
  */
 import type { ArticleRow, ArticleView } from './longformFeed'
-import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
+import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseForumTag, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
+import { deriveForumTopics, listenForum, loadForumTopics, type ForumTopic } from './forumFeed'
 import { buildWorkspaceList, splitMine, type WorkspacePrefs } from './railGroups'
 // P7/NIP-78 — die in Buzz Desktop gesetzten Kanal-Präferenzen auch auf der Bühne
 // anwenden. `subscribeWorkspacePrefs` ist der EINZIGE Einstieg: er schaltet den
@@ -929,6 +930,18 @@ type RoomChatState = {
     // konstant false (siehe `userStatus.ts deriveStatusPending`).
     statusPending: boolean
     _unsubStatusPending: null | (() => void)
+    // ── Forum-Modus (P3) ─────────────────────────────────────────────────────
+    // Ein Kanal mit `["t","forum"]` zeigt eine THEMENLISTE statt des Verlaufs.
+    // `isForum` wird REAKTIV aus der Raum-Meta gesetzt (`_unsubRoomMeta`), nie
+    // einmal beim Mount gelesen: das 39000 kommt vom Relay und ist beim ersten
+    // Frame regelmäßig noch nicht da — ein Schnappschuss stünde dauerhaft auf
+    // `false` und der Nutzer sähe im Forum stumm einen leeren Chat (dieselbe
+    // Klasse Fehler wie der `spaceIsBuzz()`-Schnappschuss aus P6).
+    isForum: boolean
+    topics: ForumTopic[]
+    topicsLoading: boolean
+    _unsubTopics: null | (() => void) // deriveForumTopics-Subscription
+    _forumStarted: boolean // Load + Live-Sub des Forums schon aufgezogen? (einmal je setup)
     _unsubRoomMeta: null | (() => void)
     _unsubRelay: null | (() => void) // deriveRelay-Subscription: korrigiert spaceHint nach, wenn NIP-11 nach dem Mount eintrifft (P13)
     _url: string | null
@@ -975,6 +988,16 @@ type RoomChatState = {
     copyJson(m: ChatMessage): void
     openInfo(m: ChatMessage): void
     openThread(m: ChatMessage, full?: boolean, syncUrl?: boolean): void
+    /**
+     * Ein Thema der Forum-Liste öffnen — derselbe Thread-Bereich wie im Chat.
+     *
+     * Bewusst nur eine Übersetzung auf {@link openThread} und keine zweite
+     * Ansicht: die Wurzel ist ein 45001 statt eines kind 9, alles danach
+     * (Antworten, Zitat-Kopf, Composer, Deep-Link, Escape) ist identisch.
+     */
+    openTopic(topic: ForumTopic): void
+    /** Zieht die Forum-Fläche auf (Bestand, Live-Sub, Themenliste). Idempotent. */
+    startForum(url: string): void
     threadHref(m: ChatMessage): string
     closeThread(): void
     /** Kopf-Pfeil im RAUM: history.back() bei App-internem Vorgänger, sonst `upTarget`. */
@@ -4107,6 +4130,11 @@ export function registerNostrComponents(Alpine: {
         _menuInThread: false,
         infoFor: null,
         isAdmin: false,
+        isForum: false,
+        topics: [],
+        topicsLoading: true,
+        _unsubTopics: null,
+        _forumStarted: false,
         pendingAdminDelete: null,
         banAuthorFor: null,
         moderating: false,
@@ -4349,6 +4377,18 @@ export function registerNostrComponents(Alpine: {
                     // gerenderte Titel fällt bei SpaceCache-Miss auf die rohe Raum-id zurück
                     // (`# <h>`); sobald die Insel den Namen aus 39000/9007 auflöst, korrigieren.
                     document.title = `# ${room.name}`
+                }
+                // P3: Forum-Kanal? Dieselbe Quelle, derselbe Emit — der Kanaltyp
+                // steht im selben 39000 wie der Name. Sobald er da ist, zieht die
+                // Fläche einmal um (Verlauf → Themenliste) und `startForum()`
+                // beschafft den Bestand. Der Weg ZURÜCK (`isForum` fällt wieder
+                // auf false) ist bewusst nicht gebaut: ein Kanal wechselt seinen
+                // Typ am Relay nicht, und ein erfundener Rückweg wäre toter Code.
+                // Aus den ROH-Tags des 39000, wie in `buildSpaceView`: welshmans
+                // `readRoomMeta` liest `t` nicht, `Room` trägt den Kanaltyp also nicht.
+                if (!this.isForum && parseForumTag(room?.event?.tags ?? [])) {
+                    this.isForum = true
+                    this.startForum(url)
                 }
             })
             // P11: Ablehnung des Relays von der Live-Sub ableiten. Für ein
@@ -4736,6 +4776,46 @@ export function registerNostrComponents(Alpine: {
             }
             setRead(roomKey(this._url, this.h))
         },
+        /**
+         * Zieht die Forum-Fläche auf: Bestand laden, Live-Sub, Themenliste
+         * abonnieren. Aufgerufen aus der Raum-Meta-Subscription, sobald der
+         * Kanaltyp `forum` bekannt ist — nicht in `setup()`, weil er dort noch
+         * nicht bekannt IST (das 39000 kommt vom Relay).
+         *
+         * `_forumStarted` ist der Riegel gegen Mehrfachstart: `roomsByUrl`
+         * emittiert bei jedem eintreffenden 39000 des Relays erneut, und ein
+         * zweiter Live-Request für denselben Kanal wäre ein zusätzlicher Frame im
+         * Ratenbudget des Relays, ohne eine einzige neue Nachricht zu liefern.
+         */
+        startForum(url: string) {
+            if (this._forumStarted) {
+                return
+            }
+            this._forumStarted = true
+            this.topicsLoading = true
+            const signal = this._controller?.signal
+            if (signal) {
+                listenForum(url, this.h, signal)
+            }
+            void loadForumTopics(url, this.h).finally(() => {
+                // Nur für DIESEN Raum quittieren: bei schnellem Raumwechsel läuft
+                // der alte Load weiter und dürfte die neue Fläche nicht öffnen.
+                if (this._url === url) {
+                    this.topicsLoading = false
+                }
+            })
+            this._unsubTopics?.()
+            this._unsubTopics = deriveForumTopics(url, this.h).subscribe((rows: ForumTopic[]) => {
+                this.topics = rows
+            })
+        },
+        openTopic(topic: ForumTopic) {
+            // `openThread` braucht von der Wurzel genau zwei Felder: `id` (Thread-Wurzel,
+            // Live-Sub, Deep-Link) und `pubkey` (Autor im `nevent`). Den KIND holt
+            // `neventFor` selbst aus dem Repository — dort steht 45001, und genau das
+            // gehört in den geteilten Link.
+            this.openThread({ id: topic.id, pubkey: topic.pubkey } as ChatMessage)
+        },
         teardown() {
             this._controller?.abort()
             this._unsub?.()
@@ -4757,6 +4837,15 @@ export function registerNostrComponents(Alpine: {
             this._unsubRelay = null
             this._unsubStatusPending?.()
             this._unsubStatusPending = null
+            // Forum (P3): Abo lösen UND den Startriegel zurücksetzen — sonst bliebe
+            // beim Wechsel Forum → Forum die Liste des ALTEN Kanals stehen, weil
+            // `startForum` sich für „schon gestartet" hielte.
+            this._unsubTopics?.()
+            this._unsubTopics = null
+            this._forumStarted = false
+            this.isForum = false
+            this.topics = []
+            this.topicsLoading = true
             this._zapSub?.abort()
             this._zapSub = null
             this._zapLoadedIds.clear()
@@ -4878,6 +4967,15 @@ export function registerNostrComponents(Alpine: {
             // ein REQ danach nicht neu, und die Statusspalte fröre ein, ohne dass es
             // aussähe wie ein Fehler.
             resyncUserStatuses(url)
+            // P3: Das Forum hängt an DIESEM Controller — mit dem Abbruch oben ist
+            // seine Live-Sub tot, und welshman sendet ein REQ von sich aus nicht neu.
+            // Ohne diese zwei Zeilen fröre die Themenliste nach dem ersten
+            // Hintergrund-Gang auf ihrem Stand ein, ohne dass es nach einem Fehler
+            // aussähe (dieselbe Klasse wie der Status-Fall eine Zeile darüber).
+            if (this.isForum) {
+                listenForum(url, this.h, signal)
+                void loadForumTopics(url, this.h)
+            }
             // … + einmal nachladen, was im Hintergrund verpasst wurde. loadSpaceRooms backfillt die
             // 39002/39000 (Mitgliedschaft → joined/Composer, Raumname); listenRoomMembers ist limit:0
             // (nur Neues) und deckt das NICHT ab.

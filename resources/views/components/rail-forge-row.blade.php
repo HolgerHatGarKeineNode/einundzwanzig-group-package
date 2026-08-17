@@ -136,22 +136,31 @@
 
     <button type="button" x-on:click="openNode(node)"
             x-bind:aria-current="node.id === activeTargetId ? 'page' : null"
+            {{-- `forum`: der Name allein sagt nicht, dass diese Zeile in eine
+                 Themenliste führt und nicht in einen Chat — für Sehende sagt es
+                 das Icon, für die Sprachausgabe muss es der Name sagen. `forums`
+                 ist ein reiner Klappknoten, sein Satz beschreibt deshalb das
+                 Klappen und nicht ein Ziel. --}}
             x-bind:aria-label="node.kind === 'issues'
                 ? @js(__('Issues des Repositorys öffnen (:count)')).split(':count').join(node.count)
                 : (node.kind === 'pulls'
                     ? @js(__('Pull Requests des Repositorys öffnen (:count)')).split(':count').join(node.count)
                     : (node.kind === 'more'
                         ? @js(__('Alle Projekte anzeigen (:count)')).split(':count').join(node.count)
-                        : node.label))"
+                        : (node.kind === 'forum'
+                            ? @js(__('Forum :name öffnen')).split(':name').join(node.label)
+                            : (node.kind === 'forums'
+                                ? @js(__('Foren auf- oder zuklappen (:count)')).split(':count').join(node.count)
+                                : node.label))))"
             x-bind:title="node.label || null"
             class="pressable group relative flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-tile px-2 py-1 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
             x-bind:class="node.id === activeTargetId
                 ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
-                : (node.kind === 'project'
+                : (node.kind === 'project' || node.kind === 'forums'
                     ? 'font-semibold text-muted'
-                    : (node.kind === 'room' && isMuted(node.room)
+                    : ((node.kind === 'room' || node.kind === 'forum') && isMuted(node.room)
                         ? 'font-normal text-muted'
-                        : (node.kind === 'repo'
+                        : (node.kind === 'repo' || node.kind === 'forum'
                             ? 'font-medium text-zinc-800 dark:text-zinc-100'
                             : 'font-normal text-muted')))">
 
@@ -193,6 +202,25 @@
                 <flux:icon.rectangle-stack variant="micro" class="size-3.5" />
             </span>
         </template>
+        {{-- Forum-Kanal (P3). Bewusst NICHT die Avatar-Box der Kanal-Zeile: ein
+             Forum ist ein anderer Ort als ein Chat — man liest dort Themen, nicht
+             einen Verlauf — und die Zeile muss das VOR dem Klick sagen. Die
+             einzelne ovale Blase steht für ein Forum, die Doppelblase darunter
+             für die Gruppe mehrerer; zwei Register desselben Gegenstands, wie
+             `folder` (Repo) und `rectangle-stack` (Projekt). Beide Glyphen kommen
+             in dieser Spalte sonst nicht vor (geprüft gegen `desktop-rail`,
+             `rail-group`, `rail-room-row`) — die Glyph-Kollision aus P1 wiederholt
+             sich hier nicht. --}}
+        <template x-if="node.kind === 'forum'">
+            <span aria-hidden="true" class="inline-flex size-5 shrink-0 items-center justify-center">
+                <flux:icon.chat-bubble-oval-left variant="micro" class="size-4" />
+            </span>
+        </template>
+        <template x-if="node.kind === 'forums'">
+            <span aria-hidden="true" class="inline-flex size-5 shrink-0 items-center justify-center">
+                <flux:icon.chat-bubble-left-right variant="micro" class="size-3.5" />
+            </span>
+        </template>
         <template x-if="node.kind === 'issues'">
             <span aria-hidden="true" class="inline-flex size-5 shrink-0 items-center justify-center">
                 <flux:icon.exclamation-circle variant="micro" class="size-3.5" />
@@ -219,12 +247,13 @@
              diese drei Sorten bewusst ein leeres `label`. --}}
         <span class="flex min-w-0 flex-1 items-baseline gap-1">
             <span class="min-w-0 truncate"
-                  x-bind:class="node.kind === 'project'
+                  x-bind:class="node.kind === 'project' || node.kind === 'forums'
                       ? 'text-[0.7rem] uppercase tracking-wide'
                       : 'text-sm'"
                   x-text="node.kind === 'issues' ? @js(__('Issues'))
                         : (node.kind === 'pulls' ? @js(__('Pull Requests'))
-                        : (node.kind === 'more' ? @js(__('Alle Projekte')) : nodeName(node)))"></span>
+                        : (node.kind === 'forums' ? @js(__('Foren'))
+                        : (node.kind === 'more' ? @js(__('Alle Projekte')) : nodeName(node))))"></span>
 
             {{-- Bestand, nie als Ungelesen-Pille: es sind Bestände, keine
                  Neuigkeiten. `buildForgeNav` liefert `0` gar nicht erst (Regel 5).
@@ -238,12 +267,16 @@
         {{-- Ein Kanal im Baum ist derselbe Kanal wie in der flachen Liste: stumm
              bleibt stumm, ungelesen bleibt ungelesen. Ohne das wäre die
              Stummschaltung an einer Stelle wirksam und an der anderen nicht. --}}
-        <template x-if="node.kind === 'room' && isMuted(node.room)">
+        {{-- Stumm/ungelesen gilt für JEDE Zeile mit einem Raum dahinter — also auch
+             für ein Forum. Ein Forum ist derselbe Kanal wie in der flachen Liste;
+             wäre die Stummschaltung hier wirkungslos, hätte derselbe Kanal je nach
+             Ort zwei Zustände. --}}
+        <template x-if="node.room && isMuted(node.room)">
             <span class="inline-flex shrink-0 items-center">
                 <flux:icon.bell-slash variant="micro" aria-hidden="true" class="size-3.5 text-muted" />
             </span>
         </template>
-        <template x-if="node.kind === 'room'">
+        <template x-if="node.room">
             <x-group::unread-badge count="!isMuted(node.room) && $store.unread?.rooms?.[node.room.h]" size="sm" :sr="false" />
         </template>
     </button>

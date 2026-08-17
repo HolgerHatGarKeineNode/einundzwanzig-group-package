@@ -76,6 +76,32 @@ export const projectSupportTags = (proposalId: string | number = ''): string[][]
     return tags
 }
 
+// ── Forum-Kanaele (Buzz, P3) ────────────────────────────────────────────────
+
+/**
+ * Der `t`-Wert, mit dem BUZZ einen Forum-Kanal markiert.
+ *
+ * **Das ist kein Marker von uns, sondern der `channel_type` des Relays.** Buzz
+ * baut sein 39000 selbst aus dem Datenbankzustand und schreibt den Kanaltyp in
+ * `["t", …]` (`side_effects.rs:1096`); erlaubt sind `stream` (Default), `forum`,
+ * `dm`, `workflow` (`buzz-core/src/channel.rs`). Am Teststack gemessen: ein
+ * `9007` mit `["channel_type","forum"]` erzeugt ein 39000 mit
+ * `["d",…],["name",…],["about",…],["public"],["closed"],["t","forum"]`.
+ *
+ * Auf zooid ist derselbe Tag-Name mit UNSEREN Kategorien belegt (`meetup`,
+ * `project-support`) — kollisionsfrei, weil keine davon `forum` heisst. Genau
+ * deshalb entscheidet auch hier das DATENFORMAT und keine Relay-Weiche (siehe
+ * Modulkopf von `roomAbout.ts`).
+ */
+export const FORUM_CHANNEL_TYPE = 'forum'
+
+/**
+ * Traegt das 39000 den Forum-Kanaltyp? Aus den ROH-Tags gehoben, wie
+ * {@link parseProjectSupportTags} — welshmans `readRoomMeta` liest `t` nicht.
+ */
+export const parseForumTag = (tags: string[][]): boolean =>
+    tags.some((tag) => tag[0] === 't' && tag[1] === FORUM_CHANNEL_TYPE)
+
 /** Das Minimum an Kategorie-Flags, ueber das die Raumlisten filtern. */
 export type RoomCategoryFlags = {
     isMeetup?: boolean
