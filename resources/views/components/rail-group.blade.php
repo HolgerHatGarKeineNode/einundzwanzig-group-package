@@ -4,6 +4,13 @@
     'label',
     // Nur die Meetup-Gruppe trägt die Länder-Chips.
     'countries' => false,
+    // Ziel des Sektionsnamens. Gesetzt heißt: der Name wird zum Link, das Chevron
+    // bleibt für Auf/Zu zuständig (P1, zwei getrennte Trefferflächen).
+    'headingHref' => null,
+    // Beschriftung des Icon-Knopfes neben Zahl und Lupe; null = kein Knopf.
+    'overviewLabel' => null,
+    // Rendert den Forge-Baum zwischen Angehefteten und Sektionen (nur 'workspace').
+    'tree' => false,
 ])
 
 {{-- Ein Abschnitt des Desktop-Navigators. Steht im `nostrRail`-Scope und liest die
@@ -26,23 +33,63 @@
      erreichbar. Sie ist immer da, nicht nur bei Hover — sonst existiert sie für
      Tastaturnutzer gar nicht. --}}
 @php($id = 'rail-group-'.$group)
+{{-- Ein Workspace mit Repos, aber ohne sichtbare Kanäle hat `total === 0` und
+     verschwände samt Baum — deshalb zählen die Baum-Zeilen bei der Existenzfrage
+     mit (nur dort, wo es einen Baum gibt). --}}
+@php($present = 'groupFor('.json_encode($group).').total > 0'.($tree ? ' || forgeRows.length > 0' : ''))
 
-<template x-if="groupFor(@js($group)).total > 0 || @js($group) === 'rooms'">
+<template x-if="{{ $present }} || @js($group) === 'rooms'">
     <section class="pt-2">
         <div class="flex min-h-7 items-center gap-1 px-2">
+            {{-- ── Zwei Trefferflächen, wenn der Name ein Ziel hat (P1) ────────
+                 Das Chevron klappt, der Name führt zur Übersicht. Getrennte
+                 Elemente statt eines Buttons mit zwei Bedeutungen: ein Klick auf
+                 den Namen darf nicht zusätzlich klappen, und ein `<a>` in einem
+                 `<button>` wäre ungültiges HTML und für die Tastatur kaputt.
+                 `aria-expanded`/`aria-controls` sitzen dort, wo geklappt wird. --}}
+            {{-- 24×24 statt 20×16 (Design-Pass 2026-08-17). WCAG 2.2 SC 2.5.8
+                 verlangt 24×24 CSS-px; die Ausnahme „genügend Abstand" greift
+                 nicht, weil im `headingHref`-Fall der Namens-Link unmittelbar
+                 daneben liegt. Gemessen wurde 20×16 — ein echter Verstoß.
+                 Zugleich bekommt das Chevron dieselbe Hover-Fläche wie die zwei
+                 Icon-Knöpfe am anderen Ende der Zeile: drei Bedienelemente in
+                 einem Kopf, die sich unter der Maus verschieden verhalten, sehen
+                 aus wie zwei Knöpfe und ein Zufall.
+
+                 Der reine Namens-Fall (ohne `headingHref`) bleibt breit — dort
+                 ist die ganze Zeile der Knopf, die Zielgröße war nie das Problem.
+                 `text-muted` steht jetzt am KNOPF, nicht am Icon: sonst überschriebe
+                 die Icon-Klasse den Hover-Wechsel des Elternteils. --}}
             <button type="button"
                     x-on:click="toggleGroup(@js($group))"
                     x-bind:aria-expanded="isOpen(@js($group)) ? 'true' : 'false'"
                     aria-controls="{{ $id }}"
-                    class="pressable -ms-1 flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-start">
+                    @if ($headingHref)
+                        aria-label="{{ __('Bereich :label auf- oder zuklappen', ['label' => $label]) }}"
+                        class="pressable -ms-1 inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                    @else
+                        class="pressable -ms-1 flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-start text-muted"
+                    @endif>
                 <flux:icon.chevron-right variant="micro" aria-hidden="true"
-                                         class="size-3 shrink-0 text-muted transition-transform"
+                                         class="size-3 shrink-0 transition-transform"
                                          x-bind:class="isOpen(@js($group)) ? 'rotate-90' : ''" />
-                <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $label }}</span>
-                @isset($suffix)
-                    {{ $suffix }}
-                @endisset
+                @unless ($headingHref)
+                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $label }}</span>
+                    @isset($suffix)
+                        {{ $suffix }}
+                    @endisset
+                @endunless
             </button>
+
+            @if ($headingHref)
+                <a href="{{ $headingHref }}" wire:navigate
+                   class="pressable flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-start transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">
+                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $label }}</span>
+                    @isset($suffix)
+                        {{ $suffix }}
+                    @endisset
+                </a>
+            @endif
 
             {{-- Bestand grau, immer. Bei ZUGEKLAPPTER Gruppe zusätzlich die
                  Ungelesen-Summe — der einzige Ort, an dem sie erscheint. --}}
@@ -51,6 +98,17 @@
             <template x-if="!isOpen(@js($group))">
                 <x-group::unread-badge :count="'groupUnread(\''.$group.'\')'" size="sm" :sr="false" />
             </template>
+
+            @if ($overviewLabel && $headingHref)
+                {{-- Der zweite von drei Wegen zur Übersicht. Ein nacktes Icon ohne
+                     Namen wäre ein Rätsel — `aria-label` UND `title`, damit es
+                     Screenreader ankündigen und die Maus es beim Verweilen zeigt. --}}
+                <a href="{{ $headingHref }}" wire:navigate
+                   aria-label="{{ $overviewLabel }}" title="{{ $overviewLabel }}"
+                   class="pressable inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+                    <flux:icon.code-bracket variant="micro" aria-hidden="true" class="size-3.5" />
+                </a>
+            @endif
 
             <button type="button" x-on:click="scopeToGroup(@js($group))"
                     class="pressable inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
@@ -102,6 +160,32 @@
             <template x-if="groupFor(@js($group)).pinned.length && (groupFor(@js($group)).sections.length || groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
                 <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
             </template>
+
+            @if ($tree)
+                {{-- ── Der Forge-Baum (P1) ─────────────────────────────────────
+                     EINE flache Liste, keine Verschachtelung im Markup: Alpine
+                     kennt keine rekursiven Templates, und eine flache Liste ist
+                     hier ohnehin die richtige Form — sie ist EXAKT dieselbe
+                     Folge, die `railTargets` der Tastatur gibt (`railForge.ts`).
+                     Die Ebenen trägt `node.depth` als Einrückung: 12px je Stufe,
+                     nicht 16 — drei Ebenen in einer ~290px-Spalte lassen dem
+                     Namen sonst nichts übrig. Der maßgebliche Wert steht in
+                     `rail-forge-row.blade.php` (`node.depth * 12`); wer eine
+                     weitere Ebene einwebt (P2, Foren), nimmt ihn von dort.
+
+                     Was der Baum enthält, entscheidet `buildForgeNav`: keine
+                     Repos → keine Zeile; ein Projekt mit einem Repo → eine
+                     Zeile; Zähler nur bei > 0; ab fünf Einträgen die Faltung mit
+                     sichtbarem aktivem Pfad. Kein Blade-Ausdruck entscheidet
+                     hier etwas mit. --}}
+                <template x-for="node in forgeRows" :key="node.id">
+                    <x-group::rail-forge-row />
+                </template>
+
+                <template x-if="forgeRows.length && (groupFor(@js($group)).sections.length || groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
+                    <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                </template>
+            @endif
 
             {{-- ── Sektionen (P7, `channel-sections`) ──────────────────────────
                  Die benannten Untergliederungen aus Buzz Desktop, in der
@@ -173,7 +257,7 @@
                 </button>
             </template>
 
-            <template x-if="groupFor(@js($group)).total === 0">
+            <template x-if="!({{ $present }})">
                 <p class="px-2 py-1.5 text-[0.7rem] text-muted">{{ __('Kein Treffer in dieser Gruppe.') }}</p>
             </template>
         </div>

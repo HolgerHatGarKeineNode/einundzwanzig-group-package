@@ -843,5 +843,12 @@
     "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "El relay aceptó el cambio, pero no se ha impuesto: rige un cambio de estado más reciente.",
     ":name, angeheftet und stummgeschaltet": ":name, fijado y silenciado",
     ":name, angeheftet": ":name, fijado",
-    ":name, stummgeschaltet": ":name, silenciado"
+    ":name, stummgeschaltet": ":name, silenciado",
+    "Alle Projekte": "Todos los proyectos",
+    "Alle Projekte anzeigen (:count)": "Ver todos los proyectos (:count)",
+    "Bereich :label auf- oder zuklappen": "Expandir o contraer la sección :label",
+    "Eintrag :name auf- oder zuklappen": "Expandir o contraer la entrada :name",
+    "Forge-Übersicht öffnen": "Abrir el resumen de Forge",
+    "Issues des Repositorys öffnen (:count)": "Abrir las incidencias del repositorio (:count)",
+    "Pull Requests des Repositorys öffnen (:count)": "Abrir los pull requests del repositorio (:count)"
 }

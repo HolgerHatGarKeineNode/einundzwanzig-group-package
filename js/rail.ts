@@ -59,10 +59,30 @@ import {
     type RailScope,
     type WorkspacePrefs,
 } from './railGroups'
+import {
+    FORGE_OVERVIEW_HREF,
+    buildForgeNav,
+    flattenForgeNav,
+    groupTargets,
+    railTargets,
+    type ForgeNav,
+    type ForgeNavNode,
+    type ForgeNavProject,
+    type ForgeNavRepo,
+    type RailTarget,
+} from './railForge'
 import { subscribeWorkspacePrefs } from './channelPrefs'
+import { subscribeForgeNav } from './forge'
 import { t } from './i18n'
 
-/** localStorage-Schlüssel des Auf/Zu-Zustands. */
+/**
+ * localStorage-Schlüssel des Auf/Zu-Zustands.
+ *
+ * Seit P1 stehen darin nicht mehr nur die vier Gruppenschlüssel, sondern auch die
+ * Knoten-ids des Forge-Baums (`30617:<owner>:<d>` und `30621:…`). Der Schlüssel
+ * bleibt derselbe: ein alter Eintrag mit nur vier Feldern ist ein gültiger neuer,
+ * und ein Knoten ohne Eintrag ist zu — was Regel 4 ohnehin verlangt.
+ */
 const OPEN_KEY = 'railGroups.open'
 
 /** Default-Zustand: nur „Räume" offen; der Rest kostet sonst die halbe Spalte. */
@@ -91,10 +111,23 @@ export type RailState = {
     scope: RailScope
     focused: boolean
     activeRoomH: string
-    open: Record<RailGroupKey, boolean>
+    /** `naddr` des offenen Repositories (`/forge/{naddr}`), `''` sonst. */
+    activeRepoNaddr: string
+    /** `?tab=` der Repo-Seite: `'issues'`, `'pulls'` oder `''`. */
+    activeRepoTab: string
+    /**
+     * Auf/Zu — Gruppen UND Forge-Knoten in EINEM Objekt, weil beides dieselbe
+     * Frage ist und in denselben localStorage-Eintrag gehört.
+     */
+    open: Record<string, boolean>
     presentations: Record<string, MeetupPresentation>
     /** In Buzz Desktop gesetzte Kanal-Präferenzen (NIP-78) — nur für den Workspace. */
     prefs: WorkspacePrefs
+    /** Repositories des Workspace (30617) — die Wurzeln des Forge-Baums. */
+    forgeRepos: ForgeNavRepo[]
+    /** Projekte des Workspace (30621, NIP-MP). */
+    forgeProjects: ForgeNavProject[]
+    _unsubForge: (() => void) | null
     _unsubView: (() => void) | null
     _unsubActive: (() => void) | null
     _unsubWorkspace: (() => void) | null
@@ -105,6 +138,15 @@ export type RailState = {
     _onKey: ((e: KeyboardEvent) => void) | null
     readonly groups: RailGroup[]
     readonly rooms: RailRoom[]
+    /** Die sichtbare Sprungliste über alle offenen Gruppen — Alt+↑/↓ und Enter. */
+    readonly targets: RailTarget[]
+    /** Der Forge-Baum der Workspace-Sektion (P1). */
+    readonly forgeNav: ForgeNav
+    /** Die sichtbaren Baum-Zeilen, abgeflacht — genau das, was das Markup rendert. */
+    readonly forgeRows: ForgeNavNode[]
+    /** Kennung des aktiven Ziels: `room:<h>` oder eine Forge-Knoten-id. */
+    readonly activeTargetId: string
+    readonly forgeOverviewHref: string
     readonly spaceLabel: string
     readonly workspaceLabel: string
     readonly hasWorkspaceSection: boolean
@@ -113,6 +155,13 @@ export type RailState = {
     groupUnread(key: RailGroupKey): number
     isOpen(key: RailGroupKey): boolean
     toggleGroup(key: RailGroupKey): void
+    /** Ist dieser Baum-Knoten aufgeklappt? Der aktive Pfad IMMER (Regel 4). */
+    isNodeOpen(node: ForgeNavNode): boolean
+    toggleNode(node: ForgeNavNode): void
+    /** Die Zeile anspringen — Raum über `openRoom`, alles andere über die Adresse. */
+    openNode(node: ForgeNavNode): void
+    /** Der gekürzte Zeilentext; der volle Name steht im `title`. */
+    nodeName(node: ForgeNavNode): string
     scopeToGroup(key: RailGroupKey): void
     toggleCountry(iso: string): void
     clearScope(): void
@@ -147,20 +196,64 @@ const roomHFromPath = (pathname: string): string => {
     return m ? decodeURIComponent(m[1]) : ''
 }
 
+/**
+ * Dasselbe für die Repo-Seite: `/forge/{naddr}` plus den Tab aus `?tab=`.
+ *
+ * Der Tab steht in der Query und nicht im Alpine-Zustand der Zielseite, weil die
+ * Rail sonst nicht sagen könnte, welche der beiden Kind-Zeilen gerade offen ist —
+ * und weil eine Zeile „Issues · 3", die auf den Aktivitäts-Tab führt, etwas
+ * anderes zeigt als ihre Beschriftung.
+ */
+const repoFromPath = (pathname: string, search: string): { naddr: string; tab: string } => {
+    const m = /^\/forge\/([^/?#]+)/.exec(pathname)
+    if (!m) {
+        return { naddr: '', tab: '' }
+    }
+    let tab = ''
+    try {
+        tab = new URLSearchParams(search).get('tab') ?? ''
+    } catch {
+        /* kaputte Query → kein Tab. Die Zeile ist dann das Repo selbst. */
+    }
+
+    return { naddr: decodeURIComponent(m[1]), tab }
+}
+
+/** Navigation über Livewire, mit hartem Fallback — an EINER Stelle statt an drei. */
+const navigateTo = (href: string): void => {
+    if (href === '') {
+        return
+    }
+    const w = window as unknown as { Livewire?: { navigate: (target: string) => void } }
+    if (w.Livewire) {
+        w.Livewire.navigate(href)
+    } else {
+        window.location.assign(href)
+    }
+}
+
+const persistOpen = (open: Record<string, boolean>): void => {
+    try {
+        localStorage.setItem(OPEN_KEY, JSON.stringify(open))
+    } catch {
+        /* gesperrter Storage → der Zustand gilt nur für diese Seite. Kein Fehler. */
+    }
+}
+
 /** `SpaceView` → flache Rail-Räume; `joined` kommt aus der Herkunftsliste. */
 const toRailRooms = (view: SpaceView | null): RailRoom[] => [
     ...(view?.userRooms ?? []).map((r: RoomView) => ({ ...r, joined: true })),
     ...(view?.otherRooms ?? []).map((r: RoomView) => ({ ...r, joined: false })),
 ]
 
-const readOpen = (): Record<RailGroupKey, boolean> => {
+const readOpen = (): Record<string, boolean> => {
     try {
         const raw = localStorage.getItem(OPEN_KEY)
         if (!raw) {
             return { ...DEFAULT_OPEN }
         }
 
-        return { ...DEFAULT_OPEN, ...(JSON.parse(raw) as Partial<Record<RailGroupKey, boolean>>) }
+        return { ...DEFAULT_OPEN, ...(JSON.parse(raw) as Record<string, boolean>) }
     } catch {
         return { ...DEFAULT_OPEN } // kaputter/gesperrter Storage → Default, kein Fehler
     }
@@ -187,9 +280,14 @@ export const createRail = (): RailState => ({
     scope: { ...EMPTY_SCOPE },
     focused: false,
     activeRoomH: '',
+    activeRepoNaddr: '',
+    activeRepoTab: '',
     open: { ...DEFAULT_OPEN },
     presentations: {},
     prefs: {},
+    forgeRepos: [],
+    forgeProjects: [],
+    _unsubForge: null,
     _unsubView: null,
     _unsubActive: null,
     _unsubWorkspace: null,
@@ -227,29 +325,110 @@ export const createRail = (): RailState => ({
             scope: self.scope,
             workspaceRooms: toRailRooms(self.workspace),
             workspacePrefs: self.prefs,
+            claimedRoomHs: self.forgeNav.claimed,
         })
+    },
+
+    /**
+     * Der Forge-Baum (P1).
+     *
+     * **Bei aktiver Suche gibt es keinen Baum.** Eine Suche ist eine flache
+     * Trefferliste; eine Hierarchie darüber verbärge Treffer hinter zugeklappten
+     * Knoten, und der Nutzer schlösse aus einer kurzen Liste, dass es nicht mehr
+     * gibt. Aufgelöst heißt hier zugleich: `claimed` ist leer, die Kanäle stehen
+     * flach in ihrer Gruppe und werden ganz normal mitgefiltert — genau der
+     * Zustand von vor dieser Phase. Dieselbe Logik wie „gefiltert wird nie
+     * gekappt" in `buildGroups`.
+     */
+    get forgeNav(): ForgeNav {
+        const self = this as RailState
+
+        const filtering = self.query.trim() !== '' || self.scope.group !== null || self.scope.country !== ''
+        if (filtering) {
+            return { nodes: [], claimed: [], collapsed: false, total: 0 }
+        }
+
+        // Angeheftete Kanäle sind für den Baum NICHT verfügbar: der Pin ist die
+        // ausdrückliche Wahl „steht oben" und schlägt die Repo-Bindung, genau wie
+        // er in `buildGroups` schon die Sektion schlägt.
+        const pinned = new Set(self.prefs.pinned ?? [])
+
+        return buildForgeNav({
+            repos: self.forgeRepos,
+            projects: self.forgeProjects,
+            rooms: toRailRooms(self.workspace).filter((room) => !pinned.has(room.h)),
+            activeRoomH: self.activeRoomH,
+            activeId: self.activeTargetId.startsWith('room:') ? '' : self.activeTargetId,
+        })
+    },
+
+    get forgeRows(): ForgeNavNode[] {
+        const self = this as RailState
+
+        return flattenForgeNav(self.forgeNav.nodes, (node) => self.isNodeOpen(node))
+    },
+
+    /**
+     * Welches Ziel ist gerade offen?
+     *
+     * Ein Raum steht im Pfad (`/rooms/{h}`), ein Repository ebenfalls
+     * (`/forge/{naddr}` plus `?tab=`) — beides wird beim Mount aus der Adresse
+     * gelesen und nicht geführt, weil `wire:navigate` Alpine neu aufbaut, die
+     * Adressleiste aber nicht. Der `naddr` wird hier gegen die geladenen Repos
+     * aufgelöst, weil die Knoten-id die stabile KOORDINATE ist: ein `naddr` trägt
+     * Relay-Hinweise und ist damit nicht kanonisch.
+     */
+    get activeTargetId(): string {
+        const self = this as RailState
+
+        if (self.activeRoomH !== '') {
+            return `room:${self.activeRoomH}`
+        }
+        if (self.activeRepoNaddr === '') {
+            return ''
+        }
+        const repo = self.forgeRepos.find((candidate) => candidate.naddr === self.activeRepoNaddr)
+        if (!repo) {
+            return ''
+        }
+        if (self.activeRepoTab === 'issues' || self.activeRepoTab === 'pulls') {
+            return `${repo.address}#${self.activeRepoTab}`
+        }
+
+        return repo.address
+    },
+
+    get forgeOverviewHref(): string {
+        return FORGE_OVERVIEW_HREF
     },
 
     /**
      * Die SICHTBARE Reihenfolge über alle offenen Gruppen — die Grundlage für
      * Alt+↑/↓ und Enter. Zeilen aus zugeklappten Gruppen gehören nicht dazu:
      * eine Tastatur-Navigation an unsichtbaren Zeilen entlang wäre eine Blackbox.
+     *
+     * Seit P1 sind nicht mehr alle Zeilen Räume: der Forge-Baum bringt Repo-,
+     * Issues- und PR-Zeilen mit, die eine Adresse statt eines `h` tragen. Die
+     * Liste wird deshalb von `railTargets` gebaut — EINER Funktion, die auch
+     * {@link activeGroup} speist. In P3 und P7 lief genau diese Menge schon
+     * zweimal auseinander; eine dritte Berechnung gibt es hier nicht.
+     */
+    get targets(): RailTarget[] {
+        const self = this as RailState
+
+        return railTargets(self.groups, self.forgeRows, (key) => self.isOpen(key))
+    },
+
+    /**
+     * Die sichtbaren RÄUME — die Untermenge von {@link targets}, die einen Raum
+     * trägt. Enter im Suchfeld springt in den ersten davon, und der Leersatz
+     * („Kein Raum passt zu dieser Suche") hängt an ihrer Zahl. Bei aktiver Suche
+     * ist das exakt die Liste von vor P1: dann gibt es keinen Baum.
      */
     get rooms(): RailRoom[] {
         const self = this as RailState
 
-        const out: RailRoom[] = []
-        for (const g of self.groups) {
-            if (self.isOpen(g.key)) {
-                // Reihenfolge wie im Markup: angeheftet, Sektionen, beigetreten,
-                // andere. Alt+↑/↓ muss dieselbe Folge laufen, die das Auge sieht —
-                // in P3 fielen genau hier die angehefteten Zeilen durch, weil das
-                // Markup sie schon zeigte und diese Liste sie noch nicht kannte.
-                out.push(...g.pinned, ...visibleSectionRooms(g), ...g.joined, ...g.others)
-            }
-        }
-
-        return out
+        return self.targets.flatMap((target) => (target.room ? [target.room] : []))
     },
 
     /** Länder der Meetup-Gruppe mit Bestand, das eigene Land zuerst — wie die Bühne. */
@@ -281,7 +460,7 @@ export const createRail = (): RailState => ({
 
     groupFor(key: RailGroupKey): RailGroup {
         return this.groups.find((g) => g.key === key)
-            ?? { key, pinned: [], sections: [], joined: [], others: [], hiddenCount: 0, total: 0, muted: [] }
+            ?? { key, pinned: [], sections: [], claimed: [], joined: [], others: [], hiddenCount: 0, total: 0, muted: [] }
     },
 
     /**
@@ -329,14 +508,20 @@ export const createRail = (): RailState => ({
     },
 
     activeGroup(): RailGroupKey | null {
-        if (this.activeRoomH === '') {
+        const active = this.activeTargetId
+        if (active === '') {
             return null
         }
+        // Gefragt wird über ALLE Zeilen der Gruppe, unabhängig vom Klappzustand
+        // ihrer Knoten: das aktive Element kann in einem zugeklappten Repo liegen,
+        // und genau dann muss die Gruppe darüber aufgehen. Dieselbe Funktion, die
+        // auch `targets` speist — Sektions- UND Baum-Zeilen zählen mit, ein Raum
+        // in einer Sektion oder unter einem Repo ist der aktive Raum wie jeder
+        // andere.
+        const rows = flattenForgeNav(this.forgeNav.nodes, () => true)
         for (const key of RAIL_GROUP_ORDER) {
-            const g = this.groupFor(key)
-            // Sektions-Zeilen zählen mit: ein Raum in einer Sektion ist der aktive
-            // Raum wie jeder andere, und seine Gruppe muss dafür aufklappen.
-            if ([...g.pinned, ...visibleSectionRooms(g), ...g.joined, ...g.others].some((r) => r.h === this.activeRoomH)) {
+            const targets = groupTargets(this.groupFor(key), key === 'workspace' ? rows : [])
+            if (targets.some((target) => target.id === active)) {
                 return key
             }
         }
@@ -345,9 +530,9 @@ export const createRail = (): RailState => ({
     },
 
     isOpen(key: RailGroupKey): boolean {
-        // Die Gruppe des aktiven Raums klappt IMMER auf — sonst beantwortet die
+        // Die Gruppe des aktiven Ziels klappt IMMER auf — sonst beantwortet die
         // Rail „wo bin ich" nicht mehr, ihren ersten Zweck.
-        if (this.activeRoomH !== '' && this.activeGroup() === key) {
+        if (this.activeTargetId !== '' && this.activeGroup() === key) {
             return true
         }
         // Während einer Suche klappt jede Gruppe mit Treffern auf, sonst bliebe das
@@ -361,11 +546,43 @@ export const createRail = (): RailState => ({
 
     toggleGroup(key: RailGroupKey): void {
         this.open = { ...this.open, [key]: !this.open[key] }
-        try {
-            localStorage.setItem(OPEN_KEY, JSON.stringify(this.open))
-        } catch {
-            /* gesperrter Storage → der Zustand gilt nur für diese Seite. Kein Fehler. */
+        persistOpen(this.open)
+    },
+
+    /**
+     * Aufgeklappt? Der Pfad zum aktiven Element IMMER — sonst verschwände unter
+     * dem Nutzer, wo er gerade steht (Regel 4). Alles andere ist beim ersten
+     * Laden zu, weil `open[id]` dann `undefined` ist.
+     */
+    isNodeOpen(node: ForgeNavNode): boolean {
+        return node.onActivePath || this.open[node.id] === true
+    },
+
+    toggleNode(node: ForgeNavNode): void {
+        this.open = { ...this.open, [node.id]: !this.isNodeOpen(node) }
+        persistOpen(this.open)
+    },
+
+    openNode(node: ForgeNavNode): void {
+        if (node.room) {
+            this.openRoom(node.room)
+
+            return
         }
+        if (node.href === '') {
+            // Ein reiner Klappknoten (Projekt, Repo ohne `naddr`): der Klick auf
+            // den Namen klappt, statt ins Leere zu führen.
+            this.toggleNode(node)
+
+            return
+        }
+        navigateTo(node.href)
+    },
+
+    nodeName(node: ForgeNavNode): string {
+        // Enger als in der flachen Liste: drei Ebenen kosten bis zu 16px
+        // Einrückung, die dem Namen fehlen.
+        return middleTruncate(node.label, 30 - node.depth * 2)
     },
 
     scopeToGroup(key: RailGroupKey): void {
@@ -415,7 +632,6 @@ export const createRail = (): RailState => ({
     },
 
     openRoom(room: RailRoom): void {
-        const w = window as unknown as { Livewire?: { navigate: (href: string) => void } }
         const isWorkspaceRoom = this.workspace !== null
             && (this.workspace.userRooms.some((r) => r.h === room.h) || this.workspace.otherRooms.some((r) => r.h === room.h))
 
@@ -432,13 +648,12 @@ export const createRail = (): RailState => ({
 
         const href = isWorkspaceRoom ? workspaceRoomHref(room.h) : `/rooms/${encodeURIComponent(room.h)}`
         // `activeRoomH` sofort mitziehen: `wire:navigate` tauscht den Body erst nach
-        // dem Netz-Roundtrip; ohne das bliebe die alte Zeile markiert.
+        // dem Netz-Roundtrip; ohne das bliebe die alte Zeile markiert. Aus demselben
+        // Grund fällt die Repo-Markierung: gleich steht ein Raum im Pfad.
         this.activeRoomH = room.h
-        if (w.Livewire) {
-            w.Livewire.navigate(href)
-        } else {
-            window.location.assign(href)
-        }
+        this.activeRepoNaddr = ''
+        this.activeRepoTab = ''
+        navigateTo(href)
     },
 
     jumpToFirst(): void {
@@ -449,15 +664,26 @@ export const createRail = (): RailState => ({
         }
     },
 
+    /**
+     * Alt+↑/↓ eine Zeile weiter — über die SICHTBARE Sprungliste, nicht über die
+     * Räume: seit P1 sind Repo-, Issues- und PR-Zeilen ebenso sichtbar und ebenso
+     * anspringbar.
+     */
     step(delta: number): void {
-        const list = this.rooms
+        const list = this.targets
         if (list.length === 0) {
             return
         }
-        const at = list.findIndex((r) => r.h === this.activeRoomH)
+        const active = this.activeTargetId
+        const at = list.findIndex((target) => target.id === active)
         const next = at === -1 ? (delta > 0 ? 0 : list.length - 1) : at + delta
         if (next >= 0 && next < list.length) {
-            this.openRoom(list[next])
+            const target = list[next]
+            if (target.room) {
+                this.openRoom(target.room)
+            } else {
+                navigateTo(target.href)
+            }
         }
     },
 
@@ -505,6 +731,9 @@ export const createRail = (): RailState => ({
 
     init(): void {
         this.activeRoomH = roomHFromPath(window.location.pathname)
+        const repo = repoFromPath(window.location.pathname, window.location.search)
+        this.activeRepoNaddr = repo.naddr
+        this.activeRepoTab = repo.tab
         this.open = readOpen()
 
         // Startwerte synchron, damit die Rail nicht leer aufblitzt: beide sind
@@ -551,6 +780,17 @@ export const createRail = (): RailState => ({
             this._unsubPrefs = subscribeWorkspacePrefs((prefs: WorkspacePrefs) => {
                 this.prefs = prefs
             })
+
+            // ── Forge-Baum (P1) ──────────────────────────────────────────────────
+            // Derselbe Einstieg wie bei den Präferenzen: `subscribeForgeNav`
+            // schaltet den Netzweg beim ersten Abonnenten scharf (idempotent,
+            // modulweit) und gibt den Abmelder zurück. Der Netzweg bleibt über
+            // `wire:navigate` stehen — sonst liefe bei jedem Raumwechsel ein
+            // neuer `load` für einen Bestand, der sich selten ändert.
+            this._unsubForge = subscribeForgeNav((data) => {
+                this.forgeRepos = data.repos
+                this.forgeProjects = data.projects
+            })
         }
 
         // Meetup-Präsentation (Land/Flagge/Stadt) EINMAL laden, fail-soft, und den
@@ -583,6 +823,7 @@ export const createRail = (): RailState => ({
         this._unsubWorkspace?.()
         this._unsubMeetups?.()
         this._unsubPrefs?.()
+        this._unsubForge?.()
         this._controller?.abort()
         this._wsController?.abort()
         // Pflicht: `wire:navigate` baut die Insel bei JEDEM Raumwechsel neu auf. Ein
@@ -595,16 +836,15 @@ export const createRail = (): RailState => ({
     },
 })
 
-/**
- * Die Räume aller Sektionen einer Gruppe, in Anzeige-Reihenfolge — die Zeilen, die
- * `rail-group.blade.php` zwischen Angehefteten und Rest-Block rendert.
- *
- * Eigene Funktion statt zweimal `flatMap` inline: `rooms` (Tastatur) und
- * `activeGroup()` (Aufklappen) MÜSSEN dieselbe Menge sehen. Liefen die beiden
- * auseinander, wäre eine Zeile sichtbar, aber nicht anspringbar — genau der
- * Fehler, den P3 mit den Angehefteten schon einmal hatte.
+/*
+ * Hier stand bis P1 `visibleSectionRooms(group)` — die Räume aller Sektionen
+ * einer Gruppe, damit `rooms` (Tastatur) und `activeGroup()` (Aufklappen)
+ * dieselbe Menge sehen. Diese Aufgabe ist mit dem Forge-Baum gewachsen und
+ * deshalb nach `railForge.ts` gezogen (`groupTargets`/`railTargets`): dort ist
+ * sie ohne Browser prüfbar, und sie deckt jetzt ALLE Zeilenarten ab statt nur die
+ * Sektions-Räume. Der Grund ist unverändert der von P3 und P7 — liefen die beiden
+ * Stellen auseinander, wäre eine Zeile sichtbar, aber nicht anspringbar.
  */
-const visibleSectionRooms = (group: RailGroup): RailRoom[] => group.sections.flatMap((s) => s.rooms)
 
 /** Typ eines Raums für die Ungelesen-Summe — spiegelt `groupOf` aus `railGroups`. */
 const groupKeyOf = (room: RailRoom): RailGroupKey =>

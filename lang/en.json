@@ -843,5 +843,12 @@
     "Das Relay hat den Wechsel angenommen, aber er hat sich nicht durchgesetzt — ein neuerer Statuswechsel gilt.": "The relay accepted the change, but it did not take effect — a newer status change applies.",
     ":name, angeheftet und stummgeschaltet": ":name, pinned and muted",
     ":name, angeheftet": ":name, pinned",
-    ":name, stummgeschaltet": ":name, muted"
+    ":name, stummgeschaltet": ":name, muted",
+    "Alle Projekte": "All projects",
+    "Alle Projekte anzeigen (:count)": "Show all projects (:count)",
+    "Bereich :label auf- oder zuklappen": "Expand or collapse the :label section",
+    "Eintrag :name auf- oder zuklappen": "Expand or collapse the entry :name",
+    "Forge-Übersicht öffnen": "Open the Forge overview",
+    "Issues des Repositorys öffnen (:count)": "Open the repository's issues (:count)",
+    "Pull Requests des Repositorys öffnen (:count)": "Open the repository's pull requests (:count)"
 }
