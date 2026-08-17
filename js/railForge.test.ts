@@ -9,10 +9,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
     FORGE_OVERVIEW_HREF,
+    OPEN_BY_DEFAULT,
     PROJECT_FOLD_THRESHOLD,
     buildForgeNav,
     flattenForgeNav,
     groupTargets,
+    isForgeNodeOpen,
     railTargets,
     repoHref,
     type ForgeNavNode,
@@ -44,12 +46,30 @@ const project = (over: Partial<ForgeNavProject> & { name: string }): ForgeNavPro
     ...over,
 })
 
-/** Die sichtbare Zeilenfolge bei „alles zu, außer dem aktiven Pfad" (Regel 4). */
+/**
+ * Die sichtbare Zeilenfolge BEIM ERSTEN LADEN — leerer Speicher, also entscheidet
+ * für jeden Knoten die Sorte (`isForgeNodeOpen(node, undefined)`).
+ *
+ * Seit P2 heißt das: Projekt- und Repo-Zeilen stehen offen, alles andere fällt
+ * auf den aktiven Pfad zurück. Die Testfälle unten nutzen deshalb GENAU die
+ * Funktion, die auch `rail.ts` benutzt — ein nachgebautes Prädikat wäre eine
+ * zweite Wahrheit über dieselbe Frage.
+ */
 const visibleRows = (nodes: ForgeNavNode[]): ForgeNavNode[] =>
-    flattenForgeNav(nodes, (candidate) => candidate.onActivePath)
+    flattenForgeNav(nodes, (candidate) => isForgeNodeOpen(candidate, undefined))
 
 /** Die sichtbare Zeilenfolge bei „alles auf". */
 const allRows = (nodes: ForgeNavNode[]): ForgeNavNode[] => flattenForgeNav(nodes, () => true)
+
+/**
+ * Die Zeilenfolge, wenn der Nutzer JEDEN Knoten ausdrücklich zugeklappt hat.
+ *
+ * Seit P2 ist das ein GEWÄHLTER Zustand und nicht mehr der Anfangszustand —
+ * deshalb steht er hier als eigener Helfer und nicht als Nebenwirkung von
+ * `visibleRows`.
+ */
+const collapsedRows = (nodes: ForgeNavNode[]): ForgeNavNode[] =>
+    flattenForgeNav(nodes, (candidate) => isForgeNodeOpen(candidate, false))
 
 const shape = (rows: ForgeNavNode[]): string[] =>
     rows.map((r) => `${'  '.repeat(r.depth)}${r.kind}${r.label ? ':' + r.label : ''}${r.count ? ' · ' + r.count : ''}`)
@@ -92,7 +112,8 @@ const vereinRooms = [
 test('B: ein Repo, zugeklappt — genau EINE Zeile, der Kanal fällt aus der flachen Liste', () => {
     const nav = buildForgeNav({ repos: [vereinRepo], projects: [], rooms: vereinRooms })
 
-    assert.deepEqual(shape(visibleRows(nav.nodes)), ['repo:einundzwanzig-verein'])
+    // Zugeklappt ist seit P2 eine WAHL, kein Anfangszustand (`collapsedRows`).
+    assert.deepEqual(shape(collapsedRows(nav.nodes)), ['repo:einundzwanzig-verein'])
     assert.deepEqual(nav.claimed, ['576d38b2-9372-418e-93ec-134ca508722c'])
     assert.equal(nav.nodes[0].href, repoHref('naddr1einundzwanzig-verein'))
 })
@@ -124,7 +145,7 @@ test('B: ein Projekt mit GENAU EINEM Repo wird zu einer Zeile (Regel 2)', () => 
         rooms: vereinRooms,
     })
 
-    assert.deepEqual(shape(visibleRows(nav.nodes)), ['repo:einundzwanzig-verein'])
+    assert.deepEqual(shape(collapsedRows(nav.nodes)), ['repo:einundzwanzig-verein'])
     assert.equal(nav.nodes[0].kind, 'repo', 'keine Projektebene über einem einzigen Repo')
 })
 
@@ -301,18 +322,61 @@ test('nur PRs, keine Issues — die Null erzeugt trotzdem keine Zeile', () => {
     assert.deepEqual(shape(allRows(nav.nodes)), ['repo:nurpr', '  pulls · 4'])
 })
 
-test('Regel 4: beim ersten Laden ist alles zu — außer dem Pfad zum aktiven Element', () => {
+test('korrigierte Regel 4: beim ersten Laden stehen die Repo-Zeilen OFFEN', () => {
     const withChannel = repo({ name: 'mit', channelId: 'c-1', issueCount: 1 })
     const other = repo({ name: 'ohne' })
     const rooms = [room({ h: 'c-1', name: '0V_mit' })]
 
+    // Der Kern von P2: ohne einen Klick und ohne aktives Element sieht der Nutzer
+    // sein Repo MIT Inhalt. Vor P2 stand hier ['repo:mit', 'repo:ohne'] — die
+    // Fläche zeigte den Bestand erst nach zwei Klicks.
     const idle = buildForgeNav({ repos: [withChannel, other], projects: [], rooms })
-    assert.deepEqual(shape(visibleRows(idle.nodes)), ['repo:mit', 'repo:ohne'])
+    assert.deepEqual(shape(visibleRows(idle.nodes)), ['repo:mit', '  room:0V_mit', '  issues · 1', 'repo:ohne'])
 
-    // Aufgeklappt wird der KNOTEN, nicht die einzelne Zeile: der aktive Kanal
-    // öffnet sein Repo, und damit stehen alle Kinder des Repos da.
+    // Und der aktive Pfad ändert daran nichts mehr — er ist jetzt der Sonderfall
+    // für Knoten, deren Sorte NICHT offen startet.
     const open = buildForgeNav({ repos: [withChannel, other], projects: [], rooms, activeRoomH: 'c-1' })
     assert.deepEqual(shape(visibleRows(open.nodes)), ['repo:mit', '  room:0V_mit', '  issues · 1', 'repo:ohne'])
+})
+
+test('isForgeNodeOpen: die Sorte entscheidet, solange der Nutzer nichts gesagt hat', () => {
+    const nav = buildForgeNav({
+        repos: [repo({ name: 'a', address: `30617:${OWNER}:a`, channelId: 'c', issueCount: 2 })],
+        projects: [],
+        rooms: [room({ h: 'c' })],
+    })
+    const byKind = new Map(allRows(nav.nodes).map((n) => [n.kind, n]))
+
+    assert.deepEqual([...OPEN_BY_DEFAULT], ['project', 'repo'])
+    assert.equal(isForgeNodeOpen(byKind.get('repo')!, undefined), true)
+    // Blätter: heute unbeobachtbar (kein Chevron ohne Kinder), aber die Aussage
+    // muss stimmen, bevor P2 eine Kind-Ebene unter den Kanal hängt.
+    assert.equal(isForgeNodeOpen(byKind.get('room')!, undefined), false)
+    assert.equal(isForgeNodeOpen(byKind.get('issues')!, undefined), false)
+})
+
+test('eine BEWUSST zugeklappte Zeile bleibt zu — der Default gilt nur ohne Eintrag', () => {
+    const a = repo({ name: 'a', address: `30617:${OWNER}:a`, issueCount: 1 })
+    const b = repo({ name: 'b', address: `30617:${OWNER}:b`, issueCount: 2 })
+    const nav = buildForgeNav({ repos: [a, b], projects: [], rooms: [] })
+
+    // Genau die drei Zustände, die `rail.ts` aus `localStorage` liest:
+    // `false` = zugeklappt, `true` = aufgeklappt, kein Eintrag = Default.
+    const stored: Record<string, boolean> = { [a.address]: false }
+    const rows = flattenForgeNav(nav.nodes, (n) =>
+        isForgeNodeOpen(n, Object.hasOwn(stored, n.id) ? stored[n.id] : undefined))
+
+    assert.deepEqual(shape(rows), ['repo:a', 'repo:b', '  issues · 2'],
+        'die Wahl „zu" darf nicht vom Sorten-Default überschrieben werden')
+})
+
+test('der aktive Pfad schlägt auch eine gespeicherte „zu"-Wahl', () => {
+    const a = repo({ name: 'a', address: `30617:${OWNER}:a`, issueCount: 1 })
+    const nav = buildForgeNav({ repos: [a], projects: [], rooms: [], activeId: `${a.address}#issues` })
+
+    // Sonst verschwände unter dem Nutzer, wo er gerade steht — dieselbe Zusage,
+    // die `isOpen()` für die Gruppe darüber gibt.
+    assert.equal(isForgeNodeOpen(nav.nodes[0], false), true)
 })
 
 test('der aktive Pfad markiert auch die Projektebene darüber', () => {
@@ -397,7 +461,7 @@ test('Alt+↑/↓ erreicht JEDE sichtbare Zeile — Repo, Kanal, Issues und Pull
 test('die Sprungliste ist EXAKT die gerenderte Liste — zugeklappt fehlen die Kinder', () => {
     const nav = buildForgeNav({ repos: [vereinRepo], projects: [], rooms: vereinRooms })
     const workspace = railGroup({ key: 'workspace', joined: [vereinRooms[1]] })
-    const rows = visibleRows(nav.nodes) // Regel 4: alles zu
+    const rows = collapsedRows(nav.nodes) // ausdrücklich zugeklappt
 
     assert.deepEqual(railTargets([workspace], rows, () => true).map((t) => t.id), [
         `30617:${OWNER}:einundzwanzig-verein`,

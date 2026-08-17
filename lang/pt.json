@@ -869,5 +869,6 @@
     "Eintrag :name auf- oder zuklappen": "Expandir ou recolher a entrada :name",
     "Forge-Übersicht öffnen": "Abrir a visão geral do Forge",
     "Issues des Repositorys öffnen (:count)": "Abrir os issues do repositório (:count)",
-    "Pull Requests des Repositorys öffnen (:count)": "Abrir os pull requests do repositório (:count)"
+    "Pull Requests des Repositorys öffnen (:count)": "Abrir os pull requests do repositório (:count)",
+    "Workspace auf :wert": "Workspace em :wert"
 }

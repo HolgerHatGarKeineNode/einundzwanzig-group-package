@@ -40,7 +40,7 @@ test('groupOf: Antrag schlägt Meetup — „Antrag" ist die speziellere Aussage
 })
 
 test('Gruppenreihenfolge ist Vertrag, nicht Zufall', () => {
-    assert.deepEqual([...RAIL_GROUP_ORDER], ['rooms', 'meetups', 'proposals', 'workspace'])
+    assert.deepEqual([...RAIL_GROUP_ORDER], ['rooms', 'workspace', 'meetups', 'proposals'])
     assert.deepEqual(buildGroups([]).map((g) => g.key), [...RAIL_GROUP_ORDER])
 })
 

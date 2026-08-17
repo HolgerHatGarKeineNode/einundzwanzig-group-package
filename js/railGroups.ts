@@ -41,7 +41,23 @@ export type RailPresentation = {
 /** Die vier Gruppen. Reihenfolge ist Teil des Vertrags, nicht Zufall. */
 export type RailGroupKey = 'rooms' | 'meetups' | 'proposals' | 'workspace'
 
-export const RAIL_GROUP_ORDER: readonly RailGroupKey[] = ['rooms', 'meetups', 'proposals', 'workspace']
+/**
+ * Die Anzeige-Reihenfolge. Sie ist ZWEIMAL wirksam und muss es genau EINMAL
+ * geben: `buildGroups` liefert die Gruppen in dieser Folge (→ Markup, über die
+ * Blockfolge in `desktop-rail.blade.php`) und `railTargets` durchläuft sie in
+ * dieser Folge (→ Alt+↑/↓). Wer nur eine der beiden Stellen ändert, baut die
+ * zweite, konkurrierende Ordnung, vor der P1 warnt: das Auge sieht eine Folge,
+ * die Tastatur läuft eine andere.
+ *
+ * **Warum der Workspace seit P2 an zweiter Stelle steht.** RÄUME beantwortet
+ * „wo bin ich", der WORKSPACE „woran arbeite ich" — beides sind Arbeitsorte.
+ * MEETUPS und PROJEKTUNTERSTÜTZUNG sind Verzeichnisse zum Stöbern; MEETUPS
+ * allein bringt in Produktion 92 Zeilen mit. Auf Platz vier stand der
+ * Workspace-Kopf gemessen bei y = 644 von 900 px, und ein aufgeklapptes MEETUPS
+ * schob ihn rund 2900 px nach unten — die wichtigste Sektion der Spalte lag
+ * damit hinter dem längsten Verzeichnis.
+ */
+export const RAIL_GROUP_ORDER: readonly RailGroupKey[] = ['rooms', 'workspace', 'meetups', 'proposals']
 
 /**
  * Kürzel, die den Scope adressierbar machen. Es ist genau die Zeichenfolge, die

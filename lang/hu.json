@@ -850,5 +850,6 @@
     "Eintrag :name auf- oder zuklappen": "A(z) :name bejegyzés kinyitása vagy összecsukása",
     "Forge-Übersicht öffnen": "A Forge áttekintés megnyitása",
     "Issues des Repositorys öffnen (:count)": "A repository hibajegyeinek megnyitása (:count)",
-    "Pull Requests des Repositorys öffnen (:count)": "A repository pull requestjeinek megnyitása (:count)"
+    "Pull Requests des Repositorys öffnen (:count)": "A repository pull requestjeinek megnyitása (:count)",
+    "Workspace auf :wert": "Workspace itt: :wert"
 }

@@ -888,5 +888,6 @@
     "Eintrag :name auf- oder zuklappen": "Izvērst vai sakļaut ierakstu :name",
     "Forge-Übersicht öffnen": "Atvērt Forge pārskatu",
     "Issues des Repositorys öffnen (:count)": "Atvērt repozitorija pieteikumus (:count)",
-    "Pull Requests des Repositorys öffnen (:count)": "Atvērt repozitorija pull request pieprasījumus (:count)"
+    "Pull Requests des Repositorys öffnen (:count)": "Atvērt repozitorija pull request pieprasījumus (:count)",
+    "Workspace auf :wert": "Workspace vietnē :wert"
 }

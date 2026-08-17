@@ -383,6 +383,53 @@ export const buildForgeNav = (input: ForgeNavInput): ForgeNav => {
 }
 
 /**
+ * Die Sorten, die BEIM ERSTEN LADEN offen stehen (P2, korrigierte Regel 4).
+ *
+ * P1 ließ jeden Knoten ohne Eintrag zu. Das war ein Fehler in der Vorgabe, nicht
+ * in der Umsetzung: Regel 4 („beim ersten Laden ist alles zu") war für die
+ * EBENEN im Baum gedacht und hat die Sektion mit erfasst — Ergebnis war eine
+ * Fläche, deren Kern (die Repos) man erst nach zwei Klicks sah.
+ *
+ * Offen sind die BEHÄLTER (`project`, `repo`) — sie tragen den Bestand, um den
+ * es geht. Zu bleiben die MERKMALE (`issues`, `pulls`) und die Blätter (`room`,
+ * `more`): sie haben heute gar keine Kinder, der Wert ist für sie also
+ * unbeobachtbar. Er steht trotzdem hier und nicht als `true` für alles, weil
+ * P2 (Foren) eine Kind-Ebene unter einem Kanal bringt — dann ist die Aussage
+ * „nur Behälter starten offen" die, die gemeint war.
+ */
+export const OPEN_BY_DEFAULT: readonly ForgeNavKind[] = ['project', 'repo']
+
+/**
+ * Ist dieser Knoten aufgeklappt?
+ *
+ * Drei Quellen, in dieser Reihenfolge — und die Reihenfolge IST die Regel:
+ *
+ * 1. **Der aktive Pfad zwingt auf.** Sonst verschwände unter dem Nutzer, wo er
+ *    gerade steht (Regel 4, zweite Hälfte).
+ * 2. **Die Wahl des Nutzers schlägt den Default** — auch, wenn sie „zu" lautet.
+ *    Genau dafür wird zwischen „kein Eintrag" (`undefined`) und „ausdrücklich
+ *    zugeklappt" (`false`) unterschieden: ein Default, den man nicht
+ *    wegklicken kann, ist keiner, sondern ein Zwang. Der Aufrufer liest den
+ *    Wert deshalb über `Object.hasOwn` aus seinem Speicher und nicht über
+ *    `?? undefined` — ein gespeichertes `false` und ein fehlender Eintrag sind
+ *    zwei verschiedene Aussagen.
+ * 3. **Sonst die Sorte** ({@link OPEN_BY_DEFAULT}).
+ *
+ * Rein und injiziert wie {@link flattenForgeNav}: der Klappzustand lebt in
+ * `localStorage` und ist damit unrein — die Regel darüber ist es nicht.
+ */
+export const isForgeNodeOpen = (node: ForgeNavNode, stored: boolean | undefined): boolean => {
+    if (node.onActivePath) {
+        return true
+    }
+    if (stored !== undefined) {
+        return stored
+    }
+
+    return OPEN_BY_DEFAULT.includes(node.kind)
+}
+
+/**
  * Die SICHTBARE Zeilenfolge — der Baum, abgeflacht entlang der offenen Knoten.
  *
  * **Diese eine Liste speist alles**: das `x-for` im Markup, Alt+↑/↓ und die Frage,

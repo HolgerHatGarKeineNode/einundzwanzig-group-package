@@ -64,6 +64,7 @@ import {
     buildForgeNav,
     flattenForgeNav,
     groupTargets,
+    isForgeNodeOpen,
     railTargets,
     type ForgeNav,
     type ForgeNavNode,
@@ -85,12 +86,30 @@ import { t } from './i18n'
  */
 const OPEN_KEY = 'railGroups.open'
 
-/** Default-Zustand: nur „Räume" offen; der Rest kostet sonst die halbe Spalte. */
+/**
+ * Stand der einmaligen Umstellungen an {@link OPEN_KEY}. Eigener Schlüssel und
+ * kein Feld im Objekt daneben: das ist ein `Record<string, boolean>`, in dem
+ * jeder Fremdkörper als Knoten-id durchginge.
+ */
+const OPEN_MIGRATION_KEY = 'railGroups.openMigration'
+const OPEN_MIGRATION = '2'
+
+/**
+ * Default-Zustand: „Räume" (wo bin ich) und „Workspace" (woran arbeite ich)
+ * offen, die beiden Verzeichnisse zu.
+ *
+ * **Warum der Workspace seit P2 offen ist.** Er ist nicht die vierte Gruppe
+ * unter Gleichen, sondern die Fläche, für die diese Rail gebaut wurde: Repos,
+ * Projekte und ihre Kanäle. Zugeklappt zeigte die Spalte davon NICHTS — der
+ * Nutzer sah beim Öffnen der App drei Verzeichnisse und musste seinen eigenen
+ * Arbeitsort erst suchen. MEETUPS und PROJEKTUNTERSTÜTZUNG bleiben zu: sie sind
+ * Verzeichnisse zum Stöbern (92 Meetup-Zeilen in Produktion), keine Arbeitsorte.
+ */
 const DEFAULT_OPEN: Record<RailGroupKey, boolean> = {
     rooms: true,
     meetups: false,
     proposals: false,
-    workspace: false,
+    workspace: true,
 }
 
 /** Beschriftungen der vier Gruppen — geteilt zwischen Chip und Gruppenkopf. */
@@ -152,6 +171,8 @@ export type RailState = {
     readonly hasWorkspaceSection: boolean
     readonly countryOptions: CountryOption[]
     groupFor(key: RailGroupKey): RailGroup
+    /** Bestand am Gruppenkopf — im Workspace inklusive der Repos/Projekte. */
+    groupTotal(key: RailGroupKey): number
     groupUnread(key: RailGroupKey): number
     isOpen(key: RailGroupKey): boolean
     toggleGroup(key: RailGroupKey): void
@@ -249,11 +270,29 @@ const toRailRooms = (view: SpaceView | null): RailRoom[] => [
 const readOpen = (): Record<string, boolean> => {
     try {
         const raw = localStorage.getItem(OPEN_KEY)
-        if (!raw) {
-            return { ...DEFAULT_OPEN }
+        const stored = raw ? (JSON.parse(raw) as Record<string, boolean>) : {}
+
+        // ── Einmalige Umstellung: der Workspace-Default hat sich gedreht ──────
+        // `persistOpen` schreibt IMMER alle vier Gruppenschlüssel — auch die, die
+        // der Nutzer nie angefasst hat. Wer je irgendeine Gruppe geklappt hat,
+        // trägt deshalb ein `workspace: false` im Speicher, das keine Entscheidung
+        // ist, sondern eine Kopie des ALTEN Defaults. Ohne diese Zeilen erreichte
+        // die Umstellung genau die Nutzer nicht, für die sie gebaut ist: die mit
+        // Vorgeschichte. Einmal, nur dieser eine Schlüssel — jede bewusste
+        // Klappwahl an Gruppen und Knoten bleibt erhalten.
+        //
+        // Der Merker wird AUCH bei leerem Speicher gesetzt, und das ist keine
+        // Kosmetik: sonst liefe die Umstellung erst beim ersten Klick eines neuen
+        // Nutzers — und träfe dann genau die Wahl, die er gerade getroffen hat.
+        if (localStorage.getItem(OPEN_MIGRATION_KEY) !== OPEN_MIGRATION) {
+            delete stored.workspace
+            if (raw) {
+                localStorage.setItem(OPEN_KEY, JSON.stringify(stored))
+            }
+            localStorage.setItem(OPEN_MIGRATION_KEY, OPEN_MIGRATION)
         }
 
-        return { ...DEFAULT_OPEN, ...(JSON.parse(raw) as Record<string, boolean>) }
+        return { ...DEFAULT_OPEN, ...stored }
     } catch {
         return { ...DEFAULT_OPEN } // kaputter/gesperrter Storage → Default, kein Fehler
     }
@@ -464,6 +503,30 @@ export const createRail = (): RailState => ({
     },
 
     /**
+     * Die Zahl am Gruppenkopf — der Bestand der Sektion, ungekappt.
+     *
+     * **Warum das nicht `groupFor(key).total` ist.** `buildGroups` zählt RÄUME;
+     * ein Repository ist keiner. Im Workspace bezifferte der Kopf damit
+     * ausgerechnet das nicht, worum es in dieser Sektion geht: bei einem Repo
+     * und zwei Kanälen stand dort `2`, und das eine Ding, das der Nutzer sucht,
+     * war in keiner Zahl enthalten.
+     *
+     * **Gezählt werden die Top-Level-Einträge des Baums** (`forgeNav.total`,
+     * also VOR der Faltung), nicht jede Baumzeile. Zwei Gründe: die Kanäle unter
+     * einem Repo stecken bereits in `total` — sie sind sichtbar, nur an anderer
+     * Stelle, und das war schon vor dieser Phase so. Und „Issues · 3" ist kein
+     * Eintrag der Sektion, sondern ein MERKMAL der Zeile darüber (dieselbe
+     * Unterscheidung, die `rail-forge-row.blade.php` in drei Registern trifft) —
+     * mitgezählt bezifferte der Kopf eine Menge, die niemand nachzählen kann.
+     * `total` statt `nodes.length` bewusst: gefaltet stünde sonst die Zahl der
+     * gerade sichtbaren Zeilen dort, und die Zahl am Kopf sagt „was da ist",
+     * nicht „was gerade zu sehen ist".
+     */
+    groupTotal(key: RailGroupKey): number {
+        return this.groupFor(key).total + (key === 'workspace' ? this.forgeNav.total : 0)
+    },
+
+    /**
      * Ungelesen-Summe einer Gruppe — erscheint NUR am zugeklappten Kopf. Ist die
      * Gruppe offen, tragen die Zeilen die Pillen. Ein Zähler, ein Ort.
      * Gerechnet über den ungekappten Bestand: eine Summe, die die Kappung mitmacht,
@@ -550,12 +613,18 @@ export const createRail = (): RailState => ({
     },
 
     /**
-     * Aufgeklappt? Der Pfad zum aktiven Element IMMER — sonst verschwände unter
-     * dem Nutzer, wo er gerade steht (Regel 4). Alles andere ist beim ersten
-     * Laden zu, weil `open[id]` dann `undefined` ist.
+     * Aufgeklappt? Die Regel steht rein und getestet in `railForge.ts`
+     * ({@link isForgeNodeOpen}); hier wird nur der Speicher gelesen.
+     *
+     * **`Object.hasOwn` und nicht `?? undefined`.** Ein ausdrücklich zugeklappter
+     * Knoten steht als `false` im Speicher, ein nie angefasster gar nicht — und
+     * genau diese beiden Fälle muss die Regel unterscheiden können, seit Projekt-
+     * und Repo-Zeilen einen Default „offen" haben. Ein `this.open[node.id] ===
+     * true` (P1) warf beides zusammen: die Wahl „zu" wäre vom Default
+     * überschrieben worden und die Zeile ließe sich nicht mehr zuklappen.
      */
     isNodeOpen(node: ForgeNavNode): boolean {
-        return node.onActivePath || this.open[node.id] === true
+        return isForgeNodeOpen(node, Object.hasOwn(this.open, node.id) ? this.open[node.id] : undefined)
     },
 
     toggleNode(node: ForgeNavNode): void {
