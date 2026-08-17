@@ -32,13 +32,13 @@
  *    ankamen ({@link ForgeOverview.truncated}) — eine stillschweigend gekürzte
  *    Liste ist eine falsche Aussage über den Bestand.
  */
-import { deriveRelay, displayProfileByPubkey, profilesByPubkey, pubkey } from '@welshman/app'
+import { deriveRelay, displayProfileByPubkey, profilesByPubkey, pubkey, repository, tracker } from '@welshman/app'
 import { load, request } from '@welshman/net'
 import { throttled } from '@welshman/store'
 import type { Filter, TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import { derived, readable, writable, type Readable } from 'svelte/store'
-import { proxifyImage } from './core'
+import { proxifyImage, storageReady } from './core'
 import { t } from './i18n'
 import { toast } from './toast'
 import { formatTimestamp } from './locale'
@@ -539,6 +539,95 @@ export const deriveForgeNav = (): Readable<{ repos: ForgeNavRepo[]; projects: Fo
 }
 
 /**
+ * Auf den Kaltstart-Cache warten, BEVOR die erste Netz-Runde losläuft (P10).
+ *
+ * Nicht Kosmetik, sondern eine Reihenfolge-Zusage: `repository.load()` und
+ * `tracker.load()` sind **destruktiv** (welshman leert die Indizes und lädt neu).
+ * Käme eine Relay-Antwort dazwischen, würfe der Cache-Load sie wieder weg — genau
+ * dieselbe Falle, die `bridge.ts` beim Raum-`setup()` mit demselben `storageReady`
+ * schon abfängt (M3 P1). Zusätzlich malt die Fläche so aus dem Cache, bevor das
+ * Netz überhaupt antwortet, statt beides um dieselbe Millisekunde rennen zu lassen.
+ *
+ * `storageReady` rejectet nie (fail-soft) und ist beim Gast sofort aufgelöst.
+ */
+const forgeCacheReady = (): Promise<void> => storageReady
+
+/**
+ * **`load()` schweigt über alles, was der `tracker` schon kennt.**
+ *
+ * `request` verwirft ein Ereignis, dessen Id der `tracker` bereits führt, als
+ * Dublette (`@welshman/net/…/request.js:35-37`: `if (tracker.track(id, url))` →
+ * `onDuplicate`, kein `events.push`), und der Sammel-Loader `load` reicht
+ * `onDuplicate` **nicht** an den Aufrufer durch (`request.js:203-218` leitet nur
+ * `onEvent`/`onEose`/`onDisconnect`/`onClose` weiter). Mit einem warmen
+ * Kaltstart-Cache kennt der `tracker` den Bestand schon beim Boot — der
+ * Rückgabewert von `load` ist dann **leer**, obwohl der Relay alles geliefert hat.
+ *
+ * Für diese Datei ist das folgenreich, denn die zweite Laderunde leitet ihre
+ * `#a`-Adressen aus der ersten ab. Gemessen (P10, Teststack): nach einem Reload
+ * mit warmem Cache stieg `loadForge` bei „`addresses.length === 0`" aus —
+ * **Issues, Kommentare und Statuswechsel wurden gar nicht mehr geladen**, und
+ * niemand hätte es gesehen, weil der Cache die Fläche trotzdem füllte.
+ *
+ * Die Adressen kommen deshalb aus der Vereinigung von *frisch geliefert* und
+ * *liegt lokal vor* — Letzteres über den `tracker` auf den Workspace gescopet,
+ * wie jede Ableitung dieser Datei. `repository.query` lässt Gelöschtes weg, ein
+ * per Grabstein entferntes Repo taucht hier also nicht wieder auf.
+ */
+const localForgeEvents = (filters: Filter[]): TrustedEvent[] =>
+    repository
+        .query(filters.map(({ limit, ...rest }) => rest))
+        .filter((event: TrustedEvent) => tracker.hasRelay(event.id, WORKSPACE_URL))
+
+/**
+ * Ids, deren Grabstein schon einmal angefragt wurde. Modulweit und damit einmal je
+ * Seitenaufbau — `wire:navigate` behält den JS-Kontext, ein Routenwechsel stellt
+ * die Frage also nicht erneut.
+ */
+const tombstoneAsked = new Set<string>()
+
+/**
+ * **Der Grabstein eines Issues ist über `#a` nicht zu finden** — und genau das
+ * macht den Kaltstart-Cache (P10) gefährlich.
+ *
+ * Am Teststack gemessen (2026-08-17): ein `kind 5` mit `["e", <issue-id>]` löscht
+ * das Issue am Relay **hart** — es kommt aus keiner Abfrage mehr zurück. Der
+ * Grabstein selbst bleibt lesbar, aber **nur** über `#e`: er trägt kein `a`-Tag,
+ * {@link tombstoneFilters} findet ihn also nie. Solange nichts gecacht wurde, fiel
+ * das nicht auf — was der Relay nicht liefert, zeigt die Fläche nicht. Mit Cache
+ * kehrt sich das um: das Issue kommt aus der IndexedDB, der Grabstein aus keiner
+ * Quelle, und das Gelöschte stünde bei **jedem** Seitenaufbau wieder da — nicht
+ * als Aufblitzen wie beim 9008-Fall, sondern dauerhaft.
+ *
+ * Gefragt wird deshalb nach den Grabsteinen genau dessen, was **lokal vorliegt**:
+ * einmal je Id und Seitenaufbau, in Blöcken zu {@link TOMBSTONE_CHUNK}, als
+ * zusätzliche Filter derselben Laderunde (kein eigener Roundtrip). Ohne Cache ist
+ * die Liste leer und es geht kein einziger zusätzlicher Filter raus. Den Rest
+ * erledigt welshman: `repository` schließt das Ziel eines kind 5 aus jeder
+ * `query()` aus, und `storage.ts` persistiert den Grabstein (kind 5 steht seit
+ * jeher in `PERSIST_KINDS`) — der nächste Kaltstart ist schon sauber.
+ *
+ * *Warum nicht „was der Relay nicht mitgeschickt hat"?* Weil `load` genau das
+ * nicht verrät: gecachter Bestand kommt als Dublette gar nicht erst beim Aufrufer
+ * an (siehe {@link localForgeEvents}). Ein Vergleich „lokal minus geliefert"
+ * hielte deshalb **jedes** gecachte Ereignis für verschwunden.
+ */
+const tombstoneFiltersForCached = (content: Filter[]): Filter[] => {
+    const ids = localForgeEvents(content)
+        .map((event: TrustedEvent) => event.id)
+        .filter((id: string) => !tombstoneAsked.has(id))
+    const filters: Filter[] = []
+    for (let i = 0; i < ids.length; i += TOMBSTONE_CHUNK) {
+        filters.push({ kinds: [DELETION], '#e': ids.slice(i, i + TOMBSTONE_CHUNK) })
+    }
+    for (const id of ids) {
+        tombstoneAsked.add(id)
+    }
+
+    return filters
+}
+
+/**
  * Bestand für die Rail laden — **dieselben Filter wie die Übersicht, weniger
  * davon**: keine Branch-Zustände (die Rail zeigt keine Branches), keine
  * PR-Updates, keine Statuswechsel, keine Kommentare, kein Markdown-Renderer und
@@ -551,27 +640,28 @@ const loadForgeNav = async (signal?: AbortSignal): Promise<void> => {
     if (!WORKSPACE_URL) {
         return
     }
-    const base = await load({
-        relays: [WORKSPACE_URL],
-        filters: [
-            { kinds: [REPO_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
-            { kinds: [PROJECT_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
-        ],
-        signal,
-    })
+    await forgeCacheReady()
+    const overview: Filter[] = [
+        { kinds: [REPO_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
+        { kinds: [PROJECT_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
+    ]
+    const base = await load({ relays: [WORKSPACE_URL], filters: overview, signal })
 
-    const addresses = repoAddressesOf(base)
+    const addresses = repoAddressesOf([...base, ...localForgeEvents(overview)])
     if (addresses.length === 0 || signal?.aborted) {
         return
     }
 
+    // Auch die Rail zählt Issues und PRs — ein gecachtes, am Relay längst
+    // gelöschtes Issue bliebe hier sonst dauerhaft in der Zahl stehen, selbst
+    // wenn niemand die Forge-Seite öffnet. Siehe tombstoneFiltersForCached.
+    const roots: Filter[] = [
+        { kinds: [GIT_ISSUE], '#a': addresses, limit: FORGE_ROOT_LIMIT },
+        { kinds: [GIT_PULL_REQUEST], '#a': addresses, limit: FORGE_ROOT_LIMIT },
+    ]
     await load({
         relays: [WORKSPACE_URL],
-        filters: [
-            { kinds: [GIT_ISSUE], '#a': addresses, limit: FORGE_ROOT_LIMIT },
-            { kinds: [GIT_PULL_REQUEST], '#a': addresses, limit: FORGE_ROOT_LIMIT },
-            ...tombstoneFilters(addresses),
-        ],
+        filters: [...roots, ...tombstoneFilters(addresses), ...tombstoneFiltersForCached(roots)],
         signal,
     })
 }
@@ -847,11 +937,13 @@ export const loadForge = async (relaySelf: string, signal?: AbortSignal): Promis
     await ensureRenderer().catch(() => {
         // Ohne Renderer bleibt der Text roh — die Liste selbst trägt trotzdem.
     })
+    await forgeCacheReady()
 
     let complete = false
+    const overview = overviewFilters(relaySelf)
     const base = await load({
         relays: [WORKSPACE_URL],
-        filters: overviewFilters(relaySelf),
+        filters: overview,
         signal,
         onEose: () => {
             complete = true
@@ -859,19 +951,21 @@ export const loadForge = async (relaySelf: string, signal?: AbortSignal): Promis
     })
     warm(base)
 
-    const addresses = repoAddressesOf(base)
+    const local = localForgeEvents(overview)
+    const addresses = repoAddressesOf([...base, ...local])
     if (addresses.length === 0 || signal?.aborted) {
-        return { complete, count: base.length }
+        return { complete, count: base.length + local.length }
     }
 
+    const content = contentFilters(addresses)
     const rest = await load({
         relays: [WORKSPACE_URL],
-        filters: [...contentFilters(addresses), ...tombstoneFilters(addresses)],
+        filters: [...content, ...tombstoneFilters(addresses), ...tombstoneFiltersForCached(content)],
         signal,
     })
     warm(rest)
 
-    return { complete, count: base.length + rest.length }
+    return { complete, count: base.length + local.length + rest.length }
 }
 
 /**

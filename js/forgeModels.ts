@@ -135,6 +135,24 @@ export const parseRepoAddress = (value: string): RepoAddress | null => {
     return HEX64.test(owner) && dtag.length > 0 ? { owner, dtag } : null
 }
 
+/**
+ * Ist dieses kind 1 ein **Forge-Kommentar** — und nicht irgendeine Notiz?
+ *
+ * Die Frage stellt sich, weil Buzz Kommentare als kind 1 schreibt (Regel 3 im
+ * Dateikopf): dieselbe Zahl trägt im Nostr-Alltag jede beliebige Notiz. Wer
+ * kind 1 pauschal als Forge-Inhalt behandelt — etwa beim Cachen —, zieht die
+ * halbe Zeitleiste der Community mit hinein.
+ *
+ * Getrennt wird an der **Struktur**, nicht an der Herkunfts-URL: ein
+ * Forge-Kommentar zeigt per `a`-Tag auf eine gültige `30617:<owner>:<d>`-
+ * Koordinate, weil er sonst von keiner Abfrage dieser Fläche je gefunden würde
+ * (`forge.ts contentFilters` scopet ausschließlich über `#a`). Dasselbe Muster
+ * wie {@link isZooidPinList} in `pins.ts`.
+ */
+export const isForgeComment = (event: ForgeEvent): boolean =>
+    event.kind === FORGE_COMMENT &&
+    event.tags.some((tag) => tag[0] === 'a' && isFilled(tag[1]) && parseRepoAddress(tag[1]) !== null)
+
 /** Die Koordinate eines Repos aufbauen. Eigentümer immer kleingeschrieben. */
 export const repoAddressOf = (owner: string, dtag: string): string =>
     `${REPO_ANNOUNCEMENT}:${owner.toLowerCase()}:${dtag}`
@@ -353,7 +371,35 @@ export const toRepoState = (event: ForgeEvent): RepoState => {
  *
  * Und `self` kommt aus dem NIP-11-Feld **`self`**, nicht `pubkey` — Buzz liefert
  * `pubkey: null` (am 2026-08-17 am Ziel-Relay abgefragt).
+ *
+ * ── Der Gleichstand: leer verliert, nicht „relay-signiert verliert" ──────────
+ *
+ * P11 hat ein echtes Rennen belegt: Buzz schreibt bei einer **frisch
+ * reservierten** Repo-Adresse selbst ein 30618 (`emit_initial_ref_state`,
+ * `side_effects.rs`, nur bei `ReserveOutcome::Reserved`) — mit `HEAD`, aber
+ * **ohne einen einzigen Ref**. Fällt es in dieselbe Unix-Sekunde wie das echte,
+ * entschied hier bis 2026-08-17 `a.id.localeCompare(b.id)`: ein Münzwurf über
+ * den Event-Hash, und in der Hälfte der Fälle gewann der **leere** Zustand.
+ *
+ * **Der naheliegende Riegel wäre falsch.** „Relay-signierte 30618 grundsätzlich
+ * zurückstufen" klingt robuster, dreht aber die gemessene Wirklichkeit um: am
+ * Ziel-Relay ist **jeder** 30618 relay-signiert, weil Buzz den Zustand bei
+ * jedem Push selbst schreibt (`api/git/manifest_event.rs`). Eine solche Regel
+ * ließe ein einziges, irgendwann von einem anderen Client geschriebenes
+ * owner-signiertes 30618 den echten Push-Zustand **dauerhaft** überstimmen —
+ * die Branch-Anzeige fröre auf einem alten Commit ein, und nichts korrigierte
+ * das je wieder. Aus einem Sekunden-Rennen würde ein Dauerfehler.
+ *
+ * Deshalb greift der Riegel genau dort, wo bisher der Zufall entschied: **bei
+ * GLEICHEM `created_at` verliert ein Zustand ohne Refs gegen einen mit Refs**,
+ * egal wer ihn signiert hat. Nur beim Gleichstand — ein NEUERER leerer Zustand
+ * gewinnt weiterhin, denn ein Repo, dessen Branches gelöscht wurden, ist
+ * legitim leer. Danach bleibt der Id-Vergleich als letzte, deterministische
+ * Instanz.
  */
+const hasRefs = (event: ForgeEvent): boolean =>
+    event.tags.some(([name, value]) => isFilled(name) && isFilled(value) && name.startsWith('refs/'))
+
 export const foldRepoState = (
     events: ForgeEvent[],
     { owner, relaySelf, dtag }: { owner: string; relaySelf: string; dtag: string },
@@ -366,7 +412,10 @@ export const foldRepoState = (
             trusted.has(event.pubkey.toLowerCase()),
     )
     const newest = dedupeReplaceable(candidates).sort(
-        (a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id),
+        (a, b) =>
+            b.created_at - a.created_at ||
+            Number(hasRefs(b)) - Number(hasRefs(a)) ||
+            a.id.localeCompare(b.id),
     )[0]
 
     return newest ? toRepoState(newest) : null

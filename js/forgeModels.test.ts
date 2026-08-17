@@ -205,6 +205,69 @@ test('foldRepoState akzeptiert den RELAY als Autor — sonst ist der Branch-Zust
     assert.equal(foldRepoState(events, { owner: OWNER, relaySelf: '', dtag: REPO_D }), null)
 })
 
+test('foldRepoState: bei gleicher Sekunde verliert der LEERE Zustand — nicht der relay-signierte', () => {
+    // Der gemessene Fall (P11): Buzz schreibt bei einer frisch reservierten
+    // Repo-Adresse selbst ein 30618 mit `HEAD`, aber OHNE einen einzigen Ref
+    // (`emit_initial_ref_state`). Faellt es in dieselbe Unix-Sekunde wie das echte,
+    // entschied hier vorher `a.id.localeCompare(b.id)` — ein Muenzwurf ueber den
+    // Event-Hash. Die beiden Ids sind deshalb bewusst so gewaehlt, dass der LEERE
+    // den alten Tiebreak GEWINNEN wuerde ('0…' < 'f…').
+    const leer = ev({
+        kind: REPO_STATE,
+        id: '0'.repeat(64),
+        pubkey: RELAY_SELF,
+        created_at: 1_785_500_000,
+        tags: [['d', REPO_D], ['HEAD', 'ref: refs/heads/master']],
+    })
+    const echt = ev({
+        kind: REPO_STATE,
+        id: 'f'.repeat(64),
+        pubkey: OWNER,
+        created_at: 1_785_500_000,
+        tags: [
+            ['d', REPO_D],
+            ['refs/heads/master', 'ca1c707b2d1f21849fca434d3683e238d1365e62'],
+            ['HEAD', 'ref: refs/heads/master'],
+        ],
+    })
+
+    for (const events of [[leer, echt], [echt, leer]]) {
+        const state = foldRepoState(events, { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D })
+        assert.equal(state?.branches.length, 1, 'der Zustand MIT Refs gewinnt, unabhaengig von der Reihenfolge')
+    }
+
+    // Die Regel gilt NUR beim Gleichstand: ein Repo, dessen Branches geloescht
+    // wurden, ist legitim leer — ein NEUERES leeres 30618 muss weiter gewinnen.
+    const spaeterLeer = ev({
+        kind: REPO_STATE,
+        id: '1'.repeat(64),
+        pubkey: RELAY_SELF,
+        created_at: 1_785_500_060,
+        tags: [['d', REPO_D], ['HEAD', 'ref: refs/heads/master']],
+    })
+    assert.equal(
+        foldRepoState([echt, spaeterLeer], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D })?.branches.length,
+        0,
+        'ein juengerer leerer Zustand bleibt massgeblich',
+    )
+
+    // Und die bewusst NICHT gebaute Regel: relay-signiert wird nicht pauschal
+    // zurueckgestuft. Am Ziel-Relay ist jeder 30618 relay-signiert; eine solche
+    // Regel liesse ein altes owner-signiertes den echten Push-Zustand dauerhaft
+    // ueberstimmen. Hier ist der relay-signierte juenger UND voll — er gewinnt.
+    const relayNeuer = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 1_785_500_120,
+        tags: [['d', REPO_D], ['refs/heads/main', 'b'.repeat(40)], ['HEAD', 'ref: refs/heads/main']],
+    })
+    assert.equal(
+        foldRepoState([echt, relayNeuer], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D })?.head,
+        'main',
+        'der neuere relay-signierte Zustand bleibt massgeblich',
+    )
+})
+
 test('foldRepoState ignoriert einen fremden Autor und ein fremdes `d`', () => {
     const events = [
         ev({ kind: REPO_STATE, pubkey: FREMD, created_at: 9_000, tags: [['d', REPO_D], ['HEAD', 'ref: refs/heads/fremd']] }),

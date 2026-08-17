@@ -29,11 +29,11 @@ import {
     REACTION,
     ZAP_RESPONSE,
 } from '@welshman/util'
-import { messagesToPrune, shouldPersistEvent } from './storage.ts'
+import { eventsToPrune, isCappedEvent, shouldPersistEvent } from './storage.ts'
 
-const ev = (kind: number) => ({ kind }) as never
+const ev = (kind: number, tags: string[][] = []) => ({ kind, tags }) as never
 
-/** Minimal-Event fürs Pruning (nur die Felder, die messagesToPrune liest). */
+/** Minimal-Event fürs Pruning (nur die Felder, die eventsToPrune liest). */
 const msg = (id: string, createdAt: number, h: string) =>
     ({ id, kind: MESSAGE, created_at: createdAt, tags: [['h', h]] }) as never
 
@@ -88,7 +88,7 @@ test('Was gespeichert wird UND waechst, wird auch gekappt', () => {
     // Thread), weil jede Nachricht eine Thread-Wurzel sein kann — ein Per-Root-Cap
     // haette gar keine Obergrenze.
     const comments = Array.from({ length: 12 }, (_, i) => comment('c' + i, NOW - i))
-    const drop = new Set(messagesToPrune(comments, NOW, 300, 30 * DAY, 5))
+    const drop = new Set(eventsToPrune(comments, NOW, { commentTotal: 5 }))
     assert.equal(drop.size, 7, 'von 12 Kommentaren bleiben genau 5 (die juengsten)')
     for (const keep of ['c0', 'c1', 'c2', 'c3', 'c4']) {
         assert.equal(drop.has(keep), false, `${keep} ist unter den juengsten 5 und bleibt`)
@@ -98,7 +98,7 @@ test('Was gespeichert wird UND waechst, wird auch gekappt', () => {
 
 test('Der Alters-Backstop gilt fuer Kommentare wie fuer Nachrichten', () => {
     const drop = new Set(
-        messagesToPrune([comment('alt', NOW - 31 * DAY), comment('neu', NOW - 1 * DAY)], NOW),
+        eventsToPrune([comment('alt', NOW - 31 * DAY), comment('neu', NOW - 1 * DAY)], NOW),
     )
     assert.equal(drop.has('alt'), true, 'aelter als 30 Tage → weg')
     assert.equal(drop.has('neu'), false, 'innerhalb des Fensters → bleibt')
@@ -116,9 +116,155 @@ test('Nachrichten-Kappung bleibt per Raum und faellt nicht in den Kommentar-Topf
         comment('c1', NOW - 5),
         comment('c2', NOW - 6),
     ]
-    const drop = new Set(messagesToPrune(events, NOW, 2, 30 * DAY, 1))
+    const drop = new Set(eventsToPrune(events, NOW, { msgPerRoom: 2, commentTotal: 1 }))
     assert.equal(drop.has('a3'), true, 'Raum A ist bei cap=2 um eine Nachricht zu voll')
     assert.equal(drop.has('b1'), false, 'Raum B hat nur eine Nachricht und bleibt unberuehrt')
     assert.equal(drop.has('c2'), true, 'der aeltere Kommentar faellt am Kommentar-Deckel')
     assert.equal(drop.has('c1'), false, 'der juengere Kommentar bleibt')
+})
+
+// ── P10: Forge, Forum, NIP-38-Status ────────────────────────────────────────
+//
+// Der Anlass ist derselbe wie oben, nur eine Ebene später: die Kinds aus zwei
+// ganzen Plänen (Forge, Forum, Status) standen in KEINER Zeile von
+// PERSIST_KINDS — drei Flächen luden bei jedem Reload komplett neu. Was hier
+// steht, fällt, sobald eines dieser Kinds wieder aus der Liste verschwindet.
+
+/** 30617-Koordinate mit gültigem 64-Hex-Eigentümer. */
+const REPO_A = `30617:${'a'.repeat(64)}:demo`
+
+const forumPost = (id: string, createdAt: number, h: string) =>
+    ({ id, kind: 45001, created_at: createdAt, tags: [['h', h]] }) as never
+
+const forumReply = (id: string, createdAt: number, h = 'kanal') =>
+    ({ id, kind: 45003, created_at: createdAt, tags: [['h', h], ['e', 'wurzel', '', 'reply']] }) as never
+
+const issue = (id: string, createdAt: number) =>
+    ({ id, kind: 1621, created_at: createdAt, tags: [['a', REPO_A]] }) as never
+
+const statusEvent = (id: string, createdAt: number, kind = 1632) =>
+    ({ id, kind, created_at: createdAt, tags: [['a', REPO_A], ['e', 'wurzel', '', 'root']] }) as never
+
+const forgeComment = (id: string, createdAt: number) =>
+    ({ id, kind: 1, created_at: createdAt, tags: [['a', REPO_A], ['e', 'wurzel', '', 'root']] }) as never
+
+test('die Forge-Kinds ueberleben den Kaltstart', () => {
+    // Am Teststack gemessen (2026-08-17): jedes dieser Kinds wird von Buzz
+    // gespeichert und ist per `nak req` zurueckzulesen — sie sind also
+    // legitime Cache-Kandidaten und keine relay-seitig synthetisierten.
+    for (const kind of [30617, 30618, 30621, 1621, 1618, 1619, 1630, 1631, 1632, 1633]) {
+        assert.equal(shouldPersistEvent(ev(kind)), true, `kind ${kind} (Forge) muss den Reload ueberleben`)
+    }
+})
+
+test('Forum-Thema, Forum-Antwort und NIP-38-Status ueberleben den Kaltstart', () => {
+    assert.equal(shouldPersistEvent(ev(45001)), true, '45001 (Forum-Thema)')
+    assert.equal(shouldPersistEvent(ev(45003)), true, '45003 (Forum-Antwort)')
+    assert.equal(shouldPersistEvent(ev(30315)), true, '30315 (NIP-38-Status)')
+})
+
+test('kind 1 kommt NUR als Forge-Kommentar in den Cache', () => {
+    // Die eigentliche Bedingung fuer die Aufnahme von kind 1: es ist das
+    // allgemeinste Kind ueberhaupt. Ohne Strukturpruefung zoege jede Notiz jedes
+    // Relays in den Cache — genau der Fehler, den `39005` an anderer Stelle
+    // vermeidet, nur aus dem umgekehrten Grund.
+    assert.equal(shouldPersistEvent(ev(1, [['a', REPO_A]])), true, 'kind 1 mit 30617-Koordinate')
+    assert.equal(shouldPersistEvent(ev(1)), false, 'nackte Notiz ohne a-Tag')
+    assert.equal(shouldPersistEvent(ev(1, [['a', `30023:${'a'.repeat(64)}:artikel`]])), false, 'a-Tag auf einen Artikel')
+    assert.equal(shouldPersistEvent(ev(1, [['a', '30617:kurz:demo']])), false, 'a-Tag mit unbrauchbarem Eigentuemer')
+    assert.equal(shouldPersistEvent(ev(1, [['e', 'irgendwas']])), false, 'Antwort ohne Repo-Bezug')
+})
+
+test('Buzz’ Thread-Summary (39005) bleibt drausssen, zooids Pin-Liste nicht', () => {
+    // Dieselbe Zahl, zwei Bedeutungen: bei Buzz ist 39005 KIND_THREAD_SUMMARY und
+    // wird relay-seitig nie gespeichert („synthesized at query time"). Ein
+    // persistierter Stand waere dauerhaft veraltet — schlimmer als keiner.
+    const summary = { kind: 39005, pubkey: 'r', content: '{"reply_count":3}', tags: [['e', 'wurzel']] } as never
+    const pinList = { kind: 39005, pubkey: 'r', content: '', tags: [['-'], ['d', 'raum'], ['e', 'm1']] } as never
+    assert.equal(shouldPersistEvent(summary), false, '39005 als Buzz-Thread-Summary')
+    assert.equal(shouldPersistEvent(pinList), true, '39005 als zooid-Pin-Liste')
+})
+
+test('ALLES, was gespeichert wird UND waechst, laeuft in die Kappung', () => {
+    // Der Wächter gegen den unbegrenzten Store: wer ein append-only-Kind zu
+    // PERSIST_KINDS hinzufuegt und die Kappung vergisst, faellt hier.
+    const wachsend = [
+        ev(9, [['h', 'raum']]),
+        ev(1111, [['E', 'wurzel']]),
+        ev(45001, [['h', 'kanal']]),
+        ev(45003, [['h', 'kanal']]),
+        ev(1621, [['a', REPO_A]]),
+        ev(1618, [['a', REPO_A]]),
+        ev(1619, [['a', REPO_A]]),
+        ev(1630, [['a', REPO_A]]),
+        ev(1631, [['a', REPO_A]]),
+        ev(1632, [['a', REPO_A]]),
+        ev(1633, [['a', REPO_A]]),
+        ev(1, [['a', REPO_A]]),
+    ]
+    for (const event of wachsend) {
+        assert.equal(isCappedEvent(event), true, `kind ${(event as { kind: number }).kind} muss gekappt werden`)
+        assert.equal(shouldPersistEvent(event), true, `kind ${(event as { kind: number }).kind} wird gespeichert`)
+    }
+    // Gegenprobe: Ersetzbares ist selbst-begrenzt und darf NICHT in die Kappung —
+    // ein gekapptes 30617 hiesse, ein Repo aus dem Cache zu werfen, das es noch gibt.
+    for (const kind of [30617, 30618, 30621, 30315, 0, 39000]) {
+        assert.equal(isCappedEvent(ev(kind)), false, `kind ${kind} ist ersetzbar und bleibt ungekappt`)
+    }
+})
+
+test('Forum: Themen pro Kanal, Antworten global — wie Chat und Thread-Kommentar', () => {
+    const themen = [
+        ...[1, 2, 3].map((i) => forumPost(`a${i}`, NOW - i, 'kanal-a')),
+        ...[1, 2].map((i) => forumPost(`b${i}`, NOW - i, 'kanal-b')),
+    ]
+    const drop = new Set(eventsToPrune(themen, NOW, { forumPostPerRoom: 2 }))
+    assert.equal(drop.has('a3'), true, 'Kanal A ist bei cap=2 um ein Thema zu voll')
+    assert.equal(drop.has('b1'), false, 'Kanal B bleibt unberuehrt — der Deckel gilt je Kanal')
+    assert.equal(drop.has('b2'), false, 'auch das aeltere Thema in Kanal B bleibt')
+
+    // Antworten teilen sich EINEN globalen Deckel, ueber Kanaele hinweg.
+    const antworten = [
+        forumReply('r1', NOW - 1, 'kanal-a'),
+        forumReply('r2', NOW - 2, 'kanal-b'),
+        forumReply('r3', NOW - 3, 'kanal-c'),
+    ]
+    const dropAntworten = new Set(eventsToPrune(antworten, NOW, { forumCommentTotal: 2 }))
+    assert.deepEqual([...dropAntworten], ['r3'], 'global gekappt: die aelteste Antwort faellt, egal in welchem Kanal')
+})
+
+test('Forge: Wurzeln und Beiwerk teilen sich KEINEN Deckel', () => {
+    // Der teure Fehler waere ein gemeinsamer Topf: ein Automat mit vielen
+    // Statuswechseln verdraengte dann die Issues selbst — und ein Issue ohne sein
+    // Status-Ereignis zeigt „offen", also eine FALSCHE Aussage statt einer fehlenden.
+    const events = [
+        issue('i1', NOW - 1),
+        issue('i2', NOW - 2),
+        statusEvent('s1', NOW - 3),
+        statusEvent('s2', NOW - 4),
+        forgeComment('c1', NOW - 5),
+    ]
+    const drop = new Set(eventsToPrune(events, NOW, { forgeRootTotal: 1, forgeMetaTotal: 2 }))
+    assert.equal(drop.has('i2'), true, 'die aeltere Wurzel faellt am Wurzel-Deckel')
+    assert.equal(drop.has('i1'), false, 'die juengere Wurzel bleibt')
+    assert.equal(drop.has('c1'), true, 'das aelteste Beiwerk faellt am Beiwerk-Deckel')
+    assert.equal(drop.has('s1'), false, 'die juengeren Statuswechsel bleiben — eigener Topf')
+    assert.equal(drop.has('s2'), false, 'auch der zweite Statuswechsel bleibt')
+})
+
+test('Forum und Forge haben ein LAENGERES Altersfenster als der Chat', () => {
+    // 30 Tage sind das Chat-Mass. Ein seit einem halben Jahr offenes Issue ist
+    // dagegen die aktuelle Lage — mit dem Chat-Fenster fiele genau der Bestand aus
+    // dem Cache, den die Flaeche zeigen soll.
+    const events = [
+        msg('chat-alt', NOW - 31 * DAY, 'raum'),
+        issue('issue-40d', NOW - 40 * DAY),
+        forumPost('thema-40d', NOW - 40 * DAY, 'kanal'),
+        issue('issue-200d', NOW - 200 * DAY),
+    ]
+    const drop = new Set(eventsToPrune(events, NOW))
+    assert.equal(drop.has('chat-alt'), true, 'Chat: 31 Tage sind zu alt')
+    assert.equal(drop.has('issue-40d'), false, 'Forge: 40 Tage bleiben')
+    assert.equal(drop.has('thema-40d'), false, 'Forum: 40 Tage bleiben')
+    assert.equal(drop.has('issue-200d'), true, 'Forge: 200 Tage reissen den Backstop')
 })
