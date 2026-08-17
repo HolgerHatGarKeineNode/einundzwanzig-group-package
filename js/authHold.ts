@@ -30,24 +30,84 @@
  *
  * **Die Fehlerrichtung ist Absicht.** Greift das Entfernen nicht (andere welshman-Version,
  * andere Queue-Mechanik), geht die Nachricht wie bisher zweimal raus — der heutige Zustand.
- * Es gibt keinen Pfad, auf dem diese Policy eine Nachricht verschwinden lässt, den es nicht
- * ohne sie auch gäbe: bei `DeniedSignature`/`Forbidden` verwirft welshman seinen Puffer,
- * aber dort wäre auch der erste Versuch abgelehnt worden.
  *
  * **Vor dem Challenge wird NICHT zurückgehalten** (`AuthStatus.None`): dann weiß niemand, ob
  * der Relay überhaupt AUTH verlangt. Eine Nachricht dort zurückzuhalten hieße, sie auf einem
  * Relay ohne AUTH für immer liegen zu lassen.
+ *
+ * ── Die AUTH-Runde braucht eine Frist — sonst hält diese Policy für immer ───────
+ *
+ * Hier stand: „Es gibt keinen Pfad, auf dem diese Policy eine Nachricht verschwinden
+ * lässt, den es nicht ohne sie auch gäbe." **Das ist widerlegt** (N4, 2026-08-18, echte
+ * welshman-Sockets gegen einen ws-Nachbau, mit und ohne diese Policy als Gegenprobe).
+ *
+ * welshmans `AuthState.doAuth` kennt zwei Wege, auf denen die Runde **nie** endet
+ * (`@welshman/net/dist/net/src/auth.js:71-94`):
+ *
+ * 1. `await tryCatch(() => sign(template))` — `tryCatch` fängt eine **abgelehnte**
+ *    Zusage nicht ab, es hängt ihr nur einen `catch`-Zuhörer an (`lib/Tools.js:834-846`).
+ *    Das `await` wirft also weiter, `doAuth` hat kein `try`, und der Aufrufer in
+ *    `makeSocketPolicyAuth` ruft es ohne `await`/`catch` (`policy.js:196`). Ergebnis:
+ *    eine unbehandelte Ablehnung — und der Status bleibt für immer `pending_signature`.
+ *    Auslöser im Alltag: eine abgelehnte NIP-07-Aufforderung, eine Erweiterung, die beim
+ *    Reload noch nicht injiziert ist, ein NIP-46-Bunker, der nicht antwortet.
+ * 2. `shouldAuth` ist beim Challenge `false` (bei uns: noch kein Pubkey) — dann wird
+ *    `doAuth` nie gerufen und der Status bleibt `requested`, bis der Socket neu aufbaut.
+ *
+ * Gemessen, Relay mit **optionalem** AUTH (Challenge, bedient aber trotzdem), Signer
+ * lehnt ab, zweite Anfrage auf derselben Verbindung:
+ *
+ * ```
+ * mit dieser Policy:   aufrufer_sah NICHTS   draht: kein zweiter REQ
+ * ohne diese Policy:   aufrufer_sah EVENT    draht: ←REQ  →EVENT+EOSE
+ * ```
+ *
+ * Ohne Frist macht die Policy aus „Daten kommen, nur ohne EOSE" ein „gar nichts".
+ * Deshalb hält sie nur, solange die Runde **läuft**: nach {@link AUTH_HOLD_FRIST_MS}
+ * geht wieder alles durch — zurück auf das Verhalten vor der Policy, also genau die
+ * Fehlerrichtung, die dieser Docblock ohnehin zusagt.
+ *
+ * **Warum 10 s:** eine gesunde Runde ist in 100–500 ms durch (gemessen); Buzz schließt
+ * eine unauthentifizierte Verbindung ohnehin nach 5 s (`connection.rs`, `AUTH_TIMEOUT`);
+ * der langsamste legitime Weg ist ein NIP-46-Bunker über einen fremden Relay. 10 s liegt
+ * über allem davon und unter jeder Dauer, in der Zurückhalten noch etwas einspart.
  */
-import { AuthStatus, SocketEvent, isClientAuth } from '@welshman/net'
+import { AuthStatus, AuthStateEvent, SocketEvent, isClientAuth } from '@welshman/net'
 import { on } from '@welshman/lib'
 
 /** Zustände, in denen eine AUTH-Runde läuft — nur hier wird zurückgehalten. */
 const PENDING: string[] = [AuthStatus.Requested, AuthStatus.PendingSignature, AuthStatus.PendingResponse]
 
+/**
+ * Wie lange eine AUTH-Runde höchstens „läuft". Danach gilt sie als hängen geblieben
+ * und es wird nichts mehr zurückgehalten — Begründung im Modul-Docblock.
+ */
+export const AUTH_HOLD_FRIST_MS = 10_000
+
+/**
+ * Die reine Entscheidung, herausgezogen, damit sie ohne Socket und ohne Uhr prüfbar ist.
+ *
+ * `rundeSeit === null` heißt „keine laufende Runde beobachtet" — dann entscheidet
+ * allein der Status, damit ein Zuhörer, der die Flanke verpasst hat, nicht dauerhaft
+ * durchwinkt.
+ */
+export const haeltZurueck = (status: string, rundeSeit: number | null, jetzt: number): boolean => {
+    if (!PENDING.includes(status)) {
+        return false
+    }
+    return rundeSeit === null || jetzt - rundeSeit < AUTH_HOLD_FRIST_MS
+}
+
 type Listener = (message: unknown, url: string) => void
+type StatusListener = (status: string) => void
 type QueueLike = { remove: (item: unknown) => void }
+type AuthLike = {
+    status: string
+    on: (event: string, cb: StatusListener) => unknown
+    off: (event: string, cb: StatusListener) => unknown
+}
 type SocketLike = {
-    auth: { status: string }
+    auth: AuthLike
     _sendQueue: QueueLike
     on: (event: string, cb: Listener) => unknown
     off: (event: string, cb: Listener) => unknown
@@ -82,13 +142,33 @@ type SocketLike = {
  */
 export const socketPolicyAuthHold = (socket: unknown): (() => void) => {
     const s = socket as SocketLike
-    return on<Record<string, [unknown, string]>, string>(s, SocketEvent.Sending, (message) => {
+    /** Beginn der laufenden Runde; `null`, sobald sie beendet ist. */
+    let rundeSeit: number | null = null
+
+    const abStatus = on<Record<string, [string]>, string>(
+        s.auth,
+        AuthStateEvent.Status,
+        (status) => {
+            if (!PENDING.includes(String(status))) {
+                rundeSeit = null
+            } else if (rundeSeit === null) {
+                rundeSeit = Date.now()
+            }
+        },
+    )
+
+    const abSending = on<Record<string, [unknown, string]>, string>(s, SocketEvent.Sending, (message) => {
         // Die AUTH-Antwort selbst muss durch — sonst käme die Runde nie zum Abschluss.
         if (isClientAuth(message as Parameters<typeof isClientAuth>[0])) {
             return
         }
-        if (PENDING.includes(s.auth.status)) {
+        if (haeltZurueck(s.auth.status, rundeSeit, Date.now())) {
             s._sendQueue.remove(message)
         }
     })
+
+    return () => {
+        abStatus()
+        abSending()
+    }
 }

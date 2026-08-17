@@ -32,7 +32,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { AuthStatus, Pool, Socket, SocketEvent } from '@welshman/net'
-import { socketPolicyAuthHold } from './authHold.ts'
+import { AUTH_HOLD_FRIST_MS, haeltZurueck, socketPolicyAuthHold } from './authHold.ts'
 
 const URL = 'wss://relay.invalid/'
 
@@ -162,4 +162,74 @@ test('Der Status wird bei JEDER Nachricht neu gelesen, nicht beim Anhängen eing
 
     f.setStatus(AuthStatus.Ok)
     assert.equal(f.senden(req()), false, 'nach `ok` kommt nichts mehr dazu')
+})
+
+// ── Die Frist: eine hängende AUTH-Runde darf den Socket nicht stumm schalten ───
+//
+// Der Anlass steht im Modul-Docblock und ist gemessen (N4, 2026-08-18): welshmans
+// `doAuth` kennt zwei Wege, auf denen die Runde NIE endet. Ohne Frist hielte diese
+// Policy danach für immer — und auf einem Relay mit optionalem AUTH kostete das
+// Daten, die ohne die Policy angekommen wären.
+
+test('die reine Entscheidung: laufende Runde hält, abgelaufene nicht', () => {
+    const t = 1_000_000
+    assert.equal(haeltZurueck(AuthStatus.Requested, t, t + 1), true, 'frische Runde hält')
+    assert.equal(haeltZurueck(AuthStatus.Requested, t, t + AUTH_HOLD_FRIST_MS - 1), true)
+    assert.equal(haeltZurueck(AuthStatus.Requested, t, t + AUTH_HOLD_FRIST_MS), false, 'auf die Millisekunde')
+    assert.equal(haeltZurueck(AuthStatus.Ok, t, t + 1), false, 'kein Halten ohne laufende Runde')
+    assert.equal(haeltZurueck(AuthStatus.None, null, t), false)
+})
+
+test('ohne beobachtete Flanke wird gehalten — die Vorsicht liegt beim Zurückhalten', () => {
+    // `rundeSeit === null` heißt „die Runde begann, bevor jemand zuhörte". Dort das
+    // Halten auszusetzen hieße, den Normalfall wegen eines Sonderfalls aufzugeben.
+    assert.equal(haeltZurueck(AuthStatus.PendingSignature, null, 1_000_000), true)
+})
+
+/** Führt `fn` mit angehaltener Uhr aus — `Date.now()` liefert, was `zeit()` sagt. */
+const mitUhr = (fn: (setze: (t: number) => void) => void): void => {
+    const echt = Date.now
+    let jetzt = 1_000_000
+    Date.now = () => jetzt
+    try {
+        fn((t) => {
+            jetzt = t
+        })
+    } finally {
+        Date.now = echt
+    }
+}
+
+test('am echten Socket: nach der Frist geht wieder alles durch', () => {
+    mitUhr((setze) => {
+        setze(1_000_000)
+        const f = echteSocket(AuthStatus.PendingSignature)
+
+        assert.equal(f.senden(req()), true, 'in der Runde: zurückgehalten')
+
+        setze(1_000_000 + AUTH_HOLD_FRIST_MS)
+        assert.equal(f.senden(req()), false, 'nach der Frist: durch, wie vor der Policy')
+    })
+})
+
+test('am echten Socket: eine NEUE Runde startet die Frist neu', () => {
+    // Sonst erbte eine späte, gesunde Runde die Uhr einer alten — und hielte nie.
+    mitUhr((setze) => {
+        setze(1_000_000)
+        const f = echteSocket(AuthStatus.Requested)
+
+        setze(1_000_500)
+        f.setStatus(AuthStatus.Ok)
+        assert.equal(f.senden(req()), false)
+
+        // Reconnect: welshman setzt bei `closed`/`error` auf `none` zurück, dann
+        // kommt ein neues Challenge — Stunden später.
+        setze(9_000_000)
+        f.setStatus(AuthStatus.None)
+        f.setStatus(AuthStatus.Requested)
+        assert.equal(f.senden(req()), true, 'die neue Runde hält wieder')
+
+        setze(9_000_000 + AUTH_HOLD_FRIST_MS)
+        assert.equal(f.senden(req()), false, 'und läuft ihrerseits ab')
+    })
 })

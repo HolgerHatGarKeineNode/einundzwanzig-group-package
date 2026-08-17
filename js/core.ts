@@ -14,6 +14,7 @@ import { always } from '@welshman/lib'
 import { verifyEvent, normalizeRelayUrl, PROFILE, type TrustedEvent } from '@welshman/util'
 import { initStorage } from './storage'
 import { watchRelayNotices } from './relayNotices'
+import { watchRequests } from './reqWatch'
 import { socketPolicyAuthHold } from './authHold'
 import { initReadState } from './readState'
 
@@ -267,4 +268,9 @@ if (!bootGuard.__ezGroupBooted) {
     // Mitschnitt liefe jede betroffene Mutation in eine Zeitgrenze ohne Begründung.
     // Muss VOR der ersten Verbindung stehen, greift aber auch später (siehe Modul).
     watchRelayNotices()
+    // N4: offene REQs mitführen. Der Fall „`load()` ohne jede Antwort" ist nicht
+    // reproduzierbar; diese Erfassung hält ihn beim nächsten Auftreten mit Kontext
+    // fest, statt ihn wieder als Anekdote zu hinterlassen. Kostet fünf Zuhörer je
+    // Socket und schreibt nichts — Abruf über `window.__reqWatch()`.
+    watchRequests()
 }
