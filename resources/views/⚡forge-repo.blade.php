@@ -136,6 +136,29 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <span aria-hidden="true" class="shrink-0 select-none font-semibold text-muted">$</span>
                                         <span aria-hidden="true" class="shrink-0 select-none text-muted">git clone</span>
                                         <span class="min-w-0 select-all break-all font-semibold" data-forge-clone x-text="view.repo.cloneUrls[0]"></span>
+
+                                        {{-- Kopieren mit einem Klick — aber nur, wo es
+                                             auch etwas tut. `navigator.clipboard` gibt es
+                                             ausschließlich in sicheren Kontexten (HTTPS
+                                             oder localhost); über eine nackte
+                                             HTTP-Adresse im LAN ist es `undefined`. Dort
+                                             erscheint dieser Knopf gar nicht erst, und es
+                                             bleibt bei der bisherigen `select-all`-Zeile:
+                                             ein Klick markiert sie ganz. Ein sichtbarer
+                                             Knopf, der nichts bewirkt, wäre der
+                                             schlechtere Tausch — er nimmt dem Nutzer die
+                                             Gewissheit, ob er kopiert hat oder nicht.
+
+                                             `items-baseline` der Zeile trüge den Knopf
+                                             auf der Schriftlinie und damit zu hoch —
+                                             `self-center` stellt ihn auf die Mitte. --}}
+                                        <template x-if="canCopyClone()">
+                                            <flux:button size="xs" variant="ghost" icon="clipboard-document"
+                                                         class="icon-btn-touch shrink-0 self-center"
+                                                         data-forge-clone-copy
+                                                         x-on:click="copyClone()"
+                                                         aria-label="{{ __('Clone-URL kopieren') }}" />
+                                        </template>
                                     </div>
                                 </template>
                             </div>

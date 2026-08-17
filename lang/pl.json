@@ -870,5 +870,8 @@
     "Forge-Übersicht öffnen": "Otwórz przegląd Forge",
     "Issues des Repositorys öffnen (:count)": "Otwórz zgłoszenia repozytorium (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Otwórz pull requesty repozytorium (:count)",
-    "Workspace auf :wert": "Workspace w: :wert"
+    "Workspace auf :wert": "Workspace w: :wert",
+    "Clone-URL kopieren": "Kopiuj adres URL klonowania",
+    "Clone-URL kopiert.": "Skopiowano adres URL klonowania.",
+    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "Nie udało się skopiować adresu URL klonowania. Kliknij go, aby go zaznaczyć, i skopiuj ręcznie."
 }

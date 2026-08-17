@@ -649,9 +649,30 @@ export const createRail = (): RailState => ({
     },
 
     nodeName(node: ForgeNavNode): string {
-        // Enger als in der flachen Liste: drei Ebenen kosten bis zu 16px
-        // Einrückung, die dem Namen fehlen.
-        return middleTruncate(node.label, 30 - node.depth * 2)
+        // Enger als in der flachen Liste: drei Ebenen kosten Einrückung
+        // (12 px je Stufe), die dem Namen fehlt.
+        //
+        // **Die Zahlen sind gemessen, nicht geschätzt (P6).** Bis dahin galt
+        // `30 − 2·depth`, und das kürzte messbar zu früh. Gemessen wird an der
+        // einzigen Stelle, die zählt — `scrollWidth > clientWidth` an der
+        // Beschriftung selbst (`buzz-rail-breite.spec.ts`, alle vier
+        // Nav-Zustände): kürzt CSS ein zweites Mal, ist die Zahl zu groß; bleibt
+        // sichtbar Platz stehen, ist sie zu klein.
+        //
+        // Am 1440-px-Bild gemessen: der Beschriftung stehen 227 px (Ebene 0),
+        // 215 px (Ebene 1) und 203 px (Ebene 2) zur Verfügung — je Ebene 12 px
+        // weniger, das ist genau die Einrückung. Ein Repo-Name aus Kleinbuchstaben
+        // und Bindestrichen misst rund 7,0 px je Zeichen; damit passen 32/30/28
+        // Zeichen. Das alte `30 − 2·depth` ließ davon gemessene 13–15 px ungenutzt
+        // (die im Design-Pass genannten „30–60 px" waren für diese Namen zu hoch
+        // gegriffen), `36 − 3·depth` — der dort vorgeschlagene Wert — läuft
+        // dagegen um 16–25 px ÜBER und erzeugt die doppelte Ellipsis.
+        //
+        // **Eine Zeichenzahl kann für einen Proportionalsatz nie exakt sein.**
+        // Ein Name aus lauter Großbuchstaben ist breiter und läuft auch bei 32
+        // ins CSS-Kürzen — das ist der eingebaute Rückfall und sieht dann aus wie
+        // vorher. Ausgerichtet wird an den Namen, die tatsächlich vergeben werden.
+        return middleTruncate(node.label, 32 - node.depth * 2)
     },
 
     scopeToGroup(key: RailGroupKey): void {

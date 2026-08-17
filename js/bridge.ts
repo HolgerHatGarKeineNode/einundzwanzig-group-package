@@ -4839,6 +4839,15 @@ export function registerNostrComponents(Alpine: {
             this._controller?.abort()
             this._controller = new AbortController()
             const signal = this._controller.signal
+            // P6: Das Wiederaufsetz-Budget gehört zu EINER Sub-Generation, nicht zur
+            // Lebenszeit der Insel. Hier beginnt eine neue: der alte Controller ist
+            // abgebrochen, gleich läuft ein frischer `listenRoom`. Ohne das Zurücksetzen
+            // stünde ein Nutzer, der die App lange offen hält, irgendwann mit
+            // aufgebrauchtem Budget da und bekäme beim nächsten Mitgliedschafts-Wechsel
+            // ein Gate, das der Raum nicht hergibt. Der Deckel bleibt wirksam, wo er
+            // gemeint ist — gegen die enge Schleife (Relay schließt die frische Sub
+            // sofort wieder), denn die läuft ohne Resync dazwischen.
+            this._gateRelistens = 0
             // Live-Subs neu senden (der erste REQ-Send öffnet den Socket via socketPolicyConnectOnSend
             // wieder) …
             // Mit demselben `onClosed` wie in setup(): ohne ihn verlöre der Raum nach
@@ -6130,6 +6139,22 @@ export function registerNostrComponents(Alpine: {
                 if (me) {
                     await reloadRoomMembership(this._url, this.h, me)
                 }
+                // P6: Das Wiederaufsetz-Budget des Gates zurücksetzen — und zwar HIER,
+                // nicht nur in `resync()`.
+                //
+                // Der Deckel (`ROOM_GATE_MAX_RELISTENS`) zählt, wie oft die Raum-Sub nach
+                // `restricted: channel access revoked` neu aufgesetzt wurde. Jeder
+                // AUSTRITT erzeugt genau einen solchen Grund — der Zähler wächst also mit
+                // jedem Verlassen, und genullt wurde er bis P6 nur beim Betreten eines
+                // ANDEREN Raums (`setup()`). Wer denselben offenen Raum viermal verlässt
+                // und wiederbetritt, ohne die Ansicht zu wechseln, lief deshalb beim
+                // vierten Austritt ins Gate, obwohl der Raum offen ist.
+                //
+                // Ein bestätigter Wiederbeitritt ist die saubere Grenze: er ist eine
+                // NUTZERAKTION, keine Schleife des Relays. Genau das trennt den Fall, den
+                // der Deckel treffen soll (frische Sub wird sofort wieder mit demselben
+                // Grund geschlossen, ohne Zutun), von dem, den er nicht treffen darf.
+                this._gateRelistens = 0
             } finally {
                 this.joining = false
             }

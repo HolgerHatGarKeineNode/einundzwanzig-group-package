@@ -40,6 +40,7 @@ import * as nip19 from 'nostr-tools/nip19'
 import { derived, readable, writable, type Readable } from 'svelte/store'
 import { proxifyImage } from './core'
 import { t } from './i18n'
+import { toast } from './toast'
 import { formatTimestamp } from './locale'
 import { warmProfiles } from './profiles'
 import { deriveEventsForUrl } from './repository'
@@ -955,6 +956,19 @@ type ForgeRepoState = {
     toggle(id: string): void
     statusText(code: string): string
     truncatedText(): string
+    /**
+     * Gibt es in diesem Browser überhaupt einen Kopier-Weg?
+     *
+     * `navigator.clipboard` existiert **nur in sicheren Kontexten** (HTTPS oder
+     * localhost). Über eine nackte HTTP-Adresse im LAN — der Fall, der bei einer
+     * selbst betriebenen Instanz wirklich vorkommt — ist die Eigenschaft schlicht
+     * `undefined`. Ein Knopf, der dann nichts tut, wäre schlechter als kein Knopf:
+     * die Zeile ist auch ohne ihn per `select-all` mit einem Klick markiert und von
+     * Hand kopierbar. Deshalb entscheidet diese Frage über das RENDERN des Knopfes,
+     * nicht über sein Verhalten.
+     */
+    canCopyClone(): boolean
+    copyClone(): void
     // ── Schreiben ───────────────────────────────────────────────────────────
     writeGate(): WriteGate
     writeHint(): string
@@ -1234,6 +1248,36 @@ export function wireForge(Alpine: {
                 return !this.view || this.view.truncated.length === 0
                     ? ''
                     : t('Die Liste ist gekürzt — es liegen mehr Einträge auf dem Relay, als hier geladen wurden.')
+            },
+
+            // Begründung am Typ. Bewusst eine Frage an `navigator`, nicht ein
+            // gemerkter Wert: der Kontext einer Seite ändert sich nicht, und ein
+            // Schnappschuss im `init` wäre eine Kopie ohne Gewinn.
+            canCopyClone() {
+                return typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function'
+            },
+
+            /**
+             * Die Clone-URL in die Zwischenablage.
+             *
+             * **Mit BEIDEN Zweigen der Zusage.** `writeText` lehnt auch in einem
+             * sicheren Kontext ab — ohne Fokus im Dokument oder bei verweigerter
+             * Berechtigung. Ein `.then()` allein (das Muster der älteren
+             * Kopier-Knöpfe im Haus) verschluckte das: kein Toast, keine
+             * Fehlermeldung, und der Nutzer glaubt, es liege etwas in seiner
+             * Ablage. Deshalb steht hier der zweite Zweig, und er sagt, was jetzt
+             * hilft — die Zeile ist per `select-all` weiterhin mit einem Klick
+             * markiert.
+             */
+            copyClone() {
+                const url = this.view?.repo.cloneUrls[0] ?? ''
+                if (!url) {
+                    return
+                }
+                void navigator.clipboard.writeText(url).then(
+                    () => toast(t('Clone-URL kopiert.'), 'success'),
+                    () => toast(t('Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.')),
+                )
             },
 
             // ── Schreiben ───────────────────────────────────────────────────

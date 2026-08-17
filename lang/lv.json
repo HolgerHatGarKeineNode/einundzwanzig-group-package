@@ -889,5 +889,8 @@
     "Forge-Übersicht öffnen": "Atvērt Forge pārskatu",
     "Issues des Repositorys öffnen (:count)": "Atvērt repozitorija pieteikumus (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Atvērt repozitorija pull request pieprasījumus (:count)",
-    "Workspace auf :wert": "Workspace vietnē :wert"
+    "Workspace auf :wert": "Workspace vietnē :wert",
+    "Clone-URL kopieren": "Kopēt klonēšanas URL",
+    "Clone-URL kopiert.": "Klonēšanas URL nokopēts.",
+    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "Klonēšanas URL neizdevās nokopēt. Noklikšķini uz tā, lai to atlasītu, un nokopē to manuāli."
 }

@@ -851,5 +851,8 @@
     "Forge-Übersicht öffnen": "A Forge áttekintés megnyitása",
     "Issues des Repositorys öffnen (:count)": "A repository hibajegyeinek megnyitása (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "A repository pull requestjeinek megnyitása (:count)",
-    "Workspace auf :wert": "Workspace itt: :wert"
+    "Workspace auf :wert": "Workspace itt: :wert",
+    "Clone-URL kopieren": "Klónozási URL másolása",
+    "Clone-URL kopiert.": "Klónozási URL másolva.",
+    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "A klónozási URL-t nem sikerült másolni. Kattints rá a kijelöléséhez, majd másold ki kézzel."
 }
