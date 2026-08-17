@@ -689,7 +689,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                         {{-- ── Aktivität ────────────────────────────────────────── --}}
                         <div x-show="tab === 'activity'" x-cloak>
-                            <template x-if="view.activity.length === 0">
+                            <template x-if="view.activityGroups.length === 0">
                                 <div class="surface-card empty-state px-6 py-12 text-center" data-forge-empty="activity">
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.clock class="size-6 text-zinc-500 dark:text-zinc-400" />
@@ -703,45 +703,59 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  Geometrie und der `:last-child`-Kante steht dort
                                  ausführlich (`⚡forge.blade.php`, Abschnitt „Die
                                  Ref-Spur"). Zwei Zeitleisten im selben Produkt dürfen
-                                 nicht zwei Bauformen haben. --}}
-                            <div x-show="view.activity.length > 0" class="surface-card px-4">
-                                <ol>
-                                    <template x-for="row in view.activity" :key="row.id">
-                                        <li class="group relative flex gap-3 py-3" data-forge-activity :data-type="row.type">
-                                            <span aria-hidden="true"
-                                                  class="absolute start-[0.875rem] top-[1.625rem] h-full w-px bg-zinc-200 group-last:hidden dark:bg-zinc-800"></span>
-                                            {{-- `self-start`: siehe Begründung in
-                                                 `⚡forge.blade.php` — ohne sie streckt sich die
-                                                 Hülle auf die Zeilenhöhe, der Ring wird oval
-                                                 und die Unterlage frisst den Faden. --}}
-                                            <span class="relative shrink-0 self-start rounded-full bg-white dark:bg-zinc-900"
-                                                  :class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
-                                                <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
-                                            </span>
-                                            <div class="min-w-0 flex-1">
-                                                <p class="text-sm leading-snug">
-                                                    <span class="font-semibold" x-text="row.actorName"></span>
-                                                    <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
-                                                    <span class="font-medium" x-text="row.object"></span>
-                                                </p>
-                                                <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                                                    <span x-text="row.timeLabel"></span>
-                                                    <template x-if="row.badge">
-                                                        <span class="rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                              x-text="row.badge"></span>
-                                                    </template>
-                                                    <template x-if="row.statusLabel">
-                                                        <span class="rounded-pill bg-zinc-100 px-1.5 py-0.5 font-medium dark:bg-zinc-800"
-                                                              x-text="row.statusLabel"></span>
-                                                    </template>
-                                                </p>
-                                                <template x-if="row.body">
-                                                    <p class="mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
-                                                </template>
-                                            </div>
-                                        </li>
-                                    </template>
-                                </ol>
+                                 nicht zwei Bauformen haben.
+
+                                 Das gilt auch für die Tages-Trenner: dieselben vier
+                                 Buckets, dieselben Wörter, dasselbe <h2>. Der einzige
+                                 Unterschied zur Übersicht ist, dass hier KEIN Repo-Name
+                                 in der Zeile steht — er ist für alle Zeilen derselbe
+                                 und steht bereits im Seitenkopf. --}}
+                            <div x-show="view.activityGroups.length > 0" class="surface-card px-4 pb-2">
+                                <template x-for="bucket in view.activityGroups" :key="bucket.label">
+                                    <section>
+                                        <h2 class="pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
+                                            x-text="bucket.label"></h2>
+                                        <ol>
+                                            <template x-for="row in bucket.items" :key="row.id">
+                                                <li class="group relative flex gap-3 py-3" data-forge-activity :data-type="row.type">
+                                                    <span aria-hidden="true"
+                                                          class="absolute start-[0.875rem] top-[1.625rem] h-full w-px bg-zinc-200 group-last:hidden dark:bg-zinc-800"></span>
+                                                    {{-- `self-start`: siehe Begründung in
+                                                         `⚡forge.blade.php` — ohne sie streckt sich die
+                                                         Hülle auf die Zeilenhöhe, der Ring wird oval
+                                                         und die Unterlage frisst den Faden. --}}
+                                                    <span class="relative shrink-0 self-start rounded-full bg-white dark:bg-zinc-900"
+                                                          :class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
+                                                        <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
+                                                    </span>
+                                                    <div class="min-w-0 flex-1">
+                                                        <p class="text-sm leading-snug">
+                                                            <span class="font-semibold" x-text="row.actorName"></span>
+                                                            <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
+                                                            <span class="font-medium" x-text="row.object"></span>
+                                                        </p>
+                                                        <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                            {{-- KURZ in der Zeile, VOLL im Tooltip —
+                                                                 Begründung in `⚡forge.blade.php`. --}}
+                                                            <span x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
+                                                            <template x-if="row.badge">
+                                                                <span class="rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
+                                                                      x-text="row.badge"></span>
+                                                            </template>
+                                                            <template x-if="row.statusLabel">
+                                                                <span class="rounded-pill bg-zinc-100 px-1.5 py-0.5 font-medium dark:bg-zinc-800"
+                                                                      x-text="row.statusLabel"></span>
+                                                            </template>
+                                                        </p>
+                                                        <template x-if="row.body">
+                                                            <p class="mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                        </template>
+                                                    </div>
+                                                </li>
+                                            </template>
+                                        </ol>
+                                    </section>
+                                </template>
                             </div>
                         </div>
                     </div>

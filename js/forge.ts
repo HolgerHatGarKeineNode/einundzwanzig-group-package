@@ -46,6 +46,12 @@ import { warmProfiles } from './profiles'
 import { deriveEventsForUrl } from './repository'
 import { WORKSPACE_URL, deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
+import {
+    groupTimeline,
+    timelineFullLabel,
+    timelineTimeLabel,
+    type TimelineGroup,
+} from './forgeTimeline.ts'
 import type { ForgeNavProject, ForgeNavRepo } from './railForge.ts'
 import {
     DELETION,
@@ -244,7 +250,12 @@ export type ForgeOverview = {
      */
     unclaimed: RepoRow[]
     counts: ForgeCounts
-    activity: ActivityRow[]
+    /**
+     * Die Zeitleiste, nach Tagen gruppiert — leere Buckets sind raus. Keine
+     * flache Liste daneben: zwei Darstellungen desselben Bestands wären zwei
+     * Orte, an denen die Länge auseinanderlaufen kann.
+     */
+    activityGroups: ActivityGroup[]
     /**
      * Welche Listen genau am Limit ankamen und deshalb gekürzt sein KÖNNTEN.
      * Leer = keine Kürzung. Siehe Eigenheit 4 im Modulkopf.
@@ -257,7 +268,7 @@ const EMPTY_OVERVIEW: ForgeOverview = {
     projects: [],
     unclaimed: [],
     counts: { projects: 0, repos: 0, pullRequests: 0, issues: 0 },
-    activity: [],
+    activityGroups: [],
     truncated: [],
 }
 
@@ -322,13 +333,24 @@ export type ActivityRow = ActivityItem & {
     actorName: string
     actorPicture: string
     verb: string
+    /**
+     * Die KURZE Angabe für die Zeile („vor 3 Std", „gestern", „12. Aug. 2026").
+     * Der Tages-Trenner darüber trägt den groben Zeitraum; ein zweiter absoluter
+     * Zeitstempel je Zeile wiederholte ihn nur.
+     */
     timeLabel: string
+    /** Die volle Angabe mit Uhrzeit — steht im `title` der Zeile, nicht im Fließtext. */
+    fullLabel: string
     statusLabel: string
 }
+
+/** Eine Tages-Gruppe der Zeitleiste (`HEUTE` · `GESTERN` · `DIESE WOCHE` · `ÄLTER`). */
+export type ActivityGroup = TimelineGroup<ActivityRow>
 
 const toActivityRows = (
     items: ActivityItem[],
     profiles: Map<string, { picture?: string }>,
+    now: number,
 ): ActivityRow[] =>
     items.map((item) => ({
         ...item,
@@ -337,9 +359,29 @@ const toActivityRows = (
         // hier schon proxifizierter Wert liefe zweimal durch den Proxy.
         actorPicture: profiles.get(item.actor)?.picture ?? '',
         verb: t(ACTIVITY_VERBS[item.type]),
-        timeLabel: timeLabel(item.createdAt),
+        timeLabel: timelineTimeLabel(item.createdAt, now),
+        fullLabel: timelineFullLabel(item.createdAt),
         statusLabel: statusLabel(item.status),
     }))
+
+/**
+ * Die fertige, nach Tagen gruppierte Zeitleiste.
+ *
+ * `now` wird EINMAL je Emit gelesen und durch beide Schritte gereicht: das
+ * Zeit-Label der Zeile und ihr Bucket entstehen so garantiert aus derselben Uhr.
+ * Zwei getrennte `Date.now()` — eines im Modell, eines beim Rendern — ergäben
+ * genau an der Mitternachtsgrenze eine Zeile „vor 3 Std" unter „Gestern".
+ *
+ * `repoNames` ist der einzige Unterschied zwischen den beiden Flächen: die
+ * Übersicht mischt Repos und benennt sie beim Wechsel, die Einzel-Repo-Ansicht
+ * zeigt sie nie (Begründung an {@link groupTimeline}).
+ */
+const toActivityGroups = (
+    items: ActivityItem[],
+    profiles: Map<string, { picture?: string }>,
+    now: number,
+    repoNames: boolean,
+): ActivityGroup[] => groupTimeline(toActivityRows(items, profiles, now), now, { repoNames })
 
 /** Alle Forge-Ereignisse des Workspace, gedrosselt. */
 const forgeEvents = (): Readable<ForgeEvent[]> =>
@@ -365,6 +407,8 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
         [forgeEvents(), throttled(300, profilesByPubkey), deriveRelaySelf(WORKSPACE_URL)],
         ([events, profiles, relaySelf]) => {
             const all = events as ForgeEvent[]
+            // Eine Uhr für diesen Emit — siehe `toActivityGroups`.
+            const now = Math.floor(Date.now() / 1000)
             const deletions = all.filter((event) => event.kind === DELETION)
             const repos = buildRepos(all, deletions)
             const projects = buildProjects(all, repos, deletions)
@@ -421,9 +465,13 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                     pullRequests: pulls.length,
                     issues: issues.length,
                 },
-                activity: toActivityRows(
+                // Die Übersicht mischt Repos — hier nennt die Zeile ihr Repo,
+                // aber nur beim Wechsel.
+                activityGroups: toActivityGroups(
                     buildActivity({ repos, events: all }).slice(0, ACTIVITY_LIMIT),
                     profiles as Map<string, { picture?: string }>,
+                    now,
+                    true,
                 ),
                 truncated,
             }
@@ -585,7 +633,12 @@ export type RepoView = {
     repo: RepoRow
     issues: IssueRow[]
     pullRequests: PullRequestRow[]
-    activity: ActivityRow[]
+    /**
+     * Dieselbe Tages-Gruppierung wie auf der Übersicht — aber OHNE Repo-Namen in
+     * den Zeilen: hier ist er für alle derselbe und steht als Seitentitel über
+     * der Liste.
+     */
+    activityGroups: ActivityGroup[]
     truncated: string[]
 }
 
@@ -666,6 +719,8 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
         [forgeEvents(), throttled(300, profilesByPubkey), deriveRelaySelf(WORKSPACE_URL), rendererReady],
         ([events, profiles, relaySelf]) => {
             const all = events as ForgeEvent[]
+            // Eine Uhr für diesen Emit — siehe `toActivityGroups`.
+            const now = Math.floor(Date.now() / 1000)
             const deletions = all.filter((event) => event.kind === DELETION)
             const repo = buildRepos(all, deletions).find(
                 (candidate) => candidate.owner === address.owner && candidate.dtag === address.dtag,
@@ -719,9 +774,11 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                         html: renderMarkdown(update.id, update.content),
                     })),
                 })),
-                activity: toActivityRows(
+                activityGroups: toActivityGroups(
                     buildActivity({ repos: [repo], events: all }).slice(0, ACTIVITY_LIMIT),
                     profiles as Map<string, { picture?: string }>,
+                    now,
+                    false,
                 ),
                 truncated,
             }

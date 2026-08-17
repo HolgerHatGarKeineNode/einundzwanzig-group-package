@@ -197,7 +197,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          eigener Leitlinie „Verb, Objekt, Ergebnis" und ist der Grund,
                          warum hier kein Kind und keine Event-Id steht. --}}
                     <div x-show="tab === 'activity' && !(loading && isEmpty())" x-cloak>
-                        <template x-if="overview.activity.length === 0">
+                        <template x-if="overview.activityGroups.length === 0">
                             <div class="surface-card empty-state px-6 py-12 text-center" data-forge-empty="activity">
                                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                     <flux:icon.clock class="size-6 text-zinc-500 dark:text-zinc-400" />
@@ -226,75 +226,108 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Zeilenhöhe. Weil jede Zeile denselben Innenabstand hat,
                              endet das Stück exakt im Mittelpunkt des nächsten Knotens.
                              Die letzte Zeile zeichnet nichts — `:last-child` trifft mit
-                             `x-for` zuverlässig, im Gegensatz zu `:first-child`. --}}
-                        <div x-show="overview.activity.length > 0" class="surface-card px-4">
-                            <ol>
-                                <template x-for="row in overview.activity" :key="row.id">
-                                    <li class="group relative flex gap-3 py-3"
-                                        data-forge-activity :data-type="row.type">
-                                        <span aria-hidden="true"
-                                              class="absolute start-[0.875rem] top-[1.625rem] h-full w-px bg-zinc-200 group-last:hidden dark:bg-zinc-800"></span>
-                                        {{-- Deckende Unterlage: der Avatar selbst ist mit
-                                             `bg-brand-500/10` halbtransparent, der Faden
-                                             liefe sonst sichtbar durch ihn hindurch. Der
-                                             Ring markiert die Ereignisse, die ein echtes
-                                             Git-Objekt erzeugt haben (Push, PR-Update) —
-                                             dieselbe Aussage trägt der Kurzhash als TEXT
-                                             in der Metazeile, die Farbe ist also nie der
-                                             alleinige Träger (WCAG 1.4.1). Gemessen:
-                                             brand-700 auf Weiß 4,40:1, brand-500 auf
-                                             zinc-900 7,81:1 — beide über den 3:1 aus
-                                             1.4.11. --}}
-                                        {{-- `self-start` ist PFLICHT, nicht Feinschliff: als
-                                             Flex-Kind streckt sich diese Hülle sonst auf die
-                                             volle Zeilenhöhe (`align-items: stretch`). Am
-                                             Bildschirm nachgesehen war der Ring dann eine
-                                             ELLIPSE, und die deckende Unterlage verschluckte
-                                             den Faden über und unter dem Avatar — der Faden
-                                             sah aus, als träfe er die Knoten nicht. --}}
-                                        <span class="relative shrink-0 self-start rounded-full bg-white dark:bg-zinc-900"
-                                              :class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
-                                            <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
-                                        </span>
-                                        <div class="min-w-0 flex-1">
-                                            <p class="text-sm leading-snug">
-                                                <span class="font-semibold" x-text="row.actorName"></span>
-                                                <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
-                                                <span class="font-medium" x-text="row.object"></span>
-                                            </p>
-                                            {{-- Kurzhash und Statuswort stehen HIER und nicht
-                                                 mehr rechts in der Zeile. Als Flex-Geschwister
-                                                 des Satzes schnitten sie ihm auf schmalen
-                                                 Fenstern die Breite ab und standen mitten im
-                                                 Satzbau („hat einen [ca1c707] Pull Request
-                                                 eröffnet") — bei 360px nachgesehen. In der
-                                                 Metazeile sind sie ruhiger Beleg statt
-                                                 Blickfang. --}}
-                                            <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                                                <span x-text="row.timeLabel"></span>
-                                                <template x-if="row.repoName">
-                                                    <span><span aria-hidden="true">·</span> <span x-text="row.repoName"></span></span>
-                                                </template>
-                                                <template x-if="row.badge">
-                                                    <span class="rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                          x-text="row.badge"></span>
-                                                </template>
-                                                <template x-if="row.statusLabel">
-                                                    <span class="rounded-pill bg-zinc-100 px-1.5 py-0.5 font-medium dark:bg-zinc-800"
-                                                          x-text="row.statusLabel"></span>
-                                                </template>
-                                            </p>
-                                            {{-- Zweite Zeile: IMMER `x-text`. Der Rumpf ist
-                                                 Fremdtext und wird hier nie als HTML
-                                                 gebunden — gerendert wird Markdown nur auf
-                                                 der Repo-Seite, über den Artikel-Renderer. --}}
-                                            <template x-if="row.body">
-                                                <p class="mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
-                                            </template>
-                                        </div>
-                                    </li>
-                                </template>
-                            </ol>
+                             `x-for` zuverlässig, im Gegensatz zu `:first-child`.
+
+                             ── Die Tages-Trenner ──────────────────────────────────
+                             Dieselbe Bucket-Sprache wie `/updates` (HEUTE · GESTERN ·
+                             DIESE WOCHE · ÄLTER), leere Buckets liefert das Modell gar
+                             nicht erst aus, und der Titel ist ein echtes <h2> —
+                             Screenreader springen damit von Gruppe zu Gruppe. Kein
+                             dekorativer Balken und keine zweite Ordnung: zwei
+                             Zeitleisten im selben Produkt dürfen nicht zwei Sprachen
+                             sprechen. Der Faden endet an jedem Trenner, weil jede
+                             Gruppe ihr eigenes <ol> hat — `group-last:hidden` trifft
+                             dort die jeweils letzte Zeile. --}}
+                        <div x-show="overview.activityGroups.length > 0" class="surface-card px-4 pb-2">
+                            <template x-for="bucket in overview.activityGroups" :key="bucket.label">
+                                <section>
+                                    <h2 class="pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
+                                        x-text="bucket.label"></h2>
+                                    <ol>
+                                        <template x-for="row in bucket.items" :key="row.id">
+                                            <li class="group relative flex gap-3 py-3"
+                                                data-forge-activity :data-type="row.type">
+                                                <span aria-hidden="true"
+                                                      class="absolute start-[0.875rem] top-[1.625rem] h-full w-px bg-zinc-200 group-last:hidden dark:bg-zinc-800"></span>
+                                                {{-- Deckende Unterlage: der Avatar selbst ist mit
+                                                     `bg-brand-500/10` halbtransparent, der Faden
+                                                     liefe sonst sichtbar durch ihn hindurch. Der
+                                                     Ring markiert die Ereignisse, die ein echtes
+                                                     Git-Objekt erzeugt haben (Push, PR-Update) —
+                                                     dieselbe Aussage trägt der Kurzhash als TEXT
+                                                     in der Metazeile, die Farbe ist also nie der
+                                                     alleinige Träger (WCAG 1.4.1). Gemessen:
+                                                     brand-700 auf Weiß 4,40:1, brand-500 auf
+                                                     zinc-900 7,81:1 — beide über den 3:1 aus
+                                                     1.4.11. --}}
+                                                {{-- `self-start` ist PFLICHT, nicht Feinschliff: als
+                                                     Flex-Kind streckt sich diese Hülle sonst auf die
+                                                     volle Zeilenhöhe (`align-items: stretch`). Am
+                                                     Bildschirm nachgesehen war der Ring dann eine
+                                                     ELLIPSE, und die deckende Unterlage verschluckte
+                                                     den Faden über und unter dem Avatar — der Faden
+                                                     sah aus, als träfe er die Knoten nicht. --}}
+                                                <span class="relative shrink-0 self-start rounded-full bg-white dark:bg-zinc-900"
+                                                      :class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
+                                                    <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
+                                                </span>
+                                                <div class="min-w-0 flex-1">
+                                                    <p class="text-sm leading-snug">
+                                                        <span class="font-semibold" x-text="row.actorName"></span>
+                                                        <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
+                                                        <span class="font-medium" x-text="row.object"></span>
+                                                    </p>
+                                                    {{-- Kurzhash und Statuswort stehen HIER und nicht
+                                                         mehr rechts in der Zeile. Als Flex-Geschwister
+                                                         des Satzes schnitten sie ihm auf schmalen
+                                                         Fenstern die Breite ab und standen mitten im
+                                                         Satzbau („hat einen [ca1c707] Pull Request
+                                                         eröffnet") — bei 360px nachgesehen. In der
+                                                         Metazeile sind sie ruhiger Beleg statt
+                                                         Blickfang. --}}
+                                                    <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                        {{-- KURZ in der Zeile („vor 3 Std"), VOLL im
+                                                             Tooltip. Der Trenner über der Gruppe sagt
+                                                             bereits, welcher Tag gemeint ist; ein
+                                                             zweiter absoluter Zeitstempel je Zeile
+                                                             wiederholte ihn nur — zwanzig Mal dieselbe
+                                                             Jahreszahl untereinander. Wer die Minute
+                                                             braucht, bekommt sie über `title`.
+                                                             `x-bind:title` ausgeschrieben: auf normalem
+                                                             HTML ist die Blade-Kurzform kein Binding. --}}
+                                                        <span x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
+                                                        {{-- Der Repo-Name steht nur, wo er sich ÄNDERT
+                                                             (`showRepoName` aus `groupTimeline`) — und
+                                                             nach jedem Trenner wieder. In einer Liste,
+                                                             die zehnmal dasselbe Repo betrifft, ist die
+                                                             Wiederholung kein Kontext, sondern Rauschen;
+                                                             der Wechsel dagegen ist genau die
+                                                             Information, die man sucht. --}}
+                                                        <template x-if="row.showRepoName">
+                                                            <span><span aria-hidden="true">·</span> <span x-text="row.repoName"></span></span>
+                                                        </template>
+                                                        <template x-if="row.badge">
+                                                            <span class="rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
+                                                                  x-text="row.badge"></span>
+                                                        </template>
+                                                        <template x-if="row.statusLabel">
+                                                            <span class="rounded-pill bg-zinc-100 px-1.5 py-0.5 font-medium dark:bg-zinc-800"
+                                                                  x-text="row.statusLabel"></span>
+                                                        </template>
+                                                    </p>
+                                                    {{-- Zweite Zeile: IMMER `x-text`. Der Rumpf ist
+                                                         Fremdtext und wird hier nie als HTML
+                                                         gebunden — gerendert wird Markdown nur auf
+                                                         der Repo-Seite, über den Artikel-Renderer. --}}
+                                                    <template x-if="row.body">
+                                                        <p class="mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                    </template>
+                                                </div>
+                                            </li>
+                                        </template>
+                                    </ol>
+                                </section>
+                            </template>
                         </div>
                     </div>
 
