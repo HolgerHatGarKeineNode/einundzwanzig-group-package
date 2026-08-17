@@ -29,7 +29,14 @@ import {
     REACTION,
     ZAP_RESPONSE,
 } from '@welshman/util'
-import { eventsToPrune, isCappedEvent, shouldPersistEvent } from './storage.ts'
+import {
+    eventsToPrune,
+    forgetRepos,
+    isCappedEvent,
+    partitionForCache,
+    rememberRepos,
+    shouldPersistEvent,
+} from './storage.ts'
 
 const ev = (kind: number, tags: string[][] = []) => ({ kind, tags }) as never
 
@@ -132,6 +139,14 @@ test('Nachrichten-Kappung bleibt per Raum und faellt nicht in den Kommentar-Topf
 
 /** 30617-Koordinate mit gültigem 64-Hex-Eigentümer. */
 const REPO_A = `30617:${'a'.repeat(64)}:demo`
+/** Dieselbe Koordinate als ANKÜNDIGUNG — erst sie macht das Repo „bekannt". */
+const repoAnnouncement = () =>
+    ({ id: 'repo-a', kind: 30617, pubkey: 'a'.repeat(64), created_at: NOW, tags: [['d', 'demo']] }) as never
+/** Ein Repo, das nie jemand angekündigt hat — die Koordinate ist trotzdem wohlgeformt. */
+const REPO_ERFUNDEN = `30617:${'b'.repeat(64)}:nichtexistentes-repo-xyz`
+
+/** Die Menge „bekannter" Repos, wie sie `shouldPersistEvent` erwartet. */
+const bekannt = new Set([REPO_A])
 
 const forumPost = (id: string, createdAt: number, h: string) =>
     ({ id, kind: 45001, created_at: createdAt, tags: [['h', h]] }) as never
@@ -152,8 +167,17 @@ test('die Forge-Kinds ueberleben den Kaltstart', () => {
     // Am Teststack gemessen (2026-08-17): jedes dieser Kinds wird von Buzz
     // gespeichert und ist per `nak req` zurueckzulesen — sie sind also
     // legitime Cache-Kandidaten und keine relay-seitig synthetisierten.
-    for (const kind of [30617, 30618, 30621, 1621, 1618, 1619, 1630, 1631, 1632, 1633]) {
-        assert.equal(shouldPersistEvent(ev(kind)), true, `kind ${kind} (Forge) muss den Reload ueberleben`)
+    for (const kind of [30617, 30618, 30621]) {
+        assert.equal(shouldPersistEvent(ev(kind)), true, `kind ${kind} (Forge, ersetzbar) muss den Reload ueberleben`)
+    }
+    // Die BLAETTER haengen an einem Repo — und nur an einem BEKANNTEN (siehe der
+    // Angriffstest weiter unten). Mit bekanntem Ziel muessen sie durchkommen.
+    for (const kind of [1621, 1618, 1619, 1630, 1631, 1632, 1633]) {
+        assert.equal(
+            shouldPersistEvent(ev(kind, [['a', REPO_A]]), bekannt),
+            true,
+            `kind ${kind} (Forge-Blatt) muss den Reload ueberleben`,
+        )
     }
 })
 
@@ -168,11 +192,15 @@ test('kind 1 kommt NUR als Forge-Kommentar in den Cache', () => {
     // allgemeinste Kind ueberhaupt. Ohne Strukturpruefung zoege jede Notiz jedes
     // Relays in den Cache — genau der Fehler, den `39005` an anderer Stelle
     // vermeidet, nur aus dem umgekehrten Grund.
-    assert.equal(shouldPersistEvent(ev(1, [['a', REPO_A]])), true, 'kind 1 mit 30617-Koordinate')
-    assert.equal(shouldPersistEvent(ev(1)), false, 'nackte Notiz ohne a-Tag')
-    assert.equal(shouldPersistEvent(ev(1, [['a', `30023:${'a'.repeat(64)}:artikel`]])), false, 'a-Tag auf einen Artikel')
-    assert.equal(shouldPersistEvent(ev(1, [['a', '30617:kurz:demo']])), false, 'a-Tag mit unbrauchbarem Eigentuemer')
-    assert.equal(shouldPersistEvent(ev(1, [['e', 'irgendwas']])), false, 'Antwort ohne Repo-Bezug')
+    assert.equal(shouldPersistEvent(ev(1, [['a', REPO_A]]), bekannt), true, 'kind 1 mit bekannter 30617-Koordinate')
+    assert.equal(shouldPersistEvent(ev(1), bekannt), false, 'nackte Notiz ohne a-Tag')
+    assert.equal(
+        shouldPersistEvent(ev(1, [['a', `30023:${'a'.repeat(64)}:artikel`]]), bekannt),
+        false,
+        'a-Tag auf einen Artikel',
+    )
+    assert.equal(shouldPersistEvent(ev(1, [['a', '30617:kurz:demo']]), bekannt), false, 'a-Tag mit unbrauchbarem Eigentuemer')
+    assert.equal(shouldPersistEvent(ev(1, [['e', 'irgendwas']]), bekannt), false, 'Antwort ohne Repo-Bezug')
 })
 
 test('Buzz’ Thread-Summary (39005) bleibt drausssen, zooids Pin-Liste nicht', () => {
@@ -204,7 +232,11 @@ test('ALLES, was gespeichert wird UND waechst, laeuft in die Kappung', () => {
     ]
     for (const event of wachsend) {
         assert.equal(isCappedEvent(event), true, `kind ${(event as { kind: number }).kind} muss gekappt werden`)
-        assert.equal(shouldPersistEvent(event), true, `kind ${(event as { kind: number }).kind} wird gespeichert`)
+        assert.equal(
+            shouldPersistEvent(event, bekannt),
+            true,
+            `kind ${(event as { kind: number }).kind} wird gespeichert`,
+        )
     }
     // Gegenprobe: Ersetzbares ist selbst-begrenzt und darf NICHT in die Kappung —
     // ein gekapptes 30617 hiesse, ein Repo aus dem Cache zu werfen, das es noch gibt.
@@ -267,4 +299,78 @@ test('Forum und Forge haben ein LAENGERES Altersfenster als der Chat', () => {
     assert.equal(drop.has('issue-40d'), false, 'Forge: 40 Tage bleiben')
     assert.equal(drop.has('thema-40d'), false, 'Forum: 40 Tage bleiben')
     assert.equal(drop.has('issue-200d'), true, 'Forge: 200 Tage reissen den Backstop')
+})
+
+// ── Der Angriff: ein erfundenes Ziel besteht jede Formpruefung ──────────────
+//
+// Gefunden im P10-Gate. `isForgeComment` prueft nur Syntax, und
+// `parseRepoAddress` verlangt bloss 64-Hex-Eigentuemer plus nichtleeres `d` —
+// `30617:<b×64>:nichtexistentes-repo-xyz` besteht das, obwohl es dieses Repo nie
+// gab. Weil die Persistenz auf dem GETEILTEN repository laeuft und dort keine
+// Herkunftspruefung stattfindet (die sitzt erst beim Rendern in
+// deriveEventsForUrl), haette damit jedes kind 1 aus jeder Quelle, die der Client
+// ohnehin empfaengt, in den Forge-Topf gelangen und echte Statuswechsel aus dem
+// Deckel verdraengen koennen.
+
+test('ANGRIFF: ein erfundenes Repo-Ziel kommt NICHT in den Cache', () => {
+    const gefaelscht = ev(1, [['a', REPO_ERFUNDEN]])
+    assert.equal(
+        shouldPersistEvent(gefaelscht, bekannt),
+        false,
+        'kind 1 mit wohlgeformtem, aber unbekanntem Ziel darf nicht persistiert werden',
+    )
+
+    // Dieselbe Beweislast fuer die ganze Klasse, nicht nur fuer den mehrdeutigen
+    // kind-1-Fall: die Zeichenkette im `a`-Tag ist ueberall nur eine Behauptung.
+    for (const kind of [1621, 1618, 1619, 1630, 1631, 1632, 1633]) {
+        assert.equal(
+            shouldPersistEvent(ev(kind, [['a', REPO_ERFUNDEN]]), bekannt),
+            false,
+            `kind ${kind} mit erfundenem Ziel darf nicht persistiert werden`,
+        )
+    }
+
+    // Gegenprobe, damit der Test nicht einfach „alles false" sagt: dasselbe
+    // Ereignis mit BEKANNTEM Ziel geht durch.
+    assert.equal(shouldPersistEvent(ev(1, [['a', REPO_A]]), bekannt), true, 'bekanntes Ziel bleibt erlaubt')
+
+    // Und ohne jedes Vorwissen faellt auch das echte Ziel — die Existenzfrage ist
+    // wirklich die entscheidende, nicht die Form.
+    assert.equal(shouldPersistEvent(ev(1, [['a', REPO_A]]), new Set()), false, 'ohne bekanntes Repo: nichts')
+})
+
+test('REIHENFOLGE: das Repo im selben Schwung macht seine Blaetter aufnahmefaehig', () => {
+    // Der Riegel darf keinen legitimen Kommentar verschlucken. Beim Kaltstart ist
+    // die Reihenfolge in der IndexedDB beliebig, deshalb merkt sich der Cache die
+    // Repos des BESTANDS, bevor er filtert — hier nachgestellt.
+    forgetRepos()
+    const kommentar = ev(1, [['a', REPO_A]])
+    assert.equal(shouldPersistEvent(kommentar), false, 'ohne Vorwissen (noch) nicht')
+
+    // Blatt VOR Repo in derselben Liste — genau der Fall, den loadCachedEvents und
+    // syncEvents mit ihrem Vorlauf abfangen.
+    rememberRepos([kommentar, repoAnnouncement()])
+    assert.equal(shouldPersistEvent(kommentar), true, 'nach dem Vormerken des Repos: ja')
+    assert.equal(shouldPersistEvent(ev(1621, [['a', REPO_A]])), true, 'gilt fuer jedes Blatt desselben Repos')
+    assert.equal(shouldPersistEvent(ev(1, [['a', REPO_ERFUNDEN]])), false, 'das erfundene Ziel bleibt draussen')
+
+    // Abmelden loescht das Wissen — ein neues Konto erbt es nicht.
+    forgetRepos()
+    assert.equal(shouldPersistEvent(kommentar), false, 'nach forgetRepos ist das Repo wieder unbekannt')
+})
+
+test('REIHENFOLGE: partitionForCache entscheidet ueber den SCHWUNG, nicht Ereignis fuer Ereignis', () => {
+    // Das ist die Funktion, die beide Schreibwege benutzen (Kaltstart-Load und
+    // Live-Persistenz). Steht das Blatt VOR seinem Repo, muss es trotzdem
+    // durchkommen — sonst waere der Existenz-Riegel ein neuer Datenverlust.
+    forgetRepos()
+    const kommentar = ev(1, [['a', REPO_A]])
+    const issue = ev(1621, [['a', REPO_A]])
+    const fremd = ev(1, [['a', REPO_ERFUNDEN]])
+    const { keep, drop } = partitionForCache([kommentar, issue, fremd, repoAnnouncement()])
+    assert.equal(keep.includes(kommentar), true, 'Kommentar vor seinem Repo: bleibt')
+    assert.equal(keep.includes(issue), true, 'Issue vor seinem Repo: bleibt')
+    assert.equal(drop.includes(fremd), true, 'das erfundene Ziel faellt auch im Schwung')
+    assert.equal(keep.length, 3, 'Repo + zwei Blaetter')
+    forgetRepos()
 })

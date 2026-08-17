@@ -136,22 +136,46 @@ export const parseRepoAddress = (value: string): RepoAddress | null => {
 }
 
 /**
- * Ist dieses kind 1 ein **Forge-Kommentar** — und nicht irgendeine Notiz?
+ * Auf welches Repo beruft sich dieses Ereignis? `''`, wenn auf keins.
+ *
+ * Liefert die erste **syntaktisch gültige** `30617:<owner>:<d>`-Koordinate aus den
+ * `a`-Tags, normalisiert (Eigentümer klein). Jedes Blatt der Forge — Issue, PR,
+ * PR-Update, Statuswechsel, Kommentar — trägt genau so seinen Bezug; ohne ihn
+ * fände es keine Abfrage dieser Fläche, denn `forge.ts contentFilters` scopet
+ * ausschließlich über `#a`.
+ *
+ * **Das ist eine Behauptung des Ereignisses, keine Tatsache.** Die Koordinate ist
+ * frei wählbar: `30617:<64 beliebige Hexzeichen>:<beliebiges d>` besteht jede
+ * Formprüfung, auch wenn es das Repo nie gab. Wer aus dieser Zeichenkette eine
+ * Zugehörigkeit ableitet, muss zusätzlich prüfen, ob das Repo **bekannt** ist —
+ * siehe `storage.ts`, `shouldPersistEvent`.
+ */
+export const forgeTargetAddress = (event: ForgeEvent): string => {
+    for (const tag of event.tags) {
+        if (tag[0] === 'a' && isFilled(tag[1]) && parseRepoAddress(tag[1]) !== null) {
+            return tag[1].toLowerCase()
+        }
+    }
+
+    return ''
+}
+
+/**
+ * Hat dieses kind 1 die **Form** eines Forge-Kommentars — und nicht die einer
+ * beliebigen Notiz?
  *
  * Die Frage stellt sich, weil Buzz Kommentare als kind 1 schreibt (Regel 3 im
  * Dateikopf): dieselbe Zahl trägt im Nostr-Alltag jede beliebige Notiz. Wer
  * kind 1 pauschal als Forge-Inhalt behandelt — etwa beim Cachen —, zieht die
  * halbe Zeitleiste der Community mit hinein.
  *
- * Getrennt wird an der **Struktur**, nicht an der Herkunfts-URL: ein
- * Forge-Kommentar zeigt per `a`-Tag auf eine gültige `30617:<owner>:<d>`-
- * Koordinate, weil er sonst von keiner Abfrage dieser Fläche je gefunden würde
- * (`forge.ts contentFilters` scopet ausschließlich über `#a`). Dasselbe Muster
- * wie {@link isZooidPinList} in `pins.ts`.
+ * **Diese Prüfung allein reicht als Aufnahmekriterium NICHT.** Sie beantwortet
+ * „sieht aus wie", nicht „gehört zu": ein erfundenes `a`-Ziel besteht sie
+ * (siehe {@link forgeTargetAddress}). Wer damit über Aufnahme in einen Speicher
+ * entscheidet, braucht die Existenzprüfung daneben.
  */
 export const isForgeComment = (event: ForgeEvent): boolean =>
-    event.kind === FORGE_COMMENT &&
-    event.tags.some((tag) => tag[0] === 'a' && isFilled(tag[1]) && parseRepoAddress(tag[1]) !== null)
+    event.kind === FORGE_COMMENT && forgeTargetAddress(event) !== ''
 
 /** Die Koordinate eines Repos aufbauen. Eigentümer immer kleingeschrieben. */
 export const repoAddressOf = (owner: string, dtag: string): string =>

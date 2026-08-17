@@ -611,6 +611,23 @@ const tombstoneAsked = new Set<string>()
  * nicht verrät: gecachter Bestand kommt als Dublette gar nicht erst beim Aufrufer
  * an (siehe {@link localForgeEvents}). Ein Vergleich „lokal minus geliefert"
  * hielte deshalb **jedes** gecachte Ereignis für verschwunden.
+ *
+ * ── Wie viele Filter das kostet: 7, und die Grenze ist 10 ───────────────────
+ *
+ * Buzz erzwingt **`max_filters: 10` je REQ** (`protocol.rs:92-99`, im NIP-11 auch
+ * so annonciert) — und `load` bündelt ALLE Filter einer Runde in **einen** REQ
+ * (`request.js:191` `unionFilters`). Die Chunks hier fallen dabei wieder
+ * zusammen: `unionFilters` gruppiert nach Schlüsselmenge und führt Filter OHNE
+ * `limit` zusammen (`Filters.js:42-69`), aus beliebig vielen
+ * `{kinds:[5],"#e":[…]}` wird also genau **einer**. Zweite Laderunde der
+ * Übersicht im schlimmsten Fall: 5 Inhaltsfilter (jeder mit `limit`, deshalb
+ * unvereinbar) + 1 `#a`-Grabsteinfilter + 1 `#e`-Grabsteinfilter = **7**. Die
+ * Rail kommt auf 4, die erste Runde auf 3. Drei Filter Luft — wer
+ * {@link contentFilters} erweitert, verbraucht sie.
+ *
+ * Die Werteliste selbst ist unkritisch: bei vollen Deckeln (300 Wurzeln + 600
+ * Blätter) trägt der `#e`-Filter 900 Ids ≈ 59 KB gegen `max_message_length:
+ * 524288`, und der REQ-Pfad kennt keine Obergrenze für Tag-Werte.
  */
 const tombstoneFiltersForCached = (content: Filter[]): Filter[] => {
     const ids = localForgeEvents(content)

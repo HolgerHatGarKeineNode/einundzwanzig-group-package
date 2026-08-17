@@ -49,7 +49,9 @@ import {
     PROJECT_ANNOUNCEMENT,
     REPO_ANNOUNCEMENT,
     REPO_STATE,
+    forgeTargetAddress,
     isForgeComment,
+    repoAddressOf,
 } from './forgeModels.ts'
 import { FORUM_COMMENT, FORUM_POST } from './forumModels.ts'
 import { USER_STATUS } from './userStatusData.ts'
@@ -138,15 +140,12 @@ const PERSIST_KINDS = new Set<number>([
     ROOM_ADMINS,
     ROOM_MEMBERS,
     BUZZ_PIN, // P6b — sonst ist die Pin-Leiste auf Buzz beim Kaltstart leer
-    // P10 — Forge (NIP-34 + NIP-MP). Ersetzbar:
+    // P10 — Forge (NIP-34 + NIP-MP). Ersetzbar und selbst-tragend:
     REPO_ANNOUNCEMENT,
     REPO_STATE,
     PROJECT_ANNOUNCEMENT,
-    // P10 — Forge, append-only (gekappt in `eventsToPrune`):
-    GIT_ISSUE,
-    GIT_PULL_REQUEST,
-    GIT_PR_UPDATE,
-    ...GIT_STATUS_KINDS,
+    // Die BLÄTTER der Forge (1621, 1618, 1619, 1630–1633, kind 1) stehen bewusst
+    // NICHT hier, sondern hinter {@link FORGE_LEAF_KINDS} + Existenzprüfung.
     // P10 — Forum (append-only, gekappt):
     FORUM_POST,
     FORUM_COMMENT,
@@ -175,17 +174,130 @@ const PERSIST_KINDS = new Set<number>([
  * die Abwesenheit von `["h"]` und leeren `content` — drei gemessene Merkmale, jedes für
  * sich ausreichend.
  */
-export function shouldPersistEvent(event: TrustedEvent): boolean {
+/**
+ * Die **Blätter** der Forge: alles, was per `a`-Tag an einem Repo hängt, statt für
+ * sich zu stehen. Sie brauchen ein zweites Kriterium — siehe {@link knownRepos}.
+ */
+const FORGE_LEAF_KINDS = new Set<number>([
+    GIT_ISSUE,
+    GIT_PULL_REQUEST,
+    GIT_PR_UPDATE,
+    ...GIT_STATUS_KINDS,
+    FORGE_COMMENT,
+])
+
+/**
+ * Die Repo-Koordinaten, die dieser Cache **kennt** — gefüllt aus jedem 30617, das
+ * er selbst aufnimmt.
+ *
+ * ── Warum die Form eines `a`-Tags als Aufnahmekriterium nicht genügt ────────────
+ *
+ * Ein `a`-Tag ist eine **Behauptung des Absenders**, keine Tatsache:
+ * `30617:<64 beliebige Hexzeichen>:<beliebiges d>` besteht jede Syntaxprüfung, auch
+ * wenn dieses Repo nie existiert hat. Und die Persistenz sieht **nicht**, woher ein
+ * Ereignis kam: `shouldPersistEvent` bekommt nur das Ereignis, die Herkunftsprüfung
+ * sitzt erst beim Rendern (`deriveEventsForUrl` über den `tracker`). Der
+ * `repository` ist geteilt — in ihm liegen auch Buzz-Chat und zooid-Antworten.
+ *
+ * Zusammen ergab das eine Lücke, die eine reine Formprüfung nicht schließt: **jedes**
+ * kind 1 aus **jeder** Quelle, die der Client ohnehin empfängt, hätte mit einem
+ * angehängten `a`-Tag im Forge-Topf landen und dort echte Statuswechsel und
+ * Kommentare aus {@link FORGE_META_CAP_TOTAL} verdrängen können. Der Store wüchse
+ * nicht unbegrenzt — sein begrenzter Platz wäre nur mit Fremdinhalt füllbar, was den
+ * Zweck des Caches genauso zunichtemacht.
+ *
+ * Aufgenommen wird ein Blatt deshalb nur, wenn sein Ziel ein Repo ist, das dieser
+ * Cache **selbst kennt**. Das gilt für die ganze Klasse (1621, 1618, 1619, 1630–1633
+ * und kind 1), nicht nur für den mehrdeutigen kind-1-Fall: dieselbe Zeichenkette
+ * trägt bei allen dieselbe Beweislast.
+ *
+ * ── Die Reihenfolge, an der so ein Riegel sonst scheitert ───────────────────────
+ *
+ * Ein Kommentar, der VOR seinem Repo eintrifft, dürfte nicht verworfen werden — sonst
+ * ist der Riegel ein neuer Datenverlust. Drei Wege, und alle drei sind gedeckt:
+ *
+ *  1. **Netz:** `loadForge`/`loadForgeNav` laden in zwei Runden, und Runde 2 leitet
+ *     ihre `#a`-Filter aus Runde 1 ab. Das Repo ist also **immer** vor seinen
+ *     Blättern da; ein Blatt ohne bekanntes Repo kann über diesen Weg gar nicht
+ *     hereinkommen (`watchForge` scopet ebenso über `#a`).
+ *  2. **Kaltstart:** {@link loadCachedEvents} merkt sich die Repos des gecachten
+ *     Bestands, BEVOR es filtert — die Reihenfolge in der IndexedDB ist beliebig,
+ *     also darf sie nicht zählen.
+ *  3. **Live-Persistenz:** {@link syncEvents} tut dasselbe je Batch, ebenfalls vor
+ *     dem Filtern. Repo und Kommentar im selben Schwung funktionieren in beiden
+ *     Reihenfolgen.
+ *
+ * Bleibt der Fall „Blatt kommt in einem FRÜHEREN Batch als sein Repo". Er entsteht
+ * über keinen der Lesewege dieser App; träte er doch auf, bleibt das Ereignis im
+ * `repository` (nur der Cache lässt es aus) und die nächste Laderunde holt es
+ * regulär nach. Fehlerrichtung: eine Kaltstart-Zeile später statt Fremdinhalt im
+ * Cache.
+ */
+const knownRepos = new Set<string>()
+
+/**
+ * Die 30617 eines Schwungs vormerken. **Vor** jedem Filtern aufrufen, nie danach.
+ * Idempotent; `pubkey` wird kleingeschrieben, weil `#a`-Filter bytegenau vergleichen.
+ */
+export function rememberRepos(events: Iterable<TrustedEvent>): void {
+    for (const event of events) {
+        if (event.kind !== REPO_ANNOUNCEMENT) {
+            continue
+        }
+        const dtag = event.tags.find((tag) => tag[0] === 'd')?.[1]
+        if (dtag) {
+            knownRepos.add(repoAddressOf(event.pubkey, dtag))
+        }
+    }
+}
+
+/** Das Gedächtnis leeren (Abmelden, Tests). */
+export function forgetRepos(): void {
+    knownRepos.clear()
+}
+
+/**
+ * Darf dieses Ereignis in den Cache? `known` ist injizierbar, damit der Test die
+ * Existenzfrage ohne Modul-Zustand stellen kann.
+ */
+export function shouldPersistEvent(event: TrustedEvent, known: ReadonlySet<string> = knownRepos): boolean {
     if (event.kind === ZOOID_PIN_LIST) {
         return isZooidPinList(event)
     }
-    // P10: kind 1 ist das allgemeinste Kind überhaupt — nur die Forge-Form darf rein.
-    // Siehe die Begründung über `PERSIST_KINDS`.
-    if (event.kind === FORGE_COMMENT) {
-        return isForgeComment(event)
+    if (FORGE_LEAF_KINDS.has(event.kind)) {
+        // Erst die Form (bei kind 1 die einzige Unterscheidung zu einer beliebigen
+        // Notiz), dann die Existenz. Beides ist nötig, keins reicht allein.
+        const address = forgeTargetAddress(event)
+
+        return address !== '' && known.has(address)
     }
 
     return PERSIST_KINDS.has(event.kind)
+}
+
+/**
+ * Einen ganzen Schwung auf „kommt rein" / „fliegt raus" aufteilen — **die einzige
+ * Stelle, an der über Aufnahme entschieden wird.**
+ *
+ * Sie merkt sich die Repos des Schwungs, BEVOR sie filtert. Genau das ist die
+ * Reihenfolge-Zusage aus {@link knownRepos}: ob ein Kommentar vor oder nach seinem
+ * 30617 in der Liste steht, darf nicht zählen. Stünde dieser Vorlauf bei den
+ * Aufrufern statt hier, gäbe es zwei Kopien derselben Regel — und die zweite
+ * altert unbemerkt (derselbe Riss wie bei {@link isCappedEvent}).
+ */
+export function partitionForCache(events: Iterable<TrustedEvent>): {
+    keep: TrustedEvent[]
+    drop: TrustedEvent[]
+} {
+    const all = Array.from(events)
+    rememberRepos(all)
+    const keep: TrustedEvent[] = []
+    const drop: TrustedEvent[] = []
+    for (const event of all) {
+        ;(shouldPersistEvent(event) ? keep : drop).push(event)
+    }
+
+    return { keep, drop }
 }
 
 /**
@@ -568,16 +680,14 @@ function deleteDb(name: string): Promise<void> {
  */
 async function loadCachedEvents(): Promise<void> {
     const cached = await getAll<TrustedEvent>('events')
-    const keep: TrustedEvent[] = []
-    const drop: string[] = []
-    for (const event of cached) {
-        if (shouldPersistEvent(event)) {
-            event[verifiedSymbol] = true
-            keep.push(event)
-        } else {
-            drop.push(event.id)
-        }
+    // Die Reihenfolge in der IndexedDB ist beliebig — deshalb entscheidet
+    // {@link partitionForCache} über den ganzen Bestand auf einmal (Weg 2 bei
+    // {@link knownRepos}), nicht Ereignis für Ereignis.
+    const { keep, drop: dropped } = partitionForCache(cached)
+    for (const event of keep) {
+        event[verifiedSymbol] = true
     }
+    const drop = dropped.map((event) => event.id)
     // §4.3: gekappte/veraltete Nachrichten weder in die repository laden noch behalten.
     // Zusätzlich: durch gecachte 9005-Tombstones gelöschte Ziele ausschließen (B2) — ein
     // im Cache liegendes 9005 darf seine Nachricht nicht wieder auferstehen lassen. Das
@@ -670,18 +780,18 @@ function syncEvents(): () => void {
         repository,
         'update',
         batch(3000, async (updates: RepositoryUpdate[]) => {
-            const add: TrustedEvent[] = []
+            // Ein Schwung, eine Entscheidung (Weg 3 bei {@link knownRepos}): sonst
+            // entschiede die Ankunftsreihenfolge INNERHALB eines Batches darüber, ob
+            // ein Kommentar seinen Repo-Bezug belegen kann.
+            const { keep: add } = partitionForCache(updates.flatMap((update) => update.added))
             const remove = new Set<string>()
             for (const update of updates) {
-                for (const event of update.added) {
-                    if (shouldPersistEvent(event)) {
-                        add.push(event)
-                        remove.delete(event.id)
-                    }
-                }
                 for (const id of update.removed) {
                     remove.add(id)
                 }
+            }
+            for (const event of add) {
+                remove.delete(event.id)
             }
             await bulkPut('events', add)
             // Herkunft IMMER zusammen mit dem Ereignis — Begründung bei
@@ -757,6 +867,7 @@ function startSync(): void {
 export async function clearCache(): Promise<void> {
     stopSyncFn?.()
     stopSyncFn = null
+    forgetRepos() // kein Repo-Wissen des abgemeldeten Kontos an den nächsten weiterreichen
     const name = dbName
     if (!name) {
         return
