@@ -70,6 +70,7 @@ import {
     joinRoom,
     leaveRoom,
     reloadRoomMembership,
+    revokeRoomMembership,
     joinSpace,
     leaveSpace,
     parseInviteLink,
@@ -4809,6 +4810,20 @@ export function registerNostrComponents(Alpine: {
             if (verdict === 'unrelated') {
                 return
             }
+            // P9 — die Mitgliedschaft NACHFÜHREN, und zwar vor jeder Fläche-Entscheidung.
+            //
+            // Beide verbleibenden Urteile sagen dasselbe über die eigene Mitgliedschaft:
+            // wir können sie nicht mehr belegen. `joined` speiste sich bis hier allein aus
+            // der 39002 — und die wurde nur nach dem EIGENEN Join/Leave nachgeladen. Ein
+            // Rauswurf durch einen Admin (kind 9001) erreichte die Insel deshalb nie: das
+            // Gate stand, und daneben ein Eingabefeld, dessen Absenden am Relay scheitert.
+            //
+            // Der Aufruf steht bewusst VOR dem Deckel und vor `gatedOut`: ob wir die
+            // Raum-Sub noch einmal aufsetzen dürfen, ist eine Frage unseres Budgets —
+            // dass der Relay uns gerade die Mitgliedschaft entzogen hat, ist eine Tatsache,
+            // die davon nicht abhängt. Der Composer verschwindet danach als FOLGE
+            // (`deriveUserInRoom` → `joined`), nicht durch eine eigene Regel.
+            void revokeRoomMembership(url, this.h)
             if (verdict === 'blocked') {
                 this.gatedOut = true
                 return

@@ -62,6 +62,12 @@ import {
     type TrustedEvent,
 } from '@welshman/util'
 import { uniq, sortBy, partition } from '@welshman/lib'
+import {
+    createRoomMembershipRevocations,
+    roomMembershipKey,
+    type RoomMembershipRead,
+    type RoomMembershipRevocation,
+} from './roomMembership'
 import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps'
 import { spaceIsBuzzAsync } from './buzzAdmin'
 import { parseMeetupTags } from './meetupPresentation'
@@ -202,6 +208,15 @@ export const lastMessageAtByUrl: Readable<Map<string, Map<string, number>>> = de
 
 // ── Raum-Mitgliedschaft (NIP-29 39002, relay-autoritativ) ────────────────────
 
+/**
+ * P9 — die Entzüge, die der Relay von sich aus meldet. Modul-weit und nur im
+ * Speicher: eine Marke ist eine Aussage über die LAUFENDE Sitzung („der Relay hat
+ * uns gerade hinausgeworfen"), keine Konfiguration. Nach einem Reload beantwortet
+ * der Relay dieselbe Frage in einer halben Sekunde neu — bis dahin gilt der
+ * Cache-Stand, wie bei jeder anderen Fläche auch.
+ */
+const roomMembershipRevocations = createRoomMembershipRevocations()
+
 /** Members-Listen (39002) je Space-URL, nach Herkunfts-Relay (tracker). */
 export const roomMembersEventsByIdByUrl = deriveEventsByIdByUrl({
     tracker,
@@ -210,22 +225,72 @@ export const roomMembersEventsByIdByUrl = deriveEventsByIdByUrl({
 })
 
 /**
+ * Die JÜNGSTE 39002 je Space-URL und Raum-`h`. Zwischenschritt mit einem eigenen
+ * Namen, weil P9 nicht nur die Mitglieder-Menge braucht, sondern auch die
+ * **Event-id** der Liste: nur an ihr ist zu erkennen, ob eine nachgelesene Liste
+ * eine ANDERE ist als die, die der Relay gerade für ungültig erklärt hat
+ * (siehe `roomMembership.ts`).
+ *
+ * 39002 ist parameterisiert-ersetzbar, im Repository liegt je (`d`, Relay-Pubkey)
+ * also ohnehin nur die neueste — der `created_at`-Vergleich ist die Absicherung
+ * gegen zwei Signierschlüssel desselben Relays (Buzz führt in NIP-11 eine
+ * Schlüsselliste mit `current`-Flag).
+ */
+const roomMembersEventByUrl: Readable<Map<string, Map<string, TrustedEvent>>> = derived(
+    roomMembersEventsByIdByUrl,
+    ($byUrl) => {
+        const result = new Map<string, Map<string, TrustedEvent>>()
+        for (const [url, byId] of $byUrl) {
+            const byH = new Map<string, TrustedEvent>()
+            for (const event of byId.values()) {
+                const trusted = event as TrustedEvent
+                const h = getTagValue('d', trusted.tags)
+                if (!h) {
+                    continue
+                }
+                const known = byH.get(h)
+                if (!known || known.created_at < trusted.created_at) {
+                    byH.set(h, trusted)
+                }
+            }
+            result.set(url, byH)
+        }
+        return result
+    },
+)
+
+/**
  * Mitglieder-Pubkeys je Room-`h` und Space-URL, aus der relay-signierten
  * 39002-Liste (`d`=h, `p`=Mitglieder). Das ist die **autoritative** Quelle: der
  * Relay pflegt sie bei Join (9021) / Leave (9022) und sie übersteht Reloads.
+ *
+ * **P9 — eine Korrektur um den vom Relay selbst gemeldeten Entzug.** Der eigene
+ * Pubkey fällt aus der Menge, solange für diesen Raum eine Entzugs-Marke steht
+ * ({@link revokeRoomMembership}). Grund und Messung stehen in `roomMembership.ts`;
+ * kurz: bei einem Fremd-Rauswurf aus einem PRIVATEN Raum liefert der Relay auf
+ * kein REQ mehr eine 39002 — die alte Liste (auch aus der IndexedDB) behauptet
+ * die Mitgliedschaft dann bis in alle Ewigkeit weiter. Die Korrektur sitzt hier
+ * und nicht an einer einzelnen Fläche, damit sie für JEDEN Konsumenten gilt:
+ * Composer, „Meine Räume" in Rail und Palette, Pin-Recht, Mitgliederliste.
+ *
+ * Fremde Pubkeys bleiben unangetastet — der Entzug ist eine Aussage über UNS.
  */
 export const roomMembersByUrl: Readable<Map<string, Map<string, Set<string>>>> = derived(
-    roomMembersEventsByIdByUrl,
-    ($byUrl) => {
+    [roomMembersEventByUrl, roomMembershipRevocations, pubkey],
+    ([$byUrl, $revocations, $pk]: [
+        Map<string, Map<string, TrustedEvent>>,
+        ReadonlyMap<string, RoomMembershipRevocation>,
+        string | undefined,
+    ]) => {
         const result = new Map<string, Map<string, Set<string>>>()
-        for (const [url, byId] of $byUrl) {
+        for (const [url, byEvent] of $byUrl) {
             const byH = new Map<string, Set<string>>()
-            for (const event of byId.values()) {
-                const { tags } = event as TrustedEvent
-                const h = getTagValue('d', tags)
-                if (h) {
-                    byH.set(h, new Set(getTagValues('p', tags)))
+            for (const [h, event] of byEvent) {
+                const members = new Set(getTagValues('p', event.tags))
+                if ($pk && members.has($pk) && $revocations.has(roomMembershipKey(url, h))) {
+                    members.delete($pk)
                 }
+                byH.set(h, members)
             }
             result.set(url, byH)
         }
@@ -615,9 +680,20 @@ export const loadUserGroupList = (): Promise<void> | undefined => {
     return pk ? makeOutboxLoader(ROOMS)(pk) : undefined
 }
 
-/** Lädt Raum-Metas (39000/9008) + Mitglieder-Listen (39002) vom Space-Relay. */
+/**
+ * Lädt Raum-Metas (39000/9008) + Mitglieder-Listen (39002) vom Space-Relay.
+ *
+ * **P9:** Was hier hereinkommt, ist frisch vom Relay gelesen — also der zweite Weg,
+ * auf dem eine Entzugs-Marke fallen kann (der erste ist {@link reloadRoomMembership}
+ * nach einem Beitritt). Das deckt den Fall ab, dass ein Admin den Nutzer wieder
+ * hinzufügt, während die App offen ist: der Relay meldet das von sich aus nicht,
+ * aber der nächste Raumwechsel oder Vordergrund-Resync liest die Liste neu.
+ */
 export const loadSpaceRooms = (url: string): Promise<unknown> =>
-    load({ relays: [url], filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS] }] })
+    load({ relays: [url], filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS] }] }).then((events) => {
+        confirmRoomMembershipFromSpaceRead(url, events as TrustedEvent[])
+        return events
+    })
 
 /**
  * Live-Sub auf die Räume (39000/9008/39002) eines Space: lädt Bestand UND bleibt
@@ -684,12 +760,111 @@ export const reloadRoomMembership = async (
     for (let attempt = 0; attempt < MEMBERSHIP_RELOAD_ATTEMPTS; attempt++) {
         const events = await load({ relays: [url], filters: [{ kinds: [ROOM_MEMBERS], '#d': [h] }] })
         const listed = events.some((e) => e.tags.some((t) => t[0] === 'p' && t[1] === pubkey))
+        // Frisch vom Relay gelesen — also die einzige Sorte Liste, die eine
+        // Entzugs-Marke aufheben darf (P9, siehe `roomMembership.ts`). Ohne diesen
+        // Aufruf käme nach einem Wiederbeitritt kein Composer zurück.
+        confirmRoomMembership(url, h, events as TrustedEvent[], pubkey)
         if (listed === expectMember) {
             return true
         }
         await new Promise((resolve) => setTimeout(resolve, MEMBERSHIP_RELOAD_DELAY_MS))
     }
     return false
+}
+
+// ── P9: Nachführung bei FREMDVERURSACHTEN Mitgliedschaftsänderungen ──────────
+
+/**
+ * Hebt aus einer Menge frisch geladener Events die jüngste 39002 eines Raums und
+ * beantwortet damit die einzige Frage, die die Marke aufheben kann: „welche Liste,
+ * und stehe ich drin?". `null` = für diesen Raum kam nichts — und genau das ist
+ * die Antwort des Relays nach einem Rauswurf aus einem privaten Raum.
+ */
+const readMembership = (events: TrustedEvent[], h: string, pk: string): RoomMembershipRead | null => {
+    let newest: TrustedEvent | undefined
+    for (const event of events) {
+        if (event.kind !== ROOM_MEMBERS || getTagValue('d', event.tags) !== h) {
+            continue
+        }
+        if (!newest || newest.created_at < event.created_at) {
+            newest = event
+        }
+    }
+    return newest ? { listEventId: newest.id, listsMe: getTagValues('p', newest.tags).includes(pk) } : null
+}
+
+/**
+ * Legt eine frisch vom Relay gelesene Liste vor. Bestätigt sie die Mitgliedschaft,
+ * fällt die Entzugs-Marke; sonst bleibt sie stehen. Fasst nichts an, wo keine
+ * Marke steht.
+ */
+const confirmRoomMembership = (url: string, h: string, events: TrustedEvent[], pk?: string): void => {
+    const me = pk ?? pubkey.get()
+    if (!me) {
+        return
+    }
+    roomMembershipRevocations.confirm(
+        roomMembershipKey(normalizeRelayUrl(url), h),
+        readMembership(events, h, me),
+    )
+}
+
+/**
+ * Dasselbe für einen Space-weiten Lesevorgang ({@link loadSpaceRooms}): jede
+ * gelieferte 39002 wird ihrem Raum vorgelegt. Räume, für die nichts kam, bleiben
+ * unangetastet — Schweigen ist kein Mitgliedschaftsbeweis.
+ */
+const confirmRoomMembershipFromSpaceRead = (url: string, events: TrustedEvent[]): void => {
+    const me = pubkey.get()
+    if (!me) {
+        return
+    }
+    for (const event of events) {
+        if (event.kind !== ROOM_MEMBERS) {
+            continue
+        }
+        const h = getTagValue('d', event.tags)
+        if (h) {
+            confirmRoomMembership(url, h, events, me)
+        }
+    }
+}
+
+/**
+ * Der Relay hat den Zugriff auf einen Raum entzogen oder verweigert — die eigene
+ * Mitgliedschaft gilt ab sofort als **unbestätigt** und wird aktiv neu erfragt.
+ *
+ * Das ist die Nachführung, die P9 gefehlt hat: Ein Fremd-Rauswurf (kind 9001)
+ * erzeugt am Draht **genau ein** Signal an den Betroffenen — das `CLOSED
+ * restricted: channel access revoked` auf seine laufende Raum-Sub (gemessen
+ * 2026-08-17 am Buzz-Teststack: 11 ms nach dem 9001 im offenen, 61 ms im privaten
+ * Raum). Eine aktualisierte 39002 kommt über die Live-Sub **nie**.
+ *
+ * Die Marke fällt SOFORT (synchron), das Nachladen läuft danach:
+ *  - **offener Raum** — das REQ liefert +202 ms die neue Liste ohne den eigenen
+ *    Pubkey; die Marke wird dadurch nicht aufgehoben (sie listet uns nicht), und
+ *    die Daten sagen ohnehin dasselbe. Ein Wiederbeitritt hebt sie auf.
+ *  - **privater Raum** — das REQ liefert `EOSE` und **0 Events** (sechs Versuche
+ *    über 13,7 s gemessen). Ohne die Marke bliebe die alte Liste die einzige
+ *    Aussage, und die behauptet die Mitgliedschaft weiter. Genau hier saß der
+ *    stehengebliebene Composer.
+ *
+ * Aufgerufen wird das bei JEDEM `restricted:`-CLOSED der Raum-Sub, nicht nur beim
+ * Entzugs-Grund: „kein Zugriff" ist über die Mitgliedschaft dieselbe Aussage wie
+ * „Zugriff entzogen" — wir können sie nicht mehr belegen. Die sichere Annahme ist
+ * „kein Mitglied"; ein Composer, dessen Absenden am Relay scheitert, ist schlechter
+ * als ein fehlender Composer.
+ */
+export const revokeRoomMembership = async (url: string, h: string): Promise<void> => {
+    const normalized = normalizeRelayUrl(url)
+    const stale = get(roomMembersEventByUrl).get(normalized)?.get(h)
+    roomMembershipRevocations.revoke(roomMembershipKey(normalized, h), stale?.id ?? '')
+    const pk = pubkey.get()
+    if (!pk) {
+        return
+    }
+    const events = await load({ relays: [url], filters: [{ kinds: [ROOM_MEMBERS], '#d': [h] }] })
+    confirmRoomMembership(url, h, events as TrustedEvent[], pk)
 }
 
 // ── Beitreten / Verlassen (NIP-29, relay-seitig) ─────────────────────────────
