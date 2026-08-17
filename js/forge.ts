@@ -23,9 +23,12 @@
  *    Branch-Anzeige leer — und zwar still. `self`, **nicht** `pubkey`: Buzz
  *    liefert `pubkey: null` (ebenfalls am Ziel-Relay abgefragt).
  * 2. **Kommentare sind kind 1.** NIP-22 (1111) ist am Relay nicht registriert.
- * 3. **Grabsteine werden über `#a` gescopet**, in Blöcken zu höchstens 100
- *    Werten. Ein unscoped `{kinds:[5]}` zöge die gesamte Löschhistorie der
- *    Community — dieselbe Vorsicht wie in Buzz' `projectEnumeration.ts:117-150`.
+ * 3. **Grabsteine werden beim LADEN über `#a`/`#e` gescopet**, in Blöcken zu
+ *    höchstens 100 Werten. Ein unscoped `{kinds:[5]}` zöge dort die gesamte
+ *    Löschhistorie der Community — dieselbe Vorsicht wie in Buzz'
+ *    `projectEnumeration.ts:117-150`. Im **Live-Abo** gilt das nicht: `limit: 0`
+ *    überspringt bei Buzz die gespeicherte Abfrage ganz. Siehe
+ *    {@link liveTombstoneFilter}.
  * 4. **Keine Boundary-Bucket-Paginierung.** Buzz braucht Vollständigkeit, weil
  *    seine Push-Policy daran hängt; eine Leseliste nicht. Statt dessen
  *    `limit:500` und ein **ehrlicher Hinweis**, wenn genau so viele Ereignisse
@@ -553,26 +556,49 @@ export const deriveForgeNav = (): Readable<{ repos: ForgeNavRepo[]; projects: Fo
 const forgeCacheReady = (): Promise<void> => storageReady
 
 /**
- * **`load()` schweigt über alles, was der `tracker` schon kennt.**
+ * **`load()` kann leer zurückkommen, obwohl der Bestand vorliegt** — die
+ * Absicherung dagegen. Die *Ursache* ist offen; die frühere Erklärung war falsch.
  *
- * `request` verwirft ein Ereignis, dessen Id der `tracker` bereits führt, als
- * Dublette (`@welshman/net/…/request.js:35-37`: `if (tracker.track(id, url))` →
- * `onDuplicate`, kein `events.push`), und der Sammel-Loader `load` reicht
- * `onDuplicate` **nicht** an den Aufrufer durch (`request.js:203-218` leitet nur
- * `onEvent`/`onEose`/`onDisconnect`/`onClose` weiter). Mit einem warmen
- * Kaltstart-Cache kennt der `tracker` den Bestand schon beim Boot — der
- * Rückgabewert von `load` ist dann **leer**, obwohl der Relay alles geliefert hat.
+ * Das Symptom ist gemessen (P10, Teststack): nach einem Reload mit warmem Cache
+ * stieg `loadForge` bei „`addresses.length === 0`" aus — **Issues, Kommentare
+ * und Statuswechsel wurden gar nicht mehr geladen**, und niemand hätte es
+ * gesehen, weil der Cache die Fläche trotzdem füllte. Die zweite Laderunde
+ * leitet ihre `#a`-Adressen aus der ersten ab; ein leerer Rückgabewert schaltet
+ * sie also stumm ab.
  *
- * Für diese Datei ist das folgenreich, denn die zweite Laderunde leitet ihre
- * `#a`-Adressen aus der ersten ab. Gemessen (P10, Teststack): nach einem Reload
- * mit warmem Cache stieg `loadForge` bei „`addresses.length === 0`" aus —
- * **Issues, Kommentare und Statuswechsel wurden gar nicht mehr geladen**, und
- * niemand hätte es gesehen, weil der Cache die Fläche trotzdem füllte.
+ * ── Was hier bis N5 stand, und warum es NICHT stimmt ────────────────────────
  *
- * Die Adressen kommen deshalb aus der Vereinigung von *frisch geliefert* und
- * *liegt lokal vor* — Letzteres über den `tracker` auf den Workspace gescopet,
- * wie jede Ableitung dieser Datei. `repository.query` lässt Gelöschtes weg, ein
- * per Grabstein entferntes Repo taucht hier also nicht wieder auf.
+ * Erklärt wurde das mit dem app-weiten `tracker`: `load` verschweige alles, was
+ * der schon kennt. **Widerlegt** (N5-Lauf, drei Sonden inkl. negativer Kontrolle
+ * gegen einen gepatchten Vendor, nachgelesen im installierten Paket):
+ *
+ * - `makeLoader` legt seinen Tracker **je Stapel neu** an —
+ *   `@welshman/net/…/request.js:147` ist ein blankes `const tracker = new
+ *   Tracker()`, ohne `options.tracker`-Rückfall. Die Dublettenprüfung in
+ *   `requestOne:35-37` läuft also gegen ein frisches, leeres Objekt.
+ * - Der app-weite `tracker` aus `@welshman/app` ist ein **anderes** Objekt und
+ *   wird von `load` nie gelesen; `request` (`request.js:110`) genauso wenig.
+ * - Richtig bleibt nur die Teilbeobachtung, dass `makeLoader` `onDuplicate`
+ *   nicht durchreicht (`request.js:204-221`) — folgenlos, weil der Zweig für
+ *   gecachte Ereignisse gar nicht erst betreten wird. Zwei gleichzeitige `load`
+ *   mit überlappenden Filtern bekommen beide dasselbe Event.
+ *
+ * ── Der aktuelle Verdacht, ausdrücklich als Verdacht ────────────────────────
+ *
+ * Ein `CLOSED` auf das erste REQ löst `requestOne` **sofort mit `[]`** auf
+ * (`request.js:65-74`: letzte sub_id weg → `close()` → `deferred.resolve`). Auf
+ * einem `auth_required`-Relay ist genau das die Normalform der AUTH-Runde —
+ * derselbe Lauf mass `{"runde":1,"rueckgabewert":0,"repository":0}` gefolgt von
+ * `{"runde":2,"rueckgabewert":1,"repository":1}`. **Nicht bewiesen**: die
+ * Zurechnung zum P10-Symptom gehört zu N4 und ist dort offen.
+ *
+ * ── Warum die Absicherung trotzdem bleibt ───────────────────────────────────
+ *
+ * Sie hängt an keiner dieser Ursachen: die Adressen kommen aus der Vereinigung
+ * von *frisch geliefert* und *liegt lokal vor*, egal warum der Rückgabewert leer
+ * war. Letzteres über den `tracker` auf den Workspace gescopet, wie jede
+ * Ableitung dieser Datei. `repository.query` lässt Gelöschtes weg, ein per
+ * Grabstein entferntes Repo taucht hier also nicht wieder auf.
  */
 const localForgeEvents = (filters: Filter[]): TrustedEvent[] =>
     repository
@@ -607,23 +633,34 @@ const tombstoneAsked = new Set<string>()
  * `query()` aus, und `storage.ts` persistiert den Grabstein (kind 5 steht seit
  * jeher in `PERSIST_KINDS`) — der nächste Kaltstart ist schon sauber.
  *
- * *Warum nicht „was der Relay nicht mitgeschickt hat"?* Weil `load` genau das
- * nicht verrät: gecachter Bestand kommt als Dublette gar nicht erst beim Aufrufer
- * an (siehe {@link localForgeEvents}). Ein Vergleich „lokal minus geliefert"
- * hielte deshalb **jedes** gecachte Ereignis für verschwunden.
+ * *Warum nicht „was der Relay nicht mitgeschickt hat"?* Weil der Rückgabewert
+ * von `load` nachweislich leer sein kann, obwohl der Bestand vorliegt — die
+ * Ursache ist offen, das Symptom gemessen (siehe {@link localForgeEvents}). Ein
+ * Vergleich „lokal minus geliefert" hielte in genau diesem Fall **jedes**
+ * gecachte Ereignis für verschwunden und fragte nach lauter Grabsteinen, die es
+ * nicht gibt.
  *
- * ── Wie viele Filter das kostet: 7, und die Grenze ist 10 ───────────────────
+ * ── Was diese Filter kosten — und was hier bis N6 falsch stand ──────────────
  *
- * Buzz erzwingt **`max_filters: 10` je REQ** (`protocol.rs:92-99`, im NIP-11 auch
- * so annonciert) — und `load` bündelt ALLE Filter einer Runde in **einen** REQ
- * (`request.js:191` `unionFilters`). Die Chunks hier fallen dabei wieder
- * zusammen: `unionFilters` gruppiert nach Schlüsselmenge und führt Filter OHNE
- * `limit` zusammen (`Filters.js:42-69`), aus beliebig vielen
- * `{kinds:[5],"#e":[…]}` wird also genau **einer**. Zweite Laderunde der
- * Übersicht im schlimmsten Fall: 5 Inhaltsfilter (jeder mit `limit`, deshalb
- * unvereinbar) + 1 `#a`-Grabsteinfilter + 1 `#e`-Grabsteinfilter = **7**. Die
- * Rail kommt auf 4, die erste Runde auf 3. Drei Filter Luft — wer
- * {@link contentFilters} erweitert, verbraucht sie.
+ * Hier stand die Rechnung „7 Filter, Grenze 10, drei Filter Luft". Sie war
+ * falsch, und zwar in der Prämisse: `max_filters: 10` deckelt die Filter **in
+ * einer REQ-Nachricht** (`protocol.rs:92-99` prüft `arr[2..].len()`), aber
+ * welshman legt nie mehr als **einen** Filter in eine REQ-Nachricht. `requestOne`
+ * schickt je Filter eine eigene REQ mit eigener sub_id
+ * (`@welshman/net/…/request.js:99-104`), und `load` ändert daran nichts:
+ * `unionFilters` (`request.js:191`) bündelt die Filter einer Runde nur zu einer
+ * *Liste*, die derselbe Aufruf anschließend wieder einzeln verschickt. Die
+ * Chunk-Verschmelzung stimmt (`Filters.js:42-69` gruppiert Filter ohne `limit`
+ * nach Schlüsselmenge, aus beliebig vielen `{kinds:[5],"#e":[…]}` wird einer) —
+ * sie spart REQ-Nachrichten, nicht Filter-Slots.
+ *
+ * Die reale Obergrenze ist deshalb **`max_subscriptions: 1024` je Verbindung**
+ * (`nip11.rs:109`, durchgesetzt in `handlers/req.rs:25/65`). Die zweite
+ * Laderunde der Übersicht belegt davon 7, die Rail 4, das Live-Abo 6 — wer
+ * {@link contentFilters} erweitert, kostet je Filter eine Subscription von
+ * 1024, nicht einen von drei verbliebenen Plätzen. Gemessen wird das in
+ * `buzz-forge.spec.ts` („kein REQ trägt mehr als einen Filter"), damit die
+ * Prämisse nicht ein zweites Mal aus einer Leseannahme stammt.
  *
  * Die Werteliste selbst ist unkritisch: bei vollen Deckeln (300 Wurzeln + 600
  * Blätter) trägt der `#e`-Filter 900 Ids ≈ 59 KB gegen `max_message_length:
@@ -986,7 +1023,63 @@ export const loadForge = async (relaySelf: string, signal?: AbortSignal): Promis
 }
 
 /**
- * Live bleiben, solange die Fläche offen ist.
+ * **Das Live-Abo auf Grabsteine — der einzige unscoped Filter dieser Datei.**
+ *
+ * Bis N6 endete jede Löschung an der offenen Sitzung: {@link contentFilters}
+ * trägt kein `kind 5`, also erreichte ein Grabstein den Tab erst beim nächsten
+ * Seitenaufbau (dort holt ihn {@link tombstoneFiltersForCached}). Wer eine
+ * Übersicht offen ließ, sah ein gelöschtes Issue beliebig lange weiter.
+ *
+ * **Warum er nicht gescopet werden KANN.** Buzz erzwingt beim Ingest, dass ein
+ * `kind 5` **genau ein** Ziel trägt — `e` ODER `a`, nie beides
+ * (`handlers/ingest.rs:2477-2489`, „deletion events must reference exactly one
+ * target via e or a tag"). Der Grabstein eines Issues trägt damit zwingend nur
+ * `["e", <id>]` und ist über `#a` prinzipiell nicht zu finden. Ein `#e`-Filter
+ * wiederum müsste die Id-Menge kennen, die er selbst erst erzeugt — und ein
+ * Abo hat, anders als eine Laderunde, keine zweite Runde: `request` sendet die
+ * Filter einmal beim Aufziehen. Ein `#e`-Abo wäre also blind für genau die
+ * Ereignisse, die nach dem Aufziehen entstehen.
+ *
+ * **Warum der unscoped Filter hier trotzdem billig ist** — und das ist gemessen,
+ * nicht vermutet:
+ *
+ * 1. `limit: 0` heißt bei Buzz wirklich null Bestand: `handlers/req.rs:561`
+ *    (`if limit == 0 { continue }`) überspringt die gespeicherte Abfrage
+ *    komplett. Die Warnung in Eigenheit 3 des Modulkopfs (»ein unscoped
+ *    `{kinds:[5]}` zöge die gesamte Löschhistorie«) gilt für `load`, nicht hier.
+ * 2. Der Live-Ausstoß ist **nicht** die Löschhistorie der Community, sondern nur
+ *    ihr global gescopeter Anteil. Buzz leitet den Kanal eines `kind 5` vom
+ *    ZIEL ab (`ingest.rs:2189-2229`) und hält die Trennung symmetrisch:
+ *    „Global subscriptions do NOT receive channel-scoped events"
+ *    (`subscription.rs:fan_out_scoped`). Eine gelöschte Chat-Nachricht hat einen
+ *    Kanal und erreicht dieses Abo deshalb nie; NIP-34-Ereignisse sind bei Buzz
+ *    ausdrücklich **nie** kanal-gescopet (`ingest.rs:566-576`).
+ * 3. Ein fremder Grabstein bleibt wirkungslos, zweifach verriegelt: Buzz lehnt
+ *    ein `kind 5` auf ein fremdes Ereignis schon beim Ingest ab
+ *    (`side_effects.rs:validate_standard_deletion_event`, „must be event
+ *    author"), und welshmans `repository` zählt eine Löschung nur, wenn
+ *    `pubkey === event.pubkey` (`net/…/repository.js:_isDeleted`).
+ *
+ * Er deckt damit beide Grabstein-Formen ab: `a` (Repo, Projekt, Zustand — die
+ * Faltung in `deletionThresholds`) und `e` (Issue, PR, Kommentar — den Rest
+ * erledigt der `repository`, der das Ziel aus jeder `query()` nimmt und die
+ * Ableitung per `removed` benachrichtigt).
+ *
+ * ── Der Filterhaushalt, korrigiert ──────────────────────────────────────────
+ *
+ * Hier stand (P10) die Rechnung „7 Filter, die Grenze ist 10, drei Filter Luft".
+ * Die Prämisse stimmt nicht: `max_filters: 10` gilt für die Filter **in einer
+ * REQ-Nachricht** (`protocol.rs:92-99` prüft `arr[2..].len()`), und welshman
+ * packt in eine REQ-Nachricht immer genau **einen** Filter —
+ * `requestOne` schickt je Filter eine eigene REQ mit eigener sub_id
+ * (`@welshman/net/…/request.js:99-104`). Auch `load` tut das: `unionFilters`
+ * bündelt die Filter einer Runde nur zu einer *Liste*, die dann wieder einzeln
+ * verschickt wird. Die tatsächliche Obergrenze ist `max_subscriptions: 1024` je
+ * Verbindung (`nip11.rs:109`, `handlers/req.rs:25`) — dieses Abo belegt davon 6
+ * statt 5. Belegt in `buzz-forge.spec.ts` („kein REQ trägt mehr als einen
+ * Filter"), damit die Zahl nicht wieder aus einer Leseannahme stammt.
+ *
+ * ── Warum `request` und nicht `load` ────────────────────────────────────────
  *
  * `request` mit `limit:0` statt eines zweiten `load`: ein Statuswechsel oder ein
  * Kommentar soll ohne Reload erscheinen. **Ohne `autoClose`** — das Abo soll
@@ -999,13 +1092,18 @@ export const loadForge = async (relaySelf: string, signal?: AbortSignal): Promis
  * beim Zurückkommen ohnehin neu lädt, ist das kein tragender Mangel — es steht
  * hier, damit niemand es für erledigt hält.
  */
+export const liveTombstoneFilter = (): Filter => ({ kinds: [DELETION], limit: 0 })
+
 export const watchForge = (addresses: string[], signal: AbortSignal): void => {
     if (!WORKSPACE_URL || addresses.length === 0) {
         return
     }
     void request({
         relays: [WORKSPACE_URL],
-        filters: contentFilters(addresses).map((filter) => ({ ...filter, limit: 0 })),
+        filters: [
+            ...contentFilters(addresses).map((filter) => ({ ...filter, limit: 0 })),
+            liveTombstoneFilter(),
+        ],
         signal,
     })
 }

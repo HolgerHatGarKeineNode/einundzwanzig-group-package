@@ -420,6 +420,55 @@ export const toRepoState = (event: ForgeEvent): RepoState => {
  * gewinnt weiterhin, denn ein Repo, dessen Branches gelöscht wurden, ist
  * legitim leer. Danach bleibt der Id-Vergleich als letzte, deterministische
  * Instanz.
+ *
+ * ── N2: reicht der Gleichstand? Ja — und das ist jetzt belegt, nicht vereinfacht
+ *
+ * Die offene Frage war: kann ein LEERES 30618 mit HÖHEREM `created_at` einen
+ * echten Push-Zustand verdecken? Zwei Quellen kommen dafür in Frage, und sie
+ * enden verschieden.
+ *
+ * **1. Der Relay — ausgeschlossen, gemessen.** `emit_initial_ref_state` hängt an
+ * `reserved_by_this_attempt`, also am *erfolgreichen INSERT* in
+ * `git_repo_names` (`side_effects.rs`, `ON CONFLICT … DO NOTHING RETURNING`).
+ * Die Zeile entsteht einmal je `(community, repo_id)`; ein Re-Announce landet
+ * auf `AlreadyOwned` und emittiert nichts. Gelöscht wird sie nur auf dem
+ * Rollback-Pfad nach einem gescheiterten `seed_manifest_pointer` — der kehrt mit
+ * `Err` zurück, BEVOR die Emission drankäme, ein freigegebener Name hat also nie
+ * ein 30618 gesehen — und beim vollständigen Community-Purge, der `events`
+ * gleich mit leert. Am Teststack nachgestellt (2026-08-18, `n2-probe`):
+ * Ankündigung → ein relay-signiertes 30618 mit `created_at=1787007186`, danach
+ * ein Re-Announce mit neuerem `created_at` → **weiterhin genau ein** 30618,
+ * unverändert `1787007186`. Der zweite Weg zum leeren Relay-Zustand ist ein Push,
+ * der alle Refs entfernt — der ist echt und soll gewinnen.
+ *
+ * **2. Der Eigentümer — möglich, aber ein Riegel wäre der schlechtere Tausch.**
+ * Ein owner-signiertes 30618 nimmt Buzz von jedem Repo-Eigentümer an
+ * (`Scope::ReposWrite`); am Teststack durchgelaufen, `created_at` nur durch ein
+ * Server-Zeitfenster begrenzt („event timestamp too far from server time", bei
+ * +100 000 s abgelehnt, bei +60 s angenommen). Ein Fremdclient kann also ein
+ * leeres, jüngeres 30618 neben den relay-signierten Push-Zustand legen, und die
+ * Branch-Anzeige geht leer.
+ *
+ * **Warum trotzdem kein Riegel.** Der einzige Riegel, der hier griffe, wäre
+ * „über Autorengrenzen hinweg schlägt MIT Refs immer OHNE Refs" (nach
+ * {@link dedupeReplaceable} vergleicht diese Sortierung ohnehin nur noch je
+ * einen Kandidaten pro Autor). Er würde den Fehler nicht abschaffen, sondern
+ * umdrehen — und dabei verschlimmern:
+ *
+ * - **Ohne Riegel** zeigt die Fläche vorübergehend KEINE Branches. Der nächste
+ *   Push schreibt ein relay-signiertes 30618 mit noch höherem `created_at` und
+ *   die Anzeige ist von selbst wieder richtig. Ein sichtbarer, selbstheilender
+ *   Fehler.
+ * - **Mit Riegel** gewänne umgekehrt ein alter owner-signierter Zustand MIT Refs
+ *   gegen den relay-signierten LEEREN eines Pushs, der alle Branches entfernt
+ *   hat. Die Fläche zeigte dann einen Branch auf einem Commit, den es nicht mehr
+ *   gibt — und zwar dauerhaft: ein Repo ohne Branches hat keinen „nächsten
+ *   Push", der es korrigierte. Ein unsichtbarer, bleibender Fehler.
+ *
+ * Das ist dieselbe Abwägung, die schon die pauschale Zurückstufung
+ * relay-signierter Zustände gekippt hat: aus einem Rennen darf kein Dauerzustand
+ * werden. Der Gleichstand bleibt deshalb der ganze Riegel — nicht als bewusste
+ * Vereinfachung, sondern als die belegt bessere von zwei Regeln.
  */
 const hasRefs = (event: ForgeEvent): boolean =>
     event.tags.some(([name, value]) => isFilled(name) && isFilled(value) && name.startsWith('refs/'))

@@ -268,6 +268,75 @@ test('foldRepoState: bei gleicher Sekunde verliert der LEERE Zustand — nicht d
     )
 })
 
+test('foldRepoState (N2): ein juengeres leeres 30618 gewinnt — und heilt sich beim naechsten Push', () => {
+    // N2 des Nachlese-Plans: reicht die Gleichstands-Regel, oder verdeckt ein
+    // LEERES 30618 mit HOEHEREM created_at einen echten Push-Zustand?
+    //
+    // Der Relay-Weg ist ausgeschlossen (gemessen, siehe Doc-Kommentar an
+    // foldRepoState). Bleibt der Eigentuemer: Buzz nimmt ein owner-signiertes
+    // 30618 an, `created_at` nur durch ein Server-Zeitfenster begrenzt. Genau
+    // dieser Fall steht hier — er ist BEWUSST nicht verriegelt, und dieser Test
+    // haelt die Entscheidung fest, damit sie beim naechsten Anfassen nicht als
+    // Versehen gelesen wird.
+    const push = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 1_785_600_000,
+        tags: [['d', REPO_D], ['refs/heads/master', 'c'.repeat(40)], ['HEAD', 'ref: refs/heads/master']],
+    })
+    const ownerLeerJuenger = ev({
+        kind: REPO_STATE,
+        pubkey: OWNER,
+        created_at: 1_785_600_060,
+        tags: [['d', REPO_D], ['HEAD', 'ref: refs/heads/master']],
+    })
+
+    assert.equal(
+        foldRepoState([push, ownerLeerJuenger], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D })?.branches.length,
+        0,
+        'der juengere leere Zustand gewinnt — sichtbar leer, nicht falsch befuellt',
+    )
+
+    // Und das ist der Grund, warum er gewinnen DARF: der naechste Push repariert
+    // die Anzeige von selbst. Der Fehler ist voruebergehend.
+    const naechsterPush = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 1_785_600_120,
+        tags: [['d', REPO_D], ['refs/heads/master', 'd'.repeat(40)], ['HEAD', 'ref: refs/heads/master']],
+    })
+    assert.equal(
+        foldRepoState([push, ownerLeerJuenger, naechsterPush], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D })
+            ?.branches[0]?.commit,
+        'd'.repeat(40),
+        'der naechste Push ist wieder massgeblich',
+    )
+
+    // Die Gegenprobe zum NICHT gebauten Riegel („mit Refs schlaegt ohne Refs,
+    // auch ueber Autorengrenzen"): ein Push, der alle Branches entfernt, ist
+    // legitim leer. Mit jenem Riegel gewaenne hier der ALTE owner-signierte
+    // Zustand — und zwar dauerhaft, denn ein Repo ohne Branches hat keinen
+    // naechsten Push. Deshalb muss der leere Zustand auch hier gewinnen.
+    const ownerAltMitRefs = ev({
+        kind: REPO_STATE,
+        pubkey: OWNER,
+        created_at: 1_785_600_000,
+        tags: [['d', REPO_D], ['refs/heads/master', 'e'.repeat(40)], ['HEAD', 'ref: refs/heads/master']],
+    })
+    const pushLoeschtAlles = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 1_785_600_060,
+        tags: [['d', REPO_D], ['HEAD', 'ref: refs/heads/master']],
+    })
+    assert.equal(
+        foldRepoState([ownerAltMitRefs, pushLoeschtAlles], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D })
+            ?.branches.length,
+        0,
+        'ein Push, der alle Branches entfernt, bleibt massgeblich',
+    )
+})
+
 test('foldRepoState ignoriert einen fremden Autor und ein fremdes `d`', () => {
     const events = [
         ev({ kind: REPO_STATE, pubkey: FREMD, created_at: 9_000, tags: [['d', REPO_D], ['HEAD', 'ref: refs/heads/fremd']] }),
