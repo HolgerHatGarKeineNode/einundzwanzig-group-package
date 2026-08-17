@@ -799,7 +799,17 @@ const readMembership = (events: TrustedEvent[], h: string, pk: string): RoomMemb
             newest = event
         }
     }
-    return newest ? { listEventId: newest.id, listsMe: getTagValues('p', newest.tags).includes(pk) } : null
+    if (!newest) {
+        return null
+    }
+
+    // `created_at` gehört dazu, seit die Marke die ORDNUNG prüft (N3) — eine
+    // andere Id allein beweist nicht, dass die Liste auch die neuere ist.
+    return {
+        listEventId: newest.id,
+        listsMe: getTagValues('p', newest.tags).includes(pk),
+        createdAt: newest.created_at,
+    }
 }
 
 /**
@@ -867,7 +877,7 @@ const confirmRoomMembershipFromSpaceRead = (url: string, events: TrustedEvent[])
 export const revokeRoomMembership = async (url: string, h: string): Promise<void> => {
     const normalized = normalizeRelayUrl(url)
     const stale = get(roomMembersEventByUrl).get(normalized)?.get(h)
-    roomMembershipRevocations.revoke(roomMembershipKey(normalized, h), stale?.id ?? '')
+    roomMembershipRevocations.revoke(roomMembershipKey(normalized, h), stale?.id ?? '', stale?.created_at ?? 0)
     const pk = pubkey.get()
     if (!pk) {
         return

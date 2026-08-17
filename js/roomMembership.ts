@@ -31,6 +31,8 @@
  * sie eine ANDERE ist als die zum Zeitpunkt des Entzugs: nach einem Austritt
  * liefert der Relay für einige hundert Millisekunden noch die alte Liste (gemessen
  * beim Join-Pfad, siehe `groups.ts reloadRoomMembership`), und die beweist nichts.
+ * Seit N3 zusätzlich: sie darf nicht ÄLTER sein — die Id-Regel allein setzt voraus,
+ * dass genau ein Relay-Knoten antwortet (Begründung an {@link confirmsMembership}).
  *
  * Reines Modul: keine Imports, damit es unter `node --test` ohne welshman läuft
  * (`@welshman/app` fasst beim Modul-Load `localStorage` an).
@@ -43,6 +45,11 @@ export type RoomMembershipRevocation = {
      * Nur eine ANDERE Liste kann die Marke aufheben.
      */
     staleListEventId: string
+    /**
+     * `created_at` dieser Liste — `0`, wenn keine bekannt war. Eine ÄLTERE Liste
+     * darf die Marke nicht aufheben (siehe {@link confirmsMembership}).
+     */
+    staleCreatedAt: number
 }
 
 /** Das Ergebnis eines frischen 39002-Lesevorgangs für EINEN Raum. */
@@ -51,6 +58,8 @@ export type RoomMembershipRead = {
     listEventId: string
     /** Steht der eigene Pubkey darin? */
     listsMe: boolean
+    /** `created_at` der gelesenen 39002 (NIP-01, sekundengranular). */
+    createdAt: number
 }
 
 /**
@@ -63,7 +72,7 @@ export const roomMembershipKey = (url: string, h: string): string => `${url}\u00
 /**
  * Hebt dieser Lesevorgang die Marke auf?
  *
- * Zwei Bedingungen, und beide sind gemessen begründet:
+ * Drei Bedingungen, und jede ist gemessen begründet:
  *  1. Die gelesene Liste muss den eigenen Pubkey enthalten. Tut sie es nicht (oder
  *     wurde gar nichts gelesen — der private Raum antwortet mit 0 Events), bleibt
  *     die Marke: „nichts gelesen" ist kein Mitgliedschaftsbeweis.
@@ -71,10 +80,30 @@ export const roomMembershipKey = (url: string, h: string): string => `${url}\u00
  *     Rennfall „Relay liefert direkt nach dem Austritt noch die alte Liste" die
  *     Marke sofort wieder aufheben — der Composer käme zurück, obwohl der Nutzer
  *     draußen ist.
+ *  3. Sie darf nicht ÄLTER sein als die Liste beim Entzug (N3). Bedingung 2 allein
+ *     verlässt sich darauf, dass jede andere Id auch die neuere Aussage ist — das
+ *     gilt nur, solange genau EIN Relay-Knoten antwortet. Ein Lesereplikat, das
+ *     hinterherhinkt, liefert eine andere Id mit KLEINEREM `created_at`; sie
+ *     führte uns noch, und die Marke fiele fälschlich. Die Fehlerrichtung ist die
+ *     teure: die App zeigte einen Composer für jemanden, der nicht mehr schreiben
+ *     darf, und der Schreibversuch scheitert erst am Relay. Am Single-Node-
+ *     Teststack ist der Fall nicht konstruierbar — die Ordnung kostet einen
+ *     Vergleich und ist die einzige Absicherung, die ohne Replikat zu haben ist.
+ *
+ * **`>=` und nicht `>` — bewusst.** `created_at` ist sekundengranular (NIP-01),
+ * und die gemessenen Abstände in diesem Pfad liegen darunter: das `CLOSED` kam
+ * 11–61 ms nach dem 9001, die neue Liste +202 ms. Eine Wiederaufnahme in
+ * DERSELBEN Sekunde ist damit der Normalfall und nicht die Ausnahme. Mit `>`
+ * bliebe die Marke dort dauerhaft stehen (sie fällt nur durch ein `confirm`, und
+ * jedes spätere Lesen liefert dieselbe Sekunde erneut) — der Nutzer wäre wieder
+ * Mitglied und sähe bis zum nächsten Seitenaufbau keinen Composer. `>=` verwirft
+ * das strikt Ältere und lässt den Gleichstand der Id-Regel aus Bedingung 2, also
+ * genau dem Stand vor diesem Riegel.
  *
  * `staleListEventId === ''` (beim Entzug war keine Liste bekannt) lässt jede
  * lesende Bestätigung durch: ohne alte Liste war `joined` ohnehin `false`, und
  * eine Liste, die überhaupt erst jetzt eintrifft, ist die frischere Aussage.
+ * `staleCreatedAt` ist dann `0` und Bedingung 3 damit für jede echte Liste erfüllt.
  */
 export const confirmsMembership = (
     read: RoomMembershipRead | null | undefined,
@@ -86,7 +115,11 @@ export const confirmsMembership = (
     if (!read?.listsMe) {
         return false
     }
-    return read.listEventId !== revocation.staleListEventId
+    if (read.listEventId === revocation.staleListEventId) {
+        return false
+    }
+
+    return read.createdAt >= revocation.staleCreatedAt
 }
 
 /**
@@ -98,7 +131,7 @@ export const confirmsMembership = (
 export type RoomMembershipRevocations = {
     subscribe: (run: (value: ReadonlyMap<string, RoomMembershipRevocation>) => void) => () => void
     /** Der Relay hat den Zugriff verweigert/entzogen → Mitgliedschaft unbestätigt. */
-    revoke: (key: string, staleListEventId: string) => void
+    revoke: (key: string, staleListEventId: string, staleCreatedAt: number) => void
     /** Frisch gelesene Liste vorlegen. Liefert `true`, wenn die Marke dadurch fiel. */
     confirm: (key: string, read: RoomMembershipRead | null | undefined) => boolean
     /** Gilt für diesen Raum aktuell eine Marke? */
@@ -128,16 +161,18 @@ export const createRoomMembershipRevocations = (): RoomMembershipRevocations => 
                 subscribers.delete(run)
             }
         },
-        revoke(key, staleListEventId) {
+        revoke(key, staleListEventId, staleCreatedAt) {
             // Bewusst überschreibend: ein zweiter Entzug bezieht sich auf die dann
             // aktuelle Liste. Ohne Änderung kein Emit — sonst rechnet jede
-            // wiederholte `CLOSED`-Zeile die ganze Mitgliedersicht neu.
+            // wiederholte `CLOSED`-Zeile die ganze Mitgliedersicht neu. Verglichen
+            // wird nur die Id: sie identifiziert das Ereignis, `created_at` ist
+            // dann zwangsläufig dasselbe.
             const current = state.get(key)
             if (current && current.staleListEventId === staleListEventId) {
                 return
             }
             const next = new Map(state)
-            next.set(key, { staleListEventId })
+            next.set(key, { staleListEventId, staleCreatedAt })
             emit(next)
         },
         confirm(key, read) {
