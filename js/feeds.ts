@@ -1331,8 +1331,48 @@ const honorDeleteEvent = (event: TrustedEvent): void => {
  * member of this relay` (p11-02/p11-05), für einen Gast wird `auth-required:` vorher
  * vom Auth-Buffer aus der Empfangsschlange entfernt und onClosed feuert nie
  * (p11-04). Kein zusätzlicher Request — die Live-Sub läuft ohnehin.
+ *
+ * Seit P8 hängt `onClosed` nur noch am `#h`-gescopten Filter (siehe
+ * {@link listenRoomScoped}): nur der trägt eine Aussage über DIESEN Raum. Der
+ * ungescopte Kommentar-Filter wird von einer Raum-Ablehnung nie geschlossen —
+ * auf zooid, wo ein Relay-Nicht-Mitglied jede Sub abgewiesen bekommt, feuert
+ * der gescopte Filter ohnehin mit demselben Grund.
  */
 export const listenRoom = (url: string, h: string, signal: AbortSignal, onClosed?: (reason: string) => void): void => {
+    listenRoomScoped(url, h, signal, onClosed)
+    void request({
+        relays: [url],
+        signal,
+        onEvent: honorDeleteEvent,
+        filters: [{ kinds: [COMMENT, CHAT_THREAD], limit: 0 }],
+    })
+}
+
+/**
+ * NUR der `#h`-gescopte Teil von {@link listenRoom} — der Teil, den der Relay
+ * abräumen kann.
+ *
+ * **Warum das eine eigene Funktion ist (P8).** Buzz schließt bei einer Änderung
+ * der Raum-Mitgliedschaft die laufenden Subs GENAU DIESES Raums mit
+ * `CLOSED restricted: channel access revoked`
+ * (`buzz-relay/src/handlers/side_effects.rs:131`) — beim eigenen Austritt
+ * ebenso wie beim Entfernen durch einen Admin. welshman sendet einen so
+ * abgerissenen REQ **nicht** neu (`requestOne` entfernt die id und ruft nur
+ * `onClosed`); der Raum bliebe danach stumm auf seinem letzten Stand stehen,
+ * auch nach einem Wiederbeitritt. Die Rauminsel setzt deshalb genau diesen
+ * Filter neu auf und liest am Ergebnis ab, ob der Zugriff noch besteht
+ * (`EOSE` = ja, erneutes `CLOSED restricted:` = nein).
+ *
+ * Der ungescopte Kommentar-Filter darf dabei NICHT mitlaufen: er ist von der
+ * Ablehnung nie betroffen und würde sich bei jedem Wiederaufsetzen als
+ * zusätzliche Dauer-Sub stapeln (Buzz deckelt Frames pro Pubkey).
+ */
+export const listenRoomScoped = (
+    url: string,
+    h: string,
+    signal: AbortSignal,
+    onClosed?: (reason: string) => void,
+): void => {
     void request({
         relays: [url],
         signal,
@@ -1340,7 +1380,6 @@ export const listenRoom = (url: string, h: string, signal: AbortSignal, onClosed
         onClosed,
         filters: [
             { kinds: [MESSAGE, REACTION, DELETE, POLL, POLL_RESPONSE, ZAP_GOAL, ROOM_DELETE_EVENT], '#h': [h], limit: 0 },
-            { kinds: [COMMENT, CHAT_THREAD], limit: 0 },
         ],
     })
 }

@@ -10,6 +10,7 @@ import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveH
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, normalizeRelayUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps'
+import { classifyRoomClosedReason } from './roomGate'
 import { purgeSpaceLocalProfiles } from './spaceProfiles'
 import { load } from '@welshman/net'
 import { deriveEvents } from '@welshman/store'
@@ -159,6 +160,7 @@ import {
     deriveRoomChat,
     deriveRoomMessages,
     listenRoom,
+    listenRoomScoped,
     loadRoomMessages,
     loadRoomReactions,
     loadRoomComments,
@@ -843,7 +845,8 @@ type RoomChatState = {
     joined: boolean
     joining: boolean
     membershipReady: boolean
-    gatedOut: boolean // Relay hat den Read mit `restricted:` abgewiesen (P11) — Raumzustand unbekannt
+    gatedOut: boolean // Relay hat den Read verweigert (P11/P8, siehe roomGate.ts) — Raumzustand unbekannt
+    _gateRelistens: number // P8: verbrauchte Wiederaufsetz-Versuche nach `channel access revoked` (Schleifen-Deckel)
     draft: string
     sending: boolean
     sendError: string
@@ -946,6 +949,7 @@ type RoomChatState = {
     init(): void
     setup(url: string): void
     teardown(): void
+    onRoomClosed(url: string, reason: string): void
     resync(): void
     retry(): void
     loadOlder(): void
@@ -4016,6 +4020,15 @@ export function registerNostrComponents(Alpine: {
         },
     }))
 
+    /**
+     * P8: Wie oft die Raum-Sub nach `restricted: channel access revoked` neu
+     * aufgesetzt wird, bevor die Fläche gated. Drei reicht mit Abstand für jeden
+     * gemessenen Ablauf (ein Austritt = genau ein Grund); der Deckel existiert nur,
+     * damit ein Relay, das die frische Sub sofort wieder mit demselben Grund
+     * schließt, keine Endlosschleife auslöst.
+     */
+    const ROOM_GATE_MAX_RELISTENS = 3
+
     // Room-Chat (M4 lesen + M5 schreiben): Verlauf eines Raums im AKTIVEN Space.
     // Live-Sub (limit:0) + Cursor-Pagination. Senden/Löschen = kind 9/5 (optimistisch).
     // Beitreten/Verlassen = NIP-29 (kind 9021/9022) → relay-autoritative 39002-
@@ -4041,6 +4054,7 @@ export function registerNostrComponents(Alpine: {
         joining: false,
         membershipReady: false,
         gatedOut: false,
+        _gateRelistens: 0,
         draft: '',
         sending: false,
         sendError: '',
@@ -4232,6 +4246,7 @@ export function registerNostrComponents(Alpine: {
             this.loading = true
             this.membershipReady = false
             this.gatedOut = false
+            this._gateRelistens = 0
             this.error = ''
             this.messages = []
             this.messagesReversed = []
@@ -4348,11 +4363,12 @@ export function registerNostrComponents(Alpine: {
             // aus P4. Kein zweiter Read: die Live-Sub läuft ohnehin (listenRoom).
             // Reaktiv statt Poll: der Zustand steht mit dem ersten restricted-CLOSED
             // (~0,5 s nach Betreten, p11-05) und wird je Raum im setup() zurückgesetzt.
-            listenRoom(url, this.h, this._controller.signal, (reason: string) => {
-                if (reason.startsWith('restricted:')) {
-                    this.gatedOut = true
-                }
-            })
+            //
+            // P8: Der Grund wird nicht mehr auf sein Präfix reduziert, sondern
+            // zugeordnet (siehe roomGate.ts) — `restricted: channel access revoked`
+            // ist bei Buzz KEINE Zugriffsverweigerung, sondern die Quittung einer
+            // geänderten RAUM-Mitgliedschaft.
+            listenRoom(url, this.h, this._controller.signal, (reason: string) => this.onRoomClosed(url, reason))
             // Bestehende Reactions/Tombstones nachladen (Live-Sub liefert nur Neues).
             // Promise fürs Prewarm-Gate behalten: der Reveal wartet (budgetiert) darauf.
             const reactionsReady = loadRoomReactions(url, this.h)
@@ -4758,6 +4774,59 @@ export function registerNostrComponents(Alpine: {
         // die nachgeladenen Events additiv → keine Bewegung/kein Rerender der Seite. Guard auf
         // `_unsub`: läuft erst NACH abgeschlossenem setup() (sonst würde das Abort den initialen
         // load()-Pfad kappen, bevor startFeed() lief). loading==true ⇒ setup arbeitet noch → skip.
+        /**
+         * P8: Was der Relay meint, wenn er die Raum-Sub schließt.
+         *
+         * Bis hierher galt jedes `restricted:` als dasselbe — „kein Zugriff", Gate,
+         * kein Beitreten-Knopf. Am Buzz-Teststack gemessen (2026-08-17) sind es aber
+         * zwei Lagen mit zwei verschiedenen Auswegen:
+         *
+         * - **`restricted: channel access revoked`** — die RAUM-Mitgliedschaft hat
+         *   sich geändert (eigener Austritt per 9022, Entfernen durch einen Admin,
+         *   Archivieren, offen→privat). Der Relay-Zugang besteht weiter; ob der Raum
+         *   noch lesbar ist, sagt der Grund NICHT. Also wird er nicht geraten,
+         *   sondern **erfragt**: derselbe Filter wird neu aufgesetzt, und dessen
+         *   Antwort entscheidet (`EOSE` → weiterhin lesbar, der Nutzer ist schlicht
+         *   kein Raum-Mitglied mehr und sieht den Beitreten-Weg; erneutes
+         *   `restricted:` → Gate). Das repariert zugleich die tote Live-Sub: welshman
+         *   sendet einen abgerissenen REQ nicht neu, der Raum bliebe sonst auch nach
+         *   einem Wiederbeitritt stumm auf dem letzten Stand stehen.
+         * - **alles andere mit `restricted:`** — Zugriffsverweigerung, Gate. Das
+         *   schließt den unbekannten Grund ausdrücklich ein (Allowlist in
+         *   `roomGate.ts`): ein Beitreten-Knopf, der ins Leere klickt, ist teurer als
+         *   ein Gate zu viel.
+         *
+         * Der Deckel begrenzt eine theoretische Schleife (Relay schließt die frisch
+         * aufgesetzte Sub sofort wieder mit demselben Grund). Ist er aufgebraucht,
+         * wird gegated — dieselbe sichere Richtung wie beim unbekannten Grund.
+         */
+        onRoomClosed(url: string, reason: string) {
+            // Raumwechsel/Teardown während des Fluges: die Antwort gehört nicht mehr hierher.
+            if (this._destroyed || this._url !== url) {
+                return
+            }
+            const verdict = classifyRoomClosedReason(reason)
+            if (verdict === 'unrelated') {
+                return
+            }
+            if (verdict === 'blocked') {
+                this.gatedOut = true
+                return
+            }
+            if (this._gateRelistens >= ROOM_GATE_MAX_RELISTENS) {
+                this.gatedOut = true
+                return
+            }
+            this._gateRelistens += 1
+            const signal = this._controller?.signal
+            if (!signal) {
+                return
+            }
+            // `gatedOut` bewusst NICHT auf false gesetzt: ein Mitgliedschafts-Wechsel
+            // darf ein bereits gesetztes Gate nie aufheben. Er war in dieser Lage
+            // ohnehin false — sonst wäre die Sub nie gelaufen.
+            listenRoomScoped(url, this.h, signal, (next: string) => this.onRoomClosed(url, next))
+        },
         resync() {
             // Guard auf _initialLoadDone (NICHT bloß loading/_unsub): der warme setup()-Pfad setzt
             // loading=false + _unsub schon, während der initiale loadRoomMessages().then noch läuft;
@@ -4772,7 +4841,11 @@ export function registerNostrComponents(Alpine: {
             const signal = this._controller.signal
             // Live-Subs neu senden (der erste REQ-Send öffnet den Socket via socketPolicyConnectOnSend
             // wieder) …
-            listenRoom(url, this.h, signal)
+            // Mit demselben `onClosed` wie in setup(): ohne ihn verlöre der Raum nach
+            // jedem Foreground-Resync seine Ablehnungs-Auswertung — das Gate (P11) und
+            // das Wiederaufsetzen nach einem Mitgliedschafts-Wechsel (P8) hingen dann
+            // allein am ersten Betreten.
+            listenRoom(url, this.h, signal, (reason: string) => this.onRoomClosed(url, reason))
             listenRoomMembers(url, signal)
             watchSpaceDirectory(url, signal)
             // P2/NIP-38: das Status-Abo hängt NICHT an diesem Controller (es überlebt
