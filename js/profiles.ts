@@ -40,7 +40,7 @@ export async function warmProfiles(pubkeys: Iterable<string>): Promise<void> {
     // zehn von elf Forge-Maintainern haben ausschliesslich dort ein kind 0. Ergebnis
     // landet NICHT im Repository, sondern in der Anzeige-Rueckfallebene
     // ([[spaceProfiles]]) — bewusst ohne `await`, die Fläche wartet darauf nicht.
-    void loadSpaceProfiles(WORKSPACE_URL, all, true)
+    void loadSpaceProfiles(WORKSPACE_URL, all)
 
     repairMissingProfiles(all)
 }

@@ -12,6 +12,8 @@ import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps'
 import { classifyRoomClosedReason } from './roomGate'
 import { deriveMergedProfile, purgeSpaceLocalProfiles } from './spaceProfiles.ts'
+import { blossomMedia } from './blossomInstance.ts'
+import { bindAvatarState, type AvatarState } from './blossomMedia.ts'
 import { load } from '@welshman/net'
 import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
@@ -1547,6 +1549,17 @@ export function registerNostrComponents(Alpine: {
     // ablehnt — Begründung und Grenzen: `imageFallback.ts`). Dieselbe Bauform wie
     // `$img` darüber: die Blade-Türen sollen die Policy nicht nachbauen.
     Alpine.magic('imgFallback', () => (url: unknown) => mayFallbackToRaw(url))
+
+    // BLOSSOM — `$blossomBind($data, url)` versorgt die Avatar-Fläche mit einem Bild,
+    // das der Relay nur gegen einen signierten Header herausgibt (Buzz-`/media/`).
+    //
+    // **Warum EIN Aufruf und nicht drei Ausdrücke im Blade:** die Fläche braucht drei
+    // Zustände (braucht es Auth / fertige `blob:`-URL / gescheitert), und die
+    // Entscheidung darüber gehört nicht in ein `x-effect` mit Semikolons. Der Aufruf
+    // schreibt sie in den Alpine-Zustand des Avatars; alles andere (eine Signatur je
+    // Host, Cache, Freigabe, kein Wiederholen nach 401) liegt in `blossomMedia.ts` und
+    // ist dort ohne Browser geprüft.
+    Alpine.magic('blossomBind', () => (state: AvatarState, url: unknown) => bindAvatarState(blossomMedia, state, url))
 
     // P3 LOCALE — `$num(1234)` formatiert eine Zahl in der GEWÄHLTEN Sprache
     // („1.234" unter de, „1,234" unter en), in jedem Alpine-Ausdruck. Dieselbe

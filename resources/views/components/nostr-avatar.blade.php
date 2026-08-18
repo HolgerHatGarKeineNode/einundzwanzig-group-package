@@ -7,6 +7,16 @@
       Lesers direkt zum Angreifer schicken). `picture`/`name` sind
       Alpine-Ausdrücke (z.B. `m.picture`, `m.name`) aus dem umschließenden Scope.
 
+      ── Der dritte Weg: Bilder, die der Relay nur signiert herausgibt ──
+      Buzz verlangt fuer jedes `GET /media/…` ein signiertes Blossom-Event (kind 24242);
+      ein `<img src>` kann diesen Header nicht mitschicken, ein blanker Versuch endet mit
+      401. `$blossomBind($data, picture)` erkennt genau diese URLs (Origin == Workspace-
+      Relay), holt sie per `fetch` mit dem Schluessel des ANGEMELDETEN Nutzers und legt
+      eine `blob:`-URL in `authSrc`. Solange die fehlt, entsteht KEIN `<img>` — sonst
+      liefe pro Avatar erst der Proxy und dann die rohe URL in je ein 401. Ohne
+      Signer-Sitzung bleibt es still bei der Initiale; das ist der korrekte Zustand, denn
+      diese Bilder sind ohne Mitgliedschaft nicht lesbar. Details: `js/blossomMedia.ts`.
+
       `emoji` (optional, P2/NIP-38) ist ebenfalls ein Alpine-Ausdruck und trägt das
       Status-Emoji als Plakette an die untere rechte Ecke. Ohne diesen Prop entsteht
       KEIN zusätzliches Markup — die zwei Dutzend Bestands-Aufrufer bleiben unberührt.
@@ -18,13 +28,14 @@
       Element ist wie zuvor ein `inline-flex shrink-0` mit exakt den Maßen aus `$size`. --}}
 @props(['picture', 'name', 'size' => '2rem', 'emoji' => null])
 <span class="relative inline-flex shrink-0" style="width: {{ $size }}; height: {{ $size }};">
-    <span x-data="{ imgOrig: false, imgBroken: false }"
+    <span x-data="{ imgOrig: false, imgBroken: false, needsAuth: false, authSrc: '' }"
+          x-effect="$blossomBind($data, {{ $picture }})"
           class="relative inline-flex size-full items-center justify-center overflow-hidden rounded-full bg-brand-500/10 font-mono text-xs font-semibold uppercase text-brand-900 dark:text-brand-300">
         <span x-text="((({{ $name }}) || '?').trim()[0]) || '?'"></span>
-        <template x-if="({{ $picture }}) && !imgBroken">
+        <template x-if="({{ $picture }}) && !imgBroken && (!needsAuth || authSrc)">
             <img alt="" class="absolute inset-0 size-full object-cover"
-                 :src="imgOrig ? ({{ $picture }}) : $img({{ $picture }})"
-                 x-on:error="imgOrig ? (imgBroken = true) : ($imgFallback({{ $picture }}) ? (imgOrig = true) : (imgBroken = true))" />
+                 :src="needsAuth ? authSrc : (imgOrig ? ({{ $picture }}) : $img({{ $picture }}))"
+                 x-on:error="needsAuth ? (imgBroken = true) : (imgOrig ? (imgBroken = true) : ($imgFallback({{ $picture }}) ? (imgOrig = true) : (imgBroken = true)))" />
         </template>
     </span>
     @if ($emoji !== null)

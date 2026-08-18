@@ -114,7 +114,7 @@ describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
         unsubscribe = profilesByPubkey.subscribe(() => {})
         repository.publish(nativesProfil)
         await tick(50)
-        await loadSpaceProfiles(SPACE, [beidePubkey, nurSpacePubkey], true)
+        await loadSpaceProfiles(SPACE, [beidePubkey, nurSpacePubkey])
         await tick(250)
     })
 
@@ -157,9 +157,11 @@ describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
         assert.equal(displayProfileByPubkey(nurSpacePubkey), 'nostr-specialist')
     })
 
-    test('das Bild vom Space-Relay ist raus (401 ohne Blossom-Auth)', () => {
-        assert.equal(getSpaceProfile(nurSpacePubkey)?.picture, undefined)
-        assert.equal(get(profilesByPubkey).get(nurSpacePubkey)?.picture, undefined)
+    test('das Bild vom Space-Relay steht im Profil — die Flaeche holt es signiert', () => {
+        // Es ist ohne Blossom-Auth nicht ladbar, aber es ist auch nicht wertlos:
+        // `blossomMedia.ts` holt genau diese URL mit dem Schluessel des Nutzers.
+        assert.equal(getSpaceProfile(nurSpacePubkey)?.picture, 'https://buzz.test.invalid/media/b.jpg')
+        assert.equal(get(profilesByPubkey).get(nurSpacePubkey)?.picture, 'https://buzz.test.invalid/media/b.jpg')
     })
 
     test('KEINE Zahlungsadresse und kein Space-Event im Anzeige-Objekt', () => {
@@ -212,14 +214,14 @@ describe('Fehlgeschlagene Runde gibt die Pubkeys wieder frei', () => {
     })
 
     test('abgewiesene Runde bringt nichts', async () => {
-        assert.equal(await loadSpaceProfiles(SPACE, [nachzueglerPubkey], true), 0)
+        assert.equal(await loadSpaceProfiles(SPACE, [nachzueglerPubkey]), 0)
         assert.equal(getSpaceProfile(nachzueglerPubkey), undefined)
     })
 
     test('… und der zweite Anlauf nach dem Login kommt durch', async () => {
         modus = 'antwortet'
 
-        assert.equal(await loadSpaceProfiles(SPACE, [nachzueglerPubkey], true), 1, 'der Merker darf nach einer unbeantworteten Runde nicht stehen bleiben')
+        assert.equal(await loadSpaceProfiles(SPACE, [nachzueglerPubkey]), 1, 'der Merker darf nach einer unbeantworteten Runde nicht stehen bleiben')
         assert.equal(getSpaceProfile(nachzueglerPubkey)?.display_name, 'nachzuegler')
     })
 
@@ -227,9 +229,9 @@ describe('Fehlgeschlagene Runde gibt die Pubkeys wieder frei', () => {
         // Sonst fragte jeder Feed-Re-Derive dieselben Fremd-Pubkeys erneut an.
         const fremd = getPublicKey(generateSecretKey())
 
-        assert.equal(await loadSpaceProfiles(SPACE, [fremd], true), 0)
+        assert.equal(await loadSpaceProfiles(SPACE, [fremd]), 0)
         // Zweiter Aufruf: der Merker steht, es geht gar keine Anfrage mehr raus —
         // messbar daran, dass er auch dann 0 liefert, wenn der Relay antworten WUERDE.
-        assert.equal(await loadSpaceProfiles(SPACE, [fremd], true), 0)
+        assert.equal(await loadSpaceProfiles(SPACE, [fremd]), 0)
     })
 })

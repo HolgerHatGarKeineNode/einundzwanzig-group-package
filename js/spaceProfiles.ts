@@ -106,18 +106,11 @@ const requested = new Set<string>()
  *   Signaturprüfung, und ein Relay könnte ein kind 0 für einen fremden Pubkey
  *   unterschieben. Es bleibt bei `verifyEvent`.
  *
- * `dropSelfHostedMedia` entscheidet der AUFRUFER und nicht dieses Modul: die
- * Buzz-Erkennung (`spaceIsBuzzAsync`, `buzzAdmin.ts`) hängt an einer Kette
- * endungsloser Importe und machte jedes Modul, das hier importiert, unter
- * `node --test` unladbar — genau die Falle, die `spaceCaps.ts` in seinem Modulkopf
- * beschreibt. Beide heutigen Aufrufer sprechen ohnehin mit einem Buzz-Relay und
- * übergeben `true`; siehe {@link sanitizeSpaceProfile} für den gemessenen Grund.
+ * Bilder des Space-Relays bleiben im Profil stehen (bis 2026-08-19 flogen sie hier
+ * raus): sie sind auth-pflichtig, aber nicht unerreichbar — die Fläche holt sie über
+ * [[blossomMedia]] mit dem Schlüssel des Nutzers.
  */
-export const loadSpaceProfiles = async (
-    spaceUrl: string,
-    pubkeys: Iterable<string>,
-    dropSelfHostedMedia: boolean,
-): Promise<number> => {
+export const loadSpaceProfiles = async (spaceUrl: string, pubkeys: Iterable<string>): Promise<number> => {
     if (!spaceUrl) {
         return 0
     }
@@ -178,7 +171,7 @@ export const loadSpaceProfiles = async (
                 if (previous && previous.created_at >= event.created_at) {
                     continue
                 }
-                next.set(pubkey, sanitizeSpaceProfile(readProfile(event), spaceUrl, dropSelfHostedMedia))
+                next.set(pubkey, sanitizeSpaceProfile(readProfile(event)))
                 added++
             }
             return next

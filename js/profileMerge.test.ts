@@ -109,22 +109,23 @@ test('Bild vom Space-Relay wird erkannt — Origin gegen Origin', () => {
     assert.equal(isSpaceHostedMedia('https://buzz.einundzwanzig.space/media/abc.jpg', ''), false)
 })
 
-test('Buzz-Bild fliegt raus (401 ohne Blossom-Auth), Fremdbild bleibt', () => {
-    const dropped = sanitizeSpaceProfile(
-        { name: 'ceo', picture: 'https://buzz.einundzwanzig.space/media/a.jpg', banner: 'https://buzz.einundzwanzig.space/media/b.jpg' },
-        BUZZ,
-        true,
-    )
-    assert.equal(dropped.picture, undefined)
-    assert.equal(dropped.banner, undefined)
-    assert.equal(dropped.name, 'ceo')
+test('das relay-eigene Bild BLEIBT stehen — der Ladeweg dafuer existiert jetzt', () => {
+    // Bis 2026-08-19 flog es hier raus (401 im <img>). Seit dem client-seitigen
+    // Blossom-Fetch wird die URL gebraucht; erkannt wird sie am Origin, nicht an
+    // einem Merker im Profil.
+    const aufgenommen = sanitizeSpaceProfile({
+        name: 'ceo',
+        picture: 'https://buzz.einundzwanzig.space/media/a.jpg',
+        banner: 'https://buzz.einundzwanzig.space/media/b.jpg',
+    })
 
-    const kept = sanitizeSpaceProfile({ picture: 'https://image.nostr.build/a.jpg' }, BUZZ, true)
-    assert.equal(kept.picture, 'https://image.nostr.build/a.jpg')
+    assert.equal(aufgenommen.picture, 'https://buzz.einundzwanzig.space/media/a.jpg')
+    assert.equal(aufgenommen.banner, 'https://buzz.einundzwanzig.space/media/b.jpg')
+    assert.equal(isSpaceHostedMedia(aufgenommen.picture, BUZZ), true, 'die Flaeche muss den Blossom-Weg daran erkennen')
 
-    // Kein Buzz-Space (zooid liefert seine Blossom-Blobs ohne Auth aus) → nichts wird geworfen.
-    const zooid = sanitizeSpaceProfile({ picture: 'https://group.einundzwanzig.space/media/a.jpg' }, ZOOID, false)
-    assert.equal(zooid.picture, 'https://group.einundzwanzig.space/media/a.jpg')
+    const fremd = sanitizeSpaceProfile({ picture: 'https://image.nostr.build/a.jpg' })
+    assert.equal(fremd.picture, 'https://image.nostr.build/a.jpg')
+    assert.equal(isSpaceHostedMedia(fremd.picture, BUZZ), false, 'Fremdbilder laufen weiter ueber den Proxy')
 })
 
 test('mehrere Fassungen desselben ersetzbaren kind 0 → die juengste gewinnt', () => {
@@ -170,11 +171,13 @@ test('ein Space-Profil OHNE anzeigbares Feld ergibt nichts — nicht ein leeres 
 })
 
 test('die Allowlist greift schon beim AUFNEHMEN in die Zweitquelle (zweite Ebene)', () => {
-    const aufgenommen = sanitizeSpaceProfile(
-        { name: 'ceo', lud16: 'angreifer@wallet.example', lud06: 'lnurl1angreifer', nip05: 'ceo@buzz.example', lnurl: 'lnurl1x' },
-        BUZZ,
-        true,
-    )
+    const aufgenommen = sanitizeSpaceProfile({
+        name: 'ceo',
+        lud16: 'angreifer@wallet.example',
+        lud06: 'lnurl1angreifer',
+        nip05: 'ceo@buzz.example',
+        lnurl: 'lnurl1x',
+    })
 
     assert.equal(aufgenommen.name, 'ceo')
     assert.equal(aufgenommen.lud16, undefined)

@@ -21,6 +21,7 @@
  * Deshalb wird nicht im Repository gemischt, sondern hier — beim Anzeigen.
  */
 import type { Profile, TrustedEvent } from '@welshman/util'
+import { mediaOriginOf } from './blossomAuth.ts'
 
 /**
  * Stammt dieses Event **nur** vom Space-Relay?
@@ -130,28 +131,31 @@ export const isSpaceHostedMedia = (picture: unknown, spaceUrl: string): boolean 
     if (typeof picture !== 'string' || picture === '' || !spaceUrl) {
         return false
     }
+    const origin = mediaOriginOf(spaceUrl)
     try {
-        return new URL(picture).origin === new URL(spaceUrl.replace(/^ws/i, 'http')).origin
+        return origin !== '' && new URL(picture).origin === origin
     } catch {
         return false
     }
 }
 
 /**
- * Ein Space-Profil anzeigefertig machen.
+ * Ein Space-Profil anzeigefertig machen: **nur** die Felder aus {@link MERGED_FIELDS},
+ * dazu das Event (siehe unten). Aufbauend gefiltert, nicht abziehend — ein neues Feld
+ * der Fremdquelle ist damit nicht automatisch drin.
  *
- * `dropSelfHostedMedia` wirft `picture`/`banner` weg, wenn sie vom Space-Relay selbst
- * kommen. **Warum:** Buzz verlangt seit `block/buzz#4610` für JEDES `GET /media/…`
- * ein signiertes Blossom-Event (kind 24242). Am 2026-08-18 nachgemessen: blankes
- * `curl` auf die Maintainer-Bilder → `401 {"error":"authentication failed"}`, mit
- * signiertem Header → `200`, 46 KB JPEG. Ein `<img src>` kann diesen Header nicht
- * mitschicken. Die URL stehen zu lassen hieße: pro Avatar zwei scheiternde Anfragen
- * (eine davon serverseitig durch unseren Bild-Proxy) und am Ende doch die Initiale.
- * Ohne die URL steht die Initiale sofort — und sie trägt jetzt den gemergten Namen.
+ * ── Was hier bis 2026-08-19 zusätzlich passierte, und warum es weg ist ──
  *
- * Fremd gehostete Bilder (nostr.build & Co.) bleiben unangetastet, auch im Space-Profil.
+ * Ein `picture`/`banner`, das vom Space-Relay selbst kommt, wurde verworfen: Buzz
+ * verlangt für jedes `GET /media/…` ein signiertes Blossom-Event, und ein `<img src>`
+ * kann diesen Header nicht mitschicken (gemessen: blank `401`, signiert `200`). Die
+ * Fläche holt diese Bilder jetzt über [[blossomMedia]] mit dem Schlüssel des
+ * angemeldeten Nutzers — die URL wird also gebraucht und bleibt stehen. Erkannt wird
+ * der Fall am Origin ({@link isSpaceHostedMedia}), nicht an einem Merker im Profil:
+ * die URL trägt die Information schon, und ein zweiter, mitzupflegender Zustand wäre
+ * die nächste Stelle, an der etwas auseinanderläuft.
  */
-export const sanitizeSpaceProfile = (profile: Profile, spaceUrl: string, dropSelfHostedMedia: boolean): Profile => {
+export const sanitizeSpaceProfile = (profile: Profile): Profile => {
     const clean: Profile = {}
     for (const field of MERGED_FIELDS) {
         if (!isBlank(profile[field])) {
@@ -162,12 +166,6 @@ export const sanitizeSpaceProfile = (profile: Profile, spaceUrl: string, dropSel
     // Fassungen. Es verlässt die Zweitquelle nie — {@link spaceFieldsForDisplay} nimmt
     // es nicht mit.
     clean.event = profile.event
-    if (dropSelfHostedMedia && isSpaceHostedMedia(clean.picture, spaceUrl)) {
-        clean.picture = undefined
-    }
-    if (dropSelfHostedMedia && isSpaceHostedMedia(clean.banner, spaceUrl)) {
-        clean.banner = undefined
-    }
     return clean
 }
 

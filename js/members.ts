@@ -612,8 +612,7 @@ export const listenSpaceDirectory = (url: string, signal: AbortSignal): void => 
 const loadProfilesFromSpace = async (url: string, pubkeys: string[]): Promise<void> => {
     if (await spaceIsBuzzAsync(url)) {
         purgeSpaceLocalProfiles(url)
-        // `true`: Buzz liefert seine eigenen Medien nur mit Blossom-Auth aus (401 im <img>).
-        await loadSpaceProfiles(url, pubkeys, true)
+        await loadSpaceProfiles(url, pubkeys)
         return
     }
     await load({ relays: [url], filters: [{ kinds: [0], authors: pubkeys }] })
