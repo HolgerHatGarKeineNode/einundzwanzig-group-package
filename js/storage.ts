@@ -90,6 +90,14 @@ type TrackerItem = { id: string; relays: string[] }
  * kappt {@link eventsToPrune} kind 1111 jetzt mit (siehe dort, §4.3). Persistenz OHNE
  * Kappung wäre der Fehler, den die Spezifikation meinte.
  *
+ * Dieser Eintrag betrifft ausschließlich den zooid-Pfad: **Buzz nimmt kind 1111 gar
+ * nicht an.** Am Teststack gemessen (2026-08-18) antwortet der Relay auf ein 1111 mit
+ * `restricted: unknown event kind`, auch nackt mit nur einem `h`-Tag — während dasselbe
+ * Ereignis als kind 1 mit identischen Tags und ein kind 1621 beide `success` bekommen.
+ * Die Ablehnung ist also kind-spezifisch, nicht tag- oder auth-bedingt. Folge für die
+ * Forge: die NIP-22-konforme Kommentarform kann an einem Buzz-Relay nicht existieren,
+ * weshalb {@link isForgeComment} auf kind 1 richtig liegt und dort nichts übersieht.
+ *
  * §4.2 raus:
  * Ephemeral/AUTH/Reaktionen/Zaps (kein `#h`, laden lazy nach dem Paint). Lotus' kind-10
  * (In-Chat-Thread, `feeds.ts CHAT_THREAD`) bleibt bewusst draußen: wir lesen ihn nur für
