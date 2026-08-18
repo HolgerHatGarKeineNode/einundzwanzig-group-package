@@ -2,3 +2,6 @@
 /vendor
 composer.lock
 /test-results
+
+# Composer-Credentials (Flux Pro u. a.) — enthaelt Zugangsdaten, nie einchecken.
+/auth.json
