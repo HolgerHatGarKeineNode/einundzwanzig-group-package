@@ -7,10 +7,23 @@
     <flux:modal name="profile-card" class="max-w-sm overflow-hidden">
         {{-- Flux-Modal-Padding (p-6) aufheben, damit der Banner randlos blutet. --}}
         <div class="-m-6">
-            {{-- Banner-Header. Ohne Banner: Brand-Verlauf statt leerer Fläche. --}}
-            <div class="relative h-28 bg-gradient-to-br from-brand-500/30 via-brand-500/10 to-transparent">
-                <template x-if="banner">
-                    <img :src="$img(banner, 'full')" alt="" class="absolute inset-0 size-full object-cover" />
+            {{-- Banner-Header. Ohne Banner: Brand-Verlauf statt leerer Fläche.
+
+                 Derselbe dritte Weg wie beim Avatar: liegt der Banner auf dem
+                 Workspace-Relay, ist er nur mit signiertem Blossom-Header lesbar.
+                 `$blossomBind` legt dafür eine `blob:`-URL in `authSrc`; solange die
+                 fehlt, entsteht KEIN `<img>`. Der eigene `x-data`-Rahmen ist nötig,
+                 weil der Zustand pro BILD geführt wird — der Avatar darunter hat
+                 seinen eigenen. Ohne diesen Rahmen ging die private URL an
+                 `$img(...)`, also an den serverseitigen Bild-Proxy: genau der Weg,
+                 der hier ausdrücklich nicht gegangen werden soll. --}}
+            <div class="relative h-28 bg-gradient-to-br from-brand-500/30 via-brand-500/10 to-transparent"
+                 x-data="{ imgOrig: false, imgBroken: false, needsAuth: false, authSrc: '' }"
+                 x-effect="$blossomBind($data, banner)">
+                <template x-if="banner && !imgBroken && (!needsAuth || authSrc)">
+                    <img :src="needsAuth ? authSrc : (imgOrig ? banner : $img(banner, 'full'))" alt=""
+                         x-on:error="needsAuth ? (imgBroken = true) : (imgOrig ? (imgBroken = true) : ($imgFallback(banner) ? (imgOrig = true) : (imgBroken = true)))"
+                         class="absolute inset-0 size-full object-cover" />
                 </template>
                 {{-- Scrim Banner → Kartengrund, damit der Avatar sauber aufsitzt. --}}
                 <div class="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white to-transparent dark:from-zinc-900"></div>

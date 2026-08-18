@@ -15,6 +15,8 @@ import { bindAvatarState, makeBlossomLoader, type AvatarState, type BlossomDeps,
 import { BLOSSOM_AUTH_KIND, type SignedLike } from './blossomAuth.ts'
 
 const HOST = 'https://buzz.test.invalid'
+const ALICE = 'a'.repeat(64)
+const BOB = 'b'.repeat(64)
 const bild = (n: number): string => `${HOST}/media/${String(n).repeat(4)}.jpg`
 
 type Protokoll = {
@@ -27,13 +29,18 @@ const harness = (over: Partial<BlossomDeps> = {}, antwort: (url: string) => Blos
     const log: Protokoll = { signaturen: [], anfragen: [], freigegeben: [] }
     let jetzt = 1_800_000_000
     let laufendeNummer = 0
+    let sitzung = ALICE
 
     const loader = makeBlossomLoader({
         isProtected: (url: string) => url.startsWith(`${HOST}/`),
-        hasSession: () => true,
+        sessionPubkey: () => sitzung,
         sign: async (template): Promise<SignedLike> => {
             log.signaturen.push(template)
-            return { ...template, pubkey: 'a'.repeat(64), id: 'b'.repeat(64), sig: 'c'.repeat(128) }
+            // Der Fake signiert mit der Identitaet der LAUFENDEN Sitzung — wie ein
+            // echter Signer. Ein fester Pubkey machte Alices und Bobs Header
+            // bytegleich, und die Zusage „Bob liest nie mit Alices Bearer" waere
+            // unbeweisbar gewesen.
+            return { ...template, pubkey: sitzung, id: 'b'.repeat(64), sig: 'c'.repeat(128) }
         },
         fetchMedia: async (url: string, authorization: string) => {
             log.anfragen.push({ url, authorization })
@@ -45,7 +52,12 @@ const harness = (over: Partial<BlossomDeps> = {}, antwort: (url: string) => Blos
         ...over,
     })
 
-    return { loader, log, vorspulen: (sekunden: number) => (jetzt += sekunden) }
+    return {
+        loader,
+        log,
+        vorspulen: (sekunden: number) => (jetzt += sekunden),
+        anmelden: (pubkey: string) => (sitzung = pubkey),
+    }
 }
 
 describe('Blossom-Ladeweg', () => {
@@ -87,7 +99,7 @@ describe('Blossom-Ladeweg', () => {
     })
 
     test('OHNE Signer-Sitzung wird gar nicht erst signiert', async () => {
-        const { loader, log } = harness({ hasSession: () => false })
+        const { loader, log } = harness({ sessionPubkey: () => '' })
 
         assert.equal(await loader.load(bild(1)), '', 'kein Bild ist hier der KORREKTE Zustand, kein Fehler')
         assert.equal(log.signaturen.length, 0, 'ein Gast darf keinen Signer-Dialog sehen')
@@ -95,11 +107,11 @@ describe('Blossom-Ladeweg', () => {
     })
 
     test('nach dem Login geht es dann doch — die Absage war nicht endgueltig', async () => {
-        let angemeldet = false
-        const { loader, log } = harness({ hasSession: () => angemeldet })
+        let angemeldet = ''
+        const { loader, log } = harness({ sessionPubkey: () => angemeldet })
 
         assert.equal(await loader.load(bild(1)), '')
-        angemeldet = true
+        angemeldet = ALICE
         assert.notEqual(await loader.load(bild(1)), '')
         assert.equal(log.signaturen.length, 1)
     })
@@ -124,8 +136,13 @@ describe('Blossom-Ladeweg', () => {
     })
 
     test('eine abgelehnte Signatur sperrt kurz, statt pro Avatar zu fragen', async () => {
-        const { loader, log, vorspulen } = harness({
+        // Der Versuch wird protokolliert und scheitert DANN. Vorher warf dieser Fake
+        // sofort, ohne zu protokollieren — die Zaehlung unten war dadurch immer 0 und
+        // haette auch eine DAUERHAFTE Sperre durchgewinkt.
+        let versuche = 0
+        const { loader, vorspulen } = harness({
             sign: async () => {
+                versuche++
                 throw new Error('Nutzer hat abgelehnt')
             },
         })
@@ -133,12 +150,49 @@ describe('Blossom-Ladeweg', () => {
         await loader.load(bild(1))
         await loader.load(bild(2))
         await loader.load(bild(3))
-        assert.equal(log.anfragen.length, 0)
+        assert.equal(versuche, 1, 'drei Gesichter, EINE Abfrage — sonst prasseln bei NIP-46 drei Dialoge')
 
         // Der Nutzer darf seine Meinung aendern — aber erst nach der Sperrfrist.
         vorspulen(61)
         await loader.load(bild(4))
-        assert.equal(log.signaturen.length, 0, 'die Fabrik protokolliert nur erfolgreiche Signaturen')
+        assert.equal(versuche, 2, 'nach der Frist wird wieder gefragt, sonst waere die Sperre endgueltig')
+    })
+
+    test('F1: nach dem Abmelden kommt KEIN Header mehr aus dem Cache', async () => {
+        const { loader, log, anmelden } = harness()
+
+        await loader.load(bild(1))
+        assert.equal(log.anfragen.length, 1, 'Vorbedingung: angemeldet, ein Auth-Event liegt im Cache')
+
+        anmelden('')
+        assert.equal(await loader.load(bild(2)), '')
+
+        assert.equal(log.anfragen.length, 1, 'ein `server`-Auth ist ein 45-Minuten-Lesebearer, kein Ticket fuer EIN Bild')
+        assert.equal(log.freigegeben.length, 1, 'und die blob:-URLs des Abgemeldeten sind weg')
+    })
+
+    test('F1: beim Nutzerwechsel wird neu signiert, nichts uebernommen', async () => {
+        const { loader, log, anmelden } = harness()
+
+        await loader.load(bild(1))
+        const alicesHeader = log.anfragen[0].authorization
+
+        anmelden(BOB)
+        await loader.load(bild(2))
+
+        assert.equal(log.signaturen.length, 2, 'Bob bekommt sein eigenes Auth-Event')
+        assert.notEqual(log.anfragen[1].authorization, alicesHeader, 'Bob darf nie mit Alices Bearer lesen')
+        assert.equal(log.freigegeben.length, 1, 'Alices blob:-URLs sind beim Wechsel widerrufen')
+    })
+
+    test('F1: revokeAll raeumt auch das MITTEL, nicht nur die Bilder', async () => {
+        const { loader, log } = harness()
+
+        await loader.load(bild(1))
+        loader.revokeAll()
+        await loader.load(bild(2))
+
+        assert.equal(log.signaturen.length, 2, 'nach dem Raeumen muss neu signiert werden')
     })
 
     test('blob:-URLs werden freigegeben, wenn der Cache ueberlaeuft', async () => {

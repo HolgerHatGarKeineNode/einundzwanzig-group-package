@@ -6616,11 +6616,23 @@ export function registerNostrComponents(Alpine: {
                 try {
                     const pk = await startNip55Login()
                     loginWithNip55(pk)
-                    window.location.assign(await postLoginRedirect())
                 } catch (e) {
                     this.error = e instanceof Error ? e.message : String(e)
                     this.connecting = false
+                    return
                 }
+                // **Ab hier ist die Sitzung gültig.** Vorher lag die Zielbestimmung im
+                // selben `try`: scheiterte sie (Netz weg beim NIP-98-Handoff), sah der
+                // Nutzer eine Fehlermeldung auf der Login-Seite — angemeldet, aber
+                // stehengeblieben. Ein Fehler beim ZIEL darf den geglückten Login nicht
+                // wie einen gescheiterten aussehen lassen.
+                let ziel = '/spaces'
+                try {
+                    ziel = await postLoginRedirect()
+                } catch {
+                    // Default-Ziel; die Insel hält die Session selbst (§7).
+                }
+                window.location.assign(ziel)
                 return
             }
             const abort = new AbortController()
@@ -6683,14 +6695,23 @@ export function registerNostrComponents(Alpine: {
         async doLogout() {
             this.stopConnect()
             logout()
-            // Mobile hat keine Laravel-Session (§7) — der Server-Logout ist ein No-op
-            // gegen tote Routen; nur die welshman-Session (localStorage) räumen.
-            if (!isMobile) {
-                await logoutServer()
+            try {
+                // Mobile hat keine Laravel-Session (§7) — der Server-Logout ist ein No-op
+                // gegen tote Routen; nur die welshman-Session (localStorage) räumen.
+                if (!isMobile) {
+                    await logoutServer()
+                }
+            } finally {
+                // **`finally`, nicht `catch`**: `logoutServer()` ist ein nacktes `fetch`.
+                // Ohne diesen Rahmen rejectete `doLogout` bei jedem Netzfehler, Alpine
+                // verschluckte die Rejection — und die Navigation unten lief NIE. Die
+                // Oberfläche sagte „abgemeldet", die Seite blieb stehen, und mit ihr der
+                // ganze Modulzustand (siehe die Sitzungsprüfung in `blossomMedia.ts`,
+                // die genau deshalb nicht auf diesen Reload baut).
+                this.keyInput = ''
+                this.bunkerInput = ''
+                window.location.assign('/nostr-login')
             }
-            this.keyInput = ''
-            this.bunkerInput = ''
-            window.location.assign('/nostr-login')
         },
         destroy() {
             this._connectAbort?.abort()

@@ -12,6 +12,8 @@ import { netContext, defaultSocketPolicies, makeSocketPolicyAuth } from '@welshm
 import { routerContext } from '@welshman/router'
 import { always } from '@welshman/lib'
 import { verifyEvent, normalizeRelayUrl, PROFILE, type TrustedEvent } from '@welshman/util'
+import { mayProxifyMedia } from './mediaGuard.ts'
+import { mayFallbackToRaw as rawFallbackAllowed } from './imageFallback.ts'
 import { initStorage } from './storage'
 import { watchRelayNotices } from './relayNotices'
 import { watchRequests } from './reqWatch'
@@ -81,6 +83,12 @@ export function proxifyImage(url: unknown, preset = 'avatar'): string {
     if (src === '' || INLINE_SRC.test(src.trimStart())) {
         return src
     }
+    // Medien des Workspace-Relays gehen NIE an den Server-Proxy ([[mediaGuard]]).
+    // Leerer String statt Proxy-URL: die Fläche zeigt dann ihren Rückfall (Initiale,
+    // Verlauf) statt eine Anfrage zu stellen, die nur 401 werden kann.
+    if (!mayProxifyMedia(src, WORKSPACE)) {
+        return ''
+    }
     const base = isMobile ? IMG_PROXY_HOST : ''
     return `${base}/img/${preset}?src=${encodeURIComponent(src)}`
 }
@@ -90,10 +98,14 @@ export function proxifyImage(url: unknown, preset = 'avatar'): string {
  * Zweitversuch einer <img>-Kette die ROHE URL laden darf. Die Unterscheidung
  * („Proxy konnte nicht" vs. „Ziel ist nicht proxyfähig") und ihre Begründung
  * stehen in `imageFallback.ts`; das Modul ist Import-frei, damit es unter
- * `node --test` direkt prüfbar ist — hier nur re-exportiert, damit Client-Code
+ * `node --test` direkt prüfbar ist — hier nur zusammengesetzt, damit Client-Code
  * beides aus demselben Ort zieht.
+ *
+ * Vorgeschaltet ist dieselbe Wache wie im Proxy: für ein Medium des Workspace-Relays
+ * ist auch der ROHE Zweitversuch falsch (401 ohne `Authorization`), er kostet nur eine
+ * Anfrage pro Gesicht.
  */
-export { mayFallbackToRaw } from './imageFallback'
+export const mayFallbackToRaw = (url: unknown): boolean => mayProxifyMedia(url, WORKSPACE) && rawFallbackAllowed(url)
 
 /**
  * Wartet, bis NativePHPs POST-Shim scharf ist. **Ohne dieses Gate verliert jeder
