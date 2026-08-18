@@ -1,0 +1,148 @@
+/**
+ * Die REGELN der Profil-Zusammenführung — import-frei und damit unter `node --test`
+ * direkt prüfbar (Muster `imageFallback.ts`). Wer entscheidet, was angezeigt wird,
+ * entscheidet hier; wer Events holt und Stores hält, tut das in `spaceProfiles.ts`.
+ *
+ * ── Was gemessen wurde (2026-08-18, `wss://buzz.einundzwanzig.space`) ──
+ *
+ * Das Repo-Announcement `einundzwanzig-verein` (kind 30617) trägt zehn
+ * `maintainers`-Pubkeys. Für **alle zehn** liefert Buzz ein kind 0 mit `display_name`
+ * (`ceo`, `nostr-specialist`, `design-lead`, …), `about` und Bild. Dieselben zehn
+ * haben auf `purplepag.es`, `relay.damus.io`, `nos.lol`, `relay.nostr.band` und am
+ * Vereins-Relay **null** kind 0 — sie existieren nur im Workspace. Genau deshalb
+ * standen in der Maintainer-Zeile zehn `N`-Initialen: `displayProfileByPubkey` fiel
+ * auf die gekürzte npub-Form zurück.
+ *
+ * Der elfte Pubkey (der Repo-Eigentümer) hat beides: nativ „El Presidento Ben"
+ * (`created_at` 1781649668) und auf Buzz „ElPresidentoBenito" (1785401118) — das
+ * Space-Event ist **jünger**. Die Gefahr aus der alten Fassung ist also real: käme
+ * das Space-kind-0 ins gemeinsame Repository, verdrängte es app-weit den echten
+ * Namen, weil kind 0 ersetzbar ist (NIP-01) und pro Pubkey nur EINE Fassung überlebt.
+ * Deshalb wird nicht im Repository gemischt, sondern hier — beim Anzeigen.
+ */
+import type { Profile, TrustedEvent } from '@welshman/util'
+
+/**
+ * Stammt dieses Event **nur** vom Space-Relay?
+ *
+ * Leere Herkunft → `false`. Ein Event ohne Tracker-Eintrag kommt aus der IndexedDB
+ * oder dem Backend-Cache; woher es ursprünglich stammt, wissen wir nicht, und eine
+ * Vermutung rechtfertigt kein Löschen.
+ */
+export const isSpaceLocalOnly = (relays: Iterable<string> | undefined, spaceUrl: string): boolean => {
+    const seen = Array.from(relays ?? [])
+    return seen.length > 0 && seen.every((r) => r === spaceUrl)
+}
+
+/**
+ * Die Felder, die ein Space-Profil beisteuern darf — und **nur** diese.
+ *
+ * Bewusst NICHT dabei:
+ * - `lud06`/`lud16`/`lnurl`: eine Zahlungsadresse aus einem relay-erzeugten Profil
+ *   leitete Zaps an einen Empfänger um, den der Nutzer nie gewählt hat. Eine fehlende
+ *   Zap-Adresse ist ein fehlendes Feature, eine falsche ist ein Vermögensschaden.
+ * - `nip05`: eine Identitätsbehauptung („ich bin x@domain"), die ein Space-Relay ohne
+ *   Zutun des Nutzers setzen kann. Gemessen setzt Buzz ohnehin keine.
+ * - `event`: das gemergte Objekt trägt immer das NATIVE Event (siehe
+ *   {@link mergeProfileForDisplay}) — sonst hinge an einem Anzeige-Objekt ein
+ *   Editier-/Publish-Pfad, der auf dem Space-Event aufsetzt.
+ */
+export const MERGED_FIELDS = ['name', 'display_name', 'picture', 'banner', 'about', 'website'] as const
+
+/** Leer = fehlt. Ein Feld aus Leerzeichen ist ein leeres Feld. */
+const isBlank = (value: unknown): boolean => typeof value !== 'string' || value.trim() === ''
+
+/**
+ * Natives Profil + Space-Profil → EIN Anzeige-Objekt.
+ *
+ * **Regel: das native Profil gewinnt pro FELD.** Das Space-Profil füllt nur, was dort
+ * leer ist oder fehlt. Ein gepflegter Name kann damit nie durch einen generierten
+ * ersetzt werden — auch dann nicht, wenn das Space-Event jünger ist (was es gemessen
+ * fast immer ist). Zeitstempel spielen hier bewusst **keine** Rolle: sie sind genau
+ * das Kriterium, das im Repository zum Falschen führt.
+ *
+ * Kein Space-Profil → das native Objekt wird **unverändert durchgereicht** (gleiche
+ * Referenz): der Normalfall darf keine Allokation und keinen Identitätswechsel
+ * kosten, sonst rechnete jede abgeleitete Fläche bei jedem Emit neu.
+ */
+export const mergeProfileForDisplay = (native: Profile | undefined, local: Profile | undefined): Profile | undefined => {
+    if (!local) {
+        return native
+    }
+    if (!native) {
+        return local
+    }
+    let merged: Profile | undefined
+    for (const field of MERGED_FIELDS) {
+        if (isBlank(native[field]) && !isBlank(local[field])) {
+            merged = merged ?? { ...native }
+            merged[field] = local[field]
+        }
+    }
+    return merged ?? native
+}
+
+/**
+ * Wird dieses Bild vom Space-Relay selbst ausgeliefert? (Origin gegen Origin,
+ * `wss://` → `https://`.)
+ *
+ * Ein zu lockerer Vergleich würfe legitime Fremdbilder weg, ein zu strenger ließe die
+ * unbrauchbaren stehen — deshalb steht die Entscheidung hier allein und wird einzeln
+ * geprüft.
+ */
+export const isSpaceHostedMedia = (picture: unknown, spaceUrl: string): boolean => {
+    if (typeof picture !== 'string' || picture === '' || !spaceUrl) {
+        return false
+    }
+    try {
+        return new URL(picture).origin === new URL(spaceUrl.replace(/^ws/i, 'http')).origin
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Ein Space-Profil anzeigefertig machen.
+ *
+ * `dropSelfHostedMedia` wirft `picture`/`banner` weg, wenn sie vom Space-Relay selbst
+ * kommen. **Warum:** Buzz verlangt seit `block/buzz#4610` für JEDES `GET /media/…`
+ * ein signiertes Blossom-Event (kind 24242). Am 2026-08-18 nachgemessen: blankes
+ * `curl` auf die Maintainer-Bilder → `401 {"error":"authentication failed"}`, mit
+ * signiertem Header → `200`, 46 KB JPEG. Ein `<img src>` kann diesen Header nicht
+ * mitschicken. Die URL stehen zu lassen hieße: pro Avatar zwei scheiternde Anfragen
+ * (eine davon serverseitig durch unseren Bild-Proxy) und am Ende doch die Initiale.
+ * Ohne die URL steht die Initiale sofort — und sie trägt jetzt den gemergten Namen.
+ *
+ * Fremd gehostete Bilder (nostr.build & Co.) bleiben unangetastet, auch im Space-Profil.
+ */
+export const sanitizeSpaceProfile = (profile: Profile, spaceUrl: string, dropSelfHostedMedia: boolean): Profile => {
+    if (!dropSelfHostedMedia) {
+        return profile
+    }
+    const clean: Profile = { ...profile }
+    if (isSpaceHostedMedia(clean.picture, spaceUrl)) {
+        clean.picture = undefined
+    }
+    if (isSpaceHostedMedia(clean.banner, spaceUrl)) {
+        clean.banner = undefined
+    }
+    return clean
+}
+
+/**
+ * Der jüngste Eintrag pro Pubkey aus einem Schwung Events.
+ *
+ * Nötig, weil ein Relay zu einem ersetzbaren Kind durchaus mehrere Fassungen
+ * ausliefert — am Buzz-Relay ist das für kind 30618 belegt, und für kind 0 gilt
+ * dieselbe Mechanik. Wer den letzten nimmt statt den jüngsten, zeigt Zufall an.
+ */
+export const newestByPubkey = (events: TrustedEvent[]): Map<string, TrustedEvent> => {
+    const byPubkey = new Map<string, TrustedEvent>()
+    for (const event of events) {
+        const previous = byPubkey.get(event.pubkey)
+        if (!previous || event.created_at > previous.created_at) {
+            byPubkey.set(event.pubkey, event)
+        }
+    }
+    return byPubkey
+}

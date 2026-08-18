@@ -35,10 +35,11 @@
  *    ankamen ({@link ForgeOverview.truncated}) — eine stillschweigend gekürzte
  *    Liste ist eine falsche Aussage über den Bestand.
  */
-import { deriveRelay, displayProfileByPubkey, profilesByPubkey, pubkey, repository, tracker } from '@welshman/app'
+import { deriveRelay, pubkey, repository, tracker } from '@welshman/app'
 import { load, request } from '@welshman/net'
 import { throttled } from '@welshman/store'
 import type { Filter, TrustedEvent } from '@welshman/util'
+import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { derived, readable, writable, type Readable } from 'svelte/store'
 import { proxifyImage, storageReady } from './core'

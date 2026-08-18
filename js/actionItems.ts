@@ -13,7 +13,7 @@
 import { derived, writable, get, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, loadProfile } from '@welshman/app'
+import { loadProfile } from '@welshman/app'
 import {
     REPORT,
     ROOM_JOIN,
@@ -26,6 +26,7 @@ import {
     type PublishedProfile,
 } from '@welshman/util'
 import { sortBy } from '@welshman/lib'
+import { profilesByPubkey } from './spaceProfiles.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository'
 import { roomsByUrl, roomMembersByUrl } from './groups'

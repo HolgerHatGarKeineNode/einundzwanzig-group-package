@@ -34,7 +34,8 @@
  */
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
-import { profilesByPubkey, pubkey } from '@welshman/app'
+import { pubkey } from '@welshman/app'
+import { profilesByPubkey } from './spaceProfiles.ts'
 import {
     COMMENT,
     MESSAGE,

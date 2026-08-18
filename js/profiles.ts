@@ -10,6 +10,8 @@ import { PublishStatus } from '@welshman/net'
 import { createProfile, editProfile, isPublishedProfile, makeEvent, makeProfile, profileHasName, verifyEvent, verifiedSymbol, type Profile, type TrustedEvent } from '@welshman/util'
 import { Router } from '@welshman/router'
 import { isMobile } from './core'
+import { WORKSPACE_URL } from './spaceCaps.ts'
+import { loadSpaceProfiles } from './spaceProfiles.ts'
 
 const HOST = 'https://group.einundzwanzig.space'
 const HEX64 = /^[0-9a-f]{64}$/
@@ -31,6 +33,14 @@ export async function warmProfiles(pubkeys: Iterable<string>): Promise<void> {
         chunks.push(seedChunk(base, fresh.slice(i, i + 100)))
     }
     await Promise.all(chunks)
+
+    // Zweite Quelle: die Profile, die es NUR im Workspace gibt. Der Backend-Cache
+    // erreicht sie strukturell nicht — er fragt Indexer + Vereins-Space
+    // (`ProfileCache::sources()`), nie das Workspace-Relay. Gemessen am 2026-08-18:
+    // zehn von elf Forge-Maintainern haben ausschliesslich dort ein kind 0. Ergebnis
+    // landet NICHT im Repository, sondern in der Anzeige-Rueckfallebene
+    // ([[spaceProfiles]]) — bewusst ohne `await`, die Fläche wartet darauf nicht.
+    void loadSpaceProfiles(WORKSPACE_URL, all, true)
 
     repairMissingProfiles(all)
 }

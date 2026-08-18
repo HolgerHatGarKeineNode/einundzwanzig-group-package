@@ -11,7 +11,7 @@
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, loadProfile, manageRelay, pubkey, handlesByNip05, deriveRelay } from '@welshman/app'
+import { loadProfile, manageRelay, pubkey, handlesByNip05, deriveRelay } from '@welshman/app'
 import {
     RELAY_MEMBERS,
     ManagementMethod,
@@ -38,7 +38,7 @@ import {
     type BuzzRelayRole,
 } from './buzzAdmin'
 import { warmHandles, verifiedNip05 } from './handles'
-import { purgeSpaceLocalProfiles } from './spaceProfiles'
+import { loadSpaceProfiles, profilesByPubkey, purgeSpaceLocalProfiles } from './spaceProfiles.ts'
 import { t } from './i18n'
 
 /** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
@@ -597,18 +597,24 @@ export const listenSpaceDirectory = (url: string, signal: AbortSignal): void => 
 }
 
 /**
- * kind 0 zusätzlich vom SPACE-Relay holen — aber **nicht von einem Buzz-Space**.
+ * kind 0 zusätzlich vom SPACE-Relay holen — auf zwei getrennten Wegen.
  *
- * Auf zooid ist das wertvoll: dort veröffentlichen Mitglieder ihr Profil oft direkt
- * am Space-Relay, und es ist dasselbe Profil wie im nativen Nostr. Buzz dagegen legt
- * beim Onboarding ein EIGENES kind-0 an (am Prod-Relay nachgesehen: generierte Namen,
- * eigene Bilder, Zeitstempel von heute). kind 0 ist ersetzbar, der jüngste Zeitstempel
- * gewinnt — das Buzz-Profil verdrängt damit app-weit das echte, sobald man den
- * Workspace betritt. Siehe [[spaceProfiles]] für die zweite Hälfte (Aufräumen).
+ * Auf zooid geht es direkt ins Repository: dort veröffentlichen Mitglieder ihr Profil
+ * oft am Space-Relay, und es ist dasselbe Profil wie im nativen Nostr.
+ *
+ * Buzz legt beim Onboarding ein EIGENES kind-0 an (gemessen: `display_name` wie `ceo`
+ * oder `nostr-specialist`, eigenes Bild, junger Zeitstempel). Das gehört NICHT ins
+ * gemeinsame Repository — kind 0 ist ersetzbar, der jüngste Zeitstempel gewinnt, und
+ * das Buzz-Profil verdrängte damit app-weit das echte. Es landet stattdessen in der
+ * zweiten Quelle ([[loadSpaceProfiles]]) und füllt beim ANZEIGEN nur die Lücken, die
+ * das native Profil offen lässt. `purgeSpaceLocalProfiles` bleibt daneben stehen: es
+ * hält das Repository frei von Buzz-kind-0 aus älteren Sitzungen.
  */
 const loadProfilesFromSpace = async (url: string, pubkeys: string[]): Promise<void> => {
     if (await spaceIsBuzzAsync(url)) {
         purgeSpaceLocalProfiles(url)
+        // `true`: Buzz liefert seine eigenen Medien nur mit Blossom-Auth aus (401 im <img>).
+        await loadSpaceProfiles(url, pubkeys, true)
         return
     }
     await load({ relays: [url], filters: [{ kinds: [0], authors: pubkeys }] })

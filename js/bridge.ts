@@ -6,12 +6,12 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { derived, get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveProfile, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getRelay, getZapper, deriveRelay } from '@welshman/app'
+import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getRelay, getZapper, deriveRelay } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, normalizeRelayUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps'
 import { classifyRoomClosedReason } from './roomGate'
-import { purgeSpaceLocalProfiles } from './spaceProfiles'
+import { deriveMergedProfile, purgeSpaceLocalProfiles } from './spaceProfiles.ts'
 import { load } from '@welshman/net'
 import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
@@ -1724,7 +1724,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
                 this.nip05 = handle ? displayNip05(handle.nip05) : ''
             })
-            this._unsub = deriveProfile(pk).subscribe((p) => {
+            this._unsub = deriveMergedProfile(pk).subscribe((p) => {
                 this.name = displayProfile(p, fallback)
                 this.picture = p?.picture ?? ''
                 this.banner = p?.banner ?? ''
@@ -6525,7 +6525,7 @@ export function registerNostrComponents(Alpine: {
                     this._unsubMyHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
                         this.myNip05 = handle ? displayNip05(handle.nip05) : ''
                     })
-                    this._unsubMyProfile = deriveProfile(pk).subscribe((p) => {
+                    this._unsubMyProfile = deriveMergedProfile(pk).subscribe((p) => {
                         this.myName = displayProfile(p, fallback)
                         this.myPicture = p?.picture ?? ''
                         this.myAbout = p?.about ?? ''

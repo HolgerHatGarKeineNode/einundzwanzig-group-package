@@ -29,9 +29,10 @@
  */
 import { derived, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { profilesByPubkey, displayProfileByPubkey, pubkey } from '@welshman/app'
+import { pubkey } from '@welshman/app'
 import { MESSAGE, type TrustedEvent } from '@welshman/util'
 import { throttled } from '@welshman/store'
+import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { deriveEventsForUrl } from './repository'
 import { warmProfiles } from './profiles'
 import { isThreadReply, threadRootId } from './threading'

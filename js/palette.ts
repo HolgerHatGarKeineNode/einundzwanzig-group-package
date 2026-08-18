@@ -34,8 +34,9 @@
  */
 
 import { get } from 'svelte/store'
-import { displayProfileByPubkey, relaysByUrl } from '@welshman/app'
+import { relaysByUrl } from '@welshman/app'
 import { type RelayProfile, type TrustedEvent } from '@welshman/util'
+import { displayProfileByPubkey } from './spaceProfiles.ts'
 import {
     DEFAULT_SPACE_URL,
     WORKSPACE_URL,

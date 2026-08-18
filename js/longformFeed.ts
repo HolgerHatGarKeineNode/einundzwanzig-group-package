@@ -30,10 +30,10 @@
  * `d`-Muster: 67 der 99 heißen `draft-<ts>` und sind trotzdem publiziert (Begründung bei
  * `LONGFORM_DRAFT` in `longform.ts`).
  */
-import { displayProfileByPubkey, profilesByPubkey } from '@welshman/app'
 import { load } from '@welshman/net'
 import { throttled } from '@welshman/store'
 import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
+import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { derived, readable, type Readable } from 'svelte/store'
 import { proxifyImage } from './core'
 import { formatTimestamp } from './locale'
