@@ -31,12 +31,17 @@ host the state is simply unused.
 
 ## Installing
 
+> **This package requires a paid Flux Pro licence.** Its views use Flux Pro components —
+> `flux:tab*` (16 usages), `flux:tabs` (4) and `flux:command*` (9). Without Flux Pro the package
+> will not install. See *Flux Pro* below before you start.
+
 In the `composer.json` of the target project:
 
 ```json
 {
     "repositories": [
-        { "type": "vcs", "url": "git@github.com:HolgerHatGarKeineNode/einundzwanzig-group-package.git" }
+        { "type": "vcs", "url": "git@github.com:HolgerHatGarKeineNode/einundzwanzig-group-package.git" },
+        { "type": "composer", "url": "https://composer.fluxui.dev" }
     ],
     "require": { "einundzwanzig/group": "dev-master" }
 }
@@ -45,6 +50,20 @@ In the `composer.json` of the target project:
 ```bash
 composer update einundzwanzig/group
 ```
+
+### Flux Pro
+
+`livewire/flux` and `livewire/flux-pro` (both `^2.15`) are declared in this package's `require`,
+so Composer refuses the install instead of rendering broken views at runtime. Two things Composer
+cannot do for you, because **a repository declared inside a dependency is ignored** — only the
+root project's `repositories` count:
+
+1. Add the `https://composer.fluxui.dev` repository to the target project (see the JSON above).
+2. Provide the licence credentials, e.g.
+   `composer config --auth http-basic.composer.fluxui.dev <email> <licence-key>`.
+   This writes `auth.json` — **make sure it is git-ignored** before you run it.
+
+Buy a licence at <https://fluxui.dev>.
 
 The provider is registered via Laravel auto-discovery (routes, `group::*` views, the
 `group::einundzwanzig` layout).
