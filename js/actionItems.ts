@@ -23,7 +23,6 @@ import {
     getTagValue,
     displayProfile,
     type TrustedEvent,
-    type PublishedProfile,
 } from '@welshman/util'
 import { sortBy } from '@welshman/lib'
 import { profilesByPubkey } from './spaceProfiles.ts'
@@ -162,7 +161,7 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
                 if (!$profiles.has(pk)) {
                     loadProfile(pk)
                 }
-                return displayProfile($profiles.get(pk) as PublishedProfile | undefined, shortNpub(nip19.npubEncode(pk)))
+                return displayProfile($profiles.get(pk), shortNpub(nip19.npubEncode(pk)))
             }
             const buzzViews = sortBy(buzzReportOrder, $buzz.get(url) ?? []).map((r) =>
                 mapBuzzReport(r, (id) => byId.get(id)?.pubkey ?? '', nameOf),
@@ -181,7 +180,7 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
                     loadProfile(reportedPubkey)
                 }
                 const npub = reportedPubkey ? nip19.npubEncode(reportedPubkey) : ''
-                const profile = reportedPubkey ? ($profiles.get(reportedPubkey) as PublishedProfile | undefined) : undefined
+                const profile = reportedPubkey ? $profiles.get(reportedPubkey) : undefined
                 const reason = eTag[2] ?? ''
                 const reportedId = eTag[1] ?? ''
                 const reported = reportedId ? byId.get(reportedId) : undefined
@@ -326,7 +325,7 @@ export const deriveSpaceJoinRequests = (url: string): Readable<JoinRequestView[]
                     loadProfile(join.pubkey)
                 }
                 const npub = nip19.npubEncode(join.pubkey)
-                const profile = $profiles.get(join.pubkey) as PublishedProfile | undefined
+                const profile = $profiles.get(join.pubkey)
                 views.push({
                     id: join.id,
                     h,

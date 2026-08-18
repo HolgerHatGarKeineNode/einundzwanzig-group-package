@@ -34,10 +34,14 @@ import { mergeProfileForDisplay, newestByPubkey, sanitizeSpaceProfile, isSpaceLo
  * die betroffenen Pubkeys ein frisches `loadProfile` an (Outbox + Indexer-Fallback).
  * Liefert die Zahl der entfernten Profile — für Log/Test, nicht für die UI.
  *
- * **Bleibt trotz Merge, und zwar bewusst.** Der Merge passiert eine Ebene höher; im
- * Repository gäbe es weiterhin nur EIN kind 0 pro Pubkey, und ein aus einer älteren
- * Sitzung dort liegendes Space-Profil wäre fast immer das jüngere. Der Aufräumer hält
- * die native Quelle sauber, damit der Merge überhaupt etwas Echtes hat, das gewinnt.
+ * **Bleibt trotz Merge, und er ist nicht bloß Restbestand.** Der Riegel in `core.ts`
+ * ist auf die EINE konfigurierte Workspace-URL genagelt (`__nostrWorkspace`); dieser
+ * Aufräumer läuft dagegen für jeden Space, der sich als Buzz-Relay ausweist. Beides
+ * fällt heute meist zusammen, aber nicht zwingend: ein Buzz-Relay als AKTIVER Space
+ * geht am Riegel vorbei, und dort ist der Aufräumer die einzige Abwehr. Dazu kommt der
+ * endliche Teil: kind 0 aus der Zeit vor dem Riegel liegt in der IndexedDB
+ * (`storage.ts` persistiert PROFILE) und wäre fast immer das jüngere.
+ *
  * Was er entfernt, ist seit dieser Änderung nicht mehr verloren: dieselben Profile
  * kommen über {@link loadSpaceProfiles} als Anzeige-Rückfallebene zurück.
  */
@@ -70,11 +74,17 @@ const CHUNK = 100
  * Not-Aus für eine Runde. Nicht bloß Vorsicht: hängt die NIP-42-Runde, verschluckt
  * welshman EOSE **und** CLOSED — ohne Frist löste die Zusage nie auf, und Buzz
  * verlangt AUTH für jedes REQ (gemessen: ohne Signer `auth-required: not
- * authenticated`, also bleibt die Fläche für Anonyme bei der npub-Initiale).
+ * authenticated`, also bleibt die Fläche für Anonyme bei der npub-Initiale). Der
+ * Abbruch selbst wirft NICHT, er löst leer auf — deshalb hängt die Wiederhol-Frage
+ * unten am EOSE und nicht an einem `catch`.
  */
 const REQUEST_TIMEOUT_MS = 8000
 
-/** Schon angefragt (`url|pubkey`) — ein zweiter Anlauf brächte dasselbe Ergebnis. */
+/**
+ * Schon **beantwortet** (`url|pubkey`) — ein zweiter Anlauf brächte dasselbe Ergebnis.
+ * Ein Eintrag steht während der laufenden Runde drin (gegen Doppelanfragen) und fällt
+ * wieder heraus, wenn der Relay nicht geantwortet hat; siehe {@link loadSpaceProfiles}.
+ */
 const requested = new Set<string>()
 
 /**
@@ -116,12 +126,26 @@ export const loadSpaceProfiles = async (
         return 0
     }
     // VOR dem Warten merken: sonst schickt jeder Re-Derive dieselbe Runde noch einmal.
+    // Der Merker ist damit zunaechst nur ein „laeuft gerade" — er wird unten je Block
+    // wieder freigegeben, wenn der Relay NICHT geantwortet hat.
     fresh.forEach((pk) => requested.add(`${spaceUrl}|${pk}`))
+    const release = (authors: string[]): void => {
+        authors.forEach((pk) => requested.delete(`${spaceUrl}|${pk}`))
+    }
 
     let added = 0
     for (let i = 0; i < fresh.length; i += CHUNK) {
         const authors = fresh.slice(i, i + CHUNK)
         let events: TrustedEvent[] = []
+        // **EOSE ist die einzige Antwort, die „der Relay hat geantwortet" beweist.**
+        // Ohne dieses Flag waere jede Runde endgueltig: Buzz verlangt NIP-42-AUTH fuer
+        // JEDES REQ, `warmProfiles` feuert aber fire-and-forget schon vor dem Login.
+        // Der Abbruch nach `REQUEST_TIMEOUT_MS` WIRFT dabei nicht — `requestOne`
+        // schliesst auf das Signal hin und loest mit einer LEEREN Liste auf. Ein
+        // `catch` allein sieht diesen Fall also nie, und die Pubkeys waeren fuer die
+        // ganze Sitzung gesperrt, auch nach dem Login. Null Treffer MIT EOSE heisst
+        // dagegen „dieser Relay kennt sie nicht" — das muss nicht wiederholt werden.
+        let sawEose = false
         try {
             events = (await request({
                 relays: [spaceUrl],
@@ -129,10 +153,19 @@ export const loadSpaceProfiles = async (
                 autoClose: true,
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
                 isEventValid: (event: TrustedEvent) => verifyEvent(event),
+                onEose: () => {
+                    sawEose = true
+                },
             })) as TrustedEvent[]
         } catch {
-            // Relay weg, AUTH abgelehnt, Zeit abgelaufen: die Fläche bleibt bei dem,
-            // was das native Profil hergibt. Ein Anzeige-Zusatz darf nichts umwerfen.
+            // Relay weg, AUTH abgelehnt, Zeit abgelaufen: die Flaeche bleibt bei dem,
+            // was das native Profil hergibt. Ein Anzeige-Zusatz darf nichts umwerfen —
+            // aber der naechste Anlauf muss ihn wieder holen duerfen.
+            release(authors)
+            continue
+        }
+        if (!sawEose && events.length === 0) {
+            release(authors)
             continue
         }
         if (events.length === 0) {

@@ -46,14 +46,34 @@ const nativesProfil = kind0(beideSecret, { name: 'El Presidento Ben', picture: '
 /** Was das Space-Relay ausliefert: eigener Name, eigenes (auth-pflichtiges) Bild, JÜNGER. */
 const spaceProfilBeide = kind0(
     beideSecret,
-    { display_name: 'ElPresidentoBenito', about: 'Workspace-Konto', picture: 'https://buzz.test.invalid/media/a.jpg' },
+    {
+        // **`name` ist Absicht, nicht Kosmetik.** Ohne ihn truege das Fixture kein
+        // einziges Feld bei, das mit dem nativen Profil KOLLIDIERT — die Zusage
+        // „der echte Name ueberlebt" waere dann gruen, egal wie herum die Regel steht.
+        name: 'buzz-generierter-name',
+        display_name: 'ElPresidentoBenito',
+        about: 'Workspace-Konto',
+        picture: 'https://buzz.test.invalid/media/a.jpg',
+    },
     1_785_401_118,
 )
 const spaceProfilNurSpace = kind0(
     nurSpaceSecret,
-    { display_name: 'nostr-specialist', picture: 'https://buzz.test.invalid/media/b.jpg' },
+    {
+        display_name: 'nostr-specialist',
+        picture: 'https://buzz.test.invalid/media/b.jpg',
+        // Der Zahlungspfad gehoert in den Vertragstest, nicht nur in den puren:
+        // `feeds.ts` liest `lud16`/`lud06` aus GENAU diesem Store.
+        lud16: 'angreifer@wallet.example',
+        nip05: 'ceo@buzz.test.invalid',
+    },
     1_786_450_596,
 )
+
+/** Fuer den Wiederhol-Fall: ein Pubkey, den die erste Runde nicht bekommt. */
+const nachzueglerSecret = generateSecretKey()
+const nachzueglerPubkey = getPublicKey(nachzueglerSecret)
+const spaceProfilNachzuegler = kind0(nachzueglerSecret, { display_name: 'nachzuegler' }, 1_786_450_600)
 
 /** Ein Relay, das auf jedes REQ beide Space-Profile liefert und dann EOSE sagt. */
 const makeAdapter = (): MockAdapter => {
@@ -123,6 +143,8 @@ describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
     test('DIE ALTE GEFAHR: der echte Name überlebt das jüngere Space-Profil', () => {
         const gemergt = get(profilesByPubkey).get(beidePubkey)
 
+        // Beide Seiten tragen ein `name`, das Space-Event ist das juengere: genau der
+        // Fall, in dem das Repository das Falsche waehlen wuerde.
         assert.equal(gemergt?.name, 'El Presidento Ben')
         assert.equal(gemergt?.picture, 'https://image.nostr.build/echt.jpg')
         assert.equal(displayProfileByPubkey(beidePubkey), 'El Presidento Ben')
@@ -138,5 +160,76 @@ describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
     test('das Bild vom Space-Relay ist raus (401 ohne Blossom-Auth)', () => {
         assert.equal(getSpaceProfile(nurSpacePubkey)?.picture, undefined)
         assert.equal(get(profilesByPubkey).get(nurSpacePubkey)?.picture, undefined)
+    })
+
+    test('KEINE Zahlungsadresse und kein Space-Event im Anzeige-Objekt', () => {
+        // `feeds.ts:947/1130` liest `lud16 || lud06` aus genau diesem Store und macht
+        // daraus das Zap-Ziel. Der Store selbst fuehrt die Felder gar nicht erst.
+        assert.equal(getSpaceProfile(nurSpacePubkey)?.lud16, undefined)
+        const gemergt = get(profilesByPubkey).get(nurSpacePubkey)
+        assert.equal(gemergt?.lud16, undefined)
+        assert.equal(gemergt?.nip05, undefined)
+        assert.equal(gemergt?.event, undefined)
+    })
+})
+
+/**
+ * Blocker 3: eine Runde, die der Relay NICHT beantwortet, darf die Pubkeys nicht fuer
+ * die Sitzung sperren. Der realistische Fall ist die NIP-42-Abweisung —
+ * `warmProfiles` feuert fire-and-forget, oft bevor der Signer steht, und Buzz
+ * antwortet dann `CLOSED auth-required: …`. Das ist KEIN Wurf: `requestOne` schliesst
+ * und loest leer auf. Nur das ausbleibende EOSE unterscheidet ihn von „kennt sie nicht".
+ */
+describe('Fehlgeschlagene Runde gibt die Pubkeys wieder frei', () => {
+    const originalGetAdapter = netContext.getAdapter
+    let modus: 'abgewiesen' | 'antwortet' = 'abgewiesen'
+
+    const makeSchaltbarenAdapter = (): MockAdapter => {
+        const adapter: MockAdapter = new MockAdapter(SPACE, (message: ClientMessage) => {
+            if (message[0] !== 'REQ') {
+                return
+            }
+            const subId = message[1] as string
+            setTimeout(() => {
+                if (modus === 'abgewiesen') {
+                    adapter.receive(['CLOSED', subId, 'auth-required: authenticate before subscribing'])
+                } else {
+                    adapter.receive(['EVENT', subId, spaceProfilNachzuegler])
+                    adapter.receive(['EOSE', subId])
+                }
+            }, 0)
+        })
+
+        return adapter
+    }
+
+    before(() => {
+        netContext.getAdapter = (): AbstractAdapter => makeSchaltbarenAdapter()
+    })
+
+    after(() => {
+        netContext.getAdapter = originalGetAdapter
+    })
+
+    test('abgewiesene Runde bringt nichts', async () => {
+        assert.equal(await loadSpaceProfiles(SPACE, [nachzueglerPubkey], true), 0)
+        assert.equal(getSpaceProfile(nachzueglerPubkey), undefined)
+    })
+
+    test('… und der zweite Anlauf nach dem Login kommt durch', async () => {
+        modus = 'antwortet'
+
+        assert.equal(await loadSpaceProfiles(SPACE, [nachzueglerPubkey], true), 1, 'der Merker darf nach einer unbeantworteten Runde nicht stehen bleiben')
+        assert.equal(getSpaceProfile(nachzueglerPubkey)?.display_name, 'nachzuegler')
+    })
+
+    test('GEGENPROBE: eine BEANTWORTETE Runde ohne Treffer wird nicht wiederholt', async () => {
+        // Sonst fragte jeder Feed-Re-Derive dieselben Fremd-Pubkeys erneut an.
+        const fremd = getPublicKey(generateSecretKey())
+
+        assert.equal(await loadSpaceProfiles(SPACE, [fremd], true), 0)
+        // Zweiter Aufruf: der Merker steht, es geht gar keine Anfrage mehr raus —
+        // messbar daran, dass er auch dann 0 liefert, wenn der Relay antworten WUERDE.
+        assert.equal(await loadSpaceProfiles(SPACE, [fremd], true), 0)
     })
 })

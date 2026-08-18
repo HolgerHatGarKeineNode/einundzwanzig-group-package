@@ -19,7 +19,6 @@ import {
     getTagValue,
     getTagValues,
     displayProfile,
-    type PublishedProfile,
 } from '@welshman/util'
 import { first, randomId, sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
@@ -184,7 +183,7 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
 
             const views = members.map((pubkey): MemberView => {
                 const npub = nip19.npubEncode(pubkey)
-                const profile = $profiles.get(pubkey) as PublishedProfile | undefined
+                const profile = $profiles.get(pubkey)
                 const name = displayProfile(profile, shortNpub(npub))
                 const roleIds = memberRoles.get(pubkey) ?? []
                 const memberRoleViews = roleIds.map(toRoleView).filter((r): r is RoleView => r !== null)
@@ -228,7 +227,7 @@ export const deriveRoomMemberViews = (url: string, h: string): Readable<RoomMemb
                 loadProfile(pk)
             }
             const npub = nip19.npubEncode(pk)
-            const profile = $profiles.get(pk) as PublishedProfile | undefined
+            const profile = $profiles.get(pk)
             return {
                 pubkey: pk,
                 npub,

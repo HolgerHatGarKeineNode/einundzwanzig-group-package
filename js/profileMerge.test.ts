@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isSpaceHostedMedia, isSpaceLocalOnly, mergeProfileForDisplay, newestByPubkey, sanitizeSpaceProfile } from './profileMerge.ts'
+import { isSpaceHostedMedia, isSpaceLocalOnly, mergeProfileForDisplay, newestByPubkey, sanitizeSpaceProfile, spaceFieldsForDisplay } from './profileMerge.ts'
 
 const BUZZ = 'wss://buzz.einundzwanzig.space/'
 const ZOOID = 'wss://group.einundzwanzig.space/'
@@ -73,8 +73,9 @@ test('leeres Feld wird gefuellt — auch wenn es nur aus Leerzeichen besteht', (
 
 test('kein natives Profil → das Space-Profil traegt allein', () => {
     // Der gemessene Normalfall: zehn von elf Maintainern haben NIRGENDS ein natives kind 0.
+    // Der Inhalt kommt durch, das OBJEKT aber nicht: siehe die Allowlist-Zusage unten.
     const local = profile({ display_name: 'nostr-specialist' })
-    assert.equal(mergeProfileForDisplay(undefined, local), local)
+    assert.deepEqual(mergeProfileForDisplay(undefined, local), { display_name: 'nostr-specialist' })
 })
 
 test('kein Space-Profil → dieselbe Referenz zurueck, keine Kopie', () => {
@@ -134,4 +135,50 @@ test('mehrere Fassungen desselben ersetzbaren kind 0 → die juengste gewinnt', 
 
     assert.equal(newest.get('a')?.created_at, 30)
     assert.equal(newest.get('b')?.created_at, 5)
+})
+
+test('OHNE natives Profil greift dieselbe Allowlist — der teuerste Zweig, nicht der seltenste', () => {
+    // Genau hier lag der Fehler: der Kurzschluss gab das Space-Profil unveraendert
+    // zurueck. `feeds.ts:947/1130` baut aus `lud16 || lud06` das Zap-Ziel, und der Zweig
+    // „kein natives Profil" ist im Workspace der NORMALFALL (10 von 11 Maintainern) —
+    // ein Relay haette damit die Empfangsadresse fuer Zaps gesetzt.
+    const local = profile({
+        display_name: 'ceo',
+        picture: 'https://image.example/ceo.jpg',
+        lud16: 'angreifer@wallet.example',
+        lud06: 'lnurl1angreifer',
+        nip05: 'ceo@buzz.example',
+    })
+
+    const merged = mergeProfileForDisplay(undefined, local)!
+
+    assert.equal(merged.display_name, 'ceo')
+    assert.equal(merged.picture, 'https://image.example/ceo.jpg')
+    assert.equal(merged.lud16, undefined, 'eine relay-gesetzte Zahlungsadresse ist ein Vermoegensschaden')
+    assert.equal(merged.lud06, undefined)
+    assert.equal(merged.nip05, undefined)
+    assert.equal(merged.event, undefined, 'das Space-Event darf an keinem Anzeige-Objekt haengen')
+    assert.notEqual(merged, local, 'nie eine geteilte Referenz auf einen Eintrag der Zweitquelle')
+})
+
+test('ein Space-Profil OHNE anzeigbares Feld ergibt nichts — nicht ein leeres Objekt', () => {
+    // Sonst stuende im gemergten Store ein Eintrag, der nur so tut, als gaebe es ein Profil.
+    assert.equal(spaceFieldsForDisplay(profile({ lud16: 'angreifer@wallet.example' })), undefined)
+    assert.equal(spaceFieldsForDisplay(profile({ name: '   ' })), undefined)
+    assert.equal(spaceFieldsForDisplay(undefined), undefined)
+    assert.equal(mergeProfileForDisplay(undefined, profile({ lud16: 'x@y.z' })), undefined)
+})
+
+test('die Allowlist greift schon beim AUFNEHMEN in die Zweitquelle (zweite Ebene)', () => {
+    const aufgenommen = sanitizeSpaceProfile(
+        { name: 'ceo', lud16: 'angreifer@wallet.example', lud06: 'lnurl1angreifer', nip05: 'ceo@buzz.example', lnurl: 'lnurl1x' },
+        BUZZ,
+        true,
+    )
+
+    assert.equal(aufgenommen.name, 'ceo')
+    assert.equal(aufgenommen.lud16, undefined)
+    assert.equal(aufgenommen.lud06, undefined)
+    assert.equal(aufgenommen.nip05, undefined)
+    assert.equal(aufgenommen.lnurl, undefined)
 })

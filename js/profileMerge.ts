@@ -46,6 +46,11 @@ export const isSpaceLocalOnly = (relays: Iterable<string> | undefined, spaceUrl:
  * - `event`: das gemergte Objekt trägt immer das NATIVE Event (siehe
  *   {@link mergeProfileForDisplay}) — sonst hinge an einem Anzeige-Objekt ein
  *   Editier-/Publish-Pfad, der auf dem Space-Event aufsetzt.
+ *
+ * Die Liste greift auf ZWEI Ebenen, absichtlich doppelt: beim Aufnehmen in die
+ * Zweitquelle ({@link sanitizeSpaceProfile}) und beim Zusammenführen
+ * ({@link spaceFieldsForDisplay}). Eine Ebene allein war nachweislich zu wenig — der
+ * Kurzschluss-Zweig „kein natives Profil" ging an ihr vorbei.
  */
 export const MERGED_FIELDS = ['name', 'display_name', 'picture', 'banner', 'about', 'website'] as const
 
@@ -53,24 +58,55 @@ export const MERGED_FIELDS = ['name', 'display_name', 'picture', 'banner', 'abou
 const isBlank = (value: unknown): boolean => typeof value !== 'string' || value.trim() === ''
 
 /**
+ * Die Felder, die ein Space-Profil beisteuern darf, aus einem Space-Profil heraus —
+ * und **nichts sonst**. Leere Felder fallen weg, ein leeres Ergebnis ist `undefined`.
+ *
+ * **Diese Funktion ist der einzige Weg, auf dem Daten der Zweitquelle in ein
+ * Anzeige-Objekt gelangen.** Sie steht getrennt, weil die Allowlist sonst nur auf dem
+ * einen von zwei Pfaden griffe: der Kurzschluss „kein natives Profil → nimm das
+ * Space-Profil" gab vorher die Referenz der Zweitquelle unverändert weiter, samt
+ * `lud16`, `lud06`, `nip05` und dem Space-`event`. Genau dieser Zweig ist im Workspace
+ * der NORMALFALL (gemessen zehn von elf Maintainern ohne natives Profil), und
+ * `feeds.ts` baut aus `profile.lud16 || profile.lud06` das Zap-Ziel — ein Relay hätte
+ * damit die Empfangsadresse setzen können. Zurückgegeben wird deshalb immer ein NEUES
+ * Objekt: nie eine geteilte Referenz auf einen Eintrag der Zweitquelle.
+ */
+export const spaceFieldsForDisplay = (local: Profile | undefined): Profile | undefined => {
+    if (!local) {
+        return undefined
+    }
+    let picked: Profile | undefined
+    for (const field of MERGED_FIELDS) {
+        if (!isBlank(local[field])) {
+            picked = picked ?? {}
+            picked[field] = local[field]
+        }
+    }
+    return picked
+}
+
+/**
  * Natives Profil + Space-Profil → EIN Anzeige-Objekt.
  *
  * **Regel: das native Profil gewinnt pro FELD.** Das Space-Profil füllt nur, was dort
- * leer ist oder fehlt. Ein gepflegter Name kann damit nie durch einen generierten
- * ersetzt werden — auch dann nicht, wenn das Space-Event jünger ist (was es gemessen
- * fast immer ist). Zeitstempel spielen hier bewusst **keine** Rolle: sie sind genau
- * das Kriterium, das im Repository zum Falschen führt.
+ * leer ist oder fehlt, und auch das nur aus {@link MERGED_FIELDS}. Ein gepflegter Name
+ * kann damit nie durch einen generierten ersetzt werden — auch dann nicht, wenn das
+ * Space-Event jünger ist (was es gemessen fast immer ist). Zeitstempel spielen hier
+ * bewusst **keine** Rolle: sie sind genau das Kriterium, das im Repository zum
+ * Falschen führt.
  *
  * Kein Space-Profil → das native Objekt wird **unverändert durchgereicht** (gleiche
- * Referenz): der Normalfall darf keine Allokation und keinen Identitätswechsel
- * kosten, sonst rechnete jede abgeleitete Fläche bei jedem Emit neu.
+ * Referenz): der Normalfall darf keine Allokation und keinen Identitätswechsel kosten,
+ * sonst rechnete jede abgeleitete Fläche bei jedem Emit neu. Kein natives Profil →
+ * ein neues Objekt aus {@link spaceFieldsForDisplay}, ohne `event` und ohne
+ * Zahlungsfelder.
  */
 export const mergeProfileForDisplay = (native: Profile | undefined, local: Profile | undefined): Profile | undefined => {
     if (!local) {
         return native
     }
     if (!native) {
-        return local
+        return spaceFieldsForDisplay(local)
     }
     let merged: Profile | undefined
     for (const field of MERGED_FIELDS) {
@@ -116,14 +152,20 @@ export const isSpaceHostedMedia = (picture: unknown, spaceUrl: string): boolean 
  * Fremd gehostete Bilder (nostr.build & Co.) bleiben unangetastet, auch im Space-Profil.
  */
 export const sanitizeSpaceProfile = (profile: Profile, spaceUrl: string, dropSelfHostedMedia: boolean): Profile => {
-    if (!dropSelfHostedMedia) {
-        return profile
+    const clean: Profile = {}
+    for (const field of MERGED_FIELDS) {
+        if (!isBlank(profile[field])) {
+            clean[field] = profile[field]
+        }
     }
-    const clean: Profile = { ...profile }
-    if (isSpaceHostedMedia(clean.picture, spaceUrl)) {
+    // `event` bleibt: {@link loadSpaceProfiles} vergleicht daran den Zeitstempel zweier
+    // Fassungen. Es verlässt die Zweitquelle nie — {@link spaceFieldsForDisplay} nimmt
+    // es nicht mit.
+    clean.event = profile.event
+    if (dropSelfHostedMedia && isSpaceHostedMedia(clean.picture, spaceUrl)) {
         clean.picture = undefined
     }
-    if (isSpaceHostedMedia(clean.banner, spaceUrl)) {
+    if (dropSelfHostedMedia && isSpaceHostedMedia(clean.banner, spaceUrl)) {
         clean.banner = undefined
     }
     return clean
