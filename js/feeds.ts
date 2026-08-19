@@ -2003,7 +2003,12 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
                     nevent: nip19.neventEncode({ id: root.id, relays: [url], author: root.pubkey }),
                     roomH: getTagValue('h', root.tags) ?? '',
                     authorName: displayProfileByPubkey(root.pubkey),
-                    snippet: snippet(bodyWithoutQuote(root)),
+                    // `withShortRefTokens` wie bei der Zitatkarte (`text:` weiter
+                    // oben): eine Nachricht, die mit `nostr:npub1…` beginnt, füllte
+                    // den Ausschnitt sonst mit 63 Zeichen bech32 und verdrängte den
+                    // Satz, um den es geht. In der Threads-Liste am Gerät gesehen
+                    // (2026-08-20) — derselbe Fehler, den die Notification hatte.
+                    snippet: withShortRefTokens(snippet(bodyWithoutQuote(root))),
                     count: cs.length,
                     faces,
                     lastLabel: relativeTime(newestFirst[0].created_at),
