@@ -23,6 +23,7 @@ import {
     candidatesAreCredible,
     classifyRoomAnswer,
     confirmsRoomGone,
+    probesAreConclusive,
     selectReconcileCandidates,
     shouldArmReconcileLock,
     type KnownRoomEvent,
@@ -40,6 +41,7 @@ const LEBEND: KnownRoomEvent = { id: 'ev-willkommen', h: 'willkommen', relays: [
 
 /** Eine tragfähige Antwort: EOSE, kein CLOSED, kein Abriss, mindestens ein Raum. */
 const antwort = (over: Partial<RoomAnswerSignals> = {}): RoomAnswerSignals => ({
+    relayAuthenticated: true,
     sawEose: true,
     sawClosed: false,
     sawDisconnect: false,
@@ -55,6 +57,7 @@ const lauf = (over: Partial<ReconcileRun> = {}): ReconcileRun => ({
     cacheHydrated: true,
     knownCount: 4,
     candidatesCredible: true,
+    probesConclusive: true,
     ...over,
 })
 
@@ -100,9 +103,18 @@ test('(b) CLOSED: der Relay hat abgelehnt, nicht geantwortet', () => {
     assert.deepEqual(selectReconcileCandidates(SPACE, [GELOESCHT, LEBEND], new Set(), verdict), [])
 })
 
-test('(b) CLOSED NACH dem EOSE zählt immer noch als unvollständig', () => {
-    // Buzz räumt laufende Subs eines Raums bei Mitgliedschaftsänderungen ab
-    // (`restricted: channel access revoked`) — das kann nach dem EOSE kommen.
+test('(b) VORWÄRTS-ZUSICHERUNG: CLOSED NACH dem EOSE zählt immer noch als unvollständig', () => {
+    // **Diese Lage kann die heutige Verdrahtung nicht erzeugen — der Fall bleibt
+    // trotzdem stehen, und zwar absichtlich.** `requestRooms` fährt mit
+    // `autoClose: true`; `requestOne` schließt beim EOSE und meldet dabei seine
+    // Zuhörer ab (`@welshman/net request.js`), ein danach eintreffendes CLOSED sieht
+    // niemand mehr. `classifyRoomAnswer` ist aber eine REINE Funktion, deren Vertrag
+    // nicht still an der `autoClose`-Einstellung EINES Aufrufers hängen darf: die
+    // Live-Sub nebenan (`watchSpaceRooms`) läuft ohne `autoClose`, und genau dort
+    // sendet Buzz nach dem EOSE `restricted: channel access revoked`, wenn sich die
+    // Raum-Mitgliedschaft ändert (gemessene Tabelle in `roomGate.ts`). Wer den
+    // Klassifikator später an eine solche Sub hängt, erbt hiermit die richtige
+    // Fehlerrichtung, statt sie neu herleiten zu müssen.
     const verdict = classifyRoomAnswer(antwort({ sawClosed: true }))
     assert.equal(verdict, 'closed')
     assert.deepEqual(selectReconcileCandidates(SPACE, [GELOESCHT, LEBEND], new Set(['willkommen']), verdict), [])
@@ -208,7 +220,7 @@ test('(c) Ein Lauf mit beidem — brauchbarer Antwort und beurteiltem Bestand �
 })
 
 test('(c) Kein Verdikt außer `complete` sperrt', () => {
-    for (const verdict of ['closed', 'disconnected', 'no-eose', 'nothing-visible'] as const) {
+    for (const verdict of ['unauthenticated', 'closed', 'disconnected', 'no-eose', 'nothing-visible'] as const) {
         assert.equal(shouldArmReconcileLock(lauf({ verdict })), false, `${verdict} darf nicht sperren`)
     }
 })
@@ -216,7 +228,7 @@ test('(c) Kein Verdikt außer `complete` sperrt', () => {
 // ── DIE ZUSAGEN ─────────────────────────────────────────────────────────────────
 
 test('DIE ZUSAGE 1: NUR `complete` schlägt Kandidaten vor', () => {
-    const alle = ['complete', 'closed', 'disconnected', 'no-eose', 'nothing-visible'] as const
+    const alle = ['complete', 'unauthenticated', 'closed', 'disconnected', 'no-eose', 'nothing-visible'] as const
     const vorschlagend = alle.filter(
         (verdict) => selectReconcileCandidates(SPACE, [GELOESCHT], new Set(), verdict).length > 0,
     )
@@ -233,5 +245,54 @@ test('DIE ZUSAGE 2: die Einzelprobe bestätigt NUR die sauber beantwortete Leere
         antwort({ roomCount: 1 }),
     ]) {
         assert.equal(confirmsRoomGone(kaputt), false)
+    }
+})
+
+// ── Der Riegel gegen fremdes Relay-Verhalten (Datenverlust-Pfad) ────────────────
+
+test('Ein Relay, das uns nie authentifiziert hat, kann gar kein `complete` erzeugen', () => {
+    // Am Draht gemessen (2026-08-19): weder Buzz noch zooid beantworten einen
+    // unauthentifizierten REQ — beide schließen ihn, ein EOSE kommt nie. Bei unseren
+    // Relays ist der Riegel deshalb folgenlos.
+    assert.equal(classifyRoomAnswer(antwort({ relayAuthenticated: false })), 'unauthenticated')
+})
+
+test('DER DATENVERLUST-PFAD: ein Relay ohne AUTH-Zwang darf keine privaten Räume löschen', () => {
+    // Die Lage: ein fremder NIP-29-Relay (Spaces kommen aus der 10009-Liste des
+    // Nutzers) zeigt unauthentifiziert seine ÖFFENTLICHEN Räume und verschweigt die
+    // privaten. Ohne den Riegel wäre Stufe 1 `complete` — die öffentlichen Räume
+    // erfüllen die Positivkontrolle! — und jede Einzelprobe auf einen privaten Raum
+    // `nothing-visible`, also „bestätigt weg". Der Nutzer verlöre Räume, die er hat.
+    const stufe1 = antwort({ relayAuthenticated: false, roomCount: 2 })
+    assert.equal(classifyRoomAnswer(stufe1), 'unauthenticated')
+    assert.deepEqual(selectReconcileCandidates(SPACE, [GELOESCHT, LEBEND], new Set(['willkommen']), classifyRoomAnswer(stufe1)), [])
+
+    // Und der zweite Riegel derselben Lage: selbst wenn ein Kandidat auf anderem Weg
+    // entstünde, bestätigt eine unauthentifizierte Einzelprobe nichts.
+    assert.equal(confirmsRoomGone(probeLeer({ relayAuthenticated: false })), false)
+})
+
+test('Der Riegel sperrt auch nicht — ein unauthentifizierter Lauf merkt sich nichts', () => {
+    assert.equal(shouldArmReconcileLock(lauf({ verdict: 'unauthenticated' })), false)
+})
+
+// ── Sperre nach gescheiterter Einzelprobe ──────────────────────────────────────
+
+test('Ohne Kandidaten sind die Proben trivial schlüssig', () => {
+    assert.equal(probesAreConclusive([]), true)
+})
+
+test('„weg" UND „steht noch da" sind beides Auskünfte', () => {
+    assert.equal(probesAreConclusive([probeLeer(), antwort({ roomCount: 1 })]), true)
+})
+
+test('DER FALL AUS DEM PRÜFBERICHT: eine Probe ohne Auskunft verhindert die Sperre', () => {
+    // Stufe 1 `complete`, Cache hydriert, ein Kandidat — und dessen Einzelprobe läuft
+    // in CLOSED oder Timeout. Gelöscht wird nichts. Ohne diese Prüfung setzte der
+    // Lauf trotzdem die 60-s-Sperre und schützte den Geisterraum zusätzlich: dieselbe
+    // Form wie der behobene Reload-Defekt, nur eine Stufe tiefer.
+    for (const stumm of [probeLeer({ sawClosed: true }), probeLeer({ sawEose: false }), probeLeer({ sawDisconnect: true })]) {
+        assert.equal(probesAreConclusive([probeLeer(), stumm]), false)
+        assert.equal(shouldArmReconcileLock(lauf({ probesConclusive: probesAreConclusive([stumm]) })), false)
     }
 })

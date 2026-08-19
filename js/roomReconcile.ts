@@ -134,6 +134,11 @@ export const MAX_RECONCILE_CANDIDATES = 25
 
 /** Was ein REQ vom Relay gesehen hat — breite Abfrage wie Einzelprobe. */
 export type RoomAnswerSignals = {
+    /**
+     * Hat der Relay uns für DIESE Verbindung authentifiziert (NIP-42, `OK true` auf
+     * das kind 22242)? Siehe {@link classifyRoomAnswer} — Vorbedingung, kein Ergebnis.
+     */
+    relayAuthenticated: boolean
     /** EOSE für alle Filter des REQ eingetroffen. */
     sawEose: boolean
     /** Irgendein CLOSED für diesen REQ. */
@@ -148,8 +153,50 @@ export type RoomAnswerSignals = {
  * `complete` = der Relay hat vollständig geantwortet UND mindestens einen Raum
  * gezeigt. `nothing-visible` = ordentlich geantwortet, aber ohne Raum — bei der
  * breiten Abfrage unbrauchbar, bei der Einzelprobe der Beweis (siehe Modulkopf).
+ *
+ * ── `unauthenticated`: der Riegel gegen den einzigen echten Datenverlust-Pfad ──
+ *
+ * Die ganze Ableitung ruht auf einer Annahme über den **Relay**, die dieser Code
+ * sonst nirgends prüfte: dass eine Antwort, die wir überhaupt bekommen, unsere volle
+ * Leseberechtigung widerspiegelt. Bei unseren beiden Relays stimmt das, weil beide
+ * einen unauthentifizierten REQ gar nicht erst beantworten — **am Draht gemessen**
+ * (2026-08-19, ein roher WebSocket, REQ vor der AUTH-Runde):
+ *
+ * | Relay            | unauthentifizierter REQ                                   | nach `OK true` auf das 22242 |
+ * |------------------|-----------------------------------------------------------|------------------------------|
+ * | Buzz (:3004)     | `NOTICE` + `CLOSED auth-required: not authenticated`, **kein EOSE** | EVENTs + `EOSE`      |
+ * | zooid (:3339)    | `CLOSED auth-required: authentication is required for access`, **kein EOSE** | (Nichtmitglied:) `CLOSED restricted: you are not a member of this relay` |
+ *
+ * Deckungsgleich mit dem Quellcode: `buzz-relay/src/handlers/req.rs:76-83` und
+ * `zooid/instance.go:303-306` — bei zooid steht die AUTH-Prüfung **vor** dem
+ * `public_read`-Zweig, `public_read` weitet also nur aus, WER nach der AUTH lesen
+ * darf, nie OB authentifiziert werden muss.
+ *
+ * **Ein fremder Relay muss sich daran nicht halten.** Spaces kommen aus der
+ * persönlichen 10009-Liste, der Nutzer kann also jeden NIP-29-Relay eintragen. Einer
+ * mit `public_read` ohne AUTH-Zwang, der öffentliche Räume zeigt und private
+ * verschweigt, erzeugte in Stufe 1 ein `complete` (die öffentlichen Räume erfüllen
+ * die Positivkontrolle!) und in Stufe 2 ein `nothing-visible` je privatem Raum — und
+ * der Abgleich löschte dem Nutzer genau die Räume aus dem Cache, die er **hat**. Das
+ * ist der einzige Pfad in diesem Modul, an dessen Ende ein Datenverlust steht.
+ *
+ * **Was der Riegel beweist und was nicht.** `relayAuthenticated` heißt: der Relay hat
+ * unsere Identität mit `OK true` bestätigt. Es heißt NICHT „wir dürfen alles sehen" —
+ * dieselbe Messung zeigt einen zooid, der einem Nichtmitglied `OK true` gibt und den
+ * REQ danach mit `restricted: …` schließt (dann greift `closed`). Mehr ist von der
+ * Client-Seite auch nicht beweisbar: ein Relay, der uns kennt und trotzdem eine
+ * unvollständige Antwort als vollständig ausgibt, lügt über unsere eigene
+ * Berechtigung, und dagegen hilft keine Prüfung mehr. Der Riegel schließt die Lage,
+ * die ohne Böswilligkeit entsteht — und er kostet an unseren beiden Relays nichts,
+ * weil dort ein EOSE ohne vorheriges `OK true` gar nicht vorkommt.
  */
-export type RoomAnswerVerdict = 'complete' | 'closed' | 'disconnected' | 'no-eose' | 'nothing-visible'
+export type RoomAnswerVerdict =
+    | 'complete'
+    | 'unauthenticated'
+    | 'closed'
+    | 'disconnected'
+    | 'no-eose'
+    | 'nothing-visible'
 
 /** Ein lokal bekanntes 39000 — Id, sein `h` (das `d`-Tag) und seine Herkunfts-Relays. */
 export type KnownRoomEvent = {
@@ -162,11 +209,16 @@ export type KnownRoomEvent = {
 /**
  * Verdikt über eine Relay-Antwort.
  *
- * Reihenfolge = Aussagekraft des Grundes, nicht Schwere: ein CLOSED ist die
+ * `relayAuthenticated` steht ZUERST, weil es keine Eigenschaft der Antwort ist,
+ * sondern ihre **Vorbedingung** — siehe {@link RoomAnswerVerdict}. Danach:
+ * Reihenfolge = Aussagekraft des Grundes, nicht Schwere. Ein CLOSED ist die
  * präziseste Auskunft („abgelehnt"), ein fehlendes EOSE die unpräziseste
  * („nie beantwortet").
  */
 export const classifyRoomAnswer = (signals: RoomAnswerSignals): RoomAnswerVerdict => {
+    if (!signals.relayAuthenticated) {
+        return 'unauthenticated'
+    }
     if (signals.sawClosed) {
         return 'closed'
     }
@@ -248,7 +300,35 @@ export type ReconcileRun = {
     knownCount: number
     /** Lag die Zahl der Kandidaten unter dem Deckel? */
     candidatesCredible: boolean
+    /**
+     * Hat JEDE Einzelprobe eine Auskunft gegeben — „weg" oder „steht noch da"? Ein
+     * Lauf ohne Kandidaten erfüllt das trivial. Siehe {@link probesAreConclusive}.
+     */
+    probesConclusive: boolean
 }
+
+/**
+ * Haben alle Einzelproben eine Auskunft gegeben?
+ *
+ * Auskunft ist beides: `nothing-visible` („weg", der Raum fliegt) und `complete`
+ * („steht noch da", der Raum bleibt). Keine Auskunft sind die Nicht-Antworten
+ * (`closed`, `disconnected`, `no-eose`, `unauthenticated`) — dann ist über diesen
+ * Kandidaten nichts entschieden.
+ *
+ * **Warum das die Sperre betrifft.** Genau dieselbe Form wie der behobene
+ * Reload-Defekt, nur eine Stufe tiefer: Stufe 1 gelingt, ein Kandidat entsteht, seine
+ * Probe läuft in CLOSED oder Timeout — gelöscht wird nichts, und ohne diese Prüfung
+ * setzte der Lauf trotzdem die Sperre und schützte den Geisterraum für weitere 60 s.
+ * Ein Lauf, der seine eigene Frage nicht beantwortet bekommen hat, ist kein Erfolg.
+ *
+ * Der Preis ist ein zusätzlicher REQ pro Einhängen, solange der Relay auf die
+ * Einzelprobe nicht antwortet — dieselbe Größenordnung wie ein Lauf ohne Kandidaten.
+ */
+export const probesAreConclusive = (probes: readonly RoomAnswerSignals[]): boolean =>
+    probes.every((probe) => {
+        const verdict = classifyRoomAnswer(probe)
+        return verdict === 'nothing-visible' || verdict === 'complete'
+    })
 
 /**
  * Darf dieser Lauf die Wiederholungssperre setzen?
@@ -270,6 +350,14 @@ export type ReconcileRun = {
  * beide Seiten: eine brauchbare Relay-Antwort UND einen Bestand, der beurteilt
  * werden konnte. `knownCount > 0` ist dabei die direkte Beobachtung des Defekts —
  * ein Lauf, der nichts verglichen hat, hat nichts zu merken.
+ *
+ * `probesConclusive` ist derselbe Satz eine Stufe tiefer: auch ein Lauf, dessen
+ * Einzelproben keine Auskunft gaben, hat seine Frage nicht beantwortet bekommen.
+ * Begründung bei {@link probesAreConclusive}.
  */
 export const shouldArmReconcileLock = (run: ReconcileRun): boolean =>
-    run.verdict === 'complete' && run.cacheHydrated && run.knownCount > 0 && run.candidatesCredible
+    run.verdict === 'complete' &&
+    run.cacheHydrated &&
+    run.knownCount > 0 &&
+    run.candidatesCredible &&
+    run.probesConclusive

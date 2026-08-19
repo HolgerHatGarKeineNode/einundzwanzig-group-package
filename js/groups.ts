@@ -26,7 +26,7 @@ import {
 } from '@welshman/app'
 import { deriveItemsByKey, deriveEventsByIdByUrl, sync, throttled, localStorageProvider } from '@welshman/store'
 import { Router } from '@welshman/router'
-import { load, request } from '@welshman/net'
+import { AuthStatus, Pool, load, request } from '@welshman/net'
 import {
     ROOMS,
     MESSAGE,
@@ -74,6 +74,7 @@ import {
     candidatesAreCredible,
     classifyRoomAnswer,
     confirmsRoomGone,
+    probesAreConclusive,
     selectReconcileCandidates,
     shouldArmReconcileLock,
     type KnownRoomEvent,
@@ -839,7 +840,36 @@ const requestRooms = async (url: string, filter: Filter): Promise<RoomReqResult>
         sawDisconnect = true
     }
     const rooms = Array.from(seen.values()).filter((event) => event.kind === ROOM_META)
-    return { sawEose, sawClosed, sawDisconnect, roomCount: rooms.length, rooms }
+    return {
+        // NACH dem REQ gelesen, nicht davor: `AuthStatus.Ok` entsteht erst mit dem
+        // `OK true` des Relays auf unser kind 22242, und welshmans Auth-Puffer hält
+        // den REQ genau so lange zurück. Vorher gefragt stünde hier bei jedem
+        // Kaltstart `None`, und der Abgleich liefe nie.
+        //
+        // `has()` vor `get()`, weil `Pool.get(url)` einen Socket ANLEGT, wenn keiner
+        // da ist (`pool.js`) — nach einem REQ ist er da, aber eine Messung darf keine
+        // Verbindung erzeugen.
+        relayAuthenticated: relayHasAuthenticatedUs(url),
+        sawEose,
+        sawClosed,
+        sawDisconnect,
+        roomCount: rooms.length,
+        rooms,
+    }
+}
+
+/**
+ * Hat der Relay unsere Identität für die laufende Verbindung bestätigt (NIP-42)?
+ *
+ * Die Begründung, warum das eine Vorbedingung der ganzen Ableitung ist — samt der
+ * Draht-Messung an beiden Relays — steht bei `roomReconcile.ts RoomAnswerVerdict`.
+ * Hier steht nur, WO die Antwort herkommt: `AuthState.status` wird auf `Ok` gesetzt,
+ * sobald der Relay das signierte kind 22242 mit `OK true` quittiert
+ * (`@welshman/net auth.js`), und beim Verbindungsverlust wieder auf `None`.
+ */
+const relayHasAuthenticatedUs = (url: string): boolean => {
+    const pool = Pool.get()
+    return pool.has(url) && pool.get(url).auth.status === AuthStatus.Ok
 }
 
 /**
@@ -928,8 +958,38 @@ const runRoomReconcile = async (url: string): Promise<RoomAnswerVerdict | 'skipp
     // Eine Abfrage der Kardinalität 1 (`#d` auf ein parameterisiert-ersetzbares Kind)
     // kann nicht gekappt sein — das ist der Grund, warum hier entschieden wird und
     // nicht oben. Parallel, weil Kandidaten selten und dann meist einer sind.
+    //
+    // ── Warum `#d` und NICHT `#h` — und was dieser Weg dafür einhandelt ─────────
+    //
+    // `#h` wäre die naheliegende Adressierung und ist trotzdem falsch: Buzz
+    // beantwortet ein `#h`-REQ auf einen gelöschten ODER unzugänglichen Kanal mit
+    // `CLOSED restricted: not a channel member` (gemessene Tabelle in `roomGate.ts`).
+    // Für diese Stufe ist ein CLOSED eine Nicht-Antwort — der Abgleich bestätigte
+    // dann NIE einen gelöschten Raum, und der Mechanismus wäre wirkungslos. `#d`
+    // erzeugt stattdessen sauberes `EOSE` mit null Zeilen (am Relay gemessen,
+    // 2026-08-19, :3004), also genau die Auskunft, die hier gebraucht wird.
+    //
+    // **Der Preis, und er ist nicht theoretisch:** Buzz repariert einen falschen
+    // Negativbefund seines 10-s-Zugriffscaches nur auf dem `#h`-Pfad.
+    // `resolve_request_local_access` (`buzz-relay/src/handlers/req.rs:130-170`) läuft
+    // in einem `if let Some(ch_id) = channel_id`, und `channel_id` stammt aus
+    // `extract_channel_id_from_filters` (`:1029-1049`), das ausschließlich auf `h`
+    // matcht. Beide Stufen hier sind `#h`-frei und sehen deshalb nur den
+    // (möglicherweise veralteten) Vektor aus `get_accessible_channel_ids_cached`.
+    //
+    // Auf einem Multi-Pod-Buzz kann ein FRISCH AUFGENOMMENES Mitglied damit einen
+    // Raum verlieren, den es hat: der Pod, der den Beitritt schrieb, ist nicht der,
+    // der liest, und bis zum TTL-Ablauf fehlt der Kanal in beiden Stufen. Das ist die
+    // eine Lage, in der die Einzelprobe strukturell irrt — sie ist eng (≤10 s
+    // Cache-TTL, gegen 60 s Sperre) und heilt sich selbst: der nächste Abgleich
+    // findet den Raum wieder, und die Live-Sub liefert das 39000 ohnehin neu. Wer sie
+    // schließen will, braucht eine dritte Stufe (z. B. ein `#h`-REQ als Gegenprobe,
+    // dessen CLOSED dann als „doch da" zu lesen wäre) — bewusst nicht gebaut: sie
+    // machte den häufigen Fall langsamer, um einen Fall zu decken, der von selbst
+    // vergeht.
+    let probes: RoomAnswerSignals[] = []
     if (credible && candidates.length > 0) {
-        const probes = await Promise.all(
+        probes = await Promise.all(
             candidates.map((room) => requestRooms(url, { kinds: [ROOM_META], '#d': [room.h], limit: 1 })),
         )
         candidates.forEach((room, i) => {
@@ -939,7 +999,18 @@ const runRoomReconcile = async (url: string): Promise<RoomAnswerVerdict | 'skipp
         })
     }
 
-    if (shouldArmReconcileLock({ verdict, cacheHydrated, knownCount: known.length, candidatesCredible: credible })) {
+    if (
+        shouldArmReconcileLock({
+            verdict,
+            cacheHydrated,
+            knownCount: known.length,
+            candidatesCredible: credible,
+            // Ohne diese Zeile sperrte auch ein Lauf, dessen Einzelprobe in CLOSED
+            // oder Timeout lief — dieselbe Form wie der behobene Reload-Defekt, nur
+            // eine Stufe tiefer (Begründung bei `probesAreConclusive`).
+            probesConclusive: probesAreConclusive(probes),
+        })
+    ) {
         roomReconcileDoneAt.set(url, Date.now())
     }
     return verdict
