@@ -58,6 +58,7 @@ import {
     getTagValues,
     normalizeRelayUrl,
     isRelayUrl,
+    type Filter,
     type PublishedList,
     type TrustedEvent,
 } from '@welshman/util'
@@ -68,6 +69,18 @@ import {
     type RoomMembershipRead,
     type RoomMembershipRevocation,
 } from './roomMembership'
+import {
+    ROOM_RECONCILE_LIMIT,
+    candidatesAreCredible,
+    classifyRoomAnswer,
+    confirmsRoomGone,
+    selectReconcileCandidates,
+    shouldArmReconcileLock,
+    type KnownRoomEvent,
+    type RoomAnswerSignals,
+    type RoomAnswerVerdict,
+} from './roomReconcile'
+import { storageReady } from './storage'
 import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps'
 import { spaceIsBuzzAsync } from './buzzAdmin'
 import { parseMeetupTags } from './meetupPresentation'
@@ -711,6 +724,225 @@ export const loadSpaceRooms = (url: string): Promise<unknown> =>
  * läuft dagegen ins Timeout, sendet CLOSE und die Räume erscheinen nie. */
 export const watchSpaceRooms = (url: string, signal: AbortSignal): void => {
     void request({ relays: [url], signal, filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS] }] })
+    // Die Live-Sub ist rein ADDITIV — sie kann einen Raum nur hinzufügen, nie
+    // entfernen. Der zweite, abgleichende REQ steht hier und nicht beim Aufrufer,
+    // weil das die einzige Engstelle ist, durch die JEDE Raumliste geht
+    // (`rail.ts`, `bridge.ts`, `palette.ts`, Heim-Space wie Workspace).
+    void reconcileSpaceRooms(url)
+}
+
+// ── Abgleich: was der Relay nicht mehr liefert, fliegt raus ──────────────────
+
+/**
+ * Zeitfenster nach einem TRAGFÄHIGEN Abgleich, in dem nicht erneut gefragt wird.
+ *
+ * `watchSpaceRooms` läuft pro Seitenaufbau mehrfach für dieselbe URL (Rail und
+ * Raumliste abonnieren beide, der Workspace zusätzlich). Ein Abgleich pro Space
+ * und Minute reicht; die Räume ändern sich nicht im Sekundentakt.
+ *
+ * Was die Sperre setzen darf, entscheidet {@link shouldArmReconcileLock} und
+ * ausdrücklich NICHT das Verdikt allein — die Begründung (samt Messung) steht dort.
+ * Kurz: ein Lauf, der nichts vergleichen konnte, ist kein Erfolg, den man sich
+ * merken müsste.
+ */
+const ROOM_RECONCILE_COOLDOWN_MS = 60_000
+
+/**
+ * Zeitbudget eines Abgleich-REQ. Großzügig, weil davor eine NIP-42-Runde liegen kann,
+ * die auf eine Signatur aus einem entfernten Bunker wartet.
+ */
+const ROOM_RECONCILE_TIMEOUT_MS = 20_000
+
+/**
+ * Zeitbudget für das Spiegeln des IndexedDB-Cache in das repository.
+ *
+ * Rein lokale Arbeit (`authReady` ist nur ein localStorage-Sync, danach zwei
+ * IndexedDB-`getAll`) — fünf Sekunden sind hier keine Netzfrist, sondern ein
+ * Notausstieg, damit ein hängender Speicher nicht die In-Flight-Marke behält und
+ * den Abgleich dauerhaft abwürgt.
+ */
+const ROOM_RECONCILE_HYDRATE_MS = 5_000
+
+/** url → Zeitpunkt des letzten tragfähigen Abgleichs. */
+const roomReconcileDoneAt = new Map<string, number>()
+
+/** Läuft gerade ein Abgleich für diese URL? Verhindert Doppelabfragen beim Mount. */
+const roomReconcileInFlight = new Set<string>()
+
+/**
+ * Wartet, bis der IndexedDB-Cache in das repository gespiegelt ist. `false` = nicht
+ * rechtzeitig fertig.
+ *
+ * **`storageReady` wird hier absichtlich erst im Funktionsrumpf gelesen.** Es ist ein
+ * `export let`, das `initStorage()` neu zuweist; ein modulweites `const x =
+ * storageReady` fror den anfänglichen `Promise.resolve()`-Platzhalter ein und
+ * „wartete" dann auf nichts. Dieselbe Bauform wie `forge.ts forgeCacheReady`.
+ */
+const awaitCacheHydration = async (): Promise<boolean> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const expired = new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), ROOM_RECONCILE_HYDRATE_MS)
+    })
+    try {
+        // `storageReady` rejectet nie (fail-soft, siehe `storage.ts`).
+        return await Promise.race([storageReady.then(() => true), expired])
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
+/** Ein REQ, dessen Signale ausgewertet werden — breite Abfrage wie Einzelprobe. */
+type RoomReqResult = RoomAnswerSignals & { rooms: TrustedEvent[] }
+
+/**
+ * Ein REQ an EINEN Relay, mit Zeitbudget, der neben den Ereignissen auch mitschreibt,
+ * WIE die Antwort endete.
+ *
+ * Bewusst `request` und nicht `load()`:
+ *  - `load` bündelt (200 ms) und **vereinigt** Filter fremder Aufrufer
+ *    (`unionFilters`) — die Antwort wäre dann nicht mehr die auf meine Frage.
+ *  - `load` reicht **kein `onClosed`** durch (`LoadOptions` in
+ *    `@welshman/net request.d.ts`) — genau das Signal, das eine abgelehnte Antwort
+ *    von einer leeren trennt.
+ *
+ * Das eigene `AbortSignal.timeout` ist Pflicht: `request` reicht immer ein Signal an
+ * `requestOne` durch, womit dessen eingebauter 30-s-Notausstieg NICHT greift — ohne
+ * das Budget bliebe der REQ bei einem schweigenden Relay ewig offen.
+ */
+const requestRooms = async (url: string, filter: Filter): Promise<RoomReqResult> => {
+    let sawEose = false
+    let sawClosed = false
+    let sawDisconnect = false
+    const seen = new Map<string, TrustedEvent>()
+    try {
+        await request({
+            relays: [url],
+            autoClose: true,
+            signal: AbortSignal.timeout(ROOM_RECONCILE_TIMEOUT_MS),
+            filters: [filter],
+            onEvent: (event: TrustedEvent) => {
+                seen.set(event.id, event)
+            },
+            onEose: () => {
+                sawEose = true
+            },
+            onClosed: () => {
+                sawClosed = true
+            },
+            onDisconnect: () => {
+                sawDisconnect = true
+            },
+        })
+    } catch {
+        // `AbortSignal.timeout` lässt `request` regulär auflösen; hier landet nur, was
+        // der Adapter selbst wirft. Ein Wurf ist keine Antwort → nichts ableiten.
+        sawDisconnect = true
+    }
+    const rooms = Array.from(seen.values()).filter((event) => event.kind === ROOM_META)
+    return { sawEose, sawClosed, sawDisconnect, roomCount: rooms.length, rooms }
+}
+
+/**
+ * Gleicht die lokal bekannten Räume eines Space gegen den Relay-Bestand ab und
+ * entfernt, was der Relay nachweislich nicht mehr führt.
+ *
+ * Zwei Stufen — breite Abfrage schlägt vor, Einzelprobe entscheidet; die vollständige
+ * Begründung samt Messung steht im Kopf von `roomReconcile.ts` und gehört dorthin,
+ * weil sie ohne welshman testbar ist.
+ *
+ * Aufgeräumt wird in beiden Schichten: `repository.removeEvent` entfernt das Ereignis
+ * aus dem Speicher UND meldet es über den `update`-Event als `removed` —
+ * `storage.ts syncEvents` löscht es daraufhin aus der IndexedDB. Ohne den zweiten
+ * Teil wäre der Raum beim nächsten Kaltstart wieder da.
+ */
+export const reconcileSpaceRooms = async (url: string): Promise<RoomAnswerVerdict | 'skipped'> => {
+    const doneAt = roomReconcileDoneAt.get(url)
+    if (roomReconcileInFlight.has(url) || (doneAt !== undefined && Date.now() - doneAt < ROOM_RECONCILE_COOLDOWN_MS)) {
+        return 'skipped'
+    }
+    roomReconcileInFlight.add(url)
+    try {
+        return await runRoomReconcile(url)
+    } finally {
+        roomReconcileInFlight.delete(url)
+    }
+}
+
+const runRoomReconcile = async (url: string): Promise<RoomAnswerVerdict | 'skipped'> => {
+    // ── Erst hydrieren, dann fragen ──────────────────────────────────────────────
+    //
+    // DIE Zeile, an der der Reload-Pfad hing. `watchSpaceRooms` läuft beim Einhängen
+    // der Insel; `storage.ts initStorage` spiegelt den IndexedDB-Cache aber ASYNCHRON
+    // in das repository. Wer den Bestands-Schnappschuss synchron zieht, sieht nach
+    // einem Reload ein leeres repository — der Geisterraum existiert dort nur im
+    // Cache, steht damit nicht im Schnappschuss und kann nicht in die Kandidatenliste
+    // geraten. Gemessen (buzz-test, 2026-08-19): nach Reload Kachel=1/Cache=vorhanden
+    // über 30 s; erst nach einem Einhängen OHNE Reload Kachel=0/Cache=leer.
+    //
+    // Das Warten kostet nichts, was der Schnappschuss vorher gewonnen hätte: er soll
+    // nur vor NEU eintreffenden Ereignissen schützen (siehe unten), und die kommen
+    // ohnehin erst mit dem REQ.
+    const cacheHydrated = await awaitCacheHydration()
+    if (!cacheHydrated) {
+        // Ohne hydrierten Cache ist die lokale Seite des Vergleichs unbekannt. Ein Lauf
+        // ohne Vergleichsbasis soll gar nicht erst laufen — und vor allem nicht sperren.
+        return 'skipped'
+    }
+
+    // Der Bestand wird VOR der Frage festgehalten, nicht danach. Sonst gäbe es ein
+    // Rennen mit genau der falschen Fehlerrichtung: ein Raum, der zwischen EOSE und
+    // Auswertung neu eintrifft (fremdes 9007+9002 über die Live-Sub), stünde im
+    // Bestand, aber nicht in der Antwort — und wäre sofort wieder gelöscht, ohne
+    // dass ihn je wieder etwas nachliefert.
+    const knownBefore = repository
+        .query([{ kinds: [ROOM_META] }])
+        .map((event: TrustedEvent) => ({ id: event.id, h: getTagValue('d', event.tags) || '' }))
+
+    // ── Stufe 1: breite Abfrage ─────────────────────────────────────────────────
+    // NUR 39000. Die 9008 der Live-Sub interessieren hier nicht — sie bedienen den
+    // Grabstein-Weg in `roomsByUrl` und blähten diese Antwort nur auf. Auf zooid
+    // überleben sie dauerhaft, dort wäre die Zählung sonst über Jahre von Altlasten
+    // dominiert statt von Räumen.
+    const scan = await requestRooms(url, { kinds: [ROOM_META], limit: ROOM_RECONCILE_LIMIT })
+    const verdict = classifyRoomAnswer(scan)
+
+    const presentHs = new Set<string>()
+    for (const event of scan.rooms) {
+        const h = getTagValue('d', event.tags)
+        if (h) {
+            presentHs.add(h)
+        }
+    }
+
+    // Die Herkunft wird JETZT gelesen, nicht beim Schnappschuss: der Abgleich-REQ
+    // selbst hat gerade Herkunftszeilen ergänzt, und je mehr Relays für ein
+    // Ereignis bekannt sind, desto eher schützt der Herkunfts-Riegel es.
+    const known: KnownRoomEvent[] = knownBefore.map((room) => ({
+        ...room,
+        relays: Array.from(tracker.getRelays(room.id)),
+    }))
+    const candidates = selectReconcileCandidates(url, known, presentHs, verdict)
+    const credible = candidatesAreCredible(candidates)
+
+    // ── Stufe 2: Einzelprobe je Kandidat ────────────────────────────────────────
+    // Eine Abfrage der Kardinalität 1 (`#d` auf ein parameterisiert-ersetzbares Kind)
+    // kann nicht gekappt sein — das ist der Grund, warum hier entschieden wird und
+    // nicht oben. Parallel, weil Kandidaten selten und dann meist einer sind.
+    if (credible && candidates.length > 0) {
+        const probes = await Promise.all(
+            candidates.map((room) => requestRooms(url, { kinds: [ROOM_META], '#d': [room.h], limit: 1 })),
+        )
+        candidates.forEach((room, i) => {
+            if (confirmsRoomGone(probes[i])) {
+                repository.removeEvent(room.id)
+            }
+        })
+    }
+
+    if (shouldArmReconcileLock({ verdict, cacheHydrated, knownCount: known.length, candidatesCredible: credible })) {
+        roomReconcileDoneAt.set(url, Date.now())
+    }
+    return verdict
 }
 
 /**
