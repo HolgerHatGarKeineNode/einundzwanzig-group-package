@@ -7,11 +7,12 @@
  * Genau wie der globale App-Init des Referenz-Clients (src/routes/+layout.svelte), nur ohne
  * SvelteKit. Persistenz (IndexedDB) folgt später (Fix A, M3).
  */
-import { appContext, pubkey, sign } from '@welshman/app'
+import { appContext, pubkey, sign, loadBlockedRelayList } from '@welshman/app'
 import { netContext, defaultSocketPolicies, makeSocketPolicyAuth } from '@welshman/net'
 import { routerContext } from '@welshman/router'
 import { always } from '@welshman/lib'
 import { verifyEvent, normalizeRelayUrl, PROFILE, type TrustedEvent } from '@welshman/util'
+import { guardRelayQuality } from './deadRelays.ts'
 import { mayProxifyMedia } from './mediaGuard.ts'
 import { mayFallbackToRaw as rawFallbackAllowed } from './imageFallback.ts'
 import { initStorage } from './storage'
@@ -203,6 +204,10 @@ export const SIGNER_RELAYS = relayOverride?.signer ?? [
 appContext.dufflepudUrl = ''
 routerContext.getIndexerRelays = always(INDEXER_RELAYS)
 routerContext.getDefaultRelays = always(DEFAULT_RELAYS)
+// Geparkte Ex-Relay-Domains aus dem Routing nehmen — Begründung, Wartungsregel und
+// die Grenzen der Liste stehen in `deadRelays.ts`. Muss NACH `@welshman/app` laufen,
+// das `routerContext.getRelayQuality` selbst setzt (Import oben erledigt das).
+routerContext.getRelayQuality = guardRelayQuality(routerContext.getRelayQuality!)
 /**
  * Die Workspace-URL, normalisiert — oder `''`, wenn kein zweiter Space konfiguriert
  * ist. Bewusst direkt aus `globalThis` statt aus `groups.ts` importiert: `core.ts`
@@ -285,4 +290,16 @@ if (!bootGuard.__ezGroupBooted) {
     // fest, statt ihn wieder als Anekdote zu hinterlassen. Kostet fünf Zuhörer je
     // Socket und schreibt nichts — Abruf über `window.__reqWatch()`.
     watchRequests()
+    // NIP-51 kind 10006: die Blocked-Relay-Liste des Nutzers. welshman honoriert sie
+    // in seinem `getRelayQuality` (0 für gelistete URLs) — nur GELADEN hat sie bisher
+    // niemand, die Einstellung blieb also wirkungslos. Damit kann jeder selbst ein
+    // Relay sperren, portabel über Clients, ohne dass wir Zustand halten. Läuft neben
+    // `deadRelays.ts`, nicht dagegen: unsere Sperre reicht Ungelistetes an genau
+    // dieses `getRelayQuality` weiter. Abo statt Einmal-Aufruf, weil der pubkey beim
+    // Boot noch nicht steht (localStorage-Sync in `session.ts`) und ein Login folgen kann.
+    pubkey.subscribe((pk) => {
+        if (pk) {
+            void loadBlockedRelayList(pk)
+        }
+    })
 }
