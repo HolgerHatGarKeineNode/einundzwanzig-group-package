@@ -257,6 +257,13 @@ netContext.isEventValid = (event: TrustedEvent, url: string) => {
 // erzeugt → der AUTH-Policy-Push liefe doppelt, und `initStorage` startete einen
 // zweiten repository-'update'-Listener). Die Kontext-Zuweisungen oben sind reine,
 // idempotente Sets → die dürfen ruhig re-laufen; nur diese zwei nicht.
+//
+// EINE Ausnahme, die hier falsch beschrieben stand: `getRelayQuality` wird nicht
+// GESETZT, sondern UMHÜLLT (`guardRelayQuality(routerContext.getRelayQuality!)`).
+// Ein HMR-Re-Eval wickelt den Wrapper in sich selbst. Die Wirkung ist harmlos —
+// jede Schicht prüft dasselbe `Set` und reicht Unbekanntes durch, das Ergebnis
+// bleibt gleich —, aber „idempotent" ist es nicht, und der Satz darüber hätte
+// den nächsten Leser vom Nachsehen abgehalten.
 const bootGuard = globalThis as { __ezGroupBooted?: boolean }
 if (!bootGuard.__ezGroupBooted) {
     bootGuard.__ezGroupBooted = true
@@ -301,5 +308,16 @@ if (!bootGuard.__ezGroupBooted) {
         if (pk) {
             void loadBlockedRelayList(pk)
         }
+        // Bewusst NICHT hier: die Mute-Liste (kind 10000). Sie zu laden hätte für
+        // sich genommen null Wirkung — welshman filtert damit nichts, einziger
+        // Leser ist `wot.js` (wotGraph), den diese App nirgends benutzt. Wirksam
+        // würde erst ein Filter in jeder Ableitung, die Fremdautoren zeigt, samt
+        // Thread-Semantik, `word`/`t`-Tags und dem Nachzug der NIP-44-verschlüsselten
+        // privaten Einträge. Ob persönliche Mutes im moderierten Vereinsraum gelten
+        // sollen (Moderation läuft hier relay-seitig: NIP-56-Report, NIP-86-Ban),
+        // ist eine offene Produktfrage — geprüft am 2026-08-19 und hier notiert,
+        // damit sie nicht alle paar Monate neu geprüft wird. Dasselbe gilt für
+        // Follows (kind 3): laden würde über Outbox genau die toten
+        // Kontaktlisten-Domains zurückholen, gegen die `deadRelays.ts` gebaut ist.
     })
 }
