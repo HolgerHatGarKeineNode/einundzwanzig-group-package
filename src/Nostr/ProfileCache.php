@@ -152,7 +152,7 @@ class ProfileCache
 
     /**
      * Wie lange nach dem `$attempt`-ten Fehlversuch nicht erneut gefragt wird:
-     * 60 s, 2 min, 4 min … gedeckelt bei 24 h (erreicht mit dem 11. Versuch).
+     * 60 s, 2 min, 4 min … gedeckelt bei 24 h (erreicht mit dem 12. Versuch).
      *
      * Öffentlich, weil die Frist die eigentliche Entscheidung dieser Klasse ist und
      * direkt prüfbar sein soll — nicht nur über ihre Wirkung im Cache.
