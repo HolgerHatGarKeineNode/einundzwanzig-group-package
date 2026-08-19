@@ -24,6 +24,7 @@ import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePoll
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls'
 import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals'
 import { DEFAULT_RELAYS, proxifyImage } from './core'
+import { chatImageHtml, emojiImgHtml } from './blossomMarkup.ts'
 import { contentEmojiTags } from './emoji'
 import { linkDisplay, isPlausibleUrl } from './chatLinks'
 import { applyInlineMarkup, stripInlineMarkup } from './chatMarkup'
@@ -51,6 +52,11 @@ const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
  * über den Bild-Proxy (Preset `msg`, `data-full` = `full` für die Lightbox) statt
  * zu einem Textlink. Alles andere (Web-Links, njump-Entities) bleibt ein sicherer
  * Anker. `document.createElement` escaped Attribute/Text beim `outerHTML`.
+ *
+ * Das Markup selbst baut [[blossomMarkup]] — dort, weil dieses Modul den halben
+ * welshman-Baum zieht und im Browser eines Tests nicht ausführbar ist. Ein Anhang vom
+ * Workspace-Relay bekommt dort kein `src`, sondern einen Marker; [[blossomHydrate]]
+ * holt ihn signiert nach.
  */
 const renderMessageLink = (href: string, display: string): string => {
     if (IMAGE_URL.test(href)) {
@@ -58,16 +64,7 @@ const renderMessageLink = (href: string, display: string): string => {
         // schon VOR dem Laden fest → kein Layout-Sprung (CLS/„Kaugummi"), wenn das Bild spät
         // dekodiert. Das Bild wird KOMPLETT gezeigt (`object-fit:contain`, ganze Grafik sichtbar,
         // Leerraum wo das Verhältnis abweicht); die Lightbox (`data-full`) zeigt es groß.
-        const box = document.createElement('span')
-        box.className = 'chat-image-box'
-        const img = document.createElement('img')
-        img.className = 'chat-image'
-        img.loading = 'lazy'
-        img.src = proxifyImage(href, 'msg')
-        img.dataset.full = proxifyImage(href, 'full')
-        img.alt = ''
-        box.appendChild(img)
-        return box.outerHTML
+        return chatImageHtml(document, href, proxifyImage(href, 'msg'), proxifyImage(href, 'full'))
     }
     const a = document.createElement('a')
     a.href = sanitizeUrl(href)
@@ -87,12 +84,7 @@ const renderEmojiImg = (name: string, url: string | undefined): string | null =>
     if (!url || !/^https:\/\//i.test(url)) {
         return null
     }
-    const img = document.createElement('img')
-    img.className = 'chat-emoji'
-    img.loading = 'lazy'
-    img.src = proxifyImage(url, 'avatar')
-    img.alt = img.title = `:${name}:`
-    return img.outerHTML
+    return emojiImgHtml(document, url, proxifyImage(url, 'avatar'), name)
 }
 
 // Polls (1068) und Zap-Goals (9041) MIT den Nachrichten laden (nicht nur MESSAGE): sie SIND

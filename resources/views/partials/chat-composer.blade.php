@@ -13,7 +13,14 @@
         : "sending || ({$draft}.trim().length === 0 && !sharing && !{$attachment})";
 @endphp
 
-{{-- Anhang-Vorschau: zugeschnittenes Bild wartet auf Senden (Proxy-Preset `msg`).
+{{-- Anhang-Vorschau: zugeschnittenes Bild wartet auf Senden.
+
+     `previewUrl` (eine `data:`-URL aus den gerade zugeschnittenen Bytes, siehe
+     `js/uploads.ts`) hat VORRANG vor `$img(url)`. Grund: auf einem Buzz-Space liegt der
+     frische Upload unter `…/media/…` und ist auth-pflichtig; `$img()` gibt dafür
+     bewusst `''` zurück (Wache in `js/mediaGuard.ts`), und die Kachel blieb leer — der
+     Nutzer sah sein eigenes Bild nicht. Der Rückfall auf `$img()` bleibt für den
+     Vereins-Blossom und für Anhänge ohne Vorschau-Bytes stehen.
 
      `data-composer` benennt den Kontext im DOM. Grund: beide Composer rendern
      dieselbe Vorschau mit demselben Text, und Tests unterschieden sie bisher über
@@ -22,7 +29,7 @@
      Raum-Composer. Eine Reihenfolge ist kein Vertrag; dieser Haken ist einer. --}}
 <div x-show="{{ $attachment }}" x-cloak data-composer="{{ $context }}"
      class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
-    <img :src="$img({{ $attachment }}?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
+    <img :src="{{ $attachment }}?.previewUrl || $img({{ $attachment }}?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
          class="size-14 shrink-0 rounded-tile object-cover" />
     <div class="min-w-0 flex-1 text-xs text-muted">{{ __('Bild angehängt') }}</div>
     <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"

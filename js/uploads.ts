@@ -40,7 +40,70 @@ import { t } from './i18n'
 // wenn Nutzer außerhalb des Vereins-Blossom hochladen sollen (git log hat die alte Logik).
 export const BLOSSOM_SERVER = 'https://blossom.einundzwanzig.space'
 
-export type Attachment = { url: string; imetaTag: string[] }
+export type Attachment = {
+    url: string
+    imetaTag: string[]
+    /**
+     * Vorschaubild für den Composer als `data:`-URL — die Bytes, die der Nutzer GERADE
+     * zugeschnitten hat, nicht die vom Server geholten. Siehe {@link thumbDataUrl}.
+     * Optional, weil `buildAttachment` (rein, ohne Canvas) es nicht setzen kann.
+     */
+    previewUrl?: string
+}
+
+/**
+ * Zielmaße eines Vorschaubilds: längste Kante auf `max`, Seitenverhältnis erhalten,
+ * nie vergrößern. Rein → node-testbar.
+ */
+export const thumbBox = (width: number, height: number, max = 128): { width: number; height: number } => {
+    const longest = Math.max(width, height)
+    if (!Number.isFinite(longest) || longest <= 0) {
+        return { width: max, height: max }
+    }
+    const factor = Math.min(1, max / longest)
+
+    return { width: Math.max(1, Math.round(width * factor)), height: Math.max(1, Math.round(height * factor)) }
+}
+
+/**
+ * Vorschaubild des zugeschnittenen Canvas als `data:`-URL. `''`, wenn der Browser
+ * nicht mitspielt — dann fällt die Fläche auf den bisherigen Weg zurück.
+ *
+ * ── Warum `data:` und nicht `URL.createObjectURL` ──
+ *
+ * Ein Object-URL müsste widerrufen werden, sonst wächst der Speicher. Der Anhang wird
+ * aber an sechs Stellen genullt und im Fehlerfall des Sendens WIEDER GESETZT
+ * (`send()`); ein Widerruf an der falschen dieser Stellen macht die Vorschau des
+ * zurückgelegten Anhangs kaputt, ein fehlender leckt. Eine `data:`-URL hat keine
+ * Lebensdauer: sie hängt am Objekt und verschwindet mit ihm. Der Preis ist ihre Größe
+ * — deshalb 128 px statt der 2048 px des Originals, gemessen wenige Kilobyte statt
+ * mehrerer hundert. Für eine 56×56-Kachel ist das die doppelte Auflösung.
+ *
+ * ── Warum überhaupt lokal und nicht über den Blossom-Weg ──
+ *
+ * Auf einem Buzz-Space liegt der frische Upload unter `…/media/…` und ist damit
+ * auth-pflichtig: `$img()` gibt für ihn `''` zurück (die Wache in [[mediaGuard]]), die
+ * Kachel blieb leer — der Nutzer sah sein eigenes Bild nicht. Ihn signiert
+ * zurückzuholen wäre eine Signatur-Runde und ein Netzweg für Bytes, die im Browser
+ * schon liegen.
+ */
+export const thumbDataUrl = (doc: Document, source: CanvasImageSource & { width: number; height: number }, max = 128): string => {
+    try {
+        const { width, height } = thumbBox(source.width, source.height, max)
+        const canvas = doc.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+            return ''
+        }
+        ctx.drawImage(source, 0, 0, width, height)
+
+        return canvas.toDataURL('image/webp', 0.7)
+    } catch {
+        return ''
+    }
+}
 
 /**
  * HTTP(S)-Origin eines Relays: `wss://host/` → `https://host`, `ws://host:3001/` →

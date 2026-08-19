@@ -52,6 +52,7 @@
 import MarkdownIt from 'markdown-it'
 import type { Env, Token } from 'markdown-it'
 import * as nip19 from 'nostr-tools/nip19'
+import { BLOSSOM_SRC_ATTR, blossomMarkerFor } from './blossomMarkup.ts'
 
 /** NIP-23: der publizierte Longform-Artikel (adressierbar, `d` = Kennung). */
 export const LONGFORM = 30023
@@ -286,7 +287,21 @@ md.renderer.rules.image = (tokens: Token[], idx, options, env, renderer) => {
         // `String(…)`: markdown-it deklariert Attributwerte als `string | number`
         // (`attrSet` nimmt beides an). Der `src` eines Bildes ist immer ein String —
         // die Umwandlung ist die Typ-Zusage an den Compiler, kein Verhalten.
-        token.attrs[at][1] = proxify(String(token.attrs[at][1]))
+        const original = String(token.attrs[at][1])
+        const proxified = proxify(original)
+        const marker = blossomMarkerFor(original, proxified)
+        if (marker === '') {
+            token.attrs[at][1] = proxified
+        } else {
+            // Auth-pflichtiges Bild des Workspace-Relays: der `src` wird ENTFERNT, nicht
+            // geleert. Ein `src=""` ist zwar spezifiziert („nicht laden"), aber es gab
+            // Browser, die es gegen die Dokument-Adresse auflösten und die Seite selbst
+            // nachluden; kein Attribut ist die Aussage, die keine Auslegung zulässt.
+            // Die Werksregel darunter fasst nur `alt` an — das Entfernen ist für sie
+            // folgenlos (`markdown-it/dist/markdown-it.mjs:849-853`, gelesen).
+            token.attrs.splice(at, 1)
+            token.attrSet(BLOSSOM_SRC_ATTR, marker)
+        }
     }
 
     return defaultImageRule

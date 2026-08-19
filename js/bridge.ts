@@ -14,6 +14,7 @@ import { classifyRoomClosedReason } from './roomGate'
 import { deriveMergedProfile, purgeSpaceLocalProfiles } from './spaceProfiles.ts'
 import { blossomMedia } from './blossomInstance.ts'
 import { bindAvatarState, type AvatarState } from './blossomMedia.ts'
+import { startBlossomHydration } from './blossomHydrate.ts'
 import { load } from '@welshman/net'
 import { deriveEvents } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
@@ -197,7 +198,7 @@ import {
     type SpaceThread,
 } from './feeds'
 import type { PollType } from './polls'
-import { uploadAttachment, type Attachment } from './uploads'
+import { uploadAttachment, thumbDataUrl, type Attachment } from './uploads'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
 import {
     loadEmojiGroups,
@@ -1560,6 +1561,21 @@ export function registerNostrComponents(Alpine: {
     // Host, Cache, Freigabe, kein Wiederholen nach 401) liegt in `blossomMedia.ts` und
     // ist dort ohne Browser geprüft.
     Alpine.magic('blossomBind', () => (state: AvatarState, url: unknown) => bindAvatarState(blossomMedia, state, url))
+
+    // BLOSSOM (2) — dasselbe für Bilder, die NICHT in Blade stehen: Chat-Anhänge,
+    // Custom-Emoji und Artikelbilder entstehen als HTML-String in JS ([[blossomMarkup]]),
+    // dort gibt es kein `x-effect`. Sie tragen stattdessen einen Marker, den dieser EINE
+    // Beobachter am Dokument abholt — statt eines Aufrufs an jeder der sieben
+    // `x-html`-Einsetzstellen, von denen eine sicher vergessen würde.
+    //
+    // `pubkey.subscribe` → `rescan()`: beim Sitzungswechsel werden die `blob:`-URLs
+    // widerrufen ([[blossomInstance]]); ohne diesen Griff bliebe ein totes `src` stehen.
+    // Er wirkt in beide Richtungen — was als Gast still leer blieb, erscheint nach dem
+    // Anmelden ohne Seiten-Neuaufbau.
+    const blossomHydration = startBlossomHydration(document, (url: string) => blossomMedia.load(url), (onMutation) => new MutationObserver(onMutation), document.body)
+    pubkey.subscribe(() => {
+        blossomHydration.rescan()
+    })
 
     // P3 LOCALE — `$num(1234)` formatiert eine Zahl in der GEWÄHLTEN Sprache
     // („1.234" unter de, „1,234" unter en), in jedem Alpine-Ausdruck. Dieselbe
@@ -5727,11 +5743,17 @@ export function registerNostrComponents(Alpine: {
                 // `this._url` = Space-Relay: entscheidet, ob der Blob zum Vereins-Blossom
                 // oder in den eigenen Medien-Speicher des Buzz-Relays geht (uploads.ts).
                 const up = await uploadAttachment(blob, this._url, `${canvas.width}x${canvas.height}`)
+                // Vorschau aus den EIGENEN Bytes, nicht aus der Antwort-URL: auf einem
+                // Buzz-Space liegt der frische Upload unter `…/media/…` und ist
+                // auth-pflichtig — `$img()` gäbe dafür `''` zurück und die Kachel bliebe
+                // leer (der Nutzer sähe sein gerade zugeschnittenes Bild nicht). Begründung
+                // der Bauform in `uploads.ts` bei {@link thumbDataUrl}.
+                const attachment = { ...up, previewUrl: thumbDataUrl(document, canvas) }
                 // In den beim Öffnen erfassten Ziel-Composer schreiben (kein Übersprechen).
                 if (this._cropForThread) {
-                    this.threadAttachment = up
+                    this.threadAttachment = attachment
                 } else {
-                    this.attachment = up
+                    this.attachment = attachment
                 }
                 this.cancelCrop()
                 this.refocusComposer()

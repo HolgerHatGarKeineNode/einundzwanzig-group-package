@@ -351,3 +351,42 @@ test('articleSnippet: Codefence-Inhalt wird übersprungen, nicht angezeigt', () 
     assert.equal(snippet.includes('geheim'), false)
     assert.match(snippet, /Vor dem Code\. Nach dem Code\./)
 })
+
+// ── Auth-pflichtige Artikelbilder: Marker statt src ────────────────────────────────
+
+/**
+ * Spiegelt die Wache (`mediaGuard.ts` via `proxifyImage`): für ein Medium des
+ * Workspace-Relays gibt sie `''` zurück — weder Proxy noch rohe URL sind erlaubt.
+ * Dass `''` das Signal IST, steht in `blossomMarkup.ts`; hier wird geprüft, was das
+ * Markup daraus macht.
+ */
+const fakeProxifyMitWache = (url: string): string => (url.startsWith('https://buzz.test/') ? '' : fakeProxify(url))
+
+test('renderArticleHtml: ein Bild des Workspace-Relays bekommt KEIN src, sondern den Blossom-Marker', () => {
+    const html = renderArticleHtml('![Alt](https://buzz.test/media/a.jpg)', fakeProxifyMitWache)
+
+    // Der Kern: kein `src`-Attribut → der Browser stellt keine Anfrage. Ein `src=""`
+    // wäre hier NICHT gleichwertig (siehe Begründung in longform.ts).
+    assert.equal(/\ssrc=/.test(html), false)
+    assert.match(html, /data-blossom-src="https:\/\/buzz\.test\/media\/a\.jpg"/)
+    // Der Alternativtext des Autors überlebt das Entfernen des src-Attributs.
+    assert.match(html, /alt="Alt"/)
+})
+
+test('renderArticleHtml: ein fremdes Bild bleibt unmarkiert am Proxy (Gegenprobe)', () => {
+    const html = renderArticleHtml('![Alt](https://example.com/bild.png)', fakeProxifyMitWache)
+
+    assert.match(html, /<img src="PROXIED\(https:\/\/example\.com\/bild\.png\)" alt="Alt">/)
+    assert.equal(html.includes('data-blossom-src'), false)
+})
+
+test('renderArticleHtml: ein Anführungszeichen in der Bild-URL bricht das Marker-Attribut nicht auf', () => {
+    // Der Marker entsteht über `attrSet` auf dem Token, nicht per String-Ersetzung im
+    // fertigen HTML — deshalb greift markdown-its eigene Behandlung. Gemessen wird die
+    // URL dabei bereits beim Parsen normalisiert (`"` → `%22`), das Attribut kann also
+    // gar nicht erst enden; die Zusage hängt nicht an unserem Code.
+    const html = renderArticleHtml('![Alt](<https://buzz.test/media/a".jpg>)', fakeProxifyMitWache)
+
+    assert.match(html, /data-blossom-src="https:\/\/buzz\.test\/media\/a%22\.jpg"/)
+    assert.equal(html.includes('a".jpg'), false)
+})

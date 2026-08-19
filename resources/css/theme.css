@@ -344,6 +344,19 @@
     object-fit: contain;
 }
 
+/* Auth-pflichtiges Medium, das dieser Nutzer NICHT bekommt (kein Signer, kein Mitglied,
+   401) — `data-blossom-state="none"` ist der Endzustand aus `js/blossomHydrate.ts`.
+   Das Bild ist dann leer; ohne diese Regel bliebe ein grauer 4:3-Platzhalter stehen, der
+   dauerhaft so aussieht, als lade da noch etwas. Der reservierte Container verschwindet
+   mit (`:has`), sonst klaffte eine Lücke im Nachrichtenfluss. Der Zwischenzustand
+   `pending` behält den Platzhalter — dort lädt tatsächlich noch etwas. */
+img[data-blossom-state='none'] {
+    display: none;
+}
+.chat-image-box:has(> img[data-blossom-state='none']) {
+    display: none;
+}
+
 /* Custom-Emoji (NIP-30): zeilenhohes Inline-Bild, keine Lightbox (andere Klasse). */
 .chat-emoji {
     display: inline-block;
