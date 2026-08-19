@@ -24,7 +24,7 @@
        deshalb nur, was wirklich feststeht: der Bereich verlangt Mitgliedschaft,
        und sein nächster Schritt ist die Anmeldung. --}}
 <div x-data="nostrVereinGate" x-show="show" x-cloak x-transition.opacity.duration.300ms
-     {{ $attributes->class('page-enter surface-card relative overflow-hidden !border-brand-500/30') }}>
+     {{ $attributes->class('page-enter surface-card relative overflow-hidden border-brand-500/30!') }}>
 
     {{-- Brand-Akzent: warmer Verlauf oben, dezenter Glow --}}
     <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-500 to-transparent"></div>

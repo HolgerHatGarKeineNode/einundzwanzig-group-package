@@ -104,12 +104,12 @@
                  hielte Blade das einfache `:` für seine eigene PHP-Bindung. Der
                  Aufklapp-Zustand gehört an den Knopf (ARIA-APG Disclosure) — ohne ihn
                  meldet der Screenreader denselben Knopf offen wie geschlossen.
-                 `!text-brand-*` mit Bang: Flux' eigenes `text-zinc-800 dark:text-white`
+                 `text-brand-*!` mit Bang: Flux' eigenes `text-zinc-800 dark:text-white`
                  steht bei gleicher Spezifität im gebauten Stylesheet HINTER den
                  brand-Farben (Reihenfolge der @theme-Deklaration) und gewänne sonst. --}}
             <flux:button type="button" x-ref="trigger" variant="ghost" icon="face-smile" class="icon-btn-touch"
                          x-on:click="toggle()" ::aria-expanded="open"
-                         ::class="open ? '!text-brand-700 dark:!text-brand-400' : ''"
+                         ::class="open ? 'text-brand-700! dark:text-brand-400!' : ''"
                          aria-label="{{ __('Emoji einfügen') }}" />
             {{-- x-if (lazy-mount) + x-teleport getrennt verschachteln — beides auf EINEM
                  template teleportiert bei jedem Tick neu (Leak). --}}
