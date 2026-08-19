@@ -358,7 +358,7 @@ describe('Aufbereitung', () => {
         )
     })
 
-    test('Personen: Name, nip05 und ein kaputtes Profil ohne Absturz', () => {
+    test('Personen: Name und ein kaputtes Profil ohne Absturz', () => {
         const good = ev({
             kind: 0,
             pubkey: 'd'.repeat(64),
@@ -369,7 +369,14 @@ describe('Aufbereitung', () => {
         const [first, second] = toPersonHits([good, broken], 'satoshi')
 
         assert.equal(first.name, 'Satoshi N')
-        assert.equal(first.nip05, 's@example.org')
+        // **Der `nip05` des Profils darf das Modell NICHT verlassen.** Er stammt roh aus
+        // einem kind 0 des Workspace-Relays: signaturgeprüft, aber nicht gegen
+        // `.well-known/nostr.json` verifiziert. In dieser App bedeutet ein schlichter
+        // Handle-Text „geprüft" (überall sonst über `verifiedNip05`) — hier stünde eine
+        // ungeprüfte Identitätsbehauptung, die genauso aussieht wie die geprüften.
+        // Das Profil im Test TRÄGT einen `nip05`; nur so unterscheidet diese Zusicherung
+        // „wird weggelassen" von „war ohnehin keiner da".
+        assert.equal('nip05' in first, false)
         assert.deepEqual(
             first.nameSegments.filter((segment) => segment.hit).map((segment) => segment.text),
             ['Satoshi'],

@@ -1573,7 +1573,21 @@ export function registerNostrComponents(Alpine: {
     // Er wirkt in beide Richtungen — was als Gast still leer blieb, erscheint nach dem
     // Anmelden ohne Seiten-Neuaufbau.
     const blossomHydration = startBlossomHydration(document, (url: string) => blossomMedia.load(url), (onMutation) => new MutationObserver(onMutation), document.body)
-    pubkey.subscribe(() => {
+    // **Nur bei einem WECHSEL, nicht bei jedem Emit.** `pubkey` ist ein Svelte-Store: er
+    // feuert schon beim Abonnieren mit dem aktuellen Wert. Ohne diesen Vergleich liefe
+    // unmittelbar nach dem Aufsetzen ein zweiter, anlassloser `rescan()`. Heute ist der
+    // folgenlos (an dieser Stelle gibt es noch kein Marker-Bild) — aber `rescan()`
+    // nimmt jedem Bild sein `src` und holt es erneut, und die Zeile hinge damit an der
+    // Reihenfolge im Init statt an ihrer eigenen Bedingung. Dieselbe Frage, dieselbe
+    // Antwort wie `sitzungPruefen()` in `blossomMedia.ts`: die Identität ist der
+    // Vergleichswert, nicht ihre bloße Anwesenheit.
+    let letzteSitzung = pubkey.get() ?? ''
+    pubkey.subscribe(($pubkey: string | null | undefined) => {
+        const jetzt = $pubkey ?? ''
+        if (jetzt === letzteSitzung) {
+            return
+        }
+        letzteSitzung = jetzt
         blossomHydration.rescan()
     })
 

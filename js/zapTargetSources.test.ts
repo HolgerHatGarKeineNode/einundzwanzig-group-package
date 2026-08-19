@@ -418,13 +418,6 @@ const INVENTAR: Deklaration[] = [
         warum: 'Der Wert kommt vom Aufrufer; welche Map das ist, prüft der Aufrufer-Hop unten. Ein Häkchen entsteht ohnehin nur bei bestätigtem nostr.json-Match.',
     },
     {
-        datei: 'js/spaceSearch.ts',
-        ausdruck: 'profile.nip05',
-        quellen: ['space-suchtreffer'],
-        unverifiziert: true,
-        warum: 'BEFUND, bewusst festgeschrieben: die Personensuche liest `nip05` direkt aus einem kind 0 des Workspace-Relays und zeigt es an — signaturgeprüft, aber NICHT gegen nostr.json verifiziert. Kein Geldschaden, aber eine Identitätsbehauptung aus der Fremdquelle.',
-    },
-    {
         datei: 'js/vereinFlow.ts',
         ausdruck: 'input.nip05',
         quellen: ['formular-input'],
@@ -464,14 +457,6 @@ const INVENTAR: Deklaration[] = [
         quellen: ['markup'],
         modell: { datei: 'js/members.ts', token: 'verifiedNip05(' },
         warum: 'Palette zeigt dieselben Mitglieder-Modelle.',
-    },
-    {
-        datei: 'resources/views/components/space-search-results.blade.php',
-        ausdruck: 'person.nip05',
-        quellen: ['markup'],
-        modell: { datei: 'js/spaceSearch.ts', token: 'nip05: profile.nip05' },
-        unverifiziert: true,
-        warum: 'Die Anzeige-Seite desselben Befundes wie `js/spaceSearch.ts` — hier wird der unverifizierte Wert sichtbar (schlichter Text, kein Häkchen).',
     },
     {
         datei: 'resources/views/partials/chat-row.blade.php',

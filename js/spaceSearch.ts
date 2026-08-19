@@ -355,11 +355,24 @@ export type MessageHit = {
     nameSegments: SearchSegment[]
 }
 
-/** Eine Person in der Trefferliste. */
+/**
+ * Eine Person in der Trefferliste.
+ *
+ * **Ohne `nip05`, und das ist eine Entscheidung.** Der Wert stünde hier roh aus einem
+ * kind 0 des Workspace-Relays: signaturgeprüft, aber NICHT gegen `.well-known/nostr.json`
+ * verifiziert. In dieser App bedeutet ein schlichter Handle-Text „geprüft" — die fünf
+ * anderen Anzeigen laufen alle über `verifiedNip05` ([[handles]]). Eine Trefferzeile, die
+ * das bricht, behauptet eine Identität, die niemand geprüft hat, und sieht dabei aus wie
+ * die geprüften daneben.
+ *
+ * Verifizieren wäre der andere Weg, kostet hier aber zweimal zu viel: eine
+ * `.well-known`-Abfrage **je Treffer** an fremde Hosts (die dabei erfahren, wonach hier
+ * gesucht wird), und die Liste ist ein Schnappschuss aus einem Promise — ein asynchron
+ * nachgewärmter Handle erschiene ohnehin nie. Also gar nicht zeigen.
+ */
 export type PersonHit = {
     pubkey: string
     name: string
-    nip05: string
     picture: string
     about: string
     created_at: number
@@ -405,7 +418,7 @@ export const toMessageHits = (
 }
 
 /** Ein kind-0-`content` so weit lesen, wie es die Trefferzeile braucht. */
-const readProfile = (event: TrustedEvent): { name: string; nip05: string; picture: string; about: string } => {
+const readProfile = (event: TrustedEvent): { name: string; picture: string; about: string } => {
     let parsed: Record<string, unknown> = {}
     try {
         const value: unknown = JSON.parse(event.content || '{}')
@@ -420,7 +433,7 @@ const readProfile = (event: TrustedEvent): { name: string; nip05: string; pictur
 
     return {
         name: str('display_name') || str('displayName') || str('name'),
-        nip05: str('nip05'),
+        // Kein `nip05`: unverifiziert und deshalb nicht anzeigbar — Begründung bei {@link PersonHit}.
         picture: str('picture'),
         about: str('about'),
     }
@@ -441,7 +454,6 @@ export const toPersonHits = (
         return {
             pubkey: event.pubkey,
             name,
-            nip05: profile.nip05,
             picture: profile.picture,
             about: profile.about,
             created_at: event.created_at,

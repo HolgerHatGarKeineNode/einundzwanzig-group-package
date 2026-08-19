@@ -344,19 +344,6 @@
     object-fit: contain;
 }
 
-/* Auth-pflichtiges Medium, das dieser Nutzer NICHT bekommt (kein Signer, kein Mitglied,
-   401) — `data-blossom-state="none"` ist der Endzustand aus `js/blossomHydrate.ts`.
-   Das Bild ist dann leer; ohne diese Regel bliebe ein grauer 4:3-Platzhalter stehen, der
-   dauerhaft so aussieht, als lade da noch etwas. Der reservierte Container verschwindet
-   mit (`:has`), sonst klaffte eine Lücke im Nachrichtenfluss. Der Zwischenzustand
-   `pending` behält den Platzhalter — dort lädt tatsächlich noch etwas. */
-img[data-blossom-state='none'] {
-    display: none;
-}
-.chat-image-box:has(> img[data-blossom-state='none']) {
-    display: none;
-}
-
 /* Custom-Emoji (NIP-30): zeilenhohes Inline-Bild, keine Lightbox (andere Klasse). */
 .chat-emoji {
     display: inline-block;
@@ -366,6 +353,38 @@ img[data-blossom-state='none'] {
     margin-inline: 0.05em;
     object-fit: contain;
 }
+
+/* BLOSSOM-ZUSTAND — Anfang (Schnittmarke für tests/e2e/blossom-content-hydration.spec.ts)
+
+   Auth-pflichtiges Medium, das dieser Nutzer NICHT bekommt (kein Signer, kein Mitglied,
+   401) — `data-blossom-state="none"` ist der Endzustand aus `js/blossomHydrate.ts`. Der
+   Zwischenzustand `pending` ist hier NICHT gemeint: dort lädt tatsächlich noch etwas.
+
+   ── Zwei Flächen, zwei Rückfälle ──
+
+   Ein BILD verschwindet. Es ist leer; bliebe es stehen, sähe der reservierte
+   4:3-Platzhalter dauerhaft so aus, als lade da noch etwas. Der Container verschwindet
+   mit (`:has`), sonst klaffte eine Lücke im Nachrichtenfluss.
+
+   Ein EMOJI verschwindet NICHT. Es sitzt mitten in einem Satz — ausgeblendet fehlte dort
+   ein Zeichen, ohne dass irgendetwas darauf hinwiese. Sein `alt` trägt genau die
+   Information, die hingehört (`:shortcode:`), und Chromium rendert den alt-Text eines
+   `<img>` ohne `src` als Text (gemessen 2026-08-19: 75 px breit, `scrollWidth ==
+   clientWidth`, also unbeschnitten — auch INNERHALB der 1.4em-Box oben). Die drei
+   Deklarationen nehmen der Box nur die Bildmaße, damit die Zeile nicht höher wird als
+   ihr Text. */
+img[data-blossom-state='none']:not(.chat-emoji) {
+    display: none;
+}
+.chat-image-box:has(> img[data-blossom-state='none']) {
+    display: none;
+}
+.chat-emoji[data-blossom-state='none'] {
+    height: auto;
+    width: auto;
+    vertical-align: baseline;
+}
+/* BLOSSOM-ZUSTAND — Ende */
 
 /* Terminal-Caret: blinkender Block hinter der Wortmarke (monospace-Signatur). */
 @keyframes caret-blink {

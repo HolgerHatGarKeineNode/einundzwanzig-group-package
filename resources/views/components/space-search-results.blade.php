@@ -160,7 +160,6 @@
                             <span x-text="part.text" x-bind:class="part.hit ? 'bg-brand-500/25 rounded-sm' : ''"></span>
                         </template>
                     </span>
-                    <span class="block truncate text-[0.7rem] text-muted" x-text="person.nip05"></span>
                 </span>
             </button>
         </template>
