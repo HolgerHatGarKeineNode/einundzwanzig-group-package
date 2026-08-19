@@ -352,7 +352,7 @@
                                             :title="r.names"
                                             class="chip-in pressable inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-full border px-2 text-sm leading-none"
                                             :class="r.mine ? 'border-brand-500 bg-brand-500/15 text-brand-500' : 'border-white/10 bg-white/5 text-muted hover:border-brand-500/50'">
-                                        <template x-if="r.emojiUrl"><img class="chat-emoji !size-4 shrink-0 object-contain" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
+                                        <template x-if="r.emojiUrl"><img class="chat-emoji size-4! shrink-0 object-contain" :src="r.emojiUrl" :alt="r.content" loading="lazy" /></template>
                                         <template x-if="!r.emojiUrl"><span x-text="r.label"></span></template>
                                         <span x-show="r.count > 1" x-text="r.count" class="font-mono text-xs"></span>
                                     </button>
@@ -384,12 +384,12 @@
                              Breite (früher drückte die Leiste ihn auf Mobile schmal). Opaker
                              surface-Hintergrund, damit sie über langem Text lesbar bleibt. --}}
                         <div class="surface-card pointer-events-none absolute right-1 top-0.5 z-10 flex items-center gap-0.5 rounded-full px-0.5 shadow-md opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:opacity-100"
-                             :class="activeId===m.id && '!pointer-events-auto !opacity-100'">
+                             :class="activeId===m.id && 'pointer-events-auto! opacity-100!'">
                             {{-- Zap (Z3, NIP-57): WICHTIGSTE Aktion → ganz vorne, Brand-Gelb.
-                                 `!text-brand-500` überschreibt Flux' ghost-Textfarbe
+                                 `text-brand-500!` überschreibt Flux' ghost-Textfarbe
                                  (text-zinc-800/white, gleiche Spezifität → sonst Reihenfolge).
                                  Nur fremde Nachrichten mit lud16; Feature-Flag-gated. --}}
-                            <flux:button size="xs" variant="ghost" icon="bolt" class="icon-btn-touch !text-brand-500"
+                            <flux:button size="xs" variant="ghost" icon="bolt" class="icon-btn-touch text-brand-500!"
                                          x-show="zapsEnabled && m.zappable" x-cloak x-on:click.stop="openZap(m)"
                                          aria-label="Zap" />
                             {{-- Antworten: im Raum q-Reply (Raum-Composer), im Thread verschachtelte
