@@ -103,6 +103,12 @@ const PRODUZENTEN: { schluessel: string; muster: RegExp; klasse: string }[] = [
     { schluessel: 'deriveMergedProfile', muster: /\bderiveMergedProfile\s*\(/, klasse: 'gemergt' },
     { schluessel: '$profiles', muster: /\$profiles\b/, klasse: 'gemergt' },
     { schluessel: 'profiles-parameter', muster: /\bprofiles\s*:\s*Map</, klasse: 'parameter' },
+    // Die Autorenkarte der Artikel-Vollansicht (P3) bekommt ihre Felder als Parameter,
+    // aus demselben Grund wie `ArticleRowDeps`: `longform.ts` kennt welshman nicht.
+    // Zulaessig ist damit nur ein IDENTITAETSfeld — ein Zahlungsfeld steht in diesem
+    // Typ gar nicht erst (`ArticleAuthorDeps` traegt `hatLightning: boolean`, nicht
+    // `lud16`), und der Aufrufer-Hop unten nagelt fest, woher der Wert kommt.
+    { schluessel: 'autor-deps-parameter', muster: /\bdeps\s*:\s*ArticleAuthorDeps\b/, klasse: 'parameter' },
     { schluessel: 'deriveHandleForPubkey', muster: /\bderiveHandleForPubkey\s*\(/, klasse: 'handle' },
     { schluessel: 'handles-map', muster: /\$handles\b|\bhandles\s*:\s*Map</, klasse: 'handle' },
     { schluessel: 'zapper', muster: /\bzapper\b/, klasse: 'zapper-dokument' },
@@ -418,6 +424,18 @@ const INVENTAR: Deklaration[] = [
         warum: 'Der Wert kommt vom Aufrufer; welche Map das ist, prüft der Aufrufer-Hop unten. Ein Häkchen entsteht ohnehin nur bei bestätigtem nostr.json-Match.',
     },
     {
+        datei: 'js/longform.ts',
+        ausdruck: 'deps.nip05',
+        quellen: ['autor-deps-parameter'],
+        warum: 'Autorenkarte der Artikel-Vollansicht (P3): reine Durchreiche eines Parameters. Welche Map dahintersteht, prüft der Aufrufer-Hop `buildArticleAuthor` unten — und ein Zahlungsfeld kommt hier gar nicht an, `ArticleAuthorDeps` trägt nur `hatLightning: boolean`.',
+    },
+    {
+        datei: 'js/longformFeed.ts',
+        ausdruck: 'profil.lud16',
+        quellen: ['$profiles'],
+        warum: 'Die EINZIGE Stelle, an der die Artikelfläche eine Empfangsadresse anfasst — und sie liest sie nur, um daraus ein Ja/Nein zu machen (`hatLightning`). Quelle ist die GEMERGTE Map, trägt Ebene 3.',
+    },
+    {
         datei: 'js/vereinFlow.ts',
         ausdruck: 'input.nip05',
         quellen: ['formular-input'],
@@ -437,6 +455,15 @@ const INVENTAR: Deklaration[] = [
     },
 
     // ── Markup ──────────────────────────────────────────────────────────────
+    {
+        datei: 'resources/views/⚡article.blade.php',
+        ausdruck: 'article.author.nip05',
+        // Drei Vorkommen: das Häkchen (`nostr-nip05`) und die Zeile darunter, die den
+        // Handle als Text zeigt — letztere zweimal (`x-show` und `x-text`).
+        quellen: ['markup', 'markup', 'markup'],
+        modell: { datei: 'js/longformFeed.ts', token: 'verifiedNip05(' },
+        warum: 'Autorenkarte der Artikel-Vollansicht (Häkchen + Zeile darunter): `nip05` der Karte ist der VERIFIZIERTE Handle aus `buildArticleAuthor`, nicht der Profil-Rohwert. Eine Zahlungsadresse steht in dieser Datei gar nicht — der Lightning-Einstieg liest `hatLightning`, einen Wahrheitswert.',
+    },
     {
         datei: 'resources/views/⚡directory.blade.php',
         ausdruck: 'm.nip05',
@@ -618,6 +645,41 @@ describe('Ebene 2 — Herkunft: die deklarierte Quelle steht wirklich im Code', 
         }
     })
 
+    test('AUFRUFER-HOP: buildArticleAuthor bekommt einen VERIFIZIERTEN Handle und ein Ja/Nein', () => {
+        // `longform.ts` liest `deps.nip05` aus einem Parameter — die Klassifikation liegt
+        // damit beim Aufrufer, genau wie bei `verifiedNip05`. Zwei Zusagen:
+        //  · das `nip05` stammt aus `verifiedNip05(…)`, nie aus einem Profil-Rohwert;
+        //  · `hatLightning` ist ein Vergleich, keine durchgereichte Adresse.
+        const dateien = dateienUnter(join(PAKET_DIR, 'js'), '.ts').filter((p) => !p.endsWith('.test.ts'))
+        const aufrufe: { datei: string; zeile: number; block: string }[] = []
+        for (const pfad of dateien) {
+            const datei = relative(PAKET_DIR, pfad).split(sep).join('/')
+            const zeilen = ohneKommentare(readFileSync(pfad, 'utf8'), false)
+            zeilen.forEach((zeile, i) => {
+                if (/\bbuildArticleAuthor\s*\(/.test(zeile) && !/export const buildArticleAuthor/.test(zeile)) {
+                    // Der Argumentblock geht über mehrere Zeilen; 14 reichen für das
+                    // Objektliteral samt seiner Begruendungen und sind kleiner als jede Nachbar-Funktion.
+                    aufrufe.push({ datei, zeile: i + 1, block: zeilen.slice(i, i + 26).join('\n') })
+                }
+            })
+        }
+
+        // Die Schranke zuerst — ein Test über null Aufrufer ist fail-open.
+        assert.equal(aufrufe.length, 1, `buildArticleAuthor-Aufrufe: ${aufrufe.map((a) => `${a.datei}:${a.zeile}`).join(', ')}`)
+        for (const aufruf of aufrufe) {
+            assert.match(
+                aufruf.block,
+                /nip05:\s*verifiedNip05\(/,
+                `${aufruf.datei}:${aufruf.zeile}: nip05 muss aus verifiedNip05(…) kommen, nicht aus einem Profil-Rohwert`,
+            )
+            assert.match(
+                aufruf.block,
+                /hatLightning:\s*\(profil\?\.lud16 \?\? ''\) !== ''/,
+                `${aufruf.datei}:${aufruf.zeile}: hatLightning muss ein Vergleich auf der gemergten Map sein — keine durchgereichte Adresse`,
+            )
+        }
+    })
+
     test('AUFRUFER-HOP: verifiedNip05 bekommt immer die gemergte Profil-Map', () => {
         // `handles.ts` liest `nip05` aus einem PARAMETER — die Klassifikation liegt
         // damit beim Aufrufer. Ohne diese Zusage wäre die Kette dort offen.
@@ -632,7 +694,7 @@ describe('Ebene 2 — Herkunft: die deklarierte Quelle steht wirklich im Code', 
             })
         }
 
-        assert.equal(aufrufe.length, 3, `verifiedNip05-Aufrufe: ${aufrufe.join(' || ')}`)
+        assert.equal(aufrufe.length, 4, `verifiedNip05-Aufrufe: ${aufrufe.join(' || ')}`)
         for (const aufruf of aufrufe) {
             assert.match(
                 aufruf,

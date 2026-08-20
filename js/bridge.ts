@@ -273,13 +273,14 @@ import {
     type NWCInfo,
 } from './wallet'
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
+import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles'
 import { t, tPlural, type Replacements } from './i18n'
 import { dateTimeFormat, formatNumber } from './locale'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
-type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void }
+type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void; $el: HTMLElement }
 
 /** Zap-Feature-Flag (iOS-Kill-Switch): `window.__nostrZapsEnabled` (Default true). */
 const zapsEnabled = (): boolean => (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false
@@ -748,7 +749,7 @@ type ArticlesState = {
     clearFilters(): void
 }
 
-/** Bildschirm-Zustand der Artikel-Vollansicht (P7). */
+/** Bildschirm-Zustand der Artikel-Vollansicht (P7, erweitert in P3). */
 type ArticleState = {
     loading: boolean
     /** Hat der Relay geantwortet, ohne den Artikel zu kennen? */
@@ -756,17 +757,59 @@ type ArticleState = {
     /** Deutsche Fehlerzeile, '' = kein Fehler. Getrennt von `missing` — siehe `_load`. */
     error: string
     article: ArticleView | null
+    /** Vollbild eines angeklickten Artikelbilds — dieselbe Fläche wie im Chat (P3). */
+    lightboxSrc: string | null
+    /** Kennt dieser Browser `navigator.share`? Einmal beim Mount festgestellt (P3). */
+    canShare: boolean
+    /** 0–100. Nur gültig, solange {@link ArticleState.leseVerfolgbar} steht. */
+    lesefortschritt: number
+    /** Gibt es überhaupt eine Strecke? `false` bei jedem Artikel, der ins Fenster passt. */
+    leseVerfolgbar: boolean
+    /** „noch N Min" — 0 heißt: keine Angabe, die Zeile fällt weg. */
+    leseRestMinuten: number
+    /**
+     * Der fertige Satz des Lesestands, in einer von drei Formen.
+     *
+     * Steht hier und nicht als verschachtelter Ausdruck im Markup: die REGEL, welche Form
+     * gilt, liegt geprüft in `articleReader.ts` (`lesestandForm`), und eine dreifache
+     * Ternär-Kette in einem Blade-Attribut wäre dieselbe Regel ein zweites Mal — nur
+     * ungeprüft.
+     */
+    lesestandText(): string
     _naddr: string
+    _base: string
     /** Ist der Screen weg, bevor der dynamische Import zurückkam? */
     _dead: boolean
     _controller: AbortController | null
     _unsub: null | (() => void)
+    /** Aufräumer der Lesefortschritt-Beobachter — `null`, solange keiner hängt. */
+    _leseAb: null | (() => void)
+    /** Läuft schon ein rAF für die nächste Messung? */
+    _leseFrame: number
+    /** Beobachtet die HÖHE des Artikeltextes — siehe `_leseAnHeften`. */
+    _leseGroesse: ResizeObserver | null
     init(): void
     _boot(): Promise<void>
     destroy(): void
     _load(): Promise<void>
     retry(): void
     hasArticle(): boolean
+    /** Scroll- und Resize-Zuhörer aufsetzen (siehe dort, warum `capture: true`). */
+    _leseBeobachten(): void
+    /** Den Höhen-Beobachter an den Artikeltext heften, sobald es ihn gibt. */
+    _leseAnHeften(): void
+    /** Den Lesefortschritt EINMAL nachmessen (rAF-gedrosselt über `_leseFrame`). */
+    messeLesefortschritt(): void
+    /** Wohin ein Teilen-Knopf zeigt — oder dass es nirgendwohin zeigt. */
+    teilZiel(): TeilZiel
+    /** Der EINE Auslöser des Teilen-Knopfes — er entscheidet, was möglich ist. */
+    teilenAusloesen(): Promise<void>
+    /** Den Link in die Zwischenablage, mit fertiger Erfolgsmeldung. */
+    linkKopieren(): void
+    /** `navigator.share`, wo es das gibt. */
+    teilen(): Promise<void>
+    /** Der Grund, warum der Lightning-Einstieg nichts tut — als Toast, nicht als Tooltip. */
+    keineLightningAdresse(): void
 }
 
 type VereinGateState = {
@@ -3498,7 +3541,7 @@ export function registerNostrComponents(Alpine: {
      *
      * Der Fachcode kommt per `import()`, aus demselben Grund wie bei `nostrArticles`.
      */
-    Alpine.data('nostrArticle', (naddr: unknown): ArticleState => {
+    Alpine.data('nostrArticle', (naddr: unknown, base: unknown): ArticleState => {
         let feed: typeof import('./longformFeed') | null = null
 
         return {
@@ -3506,13 +3549,91 @@ export function registerNostrComponents(Alpine: {
             missing: false,
             error: '',
             article: null,
+            lightboxSrc: null,
+            canShare: false,
+            lesefortschritt: 0,
+            leseVerfolgbar: false,
+            leseRestMinuten: 0,
             _naddr: String(naddr ?? ''),
+            // Dieselbe Normalisierung wie in `nostrArticles._base`: `route()` liefert je
+            // nach Konfiguration mit oder ohne Schrägstrich am Ende.
+            _base: String(base ?? '').replace(/\/+$/, ''),
             _dead: false,
             _controller: null,
             _unsub: null,
+            _leseAb: null,
+            _leseFrame: 0,
+            _leseGroesse: null,
             init() {
                 this._controller = new AbortController()
+                // **Einmal beim Mount festgestellt, nicht bei jedem Rendern.** `canShare`
+                // ist eine Eigenschaft des Browsers und ändert sich innerhalb einer
+                // Sitzung nicht; ein Ausdruck im Markup liefe bei jedem Alpine-Durchlauf.
+                // `navigator.share` fehlt auf jedem Desktop-Firefox und in jedem
+                // unsicheren Kontext — dort bleibt „Link kopieren" der einzige Weg, und
+                // das ist kein Mangel, sondern der Normalfall.
+                this.canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+                this._leseBeobachten()
+                this._leseAnHeften()
                 void this._boot()
+            },
+            /**
+             * Den Lesefortschritt an die beiden Flächen hängen, die scrollen können.
+             *
+             * **Unterhalb `xl` scrollt das Dokument, ab `xl` die Bühne** (`app-shell`
+             * setzt dort `xl:overflow-y-auto` auf `main`). Ein Zuhörer am `window` allein
+             * verpasste den zweiten Fall vollständig: `scroll` steigt von einem Element
+             * NICHT auf. Mit `capture: true` läuft das Ereignis dagegen auf dem Weg NACH
+             * UNTEN durch das Fenster — ein Zuhörer, zwei Flächen, kein Wissen darüber,
+             * welche gerade die scrollende ist.
+             *
+             * `resize` deckt die Drehung des Geräts und das Ein-/Ausblenden der
+             * Browser-Leiste ab; beides ändert die Fensterhöhe und damit die Strecke.
+             */
+            _leseBeobachten() {
+                if (typeof window === 'undefined') {
+                    return
+                }
+                const messen = (): void => this.messeLesefortschritt()
+                window.addEventListener('scroll', messen, { capture: true, passive: true })
+                window.addEventListener('resize', messen, { passive: true })
+                this._leseAb = () => {
+                    window.removeEventListener('scroll', messen, { capture: true })
+                    window.removeEventListener('resize', messen)
+                }
+            },
+            /**
+             * Die HÖHE des Artikeltextes beobachten — und warum eine einmalige Messung
+             * nicht reicht.
+             *
+             * Am ersten `$nextTick` nach dem Einsetzen steht das Markup zwar im DOM, aber
+             * seine endgültige Höhe noch nicht: Bilder haben keine Maße, bis sie geladen
+             * sind, die Hausschrift tauscht sich nach dem `font-display`-Wechsel aus, und
+             * eingebettete Blossom-Bilder bekommen ihr `src` erst vom Hydrator. Eine
+             * einzige Messung an dieser Stelle liefert deshalb eine zu kleine Höhe — und
+             * damit **fälschlich „passt ins Fenster"**, also gar keine Leiste. In der
+             * E2E-Suite ist genau das aufgetreten (120 Absätze, Leiste blieb aus); am
+             * Entwicklungsrechner nicht, weil dort der Cache warm war.
+             *
+             * Ein `setTimeout` wäre die falsche Antwort — es wartet eine geratene Zeit und
+             * ist danach wieder blind. Der `ResizeObserver` misst nach, sooft sich die
+             * Höhe ändert, und hört auf, wenn sie steht.
+             *
+             * **Beobachtet wird die INSEL-Wurzel, nicht der Artikeltext.** Der erste
+             * Entwurf hängte den Beobachter an `[data-artikel-text]` — und fand ihn beim
+             * Aufsetzen nicht immer: das Element entsteht in einem `<template x-if>`, und
+             * ob es zum Zeitpunkt des `$nextTick` schon steht, hängt an der Reihenfolge
+             * der Alpine-Effekte. Fand er es nicht, hängte sich nie ein Beobachter ein und
+             * die Leiste blieb dauerhaft aus — **gemessen in der E2E-Suite bei 1279 px,
+             * während dieselbe Seite bei 1440 px funktionierte.** Ein Beobachter, dessen
+             * Ziel erst noch entstehen muss, ist eine Wette; die Wurzel gibt es immer.
+             */
+            _leseAnHeften() {
+                if (typeof ResizeObserver === 'undefined' || this._leseGroesse) {
+                    return
+                }
+                this._leseGroesse = new ResizeObserver(() => this.messeLesefortschritt())
+                this._leseGroesse.observe((this as unknown as AlpineMagics).$el)
             },
             /** Siehe die Begründung des `try` bei `nostrArticles._boot`. */
             async _boot() {
@@ -3537,6 +3658,14 @@ export function registerNostrComponents(Alpine: {
                         this.loading = false
                         this.missing = false
                         this.error = ''
+                        // Der Text ist neu (oder zum ersten Mal) da — vorher hatte die
+                        // Messung nichts zu messen. `$nextTick`, weil das Markup erst nach
+                        // diesem Durchlauf im DOM steht; ohne ihn fände die Sonde ihr
+                        // Ziel nicht und meldete korrekt „nicht verfolgbar" — dauerhaft.
+                        ;(this as unknown as AlpineMagics).$nextTick(() => {
+                            this._leseAnHeften()
+                            this.messeLesefortschritt()
+                        })
                     }
                 })
                 await this._load()
@@ -3545,6 +3674,129 @@ export function registerNostrComponents(Alpine: {
                 this._dead = true
                 this._unsub?.()
                 this._controller?.abort()
+                this._leseAb?.()
+                this._leseGroesse?.disconnect()
+                if (this._leseFrame) {
+                    cancelAnimationFrame(this._leseFrame)
+                    this._leseFrame = 0
+                }
+            },
+            /**
+             * Der Lesefortschritt — gemessen, nicht geschätzt.
+             *
+             * Gedrosselt über einen einzigen offenen `requestAnimationFrame`: ein
+             * `scroll`-Ereignis feuert je Frame mehrfach, und `getBoundingClientRect`
+             * erzwingt ein Layout. Ohne die Drosselung wäre genau das der Ruckler, den
+             * eine Fortschrittsanzeige anzeigen soll, statt ihn zu verursachen.
+             *
+             * Die Rechnung selbst steht in `articleReader.ts` und ist dort unter
+             * `node --test` festgenagelt — inklusive des Falls, der hier der Normalfall
+             * ist: **ein Artikel, der kürzer ist als das Fenster.** 57 der 104 Artikel
+             * haben nicht einmal eine Überschrift.
+             */
+            messeLesefortschritt() {
+                if (this._leseFrame || typeof window === 'undefined') {
+                    return
+                }
+                this._leseFrame = requestAnimationFrame(() => {
+                    this._leseFrame = 0
+                    if (this._dead) {
+                        return
+                    }
+                    // **Fail-closed:** ist der Artikeltext (noch) nicht da, gibt es keine
+                    // Messung — und dann auch keine Leiste. Eine Sonde, die für „nichts
+                    // gefunden" eine 0 liefert, sähe wie „ganz oben" aus.
+                    const text = (this as unknown as AlpineMagics).$el.querySelector('[data-artikel-text]')
+                    if (!text) {
+                        this.leseVerfolgbar = false
+                        this.lesefortschritt = 0
+                        this.leseRestMinuten = 0
+                        return
+                    }
+                    const box = text.getBoundingClientRect()
+                    const stand = leseFortschritt({
+                        top: box.top,
+                        height: box.height,
+                        viewport: window.innerHeight,
+                    })
+                    this.leseVerfolgbar = stand.verfolgbar
+                    this.lesefortschritt = stand.prozent
+                    this.leseRestMinuten = restMinuten(this.article?.readingMinutes ?? 0, stand.prozent)
+                })
+            },
+            /**
+             * Drei Formen, ein Satz — die Signatur dieser Fläche.
+             *
+             * „14 Min Lesezeit" (noch nicht angefangen) · „noch 8 Min" (mittendrin) ·
+             * „Ende erreicht" (die letzte Zeile ist sichtbar). Der dritte Zustand ersetzt
+             * ein am laufenden Client gemessenes „noch 0 Min": die Zahl stimmte, sie las
+             * sich aber wie ein Defekt.
+             *
+             * Der Satz sagt etwas über die POSITION, nicht über den Leser — „fertig
+             * gelesen" wäre eine Behauptung über jemanden, der vielleicht nur nach unten
+             * gesprungen ist.
+             */
+            lesestandText() {
+                const gesamt = this.article?.readingMinutes ?? 0
+                switch (lesestandForm(this.leseVerfolgbar, this.lesefortschritt, gesamt)) {
+                    case 'ende':
+                        return t('Ende erreicht')
+                    case 'rest':
+                        return t('noch :min Min', { min: String(this.leseRestMinuten) })
+                    default:
+                        return t(':min Min Lesezeit', { min: String(gesamt) })
+                }
+            },
+            teilZiel() {
+                return artikelTeilZiel(this._base, this.article?.naddr ?? '', this.article?.title ?? '')
+            },
+            /**
+             * Ein Auslöser, drei Wege — und einer davon ist „geht nicht, und zwar darum".
+             *
+             * Der inerte Fall geht bewusst über einen TOAST und nicht über ein `title`:
+             * ein Tooltip ist auf einem Telefon unerreichbar, und ein Knopf, der beim
+             * Antippen einfach nichts tut, wird ein zweites Mal angetippt. Variante
+             * `info`, nicht `danger` — es ist kein Fehlschlag, sondern eine Eigenschaft
+             * dieses Artikels.
+             */
+            async teilenAusloesen() {
+                const ziel = this.teilZiel()
+                if (!ziel.teilbar) {
+                    toast(t('Dieser Artikel hat keine Adresse — es gibt keinen Link zum Teilen.'), 'info')
+
+                    return
+                }
+                if (this.canShare) {
+                    await this.teilen()
+                } else {
+                    this.linkKopieren()
+                }
+            },
+            /** Dasselbe inerte Muster wie beim Teilen — siehe {@link teilenAusloesen}. */
+            keineLightningAdresse() {
+                toast(t('Dieser Autor hat keine Lightning-Adresse hinterlegt.'), 'info')
+            },
+            linkKopieren() {
+                const ziel = this.teilZiel()
+                if (!ziel.teilbar) {
+                    return
+                }
+                void navigator.clipboard?.writeText(ziel.url).then(() => toast(t('Link kopiert.'), 'success'))
+            },
+            async teilen() {
+                const ziel = this.teilZiel()
+                if (!ziel.teilbar || !this.canShare) {
+                    return
+                }
+                try {
+                    await navigator.share({ title: ziel.titel, url: ziel.url })
+                } catch {
+                    // **Ein Abbruch ist kein Fehler.** `navigator.share` lehnt auch dann
+                    // ab, wenn der Nutzer das Systemblatt einfach wegwischt — eine
+                    // Fehlermeldung darauf wäre eine Beschwerde über eine Entscheidung.
+                    // Bleibt der echte Fehlschlag: auch dort ist „Link kopieren"
+                    // danebengeblieben und tut es.
+                }
             },
             async _load() {
                 if (!feed) {

@@ -35,7 +35,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
         {{-- `json_encode` statt `@js()`: `app-header` echot den Ausdruck über `{{ }}`
              und escapt ihn damit selbst genau einmal — dieselbe Begründung wie in
-             `⚡article.blade.php:44` und `⚡room.blade.php:92`. --}}
+             `⚡article.blade.php` und `⚡room.blade.php` (dort jeweils beim
+             `$titleExpr`).
+
+             **Auf das SYMBOL geankert, nicht auf die Zeile** (2026-08-21): hier stand
+             `⚡article.blade.php:44` und `⚡room.blade.php:92`. Die Raum-Zeile war schon
+             vor P3 falsch (nachgemessen an `HEAD`: dort steht ein Satz über den
+             Thread-Wechsel), die Artikel-Zeile ist es durch den P3-Umbau geworden. Beide
+             zeigten weiterhin plausibel aussehend ins Leere, ohne dass irgendein Test rot
+             wurde — genau der Grund, warum neue Verweise im Haus auf ein eindeutiges
+             Symbol zeigen und nicht auf eine Zahl. `grep -n 'titleExpr = '` findet beide
+             Stellen unabhängig von jedem Verschub. --}}
         @php($titleExpr = 'view ? view.repo.name : '.json_encode(__('Repository')))
 
         <x-group::app-header :title="__('Repository')" :title-expr="$titleExpr" :back="route('group.forge')" />

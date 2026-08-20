@@ -281,6 +281,35 @@ type ArticleEnv = Env & { proxify?: (url: string) => string }
  */
 const defaultImageRule = md.renderer.rules.image
 
+/**
+ * Die Klasse, an der die Vollansicht ein anklickbares Artikelbild erkennt (P3).
+ *
+ * ── Warum NICHT `chat-image`, obwohl der Auslöser derselbe ist ───────────────────────
+ *
+ * Der Plan schrieb `chat-image` vor; gemessen ist das eine sichtbare Änderung am
+ * Bestand. `.chat-image` (`theme.css`) setzt `width: 100%`, und `.article-content img`
+ * hat zu `width` **gar keine** Deklaration — die Chat-Regel gölte also, und jedes
+ * Inline-Bild eines Artikels würde auf die volle Spaltenbreite hochskaliert statt seine
+ * Naturgröße zu behalten. Dazu fehlt ohne den `.chat-image-box`-Rahmen das
+ * `cursor: zoom-in`: der Klick wäre unangekündigt.
+ *
+ * Der **Auslöser** folgt trotzdem exakt dem Chat-Muster — er liest `dataset.full`
+ * (`partials/chat-row.blade.php`). Was sich unterscheidet, ist allein der Selektor, an
+ * dem er greift, und der gehört zu einer anderen Fläche mit anderer Typografie.
+ *
+ * ── Diese beiden Attribute berühren die Sicherheitsgrenze des Moduls ─────────────────
+ *
+ * Der Modulkopf sagt, warum: die Ausgabe landet in Alpines `x-html`, und das ruft
+ * `initTree()` auf dem Teilbaum — ein Attribut, das mit `x-`, `@` oder `:` beginnt, wäre
+ * dort ein sofort ausgeführter Ausdruck. `class` und `data-full` sind inert, und dass die
+ * Ausgabe über den ganzen Formen-Satz **kein einziges** solches Attribut trägt, ist der
+ * Kernbeweis in `articleRenderSicherheit.test.ts` — mutationsgeprüft, nicht behauptet.
+ */
+export const ARTICLE_IMAGE_CLASS = 'article-image'
+
+/** Trägt die Lightbox-Quelle. Derselbe Attributname wie im Chat, damit der Auslöser passt. */
+export const ARTICLE_FULL_ATTR = 'data-full'
+
 md.renderer.rules.image = (tokens: Token[], idx, options, env, renderer) => {
     const token = tokens[idx]
     const at = token.attrIndex('src')
@@ -292,8 +321,30 @@ md.renderer.rules.image = (tokens: Token[], idx, options, env, renderer) => {
         const original = String(token.attrs[at][1])
         const proxified = proxify(original)
         const marker = blossomMarkerFor(original, proxified)
-        if (marker === '') {
+        if (original === '') {
+            // **Leere Bild-URL (`![]()`) — kein `src`, keine Lightbox, keine Klasse.**
+            //
+            // Der `src` wird ENTFERNT und nicht auf `''` gesetzt, aus genau dem Grund,
+            // der 20 Zeilen tiefer für den Blossom-Zweig steht: ein `src=""` ist zwar
+            // spezifiziert („nicht laden"), aber es gab Browser, die es gegen die
+            // Dokument-Adresse auflösten und die Seite selbst nachluden. Bis P3 stand
+            // hier trotzdem ein `src=""` — die eigene Begründung galt nur im anderen
+            // Zweig. (Sicherheitsfreigabe zu P3, Punkt F4.)
+            //
+            // Und ausdrücklich WEDER `data-full` NOCH die Klasse: ohne Quelle gibt es
+            // nichts zu vergrößern. Ein Bild, das anklickbar aussieht (`cursor: zoom-in`)
+            // und beim Klick eine leere Lightbox öffnet, ist schlechter als eines, das
+            // gar nicht erst so tut.
+            token.attrs.splice(at, 1)
+        } else if (marker === '') {
             token.attrs[at][1] = proxified
+            // Die Lightbox bekommt DIESELBE URL wie die Anzeige, nicht eine zweite.
+            // Im Chat sind das zwei Presets (`msg` fürs Vorschaubild, `full` für die
+            // Lightbox); der Artikel rendert von vornherein mit `full`
+            // (`longformFeed.ts`, `renderCached`), es gibt also nichts zu vergrößern
+            // außer der Fläche. Ein zweites Preset hier hieße, dasselbe Bild zweimal zu
+            // holen, damit es zweimal gleich aussieht.
+            token.attrSet(ARTICLE_FULL_ATTR, proxified)
         } else {
             // Auth-pflichtiges Bild des Workspace-Relays: der `src` wird ENTFERNT, nicht
             // geleert. Ein `src=""` ist zwar spezifiziert („nicht laden"), aber es gab
@@ -303,6 +354,20 @@ md.renderer.rules.image = (tokens: Token[], idx, options, env, renderer) => {
             // folgenlos (`markdown-it/dist/markdown-it.mjs:849-853`, gelesen).
             token.attrs.splice(at, 1)
             token.attrSet(BLOSSOM_SRC_ATTR, marker)
+            // Leeres `data-full` als PLATZ, nicht als Wert — dieselbe Bauform wie
+            // `chatImageHtml` (`blossomMarkup.ts`): der Hydrator füllt genau die
+            // Attribute, die das Markup vorgesehen hat (`blossomHydrate.ts`,
+            // `hasAttribute('data-full')`). Ohne diesen Platz bliebe die Lightbox eines
+            // geschützten Artikelbilds leer, obwohl der Blob längst da ist.
+            token.attrSet(ARTICLE_FULL_ATTR, '')
+        }
+        // Die Klasse gilt für ein geschütztes Bild genauso wie für ein offenes — beide
+        // sind anklickbar, das geschützte nach der Hydratation. Nur der LEERE Fall
+        // bekommt sie nicht: dort gibt es nichts zu öffnen. Sie über `attrSet` zu setzen
+        // (statt an den String zu kleben) ist wieder die Escaping-Zusage — markdown-it
+        // schreibt das Attribut selbst und escapt dabei.
+        if (original !== '') {
+            token.attrSet('class', ARTICLE_IMAGE_CLASS)
         }
     }
 
@@ -1071,5 +1136,122 @@ export const buildArticleRow = (event: ArticleEventLike, deps: ArticleRowDeps): 
         coverCss: coverGradient(event.pubkey, tags.identifier).css,
         readingMinutes: deps.readingMinutes,
         podcast: isPodcastEpisode(event.tags),
+    }
+}
+
+/**
+ * Was ein kind-0 über den Autor hergibt — **roh**, so wie es im Profil steht.
+ *
+ * Kommt herein statt hier geholt zu werden, aus demselben Grund wie
+ * {@link ArticleRowDeps}: das Profil liegt in welshmans Store, und dieses Modul kennt
+ * welshman nicht.
+ */
+export type ArticleAuthorDeps = {
+    /** Anzeigename (`displayProfile`), leer ⇒ npub-Kurzform. */
+    name: string
+    /** Avatar-URL, ROH — `x-group::nostr-avatar` proxifiziert selbst. */
+    picture: string
+    /** `about` aus kind 0, roh. */
+    about: string
+    /** Website, **bereits sanitisiert** (`sanitizeUrl` auf der welshman-Seite). */
+    website: string
+    /**
+     * Liegt das kind 0 dieses Autors überhaupt schon vor?
+     *
+     * **Der Unterschied zwischen „hat keine" und „wissen wir noch nicht".** Das Profil
+     * trifft ASYNCHRON ein — oft deutlich nach dem Artikel, weil die zwölf Autoren auf
+     * ihren eigenen Relays stehen. Vor dem Eintreffen ist jede Aussage über ihre
+     * Zahlungsadresse ungedeckt; genau dieselbe Unterscheidung, die diese Fläche schon
+     * einmal treffen musste (`missing` vs. `error` in `⚡article.blade.php`: „gibt es
+     * nicht" ist eine Aussage über den Relay und nur gedeckt, wenn er geantwortet hat).
+     */
+    profilBekannt: boolean
+    /**
+     * Hat der Autor eine Lightning-Adresse? **Der Befund, nicht die Adresse** — und nur
+     * gültig, wenn {@link ArticleAuthorDeps.profilBekannt} steht.
+     *
+     * Die Adresse selbst kommt bewusst NICHT hier herein. Zahlungsfelder haben im Haus
+     * eine eigene Herkunftsregel (`zapTargetSources.test.ts`: nur Repository oder
+     * gemergte Map, nie eine Fremdquelle, jeder Leser namentlich inventarisiert). Ein
+     * `lud16` in einem reinen Anzeige-Modul wäre ein zweiter Ort, an dem eine
+     * Empfangsadresse steht — und der nächste, der ihn anfasst, sieht die Regel nicht.
+     * Für die Entscheidung „Einstieg bereit oder sichtbar inert" genügt das Ja/Nein.
+     */
+    hatLightning: boolean
+    /** VERIFIZIERTER NIP-05-Handle; leer, solange oder weil er nicht bestätigt ist. */
+    nip05: string
+}
+
+/** Die Autorenkarte der Vollansicht (P3, Schritt 12). */
+export type ArticleAuthor = {
+    /** Hex — Auslöser der Hovercard (`$dispatch('open-profile', pubkey)`). */
+    pubkey: string
+    /** `npub` (NIP-19) — der Wert zum Kopieren. */
+    npub: string
+    /** Anzeigename, nie leer: fällt auf die npub-Kurzform zurück. */
+    name: string
+    picture: string
+    about: string
+    website: string
+    nip05: string
+    /**
+     * Der Lightning-Einstieg in **drei** Zuständen — und der dritte ist der Grund dafür.
+     *
+     * `ja` = Adresse vorhanden · `nein` = Profil da, aber ohne Adresse ·
+     * **`unbekannt` = das Profil ist noch nicht eingetroffen.**
+     *
+     * Am laufenden Client gesehen (2026-08-21): solange das kind 0 unterwegs war, stand
+     * unter jedem Artikel „Keine Lightning-Adresse" — eine Aussage über einen Autor, über
+     * den in dem Moment nichts bekannt war. Bei einem Autor MIT Adresse sprang sie danach
+     * um. Ein Zwei-Zustands-Feld kann diesen Fall nicht ausdrücken; es behauptet
+     * zwangsläufig eines von beiden.
+     *
+     * **Vier der zwölf Autoren haben wirklich keine** — dieselben vier, deren Artikel
+     * Podcast-Bridges sind. Für sie ist `nein` richtig, und der Einstieg wird dort
+     * **sichtbar inert**: nicht still grau und nicht verschwunden. Ein Knopf, der ohne
+     * Erklärung fehlt, lässt den Nutzer nach ihm suchen; einer, der ohne Erklärung nichts
+     * tut, lässt ihn zweimal klicken. Bei `unbekannt` steht gar keine Zeile — es gibt
+     * nichts zu sagen, und Schweigen ist die einzige ungelogene Anzeige dafür.
+     *
+     * **Die Adresse steht hier absichtlich nicht** — siehe {@link ArticleAuthorDeps}.
+     * Wer sie braucht (Kopieren, Zappen), geht über die Profilkarte, die sie ohnehin
+     * schon zeigt und deren Herkunft bereits inventarisiert ist.
+     */
+    lightning: 'ja' | 'nein' | 'unbekannt'
+}
+
+/**
+ * Die npub-Kurzform, wie sie im ganzen Haus aussieht: `npub1abcde…xyz123`.
+ *
+ * Bewusst nicht „die ersten 8 Zeichen": ein `npub1` allein unterscheidet niemanden,
+ * und der Schwanz trägt die Entropie, die zwei Autoren auseinanderhält.
+ */
+const npubKurz = (npub: string): string => `${npub.slice(0, 12)}…${npub.slice(-6)}`
+
+/**
+ * Autor eines Artikels → Autorenkarte.
+ *
+ * Wirft nicht, wenn der `pubkey` unbrauchbar ist: `npubEncode` verlangt 32 Byte Hex, und
+ * ein Ereignis mit kaputtem `pubkey` käme über den Relay gar nicht erst herein — aber
+ * eine Fläche, die deshalb WEISS bleibt, wäre der teurere Fehler. Ohne `npub` gibt es
+ * dann eben nichts zu kopieren; alles andere steht weiter da.
+ */
+export const buildArticleAuthor = (pubkey: string, deps: ArticleAuthorDeps): ArticleAuthor => {
+    let npub = ''
+    try {
+        npub = nip19.npubEncode(pubkey)
+    } catch {
+        npub = ''
+    }
+
+    return {
+        pubkey,
+        npub,
+        name: deps.name || (npub ? npubKurz(npub) : pubkey),
+        picture: deps.picture,
+        about: deps.about,
+        website: deps.website,
+        nip05: deps.nip05,
+        lightning: deps.profilBekannt ? (deps.hatLightning ? 'ja' : 'nein') : 'unbekannt',
     }
 }

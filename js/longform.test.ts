@@ -27,6 +27,7 @@ import {
     WORDS_PER_MINUTE,
     articleSearchText,
     articleSnippet,
+    buildArticleAuthor,
     coverGradient,
     decodeArticleNaddr,
     isPodcastEpisode,
@@ -320,13 +321,23 @@ const fakeProxify = (url: string): string => (/^https?:\/\//i.test(url) ? `PROXI
 
 test('renderArticleHtml: eine https-Bild-URL läuft durch die übergebene proxify-Funktion', () => {
     const html = renderArticleHtml('![Alt](https://example.com/bild.png)', fakeProxify)
-    assert.match(html, /<img src="PROXIED\(https:\/\/example\.com\/bild\.png\)" alt="Alt">/)
+    // Seit P3 hängen zwei Attribute hinten dran (`data-full`, `class`) — die Lightbox
+    // braucht beide. Der Wortlaut bleibt VOLLSTÄNDIG assertiert statt auf `<img src=…`
+    // gelockert: eine gelockerte Zusage hätte den Zuwachs nicht gezeigt, und genau das
+    // wäre die Stelle, an der ein drittes Attribut später unbemerkt dazukäme.
+    assert.match(
+        html,
+        /<img src="PROXIED\(https:\/\/example\.com\/bild\.png\)" alt="Alt" data-full="PROXIED\(https:\/\/example\.com\/bild\.png\)" class="article-image">/,
+    )
 })
 
 test('renderArticleHtml: data:image/png bleibt UNANGETASTET, obwohl proxify für jedes Bild aufgerufen wird', () => {
     const dataUrl = 'data:image/png;base64,iVBORw0KGgo='
     const html = renderArticleHtml(`![Alt](${dataUrl})`, fakeProxify)
-    assert.match(html, new RegExp(`<img src="${dataUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" alt="Alt">`))
+    const roh = dataUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // Auch hier: `data-full` trägt DIESELBE data-URI. Das ist kein zweiter Ladevorgang —
+    // die Bytes stehen schon im Dokument, die Lightbox zeigt sie nur größer.
+    assert.match(html, new RegExp(`<img src="${roh}" alt="Alt" data-full="${roh}" class="article-image">`))
 })
 
 test('renderArticleHtml: ohne proxify-Parameter bleibt die Bild-URL unverändert (Pure-Test-Normalfall)', () => {
@@ -387,7 +398,7 @@ test('renderArticleHtml: ein Bild des Workspace-Relays bekommt KEIN src, sondern
 test('renderArticleHtml: ein fremdes Bild bleibt unmarkiert am Proxy (Gegenprobe)', () => {
     const html = renderArticleHtml('![Alt](https://example.com/bild.png)', fakeProxifyMitWache)
 
-    assert.match(html, /<img src="PROXIED\(https:\/\/example\.com\/bild\.png\)" alt="Alt">/)
+    assert.match(html, /<img src="PROXIED\(https:\/\/example\.com\/bild\.png\)" alt="Alt" data-full="/)
     assert.equal(html.includes('data-blossom-src'), false)
 })
 
@@ -840,4 +851,90 @@ test('relativeDateParts: derselbe Tag zu verschiedenen Uhrzeiten bleibt „heute
     const spaet = Math.floor(new Date(2026, 7, 20, 23, 30, 0).getTime() / 1000)
 
     assert.deepEqual(relativeDateParts(frueh, spaet), { value: 0, unit: 'day' })
+})
+
+// ── Die Autorenkarte der Vollansicht (P3, Schritt 12) ────────────────────────────────
+
+/** Ein echter Hex-Pubkey aus dem Bestand — `npubEncode` verlangt 32 gültige Byte. */
+const AUTOR_HEX = 'da99fbe39247109327ac8504750d0227d50a8f84049ac8bd2f6c7ad0806ed76d'
+
+const autorDeps = (over: Partial<Parameters<typeof buildArticleAuthor>[1]> = {}) => ({
+    name: 'Anna Autorin',
+    picture: 'https://h/a.png',
+    about: 'Schreibt über Selbstverwahrung.',
+    website: 'https://anna.example',
+    profilBekannt: true,
+    hatLightning: true,
+    nip05: 'anna@einundzwanzig.space',
+    ...over,
+})
+
+test('buildArticleAuthor: `ja` reicht das Ja durch — die ADRESSE steht nicht in der Karte', () => {
+    const autor = buildArticleAuthor(AUTOR_HEX, autorDeps())
+    assert.equal(autor.lightning, 'ja')
+    assert.equal(autor.npub, nip19.npubEncode(AUTOR_HEX))
+    // Die Zusage, die dieses Modul aus der Zahlungsfeld-Regel heraushält: es gibt hier
+    // kein Feld, in dem eine Empfangsadresse stehen könnte.
+    assert.equal('lud16' in autor, false)
+    assert.equal('lud06' in autor, false)
+})
+
+test('buildArticleAuthor: OHNE lud16 ist hatLightning false — die vier Podcast-Bridge-Autoren', () => {
+    // Vier der zwölf Autoren haben ein kind 0 (auf purplepag.es), aber keine `lud16`.
+    // Der Zap-Einstieg muss dort SICHTBAR INERT sein; diese Zeile ist die Entscheidung,
+    // an der die Fläche das festmacht — und sie liegt genau einmal im Code.
+    const autor = buildArticleAuthor(AUTOR_HEX, autorDeps({ hatLightning: false }))
+    assert.equal(autor.lightning, 'nein')
+    // Alles andere steht weiter da: die Karte fällt nicht aus, nur der eine Einstieg.
+    assert.equal(autor.name, 'Anna Autorin')
+    assert.equal(autor.about, 'Schreibt über Selbstverwahrung.')
+})
+
+test('buildArticleAuthor: ohne Anzeigenamen faellt der Name auf die npub-Kurzform zurueck', () => {
+    const autor = buildArticleAuthor(AUTOR_HEX, autorDeps({ name: '' }))
+    const npub = nip19.npubEncode(AUTOR_HEX)
+    // WÖRTLICH: `npub1abcdefg…xyz123`. Die Kurzform ist an drei Stellen im Haus dieselbe;
+    // ein Symbolvergleich ließe eine Änderung der Schnittlängen durch.
+    assert.equal(autor.name, `${npub.slice(0, 12)}…${npub.slice(-6)}`)
+    assert.equal(autor.name.length, 12 + 1 + 6)
+})
+
+test('buildArticleAuthor: ein unbrauchbarer pubkey nimmt der Karte nur den npub, nicht den Rest', () => {
+    // `npubEncode` wirft bei allem, was keine 32 Byte Hex sind. Eine Vollansicht, die
+    // deshalb WEISS bliebe, wäre der teurere Fehler als eine ohne Kopier-Chip.
+    const autor = buildArticleAuthor('kein-hex', autorDeps())
+    assert.equal(autor.npub, '')
+    assert.equal(autor.name, 'Anna Autorin')
+    assert.equal(autor.lightning, 'ja')
+})
+
+test('buildArticleAuthor: OHNE eingetroffenes Profil ist der Zustand `unbekannt` — nicht `nein`', () => {
+    // Am laufenden Client gesehen: bis das kind 0 da war, stand unter jedem Artikel
+    // „Keine Lightning-Adresse" — auch unter denen von Autoren, die eine haben. Das ist
+    // eine Aussage über jemanden, über den in dem Moment nichts bekannt ist; dieselbe
+    // Klasse Fehler wie „gibt es nicht" über einen Relay, der nie geantwortet hat.
+    // Bei `unbekannt` zeigt die Fläche GAR KEINE Zeile.
+    assert.equal(buildArticleAuthor(AUTOR_HEX, autorDeps({ profilBekannt: false })).lightning, 'unbekannt')
+    // Und zwar unabhängig davon, was `hatLightning` in dem Moment behauptet.
+    assert.equal(
+        buildArticleAuthor(AUTOR_HEX, autorDeps({ profilBekannt: false, hatLightning: true })).lightning,
+        'unbekannt',
+    )
+})
+
+test('buildArticleAuthor: ein unbrauchbarer pubkey OHNE Namen faellt auf den pubkey selbst zurueck', () => {
+    const autor = buildArticleAuthor('kein-hex', autorDeps({ name: '' }))
+    assert.equal(autor.name, 'kein-hex')
+})
+
+// ── Blossom-Zweig: der PLATZ für die Lightbox entsteht auch ohne src ─────────────────
+
+test('renderArticleHtml: ein geschuetztes Bild bekommt ein LEERES data-full als Platz fuer den Hydrator', () => {
+    const html = renderArticleHtml('![Alt](https://buzz.test/media/a.jpg)', fakeProxifyMitWache)
+    // `blossomHydrate.ts` füllt `data-full` nur, wenn das Markup es vorgesehen hat
+    // (`hasAttribute('data-full')`). Ohne diesen leeren Platz bliebe die Lightbox eines
+    // geschützten Artikelbilds leer, obwohl der Blob längst im `src` steht.
+    assert.match(html, /data-full=""/)
+    assert.match(html, /class="article-image"/)
+    assert.equal(/\ssrc=/.test(html), false)
 })
