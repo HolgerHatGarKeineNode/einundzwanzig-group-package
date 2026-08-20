@@ -880,5 +880,22 @@
     "Workspace auf :wert": "Workspace w: :wert",
     "Clone-URL kopieren": "Kopiuj adres URL klonowania",
     "Clone-URL kopiert.": "Skopiowano adres URL klonowania.",
-    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "Nie udało się skopiować adresu URL klonowania. Kliknij go, aby go zaznaczyć, i skopiuj ręcznie."
+    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "Nie udało się skopiować adresu URL klonowania. Kliknij go, aby go zaznaczyć, i skopiuj ręcznie.",
+    "Neueste": "Najnowsze",
+    "Nach Autor": "Według autora",
+    "A–Z": "A–Z",
+    "Artikel suchen…": "Szukaj artykułów…",
+    "Sortierung": "Sortowanie",
+    "Kein Artikel passt zu dieser Suche.": "Żaden artykuł nie pasuje do tego wyszukiwania.",
+    "Podcast": "Podcast",
+    "Folge anhören": "Posłuchaj odcinka",
+    "1 Artikel": "1 artykuł",
+    ":count Artikel": ":count artykułów",
+    "1 Min. Lesezeit": "1 min czytania",
+    ":count Min. Lesezeit": ":count min czytania",
+    "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "Przeszukano 1 artykuł — tytuł, streszczenie, tekst i autor.",
+    "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": "Przeszukano :count artykułów — tytuł, streszczenie, tekst i autor.",
+    ":count Artikel#few": ":count artykuły",
+    ":count Min. Lesezeit#few": ":count min czytania",
+    "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.#few": "Przeszukano :count artykuły — tytuł, streszczenie, tekst i autor."
 }

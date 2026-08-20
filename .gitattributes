@@ -1,0 +1,13 @@
+# TypeScript ist immer Text — auch wenn eine Datei ein Steuerzeichen enthaelt.
+#
+# Warum das eine Zeile wert ist: `js/locale.ts` trug bis zum 2026-08-20 ein ROHES
+# NUL-Byte als Trennzeichen in einem Cache-Schluessel. Git klassifizierte die Datei
+# daraufhin als binaer (`git diff` meldete nur `Bin 9947 -> 11581 bytes`), und `grep`
+# uebersprang sie STILLSCHWEIGEND — `grep -l 'formatTimestamp' js/locale.ts` fand
+# nichts, obwohl der Bezeichner dort steht. Jede Abwesenheits-Aussage ueber diese
+# Datei war damit wertlos, und niemand konnte es sehen.
+#
+# Das Byte selbst ist ersetzt (`\x00` als Escape-Sequenz, laufzeitgleich). Diese Zeile
+# sorgt dafuer, dass der naechste Fall dieser Art wenigstens sichtbar bleibt.
+*.ts diff text
+*.mjs diff text

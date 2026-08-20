@@ -23,6 +23,7 @@ import {
     LONGFORM,
     LONGFORM_DRAFT,
     PUBLISHED_AT_MAX,
+    RELATIVE_DATE_MAX_DAYS,
     WORDS_PER_MINUTE,
     articleSearchText,
     articleSnippet,
@@ -32,6 +33,7 @@ import {
     naddrForArticle,
     readArticleTags,
     readingTime,
+    relativeDateParts,
     renderArticleHtml,
     stripDataUris,
     stripFrontmatter,
@@ -770,4 +772,72 @@ test('isPodcastEpisode: das erste Audio-imeta gewinnt, ein Bild davor stoert nic
     const tags = [ECHTES_BILD_IMETA, ECHTES_AUDIO_IMETA]
 
     assert.equal(isPodcastEpisode(tags)?.mimeType, 'audio/mpeg')
+})
+
+// ── Relatives Datum: die Regel, nicht die Formulierung ───────────────────────────────
+//
+// Formatiert wird in `locale.ts` (`formatRelativeDate`, `Intl.RelativeTimeFormat`).
+// Hier steht nur die ENTSCHEIDUNG: relativ oder absolut, und mit welcher Einheit.
+
+/** Ein fester Bezugspunkt, damit die Faelle nicht an der Uhr des Testrechners haengen. */
+const HEUTE = Math.floor(Date.UTC(2026, 7, 20, 12, 0, 0) / 1000)
+const TAG = 86_400
+
+test('RELATIVE_DATE_MAX_DAYS ist WOERTLICH 30', () => {
+    // Ohne diese Zeile hielte jede Zusicherung unten die Konstante gegen sich selbst.
+    // Die 30 traegt eine gemessene Entscheidung: 15 der 104 Artikel sind juenger, 50
+    // weitere tragen ein Juni-2026-Datum (gezaehlt) und blieben mit einer groesseren
+    // Schwelle allesamt „vor 2 Monaten".
+    assert.equal(RELATIVE_DATE_MAX_DAYS, 30)
+})
+
+test('relativeDateParts: heute, gestern und vorgestern sind Tage', () => {
+    assert.deepEqual(relativeDateParts(HEUTE, HEUTE), { value: 0, unit: 'day' })
+    assert.deepEqual(relativeDateParts(HEUTE - TAG, HEUTE), { value: -1, unit: 'day' })
+    assert.deepEqual(relativeDateParts(HEUTE - 2 * TAG, HEUTE), { value: -2, unit: 'day' })
+})
+
+test('relativeDateParts: ab dem siebten Tag wird in WOCHEN gerechnet, abgerundet', () => {
+    assert.deepEqual(relativeDateParts(HEUTE - 6 * TAG, HEUTE), { value: -6, unit: 'day' })
+    assert.deepEqual(relativeDateParts(HEUTE - 7 * TAG, HEUTE), { value: -1, unit: 'week' })
+    // „vor 23 Tagen" ist eine Zahl, die niemand einordnet — „vor 3 Wochen" ist eine Auskunft.
+    assert.deepEqual(relativeDateParts(HEUTE - 23 * TAG, HEUTE), { value: -3, unit: 'week' })
+    assert.deepEqual(relativeDateParts(HEUTE - 29 * TAG, HEUTE), { value: -4, unit: 'week' })
+})
+
+test('relativeDateParts: die Schwelle ist WOERTLICH 30 Tage und AUSSCHLIESSEND', () => {
+    assert.notEqual(relativeDateParts(HEUTE - 29 * TAG, HEUTE), null)
+    assert.equal(relativeDateParts(HEUTE - 30 * TAG, HEUTE), null)
+    assert.equal(relativeDateParts(HEUTE - 400 * TAG, HEUTE), null)
+})
+
+test('relativeDateParts: der Juni-Bestand (60-90 Tage) bleibt ABSOLUT — der eigentliche Grund fuer die Schwelle', () => {
+    // 50 Artikel tragen ein Juni-2026-Datum (gezaehlt). Waere die Schwelle groesser,
+    // stuende „vor 2 Monaten" fuenfzigmal untereinander.
+    for (const tage of [60, 75, 90]) {
+        assert.equal(relativeDateParts(HEUTE - tage * TAG, HEUTE), null, `${tage} Tage muessten absolut sein`)
+    }
+})
+
+test('relativeDateParts: ZUKUNFT gilt als absolut — „in 3 Tagen" unter einer lesbaren Karte waere gelogen', () => {
+    assert.equal(relativeDateParts(HEUTE + 3 * TAG, HEUTE), null)
+    assert.equal(relativeDateParts(HEUTE + 400 * TAG, HEUTE), null)
+})
+
+test('relativeDateParts: gerechnet wird in KALENDERTAGEN, nicht in vergangenen Stunden', () => {
+    // Der Fall, der die Ordinal-Rechnung ueberhaupt noetig macht: gestern 23:00, heute
+    // 08:00 — neun Stunden Abstand, aber ein Kalendertag. Eine Division durch 86400
+    // ergaebe 0 und die Karte schriebe „heute" ueber einen Artikel von gestern.
+    const heuteMorgens = Math.floor(new Date(2026, 7, 20, 8, 0, 0).getTime() / 1000)
+    const gesternAbends = Math.floor(new Date(2026, 7, 19, 23, 0, 0).getTime() / 1000)
+
+    assert.equal((heuteMorgens - gesternAbends) / TAG < 1, true, 'Vorbedingung: weniger als 24 Stunden Abstand')
+    assert.deepEqual(relativeDateParts(gesternAbends, heuteMorgens), { value: -1, unit: 'day' })
+})
+
+test('relativeDateParts: derselbe Tag zu verschiedenen Uhrzeiten bleibt „heute"', () => {
+    const frueh = Math.floor(new Date(2026, 7, 20, 0, 30, 0).getTime() / 1000)
+    const spaet = Math.floor(new Date(2026, 7, 20, 23, 30, 0).getTime() / 1000)
+
+    assert.deepEqual(relativeDateParts(frueh, spaet), { value: 0, unit: 'day' })
 })

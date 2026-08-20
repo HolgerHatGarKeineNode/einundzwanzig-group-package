@@ -861,5 +861,19 @@
     "Workspace auf :wert": "Workspace on :wert",
     "Clone-URL kopieren": "Copy clone URL",
     "Clone-URL kopiert.": "Clone URL copied.",
-    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "The clone URL could not be copied. Click it once to select it and copy it by hand."
+    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "The clone URL could not be copied. Click it once to select it and copy it by hand.",
+    "Neueste": "Newest",
+    "Nach Autor": "By author",
+    "A–Z": "A–Z",
+    "Artikel suchen…": "Search articles…",
+    "Sortierung": "Sorting",
+    "Kein Artikel passt zu dieser Suche.": "No article matches this search.",
+    "Podcast": "Podcast",
+    "Folge anhören": "Listen to episode",
+    "1 Artikel": "1 article",
+    ":count Artikel": ":count articles",
+    "1 Min. Lesezeit": "1 min read",
+    ":count Min. Lesezeit": ":count min read",
+    "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "Searched 1 article — title, summary, text and author.",
+    "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": "Searched :count articles — title, summary, text and author."
 }

@@ -861,5 +861,19 @@
     "Workspace auf :wert": "Workspace itt: :wert",
     "Clone-URL kopieren": "Klónozási URL másolása",
     "Clone-URL kopiert.": "Klónozási URL másolva.",
-    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "A klónozási URL-t nem sikerült másolni. Kattints rá a kijelöléséhez, majd másold ki kézzel."
+    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "A klónozási URL-t nem sikerült másolni. Kattints rá a kijelöléséhez, majd másold ki kézzel.",
+    "Neueste": "Legújabb",
+    "Nach Autor": "Szerző szerint",
+    "A–Z": "A–Z",
+    "Artikel suchen…": "Cikkek keresése…",
+    "Sortierung": "Rendezés",
+    "Kein Artikel passt zu dieser Suche.": "Egyetlen cikk sem felel meg ennek a keresésnek.",
+    "Podcast": "Podcast",
+    "Folge anhören": "Epizód meghallgatása",
+    "1 Artikel": "1 cikk",
+    ":count Artikel": ":count cikk",
+    "1 Min. Lesezeit": "1 perc olvasás",
+    ":count Min. Lesezeit": ":count perc olvasás",
+    "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "Keresés 1 cikkben – cím, összefoglaló, szöveg és szerző.",
+    "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": "Keresés :count cikkben – cím, összefoglaló, szöveg és szerző."
 }

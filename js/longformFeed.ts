@@ -36,11 +36,13 @@ import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/uti
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { derived, readable, type Readable } from 'svelte/store'
 import { proxifyImage } from './core'
-import { formatTimestamp } from './locale'
+import { formatRelativeDate, formatTimestamp } from './locale'
 import {
     LONGFORM,
     buildArticleRow,
     decodeArticleNaddr,
+    readingTime,
+    relativeDateParts,
     renderArticleHtml,
     type ArticleAddress,
     type ArticleRow,
@@ -87,14 +89,53 @@ export type ArticleView = ArticleRow & {
 }
 
 /**
- * Datum einer Artikelzeile.
+ * Datum einer Artikelzeile, **absolut**.
  *
  * Ohne Uhrzeit: ein Artikel ist ein Tagesdatum, keine Minute. Die Sprache kommt seit P3
  * aus `locale.ts` (also aus `<html lang>` und damit aus `app()->getLocale()`), genau wie
  * beim Tagestrenner des Verlaufs in `feeds.ts` — EIN Mechanismus für dasselbe Format,
  * damit es nicht zwei Wahrheiten darüber gibt. Die Feldwahl selbst bleibt hier gesetzt.
  */
-const dateLabel = (ts: number): string => formatTimestamp(ts, { day: 'numeric', month: 'long', year: 'numeric' })
+const dateLabelAbsolut = (ts: number): string =>
+    formatTimestamp(ts, { day: 'numeric', month: 'long', year: 'numeric' })
+
+/**
+ * Datum einer Artikelzeile **in der LISTE**: relativ für die jüngsten 30 Tage, sonst
+ * absolut ({@link relativeDateParts}).
+ *
+ * ── Warum die Liste und die Vollansicht hier auseinandergehen ────────────────────────
+ *
+ * Es sind zwei verschiedene Fragen, und deshalb zwei verschiedene Antworten:
+ *
+ *  · Die **Liste** fragt „was lese ich als Nächstes?". Darauf antwortet „vor 3 Tagen"
+ *    besser als „18. August 2026" — die Aussage ist „das ist neu", und die muss man aus
+ *    einem Datum sonst erst ausrechnen. Genau dort landet auch der Blick zuerst: die
+ *    hervorgehobene Karte ganz oben ist per Definition die jüngste.
+ *  · Die **Vollansicht** fragt „wann wurde das geschrieben?". Ein Artikel, den man
+ *    gerade liest, zitiert oder weitergibt, braucht sein Datum, nicht seinen Abstand.
+ *
+ * `deriveArticle` bekommt deshalb weiterhin {@link dateLabelAbsolut} — die Vollansicht
+ * (`⚡article.blade.php`, Gegenstand von P3) rendert damit zeichengleich wie vorher.
+ *
+ * `Date.now()` steht HIER und nicht in `buildArticleRow`: das reine Modul darf keine Uhr
+ * kennen, sonst wäre sein Ergebnis nicht mehr reproduzierbar. Es bekommt den fertigen
+ * Text über {@link ArticleRowDeps.formatDate}, so wie es auch die Sprache nie selbst
+ * nachschlägt.
+ *
+ * Der Text wird bei jedem Emit neu gebildet und altert deshalb nicht innerhalb einer
+ * Sitzung ein — er wird höchstens beim nächsten Emit genauer. Ein Ticker wäre für eine
+ * Angabe in Tagen und Wochen Aufwand ohne Gegenwert.
+ */
+const dateLabelListe = (ts: number): string => {
+    const relativ = relativeDateParts(ts, Date.now() / 1000)
+    // Zwei Wege zurück ins absolute Datum, und beide sind gewollt: außerhalb der
+    // Schwelle (der Normalfall, 89 von 104 Artikeln) und auf einer Laufzeit ohne
+    // vollständiges ICU, wo `formatRelativeDate` `null` liefert statt eine fremde
+    // Sprache zu raten.
+    const label = relativ ? formatRelativeDate(relativ.value, relativ.unit) : null
+
+    return label ?? dateLabelAbsolut(ts)
+}
 
 /** Filter des Bestands — bewusst nur Kind und Limit (siehe Modulkopf). */
 const listFilters = (limit: number): Filter[] => [{ kinds: [LONGFORM], limit }]
@@ -112,19 +153,45 @@ const addressFilters = (address: ArticleAddress): Filter[] => [
 ]
 
 /**
+ * Die Lesezeit eines Artikels, gemerkt je Event-Id.
+ *
+ * **Warum das einen Merker braucht.** `readingTime` zählt linear über den Artikeltext.
+ * Über den ganzen Bestand gemessen (2026-08-20, 104 Artikel, 1 324 075 Zeichen): **29 ms**.
+ * Das wäre einmalig verkraftbar — aber {@link deriveArticles} baut ALLE Zeilen bei jedem
+ * Emit neu, und sie emittiert für jedes eintreffende kind-0 der zwölf Autoren. Ohne
+ * Merker fielen die 29 ms ein Dutzend Mal an, jedes Mal als ausgelassener Frame.
+ *
+ * Die Id ist als Schlüssel korrekt, weil sie sich bei jeder Überarbeitung des Artikels
+ * mitändert: eine neue Fassung bekommt zwangsläufig einen neuen Eintrag, ein Veralten ist
+ * ausgeschlossen. Exakt dieselbe Begründung wie beim {@link htmlCache} darunter.
+ */
+const readingCache = new Map<string, number>()
+
+const cachedReadingTime = (event: TrustedEvent): number => {
+    let minutes = readingCache.get(event.id)
+    if (minutes === undefined) {
+        minutes = readingTime(event.content)
+        readingCache.set(event.id, minutes)
+    }
+
+    return minutes
+}
+
+/**
  * Event → Listenzeile: die welshman-Seite von {@link buildArticleRow}.
  *
- * Hier steht ausschließlich, WOHER die vier Anzeigewerte kommen — gebaut wird die Zeile
- * im reinen Modul, und zwar an genau einer Stelle. Was diese Funktion noch entscheiden
- * kann, ist damit auf diese vier Zuweisungen geschrumpft; alles Fachliche (Feldwahl,
- * `naddr`, Teaser, Datumsfeld) liegt geprüft nebenan.
+ * Hier steht ausschließlich, WOHER die Anzeigewerte kommen — gebaut wird die Zeile im
+ * reinen Modul, und zwar an genau einer Stelle. Was diese Funktion noch entscheiden kann,
+ * ist damit auf diese fünf Zuweisungen geschrumpft; alles Fachliche (Feldwahl, `naddr`,
+ * Teaser, Datumsfeld, Cover-Verlauf, Podcast-Erkennung) liegt geprüft nebenan.
  */
-const toRow = (event: TrustedEvent, picture: string): ArticleRow =>
+const toRow = (event: TrustedEvent, picture: string, formatDate = dateLabelAbsolut): ArticleRow =>
     buildArticleRow(event, {
         authorName: displayProfileByPubkey(event.pubkey),
         authorPicture: picture,
         relays: BOARD_URL ? [BOARD_URL] : [],
-        formatDate: dateLabel,
+        formatDate,
+        readingMinutes: cachedReadingTime(event),
     })
 
 /**
@@ -170,7 +237,7 @@ export const deriveArticles = (): Readable<ArticleRow[]> =>
         ],
         ([events, $profiles]) =>
             (events as TrustedEvent[])
-                .map((event) => toRow(event, $profiles.get(event.pubkey)?.picture ?? ''))
+                .map((event) => toRow(event, $profiles.get(event.pubkey)?.picture ?? '', dateLabelListe))
                 .sort((a, b) => b.publishedAt - a.publishedAt),
     )
 

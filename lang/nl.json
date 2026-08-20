@@ -861,5 +861,19 @@
     "Workspace auf :wert": "Workspace op :wert",
     "Clone-URL kopieren": "Kloon-URL kopiëren",
     "Clone-URL kopiert.": "Kloon-URL gekopieerd.",
-    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "De kloon-URL kon niet worden gekopieerd. Klik erop om hem te selecteren en kopieer hem handmatig."
+    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "De kloon-URL kon niet worden gekopieerd. Klik erop om hem te selecteren en kopieer hem handmatig.",
+    "Neueste": "Nieuwste",
+    "Nach Autor": "Op auteur",
+    "A–Z": "A–Z",
+    "Artikel suchen…": "Artikelen zoeken…",
+    "Sortierung": "Sortering",
+    "Kein Artikel passt zu dieser Suche.": "Geen artikel past bij deze zoekopdracht.",
+    "Podcast": "Podcast",
+    "Folge anhören": "Aflevering beluisteren",
+    "1 Artikel": "1 artikel",
+    ":count Artikel": ":count artikelen",
+    "1 Min. Lesezeit": "1 min lezen",
+    ":count Min. Lesezeit": ":count min lezen",
+    "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "1 artikel doorzocht — titel, samenvatting, tekst en auteur.",
+    "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": ":count artikelen doorzocht — titel, samenvatting, tekst en auteur."
 }

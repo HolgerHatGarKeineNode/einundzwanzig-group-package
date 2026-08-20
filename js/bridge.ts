@@ -102,6 +102,15 @@ import { flagEmoji } from './meetupPresentation'
  * restlos entfernt und erzeugt keine Abhängigkeit im Bundle.
  */
 import type { ArticleRow, ArticleView } from './longformFeed'
+// Nur Typen — zur Laufzeit weggestrippt. Der WERT `createArticleList` kommt per
+// `import()` in `nostrArticles._boot()`, weil `articleList.ts` über `longform.ts` an
+// markdown-it hängt (50 kB gzip, die nicht in den `app`-Chunk jeder Seite gehören).
+import type { ArticleCard, ArticleListProjector } from './articleList'
+// WERT-Import, kein Typ-Import — und deshalb bewusst aus `articleSorts.ts` und NICHT aus
+// `articleList.ts`: das Modul dort haengt ueber `longform.ts` an markdown-it, ein Wert von
+// dort zoege 50 kB gzip in den `app`-Chunk. `articleSorts.ts` hat null Importe.
+// Damit stehen die drei Ordnungswerte nicht mehr als Literale in dieser Datei.
+import { DEFAULT_ARTICLE_SORT, type ArticleSort } from './articleSorts'
 import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseForumTag, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
 import { deriveForumTopics, listenForum, loadForumTopics, type ForumTopic } from './forumFeed'
 import { buildWorkspaceList, splitMine, type WorkspacePrefs } from './railGroups'
@@ -685,12 +694,36 @@ type UpdatesState = {
     subtitleText(): string
 }
 
-/** Bildschirm-Zustand der Artikelliste (P7). Alles Fachliche liegt in `longformFeed.ts`. */
+/** Eine Ordnung der Artikelliste, wie sie die Oberfläche anbietet. */
+type ArticleSortOption = {
+    value: ArticleSort
+    /** Übersetzt, aus Blade — `bridge.ts` bleibt sprachfrei. */
+    label: string
+}
+
+/**
+ * Bildschirm-Zustand der Artikelliste (P2). Alles Fachliche liegt in `longformFeed.ts`
+ * (welshman) und `articleList.ts` (rein: filtern, sortieren, hervorheben).
+ */
 type ArticlesState = {
     loading: boolean
     /** Deutsche Fehlerzeile, '' = kein Fehler. */
     error: string
+    /** Der geladene Bestand, ungefiltert und unsortiert — die Quelle für alles darunter. */
     items: ArticleRow[]
+    /** Suchtext, wie getippt. */
+    query: string
+    /** Die gewählte Ordnung. */
+    sort: ArticleSort
+    /**
+     * Was die Liste gerade zeigt — **ein Feld, keine Methode.**
+     *
+     * Eine Methode würde je Auswertung im Markup erneut rechnen, und das Markup wertet sie
+     * dreimal aus (Trefferzahl, Leerzustand, `x-for`). Als Feld gibt es genau eine
+     * Berechnung je Änderung von Bestand, Suchtext oder Ordnung — angestoßen in
+     * {@link ArticlesState._project}.
+     */
+    cards: ArticleCard[]
     /** Basis-Pfad der Artikel-Route, aus Blade gereicht (ohne Schrägstrich am Ende). */
     _base: string
     /** Ist der Screen weg, bevor der dynamische Import zurückkam? */
@@ -701,9 +734,18 @@ type ArticlesState = {
     _boot(): Promise<void>
     destroy(): void
     _load(): Promise<void>
+    _project(): void
     isEmpty(): boolean
     href(row: ArticleRow): string
     retry(): void
+    /** Die Ordnungen samt Beschriftung, aus Blade gereicht. */
+    sortOptions(): ArticleSortOption[]
+    /** Beschriftung der gewählten Ordnung — für den Knopf des Popovers. */
+    sortLabel(): string
+    /** Liegt gerade irgendein Filter an (Suche ODER abweichende Ordnung)? */
+    hasFilter(): boolean
+    /** Alles zurück auf Anfang: kein Suchtext, Standard-Ordnung. */
+    clearFilters(): void
 }
 
 /** Bildschirm-Zustand der Artikel-Vollansicht (P7). */
@@ -3275,23 +3317,42 @@ export function registerNostrComponents(Alpine: {
      * ohne Quelle wird diese Insel gar nicht erst gerendert. Die Prüfung auf `BOARD_URL`
      * hier ist nur der Riegel dagegen, dass ein REQ ohne Ziel rausgeht.
      */
-    Alpine.data('nostrArticles', (base: unknown): ArticlesState => {
+    Alpine.data('nostrArticles', (base: unknown, sorts: unknown): ArticlesState => {
         // Bewusst in der Closure statt als Feld: Alpine legt jedes Feld in einen
         // reaktiven Proxy, und ein Proxy über ein Modul-Namensraum-Objekt ist teuer und
         // sinnlos — reaktiv muss hier nichts davon sein. Gleiche Begründung wie beim
         // Undo-Puffer in `nostrUpdates`.
         let feed: typeof import('./longformFeed') | null = null
+        // Die Projektion trägt ihren Faltungs-Merker (siehe `articleList.ts`). Ein Screen,
+        // ein Merker — mit `destroy()` ist er weg, ohne dass jemand ihn leeren muss.
+        let list: ArticleListProjector | null = null
+        // Die Ordnungen kommen ÜBERSETZT aus Blade, wo `__()` die Request-Locale sieht.
+        // Ebenfalls in der Closure: sie ändern sich nie, ein reaktiver Proxy darüber wäre
+        // reine Kosten. Dieselbe Haltung wie bei den Platzhaltern in `⚡spaces.blade.php`.
+        const sortOptions = (Array.isArray(sorts) ? sorts : []) as ArticleSortOption[]
 
         return {
             loading: true,
             error: '',
             items: [],
+            query: '',
+            sort: DEFAULT_ARTICLE_SORT,
+            cards: [],
             _base: String(base ?? '').replace(/\/+$/, ''),
             _dead: false,
             _controller: null,
             _unsub: null,
             init() {
                 this._controller = new AbortController()
+                // Suchtext und Ordnung sind die zwei EINZIGEN Auslöser neben dem Store.
+                // Kein `x-effect` und keine Methode im Markup: so gibt es genau eine
+                // Berechnung je Änderung, und sie ist im Quelltext auffindbar.
+                // Die Cast-Schreibweise ist Hausmuster (`nostrSpaces`, `⚡spaces`):
+                // Alpine reicht `$watch` erst zur Laufzeit an, der Zustandstyp kennt es
+                // nicht.
+                const watch = this as unknown as { $watch(prop: string, cb: () => void): void }
+                watch.$watch('query', () => this._project())
+                watch.$watch('sort', () => this._project())
                 void this._boot()
             },
             /**
@@ -3310,7 +3371,16 @@ export function registerNostrComponents(Alpine: {
              */
             async _boot() {
                 try {
-                    feed = await import('./longformFeed')
+                    // Beide Fachmodule in EINEM Zug: sie landen ohnehin in demselben
+                    // Chunk (`articleList.ts` importiert `longform.ts`, das auch
+                    // `longformFeed.ts` zieht), und ein zweites `await` hintendran wäre
+                    // ein zweiter Weg, auf dem `_dead` dazwischenkommen kann.
+                    const [feedModule, listModule] = await Promise.all([
+                        import('./longformFeed'),
+                        import('./articleList'),
+                    ])
+                    feed = feedModule
+                    list = listModule.createArticleList()
                 } catch {
                     if (!this._dead) {
                         this.error = t('Die Artikel sind gerade nicht erreichbar.')
@@ -3333,6 +3403,7 @@ export function registerNostrComponents(Alpine: {
                 // der Schnappschuss, der P6b zurückgeworfen hat.
                 this._unsub = feed.deriveArticles().subscribe((rows: ArticleRow[]) => {
                     this.items = rows
+                    this._project()
                 })
                 await this._load()
             },
@@ -3363,12 +3434,43 @@ export function registerNostrComponents(Alpine: {
                     this.loading = false
                 }
             },
+            /**
+             * Bestand, Suchtext und Ordnung zu Karten verrechnen — der EINE Ort, an dem
+             * das passiert.
+             *
+             * Vor dem aufgelösten Import gibt es keine Projektion; `cards` bleibt dann
+             * leer, und das Markup zeigt in diesem Moment ohnehin sein Skeleton.
+             */
+            _project() {
+                this.cards = list ? list.cards(this.items, this.query, this.sort) : []
+            },
+            /**
+             * Ist der BESTAND leer? — nicht die Trefferliste.
+             *
+             * Die Unterscheidung trägt zwei verschiedene Leerzustände: „Noch keine
+             * Artikel." ist eine Aussage über den Relay, „Keine Artikel gefunden." eine
+             * über die Suche. Sie zu vermischen hieße, dem Nutzer zu sagen, es gebe
+             * nichts, obwohl 104 Artikel danebenliegen.
+             */
             isEmpty() {
                 return this.items.length === 0
             },
             /** Ziel der Zeile. Leerer `naddr` (Artikel ohne `d`) ⇒ kein Link. */
             href(row: ArticleRow) {
                 return row.naddr ? `${this._base}/${row.naddr}` : ''
+            },
+            sortOptions() {
+                return sortOptions
+            },
+            sortLabel() {
+                return sortOptions.find((option) => option.value === this.sort)?.label ?? ''
+            },
+            hasFilter() {
+                return this.query.trim() !== '' || this.sort !== DEFAULT_ARTICLE_SORT
+            },
+            clearFilters() {
+                this.query = ''
+                this.sort = DEFAULT_ARTICLE_SORT
             },
             /**
              * Erneut versuchen — und zwar am richtigen Punkt: kam der Fehler schon beim

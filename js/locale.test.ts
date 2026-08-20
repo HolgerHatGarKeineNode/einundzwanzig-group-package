@@ -17,7 +17,7 @@
  */
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { FALLBACK, formatNumber, formatTimestamp, islandLocale, pluralCategory } from './locale.ts'
+import { FALLBACK, formatNumber, formatRelativeDate, formatTimestamp, islandLocale, pluralCategory } from './locale.ts'
 
 /** `<html lang="…">` setzen — dieselbe Stelle, die `einundzwanzig.blade.php` rendert. */
 const setLang = (lang: string): void => {
@@ -231,4 +231,50 @@ test('der PluralRules-Cache friert die Sprache nicht ein', () => {
     assert.equal(pluralCategory(3), 'other')
     setLang('pl')
     assert.equal(pluralCategory(3), 'few')
+})
+
+// ── Relativer Zeitabstand (P2, Artikelliste) ────────────────────────────────
+
+test('formatRelativeDate: die Sprache kommt aus <html lang>, wie bei jedem Formatter hier', () => {
+    setLang('de')
+    assert.equal(formatRelativeDate(-3, 'day'), 'vor 3 Tagen')
+    setLang('en')
+    assert.equal(formatRelativeDate(-3, 'day'), '3 days ago')
+})
+
+test('formatRelativeDate: der Cache friert die Sprache NICHT ein', () => {
+    // Dieselbe Falle wie beim alten `_dateFmtCache` in `bridge.ts`: einmal gebaut, fuer
+    // immer deutsch. Gewechselt wird NACH dem ersten Aufruf.
+    setLang('de')
+    const deutsch = formatRelativeDate(-2, 'week')
+    setLang('nl')
+    const niederlaendisch = formatRelativeDate(-2, 'week')
+
+    assert.notEqual(deutsch, niederlaendisch)
+})
+
+test('formatRelativeDate: `numeric: auto` liefert die WOERTER, nicht „vor 0 Tagen"', () => {
+    // Das ist der Grund, warum diese Funktion keinen einzigen Katalogschluessel braucht:
+    // „heute" und „gestern" kommen aus CLDR.
+    setLang('de')
+    assert.equal(formatRelativeDate(0, 'day'), 'heute')
+    assert.equal(formatRelativeDate(-1, 'day'), 'gestern')
+    setLang('en')
+    assert.equal(formatRelativeDate(0, 'day'), 'today')
+    assert.equal(formatRelativeDate(-1, 'day'), 'yesterday')
+})
+
+test('formatRelativeDate: Wochen sind eine eigene Einheit, keine 7-fachen Tage', () => {
+    setLang('de')
+    assert.equal(formatRelativeDate(-3, 'week'), 'vor 3 Wochen')
+})
+
+test('formatRelativeDate: alle sieben Sprachen liefern einen nicht-leeren Text', () => {
+    // Die Schranke gegen ein stilles Loch: eine Sprache ohne Daten laege sonst
+    // unbemerkt auf `null` und die Karte zeigte dort dauerhaft das absolute Datum.
+    for (const lang of ['de', 'en', 'es', 'hu', 'lv', 'nl', 'pl', 'pt']) {
+        setLang(lang)
+        const text = formatRelativeDate(-2, 'day')
+        assert.equal(typeof text === 'string' && text.length > 0, true, `${lang} liefert nichts`)
+    }
 })
