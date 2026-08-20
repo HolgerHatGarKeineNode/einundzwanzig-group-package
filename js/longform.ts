@@ -442,6 +442,110 @@ export const readingTime = (content: string): number => {
 }
 
 /**
+ * Bis zu wie vielen Tagen die Liste ein **relatives** Datum zeigt („vor 3 Tagen") statt
+ * des absoluten („12. Juni 2026").
+ *
+ * ── Warum es die Schwelle überhaupt gibt, und warum sie bei 30 liegt ─────────────────
+ *
+ * Ein relatives Datum beantwortet genau eine Frage: **„ist das neu?"** Es beantwortet sie
+ * gut, solange die Antwort unterscheidet. Am 2026-08-20 über den echten Bestand gezählt
+ * (104 Artikel, `published_at` mit Rückfall auf `created_at`):
+ *
+ * | jünger als | Artikel |
+ * |---|---:|
+ * | 1 Tag   |   2 |
+ * | 7 Tage  |   5 |
+ * | 14 Tage |   8 |
+ * | **30 Tage** | **15** |
+ * | 60 Tage |  61 |
+ * | 90 Tage |  85 |
+ *
+ * Der Sprung von 15 auf 61 hat einen Grund im Bestand: **50 der 104 Artikel tragen ein
+ * Juni-2026-Datum**, weitere 24 ein Juli-Datum (gezählt; ob sie gebündelt eingespielt
+ * wurden, ist eine naheliegende Erklärung und nicht gemessen — für die Schwelle zählt
+ * ohnehin nur die Häufung selbst). Bei einer Schwelle jenseits von 30 Tagen stünde
+ * „vor 2 Monaten" fünfzigmal untereinander — eine Angabe, die alle Unterschiede
+ * einebnet, die das absolute Datum bewahrt. Bei 30 Tagen bekommen genau die 15 jüngsten
+ * ihre relative Angabe, und das Juni-Bündel behält seine Daten.
+ *
+ * **Die Zahl ist eine Festlegung, keine Messung** — sie steht als Konstante, damit sie an
+ * einer Stelle änderbar ist und ein Test sie wörtlich festhalten kann.
+ */
+export const RELATIVE_DATE_MAX_DAYS = 30
+
+/**
+ * Der Tag eines Zeitstempels als **Ordinalzahl** (Tage seit der Unix-Epoche).
+ *
+ * ── Warum nicht `(jetzt - dann) / 86400` ────────────────────────────────────────────
+ *
+ * Weil „vor wie vielen Tagen" eine KALENDER-Frage ist, keine Zeitspannen-Frage. Ein
+ * Artikel von gestern 23:00 liegt heute um 08:00 neun Stunden zurück — die Division
+ * ergäbe 0 und die Oberfläche schriebe „heute" über einen Artikel von gestern.
+ *
+ * Gerechnet wird deshalb auf Ordinalen: erst die **lokale** Kalenderdatums-Trias
+ * (`getFullYear`/`getMonth`/`getDate` — der Leser rechnet in seiner Zone, nicht in UTC),
+ * dann `Date.UTC` als reine Arithmetik über diese drei Zahlen. Die Differenz zweier
+ * Ordinale ist die Zahl der Kalendertage dazwischen, in jeder Zone.
+ *
+ * **Bewusst nicht über eine lokale Mitternacht:** die gibt es nicht überall. In Santiago
+ * und Havanna springt die Uhr an Umstellungstagen von 23:59 auf 01:00; ein
+ * `new Date(y, m, d, 0, 0)` wäre dort ein Zeitpunkt, den es nie gab. (Diese beiden Zonen
+ * sind aus einer früheren Messung im Haus übernommen, nicht hier nachgestellt — die
+ * Konstruktion vermeidet den Fall ohnehin, statt ihn zu behandeln.)
+ */
+const dayOrdinal = (ts: number): number => {
+    const d = new Date(ts * 1000)
+
+    return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000)
+}
+
+/** Ein relativer Zeitabstand, fertig für `Intl.RelativeTimeFormat` (negativ = Vergangenheit). */
+export type RelativeDate = {
+    value: number
+    unit: 'day' | 'week'
+}
+
+/**
+ * Der relative Abstand eines Artikeldatums — oder `null`, wenn die Liste das **absolute**
+ * Datum zeigen soll.
+ *
+ * Rein: `now` kommt als Argument herein, damit die Funktion prüfbar bleibt. Formatiert
+ * wird sie nicht hier, sondern in `locale.ts` (`formatRelativeDate`) — die Sprache ist
+ * eine Laufzeitfrage, die Entscheidung nicht.
+ *
+ * Drei Fälle, alle absichtlich:
+ *
+ *  · **0 bis 6 Tage → `day`.** `Intl.RelativeTimeFormat` mit `numeric: 'auto'` macht
+ *    daraus „heute", „gestern", „vorgestern" und danach „vor 4 Tagen".
+ *  · **7 bis 29 Tage → `week`,** abgerundet. „vor 23 Tagen" ist eine Zahl, die niemand
+ *    einordnet; „vor 3 Wochen" ist eine Auskunft.
+ *  · **Alles ab {@link RELATIVE_DATE_MAX_DAYS} → `null`,** also absolutes Datum.
+ *
+ * **Ein Datum in der ZUKUNFT gilt ebenfalls als absolut.** `published_at` darf bis
+ * {@link PUBLISHED_AT_MAX} (Jahr 2096) reichen, ein zukunftsdatierter Artikel ist also
+ * möglich — und „in 3 Tagen" unter einer Karte, die man jetzt lesen kann, wäre eine
+ * Aussage, die der Bildschirm sofort widerlegt. Im heutigen Bestand ist der Fall leer
+ * (alle 13 Driftfälle sind rückdatiert); die Regel steht für den Tag, an dem er es nicht
+ * mehr ist.
+ */
+export const relativeDateParts = (publishedAt: number, now: number): RelativeDate | null => {
+    const tage = dayOrdinal(now) - dayOrdinal(publishedAt)
+    if (tage < 0 || tage >= RELATIVE_DATE_MAX_DAYS) {
+        return null
+    }
+
+    // `tage === 0` gesondert: `-0` ist in JavaScript ein eigener Wert, den `Object.is`
+    // und `assert.deepEqual` von `0` unterscheiden — und der über JSON verlorenginge.
+    // `Intl.RelativeTimeFormat` liefert für beide dasselbe Wort; ein `-0` in einer
+    // Datenstruktur ist trotzdem eine Überraschung, die niemand braucht.
+    if (tage === 0) {
+        return { value: 0, unit: 'day' }
+    }
+
+    return tage < 7 ? { value: -tage, unit: 'day' } : { value: -Math.floor(tage / 7), unit: 'week' }
+}
+
+/**
  * Eingebettete `data:…;base64,…`-Nutzlast, wie sie in Artikeltexten vorkommt.
  *
  * Die Zeichenklasse des base64-Teils enthält **bewusst keinen Leerraum**: sonst liefe der
@@ -760,6 +864,16 @@ export type ArticleRow = {
      * produktiv) und in P4 die Filterung der Autorenseite.
      */
     pubkey: string
+    /**
+     * Das `d`-Tag, ROH — `''`, wenn keins gesetzt ist.
+     *
+     * Zusammen mit {@link ArticleRow.pubkey} ist das die **Adresse** des Artikels
+     * (NIP-01 `a`-Tag, ohne das Kind). Der {@link ArticleRow.naddr} trägt dieselbe
+     * Information, aber bech32-kodiert — wer sie rechnen will (der Verlauf des
+     * Ersatz-Titelbilds heute, der `#a`-Filter aus P6 morgen), müsste ihn erst wieder
+     * aufmachen. Steht seit P2 hier, damit genau das nirgends passiert.
+     */
+    identifier: string
     /** `naddr` (NIP-19) — die portable Kennung in der URL. `''`, wenn das `d` fehlt. */
     naddr: string
     title: string
@@ -823,8 +937,57 @@ export type ArticleRow = {
      * **Feldwahl der Liste bleibt `publishedAt`** (Begründung im Plan unter „Verworfen").
      */
     createdAt: number
+    /**
+     * Das Datum, wie die FLÄCHE es zeigt — je nach Aufrufer relativ („vor 3 Tagen") oder
+     * absolut („12. Juni 2026"). Welches, entscheidet `longformFeed.ts` beim Bauen; die
+     * Regel dahinter ist {@link relativeDateParts}.
+     */
     dateLabel: string
+    /**
+     * Dasselbe Datum als ISO-Zeitpunkt, für das `datetime`-Attribut eines `<time>`.
+     *
+     * **Der Grund ist die relative Beschriftung.** „vor 3 Wochen" ist für einen Menschen
+     * eine Auskunft und für eine Maschine gar nichts — ohne dieses Feld verlöre die Karte
+     * mit dem relativen Label ihr maschinenlesbares Datum. Hier steht bewusst ein
+     * vollständiger ISO-INSTANT (`toISOString()`, also UTC) und kein Kalenderdatum:
+     * `datetime` bezeichnet einen Zeitpunkt, und ein Zeitpunkt hat keine Zone-Ambiguität.
+     * (Die Kalender-Arithmetik daneben rechnet aus demselben Grund GENAU umgekehrt —
+     * siehe {@link relativeDateParts}.)
+     */
+    dateIso: string
     topics: string[]
+    /**
+     * Der fertige `background-image`-Wert des Ersatz-Titelbilds ({@link coverGradient}).
+     *
+     * **Immer gesetzt, auch wenn {@link ArticleRow.image} steht.** Zwei Gründe, beide
+     * gemessen: (1) das echte Titelbild kann im Browser scheitern (fremder Host, 404,
+     * blockierter Proxy) — dann liegt der Verlauf schon darunter und die Karte hat nie
+     * ein weißes Loch; (2) er ist deterministisch aus `pubkey:d`, kostet also nichts,
+     * was ein `if` sparen würde.
+     */
+    coverCss: string
+    /**
+     * Lesezeit in ganzen Minuten ({@link readingTime}). `0` heißt **keine Angabe** — die
+     * Oberfläche lässt die Zeile dann weg, statt „0 Min." zu behaupten.
+     *
+     * Kommt aus {@link ArticleRowDeps}, nicht aus einem Aufruf hier: die Zählung ist
+     * linear über den Artikeltext und kostet über den Bestand gemessene **29 ms**
+     * (2026-08-20, 104 Artikel, 1 324 075 Zeichen). `deriveArticles` baut die Zeilen bei
+     * JEDEM Emit neu, und es emittiert für jedes eintreffende kind-0 — die 29 ms fielen
+     * sonst ein Dutzend Mal an. Gemerkt wird deshalb dort, wo eine Event-Id zur Hand ist
+     * (`longformFeed.ts`, dasselbe Muster wie `htmlCache`).
+     */
+    readingMinutes: number
+    /**
+     * Die Audio-Anlage, wenn der Artikel eine Podcast-Episode ist ({@link isPodcastEpisode});
+     * sonst `null`.
+     *
+     * **Podcast und fehlendes Titelbild sind ZWEI Merkmale, nicht eines.** Am 2026-08-20
+     * über den Bestand nachgemessen: 14 Episoden, 14 Artikel ohne `image` — die
+     * Schnittmenge ist aber **12**. Zwei Episoden bringen ein Titelbild mit, zwei
+     * Nicht-Episoden bringen keins. Die Karte behandelt beides deshalb unabhängig.
+     */
+    podcast: PodcastEpisode | null
 }
 
 /**
@@ -843,6 +1006,21 @@ export type ArticleRowDeps = {
     relays: string[]
     /** Datumsformatierer (`locale.ts`, `formatTimestamp`). */
     formatDate: (ts: number) => string
+    /**
+     * Lesezeit in ganzen Minuten — vom Aufrufer, nicht hier gerechnet.
+     *
+     * Der Grund steht bei {@link ArticleRow.readingMinutes}: die Zählung ist linear über
+     * den Artikeltext, und diese Funktion läuft bei jedem Emit der Ableitung erneut. Der
+     * Aufrufer hat eine Event-Id und kann merken; diese Funktion hat keine Historie und
+     * darf keine haben — sie ist rein.
+     *
+     * **Verpflichtend, nicht optional mit Default.** Ein Default machte aus einem
+     * vergessenen Aufrufer eine stille `0`, und `0` ist hier kein Platzhalter, sondern
+     * eine Aussage („keine Angabe", die Oberfläche lässt die Zeile dann weg). Verpflichtend
+     * wird derselbe Fehler ein Typfehler beim Übersetzen — das ist der ganze Unterschied
+     * zwischen „fällt in P4 jemandem auf" und „fällt nie auf".
+     */
+    readingMinutes: number
 }
 
 /**
@@ -877,6 +1055,7 @@ export const buildArticleRow = (event: ArticleEventLike, deps: ArticleRowDeps): 
     return {
         id: event.id,
         pubkey: event.pubkey,
+        identifier: tags.identifier,
         naddr: tags.identifier ? naddrForArticle(event.pubkey, tags.identifier, deps.relays) : '',
         title: tags.title,
         teaser: tags.summary || articleSnippet(event.content),
@@ -887,6 +1066,10 @@ export const buildArticleRow = (event: ArticleEventLike, deps: ArticleRowDeps): 
         publishedAt: tags.publishedAt,
         createdAt: event.created_at,
         dateLabel: deps.formatDate(tags.publishedAt),
+        dateIso: new Date(tags.publishedAt * 1000).toISOString(),
         topics: tags.topics,
+        coverCss: coverGradient(event.pubkey, tags.identifier).css,
+        readingMinutes: deps.readingMinutes,
+        podcast: isPodcastEpisode(event.tags),
     }
 }

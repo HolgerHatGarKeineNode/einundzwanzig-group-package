@@ -880,5 +880,22 @@
     "Workspace auf :wert": "Workspace em :wert",
     "Clone-URL kopieren": "Copiar URL de clonagem",
     "Clone-URL kopiert.": "URL de clonagem copiado.",
-    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "Não foi possível copiar o URL de clonagem. Clica nele para o selecionar e copia-o manualmente."
+    "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "Não foi possível copiar o URL de clonagem. Clica nele para o selecionar e copia-o manualmente.",
+    "Neueste": "Mais recentes",
+    "Nach Autor": "Por autor",
+    "A–Z": "A–Z",
+    "Artikel suchen…": "Pesquisar artigos…",
+    "Sortierung": "Ordenação",
+    "Kein Artikel passt zu dieser Suche.": "Nenhum artigo corresponde a esta pesquisa.",
+    "Podcast": "Podcast",
+    "Folge anhören": "Ouvir episódio",
+    "1 Artikel": "1 artigo",
+    ":count Artikel": ":count artigos",
+    "1 Min. Lesezeit": "1 min de leitura",
+    ":count Min. Lesezeit": ":count min de leitura",
+    "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "Pesquisado 1 artigo — título, resumo, texto e autor.",
+    "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": "Pesquisados :count artigos — título, resumo, texto e autor.",
+    ":count Artikel#one": ":count artigo",
+    ":count Min. Lesezeit#one": ":count min de leitura",
+    "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.#one": "Pesquisado :count artigo — título, resumo, texto e autor."
 }

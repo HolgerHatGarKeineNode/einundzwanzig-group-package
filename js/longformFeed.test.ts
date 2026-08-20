@@ -74,6 +74,10 @@ const deps = (over: Partial<ArticleRowDeps> = {}): ArticleRowDeps => ({
     authorPicture: 'https://bild.test/avatar.png',
     relays: [BOARD],
     formatDate: (ts) => `DATUM(${ts})`,
+    // Verpflichtend im Vertrag (siehe `ArticleRowDeps`), hier mit einem Wert, der in
+    // KEINER anderen Zusicherung dieser Datei vorkommt — eine Verwechslung mit einer
+    // Minutenzahl aus einem Nachbartest fiele sonst nicht auf.
+    readingMinutes: 7,
     ...over,
 })
 
@@ -137,17 +141,120 @@ test('die Zeile hat genau die vereinbarten Felder — kein Feld fällt still weg
         'authorName',
         'authorPicture',
         'content',
+        'coverCss',
         'createdAt',
+        'dateIso',
         'dateLabel',
         'id',
+        'identifier',
         'image',
         'naddr',
+        'podcast',
         'pubkey',
         'publishedAt',
+        'readingMinutes',
         'teaser',
         'title',
         'topics',
     ])
+})
+
+// ── Die vier Felder, die P2 hinzugefügt hat ──────────────────────────────────────────
+
+test('identifier: das `d`-Tag steht ROH in der Zeile, nicht nur bech32-verpackt im naddr', () => {
+    // Der Cover-Verlauf und (ab P6) der `#a`-Filter brauchen die Adresse. Ohne dieses
+    // Feld müsste jeder Verbraucher den naddr erst wieder aufmachen.
+    assert.equal(buildArticleRow(event(), deps()).identifier, 'meine-kennung')
+})
+
+test('identifier: ohne `d`-Tag bleibt er leer — genau wie der naddr', () => {
+    const row = buildArticleRow(event({ tags: [['title', 'Ohne Kennung']] }), deps())
+
+    assert.equal(row.identifier, '')
+    assert.equal(row.naddr, '')
+})
+
+test('coverCss: ist IMMER gesetzt, auch wenn ein echtes Titelbild danebensteht', () => {
+    // Zwei Gründe (siehe `ArticleRow.coverCss`): das echte Bild kann im Browser
+    // scheitern, und der Verlauf kostet nichts.
+    const mitBild = buildArticleRow(event(), deps())
+
+    assert.equal(mitBild.image, 'https://bild.test/titel.png')
+    assert.match(mitBild.coverCss, /^linear-gradient\(135deg, #[0-9a-f]{6}, #[0-9a-f]{6}\)$/)
+})
+
+test('coverCss: haengt an pubkey UND Kennung — dieselbe Adresse ergibt denselben Verlauf', () => {
+    const eins = buildArticleRow(event(), deps())
+    const wieder = buildArticleRow(event({ id: 'f'.repeat(64) }), deps({ authorName: 'Jemand anders' }))
+    const andere = buildArticleRow(event({ tags: [['d', 'andere-kennung']] }), deps())
+
+    // Gleiche Adresse, neue Fassung (andere Event-Id, anderer Anzeigename): gleicher Verlauf.
+    assert.equal(wieder.coverCss, eins.coverCss)
+    // Andere Kennung: anderer Verlauf.
+    assert.notEqual(andere.coverCss, eins.coverCss)
+})
+
+test('dateIso: maschinenlesbarer Zeitpunkt zum ANZEIGE-Datum, aus publishedAt', () => {
+    // Die Karte darf ihr Datum relativ beschriften („vor 3 Wochen"). Das ist fuer einen
+    // Menschen eine Auskunft und fuer eine Maschine gar nichts — dieses Feld traegt den
+    // Zeitpunkt weiter, in das `datetime`-Attribut des `<time>`.
+    const row = buildArticleRow(event(), deps())
+
+    assert.equal(row.dateIso, new Date(PUBLISHED_AT * 1000).toISOString())
+    assert.equal(row.dateIso, '2023-11-14T22:13:20.000Z')
+    // Und zwar aus `publishedAt`, NICHT aus `createdAt` — dieselbe Feldwahl wie das
+    // sichtbare Datum, sonst behaupteten Beschriftung und Attribut Verschiedenes.
+    assert.notEqual(row.dateIso, new Date(CREATED_AT * 1000).toISOString())
+})
+
+test('readingMinutes: wird DURCHGEREICHT, nicht hier gerechnet', () => {
+    // Der Merker sitzt beim Aufrufer (`longformFeed.ts`, `readingCache`), weil er dort
+    // eine Event-Id hat. `buildArticleRow` ist rein und darf keine Historie führen.
+    assert.equal(buildArticleRow(event(), deps({ readingMinutes: 42 })).readingMinutes, 42)
+    assert.equal(buildArticleRow(event(), deps({ readingMinutes: 0 })).readingMinutes, 0)
+})
+
+// ── Podcast und fehlendes Titelbild sind ZWEI Merkmale ───────────────────────────────
+//
+// Am 2026-08-20 über den Bestand gemessen: 14 Episoden, 14 Artikel ohne `image`,
+// Schnittmenge **12**. Wer die beiden Mengen gleichsetzt, baut zwei kaputte Karten —
+// eine Episode ohne Player und eine Textkarte mit einem. Beide Randfälle stehen hier.
+
+const IMETA_AUDIO = ['imeta', 'url https://podcast.test/folge-7.mp3', 'm audio/mpeg']
+
+test('podcast: eine Episode MIT Titelbild bekommt trotzdem ihren Player', () => {
+    const row = buildArticleRow(
+        event({ tags: [['d', 'folge-7'], ['title', 'Folge 7'], ['image', 'https://bild.test/cover.png'], IMETA_AUDIO] }),
+        deps(),
+    )
+
+    assert.equal(row.image, 'https://bild.test/cover.png')
+    assert.equal(row.podcast?.url, 'https://podcast.test/folge-7.mp3')
+})
+
+test('podcast: ein Artikel OHNE Titelbild ist deswegen keine Episode', () => {
+    const row = buildArticleRow(event({ tags: [['d', 'nur-text'], ['title', 'Nur Text']] }), deps())
+
+    assert.equal(row.image, '')
+    assert.equal(row.podcast, null)
+})
+
+test('podcast: die Dauer ist 0 — im ganzen Bestand traegt keine Episode eine', () => {
+    const row = buildArticleRow(event({ tags: [['d', 'folge-7'], IMETA_AUDIO] }), deps())
+
+    assert.equal(row.podcast?.durationSeconds, 0)
+    // Ausdruecklich 0 und nicht NaN/undefined: die Oberflaeche prueft auf > 0 und laesst
+    // die Angabe sonst WEG, statt „0:00" zu behaupten.
+    assert.equal(Number.isNaN(row.podcast?.durationSeconds), false)
+})
+
+test('podcast: ein `imeta` mit Bild-MIME erzeugt KEINEN Player', () => {
+    const row = buildArticleRow(
+        event({ tags: [['d', 'galerie'], ['imeta', 'url https://bild.test/x.webp', 'm image/webp']] }),
+        deps(),
+    )
+
+    assert.equal(row.podcast, null)
 })
 
 test('naddr: trägt Kind, Autor, Kennung und den Relay-Hint', () => {
