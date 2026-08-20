@@ -28,11 +28,11 @@
         <div
             x-show="open"
             x-transition:enter="transition ease-out duration-300 motion-reduce:duration-150"
-            x-transition:enter-start="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95 motion-reduce:!translate-y-0 motion-reduce:!scale-100"
+            x-transition:enter-start="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95 motion-reduce:translate-y-0! motion-reduce:scale-100!"
             x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
             x-transition:leave="transition ease-in duration-200 motion-reduce:duration-150"
             x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
-            x-transition:leave-end="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95 motion-reduce:!translate-y-0 motion-reduce:!scale-100"
+            x-transition:leave-end="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95 motion-reduce:translate-y-0! motion-reduce:scale-100!"
             class="surface-card relative z-10 max-h-[90dvh] w-full overflow-y-auto rounded-t-sheet pb-safe sm:max-w-md sm:rounded-sheet"
         >
             <div class="sticky top-0 flex justify-end p-2">

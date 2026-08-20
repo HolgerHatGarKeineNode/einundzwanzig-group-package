@@ -1213,9 +1213,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <x-group::emoji-picker message="menuFor" />
                 </template>
             </div>
-            {{-- Zap (Z3, NIP-57): WICHTIGSTE Aktion → ganz vorne, Brand-Gelb (`!text-brand-500`
+            {{-- Zap (Z3, NIP-57): WICHTIGSTE Aktion → ganz vorne, Brand-Gelb (`text-brand-500!`
                  überschreibt ghost-Textfarbe). openZap schließt das Menü selbst. --}}
-            <flux:button variant="ghost" icon="bolt" class="w-full justify-start !text-brand-500"
+            <flux:button variant="ghost" icon="bolt" class="w-full justify-start text-brand-500!"
                          x-show="zapsEnabled && menuFor?.zappable" x-cloak
                          x-on:click="if (menuFor) openZap(menuFor)">Zap</flux:button>
             {{-- Antworten: im Thread verschachtelte Kommentar-Antwort (setThreadReply), sonst Raum-q-Reply. --}}
@@ -1376,10 +1376,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
         {{-- Sichtbarer Ausgang: seit der Klick aufs Bild zoomt statt schließt, ist das ✕
              auf dem Handy der einzige verlässliche Weg raus (kein Escape).
-             `!absolute`: <flux:button> bringt eigenes `position:relative` mit, das in der
+             `absolute!`: <flux:button> bringt eigenes `position:relative` mit, das in der
              Utility-Kaskade ein blankes `absolute` schlägt (Quellreihenfolge) → der Button
              säße sonst mittig im Bild statt in der Ecke. `!` erzwingt die Positionierung
-             (gleiches Muster wie `!text-brand-500` andernorts).
+             (gleiches Muster wie `text-brand-500!` andernorts).
 
              ── Warum die Ecke die Systemleiste einrechnen MUSS (2026-08-16) ──────────────
              Die Lightbox ist `fixed inset-0` und legt sich damit über den GANZEN Viewport,
@@ -1395,7 +1395,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Abstand, mit Aussparung rutscht der Knopf darunter. `right` bekommt dieselbe
              Behandlung — im Querformat liegt die Aussparung seitlich. --}}
         <flux:button size="sm" variant="ghost" icon="x-mark"
-                     class="icon-btn-touch !absolute top-[max(env(safe-area-inset-top),1rem)] right-[max(env(safe-area-inset-right),1rem)] bg-black/40 text-white"
+                     class="icon-btn-touch absolute! top-[max(env(safe-area-inset-top),1rem)] right-[max(env(safe-area-inset-right),1rem)] bg-black/40 text-white"
                      x-on:click.stop="lightboxSrc = null"
                      aria-label="{{ __('Schließen') }}" />
     </div>
