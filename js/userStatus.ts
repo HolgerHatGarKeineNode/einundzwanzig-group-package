@@ -85,7 +85,7 @@ const storesByUrl = new Map<string, Readable<ReadonlyMap<string, UserStatus>>>()
  *
  * Ein Store je URL (wie `deriveSpaceKind`): vier Konsumenten (Chat, Thread, Directory,
  * Profilkarte) teilen sich damit eine Repository-Abfrage statt vier zu fahren.
- * `throttled(300, …)` wie in `longformFeed.ts:187` — beim Kaltstart tröpfeln die
+ * `throttled(300, …)` wie in `longformFeed.ts` (`deriveArticles`) — beim Kaltstart tröpfeln die
  * 30315 einzeln herein.
  */
 export const deriveUserStatuses = (url: string): Readable<ReadonlyMap<string, UserStatus>> => {

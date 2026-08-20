@@ -120,7 +120,7 @@ export const ACTIVITY_LIMIT = 50
 /**
  * `naddr` eines Repos — die Kennung in der URL.
  *
- * Wie beim Artikel (`longform.ts:385`) und aus demselben Grund: ein 30617 ist
+ * Wie beim Artikel (`longform.ts`, `articleSnippet`) und aus demselben Grund: ein 30617 ist
  * ersetzbar, seine Event-Id wechselt mit jeder Neuankündigung. Kind + Autor +
  * `d` bleiben und funktionieren auch in einem fremden Client.
  */
@@ -824,7 +824,7 @@ const ensureRenderer = async (): Promise<void> => {
  * Issue-Text, jeden Kommentar und jedes PR-Update — und die Ableitung hängt an
  * den Profilen, die asynchron nachtröpfeln. Die Id ist als Schlüssel korrekt,
  * weil sie sich mit dem Inhalt ändert. Dasselbe Muster wie `htmlCache` in
- * `longformFeed.ts:160`.
+ * `longformFeed.ts` (`htmlCache`).
  */
 const htmlCache = new Map<string, string>()
 
@@ -939,7 +939,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
  * `complete` hängt am **EOSE**, nicht an einem Wurf: `load()` wirft nicht, wenn
  * der Relay schweigt oder ablehnt — es löst nach seinem Zeitfenster leer auf.
  * Ohne dieses Feld sagte die Fläche „Noch keine Repositories" über einen Relay,
- * mit dem sie nie gesprochen hat (Messtabelle in `longformFeed.ts:239-258`).
+ * mit dem sie nie gesprochen hat (Messtabelle in `longformFeed.ts`, `LoadOutcome`).
  */
 export type ForgeLoadOutcome = { complete: boolean; count: number }
 

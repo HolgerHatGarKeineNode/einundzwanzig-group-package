@@ -18,13 +18,22 @@ import assert from 'node:assert/strict'
 import * as nip19 from 'nostr-tools/nip19'
 import {
     BR_SENTINEL,
+    COVER_GRADIENT_ANGLE,
+    COVER_PALETTE,
     LONGFORM,
     LONGFORM_DRAFT,
+    PUBLISHED_AT_MAX,
+    WORDS_PER_MINUTE,
+    articleSearchText,
     articleSnippet,
+    coverGradient,
     decodeArticleNaddr,
+    isPodcastEpisode,
     naddrForArticle,
     readArticleTags,
+    readingTime,
     renderArticleHtml,
+    stripDataUris,
     stripFrontmatter,
 } from './longform.ts'
 
@@ -389,4 +398,376 @@ test('renderArticleHtml: ein Anführungszeichen in der Bild-URL bricht das Marke
 
     assert.match(html, /data-blossom-src="https:\/\/buzz\.test\/media\/a%22\.jpg"/)
     assert.equal(html.includes('a".jpg'), false)
+})
+
+// ── PUBLISHED_AT_MAX — die obere Hälfte der Grenze ───────────────────────────────────
+//
+// Die untere Hälfte (`'bald'`, `'-5'`, `'0'`) war seit P7 gedeckt, die obere nicht: der
+// Teilausdruck `&& published <= PUBLISHED_AT_MAX` liess sich am 2026-08-20 ersatzlos
+// streichen, und die gesamte JS-Suite blieb gruen (1078 Tests). Genau der Angriff, den
+// der Kommentar bei `readArticleTags` beschreibt, war also unbewacht.
+
+test('readArticleTags: `published_at` = 9e15 faellt auf created_at zurueck (der Platz-1-Angriff)', () => {
+    // `Number('9e15')` ist endlich und positiv — die untere Haelfte der Grenze laesst es
+    // durch. Ohne die obere stuende hier 9e15, `new Date(9e15 * 1000)` waere „Invalid
+    // Date", und die absteigend sortierte Liste haette den Artikel dauerhaft oben.
+    assert.equal(readArticleTags([['published_at', '9e15']], 1_700_000_000).publishedAt, 1_700_000_000)
+})
+
+test('readArticleTags: die Grenze ist WOERTLICH 4e9 — und sie ist inklusiv', () => {
+    // Gegen ein Literal, nicht gegen die Konstante: sonst blieben die Faelle unten gruen,
+    // auch wenn jemand PUBLISHED_AT_MAX auf 9e15 hochsetzt und den Riegel damit oeffnet.
+    assert.equal(PUBLISHED_AT_MAX, 4_000_000_000)
+
+    // Genau auf der Grenze gilt der Wert noch, eine Sekunde darueber nicht mehr.
+    assert.equal(readArticleTags([['published_at', '4000000000']], 42).publishedAt, 4_000_000_000)
+    assert.equal(readArticleTags([['published_at', '4000000001']], 42).publishedAt, 42)
+})
+
+test('readArticleTags: Millisekunden-Zeitstempel gelten als unplausibel, nicht als umzurechnen', () => {
+    // 1.7e12 waere „2023 in Millisekunden". Umgerechnet ergaebe es 2023, ungeprueft das
+    // Jahr 55 837. Die Entscheidung des Hauses ist: nicht raten, sondern verwerfen.
+    assert.equal(readArticleTags([['published_at', '1700000000000']], 1_700_000_000).publishedAt, 1_700_000_000)
+})
+
+test('readArticleTags: `Infinity` und `NaN` kommen nicht durch', () => {
+    assert.equal(readArticleTags([['published_at', 'Infinity']], 7).publishedAt, 7)
+    assert.equal(readArticleTags([['published_at', '1e999']], 7).publishedAt, 7)
+})
+
+// ── Lesezeit ─────────────────────────────────────────────────────────────────────────
+
+test('readingTime: die Lesegeschwindigkeit ist WOERTLICH 200 wpm', () => {
+    // Literal statt Symbol (Hausregel, Vorbild `spacesTab.test.ts`): ohne diese Zeile
+    // hielten alle Faelle unten die Konstante gegen sich selbst und blieben gruen, wenn
+    // jemand 200 auf 50 setzt und jede Lesezeit vervierfacht.
+    assert.equal(WORDS_PER_MINUTE, 200)
+
+    // Und dieselbe Festlegung am Ergebnis: 200 Woerter sind genau eine Minute, 201 zwei.
+    assert.equal(readingTime(Array.from({ length: 200 }, () => 'wort').join(' ')), 1)
+    assert.equal(readingTime(Array.from({ length: 201 }, () => 'wort').join(' ')), 2)
+})
+
+test('readingTime: ein einziges Wort ergibt 1 Minute, nicht 0 (aufgerundet, nicht gerundet)', () => {
+    // Der Fall, der `Math.round` von `Math.ceil` trennt: round(1/200) = 0.
+    assert.equal(readingTime('wort'), 1)
+    assert.equal(readingTime('nur ein paar wenige woerter'), 1)
+    assert.equal(readingTime(Array.from({ length: 99 }, () => 'wort').join(' ')), 1)
+})
+
+test('readingTime: leerer Text ergibt 0 — die einzige Null', () => {
+    assert.equal(readingTime(''), 0)
+    assert.equal(readingTime('   \n\n \t '), 0)
+})
+
+test('readingTime: Frontmatter zaehlt nicht mit', () => {
+    const woerter = Array.from({ length: 400 }, () => 'wort').join(' ')
+    const mitFrontmatter = `---\ntype: gallery\nlayout: grid\n---\n${woerter}`
+
+    // 400 Woerter = 2 Minuten. Zaehlte das Frontmatter mit (4 weitere Woerter), bliebe es
+    // hier zufaellig auch bei 2 — deshalb zusaetzlich der Fall genau an der Kante.
+    assert.equal(readingTime(mitFrontmatter), 2)
+    assert.equal(readingTime(`---\ntype: gallery\n---\n${Array.from({ length: 200 }, () => 'w').join(' ')}`), 1)
+})
+
+test('readingTime: mehrfacher Leerraum, Zeilenumbrueche und NBSP trennen genau einmal', () => {
+    assert.equal(readingTime('eins   zwei\n\n\tdrei vier'), 1)
+    assert.equal(readingTime(Array.from({ length: 201 }, () => 'w').join('\n')), 2)
+})
+
+test('readingTime: ein eingebettetes base64-Bild ist EIN Wort, kein Roman', () => {
+    // Der 245-kB-Artikel des Bestands: 314 Woerter roh. Ein base64-Block enthaelt keinen
+    // Leerraum, also darf er die Lesezeit nicht aufblaehen.
+    const bild = `![](data:image/png;base64,${'A'.repeat(200_000)})`
+
+    assert.equal(readingTime(bild), 1)
+    assert.equal(readingTime(`${bild} ${Array.from({ length: 199 }, () => 'wort').join(' ')}`), 1)
+})
+
+// ── Data-URIs strippen (Vorstufe der Suche) ──────────────────────────────────────────
+
+test('stripDataUris: die base64-Nutzlast verschwindet, der Text darum herum bleibt', () => {
+    const text = `Davor ![](data:image/png;base64,iVBORw0KGgoAAAA) Danach`
+
+    const gestrippt = stripDataUris(text)
+
+    assert.equal(text.includes('iVBORw0KGgo'), true, 'Vorbedingung: der Rohtext traegt die Nutzlast ueberhaupt')
+    assert.equal(gestrippt.includes('iVBORw0KGgo'), false)
+    assert.match(gestrippt, /Davor/)
+    assert.match(gestrippt, /Danach/)
+})
+
+test('stripDataUris: der Schnitt endet an der URI und frisst KEINEN Folgetext', () => {
+    // Die Falle: alle Buchstaben von „Freiheit" liegen in [A-Za-z0-9+/=]. Nimmt die
+    // Zeichenklasse Leerraum mit auf, laeuft der Treffer ueber das Ende der URI hinaus
+    // und loescht echten Autorentext.
+    const text = 'data:image/png;base64,AAAABBBB Freiheit und Selbstverwahrung'
+
+    assert.match(stripDataUris(text), /Freiheit und Selbstverwahrung/)
+})
+
+test('stripDataUris: Text ohne Data-URI bleibt zeichengleich', () => {
+    const text = 'Ein ganz normaler Artikel mit einem Link https://einundzwanzig.space und einem *Wort*.'
+
+    assert.equal(stripDataUris(text), text)
+})
+
+// ── Suchtext-Adapter ─────────────────────────────────────────────────────────────────
+
+/** Eine Zeile in der Form, die `articleSearchText` erwartet. */
+const suchZeile = (over: Partial<Parameters<typeof articleSearchText>[0]> = {}) => ({
+    id: 'id-1',
+    title: 'Selbstverwahrung',
+    teaser: 'Warum der eigene Schluessel zaehlt',
+    content: 'Ein Artikel ueber Hardware-Wallets.',
+    authorName: 'Anna',
+    publishedAt: 1_700_000_000,
+    ...over,
+})
+
+test('articleSearchText: `created_at` wird gefuellt — sonst sortiert searchMessages nach NaN', () => {
+    const zeile = articleSearchText(suchZeile())
+
+    assert.equal(typeof zeile.created_at, 'number')
+    assert.equal(Number.isNaN(zeile.created_at), false)
+})
+
+test('articleSearchText: `created_at` traegt `publishedAt` — dieselbe Ordnung wie die Liste', () => {
+    // Die Entscheidung, nicht nur das Vorhandensein: die Liste sortiert nach
+    // `publishedAt`. Naehme die Suche `createdAt`, saehe der Leser nach dem Tippen eine
+    // andere Reihenfolge als davor.
+    assert.equal(articleSearchText(suchZeile({ publishedAt: 1_650_000_000 })).created_at, 1_650_000_000)
+})
+
+test('articleSearchText: sortiert man die Ergebnisse absteigend, kommt das Neueste zuerst', () => {
+    const zeilen = [
+        articleSearchText(suchZeile({ id: 'alt', publishedAt: 1_600_000_000 })),
+        articleSearchText(suchZeile({ id: 'neu', publishedAt: 1_800_000_000 })),
+        articleSearchText(suchZeile({ id: 'mittel', publishedAt: 1_700_000_000 })),
+    ]
+
+    // Genau die Sortierzeile aus `search.ts` (`searchMessages`), hier nachgestellt: sie
+    // ist der einzige Verbraucher von `created_at`.
+    zeilen.sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))
+
+    assert.deepEqual(
+        zeilen.map((z) => z.id),
+        ['neu', 'mittel', 'alt'],
+    )
+})
+
+test('articleSearchText: Titel, Teaser und Fliesstext sind alle durchsuchbar', () => {
+    const zeile = articleSearchText(suchZeile())
+
+    assert.match(zeile.text, /Selbstverwahrung/)
+    assert.match(zeile.text, /eigene Schluessel/)
+    assert.match(zeile.text, /Hardware-Wallets/)
+})
+
+test('articleSearchText: der Autorname landet in `name`, nicht im Text', () => {
+    // `searchMessages` durchsucht `[row.text, row.name]` — der Name gehoert in sein
+    // eigenes Feld, weil die UI ihn getrennt hervorhebt (`nameSegments`).
+    const zeile = articleSearchText(suchZeile())
+
+    assert.equal(zeile.name, 'Anna')
+})
+
+test('articleSearchText: base64 wird NICHT durchsuchbar (der Falschtreffer-Fall)', () => {
+    // Gemessen am Bestand: „sad" fand roh 7 Artikel, gestrippt 2; „iVBOR" fand 5, danach
+    // keinen. Der Nutzer bekaeme sonst Treffer angeboten, in denen das Wort nirgends steht.
+    const zeile = articleSearchText(suchZeile({ content: `![](data:image/png;base64,iVBORsadAAAA)` }))
+
+    assert.equal(zeile.text.includes('iVBORsad'), false)
+})
+
+test('articleSearchText: die uebrigen Felder der Zeile ueberleben (searchMessages gibt sie zurueck)', () => {
+    const zeile = articleSearchText(suchZeile())
+
+    assert.equal(zeile.id, 'id-1')
+    assert.equal(zeile.title, 'Selbstverwahrung')
+    assert.equal(zeile.publishedAt, 1_700_000_000)
+})
+
+// ── Cover-Verlauf ────────────────────────────────────────────────────────────────────
+
+const PUBKEY_A = 'a'.repeat(64)
+const PUBKEY_B = 'b'.repeat(64)
+
+test('coverGradient: gleiche Adresse ergibt denselben Verlauf — auch ueber Aufrufe hinweg', () => {
+    assert.deepEqual(coverGradient(PUBKEY_A, 'mein-artikel'), coverGradient(PUBKEY_A, 'mein-artikel'))
+})
+
+test('coverGradient: eine neue Fassung desselben Artikels behaelt ihren Verlauf', () => {
+    // Ein 30023 ist ersetzbar: neue Fassung, neue Event-Id, womoeglich neuer Titel und
+    // neues `created_at`. Der Verlauf haengt an `pubkey` + `d` und kann davon nichts
+    // sehen — dass der Titel nicht durchschlaegt, ist strukturell gesichert (er ist kein
+    // Parameter). Diese Zeile haelt die Signatur fest, damit ihn niemand nachtraegt.
+    assert.equal(coverGradient.length, 2)
+    assert.deepEqual(coverGradient(PUBKEY_A, 'draft-1700000000'), coverGradient(PUBKEY_A, 'draft-1700000000'))
+})
+
+test('coverGradient: die Kennung geht in den Hash ein — zwei Artikel eines Autors unterscheiden sich', () => {
+    const verlaeufe = new Set(
+        Array.from({ length: 12 }, (_unused, i) => coverGradient(PUBKEY_A, `artikel-${i}`).css),
+    )
+
+    // Bei acht Paaren und zwoelf Artikeln koennen Wiederholungen vorkommen; was NICHT
+    // vorkommen darf, ist genau ein einziger Verlauf fuer alles — das waere der Fall,
+    // wenn nur der `pubkey` gehasht wuerde.
+    assert.equal(verlaeufe.size > 1, true, `nur ${verlaeufe.size} verschiedene Verlaeufe`)
+})
+
+test('coverGradient: der pubkey geht in den Hash ein — dasselbe `d` bei zwei Autoren unterscheidet sich', () => {
+    // 67 der 104 Artikel heissen `draft-<ts>`; Kollisionen ueber Autoren hinweg sind real.
+    const treffer = Array.from({ length: 12 }, (_unused, i) => `draft-${i}`).filter(
+        (d) => coverGradient(PUBKEY_A, d).css !== coverGradient(PUBKEY_B, d).css,
+    )
+
+    assert.equal(treffer.length > 0, true, 'der pubkey aendert nie etwas — er geht nicht in den Hash ein')
+})
+
+// Die Palette WOERTLICH festnageln, nicht nur ueber sich selbst.
+//
+// Der `reviewer` hat am 2026-08-20 gemessen, dass die Palette von 8 auf 2 Paare gekuerzt
+// werden kann, ohne dass ein einziger Test rot wird (105/105 gruen) — erst bei EINEM Paar
+// fielen zwei Faelle. Der Grund ist derselbe wie beim `DEFAULT_SPACES_TAB`-Mutanten:
+// jede Zusicherung hielt `COVER_PALETTE` gegen `COVER_PALETTE.length`, also gegen sich
+// selbst. Eine schrumpfende Palette ist aber eine echte Verschlechterung — sie erhoeht die
+// Kollisionsrate zweier Artikel auf denselben Verlauf, und genau das soll die Streuung
+// verhindern.
+test('COVER_PALETTE traegt WOERTLICH acht Paare, und jedes ist ein Paar', () => {
+    assert.equal(COVER_PALETTE.length, 8)
+
+    for (const paar of COVER_PALETTE) {
+        assert.equal(paar.length, 2, 'jeder Eintrag ist genau ein Farb-PAAR (von, nach)')
+    }
+})
+
+test('coverGradient: der CSS-Wert ist fertig bindbar und traegt WOERTLICH 135 Grad', () => {
+    assert.equal(COVER_GRADIENT_ANGLE, 135)
+
+    const verlauf = coverGradient(PUBKEY_A, 'x')
+
+    assert.equal(verlauf.css, `linear-gradient(135deg, ${verlauf.from}, ${verlauf.to})`)
+})
+
+test('coverGradient: jede Farbe der Palette traegt weisse Schrift (WCAG AA, 4,5:1)', () => {
+    const kanal = (v: number): number => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    const leuchtdichte = (hex: string): number => {
+        const [r, g, b] = [1, 3, 5].map((i) => kanal(parseInt(hex.slice(i, i + 2), 16) / 255))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    assert.equal(COVER_PALETTE.length > 0, true)
+    for (const [von, nach] of COVER_PALETTE) {
+        for (const farbe of [von, nach]) {
+            assert.match(farbe, /^#[0-9a-f]{6}$/, farbe)
+            const kontrast = 1.05 / (leuchtdichte(farbe) + 0.05)
+            assert.equal(kontrast >= 4.5, true, `${farbe} hat nur ${kontrast.toFixed(2)}:1 gegen Weiss`)
+        }
+    }
+})
+
+test('coverGradient: jeder Index der Palette ist erreichbar — kein `undefined` aus dem Hash', () => {
+    // `>>> 0` in der Hash-Funktion: ohne die vorzeichenlose Umwandlung liefert `% length`
+    // bei negativem Zwischenwert einen negativen Index und damit `undefined`.
+    for (let i = 0; i < 200; i++) {
+        const verlauf = coverGradient(PUBKEY_A, `kennung-${i}`)
+        assert.equal(typeof verlauf.from, 'string')
+        assert.equal(typeof verlauf.to, 'string')
+    }
+})
+
+// ── Podcast-Episoden ─────────────────────────────────────────────────────────────────
+
+/** Ein echtes `imeta` aus dem Bestand (gezogen 2026-08-20, Vance-Crowe-Bridge). */
+const ECHTES_AUDIO_IMETA = [
+    'imeta',
+    'm audio/mpeg',
+    'url https://serve.podhome.fm/episode/14f388e3-1857-430b-dc9f-08dd3181bbe3/6390114092.mp3',
+]
+
+/** Das einzige Bild-`imeta` des Bestands — genau ein Artikel traegt es. */
+const ECHTES_BILD_IMETA = [
+    'imeta',
+    'url https://route96.pareto.space/9b8e1800de5f375e33854fa581411ff5b0c97622481f1c914454f8e8d13af72a.webp',
+    'm image/webp',
+    'dim 860x860',
+    'x 9b8e1800de5f375e33854fa581411ff5b0c97622481f1c914454f8e8d13af72a',
+]
+
+test('isPodcastEpisode: erkennt das echte Audio-imeta des Bestands, mit URL', () => {
+    const episode = isPodcastEpisode([['title', 'ATR'], ECHTES_AUDIO_IMETA])
+
+    assert.notEqual(episode, null)
+    assert.equal(episode?.mimeType, 'audio/mpeg')
+    assert.equal(episode?.url, 'https://serve.podhome.fm/episode/14f388e3-1857-430b-dc9f-08dd3181bbe3/6390114092.mp3')
+})
+
+test('isPodcastEpisode: ein Artikel mit `m image/webp` bekommt KEINEN Player', () => {
+    // Der Fall, der die Pruefung auf den `m`-Wert von einer Pruefung auf blosse
+    // imeta-Existenz trennt. Genau ein Artikel des Bestands traegt dieses Tag.
+    assert.equal(isPodcastEpisode([ECHTES_BILD_IMETA]), null)
+})
+
+test('isPodcastEpisode: ohne jedes imeta ist es keine Episode', () => {
+    assert.equal(isPodcastEpisode([['title', 'Ein normaler Artikel'], ['d', 'x']]), null)
+    assert.equal(isPodcastEpisode([]), null)
+})
+
+test('isPodcastEpisode: `audio/*` gilt, nicht nur `audio/mpeg`', () => {
+    assert.equal(isPodcastEpisode([['imeta', 'm audio/mp4', 'url https://x.test/a.m4a']])?.mimeType, 'audio/mp4')
+    assert.equal(isPodcastEpisode([['imeta', 'm AUDIO/MPEG', 'url https://x.test/a.mp3']])?.mimeType, 'AUDIO/MPEG')
+})
+
+test('isPodcastEpisode: ohne brauchbare URL keine Episode — ein Player ohne Quelle taete nichts', () => {
+    assert.equal(isPodcastEpisode([['imeta', 'm audio/mpeg']]), null)
+    assert.equal(isPodcastEpisode([['imeta', 'm audio/mpeg', 'url ']]), null)
+    assert.equal(isPodcastEpisode([['imeta', 'm audio/mpeg', 'url javascript:alert(1)']]), null)
+    assert.equal(isPodcastEpisode([['imeta', 'm audio/mpeg', 'url /lokal/a.mp3']]), null)
+})
+
+test('isPodcastEpisode: Dauer fehlt im gesamten Bestand — dann 0, nicht NaN', () => {
+    // 14 von 14 Episoden tragen nur `m` und `url` (2026-08-20 nachgemessen). Die 0 ist
+    // hier der Normalfall, nicht der Rand: die Oberflaeche muss ihn tragen.
+    assert.equal(isPodcastEpisode([ECHTES_AUDIO_IMETA])?.durationSeconds, 0)
+})
+
+test('isPodcastEpisode: Dauer aus dem imeta-Feld (NIP-71), auf ganze Sekunden gerundet', () => {
+    const tags = [['imeta', 'm audio/mpeg', 'url https://x.test/a.mp3', 'duration 29.223']]
+
+    assert.equal(isPodcastEpisode(tags)?.durationSeconds, 29)
+})
+
+test('isPodcastEpisode: Dauer auch aus dem eigenen `duration`-Tag (NIP-71), imeta gewinnt', () => {
+    assert.equal(
+        isPodcastEpisode([['imeta', 'm audio/mpeg', 'url https://x.test/a.mp3'], ['duration', '3600']])?.durationSeconds,
+        3600,
+    )
+    assert.equal(
+        isPodcastEpisode([
+            ['imeta', 'm audio/mpeg', 'url https://x.test/a.mp3', 'duration 60'],
+            ['duration', '3600'],
+        ])?.durationSeconds,
+        60,
+    )
+})
+
+test('isPodcastEpisode: unbrauchbare Dauer wird 0, nicht NaN und nicht negativ', () => {
+    for (const roh of ['bald', '-5', '0', 'Infinity', '']) {
+        const tags = [['imeta', 'm audio/mpeg', 'url https://x.test/a.mp3', `duration ${roh}`]]
+        assert.equal(isPodcastEpisode(tags)?.durationSeconds, 0, roh)
+    }
+})
+
+test('isPodcastEpisode: imeta-Werte duerfen Leerzeichen enthalten (NIP-92 trennt am ERSTEN)', () => {
+    const tags = [['imeta', 'alt Eine Folge ueber Bitcoin', 'm audio/mpeg', 'url https://x.test/a.mp3']]
+
+    assert.equal(isPodcastEpisode(tags)?.url, 'https://x.test/a.mp3')
+})
+
+test('isPodcastEpisode: das erste Audio-imeta gewinnt, ein Bild davor stoert nicht', () => {
+    const tags = [ECHTES_BILD_IMETA, ECHTES_AUDIO_IMETA]
+
+    assert.equal(isPodcastEpisode(tags)?.mimeType, 'audio/mpeg')
 })
