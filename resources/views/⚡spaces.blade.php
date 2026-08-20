@@ -680,6 +680,64 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                       Breakpoint, sondern dieselbe, aus der auch die Rail ihre
                                       Existenz bezieht. --}}
                                  x-bind:class="!$store.viewport?.desktop && (filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 pt-1.5 dark:border-zinc-800/60' : ''">
+                                {{-- ── Die Reihenfolge dieses Blocks: erst fest, dann veränderlich ──
+                                     Artikel und Forge hängen an der KONFIGURATION
+                                     ($hasBoard/$hasForge, server-seitig): sie stehen immer da
+                                     oder sie stehen nie da. Die beiden Zeilen darunter hängen an
+                                     ZAHLEN, die sich mit den Daten ändern — Antragsräume kommen
+                                     und gehen, Meetups ebenso. Ein Block, dessen erste Einträge
+                                     mit den Daten wandern, lässt sich nicht lernen; mit den
+                                     stabilen Einträgen am Kopf hat er einen festen Anfang.
+                                     Dass damit die beiden Flächen oben stehen, die außerhalb des
+                                     Chats liegen, ist der zweite Zweck: sie standen bisher am
+                                     ENDE der Raumliste und waren auf dem Telefon nur nach dem
+                                     Durchscrollen aller Räume überhaupt zu sehen.
+
+                                     Artikel (P7). Zeilenform des ganzen Blocks: Icon-Chip ·
+                                     Titel · Rest · Chevron — jede Zeile hier beantwortet
+                                     dieselbe Frage („und was noch?") und führt in eine eigene
+                                     Liste.
+
+                                     KEINE Zahl darunter: die Artikel liegen auf einem anderen
+                                     Relay und sind hier noch gar nicht geladen. Eine Zahl müsste
+                                     dafür beim Aufbau der Raumübersicht einen dritten Relay
+                                     anfragen — für eine Zeile, die ohnehin nur weiterführt. Der
+                                     Untertitel sagt stattdessen, was dort liegt. --}}
+                                @if ($hasBoard)
+                                    <a href="{{ route('group.articles') }}" wire:navigate
+                                       class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
+                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
+                                            <flux:icon.document-text class="size-5" />
+                                        </span>
+                                        <span class="min-w-0 flex-1">
+                                            <span class="block font-medium">{{ __('Artikel lesen') }}</span>
+                                            <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Longform aus der Community') }}</span>
+                                        </span>
+                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
+                                    </a>
+                                @endif
+
+                                {{-- Forge (P6). Gleiche Zeilenform wie „Artikel lesen"
+                                     darüber: Icon-Chip · Titel · Rest · Chevron. KEINE
+                                     Zahl darunter — die Repositories liegen auf dem
+                                     Workspace-Relay und sind hier noch gar nicht
+                                     geladen; eine Zahl müsste dafür beim Aufbau der
+                                     Raumübersicht ein weiteres Relay anfragen, für eine
+                                     Zeile, die ohnehin nur weiterführt. --}}
+                                @if ($hasForge)
+                                    <a href="{{ route('group.forge') }}" wire:navigate
+                                       class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
+                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
+                                            <flux:icon.code-bracket class="size-5" />
+                                        </span>
+                                        <span class="min-w-0 flex-1">
+                                            <span class="block font-medium">{{ __('Forge öffnen') }}</span>
+                                            <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Repositories, Issues und Pull Requests') }}</span>
+                                        </span>
+                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
+                                    </a>
+                                @endif
+
                                 {{-- Projektunterstützung (Antragsräume, ["t","project-support"]).
                                      Der Pool ist gegated: eigene Anträge sieht jeder
                                      Antragsteller, FREMDE nur der Vorstand (isAdmin) — siehe
@@ -743,52 +801,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
                                     </button>
                                 </template>
-
-                                {{-- Artikel (P7). Dieselbe Zeilenform wie die beiden
-                                     darüber: Icon-Chip · Titel · Rest · Chevron — sie
-                                     beantwortet dieselbe Frage („und was noch?") und führt
-                                     wie sie in eine eigene Liste.
-
-                                     KEINE Zahl darunter: die Artikel liegen auf einem
-                                     anderen Relay und sind hier noch gar nicht geladen. Eine
-                                     Zahl müsste dafür beim Aufbau der Raumübersicht einen
-                                     dritten Relay anfragen — für eine Zeile, die ohnehin
-                                     nur weiterführt. Der Untertitel sagt stattdessen, was
-                                     dort liegt. --}}
-                                @if ($hasBoard)
-                                    <a href="{{ route('group.articles') }}" wire:navigate
-                                       class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
-                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
-                                            <flux:icon.document-text class="size-5" />
-                                        </span>
-                                        <span class="min-w-0 flex-1">
-                                            <span class="block font-medium">{{ __('Artikel lesen') }}</span>
-                                            <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Longform aus der Community') }}</span>
-                                        </span>
-                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
-                                    </a>
-                                @endif
-
-                                {{-- Forge (P6). Gleiche Zeilenform wie „Artikel lesen"
-                                     darüber: Icon-Chip · Titel · Rest · Chevron. KEINE
-                                     Zahl darunter — die Repositories liegen auf dem
-                                     Workspace-Relay und sind hier noch gar nicht
-                                     geladen; eine Zahl müsste dafür beim Aufbau der
-                                     Raumübersicht ein weiteres Relay anfragen, für eine
-                                     Zeile, die ohnehin nur weiterführt. --}}
-                                @if ($hasForge)
-                                    <a href="{{ route('group.forge') }}" wire:navigate
-                                       class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
-                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
-                                            <flux:icon.code-bracket class="size-5" />
-                                        </span>
-                                        <span class="min-w-0 flex-1">
-                                            <span class="block font-medium">{{ __('Forge öffnen') }}</span>
-                                            <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Repositories, Issues und Pull Requests') }}</span>
-                                        </span>
-                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
-                                    </a>
-                                @endif
 
                                 {{-- Raum anlegen (Admin). Kein Chevron: die Zeile öffnet einen
                                      Dialog, sie führt nicht weg. Der Titel trägt den Akzent, der

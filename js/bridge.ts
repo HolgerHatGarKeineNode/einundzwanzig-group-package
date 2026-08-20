@@ -114,6 +114,7 @@ import { subscribeWorkspacePrefs } from './channelPrefs'
 import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserStatuses, warmUserStatuses, type UserStatus } from './userStatus'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam'
+import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab'
 import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
@@ -2196,8 +2197,14 @@ export function registerNostrComponents(Alpine: {
         space: null,
         loading: true,
         gatedOut: false,
-        // Tab aus der URL (?tab=threads) übernehmen → Startseite ist direkt verlinkbar.
-        tab: new URLSearchParams(window.location.search).get('tab') === 'threads' ? 'threads' : 'rooms',
+        // Tab aus der URL (?tab=…) übernehmen → Startseite ist direkt verlinkbar.
+        //
+        // Die Whitelist steht in `spacesTab.ts` und nicht hier: sie ist die Gegenprobe
+        // zum `$watch` unten, der JEDEN Tab in die Adresse schreibt — `workspaces`
+        // wurde geschrieben, aber nie gelesen, und ein geteilter Link landete still
+        // auf „Räume". `hasWorkspace()` ist Argument und nicht Annahme, weil der
+        // dritte Tab ohne Workspace gar nicht gerendert wird (`x-if="hasWorkspace"`).
+        tab: readSpacesTab(window.location.search, hasWorkspace()),
         threads: [],
         hasWorkspace: hasWorkspace(),
         workspaceRooms: [],
@@ -2852,15 +2859,25 @@ export function registerNostrComponents(Alpine: {
             _countryCache = null
             // Tab-Wechsel in die URL spiegeln (replaceState, keine Navigation) → verlinkbar,
             // Reload/Share landen im gleichen Tab. Default „rooms" ohne Param (sauberere URL).
-            ;(this as unknown as { $watch(p: string, cb: (v: string) => void): void }).$watch('tab', (v: string) => {
+            const syncTabParam = (v: string): void => {
                 const u = new URL(window.location.href)
-                if (v === 'rooms') {
-                    u.searchParams.delete('tab')
+                if (v === DEFAULT_SPACES_TAB) {
+                    u.searchParams.delete(SPACES_TAB_PARAM)
                 } else {
-                    u.searchParams.set('tab', v)
+                    u.searchParams.set(SPACES_TAB_PARAM, v)
                 }
                 window.history.replaceState(window.history.state, '', u)
-            })
+            }
+            // EINMAL beim Mount, mit dem Wert, den `readSpacesTab` durchgelassen hat.
+            // Sonst bliebe ein verworfener Parameter in der Adresse stehen: wer einen
+            // `?tab=workspaces`-Link auf einem Client OHNE Workspace öffnet, sähe die
+            // Räume, während die Adressleiste weiter „workspaces" behauptet — und
+            // teilte diesen Link erneut. Der `$watch` allein räumt das nicht auf, er
+            // feuert erst bei einer ÄNDERUNG. Ein `replaceState` auf denselben Wert ist
+            // im Normalfall ein No-op; `window.history.state` wird dabei unverändert
+            // durchgereicht, Livewires Eintrag bleibt also erhalten.
+            syncTabParam(this.tab)
+            ;(this as unknown as { $watch(p: string, cb: (v: string) => void): void }).$watch('tab', syncTabParam)
             // Dasselbe für den Filterzustand (Modus/Suche/Land): NUR replaceState, nie
             // pushState — ein eigener History-Eintrag pro Tastendruck im Suchfeld wäre
             // eine Zurück-Falle, und pushState auf einem Livewire-Eintrag löst beim

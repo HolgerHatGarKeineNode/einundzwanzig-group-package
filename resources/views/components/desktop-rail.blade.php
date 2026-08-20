@@ -166,27 +166,76 @@
                 <span>{{ __('Alle Räume & Entdecken') }}</span>
             </a>
 
-            {{-- Artikel (P7). Steht hier und NICHT als fünfte Rail-Gruppe: die Gruppen
-                 oben sind Räume (`RailRoom` verlangt ein `h`), ein Artikel ist keiner.
-                 Als Zeile neben „Alle Räume & Entdecken" beantwortet er dieselbe Frage
-                 wie diese — „und was noch?" — ohne die Gruppen-Achse zu verwässern. --}}
-            <a href="{{ route('group.articles') }}" wire:navigate
-               class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
-                <flux:icon.document-text variant="micro" class="size-4 shrink-0" />
-                <span>{{ __('Artikel') }}</span>
-            </a>
+            {{-- Hier stand bis 2026-08-20 die Zeile „Artikel". Sie ist in die FUSSZEILE
+                 gezogen, nicht gelöscht — der Grund steht dort. Was an dieser Stelle
+                 weiterhin gilt: sie gehört nicht in die Gruppenliste oben, denn die
+                 Gruppen sind Räume (`RailRoom` verlangt ein `h`) und ein Artikel ist
+                 keiner.
 
-            {{-- Hier stand bis P1 ein eigener „Forge"-Eintrag. Er ist weggefallen, weil
-                 er den Workspace zweimal beschrieb: die Repos liegen auf demselben
+                 Und hier stand bis P1 ein eigener „Forge"-Eintrag. Er ist weggefallen,
+                 weil er den Workspace zweimal beschrieb: die Repos liegen auf demselben
                  Relay wie die Kanäle darüber, und der Repo-Kanal `0V_…` stand flach
                  daneben, obwohl das 30617 per `buzz-channel` sagt, wohin er gehört.
-                 Die Übersichtsseite ist NICHT weggefallen — sie hängt jetzt am
-                 Sektionskopf (Name + `</>`-Icon), an der Faltungszeile und in der
-                 Befehlspalette. --}}
+                 `buzz-rail-forge` hält das als „Regel 1" fest. Die Übersichtsseite ist
+                 NICHT weggefallen — sie hängt am Sektionskopf (Name + `</>`-Icon), an
+                 der Faltungszeile und in der Befehlspalette. --}}
         </div>
 
-        {{-- Fußzeile: die drei Nav-Ziele, darunter Glocke und Identität. --}}
+        {{-- Fußzeile: Artikel, darunter die Nav-Ziele, darunter Glocke und Identität. --}}
         <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
+            {{-- ── „Artikel" steht HIER und nicht mehr im Scroller ──────────────────
+                 Die Artikel sind eine Fläche des Clients, aber keine Räume — und der
+                 Scroller darüber ist eine Raumliste. An deren Ende hing die Zeile
+                 faktisch hinter vier Gruppen (Räume · Workspace · Meetups ·
+                 Projektunterstützung), und deren Länge bestimmt der Relay, nicht das
+                 Layout: auf einem Space mit vielen Meetup-Gruppen war sie nur nach dem
+                 Durchscrollen aller vier zu erreichen. Die Fußzeile ist `shrink-0` und
+                 damit die einzige Fläche der Rail, die IMMER sichtbar ist — genau das
+                 Versprechen, das eine Hauptfläche braucht.
+
+                 ── Warum sie NICHT wie die Nav-Tabs darunter aussieht ───────────────
+                 Die Tabs darunter kommen aus `config('group.nav')` und sind in allen
+                 Hosts dieselbe Menge; diese Zeile ist es nicht. Sie trägt deshalb
+                 weiterhin die leisere Form aus dem Scroller (Micro-Icon, `font-medium`,
+                 `text-muted`) statt Markenfarbe und Aktiv-Balken. Die Trennung trägt
+                 Gewicht und Icon-Größe, KEINE weitere Haarlinie: die Fußzeile hat
+                 bereits zwei, und eine dritte auf so engem Raum wäre Gitter statt
+                 Gliederung.
+
+                 ── Aktiv-Zustand, den es vorher nicht gab ───────────────────────────
+                 Solange die Zeile im Scroller lag, war sie meist unsichtbar und ein
+                 Marker sinnlos. Sichtbar stehend muss sie „du bist hier" beantworten
+                 (Nielsen #1). Sie tut das über Textgewicht und Vordergrundfarbe plus
+                 `aria-current` — nicht über den brand-Ton der Nav-Tabs, der zur
+                 Registry-Sprache gehört. Die Vollansichten zählen mit: wer einen
+                 Artikel liest, ist unter „Artikel".
+
+                 ── Warum hier KEINE Forge-Zeile steht ───────────────────────────────
+                 Sie war beauftragt und ist bewusst nicht gebaut: `buzz-rail-forge`
+                 hält als „Regel 1" fest, dass die Rail keinen Link namens „Forge"
+                 trägt (`tests/e2e/buzz-rail-forge.spec.ts:353`), und die Begründung
+                 steht am Ende des Scrollers. Die Regel unter anderem Namen zu
+                 umgehen wäre keine Befolgung. Ob sie fallen soll, ist eine
+                 Entwurfsentscheidung und keine Nebenwirkung dieses Umbaus. --}}
+            {{-- `mb-2` = 8px aus der Abstands-Skala, nicht 4: die Nav-Tabs darunter
+                 stehen mit `gap-0.5` (2px) dicht beieinander. Ein 4px-Absatz läse sich
+                 als unsauberer Zeilenabstand innerhalb EINER Liste; 8px sind der
+                 sichtbare Unterschied zwischen „andere Gruppe" und „nächste Zeile".
+                 Das ist die Trennung, die hier die Haarlinie ersetzt. --}}
+            <div class="mb-2">
+                @php($articlesActive = request()->routeIs('group.articles', 'group.article'))
+                <a href="{{ route('group.articles') }}" wire:navigate
+                   @if ($articlesActive) aria-current="page" @endif
+                   @class([
+                       'pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
+                       'font-semibold text-zinc-900 dark:text-zinc-100' => $articlesActive,
+                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $articlesActive,
+                   ])>
+                    <flux:icon.document-text variant="micro" class="size-4 shrink-0" />
+                    <span>{{ __('Artikel') }}</span>
+                </a>
+            </div>
+
             <x-group::bottom-nav orientation="rail" />
 
             <div x-data="nostrAuth" class="mt-2 flex items-center gap-1 border-t border-zinc-200 pt-2 dark:border-zinc-800">
