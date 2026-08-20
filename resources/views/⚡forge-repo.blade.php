@@ -368,7 +368,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              Ein zweiter Knopf HIER machte aus dem
                                              `getByRole('button')` der E2E-Spec einen
                                              Strict-Mode-Treffer auf zwei Elemente. --}}
-                                        <button type="button" class="pressable flex w-full items-start gap-3 p-4 text-start"
+                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
                                                 x-on:click="toggle(issue.id)" :aria-expanded="open[issue.id] ? 'true' : 'false'">
                                             {{-- Der Statusknoten: GEFÜLLT heißt offen, ein
                                                  Ring heißt erledigt. Er ersetzt das immer
@@ -400,7 +400,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     </span>
                                                 </template>
                                             </span>
-                                            <span class="flex shrink-0 items-center gap-2.5">
+                                            {{-- Auf schmalen Schirmen eine EIGENE Zeile
+                                                 (`basis-full`), erst ab `sm` wieder rechts
+                                                 neben dem Titel.
+
+                                                 Vorher stand sie dort immer, `shrink-0`
+                                                 neben einem `flex-1`-Titel — und
+                                                 „GESCHLOSSEN" samt Commit-Kurzform und
+                                                 Zähler nahm auf einem 390-px-Schirm gut
+                                                 die halbe Breite. Ein vierzeiliger Umbruch
+                                                 eines Titels, der in zwei gepasst hätte,
+                                                 am Gerät gesehen (2026-08-20).
+
+                                                 `ps-7` setzt sie unter den Titel statt
+                                                 unter den Statuspunkt: 16 px Punkt + 12 px
+                                                 Abstand. --}}
+                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
                                                 {{-- Der optimistische Eintrag sagt, dass er noch
                                                      unterwegs ist. Ein `span` INNERHALB des
                                                      bestehenden Knopfes, kein zweiter Knopf. --}}
@@ -548,7 +563,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <ul x-show="view.pullRequests.length > 0" class="surface-card">
                                 <template x-for="pr in view.pullRequests" :key="pr.id">
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-pr :data-status="pr.status" :data-id="pr.id">
-                                        <button type="button" class="pressable flex w-full items-start gap-3 p-4 text-start"
+                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
                                                 x-on:click="toggle(pr.id)" :aria-expanded="open[pr.id] ? 'true' : 'false'">
                                             {{-- Derselbe Statusknoten wie bei den Issues:
                                                  gefüllt = offen, Ring = zusammengeführt oder
@@ -573,7 +588,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                           : @js(__(':name hat ihn eröffnet.'))).split(':name').join(pr.authorName)
                                                           + ' · ' + pr.timeLabel"></span>
                                             </span>
-                                            <span class="flex shrink-0 items-center gap-2.5">
+                                            {{-- Auf schmalen Schirmen eine EIGENE Zeile
+                                                 (`basis-full`), erst ab `sm` wieder rechts
+                                                 neben dem Titel.
+
+                                                 Vorher stand sie dort immer, `shrink-0`
+                                                 neben einem `flex-1`-Titel — und
+                                                 „GESCHLOSSEN" samt Commit-Kurzform und
+                                                 Zähler nahm auf einem 390-px-Schirm gut
+                                                 die halbe Breite. Ein vierzeiliger Umbruch
+                                                 eines Titels, der in zwei gepasst hätte,
+                                                 am Gerät gesehen (2026-08-20).
+
+                                                 `ps-7` setzt sie unter den Titel statt
+                                                 unter den Statuspunkt: 16 px Punkt + 12 px
+                                                 Abstand. --}}
+                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
                                                 <template x-if="pr.shortCommit">
                                                     <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
                                                           x-text="pr.shortCommit"></span>
