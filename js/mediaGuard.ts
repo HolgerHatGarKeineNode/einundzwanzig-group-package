@@ -15,7 +15,7 @@
  *
  * Diese Wache steht deshalb nicht an den Flächen, sondern an der Engstelle: JEDE
  * Bild-URL der Insel läuft durch `proxifyImage` (`core.ts`) — Chat-Anhänge
- * (`feeds.ts:66`), Artikelbilder (`longformFeed.ts:165`), Custom-Emoji
+ * (`feeds.ts:66`), Artikelbilder (`longformFeed.ts`, `renderCached`), Custom-Emoji
  * (`emoji.ts:129`), Avatare und Banner. Eine Fläche, die den Blossom-Weg vergisst,
  * zeigt damit **nichts** statt zu lecken.
  *

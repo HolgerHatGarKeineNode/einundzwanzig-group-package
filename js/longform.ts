@@ -5,7 +5,8 @@
  * ohne Relay und ohne Mocks läuft (`longform.test.ts`). Die Netz- und Store-Seite liegt
  * in `longformFeed.ts` — dieselbe Aufteilung wie `pins.ts`/`roomPins.ts` und
  * `search.ts`/`roomSearch.ts`. Einzige Fremdimporte sind `markdown-it` und
- * `nostr-tools/nip19` (Präzedenzfall: `nostrEventLink.ts:27`).
+ * `nostr-tools/nip19` (Präzedenzfall: `nostrEventLink.ts:27`); dazu ein reiner
+ * **Typ**-Import aus `search.ts` (zur Laufzeit weggestrippt, kein Modul mehr im Graph).
  *
  * ── `html: false` ist hier die SICHERHEITSGRENZE, keine Stileinstellung ──────────────
  *
@@ -53,6 +54,7 @@ import MarkdownIt from 'markdown-it'
 import type { Env, Token } from 'markdown-it'
 import * as nip19 from 'nostr-tools/nip19'
 import { BLOSSOM_SRC_ATTR, blossomMarkerFor } from './blossomMarkup.ts'
+import type { SearchableRow } from './search.ts'
 
 /** NIP-23: der publizierte Longform-Artikel (adressierbar, `d` = Kennung). */
 export const LONGFORM = 30023
@@ -389,6 +391,318 @@ export const articleSnippet = (content: string, max = 160): string => {
 }
 
 /**
+ * Lesegeschwindigkeit in Wörtern pro Minute.
+ *
+ * 200 wpm ist der übliche Mittelwert für stilles Lesen von Sachtext. Die Zahl ist eine
+ * Festlegung, keine Messung — sie steht hier als Konstante, damit sie an genau einer
+ * Stelle geändert werden kann und ein Test sie **wörtlich** festhalten kann.
+ */
+export const WORDS_PER_MINUTE = 200
+
+/** Leerraum-Codepoints, an denen {@link readingTime} Wörter trennt (inkl. NBSP). */
+const WHITESPACE_CODES = new Set([9, 10, 11, 12, 13, 32, 0x00a0])
+
+/**
+ * Lesezeit eines Artikels in **ganzen Minuten**, aufgerundet.
+ *
+ * **`Math.ceil`, nicht `Math.round`** — das ist die eigentliche Aussage dieser Funktion:
+ * ein Artikel mit einem einzigen Wort braucht 1 Minute, nicht 0. Gerundet ergäbe alles
+ * unter 100 Wörtern „0 Min.", und eine Null ist für den Leser keine Angabe, sondern ein
+ * Fehler. `0` bleibt genau einem Fall vorbehalten: dem leeren Text — die Oberfläche kann
+ * die Angabe dann weglassen (dieselbe Regel wie „Metriken mit Wert 0 werden nicht
+ * gezeigt").
+ *
+ * Das Frontmatter fällt vorher weg ({@link stripFrontmatter}): `type: gallery` ist kein
+ * Text, den jemand liest.
+ *
+ * **Warum hier NICHT gestrippt wird, was {@link stripDataUris} entfernt:** gemessen am
+ * größten Artikel des Bestands (245 875 Zeichen, davon 243 230 in einem eingebetteten
+ * base64-PNG) ergibt die Zählung **314** Wörter roh und **315** ohne die Data-URI. Ein
+ * base64-Block enthält keinen Leerraum (0 von 104 Artikeln, nachgemessen) und zählt
+ * deshalb als genau EIN Wort — er verfälscht die Lesezeit nicht. Ein zusätzlicher
+ * Strip-Durchlauf kostete eine Kopie des Textes für einen Unterschied von einem Wort.
+ *
+ * Gezählt wird ohne `split()`: eine lineare Schleife über die Code-Units, kein Array von
+ * hunderttausend Einträgen und kein Regex-Rückzug auf 245 kB Fremdtext.
+ */
+export const readingTime = (content: string): number => {
+    const text = stripFrontmatter(content)
+    let words = 0
+    let inWord = false
+    for (let i = 0; i < text.length; i++) {
+        if (WHITESPACE_CODES.has(text.charCodeAt(i))) {
+            inWord = false
+        } else if (!inWord) {
+            inWord = true
+            words++
+        }
+    }
+
+    return Math.ceil(words / WORDS_PER_MINUTE)
+}
+
+/**
+ * Eingebettete `data:…;base64,…`-Nutzlast, wie sie in Artikeltexten vorkommt.
+ *
+ * Die Zeichenklasse des base64-Teils enthält **bewusst keinen Leerraum**: sonst liefe der
+ * Treffer über das Ende der URI hinaus in den folgenden Fließtext (dessen Buchstaben
+ * allesamt in `[A-Za-z0-9+/=]` liegen) und löschte echten Autorentext. Im Bestand ist
+ * kein einziger base64-Block umbrochen (2026-08-20 über 104 Artikel gemessen), die enge
+ * Klasse kostet also nichts.
+ *
+ * Die Längenschranken sind Hausregel (vgl. {@link articleSnippet}): jede Quantorenweite
+ * ist begrenzt. 10 000 000 liegt weit über jeder Event-Größe, die ein Relay annimmt —
+ * die Schranke bremst nichts Echtes, sie deckelt nur den pathologischen Fall.
+ */
+const DATA_URI = /data:[a-zA-Z0-9!#$&^_+.\/-]{0,120};base64,[A-Za-z0-9+\/=]{0,10000000}/g
+
+/**
+ * Entfernt eingebettete base64-Nutzlasten aus einem Artikeltext.
+ *
+ * **Wofür das da ist: die Suche, nicht die Anzeige.** Gemessen am echten Bestand
+ * (104 Artikel, 2026-08-20):
+ *
+ * | | Zeichen | ms je Tastendruck | „bitcoin"-Treffer |
+ * |---|---|---|---|
+ * | roh | 1 324 075 | 181,6 | 75 |
+ * | ohne Data-URIs | 458 687 | 56,5 | 75 |
+ * | ohne Data-URIs, auf 8 000 gekappt | 409 815 | 50,8 | **74** |
+ *
+ * **66 % des gesamten Bestandstextes sind base64.** Ihn wegzuschneiden drittelt die
+ * Suchlaufzeit, ohne einen einzigen echten Treffer zu kosten — Kappen dagegen kostet ab
+ * 8 000 Zeichen bereits Treffer und spart nur noch Millisekunden. Deshalb: **strippen,
+ * nicht kappen.**
+ *
+ * Der zweite Grund wiegt schwerer als die Laufzeit: base64 ist alphanumerisches Rauschen
+ * und erzeugt **Falschtreffer**. Gemessen finden `iVBOR` 5, `gaaa` 5, `sad` 7 und `adeq`
+ * 2 Artikel — nach dem Strippen 0, 0, 2 und 0. Ein Nutzer, der „sad" sucht, bekäme heute
+ * fünf Artikel angeboten, in denen das Wort nirgends steht.
+ *
+ * Der Durchlauf kostet über den ganzen Bestand 3,0 ms und gehört **einmal je Liste**
+ * ausgeführt, nicht je Tastendruck — siehe {@link articleSearchText}.
+ */
+export const stripDataUris = (text: string): string => text.replace(DATA_URI, ' ')
+
+/**
+ * Was eine Zeile mitbringen muss, um durchsuchbar gemacht zu werden.
+ *
+ * Bewusst **strukturell** statt `ArticleRow` importiert zu bekommen: der Typ deckt sich
+ * mit {@link ArticleRow}, aber diese Funktion ist auf keinen ihrer übrigen Felder
+ * angewiesen — und ein struktureller Vertrag hält auch, wenn P4 die Autorenseite mit
+ * einer eigenen, schmaleren Zeile ankommt.
+ */
+export type ArticleSearchInput = {
+    id: string
+    title: string
+    teaser: string
+    content: string
+    authorName: string
+    publishedAt: number
+}
+
+/**
+ * Artikelzeile → durchsuchbare Zeile (`SearchableRow`-Vertrag aus `search.ts`).
+ *
+ * **Das `created_at` ist der stille Punkt.** `searchMessages` sortiert seine Treffer
+ * absteigend nach `row.created_at` (`search.ts`, `searchMessages`); eine `ArticleRow`
+ * trägt dieses Feld nicht von selbst. Ohne diesen Adapter wäre es `undefined`, und
+ * `b.created_at - a.created_at` ergäbe `NaN` — die Sortierung fiele auf die Reihenfolge
+ * des Eingangsarrays zurück, ohne dass irgendetwas rot würde.
+ *
+ * **Gefüllt wird es mit `publishedAt`, nicht mit `createdAt`** — und das ist eine
+ * Entscheidung, keine Namensgleichheit: die Liste sortiert nach `publishedAt`
+ * ({@link ArticleRow}), die Karte zeigt `publishedAt` als Datum. Nähme die Suche
+ * stattdessen `created_at` (die Zeit der letzten *Überarbeitung* eines ersetzbaren
+ * Events), hätte derselbe Bestand zwei Ordnungen, und ein Leser sähe nach dem Tippen
+ * eine andere Reihenfolge als davor. Dass `publishedAt` dabei nicht entgleisen kann,
+ * sichert {@link PUBLISHED_AT_MAX}.
+ *
+ * **Einmal je Liste aufrufen, nicht je Tastendruck.** {@link stripDataUris} kostet über
+ * den Bestand 3,0 ms; in der Tastendruck-Schleife wäre das ein Vielfaches der Suche
+ * selbst. Das Ergebnis hängt nur an der Zeile, ist also merkbar.
+ */
+export const articleSearchText = <T extends ArticleSearchInput>(row: T): T & SearchableRow => ({
+    ...row,
+    // Titel und Teaser stehen VOR dem Fließtext: sie sind kurz, und der Ausschnitt in
+    // der Trefferliste beginnt am ersten Fund — ein Treffer im Titel soll den Titel
+    // zeigen, nicht eine Stelle aus Absatz neun.
+    text: `${row.title}\n${row.teaser}\n${stripDataUris(row.content)}`,
+    name: row.authorName,
+    created_at: row.publishedAt,
+})
+
+/** Winkel des Cover-Verlaufs in Grad. */
+export const COVER_GRADIENT_ANGLE = 135
+
+/**
+ * Farbpaare für das Ersatz-Titelbild. **Jede Farbe ist dunkel genug für weiße Schrift**
+ * (gemessen: schlechtestes Paar 8,34:1 gegen Weiß, WCAG AA verlangt 4,5:1) — das Cover
+ * trägt in der Karte den Titel, und ein hübsches Pastell machte ihn unlesbar. Ein Test
+ * hält die Schranke fest, damit eine spätere „schönere" Palette nicht still durchrutscht.
+ *
+ * Acht Paare, damit die 14 coverlosen Artikel nicht wie eine Serie aussehen; das erste
+ * Paar ist die Marken-Orange-Achse (`theme.css`, `--color-brand-900/950`).
+ */
+export const COVER_PALETTE: readonly (readonly [string, string])[] = [
+    ['#7b3d10', '#421d06'],
+    ['#1e3a8a', '#0f172a'],
+    ['#14532d', '#052e16'],
+    ['#7f1d1d', '#450a0a'],
+    ['#164e63', '#083344'],
+    ['#4c1d95', '#2e1065'],
+    ['#404040', '#171717'],
+    ['#78350f', '#431407'],
+]
+
+/**
+ * FNV-1a, 32 Bit, **mit Nachmischung**. Kein kryptographischer Hash und keiner nötig:
+ * gesucht ist eine stabile Streuung über acht Paare, kein Angriffswiderstand.
+ *
+ * ── Die Nachmischung ist nicht Zierrat, sie repariert einen echten Fehlschlag ────────
+ *
+ * FNV-1a hat schwache **niedrige** Bits — und `% COVER_PALETTE.length` liest genau die.
+ * Der Grund ist strukturell: modulo einer Zweierpotenz ist die Rekurrenz
+ * `s' = (s xor c) * 0x01000193` in sich geschlossen, sie hängt also nur von den unteren
+ * Bits der Eingabezeichen ab. Mit `% 8` läuft der Zustand für ein Zeichen mit `c % 8 == 2`
+ * (`'b'`) sofort in den Fixpunkt 5, für `c % 8 == 1` (`'a'`) in einen Zyklus der Länge 8 —
+ * nach 64 gleichen Zeichen stehen **beide** auf 5. Beim Bauen dieser Funktion gemessen:
+ * `'a'.repeat(64)` und `'b'.repeat(64)` bekamen für **jede** Kennung denselben Verlauf,
+ * obwohl der Autor ein anderer war. Der Test, der das fand, steht in `longform.test.ts`.
+ *
+ * Die Nachmischung (xorshift/multiply, Bauform von Murmur3s `fmix32`) trägt die hohen
+ * Bits in die niedrigen und macht das ganze Wort brauchbar. `>>> 0` hält das Ergebnis
+ * vorzeichenlos — ohne das lieferte `% length` bei negativem Zwischenwert einen negativen
+ * Index und damit `undefined`.
+ */
+const fnv1a32 = (text: string): number => {
+    let hash = 0x811c9dc5
+    for (let i = 0; i < text.length; i++) {
+        hash ^= text.charCodeAt(i)
+        hash = Math.imul(hash, 0x01000193)
+    }
+    hash ^= hash >>> 16
+    hash = Math.imul(hash, 0x21f0aaad)
+    hash ^= hash >>> 15
+    hash = Math.imul(hash, 0x735a2d97)
+    hash ^= hash >>> 15
+
+    return hash >>> 0
+}
+
+/** Ein Ersatz-Titelbild: die beiden Farben und der fertige CSS-Wert. */
+export type ArticleGradient = {
+    from: string
+    to: string
+    /** Direkt als `style="background-image: …"` bindbar. */
+    css: string
+}
+
+/**
+ * Deterministischer Zwei-Farb-Verlauf als Ersatz-Titelbild (14 von 104 Artikeln haben
+ * kein `image`-Tag).
+ *
+ * **Die Eingabe ist `pubkey` + `d`, ausdrücklich NICHT der Titel.** Ein 30023 ist
+ * ersetzbar: derselbe Artikel bekommt bei jeder Überarbeitung eine neue Event-Id und
+ * womöglich einen neuen Titel. Hinge der Verlauf am Titel, wechselte ein Artikel beim
+ * Umbenennen die Farbe — der Leser sähe eine fremde Karte an vertrauter Stelle. `pubkey`
+ * und `d` sind die einzigen beiden Felder, die über alle Fassungen hinweg gleich bleiben;
+ * zusammen sind sie die Adresse des Artikels (NIP-01 `a`-Tag, ohne das Kind). Dass der
+ * Titel nicht durchschlagen kann, ist hier **strukturell** gesichert: er ist kein
+ * Parameter.
+ *
+ * Das `:` zwischen beiden Teilen steht aus demselben Grund wie im `a`-Tag: es macht die
+ * Grenze eindeutig, statt sie aus der Länge des Hex-Schlüssels zu folgern.
+ */
+export const coverGradient = (pubkey: string, identifier: string): ArticleGradient => {
+    const [from, to] = COVER_PALETTE[fnv1a32(`${pubkey}:${identifier}`) % COVER_PALETTE.length]
+
+    return { from, to, css: `linear-gradient(${COVER_GRADIENT_ANGLE}deg, ${from}, ${to})` }
+}
+
+/** Eine Audio-Anlage am Artikel — was ein Player daraus bauen kann. */
+export type PodcastEpisode = {
+    /** Die `url` aus dem `imeta` (nur `http`/`https`). */
+    url: string
+    /** Der `m`-Wert, roh — für `<source type>`. */
+    mimeType: string
+    /** Dauer in ganzen Sekunden; `0`, wenn keine angegeben ist (siehe unten). */
+    durationSeconds: number
+}
+
+/**
+ * Ein `imeta`-Tag in seine Felder zerlegen (NIP-92: „variadic, space-delimited
+ * key/value pair"). Getrennt wird am **ersten** Leerzeichen — der Wert darf selbst
+ * welche enthalten (`alt A scenic photo …` aus dem Spec-Beispiel).
+ */
+const imetaFields = (tag: string[]): Map<string, string> => {
+    const fields = new Map<string, string>()
+    for (const entry of tag.slice(1)) {
+        if (typeof entry !== 'string') {
+            continue
+        }
+        const at = entry.indexOf(' ')
+        if (at > 0 && !fields.has(entry.slice(0, at))) {
+            fields.set(entry.slice(0, at), entry.slice(at + 1).trim())
+        }
+    }
+
+    return fields
+}
+
+/** Dauer in Sekunden aus einem Feld-/Tag-Wert; `0` bei allem Unbrauchbaren. */
+const toSeconds = (raw: string | undefined): number => {
+    const value = Number(raw)
+
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : 0
+}
+
+/**
+ * Erkennt eine Podcast-Episode: ein `imeta` (NIP-92) mit einem **Audio**-`m`-Wert.
+ *
+ * 14 der 104 Artikel sind solche Episoden — fremde Podcasts über vier Bridge-Konten. Sie
+ * bekommen in P2 eine eigene Darstellungsklasse mit Player; alles andere bekommt keinen.
+ *
+ * **Die Prüfung hängt am `m`-Wert, nicht an der bloßen Existenz eines `imeta`.** Genau
+ * ein Artikel des Bestands trägt ein `imeta` mit `m image/webp` — er ist kein Podcast,
+ * und ein Audio-Player unter einem Bild wäre der sichtbare Fehler. Geprüft wird das
+ * Präfix `audio/`, nicht `audio/mpeg`: NIP-94 schreibt kleingeschriebene MIME-Typen vor,
+ * und ein `audio/mp4` ist dieselbe Sache.
+ *
+ * **Ohne brauchbare `url` gilt es nicht als Episode.** NIP-92 verlangt ohnehin ein `url`
+ * je `imeta`; ein Player ohne Quelle wäre ein Bedienelement, das nichts tut. Zugelassen
+ * sind nur `http`/`https` — dieselbe Linie, die der Renderer für Links zieht.
+ *
+ * **Zur Dauer, gemessen statt angenommen:** NIP-92 erlaubt in `imeta` die Felder aus
+ * NIP-94, und **NIP-94 kennt kein `duration`**. Die Dauer ist in NIP-71 spezifiziert —
+ * dort sowohl als `imeta`-Feld als auch als eigenes Tag, in Sekunden. Beide werden hier
+ * gelesen (`imeta` zuerst). **Im aktuellen Bestand trägt keine einzige der 14 Episoden
+ * eine Dauer** (die `imeta`-Tags enthalten ausschließlich `m` und `url`, 2026-08-20
+ * nachgemessen) — die Oberfläche muss den Fall `0` also als Normalfall tragen, nicht als
+ * Randfall.
+ */
+export const isPodcastEpisode = (tags: string[][]): PodcastEpisode | null => {
+    for (const tag of tags) {
+        if (tag[0] !== 'imeta') {
+            continue
+        }
+        const fields = imetaFields(tag)
+        const mimeType = fields.get('m') ?? ''
+        const url = fields.get('url') ?? ''
+        if (!mimeType.toLowerCase().startsWith('audio/') || !/^https?:\/\//i.test(url)) {
+            continue
+        }
+
+        return {
+            url,
+            mimeType,
+            durationSeconds: toSeconds(fields.get('duration') ?? firstTag(tags, 'duration')),
+        }
+    }
+
+    return null
+}
+
+/**
  * `naddr` eines Artikels (NIP-19) — die Kennung in der URL.
  *
  * Ein `naddr` trägt Kind, Autor und `d` und ist damit **portabel**: der Link funktioniert
@@ -424,5 +738,155 @@ export const decodeArticleNaddr = (naddr: string): ArticleAddress | null => {
         return { pubkey: decoded.data.pubkey, identifier: decoded.data.identifier }
     } catch {
         return null
+    }
+}
+
+/**
+ * Eine Zeile der Artikelliste. Reiner Anzeigezustand — kein Markdown, kein HTML.
+ *
+ * **Wohnt hier und nicht in `longformFeed.ts`, seit P1**: die Zeile ist der gemeinsame
+ * Nenner der Artikelfläche (Liste, Vollansicht, Suche, Autorenseite), und sie zu bauen
+ * verlangt nichts von welshman außer zwei Anzeigewerten, die {@link ArticleRowDeps}
+ * hereinreicht. `longformFeed.ts` re-exportiert den Typ unverändert weiter — für jeden
+ * Importeur (heute: `bridge.ts`) ändert sich nichts.
+ */
+export type ArticleRow = {
+    /** Event-Id — nur als `:key` der Liste. Sie wechselt bei jeder Änderung des Artikels. */
+    id: string
+    /**
+     * Der Autor. **Die Adresse, nicht der Name** — zwei Autoren dürfen gleich heißen.
+     *
+     * Trägt die Autoren-Hovercard (`$dispatch('open-profile', pubkey)`, an sechs Stellen
+     * produktiv) und in P4 die Filterung der Autorenseite.
+     */
+    pubkey: string
+    /** `naddr` (NIP-19) — die portable Kennung in der URL. `''`, wenn das `d` fehlt. */
+    naddr: string
+    title: string
+    /** `summary`-Tag, sonst eine Fließtext-Vorschau aus dem Artikel selbst. */
+    teaser: string
+    /**
+     * Titelbild, ROH wie im Tag — `''`, wenn keins gesetzt ist.
+     *
+     * Der Bild-Proxy läuft erst in der Oberfläche (`$img(row.image, 'msg')`), wie bei
+     * `room.picture` in `room-tile.blade.php:21` und `space.banner` in
+     * `⚡spaces.blade.php:189`. Der Grund ist nicht Geschmack: `x-group::nostr-avatar`
+     * proxifiziert seinen Wert SELBST — ein hier schon proxifizierter Wert liefe durch
+     * den Proxy zweimal und käme als 404 zurück.
+     */
+    image: string
+    /**
+     * Der **rohe** Artikeltext, unverändert wie im Event.
+     *
+     * ── Warum roh, und warum das nichts kostet ────────────────────────────────────────
+     *
+     * Die naheliegende Sorge ist der Speicher: der größte Artikel des Bestands ist
+     * 245 875 Zeichen groß (243 230 davon ein eingebettetes base64-PNG), der ganze
+     * Bestand 1 324 075 Zeichen. Die Sorge trägt nicht. Ein JS-String ist unveränderlich
+     * und wird per Referenz weitergereicht; `event.content` liegt ohnehin für die Dauer
+     * der Sitzung im `repository`. Dieses Feld ist ein **Zeiger auf denselben String**,
+     * keine Kopie — es kostet acht Byte je Zeile, nicht 245 kB.
+     *
+     * ── Was tatsächlich teuer ist, und wo es behoben wird ─────────────────────────────
+     *
+     * Teuer ist nicht das Halten, sondern das **Falten** in der Suche: `search.ts` baut
+     * je Treffersuche eine Index-Tabelle über jedes Zeichen. Roh gemessen (2026-08-20,
+     * 104 Artikel): **181,6 ms je Tastendruck**, dazu Falschtreffer aus dem base64-Müll.
+     * Das ist ein Problem der SUCHE, nicht der Zeile — und es wird dort gelöst, wo es
+     * entsteht: {@link articleSearchText} strippt die Data-URIs (56,5 ms, gleiche
+     * Trefferzahl, keine Falschtreffer).
+     *
+     * **Deshalb ist dieses Feld roh und nicht gekappt.** Ein gekappter Text hier hätte
+     * jeden späteren Verbraucher auf die Suchgrenze festgelegt: die Lesezeit zählte dann
+     * die Wörter eines abgeschnittenen Artikels, und der Lesefortschritt aus P3 rechnete
+     * gegen eine falsche Länge. Gemessen ist Kappen ohnehin der schlechtere Hebel — ab
+     * 8 000 Zeichen kostet es echte Treffer und spart nur noch Millisekunden (Tabelle bei
+     * {@link stripDataUris}).
+     */
+    content: string
+    authorName: string
+    /** Avatar des Autors, ROH — `x-group::nostr-avatar` proxifiziert selbst. */
+    authorPicture: string
+    /**
+     * Erstveröffentlichung in Sekunden (`published_at`, sonst `created_at`).
+     *
+     * **Das Sortier- und Anzeigefeld der Fläche** — nicht {@link ArticleRow.createdAt}.
+     */
+    publishedAt: number
+    /**
+     * `created_at` des Events, roh — die Zeit der **letzten Überarbeitung**.
+     *
+     * Nicht mit {@link ArticleRow.publishedAt} verwechseln: bei einem ersetzbaren Event
+     * sind das zwei verschiedene Zeitpunkte, und im Bestand driften sie in 13 Fällen bis
+     * zu 164 Tage auseinander. Steht hier, weil P2 einen Sortier-Umschalter darauf
+     * anbietet und weil „zuletzt geändert" eine eigene, legitime Frage ist. Die
+     * **Feldwahl der Liste bleibt `publishedAt`** (Begründung im Plan unter „Verworfen").
+     */
+    createdAt: number
+    dateLabel: string
+    topics: string[]
+}
+
+/**
+ * Was zum Bauen einer {@link ArticleRow} von außen hereinkommt.
+ *
+ * Alles vier stammt aus der welshman- bzw. Locale-Seite und wird deshalb **übergeben,
+ * nicht importiert** — genau das hält dieses Modul rein und `buildArticleRow` unter
+ * `node --test` prüfbar (siehe Modulkopf).
+ */
+export type ArticleRowDeps = {
+    /** Anzeigename des Autors (`displayProfileByPubkey`), sonst die npub-Kurzform. */
+    authorName: string
+    /** Avatar-URL, roh. */
+    authorPicture: string
+    /** Relay-Hints für den `naddr` — leer ist zulässig. */
+    relays: string[]
+    /** Datumsformatierer (`locale.ts`, `formatTimestamp`). */
+    formatDate: (ts: number) => string
+}
+
+/**
+ * Das Minimum, das ein 30023 mitbringen muss, um eine Zeile zu werden.
+ *
+ * Strukturell statt `TrustedEvent`: ein Typ-Import aus `@welshman/util` wäre zwar zur
+ * Laufzeit weggestrippt, aber der Vertrag dieser Funktion ist tatsächlich nur dieser
+ * Ausschnitt — und ein Test darf ein Fixture bauen, ohne es zu signieren.
+ */
+export type ArticleEventLike = {
+    id: string
+    pubkey: string
+    content: string
+    created_at: number
+    tags: string[][]
+}
+
+/**
+ * Event → Listenzeile. **Der einzige Ort, an dem aus einem 30023 Anzeigezustand wird.**
+ *
+ * `longformFeed.ts` (`toRow`) reicht nur noch die vier Werte aus
+ * {@link ArticleRowDeps} an. Dass es genau einen Bauweg gibt, ist die Zusage, an der
+ * Liste und Vollansicht dieselbe Zeile bekommen.
+ *
+ * **`createdAt` kommt aus `event.created_at`, `publishedAt` aus dem Tag** — siehe
+ * {@link readArticleTags}. Die beiden zu vertauschen ist der Fehler, den `longformFeed.test.ts`
+ * an einem Fixture festnagelt, in dem sie verschieden sind.
+ */
+export const buildArticleRow = (event: ArticleEventLike, deps: ArticleRowDeps): ArticleRow => {
+    const tags = readArticleTags(event.tags, event.created_at)
+
+    return {
+        id: event.id,
+        pubkey: event.pubkey,
+        naddr: tags.identifier ? naddrForArticle(event.pubkey, tags.identifier, deps.relays) : '',
+        title: tags.title,
+        teaser: tags.summary || articleSnippet(event.content),
+        image: tags.image,
+        content: event.content,
+        authorName: deps.authorName,
+        authorPicture: deps.authorPicture,
+        publishedAt: tags.publishedAt,
+        createdAt: event.created_at,
+        dateLabel: deps.formatDate(tags.publishedAt),
+        topics: tags.topics,
     }
 }

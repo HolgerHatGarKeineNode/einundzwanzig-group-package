@@ -39,12 +39,11 @@ import { proxifyImage } from './core'
 import { formatTimestamp } from './locale'
 import {
     LONGFORM,
-    articleSnippet,
+    buildArticleRow,
     decodeArticleNaddr,
-    naddrForArticle,
-    readArticleTags,
     renderArticleHtml,
     type ArticleAddress,
+    type ArticleRow,
 } from './longform'
 import { warmProfiles } from './profiles'
 import { deriveEventsForUrl } from './repository'
@@ -69,33 +68,17 @@ export const BOARD_URL = ((): string => {
 /** Wie viele Artikel der Bestands-Load höchstens holt. */
 export const ARTICLE_LOAD_LIMIT = 200
 
-/** Eine Zeile der Artikelliste. Reiner Anzeigezustand — kein Markdown, kein HTML. */
-export type ArticleRow = {
-    /** Event-Id — nur als `:key` der Liste. Sie wechselt bei jeder Änderung des Artikels. */
-    id: string
-    /** `naddr` (NIP-19) — die portable Kennung in der URL. `''`, wenn das `d` fehlt. */
-    naddr: string
-    title: string
-    /** `summary`-Tag, sonst eine Fließtext-Vorschau aus dem Artikel selbst. */
-    teaser: string
-    /**
-     * Titelbild, ROH wie im Tag — `''`, wenn keins gesetzt ist.
-     *
-     * Der Bild-Proxy läuft erst in der Oberfläche (`$img(row.image, 'msg')`), wie bei
-     * `room.picture` in `room-tile.blade.php:21` und `space.banner` in
-     * `⚡spaces.blade.php:189`. Der Grund ist nicht Geschmack: `x-group::nostr-avatar`
-     * proxifiziert seinen Wert SELBST — ein hier schon proxifizierter Wert liefe durch
-     * den Proxy zweimal und käme als 404 zurück.
-     */
-    image: string
-    authorName: string
-    /** Avatar des Autors, ROH — `x-group::nostr-avatar` proxifiziert selbst. */
-    authorPicture: string
-    /** Erstveröffentlichung in Sekunden (`published_at`, sonst `created_at`). */
-    publishedAt: number
-    dateLabel: string
-    topics: string[]
-}
+/**
+ * Eine Zeile der Artikelliste — **der Typ wohnt seit P1 im reinen `longform.ts`** und
+ * wird hier nur durchgereicht.
+ *
+ * Der Umzug ist keine Kosmetik: `toRow` war der Kernbeweis dieser Fläche und lag in einem
+ * Modul, das sich unter `node --test` nicht importieren lässt (gemessen 2026-08-20: 13
+ * endungslose relative Importe in der Kette ab hier, und danach bootet `session.ts` beim
+ * Import ein `localStorage`, das es in node nicht gibt). Die Adresse des Typs bleibt
+ * absichtlich diese hier, damit `bridge.ts` unverändert bleibt.
+ */
+export type { ArticleRow } from './longform'
 
 /** Die Vollansicht: eine {@link ArticleRow} plus dem gerenderten Artikeltext. */
 export type ArticleView = ArticleRow & {
@@ -128,23 +111,21 @@ const addressFilters = (address: ArticleAddress): Filter[] => [
     { kinds: [LONGFORM], authors: [address.pubkey], '#d': [address.identifier] },
 ]
 
-/** Event → Listenzeile. Der einzige Ort, an dem aus einem 30023 Anzeigezustand wird. */
-const toRow = (event: TrustedEvent, picture: string): ArticleRow => {
-    const tags = readArticleTags(event.tags, event.created_at)
-
-    return {
-        id: event.id,
-        naddr: tags.identifier ? naddrForArticle(event.pubkey, tags.identifier, BOARD_URL ? [BOARD_URL] : []) : '',
-        title: tags.title,
-        teaser: tags.summary || articleSnippet(event.content),
-        image: tags.image,
+/**
+ * Event → Listenzeile: die welshman-Seite von {@link buildArticleRow}.
+ *
+ * Hier steht ausschließlich, WOHER die vier Anzeigewerte kommen — gebaut wird die Zeile
+ * im reinen Modul, und zwar an genau einer Stelle. Was diese Funktion noch entscheiden
+ * kann, ist damit auf diese vier Zuweisungen geschrumpft; alles Fachliche (Feldwahl,
+ * `naddr`, Teaser, Datumsfeld) liegt geprüft nebenan.
+ */
+const toRow = (event: TrustedEvent, picture: string): ArticleRow =>
+    buildArticleRow(event, {
         authorName: displayProfileByPubkey(event.pubkey),
         authorPicture: picture,
-        publishedAt: tags.publishedAt,
-        dateLabel: dateLabel(tags.publishedAt),
-        topics: tags.topics,
-    }
-}
+        relays: BOARD_URL ? [BOARD_URL] : [],
+        formatDate: dateLabel,
+    })
 
 /**
  * Der gerenderte Artikeltext, gemerkt je Event-Id.
