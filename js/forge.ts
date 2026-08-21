@@ -49,6 +49,7 @@ import { formatTimestamp } from './locale'
 import { warmProfiles } from './profiles'
 import { deriveEventsForUrl } from './repository'
 import { WORKSPACE_URL, deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
+import { DEFAULT_FORGE_TAB, FORGE_TAB_PARAM, readForgeTab } from './forgeTab.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
 import {
     groupTimeline,
@@ -1293,7 +1294,12 @@ export function wireForge(Alpine: {
             // entscheiden (siehe `spaceCaps.ts`). Wer hier zweiwertig anfängt,
             // baut die Mount-Falle nach.
             kind: 'unknown',
-            tab: 'activity',
+            // Der Tab kommt aus `?tab=`, wenn er dort steht — und er wird auch dorthin
+            // zurückgeschrieben (siehe `init`). Beide Richtungen, weil sonst genau der
+            // Fehler entsteht, gegen den `forgeTab.ts` geschrieben ist: die Adresse
+            // behauptet einen Tab, der Bildschirm zeigt einen anderen. Seit P5 ist das
+            // hier nicht mehr theoretisch — `/spaces?tab=workspaces` LEITET hierher.
+            tab: readForgeTab(window.location.search),
             overview: EMPTY_OVERVIEW,
             _base: String(base ?? '').replace(/\/+$/, ''),
             _dead: false,
@@ -1303,6 +1309,28 @@ export function wireForge(Alpine: {
             _unsubSelf: null,
             _relaySelf: '',
             init() {
+                // Tab-Wechsel in die Adresse spiegeln (`replaceState`, keine Navigation)
+                // — dieselbe Bauform und dieselbe Begründung wie auf `/spaces`: der
+                // Startwert steht bewusst NICHT in der URL (saubere Adresse für den
+                // Normalfall), jeder andere schon. OHNE diese Richtung behauptete die
+                // Adresse nach einem Tab-Klick weiter den Tab, mit dem die Seite geöffnet
+                // wurde — und ein daraus kopierter Link führte den nächsten Leser an eine
+                // andere Stelle als die, die der Absender vor sich hatte.
+                const syncTabParam = (v: string): void => {
+                    const u = new URL(window.location.href)
+                    if (v === DEFAULT_FORGE_TAB) {
+                        u.searchParams.delete(FORGE_TAB_PARAM)
+                    } else {
+                        u.searchParams.set(FORGE_TAB_PARAM, v)
+                    }
+                    window.history.replaceState(window.history.state, '', u)
+                }
+                // EINMAL beim Mount mit dem Wert, den `readForgeTab` durchgelassen hat:
+                // sonst bliebe ein verworfener Parameter in der Adresse stehen und würde
+                // weitergeteilt. Der `$watch` allein räumt das nicht auf — er feuert erst
+                // bei einer ÄNDERUNG.
+                syncTabParam(this.tab)
+                ;(this as unknown as { $watch(p: string, cb: (v: string) => void): void }).$watch('tab', syncTabParam)
                 this._controller = new AbortController()
                 this._unsubKind = deriveSpaceKind(WORKSPACE_URL).subscribe((kind: SpaceKind) => {
                     this.kind = kind

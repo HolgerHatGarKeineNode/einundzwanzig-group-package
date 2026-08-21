@@ -69,7 +69,7 @@
     "Alles gelesen": "Alles gelezen",
     "Alles gelesen.": "Alles gelezen.",
     "Als Admin entfernst du diese fremde Nachricht relay-seitig für alle. Das lässt sich nicht rückgängig machen.": "Als admin verwijder je dit bericht van iemand anders aan de Relay-kant voor iedereen. Dit kan niet ongedaan worden gemaakt.",
-    "Alt + ↑/↓ wechselt den Raum · m: p: r: w: grenzen ein": "Alt + ↑/↓ wisselt van kamer · m: p: r: w: beperken de zoekopdracht",
+    "Alt + ↑/↓ wechselt den Raum · m: p: r: f: grenzen ein": "Alt + ↑/↓ wisselt van kamer · m: p: r: f: beperken de zoekopdracht",
     "Am Relay nicht angemeldet — bitte erneut senden.": "Niet aangemeld bij de Relay — verstuur opnieuw.",
     "Amber (NIP-55)": "Amber (NIP-55)",
     "Amber erneut öffnen": "Amber opnieuw openen",
@@ -869,7 +869,7 @@
     "Forge-Übersicht öffnen": "Forge-overzicht openen",
     "Issues des Repositorys öffnen (:count)": "Issues van de repository openen (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Pull requests van de repository openen (:count)",
-    "Workspace auf :wert": "Workspace op :wert",
+    "Forge auf :wert": "Forge op :wert",
     "Clone-URL kopieren": "Kloon-URL kopiëren",
     "Clone-URL kopiert.": "Kloon-URL gekopieerd.",
     "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "De kloon-URL kon niet worden gekopieerd. Klik erop om hem te selecteren en kopieer hem handmatig.",
@@ -900,5 +900,14 @@
     ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": ":domain was niet bereikbaar of stuurde geen geldig antwoord.",
     "Von diesem Autor liegt hier noch kein Artikel.": "Van deze auteur staat hier nog geen artikel.",
     "Sobald einer auf diesem Relay erscheint, steht er hier.": "Zodra er een op deze relay verschijnt, staat het hier.",
-    "seit :jahr": "sinds :jahr"
+    "seit :jahr": "sinds :jahr",
+    "Bereiche": "Gebieden",
+    ":ort — :stand": ":ort — :stand",
+    "Vom Verein": "Van de vereniging",
+    "Repos": "Repos",
+    "1 ungelesen": "1 ongelezen",
+    ":count ungelesen": ":count ongelezen",
+    "1 Repo": "1 repo",
+    ":count Repos": ":count repo's",
+    "Alle Artikel von :name": "Alle artikelen van :name"
 }

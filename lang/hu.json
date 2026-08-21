@@ -69,7 +69,7 @@
     "Alles gelesen": "Mindent elolvastál",
     "Alles gelesen.": "Mindent elolvastál.",
     "Als Admin entfernst du diese fremde Nachricht relay-seitig für alle. Das lässt sich nicht rückgängig machen.": "Adminként ezt a más által írt üzenetet a Relay oldalán mindenki számára eltávolítod. Ezt nem lehet visszavonni.",
-    "Alt + ↑/↓ wechselt den Raum · m: p: r: w: grenzen ein": "Alt + ↑/↓ szobát vált · m: p: r: w: szűkítik a keresést",
+    "Alt + ↑/↓ wechselt den Raum · m: p: r: f: grenzen ein": "Alt + ↑/↓ szobát vált · m: p: r: f: szűkítik a keresést",
     "Am Relay nicht angemeldet — bitte erneut senden.": "Nem vagy bejelentkezve a Relayen — küldd el újra.",
     "Amber (NIP-55)": "Amber (NIP-55)",
     "Amber erneut öffnen": "Amber újranyitása",
@@ -869,7 +869,7 @@
     "Forge-Übersicht öffnen": "A Forge áttekintés megnyitása",
     "Issues des Repositorys öffnen (:count)": "A repository hibajegyeinek megnyitása (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "A repository pull requestjeinek megnyitása (:count)",
-    "Workspace auf :wert": "Workspace itt: :wert",
+    "Forge auf :wert": "Forge itt: :wert",
     "Clone-URL kopieren": "Klónozási URL másolása",
     "Clone-URL kopiert.": "Klónozási URL másolva.",
     "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "A klónozási URL-t nem sikerült másolni. Kattints rá a kijelöléséhez, majd másold ki kézzel.",
@@ -900,5 +900,14 @@
     ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": "A(z) :domain nem volt elérhető, vagy nem küldött érvényes választ.",
     "Von diesem Autor liegt hier noch kein Artikel.": "Ettől a szerzőtől még nincs itt cikk.",
     "Sobald einer auf diesem Relay erscheint, steht er hier.": "Amint megjelenik egy ezen a relayen, itt is látszani fog.",
-    "seit :jahr": ":jahr óta"
+    "seit :jahr": ":jahr óta",
+    "Bereiche": "Területek",
+    ":ort — :stand": ":ort — :stand",
+    "Vom Verein": "Az egyesülettől",
+    "Repos": "Repos",
+    "1 ungelesen": "1 olvasatlan",
+    ":count ungelesen": ":count olvasatlan",
+    "1 Repo": "1 repo",
+    ":count Repos": ":count repo",
+    "Alle Artikel von :name": "Minden cikk tőle: :name"
 }

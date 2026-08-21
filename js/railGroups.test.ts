@@ -116,6 +116,46 @@ test('scopeToken schreibt genau das Präfix, das parseScope wieder liest', () =>
     assert.equal(parseScope(scopeToken({ group: 'meetups', country: 'AT' })).scope.country, 'AT')
 })
 
+test('die vier Kürzel stehen WÖRTLICH da — inklusive des neuen f: (P5)', () => {
+    // Gegen Literale, nicht gegen `SCOPE_PREFIX` iteriert: eine Schleife über die
+    // Konstante prüft sie gegen sich selbst und bliebe grün, wenn jemand ein Kürzel
+    // vertauscht. Die Zeichen sind das, was der Nutzer TIPPT — sie sind Vertrag.
+    assert.equal(parseScope('r:').scope.group, 'rooms')
+    assert.equal(parseScope('m:').scope.group, 'meetups')
+    assert.equal(parseScope('p:').scope.group, 'proposals')
+    assert.equal(parseScope('f:').scope.group, 'workspace')
+})
+
+test('f: und w: zeigen auf DIESELBE Gruppe — der alte Weg bleibt offen (P5)', () => {
+    // Die Sektion heißt seit P5 „Forge"; `f:` ist das neue Kürzel. `w:` steckt in
+    // jedem Kopf, der die Rail schon benutzt hat — verlöre es seine Bedeutung, würde
+    // daraus still eine gewöhnliche Suche nach dem Text „w:" und die Liste wäre leer
+    // statt gefiltert. Beide Richtungen, beide mit Resttext.
+    assert.deepEqual(parseScope('f: repo'), { scope: { group: 'workspace', country: '' }, rest: 'repo' })
+    assert.deepEqual(parseScope('w: repo'), { scope: { group: 'workspace', country: '' }, rest: 'repo' })
+    assert.equal(parseScope('F:egal').scope.group, 'workspace', 'Großschreibung zählt gleich')
+    assert.equal(parseScope('W:egal').scope.group, 'workspace', 'Großschreibung zählt gleich')
+})
+
+test('die Lupe schreibt das NEUE Kürzel f:, nicht mehr w: (P5)', () => {
+    // `scopeToken` nimmt den ersten Eintrag in `SCOPE_PREFIX`, der auf die Gruppe
+    // zeigt — die Reihenfolge der Schlüssel ist damit Vertrag. Stünde `w` vorn,
+    // schriebe die Lupe weiter das alte Kürzel, während der Hilfetext der Rail
+    // `f:` verspricht: zwei Wahrheiten über dieselbe Taste.
+    assert.equal(scopeToken({ group: 'workspace', country: '' }), 'f:')
+    assert.equal(scopeToken({ group: 'rooms', country: '' }), 'r:')
+    assert.equal(scopeToken({ group: 'meetups', country: '' }), 'm:')
+    assert.equal(scopeToken({ group: 'proposals', country: '' }), 'p:')
+})
+
+test('RAIL_GROUP_ORDER ist unverändert — der Gruppenschlüssel heißt weiter workspace (P5)', () => {
+    // Umbenannt wurde der ANZEIGENAME der Sektion („Workspace" → „Forge"), nicht der
+    // Schlüssel. Er steht in dieser Reihenfolge, in `railTargets` (Alt+↑/↓) und in
+    // gespeicherten Faltungszuständen; ihn mitzuändern wäre eine Datenmigration für
+    // eine Beschriftung. WÖRTLICH, damit ein Umbenennen hier rot wird.
+    assert.deepEqual([...RAIL_GROUP_ORDER], ['rooms', 'workspace', 'meetups', 'proposals'])
+})
+
 test('Workspace-Räume landen in ihrer eigenen Gruppe, nicht bei den Räumen', () => {
     const groups = buildGroups([room({ h: 'heim' })], { workspaceRooms: [room({ h: 'ws', joined: true })] })
 

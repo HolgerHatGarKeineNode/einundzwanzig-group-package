@@ -16,7 +16,7 @@ import { blossomMedia } from './blossomInstance.ts'
 import { bindAvatarState, type AvatarState } from './blossomMedia.ts'
 import { startBlossomHydration } from './blossomHydrate.ts'
 import { load } from '@welshman/net'
-import { deriveEvents } from '@welshman/store'
+import { deriveEvents, throttled } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
@@ -48,7 +48,7 @@ import { wireDisplayPrefs } from './displayPrefs'
 import { wireRoomSearch } from './roomSearch'
 import { wireRoomPins } from './roomPins'
 import { wireVerein } from './verein'
-import { wireForge } from './forge'
+import { subscribeForgeNav, wireForge } from './forge'
 import { dispatchModal } from './modal'
 import {
     groupSpaceChoices,
@@ -132,6 +132,7 @@ import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserSt
 import { roomsFingerprint, type RoomLike } from './roomFingerprint'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam'
 import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab'
+import { ORTSKARTEN_DROSSEL_MS, ORTSKARTEN_NACHLADE_MS, zeigeLive } from './ortskarten'
 import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
@@ -550,38 +551,56 @@ type RelaysState = {
  */
 type WorkspaceRoomView = RoomView & { joined: boolean }
 
+/**
+ * Zustand der Workspace-Raumliste — seit P5 der vierte Tab auf `/forge`.
+ *
+ * **Bis P5 war das der dritte Tab auf `/spaces`**, und die Felder lagen in
+ * `SpacesState`. Der Umzug ist keine Kosmetik: die Liste hängt an einer ZWEITEN
+ * Relay-URL (`WORKSPACE_URL`), und `nostrSpaces` zog diese Sub-Bridge bei jedem Aufbau
+ * der Chat-Startseite mit hoch — für einen Tab, der dort neben zwei anderen stand.
+ * Auf `/forge` ist derselbe Relay ohnehin die Quelle der ganzen Seite.
+ *
+ * **Eigene Insel und nicht Teil von `nostrForge`.** Die Forge-Insel liest 30617/30618
+ * und Issues über `deriveEventsForUrl`; diese hier liest die NIP-29-Raumsicht über
+ * `deriveSpaceViewFor`. Zwei Datenschichten, ein Relay — sie in einen Zustand zu legen
+ * hieße, `forge.ts` an `groups.ts` zu binden, und `forge.ts` ist ausdrücklich auf den
+ * Forge-Datenraum zugeschnitten.
+ */
+type WorkspaceRoomsState = {
+    /** Räume des Workspace-Space, in Anzeige-Reihenfolge. */
+    rooms: WorkspaceRoomView[]
+    /** Anzeigename aus dem NIP-11-Doc des Workspace-Relays. */
+    label: string
+    loading: boolean
+    /** `h` der in Buzz stummgeschalteten Räume. */
+    muted: string[]
+    /** `h` der in Buzz angehefteten Räume. */
+    pinned: string[]
+    /** Rohsicht, aus der die Liste neu gebaut wird. */
+    _view: SpaceView | null
+    _prefs: WorkspacePrefs
+    _controller: AbortController | null
+    _unsub: null | (() => void)
+    _unsubPrefs: null | (() => void)
+    init(): void
+    destroy(): void
+    _apply(): void
+    isMuted(room: RoomView): boolean
+    isPinned(room: RoomView): boolean
+    openRoom(room: RoomView): void
+    /** Ziel-URL MIT Space-Markierung (reload-fest). */
+    roomHref(room: RoomView): string
+}
+
 type SpacesState = {
     space: SpaceView | null
     loading: boolean
     gatedOut: boolean
     tab: string // aktiver Tab („rooms"/„threads"), aus ?tab= gelesen + dorthin gespiegelt (verlinkbar)
     threads: SpaceThread[] // aktive Threads des Space (C6b, Startseiten-Übersicht)
-    // ── Workspaces (zweiter, fester Space — Buzz neben zooid) ─────────────────
-    // Der Tab zeigt die Räume EINER zweiten Relay-URL, WÄHREND der zooid-Space
-    // aktiv bleibt: Kopf-Branding und die Tabs „Räume"/„Threads" ändern sich nicht.
-    // Möglich, weil die Datenschicht pro URL indiziert ist — siehe
-    // `deriveSpaceViewFor` in groups.ts.
-    hasWorkspace: boolean // ist ein Workspace konfiguriert? (sonst bleibt der Tab aus)
-    workspaceRooms: WorkspaceRoomView[] // Räume des Workspace-Space, in Anzeige-Reihenfolge
-    workspaceLabel: string // Anzeigename aus dem NIP-11-Doc des Workspace-Relays
-    workspaceLoading: boolean
-    // ── Kanal-Präferenzen aus Buzz Desktop (NIP-78, P7) ───────────────────────
-    // Dieselbe Quelle wie in der Rail (`channelPrefs.ts`), nur die andere Fläche:
-    // die Bühne existiert ohne `xl`-Breakpoint und ist auf dem Telefon die EINZIGE
-    // Raumliste des Workspace. Ohne diese drei Felder liefe der Netzweg dort ins
-    // Leere — Verkehr ohne Empfänger.
-    _workspaceView: SpaceView | null // Rohsicht, aus der die Liste neu gebaut wird
-    _workspacePrefs: WorkspacePrefs
-    workspaceMuted: string[] // `h` der in Buzz stummgeschalteten Räume
-    workspacePinned: string[] // `h` der in Buzz angehefteten Räume
-    isWorkspaceMuted(room: RoomView): boolean
-    isWorkspacePinned(room: RoomView): boolean
-    _applyWorkspacePrefs(): void
-    _unsubWorkspace: null | (() => void)
-    _unsubWorkspacePrefs: null | (() => void)
-    _wsController: AbortController | null
-    openWorkspaceRoom(room: RoomView): void
-    workspaceRoomHref(room: RoomView): string // Ziel-URL MIT Space-Markierung (reload-fest)
+    // Der Workspace stand bis P5 als dritter Tab HIER. Er ist nach `/forge` gewandert
+    // (`WorkspaceRoomsState`, Insel `nostrWorkspaceRooms`) — mit ihm die zweite
+    // Sub-Bridge auf die Workspace-URL, die diese Seite bei jedem Aufbau mitzog.
     // Raum-Verwaltung (P4, Admin): anlegen/bearbeiten/löschen
     isAdmin: boolean
     // Ist der aktive Space ein Buzz-Relay? Gatet die Kachel-Aktionen, die es dort
@@ -711,6 +730,34 @@ type ArticleSortOption = {
 }
 
 /**
+ * Zustand der Ortskarten-Leiste (P5) — der Live-Zeilen wegen, sonst nichts.
+ *
+ * Die Leiste selbst ist reines Server-Markup (`components/ortskarten.blade.php`): Orte,
+ * Links, Aktiv-Zustand stehen im ausgelieferten HTML. Diese Insel liefert ausschließlich
+ * die drei Zahlen — und `null` heißt „noch keine", nicht „keine".
+ */
+type OrtskartenState = {
+    /** Bestand der Artikelliste. `null`, solange nichts geladen wurde. */
+    artikelZahl: number | null
+    /** Repositories im Forge-Baum. `null`, solange nichts geladen wurde. */
+    repoZahl: number | null
+    /** Ist der Screen weg, bevor das Nachladen überhaupt begonnen hat? */
+    _dead: boolean
+    /** Kennung des angemeldeten Leerlauf-Rückrufs (0 = keiner). */
+    _idle: number
+    _unsubArtikel: null | (() => void)
+    _unsubForge: null | (() => void)
+    init(): void
+    destroy(): void
+    /** Startet die beiden Nachlader — erst nach dem ersten Paint, siehe `init`. */
+    _nachladen(): void
+    /** Ungelesenes über Räume UND Threads, aus dem globalen Store. */
+    ungelesen(): number
+    /** Darf dieser Wert die statische Unterzeile ersetzen? (`ortskarten.ts`) */
+    zeigt(wert: number | null): boolean
+}
+
+/**
  * Bildschirm-Zustand der Artikelliste (P2). Alles Fachliche liegt in `longformFeed.ts`
  * (welshman) und `articleList.ts` (rein: filtern, sortieren, hervorheben).
  */
@@ -802,6 +849,8 @@ type ArticleState = {
     _load(): Promise<void>
     retry(): void
     hasArticle(): boolean
+    /** Ziel des Autoren-Links: `/articles/autor/{npub}` — `''`, solange kein Artikel steht. */
+    autorHref(): string
     /** Scroll- und Resize-Zuhörer aufsetzen (siehe dort, warum `capture: true`). */
     _leseBeobachten(): void
     /** Den Höhen-Beobachter an den Artikeltext heften, sobald es ihn gibt. */
@@ -2375,21 +2424,11 @@ export function registerNostrComponents(Alpine: {
         // Die Whitelist steht in `spacesTab.ts` und nicht hier: sie ist die Gegenprobe
         // zum `$watch` unten, der JEDEN Tab in die Adresse schreibt — `workspaces`
         // wurde geschrieben, aber nie gelesen, und ein geteilter Link landete still
-        // auf „Räume". `hasWorkspace()` ist Argument und nicht Annahme, weil der
-        // dritte Tab ohne Workspace gar nicht gerendert wird (`x-if="hasWorkspace"`).
-        tab: readSpacesTab(window.location.search, hasWorkspace()),
+        // auf „Räume". Seit P5 hat die Bar nur noch zwei Einträge; die alte Adresse
+        // `?tab=workspaces` fängt eine SERVERSEITIGE Weiterleitung auf `/forge` ab
+        // (`⚡spaces.blade.php`), damit sie nicht wortlos auf „Räume" fällt.
+        tab: readSpacesTab(window.location.search),
         threads: [],
-        hasWorkspace: hasWorkspace(),
-        workspaceRooms: [],
-        workspaceLabel: '',
-        workspaceLoading: true,
-        _workspaceView: null,
-        _workspacePrefs: {},
-        workspaceMuted: [],
-        workspacePinned: [],
-        _unsubWorkspace: null,
-        _unsubWorkspacePrefs: null,
-        _wsController: null,
         isAdmin: false,
         isBuzz: false,
         roomForm: { h: '', name: '', about: '', picture: '', isPrivate: false, isClosed: false, isHidden: false, isRestricted: false },
@@ -2797,68 +2836,6 @@ export function registerNostrComponents(Alpine: {
             this._roomIconFile = null
             dispatchModal('room-form')
         },
-        /**
-         * Einen Workspace-Raum öffnen: aktiven Space auf die Workspace-URL stellen und
-         * dorthin navigieren. Die 13 Bridge-Komponenten hängen alle an `activeSpace` und
-         * ziehen von selbst nach — deshalb ist hier keine weitere Verdrahtung nötig.
-         *
-         * **`setActiveSpaceEphemeral`, nicht `setActiveSpace`.** Der reguläre Setzer
-         * schreibt die Wahl in den localStorage. Für einen Workspace-Raum wäre das eine
-         * Falle: nach einem Absturz oder einem harten Reload startete die App im
-         * Workspace statt im Vereins-Space, ohne dass der Nutzer das je gewählt hätte.
-         * Der Vereins-Space bleibt die persistierte Wahl; der Workspace gilt nur für
-         * diese Sitzung.
-         *
-         * **Die Sitzung ist aber nicht die ganze Wahrheit** — der ephemere Zustand
-         * überlebt keinen Reload. Deshalb trägt das Ziel die Zuordnung selbst:
-         * {@link workspaceRoomHref}. Ohne sie stand nach F5 in einem Workspace-Raum
-         * wieder das Vereins-Relay als aktiver Space, der Beitritt (9021) ging dorthin
-         * und kam als `invalid: group not found` zurück.
-         */
-        openWorkspaceRoom(room: RoomView) {
-            setActiveSpaceEphemeral(WORKSPACE_URL)
-            // Die Navigation macht die Blade (`Livewire.navigate`), wie bei der
-            // normalen Raum-Kachel — dieses Modul kennt Livewire nicht.
-            void room
-        },
-        /** Ziel der Workspace-Kachel: `/rooms/{h}?space=workspace` (siehe spaceParam.ts). */
-        workspaceRoomHref(room: RoomView) {
-            return workspaceRoomHref(room.h)
-        },
-        /**
-         * Raumliste des Workspace-Tabs aus Rohsicht + Präferenzen neu bauen.
-         *
-         * Läuft aus BEIDEN Quellen (Raumsicht und Präferenz-Store), weil beide
-         * unabhängig voneinander nachziehen: die Räume kommen über `watchSpaceRooms`,
-         * die Präferenzen über einen eigenen REQ nach NIP-42-AUTH. Wer nur eine Seite
-         * abonniert, zeigt die halbe Wahrheit — meist die ohne Präferenzen, weil sie
-         * schneller da ist.
-         */
-        _applyWorkspacePrefs() {
-            const view = this._workspaceView
-            if (!view) {
-                return
-            }
-            const list = buildWorkspaceList<WorkspaceRoomView>([
-                ...view.userRooms.map((r) => ({ ...r, joined: true })),
-                ...view.otherRooms.map((r) => ({ ...r, joined: false })),
-            ], this._workspacePrefs)
-            this.workspaceRooms = list.rooms
-            this.workspaceMuted = list.muted
-            this.workspacePinned = list.pinned
-        },
-        /**
-         * Stummgeschaltet? Gelesen aus der fertigen Liste, nicht neu gerechnet —
-         * dieselbe Aufteilung wie in der Rail (`rail.ts isMuted`): das Markup stellt
-         * diese Frage EINMAL PRO ZEILE.
-         */
-        isWorkspaceMuted(room: RoomView) {
-            return this.workspaceMuted.includes(room.h)
-        },
-        /** Angeheftet? Trägt das Nadel-Icon der Zeile — dieselbe Quelle wie {@link isWorkspaceMuted}. */
-        isWorkspacePinned(room: RoomView) {
-            return this.workspacePinned.includes(room.h)
-        },
         // Bearbeiten: alle Felder + Flags aus der RoomView vorbelegen (die einzeln
         // getragenen Flags verhindern, dass ein Speichern bestehende wegwirft).
         openRoomEdit(room: RoomView) {
@@ -3109,35 +3086,6 @@ export function registerNostrComponents(Alpine: {
                         purgeSpaceLocalProfiles(url)
                     }
                 })
-                // Workspace-Räume: EIGENE Sub-Bridge auf die zweite URL, unabhängig von
-                // `activeSpace`. Sie läuft genau einmal (die Workspace-URL ist fest) und
-                // hält den zooid-Space unberührt — deshalb steht sie hier hinter einem
-                // Null-Guard und nicht im activeSpace-Zweig.
-                if (this.hasWorkspace && !this._unsubWorkspace) {
-                    this._wsController = new AbortController()
-                    watchSpaceRooms(WORKSPACE_URL, this._wsController.signal)
-                    this._unsubWorkspace = deriveSpaceViewFor(WORKSPACE_URL).subscribe((view: SpaceView) => {
-                        // Nur die Räume und das Branding — der Kopf bleibt der zooid-Space.
-                        // Beigetretene zuerst, danach die entdeckbaren: dieselbe Ordnung
-                        // wie im Räume-Tab, aber in EINER Liste (der Workspace-Tab hat
-                        // keine Kategorie-Abschnitte). Die Reihenfolge INNERHALB der
-                        // beiden Hälften bestimmt seit P7 der in Buzz Desktop gesetzte
-                        // Sortiermodus (`buildWorkspaceList`).
-                        this._workspaceView = view
-                        this.workspaceLabel = view.label
-                        this.workspaceLoading = false
-                        this._applyWorkspacePrefs()
-                    })
-                    // Kanal-Präferenzen (NIP-78). DIESE Fläche ist auf dem Telefon die
-                    // einzige Raumliste des Workspace — die Rail existiert erst ab `xl`.
-                    // Der Netzweg hängt am ersten Abonnenten, nicht am Seitenaufruf:
-                    // ohne konfigurierten Workspace (`hasWorkspace`, der Guard oben)
-                    // kommt es gar nicht hierher und es läuft kein REQ.
-                    this._unsubWorkspacePrefs = subscribeWorkspacePrefs((prefs: WorkspacePrefs) => {
-                        this._workspacePrefs = prefs
-                        this._applyWorkspacePrefs()
-                    })
-                }
                 // Threads-Übersicht des Space (C6b): Kommentare + Wurzeln laden, reaktiv anzeigen.
                 this._unsubThreads?.()
                 this._unsubThreads = deriveSpaceThreads(url).subscribe((t: SpaceThread[]) => {
@@ -3168,13 +3116,130 @@ export function registerNostrComponents(Alpine: {
             this._unsubAccess?.()
             this._unsubAdmin?.()
             this._unsubIsBuzz?.()
-            this._unsubWorkspace?.()
-            this._unsubWorkspacePrefs?.()
-            this._wsController?.abort()
             this._unsubThreads?.()
             this._unsubRoomMembers?.()
             this._unsubMeetups?.()
             this._controller?.abort()
+        },
+    }))
+
+    /**
+     * Die Workspace-Raumliste (`/forge`, Tab „Workspaces") — P5.
+     *
+     * Aus `nostrSpaces` hierher gezogen, Code unverändert bis auf die Namen: die Felder
+     * hießen dort `workspaceRooms`/`workspaceLabel`/…, weil sie neben einem Dutzend
+     * Feldern des Vereins-Space lagen und ein Präfix brauchten. In einer eigenen Insel
+     * ist das Präfix Lärm.
+     *
+     * **Der Netzweg läuft, sobald `/forge` steht — nicht erst beim Tab-Klick.** Die
+     * Seite spricht ohnehin ausschließlich mit diesem Relay; ein `x-if` am Panel würde
+     * die Insel bei jedem Tab-Wechsel neu bauen und die Abos jedes Mal neu öffnen.
+     * Deshalb `x-show` im Markup, wie bei den drei Geschwister-Tabs.
+     */
+    Alpine.data('nostrWorkspaceRooms', (): WorkspaceRoomsState => ({
+        rooms: [],
+        label: '',
+        loading: true,
+        muted: [],
+        pinned: [],
+        _view: null,
+        _prefs: {},
+        _controller: null,
+        _unsub: null,
+        _unsubPrefs: null,
+        init() {
+            // Ohne konfigurierten Workspace gibt es nichts zu holen — und `/forge`
+            // rendert diese Insel dann gar nicht erst (Server-Gate in der Blade). Der
+            // Riegel hier ist der zweite Boden gegen einen REQ ohne Ziel.
+            if (!hasWorkspace()) {
+                this.loading = false
+
+                return
+            }
+            this._controller = new AbortController()
+            watchSpaceRooms(WORKSPACE_URL, this._controller.signal)
+            this._unsub = deriveSpaceViewFor(WORKSPACE_URL).subscribe((view: SpaceView) => {
+                // Beigetretene zuerst, danach die entdeckbaren — in EINER Liste, ohne
+                // Kategorie-Abschnitte. Die Reihenfolge INNERHALB der beiden Hälften
+                // bestimmt der in Buzz Desktop gesetzte Sortiermodus
+                // (`buildWorkspaceList`).
+                this._view = view
+                this.label = view.label
+                this.loading = false
+                this._apply()
+            })
+            // Kanal-Präferenzen (NIP-78). Diese Fläche ist unterhalb von `xl` die
+            // einzige Raumliste des Workspace — die Rail existiert erst darüber.
+            this._unsubPrefs = subscribeWorkspacePrefs((prefs: WorkspacePrefs) => {
+                this._prefs = prefs
+                this._apply()
+            })
+        },
+        destroy() {
+            this._unsub?.()
+            this._unsubPrefs?.()
+            this._controller?.abort()
+        },
+        /**
+         * Die Liste aus Rohsicht + Präferenzen neu bauen.
+         *
+         * Läuft aus BEIDEN Quellen, weil beide unabhängig voneinander nachziehen: die
+         * Räume über `watchSpaceRooms`, die Präferenzen über einen eigenen REQ nach
+         * NIP-42-AUTH. Wer nur eine Seite abonniert, zeigt die halbe Wahrheit — meist
+         * die ohne Präferenzen, weil sie schneller da ist.
+         */
+        _apply() {
+            const view = this._view
+            if (!view) {
+                return
+            }
+            const list = buildWorkspaceList<WorkspaceRoomView>([
+                ...view.userRooms.map((r) => ({ ...r, joined: true })),
+                ...view.otherRooms.map((r) => ({ ...r, joined: false })),
+            ], this._prefs)
+            this.rooms = list.rooms
+            this.muted = list.muted
+            this.pinned = list.pinned
+        },
+        /**
+         * Stummgeschaltet? Gelesen aus der fertigen Liste, nicht neu gerechnet —
+         * dieselbe Aufteilung wie in der Rail (`rail.ts isMuted`): das Markup stellt
+         * diese Frage EINMAL PRO ZEILE.
+         */
+        isMuted(room: RoomView) {
+            return this.muted.includes(room.h)
+        },
+        /** Angeheftet? Trägt das Nadel-Icon der Zeile — dieselbe Quelle wie {@link isMuted}. */
+        isPinned(room: RoomView) {
+            return this.pinned.includes(room.h)
+        },
+        /**
+         * Einen Workspace-Raum öffnen: aktiven Space auf die Workspace-URL stellen und
+         * dorthin navigieren. Die 13 Bridge-Komponenten hängen alle an `activeSpace` und
+         * ziehen von selbst nach — deshalb ist hier keine weitere Verdrahtung nötig.
+         *
+         * **`setActiveSpaceEphemeral`, nicht `setActiveSpace`.** Der reguläre Setzer
+         * schreibt die Wahl in den localStorage. Für einen Workspace-Raum wäre das eine
+         * Falle: nach einem Absturz oder einem harten Reload startete die App im
+         * Workspace statt im Vereins-Space, ohne dass der Nutzer das je gewählt hätte.
+         * Der Vereins-Space bleibt die persistierte Wahl; der Workspace gilt nur für
+         * diese Sitzung.
+         *
+         * **Die Sitzung ist aber nicht die ganze Wahrheit** — der ephemere Zustand
+         * überlebt keinen Reload. Deshalb trägt das Ziel die Zuordnung selbst:
+         * {@link roomHref}. Ohne sie stand nach F5 in einem Workspace-Raum wieder das
+         * Vereins-Relay als aktiver Space, der Beitritt (9021) ging dorthin und kam als
+         * `invalid: group not found` zurück.
+         */
+        openRoom(room: RoomView) {
+            setActiveSpaceEphemeral(WORKSPACE_URL)
+            // Die Navigation macht die Blade (`Livewire.navigate`), wie bei der
+            // normalen Raum-Kachel — dieses Modul kennt Livewire nicht.
+            void room
+        },
+        /** Ziel der Workspace-Kachel: `/rooms/{h}?space=workspace` (siehe spaceParam.ts). */
+        roomHref(room: RoomView) {
+            return workspaceRoomHref(room.h)
         },
     }))
 
@@ -3420,6 +3485,162 @@ export function registerNostrComponents(Alpine: {
             },
         }
     })
+
+    /**
+     * Die Ortskarten-Leiste (P5) — **nur die drei Zahlen**, sonst nichts.
+     *
+     * Orte, Links und Aktiv-Zustand stehen im Server-Markup
+     * (`components/ortskarten.blade.php`). Diese Insel beantwortet genau eine Frage je
+     * Karte: „gibt es dazu eine Zahl?".
+     *
+     * ── Warum das NACH dem ersten Paint läuft und nicht im `init` ──────────────────
+     *
+     * Die Leiste ist Navigation, ihre Zahlen sind Beiwerk. Sie steht auf `/spaces` über
+     * dem Raum-Feed, auf `/articles` über der Artikelliste und auf `/forge` über dem
+     * Forge-Baum — überall über dem, wofür der Nutzer gekommen ist. Ein `import()` plus
+     * REQ im `init` konkurrierte mit genau dieser Fläche um Netz und Hauptstrang.
+     *
+     * Der Auslöser ist deshalb `requestIdleCallback` mit einer harten Obergrenze
+     * ({@link ORTSKARTEN_NACHLADE_MS}) für Browser, deren Hauptstrang nie ruhig wird —
+     * und für Safari, das `requestIdleCallback` bis heute nicht kennt (dort greift
+     * unmittelbar der `setTimeout`-Zweig).
+     *
+     * ── Was die Zahlen NICHT tun ──────────────────────────────────────────────────
+     *
+     * Sie warten nicht, sie blinken nicht, und sie verschwinden nicht wieder. Bleibt ein
+     * Relay stumm, bleibt der Wert `null` und die statische Unterzeile stehen — die Regel
+     * dafür ist `zeigeLive` (`ortskarten.ts`), geprüft, und sie gilt für alle drei Karten
+     * gleich. `0` fällt ausdrücklich darunter.
+     *
+     * ── Die Kosten, offen benannt ─────────────────────────────────────────────────
+     *
+     * `artikelZahl` kostet einen REQ auf den Board-Relay (kind 30023, `ARTICLE_LOAD_LIMIT`)
+     * — denselben, den `/articles` ohnehin fährt; wer dort landet, hat ihn schon.
+     * `repoZahl` hängt an `subscribeForgeNav`, das modulweit idempotent ist und auf
+     * `/forge` und in der Desktop-Rail ohnehin läuft. Auf `/spaces` sind das zwei REQs,
+     * die es vorher nicht gab. Das ist der Preis der Live-Zeilen, und er ist der Grund
+     * für die Leerlauf-Verzögerung oben.
+     */
+    Alpine.data('nostrOrtskarten', (): OrtskartenState => ({
+        artikelZahl: null,
+        repoZahl: null,
+        _dead: false,
+        _idle: 0,
+        _unsubArtikel: null,
+        _unsubForge: null,
+        init() {
+            // `requestIdleCallback` existiert nicht überall (Safari). Der Rückfall ist
+            // KEIN sofortiges Laden, sondern derselbe Aufschub per `setTimeout` — sonst
+            // wäre ausgerechnet der Browser ohne Leerlauf-API der, der am aggressivsten
+            // lädt.
+            const ric = (window as unknown as {
+                requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+            }).requestIdleCallback
+            this._idle = ric
+                ? ric(() => this._nachladen(), { timeout: ORTSKARTEN_NACHLADE_MS })
+                : (setTimeout(() => this._nachladen(), ORTSKARTEN_NACHLADE_MS) as unknown as number)
+        },
+        destroy() {
+            this._dead = true
+            if (this._idle) {
+                const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
+                if (cic) {
+                    cic(this._idle)
+                } else {
+                    clearTimeout(this._idle)
+                }
+                this._idle = 0
+            }
+            this._unsubArtikel?.()
+            this._unsubForge?.()
+            this._unsubArtikel = null
+            this._unsubForge = null
+        },
+        _nachladen() {
+            this._idle = 0
+            if (this._dead) {
+                return
+            }
+            // Zwei unabhängige Zweige, bewusst NICHT in einem `Promise.all` und bewusst
+            // ohne gemeinsamen Ausstieg: fällt der eine aus, soll der andere trotzdem
+            // seine Zahl liefern. Fehler bleiben stumm — eine fehlende Beiwerk-Zahl ist
+            // kein Ereignis, über das jemand unterrichtet werden müsste; die statische
+            // Zeile trägt weiter.
+            //
+            // **Kein Chunk ohne Quelle.** `longformFeed` zieht `markdown-it` nach (gemessen
+            // 116 kB roh / 50 kB gzip als eigener Chunk). Ohne konfigurierten Board-Relay
+            // hat `loadArticles` nichts zu tun (`BOARD_URL` ist dort der Riegel) — dann
+            // wäre der Download reine Kosten. Die Frage wird HIER gestellt und nicht im
+            // Modul, weil die Antwort sonst erst nach dem Herunterladen feststünde.
+            // Dieselbe Quelle wie `BOARD_URL` selbst: `window.__nostrBoard` aus
+            // `partials/head.blade.php`, also aus `config('group.board_relay_url')`.
+            // `if` und NICHT `return`: ein früher Ausstieg nähme dem Forge-Zweig darunter
+            // seinen Lauf mit, und der hat mit dem Board nichts zu tun.
+            if ((window as { __nostrBoard?: string }).__nostrBoard) {
+                void import('./longformFeed')
+                    .then((feed) => {
+                        if (this._dead) {
+                            return
+                        }
+                        this._unsubArtikel = throttled(ORTSKARTEN_DROSSEL_MS, feed.deriveArticles()).subscribe(
+                            (rows: ArticleRow[]) => {
+                                this.artikelZahl = rows.length
+                            },
+                        )
+                        void feed.loadArticles().catch(() => undefined)
+                    })
+                    .catch(() => undefined)
+            }
+
+            // `subscribeForgeNav` STATISCH importiert, anders als `longformFeed`: die
+            // Insel-Registrierung `wireForge` hängt ohnehin an `forge.ts`, das Modul liegt
+            // also längst im `app`-Chunk. Ein `import()` daneben täuschte eine
+            // Code-Trennung vor, die es nicht gibt — Rolldown meldet das als
+            // INEFFECTIVE_DYNAMIC_IMPORT und legt das Modul trotzdem in denselben Chunk.
+            // Aufgeschoben wird hier ohnehin nicht der DOWNLOAD, sondern das ABO; das
+            // erledigt der Leerlauf-Rückruf oben. `subscribeForgeNav` schaltet den Netzweg
+            // selbst scharf (idempotent, modulweit) und tut ohne konfigurierten Workspace
+            // gar nichts.
+            //
+            // ── WAS DIESE VIER ZEILEN KOSTEN, gemessen (P5, 2026-08-21) ───────────────
+            //
+            // Playwright-Socket-Mitschnitt auf `/spaces`, 8 s nach dem Mount, gegen einen
+            // lokalen Buzz-Stack; zwischen den Ständen jeweils voller Rebuild:
+            //
+            //   Fenster < xl (1279 px, keine Rail)   mit:  1 Socket · 7 REQ · 1 AUTH
+            //                                        ohne: 0 Sockets · 0 REQ · 0 AUTH
+            //   Fenster ≥ xl (1440 px, mit Rail)     mit:  2 Sockets · 12 REQ · 1 AUTH
+            //                                        ohne: 2 Sockets · 12 REQ · 1 AUTH
+            //
+            // Oberhalb `xl` also **null Aufpreis**: die Desktop-Rail ruft `subscribeForgeNav`
+            // ohnehin auf, und der Netzweg ist modulweit idempotent. Unterhalb `xl` — wo es
+            // keine Rail gibt — kostet die Zahl „7 Repos" eine zweite Relay-Verbindung mit
+            // einer NIP-42-AUTH-Runde auf der wichtigsten Fläche des Clients.
+            //
+            // **Zum Vergleich der Stand VOR P5:** dort fuhr der Workspaces-Tab auf `/spaces`
+            // 2 Sockets · 7 REQ · 1 AUTH. Diese Fläche ist mit den vier Zeilen hier also
+            // immer noch billiger als vorher, nicht teurer.
+            //
+            // **Soll die Zahl weg, ist das GENAU DIESE Zuweisung** (`this._unsubForge = …`).
+            // Fällt sie, bleibt in der Forge-Karte die statische Unterzeile „Repos" stehen —
+            // die Regel dafür (`zeigeLive`) trägt den Fall bereits, es ist kein Umbau.
+            // `_unsubForge` bleibt dann dauerhaft `null`, `destroy()` verträgt das.
+            this._unsubForge = subscribeForgeNav((data) => {
+                this.repoZahl = data.repos.length
+            })
+        },
+        ungelesen() {
+            // Räume UND Threads: die Karte führt an den Ort „Chat", und der hat beide
+            // Ebenen. Bewusst nicht `$store.unread.updates` — das ist die Glocke, also
+            // eine andere Menge (siehe die Begründung am Glocken-Marker).
+            const store = Alpine.store('unread') as { roomsTotal?: number; threadsTotal?: number } | undefined
+
+            return (store?.roomsTotal ?? 0) + (store?.threadsTotal ?? 0)
+        },
+        zeigt(wert: number | null) {
+            return zeigeLive(wert)
+        },
+    }))
 
     /**
      * Artikelliste (P7, `/articles`) — Longform vom Board-Relay.
@@ -3921,6 +4142,39 @@ export function registerNostrComponents(Alpine: {
             },
             hasArticle() {
                 return this.article !== null
+            },
+            /**
+             * Der Weg zur Autorenseite (P5, Schritt 25a).
+             *
+             * **P4 hat die Route gebaut und nichts hat dorthin verlinkt** —
+             * `/articles/autor/{npub}` war ausschließlich über die Adresszeile
+             * erreichbar. Eine Route, die niemand findet, ist gebaute Arbeit ohne
+             * Wirkung; das ist der ganze Grund für diese sechs Zeilen.
+             *
+             * **npub und nicht hex**, obwohl die Route beides annimmt (`articleAuthor.ts`
+             * löst zusätzlich NIP-05 auf): eine geteilte Adresse soll in jedem anderen
+             * Nostr-Client erkennbar bleiben, und `npub1…` ist die Form, die ein Mensch
+             * als Identität liest. Der Pubkey liegt seit P1 in `ArticleRow`.
+             *
+             * `''` statt eines Bruchs, solange nichts steht: das Markup bindet den Wert
+             * über `:href="autorHref() || null"` — ohne Ziel entfällt das Attribut, und
+             * ein `<a>` ohne `href` ist kein Tabstopp. Dieselbe Bauform wie bei der
+             * Artikelkarte ohne `d`-Tag (`href(card) || null`, `⚡articles.blade.php`).
+             */
+            autorHref() {
+                const pk = this.article?.pubkey
+                if (!pk) {
+                    return ''
+                }
+                try {
+                    return `${this._base}/autor/${nip19.npubEncode(pk)}`
+                } catch {
+                    // Ein Pubkey, den `npubEncode` nicht annimmt, ist kein Fehler dieser
+                    // Fläche — er käme aus einem Event, das der Relay so ausgeliefert
+                    // hat. Ohne Ziel steht die Zeile nicht da, und der Artikel bleibt
+                    // lesbar.
+                    return ''
+                }
             },
         }
     })

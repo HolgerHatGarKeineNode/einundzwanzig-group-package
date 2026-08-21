@@ -86,7 +86,11 @@
 
         {{-- Die einzige Fläche, die scrollt. `min-h-0` ist Pflicht: ohne das
              wächst ein Flex-Kind über seinen Container hinaus statt zu scrollen. --}}
-        <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+        {{-- `data-rail-scroller`: die Raumliste braucht einen Anker, seit die Fußzeile
+             darunter eigene Zeilen mit denselben Beschriftungen trägt. `buzz-rail-forge`
+             prüft damit, was von „Regel 1" bleibt — im SCROLLER steht kein flacher
+             Forge-Eintrag; er ist eine Fläche des Clients, kein Raum. --}}
+        <div data-rail-scroller class="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
 
             {{-- Vier Gruppen, feste Reihenfolge. Die zweite Achse (Mitgliedschaft)
                  wird bewusst NICHT zur Überschrift — sie ist Reihenfolge, Textgewicht
@@ -134,13 +138,29 @@
                  Kontrast-Ankers (`desktop-a11y-contrast.spec.ts`). Der Anker zeigt
                  jetzt auf den `#`-Prompt oben — dieselbe Farbe, dieselbe
                  Größenklasse, aber ohne Abhängigkeit von Relay und Ladezustand. --}}
+            {{-- ── „Workspace" heißt seit P5 „Forge" ────────────────────────────
+                 Umbenannt wurde die BESCHRIFTUNG, nicht der Gruppenschlüssel: `group`
+                 bleibt `workspace`, weil derselbe Schlüssel in `RAIL_GROUP_ORDER`
+                 (Markup-Reihenfolge UND Alt+↑/↓), in `railTargets` und in gespeicherten
+                 Faltungszuständen steht. Ihn mitzuziehen wäre eine Datenmigration für
+                 einen Anzeigenamen.
+
+                 Warum überhaupt: die Sektion führt seit P1 den Forge-Baum (Repos,
+                 Issues, Pull Requests, gebundene Kanäle), und ihr Kopf verlinkt auf die
+                 Forge-Übersicht. „Workspace" beschrieb den Relay, nicht den Inhalt —
+                 und der Nutzer hat Chat, Artikel und Forge als die drei Flächen dieses
+                 Clients benannt. Ein Ort, der in der Ortsleiste „Forge" heißt und im
+                 Navigator „Workspace", sind für den Leser zwei Orte (Nielsen #4).
+
+                 Das Scope-Kürzel zieht mit: `f:` ist neu, `w:` bleibt als Alias gültig
+                 (`js/railGroups.ts`). --}}
             <template x-if="hasWorkspaceSection">
                 <div>
-                    <x-group::rail-group group="workspace" :label="__('Workspace')"
+                    <x-group::rail-group group="workspace" :label="__('Forge')"
                                          :tree="true"
                                          heading-href="{{ route('group.forge') }}"
                                          :overview-label="__('Forge-Übersicht öffnen')"
-                                         :heading-title="__('Workspace auf :wert')"
+                                         :heading-title="__('Forge auf :wert')"
                                          heading-title-value="workspaceLabel" />
                 </div>
             </template>
@@ -155,7 +175,11 @@
             <template x-if="query.trim() && rooms.length === 0">
                 <div class="px-2 py-3">
                     <p class="text-sm text-muted">{{ __('Kein Raum passt zu dieser Suche.') }}</p>
-                    <p class="mt-1 text-[0.7rem] text-muted">{{ __('Alt + ↑/↓ wechselt den Raum · m: p: r: w: grenzen ein') }}</p>
+                    {{-- `f:` statt `w:` seit P5 — das ist auch das Kürzel, das die Lupe ins Feld
+                         schreibt (`scopeToken`). `w:` funktioniert weiter, steht hier aber
+                         nicht: ein Hilfetext nennt EINEN Weg, sonst muss der Leser sich
+                         fragen, worin der Unterschied besteht. --}}
+                    <p class="mt-1 text-[0.7rem] text-muted">{{ __('Alt + ↑/↓ wechselt den Raum · m: p: r: f: grenzen ein') }}</p>
                 </div>
             </template>
 
@@ -210,21 +234,43 @@
                  Registry-Sprache gehört. Die Vollansichten zählen mit: wer einen
                  Artikel liest, ist unter „Artikel".
 
-                 ── Warum hier KEINE Forge-Zeile steht ───────────────────────────────
-                 Sie war beauftragt und ist bewusst nicht gebaut: `buzz-rail-forge`
-                 hält als „Regel 1" fest, dass die Rail keinen Link namens „Forge"
-                 trägt (`tests/e2e/buzz-rail-forge.spec.ts:353`), und die Begründung
-                 steht am Ende des Scrollers. Die Regel unter anderem Namen zu
-                 umgehen wäre keine Befolgung. Ob sie fallen soll, ist eine
-                 Entwurfsentscheidung und keine Nebenwirkung dieses Umbaus. --}}
+                 ── Die Forge-Zeile steht seit P5 daneben ────────────────────────────
+                 Hier stand bis dahin die Begründung, warum es sie NICHT gibt:
+                 `buzz-rail-forge` hielt als „Regel 1" fest, dass die Rail keinen Link
+                 namens „Forge" trägt, weil ein solcher Eintrag am Fuß des Scrollers den
+                 Workspace ein zweites Mal beschrieben hätte — die Repos liegen auf
+                 demselben Relay wie die Kanäle in der Sektion darüber.
+
+                 **Die Regel ist in P5 begründet ERSETZT, nicht umgangen.** Was sich
+                 geändert hat, ist die Voraussetzung, auf der sie stand: die Sektion
+                 heißt jetzt selbst „Forge", und der Client hat mit der Ortskarten-Leiste
+                 eine Ebene bekommen, auf der Chat, Artikel und Forge gleichrangig
+                 nebeneinander stehen. Die Rail-Fußzeile ist die Desktop-Entsprechung
+                 dieser Ebene — dort fehlte von den dreien genau einer. Ein Ort, der auf
+                 jeder Bühne in der Leiste steht und im Navigator nur als Sektionskopf
+                 im Scroller, ist an zwei Stellen verschieden wichtig.
+
+                 Die alte Sorge bleibt beantwortet: die Zeile beschreibt den Workspace
+                 NICHT ein zweites Mal, denn der Sektionskopf oben trägt jetzt denselben
+                 Namen und führt an dasselbe Ziel. Zwei Wege zu einem Ort sind kein
+                 Duplikat, sondern der Normalfall dieser Rail — die Artikel-Zeile
+                 daneben ist auch in der Befehlspalette erreichbar. --}}
             {{-- `mb-2` = 8px aus der Abstands-Skala, nicht 4: die Nav-Tabs darunter
                  stehen mit `gap-0.5` (2px) dicht beieinander. Ein 4px-Absatz läse sich
                  als unsauberer Zeilenabstand innerhalb EINER Liste; 8px sind der
                  sichtbare Unterschied zwischen „andere Gruppe" und „nächste Zeile".
                  Das ist die Trennung, die hier die Haarlinie ersetzt. --}}
             <div class="mb-2">
-                @php($articlesActive = request()->routeIs('group.articles', 'group.article'))
-                <a href="{{ route('group.articles') }}" wire:navigate
+                {{-- Die Vollansichten zählen mit: wer einen Artikel liest oder auf der
+                     Autorenseite steht, ist unter „Artikel". Dieselbe Regel wie in der
+                     Ortskarten-Leiste, und aus demselben Grund. --}}
+                @php($articlesActive = request()->routeIs('group.articles', 'group.article', 'group.articles.author'))
+                {{-- `data-rail-fuss`: die beiden Zeilen brauchen einen EINDEUTIGEN Anker.
+                     Ihre Beschriftungen („Artikel", „Forge") stehen auf derselben Seite
+                     noch zweimal — in der Ortskarten-Leiste und am Sektionskopf des
+                     Scrollers. Ein Test, der auf den Text zielt, misst dann irgendeine
+                     der drei Stellen. --}}
+                <a href="{{ route('group.articles') }}" wire:navigate data-rail-fuss="artikel"
                    @if ($articlesActive) aria-current="page" @endif
                    @class([
                        'pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
@@ -234,6 +280,28 @@
                     <flux:icon.document-text variant="micro" class="size-4 shrink-0" />
                     <span>{{ __('Artikel') }}</span>
                 </a>
+
+                {{-- Forge — dieselbe leise Form wie die Artikel-Zeile darüber (Micro-Icon,
+                     `font-medium`, `text-muted`) und ausdrücklich NICHT die Markenfarbe
+                     der Nav-Tabs darunter: die kommen aus `config('group.nav')` und sind
+                     in allen Hosts dieselbe Menge, diese beiden Zeilen sind es nicht.
+
+                     Nur bei konfigurierter Quelle, wie die Forge-Ortskarte: ohne
+                     `workspace_url` führt `/forge` in einen erklärenden Leerzustand, und
+                     eine Zeile in einen Leerzustand ist ein Ort ohne Inhalt. --}}
+                @if (config('group.workspace_url'))
+                    @php($forgeActive = request()->routeIs('group.forge', 'group.forge.repo'))
+                    <a href="{{ route('group.forge') }}" wire:navigate data-rail-fuss="forge"
+                       @if ($forgeActive) aria-current="page" @endif
+                       @class([
+                           'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
+                           'font-semibold text-zinc-900 dark:text-zinc-100' => $forgeActive,
+                           'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $forgeActive,
+                       ])>
+                        <flux:icon.code-bracket-square variant="micro" class="size-4 shrink-0" />
+                        <span>{{ __('Forge') }}</span>
+                    </a>
+                @endif
             </div>
 
             <x-group::bottom-nav orientation="rail" />
