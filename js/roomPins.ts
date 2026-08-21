@@ -320,7 +320,7 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
                 // `false`: auf Buzz schickte `toggle()` dann `kind 9010` (zooid) und
                 // erntete `restricted: unknown event kind`, und ein normales Mitglied sah
                 // den Menüpunkt gar nicht erst, weil `mayPin(false, isAdmin=false, …)`
-                // falsch ist. Dieselbe Begründung steht seit P4 in `bridge.ts:2606-2609` —
+                // falsch ist. Dieselbe Begründung steht seit P4 in `bridge.ts` → `nostrSpaces._unsubIsBuzz` (`deriveRelay(url).subscribe`) —
                 // dort wurde sie befolgt, hier nicht.
                 // Dritte Stelle derselben Bauart, gefunden beim Nachaudit: der Autorname
                 // kommt aus `displayProfileByPubkey` und wird in `recompute` **einmal**

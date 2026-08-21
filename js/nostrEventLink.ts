@@ -199,7 +199,7 @@ export const withShortRefTokens = (text: string): string =>
  * `refRoom` ist der Raum des zitierten Ereignisses, sofern bekannt (sein `h`-Tag), sonst
  * leer. **Der Rückfall auf den aktuellen Raum ist Absicht und kein Notnagel:** die Route
  * `/rooms/{h}/thread/{nevent}` (`routes/group.php:40`) benutzt `{h}` für die umgebende
- * Raumansicht, während der Thread-Inhalt per ID geladen wird — `bridge.ts:3714-3721`
+ * Raumansicht, während der Thread-Inhalt per ID geladen wird — `bridge.ts` → `openThread`
  * dekodiert den `nevent` ausschließlich zur Wurzel-ID und ruft `openThread`, das mit
  * `{ids:[rootId]}` lädt. Ein unbekannter Raum macht den Link also nicht kaputt; er lässt
  * den Nutzer nur dort stehen, wo er ohnehin war.
@@ -219,7 +219,7 @@ export type RefClickTarget = 'scroll' | 'thread'
  *
  * **Warum das Fenster das Kriterium ist und nicht die Raumzugehörigkeit:**
  * `bridge.ts scrollToMessage` sucht `#msg-{id}` im DOM und kehrt wortlos zurück, wenn der
- * Knoten fehlt (`bridge.ts:4106-4108`). Der Verlauf lädt seitenweise nach, ein Zitat auf
+ * Knoten fehlt (`bridge.ts` → `scrollToMessage`: kein `#msg-<id>`, also `return`). Der Verlauf lädt seitenweise nach, ein Zitat auf
  * eine ältere Nachricht DESSELBEN Raums ist also regelmäßig nicht im DOM — „gleicher Raum"
  * als Kriterium ergäbe genau dort einen Knopf, der nichts tut.
  */

@@ -907,7 +907,7 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
         short: shortenEntity(ref.entity),
         href: withSpace(withOrigin(base, ctx.search), ctx.search),
         // `scroll` nur bei nachweislicher Anwesenheit im geladenen Fenster (`byId`) —
-        // `scrollToMessage` kehrt sonst wortlos zurück (`bridge.ts:4106-4108`).
+        // `scrollToMessage` kehrt sonst wortlos zurück (`bridge.ts` → `scrollToMessage`).
         scroll: refClickTarget(resolved, ctx.byId.has(ref.id)) === 'scroll',
         resolved,
         pubkey: quoted?.pubkey ?? '',

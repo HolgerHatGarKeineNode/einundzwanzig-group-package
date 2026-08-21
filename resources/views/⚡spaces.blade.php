@@ -292,10 +292,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
              nur noch den Chat, und die Ebene darüber (wo bin ich?) trägt die
              Ortskarten-Leiste.
 
-             Bestand, nicht neu: das Threads-Icon (`chat-bubble-left-right`) ist
-             dasselbe wie das der Chat-Ortskarte darüber. Es steht hier seit P6 und
-             wird in dieser Phase nicht angefasst — die Bar zu bereinigen war der
-             Auftrag, ihre Ikonografie umzustellen nicht. --}}
+             Das Threads-Icon war bis zum P7-Gate `chat-bubble-left-right` — dasselbe
+             Zeichen wie das der Chat-Ortskarte zwanzig Pixel darüber. Zwei verschiedene
+             Ziele, ein Symbol (Nielsen #4). Getauscht wurde ausdrücklich EINS: das
+             hiesige, weil ein Thread eine ANTWORT ist und `arrow-turn-down-right` das
+             auch bei 14 px noch als andere FORM zeigt statt als zweite Sprechblase mit
+             anderem Detail. Die Ortskarte behält ihr Bubble-Zeichen, denn dort steht es
+             für den Ort „Chat" und wird an vier weiteren Stellen so gelesen
+             (`config/group.php` Bottom-Nav, `AppShellChassisTest`). --}}
         <div x-show="space" x-cloak>
             <flux:tab.group>
                 <flux:tabs variant="segmented" x-model="tab">
@@ -316,7 +320,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <x-group::unread-badge count="$store.unread?.roomsTotal" badge-class="ms-1.5"
                                                :sr-one="__('ungelesene Nachricht')" :sr-many="__('ungelesene Nachrichten')" />
                     </flux:tab>
-                    <flux:tab name="threads" icon="chat-bubble-left-right">
+                    <flux:tab name="threads" icon="arrow-turn-down-right">
                         {{ __('Threads') }}
                         <x-group::unread-badge count="$store.unread?.threadsTotal" badge-class="ms-1.5"
                                                :sr-one="__('neue Antwort')" :sr-many="__('neue Antworten')" />

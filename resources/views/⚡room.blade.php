@@ -470,7 +470,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  dauerhaft auf seinem Schirm (bei ms≈3401/7453/15523 gleich).
 
                  Warum sie kippt: `loading = false` hängt im `.finally()` von
-                 `loadRoomMessages()` (`js/bridge.ts:4378`), und welshmans `load()`
+                 `loadRoomMessages()` (`js/bridge.ts`, `loadRoomMessages`), und welshmans `load()`
                  trägt einen 3-Sekunden-Timeout (`@welshman/net` `request.js:226`,
                  `makeLoader({delay: 200, timeout: 3000, threshold: 0.5})`). Der
                  Timeout bricht den Request ab und **resolved mit leerer Liste** —

@@ -193,7 +193,8 @@ const NPROFILE_MENTION = /nostr:(nprofile1[0-9a-z]{60,500})/g
  *
  * Ein Deckel ist nötig, weil jeder fehlschlagende `nip19.decode` einen Error samt Stack
  * erzeugt — das ist der teure Teil, nicht das Suchen. Er kostet in der Sache fast nichts:
- * unser eigener Verfasser fügt Erwähnungen als `nostr:<npub>` ein (`bridge.ts:4112`), die
+ * unser eigener Verfasser fügt Erwähnungen als `nostr:<npub>` ein (`bridge.ts`, in
+ * `pickMention` — dort wird `insert` als Template-Literal gebaut), die
  * gar nicht dekodiert werden; `nprofile` kommt nur aus fremden Clients, und wer jenseits
  * des 32. `nprofile` in EINEM Text erwähnt wird, ist nicht mehr adressiert, sondern
  * mitgeschleppt.

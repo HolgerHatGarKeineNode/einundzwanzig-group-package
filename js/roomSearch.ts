@@ -42,7 +42,7 @@
  *     einem fremden Space. `deriveRoomMessages` filtert über den Tracker auf die
  *     Relay-Herkunft und kann das nicht.
  *  2. **Jeder Treffer muss anspringbar sein.** `scrollToMessage` sucht `#msg-{id}` im DOM
- *     und kehrt wortlos zurück, wenn der Knoten fehlt (`bridge.ts:4109-4113`). Nur wer
+ *     und kehrt wortlos zurück, wenn der Knoten fehlt (`bridge.ts` → `scrollToMessage`). Nur wer
  *     dieselbe Menge durchsucht, die der Verlauf rendert, kann keinen Treffer anbieten,
  *     der beim Klick nichts tut. `deriveRoomMessages` IST diese Menge — inklusive der
  *     Feinheiten, die `repository.query` nicht kennt: Thread-Antworten stehen nicht im
