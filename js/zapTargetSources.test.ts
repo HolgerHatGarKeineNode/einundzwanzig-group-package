@@ -338,6 +338,12 @@ const AUFLOESER_INVENTAR: { datei: string; fn: string; argumente: string[]; waru
         warum: 'Zap-Ziel der Chat-Nachricht (939) und Cache-Key (1122) — beide aus der gemergten Map, die Ebene 3 trägt.',
     },
     {
+        datei: 'js/longformFeed.ts',
+        fn: 'getLnUrl',
+        argumente: ["getLnUrl(profil?.lud16 || profil?.lud06 || '')"],
+        warum: 'Zap-ZÄHLER der Artikelfläche (P6, `zapperNachschlag`): der Zapper des AUTORS wird gebraucht, um seine 9735-Quittungen zu validieren — ohne ihn verwirft `zapFromEvent` jede und der Zähler bliebe auf null. Aufgelöst wird ausschließlich aus der gemergten Map, die Ebene 3 trägt; es wird nichts bezahlt und nichts angezeigt außer einer Summe.',
+    },
+    {
         datei: 'js/wallet.ts',
         fn: 'getLnUrl',
         argumente: ['getLnUrl(address.trim())'],
@@ -432,8 +438,14 @@ const INVENTAR: Deklaration[] = [
     {
         datei: 'js/longformFeed.ts',
         ausdruck: 'profil.lud16',
-        quellen: ['$profiles', '$profiles'],
-        warum: 'Die beiden EINZIGEN Stellen, an denen die Artikelfläche eine Empfangsadresse anfasst — `deriveArticle` (Vollansicht) und seit P4 `deriveAuthorPage` (Autorenseite). Beide lesen sie nur, um daraus ein Ja/Nein zu machen (`hatLightning`); die Adresse selbst verlässt diese Datei nie. Quelle ist beide Male die GEMERGTE Map, trägt Ebene 3.',
+        quellen: ['$profiles', '$profiles', '$profiles'],
+        warum: 'DREI Stellen, und die dritte ist seit P6 eine andere Art von Leser. Zwei machen aus der Adresse nur ein Ja/Nein (`hatLightning` in `deriveArticle` und `deriveAuthorPage`); die dritte, `zapperNachschlag`, reicht sie an `getLnUrl` weiter, um den LNURL-Zapper des AUTORS im Store zu finden — nötig, weil `zapFromEvent` den Signer einer Zap-Quittung gegen dessen `nostrPubkey` prüft. Auch dort verlässt die Adresse die Datei nicht: hinaus geht der bech32-Schlüssel, und was zurückkommt, ist ein Zapper-Objekt. Quelle ist alle drei Male die GEMERGTE Map, trägt Ebene 3.',
+    },
+    {
+        datei: 'js/longformFeed.ts',
+        ausdruck: 'profil.lud06',
+        quellen: ['$profiles'],
+        warum: 'Der Rückfall derselben Zeile (`zapperNachschlag`, P6): welshmans `getLnUrl` nimmt lud16 ODER lud06. Dasselbe Muster und dieselbe Quelle wie in `feeds.ts` (Chat) und `bridge.ts` (Zap-Sheet); ohne den Rückfall bekäme ein Autor mit nur lud06 dauerhaft keinen Zap-Zähler.',
     },
     {
         datei: 'js/vereinFlow.ts',

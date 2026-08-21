@@ -11,14 +11,65 @@
  * `relaySelfReady` statt blind die leere Liste zu rendern (siehe members.ts).
  */
 import { derived, type Readable } from 'svelte/store'
-import { deriveArray, deriveEventsByIdForUrl } from '@welshman/store'
+import { deriveArray, deriveEventsByIdByUrl, deriveEventsByIdForUrl } from '@welshman/store'
 import { deriveRelay, repository, tracker } from '@welshman/app'
 import { filter, spec } from '@welshman/lib'
-import type { Filter, TrustedEvent } from '@welshman/util'
+import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
 
 /** Alle Events eines Space-Relays (nach Herkunft via tracker) zu einem Filter. */
 export const deriveEventsForUrl = (url: string, filters: Filter[] = [{}]): Readable<TrustedEvent[]> =>
     deriveArray(deriveEventsByIdForUrl({ url, tracker, repository, filters }))
+
+/**
+ * Wie {@link deriveEventsForUrl}, aber über MEHRERE Herkunfts-Relays — dedupliziert über
+ * die Event-Id.
+ *
+ * ── Warum eine zweite Primitive und kein Umbau der ersten ───────────────────────────
+ *
+ * {@link deriveEventsForUrl} hat **28 Aufrufstellen außerhalb dieser Datei** (gezählt am
+ * 2026-08-21 über beide Repos, verteilt auf elf Module), und jede einzelne kommt mit
+ * genau einem Relay aus. Sie zu verbreitern hieße, 28 gedeckte Aufrufe für einen einzigen
+ * neuen Verbraucher anzufassen. Diese Funktion steht deshalb daneben; die bestehende
+ * bleibt Zeichen für Zeichen, wie sie war.
+ *
+ * ── Warum die Deduplizierung nichts kostet ─────────────────────────────────────────
+ *
+ * Ein Ereignis, das auf drei Relays liegt, hat **genau eine Id** — es wurde genau einmal
+ * signiert. `deriveEventsByIdByUrl` liefert `Map<url, Map<id, event>>`; das Zusammenlegen
+ * in EINE `Map<id, event>` ist die Deduplizierung, nicht ein Schritt danach. Der `tracker`
+ * führt dabei dasselbe Event unter jeder Herkunft, aus der es hereinkam.
+ *
+ * ── Die Kaltstart-Kante, ausdrücklich benannt ──────────────────────────────────────
+ *
+ * Dieser Pfad ist **blind für jedes Ereignis ohne Herkunftszeile im `tracker`**. Das ist
+ * ein realer Zustand, kein theoretischer: `js/storage.ts` lädt den `tracker` aus IndexedDB
+ * zurück, und welshmans `tracker.load()` leert dabei beide Maps destruktiv. Da `COMMENT`
+ * (1111) in `PERSIST_KINDS` steht, 30023 aber bewusst nicht, kann nach einem Reload genau
+ * die Mischung vorliegen: Kommentare aus dem Cache, Artikel aus dem Netz. Ein Kommentar
+ * ohne Herkunftszeile zählt hier dann **nicht mit** — die Zahl ist zu klein, nie zu groß.
+ * Das ist die richtige Richtung für eine Zusage über fremde Ereignisse, aber es ist eine
+ * Einschränkung und keine Selbstverständlichkeit.
+ *
+ * `urls` wird normalisiert, weil der `tracker` normalisierte URLs führt: ein
+ * `wss://nos.lol` ohne Schrägstrich fände sonst lautlos nichts.
+ */
+export const deriveEventsForUrls = (urls: string[], filters: Filter[] = [{}]): Readable<TrustedEvent[]> => {
+    const gesucht = urls.map(normalizeRelayUrl)
+
+    return derived(deriveEventsByIdByUrl({ tracker, repository, filters }), ($byUrl) => {
+        const nachId = new Map<string, TrustedEvent>()
+        for (const url of gesucht) {
+            const byId = $byUrl.get(url)
+            if (byId) {
+                for (const [id, event] of byId) {
+                    nachId.set(id, event)
+                }
+            }
+        }
+
+        return [...nachId.values()]
+    })
+}
 
 /** Nur die relay-signierten Events (`pubkey === relay.self`) eines Space. */
 export const deriveRelaySignedEvents = (url: string, filters: Filter[] = [{}]): Readable<TrustedEvent[]> =>

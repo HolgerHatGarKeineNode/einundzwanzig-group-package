@@ -318,6 +318,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <span class="shrink-0 text-sm text-muted" x-text="article.dateLabel"></span>
                     </div>
 
+                    {{-- Sozialsignale (P6) — dieselbe Komponente wie auf der Karte, damit
+                         Liste und Vollansicht über denselben Artikel nicht zwei
+                         verschiedene Zahlen zeigen können. Eigene Zeile statt in die
+                         Autorenzeile gedrängt: dort steht rechts bereits das Datum, und
+                         die Zeile ist auf schmalen Geräten voll.
+
+                         Sie erscheint erst, wenn es etwas zu zeigen gibt — bei einem
+                         Artikel ohne jedes Signal (20 von 104) bleibt an dieser Stelle
+                         nichts stehen, auch keine Leerzeile: die Komponente rendert dann
+                         gar keinen Knoten. --}}
+                    <x-group::article-metrics metrics="article.metriken" class="mt-2 text-xs text-muted" />
+
                     {{-- ── Der Lesestand, die Signatur dieser Fläche ────────────────────
                          EIN Element für zwei Zustände. Am Anfang die Angabe, die auch die
                          Liste zeigt („7 Min Lesezeit"); sobald gescrollt wird, dieselbe

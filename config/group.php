@@ -41,6 +41,74 @@ return [
     'board_relay_url' => env('NOSTR_BOARD_URL'),
 
     /*
+     * P6 — die Relays, auf denen die SOZIALSIGNALE zu den Artikeln liegen: Reaktionen
+     * (kind 7), Zap-Quittungen (9735) und Kommentare (1111). Kommagetrennt, z. B.
+     * `wss://nos.lol,wss://relay.damus.io`.
+     *
+     * Dies ist die EINZIGE Ausnahme von der Kuratierungsregel, und sie ist eng: die
+     * Artikel selbst (kind 30023) kommen weiterhin ausschließlich vom Board-Relay
+     * darüber. Von diesen Adressen werden ausdrücklich nur die drei Kinds oben geholt —
+     * Ereignisse ÜBER Artikel, die auf dem Board schlicht nicht liegen.
+     *
+     * Ebenfalls ohne Code-Default, aus demselben Grund wie `board_relay_url`: sonst
+     * verbände sich jede Installation und jeder Testlauf ungefragt mit fremden Relays.
+     * Leer heißt, dass nur der Board gefragt wird — am 2026-08-21 über alle 104 Artikel
+     * gemessen sieht der 14 % der Reaktionen, 3 % der Zaps und 20 % der Kommentare. Die
+     * Zähler sind dann kleiner; nichts bricht.
+     *
+     * ── WAS DIESE RELAYS ÜBER DEINE LESER ERFAHREN ─────────────────────────────────
+     *
+     * Der Handel ist nicht nur funktional, und das gehört hierher, wo der Betreiber ihn
+     * liest. Jede hier eingetragene Adresse bekommt beim **bloßen Öffnen** einer
+     * Artikelfläche — ohne Klick, ohne Zutun des Lesers — eine WebSocket-Verbindung und
+     * damit:
+     *
+     *  · die **IP-Adresse** und den User-Agent des Lesers,
+     *  · den **Zeitpunkt**,
+     *  · und die angefragten Filter, also **welche Artikel dieser Leser gerade ansieht**.
+     *    Die Vollansicht fragt mit genau EINER Artikeladresse.
+     *
+     * Der **Pubkey** des Lesers geht dabei NICHT hinaus: `js/core.ts` beantwortet
+     * NIP-42-AUTH-Challenges dieser Relays seit P6 ausdrücklich nicht mehr (`shouldAuth`
+     * → `darfAuthBekommen` in `js/articleMetrics.ts`). Ohne diesen Riegel wäre es die
+     * Verknüpfung von Identität und Lesehistorie gewesen.
+     *
+     * ── EIN ZWEITER ABFLUSS, den diese Variable NICHT abschaltet ──────────────────
+     *
+     * Um eine Zap-Quittung zu validieren, braucht der Client die LNURL-Metadaten des
+     * ARTIKEL-AUTORS — und die holt er mit einer **HTTPS-Anfrage an dessen fremden
+     * Wallet-Host** (`getalby.com`, `primal.net`, `walletofsatoshi.com` …). Auch das
+     * geschieht beim bloßen Öffnen der Liste, ohne Nutzerhandlung. Dieser Host erfährt
+     * IP, Zeitpunkt **und welchen Autor** — der angefragte Pfad trägt dessen lud16-Namen,
+     * und auf der Vollansicht ist das genau **einer**. Er erfährt **nicht**, welchen
+     * Artikel jemand liest: gemessen überträgt der `Referer` nur den Origin, nie den
+     * `naddr` aus der Adresszeile.
+     *
+     * Fachlich ist der Aufruf nicht vermeidbar: ohne aufgelösten Zapper verwirft
+     * welshmans `zapFromEvent` jede Quittung, und es stünde dauerhaft „0 Sats" da.
+     *
+     * **Er ist aber an den echten Bedarf gekoppelt** (`autorenMitQuittungen` in
+     * `js/articleMetrics.ts`): angefragt werden nur die Autoren, für deren Artikel
+     * wirklich eine Quittung vorliegt. Am 2026-08-21 gemessen sind das **6 von 12**
+     * Autoren — und ohne Metrik-Relais und ohne Zaps auf dem Board sind es **null**.
+     *
+     * **Die „6" ist eine Bestandsmessung, keine Zusage:** ein Dritter kann die Kopplung
+     * mit zwölf gefälschten Quittungen aufheben und die Zahl auf zwölf zurückdrehen. Den
+     * Host **wählen** kann er nicht — der kommt aus dem geladenen Board-Bestand, nie aus
+     * der Quittung. Härten lässt es sich nicht: die echte Prüfung bräuchte genau die
+     * Anfrage, die man vermeiden will. Herleitung bei `autorenMitQuittungen`.
+     *
+     * **Was diese Variable also leistet, genau:** leer zu lassen schaltet die
+     * **Metrik-Relais** ab. Die LNURL-Anfragen schaltet sie **nicht direkt** ab — sie
+     * fallen nur deshalb mit weg, weil ohne die Fremdrelais kaum noch Quittungen
+     * eintreffen (der Board trägt 5 von 168). Ein Autor mit einer Quittung auf dem Board
+     * wird auch dann noch angefragt. Sie hat keinen Default; ein zusätzliches Opt-in in
+     * der Oberfläche gibt es bewusst nicht — die Entscheidung liegt beim Betreiber, hier,
+     * an einer Stelle.
+     */
+    'article_relay_urls' => env('NOSTR_ARTICLE_METRIC_RELAYS'),
+
+    /*
      * P5 (Onboarding) — Origin der Vereins-API, z.B. `https://verein.einundzwanzig.space`.
      *
      * Das ist KEIN Geheimnis (der Schlüssel dazu ist eins und bleibt im Proxy,
