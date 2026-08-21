@@ -76,6 +76,40 @@
                     <flux:icon.arrow-up-right class="ml-auto size-3.5 shrink-0 opacity-50" />
                 </a>
 
+                {{-- ── Der Ausgang: dasselbe Profil auf media. ────────────────────────
+                     Bis hierher hatte diese Karte KEINEN Ausgang „Profil anderswo
+                     ansehen" — npub und Lightning kopieren, die Website öffnen, mehr
+                     nicht. Der Verweis schließt den Loop im eigenen Haus, statt Leute
+                     auf njump oder einen fremden Client zu schicken.
+
+                     BAUFORM = die der Website-Zeile darüber, Zeichen für Zeichen: gleiche
+                     Kante, gleiches Polster, gleicher Pfeil rechts. Zwei Zeilen derselben
+                     Klasse (ein externes Ziel öffnen) sollen gleich aussehen; eine eigene
+                     Betonung nähme dem ⚡-Chip darunter seinen Akzent, und der ist der
+                     einzige der Karte.
+
+                     `x-show="medienUrl()"` und `:href="medienUrl() || null"`: ohne Ziel
+                     gibt es kein `href`, und ein `<a>` ohne `href` ist kein Tabstopp
+                     (gleiche Bauform wie `autorHref()`). Das `@if` darum ist die
+                     SERVER-seitige Entscheidung — ist nichts konfiguriert, entsteht die
+                     Zeile gar nicht erst.
+
+                     `$extern(...)` neben `target="_blank"`: in der nativen WebView
+                     verpufft ein `_blank`-Anker wirkungslos (im Haus dreimal beschrieben,
+                     zuletzt bei `openChatLink`). Im Web bleibt es ein gewöhnlicher Anker
+                     — Mittelklick, „Link kopieren", Tastatur inklusive. --}}
+                @if (config('group.media_public_url'))
+                    @php($medienHost = (string) Str::of((string) config('group.media_public_url'))->after('://')->before('/'))
+                    <a x-show="medienUrl()" x-cloak :href="medienUrl() || null"
+                       x-on:click="$extern(medienUrl(), $event)"
+                       target="_blank" rel="noopener noreferrer" data-medien-profil="karte"
+                       class="pressable mt-2 flex min-w-0 items-center gap-2 rounded-tile border border-zinc-200 px-3 py-2 text-sm text-brand-800 hover:bg-brand-500/5 dark:border-zinc-800 dark:text-brand-400">
+                        <flux:icon.user-circle class="size-4 shrink-0" />
+                        <span class="min-w-0 truncate">{{ __('Profil auf :host ansehen', ['host' => $medienHost]) }}</span>
+                        <flux:icon.arrow-up-right class="ml-auto size-3.5 shrink-0 opacity-50" />
+                    </a>
+                @endif
+
                 {{-- Lightning — kopierbarer ⚡-Chip. Reine Anzeige, KEINE Zaps (PLAN §1). --}}
                 <button type="button" x-show="lud16" x-cloak x-on:click="copy(lud16, @js(__('Lightning-Adresse kopiert.')))"
                         aria-label="{{ __('Lightning-Adresse kopieren') }}"

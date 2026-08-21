@@ -110,6 +110,13 @@ const PRODUZENTEN: { schluessel: string; muster: RegExp; klasse: string }[] = [
     // `lud16`), und der Aufrufer-Hop unten nagelt fest, woher der Wert kommt.
     { schluessel: 'autor-deps-parameter', muster: /\bdeps\s*:\s*ArticleAuthorDeps\b/, klasse: 'parameter' },
     { schluessel: 'deriveHandleForPubkey', muster: /\bderiveHandleForPubkey\s*\(/, klasse: 'handle' },
+    // Das FERTIGE Autorenmodell aus `deriveAuthorPage` — dieselbe Herkunft, die die vier
+    // Markup-Zugriffe auf `autor.nip05` in `⚡article-author.blade.php` per `modell`
+    // deklarieren, nur einmal in TypeScript statt in Blade. `AuthorView['autor']` ist
+    // `ArticleAuthor`, und dessen `nip05` entsteht ausschließlich in
+    // `buildArticleAuthor` aus `verifiedNip05(…)`; die Bindung im Code sagt das über den
+    // TYP, nicht über einen Namen, den man frei wählen könnte.
+    { schluessel: 'autor-modell', muster: /\bAuthorView\['autor'\]/, klasse: 'handle' },
     { schluessel: 'handles-map', muster: /\$handles\b|\bhandles\s*:\s*Map</, klasse: 'handle' },
     { schluessel: 'zapper', muster: /\bzapper\b/, klasse: 'zapper-dokument' },
     { schluessel: 'formular-input', muster: /\(input\s*:\s*\{/, klasse: 'eigene-eingabe' },
@@ -398,6 +405,12 @@ const INVENTAR: Deklaration[] = [
         ausdruck: 'handle.nip05',
         quellen: ['deriveHandleForPubkey', 'deriveHandleForPubkey'],
         warum: 'welshman-Handle: nur bei bestätigtem nostr.json↔pubkey-Match gesetzt (Profilkarte 1754, eigene Kopfzeile 6561).',
+    },
+    {
+        datei: 'js/bridge.ts',
+        ausdruck: 'autor.nip05',
+        quellen: ['autor-modell'],
+        warum: 'Der Profil-Verweis nach media. (`nostrArticleAuthor.medienUrl`): die öffentliche Adresse trägt den NIP-05-Handle nur, wenn er BESTÄTIGT ist — sonst die npub. Ein unverifizierter Handle führte auf eine fremde Person, mit unserer Empfehlung im Rücken. Der Wert ist das fertige Autorenmodell aus `deriveAuthorPage`, dessen `nip05` in `buildArticleAuthor` aus `verifiedNip05(…)` entsteht. Die Adressbildung selbst liegt in `js/medienProfil.ts` und ist dort samt Verwechslungs-Fall geprüft; dass beide Flächen sie benutzen, hält `js/medienProfilMarkup.test.ts` fest.',
     },
     {
         datei: 'js/bridge.ts',
