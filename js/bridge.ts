@@ -114,6 +114,15 @@ import type { AutorFehler, Monatsgruppe } from './articleAuthor'
 // `import()` in `nostrArticles._boot()`, weil `articleList.ts` über `longform.ts` an
 // markdown-it hängt (50 kB gzip, die nicht in den `app`-Chunk jeder Seite gehören).
 import type { ArticleCard, ArticleListProjector } from './articleList'
+// WERT-Import, und er ist unbedenklich: `articleWrite.ts` hängt an `@welshman/util` und
+// `articleMetrics.ts` — beide liegen ohnehin im Boot-Pfad —, aber an KEINER Zeile aus
+// `longform.ts` (nur `import type`). Die Bundle-Grenze bleibt also, wo sie ist; der
+// Riegel dafür ist `tests/e2e/support/bundleGrenze.nodetest.ts`.
+//
+// Warum überhaupt als Wert: die Zeichengrenze und die Sperrregel des Kommentar-Composers
+// werden HIER ausgewertet (Knopfzustand, Restzähler) — sie stünden sonst als Literale im
+// Markup, also ein zweites Mal und ungeprüft.
+import { KOMMENTAR_MAX_ZEICHEN, kommentarSperre } from './articleWrite'
 // WERT-Import, kein Typ-Import — und deshalb bewusst aus `articleSorts.ts` und NICHT aus
 // `articleList.ts`: das Modul dort haengt ueber `longform.ts` an markdown-it, ein Wert von
 // dort zoege 50 kB gzip in den `app`-Chunk. `articleSorts.ts` hat null Importe.
@@ -867,6 +876,34 @@ type ArticleState = {
     teilen(): Promise<void>
     /** Der Grund, warum der Lightning-Einstieg nichts tut — als Toast, nicht als Tooltip. */
     keineLightningAdresse(): void
+
+    // ── P7: Netz schreibend ───────────────────────────────────────────────────────
+    /** Ist überhaupt jemand angemeldet? Ohne Signer gibt es nichts zu signieren. */
+    angemeldet: boolean
+    /** Läuft gerade ein Reaktions-Publish? Sperrt den Knopf gegen den Doppelklick. */
+    reagiert: boolean
+    /** Entwurf des Kommentars. Bleibt bei einem Fehlschlag stehen — das ist die Zusage. */
+    kommentarEntwurf: string
+    /** Läuft gerade ein Kommentar-Publish? */
+    kommentarLaeuft: boolean
+    /**
+     * Die Relay-Begründung des letzten fehlgeschlagenen Kommentars, '' = keine.
+     *
+     * Eine Zeile am Composer und **kein Toast**: der Toast verpufft, während der Entwurf
+     * noch dasteht, und der Nutzer sieht dann einen vollen Kasten ohne Erklärung. Dieselbe
+     * Bauform wie `sendError` am Chat-Composer.
+     */
+    kommentarFehler: string
+    /** Habe ich schon reagiert? Steuert Beschriftung und Zustand des Knopfes. */
+    habeReagiert(): boolean
+    /** Reagieren bzw. die eigene Reaktion zurücknehmen — ein Knopf, zwei Richtungen. */
+    reaktionUmschalten(): Promise<void>
+    /** Darf der Kommentar abgeschickt werden — und wenn nein, warum nicht (leer = ja). */
+    kommentarSperrgrund(): string
+    /** Verbleibende Zeichen; negativ heißt: über der Grenze. */
+    kommentarRest(): number
+    /** Den Kommentar publizieren. Bei Fehlschlag bleibt der Entwurf stehen. */
+    kommentarAbschicken(): Promise<void>
 }
 
 /**
@@ -3873,8 +3910,18 @@ export function registerNostrComponents(Alpine: {
             _leseAb: null,
             _leseFrame: 0,
             _leseGroesse: null,
+            // ── P7 ──────────────────────────────────────────────────────────────────
+            // **Einmal beim Mount, nicht als Ausdruck im Markup.** Wer angemeldet ist,
+            // ändert sich innerhalb einer Artikelansicht nicht: der Login führt über
+            // `/nostr-login` und endet auf `/spaces`, diese Seite wird dabei neu geladen.
+            angemeldet: false,
+            reagiert: false,
+            kommentarEntwurf: '',
+            kommentarLaeuft: false,
+            kommentarFehler: '',
             init() {
                 this._controller = new AbortController()
+                this.angemeldet = Boolean(pubkey.get())
                 // **Einmal beim Mount festgestellt, nicht bei jedem Rendern.** `canShare`
                 // ist eine Eigenschaft des Browsers und ändert sich innerhalb einer
                 // Sitzung nicht; ein Ausdruck im Markup liefe bei jedem Alpine-Durchlauf.
@@ -4084,6 +4131,110 @@ export function registerNostrComponents(Alpine: {
             /** Dasselbe inerte Muster wie beim Teilen — siehe {@link teilenAusloesen}. */
             keineLightningAdresse() {
                 toast(t('Dieser Autor hat keine Lightning-Adresse hinterlegt.'), 'info')
+            },
+
+            // ── P7: Netz schreibend ─────────────────────────────────────────────────
+
+            habeReagiert() {
+                return this.article?.eigeneReaktion !== null && this.article?.eigeneReaktion !== undefined
+            },
+            /**
+             * Ein Knopf, zwei Richtungen — reagieren oder die eigene Reaktion zurücknehmen.
+             *
+             * **Der Zustand kommt aus der ABLEITUNG, nicht aus einem lokalen Merker.**
+             * `article.eigeneReaktion` wird aus denselben Ereignissen berechnet wie der
+             * Zähler daneben; ein zweiter, lokal gehaltener Wahrheitswert könnte
+             * auseinanderlaufen und zeigte dann einen gedrückten Knopf über einer Null.
+             * Der optimistische Publish legt die kind 7 sofort ins Repository, die
+             * Ableitung rechnet nach — Knopf und Zähler wechseln gemeinsam.
+             *
+             * `reagiert` sperrt nur gegen den **Doppelklick**: zwei kind 7 desselben
+             * Autors mit demselben Emoji zählen zwar nur einmal (Deduplizierung je
+             * (Autor, Emoji)), aber sie liegen beide unwiderruflich auf dem Relay.
+             */
+            async reaktionUmschalten() {
+                if (this.reagiert || !feed || !this.article) {
+                    return
+                }
+                if (!this.angemeldet) {
+                    toast(t('Zum Reagieren musst du angemeldet sein.'), 'info')
+
+                    return
+                }
+                this.reagiert = true
+                haptic(10)
+                try {
+                    const meine = this.article.eigeneReaktion
+                    const err = meine
+                        ? await feed.nimmArtikelReaktionZurueck(meine.id)
+                        : await feed.reagiereAufArtikel(this.article.id)
+                    if (err) {
+                        // Toast und keine feste Zeile: anders als beim Kommentar gibt es
+                        // hier keinen Entwurf, der stehen bleiben müsste — der Knopf ist
+                        // nach dem Fehlschlag im selben Zustand wie davor.
+                        toast(err)
+                    }
+                } finally {
+                    this.reagiert = false
+                }
+            },
+            kommentarSperrgrund() {
+                const grund = kommentarSperre({
+                    entwurf: this.kommentarEntwurf,
+                    angemeldet: this.angemeldet,
+                    laeuft: this.kommentarLaeuft,
+                })
+                switch (grund) {
+                    case 'abgemeldet':
+                        return t('Zum Kommentieren musst du angemeldet sein.')
+                    case 'zu-lang':
+                        return t('Der Kommentar ist zu lang.')
+                    // `leer` und `laeuft` bekommen bewusst KEINEN Text: beide sind für den
+                    // Nutzer offensichtlich (leeres Feld, laufender Vorgang), und eine
+                    // Meldung „das Feld ist leer" unter einem leeren Feld ist Lärm. Der
+                    // Knopf ist trotzdem gesperrt — die Sperre und ihre Begründung sind
+                    // zwei Fragen.
+                    default:
+                        return ''
+                }
+            },
+            kommentarRest() {
+                return KOMMENTAR_MAX_ZEICHEN - this.kommentarEntwurf.length
+            },
+            /**
+             * Den Kommentar publizieren — und bei einem Fehlschlag **den Entwurf stehen
+             * lassen.**
+             *
+             * Das ist die Zusage dieser Fläche und der Grund für die eigene Fehlerzeile:
+             * am Board-Relay ist die Ablehnung der Normalfall für jeden ohne verifizierte
+             * NIP-05-Adresse (`blocked: NIP-05 verification needed to publish events`,
+             * gemessen 2026-08-21). Ein Composer, der bei diesem Relay-Verdikt leert,
+             * vernichtet den Text bei genau den Nutzern, die ihn nicht loswerden können.
+             *
+             * Geleert wird deshalb **erst nach** dem `''` — nicht optimistisch vorher.
+             */
+            async kommentarAbschicken() {
+                if (!feed || !this.article || kommentarSperre({
+                    entwurf: this.kommentarEntwurf,
+                    angemeldet: this.angemeldet,
+                    laeuft: this.kommentarLaeuft,
+                }) !== '') {
+                    return
+                }
+                this.kommentarLaeuft = true
+                this.kommentarFehler = ''
+                try {
+                    const err = await feed.kommentiereArtikel(this.article.id, this.kommentarEntwurf)
+                    if (err) {
+                        this.kommentarFehler = err
+
+                        return
+                    }
+                    this.kommentarEntwurf = ''
+                    toast(t('Kommentar veröffentlicht.'), 'success')
+                } finally {
+                    this.kommentarLaeuft = false
+                }
             },
             linkKopieren() {
                 const ziel = this.teilZiel()

@@ -471,7 +471,6 @@
     "Nachricht schreiben": "Bericht schrijven",
     "Nachricht schreiben…": "Bericht schrijven…",
     "Nachricht senden": "Bericht verzenden",
-    "Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.": "Bericht geweigerd door de Relay — je bent mogelijk geen lid van deze kamer.",
     "Nachricht wird geladen…": "Bericht wordt geladen…",
     "Nachricht-Details": "Berichtdetails",
     "Name": "Naam",
@@ -917,5 +916,18 @@
     ":count ungelesen": ":count ongelezen",
     "1 Repo": "1 repo",
     ":count Repos": ":count repo's",
-    "Alle Artikel von :name": "Alle artikelen van :name"
+    "Alle Artikel von :name": "Alle artikelen van :name",
+    "Dein Kommentar…": "Jouw reactie…",
+    "Der Kommentar ist zu lang.": "De reactie is te lang.",
+    "Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.": "Deze relay accepteert alleen berichten van accounts met een geverifieerd NIP-05-adres.",
+    "Du bist kein Mitglied dieses Relays.": "Je bent geen lid van deze relay.",
+    "Kommentar schreiben": "Een reactie schrijven",
+    "Kommentar veröffentlicht.": "Reactie gepubliceerd.",
+    "Kommentare": "Reacties",
+    "Noch keine Kommentare.": "Nog geen reacties.",
+    "Reaktion zurücknehmen": "Reactie intrekken",
+    "Veröffentlichen": "Publiceren",
+    "Vom Relay abgelehnt: :grund": "Geweigerd door de relay: :grund",
+    "Zum Kommentieren musst du angemeldet sein.": "Je moet ingelogd zijn om te reageren.",
+    "Zum Reagieren musst du angemeldet sein.": "Je moet ingelogd zijn om een reactie te geven."
 }

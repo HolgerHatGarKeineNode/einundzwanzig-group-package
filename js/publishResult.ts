@@ -133,3 +133,68 @@ export const waitForPublishError = (thunk: ThunkLike): Promise<string> =>
             }
         })
     })
+
+/**
+ * Rohe Relay-Ablehnung → deutscher Text, **der den Grund des Relays mitführt**.
+ *
+ * ── Was hier vorher stand, und warum es der teuerste Fehler dieser Kette war ────────
+ *
+ * Die frühere Fassung ersetzte den Relay-Grund durch einen eigenen Satz:
+ *
+ * ```ts
+ * if (s.includes('restrict') || s.includes('blocked') || …) {
+ *     return t('Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.')
+ * }
+ * ```
+ *
+ * Für zooid (`restricted: you are not a member of this relay`) traf das zu. Für den
+ * Artikel-Relay trifft es **nicht** zu: `wss://nostr.einundzwanzig.space` ist
+ * nostr-rs-relay 0.10.0 mit `restricted_writes: true` und **ohne NIP-42**; er lehnt mit
+ * `blocked: NIP-05 verification needed to publish events` ab (gemessen 2026-08-21 an
+ * seiner NIP-11 und am Ablehnungstext). Der Nutzer las dann „du bist evtl. kein Mitglied
+ * dieses Raums" — eine **erfundene Ursache**, und zwar eine, die in die falsche Richtung
+ * schickt: nicht die Mitgliedschaft fehlt, sondern die NIP-05-Verifikation, und die
+ * repariert man woanders. Für Buzz (`restricted: unknown event kind`) war derselbe Satz
+ * ebenso falsch.
+ *
+ * ── Die Regel, die daraus folgt ────────────────────────────────────────────────────
+ *
+ * 1. **Der Originaltext des Relays geht nie verloren.** Er steht wörtlich in der Meldung.
+ *    Er ist das einzige, was am Vorgang belegt ist; alles andere ist unsere Deutung.
+ * 2. **Ein Hinweis nur dort, wo der Originaltext ihn trägt.** Gesucht wird nach dem
+ *    konkreten Wortlaut (`member`, `nip-05`, …), nicht nach der groben Klasse
+ *    (`blocked`) — eine Klasse deckt viele Ursachen ab, und genau daraus entstand die
+ *    Erfindung oben.
+ * 3. **Ohne passenden Hinweis: nur der Grund.** „Vom Relay abgelehnt: <Grund>" sagt
+ *    weniger und behauptet nichts.
+ *
+ * Der Gegenfall steht im Gedächtnis und ist der Grund für {@link PUBLISH_VERDICT_TIMEOUT_MS}:
+ * bei Buzz' Ratenbegrenzer kommt gar kein `OK`, sondern eine nackte `NOTICE` — dort gibt
+ * es keinen Grund zum Mitführen, und die Meldung sagt das (`NO_VERDICT_ERROR`).
+ *
+ * Exportiert und in `publishResult.ts` statt in `feeds.ts`, damit ein `node --test` sie
+ * fahren kann: `feeds.ts` ist unter node nicht ladbar (endungslose Importe, danach
+ * `localStorage` beim Import von `session.ts`).
+ */
+export const mapRelayError = (raw: string): string => {
+    const grund = raw.trim()
+    if (!grund) {
+        return t('Konnte nicht gesendet werden.')
+    }
+    const s = grund.toLowerCase()
+    // Reihenfolge = Spezifität. `auth` steht ZULETZT, weil das Wort als Teilzeichenkette
+    // in vielen Ablehnungen vorkommt (`unauthorized`, `authentication`) und sonst
+    // spezifischere Gründe verschluckte.
+    const hinweis =
+        s.includes('rate') && s.includes('limit')
+            ? t('Zu viele Nachrichten in kurzer Zeit — kurz warten und erneut senden.')
+            : s.includes('nip-05') || s.includes('nip05')
+              ? t('Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.')
+              : s.includes('member')
+                ? t('Du bist kein Mitglied dieses Relays.')
+                : s.includes('auth')
+                  ? t('Am Relay nicht angemeldet — bitte erneut senden.')
+                  : ''
+
+    return hinweis ? `${hinweis} (${grund})` : t('Vom Relay abgelehnt: :grund', { grund })
+}
