@@ -71,10 +71,11 @@
          Bis hierher entschied das Auto-Placement, und das rechnet mit der ANZAHL
          der Kinder im Fluss. Vor dem Alpine-Boot gibt es die Rail nicht (sie steht
          in einem `<template x-if>`), die Bühne war damit das erste Kind — und
-         landete in Spur 1, den 20 rem des Navigators. Gemessen auf `/articles`:
-         `#buehne` 320 px statt 1120 px, für 830–837 ms bei um 600 ms verzögerter
-         JS-Antwort (ungedrosselt 310 ms), CLS 0,3865 mit der Bühne als benannter
-         Shift-Quelle.
+         landete in Spur 1, den 20 rem des Navigators: `#buehne` 320 px statt 1120 px.
+         **Die vollständige Messreihe steht an EINER Stelle**, im Kopf von
+         `tests/e2e/desktop-boot-geometrie.spec.ts` — zusammen mit den Tests, die sie
+         reproduzieren. Sie hier ein zweites Mal zu führen, hat schon einmal zu zwei
+         verschiedenen Zahlenreihen in zwei Dateien geführt.
 
          **Heute trägt diese Zeile die Geometrie NICHT allein — und das ist gemessen,
          nicht angenommen:** entfernt man sie, bleibt die Bühne trotzdem in Spur 2,

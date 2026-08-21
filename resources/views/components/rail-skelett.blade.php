@@ -5,22 +5,21 @@
      `<template x-if="$store.viewport?.desktop">` (`desktop-rail.blade.php`), und der
      Inhalt eines `x-if`-Templates ist bis zum Boot **kein DOM-Knoten**.
 
-     ── Was ohne ihn passierte, gemessen statt vermutet ─────────────────────────────
+     ── Was ohne ihn passierte ──────────────────────────────────────────────────────
      Das Chassis (`app-frame.blade.php`) ist ab `xl` ein Grid mit
      `grid-cols-[20rem_minmax(0,1fr)]`. Ohne Rail war die Bühne das ERSTE Kind im
      Fluss und landete per Auto-Placement in Spur 1 — also in den 20 rem, die für den
-     Navigator gedacht sind. Am 2026-08-21 auf `/articles` gemessen (Playwright,
-     JS-Antwort um 600 ms verzögert, 1440 px):
+     Navigator gedacht sind: `#buehne` **320 px statt 1120 px**, `x = 0`, Ortskarte
+     **80 px**, Beschriftung auf „C…" gekürzt.
 
-       · `#buehne` **320 px statt 1120 px** breit, `x = 0`
-       · Ortskarte **80 px** statt 346,7 px, Beschriftung auf „C…" gekürzt
-       · **35 von 172 Frames**, Dauer **685–718 ms**; ungedrosselt 166–175 ms
-       · **CLS 0,3865** — der Layout-Shift-Eintrag benennt als Quelle wörtlich
-         `DIV.contents xl:flex xl:min-h-0 xl:fle…`, also die Bühne selbst
-       · bei 1279 px (unter `xl`, kein Grid): 0 kaputte Frames, CLS 0,0000
-
-     Die Breite des Fensters spielte dabei keine Rolle: bei 1920 px war die Bühne
-     ebenfalls 320 px breit. Das ist keine Skalierungsfrage, sondern eine Spur.
+     **Die Messreihe dazu steht an EINER Stelle** — im Kopf von
+     `tests/e2e/desktop-boot-geometrie.spec.ts`, zusammen mit den Tests, die sie
+     reproduzieren. Hier stand sie ein zweites Mal und ist prompt auseinandergelaufen:
+     die Zahlen blieben auf einer verworfenen ersten Instrumentfassung stehen, während
+     `app-frame.blade.php` und die Spec längst auf der reproduzierbaren Reihe standen.
+     Eine Zahl, die an drei Orten steht, ist an zweien falsch, sobald jemand einen
+     korrigiert. Die drei Werte oben bleiben, weil genau sie dort als Literal
+     assertiert werden (Kernbeweis und Negativkontrolle).
 
      ── Warum ein Platzhalter und nicht `x-cloak` an der Ortskarten-Leiste ──────────
      `x-cloak` hätte in derselben Zeitspanne GAR NICHTS gezeigt. Eine tote Seite ist
@@ -72,14 +71,18 @@
      treffen: die Beschreibung ist ein Relay-Datum. Dort wächst der Kopf um 4,8 px,
      die Liste gibt dieselben 4,8 px ab, Suchfeld und Fußzeile stehen still.
 
-     `desktop-boot-geometrie.spec.ts` misst alle drei Lagen — die zweite über einen
-     eigenen `serve` ohne `NOSTR_WORKSPACE_URL`, weil die Bedingung server-seitig
-     entschieden wird und eine DOM-Simulation sie nicht prüfen würde.
+     **Quelle aller drei Zeilen:** `tests/e2e/desktop-boot-geometrie.spec.ts` misst sie
+     bei jedem Lauf und hält jede als Literal fest — die zweite Lage über einen eigenen
+     `serve` ohne `NOSTR_WORKSPACE_URL`, weil die Bedingung server-seitig entschieden
+     wird und eine DOM-Simulation sie nicht prüfen würde. Keine der Zahlen hier ist
+     abgeschrieben; sie stehen alle im Test.
 
      ── Warum `aria-hidden` und ohne jedes bedienbare Element ───────────────────────
      Er trägt keine Information. Ein Screenreader liest ihn nicht, und es gibt nichts
-     darin, was Fokus annehmen könnte — sonst stünden 20 leere Tab-Stopps vor dem
-     Inhalt, für 250 ms, ohne Ziel.
+     darin, was Fokus annehmen könnte — sonst stünden zwei Dutzend leere Tab-Stopps
+     vor dem Inhalt, für die Dauer des Bootfensters, ohne Ziel. (Hier stand „für
+     250 ms" — eine Zahl, die keine Messung stützte; das Fenster ist je nach Drosselung
+     ein Vielfaches davon, siehe die Reihe in `desktop-boot-geometrie.spec.ts`.)
 
      ── Bewegung ───────────────────────────────────────────────────────────────────
      Keine neue. `.skeleton` bringt sein Schimmern mit und ist unter
@@ -98,14 +101,18 @@
      Abo, kein welshman. Genau das, was `desktop-rail.blade.php` mit `x-if` vermeiden
      wollte, ist hier also nicht der Fall.
 
-     ── Was er auf einem TELEFON kostet, gemessen ──────────────────────────────────
+     ── Was er auf einem TELEFON kostet ────────────────────────────────────────────
      Unterhalb `xl` ist er `hidden` — kein Layout, kein Paint, keine Insel. Im DOM
-     steht er trotzdem, und das ist der Preis: **154 Elemente, 13.076 Bytes roh von
-     300.048 der Seite — nach gzip 538 Bytes**, also 1,5 % der ausgelieferten
-     37 kB (`/articles`, am 2026-08-21 gemessen). Server-seitig lässt sich das nicht
-     vermeiden: welche Breite der Browser hat, weiß erst der Browser. Für einen
-     halben Kilobyte auf der Leitung ist das gekauft; wer die Zahl bewegt, bewegt vor
-     allem die Zeilenzahl der Liste oben. --}}
+     steht er trotzdem, und das ist der Preis: **139 Elemente** (am gerenderten Element
+     gezählt) und **unter 1 kB auf der Leitung** nach gzip. Die Schranke hält
+     `RailSkelettTest` bei jedem Lauf; hier stand zuvor eine exakte Byte-Zahl aus einem
+     Wegwerf-Skript, das niemand wieder ausführen kann — und eine Elementzahl (154),
+     die aus gezählten spitzen Klammern statt aus Elementen stammte und deshalb schlicht
+     falsch war.
+
+     Server-seitig lässt sich der Preis nicht vermeiden: welche Breite der Browser hat,
+     weiß erst der Browser. Für weniger als ein Kilobyte ist das gekauft; wer die Zahl
+     bewegt, bewegt vor allem die Zeilenzahl der Liste oben. --}}
 <div data-rail-skelett aria-hidden="true" x-data x-show="!$store.viewport?.desktop"
      class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
@@ -157,11 +164,16 @@
          Das ist die einzige Stelle, an der der Platzhalter etwas behauptet: dass
          unten weitergeht. Für eine Raumliste ab 1280 px trägt diese Zusage.
 
-         DREI Gruppen zu sieben Zeilen — zusammen 756 px. Die Scrollfläche ist bei
-         900 px Fenster 527 px hoch (gemessen); die Zeilen reichen damit bis zu einem
-         Fenster von gut 1170 px und werden darunter beschnitten. Eine Zahl, die
-         JEDE Fensterhöhe füllt, gibt es nicht — der Platzhalter füllt die üblichen
-         und lässt darüber hinaus lieber Luft, als hundert leere Zeilen zu rendern. --}}
+         DREI Gruppen zu sieben Zeilen. Am gerenderten Element gemessen (1440×900,
+         Sonde 2026-08-21): Inhaltshöhe **788 px** bei einer Scrollfläche von 532 px,
+         also beschnitten — genau die Zusage. Hier stand zuerst eine GERECHNETE 756 px;
+         die Rechnung hatte das `pt-2` je Gruppe vergessen. Deshalb steht jetzt der
+         gemessene Wert da: 3 × 260 (Gruppe) + 8 (`pb-2` des Containers).
+
+         Die Zeilen füllen die Fläche damit bis zu einem Fenster von rund 1160 px
+         (900 + 788 − 532) und lassen darüber Luft. Eine Zahl, die JEDE Fensterhöhe
+         füllt, gibt es nicht — der Platzhalter füllt die üblichen, statt hundert leere
+         Zeilen zu rendern. --}}
     <div class="min-h-0 flex-1 overflow-hidden px-3 pb-2">
         {{-- Die Balkenbreiten stehen als VOLLE Literale (`w-28`, `w-36`, …) im
              Quelltext, nicht als ein zur Laufzeit gebautes `w-` plus Zahl: Tailwind
@@ -205,8 +217,19 @@
            · Die Forge-Zeile hängt an `config('group.workspace_url')` — zeichengleich
              mit `desktop-rail.blade.php`. Die Config ist `env('NOSTR_WORKSPACE_URL')`
              OHNE Default; in einer Installation ohne Workspace fehlt die Zeile also.
-           · Die Nav-Zeilen kommen aus `count(config('group.nav'))`, weil
-             `bottom-nav.blade.php` genau darüber iteriert. Web hat drei, Mobile vier.
+           · Die Nav-Zeilen kommen aus `config('group.nav')`, weil
+             `bottom-nav.blade.php` genau darüber iteriert.
+
+             **Nicht, weil ein Host heute vier hätte** — hier stand „Web hat drei,
+             Mobile vier", und das ist nachgesehen falsch: `config/group.php` im Host
+             führt chat/wallet/settings, das Paket chat/members/settings, beide also
+             DREI. Die Vier stammte aus dem `grid-cols-4`-Zweig in
+             `bottom-nav.blade.php`, war also aus einem Kommentar extrapoliert statt
+             gezählt. Der Grund für die Kopplung ist trotzdem gültig und liegt eine
+             Ebene höher: die Zahl ist eine KONFIGURATION, kein Systemwert. Eine
+             Konstante daneben wäre auch dann falsch gebaut, wenn sie heute zufällig
+             stimmt — und `RailSkelettTest` prüft die Kopplung deshalb gegen mehrere
+             Längen und nicht gegen die heutige Drei.
            · Die Profilzeile steht unbedingt, wie dort.
 
          Die erste Fassung schrieb zwei Flächenzeilen und drei Nav-Zeilen als feste
