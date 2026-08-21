@@ -39,16 +39,21 @@ import { proxifyImage } from './core'
 import { formatRelativeDate, formatTimestamp } from './locale'
 import {
     LONGFORM,
+    buildArticleAuthor,
     buildArticleRow,
     decodeArticleNaddr,
     readingTime,
     relativeDateParts,
     renderArticleHtml,
     type ArticleAddress,
+    type ArticleAuthor,
     type ArticleRow,
 } from './longform'
 import { warmProfiles } from './profiles'
 import { deriveEventsForUrl } from './repository'
+import { handlesByNip05 } from '@welshman/app'
+import { sanitizeUrl } from '@braintree/sanitize-url'
+import { verifiedNip05, warmHandles } from './handles'
 
 /**
  * Die Board-Relay-URL, normalisiert — `''`, wenn keine konfiguriert ist.
@@ -86,6 +91,16 @@ export type { ArticleRow } from './longform'
 export type ArticleView = ArticleRow & {
     /** Der gerenderte Artikel. Entsteht ausschließlich über `renderArticleHtml`. */
     html: string
+    /**
+     * Der Autor als Karte (P3) — Bio, Website, NIP-05, Lightning.
+     *
+     * **Nur hier und nicht in {@link ArticleRow}.** Die Liste zeigt 104 Zeilen und
+     * braucht davon Name und Avatar; die trägt die Zeile längst. Bio und
+     * Lightning-Adresse für 104 Autoren-Objekte zu bauen, von denen 103 nie zu sehen
+     * sind, wäre Arbeit bei jedem Emit für nichts — und `deriveArticles` emittiert für
+     * jedes eintreffende kind-0.
+     */
+    author: ArticleAuthor
 }
 
 /**
@@ -259,8 +274,14 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
         [
             throttled(300, deriveEventsForUrl(BOARD_URL, addressFilters(address))),
             throttled(300, profilesByPubkey),
+            // **Dritter Eingang, und er muss hier stehen.** Der verifizierte NIP-05-Handle
+            // trifft NACH dem Artikel ein (`warmHandles` stößt ihn erst an, wenn der Autor
+            // bekannt ist). Ohne diesen Eingang rechnete die Ableitung dabei nicht neu, und
+            // das Häkchen erschiene nie — genau die Reaktivitäts-Falle, die diese Fläche
+            // schon einmal eine Phase gekostet hat (`deriveRoomChat`, siehe Modulkopf).
+            throttled(300, handlesByNip05),
         ],
-        ([events, $profiles]) => {
+        ([events, $profiles, $handles]) => {
             // Ersetzbares Event: bei mehreren Fassungen im Store gewinnt die jüngste
             // `created_at` — dieselbe Regel, die auch der Relay anwendet.
             const newest = (events as TrustedEvent[]).reduce<TrustedEvent | null>(
@@ -271,14 +292,60 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
                 return null
             }
 
-            return { ...toRow(newest, $profiles.get(newest.pubkey)?.picture ?? ''), html: renderCached(newest) }
+            const profil = $profiles.get(newest.pubkey)
+            // Die Website ist Fremdtext aus einem kind 0 und wird deshalb HIER
+            // sanitisiert, nicht in der Fläche: `sanitizeUrl` gibt für alles
+            // Gefährliche `'about:blank'` zurück, und das ist als `href` sichtbar
+            // sinnlos — also fällt es weg. Dieselbe Behandlung wie in der Profilkarte
+            // (`bridge.ts`, `nostrProfileCard`), damit es über die Adresse eines Autors
+            // nicht zwei Urteile gibt.
+            const website = profil?.website ? sanitizeUrl(profil.website) : ''
+
+            return {
+                ...toRow(newest, profil?.picture ?? ''),
+                html: renderCached(newest),
+                author: buildArticleAuthor(newest.pubkey, {
+                    name: displayProfileByPubkey(newest.pubkey),
+                    picture: profil?.picture ?? '',
+                    about: profil?.about ?? '',
+                    website: website === 'about:blank' ? '' : website,
+                    // **Der Unterschied zwischen „hat keine" und „wissen wir noch nicht".**
+                    // Das kind 0 trifft asynchron ein; vor seinem Eintreffen ist `profil`
+                    // `undefined`, und jede Aussage über eine Zahlungsadresse wäre
+                    // ungedeckt. Genau das stand vorher unter jedem Artikel, bis das
+                    // Profil da war.
+                    profilBekannt: profil !== undefined,
+                    // **Nur das Ja/Nein wandert weiter, nie die Adresse.** Gelesen wird sie
+                    // aus der GEMERGTEN Map (`spaceProfiles.ts`) — dieselbe Quelle wie die
+                    // Profilkarte, und die Zweitquelle vom Workspace-Relay trägt das Feld
+                    // gar nicht erst (Ebene 3 in `zapTargetSources.test.ts`). Hier endet
+                    // ihr Weg: `buildArticleAuthor` bekommt einen Wahrheitswert.
+                    hatLightning: (profil?.lud16 ?? '') !== '',
+                    // **Der VERIFIZIERTE Handle, nie der Rohwert aus kind 0.** Ein
+                    // Häkchen neben einem unbestätigten `nip05` wäre eine Behauptung
+                    // über eine fremde Domain, die niemand geprüft hat.
+                    nip05: verifiedNip05(newest.pubkey, $profiles, $handles),
+                }),
+            }
         },
     )
 }
 
-/** Autoren-Profile wärmen — sonst steht in der Zeile die npub-Kurzform statt des Namens. */
+/**
+ * Autoren-Profile wärmen — sonst steht in der Zeile die npub-Kurzform statt des Namens.
+ *
+ * Seit P3 zusätzlich die NIP-05-Handles: die Autorenkarte der Vollansicht zeigt ein
+ * Häkchen, und das entsteht erst, wenn welshman die `.well-known/nostr.json` des
+ * Handles geholt und die pubkey darin bestätigt hat. Ohne dieses Anstoßen bliebe es für
+ * jeden Autor aus — nicht falsch, aber dauerhaft leer.
+ *
+ * Beide sind fire-and-forget und deduplizieren selbst; die Liste ruft dasselbe für alle
+ * 104 Zeilen auf, die Vollansicht für einen Autor.
+ */
 const warmAuthors = (events: TrustedEvent[]): void => {
-    void warmProfiles(events.map((event) => event.pubkey))
+    const pubkeys = events.map((event) => event.pubkey)
+    void warmProfiles(pubkeys)
+    warmHandles(pubkeys)
 }
 
 /**

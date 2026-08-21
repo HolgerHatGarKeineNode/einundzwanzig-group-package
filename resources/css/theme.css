@@ -688,6 +688,41 @@ select:focus[data-flux-control] {
     border-radius: var(--radius-card, 0.75rem);
 }
 
+/* Anklickbares Artikelbild (P3): der Klick öffnet die Lightbox. Die Klasse setzt der
+   Renderer (`ARTICLE_IMAGE_CLASS` in `js/longform.ts`), und zwar NUR, wenn ein
+   Bild-Proxy im Spiel war — ohne ihn entsteht sie nicht, und dann ist auch nichts
+   anzukündigen.
+
+   ── Warum eine eigene Klasse und nicht `chat-image` ──
+   Der Plan schrieb `chat-image` vor. `.chat-image` setzt `width: 100%`, und
+   `.article-content img` darüber hat zu `width` GAR KEINE Deklaration — die
+   Chat-Regel gölte also, und jedes Inline-Bild eines Artikels würde auf die volle
+   Spaltenbreite hochskaliert statt seine Naturgröße zu behalten. Dazu fehlt ohne den
+   `.chat-image-box`-Rahmen das `cursor: zoom-in`. Zwei Flächen, zwei Typografien,
+   zwei Klassen; derselbe AUSLÖSER (`dataset.full`).
+
+   Diese Regel fügt deshalb bewusst NICHTS zur Größe hinzu — nur die Ankündigung, dass
+   hier etwas passiert. Der Selektor ist zweistufig (`.article-content img.…`), damit
+   die Reihenfolge im gebauten Stylesheet nichts entscheiden muss.
+
+   ── Hier steht KEIN `:focus-visible`, und das ist eine offene Lücke ──
+   Eine frühere Beschreibung dieser Klasse behauptete eins. Es gab nie eins, und es hätte
+   auch nie ausgelöst: das `<img>` entsteht im Renderer-String und trägt weder `tabindex`
+   noch `role` — **es ist nicht fokussierbar**. Die Lightbox ist damit maus- und
+   tippgebunden (WCAG 2.1.1), im Artikel wie im Chat.
+
+   Warum sie hier trotzdem nicht geschlossen wird: der Weg dorthin führt über
+   `tabindex="0"` und `role="button"` IM RENDERER — also über zwei weitere Attribute auf
+   der Sicherheitsgrenze —, er gäbe einem langen Artikel einen Fokus-Stopp je Bild, und
+   ein `role="button"` auf einem Bild mit leerem `alt` wäre ein Knopf ohne zugänglichen
+   Namen (4.1.2), also eine NEUE Verletzung als Preis für die alte. Dieselbe Lücke hat der
+   Chat; sie einseitig auf einer Fläche zu schließen erzeugte zwei Verhalten für dieselbe
+   Geste. Das gehört in einen Hausauftrag, nicht in diese Phase — aber es gehört
+   aufgeschrieben, damit es niemand erneut als erledigt beschreibt. */
+.article-content img.article-image {
+    cursor: zoom-in;
+}
+
 .article-content hr {
     margin-block: 2em;
     border: 0;
