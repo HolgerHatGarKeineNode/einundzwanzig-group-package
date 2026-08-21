@@ -9,7 +9,7 @@
  * bestehende zooid/NIP-86-Strecke unverändert bleibt. Beim Mount ist das Doc aber
  * IMMER noch unterwegs: wer den Wert in `x-init` einmal liest, hält für den Rest
  * der Sitzung „kein Buzz" fest, und die Fläche tut stumm nichts. Zwei bereits
- * behobene Fälle derselben Ursache stehen in `bridge.ts:2718` („ein synchroner
+ * behobene Fälle derselben Ursache stehen in `bridge.ts` → `nostrSpaces._unsubIsBuzz` (`deriveRelay(url).subscribe`) („ein synchroner
  * Blick meldete verlässlich ‚kein Buzz' und die Einträge blitzten auf") und
  * `roomPins.ts:315` („hier stand vorher `spaceIsBuzz(url)` — synchron und genau
  * einmal") — beide mussten von synchron auf reaktiv umgebaut werden.
