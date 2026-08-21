@@ -173,6 +173,55 @@ return [
     'verein_public_url' => env('VEREIN_PUBLIC_URL') ?: 'https://verein.einundzwanzig.space/',
 
     /*
+     * Öffentliche Creator-Seite des eigenen Ökosystems — das Ziel der Profil-Verweise
+     * („Profil auf … ansehen" in der Profilkarte und auf der Autorenseite). Statt Leute
+     * auf njump oder einen fremden Client zu schicken, schließt der Verweis den Loop im
+     * eigenen Haus.
+     *
+     * **Der Wert ist das GANZE Präfix vor `/u/…`, nicht nur der Host.**
+     * `media.einundzwanzig.space` ist eine Vue-SPA mit `createWebHashHistory`
+     * (`~/Code/standup`, `src/router/index.js:1` und `:228`); die Profilroute ist
+     * `/u/:identifier` und liegt damit HINTER dem Hash. Gemessen am 2026-08-21 antwortet
+     * der Host trotzdem auf BEIDE Formen mit 200: `/#/u/…` ist die reine SPA-Route,
+     * `/u/…` leitet in dieselbe SPA und liefert zusätzlich profilspezifische OG-Tags
+     * (`og:title` mit dem echten Namen, `og:image` mit dem echten Avatar).
+     *
+     * **Der Default ist deshalb der Klarpfad OHNE `#`** — Entscheidung des Auftraggebers
+     * am 2026-08-21, und sie hängt an einem Argument: dieser Verweis ist zum Teilen da.
+     * Ein in Telegram oder Signal geteilter Profil-Link zeigt in dieser Form Name und Bild
+     * des Autors, in der Hash-Form nur die generische Karte. Es ist zugleich die Form, die
+     * media. in seinem EIGENEN Teilen-Dialog baut (`src/views/CreatorPage.vue:221-223`).
+     *
+     * Wer die reine SPA-Route will, hängt in der `.env` ein `#` an — eine Zeile, kein
+     * Code-Umbau. **Dann aber in Anführungszeichen**, siehe unten.
+     *
+     * **`env(…, default)` und ausdrücklich NICHT `?:`** — anders als bei
+     * `verein_public_url` darüber, und genau deshalb steht es hier: Laravels Default
+     * greift nur, wenn der Schlüssel ganz FEHLT; eine leere Zeile liefert `''`
+     * (am 2026-08-21 gegen `vlucas/phpdotenv` gemessen). Damit trägt eine leere Zeile
+     * eine Bedeutung, und die ist hier gewollt:
+     *
+     * **Leer = kein Verweis.** Dann entfällt die Zeile auf beiden Flächen ganz, statt auf
+     * eine kaputte Adresse zu zeigen — dieselbe Regel wie bei
+     * `NOSTR_ARTICLE_METRIC_RELAYS`. Ein fremder Host (Portal, Mobile-Build eines anderen
+     * Vereins) soll den Verweis abschalten können, ohne Code anzufassen. Bei
+     * `verein_public_url` wäre dasselbe sinnlos — dort ist der Wert der letzte Ausweg des
+     * Nutzers und darf nie fehlen.
+     *
+     * ── Ein `#` in der `.env` MUSS in Anführungszeichen stehen ───────────────────────
+     * Der heutige Default braucht keins — diese Warnung trotzdem, denn sie gilt für den
+     * einen Handgriff, den der Absatz oben ausdrücklich anbietet. Am 2026-08-21 gemessen
+     * schneidet `phpdotenv` ein unquotiertes `#` samt Rest ab: aus
+     * `MEDIA_PUBLIC_URL=https://media.einundzwanzig.space/#` wird still
+     * `https://media.einundzwanzig.space/`. Die Hash-Route fiele damit lautlos auf den
+     * Klarpfad zurück, und weil media. BEIDE beantwortet, fiele es niemandem auf — wer
+     * zurückstellt, hielte die Umstellung für vollzogen. Die Fassung mit `"…"` kommt
+     * unversehrt an. `.env.example` sagt es an der Zeile, und
+     * `tests/Feature/MediaProfilLinkTest.php` hält die Warnung fest.
+     */
+    'media_public_url' => env('MEDIA_PUBLIC_URL', 'https://media.einundzwanzig.space'),
+
+    /*
      * Profil-Indexer des SERVER-seitigen kind-0-Caches (`ProfileCache`). Bewusst
      * konfigurierbar statt hartkodiert: es ist die einzige Stelle, an der der Server
      * von sich aus ins öffentliche Internet greift, und in einer hermetischen

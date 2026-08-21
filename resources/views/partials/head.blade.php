@@ -38,6 +38,15 @@
     <script>window.__nostrArticleRelays = window.__nostrArticleRelays ?? @js(config('group.article_relay_urls'));</script>
 @endif
 
+{{-- Ziel der Profil-Verweise: die öffentliche Creator-Seite auf media.
+     (`group.media_public_url`). Nur gesetzt, wenn konfiguriert — leer heißt „kein
+     Verweis", und dann entfällt die Zeile auf beiden Flächen ganz. Gleiche `??`-Regel
+     wie oben, damit ein E2E-Lauf die Basis per addInitScript setzen ODER ausdrücklich
+     leeren kann. Gelesen in `js/bridge.ts` (`medienBasis`). --}}
+@if (config('group.media_public_url'))
+    <script>window.__nostrMedia = window.__nostrMedia ?? @js(config('group.media_public_url'));</script>
+@endif
+
 {{-- Plattform-Flag: auf dem Gerät gated die Insel client-seitig (kein NIP-98).
      Ein vorab gesetztes Flag gewinnt (E2E via addInitScript, wie __nostrRelays). --}}
 <script>window.__nostrMobile = window.__nostrMobile ?? @js((bool) config('nativephp-internal.running'));</script>

@@ -374,6 +374,37 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:icon.arrow-up-right class="ml-auto size-3.5 shrink-0 opacity-50" />
                         </a>
 
+                        {{-- ── Das vollständige Profil auf media. ─────────────────────
+                             Diese Seite beantwortet „wer ist das?" nur so weit, wie ein
+                             kind 0 es hergibt. Die Creator-Seite im eigenen Ökosystem
+                             trägt mehr (Feed, Medien, Pinnwand) — der Verweis führt
+                             dorthin, statt Leser auf njump abzugeben.
+
+                             STELLUNG: direkt hinter der Website-Zeile, weil er zu
+                             derselben Klasse gehört („dieselbe Person, woanders") und
+                             deren Bauform übernimmt. VOR dem Lightning-Einstieg, weil der
+                             den einzigen brand-500-Akzent dieser Fläche trägt — ein
+                             Fremdziel darunter überholte ihn optisch.
+
+                             `medienUrl()` liest den VERIFIZIERTEN Handle; ist er nicht
+                             bestätigt, trägt die Adresse die npub (`medienProfil.ts`).
+                             Ohne Konfiguration entsteht die Zeile server-seitig gar
+                             nicht, ohne Ziel entfällt das `href` — ein `<a>` ohne `href`
+                             ist kein Tabstopp, dieselbe Regel wie bei `href(card)`.
+                             `$extern(...)`: `target="_blank"` allein verpufft in der
+                             nativen WebView. --}}
+                        @if (config('group.media_public_url'))
+                            @php($medienHost = (string) Str::of((string) config('group.media_public_url'))->after('://')->before('/'))
+                            <a x-show="medienUrl()" x-cloak :href="medienUrl() || null"
+                               x-on:click="$extern(medienUrl(), $event)"
+                               target="_blank" rel="noopener noreferrer" data-medien-profil="autor"
+                               class="pressable mt-2 flex min-w-0 items-center gap-2 rounded-tile border border-zinc-200 px-3 py-2 text-sm text-brand-800 hover:bg-brand-500/5 dark:border-zinc-800 dark:text-brand-400">
+                                <flux:icon.user-circle class="size-4 shrink-0" />
+                                <span class="min-w-0 truncate">{{ __('Profil auf :host ansehen', ['host' => $medienHost]) }}</span>
+                                <flux:icon.arrow-up-right class="ml-auto size-3.5 shrink-0 opacity-50" />
+                            </a>
+                        @endif
+
                         {{-- ── Der Lightning-Einstieg, dreiwertig ─────────────────────
                              `ja` = Adresse vorhanden, der Knopf führt zur Profilkarte, in
                              der sie kopierbar steht. `nein` = Profil da, aber ohne Adresse:

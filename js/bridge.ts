@@ -110,6 +110,9 @@ import type { ArticleRow, ArticleRowMitMetriken, ArticleView, AuthorView } from 
  * `_dead` dazwischenkommen kann.
  */
 import type { AutorFehler, Monatsgruppe } from './articleAuthor'
+import { medienProfilUrl } from './medienProfil'
+import { isSafeExternalUrl } from './vereinFlow'
+
 // Nur Typen — zur Laufzeit weggestrippt. Der WERT `createArticleList` kommt per
 // `import()` in `nostrArticles._boot()`, weil `articleList.ts` über `longform.ts` an
 // markdown-it hängt (50 kB gzip, die nicht in den `app`-Chunk jeder Seite gehören).
@@ -304,6 +307,18 @@ type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => 
 const zapsEnabled = (): boolean => (window as { __nostrZapsEnabled?: boolean }).__nostrZapsEnabled !== false
 
 /**
+ * Basis der Profil-Verweise nach media. — `''` heißt „kein Verweis".
+ *
+ * Aus `globalThis` und nicht über einen Import: geschrieben wird sie vom Head-Partial
+ * aus `config('group.media_public_url')`, mit derselben `??`-Regel wie `__nostrBoard`.
+ * Bewusst bei jedem Aufruf gelesen statt einmal beim Modul-Boot — dann hängt nichts an
+ * der Auswertungsreihenfolge zwischen Head-Skript und Bündel, und ein E2E-Lauf kann die
+ * Basis jederzeit setzen oder ausdrücklich leeren. Der Zugriff kostet nichts; die
+ * Aufrufer sind zwei `href`-Bindungen.
+ */
+const medienBasis = (): string => (globalThis as { __nostrMedia?: string }).__nostrMedia ?? ''
+
+/**
  * sessionStorage: die zuletzt VERLASSENE App-URL („woher komme ich?"), tab-lokal.
  *
  * Vorgänger war ein reines Bit („in diesem Tab wurde schon einmal navigiert"). Das
@@ -491,6 +506,8 @@ type ProfileCardState = {
     _unsubStatus: null | (() => void)
     open(pubkey: string): void
     copy(text: string, message: string): void
+    /** Öffentliches Profil auf media. — `''` = die Zeile entfällt. */
+    medienUrl(): string
     destroy(): void
 }
 
@@ -982,6 +999,8 @@ type ArticleAuthorState = {
     istLeer(): boolean
     /** Der Grund, warum der Lightning-Einstieg nichts tut — als Toast, nicht als Tooltip. */
     keineLightningAdresse(): void
+    /** Öffentliches Profil auf media. — `''` = die Zeile entfällt. */
+    medienUrl(): string
     /** Nur für `nip05-fehlgeschlagen` bzw. einen stummen Relay: von vorn. */
     retry(): void
 }
@@ -1811,6 +1830,31 @@ export function registerNostrComponents(Alpine: {
     // `$img` darüber: die Blade-Türen sollen die Policy nicht nachbauen.
     Alpine.magic('imgFallback', () => (url: unknown) => mayFallbackToRaw(url))
 
+    // MEDIA-VERWEIS — `$extern(url, $event)` öffnet einen externen Link so, dass er auf
+    // dem GERÄT auch ankommt.
+    //
+    // **Ein `target="_blank"`-Anker verpufft in der nativen WebView wirkungslos** — das
+    // ist im Haus dreimal beschrieben und dreimal einzeln gelöst: `openChatLink` (Links
+    // aus dem Nachrichtentext), `nostrVereinGate.openExternal` (Beitritts-Link) und
+    // `verein.ts openExternal` (Checkout). Genau daran waren Chat-Links auf dem Gerät
+    // „nicht klickbar", während im Web immer alles funktionierte.
+    //
+    // Die beiden neuen Profil-Verweise liegen in Inseln, die keine solche Methode haben
+    // (`nostrProfileCard`, `nostrArticleAuthor`) — eine VIERTE Kopie wäre die falsche
+    // Antwort. Als Magic steht die Regel an einer Stelle und ist aus jedem Blade
+    // erreichbar. Im Web passiert nichts (kein `preventDefault`), der Anker bleibt ein
+    // gewöhnlicher Anker mit allem, was daran hängt: Mittelklick, „Link kopieren",
+    // Tastaturbedienung.
+    //
+    // Die drei bestehenden Kopien bleiben unangetastet — sie hierher zu ziehen wäre ein
+    // eigener Umbau an Flächen, die diese Phase nicht anfasst.
+    Alpine.magic('extern', () => (url: unknown, e: Event) => {
+        if (isMobile && typeof url === 'string' && isSafeExternalUrl(url)) {
+            e.preventDefault?.()
+            void nativeBrowserInApp(url)
+        }
+    })
+
     // BLOSSOM — `$blossomBind($data, url)` versorgt die Avatar-Fläche mit einem Bild,
     // das der Relay nur gegen einen signierten Header herausgibt (Buzz-`/media/`).
     //
@@ -2060,6 +2104,25 @@ export function registerNostrComponents(Alpine: {
             if (text) {
                 void navigator.clipboard?.writeText(text).then(() => toast(message, 'success'))
             }
+        },
+        /**
+         * Der Verweis auf die öffentliche Creator-Seite (media.) — **eine Methode, kein
+         * Feld.**
+         *
+         * `this.nip05` trifft ASYNCHRON ein: `open()` setzt es auf `''`, die
+         * `deriveHandleForPubkey`-Bindung füllt es nach, sobald die `.well-known` der
+         * Domain diese Pubkey bestätigt hat. Ein einmal in `open()` geschriebenes Feld
+         * trüge deshalb dauerhaft die npub, auch bei einem Autor mit bestätigtem Handle.
+         * Als Methode liest Alpines Effekt `pubkey` und `nip05` mit und rechnet die
+         * Adresse neu, sobald eines von beiden steht.
+         *
+         * **`this.nip05` ist der VERIFIZIERTE Wert** — `deriveHandleForPubkey` liefert
+         * den Handle nur bei Übereinstimmung mit dieser Pubkey (welshman `handles.js:82`).
+         * Ein Profil-Rohwert darf hier nie hinein; die Begründung steht in
+         * `medienProfil.ts`.
+         */
+        medienUrl() {
+            return medienProfilUrl(medienBasis(), this.pubkey, this.nip05)
         },
         destroy() {
             this._unsub?.()
@@ -4524,6 +4587,33 @@ export function registerNostrComponents(Alpine: {
             /** Dasselbe inerte Muster wie in der Vollansicht — siehe `nostrArticle`. */
             keineLightningAdresse() {
                 toast(t('Dieser Autor hat keine Lightning-Adresse hinterlegt.'), 'info')
+            },
+            /**
+             * Der Verweis auf die öffentliche Creator-Seite (media.) — `''` = keine Zeile.
+             *
+             * `this.autor` ist `null`, solange die Adresse nicht aufgelöst ist; die Karte
+             * steht dann ohnehin nicht. Danach kommt `autor.nip05` aus `verifiedNip05`
+             * (`longformFeed.ts:729`), ist also der VERIFIZIERTE Handle und nie ein
+             * Profil-Rohwert — worauf diese ganze Fläche sicherheitsseitig steht
+             * (Begründung in `medienProfil.ts`).
+             *
+             * Methode und kein Feld, aus demselben Grund wie in `nostrProfileCard`: das
+             * kind 0 und die `.well-known` treffen asynchron ein, und `autor` wird beim
+             * Nachladen als Ganzes ersetzt.
+             */
+            medienUrl() {
+                // **Die Bindung nennt den Typ, und das ist kein Zierrat.** Der
+                // Herkunfts-Riegel (`zapTargetSources.test.ts`) inventarisiert JEDEN
+                // Zugriff auf `nip05`/`lud16`/`lud06`/`lnurl` und liest dafür die
+                // Bindungszeile des Empfängers — sie muss die Quelle benennen. Ein
+                // nacktes `this.autor.nip05` hätte dort die Klasse „unbekannt" bekommen
+                // und wäre zu Recht rot geworden. `AuthorView['autor']` IST die Aussage:
+                // dieses Feld entsteht ausschließlich in `buildArticleAuthor`, und der
+                // bekommt es aus `verifiedNip05(…)` (`longformFeed.ts:729`).
+                // `satisfies` statt `as`: es prüft, ohne etwas zu behaupten.
+                const autor = this.autor satisfies AuthorView['autor'] | null
+
+                return autor ? medienProfilUrl(medienBasis(), autor.pubkey, autor.nip05) : ''
             },
             /**
              * Von vorn — und zwar wirklich von vorn.
