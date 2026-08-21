@@ -55,8 +55,26 @@
      `inline-block` IN der Zeile und ändert sie nicht. Ändert jemand die Typo der
      Rail, folgt der Platzhalter — eine hart notierte `h-[16.8px]` täte das nicht.
 
-     Am gerenderten Element abgeglichen (1440×900): Kopf 64,8 · Suchfeld 36 (+8 mb)
-     · Fußzeile 264. `desktop-boot-geometrie.spec.ts` hält das fest.
+     ── Die Maßzusage, und WORAN sie hängt ─────────────────────────────────────────
+     Am gerenderten Element abgeglichen (1440×900), Blockhöhen Kopf · Suchfeld · Liste
+     · Fußzeile. Sie sind KONFIGURATIONSABHÄNGIG, und die erste Fassung dieses
+     Docblocks hat genau das verschwiegen — sie schrieb „64,8 / 36 / 527,2 / 264"
+     unbedingt hin, obwohl das nur für eine von drei Lagen stimmt:
+
+       | Lage | Kopf | Suchfeld | Liste | Fußzeile |
+       |---|---|---|---|---|
+       | mit `workspace_url`, Space ungeladen | 60 | 36 | 532 | 264 |
+       | ohne `workspace_url`, Space ungeladen | 60 | 36 | 570 | **226** |
+       | mit `workspace_url`, Space MIT Beschreibung | **64,8** | 36 | 527,2 | 264 |
+
+     Die ersten beiden Lagen trifft der Platzhalter zahlengleich — er trägt dieselben
+     Config-Bedingungen wie `desktop-rail.blade.php`. Die dritte kann er nicht
+     treffen: die Beschreibung ist ein Relay-Datum. Dort wächst der Kopf um 4,8 px,
+     die Liste gibt dieselben 4,8 px ab, Suchfeld und Fußzeile stehen still.
+
+     `desktop-boot-geometrie.spec.ts` misst alle drei Lagen — die zweite über einen
+     eigenen `serve` ohne `NOSTR_WORKSPACE_URL`, weil die Bedingung server-seitig
+     entschieden wird und eine DOM-Simulation sie nicht prüfen würde.
 
      ── Warum `aria-hidden` und ohne jedes bedienbare Element ───────────────────────
      Er trägt keine Information. Ein Screenreader liest ihn nicht, und es gibt nichts
@@ -91,12 +109,34 @@
 <div data-rail-skelett aria-hidden="true" x-data x-show="!$store.viewport?.desktop"
      class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
-    {{-- Space-Kopf. Klassen zeichengleich mit `desktop-rail.blade.php`. --}}
+    {{-- Space-Kopf. Klassen zeichengleich mit `desktop-rail.blade.php` — mit EINER
+         Abweichung, und die ist der Kern der Sache.
+
+         Die echte Rail trägt hier ZWEI Zeilen, die zweite hinter
+         `x-show="space?.description"`. Ob es sie gibt, weiß erst der Browser: die
+         Beschreibung kommt aus den Space-Metadaten vom Relay. Der Server kann diese
+         Bedingung also NICHT tragen — anders als die Forge-Zeile unten, die an einer
+         Config hängt.
+
+         Deshalb reserviert der Platzhalter hier nur die SICHERE Grundhöhe: eine
+         Titelzeile. Die Kopfhöhe wird damit vom Avatar bestimmt (32 px) und nicht vom
+         Textblock, und das ist **die Untergrenze, die in jedem Fall gilt** — am
+         gerenderten Element gemessen (1440×900): ohne Beschreibung 60 px, mit
+         Beschreibung 64,8 px.
+
+         Die Richtung ist gewählt, nicht übrig geblieben: der Platzhalter darf WACHSEN,
+         wenn die Beschreibung eintrifft, aber nie SCHRUMPFEN. Ein Schrumpfen zöge den
+         Inhalt darunter nach oben — der Leser verliert die Stelle, und es liest sich
+         wie „da war etwas und ist weg". Die vorige Fassung reservierte beide Zeilen und
+         hatte damit genau diesen Fehler in der häufigeren Richtung.
+
+         Was bleibt, sind 4,8 px Wachstum, sobald eine Beschreibung ankommt. Das ist
+         Client-Datum und von keinem server-gerenderten Platzhalter einzufangen; es
+         steht als Zahl im Test, damit es nicht stillschweigend wächst. --}}
     <div class="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-3">
         <div class="skeleton size-8 shrink-0 rounded-full"></div>
         <div class="min-w-0 flex-1">
             <div class="text-sm"><span class="skeleton inline-block h-2.5 w-32 rounded-pill align-middle"></span></div>
-            <div class="text-[0.7rem]"><span class="skeleton inline-block h-2 w-20 rounded-pill align-middle"></span></div>
         </div>
     </div>
 
@@ -158,12 +198,27 @@
         @endforeach
     </div>
 
-    {{-- Fußzeile. Höhe 264 px und damit zeichengleich zur echten: zwei Flächenzeilen
-         (Artikel/Forge), drei Nav-Zeilen, die Profilzeile hinter der Haarlinie. Alle
-         `min-h-9`, alle Abstände wie dort. --}}
+    {{-- Fußzeile — und hier trägt der Platzhalter DIESELBEN Bedingungen wie die
+         Fläche, die er vertritt. Nicht ähnliche, dieselben:
+
+           · Die Artikel-Zeile steht unbedingt, wie dort.
+           · Die Forge-Zeile hängt an `config('group.workspace_url')` — zeichengleich
+             mit `desktop-rail.blade.php`. Die Config ist `env('NOSTR_WORKSPACE_URL')`
+             OHNE Default; in einer Installation ohne Workspace fehlt die Zeile also.
+           · Die Nav-Zeilen kommen aus `count(config('group.nav'))`, weil
+             `bottom-nav.blade.php` genau darüber iteriert. Web hat drei, Mobile vier.
+           · Die Profilzeile steht unbedingt, wie dort.
+
+         Die erste Fassung schrieb zwei Flächenzeilen und drei Nav-Zeilen als feste
+         Zahlen hin. Gemessen ergab das ohne Workspace eine Fußzeile von 264 statt 226
+         und damit **38 px Sprung beim Boot** — derselbe Fehler, gegen den diese ganze
+         Datei geschrieben ist, nur eine Ebene tiefer. Wer hier eine Zeile ergänzt,
+         ergänzt sie in `desktop-rail.blade.php` mit; `desktop-boot-geometrie.spec.ts`
+         misst beide Konfigurationen gegeneinander. --}}
     <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <div class="mb-2">
-            @foreach ([0, 1] as $i)
+            @php($flaechen = config('group.workspace_url') ? [0, 1] : [0])
+            @foreach ($flaechen as $i)
                 <div @class(['flex min-h-9 items-center gap-2 rounded-tile px-2', 'mt-0.5' => $i > 0])>
                     <div class="skeleton size-4 shrink-0 rounded"></div>
                     <div class="text-sm"><span class="skeleton inline-block h-2 w-14 rounded-pill align-middle"></span></div>
@@ -171,11 +226,14 @@
             @endforeach
         </div>
 
+        {{-- Die Balkenbreiten wechseln je Zeile; bei mehr Nav-Einträgen als Breiten
+             fängt die Folge von vorn an. Alle Werte als volle Literale im Quelltext. --}}
+        @php($navBreiten = ['w-12', 'w-20', 'w-24', 'w-16'])
         <div class="flex flex-col gap-0.5">
-            @foreach (['w-12', 'w-20', 'w-24'] as $breite)
+            @foreach (array_keys(config('group.nav', [])) as $n)
                 <div class="flex min-h-9 items-center gap-2.5 rounded-tile px-2">
                     <div class="skeleton size-5 shrink-0 rounded"></div>
-                    <div class="text-sm"><span class="skeleton inline-block h-2 rounded-pill align-middle {{ $breite }}"></span></div>
+                    <div class="text-sm"><span class="skeleton inline-block h-2 rounded-pill align-middle {{ $navBreiten[$n % count($navBreiten)] }}"></span></div>
                 </div>
             @endforeach
         </div>

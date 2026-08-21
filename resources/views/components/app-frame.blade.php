@@ -72,15 +72,20 @@
          der Kinder im Fluss. Vor dem Alpine-Boot gibt es die Rail nicht (sie steht
          in einem `<template x-if>`), die Bühne war damit das erste Kind — und
          landete in Spur 1, den 20 rem des Navigators. Gemessen auf `/articles`:
-         `#buehne` 320 px statt 1120 px, für 685–718 ms bei um 600 ms verzögerter
-         JS-Antwort, CLS 0,3865 mit der Bühne als benannter Shift-Quelle.
+         `#buehne` 320 px statt 1120 px, für 830–837 ms bei um 600 ms verzögerter
+         JS-Antwort (ungedrosselt 310 ms), CLS 0,3865 mit der Bühne als benannter
+         Shift-Quelle.
 
-         Der Platzhalter oben füllt die Spur inzwischen. Die ausdrückliche
-         Platzierung bleibt trotzdem, und zwar als GRUND, nicht als Gürtel: sie
-         nimmt der Bühnenposition die Abhängigkeit von der Kinderzahl. Jedes
-         künftige `x-if`-Geschwister — und jedes Overlay, das wie die `profile-card`
-         am Ende dazukommt — kann sie damit nicht mehr verschieben. Genau diese
-         Abhängigkeit war die Ursache, nicht ein fehlender Knoten.
+         **Heute trägt diese Zeile die Geometrie NICHT allein — und das ist gemessen,
+         nicht angenommen:** entfernt man sie, bleibt die Bühne trotzdem in Spur 2,
+         weil der Platzhalter oben schon als erstes Kind in Spur 1 sitzt. Rot werden
+         dabei nur die Tests, die auf das Literal zielen. Sie ist also HÄRTUNG, kein
+         Lastträger, und sie bleibt genau deshalb: ohne sie ruhte der Fix allein
+         darauf, dass der Platzhalter das erste Kind ist — also wieder auf einer
+         Reihenfolge, und genau diese Abhängigkeit war die Ursache. Ein künftiges
+         Geschwister, server-gerendert und vor dem Platzhalter eingehängt, bräche es
+         erneut und wieder still. Dasselbe gilt für jedes Overlay, das wie die
+         `profile-card` am Ende dazukommt.
 
          `grid-rows-1` bleibt daneben stehen: es deckelt die IMPLIZITE Zeile, in die
          auto-platzierte Nachzügler fallen (siehe die Herleitung ganz oben). Beides
