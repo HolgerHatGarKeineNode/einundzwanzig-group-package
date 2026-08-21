@@ -909,5 +909,18 @@
     ":count Artikel#few": ":count artykuły",
     ":count Min. Lesezeit#few": ":count min czytania",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.#few": "Przeszukano :count artykuły — tytuł, streszczenie, tekst i autor.",
-    "Über den Autor": "O autorze"
+    "Über den Autor": "O autorze",
+    "Autor": "Autor",
+    "Autor wird gesucht…": "Szukanie autora…",
+    "Das ist keine Autoren-Adresse.": "To nie jest adres autora.",
+    "Eine Autorenseite steht unter einer npub oder unter einer NIP-05-Adresse wie name@domain.tld.": "Strona autora znajduje się pod npub albo pod adresem NIP-05, np. imie@domena.tld.",
+    "Diese npub lässt sich nicht lesen.": "Tego npub nie da się odczytać.",
+    "Meist fehlt oder verrutscht ein Zeichen — der Link ist unterwegs beschädigt worden.": "Zwykle brakuje jednego znaku albo jest przestawiony — link uszkodził się po drodze.",
+    "Diese Domain kennt den Namen nicht.": "Ta domena nie zna tej nazwy.",
+    ":domain führt für diese Adresse keinen Eintrag.": ":domain nie prowadzi wpisu dla tego adresu.",
+    "Diese Domain hat nicht geantwortet.": "Ta domena nie odpowiedziała.",
+    ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": ":domain był nieosiągalny albo nie przysłał poprawnej odpowiedzi.",
+    "Von diesem Autor liegt hier noch kein Artikel.": "Tego autora nie ma tu jeszcze żadnego artykułu.",
+    "Sobald einer auf diesem Relay erscheint, steht er hier.": "Gdy tylko pojawi się na tym przekaźniku, stanie tutaj.",
+    "seit :jahr": "od :jahr"
 }

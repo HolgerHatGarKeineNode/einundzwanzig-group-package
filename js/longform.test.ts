@@ -861,12 +861,27 @@ const AUTOR_HEX = 'da99fbe39247109327ac8504750d0227d50a8f84049ac8bd2f6c7ad0806ed
 const autorDeps = (over: Partial<Parameters<typeof buildArticleAuthor>[1]> = {}) => ({
     name: 'Anna Autorin',
     picture: 'https://h/a.png',
+    banner: 'https://h/banner.png',
     about: 'Schreibt über Selbstverwahrung.',
     website: 'https://anna.example',
     profilBekannt: true,
     hatLightning: true,
     nip05: 'anna@einundzwanzig.space',
     ...over,
+})
+
+test('buildArticleAuthor: das Banner wird ROH durchgereicht — proxifiziert wird erst in der Flaeche', () => {
+    // Dieselbe Regel wie bei `picture` und `ArticleRow.image`: `x-group::nostr-avatar`
+    // bzw. `$img(…, 'banner')` proxifizieren SELBST. Ein hier schon proxifizierter Wert
+    // liefe zweimal durch den Proxy und käme als 404 zurück.
+    assert.equal(buildArticleAuthor(AUTOR_HEX, autorDeps()).banner, 'https://h/banner.png')
+})
+
+test('buildArticleAuthor: ohne Banner bleibt das Feld leer — die Autorenseite laesst den Streifen dann WEG', () => {
+    // `''` heißt „keins", nicht „noch nicht da". Ob überhaupt schon etwas bekannt ist,
+    // sagt `lightning === 'unbekannt'` — ein leerer Streifen wäre die falsche Antwort auf
+    // die falsche Frage.
+    assert.equal(buildArticleAuthor(AUTOR_HEX, autorDeps({ banner: '' })).banner, '')
 })
 
 test('buildArticleAuthor: `ja` reicht das Ja durch — die ADRESSE steht nicht in der Karte', () => {

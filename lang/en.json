@@ -887,5 +887,18 @@
     ":count Min. Lesezeit": ":count min read",
     "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "Searched 1 article — title, summary, text and author.",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": "Searched :count articles — title, summary, text and author.",
-    "Über den Autor": "About the author"
+    "Über den Autor": "About the author",
+    "Autor": "Author",
+    "Autor wird gesucht…": "Looking for the author…",
+    "Das ist keine Autoren-Adresse.": "That is not an author address.",
+    "Eine Autorenseite steht unter einer npub oder unter einer NIP-05-Adresse wie name@domain.tld.": "An author page lives under an npub or under a NIP-05 address like name@domain.tld.",
+    "Diese npub lässt sich nicht lesen.": "This npub cannot be read.",
+    "Meist fehlt oder verrutscht ein Zeichen — der Link ist unterwegs beschädigt worden.": "Usually a character is missing or misplaced — the link was damaged on the way.",
+    "Diese Domain kennt den Namen nicht.": "This domain does not know that name.",
+    ":domain führt für diese Adresse keinen Eintrag.": ":domain has no entry for this address.",
+    "Diese Domain hat nicht geantwortet.": "This domain did not answer.",
+    ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": ":domain was unreachable or sent no valid response.",
+    "Von diesem Autor liegt hier noch kein Artikel.": "There is no article by this author here yet.",
+    "Sobald einer auf diesem Relay erscheint, steht er hier.": "As soon as one appears on this relay, it will show up here.",
+    "seit :jahr": "since :jahr"
 }

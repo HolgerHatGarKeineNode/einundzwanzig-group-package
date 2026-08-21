@@ -101,7 +101,15 @@ import { flagEmoji } from './meetupPresentation'
  * Artikelfläche öffnet (siehe `nostrArticles`). `import type` wird beim Übersetzen
  * restlos entfernt und erzeugt keine Abhängigkeit im Bundle.
  */
-import type { ArticleRow, ArticleView } from './longformFeed'
+import type { ArticleRow, ArticleView, AuthorView } from './longformFeed'
+/**
+ * Ebenfalls nur Typen. Die WERTE (`deuteAutorParam`, `aufloesenNip05`, …) kommen per
+ * `import()` in `nostrArticleAuthor._boot()` — nicht weil `articleAuthor.ts` schwer wäre
+ * (es hängt an nichts außer `nostr-tools/nip19`), sondern weil es im selben Zug mit
+ * `longformFeed` geholt wird und ein zweiter Ladeweg ein zweiter Weg wäre, auf dem
+ * `_dead` dazwischenkommen kann.
+ */
+import type { AutorFehler, Monatsgruppe } from './articleAuthor'
 // Nur Typen — zur Laufzeit weggestrippt. Der WERT `createArticleList` kommt per
 // `import()` in `nostrArticles._boot()`, weil `articleList.ts` über `longform.ts` an
 // markdown-it hängt (50 kB gzip, die nicht in den `app`-Chunk jeder Seite gehören).
@@ -277,7 +285,7 @@ import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type Teil
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles'
 import { t, tPlural, type Replacements } from './i18n'
-import { dateTimeFormat, formatNumber } from './locale'
+import { dateTimeFormat, formatNumber, formatTimestamp } from './locale'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void; $el: HTMLElement }
@@ -810,6 +818,86 @@ type ArticleState = {
     teilen(): Promise<void>
     /** Der Grund, warum der Lightning-Einstieg nichts tut — als Toast, nicht als Tooltip. */
     keineLightningAdresse(): void
+}
+
+/**
+ * Eine Monatsgruppe der Autorenseite **mit ihrer fertigen Beschriftung**.
+ *
+ * Die Gliederung selbst ist rein (`articleAuthor.ts`, `nachMonat`) und kennt keine
+ * Sprache; „August 2026" entsteht erst hier über `formatTimestamp` — also aus
+ * `<html lang>` und damit aus `app()->getLocale()`, genau wie jedes andere Datum dieser
+ * Fläche. Ein Monatsname im reinen Modul wäre eine zweite Wahrheit über die Sprache.
+ */
+type ArtikelMonat = Monatsgruppe<ArticleRow> & { label: string }
+
+/**
+ * Die Autorenseite (P4, `/articles/autor/{autor}`).
+ *
+ * **Zwei Phasen, und sie sind nicht dasselbe:** erst wird die ADRESSE aufgelöst (npub
+ * synchron, NIP-05 über eine HTTPS-Abfrage), danach werden die ARTIKEL geladen. Beide
+ * können scheitern, und zwar aus verschiedenen Gründen — deshalb trägt der Zustand
+ * beides getrennt: {@link ArticleAuthorState.fehler} für die Adresse,
+ * {@link ArticleAuthorState.error} für den Relay.
+ */
+type ArticleAuthorState = {
+    /** Läuft die AUFLÖSUNG der Adresse noch? (Bei npub genau einen Tick lang.) */
+    aufloesend: boolean
+    /**
+     * Warum es keine Autorenseite gibt — `''` heißt: es gibt eine.
+     *
+     * Vier Werte, vier Sätze in der Fläche. Nur `nip05-fehlgeschlagen` bekommt einen
+     * „Erneut versuchen"-Knopf; die anderen drei sind Eigenschaften des Links bzw. eine
+     * Auskunft der Domain und werden beim zweiten Versuch nicht besser.
+     */
+    fehler: AutorFehler | ''
+    /**
+     * Die Domain, über die gerade eine Aussage gemacht wird — und **nur** sie.
+     *
+     * Der rohe Routen-Parameter steht hier bewusst nirgends als Anzeigewert: in eine URL
+     * wird auch mal ein `nsec` getippt, und was nicht im Zustand ist, kann kein Markup
+     * rendern. Die Domain ist gegen ein enges Muster geprüft (`articleAuthor.ts`).
+     */
+    fehlerDomain: string
+    /** Laufen die ARTIKEL noch? Getrennt von {@link ArticleAuthorState.aufloesend}. */
+    loading: boolean
+    /** Deutsche Fehlerzeile des Relays, `''` = kein Fehler. */
+    error: string
+    /** Die Autorenkarte — `null`, solange die Adresse nicht aufgelöst ist. */
+    autor: AuthorView['autor'] | null
+    /** Die Artikel, nach Erscheinungs-MONAT gegliedert, neuester Monat zuerst. */
+    gruppen: ArtikelMonat[]
+    /** Wie viele Artikel dieser Autor hier hat. */
+    anzahl: number
+    /** Das Jahr des ältesten Artikels — `0` heißt „keine Angabe", die Zeile fällt weg. */
+    seitJahr: number
+    /** Hex-Pubkey, sobald aufgelöst. `''` vorher und in jedem Fehlerfall. */
+    pubkey: string
+    /** Der rohe Routen-Parameter. Wird gedeutet, nie gerendert. */
+    _param: string
+    /** Basis-Pfad der Artikel-Route, aus Blade gereicht (ohne Schrägstrich am Ende). */
+    _base: string
+    /** Ist der Screen weg, bevor der dynamische Import oder die NIP-05-Abfrage zurückkam? */
+    _dead: boolean
+    _controller: AbortController | null
+    _unsub: null | (() => void)
+    init(): void
+    _boot(): Promise<void>
+    /** Adresse endgültig gescheitert — kein Laden, kein Abonnement, kein Netz. */
+    _endeMitFehler(grund: AutorFehler): void
+    /** Artikel in Monatsgruppen gliedern und Anzahl/Anfangsjahr daraus bilden. */
+    _gliedern(artikel: ArticleRow[]): void
+    destroy(): void
+    _load(): Promise<void>
+    /** Ziel der Artikelzeile. Leerer `naddr` (Artikel ohne `d`) ⇒ kein Link. */
+    href(row: ArticleRow): string
+    /** Steht die Seite? (Adresse aufgelöst, kein Fehlzustand.) */
+    hatAutor(): boolean
+    /** Hat dieser Autor hier keinen einzigen Artikel — und ist das schon entschieden? */
+    istLeer(): boolean
+    /** Der Grund, warum der Lightning-Einstieg nichts tut — als Toast, nicht als Tooltip. */
+    keineLightningAdresse(): void
+    /** Nur für `nip05-fehlgeschlagen` bzw. einen stummen Relay: von vorn. */
+    retry(): void
 }
 
 type VereinGateState = {
@@ -3833,6 +3921,251 @@ export function registerNostrComponents(Alpine: {
             },
             hasArticle() {
                 return this.article !== null
+            },
+        }
+    })
+
+    /**
+     * Die Autorenseite (P4, `/articles/autor/{autor}`).
+     *
+     * ── Zwei Phasen, zwei Fehlerfamilien ────────────────────────────────────────────
+     *
+     * Erst muss die ADRESSE aus der URL zu einem Pubkey werden, dann müssen die ARTIKEL
+     * kommen. Eine npub löst synchron auf, eine NIP-05-Adresse über eine HTTPS-Abfrage
+     * bei einer fremden Domain — und die kann auf zwei verschiedene Arten scheitern
+     * („kennt den Namen nicht" gegen „hat nicht geantwortet"). Zusammen mit den beiden
+     * unlesbaren Adressformen sind das **vier** Fehlzustände, die die Fläche einzeln
+     * benennt. Die Regel dahinter liegt geprüft in `articleAuthor.ts`; hier steht nur,
+     * wann sie gefragt wird.
+     *
+     * **Der Relay-Fehler bleibt davon getrennt** (`error`): „die Domain kennt diesen
+     * Namen nicht" und „der Artikel-Relay schweigt gerade" sind zwei verschiedene
+     * Auskünfte, und sie in einen Satz zu falten hieße, dem Leser die Entscheidung
+     * abzunehmen, ob ein zweiter Versuch etwas bringt.
+     *
+     * Der Fachcode kommt per `import()`, aus demselben Grund wie bei `nostrArticles`.
+     */
+    Alpine.data('nostrArticleAuthor', (param: unknown, base: unknown): ArticleAuthorState => {
+        let feed: typeof import('./longformFeed') | null = null
+        let autorModul: typeof import('./articleAuthor') | null = null
+
+        return {
+            aufloesend: true,
+            fehler: '',
+            fehlerDomain: '',
+            loading: true,
+            error: '',
+            autor: null,
+            gruppen: [],
+            anzahl: 0,
+            seitJahr: 0,
+            pubkey: '',
+            _param: String(param ?? ''),
+            // Dieselbe Normalisierung wie in `nostrArticles._base`.
+            _base: String(base ?? '').replace(/\/+$/, ''),
+            _dead: false,
+            _controller: null,
+            _unsub: null,
+            init() {
+                this._controller = new AbortController()
+                void this._boot()
+            },
+            /** Siehe die Begründung des `try` bei `nostrArticles._boot`. */
+            async _boot() {
+                try {
+                    const [feedModul, adressModul] = await Promise.all([
+                        import('./longformFeed'),
+                        import('./articleAuthor'),
+                    ])
+                    feed = feedModul
+                    autorModul = adressModul
+                } catch {
+                    if (!this._dead) {
+                        this.error = t('Die Artikel sind gerade nicht erreichbar.')
+                        this.aufloesend = false
+                        this.loading = false
+                    }
+
+                    return
+                }
+                if (this._dead) {
+                    return
+                }
+
+                const ziel = autorModul.deuteAutorParam(this._param)
+                if (ziel.art === 'ungueltig') {
+                    this._endeMitFehler(ziel.grund)
+
+                    return
+                }
+                if (ziel.art === 'nip05') {
+                    // Die Domain steht ab hier im Zustand — sie ist der einzige Teil der
+                    // Eingabe, den die Fläche zeigt, und sie ist gegen ein enges Muster
+                    // geprüft (kein Port, keine Zugangsdaten, kein Pfad).
+                    this.fehlerDomain = ziel.domain
+                    const ergebnis = await autorModul.aufloesenNip05(ziel, autorModul.holeNip05Json)
+                    // **Nach dem `await` gilt der Riegel wieder.** Ein `wire:navigate` weg
+                    // von der Seite kann `destroy()` vor die Antwort schieben; ohne diese
+                    // Zeile schriebe die Abfrage in einen Screen, den es nicht mehr gibt.
+                    if (this._dead) {
+                        return
+                    }
+                    if (ergebnis.art !== 'gefunden') {
+                        this._endeMitFehler(ergebnis.art === 'unbekannt' ? 'nip05-unbekannt' : 'nip05-fehlgeschlagen')
+
+                        return
+                    }
+                    this.pubkey = ergebnis.pubkey
+                } else {
+                    this.pubkey = ziel.pubkey
+                }
+                this.aufloesend = false
+
+                if (feed.BOARD_URL === '') {
+                    this.loading = false
+
+                    return
+                }
+                // Profil und Handle dieses EINEN Autors anstoßen — der Weg über die
+                // geladenen Artikel (`warmAuthors`) erreicht ihn nicht, wenn er hier gar
+                // keine hat. Dann stünde dauerhaft eine npub-Kurzform über einer leeren
+                // Liste statt eines Namens.
+                feed.warmAuthor(this.pubkey)
+                this._unsub = feed.deriveAuthorPage(this.pubkey).subscribe((view: AuthorView) => {
+                    this.autor = view.autor
+                    this._gliedern(view.artikel)
+                })
+                await this._load()
+            },
+            /**
+             * Adresse endgültig gescheitert: kein Laden, kein Abonnement, kein Netz.
+             *
+             * Alles drei bewusst — ein REQ nach einem Autor, den es nicht gibt, wäre eine
+             * Verbindung ohne Frage.
+             */
+            _endeMitFehler(grund: AutorFehler) {
+                this.fehler = grund
+                this.aufloesend = false
+                this.loading = false
+            },
+            /**
+             * Artikel in Monatsgruppen gliedern und die zwei Zahlen daneben bilden — **aus
+             * denselben Zeilen**, die die Seite auch zeigt. Eine Zahl aus einer zweiten
+             * Quelle weicht früher oder später von der Liste darunter ab.
+             *
+             * (Hier stand „in Jahrgänge". Der erste Entwurf gliederte so, der Bestand hat
+             * ihn widerlegt — die Messung steht bei `nachMonat` in `articleAuthor.ts`.)
+             */
+            _gliedern(artikel: ArticleRow[]) {
+                if (!autorModul) {
+                    return
+                }
+                // Die Beschriftung entsteht HIER und nicht im reinen Modul: sie hängt an
+                // der Sprache, und das reine Modul kennt keine. `stempel` ist ein
+                // Zeitpunkt AUS der Gruppe — dieselbe Zahl, nach der gruppiert wurde,
+                // also kann das Formatieren nicht in einem anderen Monat landen.
+                this.gruppen = autorModul.nachMonat(artikel).map((gruppe) => ({
+                    ...gruppe,
+                    label: formatTimestamp(gruppe.stempel, { month: 'long', year: 'numeric' }),
+                }))
+                const grund = autorModul.autorGrunddaten(artikel)
+                this.anzahl = grund.anzahl
+                this.seitJahr = grund.seitJahr
+            },
+            destroy() {
+                this._dead = true
+                this._unsub?.()
+                this._controller?.abort()
+            },
+            async _load() {
+                if (!feed) {
+                    return
+                }
+                this.loading = true
+                try {
+                    // **Der Vollbestand, nicht ein autorenskopierter Load** — die
+                    // Ableitung liest den `repository` ohnehin über denselben
+                    // Bestandsfilter. Die vollständige Begründung samt der Bedingung,
+                    // unter der das kippt, steht bei `deriveAuthorPage` in
+                    // `longformFeed.ts`; sie hier zu wiederholen hieße, zwei Fassungen
+                    // derselben Entscheidung zu pflegen.
+                    const outcome = await feed.loadArticles(this._controller?.signal)
+                    // Ein schweigender Relay ist kein leerer Relay — dieselbe
+                    // Unterscheidung wie in `nostrArticles._load`. „Von diesem Autor
+                    // liegt hier noch kein Artikel" ist eine Aussage ÜBER den Relay und
+                    // nur gedeckt, wenn er geantwortet hat.
+                    this.error = outcome.complete || this.anzahl > 0 ? '' : t('Die Artikel sind gerade nicht erreichbar.')
+                } catch {
+                    this.error = this.anzahl > 0 ? '' : t('Die Artikel sind gerade nicht erreichbar.')
+                } finally {
+                    this.loading = false
+                }
+            },
+            href(row: ArticleRow) {
+                return row.naddr ? `${this._base}/${row.naddr}` : ''
+            },
+            hatAutor() {
+                return this.fehler === '' && !this.aufloesend
+            },
+            /**
+             * Leer heißt: der Relay hat geantwortet und kennt von diesem Autor nichts.
+             * Solange geladen wird oder ein Fehler steht, ist die Frage NICHT
+             * entschieden — und eine Fläche, die „hat nichts geschrieben" sagt, bevor
+             * jemand gefragt hat, behauptet etwas über einen Menschen.
+             */
+            istLeer() {
+                return this.hatAutor() && !this.loading && this.error === '' && this.anzahl === 0
+            },
+            /** Dasselbe inerte Muster wie in der Vollansicht — siehe `nostrArticle`. */
+            keineLightningAdresse() {
+                toast(t('Dieser Autor hat keine Lightning-Adresse hinterlegt.'), 'info')
+            },
+            /**
+             * Von vorn — und zwar wirklich von vorn.
+             *
+             * `retry` fängt hier beim Deuten der Adresse an und nicht erst beim Laden:
+             * der wiederholbare Fehlzustand dieser Fläche ist `nip05-fehlgeschlagen`, und
+             * der entsteht VOR jedem Artikel. Ein `retry`, das nur `_load()` neu startet,
+             * ließe genau den Fall stehen, für den der Knopf da ist.
+             *
+             * ── Warum hier ALLES fällt, was der vorige Versuch geschrieben hat ───────
+             *
+             * Bis 2026-08-21 blieben `fehlerDomain`, `pubkey`, `gruppen`, `anzahl` und
+             * `seitJahr` stehen. Das war **kein Entwurf, sondern eine Lücke** — sie hing
+             * an einer Eigenschaft, die nirgends aufgeschrieben war: beide Knöpfe, die
+             * `retry()` heute auslösen, erscheinen nur bei `anzahl === 0`, und dann sind
+             * diese Felder ohnehin leer. Die Lücke war also unsichtbar, solange genau
+             * diese zwei Aufrufer die einzigen blieben. Ein dritter (P5 verlinkt diese
+             * Seite, und eine Wiederholung aus dem Leerzustand liegt nahe) hätte sie
+             * geöffnet — und dann stünde nach einem gescheiterten zweiten Versuch die
+             * Liste des ERSTEN unter der Fehlermeldung, denn das `x-for` der Monate hängt
+             * an `gruppen` und nicht an `hatAutor()`.
+             *
+             * Der Fall ist auch ohne dritten Aufrufer erreichbar: `_param` bleibt zwar
+             * gleich, aber die Antwort der Domain nicht. Ein `_@example.com`, das beim
+             * ersten Versuch A liefert und beim zweiten B, wechselt den Autor mitten in
+             * einer stehenden Fläche.
+             *
+             * Die Regel dahinter, ohne Aufzählung: **was eine Aussage über den vorigen
+             * Versuch ist, überlebt ihn nicht.** `_param` und `_base` bleiben — sie sind
+             * Eigenschaften der Seite, nicht des Versuchs.
+             */
+            retry() {
+                this.fehler = ''
+                this.fehlerDomain = ''
+                this.error = ''
+                this.aufloesend = true
+                this.loading = true
+                this.autor = null
+                this.gruppen = []
+                this.anzahl = 0
+                this.seitJahr = 0
+                this.pubkey = ''
+                this._unsub?.()
+                this._unsub = null
+                this._controller?.abort()
+                this._controller = new AbortController()
+                void this._boot()
             },
         }
     })

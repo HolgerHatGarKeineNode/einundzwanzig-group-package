@@ -887,5 +887,18 @@
     ":count Min. Lesezeit": ":count min de lectura",
     "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "Se buscó en 1 artículo: título, resumen, texto y autor.",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": "Se buscó en :count artículos: título, resumen, texto y autor.",
-    "Über den Autor": "Sobre el autor"
+    "Über den Autor": "Sobre el autor",
+    "Autor": "Autor",
+    "Autor wird gesucht…": "Buscando al autor…",
+    "Das ist keine Autoren-Adresse.": "Esta no es una dirección de autor.",
+    "Eine Autorenseite steht unter einer npub oder unter einer NIP-05-Adresse wie name@domain.tld.": "Una página de autor está bajo un npub o bajo una dirección NIP-05 como nombre@dominio.tld.",
+    "Diese npub lässt sich nicht lesen.": "Este npub no se puede leer.",
+    "Meist fehlt oder verrutscht ein Zeichen — der Link ist unterwegs beschädigt worden.": "Suele faltar o desplazarse un carácter: el enlace se dañó por el camino.",
+    "Diese Domain kennt den Namen nicht.": "Este dominio no conoce ese nombre.",
+    ":domain führt für diese Adresse keinen Eintrag.": ":domain no tiene ninguna entrada para esta dirección.",
+    "Diese Domain hat nicht geantwortet.": "Este dominio no respondió.",
+    ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": ":domain no estaba accesible o no envió una respuesta válida.",
+    "Von diesem Autor liegt hier noch kein Artikel.": "Todavía no hay ningún artículo de este autor aquí.",
+    "Sobald einer auf diesem Relay erscheint, steht er hier.": "En cuanto aparezca uno en este relé, se mostrará aquí.",
+    "seit :jahr": "desde :jahr"
 }
