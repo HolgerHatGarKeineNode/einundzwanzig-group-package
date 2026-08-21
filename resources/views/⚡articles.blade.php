@@ -620,6 +620,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     <span class="tabular-nums" x-text="$plural(card.readingMinutes, '1 Min. Lesezeit', ':count Min. Lesezeit')"></span>
                                                 </span>
                                             </template>
+                                            {{-- Sozialsignale (P6). Ohne Trennpunkt davor: die Komponente
+                                                 rendert bei einem Artikel ohne jedes Signal GAR NICHTS, und
+                                                 ein Punkt, der auf nichts zeigt, stünde dann allein am
+                                                 Zeilenende. Der Abstand kommt aus dem `gap-x` der Zeile. --}}
+                                            <x-group::article-metrics metrics="card.metriken" />
                                         </div>
                                     </div>
                                 </a>

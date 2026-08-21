@@ -11,7 +11,8 @@
  * per `window.__nostrBoard` in die Insel gereicht), nicht auf dem zooid/Buzz-Space. Das
  * ist die erste Fläche des Clients mit einer **dritten** Relay-Quelle, und deshalb steht
  * hier überall ein **explizites** `relays: [BOARD_URL]` — genau wie `buzzAdmin.ts:127` es
- * vormacht. `core.ts:150-151` setzt nur Defaults für den Router; wer sich darauf verließe,
+ * vormacht. `core.ts` setzt mit `routerContext.getDefaultRelays` nur Defaults für den
+ * Router; wer sich darauf verließe,
  * fragte den falschen Relay.
  *
  * Der `repository` ist geteilt: die Artikel landen im selben Store wie Raum-Nachrichten.
@@ -32,7 +33,7 @@
  */
 import { load } from '@welshman/net'
 import { throttled } from '@welshman/store'
-import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
+import { COMMENT, REACTION, ZAP_RESPONSE, getLnUrl, normalizeRelayUrl, type Filter, type TrustedEvent, type Zapper } from '@welshman/util'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { derived, readable, type Readable } from 'svelte/store'
 import { proxifyImage } from './core'
@@ -50,16 +51,29 @@ import {
     type ArticleRow,
 } from './longform'
 import { artikelDesAutors } from './articleAuthor'
+import {
+    KEINE_METRIKEN,
+    artikelAdresse,
+    METRIK_LOAD_LIMIT,
+    artikelMetrikFilters,
+    autorenMitQuittungen,
+    berechneArtikelMetriken,
+    deckelVerdacht,
+    leseRelayListe,
+    type ArtikelMetriken,
+    type ArticleRowMitMetriken,
+} from './articleMetrics'
 import { warmProfiles } from './profiles'
-import { deriveEventsForUrl } from './repository'
-import { handlesByNip05 } from '@welshman/app'
+import { deriveEventsForUrl, deriveEventsForUrls } from './repository'
+import { handlesByNip05, zappersByLnurl } from '@welshman/app'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { verifiedNip05, warmHandles } from './handles'
+import { warmZappers } from './zaps'
 
 /**
  * Die Board-Relay-URL, normalisiert — `''`, wenn keine konfiguriert ist.
  *
- * Bewusst direkt aus `globalThis` gelesen, wie `WORKSPACE` in `core.ts:157-160`: der Host
+ * Bewusst direkt aus `globalThis` gelesen, wie `WORKSPACE` in `core.ts`: der Host
  * schreibt sie im `<head>` vor dem Insel-Boot, ein E2E-Lauf kann sie per
  * `addInitScript` vorbesetzen (das `??` im Head-Partial lässt den Test gewinnen).
  *
@@ -77,6 +91,79 @@ export const BOARD_URL = ((): string => {
 export const ARTICLE_LOAD_LIMIT = 200
 
 /**
+ * Die Relays, auf denen die **Sozialsignale** zu den Artikeln liegen (P6) — zusätzlich
+ * zum Board-Relay.
+ *
+ * ── Kein Code-Default, aus demselben Grund wie bei {@link BOARD_URL} ───────────────
+ *
+ * Hier stand zunächst `['wss://nos.lol/', 'wss://relay.damus.io/']` als Literal. **Das
+ * war falsch**, und zwar nach der Regel, die `config/group.php` bei `board_relay_url`
+ * schon aufgeschrieben hat: ein Default im Code macht aus einer fehlenden Konfiguration
+ * eine stille WebSocket-Verbindung ins öffentliche Internet. Für einen E2E-Lauf wäre das
+ * nicht bloß unschön — der Relay-Wächter (`tests/e2e/support/fixtures.ts`) ist
+ * fail-closed gegen eine Allowlist der eigenen Worker-Ports, und ein Verbindungsversuch
+ * zu `nos.lol` machte **jeden** Test rot, der eine Artikelfläche berührt.
+ *
+ * Die Adressen stehen deshalb in der Konfiguration (`NOSTR_ARTICLE_METRIC_RELAYS`,
+ * kommagetrennt) und die empfohlenen Werte in `.env.example`. Leer heißt: nur der Board
+ * wird gefragt — die Zähler sind dann kleiner, aber nichts bricht.
+ *
+ * ── Und was eine leere Liste real kostet ──────────────────────────────────────────
+ *
+ * Am 2026-08-21 über die Adressen und Event-Ids aller 104 Artikel gemessen (`nak req`,
+ * je Relay ALLE Filterformen, danach über die Event-Id dedupliziert):
+ *
+ * | Kind | Board | nos.lol | damus | Union |
+ * |------|-------|---------|-------|-------|
+ * | 7    |    64 |     452 |   316 |   465 |
+ * | 9735 |     5 |     168 |   127 |   168 |
+ * | 1111 |    13 |      61 |    38 |    64 |
+ *
+ * Der Board allein sieht **14 %** der Reaktionen, **3 %** der Zaps und **20 %** der
+ * Kommentare. „0 Zaps" unter einem Artikel, der real 3 000 Sats bekommen hat, wäre keine
+ * fehlende Anzeige, sondern eine falsche Aussage.
+ *
+ * **Und beide Fremdrelays tragen etwas bei, nicht nur eines:** über alle drei Kinds
+ * zusammen liefert `nos.lol` 681 der 697 Ereignisse, `damus` 481 — die Union ist 697,
+ * also liegen 16 Ereignisse **nicht** auf nos.lol.
+ *
+ * ── Der Preis, und wo er vollständig steht ────────────────────────────────────────
+ *
+ * Diese Relays erfahren beim **bloßen Öffnen** einer Artikelfläche IP, User-Agent,
+ * Zeitpunkt und **welche Artikel dieser Leser ansieht** — die Vollansicht fragt mit genau
+ * einer Adresse. Der **Pubkey** geht nicht hinaus: `core.ts` beantwortet ihre
+ * NIP-42-Challenges seit P6 nicht mehr (`darfAuthBekommen` in `articleMetrics.ts`, dort
+ * mit Begründung und Messung).
+ *
+ * **Dazu ein ZWEITER Abfluss, den diese Variable nicht abschaltet:** die Validierung der
+ * Zap-Quittungen braucht die LNURL-Metadaten des Autors, geholt per HTTPS von dessen
+ * fremdem Wallet-Host. Unvermeidbar, aber an den Bedarf gekoppelt — angefragt werden nur
+ * Autoren mit Quittungen ({@link autorenMitQuittungen}, gemessen 6 von 12).
+ *
+ * Der ganze Handel steht bei `article_relay_urls` in `config/group.php` und in
+ * `.env.example` — dort, wo der Betreiber ihn eingeht.
+ */
+export const SEKUNDAER_RELAYS = ((): string[] => {
+    const raw = (globalThis as { __nostrArticleRelays?: string }).__nostrArticleRelays
+
+    return leseRelayListe(raw)
+})()
+
+/**
+ * Alle Relays, aus denen ein Sozialsignal stammen darf: Board **plus** die
+ * konfigurierten Fremdrelays. Leer, solange kein Board konfiguriert ist — dann fragt
+ * diese Fläche überhaupt nichts (siehe {@link BOARD_URL}).
+ *
+ * **Das `Set` ist kein Schönheitsfehler.** `NOSTR_ARTICLE_METRIC_RELAYS` DARF den Board
+ * noch einmal nennen, und im E2E tut es das ausdrücklich (`board-fixtures.ts` setzt
+ * beide auf denselben Worker-Relay, weil eine fremde Adresse dort den Relay-Wächter
+ * bräche). Ohne die Deduplizierung fragte `load()` denselben Relay zweimal — sechs REQs
+ * zu viel, ohne ein einziges zusätzliches Ereignis. Beide Seiten sind über
+ * `normalizeRelayUrl` gegangen, der Vergleich trägt also.
+ */
+const metrikRelays = (): string[] => (BOARD_URL ? [...new Set([BOARD_URL, ...SEKUNDAER_RELAYS])] : [])
+
+/**
  * Eine Zeile der Artikelliste — **der Typ wohnt seit P1 im reinen `longform.ts`** und
  * wird hier nur durchgereicht.
  *
@@ -89,7 +176,7 @@ export const ARTICLE_LOAD_LIMIT = 200
 export type { ArticleRow } from './longform'
 
 /** Die Vollansicht: eine {@link ArticleRow} plus dem gerenderten Artikeltext. */
-export type ArticleView = ArticleRow & {
+export type ArticleView = ArticleRowMitMetriken & {
     /** Der gerenderte Artikel. Entsteht ausschließlich über `renderArticleHtml`. */
     html: string
     /**
@@ -169,6 +256,75 @@ const addressFilters = (address: ArticleAddress): Filter[] => [
 ]
 
 /**
+ * Der Filter, mit dem die ABLEITUNG die Sozialsignale aus dem `repository` liest — nicht
+ * der, mit dem sie geholt werden.
+ *
+ * **Die Unterscheidung ist nicht kosmetisch.** Über das Netz stehen sechs getrennte
+ * Filter (`artikelMetrikFilters`), weil `nos.lol` und `relay.damus.io` je REQ bei 500
+ * Treffern deckeln (NIP-11 `max_limit`, gemessen 2026-08-21) — ein kombinierter REQ verlor
+ * dabei 44 Ereignisse. Der `repository` kennt keinen solchen Deckel: dort ist ein einziger
+ * Filter über alle drei Kinds richtig, und er spart drei Store-Abonnements.
+ *
+ * Die **Zuordnung** zum Artikel passiert nicht hier, sondern in `articleMetrics.ts`
+ * (`artikelVonEreignis`). Das ist Absicht: ein Store-Filter kann die Adressliste des
+ * Bestands nicht kennen — sie entsteht erst aus den geladenen Artikeln, also NACH dem
+ * Anlegen der Ableitung. Ein Filter, der beim Mount festgeschrieben wird und danach nie
+ * nachzieht, ist genau der Fehler, den diese Fläche schon einmal gemacht hat.
+ */
+const metrikStoreFilters = (): Filter[] => [{ kinds: [REACTION, ZAP_RESPONSE, COMMENT] }]
+
+/**
+ * Aus einem Artikelbestand die drei Tabellen bauen, die {@link berechneArtikelMetriken}
+ * braucht: die Adressliste, `Event-Id → Adresse` und `Adresse → Autor`.
+ *
+ * In EINEM Durchgang, weil `deriveArticles` das bei jedem Emit tut und der Bestand 104
+ * Zeilen hat.
+ */
+const artikelIndex = (events: TrustedEvent[]) => {
+    const adressen: string[] = []
+    const adresseVonId = new Map<string, string>()
+    const autorVonAdresse = new Map<string, string>()
+    for (const event of events) {
+        // Ein Artikel ohne `d`-Tag hat keine Adresse und kann keine adressierten Signale
+        // tragen. Im Bestand gibt es davon null (2026-08-21), aber ein `30023:<pk>:`
+        // stünde sonst als gültige Adresse in der Tabelle und sammelte alles ein, was
+        // ebenfalls kein `d` hat.
+        const identifier = event.tags.find((tag) => tag[0] === 'd')?.[1] ?? ''
+        if (!identifier) {
+            continue
+        }
+        const adresse = artikelAdresse(event.pubkey, identifier)
+        adressen.push(adresse)
+        adresseVonId.set(event.id, adresse)
+        autorVonAdresse.set(adresse, event.pubkey)
+    }
+
+    return { adressen, adresseVonId, autorVonAdresse }
+}
+
+/**
+ * Der Zapper-Nachschlager für {@link berechneArtikelMetriken}: `pubkey` → LNURL-Metadaten
+ * des Autors, oder `undefined`, solange sie fehlen.
+ *
+ * Der Weg ist derselbe wie im Chat (`feeds.ts`, `memoedToChatMessage`): Profil → `lud16`
+ * bzw. `lud06` → `getLnUrl` → welshmans `zappersByLnurl`. **Ohne ihn zählt
+ * {@link summiereZaps} null**, weil `zapFromEvent` den Signer der Quittung gegen
+ * `zapper.nostrPubkey` prüft — das ist der Anti-Spoof-Riegel und keine Hürde, die man
+ * umgeht.
+ */
+const zapperNachschlag =
+    (
+        $profiles: Map<string, { lud16?: string; lud06?: string }>,
+        $zappers: Map<string, Zapper>,
+    ): ((pubkey: string) => Zapper | undefined) =>
+    (pubkey: string) => {
+        const profil = $profiles.get(pubkey)
+        const lnurl = getLnUrl(profil?.lud16 || profil?.lud06 || '')
+
+        return lnurl ? $zappers.get(lnurl) : undefined
+    }
+
+/**
  * Die Lesezeit eines Artikels, gemerkt je Event-Id.
  *
  * **Warum das einen Merker braucht.** `readingTime` zählt linear über den Artikeltext.
@@ -211,6 +367,19 @@ const toRow = (event: TrustedEvent, picture: string, formatDate = dateLabelAbsol
     })
 
 /**
+ * Der Typ {@link ArticleRowMitMetriken} wohnt in `articleMetrics.ts` und wird hier nur
+ * weitergereicht — dieselbe Begründung wie bei `ArticleRow` darüber: er muss unter
+ * `node --test` erreichbar sein, und diese Datei ist es nicht.
+ */
+export type { ArticleRowMitMetriken } from './articleMetrics'
+
+/** Zeile plus Metriken — `KEINE_METRIKEN`, wenn dieser Artikel kein Signal trägt. */
+const mitMetriken = (row: ArticleRow, tabelle: Map<string, ArtikelMetriken>): ArticleRowMitMetriken => ({
+    ...row,
+    metriken: (row.identifier ? tabelle.get(artikelAdresse(row.pubkey, row.identifier)) : undefined) ?? KEINE_METRIKEN,
+})
+
+/**
  * Der gerenderte Artikeltext, gemerkt je Event-Id.
  *
  * Ein Artikel ist im Median 3 679 Zeichen groß, der größte 245 875 (davon 243 230 in
@@ -245,16 +414,43 @@ const renderCached = (event: TrustedEvent): string => {
  * `throttled(300, …)` an beiden Eingängen wie in `members.ts:170` und `feeds.ts:1763`:
  * die Profil-Karte feuert pro eingehendem kind-0.
  */
-export const deriveArticles = (): Readable<ArticleRow[]> =>
+export const deriveArticles = (): Readable<ArticleRowMitMetriken[]> =>
     derived(
         [
             throttled(300, deriveEventsForUrl(BOARD_URL, listFilters(ARTICLE_LOAD_LIMIT))),
             throttled(300, profilesByPubkey),
+            // **Dritter Eingang (P6), und er ist Pflicht, nicht Beiwerk.** Die
+            // Sozialsignale kommen von drei Relays und treffen deutlich NACH den Artikeln
+            // ein. Ohne diesen Eingang rechnete die Ableitung beim Eintreffen nicht neu und
+            // die Zähler blieben für immer aus — die Fläche wäre stumm leer, obwohl die
+            // Daten längst im `repository` liegen. Genau dieser Fehler hat
+            // `deriveRoomChat`/`deriveThread` schon einmal eine Phase gekostet (Modulkopf).
+            throttled(300, deriveEventsForUrls(metrikRelays(), metrikStoreFilters())),
+            // **Vierter Eingang, aus demselben Grund.** Ohne aufgelösten Zapper verwirft
+            // `zapFromEvent` jede Quittung (Signer-Check), und der Zapper lädt fast immer
+            // NACH den 9735 — der Zap-Zähler bliebe sonst dauerhaft auf null stehen,
+            // obwohl die Quittungen da sind. Derselbe Eingang steht aus derselben
+            // Begründung in `feeds.ts` (`deriveRoomChat`).
+            throttled(300, zappersByLnurl),
         ],
-        ([events, $profiles]) =>
-            (events as TrustedEvent[])
-                .map((event) => toRow(event, $profiles.get(event.pubkey)?.picture ?? '', dateLabelListe))
-                .sort((a, b) => b.publishedAt - a.publishedAt),
+        ([events, $profiles, $sekundaer, $zappers]) => {
+            const index = artikelIndex(events as TrustedEvent[])
+            // Die Zapper anstoßen — fire-and-forget, dedupliziert selbst. **Nur für die
+            // Autoren, deren Artikel wirklich eine Quittung tragen**: jeder Aufruf ist
+            // eine HTTPS-Anfrage an einen FREMDEN Wallet-Host, und die geht sonst beim
+            // bloßen Öffnen der Liste an alle zwölf. Gemessen halbiert die Kopplung sie
+            // auf sechs (Herleitung bei `autorenMitQuittungen`).
+            warmZappers(autorenMitQuittungen({ ...index, ereignisse: $sekundaer as TrustedEvent[] }))
+            const tabelle = berechneArtikelMetriken({
+                ...index,
+                ereignisse: $sekundaer as TrustedEvent[],
+                zapperVon: zapperNachschlag($profiles, $zappers as Map<string, Zapper>),
+            })
+
+            return (events as TrustedEvent[])
+                .map((event) => mitMetriken(toRow(event, $profiles.get(event.pubkey)?.picture ?? '', dateLabelListe), tabelle))
+                .sort((a, b) => b.publishedAt - a.publishedAt)
+        },
     )
 
 /**
@@ -281,8 +477,14 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
             // das Häkchen erschiene nie — genau die Reaktivitäts-Falle, die diese Fläche
             // schon einmal eine Phase gekostet hat (`deriveRoomChat`, siehe Modulkopf).
             throttled(300, handlesByNip05),
+            // **Vierter und fünfter Eingang (P6)** — dieselbe Begründung wie in
+            // {@link deriveArticles}: die Sozialsignale und die Zapper treffen NACH dem
+            // Artikel ein. Fehlten sie hier, zeigte die Vollansicht dauerhaft keine
+            // Zähler, während die Liste sie hat.
+            throttled(300, deriveEventsForUrls(metrikRelays(), metrikStoreFilters())),
+            throttled(300, zappersByLnurl),
         ],
-        ([events, $profiles, $handles]) => {
+        ([events, $profiles, $handles, $sekundaer, $zappers]) => {
             // Ersetzbares Event: bei mehreren Fassungen im Store gewinnt die jüngste
             // `created_at` — dieselbe Regel, die auch der Relay anwendet.
             const newest = (events as TrustedEvent[]).reduce<TrustedEvent | null>(
@@ -301,9 +503,22 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
             // (`bridge.ts`, `nostrProfileCard`), damit es über die Adresse eines Autors
             // nicht zwei Urteile gibt.
             const website = profil?.website ? sanitizeUrl(profil.website) : ''
+            // Nur DIESER eine Artikel geht in den Index — die Vollansicht kennt keinen
+            // Bestand. Ein `#e`-Signal auf eine andere Fassung desselben Artikels ist damit
+            // hier nicht zuordenbar; in der Liste ist es das, weil dort alle geladenen
+            // Fassungen in der Tabelle stehen.
+            const index = artikelIndex([newest])
+            // Auch hier nur bei echtem Bedarf — siehe `autorenMitQuittungen`. Ein Artikel
+            // ohne Zaps kontaktiert den Wallet-Host seines Autors gar nicht erst.
+            warmZappers(autorenMitQuittungen({ ...index, ereignisse: $sekundaer as TrustedEvent[] }))
+            const tabelle = berechneArtikelMetriken({
+                ...index,
+                ereignisse: $sekundaer as TrustedEvent[],
+                zapperVon: zapperNachschlag($profiles, $zappers as Map<string, Zapper>),
+            })
 
             return {
-                ...toRow(newest, profil?.picture ?? ''),
+                ...mitMetriken(toRow(newest, profil?.picture ?? ''), tabelle),
                 html: renderCached(newest),
                 author: buildArticleAuthor(newest.pubkey, {
                     name: displayProfileByPubkey(newest.pubkey),
@@ -348,7 +563,7 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
  */
 export type AuthorView = {
     /** Die Artikel dieses Autors, absteigend nach Erstveröffentlichung. */
-    artikel: ArticleRow[]
+    artikel: ArticleRowMitMetriken[]
     /** Die Autorenkarte — steht IMMER, notfalls mit der npub-Kurzform als Namen. */
     autor: ArticleAuthor
 }
@@ -391,19 +606,34 @@ export const deriveAuthorPage = (pubkey: string): Readable<AuthorView> =>
             throttled(300, deriveEventsForUrl(BOARD_URL, listFilters(ARTICLE_LOAD_LIMIT))),
             throttled(300, profilesByPubkey),
             throttled(300, handlesByNip05),
+            // **Vierter und fünfter Eingang (P6).** Die Autorenseite rendert dieselbe
+            // Karte wie die Liste — ohne diese beiden trüge dieselbe Karte auf zwei
+            // Flächen zwei verschiedene Zahlen, und auf dieser hier dauerhaft keine.
+            throttled(300, deriveEventsForUrls(metrikRelays(), metrikStoreFilters())),
+            throttled(300, zappersByLnurl),
         ],
-        ([events, $profiles, $handles]) => {
-            // **Der Kernbeweis dieser Phase, an seiner produktiven Stelle:** gefiltert
+        ([events, $profiles, $handles, $sekundaer, $zappers]) => {
+            // **Der Kernbeweis von P4, an seiner produktiven Stelle:** gefiltert
             // wird `event.pubkey`. Die Regel selbst liegt geprüft in `articleAuthor.ts`
             // (`artikelDesAutors`) — hier steht kein zweites `filter`, damit es über
             // „welche Artikel gehören diesem Autor" genau eine Wahrheit gibt.
             const eigene = artikelDesAutors(events as TrustedEvent[], pubkey)
+            // Der Index steht über dem GANZEN Bestand, nicht nur über `eigene`: ein
+            // `#e`-Signal kann auf eine Fassung zeigen, und die Tabelle darf nicht
+            // schmaler sein als das, was der Reduzierer zuordnen können muss.
+            const index = artikelIndex(events as TrustedEvent[])
+            warmZappers(autorenMitQuittungen({ ...index, ereignisse: $sekundaer as TrustedEvent[] }))
+            const tabelle = berechneArtikelMetriken({
+                ...index,
+                ereignisse: $sekundaer as TrustedEvent[],
+                zapperVon: zapperNachschlag($profiles, $zappers as Map<string, Zapper>),
+            })
             const profil = $profiles.get(pubkey)
             const website = profil?.website ? sanitizeUrl(profil.website) : ''
 
             return {
                 artikel: eigene
-                    .map((event) => toRow(event, profil?.picture ?? '', dateLabelListe))
+                    .map((event) => mitMetriken(toRow(event, profil?.picture ?? '', dateLabelListe), tabelle))
                     .sort((a, b) => b.publishedAt - a.publishedAt),
                 // Dieselbe Karte wie unter dem Artikel, gebaut über dieselbe Funktion —
                 // inklusive der Dreiwertigkeit des Lightning-Zustands (`profilBekannt`).
@@ -512,8 +742,93 @@ export const loadArticles = async (signal?: AbortSignal): Promise<LoadOutcome> =
         },
     })
     warmAuthors(events)
+    // Die Sozialsignale hinterher, ohne darauf zu warten (Begründung dort).
+    void loadArticleMetrics(events, signal).catch(() => undefined)
 
     return { complete, count: events.length }
+}
+
+/**
+ * Die Sozialsignale zu einem Artikelbestand holen — **fire-and-forget, nach den Artikeln**.
+ *
+ * ── Warum das ein eigener, nachgelagerter Vorgang ist ──────────────────────────────
+ *
+ * Die Filter brauchen die **Adressen** der Artikel, und die gibt es erst, wenn die Artikel
+ * da sind. Ein Vorgriff ist nicht möglich: `#a`-Werte lassen sich nicht raten.
+ *
+ * ── Warum das Ergebnis niemanden aufhält ───────────────────────────────────────────
+ *
+ * Die Fläche steht bereits, wenn dieser Aufruf startet: Titel, Teaser, Autor und Datum
+ * hängen ausschließlich am 30023. Ein Zähler, der eine Sekunde später erscheint, ist ein
+ * Nachtrag; ein Artikel, der eine Sekunde später erscheint, wäre ein Ladezustand. Deshalb
+ * gibt diese Funktion **kein** {@link LoadOutcome} zurück und blockiert `loadArticles`
+ * nicht: „die Sozialsignale sind unvollständig" ist keine Aussage, die diese Oberfläche
+ * treffen kann — sie fragt drei Relays, von denen zwei fremd sind, und ein schweigendes
+ * `nos.lol` ist kein Fehler dieser Anwendung.
+ *
+ * ── Die Zahl der Anfragen, ausgerechnet ────────────────────────────────────────────
+ *
+ * welshman zerlegt eine Filterliste in **ein REQ je Filter** (belegt in
+ * `js/welshmanLoad.test.ts`). Sechs Filter × drei Relays = **18 REQs**. Das ist bewusst
+ * unter den 20 gleichzeitigen Abonnements, die `nos.lol` per NIP-11 zusagt
+ * (`max_subscriptions: 20`, 2026-08-21) — aber es sind nur sechs davon gegen nos.lol,
+ * also bleibt dort Luft. Wer hier einen siebten Filter ergänzt, rechnet das nach.
+ */
+export const loadArticleMetrics = async (events: TrustedEvent[], signal?: AbortSignal): Promise<number> => {
+    const relays = metrikRelays()
+    if (relays.length === 0 || events.length === 0) {
+        return 0
+    }
+    const { adressen, adresseVonId } = artikelIndex(events)
+    const filters = artikelMetrikFilters({ adressen, ids: [...adresseVonId.keys()] })
+    if (filters.length === 0) {
+        return 0
+    }
+    // **Je Filter ein `load`, nicht alle in einem.** Die Zahl der REQs ändert sich davon
+    // nicht — welshman zerlegt eine Filterliste ohnehin in ein REQ je Filter je Relay.
+    // Was sich ändert, ist die Sichtbarkeit: nur so lässt sich zählen, wie viele
+    // Ereignisse EIN REQ geliefert hat, und **der Deckel gilt je REQ.**
+    //
+    // Der erste Entwurf maß die Gesamtantwort gegen 500 und war damit im Normalbetrieb
+    // dauerhaft rot: allein nos.lol liefert über diese 104 Artikel 642 Ereignisse, der
+    // größte EINZELFILTER aber nur rund 342. Eine Warnung, die immer feuert, wird nach
+    // der zweiten Woche ignoriert — das ist schlechter als keine.
+    const proReq = new Map<string, number>()
+    const teile = await Promise.all(
+        filters.map((filter, nummer) =>
+            load({
+                relays,
+                filters: [filter],
+                signal,
+                onEvent: (_event, url) => {
+                    const schluessel = `${nummer}|${url}`
+                    proReq.set(schluessel, (proReq.get(schluessel) ?? 0) + 1)
+                },
+            }),
+        ),
+    )
+    // Über die Event-Id vereinigen: dasselbe Ereignis kommt aus mehreren REQs zurück.
+    const sekundaer = [...new Map(teile.flat().map((event) => [event.id, event])).values()]
+
+    // **Der Deckel meldet sich nicht — also horchen wir hin.** `nos.lol` und
+    // `relay.damus.io` kappen jeden REQ bei 500 Treffern (NIP-11 `max_limit`), sagen es
+    // aber nicht: sie hören einfach auf. Gemeldet wird je REQ, mit Filter und Relay, damit
+    // die Meldung sagt, WO nachzusehen ist. Eine Warnung und kein Wurf: eine gekappte Zahl
+    // ist ein Anlass nachzusehen, kein Grund, die Fläche zu nehmen.
+    for (const [schluessel, anzahl] of proReq) {
+        if (deckelVerdacht(anzahl)) {
+            const [nummer, url] = schluessel.split('|')
+            console.warn(
+                `Sozialsignale: REQ ${nummer} an ${url} lieferte ${anzahl} Ereignisse bei einem Limit von ${METRIK_LOAD_LIMIT} — vermutlich gekappt, die Zähler sind dann zu klein. Filter: ${JSON.stringify(filters[Number(nummer)])}`,
+            )
+        }
+    }
+    // Die Autoren der Kommentare wärmen — die Vollansicht zeigt sie in P7 namentlich,
+    // und ein Profil, das erst dann geholt wird, kommt zu spät. Die Autoren der ARTIKEL
+    // wärmt bereits `warmAuthors`.
+    warmProfiles(sekundaer.filter((event) => event.kind === COMMENT).map((event) => event.pubkey))
+
+    return sekundaer.length
 }
 
 /**
@@ -538,6 +853,9 @@ export const loadArticle = async (naddr: string, signal?: AbortSignal): Promise<
         },
     })
     warmAuthors(events)
+    // Auch der Direkteinstieg braucht seine Zähler — hier für genau diesen einen
+    // Artikel, also mit einer Adresse und einer Id statt 104.
+    void loadArticleMetrics(events, signal).catch(() => undefined)
 
     return { complete, count: events.length }
 }

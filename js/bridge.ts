@@ -101,7 +101,7 @@ import { flagEmoji } from './meetupPresentation'
  * Artikelfläche öffnet (siehe `nostrArticles`). `import type` wird beim Übersetzen
  * restlos entfernt und erzeugt keine Abhängigkeit im Bundle.
  */
-import type { ArticleRow, ArticleView, AuthorView } from './longformFeed'
+import type { ArticleRow, ArticleRowMitMetriken, ArticleView, AuthorView } from './longformFeed'
 /**
  * Ebenfalls nur Typen. Die WERTE (`deuteAutorParam`, `aufloesenNip05`, …) kommen per
  * `import()` in `nostrArticleAuthor._boot()` — nicht weil `articleAuthor.ts` schwer wäre
@@ -766,7 +766,7 @@ type ArticlesState = {
     /** Deutsche Fehlerzeile, '' = kein Fehler. */
     error: string
     /** Der geladene Bestand, ungefiltert und unsortiert — die Quelle für alles darunter. */
-    items: ArticleRow[]
+    items: ArticleRowMitMetriken[]
     /** Suchtext, wie getippt. */
     query: string
     /** Die gewählte Ordnung. */
@@ -877,7 +877,7 @@ type ArticleState = {
  * `<html lang>` und damit aus `app()->getLocale()`, genau wie jedes andere Datum dieser
  * Fläche. Ein Monatsname im reinen Modul wäre eine zweite Wahrheit über die Sprache.
  */
-type ArtikelMonat = Monatsgruppe<ArticleRow> & { label: string }
+type ArtikelMonat = Monatsgruppe<ArticleRowMitMetriken> & { label: string }
 
 /**
  * Die Autorenseite (P4, `/articles/autor/{autor}`).
@@ -934,7 +934,7 @@ type ArticleAuthorState = {
     /** Adresse endgültig gescheitert — kein Laden, kein Abonnement, kein Netz. */
     _endeMitFehler(grund: AutorFehler): void
     /** Artikel in Monatsgruppen gliedern und Anzahl/Anfangsjahr daraus bilden. */
-    _gliedern(artikel: ArticleRow[]): void
+    _gliedern(artikel: ArticleRowMitMetriken[]): void
     destroy(): void
     _load(): Promise<void>
     /** Ziel der Artikelzeile. Leerer `naddr` (Artikel ohne `d`) ⇒ kein Link. */
@@ -3753,7 +3753,7 @@ export function registerNostrComponents(Alpine: {
                 // erscheinen, sobald sie da sind, und der Autorname zieht nach, wenn das
                 // kind-0 eintrifft. Ein einmaliges Auslesen nach dem `await` wäre genau
                 // der Schnappschuss, der P6b zurückgeworfen hat.
-                this._unsub = feed.deriveArticles().subscribe((rows: ArticleRow[]) => {
+                this._unsub = feed.deriveArticles().subscribe((rows: ArticleRowMitMetriken[]) => {
                     this.items = rows
                     this._project()
                 })
@@ -4310,7 +4310,7 @@ export function registerNostrComponents(Alpine: {
              * (Hier stand „in Jahrgänge". Der erste Entwurf gliederte so, der Bestand hat
              * ihn widerlegt — die Messung steht bei `nachMonat` in `articleAuthor.ts`.)
              */
-            _gliedern(artikel: ArticleRow[]) {
+            _gliedern(artikel: ArticleRowMitMetriken[]) {
                 if (!autorModul) {
                     return
                 }

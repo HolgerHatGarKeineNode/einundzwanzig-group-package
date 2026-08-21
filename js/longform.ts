@@ -56,22 +56,19 @@ import * as nip19 from 'nostr-tools/nip19'
 import { BLOSSOM_SRC_ATTR, blossomMarkerFor } from './blossomMarkup.ts'
 import type { SearchableRow } from './search.ts'
 
-/** NIP-23: der publizierte Longform-Artikel (adressierbar, `d` = Kennung). */
-export const LONGFORM = 30023
-
 /**
- * NIP-23: der ENTWURF. Steht hier nur, damit die Zahl einen Namen hat — gefragt wird er
- * nie.
+ * Die Kind-Zahlen wohnen im importfreien `longformKinds.ts` und werden hier nur
+ * weitergereicht — die Adresse bleibt für jeden Bestandsimport dieselbe.
  *
- * **Wichtig für den Listenfilter:** 67 der 99 publizierten Artikel tragen ein `d` der
- * Form `draft-<ts>` (gemessen 2026-08-12; der Plan nannte 66 von 98). Das sind
- * **publizierte** Artikel, deren Kennung nur so heißt, weil der schreibende Client sie
- * beim ersten Speichern vergeben hat. Ein Filter auf das `d`-Muster löschte damit
- * **zwei Drittel** des Bestands — der teuerste stille Fehler, den diese Fläche machen
- * kann. Ein echter Entwurf ist kind {@link LONGFORM_DRAFT}, und den fragen wir nicht ab
- * (am Relay existieren davon 2).
+ * **Der Umzug ist keine Kosmetik.** Diese Datei hängt an markdown-it; `articleMetrics.ts`
+ * braucht `LONGFORM` und liegt über `core.ts` im Boot-Pfad jeder Seite. Der Wert-Import
+ * über diese Grenze zog den Renderer in den app-Chunk: **+48 kB gzip auf JEDER Seite,
+ * für die Zahl 30023** (gemessen 2026-08-21, Tabelle in `longformKinds.ts`). Dieselbe
+ * Grenze begründet `bridge.ts` an drei Stellen, und `articleSorts.ts` existiert aus
+ * genau demselben Grund ohne einen einzigen Import.
  */
-export const LONGFORM_DRAFT = 30024
+export { LONGFORM, LONGFORM_DRAFT } from './longformKinds.ts'
+import { LONGFORM } from './longformKinds.ts'
 
 /** Die aus den Tags gehobenen Kopfdaten eines Artikels (NIP-23). */
 export type ArticleTags = {

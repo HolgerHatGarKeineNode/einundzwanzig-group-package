@@ -45,6 +45,7 @@
  */
 import type { ArticleRow } from './longform.ts'
 import { articleSearchText } from './longform.ts'
+import type { ArticleRowMitMetriken } from './articleMetrics.ts'
 import { findMatchRanges, foldForSearch, parseSearchTerms, toSegments, type SearchSegment } from './search.ts'
 import { DEFAULT_ARTICLE_SORT, type ArticleSort } from './articleSorts.ts'
 
@@ -90,11 +91,11 @@ const byNewest = (a: ArticleRow, b: ArticleRow): number =>
  * alphabetischen Liste. Im heutigen Bestand ist die Menge leer (0 von 104 ohne `title`),
  * die Regel steht für den Tag, an dem sie es nicht mehr ist.
  */
-export const sortArticles = (
-    rows: readonly ArticleRow[],
+export const sortArticles = <T extends ArticleRow>(
+    rows: readonly T[],
     sort: ArticleSort,
     collator: Intl.Collator = DEFAULT_COLLATOR,
-): ArticleRow[] => {
+): T[] => {
     if (sort === 'author') {
         return [...rows].sort((a, b) => collator.compare(a.authorName, b.authorName) || byNewest(a, b))
     }
@@ -122,7 +123,7 @@ export const sortArticles = (
  * einen einzigen Renderpfad statt zweier, und der Fall „gerade wird gesucht" ist keine
  * Verzweigung im Markup.
  */
-export type ArticleCard = ArticleRow & {
+export type ArticleCard = ArticleRowMitMetriken & {
     /** Titel, in Trefferstücke zerlegt. */
     titleParts: SearchSegment[]
     /** Teaser, in Trefferstücke zerlegt. */
@@ -153,7 +154,7 @@ export type ArticleListDeps = {
 
 /** Die Projektion — ein Aufruf je Änderung von Bestand, Suchtext oder Ordnung. */
 export type ArticleListProjector = {
-    cards(rows: readonly ArticleRow[], query: string, sort: ArticleSort): ArticleCard[]
+    cards(rows: readonly ArticleRowMitMetriken[], query: string, sort: ArticleSort): ArticleCard[]
 }
 
 /**
@@ -198,7 +199,7 @@ export const createArticleList = (deps: ArticleListDeps = {}): ArticleListProjec
     }
 
     return {
-        cards(rows: readonly ArticleRow[], query: string, sort: ArticleSort): ArticleCard[] {
+        cards(rows: readonly ArticleRowMitMetriken[], query: string, sort: ArticleSort): ArticleCard[] {
             const terms = parseSearchTerms(query)
             const matched =
                 terms.length === 0

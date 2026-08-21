@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createArticleList, sortArticles, type ArticleSort } from './articleList.ts'
 import { articleSearchText, type ArticleRow } from './longform.ts'
+import { KEINE_METRIKEN, type ArticleRowMitMetriken } from './articleMetrics.ts'
 import { searchMessages } from './search.ts'
 
 /** Feste Locale: `localeCompare` ohne Angabe hinge an der Umgebung des Testrechners. */
@@ -15,7 +16,12 @@ const DE = new Intl.Collator('de', { sensitivity: 'base', numeric: true })
 
 let laufendeId = 0
 
-const row = (over: Partial<ArticleRow> = {}): ArticleRow => {
+/**
+ * **`metriken` ist seit P6 Pflichtfeld der Zeile.** Der Default `KEINE_METRIKEN` steht
+ * hier und nicht in der Projektion: `createArticleList` reicht die Zeile durch (`...row`)
+ * und erfindet nichts. Ein Test, der Metriken prüfen will, setzt sie über `over`.
+ */
+const row = (over: Partial<ArticleRowMitMetriken> = {}): ArticleRowMitMetriken => {
     laufendeId += 1
 
     return {
@@ -37,6 +43,7 @@ const row = (over: Partial<ArticleRow> = {}): ArticleRow => {
         coverCss: 'linear-gradient(135deg, #7b3d10, #421d06)',
         readingMinutes: 3,
         podcast: null,
+        metriken: KEINE_METRIKEN,
         ...over,
     }
 }

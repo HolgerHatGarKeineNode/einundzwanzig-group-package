@@ -555,6 +555,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     <span class="tabular-nums" x-text="$plural(card.readingMinutes, '1 Min. Lesezeit', ':count Min. Lesezeit')"></span>
                                                 </span>
                                             </template>
+                                            {{-- Sozialsignale (P6) — dieselbe Komponente wie in der
+                                                 Liste. Zwei Bauwege für dieselbe Zahl wären zwei
+                                                 Wahrheiten über denselben Artikel. --}}
+                                            <x-group::article-metrics metrics="card.metriken" />
                                         </div>
                                     </div>
                                 </a>

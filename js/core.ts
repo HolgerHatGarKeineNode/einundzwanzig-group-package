@@ -19,6 +19,7 @@ import { initStorage } from './storage'
 import { watchRelayNotices } from './relayNotices'
 import { watchRequests } from './reqWatch'
 import { socketPolicyAuthHold } from './authHold'
+import { darfAuthBekommen as authErlaubt, leseRelayListeNachsichtig } from './articleMetrics.ts'
 import { initReadState } from './readState'
 
 // M3 P1: `storageReady` für die Insel re-exportieren (bridge.ts gated den Warm-Peek darauf).
@@ -246,11 +247,115 @@ netContext.isEventValid = (event: TrustedEvent, url: string) => {
 }
 
 /**
+ * Die Relays der ARTIKEL-SOZIALSIGNALE (P6) — **die einzigen, die nie ein AUTH
+ * bekommen.**
+ *
+ * Gelesen direkt aus `globalThis`, wie {@link WORKSPACE} darüber: `core.ts` ist das
+ * Fundament, `longformFeed.ts` baut darauf auf, ein Import zurück wäre ein Zyklus.
+ * Zerlegt wird über dieselbe Funktion, die auch die Artikelfläche benutzt — eine zweite
+ * Parser-Regel wäre eine zweite Wahrheit über dieselbe Zeichenkette.
+ *
+ * ── `…Nachsichtig` und NICHT `leseRelayListe`, und das ist hier kein Detail ──────
+ *
+ * `normalizeRelayUrl` **wirft** bei Müll, und dieser Ausdruck steht im **Modul-Toplevel**.
+ * Am Baum nachgemessen (2026-08-21): `core.ts` wird von **elf Modulen STATISCH**
+ * importiert — darunter `bridge.ts`, der Einstiegspunkt — und von **keinem einzigen
+ * dynamisch. Es gibt hier also nichts, was einen Wurf auffangen könnte.** Ein Tippfehler
+ * in `NOSTR_ARTICLE_METRIC_RELAYS` risse damit nicht die Artikelfläche ab, sondern die
+ * **gesamte Client-Insel, beim Boot, stumm.**
+ *
+ * **Das war eine Eindämmungs-Regression:** dieselbe Konstante lag vor dem AUTH-Riegel nur
+ * in `longformFeed.ts`, und das wird ausschließlich DYNAMISCH geladen — alle vier
+ * Importstellen fangen, drei davon mit sichtbarer Fehlerzeile. Dort ist der Wurf die
+ * bessere Rückmeldung und bleibt deshalb; hier wäre er ein toter Client für einen
+ * Konfigurationsfehler. Die Asymmetrie folgt der Eindämmung, nicht dem Geschmack —
+ * ausführlich bei {@link leseRelayListeNachsichtig}.
+ *
+ * Der Nebeneffekt ist zugleich eine Zusage: das Set enthält **per Konstruktion nur
+ * wohlgeformte Adressen**, und genau darauf stützt sich {@link darfAuthBekommen}, wenn es
+ * einen unlesbaren Eintrag als abwesend behandelt.
+ */
+const METRIK_RELAYS = new Set(
+    leseRelayListeNachsichtig((globalThis as { __nostrArticleRelays?: string }).__nostrArticleRelays),
+)
+
+/**
+ * Darf dieser Relay eine AUTH-Challenge von uns beantwortet bekommen?
+ *
+ * ── Der Befund, gegen den das steht ────────────────────────────────────────────────
+ *
+ * `shouldAuth` bekommt den Socket übergeben und hat ihn bis P6 ignoriert: **jeder**
+ * Relay, der eine Challenge schickt, bekam ein signiertes kind 22242 — also den Pubkey
+ * des Lesers, verknüpfbar mit IP, Zeitpunkt und den angefragten Filtern. Solange der
+ * Radius das Vereins-Relay war, war das der dokumentierte Handel („ponytail: aggressiv").
+ * **P6 macht daraus zwei fremde Betreiber, und zwar ohne jede Nutzerhandlung:**
+ * `loadArticleMetrics` hängt an `loadArticles`/`loadArticle`, beide laufen beim Mount,
+ * und die Vollansicht fragt mit genau EINER Artikeladresse. Das ist die Verknüpfung von
+ * Identität und Lesehistorie, frei Haus.
+ *
+ * ── Warum eine AUSSCHLUSSliste und keine Whitelist ────────────────────────────────
+ *
+ * Die naheliegende Form wäre „nur unsere eigenen Relays" — und sie ist hier **nicht
+ * sicher baubar**, aus einem Grund, der im Code steht und nicht in einer Meinung: die
+ * Menge der eigenen Relays ist **nicht statisch**. `userSpaceUrls` (`groups.ts`) wird aus
+ * der 10009-Gruppenliste des Nutzers ABGELEITET, wächst also zur Laufzeit aus dem Netz,
+ * und `setActiveSpace(url)` nimmt aus den Einstellungen jede beliebige Adresse. Eine
+ * Whitelist aus den drei Config-Werten wäre für genau diese Relays unvollständig — und
+ * ausgerechnet dort ist AUTH zwingend: ein zooid mit `public_read=false` liefert ohne
+ * AUTH **nichts**, und der Ausfall wäre **stumm** (eine hängende AUTH-Runde verschluckt
+ * das EOSE, ein Mitschnitt an `Receive` sieht es nicht).
+ *
+ * Die Ausschlussform ist dagegen **exakt und vollständig**: sie schließt genau den
+ * Radius, den P6 geöffnet hat, und lässt jeden Bestandspfad Zeichen für Zeichen, wie er
+ * war — Space, Workspace/Buzz, Board, Indexer, Signer-Relays.
+ *
+ * ── Und sie kostet nichts, das ist gemessen ───────────────────────────────────────
+ *
+ * Ein Metrik-Relay liefert öffentliche Reaktionen; für ein REQ darauf braucht niemand
+ * eine Identität. Am 2026-08-21 per NIP-11 nachgesehen: `nos.lol` und `relay.damus.io`
+ * (die empfohlenen Werte) führen in ihrer `limitation` **gar kein `auth_required`** —
+ * sie verlangen also keins. „Meldet `false`" wäre die falsche Wiedergabe eines
+ * fehlenden Felds. Fiele ein künftiges
+ * Metrik-Relay unter AUTH-Zwang, lieferte es hier nichts mehr — die Zähler würden
+ * kleiner, nichts bräche, und das ist die richtige Richtung für einen Zähler.
+ *
+ * **Und sie ist die ZWISCHENLÖSUNG, nicht das Ziel.** Ihr Preis ist, dass sie fail-OPEN
+ * ist für alles, was künftig dazukommt: ein neuer Fremdrelay-Pfad bekommt AUTH, ohne dass
+ * jemand etwas tut und ohne dass etwas rot wird. Tragbar, weil sie exakt den Radius
+ * schließt, den P6 geöffnet hat — **die Richtung bleibt die Einschlussform über
+ * `userSpaceUrls`**, siehe den `ponytail`-Vermerk unten. Dieser Punkt ist damit nicht
+ * erledigt, sondern zwischengelöst.
+ *
+ * **Was hiermit ebenfalls NICHT behoben ist, ausdrücklich:** `INDEXER_RELAYS`,
+ * `DEFAULT_RELAYS` und `SIGNER_RELAYS` sind fremd und bekommen weiterhin AUTH. Bestand
+ * von vor P6, Teil desselben offenen Auftrags. Wer ihn angeht, fängt bei `userSpaceUrls`
+ * an — nicht bei einer Literalliste.
+ */
+/**
+ * Die zum Boot bekannten EIGENEN Relays — sie stechen die Metrik-Sperre.
+ *
+ * Aus `globalThis` und nicht aus `groups.ts`: `core.ts` ist das Fundament, `groups.ts`
+ * baut darauf auf, und ein Import zurück wäre ein Zyklus mitten in den Boot-
+ * Seiteneffekten dieser Datei. Dieselbe Quelle, aus der das Head-Partial sie schreibt.
+ *
+ * Leere Einträge fallen in `darfAuthBekommen` durch (`if (eintrag && …)`), eine fehlende
+ * Konfiguration erzeugt hier also keine leere Rückausnahme.
+ */
+const EIGENE_RELAYS = [
+    (globalThis as { __nostrSpace?: string }).__nostrSpace ?? '',
+    (globalThis as { __nostrWorkspace?: string }).__nostrWorkspace ?? '',
+    (globalThis as { __nostrBoard?: string }).__nostrBoard ?? '',
+]
+
+const darfAuthBekommen = (url: string): boolean => authErlaubt(url, METRIK_RELAYS, EIGENE_RELAYS)
+
+/**
  * NIP-42-AUTH: sobald ein Signer aktiv ist, signiert welshman AUTH-Challenges
  * (kind 22242) automatisch — nötig für zooid-Spaces mit `public_read=false`.
  * Buffer/Reconnect bringt welshman über `defaultSocketPolicies` selbst mit.
- * ponytail: aggressiv (jeder AUTH-fragende Relay) — bei Bedarf auf eine
- * Whitelist der Space-URLs (userSpaceUrls) einschränken (Privacy, M6).
+ * ponytail: aggressiv (jeder AUTH-fragende Relay AUSSER den Metrik-Relais, siehe
+ * {@link darfAuthBekommen}) — bei Bedarf auf eine Whitelist der Space-URLs
+ * (userSpaceUrls) einschränken (Privacy, M6).
  */
 // Boot-Seiteneffekte GENAU EINMAL — über einen globalThis-Guard, der auch ein
 // HMR-Re-Eval dieses Moduls überlebt (ein modulweites `let` würde bei HMR neu
@@ -270,7 +375,10 @@ if (!bootGuard.__ezGroupBooted) {
     defaultSocketPolicies.push(
         makeSocketPolicyAuth({
             sign,
-            shouldAuth: () => Boolean(pubkey.get()),
+            // `socket` wird ausgewertet, nicht ignoriert — die Begründung steht bei
+            // {@link darfAuthBekommen}. Ohne diese Prüfung bekäme jedes konfigurierte
+            // Metrik-Relay beim bloßen Öffnen einer Artikelfläche den Pubkey des Lesers.
+            shouldAuth: (socket) => Boolean(pubkey.get()) && darfAuthBekommen(socket.url),
         }),
         // Doppelte REQs während der AUTH-Runde streichen — siehe `authHold.ts`. Steht
         // NEBEN welshmans `socketPolicyAuthBuffer`, nicht an dessen Stelle: der bleibt
