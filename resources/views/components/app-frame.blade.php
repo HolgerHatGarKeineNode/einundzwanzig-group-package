@@ -56,12 +56,36 @@
             {{ __('Zum Inhalt springen') }}
         </a>
 
+        {{-- Der Platzhalter steht VOR der Rail und füllt deren Spur, solange es sie
+             nicht gibt (erster Paint bis Alpine-Boot). Begründung, Messwerte und
+             Bauform: `rail-skelett.blade.php`. --}}
+        <x-group::rail-skelett />
+
         <x-group::desktop-rail />
     @endif
 
     {{-- Die Bühne. Unterhalb xl ebenfalls `contents` — der Slot-Inhalt hängt dann
-         direkt im Dokumentfluss, so wie vorher. --}}
-    <div @class(['contents', 'xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden' => $desktop])>
+         direkt im Dokumentfluss, so wie vorher.
+
+         ── Warum die Bühne ihre Spur AUSDRÜCKLICH nennt (`xl:col-start-2`) ─────
+         Bis hierher entschied das Auto-Placement, und das rechnet mit der ANZAHL
+         der Kinder im Fluss. Vor dem Alpine-Boot gibt es die Rail nicht (sie steht
+         in einem `<template x-if>`), die Bühne war damit das erste Kind — und
+         landete in Spur 1, den 20 rem des Navigators. Gemessen auf `/articles`:
+         `#buehne` 320 px statt 1120 px, für 685–718 ms bei um 600 ms verzögerter
+         JS-Antwort, CLS 0,3865 mit der Bühne als benannter Shift-Quelle.
+
+         Der Platzhalter oben füllt die Spur inzwischen. Die ausdrückliche
+         Platzierung bleibt trotzdem, und zwar als GRUND, nicht als Gürtel: sie
+         nimmt der Bühnenposition die Abhängigkeit von der Kinderzahl. Jedes
+         künftige `x-if`-Geschwister — und jedes Overlay, das wie die `profile-card`
+         am Ende dazukommt — kann sie damit nicht mehr verschieben. Genau diese
+         Abhängigkeit war die Ursache, nicht ein fehlender Knoten.
+
+         `grid-rows-1` bleibt daneben stehen: es deckelt die IMPLIZITE Zeile, in die
+         auto-platzierte Nachzügler fallen (siehe die Herleitung ganz oben). Beides
+         zusammen macht Zeile UND Spalte unabhängig von der Reihenfolge. --}}
+    <div @class(['contents', 'xl:col-start-2 xl:row-start-1 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden' => $desktop])>
         {{ $slot }}
     </div>
 
