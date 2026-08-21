@@ -20,8 +20,11 @@
      und `flux:tab.panel` müssen im selben Baum stehen — ein `flux:tab` ohne sein
      Panel wirft und reißt die ganze Insel mit. --}}
 <template x-if="$store.viewport?.desktop">
+    {{-- `xl:col-start-1 xl:row-start-1`: dieselbe Zelle, die `rail-skelett` bis zum
+         Boot hält. Ausdrücklich statt per Auto-Placement — der Grund steht bei der
+         Bühne in `app-frame.blade.php`. --}}
     <div x-data="nostrRail" data-rail
-         class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:flex dark:border-zinc-800 dark:bg-zinc-900">
+         class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
         {{-- Space-Kopf: „wo bin ich" gehört an den Anfang der Ortsspalte. --}}
         <div class="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-3">

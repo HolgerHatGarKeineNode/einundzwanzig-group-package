@@ -219,11 +219,55 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                     <div x-show="isEmpty()">
 
+                        {{-- Der Platz des Filterkopfs, solange geladen wird — LEER, nicht
+                             als Balken.
+
+                             Er MUSS reserviert werden: der Filterkopf erscheint erst mit
+                             dem Bestand (`x-show="!isEmpty()"`), und ohne Reservierung
+                             rutschte die ganze Liste in dem Moment nach unten.
+
+                             **Der Befund, VOR der Reparatur gemessen** (2026-08-21,
+                             1440 px, am gerenderten Element): der Filterkopf ist 92 px
+                             hoch (Suchfeld 40, `space-y-2` 8, Ordnungs-Zeile 44) plus
+                             `mb-3` — die Liste sprang dadurch um **104,0 px**, also
+                             genau um die Höhe, die fehlte. Die y-Werte von damals stehen
+                             hier bewusst nicht mehr, und die Zahl selbst hieß zuerst
+                             103,6: beides war gegen den Viewport gemessen, und der
+                             wandert während der `page-enter`-Animation. Die 0,4 px
+                             Unterschied waren deren Rauschen. Was heute gilt, hält
+                             `desktop-boot-geometrie.spec.ts` fest — als Abstand zur
+                             Ortskarten-Leiste, transformfrei und über zwölf Läufe mit
+                             Streuung 0,00 px.
+
+                             Und er muss LEER sein: ein Balken wäre die Zusage „hier kommt
+                             ein Suchfeld", und die ist nicht gedeckt — kommt kein Artikel,
+                             kommt auch kein Filterkopf, sondern der Leerzustand. Dieselbe
+                             Regel und derselbe Grund wie bei der Unterzeile der
+                             Ortskarten (`ortskarten.blade.php`). Die sechs Karten darunter
+                             DÜRFEN Balken sein: „Artikel werden geladen" ist gedeckt, ein
+                             REQ ist unterwegs.
+
+                             `h-10`/`h-11` statt der gemessenen 40/44 px als Rohwerte —
+                             dieselben Zahlen, aber aus der 4-er-Skala. --}}
+                        <div x-show="loading" aria-hidden="true" class="mb-3 space-y-2">
+                            <div class="h-10"></div>
+                            <div class="h-11"></div>
+                        </div>
+
                         {{-- Laden: SERVER-gerendert per @for, NICHT x-if — ein
                              x-if-Template existiert vor dem Alpine-Boot nicht im DOM, die
                              Fläche bliebe bis dahin weiß. Die Balken bilden die Karte von
-                             unten nach: Cover, Titel, zwei Teaser-Zeilen, Meta. --}}
-                        <div x-show="loading" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                             unten nach: Cover, Titel, zwei Teaser-Zeilen, Meta.
+
+                             Die Spaltenzahl ist zeichengleich mit der fertigen Liste
+                             (`data-artikel-raster`, gut 200 Zeilen weiter unten) — vorher
+                             stand hier nur `sm:grid-cols-2`, und beim Eintreffen der Daten
+                             wechselte das Raster von zwei auf drei Spuren: Kartenbreite
+                             522 px → 344 px (2026-08-21 bei 1440 px gemessen, vor der
+                             Reparatur). Wer eine der beiden Zeilen ändert, ändert beide —
+                             `desktop-boot-geometrie.spec.ts` vergleicht die aufgelösten
+                             Spurbreiten beider Raster bei jedem Lauf. --}}
+                        <div x-show="loading" class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                             @for ($i = 0; $i < 6; $i++)
                                 <div class="surface-card overflow-hidden">
                                     <div class="skeleton aspect-[16/9] w-full"></div>

@@ -56,12 +56,42 @@
             {{ __('Zum Inhalt springen') }}
         </a>
 
+        {{-- Der Platzhalter steht VOR der Rail und füllt deren Spur, solange es sie
+             nicht gibt (erster Paint bis Alpine-Boot). Begründung, Messwerte und
+             Bauform: `rail-skelett.blade.php`. --}}
+        <x-group::rail-skelett />
+
         <x-group::desktop-rail />
     @endif
 
     {{-- Die Bühne. Unterhalb xl ebenfalls `contents` — der Slot-Inhalt hängt dann
-         direkt im Dokumentfluss, so wie vorher. --}}
-    <div @class(['contents', 'xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden' => $desktop])>
+         direkt im Dokumentfluss, so wie vorher.
+
+         ── Warum die Bühne ihre Spur AUSDRÜCKLICH nennt (`xl:col-start-2`) ─────
+         Bis hierher entschied das Auto-Placement, und das rechnet mit der ANZAHL
+         der Kinder im Fluss. Vor dem Alpine-Boot gibt es die Rail nicht (sie steht
+         in einem `<template x-if>`), die Bühne war damit das erste Kind — und
+         landete in Spur 1, den 20 rem des Navigators: `#buehne` 320 px statt 1120 px.
+         **Die vollständige Messreihe steht an EINER Stelle**, im Kopf von
+         `tests/e2e/desktop-boot-geometrie.spec.ts` — zusammen mit den Tests, die sie
+         reproduzieren. Sie hier ein zweites Mal zu führen, hat schon einmal zu zwei
+         verschiedenen Zahlenreihen in zwei Dateien geführt.
+
+         **Heute trägt diese Zeile die Geometrie NICHT allein — und das ist gemessen,
+         nicht angenommen:** entfernt man sie, bleibt die Bühne trotzdem in Spur 2,
+         weil der Platzhalter oben schon als erstes Kind in Spur 1 sitzt. Rot werden
+         dabei nur die Tests, die auf das Literal zielen. Sie ist also HÄRTUNG, kein
+         Lastträger, und sie bleibt genau deshalb: ohne sie ruhte der Fix allein
+         darauf, dass der Platzhalter das erste Kind ist — also wieder auf einer
+         Reihenfolge, und genau diese Abhängigkeit war die Ursache. Ein künftiges
+         Geschwister, server-gerendert und vor dem Platzhalter eingehängt, bräche es
+         erneut und wieder still. Dasselbe gilt für jedes Overlay, das wie die
+         `profile-card` am Ende dazukommt.
+
+         `grid-rows-1` bleibt daneben stehen: es deckelt die IMPLIZITE Zeile, in die
+         auto-platzierte Nachzügler fallen (siehe die Herleitung ganz oben). Beides
+         zusammen macht Zeile UND Spalte unabhängig von der Reihenfolge. --}}
+    <div @class(['contents', 'xl:col-start-2 xl:row-start-1 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden' => $desktop])>
         {{ $slot }}
     </div>
 
