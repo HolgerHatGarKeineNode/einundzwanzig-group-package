@@ -4,33 +4,54 @@
  *
  * Der Parameter hat GENAU zwei Pflichten, und beide hängen an einem realen Fehler:
  *   1. Er MUSS jeden Tab zurücklesen, den der `$watch` in `bridge.ts` hineinschreibt —
- *      `workspaces` wurde geschrieben, aber nie gelesen, und ein geteilter Link landete
- *      still auf „Räume".
- *   2. Er DARF `workspaces` NICHT annehmen, wenn es den Tab gar nicht gibt: ohne
- *      konfigurierten Workspace rendert `x-if="hasWorkspace"` ihn nicht, und ein
- *      ausgewählter Tab ohne Panel ist eine leere Fläche ohne Ausweg.
+ *      `workspaces` wurde einmal geschrieben, aber nie gelesen, und ein geteilter Link
+ *      landete still auf „Räume".
+ *   2. Er DARF nichts annehmen, was es nicht gibt: ein ausgewählter Tab ohne Panel ist
+ *      eine leere Fläche ohne Ausweg.
+ *
+ * **Seit P5 ist `workspaces` kein Tab dieser Seite mehr** (er ist nach `/forge` gewandert).
+ * Dass er hier auf `rooms` fällt, ist deshalb richtig — aber NUR, weil die Adresse den
+ * Leser gar nicht mehr erreicht: `⚡spaces.blade.php` leitet `/spaces?tab=workspaces`
+ * serverseitig auf `/forge?tab=workspaces` um. Diese Datei prüft die eine Hälfte (der
+ * Leser kennt `workspaces` nicht mehr), die andere hängt am Feature-Test der Route.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab.ts'
 
-test('readSpacesTab nimmt threads an — mit und ohne Workspace', () => {
-    assert.equal(readSpacesTab('?tab=threads', true), 'threads')
-    assert.equal(readSpacesTab('?tab=threads', false), 'threads')
-    assert.equal(readSpacesTab('?rt=meetups&tab=threads&cc=de', true), 'threads')
+test('readSpacesTab nimmt threads an', () => {
+    assert.equal(readSpacesTab('?tab=threads'), 'threads')
+    assert.equal(readSpacesTab('?rt=meetups&tab=threads&cc=de'), 'threads')
+    assert.equal(readSpacesTab('tab=threads'), 'threads')
 })
 
-test('readSpacesTab nimmt workspaces NUR an, wenn der Tab existiert', () => {
-    assert.equal(readSpacesTab('?tab=workspaces', true), 'workspaces')
-    // Der Fall ohne Workspace: der Tab wird nicht gerendert, also darf er auch nicht
-    // ausgewählt sein. Rückfall auf den Default statt auf einen Zustand ohne Panel.
-    assert.equal(readSpacesTab('?tab=workspaces', false), DEFAULT_SPACES_TAB)
-})
-
-test('readSpacesTab verwirft alles andere', () => {
-    for (const search of ['', '?', '?tab=', '?tab=rooms', '?tab=Threads', '?tab=WORKSPACES', '?tab=../etc', '?rt=meetups']) {
-        assert.equal(readSpacesTab(search, true), DEFAULT_SPACES_TAB, search)
+test('readSpacesTab verwirft alles andere — einschließlich des abgewanderten workspaces', () => {
+    for (const search of [
+        '',
+        '?',
+        '?tab=',
+        '?tab=rooms',
+        '?tab=Threads',
+        '?tab=workspaces',
+        '?tab=WORKSPACES',
+        '?tab=../etc',
+        '?rt=meetups',
+    ]) {
+        assert.equal(readSpacesTab(search), DEFAULT_SPACES_TAB, search)
     }
+})
+
+test('die Bar hat GENAU zwei Einträge — der Leser kennt keinen dritten', () => {
+    // Die Zusage aus der P5-DoD („in jeder Config genau zwei Einträge"), auf der Seite,
+    // auf der sie mechanisch prüfbar ist. Wer `workspaces` hier wieder aufnähme, ohne den
+    // Tab zurückzubauen, bekäme einen ausgewählten Tab ohne Panel — dieselbe leere Fläche
+    // wie vor der Whitelist. WÖRTLICH gegen die zwei Literale, nicht gegen den Typ: ein
+    // `type`-Fehler fiele erst `tsc` auf, und dieser Test soll ihn vorher zeigen.
+    const alle = new Set<string>()
+    for (const search of ['', '?tab=threads', '?tab=rooms', '?tab=workspaces', '?tab=beliebig']) {
+        alle.add(readSpacesTab(search))
+    }
+    assert.deepEqual([...alle].sort(), ['rooms', 'threads'])
 })
 
 test('der Default ist WÖRTLICH „rooms" — gegen ein Literal geprüft, nicht gegen sich selbst', () => {
@@ -41,11 +62,9 @@ test('der Default ist WÖRTLICH „rooms" — gegen ein Literal geprüft, nicht 
     // aber eine Festlegung („Chat steht an erster Stelle"), keine Beliebigkeit.
     assert.equal(DEFAULT_SPACES_TAB, 'rooms')
 
-    // Und dieselbe Festlegung am Ergebnis, an einer Eingabe, die weder `threads`
-    // noch `workspaces` ist — mit und ohne Workspace.
-    assert.equal(readSpacesTab('', true), 'rooms')
-    assert.equal(readSpacesTab('?tab=quatsch', true), 'rooms')
-    assert.equal(readSpacesTab('?tab=quatsch', false), 'rooms')
+    // Und dieselbe Festlegung am Ergebnis, an einer Eingabe, die nicht `threads` ist.
+    assert.equal(readSpacesTab(''), 'rooms')
+    assert.equal(readSpacesTab('?tab=quatsch'), 'rooms')
 })
 
 test('der Parametername ist derselbe, den der Schreiber in bridge.ts setzt', () => {
@@ -54,15 +73,14 @@ test('der Parametername ist derselbe, den der Schreiber in bridge.ts setzt', () 
 
 test('jeder gültige Tab überlebt die Runde schreiben → lesen', () => {
     // Die Gegenprobe zum `$watch`: was er in die URL schreibt, muss zurückkommen.
-    // Genau diese Runde war für `workspaces` unterbrochen.
-    for (const tab of ['threads', 'workspaces'] as const) {
+    for (const tab of ['threads'] as const) {
         const url = new URL('https://example.test/spaces')
         url.searchParams.set(SPACES_TAB_PARAM, tab)
-        assert.equal(readSpacesTab(url.search, true), tab)
+        assert.equal(readSpacesTab(url.search), tab)
     }
 
     // Und der Default steht bewusst NICHT in der URL — er kommt aus der leeren Query.
     const clean = new URL('https://example.test/spaces')
     clean.searchParams.delete(SPACES_TAB_PARAM)
-    assert.equal(readSpacesTab(clean.search, true), DEFAULT_SPACES_TAB)
+    assert.equal(readSpacesTab(clean.search), DEFAULT_SPACES_TAB)
 })

@@ -427,6 +427,35 @@ new #[Layout('group::einundzwanzig')] class extends Component
                        class="mt-3 line-clamp-4 whitespace-pre-wrap break-words text-sm text-muted"
                        x-text="article.author.about"></p>
 
+                    {{-- ── Der Einstieg in die Autorenseite (P5, Schritt 25a) ─────────
+                         P4 hat `/articles/autor/{npub}` gebaut — und NICHTS hat dorthin
+                         verlinkt. Die Route war ausschließlich über die Adresszeile
+                         erreichbar, also praktisch gar nicht. Sie steht hier und nicht
+                         in der Liste, weil die Frage „was hat der noch geschrieben?"
+                         beim LESEN entsteht, nicht beim Auswählen.
+
+                         Erster Eintrag der Aktionsgruppe, vor Website und Lightning: von
+                         den drei ist er der einzige, der in diesem Client bleibt und den
+                         der Leser gerade wissen will. Die beiden anderen sind Auskünfte
+                         über die Person.
+
+                         `autorHref() || null`: ohne Artikel (und damit ohne Pubkey) gibt
+                         es kein Ziel — dann entfällt das Attribut, und ein `<a>` ohne
+                         `href` ist kein Tabstopp. Dieselbe Bauform wie bei der
+                         Artikelkarte ohne `d`-Tag.
+
+                         Der Name steht im Text UND ist auf eine Zeile gedeckelt: eine
+                         Nostr-Anzeigenamen-Länge ist nicht begrenzt, und ein umbrechender
+                         Name schöbe in der 18-rem-Spalte alles darunter weg. --}}
+                    <a x-show="autorHref()" x-cloak :href="autorHref() || null" wire:navigate
+                       data-autor-link
+                       class="pressable mt-3 flex min-w-0 items-center gap-2 rounded-tile border border-zinc-200 px-3 py-2 text-sm text-brand-800 hover:bg-brand-500/5 dark:border-zinc-800 dark:text-brand-400">
+                        <flux:icon.rectangle-stack class="size-4 shrink-0" />
+                        <span class="min-w-0 truncate"
+                              x-text="@js(__('Alle Artikel von :name')).split(':name').join(article.author.name)"></span>
+                        <flux:icon.chevron-right class="ml-auto size-3.5 shrink-0 opacity-50" />
+                    </a>
+
                     {{-- Website — eigene Zeile, lange URLs truncaten statt auszulaufen.
                          Der Wert ist bereits sanitisiert (`sanitizeUrl` in
                          `longformFeed.ts`); `about:blank` kommt hier gar nicht an. --}}

@@ -24,13 +24,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
     }
 }; ?>
 
-<x-group::app-shell>
+{{-- `width="wide"`: diese Fläche zeigt ein RASTER (vier Kennzahl-Kacheln, darunter
+     Listen), keinen Fließtext. Der 62-rem-Lesedeckel ließ auf einem 1440er-Schirm
+     rechts eine Handbreit leer, während die Kacheln sich drängten. --}}
+<x-group::app-shell width="wide">
 
     {{-- Der Basis-Pfad kommt aus `route()`, nicht als Literal: die Route heißt an
          genau einer Stelle `/forge`, und das ist `routes/group.php`. --}}
     <div x-data="nostrForge(@js(route('group.forge')))" class="page-enter">
 
         <x-group::app-header :title="__('Forge')" :back="route('group.spaces')" />
+
+        <x-group::ortskarten />
 
         @if (! config('group.workspace_url'))
             {{-- Kein Workspace konfiguriert. Kein Fehler, sondern eine bewusste
@@ -157,16 +162,29 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Auflösen des Panels, sobald eine Tab-Gruppe da ist — hier
                          schaltet der Tab nur eine Alpine-Liste um. Gleiche Bauart wie
                          auf `/updates`. --}}
+                    {{-- Vierter Tab „Workspaces" (P5): die KANÄLE des Workspace-Relays.
+                         Er stand bis P5 als dritter Tab auf `/spaces`, neben „Räume" und
+                         „Threads" — also neben den Räumen eines ANDEREN Relays. Das war
+                         die falsche Nachbarschaft: die Bar dort gliedert den Vereins-Chat,
+                         und ein Eintrag darin, der auf ein zweites Relay zeigt, machte aus
+                         einer Gliederung eine Aufzählung. Hier steht er neben drei
+                         Geschwistern, die alle dieselbe Quelle lesen.
+
+                         Er steht als LETZTER und nicht als erster: die drei anderen Tabs
+                         beantworten „was ist hier passiert / woran wird gearbeitet", der
+                         vierte „wo wird darüber geredet". Das ist die Reihenfolge, in der
+                         jemand eine Forge betritt. --}}
                     <flux:tabs variant="segmented" x-model="tab" class="mb-3">
                         <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
                         <flux:tab name="projects">{{ __('Projekte') }}</flux:tab>
                         <flux:tab name="repos">{{ __('Repositories') }}</flux:tab>
+                        <flux:tab name="workspaces">{{ __('Workspaces') }}</flux:tab>
                     </flux:tabs>
 
                     {{-- Kürzungshinweis. Er steht nur da, wenn eine Liste GENAU am
                          Limit ankam — dann kann sie gekürzt sein, und das ist eine
                          Aussage über den Bestand, die die Fläche schuldet. --}}
-                    <template x-if="truncatedText()">
+                    <template x-if="tab !== 'workspaces' && truncatedText()">
                         <flux:callout variant="secondary" icon="information-circle" class="mb-3" data-forge-truncated>
                             <flux:callout.text x-text="truncatedText()"></flux:callout.text>
                         </flux:callout>
@@ -175,7 +193,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     {{-- Ladezustand: SERVER-gerendert per @for, NICHT x-if — der Inhalt
                          eines `x-if`-Templates existiert vor dem Alpine-Boot gar nicht
                          im DOM, die Fläche bliebe bis dahin weiß. --}}
-                    <div x-show="loading && isEmpty()" class="surface-card px-4">
+                    {{-- `tab !== 'workspaces'`: der vierte Tab liest eine ANDERE
+                         Datenschicht (NIP-29-Raumsicht statt 30617/30618) und bringt
+                         seinen eigenen Ladezustand mit. Ohne diesen Ausschluss stünden
+                         beim Öffnen eines kalten `/forge?tab=workspaces` das
+                         Forge-Skelett UND die Raumliste gleichzeitig da — ein Skelett
+                         für Daten, auf die diese Fläche gar nicht wartet. --}}
+                    <div x-show="tab !== 'workspaces' && loading && isEmpty()" class="surface-card px-4">
                         @for ($i = 0; $i < 4; $i++)
                             {{-- Formgleich zur fertigen Ref-Spur: gleicher Avatar-Ort,
                                  gleiche Zeilenhöhe. Ein Skelett, das anders gebaut ist
@@ -442,6 +466,103 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </div>
                                     <flux:icon.chevron-right class="mt-1 size-4 shrink-0 text-zinc-500 transition-transform group-hover:translate-x-0.5 dark:text-zinc-400" />
                                 </a>
+                            </template>
+                        </div>
+                    </div>
+
+                    {{-- ── Workspaces: die Kanäle des Workspace-Relays (P5) ────────────
+                         Wortgleich aus `⚡spaces.blade.php` hierher gezogen; geändert
+                         sind nur die Feldnamen (die Insel heißt jetzt
+                         `nostrWorkspaceRooms` und braucht kein `workspace`-Präfix mehr)
+                         und zwei `font-mono`, die hier nicht wieder mitwandern: das Theme
+                         definiert `--font-mono` gar nicht, jedes `font-mono` zöge also
+                         eine zweite Schriftfamilie. Zahlen bekommen `tabular-nums`.
+
+                         `x-show` und nicht `x-if` am Panel: die Insel darunter hält zwei
+                         Abos auf das Workspace-Relay. Ein `x-if` baute sie bei jedem
+                         Tab-Wechsel neu auf und öffnete sie jedes Mal erneut. Diese Seite
+                         spricht ohnehin ausschließlich mit diesem Relay — es gibt nichts
+                         zu sparen, nur etwas zu zerbrechen. --}}
+                    {{-- `data-forge-workspaces`: der Panel ist ein schlichtes `<div>` und
+                         kein `flux:tab.panel` (diese Bar fährt ohne `flux:tab.group`, siehe
+                         die Begründung an der Bar). Er trägt deshalb keine `tabpanel`-Rolle,
+                         über die ein Test ihn fassen könnte — der Anker steht hier. --}}
+                    <div x-show="tab === 'workspaces'" x-cloak x-data="nostrWorkspaceRooms" data-forge-workspaces>
+                        <div class="rounded-card border border-zinc-200 p-1 dark:border-zinc-800">
+                            {{-- Kopfzeile: Name des Workspace-Relays aus dem NIP-11-Doc. --}}
+                            <div class="flex items-baseline justify-between px-2 py-1.5">
+                                <span class="text-xs font-semibold uppercase tracking-wide text-muted"
+                                      x-text="label || @js(__('Workspace'))"></span>
+                                <span class="text-xs tabular-nums text-muted" x-text="rooms.length"></span>
+                            </div>
+
+                            {{-- Lädt noch. --}}
+                            <template x-if="loading">
+                                <p class="px-2 py-3 text-sm text-muted">{{ __('Räume werden geladen…') }}</p>
+                            </template>
+
+                            {{-- Geladen, aber leer: ein Zustand, keine Lücke. --}}
+                            <template x-if="!loading && rooms.length === 0">
+                                <p class="px-2 py-3 text-sm text-muted">{{ __('Dieser Workspace hat noch keine Räume.') }}</p>
+                            </template>
+
+                            {{-- Die Räume. Eigene Zeile statt `x-group::room-tile`: die Kachel
+                                 dort hängt am `nostrSpaces`-Scope des AKTIVEN Space (isAdmin,
+                                 openRoomEdit, _logo) — hier wäre das der falsche Space.
+
+                                 ── Kanal-Präferenzen aus Buzz Desktop (NIP-78) ─────────────
+                                 Diese Liste ist unterhalb von `xl` die EINZIGE Raumliste des
+                                 Workspace — die Rail gibt es dort nicht. Sie wendet deshalb
+                                 dieselben Präferenzen an wie die Rail: `buildWorkspaceList`
+                                 (node-getestet) ordnet angeheftet · beigetreten · entdeckbar
+                                 und sortiert innerhalb nach dem in Buzz gesetzten Modus.
+
+                                 **Stumm ist keine Opazität** (gleiche Regel wie in
+                                 `rail-room-row.blade.php`): die Zeile fällt auf die
+                                 `text-muted`-Stufe und trägt die durchgestrichene Glocke als
+                                 nicht-farbliches Merkmal (WCAG 1.4.1) plus sr-only-Text.
+                                 Einen Ungelesen-Zähler gibt es auf dieser Fläche nicht — der
+                                 Ungelesen-Store folgt dem AKTIVEN Space (`deriveUnread` in
+                                 bridge.ts), und der ist hier der Vereins-Space. Es gibt hier
+                                 also auch keine Summe, die die Stummschaltung auslassen
+                                 müsste; die Zahl im Kopf ist der Bestand, und stumme Räume
+                                 bleiben in der Liste stehen. --}}
+                            <template x-for="room in rooms" :key="room.h">
+                                <div class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                                    <button type="button"
+                                            class="flex min-h-[2.75rem] flex-1 items-center gap-3 rounded-tile px-2 py-2 text-start"
+                                            x-on:click="openRoom(room); Livewire.navigate(roomHref(room))"
+                                            {{-- Dieselbe Reparatur wie in `rail-room-row.blade.php`: kein sr-only-Fragment
+                                                 (', angeheftet' / ', stummgeschaltet') mehr, das an den sichtbaren Namen
+                                                 angehängt wird — drei ganze Übersetzungsschlüssel mit `:name`-Platzhalter
+                                                 im `aria-label`, `null` ohne Pin/Stumm (Attribut entfällt, Standard-Name
+                                                 aus dem sichtbaren `x-text` bleibt). --}}
+                                            x-bind:aria-label="isPinned(room) && isMuted(room)
+                                                ? @js(__(':name, angeheftet und stummgeschaltet')).split(':name').join(room.name)
+                                                : (isPinned(room)
+                                                    ? @js(__(':name, angeheftet')).split(':name').join(room.name)
+                                                    : (isMuted(room)
+                                                        ? @js(__(':name, stummgeschaltet')).split(':name').join(room.name)
+                                                        : null))">
+                                        <span class="flex size-8 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-base font-semibold text-brand-800 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
+                                        <span class="min-w-0 flex-1 truncate" x-text="room.name"
+                                              x-bind:class="isMuted(room) ? 'font-normal text-muted' : 'font-medium'"></span>
+                                        <template x-if="isPinned(room)">
+                                            <span class="inline-flex shrink-0 items-center">
+                                                <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 text-zinc-400" />
+                                            </span>
+                                        </template>
+                                        <template x-if="isMuted(room)">
+                                            <span class="inline-flex shrink-0 items-center">
+                                                <flux:icon.bell-slash variant="micro" aria-hidden="true" class="size-4 text-zinc-400" />
+                                            </span>
+                                        </template>
+                                        <template x-if="room.locked">
+                                            <flux:icon.lock-closed variant="micro" class="size-4 shrink-0 text-zinc-400" />
+                                        </template>
+                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
+                                    </button>
+                                </div>
                             </template>
                         </div>
                     </div>

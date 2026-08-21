@@ -65,11 +65,30 @@ export const RAIL_GROUP_ORDER: readonly RailGroupKey[] = ['rooms', 'workspace', 
  * Kürzel, die den Scope adressierbar machen. Es ist genau die Zeichenfolge, die
  * ein Klick auf die Lupe ins Feld schreibt — das Präfix ist damit kein Geheimwissen,
  * sondern etwas, das die Oberfläche dem Nutzer beibringt.
+ *
+ * ── `f:` und `w:` zeigen auf DIESELBE Gruppe (P5) ───────────────────────────
+ *
+ * Die Sektion heißt in der Oberfläche seit P5 „Forge" und nicht mehr „Workspace".
+ * Der GRUPPENSCHLÜSSEL bleibt `workspace` — er steht in {@link RAIL_GROUP_ORDER},
+ * in `railTargets`, in der Markup-Reihenfolge und in gespeicherten Faltungs-
+ * zuständen; ihn umzubenennen wäre eine Datenmigration für einen Anzeigenamen.
+ *
+ * Neu ist deshalb nur das Kürzel: `f:` ist das, was der Nutzer jetzt sieht und was
+ * die Lupe ins Feld schreibt. **`w:` bleibt daneben gültig**, weil es in jedem
+ * Kopf steckt, der die Rail schon benutzt hat, und weil ein Kürzel, das gestern
+ * gefiltert hat und heute als gewöhnlicher Suchtext „w:" durchgereicht wird, still
+ * das Falsche tut.
+ *
+ * **Die Reihenfolge der Schlüssel ist Vertrag, nicht Stil:** {@link scopeToken}
+ * nimmt den ERSTEN Eintrag, der auf die Gruppe zeigt. `f` muss deshalb vor `w`
+ * stehen — sonst schriebe die Lupe weiter das alte Kürzel ins Feld, und der
+ * Hilfetext der Rail (`desktop-rail.blade.php`) widerspräche der Oberfläche.
  */
 export const SCOPE_PREFIX: Readonly<Record<string, RailGroupKey>> = {
     r: 'rooms',
     m: 'meetups',
     p: 'proposals',
+    f: 'workspace',
     w: 'workspace',
 }
 

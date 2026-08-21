@@ -158,13 +158,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
     ];
 @endphp
 
-<x-group::app-shell>
+{{-- `width="wide"`: die Liste ist ein RASTER. Der Fließtext dieser Fläche steht in
+     den Karten und ist dort auf `line-clamp` gedeckelt — die Bühne muss ihn nicht
+     zusätzlich einengen. Ab `xl` trägt sie damit drei, ab `2xl` vier Spalten. --}}
+<x-group::app-shell width="wide">
 
     {{-- Der Basis-Pfad kommt aus `route()`, nicht als Literal in die Insel: die Route
          heißt an genau einer Stelle `/articles`, und das ist `routes/group.php`. --}}
     <div x-data="nostrArticles(@js(route('group.articles')), @js($sortOptions))" class="page-enter">
 
         <x-group::app-header :title="__('Artikel')" :back="route('group.spaces')" />
+
+        <x-group::ortskarten />
 
         {{-- Ob es überhaupt eine Quelle gibt, entscheidet der SERVER — nicht die Insel.
 
@@ -400,13 +405,31 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     {{-- ── Die Liste ────────────────────────────────────────────────────
 
                          Zwei Spalten ab `sm` — mehr wäre auf dem Telefon eine
-                         Briefmarkengalerie, und die Mehrspaltigkeit ab `xl` hängt an der
-                         `width`-Prop von `app-shell` (P5).
+                         Briefmarkengalerie.
+
+                         ── Drei ab `xl`, vier ab `2xl` (P5) ────────────────────────
+                         Möglich geworden durch `width="wide"` an der `app-shell`: der
+                         Lesedeckel von 62 rem ließ ab `xl` nur zwei Spalten zu, ohne dass
+                         die Karten breiter wurden — rechts stand Bühne leer.
+
+                         **Gemessen am gerenderten Raster (2026-08-21, mit Desktop-Rail):**
+                         bei 1440 px drei Spuren zu je 21,5 rem (344 px), bei 1700 px vier
+                         zu je 19,5 rem (312 px). Die Karte wird also mit der vierten
+                         Spalte um 2 rem SCHMALER, nicht breiter — das ist der Preis, und
+                         er ist bei 19,5 rem noch bezahlbar: der Titel steht auf
+                         `line-clamp-2`, und die Karten einer Zeile bleiben über `h-full`
+                         gleich hoch, egal wie oft er umbricht.
+
+                         UNTERHALB von `xl` ändert sich nichts — `grid-cols-1` und
+                         `sm:grid-cols-2` stehen unverändert da. Das ist die Zusage der
+                         Phase: Desktop wird eigenständig optimiert, das Telefon bleibt,
+                         wie es abgenommen wurde.
 
                          `items-start` fehlt bewusst: die Karten sollen in einer Rasterzeile
                          GLEICH hoch sein. Getragen wird das von `h-full` an der Karte und
                          `mt-auto` an der Meta-Zeile — nicht von einer festen Höhe. --}}
-                    <div x-show="!isEmpty() && cards.length > 0" x-cloak class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div x-show="!isEmpty() && cards.length > 0" x-cloak data-artikel-raster
+                         class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                         <template x-for="card in cards" :key="card.id">
                             {{-- `<article>`, nicht `<a>`: eine Podcast-Karte trägt ZWEI
                                  Handlungen (Text lesen, Folge hören), und ein Player
@@ -415,6 +438,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  stattdessen Cover und Text; der Player steht darunter und
                                  außerhalb. Für die 90 Textkarten ist damit weiterhin
                                  praktisch die ganze Karte ein Link. --}}
+                            {{-- `sm:col-span-2` bleibt bei ZWEI Spalten, auch in den
+                                 breiteren Rastern (P5 nachgerechnet): bei `xl` sind das
+                                 zwei von drei, bei `2xl` zwei von vier — die
+                                 hervorgehobene Karte behält ihre Nebenkarten, statt die
+                                 Zeile allein zu füllen. Ein `xl:col-span-3` hätte auf
+                                 96 rem einen 64-rem-Banner ergeben, unter dem der Rest
+                                 der Liste wie eine Fußnote aussieht. --}}
                             <article class="surface-card flex h-full flex-col overflow-hidden"
                                      :class="card.featured ? 'sm:col-span-2' : ''">
 

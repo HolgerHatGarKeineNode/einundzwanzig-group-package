@@ -69,7 +69,7 @@
     "Alles gelesen": "Todo al día",
     "Alles gelesen.": "Todo al día.",
     "Als Admin entfernst du diese fremde Nachricht relay-seitig für alle. Das lässt sich nicht rückgängig machen.": "Como admin eliminas este mensaje ajeno en el Relay para todos. Esto no se puede deshacer.",
-    "Alt + ↑/↓ wechselt den Raum · m: p: r: w: grenzen ein": "Alt + ↑/↓ cambia de sala · m: p: r: w: acotan la búsqueda",
+    "Alt + ↑/↓ wechselt den Raum · m: p: r: f: grenzen ein": "Alt + ↑/↓ cambia de sala · m: p: r: f: acotan la búsqueda",
     "Am Relay nicht angemeldet — bitte erneut senden.": "No has iniciado sesión en el Relay — vuelve a enviar.",
     "Amber (NIP-55)": "Amber (NIP-55)",
     "Amber erneut öffnen": "Abrir Amber de nuevo",
@@ -869,7 +869,7 @@
     "Forge-Übersicht öffnen": "Abrir el resumen de Forge",
     "Issues des Repositorys öffnen (:count)": "Abrir las incidencias del repositorio (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Abrir los pull requests del repositorio (:count)",
-    "Workspace auf :wert": "Workspace en :wert",
+    "Forge auf :wert": "Forge en :wert",
     "Clone-URL kopieren": "Copiar URL de clonación",
     "Clone-URL kopiert.": "URL de clonación copiada.",
     "Die Clone-URL ließ sich nicht kopieren. Markiere sie mit einem Klick und kopiere sie von Hand.": "No se pudo copiar la URL de clonación. Haz clic en ella para seleccionarla y cópiala a mano.",
@@ -900,5 +900,14 @@
     ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": ":domain no estaba accesible o no envió una respuesta válida.",
     "Von diesem Autor liegt hier noch kein Artikel.": "Todavía no hay ningún artículo de este autor aquí.",
     "Sobald einer auf diesem Relay erscheint, steht er hier.": "En cuanto aparezca uno en este relé, se mostrará aquí.",
-    "seit :jahr": "desde :jahr"
+    "seit :jahr": "desde :jahr",
+    "Bereiche": "Áreas",
+    ":ort — :stand": ":ort — :stand",
+    "Vom Verein": "De la asociación",
+    "Repos": "Repos",
+    "1 ungelesen": "1 sin leer",
+    ":count ungelesen": ":count sin leer",
+    "1 Repo": "1 repo",
+    ":count Repos": ":count repos",
+    "Alle Artikel von :name": "Todos los artículos de :name"
 }

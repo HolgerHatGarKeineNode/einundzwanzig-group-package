@@ -29,7 +29,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
     }
 }; ?>
 
-<x-group::app-shell>
+{{-- `width="wide"` (P5): die Repo-Seite ist die dichteste Tabelle des Clients —
+     Dateibaum, Branches, Issues, Pull Requests. Fließtext gibt es hier nur in den
+     Kommentaren, und die deckeln sich über ihre eigene Spalte. Der Lesedeckel von
+     62 rem zwang die Tabellen in eine Breite, in der Spalten umbrachen, während
+     rechts Platz stand.
+
+     KEINE Ortskarten-Leiste: das hier ist eine Detail-Ebene, kein Ort. Der Weg
+     zurück steht im `app-header` (Pfeil auf die Forge-Übersicht), genau wie in der
+     Artikel-Vollansicht. Eine Ortsleiste über einer Detailseite behauptete, man sei
+     an einem der drei Orte angekommen — man ist eine Ebene darunter. --}}
+<x-group::app-shell width="wide">
 
     <div x-data="nostrForgeRepo(@js($naddr))" class="page-enter">
 

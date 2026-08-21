@@ -1,5 +1,8 @@
 @props([
     'chrome' => true,
+    // 'read' = Lesedeckel (62 rem) — der Default, unverändert seit der Desktop-Shell.
+    // 'wide' = Bühnenbreite (96 rem) für Flächen, die RASTER zeigen statt Fließtext.
+    'width' => 'read',
 ])
 
 {{-- Die EINE Shell (§3.1). Verschmilzt Shell A (mobile.blade Companion) und
@@ -45,10 +48,34 @@
          `pb-28` (Platz für die fixe Bottom-Bar) fällt ab xl weg: dort gibt es
          keine Bottom-Bar mehr, der Abstand wäre toter Boden. --}}
     <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-8 xl:pt-6 2xl:px-12 '.($chrome ? 'pb-28 xl:pb-8' : 'pb-8')) }}>
-        {{-- Ab xl bekommt der Seiteninhalt einen eigenen Lesedeckel, statt die
-             ganze Spaltenbreite zu füllen — eine Bühne ohne Deckel ist Slacks
-             Lesbarkeitsfehler. --}}
-        <div class="xl:mx-auto xl:w-full xl:max-w-[62rem]">
+        {{-- Ab xl bekommt der Seiteninhalt einen eigenen Deckel, statt die ganze
+             Spaltenbreite zu füllen — eine Bühne ohne Deckel ist Slacks
+             Lesbarkeitsfehler.
+
+             ── Zwei Deckel, und warum es genau zwei sind (P5) ────────────────────
+             `read` (62 rem) ist für Flächen mit FLIESSTEXT und einspaltigen Listen:
+             darüber reißt die Zeilenlänge das Lesemaß von 45–75 Zeichen. `wide`
+             (96 rem) ist für Flächen mit einem RASTER — Artikelkarten, Forge-Kacheln,
+             Repo-Listen. Dort ist die Zeilenlänge eine Eigenschaft der Kachel und
+             nicht der Bühne, und der Deckel kostet auf einem breiten Schirm nur Platz.
+
+             **Was `wide` bei den üblichen Breiten wirklich tut, gemessen am
+             gerenderten Element (2026-08-21, mit Desktop-Rail):** bei 1440 px ist die
+             Inhaltsspalte 66 rem breit, bei 1700 px 80,3 rem. Der 96-rem-Deckel bindet
+             dort also noch gar nicht — er ist die Obergrenze für sehr breite Schirme.
+             Die messbare Wirkung bei 1440/1700 px ist, dass der 62-rem-Deckel NICHT
+             mehr bindet: die Artikelliste trägt damit drei bzw. vier Spalten statt zwei.
+
+             BEIDE Klassen stehen als volles Literal im Quelltext. Ein zusammengesetzter
+             Name (`xl:max-w-[{{ $breite }}]`) entstünde erst zur Laufzeit — Tailwind
+             scannt aber den QUELLTEXT, die Klasse existierte im gebauten Stylesheet
+             also nie, und die Fläche fiele stumm auf die volle Spaltenbreite zurück.
+             Dieselbe Regel und derselbe Grund wie beim `pb-28`/`pb-8` oben. --}}
+        <div @class([
+            'xl:mx-auto xl:w-full',
+            'xl:max-w-[62rem]' => $width !== 'wide',
+            'xl:max-w-[96rem]' => $width === 'wide',
+        ])>
             {{ $slot }}
         </div>
     </main>
