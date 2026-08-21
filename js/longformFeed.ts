@@ -49,6 +49,7 @@ import {
     type ArticleAuthor,
     type ArticleRow,
 } from './longform'
+import { artikelDesAutors } from './articleAuthor'
 import { warmProfiles } from './profiles'
 import { deriveEventsForUrl } from './repository'
 import { handlesByNip05 } from '@welshman/app'
@@ -307,6 +308,10 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
                 author: buildArticleAuthor(newest.pubkey, {
                     name: displayProfileByPubkey(newest.pubkey),
                     picture: profil?.picture ?? '',
+                    // Die Vollansicht zeigt es nicht — die Autorenseite (P4) tut es, und
+                    // beide bauen ihre Karte über dieselbe Funktion. Ein zweiter Bauweg
+                    // für ein Feld wäre der teurere Preis (Begründung bei `ArticleAuthorDeps`).
+                    banner: profil?.banner ?? '',
                     about: profil?.about ?? '',
                     website: website === 'about:blank' ? '' : website,
                     // **Der Unterschied zwischen „hat keine" und „wissen wir noch nicht".**
@@ -329,6 +334,109 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
             }
         },
     )
+}
+
+/**
+ * Was die Autorenseite (P4) in einem Zug braucht: die Artikel dieses Autors und seine
+ * Karte.
+ *
+ * **Eine Ableitung, nicht zwei.** Artikel und Autorenkarte hängen an denselben zwei
+ * Quellen (den Events und den Profilen); als zwei Ableitungen emittierten sie zu
+ * verschiedenen Zeitpunkten, und die Fläche zeigte für einen Moment die Artikel eines
+ * Autors unter der Karte eines anderen — bei einem `wire:navigate` von einer Autorenseite
+ * zur nächsten genau das, was passiert.
+ */
+export type AuthorView = {
+    /** Die Artikel dieses Autors, absteigend nach Erstveröffentlichung. */
+    artikel: ArticleRow[]
+    /** Die Autorenkarte — steht IMMER, notfalls mit der npub-Kurzform als Namen. */
+    autor: ArticleAuthor
+}
+
+/**
+ * Die Autorenseite: Artikel eines Autors plus seine Karte.
+ *
+ * ── Warum hier der VOLLBESTAND gefiltert wird und nicht autorenskopiert geladen ─────
+ *
+ * Die naheliegende Abfrage wäre `{kinds:[30023], authors:[pubkey]}` — ein eigener,
+ * schmaler Filter. Sie steht hier bewusst NICHT, und zwar aus einem Grund, der nichts mit
+ * Bequemlichkeit zu tun hat: die **Ableitung** liest den `repository` über
+ * {@link listFilters}, also über `{kinds:[30023], limit: ARTICLE_LOAD_LIMIT}`. Ein
+ * autorenskopierter LOAD änderte daran nichts — er füllte den Store, aus dem dieselbe
+ * Ableitung dann wieder nur die neuesten `ARTICLE_LOAD_LIMIT` Ereignisse sieht. Wer die
+ * Seite wirklich vom Bestandsdeckel lösen will, muss **beides** umbauen, Filter und
+ * Ableitung, und das ist kein Nebensatz.
+ *
+ * **Solange der Bestand unter dem Deckel liegt, ist die Auswahl hier vollständig.**
+ * Gemessen am 2026-08-20: 104 Artikel bei `ARTICLE_LOAD_LIMIT = 200`.
+ *
+ * **Und hier steht, woran man merkt, dass das nicht mehr gilt:** sobald der Board-Relay
+ * 200 Artikel führt, zeigt diese Seite still einen Ausschnitt — kein Fehler, keine
+ * Meldung, nur eine zu kurze Liste und eine zu kleine Zahl daneben. Der Umbau ist dann
+ * ein autorenskopierter Filter **in `listFilters` UND in dieser Ableitung**, nicht eine
+ * größere Zahl: eine höhere Grenze verschiebt denselben Tag nur.
+ *
+ * `deriveArticles` wird bewusst nicht wiederverwendet: sie baut ALLE Zeilen (104 ×
+ * `buildArticleRow`) bei jedem Emit und emittiert für jedes eintreffende kind 0. Hier
+ * wird **zuerst gefiltert und dann gebaut** — für den Autor mit einem Artikel ist das
+ * eine Zeile statt 104.
+ *
+ * Der dritte Eingang (`handlesByNip05`) steht aus demselben Grund hier wie in
+ * {@link deriveArticle}: der verifizierte Handle trifft NACH dem Profil ein, und ohne
+ * diesen Eingang erschiene das Häkchen nie.
+ */
+export const deriveAuthorPage = (pubkey: string): Readable<AuthorView> =>
+    derived(
+        [
+            throttled(300, deriveEventsForUrl(BOARD_URL, listFilters(ARTICLE_LOAD_LIMIT))),
+            throttled(300, profilesByPubkey),
+            throttled(300, handlesByNip05),
+        ],
+        ([events, $profiles, $handles]) => {
+            // **Der Kernbeweis dieser Phase, an seiner produktiven Stelle:** gefiltert
+            // wird `event.pubkey`. Die Regel selbst liegt geprüft in `articleAuthor.ts`
+            // (`artikelDesAutors`) — hier steht kein zweites `filter`, damit es über
+            // „welche Artikel gehören diesem Autor" genau eine Wahrheit gibt.
+            const eigene = artikelDesAutors(events as TrustedEvent[], pubkey)
+            const profil = $profiles.get(pubkey)
+            const website = profil?.website ? sanitizeUrl(profil.website) : ''
+
+            return {
+                artikel: eigene
+                    .map((event) => toRow(event, profil?.picture ?? '', dateLabelListe))
+                    .sort((a, b) => b.publishedAt - a.publishedAt),
+                // Dieselbe Karte wie unter dem Artikel, gebaut über dieselbe Funktion —
+                // inklusive der Dreiwertigkeit des Lightning-Zustands (`profilBekannt`).
+                // Solange das kind 0 unterwegs ist, behauptet diese Seite über eine
+                // Zahlungsadresse nichts.
+                autor: buildArticleAuthor(pubkey, {
+                    name: displayProfileByPubkey(pubkey),
+                    picture: profil?.picture ?? '',
+                    banner: profil?.banner ?? '',
+                    about: profil?.about ?? '',
+                    website: website === 'about:blank' ? '' : website,
+                    profilBekannt: profil !== undefined,
+                    hatLightning: (profil?.lud16 ?? '') !== '',
+                    nip05: verifiedNip05(pubkey, $profiles, $handles),
+                }),
+            }
+        },
+    )
+
+/**
+ * Profil und NIP-05-Handle EINES Autors anstoßen.
+ *
+ * Die Autorenseite braucht das getrennt von {@link warmAuthors}: der dortige Weg holt
+ * die Autoren der geladenen ARTIKEL. Ein Autor, den der Bestand (noch) nicht kennt —
+ * ein geteilter Link auf jemanden, der hier nie publiziert hat — bekäme sonst nie ein
+ * Profil, und die Seite zeigte dauerhaft eine npub-Kurzform über einer leeren Liste
+ * statt eines Namens über einer leeren Liste.
+ */
+export const warmAuthor = (pubkey: string): void => {
+    if (pubkey) {
+        void warmProfiles([pubkey])
+        warmHandles([pubkey])
+    }
 }
 
 /**

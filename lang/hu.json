@@ -887,5 +887,18 @@
     ":count Min. Lesezeit": ":count perc olvasás",
     "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "Keresés 1 cikkben – cím, összefoglaló, szöveg és szerző.",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": "Keresés :count cikkben – cím, összefoglaló, szöveg és szerző.",
-    "Über den Autor": "A szerzőről"
+    "Über den Autor": "A szerzőről",
+    "Autor": "Szerző",
+    "Autor wird gesucht…": "A szerző keresése…",
+    "Das ist keine Autoren-Adresse.": "Ez nem szerzői cím.",
+    "Eine Autorenseite steht unter einer npub oder unter einer NIP-05-Adresse wie name@domain.tld.": "A szerzői oldal npub vagy NIP-05 cím alatt érhető el, például nev@domain.tld.",
+    "Diese npub lässt sich nicht lesen.": "Ez az npub nem olvasható.",
+    "Meist fehlt oder verrutscht ein Zeichen — der Link ist unterwegs beschädigt worden.": "Általában hiányzik vagy elcsúszik egy karakter — a link útközben megsérült.",
+    "Diese Domain kennt den Namen nicht.": "Ez a domain nem ismeri ezt a nevet.",
+    ":domain führt für diese Adresse keinen Eintrag.": "A(z) :domain nem tart nyilván bejegyzést ehhez a címhez.",
+    "Diese Domain hat nicht geantwortet.": "Ez a domain nem válaszolt.",
+    ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": "A(z) :domain nem volt elérhető, vagy nem küldött érvényes választ.",
+    "Von diesem Autor liegt hier noch kein Artikel.": "Ettől a szerzőtől még nincs itt cikk.",
+    "Sobald einer auf diesem Relay erscheint, steht er hier.": "Amint megjelenik egy ezen a relayen, itt is látszani fog.",
+    "seit :jahr": ":jahr óta"
 }

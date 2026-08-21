@@ -432,8 +432,8 @@ const INVENTAR: Deklaration[] = [
     {
         datei: 'js/longformFeed.ts',
         ausdruck: 'profil.lud16',
-        quellen: ['$profiles'],
-        warum: 'Die EINZIGE Stelle, an der die Artikelfläche eine Empfangsadresse anfasst — und sie liest sie nur, um daraus ein Ja/Nein zu machen (`hatLightning`). Quelle ist die GEMERGTE Map, trägt Ebene 3.',
+        quellen: ['$profiles', '$profiles'],
+        warum: 'Die beiden EINZIGEN Stellen, an denen die Artikelfläche eine Empfangsadresse anfasst — `deriveArticle` (Vollansicht) und seit P4 `deriveAuthorPage` (Autorenseite). Beide lesen sie nur, um daraus ein Ja/Nein zu machen (`hatLightning`); die Adresse selbst verlässt diese Datei nie. Quelle ist beide Male die GEMERGTE Map, trägt Ebene 3.',
     },
     {
         datei: 'js/vereinFlow.ts',
@@ -463,6 +463,17 @@ const INVENTAR: Deklaration[] = [
         quellen: ['markup', 'markup', 'markup'],
         modell: { datei: 'js/longformFeed.ts', token: 'verifiedNip05(' },
         warum: 'Autorenkarte der Artikel-Vollansicht (Häkchen + Zeile darunter): `nip05` der Karte ist der VERIFIZIERTE Handle aus `buildArticleAuthor`, nicht der Profil-Rohwert. Eine Zahlungsadresse steht in dieser Datei gar nicht — der Lightning-Einstieg liest `hatLightning`, einen Wahrheitswert.',
+    },
+    {
+        datei: 'resources/views/⚡article-author.blade.php',
+        ausdruck: 'autor.nip05',
+        // VIER Vorkommen, und das vierte ist keins der drei aus `⚡article.blade.php`:
+        // die Bedingung, ob die Autorenkarte überhaupt erscheint (`x-if`, sie erscheint nur,
+        // wenn sie etwas trägt), dann das Häkchen (`nostr-nip05`), das `x-show` der Zeile
+        // darunter und ihr `x-text`. Der erste liest den Handle nur auf Vorhandensein.
+        quellen: ['markup', 'markup', 'markup', 'markup'],
+        modell: { datei: 'js/longformFeed.ts', token: 'verifiedNip05(' },
+        warum: 'Autorenkarte der Autorenseite (P4): `nip05` der Karte ist der VERIFIZIERTE Handle aus `buildArticleAuthor`, nicht der Profil-Rohwert. Eine Zahlungsadresse steht in dieser Datei gar nicht — der Lightning-Einstieg liest `autor.lightning`, einen von drei Zuständen.',
     },
     {
         datei: 'resources/views/⚡directory.blade.php',
@@ -665,7 +676,10 @@ describe('Ebene 2 — Herkunft: die deklarierte Quelle steht wirklich im Code', 
         }
 
         // Die Schranke zuerst — ein Test über null Aufrufer ist fail-open.
-        assert.equal(aufrufe.length, 1, `buildArticleAuthor-Aufrufe: ${aufrufe.map((a) => `${a.datei}:${a.zeile}`).join(', ')}`)
+        // ZWEI seit P4: `deriveArticle` (Vollansicht) und `deriveAuthorPage` (Autorenseite).
+        // Die Zahl ist die Schranke — ein dritter Aufrufer muss hier auffallen und
+        // dieselben zwei Zusagen unterschreiben, nicht still danebenstehen.
+        assert.equal(aufrufe.length, 2, `buildArticleAuthor-Aufrufe: ${aufrufe.map((a) => `${a.datei}:${a.zeile}`).join(', ')}`)
         for (const aufruf of aufrufe) {
             assert.match(
                 aufruf.block,
@@ -694,7 +708,8 @@ describe('Ebene 2 — Herkunft: die deklarierte Quelle steht wirklich im Code', 
             })
         }
 
-        assert.equal(aufrufe.length, 4, `verifiedNip05-Aufrufe: ${aufrufe.join(' || ')}`)
+        // FÜNF seit P4 — der neue ist `deriveAuthorPage` in `longformFeed.ts`.
+        assert.equal(aufrufe.length, 5, `verifiedNip05-Aufrufe: ${aufrufe.join(' || ')}`)
         for (const aufruf of aufrufe) {
             assert.match(
                 aufruf,

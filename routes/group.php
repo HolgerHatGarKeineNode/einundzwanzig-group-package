@@ -47,6 +47,30 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         // 30023 ist ersetzbar, seine Id wechselt mit jeder Überarbeitung — der `naddr`
         // (Kind + Autor + `d`) bleibt und funktioniert auch in fremden Clients.
         Route::livewire('/articles/{naddr}', 'group::article')->name('article');
+        /*
+         * Die Autorenseite (P4). Adressiert über eine **npub ODER eine NIP-05-Adresse** —
+         * `npub1…` löst der Browser ohne Netz auf, `name@domain.tld` über eine
+         * `.well-known/nostr.json`-Abfrage bei der genannten Domain. Beide Formen sind
+         * das, was ein Mensch von einem anderen Client kopiert; nur eine davon
+         * anzunehmen hieße, die halben geteilten Links abzuweisen.
+         *
+         * **Route und nicht Drawer.** Die Fremdvorlage `discover.einundzwanzig.space`
+         * zeigt dieselbe Auskunft in einem JS-Drawer über einen API-Endpunkt und hat
+         * dafür keine URL. Eine teilbare Adresse ist genau der Vorteil gegenüber dem
+         * Original — und der Grund, warum diese Seite ein eigenes Segment bekommt.
+         *
+         * **Kein Konflikt mit `/articles/{naddr}`:** drei Segmente gegen zwei, Laravel
+         * kann sie gar nicht verwechseln. `/articles/autor` OHNE Kennung landet dagegen
+         * auf der Vollansicht und bekommt dort „Diesen Artikel gibt es nicht" — richtig,
+         * denn ohne Autor gibt es keine Autorenseite, und eine Liste aller Autoren ist
+         * bewusst nicht Teil dieses Vorhabens.
+         *
+         * Der Parameter wird server-seitig NICHT gedeutet: eine NIP-05-Auflösung im
+         * Server wäre eine Verbindung zu einer vom Besucher gewählten fremden Domain,
+         * aufgebaut aus dem Rechenzentrum. Sie gehört in den Browser des Lesers, und
+         * dort steht sie (`js/articleAuthor.ts`).
+         */
+        Route::livewire('/articles/autor/{autor}', 'group::article-author')->name('articles.author');
 
         /*
          * Forge (P6, NIP-34 + NIP-MP). Nur der Workspace-Arm trägt sie — der

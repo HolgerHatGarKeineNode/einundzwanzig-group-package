@@ -887,5 +887,18 @@
     ":count Min. Lesezeit": ":count min lezen",
     "Durchsucht wurde 1 Artikel — Titel, Kurzfassung, Text und Autor.": "1 artikel doorzocht — titel, samenvatting, tekst en auteur.",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.": ":count artikelen doorzocht — titel, samenvatting, tekst en auteur.",
-    "Über den Autor": "Over de auteur"
+    "Über den Autor": "Over de auteur",
+    "Autor": "Auteur",
+    "Autor wird gesucht…": "De auteur wordt gezocht…",
+    "Das ist keine Autoren-Adresse.": "Dit is geen auteursadres.",
+    "Eine Autorenseite steht unter einer npub oder unter einer NIP-05-Adresse wie name@domain.tld.": "Een auteurspagina staat onder een npub of onder een NIP-05-adres zoals naam@domein.tld.",
+    "Diese npub lässt sich nicht lesen.": "Deze npub is niet te lezen.",
+    "Meist fehlt oder verrutscht ein Zeichen — der Link ist unterwegs beschädigt worden.": "Meestal ontbreekt of verschuift er een teken — de link is onderweg beschadigd.",
+    "Diese Domain kennt den Namen nicht.": "Dit domein kent die naam niet.",
+    ":domain führt für diese Adresse keinen Eintrag.": ":domain heeft geen vermelding voor dit adres.",
+    "Diese Domain hat nicht geantwortet.": "Dit domein heeft niet geantwoord.",
+    ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": ":domain was niet bereikbaar of stuurde geen geldig antwoord.",
+    "Von diesem Autor liegt hier noch kein Artikel.": "Van deze auteur staat hier nog geen artikel.",
+    "Sobald einer auf diesem Relay erscheint, steht er hier.": "Zodra er een op deze relay verschijnt, staat het hier.",
+    "seit :jahr": "sinds :jahr"
 }

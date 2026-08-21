@@ -931,5 +931,18 @@
     ":count Min. Lesezeit#zero": ":count min lasīšanas",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.#one": "Pārmeklēts :count raksts — nosaukums, kopsavilkums, teksts un autors.",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.#zero": "Pārmeklēti :count rakstu — nosaukums, kopsavilkums, teksts un autors.",
-    "Über den Autor": "Par autoru"
+    "Über den Autor": "Par autoru",
+    "Autor": "Autors",
+    "Autor wird gesucht…": "Meklē autoru…",
+    "Das ist keine Autoren-Adresse.": "Šī nav autora adrese.",
+    "Eine Autorenseite steht unter einer npub oder unter einer NIP-05-Adresse wie name@domain.tld.": "Autora lapa atrodas zem npub vai zem NIP-05 adreses, piemēram, vards@domens.tld.",
+    "Diese npub lässt sich nicht lesen.": "Šo npub nevar nolasīt.",
+    "Meist fehlt oder verrutscht ein Zeichen — der Link ist unterwegs beschädigt worden.": "Parasti trūkst vai ir nobīdīta viena rakstzīme — saite ceļā ir bojāta.",
+    "Diese Domain kennt den Namen nicht.": "Šis domēns nepazīst šo vārdu.",
+    ":domain führt für diese Adresse keinen Eintrag.": ":domain nav ieraksta šai adresei.",
+    "Diese Domain hat nicht geantwortet.": "Šis domēns neatbildēja.",
+    ":domain war nicht erreichbar oder hat keine gültige Antwort geschickt.": ":domain nebija sasniedzams vai nenosūtīja derīgu atbildi.",
+    "Von diesem Autor liegt hier noch kein Artikel.": "No šī autora šeit vēl nav neviena raksta.",
+    "Sobald einer auf diesem Relay erscheint, steht er hier.": "Tiklīdz kāds parādīsies šajā relejā, tas būs redzams šeit.",
+    "seit :jahr": "kopš :jahr"
 }

@@ -1151,6 +1151,16 @@ export type ArticleAuthorDeps = {
     name: string
     /** Avatar-URL, ROH — `x-group::nostr-avatar` proxifiziert selbst. */
     picture: string
+    /**
+     * `banner` aus kind 0, ROH — die Fläche proxifiziert selbst (`$img(…, 'banner')`),
+     * dieselbe Regel wie bei {@link ArticleAuthorDeps.picture} und `ArticleRow.image`.
+     *
+     * Steht seit P4 hier: die **Autorenseite** zeigt es, die Vollansicht nicht. Ein
+     * eigenes zweites Autoren-Objekt nur für dieses eine Feld wäre der teurere Weg —
+     * dann gäbe es zwei Bauwege für dieselbe Karte, und der nächste, der etwas ergänzt,
+     * trifft den falschen.
+     */
+    banner: string
     /** `about` aus kind 0, roh. */
     about: string
     /** Website, **bereits sanitisiert** (`sanitizeUrl` auf der welshman-Seite). */
@@ -1191,6 +1201,8 @@ export type ArticleAuthor = {
     /** Anzeigename, nie leer: fällt auf die npub-Kurzform zurück. */
     name: string
     picture: string
+    /** Titelbild des Profils, roh. `''` = keins — die Autorenseite lässt den Streifen dann WEG. */
+    banner: string
     about: string
     website: string
     nip05: string
@@ -1249,6 +1261,7 @@ export const buildArticleAuthor = (pubkey: string, deps: ArticleAuthorDeps): Art
         npub,
         name: deps.name || (npub ? npubKurz(npub) : pubkey),
         picture: deps.picture,
+        banner: deps.banner,
         about: deps.about,
         website: deps.website,
         nip05: deps.nip05,
