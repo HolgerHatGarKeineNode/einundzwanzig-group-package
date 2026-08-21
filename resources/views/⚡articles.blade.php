@@ -229,10 +229,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              **Der Befund, VOR der Reparatur gemessen** (2026-08-21,
                              1440 px, am gerenderten Element): der Filterkopf ist 92 px
                              hoch (Suchfeld 40, `space-y-2` 8, Ordnungs-Zeile 44) plus
-                             `mb-3` — die Liste sprang dadurch um **103,6 px**. Die
-                             y-Werte von damals stehen hier bewusst nicht mehr: sie waren
-                             gegen den Viewport gemessen, und der wandert während der
-                             `page-enter`-Animation. Was heute gilt, hält
+                             `mb-3` — die Liste sprang dadurch um **104,0 px**, also
+                             genau um die Höhe, die fehlte. Die y-Werte von damals stehen
+                             hier bewusst nicht mehr, und die Zahl selbst hieß zuerst
+                             103,6: beides war gegen den Viewport gemessen, und der
+                             wandert während der `page-enter`-Animation. Die 0,4 px
+                             Unterschied waren deren Rauschen. Was heute gilt, hält
                              `desktop-boot-geometrie.spec.ts` fest — als Abstand zur
                              Ortskarten-Leiste, transformfrei und über zwölf Läufe mit
                              Streuung 0,00 px.
