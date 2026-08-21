@@ -63,9 +63,18 @@ import {
     type ArtikelMetriken,
     type ArticleRowMitMetriken,
 } from './articleMetrics'
+import {
+    ARTIKEL_REAKTION,
+    artikelKommentare,
+    eigeneReaktion,
+    type ArtikelKommentar,
+    type EigeneReaktion,
+} from './articleWrite'
+import { makeComment, makeEventDelete, makeReaction } from './interactions'
+import { publishOptimistic } from './publishOptimistic'
 import { warmProfiles } from './profiles'
 import { deriveEventsForUrl, deriveEventsForUrls } from './repository'
-import { handlesByNip05, zappersByLnurl } from '@welshman/app'
+import { handlesByNip05, pubkey, repository, zappersByLnurl } from '@welshman/app'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { verifiedNip05, warmHandles } from './handles'
 import { warmZappers } from './zaps'
@@ -189,6 +198,40 @@ export type ArticleView = ArticleRowMitMetriken & {
      * jedes eintreffende kind-0.
      */
     author: ArticleAuthor
+    /**
+     * Die Kommentare (P7) — **render-fertig, chronologisch, flach.**
+     *
+     * Nur hier und nicht in {@link ArticleRow}, aus demselben Grund wie `author`: die
+     * Liste zeigt 104 Zeilen und braucht davon eine Zahl, nicht 64 Texte samt Namen.
+     */
+    kommentare: KommentarZeile[]
+    /**
+     * Die **eigene** Reaktion auf diesen Artikel — `null`, wenn es keine gibt (oder
+     * niemand angemeldet ist). Trägt die Event-Id, weil der Toggle sie zum Zurücknehmen
+     * braucht (kind 5 auf genau diese Id).
+     */
+    eigeneReaktion: EigeneReaktion
+}
+
+/**
+ * Ein Kommentar, wie die Fläche ihn zeigt.
+ *
+ * **`content` bleibt roher Klartext und wird als TEXT gebunden** (`x-text`), nie über
+ * `x-html`. Der Artikeltext selbst geht durch `renderArticleHtml` und dessen geprüfte
+ * Zusage (`html: false`, keine `x-`/`@`/`:`-Attribute — `articleRenderSicherheit.test.ts`);
+ * ein Kommentar ist Fremdtext aus einem beliebigen Relay und bekommt diesen Weg NICHT.
+ * Wer hier später Markdown möchte, hat dieselbe Sicherheitsfrage neu zu beantworten.
+ *
+ * `name` fällt auf die npub-Kurzform zurück (`displayProfileByPubkey`), `zeit` ist
+ * relativ wie im Chat — die Kommentare eines Artikels sind über Monate verteilt (Median
+ * 57 Tage, gemessen 2026-08-21), ein „vor 2 Monaten" liest sich dort besser als ein Datum.
+ */
+export type KommentarZeile = ArtikelKommentar & {
+    name: string
+    picture: string
+    zeit: string
+    /** Absolut, für das `title`/`datetime` — die relative Angabe allein ist nicht belegbar. */
+    zeitIso: string
 }
 
 /**
@@ -546,6 +589,42 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
                     // über eine fremde Domain, die niemand geprüft hat.
                     nip05: verifiedNip05(newest.pubkey, $profiles, $handles),
                 }),
+                // **P7 — Kommentare und eigene Reaktion aus DEMSELBEN `$sekundaer`.** Ein
+                // eigener Store-Eingang wäre hier nicht nur überflüssig, sondern die
+                // bekannte Falle: er müsste im `derived([…])` oben stehen, und ein
+                // Reduzierer-Test könnte nicht sehen, wenn er fehlt (siehe
+                // `articleMetricsStore.test.ts`). Die kind-1111 und kind-7 liegen bereits
+                // in diesem Array — `metrikStoreFilters` holt alle drei Kinds.
+                //
+                // Diese beiden Felder stehen bewusst HINTER `author` und nicht vor
+                // {@link mitMetriken}: dazwischen läge sonst ein Block, der die Bindung
+                // von `profil` weiter als 60 Zeilen von seiner Verwendung in
+                // `hatLightning` entfernt — und genau so weit schaut die Herkunftssonde
+                // in `zapTargetSources.test.ts` zurück. Beim Bauen von P7 einmal
+                // ausgelöst (Ebene 2, „die Quelle im Code ist unbekannt"): ein
+                // Blockverschub, der einen fremden Sicherheitstest kippt.
+                kommentare: artikelKommentare({
+                    ereignisse: $sekundaer as TrustedEvent[],
+                    adresse: index.adressen[0] ?? '',
+                    adresseVonId: index.adresseVonId,
+                }).map((k) => ({
+                    ...k,
+                    name: displayProfileByPubkey(k.pubkey),
+                    picture: $profiles.get(k.pubkey)?.picture ?? '',
+                    // Relativ wie im Chat — Begründung bei {@link KommentarZeile}.
+                    zeit: dateLabelListe(k.createdAt),
+                    zeitIso: new Date(k.createdAt * 1000).toISOString(),
+                })),
+                eigeneReaktion: eigeneReaktion({
+                    ereignisse: $sekundaer as TrustedEvent[],
+                    adresse: index.adressen[0] ?? '',
+                    adresseVonId: index.adresseVonId,
+                    // `pubkey.get()` und kein Store-Eingang: die eigene Identität wechselt
+                    // nicht mitten in einer Artikelansicht, und ein Anmelden lädt die Seite
+                    // ohnehin neu (`loginNsec` → `/spaces`). Ein sechster throttled-Eingang
+                    // für einen Wert, der sich nie ändert, kostete jeden Emit mit.
+                    meinPubkey: pubkey.get() ?? '',
+                }),
             }
         },
     )
@@ -858,4 +937,115 @@ export const loadArticle = async (naddr: string, signal?: AbortSignal): Promise<
     void loadArticleMetrics(events, signal).catch(() => undefined)
 
     return { complete, count: events.length }
+}
+
+// ── P7: Netz SCHREIBEND ───────────────────────────────────────────────────────────
+
+/**
+ * Wohin ein Artikel-Signal geschrieben wird: **ausschließlich auf den Board-Relay.**
+ *
+ * ── Das ist eine Entscheidung gegen die naheliegende, und sie hat einen Messwert ────
+ *
+ * Gelesen wird seit P6 aus drei Relays ({@link metrikRelays}) — der Board sieht nur 14 %
+ * der Reaktionen und 3 % der Zaps (Tabelle bei {@link SEKUNDAER_RELAYS}). Es liegt also
+ * nahe, auch in alle drei zu schreiben: die eigene Reaktion wäre dann dort sichtbar, wo
+ * die meisten anderen liegen.
+ *
+ * **Dagegen steht der Preis, den P6 ausdrücklich nicht bezahlt hat.** Beim LESEN geht
+ * der Pubkey des Nutzers nicht an die Fremdrelays hinaus: `darfAuthBekommen`
+ * (`articleMetrics.ts`) beantwortet ihre NIP-42-Challenges bewusst nicht. Ein
+ * signiertes kind 7 an `nos.lol` übergäbe genau das, was dieser Riegel zurückhält —
+ * den Pubkey, dazu Zeitpunkt und die Aussage „diese Person liest diesen Artikel".
+ * Einen Riegel beim Lesen zu bauen und ihn beim Schreiben zu überrennen, wäre kein
+ * Kompromiss, sondern ein Widerspruch.
+ *
+ * Der Board reicht für den Zweck: die eigene Reaktion erscheint sofort (optimistisch)
+ * und beim nächsten Laden wieder, weil der Board mitgelesen wird. Was sie nicht tut,
+ * ist bei Lesern anderer Clients aufzutauchen, die nur `nos.lol` fragen — eine reale,
+ * benannte Grenze. Wer sie aufheben will, entscheidet damit zugleich die Frage oben neu.
+ *
+ * `''` (kein Board konfiguriert) heißt: es gibt hier nichts zu schreiben. Die Fläche
+ * zeigt in dem Fall ohnehin ihren Leerzustand, server-seitig gegatet.
+ */
+export const ARTIKEL_SCHREIB_RELAY = (): string => BOARD_URL
+
+/**
+ * Das Artikel-Ereignis zu einer Ansicht — aus dem `repository`, nicht aus der Ansicht.
+ *
+ * Reaktion und Kommentar brauchen das **vollständige** Ereignis: welshmans
+ * `tagEventForReaction`/`tagEventForComment` lesen `kind`, `pubkey`, `id` UND die Tags
+ * (aus dem `d`-Tag entsteht die `a`-Adresse). Eine {@link ArticleView} trägt davon nur
+ * die Anzeigefelder; ein aus ihr zusammengebautes Pseudo-Ereignis wäre eine zweite,
+ * ungeprüfte Übersetzung derselben Daten.
+ *
+ * `null`, wenn das Ereignis nicht (mehr) im Store liegt — der Aufrufer tut dann nichts,
+ * statt auf einem geratenen Ziel zu schreiben.
+ */
+const artikelEreignis = (id: string): TrustedEvent | null => repository.getEvent(id) ?? null
+
+/**
+ * Auf einen Artikel reagieren (kind 7, NIP-25) — mit {@link ARTIKEL_REAKTION}.
+ *
+ * `makeReaction` setzt die Tags selbst: `["k","30023"]`, `["e",id,hint]` und — weil 30023
+ * adressierbar ist — `["a","30023:<pubkey>:<d>"]`. Genau über dieses `a` findet der
+ * Lesepfad aus P6 die Reaktion wieder; ohne es zählte sie an keinem Artikel mit.
+ * Ein `["h",…]` entsteht nicht: `makeReaction` übernimmt es vom Parent, und ein 30023
+ * hat keines. Das ist richtig so — ein Artikel ist keine NIP-29-Gruppennachricht.
+ *
+ * Gibt `''` bei Erfolg, sonst die Relay-Begründung **im Wortlaut des Relays**.
+ */
+export const reagiereAufArtikel = async (artikelId: string): Promise<string> => {
+    const url = ARTIKEL_SCHREIB_RELAY()
+    const event = artikelEreignis(artikelId)
+    if (!url || !event) {
+        return ''
+    }
+
+    return publishOptimistic(url, makeReaction(event, ARTIKEL_REAKTION, url))
+}
+
+/**
+ * Die eigene Reaktion zurücknehmen (kind 5 auf die eigene kind 7, NIP-09).
+ *
+ * `makeEventDelete` setzt `created_at` auf `max(jetzt, ziel+1)` — der Grund steht dort
+ * und gilt hier genauso: das Repository verwirft einen Tombstone, dessen Zeitstempel
+ * nicht **echt größer** ist als der des Ziels. Reagieren und sofort zurücknehmen fällt
+ * bei Sekundengranularität sonst in dieselbe Sekunde, und der Chip bliebe stehen,
+ * obwohl der Relay hart gelöscht hat.
+ *
+ * **Der Relay muss dabei nicht mitspielen, und das steht in der Meldung.** kind 5 ist
+ * nach NIP-09 eine Bitte; ob `wss://nostr.einundzwanzig.space` (nostr-rs-relay 0.10.0)
+ * sie befolgt, entscheidet er. Lokal verschwindet die Reaktion in jedem Fall — das
+ * Repository entfernt sie beim Tombstone selbst.
+ */
+export const nimmArtikelReaktionZurueck = async (reaktionsId: string): Promise<string> => {
+    const url = ARTIKEL_SCHREIB_RELAY()
+    const reaktion = repository.getEvent(reaktionsId)
+    if (!url || !reaktion) {
+        return ''
+    }
+
+    return publishOptimistic(url, makeEventDelete(reaktion, url))
+}
+
+/**
+ * Einen Artikel kommentieren (kind 1111, NIP-22).
+ *
+ * `makeComment` baut über welshmans `tagEventForComment` die Wurzel-Tags `K/P/E` **und**
+ * — weil 30023 adressierbar ist — `A`, dazu die Elternteil-Tags `k/p/e/a`. Der Lesepfad
+ * aus P6 fragt mit der Union `#A` + `#a`; beide treffen. Ein `h` wird nicht übergeben:
+ * ein Artikel liegt in keiner NIP-29-Gruppe, und `makeComment` lässt das Tag dann weg
+ * (kein leeres `["h",""]`, das ein Relay in einen falschen Kanal legte).
+ *
+ * **Der Text wird getrimmt.** Was gesendet wird, ist unwiderruflich; führende und
+ * abschließende Leerzeilen sind nichts, was jemand veröffentlichen wollte.
+ */
+export const kommentiereArtikel = async (artikelId: string, text: string): Promise<string> => {
+    const url = ARTIKEL_SCHREIB_RELAY()
+    const event = artikelEreignis(artikelId)
+    if (!url || !event) {
+        return ''
+    }
+
+    return publishOptimistic(url, makeComment(event, text.trim(), url))
 }

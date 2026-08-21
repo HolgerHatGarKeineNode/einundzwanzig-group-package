@@ -130,6 +130,86 @@ test('Nachrichten-Kappung bleibt per Raum und faellt nicht in den Kommentar-Topf
     assert.equal(drop.has('c1'), false, 'der juengere Kommentar bleibt')
 })
 
+// ── P7: Artikel-Kommentare teilen sich den Topf mit den Thread-Kommentaren ──
+//
+// **Was gemessen wurde, und warum es hier steht statt nur im Bericht.**
+//
+// Seit P6 lädt die Artikelfläche kind 1111 von DREI Relays (Board, nos.lol,
+// relay.damus.io) über die Union `#A` + `#a` — und `COMMENT` steht in
+// `PERSIST_KINDS`. Jede so geladene 1111 landet also im lokalen Cache, im
+// SELBEN globalen Deckel wie die Thread-Kommentare des Chats.
+//
+// Gemessen am 2026-08-21 über alle 104 Artikel-Adressen (`nak req`, beide
+// Tagformen, drei Relays, danach über die Event-Id dedupliziert):
+//
+// | Größe                                   | Wert |
+// |-----------------------------------------|-----:|
+// | kind 1111 in der Union                  |   64 |
+// | davon jünger als 30 Tage                |  **9** |
+// | Median-Alter                            | 57 Tage |
+// | Rohgröße gesamt                         | 77 kB |
+//
+// **Der Alters-Backstop nimmt 55 der 64 sofort wieder heraus** — die Fläche
+// lässt den Cache also heute nicht wachsen, sie erzeugt Umschlag. Die 9
+// verbleibenden sind 1,8 % von `COMMENT_CAP_TOTAL` (500).
+//
+// **Was daran trotzdem eine Kopplung ist:** Artikel-Kommentare können
+// Thread-Kommentare aus dem Deckel verdrängen, und nur die Thread-Kommentare
+// haben im Cache eine Aufgabe (den Ungelesen-Punkt beim Kaltstart, siehe oben).
+// Ein Artikel-Kommentar wird ohnehin bei jedem Öffnen der Fläche neu vom Netz
+// geholt. Heute ist das folgenlos; es wird es nicht mehr sein, wenn der Bestand
+// wächst oder die Filterbreite steigt.
+//
+// **Entschieden wurde: NICHT trennen.** Ein eigener Topf für Artikel-Kommentare
+// hieße, `storage.ts` — die Datei, an der der Ungelesen-Punkt hängt — für einen
+// Gewinn von 1,8 % anzufassen. Der Test unten hält stattdessen fest, DASS beide
+// sich einen Topf teilen: wer das ändern will, ändert ihn bewusst.
+//
+// Die Zahlen oben sind Bestandszahlen und stehen deshalb im Kommentar und nicht
+// in einer Zusicherung — ein `assert(…64)` prüfte den Relay, nicht unseren Code.
+// Zugesichert ist die STRUKTUR.
+
+/** Ein Kommentar an einem ARTIKEL: NIP-22-Wurzel ist eine Adresse, kein `E`. */
+const artikelKommentar = (id: string, createdAt: number) =>
+    ({
+        id,
+        kind: COMMENT,
+        created_at: createdAt,
+        tags: [['A', '30023:aa11:mein-artikel'], ['a', '30023:aa11:mein-artikel']],
+    }) as never
+
+test('P7: ein Artikel-Kommentar wird gecacht wie ein Thread-Kommentar', () => {
+    // Kein Sonderweg: `shouldPersistEvent` sieht nur das Kind, nicht die Wurzelform.
+    assert.equal(shouldPersistEvent(artikelKommentar('a1', NOW)), true)
+    assert.equal(isCappedEvent(artikelKommentar('a1', NOW)), true)
+})
+
+test('P7: Artikel- und Thread-Kommentare teilen sich EINEN Deckel', () => {
+    // Der Beleg für die Kopplung oben: bei `commentTotal: 2` und drei Kommentaren
+    // — zwei aus einem Artikel, einer aus einem Thread — fällt der älteste, egal
+    // aus welcher Quelle er stammt. Gäbe es zwei Töpfe, bliebe hier alles stehen.
+    const drop = new Set(
+        eventsToPrune(
+            [artikelKommentar('artikel-neu', NOW - 1), artikelKommentar('artikel-alt', NOW - 3), comment('thread', NOW - 2)],
+            NOW,
+            { commentTotal: 2 },
+        ),
+    )
+
+    assert.deepEqual([...drop], ['artikel-alt'], 'der aelteste faellt — quellenunabhaengig')
+})
+
+test('P7: der 30-Tage-Backstop trifft Artikel-Kommentare mit', () => {
+    // Am realen Bestand ist das der Normalfall, nicht der Rand: 55 der 64
+    // Artikel-Kommentare sind aelter als 30 Tage (2026-08-21).
+    const drop = new Set(
+        eventsToPrune([artikelKommentar('alt', NOW - 31 * DAY), artikelKommentar('neu', NOW - 1 * DAY)], NOW),
+    )
+
+    assert.equal(drop.has('alt'), true, 'aelter als 30 Tage → weg, wie beim Thread-Kommentar')
+    assert.equal(drop.has('neu'), false)
+})
+
 // ── P10: Forge, Forum, NIP-38-Status ────────────────────────────────────────
 //
 // Der Anlass ist derselbe wie oben, nur eine Ebene später: die Kinds aus zwei

@@ -471,7 +471,6 @@
     "Nachricht schreiben": "Escribir mensaje",
     "Nachricht schreiben…": "Escribir mensaje…",
     "Nachricht senden": "Enviar mensaje",
-    "Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.": "Mensaje rechazado por el Relay — puede que no seas miembro de esta sala.",
     "Nachricht wird geladen…": "Cargando mensaje…",
     "Nachricht-Details": "Detalles del mensaje",
     "Name": "Nombre",
@@ -917,5 +916,18 @@
     ":count ungelesen": ":count sin leer",
     "1 Repo": "1 repo",
     ":count Repos": ":count repos",
-    "Alle Artikel von :name": "Todos los artículos de :name"
+    "Alle Artikel von :name": "Todos los artículos de :name",
+    "Dein Kommentar…": "Tu comentario…",
+    "Der Kommentar ist zu lang.": "El comentario es demasiado largo.",
+    "Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.": "Este relé solo acepta publicaciones de cuentas con una dirección NIP-05 verificada.",
+    "Du bist kein Mitglied dieses Relays.": "No eres miembro de este relé.",
+    "Kommentar schreiben": "Escribir un comentario",
+    "Kommentar veröffentlicht.": "Comentario publicado.",
+    "Kommentare": "Comentarios",
+    "Noch keine Kommentare.": "Aún no hay comentarios.",
+    "Reaktion zurücknehmen": "Retirar la reacción",
+    "Veröffentlichen": "Publicar",
+    "Vom Relay abgelehnt: :grund": "Rechazado por el relé: :grund",
+    "Zum Kommentieren musst du angemeldet sein.": "Debes iniciar sesión para comentar.",
+    "Zum Reagieren musst du angemeldet sein.": "Debes iniciar sesión para reaccionar."
 }

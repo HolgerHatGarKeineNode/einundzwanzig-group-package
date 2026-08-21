@@ -36,7 +36,8 @@ import { warmProfiles } from './profiles'
 import { deriveUserStatuses, statusFingerprint, warmUserStatuses, type UserStatus } from './userStatus'
 import { warmHandles, verifiedNip05 } from './handles'
 import type { Attachment } from './uploads'
-import { waitForPublishError } from './publishResult'
+import { mapRelayError, waitForPublishError } from './publishResult'
+import { publishOptimistic } from './publishOptimistic'
 import { BUZZ_MESSAGE_V2 } from './relayCaps'
 import { FORUM_COMMENT } from './forumModels'
 import { isRootMessage, isThreadReply, replyTargetIds, threadRootId } from './threading'
@@ -1624,37 +1625,14 @@ const withMentionTags = (tags: string[][], content: string, url: string): string
     return tags
 }
 
-/** Rohe Relay-Ablehnung → kurzer, handlungsleitender deutscher Text. */
-const mapRelayError = (raw: string): string => {
-    const s = raw.toLowerCase()
-    if (s.includes('rate') && s.includes('limit')) {
-        return t('Zu viele Nachrichten in kurzer Zeit — kurz warten und erneut senden.')
-    }
-    if (s.includes('auth')) {
-        return t('Am Relay nicht angemeldet — bitte erneut senden.')
-    }
-    if (s.includes('restrict') || s.includes('blocked') || s.includes('not allowed') || s.includes('forbidden')) {
-        return t('Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.')
-    }
-    return raw || t('Konnte nicht gesendet werden.')
-}
+// `mapRelayError` wohnt seit P7 in `publishResult.ts` — dort ist es unter `node --test`
+// fahrbar, und dort steht auch die Begründung, warum es den Relay-Grund WÖRTLICH
+// mitführt statt ihn durch eine eigene Vermutung zu ersetzen.
 
-/**
- * Publiziert ein Event optimistisch (der Thunk legt es sofort ins Repository → die UI
- * zeigt es ohne Round-Trip) und wartet auf die Relay-Bestätigung. Bei Reject wird das
- * optimistisch eingelegte Event zurückgenommen (welshman tut das nur bei Abort, nicht
- * bei Relay-Reject — sonst bliebe es sichtbar, obwohl es das Relay nie erreicht hat).
- * Gibt '' bei Erfolg, sonst die übersetzte Relay-Fehlermeldung. Der gemeinsame Kern von
- * Nachricht/Antwort/Reaction/Kommentar/Goal/Vote (Raum- UND Thread-Publish, P3 4.1).
- */
-const publishOptimistic = async (url: string, event: Parameters<typeof publishThunk>[0]['event']): Promise<string> => {
-    const thunk = publishThunk({ relays: [url], event })
-    const err = await waitForPublishError(thunk)
-    if (err) {
-        repository.removeEvent(thunk.event.id)
-    }
-    return err ? mapRelayError(err) : ''
-}
+// `publishOptimistic` — der gemeinsame Kern von Nachricht/Antwort/Reaction/Kommentar/
+// Goal/Vote (Raum- UND Thread-Publish, P3 4.1) — wohnt seit P7 in
+// `publishOptimistic.ts`: die Artikelfläche braucht ihn ebenfalls und darf `feeds.ts`
+// nicht importieren (Bundle-Grenze, Begründung im Kopf jener Datei).
 
 /**
  * Sendet eine Nachricht (kind 9) in einen Room. Signiert im Browser, publiziert

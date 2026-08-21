@@ -490,7 +490,6 @@
     "Nachricht schreiben": "Napisz wiadomość",
     "Nachricht schreiben…": "Napisz wiadomość…",
     "Nachricht senden": "Wyślij wiadomość",
-    "Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.": "Wiadomość odrzucona przez Relay — być może nie jesteś członkiem tego pokoju.",
     "Nachricht wird geladen…": "Ładowanie wiadomości…",
     "Nachricht-Details": "Szczegóły wiadomości",
     "Name": "Nazwa",
@@ -945,5 +944,18 @@
     ":count Repos": ":count repozytoriów",
     "Alle Artikel von :name": "Wszystkie artykuły od :name",
     ":count ungelesen#few": ":count nieprzeczytane",
-    ":count Repos#few": ":count repozytoria"
+    ":count Repos#few": ":count repozytoria",
+    "Dein Kommentar…": "Twój komentarz…",
+    "Der Kommentar ist zu lang.": "Komentarz jest za długi.",
+    "Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.": "Ten przekaźnik przyjmuje wpisy tylko od kont ze zweryfikowanym adresem NIP-05.",
+    "Du bist kein Mitglied dieses Relays.": "Nie jesteś członkiem tego przekaźnika.",
+    "Kommentar schreiben": "Napisz komentarz",
+    "Kommentar veröffentlicht.": "Komentarz opublikowany.",
+    "Kommentare": "Komentarze",
+    "Noch keine Kommentare.": "Nie ma jeszcze komentarzy.",
+    "Reaktion zurücknehmen": "Cofnij reakcję",
+    "Veröffentlichen": "Opublikuj",
+    "Vom Relay abgelehnt: :grund": "Odrzucone przez przekaźnik: :grund",
+    "Zum Kommentieren musst du angemeldet sein.": "Aby komentować, musisz się zalogować.",
+    "Zum Reagieren musst du angemeldet sein.": "Aby zareagować, musisz się zalogować."
 }

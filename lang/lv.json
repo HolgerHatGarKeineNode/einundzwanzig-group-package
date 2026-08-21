@@ -509,7 +509,6 @@
     "Nachricht schreiben": "Rakstīt ziņu",
     "Nachricht schreiben…": "Rakstīt ziņu…",
     "Nachricht senden": "Sūtīt ziņu",
-    "Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.": "Relay noraidīja ziņu — iespējams, tu neesi šīs telpas dalībnieks.",
     "Nachricht wird geladen…": "Ielādē ziņu…",
     "Nachricht-Details": "Ziņas detaļas",
     "Name": "Nosaukums",
@@ -973,5 +972,18 @@
     ":count ungelesen#zero": ":count nelasītu",
     ":count ungelesen#one": ":count nelasīts",
     ":count Repos#zero": ":count repozitoriju",
-    ":count Repos#one": ":count repozitorijs"
+    ":count Repos#one": ":count repozitorijs",
+    "Dein Kommentar…": "Tavs komentārs…",
+    "Der Kommentar ist zu lang.": "Komentārs ir pārāk garš.",
+    "Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.": "Šis relejs pieņem ierakstus tikai no kontiem ar verificētu NIP-05 adresi.",
+    "Du bist kein Mitglied dieses Relays.": "Tu neesi šī releja dalībnieks.",
+    "Kommentar schreiben": "Rakstīt komentāru",
+    "Kommentar veröffentlicht.": "Komentārs publicēts.",
+    "Kommentare": "Komentāri",
+    "Noch keine Kommentare.": "Vēl nav komentāru.",
+    "Reaktion zurücknehmen": "Atsaukt reakciju",
+    "Veröffentlichen": "Publicēt",
+    "Vom Relay abgelehnt: :grund": "Relejs noraidīja: :grund",
+    "Zum Kommentieren musst du angemeldet sein.": "Lai komentētu, ir jāpiesakās.",
+    "Zum Reagieren musst du angemeldet sein.": "Lai reaģētu, ir jāpiesakās."
 }

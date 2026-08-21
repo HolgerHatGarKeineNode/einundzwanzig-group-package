@@ -471,7 +471,6 @@
     "Nachricht schreiben": "Write a message",
     "Nachricht schreiben…": "Write a message…",
     "Nachricht senden": "Send message",
-    "Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.": "Message rejected by the Relay — you may not be a member of this room.",
     "Nachricht wird geladen…": "Loading message…",
     "Nachricht-Details": "Message details",
     "Name": "Name",
@@ -917,5 +916,18 @@
     ":count ungelesen": ":count unread",
     "1 Repo": "1 repo",
     ":count Repos": ":count repos",
-    "Alle Artikel von :name": "All articles by :name"
+    "Alle Artikel von :name": "All articles by :name",
+    "Dein Kommentar…": "Your comment…",
+    "Der Kommentar ist zu lang.": "The comment is too long.",
+    "Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.": "This relay only accepts posts from accounts with a verified NIP-05 address.",
+    "Du bist kein Mitglied dieses Relays.": "You are not a member of this relay.",
+    "Kommentar schreiben": "Write a comment",
+    "Kommentar veröffentlicht.": "Comment published.",
+    "Kommentare": "Comments",
+    "Noch keine Kommentare.": "No comments yet.",
+    "Reaktion zurücknehmen": "Undo reaction",
+    "Veröffentlichen": "Publish",
+    "Vom Relay abgelehnt: :grund": "Rejected by the relay: :grund",
+    "Zum Kommentieren musst du angemeldet sein.": "You must be signed in to comment.",
+    "Zum Reagieren musst du angemeldet sein.": "You must be signed in to react."
 }

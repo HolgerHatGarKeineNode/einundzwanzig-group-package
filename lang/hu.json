@@ -471,7 +471,6 @@
     "Nachricht schreiben": "Üzenet írása",
     "Nachricht schreiben…": "Üzenet írása…",
     "Nachricht senden": "Üzenet küldése",
-    "Nachricht vom Relay abgelehnt — du bist evtl. kein Mitglied dieses Raums.": "Az üzenetet a Relay elutasította — lehet, hogy nem vagy tagja ennek a szobának.",
     "Nachricht wird geladen…": "Üzenet betöltése…",
     "Nachricht-Details": "Üzenet részletei",
     "Name": "Név",
@@ -917,5 +916,18 @@
     ":count ungelesen": ":count olvasatlan",
     "1 Repo": "1 repo",
     ":count Repos": ":count repo",
-    "Alle Artikel von :name": "Minden cikk tőle: :name"
+    "Alle Artikel von :name": "Minden cikk tőle: :name",
+    "Dein Kommentar…": "A megjegyzésed…",
+    "Der Kommentar ist zu lang.": "A megjegyzés túl hosszú.",
+    "Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.": "Ez a relay csak ellenőrzött NIP-05-címmel rendelkező fiókoktól fogad bejegyzéseket.",
+    "Du bist kein Mitglied dieses Relays.": "Nem vagy tagja ennek a relaynek.",
+    "Kommentar schreiben": "Megjegyzés írása",
+    "Kommentar veröffentlicht.": "Megjegyzés közzétéve.",
+    "Kommentare": "Megjegyzések",
+    "Noch keine Kommentare.": "Még nincsenek megjegyzések.",
+    "Reaktion zurücknehmen": "Reakció visszavonása",
+    "Veröffentlichen": "Közzététel",
+    "Vom Relay abgelehnt: :grund": "A relay elutasította: :grund",
+    "Zum Kommentieren musst du angemeldet sein.": "A megjegyzéshez be kell jelentkezned.",
+    "Zum Reagieren musst du angemeldet sein.": "A reagáláshoz be kell jelentkezned."
 }

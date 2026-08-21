@@ -49,9 +49,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
          erreichbar sein und dürfen nie um Aufmerksamkeit mit dem Text konkurrieren.
 
     LAYOUT. **Eine DOM-Reihenfolge, zwei Anordnungen — kein Duplikat.** Unterhalb `xl`
-    läuft alles untereinander: Artikel, dann Autorenkarte. Ab `xl` legt ein Raster
-    (`minmax(0,1fr) 18rem`) dieselben zwei Knoten nebeneinander, und die Karte wird
-    `sticky top-6`. Es gibt sie also genau einmal im Dokument — eine zweite Fassung für
+    läuft alles untereinander: Artikel, Kommentare, dann Autorenkarte. Ab `xl` legt ein
+    Raster (`minmax(0,1fr) 18rem`) dieselben Knoten nebeneinander — Artikel und Kommentare
+    in Spalte 1 (seit P7 in einem gemeinsamen Wrapper, sonst rutschten die Kommentare in
+    Spalte 2), die Karte in Spalte 2 und `sticky top-6`. Es gibt sie also genau einmal im Dokument — eine zweite Fassung für
     Mobil hätte jeden Fokus-Stopp verdoppelt, und ein per `hidden` versteckter Zwilling
     bleibt für die Tastatur erreichbar.
 
@@ -135,8 +136,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
     behauptet.
 
     WAS HIER BEWUSST NICHT STEHT. Ein Inhaltsverzeichnis (57 der 104 Artikel haben gar
-    keine Überschrift, nur 33 haben ≥3 H2 — es wäre für 71 von 104 tot), Sozialsignale
-    (P6), das `width`-Prop (P5). Die Themen bleiben im Textfluss unter der Byline und
+    keine Überschrift, nur 33 haben ≥3 H2 — es wäre für 71 von 104 tot) und ein
+    Kommentar-BAUM: NIP-22 kennt eine Verschachtelung, und 9 der 64 vorhandenen Kommentare
+    hängen tiefer als eine Ebene (Bestandszahl, keine Zusage; Herleitung in `js/articleWrite.ts`) — die Liste zeigt sie trotzdem flach, weil eine
+    Baumdarstellung eine Antwort-Aktion je Knoten, eine Einrückungsgrenze und einen Umgang
+    mit „Elternteil nicht geladen" braucht. Verloren geht dabei nichts: jeder Kommentar
+    steht da, nur die Verwandtschaft nicht daneben. Die Themen bleiben im Textfluss unter der Byline und
     wandern NICHT ins Aside: sie gehören zum Artikel, nicht zum Drumherum.
 --}}
 
@@ -290,6 +295,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  Feinabstimmung, ohne es klebt nichts. --}}
             <div class="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-start xl:gap-8">
 
+            {{-- **Die erste Rasterspalte trägt ZWEI Knoten** (Artikel + Kommentare) und
+                 braucht deshalb diesen Wrapper: bei automatischer Platzierung landete das
+                 dritte Rasterkind sonst in Spalte 2 der ersten Zeile — die Kommentare
+                 stünden NEBEN dem Artikel und das Aside darunter.
+
+                 `min-w-0`, weil ein Rasterkind sonst auf `min-content` besteht: ein langes
+                 Wort im Kommentar oder eine URL ohne Leerzeichen sprengte die Spalte, statt
+                 umzubrechen. KEIN `overflow-hidden` — das machte das `sticky` des Asides
+                 wirkungslos (dritte Sticky-Falle im Entwurf oben). --}}
+            <div class="min-w-0">
+
             <article class="surface-card overflow-hidden">
 
                 {{-- Titelbild. `banner`-Preset (1200×400) — dieselbe Rolle wie das
@@ -407,7 +423,170 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              }
                          "></div>
                 </div>
+
+                {{-- ── Reagieren (P7) ───────────────────────────────────────────────
+                     EIN Knopf, zwei Richtungen — reagieren oder die eigene Reaktion
+                     zurücknehmen. Er steht am ENDE des Textes und nicht oben bei den
+                     Zählern: eine Zustimmung entsteht, nachdem man gelesen hat.
+
+                     `aria-pressed` und **kein** zweiter Knopf: für Hilfstechnik ist das
+                     genau die Bauform eines Umschalters, und die Beschriftung wechselt
+                     sichtbar mit. Ein `disabled` gibt es nicht — ein abgemeldeter Leser
+                     bekommt den Grund als Toast (dasselbe inerte Muster wie beim Teilen
+                     und beim Lightning-Einstieg), statt vor einem toten Knopf zu stehen.
+
+                     Geschrieben wird auf den BOARD-Relay, nicht auf die beiden
+                     Fremdrelays, aus denen P6 liest — die Begründung (und ihr Preis)
+                     steht bei `ARTIKEL_SCHREIB_RELAY` in `js/longformFeed.ts`.
+
+                     `data-artikel-reagieren` ist der Anker der E2E-Sonde. --}}
+                <div class="border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
+                    <button type="button" data-artikel-reagieren
+                            x-bind:aria-pressed="habeReagiert() ? 'true' : 'false'"
+                            x-bind:aria-busy="reagiert ? 'true' : null"
+                            x-bind:class="habeReagiert()
+                                ? 'border-brand-500/30 bg-brand-500/5 text-brand-800 dark:text-brand-400'
+                                : 'border-zinc-200 text-muted hover:bg-black/5 dark:border-zinc-800 dark:hover:bg-white/5'"
+                            x-on:click="reaktionUmschalten()"
+                            class="pressable inline-flex items-center gap-2 rounded-tile border px-3 py-2 text-sm">
+                        {{-- **ZWEI Icons mit `x-show`, und das ist kein Umweg.** Der
+                             erste Entwurf band `::variant="habeReagiert() ? 'solid' :
+                             'outline'"` — eine **tote Bindung**: `variant` ist bei
+                             `flux:icon` ein PHP-`@props`-Wert, der das `<svg>` schon beim
+                             Kompilieren auswählt (`vendor/livewire/flux/stubs/…/heart.blade.php`
+                             ist ein `switch` über zwei verschiedene Pfade). Ein
+                             `x-bind:variant` landet stattdessen als bedeutungsloses
+                             Attribut auf dem fertigen `<svg>`, und das Herz bliebe
+                             dauerhaft leer — lautlos, ohne dass etwas rot wird.
+
+                             `::class` funktioniert dagegen: das ist Alpines
+                             Laufzeit-Bindung an ein echtes HTML-Attribut. --}}
+                        <flux:icon.heart variant="solid" class="size-4 shrink-0 text-brand-500"
+                                         x-show="habeReagiert()" x-cloak />
+                        <flux:icon.heart variant="outline" class="size-4 shrink-0"
+                                         x-show="!habeReagiert()" />
+                        <span x-text="habeReagiert() ? @js(__('Reaktion zurücknehmen')) : @js(__('Reagieren'))"></span>
+                    </button>
+                </div>
             </article>
+
+            {{-- ── Die Kommentare (P7) ──────────────────────────────────────────────
+                 NIP-22 (kind 1111), gelesen seit P6 über die Union `#A` + `#a`,
+                 geschrieben seit P7. Die Liste ist **flach und chronologisch**; die
+                 Begründung für beides steht bei `artikelKommentare` in
+                 `js/articleWrite.ts` und wird hier nicht wiederholt.
+
+                 **Der Text wird als TEXT gebunden** (`x-text`), nie über `x-html`. Der
+                 Artikeltext geht durch `renderArticleHtml` und dessen mutationsgeprüfte
+                 Zusage (kein Attribut, das mit `x-`, `@` oder `:` beginnt); ein Kommentar
+                 ist Fremdtext von einem beliebigen Relay und bekommt diesen Weg NICHT.
+                 `whitespace-pre-wrap` erhält die Absätze, `break-words` fängt die URL ohne
+                 Leerzeichen.
+
+                 Eigener Kasten statt einer Sektion IM Artikel: das `overflow-hidden` der
+                 Artikelkarte beschneidet das Titelbild auf die Rundung, und ein wachsender
+                 Bereich darin bekäme dieselbe Kante. Als drittes Rasterkind landet er
+                 unterhalb `xl` unter dem Text und ab `xl` unter dem Artikel in Spalte 1 —
+                 das klebende Aside daneben bleibt unberührt. --}}
+            <section class="surface-card mt-4 p-5" data-artikel-kommentare
+                     aria-labelledby="artikel-kommentare-titel">
+                <flux:heading size="sm" id="artikel-kommentare-titel">{{ __('Kommentare') }}</flux:heading>
+
+                {{-- Leerzustand: eine Aussage über den Bestand, keine Aufforderung. Wer
+                     nicht angemeldet ist, kann ohnehin nicht der Erste sein. --}}
+                <template x-if="article.kommentare.length === 0">
+                    <flux:text class="mt-2 text-sm text-muted">{{ __('Noch keine Kommentare.') }}</flux:text>
+                </template>
+
+                <template x-if="article.kommentare.length > 0">
+                    <ul class="mt-3 space-y-4">
+                        <template x-for="k in article.kommentare" :key="k.id">
+                            <li class="flex gap-2">
+                                <x-group::nostr-avatar picture="k.picture" name="k.name" size="1.75rem" />
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex min-w-0 items-baseline gap-2">
+                                        {{-- Der Name ist ein `<button>` wie in der Byline:
+                                             dieselbe Profilkarte, und ein echtes `<button>`
+                                             löst mit Enter und Leertaste nativ aus. --}}
+                                        <button type="button"
+                                                class="pressable min-w-0 truncate text-start text-sm font-medium hover:text-brand-800 dark:hover:text-brand-400"
+                                                x-on:click="$dispatch('open-profile', k.pubkey)"
+                                                x-text="k.name"
+                                                x-bind:aria-label="@js(__('Profil öffnen: :name')).split(':name').join(k.name)"></button>
+                                        <time class="shrink-0 text-xs tabular-nums text-muted"
+                                              x-bind:datetime="k.zeitIso" x-text="k.zeit"></time>
+                                    </div>
+                                    <p class="mt-0.5 whitespace-pre-wrap break-words text-sm text-zinc-800 dark:text-zinc-200"
+                                       x-text="k.content"></p>
+                                </div>
+                            </li>
+                        </template>
+                    </ul>
+                </template>
+
+                {{-- ── Der Composer ─────────────────────────────────────────────────
+                     Nur für Angemeldete — ein Textfeld, das erst beim Absenden „du musst
+                     dich anmelden" sagt, hat die Arbeit schon eingesammelt, bevor es die
+                     Bedingung nennt.
+
+                     **Die Fehlerzeile steht AM Composer und ist kein Toast.** Der Entwurf
+                     bleibt bei einem Fehlschlag stehen (Zusage von `kommentarAbschicken`);
+                     ein verpuffter Toast ließe einen vollen Kasten ohne Erklärung zurück.
+                     Genau hier landet die Begründung des Relays im WORTLAUT — am
+                     Board-Relay ist das `blocked: NIP-05 verification needed to publish
+                     events`, und dieser Satz ist die einzige Auskunft, mit der ein Nutzer
+                     etwas anfangen kann. Bis P7 wurde er verworfen und durch „du bist evtl.
+                     kein Mitglied dieses Raums" ersetzt — eine erfundene Ursache, die in
+                     die falsche Richtung schickte (siehe `mapRelayError`). --}}
+                <template x-if="angemeldet">
+                    <div class="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+                        {{-- KEIN eigenes `data-`-Attribut an dieser Stelle: bei einer
+                             Flux-Komponente ist nicht zugesichert, an WELCHEM Knoten ein
+                             durchgereichtes Attribut landet (Wrapper oder `<textarea>`),
+                             und ein Locator darauf wäre eine Wette. Der E2E-Test greift
+                             deshalb über das Label — das ist ohnehin der Weg, den ein
+                             Mensch nimmt. Der Anker für den BEREICH ist
+                             `data-artikel-kommentare` am `<section>` oben; er sitzt auf
+                             einem Knoten, den diese Datei selbst schreibt. --}}
+                        <flux:textarea rows="3"
+                                       x-model="kommentarEntwurf"
+                                       :label="__('Kommentar schreiben')"
+                                       :placeholder="__('Dein Kommentar…')" />
+
+                        <div class="mt-2 flex items-center gap-3">
+                            <flux:button size="sm" variant="primary"
+                                         ::disabled="kommentarSperrgrund() !== '' || !kommentarEntwurf.trim() || kommentarLaeuft"
+                                         x-on:click="kommentarAbschicken()">{{ __('Veröffentlichen') }}</flux:button>
+
+                            {{-- Der Restzähler erscheint erst, wenn er etwas sagt — ein
+                                 „noch 4 987 Zeichen" unter einem Dreiwortsatz wäre Lärm.
+                                 Die Grenze selbst steht als EINE Zahl in
+                                 `js/articleWrite.ts` (`KOMMENTAR_MAX_ZEICHEN`) und wird
+                                 hier nicht wiederholt. --}}
+                            <span x-show="kommentarRest() < 500" x-cloak
+                                  data-artikel-kommentar-rest
+                                  class="text-xs tabular-nums"
+                                  x-bind:class="kommentarRest() < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted'"
+                                  x-text="kommentarRest()"></span>
+                        </div>
+
+                        {{-- Die Sperre nennt ihren Grund nur dort, wo er nicht ohnehin
+                             sichtbar ist (siehe `kommentarSperrgrund`). --}}
+                        <p x-show="kommentarSperrgrund()" x-cloak
+                           class="mt-2 text-xs text-muted" x-text="kommentarSperrgrund()"></p>
+
+                        <template x-if="kommentarFehler">
+                            <flux:callout variant="danger" icon="exclamation-triangle" class="mt-3">
+                                <flux:callout.text>
+                                    <span data-artikel-kommentar-fehler x-text="kommentarFehler"></span>
+                                </flux:callout.text>
+                            </flux:callout>
+                        </template>
+                    </div>
+                </template>
+            </section>
+
+            </div>
 
             {{-- ── Der Nachspann: wer hat das geschrieben? ──────────────────────────
                  Unterhalb `xl` steht er unter dem Text — dort, wo die Frage entsteht.
@@ -487,11 +666,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Beschriftung sagt genau das.
 
                          OHNE Adresse: derselbe Knopf, `aria-disabled`, gestrichelte Kante
-                         statt Fläche — und beim Antippen der GRUND als Toast. Vier der
-                         zwölf Autoren sind hier: die Podcast-Bridges haben ein kind 0
-                         (auf `purplepag.es`), aber kein `lud16`. Ein verschwundener Knopf
-                         ließe den Nutzer suchen, ein grauer ohne Erklärung zweimal tippen,
-                         ein Tooltip wäre auf dem Telefon unerreichbar.
+                         statt Fläche — und beim Antippen der GRUND als Toast. Ein
+                         verschwundener Knopf ließe den Nutzer suchen, ein grauer ohne
+                         Erklärung zweimal tippen, ein Tooltip wäre auf dem Telefon
+                         unerreichbar.
+
+                         **P7 behauptete hier, keiner unserer Relais liefere für die vier
+                         Podcast-Bridges ein kind 0. Das war falsch und ist
+                         zurückgenommen.** Zweimal unabhängig nachgemessen am 2026-08-21:
+                         `nak req -k 0 -a <pk> wss://purplepag.es` EINZELN je Schlüssel
+                         liefert für alle vier ein kind 0 (je `bot: true`, ohne `lud16`),
+                         und `/nostr/profiles` durch den HTTP-Kernel gibt `events=4`.
+                         Der Zustand ist damit `nein`, nicht `unbekannt` — und hier steht
+                         der inerte Knopf, genau wie zugesichert. Der Messfehler und die
+                         Lehre daraus (eine Abwesenheits-Messung ohne mitlaufende
+                         Positivkontrolle ist keine Messung) stehen bei
+                         `ArticleAuthor.lightning` in `js/longform.ts`.
 
                          **UNBEKANNT: gar keine Zeile.** Das kind 0 des Autors trifft
                          asynchron ein — oft deutlich nach dem Artikel, weil die zwölf

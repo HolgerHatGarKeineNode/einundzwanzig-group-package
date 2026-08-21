@@ -1222,6 +1222,36 @@ export type ArticleAuthor = {
      * tut, lässt ihn zweimal klicken. Bei `unbekannt` steht gar keine Zeile — es gibt
      * nichts zu sagen, und Schweigen ist die einzige ungelogene Anzeige dafür.
      *
+     * ── Eine ZURÜCKGENOMMENE Korrektur, und warum sie hier steht ──────────────────
+     *
+     * P7 ersetzte den Satz „diese vier haben ein kind 0 auf `purplepag.es`, aber kein
+     * `lud16`" durch die Behauptung, keiner unserer Relais liefere für sie ein kind 0 —
+     * es liege nur auf `wss://relay.drss.io`. **Das war falsch, und der ursprüngliche
+     * Satz war richtig.** Zweimal unabhängig nachgemessen am 2026-08-21:
+     *
+     *  · `nak req -k 0 -a <pk> wss://purplepag.es`, **einzeln je Schlüssel**: alle vier
+     *    liefern ein kind 0 — „The Vance Crowe Podcast", „The Launch 🚀", „The Tim
+     *    Ferriss Show", „Tetragrammaton with Rick Rubin", je `"bot": true`, **ohne**
+     *    `lud16`. Board, nos.lol und damus liefern nichts; nur dieser Teil stimmte.
+     *  · Werkzeugunabhängig über die App selbst: `/nostr/profiles?pubkeys=…` durch den
+     *    HTTP-Kernel → `status=200, events=4`, alle vier ohne `lud16`. Und
+     *    `config:show group` nennt `profile_indexer = wss://purplepag.es/` — genau die
+     *    Quelle, die `ProfileCache::sources()` fragt.
+     *
+     * **Der Messfehler ist lehrreicher als die Zahl:** ein Sammelabruf mit mehreren
+     * `-a`-Flags in einer Shell-Schleife liefert für **alle** Schlüssel null Treffer,
+     * auch für eine Positivkontrolle. Wer nur die Zielschlüssel abfragt, liest daraus
+     * „das Profil existiert nicht". **Eine Abwesenheits-Messung ohne mitlaufende
+     * Positivkontrolle ist keine Messung.**
+     *
+     * Für die Fläche heißt das: `profil` ist definiert, `lud16` fehlt ⇒ hier steht
+     * **`'nein'`** ⇒ der Knopf erscheint **sichtbar inert** mit „Keine Lightning-Adresse",
+     * nicht „gar keine Zeile". Genau so ist es zugesichert
+     * (`tests/e2e/article-author.spec.ts`, `data-lightning-zustand`) und genau so gemeint.
+     *
+     * Die Zahlen des Plans halten unverändert: 12 Autoren, davon 4 ohne Zahlungsadresse,
+     * deren 14 Artikel **exakt** die 14 mit Audio-`imeta` sind.
+     *
      * **Die Adresse steht hier absichtlich nicht** — siehe {@link ArticleAuthorDeps}.
      * Wer sie braucht (Kopieren, Zappen), geht über die Profilkarte, die sie ohnehin
      * schon zeigt und deren Herkunft bereits inventarisiert ist.
