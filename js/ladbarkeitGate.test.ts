@@ -4,9 +4,20 @@
  * nicht festgeschrieben). Über die P3-DoD hinaus gebaut — der Plan verlangt nur das
  * Import-Gate (`importEndungenGate.ts`) — weil er die Zusage misst, die P1+P2 tatsächlich
  * hergestellt haben, statt nur ihren Proxy (Import-Stil). Scanner + Begründung:
- * `js/ladbarkeitGate.ts`. Dieses Gate ist außerdem der Riegel, der die Import-Gate-Lücke
- * aus `importEndungenGate.ts` (Regex-Literale) für STATISCHE Importe strukturell deckt —
- * siehe `js/fixtures/importGateArbeitsteilung.test.ts`.
+ * `js/ladbarkeitGate.ts`.
+ *
+ * **Was dieses Gate NICHT (mehr) ist: ein Ersatzriegel fürs Import-Gate.** Bis zum
+ * 2026-08-22 stand hier, es decke die Regex-Literal-Lücke von `importEndungenGate.ts`
+ * für statische Importe strukturell ab. Diese Arbeitsteilung ist entfallen — seit dem
+ * Umbau auf den TypeScript-AST fängt das Import-Gate beide Konstruktionen selbst (siehe
+ * `js/fixtures/importGateArbeitsteilung.test.ts`). Und sie hätte ohnehin nie getragen:
+ * ein lazy `import()` in einer nie aufgerufenen Funktion wird beim Modul-Laden nicht
+ * ausgelöst, dieses Gate hätte es also nie gesehen.
+ *
+ * Was bleibt, ist eine **andere Klasse**, die kein Import-Muster je sähe:
+ * Toplevel-Nebeneffekte gegen Browser-Globals — `document.addEventListener` in
+ * `toast.ts:51`, `localStorage` in `session.ts`/`groups.ts`. Genau daran scheiterten in
+ * P2 zehn Module.
  *
  * **Laufzeit-Entscheidung (2026-08-22, gemessen):** die Module SEQUENTIELL unter node zu
  * laden kostet ~100 s (`for`-Schleife über alle Module, einzeln gemessen). Mit
