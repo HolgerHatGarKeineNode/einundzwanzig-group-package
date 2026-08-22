@@ -16,11 +16,16 @@
  */
 import { execFile } from 'node:child_process'
 import { readdirSync } from 'node:fs'
-import { join } from 'node:path'
 
 export type Ladeergebnis = { datei: string; ladbar: boolean; fehler: string | null }
 
-function ladeUnterNode(jsDir: string, dateiname: string): Promise<Ladeergebnis> {
+/**
+ * Lädt EIN Modul, ohne die `MIN_MODULE`-Fail-closed-Schranke von {@link pruefeLadbarkeit}
+ * (die für ein einzelnes Verzeichnis mit wenigen Dateien nicht sinnvoll ist). Exportiert,
+ * damit die Arbeitsteilungs-Probe (`js/fixtures/importGateArbeitsteilung.test.ts`) gegen
+ * die ECHTE Funktion prüft, nicht gegen eine Kopie ihrer Logik.
+ */
+export function ladeUnterNode(jsDir: string, dateiname: string): Promise<Ladeergebnis> {
     return new Promise((resolve) => {
         // Der Modul-Spezifizierer wird über `JSON.stringify` gebaut, NICHT als
         // Template-Literal mit direkt eingebettetem Anführungszeichen. Grund ist keine
@@ -46,10 +51,10 @@ function ladeUnterNode(jsDir: string, dateiname: string): Promise<Ladeergebnis> 
 }
 
 /**
- * Begrenzte Parallelität statt eines Subprozesses je Modul in Serie — 112 Module in Serie
- * kosten rund 100 s (gemessen 2026-08-22), das sprengt jedes Test-Tor. Ein simpler
- * Worker-Pool statt einer Bibliothek: `limit` Läufer ziehen sich Dateien von einem
- * gemeinsamen Index, bis die Liste leer ist.
+ * Begrenzte Parallelität statt eines Subprozesses je Modul in Serie — die gut hundert
+ * Module in Serie kosten rund 100 s (114 Module, gemessen 2026-08-22), das sprengt jedes
+ * Test-Tor. Ein simpler Worker-Pool statt einer Bibliothek: `limit` Läufer ziehen sich
+ * Dateien von einem gemeinsamen Index, bis die Liste leer ist.
  */
 async function mapMitLimit<T, R>(eintraege: T[], limit: number, fn: (e: T) => Promise<R>): Promise<R[]> {
     const ergebnisse: R[] = new Array(eintraege.length)
@@ -67,7 +72,12 @@ async function mapMitLimit<T, R>(eintraege: T[], limit: number, fn: (e: T) => Pr
 
 export const MIN_MODULE = 100
 
-/** Module ohne eigenen Test — genau die 112, deckungsgleich mit der Plan-Messung. */
+/**
+ * Module ohne eigenen Test. Die Zahl wird bewusst NICHT hier festgeschrieben — sie wächst
+ * mit jedem neuen Modul (114 am 2026-08-22, inklusive der beiden Gate-Dateien selbst; zur
+ * Plan-Messung „112" kamen `importEndungenGate.ts` und `ladbarkeitGate.ts` dazu). Wer die
+ * aktuelle Zahl braucht: `sammleModule(jsDir).length` zur Laufzeit lesen, nicht raten.
+ */
 export function sammleModule(jsDir: string): string[] {
     return readdirSync(jsDir)
         .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'))

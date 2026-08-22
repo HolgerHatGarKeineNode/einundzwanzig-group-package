@@ -1,10 +1,14 @@
 /**
- * Der Ladbarkeits-Riegel: **alle 112 Module in `js/` laden unter node.** Über die
- * P3-DoD hinaus gebaut — der Plan verlangt nur das Import-Gate (`importEndungenGate.ts`)
- * — weil er die Zusage misst, die P1+P2 tatsächlich hergestellt haben, statt nur ihren
- * Proxy (Import-Stil). Scanner + Begründung: `js/ladbarkeitGate.ts`.
+ * Der Ladbarkeits-Riegel: **alle Module in `js/` laden unter node** (114 am 2026-08-22,
+ * `sammleModule().length` zur Laufzeit — die Zahl wächst mit, wird deshalb hier bewusst
+ * nicht festgeschrieben). Über die P3-DoD hinaus gebaut — der Plan verlangt nur das
+ * Import-Gate (`importEndungenGate.ts`) — weil er die Zusage misst, die P1+P2 tatsächlich
+ * hergestellt haben, statt nur ihren Proxy (Import-Stil). Scanner + Begründung:
+ * `js/ladbarkeitGate.ts`. Dieses Gate ist außerdem der Riegel, der die Import-Gate-Lücke
+ * aus `importEndungenGate.ts` (Regex-Literale) für STATISCHE Importe strukturell deckt —
+ * siehe `js/fixtures/importGateArbeitsteilung.test.ts`.
  *
- * **Laufzeit-Entscheidung (2026-08-22, gemessen):** 112 Module SEQUENTIELL unter node zu
+ * **Laufzeit-Entscheidung (2026-08-22, gemessen):** die Module SEQUENTIELL unter node zu
  * laden kostet ~100 s (`for`-Schleife über alle Module, einzeln gemessen). Mit
  * `parallelitaet=8` (siehe `ladbarkeitGate.ts`) sinkt das auf einen ZUWACHS von rund 12,7 s
  * auf `npm run test:unit`:

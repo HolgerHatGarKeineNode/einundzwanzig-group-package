@@ -20,22 +20,48 @@
  * nur an einer Sprachkonstruktion, die er nicht kennt — teurer zu schreiben, aber robuster
  * gegen genau die Änderungsart, die diesen Code am meisten trifft.
  *
- * ── Grenzen dieser Vereinfachung ──────────────────────────────────────────────────────
+ * ── Grenzen dieser Vereinfachung — und WARUM sie nicht behoben werden ─────────────────
  *
- * Kein vollständiger JS/TS-Parser: Regex-Literale (`/foo\//`) werden nicht als eigene
- * Kategorie erkannt — ein `//` oder `/*` INNERHALB eines Regex-Literals würde fälschlich
- * als Kommentarstart gelesen. Geprüft (2026-08-22): kein `js/*.ts` enthält ein
- * Regex-Literal mit `//` oder `/*` im Muster. Träfe das künftig zu, wäre die Folge eine
- * verschluckte Zeile im bereinigten Text (das Gate sieht dann evtl. eine Fundstelle NICHT
- * — fail-open in genau diesem Fall) — kein Totalausfall, aber der Grund, warum diese Datei
- * die Einschränkung ausdrücklich nennt statt sie zu verschweigen. Template-Interpolationen
- * (`${...}`) werden als Teil des Template-Strings kopiert, nicht rekursiv geparst — für
- * diesen Scanner unproblematisch, da produktive Importe nie in Template-Strings stehen.
- * String-Literale werden ABSICHTLICH nicht blank gemacht (sonst würde ein echter Importpfad
- * darin verstümmelt) — eine Business-String, die wörtlich `import('./x')` enthält, würde
- * deshalb fälschlich als Fund erscheinen (fail-closed in die andere Richtung: lieber ein
- * unnötiger roter Treffer als ein verschluckter echter). Geprüft (2026-08-22): kein
- * `js/*.ts` hat so eine Zeichenkette.
+ * **Kein vollständiger JS/TS-Parser: Regex-Literale werden nicht als eigene Kategorie
+ * erkannt, und der Blast-Radius ist der REST DER DATEI, nicht eine Zeile.** Belegt vom
+ * `reviewer` (2026-08-22, P3-REJECT): `const re = /[/*]/; import { x } from './modul'` —
+ * gültiges JS (in `[...]` braucht `/` kein Escaping), aber der Tokenizer liest das `/*`
+ * innerhalb der Zeichenklasse als Block-Kommentar-Start und blankt bis zum nächsten
+ * Kommentarende (Stern-Schrägstrich) im Text — findet er keins mehr, bis Dateiende
+ * (bewusst NICHT als Literal hier hingeschrieben: genau diese zwei Zeichen würden auch
+ * DIESEN Docblock vorzeitig schließen — derselbe Effekt, eine Ebene höher, an dem der
+ * erste Entwurf dieser Zeile beim `npm run typecheck` gescheitert ist). Ein Import NACH
+ * dieser Konstruktion wird
+ * unsichtbar, egal wie weit er entfernt steht. Eine frühere Fassung dieses Docblocks
+ * bezifferte den Schaden als „eine verschluckte Zeile" — das war falsch, und die
+ * Momentaufnahmen-Begründung dahinter („geprüft 2026-08-22, keine Instanz im Repo") ist
+ * exakt das Argument, das oben gegen die Zeilennummer-Ausnahmeliste steht: eine Aussage
+ * über den heutigen Bestand, keine über die Zukunft.
+ *
+ * **Der Tokenizer wird dafür NICHT repariert.** Regex-Literal gegen Divisionsoperator ist
+ * ohne einen echten Parser nicht entscheidbar (`a = b /c/ d` — beides gültige Lesarten je
+ * nach vorherigem Token). Eine Heuristik dagegen hätte ihre eigene Lücke, nur eine Ebene
+ * tiefer versteckt.
+ *
+ * **Was die Lücke stattdessen deckt: das Ladbarkeits-Gate (`ladbarkeitGate.ts`), und zwar
+ * nur TEILWEISE.** Ein vom Tokenizer übersehener STATISCHER Import (`from`/`export …
+ * from`/bare) wird beim Laden des Moduls trotzdem aufgelöst — ESM linkt alle statischen
+ * Importe vor der Ausführung, unabhängig davon, ob ein Text-Scanner sie sieht. Bewiesen an
+ * einer echten Repo-Datei, Fixture-Regressionsfall in
+ * `js/fixtures/importGateArbeitsteilung.test.ts` (Fall 1), mit Mutationsprobe.
+ * **Offene, unbehobene Lücke:** ein vom Trick verdecktes DYNAMISCHES `import()` in einem
+ * Funktionskörper, der beim bloßen Modul-Laden nicht ausgeführt wird (Lazy-Chunk-Muster,
+ * produktiv z. B. in `js/bridge.ts:3680`), entgeht BEIDEN Gates — das Ladbarkeits-Gate
+ * führt nur Toplevel-Code aus. Festgehalten, nicht verschwiegen, in
+ * `importGateArbeitsteilung.test.ts` (Fall 2). Dieses Import-Gate ist also OHNE das
+ * Ladbarkeits-Gate unvollständig, und selbst mit beiden bleibt der Lazy-Fall offen.
+ *
+ * Template-Interpolationen (`${...}`) werden als Teil des Template-Strings kopiert, nicht
+ * rekursiv geparst — für diesen Scanner unproblematisch, da produktive Importe nie in
+ * Template-Strings stehen. String-Literale werden ABSICHTLICH nicht blank gemacht (sonst
+ * würde ein echter Importpfad darin verstümmelt) — eine Business-String, die wörtlich
+ * `import('./x')` enthält, würde deshalb fälschlich als Fund erscheinen (fail-closed in die
+ * andere Richtung: lieber ein unnötiger roter Treffer als ein verschluckter echter).
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, extname } from 'node:path'
