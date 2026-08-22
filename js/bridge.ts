@@ -31,7 +31,7 @@ import {
     logout,
     handoffToServer,
     logoutServer,
-    authReady,
+    ensureAuthReady,
     nip46PermsStale,
     loginWithNip55,
     currentSignerLabel,
@@ -2187,7 +2187,7 @@ export function registerNostrComponents(Alpine: {
             // erst abwarten, sonst liest loadWallet() bei hartem Reload direkt auf
             // /settings/wallet einen leeren pubkey und eine verbundene Wallet erschiene
             // fälschlich als „nicht verbunden" (nostrAuth.init guardet dasselbe Muster).
-            await authReady
+            await ensureAuthReady()
             // `profileReady` gated „Nicht gesetzt" gegen den Lade-Flash — aber an den
             // ABGESCHLOSSENEN Lade-VERSUCH gekoppelt, nicht an ein vorhandenes Profil:
             // welshman hält `userProfile` für Nutzer OHNE kind-0 (gast-first, frisches
@@ -2197,7 +2197,7 @@ export function registerNostrComponents(Alpine: {
             void loadUserProfile().finally(() => {
                 this.profileReady = true
             })
-            // destroy() kann während `await authReady` gelaufen sein (schnelles wire:navigate);
+            // destroy() kann während `await ensureAuthReady()` gelaufen sein (schnelles wire:navigate);
             // dann NICHT mehr abonnieren, sonst leakt die Handle-Sub auf einer toten Komponente.
             if (this._destroyed) {
                 return
@@ -4593,7 +4593,7 @@ export function registerNostrComponents(Alpine: {
              *
              * `this.autor` ist `null`, solange die Adresse nicht aufgelöst ist; die Karte
              * steht dann ohnehin nicht. Danach kommt `autor.nip05` aus `verifiedNip05`
-             * (`longformFeed.ts:729`), ist also der VERIFIZIERTE Handle und nie ein
+             * (`verifiedNip05` in `longformFeed.ts`), ist also der VERIFIZIERTE Handle und nie ein
              * Profil-Rohwert — worauf diese ganze Fläche sicherheitsseitig steht
              * (Begründung in `medienProfil.ts`).
              *
@@ -4609,7 +4609,7 @@ export function registerNostrComponents(Alpine: {
                 // nacktes `this.autor.nip05` hätte dort die Klasse „unbekannt" bekommen
                 // und wäre zu Recht rot geworden. `AuthorView['autor']` IST die Aussage:
                 // dieses Feld entsteht ausschließlich in `buildArticleAuthor`, und der
-                // bekommt es aus `verifiedNip05(…)` (`longformFeed.ts:729`).
+                // bekommt es aus `verifiedNip05(…)` (`verifiedNip05` in `longformFeed.ts`).
                 // `satisfies` statt `as`: es prüft, ohne etwas zu behaupten.
                 const autor = this.autor satisfies AuthorView['autor'] | null
 
@@ -7788,7 +7788,7 @@ export function registerNostrComponents(Alpine: {
             // „Angemeldet"-Sackgasse zu stecken. Nur auf /nostr-login, einmal, nur wenn
             // wirklich eingeloggt. Web = Handoff; Mobile = direkt /spaces (kein Server-Gate).
             if (location.pathname.startsWith('/nostr-login') && !this.reconnect) {
-                authReady.then(async () => {
+                void ensureAuthReady().then(async () => {
                     if (this._reauthTried || !pubkey.get()) {
                         return
                     }
@@ -8015,11 +8015,11 @@ export function registerNostrComponents(Alpine: {
         _unsub: null,
         _unsubEvents: null,
         // pubkey wird async aus localStorage hydriert (@welshman/store sync) — erst
-        // nach authReady ist er definitiv (sonst wäre die Liste beim harten Reload,
+        // nach `ensureAuthReady()` ist er definitiv (sonst wäre die Liste beim harten Reload,
         // dem einzigen Weg hierher, dauerhaft leer). Danach reaktiv: Login/Logout
         // schaltet die Relay-Ansicht mit (gleiche Disziplin wie nostrWallet/nostrAuth).
         async init() {
-            await authReady
+            await ensureAuthReady()
             this._unsub = pubkey.subscribe((pk: string | undefined) => {
                 this._unsubEvents?.()
                 this._unsubEvents = null

@@ -30,12 +30,6 @@ import { clearCache } from './storage.ts'
 import { clearReadState } from './readState.ts'
 import { t } from './i18n.ts'
 
-/** Bindet pubkey + sessions an localStorage. Auflösen = initialer Load fertig. */
-export const authReady = Promise.all([
-    sync({ key: 'pubkey', store: pubkey, storage: localStorageProvider }),
-    sync({ key: 'sessions', store: sessions, storage: localStorageProvider }),
-])
-
 /**
  * Mobiles Präsenz-Gate. Auf dem Gerät kann der Server nicht per NIP-98 gaten
  * (§7) — `EnsureNostrAuth` lässt Mobile durch. Ohne dieses Gate rendert der Chat
@@ -44,24 +38,61 @@ export const authReady = Promise.all([
  * ponytail: Pfad-Check statt Route-Flag — der Chat hat genau eine öffentliche
  * Seite (/nostr-login), und die Insel lädt nur im Chat-Layout.
  */
-if (isMobile) {
-    authReady.then(() => {
-        const pk = pubkey.get()
-        // Wiederhergestellte NIP-55-Session (Methode nip07 auf dem Gerät = unser
-        // Amber-Offline-Login, echte Extension gibt es nicht) → `window.nostr`-Shim
-        // installieren, BEVOR welshman den Signer für die erste Signatur rekonstruiert.
-        if (pk && sessions.get()[pk]?.method === 'nip07') {
-            installNip55WindowNostr()
+function applyMobileAuthGate(): void {
+    const pk = pubkey.get()
+    // Wiederhergestellte NIP-55-Session (Methode nip07 auf dem Gerät = unser
+    // Amber-Offline-Login, echte Extension gibt es nicht) → `window.nostr`-Shim
+    // installieren, BEVOR welshman den Signer für die erste Signatur rekonstruiert.
+    if (pk && sessions.get()[pk]?.method === 'nip07') {
+        installNip55WindowNostr()
+    }
+    if (!pk && !location.pathname.startsWith('/nostr-login')) {
+        window.location.assign('/nostr-login')
+    }
+    // Single-Login: einen nach dem Login vorgemerkten Portal-Handoff hier auf
+    // der stabilen Zielseite ausführen (der Shim ist oben schon installiert).
+    if (pk) {
+        void runScheduledPortalHandoff()
+    }
+}
+
+let authReadyPromise: Promise<unknown> | null = null
+
+/**
+ * Bindet pubkey + sessions an localStorage — beim ERSTEN Gebrauch, nicht beim
+ * Modul-Eval. Das zurückgegebene Promise löst auf, wenn der initiale Load durch
+ * ist; es ist memoisiert, jeder Aufrufer wartet also auf dieselbe eine Bindung.
+ *
+ * **Warum verzögert und nicht wie früher als Toplevel-`authReady`-Konstante:**
+ * `sync()` liest `localStorage` sofort. In `node --experimental-strip-types` gibt
+ * es das nicht, und der Wurf beim Modul-Eval sperrte jeden reinen Test für alles
+ * aus, was `session.ts` in den Graphen zieht (Plan `js-insel-testbar-machen`, P2).
+ * Verworfen wurde ein `localStorage`-Stub im Testlauf — der verschöbe die Barriere
+ * bloß in die Testinfrastruktur.
+ *
+ * **Warum das den Zeitpunkt im Browser nicht verschiebt:** die Bindung war auch
+ * vorher asynchron (`sync` ist `async`, die Hydrierung lief einen Microtask nach
+ * dem Modul-Eval). Ausgelöst wird sie jetzt von `initReadState()`/`initStorage()`
+ * aus `core.ts` — beide starten beim Insel-Boot, im selben Microtask-Schwung nach
+ * dem Modul-Eval und lange vor `alpine:init`. Alle sechs Aufrufer warten auf das
+ * Promise; wer `pubkey` ohne `await` liest, sah auch vorher schon `undefined`
+ * (deshalb steht in `core.ts:415` ein Abo statt eines Einmal-Aufrufs).
+ */
+export function ensureAuthReady(): Promise<unknown> {
+    if (!authReadyPromise) {
+        authReadyPromise = Promise.all([
+            sync({ key: 'pubkey', store: pubkey, storage: localStorageProvider }),
+            sync({ key: 'sessions', store: sessions, storage: localStorageProvider }),
+        ])
+        // Hängt am memoisierten Promise, nicht am Modul-Toplevel: so läuft das Gate
+        // genau einmal und in derselben Reihenfolge wie früher (als erster Zuhörer,
+        // vor allen `await ensureAuthReady()` der Aufrufer).
+        if (isMobile) {
+            void authReadyPromise.then(applyMobileAuthGate)
         }
-        if (!pk && !location.pathname.startsWith('/nostr-login')) {
-            window.location.assign('/nostr-login')
-        }
-        // Single-Login: einen nach dem Login vorgemerkten Portal-Handoff hier auf
-        // der stabilen Zielseite ausführen (der Shim ist oben schon installiert).
-        if (pk) {
-            void runScheduledPortalHandoff()
-        }
-    })
+    }
+
+    return authReadyPromise
 }
 
 /**

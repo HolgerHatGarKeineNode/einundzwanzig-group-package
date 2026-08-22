@@ -892,7 +892,7 @@ export async function clearCache(): Promise<void> {
 
 let started = false
 
-/** Aufgelöst = Boot-Load fertig; wie `authReady` modulweit, einmal ausgewertet. */
+/** Aufgelöst = Boot-Load fertig; wie `ensureAuthReady()` modulweit, einmal ausgewertet. */
 export let storageReady: Promise<void> = Promise.resolve()
 
 /**
@@ -915,11 +915,12 @@ export function initStorage(): void {
             // Accounts hinweg → sie kann Cross-Account-member-only-Events enthalten (der
             // behobene Leak). deleteDatabase räumt diese Alt-Daten weg (auch für Gäste).
             await deleteDb('einundzwanzig-cache')
-            // Dynamischer Import: `session.ts` bindet beim Modul-Eval localStorage —
+            // Dynamischer Import: `session.ts` zieht den halben Login-Graphen nach —
             // so bleibt die reine Cache-Logik (shouldPersistEvent) node-/testbar und
-            // der (in P1) von `core.ts` gezogene Import zirkelfrei.
-            const { authReady } = await import('./session.ts')
-            await authReady
+            // der (in P1) von `core.ts` gezogene Import zirkelfrei. `ensureAuthReady()`
+            // startet die localStorage-Bindung von pubkey/sessions beim ersten Gebrauch.
+            const { ensureAuthReady } = await import('./session.ts')
+            await ensureAuthReady()
             const pk = pubkey.get()
             if (!pk) {
                 return // Gast → keine DB, keinen member-only-Cache laden
