@@ -9,7 +9,7 @@ import { getProfile, loadProfile, publishThunk, repository, userProfile, waitFor
 import { PublishStatus } from '@welshman/net'
 import { createProfile, editProfile, isPublishedProfile, makeEvent, makeProfile, profileHasName, verifyEvent, verifiedSymbol, type Profile, type TrustedEvent } from '@welshman/util'
 import { Router } from '@welshman/router'
-import { isMobile } from './core'
+import { isMobile } from './core.ts'
 import { WORKSPACE_URL } from './spaceCaps.ts'
 import { loadSpaceProfiles } from './spaceProfiles.ts'
 

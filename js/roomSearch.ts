@@ -56,10 +56,10 @@
 
 import { MESSAGE, type TrustedEvent } from '@welshman/util'
 import { displayProfileByPubkey } from './spaceProfiles.ts'
-import { activeSpace } from './groups'
-import { bodyWithoutQuote, deriveRoomMessages, fullTimeLabel } from './feeds'
-import { BUZZ_MESSAGE_V2 } from './relayCaps'
-import { SEARCH_RESULT_LIMIT, searchMessages, type SearchHit, type SearchableRow } from './search'
+import { activeSpace } from './groups.ts'
+import { bodyWithoutQuote, deriveRoomMessages, fullTimeLabel } from './feeds.ts'
+import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
+import { SEARCH_RESULT_LIMIT, searchMessages, type SearchHit, type SearchableRow } from './search.ts'
 
 /** Eine durchsuchbare Zeile: der Rohtext plus das, was die Trefferliste anzeigt. */
 type RoomSearchRow = SearchableRow & { time: string }

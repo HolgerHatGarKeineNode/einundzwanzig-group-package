@@ -15,15 +15,15 @@ import { verifyEvent, normalizeRelayUrl, PROFILE, type TrustedEvent } from '@wel
 import { guardRelayQuality } from './deadRelays.ts'
 import { mayProxifyMedia } from './mediaGuard.ts'
 import { mayFallbackToRaw as rawFallbackAllowed } from './imageFallback.ts'
-import { initStorage } from './storage'
-import { watchRelayNotices } from './relayNotices'
-import { watchRequests } from './reqWatch'
-import { socketPolicyAuthHold } from './authHold'
+import { initStorage } from './storage.ts'
+import { watchRelayNotices } from './relayNotices.ts'
+import { watchRequests } from './reqWatch.ts'
+import { socketPolicyAuthHold } from './authHold.ts'
 import { darfAuthBekommen as authErlaubt, leseRelayListeNachsichtig } from './articleMetrics.ts'
-import { initReadState } from './readState'
+import { initReadState } from './readState.ts'
 
 // M3 P1: `storageReady` für die Insel re-exportieren (bridge.ts gated den Warm-Peek darauf).
-export { storageReady } from './storage'
+export { storageReady } from './storage.ts'
 
 /**
  * Relay-Override für Tests/Self-Hosting: setzt `window.__nostrRelays` VOR dem
