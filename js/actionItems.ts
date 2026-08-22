@@ -27,11 +27,11 @@ import {
 import { sortBy } from '@welshman/lib'
 import { profilesByPubkey } from './spaceProfiles.ts'
 import * as nip19 from 'nostr-tools/nip19'
-import { deriveEventsForUrl } from './repository'
-import { roomsByUrl, roomMembersByUrl } from './groups'
-import { spaceIsBuzz, spaceIsBuzzAsync, buzzLoadReports, type BuzzReport } from './buzzAdmin'
-import { toast } from './toast'
-import { t } from './i18n'
+import { deriveEventsForUrl } from './repository.ts'
+import { roomsByUrl, roomMembersByUrl } from './groups.ts'
+import { spaceIsBuzz, spaceIsBuzzAsync, buzzLoadReports, type BuzzReport } from './buzzAdmin.ts'
+import { toast } from './toast.ts'
+import { t } from './i18n.ts'
 
 /** NIP-56-Maschinencodes → deutsche Labels (wie das Melde-Modal). */
 const REASON_LABELS: Record<string, string> = {

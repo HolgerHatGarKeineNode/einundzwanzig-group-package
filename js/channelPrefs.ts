@@ -38,8 +38,8 @@ import { derived, get, writable, type Readable, type Writable } from 'svelte/sto
 import { ensurePlaintext, pubkey } from '@welshman/app'
 import { load, request } from '@welshman/net'
 import { APP_DATA, getTagValue, type TrustedEvent } from '@welshman/util'
-import { WORKSPACE_URL, deriveSpaceKind, hasWorkspace } from './spaceCaps'
-import { deriveEventsForUrl } from './repository'
+import { WORKSPACE_URL, deriveSpaceKind, hasWorkspace } from './spaceCaps.ts'
+import { deriveEventsForUrl } from './repository.ts'
 import {
     CHANNEL_PREFS_D,
     D_CHANNEL_MUTES,
@@ -59,8 +59,8 @@ import {
     type FlagStore,
     type SectionsStore,
     type SortStore,
-} from './channelPrefsData'
-import type { WorkspacePrefs } from './railGroups'
+} from './channelPrefsData.ts'
+import type { WorkspacePrefs } from './railGroups.ts'
 
 /**
  * Mindestpause zwischen zwei Nachladeversuchen — 30 s, dieselbe Zahl und dieselbe

@@ -7,9 +7,9 @@
 import { COMMENT, DELETE, MESSAGE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
 import { getRelay, tagEvent, tagEventForComment, tagEventForReaction } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
-import { hasNip70 } from './relayCaps'
-import { threadTags } from './threading'
-import type { PollOption, PollType } from './polls'
+import { hasNip70 } from './relayCaps.ts'
+import { threadTags } from './threading.ts'
+import type { PollOption, PollType } from './polls.ts'
 
 /** NIP-70 PROTECTED-Marker: bittet das Relay, das Event nur vom Autor annehmbar zu halten. */
 export const PROTECTED = ['-']

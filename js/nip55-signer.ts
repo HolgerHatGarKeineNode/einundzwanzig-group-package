@@ -14,9 +14,9 @@
  */
 import { pubkey } from '@welshman/app'
 import * as nip19 from 'nostr-tools/nip19'
-import { nativeCall, isMobile } from './core'
-import { NIP46_PERMS, permsToNip55Json } from './nip46-perms'
-import { t } from './i18n'
+import { nativeCall, isMobile } from './core.ts'
+import { NIP46_PERMS, permsToNip55Json } from './nip46-perms.ts'
+import { t } from './i18n.ts'
 
 const AMBER_PACKAGE = 'com.greenart7c3.nostrsigner'
 

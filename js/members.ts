@@ -22,9 +22,9 @@ import {
 } from '@welshman/util'
 import { first, randomId, sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
-import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository'
-import { isVereinRelay, roomMembersByUrl } from './groups'
-import { isBuzzRelay } from './relayCaps'
+import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository.ts'
+import { isVereinRelay, roomMembersByUrl } from './groups.ts'
+import { isBuzzRelay } from './relayCaps.ts'
 import {
     spaceIsBuzzAsync,
     buzzAddMember,
@@ -35,10 +35,10 @@ import {
     buzzDeleteEvent,
     buzzResolveReport,
     type BuzzRelayRole,
-} from './buzzAdmin'
-import { warmHandles, verifiedNip05 } from './handles'
+} from './buzzAdmin.ts'
+import { warmHandles, verifiedNip05 } from './handles.ts'
 import { loadSpaceProfiles, profilesByPubkey, purgeSpaceLocalProfiles } from './spaceProfiles.ts'
-import { t } from './i18n'
+import { t } from './i18n.ts'
 
 /** RELAY_ROLE ist app-lokal (kein welshman-Kanon) — als Konstante mitgenommen. */
 export const RELAY_ROLE = 33534
