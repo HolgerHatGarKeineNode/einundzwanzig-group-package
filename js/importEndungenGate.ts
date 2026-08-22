@@ -1,132 +1,55 @@
 /**
- * Scanner für den P3-Riegel: findet relative Importe in `js/*.ts` ohne Dateiendung.
+ * Scanner für den P3-Riegel: findet relative Importe in `js/*.ts` ohne Dateiendung — über
+ * den TypeScript-Compiler-AST, nicht über Textmuster.
  *
  * Ausführen (läuft in `npm run test:unit` mit, über `importEndungenGate.test.ts`):
  *   node --experimental-strip-types --test packages/einundzwanzig-group/js/importEndungenGate.test.ts
  *
  * Plan: `docs/plans/2026-08-20T1712-js-insel-testbar-machen.md`, Abschnitt P3.
  *
- * ── Warum ein Kommentar-Tokenizer statt einer Zeilennummer-Ausnahmeliste ─────────────
+ * ── Warum AST statt Textmuster ────────────────────────────────────────────────────────
  *
- * Zwei bekannte Fundstellen — `js/publishOptimistic.ts:12` (`import('./longformFeed')` in
- * Prosa) und `js/longformFeed.test.ts:11` (`from './core'` etc. in Prosa) — stehen in
- * Blockkommentaren und dürfen dieses Gate nicht rot machen. Eine Ausnahmeliste über
- * Zeilennummern wäre die billigere Lösung — und die falsche: Zeilenverweise sind in diesem
- * Repo am 2026-08-20 und am 2026-08-22 zusammen SECHSMAL gebrochen, ohne dass ein Test rot
- * wurde (Plan, Abschnitt „Risiken & Edge-Cases"). Eine Zeilenliste bricht auf genau dieselbe
- * Art: lautlos, beim nächsten Verschub — und dann entweder verdeckt sie eine echte
- * Fundstelle (falsch grün) oder färbt eine harmlose Zeile rot (falsch rot, blockiert die
- * nächste Änderung ohne Grund). Ein Kommentar-Tokenizer bricht nicht durchs Verschieben,
- * nur an einer Sprachkonstruktion, die er nicht kennt — teurer zu schreiben, aber robuster
- * gegen genau die Änderungsart, die diesen Code am meisten trifft.
+ * Die Vorgängerfassung dieser Datei war ein Kommentar-Tokenizer über rohem Text und hatte
+ * zwei bewiesene Lücken, beide aus derselben Ursache: **JavaScript wird mit Textmustern
+ * geraten, nicht geparst.**
  *
- * ── Grenzen dieser Vereinfachung — und WARUM sie nicht behoben werden ─────────────────
+ * 1. Ein Regex-Literal mit unescapter Zeichenklasse (`/[/*]/` — in `[...]` braucht `/`
+ *    kein Escaping) täuschte einen Block-Kommentar vor und blankte den REST DER DATEI,
+ *    nicht nur eine Zeile (`reviewer`-REJECT, 2026-08-22).
+ * 2. Ein dynamisches `import()` in einem nie aufgerufenen Funktionskörper (Lazy-Chunk-
+ *    Muster, produktiv z. B. `js/bridge.ts:3680`) blieb zusätzlich für das Ladbarkeits-
+ *    Gate unsichtbar, weil dieses nur Toplevel-Code ausführt — beide Riegel schwiegen
+ *    gleichzeitig.
  *
- * **Kein vollständiger JS/TS-Parser: Regex-Literale werden nicht als eigene Kategorie
- * erkannt, und der Blast-Radius ist der REST DER DATEI, nicht eine Zeile.** Belegt vom
- * `reviewer` (2026-08-22, P3-REJECT): `const re = /[/*]/; import { x } from './modul'` —
- * gültiges JS (in `[...]` braucht `/` kein Escaping), aber der Tokenizer liest das `/*`
- * innerhalb der Zeichenklasse als Block-Kommentar-Start und blankt bis zum nächsten
- * Kommentarende (Stern-Schrägstrich) im Text — findet er keins mehr, bis Dateiende
- * (bewusst NICHT als Literal hier hingeschrieben: genau diese zwei Zeichen würden auch
- * DIESEN Docblock vorzeitig schließen — derselbe Effekt, eine Ebene höher, an dem der
- * erste Entwurf dieser Zeile beim `npm run typecheck` gescheitert ist). Ein Import NACH
- * dieser Konstruktion wird
- * unsichtbar, egal wie weit er entfernt steht. Eine frühere Fassung dieses Docblocks
- * bezifferte den Schaden als „eine verschluckte Zeile" — das war falsch, und die
- * Momentaufnahmen-Begründung dahinter („geprüft 2026-08-22, keine Instanz im Repo") ist
- * exakt das Argument, das oben gegen die Zeilennummer-Ausnahmeliste steht: eine Aussage
- * über den heutigen Bestand, keine über die Zukunft.
+ * Jede Text-Heuristik gegen Lücke 1 hätte die nächste eigene Lücke gehabt (Regex vs.
+ * Divisionsoperator ist ohne echten Parser nicht entscheidbar: `a = b /c/ d`). `typescript`
+ * liegt bereits als Abhängigkeit im Repo — `npm run typecheck` nutzt es —, und
+ * `ts.createSourceFile` liefert denselben AST, den der Compiler selbst sieht:
  *
- * **Der Tokenizer wird dafür NICHT repariert.** Regex-Literal gegen Divisionsoperator ist
- * ohne einen echten Parser nicht entscheidbar (`a = b /c/ d` — beides gültige Lesarten je
- * nach vorherigem Token). Eine Heuristik dagegen hätte ihre eigene Lücke, nur eine Ebene
- * tiefer versteckt.
+ *   - Ein Regex-Literal ist für den Parser ein eigener Tokentyp (`RegularExpressionLiteral`),
+ *     niemals ein Kommentarstart — Lücke 1 existiert damit nicht mehr.
+ *   - Ein `import()` ist ein `CallExpression` wie jedes andere; seine Lage im Baum (auf
+ *     Modul-Ebene oder tief in einem Funktionskörper) spielt für die Erkennung keine
+ *     Rolle, weil der AST-Walk den ganzen Baum besucht, nicht nur ausgeführten Code.
+ *   - Kommentare tauchen im AST gar nicht als Code auf — die frühere Sonderbehandlung für
+ *     Blockkommentar-Zitate (`js/publishOptimistic.ts:12`, `js/longformFeed.test.ts:11`)
+ *     erübrigt sich von selbst, es gibt nichts mehr zu tarnen.
  *
- * **Was die Lücke stattdessen deckt: das Ladbarkeits-Gate (`ladbarkeitGate.ts`), und zwar
- * nur TEILWEISE.** Ein vom Tokenizer übersehener STATISCHER Import (`from`/`export …
- * from`/bare) wird beim Laden des Moduls trotzdem aufgelöst — ESM linkt alle statischen
- * Importe vor der Ausführung, unabhängig davon, ob ein Text-Scanner sie sieht. Bewiesen an
- * einer echten Repo-Datei, Fixture-Regressionsfall in
- * `js/fixtures/importGateArbeitsteilung.test.ts` (Fall 1), mit Mutationsprobe.
- * **Offene, unbehobene Lücke:** ein vom Trick verdecktes DYNAMISCHES `import()` in einem
- * Funktionskörper, der beim bloßen Modul-Laden nicht ausgeführt wird (Lazy-Chunk-Muster,
- * produktiv z. B. in `js/bridge.ts:3680`), entgeht BEIDEN Gates — das Ladbarkeits-Gate
- * führt nur Toplevel-Code aus. Festgehalten, nicht verschwiegen, in
- * `importGateArbeitsteilung.test.ts` (Fall 2). Dieses Import-Gate ist also OHNE das
- * Ladbarkeits-Gate unvollständig, und selbst mit beiden bleibt der Lazy-Fall offen.
+ * **Wichtig für den nächsten Leser, der „vereinfachen" will:** der AST-Weg ist nicht die
+ * aufwendigere Lösung — er ist kürzer als der Tokenizer, den er ersetzt (siehe Git-Historie
+ * dieser Datei), und hat keine offene Lücke. Ein Rückbau auf Textmuster bringt beide oben
+ * genannten Lücken zurück.
  *
- * Template-Interpolationen (`${...}`) werden als Teil des Template-Strings kopiert, nicht
- * rekursiv geparst — für diesen Scanner unproblematisch, da produktive Importe nie in
- * Template-Strings stehen. String-Literale werden ABSICHTLICH nicht blank gemacht (sonst
- * würde ein echter Importpfad darin verstümmelt) — eine Business-String, die wörtlich
- * `import('./x')` enthält, würde deshalb fälschlich als Fund erscheinen (fail-closed in die
- * andere Richtung: lieber ein unnötiger roter Treffer als ein verschluckter echter).
+ * Das Ladbarkeits-Gate (`ladbarkeitGate.ts`) bleibt bestehen, deckt aber jetzt eine ANDERE
+ * Klasse: Toplevel-Nebeneffekte ohne jedes Import-Muster (`document.addEventListener` in
+ * `toast.ts`), die kein AST-Walk über Importe je sehen würde — es ist kein Ersatzriegel für
+ * dieses Gate mehr, siehe dessen eigenen Docblock.
  */
 import { readFileSync, readdirSync } from 'node:fs'
-import { join, extname } from 'node:path'
+import { extname, join } from 'node:path'
+import ts from 'typescript'
 
 const ERLAUBTE_ENDUNGEN = new Set(['.ts', '.js', '.json', '.css', '.svg', '.mjs'])
-
-/**
- * Ersetzt Zeilen- und Blockkommentare durch Leerzeichen (Zeilenumbrüche bleiben stehen,
- * damit Zeilennummern der Fundstellen stimmen); String- und Template-Inhalte bleiben
- * unangetastet, damit ein Importpfad darin nicht verstümmelt wird.
- */
-export function bereinigeKommentare(quelltext: string): string {
-    let ausgabe = ''
-    let i = 0
-    const n = quelltext.length
-    while (i < n) {
-        const zwei = quelltext.slice(i, i + 2)
-        if (zwei === '//') {
-            const zeilenende = quelltext.indexOf('\n', i)
-            const bis = zeilenende === -1 ? n : zeilenende
-            ausgabe += ' '.repeat(bis - i)
-            i = bis
-            continue
-        }
-        if (zwei === '/*') {
-            const kommentarende = quelltext.indexOf('*/', i + 2)
-            const bis = kommentarende === -1 ? n : kommentarende + 2
-            ausgabe += quelltext.slice(i, bis).replace(/[^\n]/g, ' ')
-            i = bis
-            continue
-        }
-        const zeichen = quelltext[i]
-        if (zeichen === "'" || zeichen === '"' || zeichen === '`') {
-            let j = i + 1
-            while (j < n) {
-                if (quelltext[j] === '\\') {
-                    j += 2
-                    continue
-                }
-                if (quelltext[j] === zeichen) {
-                    j += 1
-                    break
-                }
-                j += 1
-            }
-            ausgabe += quelltext.slice(i, j)
-            i = j
-            continue
-        }
-        ausgabe += zeichen
-        i += 1
-    }
-    return ausgabe
-}
-
-/**
- * Trifft alle acht bekannten Importformen über EIN Muster: das Schlüsselwort
- * (`from`/`import`/`require`), optional gefolgt von `(`, dann das Anführungszeichen.
- * Damit deckt diese eine Regel `from './x'`, `import './x'` (bare Side-Effect-Import),
- * `import('./x')`, `export … from './x'`, `import type … from './x'`, `require('./x')`,
- * doppelte Anführungszeichen und mehrzeilige Import-Statements (das Muster verlangt kein
- * Zeilenende zwischen Schlüsselwort und Anführungszeichen, `\s` schließt `\n` ein) — ohne
- * acht getrennte Regexe zu pflegen.
- */
-const IMPORT_MUSTER = /\b(?:from|import|require)\s*\(?\s*(['"])(\.\.?\/[^'"]*)\1/g
 
 export type Fundstelle = { datei: string; zeile: number; ausschnitt: string }
 
@@ -134,27 +57,61 @@ function hatErlaubteEndung(importPfad: string): boolean {
     return ERLAUBTE_ENDUNGEN.has(extname(importPfad))
 }
 
-/** @param dateiname Nur für die Meldung — der Scanner selbst kennt keine Pfade. */
+function istRelativerPfad(pfad: string): boolean {
+    return pfad.startsWith('./') || pfad.startsWith('../')
+}
+
+/**
+ * Findet alle acht Importformen (`from`, bare Side-Effect-Import, `import()`, `export …
+ * from`, `import type … from`, doppelte Anführungszeichen, mehrzeilig, `require()`) über
+ * denselben AST — `ts.isImportDeclaration`/`ts.isExportDeclaration` decken die ersten
+ * fünf (eine `ImportDeclaration` ohne `importClause` IST der bare Import, `isTypeOnly`
+ * ändert an der Knotenart nichts), ein `CallExpression`, dessen `expression` das
+ * `ImportKeyword` ist, deckt `import()`, derselbe Knotentyp mit dem Bezeichner `require`
+ * deckt `require()`.
+ *
+ * @param dateiname Nur für die Meldung — der Scanner selbst kennt keine Pfade.
+ */
 export function findeInDatei(dateiname: string, quelltext: string): Fundstelle[] {
-    const bereinigt = bereinigeKommentare(quelltext)
+    const sourceFile = ts.createSourceFile(dateiname, quelltext, ts.ScriptTarget.Latest, true)
     const treffer: Fundstelle[] = []
-    for (const match of bereinigt.matchAll(IMPORT_MUSTER)) {
-        const importPfad = match[2]!
-        if (hatErlaubteEndung(importPfad)) {
-            continue
+
+    const melde = (spezifizierer: ts.StringLiteralLike): void => {
+        const pfad = spezifizierer.text
+        if (!istRelativerPfad(pfad) || hatErlaubteEndung(pfad)) {
+            return
         }
-        const zeile = bereinigt.slice(0, match.index).split('\n').length
-        treffer.push({ datei: dateiname, zeile, ausschnitt: match[0] })
+        const { line } = sourceFile.getLineAndCharacterOfPosition(spezifizierer.getStart(sourceFile))
+        treffer.push({ datei: dateiname, zeile: line + 1, ausschnitt: spezifizierer.getText(sourceFile) })
     }
+
+    const besuche = (knoten: ts.Node): void => {
+        if (
+            (ts.isImportDeclaration(knoten) || ts.isExportDeclaration(knoten)) &&
+            knoten.moduleSpecifier &&
+            ts.isStringLiteralLike(knoten.moduleSpecifier)
+        ) {
+            melde(knoten.moduleSpecifier)
+        } else if (ts.isCallExpression(knoten)) {
+            const istDynamicImport = knoten.expression.kind === ts.SyntaxKind.ImportKeyword
+            const istRequire = ts.isIdentifier(knoten.expression) && knoten.expression.text === 'require'
+            const argument = knoten.arguments[0]
+            if ((istDynamicImport || istRequire) && argument && ts.isStringLiteralLike(argument)) {
+                melde(argument)
+            }
+        }
+        ts.forEachChild(knoten, besuche)
+    }
+    besuche(sourceFile)
+
     return treffer
 }
 
 /**
  * Untergrenze fail-closed, Vorbild `I18nCatalogGateTest.php:82` („der Scanner sieht das
- * Repo — sonst ist sein ‚0 fehlend' wertlos"). 112 nicht-Test-`.ts`-Module plus laufend
- * wachsende Zahl an `.test.ts`-Dateien standen am 2026-08-22 unter `js/` (`ls js/*.ts |
- * wc -l` = 188 insgesamt). Bewusst deutlich darunter angesetzt: eine Untergrenze ist kein
- * Sollwert, sie bewegt sich bei normalem Wachstum nie.
+ * Repo — sonst ist sein ‚0 fehlend' wertlos"). 192 `.ts`-Dateien standen am 2026-08-22
+ * unter `js/` (`ls js/*.ts | wc -l`). Bewusst deutlich darunter angesetzt: eine
+ * Untergrenze ist kein Sollwert, sie bewegt sich bei normalem Wachstum nie.
  */
 export const MIN_TS_DATEIEN = 150
 

@@ -58,11 +58,12 @@ describe('Import-Gate: relative Importe ohne Dateiendung', () => {
         )
     })
 
-    test('die zwei bekannten Fundstellen in Blockkommentaren bleiben unentdeckt (Positivkontrolle der Kommentar-Erkennung im echten Repo)', () => {
+    test('die zwei bekannten Fundstellen in Blockkommentaren bleiben unentdeckt (der AST kennt Kommentare gar nicht als Code)', () => {
         // publishOptimistic.ts:12 zitiert `import('./longformFeed')` in Prosa;
         // longformFeed.test.ts:11 zitiert `from './core'` u.a. in Prosa. Beide dürfen NICHT
-        // als Fund erscheinen — täten sie es doch, wäre die Kommentar-Erkennung kaputt und
-        // der KERNBEWEIS oben bereits rot; diese Probe benennt die Ursache konkret.
+        // als Fund erscheinen — der AST-Walk sieht Kommentare als Trivia, nicht als
+        // CallExpression/ImportDeclaration; träten sie trotzdem auf, wäre der KERNBEWEIS
+        // oben bereits rot, diese Probe benennt nur die Ursache konkret.
         const treffer = scanne(JS_DIR)
         const betroffen = treffer.filter((f) => f.datei === 'publishOptimistic.ts' || f.datei === 'longformFeed.test.ts')
         assert.deepEqual(betroffen, [])
