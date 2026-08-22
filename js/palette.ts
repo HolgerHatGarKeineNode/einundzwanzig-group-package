@@ -54,17 +54,17 @@ import {
     watchSpaceRooms,
     type RoomView,
     type SpaceView,
-} from './groups'
-import { spaceBranding } from './relayCaps'
-import { deriveSpaceDirectory, watchSpaceDirectory, type DirectoryView, type MemberView } from './members'
-import { loadMeetupPresentations, meetupPresentationBySlug } from './meetups'
-import { type MeetupPresentation } from './meetupPresentation'
-import { workspaceRoomHref } from './spaceParam'
-import { regionName } from './countryNames'
-import { dispatchModal } from './modal'
-import { flashToast } from './toast'
-import { t } from './i18n'
-import { type RailGroupKey } from './railGroups'
+} from './groups.ts'
+import { spaceBranding } from './relayCaps.ts'
+import { deriveSpaceDirectory, watchSpaceDirectory, type DirectoryView, type MemberView } from './members.ts'
+import { loadMeetupPresentations, meetupPresentationBySlug } from './meetups.ts'
+import { type MeetupPresentation } from './meetupPresentation.ts'
+import { workspaceRoomHref } from './spaceParam.ts'
+import { regionName } from './countryNames.ts'
+import { dispatchModal } from './modal.ts'
+import { flashToast } from './toast.ts'
+import { t } from './i18n.ts'
+import { type RailGroupKey } from './railGroups.ts'
 import {
     EMPTY_PALETTE_SCOPE,
     PALETTE_SECTIONS,
@@ -80,10 +80,10 @@ import {
     type PaletteRoom,
     type PaletteScope,
     type PaletteSection,
-} from './paletteItems'
-import { deriveSpaceKind, type SpaceKind } from './spaceCaps'
-import { deriveEventsForUrl } from './repository'
-import { searchMessages, type SearchHit, type SearchableRow } from './search'
+} from './paletteItems.ts'
+import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
+import { deriveEventsForUrl } from './repository.ts'
+import { searchMessages, type SearchHit, type SearchableRow } from './search.ts'
 import {
     SEARCH_CONTENT_KINDS,
     runSpaceSearch,
@@ -91,7 +91,7 @@ import {
     toPersonHits,
     type MessageHit,
     type PersonHit,
-} from './spaceSearch'
+} from './spaceSearch.ts'
 
 /** Der Name der beiden Flux-Modals — geteilt zwischen Insel und Blade. */
 export const PALETTE_MODAL = 'command-palette'
