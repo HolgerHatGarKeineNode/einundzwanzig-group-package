@@ -162,6 +162,21 @@
                             data-palette-section="rooms"
                             data-palette-sigil="#"
                             x-bind:data-palette-h="room.h"
+                            {{-- Reine Beobachtungsstelle, kein Verhalten: `recentRooms()`
+                                 füllt den Ruhezustand bewusst mit ENTDECKBAREN Räumen auf,
+                                 solange keine fünf beigetretenen bekannt sind (und während
+                                 die 39002 noch laufen, sind das null). Ein solcher Raum
+                                 öffnet sich richtig — nur steht dort das Beitritts-Gate
+                                 statt des Composers (`⚡room.blade.php`:
+                                 `x-show="membershipReady && joined && !isForum"`). Ohne
+                                 diesen Wert ist von außen nicht unterscheidbar, ob die
+                                 Liste schon die beigetretenen zeigt; die E2E-Vorbedingung
+                                 in `command-palette.spec.ts` liest genau ihn.
+                                 Ausgeschriebenes 'true'/'false' statt der rohen Bindung:
+                                 Alpine entfernt ein `x-bind`-Attribut bei falsy Wert, und
+                                 „Attribut fehlt" hieße dann zweierlei — nicht beigetreten
+                                 ODER noch nicht gebunden. --}}
+                            x-bind:data-palette-joined="room.joined === true ? 'true' : 'false'"
                             x-bind:aria-label="@js(__('Raum: :name')).split(':name').join(room.name)"
                             x-on:click="openRoom(room)"
                             class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
