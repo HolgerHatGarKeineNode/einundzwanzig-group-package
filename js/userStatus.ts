@@ -248,7 +248,7 @@ export const RELISTEN_DELAY_MS = 2000
  * Neu aufgezogen wird **nur bei Abriss**, nicht bei `CLOSED`: eine Ablehnung des
  * Relays (kein Mitglied, `auth-required`) ist eine Entscheidung, keine Panne — sie in
  * einer Schleife zu wiederholen wäre der Dauer-Retry, den dieses Repo an anderer
- * Stelle bewusst vermeidet (`readStateSync.ts:380-384`).
+ * Stelle bewusst vermeidet (die Nachschub-Prüfung am Ende von `publishReadState`, `readStateSync.ts`).
  */
 const listenUserStatuses = (url: string): void => {
     if (listening.has(url)) {

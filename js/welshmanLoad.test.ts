@@ -108,7 +108,7 @@ describe('welshman load(): der Rückgabewert verschweigt keinen Cache-Bestand', 
         assert.deepEqual(
             events.map((event) => event.id),
             [membersEvent.id],
-            'load() muss die gecachte 39002 liefern — sonst lesen groups.ts:702/770/875 ins Leere',
+            'load() muss die gecachte 39002 liefern — sonst lesen loadUserGroupList/reconcileSpaceRooms in groups.ts ins Leere',
         )
         // Und die Fläche: sie liest ohnehin aus dem Repository, nicht aus dem Rückgabewert.
         assert.equal(repository.query(filters).length, 1)

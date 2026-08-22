@@ -485,7 +485,8 @@ export const artikelVonEreignis = (event: TrustedEvent, adresseVonId: Map<string
  * Der Plan nannte sie „reine Funktion, fertig". Nachgeprüft ist sie das nicht:
  *
  *  1. Sie ist in `feeds.ts` **nicht exportiert**.
- *  2. `feeds.ts` lässt sich unter `node --test` nicht laden (endungslose Importe, danach
+ *  2. `feeds.ts` zieht beim Import den App-Boot mit (bis P1/P2 des Plans
+ *     `js-insel-testbar-machen` war es gar nicht ladbar: endungslose Importe, danach
  *     `localStorage` beim Import von `session.ts`) — ein Test dieser Zählung hinge damit
  *     am ganzen Speicher-Subsystem.
  *  3. Sie baut `ReactionChip[]` mit Anzeigenamen, Custom-Emoji-Bildern und

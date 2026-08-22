@@ -177,10 +177,12 @@ const metrikRelays = (): string[] => (BOARD_URL ? [...new Set([BOARD_URL, ...SEK
  * wird hier nur durchgereicht.
  *
  * Der Umzug ist keine Kosmetik: `toRow` war der Kernbeweis dieser Fläche und lag in einem
- * Modul, das sich unter `node --test` nicht importieren lässt (gemessen 2026-08-20: 13
- * endungslose relative Importe in der Kette ab hier, und danach bootet `session.ts` beim
- * Import ein `localStorage`, das es in node nicht gibt). Die Adresse des Typs bleibt
- * absichtlich diese hier, damit `bridge.ts` unverändert bleibt.
+ * Modul, das damals unter `node --test` nicht importierbar war (gemessen 2026-08-20: 13
+ * endungslose relative Importe in der Kette ab hier, und danach ein `localStorage` beim
+ * Import von `session.ts`). Beide Barrieren sind seit P1/P2 des Plans
+ * `js-insel-testbar-machen` weg — geblieben ist der Boot-Aufwand des Graphen, und damit
+ * der Grund, den reinen Typ getrennt zu halten. Die Adresse des Typs bleibt absichtlich
+ * diese hier, damit `bridge.ts` unverändert bleibt.
  */
 export type { ArticleRow } from './longform.ts'
 
@@ -412,7 +414,7 @@ const toRow = (event: TrustedEvent, picture: string, formatDate = dateLabelAbsol
 /**
  * Der Typ {@link ArticleRowMitMetriken} wohnt in `articleMetrics.ts` und wird hier nur
  * weitergereicht — dieselbe Begründung wie bei `ArticleRow` darüber: er muss unter
- * `node --test` erreichbar sein, und diese Datei ist es nicht.
+ * `node --test` ohne den App-Boot erreichbar sein, und diese Datei zieht ihn mit.
  */
 export type { ArticleRowMitMetriken } from './articleMetrics.ts'
 
