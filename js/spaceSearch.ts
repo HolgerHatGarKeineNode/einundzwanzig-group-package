@@ -87,10 +87,14 @@
  * dieselbe Wirkung für den kind-0-Riegel, aber `verifyEvent` bleibt scharf.
  *
  * ── Ladbarkeit aus `node --test` ────────────────────────────────────────────
- * Relative Importe mit `.ts`-Endung; `@welshman/net` (und mit ihm `@welshman/app`
- * samt `localStorage`-Zugriff beim Modulladen) wird NUR lazy per `import()` im
+ * Relative Importe mit `.ts`-Endung; `@welshman/net` wird NUR lazy per `import()` im
  * Standard-Dep geholt. Der Test setzt seinen eigenen `request` ein und lädt
  * welshman-Netz nie.
+ *
+ * Die frühere Begründung dafür („`@welshman/app` fasst beim Modulladen `localStorage`
+ * an") ist überholt: gemessen am 2026-08-22 laden `@welshman/app` und `@welshman/net`
+ * unter node fehlerfrei. Der lazy Import bleibt trotzdem richtig — er hält den
+ * Netz-Stack aus dem Test heraus, nicht nur aus der Ladbarkeit.
  */
 import { verifyEvent, type TrustedEvent } from '@welshman/util'
 import {

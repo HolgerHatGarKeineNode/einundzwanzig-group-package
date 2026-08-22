@@ -47,8 +47,14 @@ export type ViewportStore = {
  * `nativeApp` = `isMobile` aus `core.ts` (das NativePHP-Flag `window.__nostrMobile`).
  * Es wird HEREINGEREICHT statt importiert, damit dieses Modul frei von welshman
  * bleibt: `core.ts` konfiguriert beim Import die welshman-Kontexte und fasst
- * `localStorage` an — ein Import hier machte `viewport.ts` unter `node --test`
- * unladbar.
+ * `localStorage` an.
+ *
+ * **Der Grund hat sich am 2026-08-22 geändert, die Entscheidung nicht.** Bis dahin
+ * machte ein Import hier `viewport.ts` unter `node --test` unladbar; seit P2 des Plans
+ * `js-insel-testbar-machen` lädt `core.ts` (Exit 0), gibt beim Laden aber weiterhin
+ * einen gefangenen `getItem`-Fehler aus. Der Kontext-Aufbau selbst bleibt ein
+ * Nebeneffekt, den ein Test dieses Moduls nicht will — deshalb wird `nativeApp`
+ * weiterhin hereingereicht.
  */
 export function wireViewport(
     Alpine: { store: (name: string, value?: unknown) => unknown },

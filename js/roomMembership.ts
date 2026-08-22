@@ -34,8 +34,11 @@
  * Seit N3 zusätzlich: sie darf nicht ÄLTER sein — die Id-Regel allein setzt voraus,
  * dass genau ein Relay-Knoten antwortet (Begründung an {@link confirmsMembership}).
  *
- * Reines Modul: keine Imports, damit es unter `node --test` ohne welshman läuft
- * (`@welshman/app` fasst beim Modul-Load `localStorage` an).
+ * Reines Modul: keine Imports, damit es unter `node --test` ohne welshman läuft.
+ * (Die frühere Begründung „`@welshman/app` fasst beim Modul-Load `localStorage` an"
+ * stimmt seit dem 2026-08-22 nicht mehr — gemessen lädt das Paket unter node
+ * fehlerfrei. Reine Module bleiben trotzdem die billigere Bauform: kein Paket-Boot
+ * im Test, keine Bindung an eine welshman-Version.).
  */
 
 /** Was der Relay über die eigene Mitgliedschaft eines Raums zuletzt sagte. */

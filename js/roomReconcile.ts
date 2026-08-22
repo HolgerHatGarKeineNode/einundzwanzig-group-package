@@ -97,8 +97,11 @@
  * keine Kachel. Der Preis ist eine Kachel, die nach einem Rauswurf verschwindet statt
  * ein Gate zu zeigen — und ein Wiederbeitritt bringt sie mit dem nächsten REQ zurück.
  *
- * Reines Modul: **keine Imports**, damit es unter `node --test` ohne welshman läuft
- * (`@welshman/app` fasst beim Modul-Load `localStorage` an) — dieselbe Bauform wie
+ * Reines Modul: **keine Imports**, damit es unter `node --test` ohne welshman läuft.
+ * (Die frühere Begründung „`@welshman/app` fasst beim Modul-Load `localStorage` an"
+ * stimmt seit dem 2026-08-22 nicht mehr — gemessen lädt das Paket unter node
+ * fehlerfrei. Reine Module bleiben trotzdem die billigere Bauform: kein Paket-Boot
+ * im Test, keine Bindung an eine welshman-Version.) — dieselbe Bauform wie
  * `roomGate.ts` und `roomMembership.ts`.
  */
 

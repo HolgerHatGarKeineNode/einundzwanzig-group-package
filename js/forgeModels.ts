@@ -66,9 +66,14 @@ export const DELETION = 5
  * Das Ereignis, so weit dieses Modul es braucht.
  *
  * Bewusst ein eigener, struktureller Typ statt `TrustedEvent` aus
- * `@welshman/util`: dieses Modul muss ohne welshman ladbar bleiben (der
- * Node-Test-Runner zöge sonst `localStorage` beim Modulladen nach). Ein
+ * `@welshman/util`: dieses Modul bleibt bewusst frei von welshman. Ein
  * `TrustedEvent` passt strukturell hinein.
+ *
+ * **Die ursprüngliche Begründung ist überholt** — sie lautete, der Node-Test-Runner
+ * zöge sonst `localStorage` beim Modulladen nach. Gemessen am 2026-08-22 lädt
+ * `@welshman/util` (wie `@welshman/app` und `@welshman/net`) unter node fehlerfrei.
+ * Was bleibt: ein Typ ohne Paket-Abhängigkeit hält den Test unabhängig von
+ * welshman-Versionen.
  */
 export type ForgeEvent = {
     id: string

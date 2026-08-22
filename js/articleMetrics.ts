@@ -206,9 +206,11 @@ export const leseRelayListeNachsichtig = (
  * Darf dieser Relay eine NIP-42-AUTH-Antwort von uns bekommen — also unseren Pubkey?
  *
  * **Rein und exportiert, damit die Entscheidung prüfbar ist.** Verdrahtet wird sie in
- * `js/core.ts` (`shouldAuth`), und dort ist sie nicht testbar: die Datei ist unter
- * `node --test` nicht ladbar und ihre Wirkung hängt an einem echten Socket. Die REGEL
- * gehört deshalb hierher, wo ein Fixture sie festnageln kann.
+ * `js/core.ts` (`shouldAuth`), und dort ist sie nicht testbar: ihre Wirkung hängt an
+ * einem echten Socket. Die REGEL gehört deshalb hierher, wo ein Fixture sie festnageln
+ * kann. (Der zweite, früher hier genannte Grund — `core.ts` sei unter `node --test`
+ * nicht ladbar — ist seit dem 2026-08-22 überholt: die Datei lädt, gibt beim Laden aber
+ * einen gefangenen `getItem`-Fehler aus. Der Socket-Grund allein trägt.)
  *
  * ── Was hier verhindert wird ──────────────────────────────────────────────────────
  *
