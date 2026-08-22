@@ -18,11 +18,14 @@
  * **Warum hier dupliziert statt importiert wird** (drei Symbole, je gemessen):
  *   • `CHAT_THREAD = 10` und {@link updatesCommentRootId} stehen wörtlich auch in
  *     `feeds.ts` — `feeds.ts` zieht über `./core` den kompletten App-Boot (welshman-
- *     Kontext, IndexedDB) mit und ist unter `node --test` nicht ladbar.
- *   • `mentionPubkeys` aus `interactions.ts` ist rein, das MODUL aber nicht ladbar:
- *     `node --experimental-strip-types -e "import('./js/interactions.ts')"` endet in
- *     `ERR_MODULE_NOT_FOUND: Cannot find module '…/js/relayCaps'` (extensionslose
- *     relative Importe kennt Nodes ESM-Auflösung nicht). Gemessen 2026-07-23.
+ *     Kontext, IndexedDB) mit. **Es lädt seit dem 2026-08-22 unter `node --test`**
+ *     (Exit 0), gibt dabei aber einen gefangenen `getItem`-Fehler aus; den App-Boot
+ *     will ein Test dieses Moduls weiterhin nicht.
+ *   • `mentionPubkeys` aus `interactions.ts` ist rein. Das Modul war am 2026-07-23
+ *     nicht ladbar (`ERR_MODULE_NOT_FOUND: … '…/js/relayCaps'` — extensionslose
+ *     relative Importe kennt Nodes ESM-Auflösung nicht). **P1 desselben Plans hat das
+ *     am 2026-08-22 behoben**; `interactions.ts` lädt heute sauber. Die Dopplung ist
+ *     damit ein Kandidat für einen echten Import, kein Zwang mehr.
  *   • `readState.ts`s Boot-Gate (`readStateBooted`) ist modul-privat und `unread.ts`
  *     gehört in dieser Phase einem anderen Arbeitsstrang — es wird hier nachgebaut,
  *     nicht angefasst.

@@ -31,8 +31,19 @@ export function flashToast(text: string, variant: ToastVariant = 'info', duratio
     }
 }
 
-/** Registriert das einmalige Abspielen geparkter Flash-Toasts nach Navigation. */
+/**
+ * Registriert das einmalige Abspielen geparkter Flash-Toasts nach Navigation.
+ *
+ * Ohne DOM (node) ein No-op: `index.ts` ruft diese Funktion beim Modul-Eval, und
+ * ein `document`-Zugriff dort sperrte den Sammel-Einstieg der Insel aus jedem
+ * reinen Test aus — die dritte und letzte Toplevel-Barriere neben den beiden
+ * localStorage-Bindungen (Plan `js-insel-testbar-machen`, P2). Im Browser ändert
+ * die Prüfung nichts: dort ist `document` immer da.
+ */
 export function setupFlashToast(): void {
+    if (typeof document === 'undefined') {
+        return
+    }
     const replay = (): void => {
         const raw = sessionStorage.getItem(FLASH_KEY)
         if (!raw) {

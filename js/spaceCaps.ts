@@ -59,10 +59,12 @@ import { isBuzzRelay } from './relayCaps.ts'
  * zweite, klar benannte Bühne daneben.
  *
  * **Stand hier statt in `groups.ts`** (dort bis P1 des Buzz-Workspace-Plans):
- * `groups.ts` ist über seine endungslosen Importe und den localStorage-Zugriff
- * beim Laden aus `node --test` nicht ladbar. Ein `spaceCaps.ts`, das von dort
- * importierte, wäre selbst untestbar. `groups.ts` re-exportiert beide Namen
- * unverändert weiter — kein Aufrufer ändert sich.
+ * `groups.ts` bootet beim Import den halben App-Graphen; ein `spaceCaps.ts`, das
+ * von dort importierte, zöge das in jeden seiner Tests. `groups.ts` re-exportiert
+ * beide Namen unverändert weiter — kein Aufrufer ändert sich.
+ * (Die frühere, härtere Begründung — `groups.ts` sei wegen endungsloser Importe und
+ * eines localStorage-Zugriffs beim Laden aus `node --test` gar nicht ladbar — gilt
+ * seit P1/P2 des Plans `js-insel-testbar-machen` nicht mehr.)
  */
 export const workspaceUrlFrom = (override?: string): string => (override ? normalizeRelayUrl(override) : '')
 

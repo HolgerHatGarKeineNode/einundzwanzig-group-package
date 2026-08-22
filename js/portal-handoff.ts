@@ -21,8 +21,8 @@
  * App (`isMobile`); im Web ohne Portal-Host ein No-op.
  */
 import { signer } from '@welshman/app'
-import { isMobile } from './core'
-import { portalAuthEventTemplate } from './portal-auth-event'
+import { isMobile } from './core.ts'
+import { portalAuthEventTemplate } from './portal-auth-event.ts'
 
 /** sessionStorage-Marker: „nach dem Login das Portal verbinden" (überlebt die
  *  Login-Navigation, wird beim Erfolg gelöscht). */

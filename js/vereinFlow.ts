@@ -5,7 +5,9 @@
  *
  * ── Warum ein eigenes Modul neben `verein.ts` ────────────────────────────────
  * `verein.ts` ist die Insel: welshman-Stores, `fetch`, Wallet, Relay-Sockets.
- * Nichts davon ist unter `node --test` ladbar. Die Aussagen, an denen dieser
+ * Nichts davon ist ohne Browser SINNVOLL zu prüfen (ladbar ist `verein.ts` seit P2
+ * des Plans `js-insel-testbar-machen`, nur eben ohne Netz und ohne DOM). Die
+ * Aussagen, an denen dieser
  * Schritt hängt, sind aber genau die, die man ohne Browser prüfen können MUSS —
  * allen voran die eine, die unsichtbar falsch sein kann:
  *

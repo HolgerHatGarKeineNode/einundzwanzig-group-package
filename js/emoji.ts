@@ -9,8 +9,8 @@
 import { load } from '@welshman/net'
 import { repository, pubkey } from '@welshman/app'
 import type { Filter, TrustedEvent } from '@welshman/util'
-import { DEFAULT_RELAYS, proxifyImage } from './core'
-import { emojiTagsForContent } from './emojiTags'
+import { DEFAULT_RELAYS, proxifyImage } from './core.ts'
+import { emojiTagsForContent } from './emojiTags.ts'
 
 /** NIP-30-Kinds: kuratierte User-Liste bzw. benanntes Emoji-Set. */
 const USER_EMOJI_LIST = 10030

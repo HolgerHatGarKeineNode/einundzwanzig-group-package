@@ -39,12 +39,12 @@ import {
     watchSpaceRooms,
     type RoomView,
     type SpaceView,
-} from './groups'
-import { loadMeetupPresentations, meetupPresentationBySlug } from './meetups'
-import { type MeetupPresentation } from './meetupPresentation'
-import { workspaceRoomHref } from './spaceParam'
-import { regionName } from './countryNames'
-import { sumUnreadRooms } from './unread'
+} from './groups.ts'
+import { loadMeetupPresentations, meetupPresentationBySlug } from './meetups.ts'
+import { type MeetupPresentation } from './meetupPresentation.ts'
+import { workspaceRoomHref } from './spaceParam.ts'
+import { regionName } from './countryNames.ts'
+import { sumUnreadRooms } from './unread.ts'
 import {
     EMPTY_SCOPE,
     RAIL_GROUP_ORDER,
@@ -58,7 +58,7 @@ import {
     type RailRoom,
     type RailScope,
     type WorkspacePrefs,
-} from './railGroups'
+} from './railGroups.ts'
 import {
     FORGE_OVERVIEW_HREF,
     buildForgeNav,
@@ -71,10 +71,10 @@ import {
     type ForgeNavProject,
     type ForgeNavRepo,
     type RailTarget,
-} from './railForge'
-import { subscribeWorkspacePrefs } from './channelPrefs'
-import { subscribeForgeNav } from './forge'
-import { t } from './i18n'
+} from './railForge.ts'
+import { subscribeWorkspacePrefs } from './channelPrefs.ts'
+import { subscribeForgeNav } from './forge.ts'
+import { t } from './i18n.ts'
 
 /**
  * localStorage-Schlüssel des Auf/Zu-Zustands.

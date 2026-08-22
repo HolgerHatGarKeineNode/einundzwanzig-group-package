@@ -154,7 +154,7 @@ export const statusExpiresAt = (tags: string[][]): number | null => {
  * ist. Kind und `d`-Tag werden geprüft, obwohl der Filter beides schon einschränkt:
  * ein Relay, das auf einen `#d`-Filter etwas anderes zurückgibt, darf nicht als
  * Status eines fremden Pubkeys durchrutschen (gleiche Disziplin wie
- * `readStateSync.ts:281-284`).
+ * der Nachprüfung von `pubkey`/`kind`/`d` in `loadRemoteReadState`, `readStateSync.ts`).
  */
 export const parseStatusEvent = (event: StatusEventLike): ParsedStatus | null => {
     if (!event || typeof event.pubkey !== 'string' || event.pubkey === '') {

@@ -230,17 +230,22 @@ const warnOnce = (error: unknown): void => {
 const outboxRelays = (): string[] => Router.get().FromUser().getUrls()
 
 /**
- * Die aktive Space-URL — **dynamisch** importiert, aus einem harten Grund: `js/groups.ts`
- * ist unter `node --test` nicht ladbar (extensionslose relative Importe, dazu ein
- * `localStorage`-Zugriff beim Modul-Eval). Ein statischer Import risse die Tests dieses
- * Moduls mit. Gleiches Muster wie `readState.ts` bei `./session`.
+ * Die aktive Space-URL — **dynamisch** importiert: `js/groups.ts` bootet beim Import den
+ * halben App-Graphen (welshman-Kontext, Raum-Abos, Push-Zustand). Ein statischer Import
+ * zöge das in jeden Test dieses Moduls. Gleiches Muster wie `readState.ts` bei
+ * `./session.ts`.
+ *
+ * Bis P2 des Plans `js-insel-testbar-machen` stand hier ein härterer Grund — `groups.ts`
+ * sei unter `node --test` überhaupt nicht ladbar (endungslose Importe, dazu ein
+ * `localStorage`-Zugriff beim Modul-Eval). Beides ist behoben; der Import bleibt trotzdem
+ * dynamisch, weil der Boot-Aufwand steht.
  *
  * Kein Space, kaputter Import, kein Browser ⇒ leerer String; {@link syncRelays} wirft ihn
  * weg und der Sync läuft mit der Outbox allein weiter.
  */
 const spaceRelay = async (): Promise<string> => {
     try {
-        const { activeSpace } = await import('./groups')
+        const { activeSpace } = await import('./groups.ts')
         return get(activeSpace) || ''
     } catch {
         return ''

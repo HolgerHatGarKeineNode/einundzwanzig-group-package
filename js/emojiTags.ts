@@ -1,8 +1,12 @@
 /**
  * NIP-30-Tag-Ableitung für ausgehende Nachrichten — die reine Hälfte von
  * `emoji.ts`. Eigenes Modul, weil `emoji.ts` beim Import welshman (und damit
- * `localStorage`) anfasst und deshalb unter `node --test` nicht ladbar ist; diese
- * Regel ist aber genau die, die man testen will.
+ * `localStorage`) anfasst; diese Regel ist aber genau die, die man testen will.
+ *
+ * **Seit dem 2026-08-22 lädt `emoji.ts` unter `node --test`** (P2 des Plans
+ * `js-insel-testbar-machen`), gibt dabei aber weiterhin einen gefangenen
+ * `getItem`-Fehler aus und zieht den halben App-Boot mit. Die Trennung bleibt deshalb
+ * richtig — nur nicht mehr aus Gründen der Ladbarkeit.
  */
 
 /** Alles, was zum Bauen eines `emoji`-Tags nötig ist (strukturell = `CustomEmoji`). */

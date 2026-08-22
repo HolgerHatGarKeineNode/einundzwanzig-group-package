@@ -33,10 +33,10 @@ import { pubkey } from '@welshman/app'
 import { MESSAGE, type TrustedEvent } from '@welshman/util'
 import { throttled } from '@welshman/store'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
-import { deriveEventsForUrl } from './repository'
-import { warmProfiles } from './profiles'
-import { isThreadReply, threadRootId } from './threading'
-import { timelineFullLabel, timelineTimeLabel } from './forgeTimeline'
+import { deriveEventsForUrl } from './repository.ts'
+import { warmProfiles } from './profiles.ts'
+import { isThreadReply, threadRootId } from './threading.ts'
+import { timelineFullLabel, timelineTimeLabel } from './forgeTimeline.ts'
 import {
     FORUM_COMMENT,
     FORUM_POST,
@@ -44,7 +44,7 @@ import {
     type ForumReplyInput,
     type ForumRootInput,
     type ForumTopicRow,
-} from './forumModels'
+} from './forumModels.ts'
 
 /**
  * Themen + Antworten EINES Forumkanals.

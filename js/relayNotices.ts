@@ -27,7 +27,7 @@
  * späterer, ganz anderer Fehlschlag eine fremde Begründung.
  */
 import { Pool, SocketEvent, isRelayNotice } from '@welshman/net'
-import { setRelayNoticeReader } from './publishResult'
+import { setRelayNoticeReader } from './publishResult.ts'
 
 /** Letzte NOTICE je Relay-URL, mit Empfangszeit (`Date.now()`). */
 const lastNotice = new Map<string, { text: string; at: number }>()

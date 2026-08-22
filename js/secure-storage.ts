@@ -17,7 +17,7 @@
  * das AES-Schlüsselmaterial (nicht exportierbar), NICHT das entschlüsselte Secret.
  * Der Nutzen ist rein at-rest: kein Klartext auf Platte / in DevTools / localStorage.
  */
-import { isMobile, nativeCall } from './core'
+import { isMobile, nativeCall } from './core.ts'
 
 const DB_NAME = 'einundzwanzig-secure'
 const STORE = 'kv'

@@ -10,6 +10,9 @@
     "files": [
         "js"
     ],
+    "devDependencies": {
+        "typescript": "^5.9.3"
+    },
     "dependencies": {
         "@braintree/sanitize-url": "^7.1.2",
         "@getalby/lightning-tools": "^6.1.0",

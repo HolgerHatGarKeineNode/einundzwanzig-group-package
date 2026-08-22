@@ -206,9 +206,11 @@ export const leseRelayListeNachsichtig = (
  * Darf dieser Relay eine NIP-42-AUTH-Antwort von uns bekommen — also unseren Pubkey?
  *
  * **Rein und exportiert, damit die Entscheidung prüfbar ist.** Verdrahtet wird sie in
- * `js/core.ts` (`shouldAuth`), und dort ist sie nicht testbar: die Datei ist unter
- * `node --test` nicht ladbar und ihre Wirkung hängt an einem echten Socket. Die REGEL
- * gehört deshalb hierher, wo ein Fixture sie festnageln kann.
+ * `js/core.ts` (`shouldAuth`), und dort ist sie nicht testbar: ihre Wirkung hängt an
+ * einem echten Socket. Die REGEL gehört deshalb hierher, wo ein Fixture sie festnageln
+ * kann. (Der zweite, früher hier genannte Grund — `core.ts` sei unter `node --test`
+ * nicht ladbar — ist seit dem 2026-08-22 überholt: die Datei lädt, gibt beim Laden aber
+ * einen gefangenen `getItem`-Fehler aus. Der Socket-Grund allein trägt.)
  *
  * ── Was hier verhindert wird ──────────────────────────────────────────────────────
  *
@@ -485,7 +487,8 @@ export const artikelVonEreignis = (event: TrustedEvent, adresseVonId: Map<string
  * Der Plan nannte sie „reine Funktion, fertig". Nachgeprüft ist sie das nicht:
  *
  *  1. Sie ist in `feeds.ts` **nicht exportiert**.
- *  2. `feeds.ts` lässt sich unter `node --test` nicht laden (endungslose Importe, danach
+ *  2. `feeds.ts` zieht beim Import den App-Boot mit (bis P1/P2 des Plans
+ *     `js-insel-testbar-machen` war es gar nicht ladbar: endungslose Importe, danach
  *     `localStorage` beim Import von `session.ts`) — ein Test dieser Zählung hinge damit
  *     am ganzen Speicher-Subsystem.
  *  3. Sie baut `ReactionChip[]` mit Anzeigenamen, Custom-Emoji-Bildern und

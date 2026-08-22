@@ -40,10 +40,10 @@
 import { publishThunk, signer, getRelaysByUrl, loadRelay, forceLoadRelay } from '@welshman/app'
 import { makeEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
-import { isBuzzRelay } from './relayCaps'
-import { nip98Url, nip98AuthHeader, httpBase, type SignedLike } from './nip98'
-import { waitForPublishError } from './publishResult'
-import { t } from './i18n'
+import { isBuzzRelay } from './relayCaps.ts'
+import { nip98Url, nip98AuthHeader, httpBase, type SignedLike } from './nip98.ts'
+import { waitForPublishError } from './publishResult.ts'
+import { t } from './i18n.ts'
 
 // ── Buzz-Kind-Konstanten ────────────────────────────────────────────────────
 // Bewusst hier lokal statt in @welshman/util: das sind Buzz-Erweiterungen, kein

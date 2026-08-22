@@ -14,8 +14,8 @@ import { getTagValue, getZapResponseFilter, makeZapRequest, toMsats, type Signed
 import { request } from '@welshman/net'
 import { bech32ToHex, uniq } from '@welshman/lib'
 import { Router } from '@welshman/router'
-import { payInvoice as walletPayInvoice } from './wallet'
-import { t } from './i18n'
+import { payInvoice as walletPayInvoice } from './wallet.ts'
+import { t } from './i18n.ts'
 
 /** Standard-Zap-Kommentar (flotilla legt den Reaktions-Emoji in den 9734-`content`). */
 export const DEFAULT_ZAP_CONTENT = '⚡'

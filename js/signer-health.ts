@@ -10,7 +10,7 @@
  */
 import { readable, type Readable } from 'svelte/store'
 import { signerLog, type SignerLogEntry } from '@welshman/app'
-import { t } from './i18n'
+import { t } from './i18n.ts'
 
 export type SignerHealth = 'ok' | 'slow' | 'disconnected'
 

@@ -12,7 +12,7 @@
  * Leave (9022) die signierte Members-Liste **kind-39002** (`d`=h, `p`=Mitglieder)
  * — sie ist persistent und die Quelle für „bin ich Mitglied dieses Raums".
  */
-import { derived, writable, get, type Readable } from 'svelte/store'
+import { derived, writable, get, type Readable, type Writable } from 'svelte/store'
 import {
     repository,
     tracker,
@@ -68,7 +68,7 @@ import {
     roomMembershipKey,
     type RoomMembershipRead,
     type RoomMembershipRevocation,
-} from './roomMembership'
+} from './roomMembership.ts'
 import {
     ROOM_RECONCILE_LIMIT,
     candidatesAreCredible,
@@ -80,14 +80,14 @@ import {
     type KnownRoomEvent,
     type RoomAnswerSignals,
     type RoomAnswerVerdict,
-} from './roomReconcile'
-import { storageReady } from './storage'
-import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps'
-import { spaceIsBuzzAsync } from './buzzAdmin'
-import { parseMeetupTags } from './meetupPresentation'
-import { parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories'
+} from './roomReconcile.ts'
+import { storageReady } from './storage.ts'
+import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps.ts'
+import { spaceIsBuzzAsync } from './buzzAdmin.ts'
+import { parseMeetupTags } from './meetupPresentation.ts'
+import { parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories.ts'
 import type { RelayProfile } from '@welshman/util'
-import { waitForPublishError } from './publishResult'
+import { waitForPublishError } from './publishResult.ts'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
 
@@ -520,19 +520,94 @@ export const isVereinRelay = (url: string): boolean => VEREIN_RELAY_URLS.include
  * ändern muss.
  *
  * Warum dort und nicht hier: `spaceCaps.ts` trägt die zweite Gating-Ebene
- * (`deriveSpaceKind`) und muss aus `node --test` ladbar bleiben. Diese Datei ist
- * es nicht — endungslose relative Importe und ein localStorage-Zugriff beim Laden.
- * Importierte `spaceCaps.ts` von hier, waere es selbst untestbar. Die
- * Abhaengigkeit zeigt deshalb in genau eine Richtung: `groups.ts` → `spaceCaps.ts`.
+ * (`deriveSpaceKind`) und ist die schlankere Datei — sie zieht nichts aus dem
+ * Gruppen-Graphen nach. Importierte `spaceCaps.ts` von hier, entstünde ein Zirkel.
+ * Die Abhaengigkeit zeigt deshalb in genau eine Richtung: `groups.ts` → `spaceCaps.ts`.
+ * (Bis P1/P2 des Plans `js-insel-testbar-machen` stand hier zusätzlich, diese Datei
+ * sei aus `node --test` gar nicht ladbar — endungslose Importe und ein
+ * localStorage-Zugriff beim Laden. Beides ist behoben, siehe unten.)
  */
-export { WORKSPACE_URL, hasWorkspace } from './spaceCaps'
+export { WORKSPACE_URL, hasWorkspace } from './spaceCaps.ts'
 
-export const activeSpaceUrl = writable<string | null>(null)
-export const activeSpaceReady = sync({
-    key: 'activeSpaceUrl',
-    store: activeSpaceUrl,
-    storage: localStorageProvider,
-})
+/** localStorage-Schlüssel der persistierten Space-Wahl. Historisch ohne `e21:`-Präfix. */
+const ACTIVE_SPACE_KEY = 'activeSpaceUrl'
+
+/** Der eigentliche Speicher hinter {@link activeSpaceUrl} — nur über die Fassade erreichbar. */
+const activeSpaceStore = writable<string | null>(null)
+
+let activeSpaceSyncStarted = false
+
+/**
+ * Startet die localStorage-Bindung von {@link activeSpaceUrl} — beim ERSTEN
+ * Zugriff, nicht beim Modul-Eval. Idempotent.
+ *
+ * **Warum verzögert:** welshmans `sync()` liest `localStorage` sofort. In
+ * `node --experimental-strip-types` gibt es das nicht, und der Wurf beim Modul-Eval
+ * war der einzige *ungefangene* der Insel — er sperrte `groups.ts` und alles, was
+ * es zieht (`bridge`, `rail`, `palette`, `members`, `verein`, `roomPins`,
+ * `roomSearch`, `actionItems`, `index`), aus jedem reinen Test aus. Plan
+ * `js-insel-testbar-machen`, P2.
+ *
+ * **Warum das den Zeitpunkt nicht verschiebt — gemessen, nicht angenommen.** Der
+ * erste Zugriff auf {@link activeSpaceUrl} passiert weiter unten in DIESER Datei:
+ * `pushSyncState.subscribe(…)` steht im Modul-Toplevel und hängt über
+ * `activeSpaceView` → `activeSpace` an diesem Store. Die Bindung startet also im
+ * selben Modul-Eval wie vorher, nur ein paar Zeilen später. Kein Leser sieht einen
+ * anderen Wert als vorher, und die Hydrierung war auch vorher schon asynchron
+ * (`sync` ist `async`) — sie war beim ersten Leser AUSSERHALB dieser Datei
+ * (`alpine:init`) längst durch und ist es weiterhin.
+ *
+ * **Das ist eine tragende Annahme, kein Zufall.** Verschwände dieser
+ * Toplevel-Abonnent, rutschte die Bindung auf den ersten Leser bei `alpine:init` —
+ * und der sähe dann für einen Microtask `null`, was `activeSpace` auf
+ * {@link DEFAULT_SPACE_URL} abbildet: jeder Abonnent liefe einmal gegen den
+ * falschen Space an (Raum-Abos, Ungelesen-Ableitung, NIP-11). Festgehalten in
+ * `activeSpacePersistenz.test.ts` — der erste Fall dort wird rot, sobald der bloße
+ * Import die gespeicherte Wahl nicht mehr hydriert.
+ *
+ * Ein `try` braucht es hier nicht: `sync` ist `async`, ein fehlendes `localStorage`
+ * kommt als Rejection zurück, nicht als Wurf.
+ */
+const ensureActiveSpaceSync = (): void => {
+    if (activeSpaceSyncStarted) {
+        return
+    }
+    activeSpaceSyncStarted = true
+    void sync({
+        key: ACTIVE_SPACE_KEY,
+        store: activeSpaceStore,
+        storage: localStorageProvider,
+    }).catch(() => {
+        // Kein/gesperrtes `localStorage` (node, Privatmodus) → die Wahl gilt nur für
+        // diese Sitzung. Gleiche fail-soft-Zusage wie `readQuoteCards` in `displayPrefs.ts`.
+    })
+}
+
+/**
+ * Die vom User gewählte Space-URL, in localStorage persistiert. Null = Default.
+ * Es gibt KEINE Space-Rail und KEINE „Space wählen"-Pflicht — der Default-Space
+ * lädt sofort; gewechselt wird nur in den Einstellungen (`/settings/space`).
+ *
+ * Fassade um einen `writable`: jeder Zugriff — `subscribe`, `get()`, `derived(…)`,
+ * `set` — läuft durch {@link ensureActiveSpaceSync} und startet damit die
+ * localStorage-Bindung. Die Wache sitzt bewusst an dieser einen Engstelle und
+ * nicht an den ~10 Aufrufern: ein neuer Leser kann sie nicht vergessen.
+ */
+export const activeSpaceUrl: Writable<string | null> = {
+    subscribe: (run, invalidate) => {
+        ensureActiveSpaceSync()
+
+        return activeSpaceStore.subscribe(run, invalidate)
+    },
+    set: (value) => {
+        ensureActiveSpaceSync()
+        activeSpaceStore.set(value)
+    },
+    update: (updater) => {
+        ensureActiveSpaceSync()
+        activeSpaceStore.update(updater)
+    },
+}
 
 /** Setzt den aktiven Space (aus der Einstellungsseite) — persistiert die Wahl. */
 export const setActiveSpace = (url: string): void => activeSpaceUrl.set(url)
@@ -757,7 +832,7 @@ const ROOM_RECONCILE_TIMEOUT_MS = 20_000
 /**
  * Zeitbudget für das Spiegeln des IndexedDB-Cache in das repository.
  *
- * Rein lokale Arbeit (`authReady` ist nur ein localStorage-Sync, danach zwei
+ * Rein lokale Arbeit (`ensureAuthReady()` ist nur ein localStorage-Sync, danach zwei
  * IndexedDB-`getAll`) — fünf Sekunden sind hier keine Netzfrist, sondern ein
  * Notausstieg, damit ein hängender Speicher nicht die In-Flight-Marke behält und
  * den Abgleich dauerhaft abwürgt.

@@ -36,8 +36,8 @@ import { throttled } from '@welshman/store'
 import { COMMENT, REACTION, ZAP_RESPONSE, getLnUrl, normalizeRelayUrl, type Filter, type TrustedEvent, type Zapper } from '@welshman/util'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { derived, readable, type Readable } from 'svelte/store'
-import { proxifyImage } from './core'
-import { formatRelativeDate, formatTimestamp } from './locale'
+import { proxifyImage } from './core.ts'
+import { formatRelativeDate, formatTimestamp } from './locale.ts'
 import {
     LONGFORM,
     buildArticleAuthor,
@@ -49,8 +49,8 @@ import {
     type ArticleAddress,
     type ArticleAuthor,
     type ArticleRow,
-} from './longform'
-import { artikelDesAutors } from './articleAuthor'
+} from './longform.ts'
+import { artikelDesAutors } from './articleAuthor.ts'
 import {
     KEINE_METRIKEN,
     artikelAdresse,
@@ -62,22 +62,22 @@ import {
     leseRelayListe,
     type ArtikelMetriken,
     type ArticleRowMitMetriken,
-} from './articleMetrics'
+} from './articleMetrics.ts'
 import {
     ARTIKEL_REAKTION,
     artikelKommentare,
     eigeneReaktion,
     type ArtikelKommentar,
     type EigeneReaktion,
-} from './articleWrite'
-import { makeComment, makeEventDelete, makeReaction } from './interactions'
-import { publishOptimistic } from './publishOptimistic'
-import { warmProfiles } from './profiles'
-import { deriveEventsForUrl, deriveEventsForUrls } from './repository'
+} from './articleWrite.ts'
+import { makeComment, makeEventDelete, makeReaction } from './interactions.ts'
+import { publishOptimistic } from './publishOptimistic.ts'
+import { warmProfiles } from './profiles.ts'
+import { deriveEventsForUrl, deriveEventsForUrls } from './repository.ts'
 import { handlesByNip05, pubkey, repository, zappersByLnurl } from '@welshman/app'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { verifiedNip05, warmHandles } from './handles'
-import { warmZappers } from './zaps'
+import { verifiedNip05, warmHandles } from './handles.ts'
+import { warmZappers } from './zaps.ts'
 
 /**
  * Die Board-Relay-URL, normalisiert — `''`, wenn keine konfiguriert ist.
@@ -177,12 +177,14 @@ const metrikRelays = (): string[] => (BOARD_URL ? [...new Set([BOARD_URL, ...SEK
  * wird hier nur durchgereicht.
  *
  * Der Umzug ist keine Kosmetik: `toRow` war der Kernbeweis dieser Fläche und lag in einem
- * Modul, das sich unter `node --test` nicht importieren lässt (gemessen 2026-08-20: 13
- * endungslose relative Importe in der Kette ab hier, und danach bootet `session.ts` beim
- * Import ein `localStorage`, das es in node nicht gibt). Die Adresse des Typs bleibt
- * absichtlich diese hier, damit `bridge.ts` unverändert bleibt.
+ * Modul, das damals unter `node --test` nicht importierbar war (gemessen 2026-08-20: 13
+ * endungslose relative Importe in der Kette ab hier, und danach ein `localStorage` beim
+ * Import von `session.ts`). Beide Barrieren sind seit P1/P2 des Plans
+ * `js-insel-testbar-machen` weg — geblieben ist der Boot-Aufwand des Graphen, und damit
+ * der Grund, den reinen Typ getrennt zu halten. Die Adresse des Typs bleibt absichtlich
+ * diese hier, damit `bridge.ts` unverändert bleibt.
  */
-export type { ArticleRow } from './longform'
+export type { ArticleRow } from './longform.ts'
 
 /** Die Vollansicht: eine {@link ArticleRow} plus dem gerenderten Artikeltext. */
 export type ArticleView = ArticleRowMitMetriken & {
@@ -412,9 +414,9 @@ const toRow = (event: TrustedEvent, picture: string, formatDate = dateLabelAbsol
 /**
  * Der Typ {@link ArticleRowMitMetriken} wohnt in `articleMetrics.ts` und wird hier nur
  * weitergereicht — dieselbe Begründung wie bei `ArticleRow` darüber: er muss unter
- * `node --test` erreichbar sein, und diese Datei ist es nicht.
+ * `node --test` ohne den App-Boot erreichbar sein, und diese Datei zieht ihn mit.
  */
-export type { ArticleRowMitMetriken } from './articleMetrics'
+export type { ArticleRowMitMetriken } from './articleMetrics.ts'
 
 /** Zeile plus Metriken — `KEINE_METRIKEN`, wenn dieser Artikel kein Signal trägt. */
 const mitMetriken = (row: ArticleRow, tabelle: Map<string, ArtikelMetriken>): ArticleRowMitMetriken => ({

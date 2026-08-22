@@ -42,12 +42,12 @@ import type { Filter, TrustedEvent } from '@welshman/util'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { derived, readable, writable, type Readable } from 'svelte/store'
-import { proxifyImage, storageReady } from './core'
-import { t } from './i18n'
-import { toast } from './toast'
-import { formatTimestamp } from './locale'
-import { warmProfiles } from './profiles'
-import { deriveEventsForUrl } from './repository'
+import { proxifyImage, storageReady } from './core.ts'
+import { t } from './i18n.ts'
+import { toast } from './toast.ts'
+import { formatTimestamp } from './locale.ts'
+import { warmProfiles } from './profiles.ts'
+import { deriveEventsForUrl } from './repository.ts'
 import { WORKSPACE_URL, deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { DEFAULT_FORGE_TAB, FORGE_TAB_PARAM, readForgeTab } from './forgeTab.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
@@ -103,7 +103,7 @@ import {
     publishForgeComment,
     publishIssue,
     publishIssueStatus,
-} from './forgeWrite'
+} from './forgeWrite.ts'
 
 // ── Grenzen ─────────────────────────────────────────────────────────────────
 
@@ -813,7 +813,7 @@ const rendererReady = writable(false)
 
 const ensureRenderer = async (): Promise<void> => {
     if (!renderer) {
-        renderer = (await import('./longform')).renderArticleHtml
+        renderer = (await import('./longform.ts')).renderArticleHtml
         rendererReady.set(true)
     }
 }

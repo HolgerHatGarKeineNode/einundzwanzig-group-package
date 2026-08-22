@@ -9,8 +9,8 @@ import { derived, get, type Readable } from 'svelte/store'
 import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getRelay, getZapper, deriveRelay } from '@welshman/app'
 import { displayProfile, toNostrURI, getTagValue, getLnUrl, normalizeRelayUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { spaceBranding, isBuzzRelay } from './relayCaps'
-import { classifyRoomClosedReason } from './roomGate'
+import { spaceBranding, isBuzzRelay } from './relayCaps.ts'
+import { classifyRoomClosedReason } from './roomGate.ts'
 import { deriveMergedProfile, purgeSpaceLocalProfiles } from './spaceProfiles.ts'
 import { blossomMedia } from './blossomInstance.ts'
 import { bindAvatarState, type AvatarState } from './blossomMedia.ts'
@@ -20,9 +20,9 @@ import { deriveEvents, throttled } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import QRCode from 'qrcode'
-import { DEFAULT_RELAYS, isMobile, mayFallbackToRaw, nativeBrowserOpen, nativeBrowserInApp, proxifyImage, storageReady } from './core'
-import { sanitizeReturnUrl, isAuthed } from './auth-gate'
-import { createLightboxZoom } from './lightbox'
+import { DEFAULT_RELAYS, isMobile, mayFallbackToRaw, nativeBrowserOpen, nativeBrowserInApp, proxifyImage, storageReady } from './core.ts'
+import { sanitizeReturnUrl, isAuthed } from './auth-gate.ts'
+import { createLightboxZoom } from './lightbox.ts'
 import {
     loginWithExtension,
     loginWithSecretKey,
@@ -31,25 +31,25 @@ import {
     logout,
     handoffToServer,
     logoutServer,
-    authReady,
+    ensureAuthReady,
     nip46PermsStale,
     loginWithNip55,
     currentSignerLabel,
-} from './session'
-import { nip55Available, startNip55Login } from './nip55-signer'
-import { schedulePortalHandoff } from './portal-handoff'
+} from './session.ts'
+import { nip55Available, startNip55Login } from './nip55-signer.ts'
+import { schedulePortalHandoff } from './portal-handoff.ts'
 // Desktop-Shell: beide bewusst in eigenen Modulen, nicht hier inline — diese Datei
 // ist die meistberührte im Package, und Rail/Viewport haben mit dem Rest nichts zu tun.
-import { regionName } from './countryNames'
-import { wireViewport } from './viewport'
-import { wireRail } from './rail'
-import { wirePalette } from './palette'
-import { wireDisplayPrefs } from './displayPrefs'
-import { wireRoomSearch } from './roomSearch'
-import { wireRoomPins } from './roomPins'
-import { wireVerein } from './verein'
-import { subscribeForgeNav, wireForge } from './forge'
-import { dispatchModal } from './modal'
+import { regionName } from './countryNames.ts'
+import { wireViewport } from './viewport.ts'
+import { wireRail } from './rail.ts'
+import { wirePalette } from './palette.ts'
+import { wireDisplayPrefs } from './displayPrefs.ts'
+import { wireRoomSearch } from './roomSearch.ts'
+import { wireRoomPins } from './roomPins.ts'
+import { wireVerein } from './verein.ts'
+import { subscribeForgeNav, wireForge } from './forge.ts'
+import { dispatchModal } from './modal.ts'
 import {
     groupSpaceChoices,
     activeSpace,
@@ -89,19 +89,19 @@ import {
     type SpaceView,
     type RoomView,
     type RoomInput,
-} from './groups'
+} from './groups.ts'
 import {
     loadMeetupPresentations,
     meetupPresentationBySlug,
     type MeetupPresentation,
-} from './meetups'
-import { flagEmoji } from './meetupPresentation'
+} from './meetups.ts'
+import { flagEmoji } from './meetupPresentation.ts'
 /**
  * **Nur die Typen statisch** — der Code kommt per `import()` erst, wenn jemand die
  * Artikelfläche öffnet (siehe `nostrArticles`). `import type` wird beim Übersetzen
  * restlos entfernt und erzeugt keine Abhängigkeit im Bundle.
  */
-import type { ArticleRow, ArticleRowMitMetriken, ArticleView, AuthorView } from './longformFeed'
+import type { ArticleRow, ArticleRowMitMetriken, ArticleView, AuthorView } from './longformFeed.ts'
 /**
  * Ebenfalls nur Typen. Die WERTE (`deuteAutorParam`, `aufloesenNip05`, …) kommen per
  * `import()` in `nostrArticleAuthor._boot()` — nicht weil `articleAuthor.ts` schwer wäre
@@ -109,14 +109,14 @@ import type { ArticleRow, ArticleRowMitMetriken, ArticleView, AuthorView } from 
  * `longformFeed` geholt wird und ein zweiter Ladeweg ein zweiter Weg wäre, auf dem
  * `_dead` dazwischenkommen kann.
  */
-import type { AutorFehler, Monatsgruppe } from './articleAuthor'
-import { medienProfilUrl } from './medienProfil'
-import { isSafeExternalUrl } from './vereinFlow'
+import type { AutorFehler, Monatsgruppe } from './articleAuthor.ts'
+import { medienProfilUrl } from './medienProfil.ts'
+import { isSafeExternalUrl } from './vereinFlow.ts'
 
 // Nur Typen — zur Laufzeit weggestrippt. Der WERT `createArticleList` kommt per
 // `import()` in `nostrArticles._boot()`, weil `articleList.ts` über `longform.ts` an
 // markdown-it hängt (50 kB gzip, die nicht in den `app`-Chunk jeder Seite gehören).
-import type { ArticleCard, ArticleListProjector } from './articleList'
+import type { ArticleCard, ArticleListProjector } from './articleList.ts'
 // WERT-Import, und er ist unbedenklich: `articleWrite.ts` hängt an `@welshman/util` und
 // `articleMetrics.ts` — beide liegen ohnehin im Boot-Pfad —, aber an KEINER Zeile aus
 // `longform.ts` (nur `import type`). Die Bundle-Grenze bleibt also, wo sie ist; der
@@ -125,26 +125,26 @@ import type { ArticleCard, ArticleListProjector } from './articleList'
 // Warum überhaupt als Wert: die Zeichengrenze und die Sperrregel des Kommentar-Composers
 // werden HIER ausgewertet (Knopfzustand, Restzähler) — sie stünden sonst als Literale im
 // Markup, also ein zweites Mal und ungeprüft.
-import { KOMMENTAR_MAX_ZEICHEN, kommentarSperre } from './articleWrite'
+import { KOMMENTAR_MAX_ZEICHEN, kommentarSperre } from './articleWrite.ts'
 // WERT-Import, kein Typ-Import — und deshalb bewusst aus `articleSorts.ts` und NICHT aus
 // `articleList.ts`: das Modul dort haengt ueber `longform.ts` an markdown-it, ein Wert von
 // dort zoege 50 kB gzip in den `app`-Chunk. `articleSorts.ts` hat null Importe.
 // Damit stehen die drei Ordnungswerte nicht mehr als Literale in dieser Datei.
-import { DEFAULT_ARTICLE_SORT, type ArticleSort } from './articleSorts'
-import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseForumTag, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories'
-import { deriveForumTopics, listenForum, loadForumTopics, type ForumTopic } from './forumFeed'
-import { buildWorkspaceList, splitMine, type WorkspacePrefs } from './railGroups'
+import { DEFAULT_ARTICLE_SORT, type ArticleSort } from './articleSorts.ts'
+import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseForumTag, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories.ts'
+import { deriveForumTopics, listenForum, loadForumTopics, type ForumTopic } from './forumFeed.ts'
+import { buildWorkspaceList, splitMine, type WorkspacePrefs } from './railGroups.ts'
 // P7/NIP-78 — die in Buzz Desktop gesetzten Kanal-Präferenzen auch auf der Bühne
 // anwenden. `subscribeWorkspacePrefs` ist der EINZIGE Einstieg: er schaltet den
 // Netzweg beim ersten Abonnenten scharf (siehe `channelPrefs.ts`).
-import { subscribeWorkspacePrefs } from './channelPrefs'
+import { subscribeWorkspacePrefs } from './channelPrefs.ts'
 // P2/NIP-38 — Status lesen. `deriveStatusPending` ist der dreiwertige Zustand aus P1,
 // auf eine UI-Frage heruntergebrochen; `warmUserStatuses` ist der einzige Netz-Einstieg.
-import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserStatuses, warmUserStatuses, type UserStatus } from './userStatus'
-import { roomsFingerprint, type RoomLike } from './roomFingerprint'
-import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam'
-import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab'
-import { ORTSKARTEN_DROSSEL_MS, ORTSKARTEN_NACHLADE_MS, zeigeLive } from './ortskarten'
+import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserStatuses, warmUserStatuses, type UserStatus } from './userStatus.ts'
+import { roomsFingerprint, type RoomLike } from './roomFingerprint.ts'
+import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam.ts'
+import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab.ts'
+import { ORTSKARTEN_DROSSEL_MS, ORTSKARTEN_NACHLADE_MS, zeigeLive } from './ortskarten.ts'
 import {
     deriveSpaceDirectory,
     deriveSpaceRoles,
@@ -180,7 +180,7 @@ import {
     type SpaceRole,
     type BannedMember,
     type VereinAccess,
-} from './members'
+} from './members.ts'
 import {
     deriveSpaceReports,
     loadSpaceReports,
@@ -191,7 +191,7 @@ import {
     watchSpaceJoinRequests,
     type ReportView,
     type JoinRequestView,
-} from './actionItems'
+} from './actionItems.ts'
 import {
     deriveRoomChat,
     deriveRoomMessages,
@@ -227,10 +227,10 @@ import {
     type ReactionChip,
     type ThreadRoot,
     type SpaceThread,
-} from './feeds'
-import type { PollType } from './polls'
-import { uploadAttachment, thumbDataUrl, type Attachment } from './uploads'
-import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health'
+} from './feeds.ts'
+import type { PollType } from './polls.ts'
+import { uploadAttachment, thumbDataUrl, type Attachment } from './uploads.ts'
+import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health.ts'
 import {
     loadEmojiGroups,
     loadUserCustomEmojis,
@@ -240,7 +240,7 @@ import {
     type CustomEmoji,
     type StdEmoji,
     type RecentEmoji,
-} from './emoji'
+} from './emoji.ts'
 import {
     readState,
     readStateReady,
@@ -252,9 +252,9 @@ import {
     snapshotReadState,
     restoreReadState,
     type ReadState,
-} from './readState'
-import { BADGE_CAP, deriveUnread, formatUnreadCount, sumUnreadRooms, type UnreadView } from './unread'
-import { deriveUpdates, type UpdateItem } from './updates'
+} from './readState.ts'
+import { BADGE_CAP, deriveUnread, formatUnreadCount, sumUnreadRooms, type UnreadView } from './unread.ts'
+import { deriveUpdates, type UpdateItem } from './updates.ts'
 import {
     countUnreadUpdates,
     firstNonEmpty,
@@ -277,9 +277,9 @@ import {
     UPDATES_PAGE,
     type UpdateFeed,
     type UpdateGroup,
-} from './updatesView'
-import { createScroller, type Scroller } from './scroll'
-import { toast, flashToast } from './toast'
+} from './updatesView.ts'
+import { createScroller, type Scroller } from './scroll.ts'
+import { toast, flashToast } from './toast.ts'
 import {
     getNwcModule,
     getWebLn,
@@ -292,13 +292,13 @@ import {
     lnurlInvoice,
     fromMsats,
     type NWCInfo,
-} from './wallet'
+} from './wallet.ts'
 import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
-import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader'
-import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps'
-import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles'
-import { t, tPlural, type Replacements } from './i18n'
-import { dateTimeFormat, formatNumber, formatTimestamp } from './locale'
+import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader.ts'
+import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps.ts'
+import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles.ts'
+import { t, tPlural, type Replacements } from './i18n.ts'
+import { dateTimeFormat, formatNumber, formatTimestamp } from './locale.ts'
 
 /** Alpine-Magics, die auf `this` einer Komponente verfügbar sind. */
 type AlpineMagics = { $refs: Record<string, HTMLElement>; $nextTick: (cb: () => void) => void; $el: HTMLElement }
@@ -2187,7 +2187,7 @@ export function registerNostrComponents(Alpine: {
             // erst abwarten, sonst liest loadWallet() bei hartem Reload direkt auf
             // /settings/wallet einen leeren pubkey und eine verbundene Wallet erschiene
             // fälschlich als „nicht verbunden" (nostrAuth.init guardet dasselbe Muster).
-            await authReady
+            await ensureAuthReady()
             // `profileReady` gated „Nicht gesetzt" gegen den Lade-Flash — aber an den
             // ABGESCHLOSSENEN Lade-VERSUCH gekoppelt, nicht an ein vorhandenes Profil:
             // welshman hält `userProfile` für Nutzer OHNE kind-0 (gast-first, frisches
@@ -2197,7 +2197,7 @@ export function registerNostrComponents(Alpine: {
             void loadUserProfile().finally(() => {
                 this.profileReady = true
             })
-            // destroy() kann während `await authReady` gelaufen sein (schnelles wire:navigate);
+            // destroy() kann während `await ensureAuthReady()` gelaufen sein (schnelles wire:navigate);
             // dann NICHT mehr abonnieren, sonst leakt die Handle-Sub auf einer toten Komponente.
             if (this._destroyed) {
                 return
@@ -3677,7 +3677,7 @@ export function registerNostrComponents(Alpine: {
             // `if` und NICHT `return`: ein früher Ausstieg nähme dem Forge-Zweig darunter
             // seinen Lauf mit, und der hat mit dem Board nichts zu tun.
             if ((window as { __nostrBoard?: string }).__nostrBoard) {
-                void import('./longformFeed')
+                void import('./longformFeed.ts')
                     .then((feed) => {
                         if (this._dead) {
                             return
@@ -3774,7 +3774,7 @@ export function registerNostrComponents(Alpine: {
         // reaktiven Proxy, und ein Proxy über ein Modul-Namensraum-Objekt ist teuer und
         // sinnlos — reaktiv muss hier nichts davon sein. Gleiche Begründung wie beim
         // Undo-Puffer in `nostrUpdates`.
-        let feed: typeof import('./longformFeed') | null = null
+        let feed: typeof import('./longformFeed.ts') | null = null
         // Die Projektion trägt ihren Faltungs-Merker (siehe `articleList.ts`). Ein Screen,
         // ein Merker — mit `destroy()` ist er weg, ohne dass jemand ihn leeren muss.
         let list: ArticleListProjector | null = null
@@ -3828,8 +3828,8 @@ export function registerNostrComponents(Alpine: {
                     // `longformFeed.ts` zieht), und ein zweites `await` hintendran wäre
                     // ein zweiter Weg, auf dem `_dead` dazwischenkommen kann.
                     const [feedModule, listModule] = await Promise.all([
-                        import('./longformFeed'),
-                        import('./articleList'),
+                        import('./longformFeed.ts'),
+                        import('./articleList.ts'),
                     ])
                     feed = feedModule
                     list = listModule.createArticleList()
@@ -3951,7 +3951,7 @@ export function registerNostrComponents(Alpine: {
      * Der Fachcode kommt per `import()`, aus demselben Grund wie bei `nostrArticles`.
      */
     Alpine.data('nostrArticle', (naddr: unknown, base: unknown): ArticleState => {
-        let feed: typeof import('./longformFeed') | null = null
+        let feed: typeof import('./longformFeed.ts') | null = null
 
         return {
             loading: true,
@@ -4057,7 +4057,7 @@ export function registerNostrComponents(Alpine: {
             /** Siehe die Begründung des `try` bei `nostrArticles._boot`. */
             async _boot() {
                 try {
-                    feed = await import('./longformFeed')
+                    feed = await import('./longformFeed.ts')
                 } catch {
                     if (!this._dead) {
                         this.error = t('Der Artikel ist gerade nicht erreichbar.')
@@ -4414,8 +4414,8 @@ export function registerNostrComponents(Alpine: {
      * Der Fachcode kommt per `import()`, aus demselben Grund wie bei `nostrArticles`.
      */
     Alpine.data('nostrArticleAuthor', (param: unknown, base: unknown): ArticleAuthorState => {
-        let feed: typeof import('./longformFeed') | null = null
-        let autorModul: typeof import('./articleAuthor') | null = null
+        let feed: typeof import('./longformFeed.ts') | null = null
+        let autorModul: typeof import('./articleAuthor.ts') | null = null
 
         return {
             aufloesend: true,
@@ -4442,8 +4442,8 @@ export function registerNostrComponents(Alpine: {
             async _boot() {
                 try {
                     const [feedModul, adressModul] = await Promise.all([
-                        import('./longformFeed'),
-                        import('./articleAuthor'),
+                        import('./longformFeed.ts'),
+                        import('./articleAuthor.ts'),
                     ])
                     feed = feedModul
                     autorModul = adressModul
@@ -4593,7 +4593,7 @@ export function registerNostrComponents(Alpine: {
              *
              * `this.autor` ist `null`, solange die Adresse nicht aufgelöst ist; die Karte
              * steht dann ohnehin nicht. Danach kommt `autor.nip05` aus `verifiedNip05`
-             * (`longformFeed.ts:729`), ist also der VERIFIZIERTE Handle und nie ein
+             * (`verifiedNip05` in `longformFeed.ts`), ist also der VERIFIZIERTE Handle und nie ein
              * Profil-Rohwert — worauf diese ganze Fläche sicherheitsseitig steht
              * (Begründung in `medienProfil.ts`).
              *
@@ -4609,7 +4609,7 @@ export function registerNostrComponents(Alpine: {
                 // nacktes `this.autor.nip05` hätte dort die Klasse „unbekannt" bekommen
                 // und wäre zu Recht rot geworden. `AuthorView['autor']` IST die Aussage:
                 // dieses Feld entsteht ausschließlich in `buildArticleAuthor`, und der
-                // bekommt es aus `verifiedNip05(…)` (`longformFeed.ts:729`).
+                // bekommt es aus `verifiedNip05(…)` (`verifiedNip05` in `longformFeed.ts`).
                 // `satisfies` statt `as`: es prüft, ohne etwas zu behaupten.
                 const autor = this.autor satisfies AuthorView['autor'] | null
 
@@ -7788,7 +7788,7 @@ export function registerNostrComponents(Alpine: {
             // „Angemeldet"-Sackgasse zu stecken. Nur auf /nostr-login, einmal, nur wenn
             // wirklich eingeloggt. Web = Handoff; Mobile = direkt /spaces (kein Server-Gate).
             if (location.pathname.startsWith('/nostr-login') && !this.reconnect) {
-                authReady.then(async () => {
+                void ensureAuthReady().then(async () => {
                     if (this._reauthTried || !pubkey.get()) {
                         return
                     }
@@ -8015,11 +8015,11 @@ export function registerNostrComponents(Alpine: {
         _unsub: null,
         _unsubEvents: null,
         // pubkey wird async aus localStorage hydriert (@welshman/store sync) — erst
-        // nach authReady ist er definitiv (sonst wäre die Liste beim harten Reload,
+        // nach `ensureAuthReady()` ist er definitiv (sonst wäre die Liste beim harten Reload,
         // dem einzigen Weg hierher, dauerhaft leer). Danach reaktiv: Login/Logout
         // schaltet die Relay-Ansicht mit (gleiche Disziplin wie nostrWallet/nostrAuth).
         async init() {
-            await authReady
+            await ensureAuthReady()
             this._unsub = pubkey.subscribe((pk: string | undefined) => {
                 this._unsubEvents?.()
                 this._unsubEvents = null
