@@ -68,7 +68,7 @@ import {
     roomMembershipKey,
     type RoomMembershipRead,
     type RoomMembershipRevocation,
-} from './roomMembership'
+} from './roomMembership.ts'
 import {
     ROOM_RECONCILE_LIMIT,
     candidatesAreCredible,
@@ -80,14 +80,14 @@ import {
     type KnownRoomEvent,
     type RoomAnswerSignals,
     type RoomAnswerVerdict,
-} from './roomReconcile'
-import { storageReady } from './storage'
-import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps'
-import { spaceIsBuzzAsync } from './buzzAdmin'
-import { parseMeetupTags } from './meetupPresentation'
-import { parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories'
+} from './roomReconcile.ts'
+import { storageReady } from './storage.ts'
+import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps.ts'
+import { spaceIsBuzzAsync } from './buzzAdmin.ts'
+import { parseMeetupTags } from './meetupPresentation.ts'
+import { parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories.ts'
 import type { RelayProfile } from '@welshman/util'
-import { waitForPublishError } from './publishResult'
+import { waitForPublishError } from './publishResult.ts'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
 
@@ -525,7 +525,7 @@ export const isVereinRelay = (url: string): boolean => VEREIN_RELAY_URLS.include
  * Importierte `spaceCaps.ts` von hier, waere es selbst untestbar. Die
  * Abhaengigkeit zeigt deshalb in genau eine Richtung: `groups.ts` → `spaceCaps.ts`.
  */
-export { WORKSPACE_URL, hasWorkspace } from './spaceCaps'
+export { WORKSPACE_URL, hasWorkspace } from './spaceCaps.ts'
 
 export const activeSpaceUrl = writable<string | null>(null)
 export const activeSpaceReady = sync({

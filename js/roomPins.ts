@@ -50,13 +50,13 @@ import { makeEvent, type Filter, type TrustedEvent } from '@welshman/util'
 import { publishThunk } from '@welshman/app'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { derived, get, type Readable } from 'svelte/store'
-import { activeSpace, deriveUserInRoom } from './groups'
-import { deriveSpaceMembers, deriveUserIsSpaceAdmin } from './members'
-import { isBuzzRelay } from './relayCaps'
-import { deriveEventsForUrl } from './repository'
-import { bodyWithoutQuote, fullTimeLabel } from './feeds'
-import { waitForPublishError } from './publishResult'
-import { t } from './i18n'
+import { activeSpace, deriveUserInRoom } from './groups.ts'
+import { deriveSpaceMembers, deriveUserIsSpaceAdmin } from './members.ts'
+import { isBuzzRelay } from './relayCaps.ts'
+import { deriveEventsForUrl } from './repository.ts'
+import { bodyWithoutQuote, fullTimeLabel } from './feeds.ts'
+import { waitForPublishError } from './publishResult.ts'
+import { t } from './i18n.ts'
 import {
     BUZZ_PIN,
     ZOOID_PIN_LIST,
@@ -73,7 +73,7 @@ import {
     pinnedIdsFromList,
     putPinsTags,
     type PinEventLike,
-} from './pins'
+} from './pins.ts'
 
 /** Eine Zeile der Pin-Leiste. `text` ist leer, solange die Nachricht noch nicht da ist. */
 export type PinnedEntry = {

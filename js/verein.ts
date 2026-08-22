@@ -34,14 +34,14 @@
 import { get } from 'svelte/store'
 import { signer, pubkey } from '@welshman/app'
 import { Pool } from '@welshman/net'
-import { activeSpace } from './groups'
-import { deriveVereinAccess, watchSpaceDirectory, type VereinAccess } from './members'
-import { spaceIsBuzzAsync } from './buzzAdmin'
-import { reconnectDue } from './reconnectGap'
-import { loadWallet, payInvoice } from './wallet'
-import { nip98AuthHeader, type SignedLike } from './nip98'
-import { isMobile, nativeBrowserInApp } from './core'
-import { t } from './i18n'
+import { activeSpace } from './groups.ts'
+import { deriveVereinAccess, watchSpaceDirectory, type VereinAccess } from './members.ts'
+import { spaceIsBuzzAsync } from './buzzAdmin.ts'
+import { reconnectDue } from './reconnectGap.ts'
+import { loadWallet, payInvoice } from './wallet.ts'
+import { nip98AuthHeader, type SignedLike } from './nip98.ts'
+import { isMobile, nativeBrowserInApp } from './core.ts'
+import { t } from './i18n.ts'
 import {
     applicationBody,
     canPayInApp,
@@ -66,7 +66,7 @@ import {
     type VereinError,
     type VereinPhase,
     type WaitStage,
-} from './vereinFlow'
+} from './vereinFlow.ts'
 
 // ── Konfiguration aus dem Dokument ───────────────────────────────────────────
 
