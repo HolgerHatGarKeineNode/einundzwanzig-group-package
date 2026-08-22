@@ -11,8 +11,8 @@
 import { pubkey } from '@welshman/app'
 import { fromMsats, getLnUrl, type NWCInfo, type Wallet } from '@welshman/util'
 import { bech32ToHex, fetchJson } from '@welshman/lib'
-import { secureGet, secureRemove, secureSet } from './secure-storage'
-import { t } from './i18n'
+import { secureGet, secureRemove, secureSet } from './secure-storage.ts'
+import { t } from './i18n.ts'
 
 // Lazy-load: @getalby/sdk erst beim ersten Wallet-Gebrauch laden, gecacht (Z0.1).
 let _nwcModule: Promise<typeof import('@getalby/sdk')> | null = null

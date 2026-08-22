@@ -33,8 +33,8 @@
 import { publishThunk, pubkey, signer } from '@welshman/app'
 import { makeEvent } from '@welshman/util'
 import { writable, type Readable } from 'svelte/store'
-import { t } from './i18n'
-import { waitForPublishError } from './publishResult'
+import { t } from './i18n.ts'
+import { waitForPublishError } from './publishResult.ts'
 import { WORKSPACE_URL } from './spaceCaps.ts'
 import {
     FORGE_COMMENT_KIND,

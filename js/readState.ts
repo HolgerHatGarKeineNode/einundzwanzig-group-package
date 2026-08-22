@@ -818,7 +818,7 @@ export function initReadState(): void {
         try {
             // Dynamischer Import wie in `storage.ts`: `session.ts` bindet beim Modul-Eval
             // localStorage — so bleiben die reinen Funktionen oben node-testbar.
-            const { authReady } = await import('./session')
+            const { authReady } = await import('./session.ts')
             await authReady
             const pk = pubkey.get()
             if (!pk) {
@@ -872,7 +872,7 @@ export function initReadState(): void {
         // nie am Netz hängen — der Ungelesen-Punkt und `/updates` warten darauf.
         // Dynamischer Import wie oben bei `./session`, damit die reinen Funktionen
         // dieses Moduls unter `node --test` ohne welshman-Netzstack ladbar bleiben.
-        void import('./readStateSync')
+        void import('./readStateSync.ts')
             .then((mod) => mod.initReadStateSync())
             .catch((error) => console.warn('[readstate] Sync nicht gestartet — Lesestand bleibt lokal', error))
     })()

@@ -34,7 +34,7 @@ import { derived, readable, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
 import { throttled } from '@welshman/store'
 import type { Filter } from '@welshman/util'
-import { deriveEventsForUrl } from './repository'
+import { deriveEventsForUrl } from './repository.ts'
 import { WORKSPACE_URL, deriveSpaceKind, hasWorkspace, type SpaceKind } from './spaceCaps.ts'
 import { STATUS_D_GENERAL, USER_STATUS, foldUserStatuses, type UserStatus } from './userStatusData.ts'
 

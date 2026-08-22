@@ -14,9 +14,9 @@ import {
     buildPresentationMap,
     type MeetupApiRecord,
     type MeetupPresentation,
-} from './meetupPresentation'
+} from './meetupPresentation.ts'
 
-export type { MeetupPresentation } from './meetupPresentation'
+export type { MeetupPresentation } from './meetupPresentation.ts'
 
 /** Reaktiver Join-Index: slug → Praesentation. Leer, bis der Fetch durch ist. */
 const _presentationBySlug = writable<Map<string, MeetupPresentation>>(new Map())

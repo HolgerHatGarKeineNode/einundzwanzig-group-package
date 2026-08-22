@@ -13,7 +13,7 @@
  * Keine relativen Imports mit Endung und keine welshman-Abhängigkeit — das Modul
  * bleibt ohne Browser-Runtime ladbar (`locale.ts` importiert selbst nichts).
  */
-import { islandLocale } from './locale'
+import { islandLocale } from './locale.ts'
 
 /**
  * Cache pro SPRACHE, nicht global (P3). Vorher stand hier fest `['de']` — ein

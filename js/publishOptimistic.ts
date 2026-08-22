@@ -21,7 +21,7 @@
  * Boot-Pfad ohnehin liegt) und `publishResult.ts` (kein welshman).
  */
 import { publishThunk, repository } from '@welshman/app'
-import { mapRelayError, waitForPublishError } from './publishResult'
+import { mapRelayError, waitForPublishError } from './publishResult.ts'
 
 /**
  * Publiziert ein Event optimistisch (der Thunk legt es sofort ins Repository → die UI

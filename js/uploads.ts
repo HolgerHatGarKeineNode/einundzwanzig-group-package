@@ -33,8 +33,8 @@
 import { makeBlossomAuthEvent, uploadBlob } from '@welshman/util'
 import { signer } from '@welshman/app'
 import { parseJson, sha256 } from '@welshman/lib'
-import { spaceIsBuzzAsync } from './buzzAdmin'
-import { t } from './i18n'
+import { spaceIsBuzzAsync } from './buzzAdmin.ts'
+import { t } from './i18n.ts'
 
 // ponytail: fixer Server statt kind-10063-Auflösung; Profil-Serverliste wieder einbauen,
 // wenn Nutzer außerhalb des Vereins-Blossom hochladen sollen (git log hat die alte Logik).

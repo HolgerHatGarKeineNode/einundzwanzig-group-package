@@ -240,7 +240,7 @@ const outboxRelays = (): string[] => Router.get().FromUser().getUrls()
  */
 const spaceRelay = async (): Promise<string> => {
     try {
-        const { activeSpace } = await import('./groups')
+        const { activeSpace } = await import('./groups.ts')
         return get(activeSpace) || ''
     } catch {
         return ''

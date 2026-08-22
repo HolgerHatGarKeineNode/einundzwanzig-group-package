@@ -918,7 +918,7 @@ export function initStorage(): void {
             // Dynamischer Import: `session.ts` bindet beim Modul-Eval localStorage —
             // so bleibt die reine Cache-Logik (shouldPersistEvent) node-/testbar und
             // der (in P1) von `core.ts` gezogene Import zirkelfrei.
-            const { authReady } = await import('./session')
+            const { authReady } = await import('./session.ts')
             await authReady
             const pk = pubkey.get()
             if (!pk) {
