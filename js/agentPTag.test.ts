@@ -66,6 +66,9 @@ const vorschlag = () => {
     const [item] = agentMentionItems({
         agents: [ceo],
         h: KANAL,
+        // Die Raumliste des Betrachters — ohne sie schlaegt die Flaeche
+        // niemanden vor (Riegel gegen einen fremdgesetzten Kanal).
+        knownChannelIds: new Set([KANAL]),
         viewerPubkey: OWNER,
         spaceKind: 'buzz',
         encodeNpub: nip19.npubEncode,

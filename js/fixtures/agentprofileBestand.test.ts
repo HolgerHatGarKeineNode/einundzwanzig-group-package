@@ -94,6 +94,9 @@ test('aus dem echten Bestand entsteht in seinem eigenen Kanal eine echte Vorschl
     const items = agentMentionItems({
         agents,
         h: kanal,
+        // Die Raumliste des Betrachters — ohne sie schlaegt die Flaeche
+        // niemanden vor (Riegel gegen einen fremdgesetzten Kanal).
+        knownChannelIds: new Set([kanal]),
         viewerPubkey: betrachter,
         spaceKind: 'buzz',
         encodeNpub: nip19.npubEncode,
@@ -109,6 +112,9 @@ test('aus dem echten Bestand entsteht in seinem eigenen Kanal eine echte Vorschl
         agentMentionItems({
             agents,
             h: 'ein-kanal-den-keiner-bedient',
+            // Die Raumliste des Betrachters — ohne sie schlaegt die Flaeche
+            // niemanden vor (Riegel gegen einen fremdgesetzten Kanal).
+            knownChannelIds: new Set(['ein-kanal-den-keiner-bedient']),
             viewerPubkey: betrachter,
             spaceKind: 'buzz',
             encodeNpub: nip19.npubEncode,
