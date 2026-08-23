@@ -988,5 +988,14 @@
     "Veröffentlichen": "Publicēt",
     "Vom Relay abgelehnt: :grund": "Relejs noraidīja: :grund",
     "Zum Kommentieren musst du angemeldet sein.": "Lai komentētu, ir jāpiesakās.",
-    "Zum Reagieren musst du angemeldet sein.": "Lai reaģētu, ir jāpiesakās."
+    "Zum Reagieren musst du angemeldet sein.": "Lai reaģētu, ir jāpiesakās.",
+    "Neues Issue in :repo: :titel": "Jauns pieteikums repozitorijā :repo: :titel",
+    "Im Projektkanal benachrichtigt: :namen": "Paziņots projekta kanālā: :namen",
+    "Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).": "Šis repozitorijs nepieder nevienam kanālam — neviens netika informēts (:namen).",
+    "Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).": "Šeit neviens tev neatbild — paziņojums netika nosūtīts (:namen).",
+    "Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler": "Tavs ieraksts ir publicēts. Paziņojums :namen netika nosūtīts: :fehler",
+    "Optional. Markdown wird gerendert. @ erwähnt jemanden.": "Neobligāti. Markdown tiek attēlots. @ piemin kādu.",
+    "Antwort schreiben … @ erwähnt jemanden.": "Rakstīt atbildi … @ piemin kādu.",
+    "Neuer Kommentar am Issue „:titel“ in :repo": "Jauns komentārs pieteikumam “:titel” repozitorijā :repo",
+    "Neuer Kommentar am Pull Request „:titel“ in :repo": "Jauns komentārs pull request “:titel” repozitorijā :repo"
 }

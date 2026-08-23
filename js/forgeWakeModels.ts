@@ -188,8 +188,8 @@ export const wakeMessageContent = (target: WakeTarget): string => {
         target.what === 'issue'
             ? t('Neues Issue in :repo: :titel', { repo, titel: target.title })
             : target.art === 'pr'
-              ? t('Neuer Kommentar am Pull Request „:titel" in :repo', { repo, titel: target.title })
-              : t('Neuer Kommentar am Issue „:titel" in :repo', { repo, titel: target.title })
+              ? t('Neuer Kommentar am Pull Request „:titel“ in :repo', { repo, titel: target.title })
+              : t('Neuer Kommentar am Issue „:titel“ in :repo', { repo, titel: target.title })
 
     return `${kopf}\n${buzzEntityLink(target.art, target.eventId, target.repoAddress) || target.repoAddress}`
 }

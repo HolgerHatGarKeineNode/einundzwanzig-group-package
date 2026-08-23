@@ -932,5 +932,14 @@
     "Veröffentlichen": "Publicar",
     "Vom Relay abgelehnt: :grund": "Rechazado por el relé: :grund",
     "Zum Kommentieren musst du angemeldet sein.": "Debes iniciar sesión para comentar.",
-    "Zum Reagieren musst du angemeldet sein.": "Debes iniciar sesión para reaccionar."
+    "Zum Reagieren musst du angemeldet sein.": "Debes iniciar sesión para reaccionar.",
+    "Neues Issue in :repo: :titel": "Nueva incidencia en :repo: :titel",
+    "Im Projektkanal benachrichtigt: :namen": "Notificado en el canal del proyecto: :namen",
+    "Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).": "Este repositorio no pertenece a ningún canal: no se notificó a nadie (:namen).",
+    "Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).": "Aquí nadie te responde: no se envió ninguna notificación (:namen).",
+    "Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler": "Tu aportación está publicada. La notificación a :namen no salió: :fehler",
+    "Optional. Markdown wird gerendert. @ erwähnt jemanden.": "Opcional. Se renderiza Markdown. @ menciona a alguien.",
+    "Antwort schreiben … @ erwähnt jemanden.": "Escribe una respuesta … @ menciona a alguien.",
+    "Neuer Kommentar am Issue „:titel“ in :repo": "Nuevo comentario en la incidencia «:titel» de :repo",
+    "Neuer Kommentar am Pull Request „:titel“ in :repo": "Nuevo comentario en el pull request «:titel» de :repo"
 }

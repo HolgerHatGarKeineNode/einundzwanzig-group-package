@@ -960,5 +960,14 @@
     "Veröffentlichen": "Opublikuj",
     "Vom Relay abgelehnt: :grund": "Odrzucone przez przekaźnik: :grund",
     "Zum Kommentieren musst du angemeldet sein.": "Aby komentować, musisz się zalogować.",
-    "Zum Reagieren musst du angemeldet sein.": "Aby zareagować, musisz się zalogować."
+    "Zum Reagieren musst du angemeldet sein.": "Aby zareagować, musisz się zalogować.",
+    "Neues Issue in :repo: :titel": "Nowe zgłoszenie w :repo: :titel",
+    "Im Projektkanal benachrichtigt: :namen": "Powiadomiono na kanale projektu: :namen",
+    "Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).": "To repozytorium nie należy do żadnego kanału — nikogo nie powiadomiono (:namen).",
+    "Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).": "Tutaj nikt ci nie odpowiada — nie wysłano powiadomienia (:namen).",
+    "Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler": "Twój wpis jest opublikowany. Powiadomienie do :namen nie wyszło: :fehler",
+    "Optional. Markdown wird gerendert. @ erwähnt jemanden.": "Opcjonalnie. Markdown jest renderowany. @ oznacza kogoś.",
+    "Antwort schreiben … @ erwähnt jemanden.": "Napisz odpowiedź … @ oznacza kogoś.",
+    "Neuer Kommentar am Issue „:titel“ in :repo": "Nowy komentarz do zgłoszenia „:titel” w :repo",
+    "Neuer Kommentar am Pull Request „:titel“ in :repo": "Nowy komentarz do pull requesta „:titel” w :repo"
 }

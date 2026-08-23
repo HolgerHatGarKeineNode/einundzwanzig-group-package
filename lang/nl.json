@@ -932,5 +932,14 @@
     "Veröffentlichen": "Publiceren",
     "Vom Relay abgelehnt: :grund": "Geweigerd door de relay: :grund",
     "Zum Kommentieren musst du angemeldet sein.": "Je moet ingelogd zijn om te reageren.",
-    "Zum Reagieren musst du angemeldet sein.": "Je moet ingelogd zijn om een reactie te geven."
+    "Zum Reagieren musst du angemeldet sein.": "Je moet ingelogd zijn om een reactie te geven.",
+    "Neues Issue in :repo: :titel": "Nieuw issue in :repo: :titel",
+    "Im Projektkanal benachrichtigt: :namen": "Gemeld in het projectkanaal: :namen",
+    "Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).": "Deze repository hoort bij geen enkel kanaal — niemand is gemeld (:namen).",
+    "Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).": "Hier reageert niemand op jou — er is geen melding verstuurd (:namen).",
+    "Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler": "Je bijdrage staat er. De melding aan :namen is niet verstuurd: :fehler",
+    "Optional. Markdown wird gerendert. @ erwähnt jemanden.": "Optioneel. Markdown wordt gerenderd. @ vermeldt iemand.",
+    "Antwort schreiben … @ erwähnt jemanden.": "Antwoord schrijven … @ vermeldt iemand.",
+    "Neuer Kommentar am Issue „:titel“ in :repo": "Nieuwe reactie op issue “:titel” in :repo",
+    "Neuer Kommentar am Pull Request „:titel“ in :repo": "Nieuwe reactie op pull request “:titel” in :repo"
 }
