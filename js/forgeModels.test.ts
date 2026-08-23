@@ -42,6 +42,7 @@ import {
     deletionThresholds,
     foldRepoState,
     foldStatus,
+    maintainerLookupFor,
     parseRepoAddress,
     repoAddressOf,
     toIssue,
@@ -645,4 +646,59 @@ test('truncatedLists meldet GENAU die Listen, die am Limit ankamen', () => {
     // Und eins darunter: kein Hinweis. Ohne diesen Fall wäre `>=` von `>= 0`
     // nicht zu unterscheiden.
     assert.deepEqual(truncatedLists({ repos: 499, issues: 199, pulls: 199, ...limits }), [])
+})
+
+// ── NIP-34: der Statuswechsel eines MAINTAINERS ist gültig ──────────────────
+//
+// Bis zum 2026-08-23 liess `allowedActorsFor` nur Autor und Repo-Eigentümer zu. NIP-34
+// sagt wörtlich, gültig sei der jüngste Status „from either the issue/patch author **or a
+// maintainer**" — wir verwarfen den eines eingetragenen Maintainers also STILL: die Zeile
+// blieb „offen", keine Meldung, kein Weg das zu bemerken.
+//
+// Die drei Fälle unten hängen zusammen und dürfen nicht getrennt werden. Der ERSTE ist
+// die Negativkontrolle: ohne durchgereichte Maintainer-Liste muss der Status weiterhin
+// verworfen werden. Ohne ihn wäre nicht gezeigt, dass der Test wirklich an der Liste hängt
+// — er könnte grün sein, weil die Faltung gar nichts mehr prüft.
+
+/** Jemand, der WEDER Autor noch Eigentümer ist — nur Maintainer. */
+const NUR_MAINTAINER = '3'.repeat(64)
+
+test('Maintainer-Status: OHNE durchgereichte Liste weiterhin verworfen (Kontrolle)', () => {
+    const root = issueRoot()
+    const s = status(GIT_STATUS_CLOSED, root.id, 300, NUR_MAINTAINER)
+
+    // Der alte, engere Riegel — und er MUSS greifen, sonst prüft der Fall darunter nichts.
+    assert.equal(foldStatus(root, [s]), null)
+    assert.equal(toIssue(root, [s]).status, 'open')
+})
+
+test('Maintainer-Status: MIT Liste zählt er — das ist die NIP-34-Regel', () => {
+    const root = issueRoot()
+    const s = status(GIT_STATUS_CLOSED, root.id, 300, NUR_MAINTAINER)
+
+    assert.equal(foldStatus(root, [s], [NUR_MAINTAINER])?.kind, GIT_STATUS_CLOSED)
+    assert.equal(toIssue(root, [s], [], [NUR_MAINTAINER]).status, 'closed')
+
+    // Grossschreibung darf nichts ändern: die Liste wird beim Aufnehmen normalisiert.
+    assert.equal(foldStatus(root, [s], [NUR_MAINTAINER.toUpperCase()])?.kind, GIT_STATUS_CLOSED)
+})
+
+test('Maintainer-Status: ein FREMDER bleibt draussen, auch wenn eine Liste vorliegt', () => {
+    const root = issueRoot()
+    const s = status(GIT_STATUS_CLOSED, root.id, 300, FREMD)
+
+    // Die Erweiterung darf den Riegel nicht aufmachen, sondern nur die berechtigte Menge
+    // vergrössern. Ein Fremder ohne Eintrag bleibt ein Fremder.
+    assert.equal(foldStatus(root, [s], [NUR_MAINTAINER]), null)
+    assert.equal(toIssue(root, [s], [], [NUR_MAINTAINER]).status, 'open')
+})
+
+test('maintainerLookupFor: bekannte Adresse liefert die Liste, unbekannte eine leere', () => {
+    const nachschlagen = maintainerLookupFor([
+        { address: REPO_ADDR, maintainers: [NUR_MAINTAINER] },
+    ])
+
+    assert.deepEqual(nachschlagen(REPO_ADDR), [NUR_MAINTAINER])
+    // Unbekannt heisst die alte, engere Menge — nicht ein Wurf und kein stiller Sonderweg.
+    assert.deepEqual(nachschlagen(repoAddressOf(FREMD, 'gibt-es-nicht')), [])
 })

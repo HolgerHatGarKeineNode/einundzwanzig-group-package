@@ -81,6 +81,7 @@ import {
     buildPullRequests,
     buildRepos,
     foldRepoState,
+    maintainerLookupFor,
     truncatedLists,
     unclaimedRepos,
     type ForgeEvent,
@@ -426,8 +427,16 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
             const repos = buildRepos(all, deletions)
             const projects = buildProjects(all, repos, deletions)
             const addresses = new Set(repos.map((repo) => repo.address))
-            const issues = buildIssues(all, all, all).filter((issue) => addresses.has(issue.repoAddress))
-            const pulls = buildPullRequests(all, all, all, all).filter((pr) => addresses.has(pr.repoAddress))
+            // `maintainerLookupFor(repos)`: seit dem 2026-08-23 zählt der Statuswechsel
+            // eines eingetragenen Maintainers, wie NIP-34 es verlangt. Die Repos liegen
+            // hier ohnehin vor — ohne das Durchreichen bliebe der alte, engere Riegel.
+            const maintainersOf = maintainerLookupFor(repos)
+            const issues = buildIssues(all, all, all, maintainersOf).filter((issue) =>
+                addresses.has(issue.repoAddress),
+            )
+            const pulls = buildPullRequests(all, all, all, all, maintainersOf).filter((pr) =>
+                addresses.has(pr.repoAddress),
+            )
 
             const issuesByRepo = new Map<string, number>()
             for (const issue of issues) {
@@ -883,8 +892,14 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                 return null
             }
 
-            const issues = buildIssues(all, all, all).filter((issue) => issue.repoAddress === repo.address)
-            const pulls = buildPullRequests(all, all, all, all).filter((pr) => pr.repoAddress === repo.address)
+            // Genau ein Repo auf dieser Fläche — die Nachschlagefunktion baut sich aus ihm.
+            const maintainersOf = maintainerLookupFor([repo])
+            const issues = buildIssues(all, all, all, maintainersOf).filter(
+                (issue) => issue.repoAddress === repo.address,
+            )
+            const pulls = buildPullRequests(all, all, all, all, maintainersOf).filter(
+                (pr) => pr.repoAddress === repo.address,
+            )
             const truncated = truncatedLists({
                 repos: 0,
                 issues: issues.length,

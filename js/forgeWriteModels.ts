@@ -190,16 +190,27 @@ export const memberGate = (viewer: string): WriteGate => (HEX64.test(viewer) ? A
  * Dieselbe Regel wie {@link allowedActorsForRoot} in `forgeModels.ts`, nur mit
  * den Feldern, die die Anzeigeschicht ohnehin führt (`author`, `repoAddress`).
  * Die Regel selbst steht genau einmal, dort.
+ *
+ * **`maintainers` seit dem 2026-08-23.** Ohne sie durfte ein eingetragener Maintainer den
+ * Knopf nicht sehen, während sein Statuswechsel auf der Leseseite ebenfalls verworfen
+ * wurde — der Fehler war auf beiden Seiten derselbe und fiel deshalb auf keiner auf. Der
+ * Default `[]` hält die alte, engere Menge; wer die Maintainer hat, reicht sie durch.
  */
 export const statusGate = (
     viewer: string,
-    root: { author: string; repoAddress: string },
+    root: { author: string; repoAddress: string; maintainers?: string[] },
 ): WriteGate => {
     if (!HEX64.test(viewer)) {
         return ANONYMOUS
     }
 
-    return allowedActorsFor(root).has(viewer.toLowerCase()) ? ALLOWED : NOT_ACTOR
+    return allowedActorsFor({
+        author: root.author,
+        repoAddress: root.repoAddress,
+        maintainers: root.maintainers ?? [],
+    }).has(viewer.toLowerCase())
+        ? ALLOWED
+        : NOT_ACTOR
 }
 
 // ── Zeitstempel ─────────────────────────────────────────────────────────────

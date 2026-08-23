@@ -244,7 +244,12 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
         if (event.kind === GIT_PR_UPDATE) {
             // Dieselbe Berechtigungsprüfung wie bei den Statuswechseln: ein
             // fremdes 1619 darf den PR nicht auf einen anderen Commit umbiegen.
-            if (!isPr || !allowedActorsForRoot(root).has(event.pubkey.toLowerCase())) {
+            if (
+                !isPr ||
+                !allowedActorsForRoot(root, byAddress.get(rootAddress)?.maintainers ?? []).has(
+                    event.pubkey.toLowerCase(),
+                )
+            ) {
                 continue
             }
             items.push({
@@ -263,7 +268,14 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
         }
 
         if (GIT_STATUS_KINDS.includes(event.kind)) {
-            if (!allowedActorsForRoot(root).has(event.pubkey.toLowerCase())) {
+            // Seit dem 2026-08-23 zählen auch die `maintainers` des Repos — NIP-34 erklärt
+            // ihren Statuswechsel für gültig, und `byAddress` hat das Repo ohnehin schon
+            // in der Hand (die Zeile darüber prüft mit ihm die Zugehörigkeit).
+            if (
+                !allowedActorsForRoot(root, byAddress.get(rootAddress)?.maintainers ?? []).has(
+                    event.pubkey.toLowerCase(),
+                )
+            ) {
                 continue
             }
             items.push({
