@@ -272,8 +272,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </dl>
                         </div>
 
-                        <flux:tabs variant="segmented" x-model="tab" class="mb-3 mt-4">
+                        {{-- `scrollable scrollable:fade` — dieselbe Heilung, die P1 der
+                             Übersicht gegeben hat, und hier bis zum 2026-08-23 NICHT
+                             angekommen: das Vendor-Attribut stand nur an
+                             `⚡forge.blade.php`. Mit dem vierten Tab wäre die Leiste
+                             sonst genau in die Falle gelaufen, die P1 gemessen und
+                             behoben hat — bei 320 px lief sie schon mit DREI Tabs in
+                             nl/hu/lv über.
+
+                             Warum ein vierter Tab und keine Zusammenlegung mit „Pull
+                             Requests": ein Patch und ein PR sind verschiedene Dinge.
+                             Der PR verweist auf einen Branch in einem Repository, das
+                             man klonen muss; der Patch TRÄGT seine Änderung mit sich.
+                             Wer sie in eine Liste wirft, muss in jeder Zeile erklären,
+                             welche Sorte gerade gemeint ist. --}}
+                        <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab" class="mb-3 mt-4">
                             <flux:tab name="issues">{{ __('Issues') }}</flux:tab>
+                            <flux:tab name="patches">{{ __('Patches') }}</flux:tab>
                             <flux:tab name="pulls">{{ __('Pull Requests') }}</flux:tab>
                             <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
                         </flux:tabs>
@@ -597,6 +612,186 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                         <p class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
                                                     </template>
                                                 </div>
+                                            </div>
+                                        </template>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+
+                        {{-- ── Patches (1617, P5) ────────────────────────────────
+                             **Der Diff steht IM Ereignis.** Ein kind 1617 trägt die
+                             `git format-patch`-Ausgabe als `content` — kein Clone,
+                             keine HTTP-Brücke, keine Auth. Das ist die einzige
+                             Codeanzeige von NIP-34, die ein Browser-Client ohne
+                             Git-Zugriff überhaupt zeigen kann, und bis zum
+                             2026-08-23 waren wir der einzige von drei Clients
+                             (Amethyst, Buzz Desktop, wir), der sie nicht zeigte.
+
+                             Gelesen wird der Text in `js/forgeDiff.ts`, nicht hier:
+                             derselbe Leser trägt später den PR-Diff und die
+                             Buzz-Diff-Nachricht (kind 40008). --}}
+                        <div x-show="tab === 'patches'" x-cloak>
+                            <template x-if="view.patches.length === 0">
+                                <div class="surface-card empty-state px-6 py-12 text-center" data-forge-empty="patches">
+                                    <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
+                                        <flux:icon.document-text class="size-6 text-zinc-500 dark:text-zinc-400" />
+                                    </span>
+                                    <flux:heading class="mt-4">{{ __('Noch keine Patches.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Ein Patch trägt seine Änderung selbst — sobald jemand einen einreicht, steht er hier.') }}</flux:text>
+                                </div>
+                            </template>
+
+                            <ul x-show="view.patches.length > 0" class="surface-card">
+                                <template x-for="patch in view.patches" :key="patch.id">
+                                    <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-patch :data-status="patch.status" :data-id="patch.id">
+                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
+                                                x-on:click="toggle(patch.id)" :aria-expanded="open[patch.id] ? 'true' : 'false'">
+                                            {{-- Derselbe Statusknoten wie bei Issues und PRs:
+                                                 gefüllt = offen, Ring = angewandt oder
+                                                 geschlossen. --}}
+                                            <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
+                                                <span class="size-2.5 rounded-full"
+                                                      :class="patch.status === 'open'
+                                                          ? 'bg-zinc-900 dark:bg-zinc-100'
+                                                          : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
+                                            </span>
+                                            <span class="min-w-0 flex-1">
+                                                {{-- Der Titel kommt aus dem `Subject:`-Header
+                                                     des Patch-Textes; ein 1617 trägt kein
+                                                     `subject`-Tag. Fehlt er, steht hier der
+                                                     ÜBERSETZTE Ersatztext — genau deshalb
+                                                     liefert das Modell `''` und keinen
+                                                     englischen Vorgabetext. --}}
+                                                <span class="block font-semibold leading-snug" data-forge-patch-titel
+                                                      x-text="patch.title || @js(__('Ohne Titel'))"></span>
+                                                <span class="mt-1 block text-xs text-muted"
+                                                      x-text="@js(__(':name hat ihn eingereicht.')).split(':name').join(patch.authorName) + ' · ' + patch.timeLabel"></span>
+                                                {{-- Serien-Marker. Ein `git format-patch` über
+                                                     drei Commits erzeugt DREI Ereignisse; das
+                                                     Modell fasst sie bewusst nicht zusammen
+                                                     (die Kette kann im Bestand Lücken haben,
+                                                     und aus einer Lücke würde still eine
+                                                     falsche Serienlänge). Der Marker sagt
+                                                     wenigstens, dass es eine Serie gibt. --}}
+                                                <template x-if="patch.isRoot || patch.isRootRevision || patch.inReplyTo">
+                                                    <span class="mt-1 block text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
+                                                          data-forge-patch-serie
+                                                          x-text="patch.isRootRevision
+                                                              ? @js(__('Beginn einer Neufassung'))
+                                                              : (patch.isRoot ? @js(__('Beginn einer Serie')) : @js(__('Teil einer Serie')))"></span>
+                                                </template>
+                                            </span>
+                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
+                                                {{-- Die Kennzahlen des Diffs. `+`/`−` stehen
+                                                     als ZEICHEN da und nicht nur als Farbe:
+                                                     Farbe allein trüge hier Bedeutung
+                                                     (WCAG 1.4.1). --}}
+                                                <template x-if="patch.stat.files > 0">
+                                                    <span class="inline-flex items-center gap-1.5 text-xs" data-forge-patch-stat>
+                                                        <span class="text-muted" x-text="$plural(patch.stat.files, '1 Datei', ':count Dateien')"></span>
+                                                        <span class="font-semibold text-forge-erledigt" x-text="'+' + patch.stat.additions"></span>
+                                                        <span class="font-semibold text-forge-ruhend" x-text="'−' + patch.stat.deletions"></span>
+                                                    </span>
+                                                </template>
+                                                <template x-if="patch.shortCommit">
+                                                    <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
+                                                          x-text="patch.shortCommit"></span>
+                                                </template>
+                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
+                                                      :class="patch.status === 'open' ? 'text-forge-offen' : (patch.status === 'applied' ? 'text-forge-erledigt' : 'text-forge-ruhend')"
+                                                      data-forge-patch-status
+                                                      x-text="statusText(patch.status)"></span>
+                                                <template x-if="patch.commentCount > 0">
+                                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                                        <span x-text="patch.commentCount"></span>
+                                                    </span>
+                                                </template>
+                                            </span>
+                                        </button>
+
+                                        <template x-if="open[patch.id]">
+                                            <div class="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+                                                {{-- Die Commit-Beschreibung. `x-text`, NICHT
+                                                     `x-html`: das ist Klartext aus einer
+                                                     Commit-Nachricht, kein Markdown. Durch
+                                                     den Renderer geschickt, würden Sternchen
+                                                     zu Kursiv und Unterstriche verschwänden
+                                                     aus Variablennamen. --}}
+                                                <p x-show="patch.body" class="forge-mass whitespace-pre-wrap text-sm" data-forge-patch-body x-text="patch.body"></p>
+
+                                                {{-- Der gekürzte Diff sagt es an. Eine
+                                                     stillschweigend gekürzte Datei wäre eine
+                                                     falsche Aussage über den Patch. --}}
+                                                <template x-if="patch.diff.truncated">
+                                                    <flux:callout variant="secondary" icon="information-circle" class="forge-mass mt-3" data-forge-patch-gekuerzt>
+                                                        <flux:callout.text>{{ __('Dieser Patch ist zu lang für die vollständige Anzeige — es werden nicht alle Zeilen gezeigt.') }}</flux:callout.text>
+                                                    </flux:callout>
+                                                </template>
+
+                                                <template x-if="patch.diff.files.length > 0">
+                                                    <div class="forge-diff mt-3" data-forge-diff>
+                                                        <template x-for="datei in patch.diff.files" :key="datei.path + datei.change">
+                                                            <div class="forge-diff-datei" data-forge-diff-datei :data-change="datei.change">
+                                                                <div class="forge-diff-kopf">
+                                                                    {{-- Das Wort steht neben dem Pfad, nicht
+                                                                         nur als Farbe oder Symbol. --}}
+                                                                    <span class="forge-diff-art"
+                                                                          x-text="datei.change === 'add' ? @js(__('hinzugefügt'))
+                                                                              : (datei.change === 'del' ? @js(__('gelöscht'))
+                                                                              : (datei.change === 'ren' ? @js(__('umbenannt')) : @js(__('geändert'))))"></span>
+                                                                    <span class="forge-diff-pfad" x-text="datei.path"></span>
+                                                                    <span class="forge-diff-zahlen">
+                                                                        <span class="text-forge-erledigt" x-text="'+' + datei.additions"></span>
+                                                                        <span class="text-forge-ruhend" x-text="'−' + datei.deletions"></span>
+                                                                    </span>
+                                                                </div>
+                                                                <template x-if="datei.binary">
+                                                                    <p class="forge-diff-binaer" data-forge-diff-binaer>{{ __('Binärdatei — der Inhalt lässt sich nicht als Text zeigen.') }}</p>
+                                                                </template>
+                                                                <template x-if="!datei.binary">
+                                                                    <div class="forge-diff-koerper">
+                                                                        <template x-for="(zeile, i) in datei.lines" :key="i">
+                                                                            <div class="forge-diff-zeile" :data-kind="zeile.kind">
+                                                                                {{-- Zeilennummern sind
+                                                                                     Orientierung fürs Auge und
+                                                                                     werden nicht vorgelesen —
+                                                                                     sonst läse ein Screenreader
+                                                                                     vor jeder Codezeile zwei
+                                                                                     Zahlen. --}}
+                                                                                <span class="forge-diff-nr" aria-hidden="true" x-text="zeile.oldNo || ''"></span>
+                                                                                <span class="forge-diff-nr" aria-hidden="true" x-text="zeile.newNo || ''"></span>
+                                                                                {{-- Das Vorzeichen IM Text, nicht
+                                                                                     nur in der Farbe. Ohne es
+                                                                                     wäre die Bedeutung allein
+                                                                                     farbcodiert. --}}
+                                                                                <span class="forge-diff-zeichen" x-text="zeile.kind === 'add' ? '+' : (zeile.kind === 'del' ? '-' : ' ')"></span>
+                                                                                <span class="forge-diff-text" x-text="zeile.text"></span>
+                                                                            </div>
+                                                                        </template>
+                                                                    </div>
+                                                                </template>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+
+                                                {{-- Kommentare — dieselbe Bauform wie bei
+                                                     Issue und PR. --}}
+                                                <template x-if="patch.comments.length > 0">
+                                                    <ul class="mt-3 space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                        <template x-for="comment in patch.comments" :key="comment.id">
+                                                            <li class="text-sm">
+                                                                <p class="text-xs text-muted">
+                                                                    <span class="font-semibold" x-text="comment.authorName"></span>
+                                                                    <span x-text="' · ' + comment.timeLabel"></span>
+                                                                </p>
+                                                                <div x-show="comment.html" class="article-content forge-mass mt-1" x-html="comment.html"></div>
+                                                            </li>
+                                                        </template>
+                                                    </ul>
+                                                </template>
                                             </div>
                                         </template>
                                     </li>

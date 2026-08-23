@@ -24,7 +24,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
     DELETION,
+    FORGE_COMMENT,
     GIT_ISSUE,
+    GIT_PATCH,
     GIT_PR_UPDATE,
     GIT_PULL_REQUEST,
     GIT_STATUS_APPLIED,
@@ -35,6 +37,7 @@ import {
     REPO_ANNOUNCEMENT,
     REPO_STATE,
     buildIssues,
+    buildPatches,
     buildProjects,
     buildPullRequests,
     buildRepos,
@@ -46,6 +49,7 @@ import {
     parseRepoAddress,
     repoAddressOf,
     toIssue,
+    toPatch,
     toPullRequest,
     toRepo,
     toRepoState,
@@ -701,4 +705,209 @@ test('maintainerLookupFor: bekannte Adresse liefert die Liste, unbekannte eine l
     assert.deepEqual(nachschlagen(REPO_ADDR), [NUR_MAINTAINER])
     // Unbekannt heisst die alte, engere Menge — nicht ein Wurf und kein stiller Sonderweg.
     assert.deepEqual(nachschlagen(repoAddressOf(FREMD, 'gibt-es-nicht')), [])
+})
+
+// ── 1617: Patches ───────────────────────────────────────────────────────────
+
+/**
+ * Ein realistischer, kleiner `git format-patch`-Text.
+ *
+ * Die Signaturzeile endet auf `-- ` MIT Leerzeichen (byte-geprüft mit `cat -A`
+ * an echter git-Ausgabe) und wird deshalb zusammengesetzt statt getippt —
+ * jeder Formatierer, der Zeilenenden putzt, hätte den Fall sonst lautlos
+ * entschärft. Die ausführliche Prüfung des Formats steht in `forgeDiff.test.ts`;
+ * hier geht es nur darum, dass das MODELL Titel und Rohtext richtig führt.
+ */
+const PATCH_TEXT =
+    `From abc Mon Sep 17 00:00:00 2001
+From: Test <t@e.st>
+Date: Sun, 23 Aug 2026 22:14:02 +0200
+Subject: [PATCH 1/2] Ein Betreff der ueber die Faltgrenze laeuft und deshalb
+ in einer zweiten Zeile weitergeht
+
+Beschreibung des Patches.
+---
+ a.txt | 2 +-
+
+diff --git a/a.txt b/a.txt
+index f00189a..8686969 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1,3 +1,3 @@
+ eins
+-zwei
++ZWEI
+ drei
+` + '--' + ' \n2.55.0\n'
+
+const patchEv = (over: Partial<ForgeEvent> = {}): ForgeEvent =>
+    ev({
+        kind: GIT_PATCH,
+        content: PATCH_TEXT,
+        tags: [
+            ['a', REPO_ADDR],
+            ['r', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'euc'],
+            ['p', OWNER],
+            ['t', 'root'],
+            ['commit', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'],
+            ['parent-commit', 'cccccccccccccccccccccccccccccccccccccccc'],
+        ],
+        ...over,
+    })
+
+test('toPatch: der Titel kommt aus dem GEFALTETEN Subject-Header, nicht aus einem Tag', () => {
+    // Das ist die ganze Pointe von kind 1617: es trägt kein `subject`-Tag
+    // (`build_git_patch` setzt keines), also gibt es keinen anderen Weg zum
+    // Titel. Käme hier die erste Header-Zeile allein, wäre der Titel ein Torso.
+    const patch = toPatch(patchEv())
+    assert.equal(
+        patch.title,
+        'Ein Betreff der ueber die Faltgrenze laeuft und deshalb in einer zweiten Zeile weitergeht',
+    )
+    assert.ok(!patch.title.includes('[PATCH'), 'Der Serien-Präfix steht noch im Titel.')
+})
+
+test('toPatch: der ROHE Patchtext bleibt erhalten — die Fläche liest ihn selbst', () => {
+    // Würde das Modell hier schon parsen oder kürzen, gäbe es keinen Weg mehr
+    // zum vollständigen Patch — und ein Patch, den man nicht mehr anwenden
+    // kann, ist keiner.
+    assert.equal(toPatch(patchEv()).content, PATCH_TEXT)
+})
+
+test('toPatch: Commit, Eltern-Commit und die Serien-Marker', () => {
+    const patch = toPatch(patchEv())
+    assert.equal(patch.commit, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
+    assert.equal(patch.parentCommit, 'cccccccccccccccccccccccccccccccccccccccc')
+    assert.equal(patch.isRoot, true)
+    assert.equal(patch.isRootRevision, false)
+    assert.equal(patch.inReplyTo, '')
+    assert.equal(patch.repoAddress, REPO_ADDR)
+})
+
+test('toPatch: der Vorgänger einer Serie steht im `e`-Tag mit Marker `reply`', () => {
+    // Buzz setzt `["e", <vorgänger>, "", "reply"]` (`build_git_patch`). Ein
+    // `e`-Tag OHNE diesen Marker ist etwas anderes und darf nicht als
+    // Serienglied durchgehen.
+    const mitVorgaenger = toPatch(
+        patchEv({
+            tags: [
+                ['a', REPO_ADDR],
+                ['e', 'd'.repeat(64), '', 'reply'],
+                ['t', 'root-revision'],
+            ],
+        }),
+    )
+    assert.equal(mitVorgaenger.inReplyTo, 'd'.repeat(64))
+    assert.equal(mitVorgaenger.isRootRevision, true)
+
+    const ohneMarker = toPatch(
+        patchEv({ tags: [['a', REPO_ADDR], ['e', 'd'.repeat(64)]] }),
+    )
+    assert.equal(ohneMarker.inReplyTo, '', 'Ein `e` ohne `reply`-Marker ist kein Serienglied.')
+})
+
+test('toPatch: ohne Subject-Header bleibt der Titel LEER statt englisch', () => {
+    const patch = toPatch(patchEv({ content: 'diff --git a/x b/x\n' }))
+    assert.equal(patch.title, '')
+})
+
+test('Patch-Status: 1631 heisst hier `applied`, nicht `merged` und nicht `resolved`', () => {
+    // Dasselbe Kind, drei Flächen, drei Wörter — beim Patch ist die Handlung
+    // das Anwenden (`git am`), nicht das Zusammenführen eines Branches.
+    const root = patchEv()
+    const status = ev({
+        kind: GIT_STATUS_APPLIED,
+        created_at: 2_000,
+        tags: [['e', root.id], ['a', REPO_ADDR]],
+    })
+    assert.equal(toPatch(root, [status]).status, 'applied')
+    assert.equal(toPatch(root, []).status, 'open', 'Ohne Status-Ereignis ist ein Patch offen.')
+})
+
+test('Patch-Status: ein `t`-Label ändert den Zustand NICHT', () => {
+    // Beim PR gibt es die Ausnahme für `draft`; am Patch sind `root` und
+    // `root-revision` die einzigen Labels, die Buzz setzt, und beide sagen
+    // etwas über die Serie, nicht über den Lebenszyklus.
+    const patch = toPatch(patchEv({ tags: [['a', REPO_ADDR], ['t', 'draft']] }))
+    assert.equal(patch.status, 'open')
+})
+
+test('KONTROLLE Patch-Status: ein FREMDER darf einen Patch nicht schliessen', () => {
+    const root = patchEv()
+    const fremd = ev({
+        kind: GIT_STATUS_CLOSED,
+        pubkey: FREMD,
+        created_at: 3_000,
+        tags: [['e', root.id], ['a', REPO_ADDR]],
+    })
+    assert.equal(toPatch(root, [fremd]).status, 'open', 'Ein Fremdstatus wurde übernommen.')
+})
+
+test('Patch-Status: ein eingetragener MAINTAINER darf es — dieselbe NIP-34-Regel wie beim Issue', () => {
+    // Der Riegel aus P2 muss auch hier greifen. Ohne durchgereichte Liste
+    // bliebe derselbe Fehler an einer neuen Stelle bestehen: der Patch sähe
+    // offen aus, obwohl ein Berechtigter ihn angewandt hat.
+    const root = patchEv()
+    const vomMaintainer = ev({
+        kind: GIT_STATUS_APPLIED,
+        pubkey: MAINTAINER,
+        created_at: 3_000,
+        tags: [['e', root.id], ['a', REPO_ADDR]],
+    })
+    assert.equal(
+        toPatch(root, [vomMaintainer], [], []).status,
+        'open',
+        'KONTROLLE: ohne Liste bleibt er verworfen.',
+    )
+    assert.equal(toPatch(root, [vomMaintainer], [], [MAINTAINER]).status, 'applied')
+})
+
+test('buildPatches: filtert auf 1617, reicht die Maintainer je Repo durch und sortiert nach Bewegung', () => {
+    const alt = patchEv({ created_at: 1_000 })
+    const neu = patchEv({ created_at: 2_000 })
+    const kommentar = ev({
+        kind: FORGE_COMMENT,
+        created_at: 5_000,
+        tags: [['e', alt.id], ['a', REPO_ADDR]],
+        content: 'dazu',
+    })
+    const fremdesKind = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+
+    const patches = buildPatches(
+        [alt, neu, fremdesKind],
+        [],
+        [kommentar],
+        maintainerLookupFor([{ address: REPO_ADDR, maintainers: [MAINTAINER] }]),
+    )
+    assert.equal(patches.length, 2, 'Ein fremdes Kind ist durchgerutscht.')
+    // `alt` wurde durch den Kommentar zuletzt bewegt und steht deshalb oben.
+    assert.deepEqual(patches.map((p) => p.id), [alt.id, neu.id])
+    assert.equal(patches[0]?.commentCount, 1)
+})
+
+test('toRepo liest `relays`, `euc` und ALLE web-URLs — der Heuhaufen der Suche', () => {
+    const repo = toRepo(
+        ev({
+            kind: REPO_ANNOUNCEMENT,
+            tags: [
+                ['d', REPO_D],
+                ['name', REPO_D],
+                // NIP-34 erlaubt mehrwertig UND wiederholt einwertig; ngit
+                // schreibt die mehrwertige Form.
+                ['web', 'https://eins.example', 'https://zwei.example'],
+                ['web', 'https://drei.example'],
+                ['relays', 'wss://a.example', 'wss://b.example'],
+                ['r', 'a'.repeat(40), 'euc'],
+                // Ein gewöhnliches `r` (Buzz setzt es am Patch für den Commit)
+                // darf NICHT als euc durchgehen.
+                ['r', 'b'.repeat(40)],
+            ],
+        }),
+    )
+    assert.ok(repo)
+    assert.deepEqual(repo.webUrls, ['https://eins.example', 'https://zwei.example', 'https://drei.example'])
+    assert.deepEqual(repo.relays, ['wss://a.example', 'wss://b.example'])
+    assert.equal(repo.euc, 'a'.repeat(40))
+    // Die Einzel-URL bleibt die erste — die Fläche zeigt genau einen Link.
+    assert.equal(repo.webUrl, 'https://eins.example')
 })

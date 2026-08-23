@@ -64,6 +64,8 @@ import { DEFAULT_FORGE_TAB, FORGE_TAB_PARAM, readForgeTab } from './forgeTab.ts'
 // drittes Paar wäre derselbe Fehler noch einmal.
 import { DESKTOP_QUERY } from './viewport.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
+import { diffStat, parseUnifiedDiff, patchBody, type DiffStat, type ParsedDiff } from './forgeDiff.ts'
+import { filterRepos } from './forgeSearch.ts'
 import {
     groupTimeline,
     timelineFullLabel,
@@ -81,7 +83,9 @@ import {
     PROJECT_ANNOUNCEMENT,
     REPO_ANNOUNCEMENT,
     REPO_STATE,
+    GIT_PATCH,
     buildIssues,
+    buildPatches,
     buildProjects,
     buildPullRequests,
     buildRepos,
@@ -91,6 +95,7 @@ import {
     unclaimedRepos,
     type ForgeEvent,
     type Issue,
+    type Patch,
     type Project,
     type PullRequest,
     type Repo,
@@ -176,6 +181,10 @@ const contentFilters = (addresses: string[]): Filter[] =>
         ? []
         : [
               { kinds: [GIT_ISSUE], '#a': addresses, limit: FORGE_ROOT_LIMIT },
+              // 1617 seit dem 2026-08-23 (P5). Eigener Filter statt eines
+              // gemeinsamen mit 1621/1618: `limit` gilt je Filter, und ein
+              // geteiltes Budget liesse die eine Art die andere verdraengen.
+              { kinds: [GIT_PATCH], '#a': addresses, limit: FORGE_ROOT_LIMIT },
               { kinds: [GIT_PULL_REQUEST], '#a': addresses, limit: FORGE_ROOT_LIMIT },
               { kinds: [GIT_PR_UPDATE], '#a': addresses, limit: FORGE_LIST_LIMIT },
               { kinds: [...GIT_STATUS_KINDS], '#a': addresses, limit: FORGE_LIST_LIMIT },
@@ -208,6 +217,7 @@ const ALL_FORGE_KINDS = [
     REPO_STATE,
     PROJECT_ANNOUNCEMENT,
     GIT_ISSUE,
+    GIT_PATCH,
     GIT_PULL_REQUEST,
     GIT_PR_UPDATE,
     ...GIT_STATUS_KINDS,
@@ -231,6 +241,8 @@ export type RepoRow = Repo & {
     state: RepoState | null
     issueCount: number
     pullRequestCount: number
+    /** Wie viele 1617 auf dieses Repo zeigen. Seit P5 (2026-08-23). */
+    patchCount: number
     /**
      * Die Maintainer mit aufgelöstem Namen und Bild.
      *
@@ -253,6 +265,16 @@ export type ForgeCounts = {
     repos: number
     pullRequests: number
     issues: number
+    /**
+     * Patches (kind 1617). Seit P5 (2026-08-23).
+     *
+     * Die Zustandszeile zeigt sie **nur, wenn es welche gibt** — anders als bei
+     * Repos, Issues und PRs, wo eine `0` eine Aussage ist („noch keine"). Ein
+     * Patch ist ein Werkzeug fuer Werkzeugleute: viele Workspaces arbeiten nur
+     * mit Pull Requests und werden nie ein 1617 sehen. Eine dauerhafte `0` waere
+     * dort kein Befund, sondern eine Spalte, die nie etwas sagt.
+     */
+    patches: number
 }
 
 export type ForgeOverview = {
@@ -286,7 +308,7 @@ const EMPTY_OVERVIEW: ForgeOverview = {
     repos: [],
     projects: [],
     unclaimed: [],
-    counts: { projects: 0, repos: 0, pullRequests: 0, issues: 0 },
+    counts: { projects: 0, repos: 0, pullRequests: 0, issues: 0, patches: 0 },
     activityGroups: [],
     truncated: [],
 }
@@ -329,6 +351,8 @@ const ACTIVITY_VERBS: Record<ActivityItem['type'], string> = {
     push: 'hat gepusht nach',
     'issue-opened': 'hat ein Issue eröffnet:',
     'issue-status': 'hat den Status eines Issues geändert:',
+    'patch-opened': 'hat einen Patch eingereicht:',
+    'patch-status': 'hat den Status eines Patches geändert:',
     'pr-opened': 'hat einen Pull Request eröffnet:',
     'pr-updated': 'hat einen Pull Request aktualisiert:',
     'pr-status': 'hat den Status eines Pull Requests geändert:',
@@ -442,7 +466,14 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
             const pulls = buildPullRequests(all, all, all, all, maintainersOf).filter((pr) =>
                 addresses.has(pr.repoAddress),
             )
+            const patches = buildPatches(all, all, all, maintainersOf).filter((patch) =>
+                addresses.has(patch.repoAddress),
+            )
 
+            const patchesByRepo = new Map<string, number>()
+            for (const patch of patches) {
+                patchesByRepo.set(patch.repoAddress, (patchesByRepo.get(patch.repoAddress) ?? 0) + 1)
+            }
             const issuesByRepo = new Map<string, number>()
             for (const issue of issues) {
                 issuesByRepo.set(issue.repoAddress, (issuesByRepo.get(issue.repoAddress) ?? 0) + 1)
@@ -460,6 +491,7 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                 state: foldRepoState(all, { owner: repo.owner, relaySelf: relaySelf as string, dtag: repo.dtag }),
                 issueCount: issuesByRepo.get(repo.address) ?? 0,
                 pullRequestCount: pullsByRepo.get(repo.address) ?? 0,
+                patchCount: patchesByRepo.get(repo.address) ?? 0,
                 people: peopleOf(repo.maintainers, profiles as Map<string, { picture?: string }>),
             }))
             const byAddress = new Map(rows.map((row) => [row.address, row]))
@@ -491,6 +523,7 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                     repos: repos.length,
                     pullRequests: pulls.length,
                     issues: issues.length,
+                    patches: patches.length,
                 },
                 // Die Übersicht mischt Repos — hier nennt die Zeile ihr Repo,
                 // aber nur beim Wechsel.
@@ -797,9 +830,37 @@ export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & {
     updates: { id: string; authorName: string; shortCommit: string; timeLabel: string; html: string }[]
 }
 
+/**
+ * Ein Patch, anzeigefertig — mit **geparstem** Diff.
+ *
+ * Der rohe `content` bleibt daneben stehen: er ist der Patch, und nur mit ihm
+ * kann jemand `git am` fuettern. Ein Modell, das nur das Geparste behielte,
+ * naehme die einzige Handlung weg, fuer die es ein 1617 ueberhaupt gibt.
+ */
+export type PatchRow = Omit<Patch, 'comments'> & {
+    authorName: string
+    timeLabel: string
+    shortCommit: string
+    /** Der gelesene Diff — Dateien, Hunks, Zeilen (`forgeDiff.ts`). */
+    diff: ParsedDiff
+    /** Kennzahlen fuers Abzeichen: Dateien, `+`, `-`. */
+    stat: DiffStat
+    /**
+     * Der Beschreibungstext (Commit-Nachricht ohne erste Zeile) — **KLARTEXT**.
+     *
+     * Bewusst NICHT `html` genannt: jedes andere Modell dieser Fläche trägt in
+     * `html` gerendertes Markdown, und ein gleichnamiges Feld mit rohem Text
+     * wäre eine Einladung, es an `x-html` zu binden. Der Unterschied ist hier
+     * eine Sicherheitszusage, kein Stil.
+     */
+    body: string
+    comments: CommentRow[]
+}
+
 export type RepoView = {
     repo: RepoRow
     issues: IssueRow[]
+    patches: PatchRow[]
     pullRequests: PullRequestRow[]
     /**
      * Dieselbe Tages-Gruppierung wie auf der Übersicht — aber OHNE Repo-Namen in
@@ -850,6 +911,27 @@ const ensureRenderer = async (): Promise<void> => {
  * `longformFeed.ts` (`htmlCache`).
  */
 const htmlCache = new Map<string, string>()
+
+/**
+ * Der geparste Diff je Ereignis-Id.
+ *
+ * Dieselbe Begründung wie beim HTML-Memo: die Ableitung läuft bei JEDEM
+ * eintreffenden Ereignis neu, und ein Patch von 4000 Zeilen wieder und wieder
+ * durch den Parser zu schicken, kostet ohne Gegenwert. Die Id ist der
+ * Schlüssel — ein 1617 ist NICHT ersetzbar (kind < 10000), sein Inhalt kann
+ * sich also nie ändern, und ein Eintrag kann nie veralten.
+ */
+const diffCache = new Map<string, ParsedDiff>()
+
+const parseDiffMemo = (id: string, content: string): ParsedDiff => {
+    let diff = diffCache.get(id)
+    if (diff === undefined) {
+        diff = parseUnifiedDiff(content)
+        diffCache.set(id, diff)
+    }
+
+    return diff
+}
 
 const renderMarkdown = (id: string, content: string): string => {
     if (!renderer) {
@@ -905,6 +987,9 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
             const pulls = buildPullRequests(all, all, all, all, maintainersOf).filter(
                 (pr) => pr.repoAddress === repo.address,
             )
+            const patches = buildPatches(all, all, all, maintainersOf).filter(
+                (patch) => patch.repoAddress === repo.address,
+            )
             const truncated = truncatedLists({
                 repos: 0,
                 issues: issues.length,
@@ -921,6 +1006,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                 state: foldRepoState(all, { owner: repo.owner, relaySelf: relaySelf as string, dtag: repo.dtag }),
                 issueCount: issues.length,
                 pullRequestCount: pulls.length,
+                patchCount: patches.length,
                 people: peopleOf(repo.maintainers, profiles as Map<string, { picture?: string }>),
             }
 
@@ -932,6 +1018,17 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     timeLabel: timeLabel(issue.createdAt),
                     html: renderMarkdown(issue.id, issue.content),
                     comments: issue.comments.map(toCommentRow),
+                })),
+                patches: patches.map((patch) => ({
+                    ...patch,
+                    authorName: nameOf(patch.author),
+                    timeLabel: timeLabel(patch.createdAt),
+                    shortCommit: shortCommit(patch.commit),
+                    diff: parseDiffMemo(patch.id, patch.content),
+                    stat: diffStat(parseDiffMemo(patch.id, patch.content)),
+                    // KLARTEXT, nicht gerendert — siehe `patchBody` in `forgeDiff.ts`.
+                    body: patchBody(patch.content),
+                    comments: patch.comments.map(toCommentRow),
                 })),
                 pullRequests: pulls.map((pr) => ({
                     ...pr,
@@ -1226,7 +1323,18 @@ type ForgeState = {
     _boot(): Promise<void>
     _load(): Promise<void>
     retry(): void
+    /**
+     * Der Text im Suchfeld der Werkbank. Rein clientseitig (`forgeSearch.ts`) —
+     * der Bestand liegt ohnehin vollstaendig im Speicher.
+     */
+    suche: string
     isEmpty(): boolean
+    /** Die Repos NACH der Suche. Leeres Feld = alle, in unveraenderter Reihenfolge. */
+    sichtbareRepos(): RepoRow[]
+    /** Steht eine Suche an, die nichts gefunden hat? */
+    ohneTreffer(): boolean
+    /** Suchfeld leeren. */
+    sucheLoeschen(): void
     settled(): boolean
     counts(): ForgeCounts
     repoHref(row: { naddr: string }): string
@@ -1379,7 +1487,12 @@ const tabFromLocation = (): string => {
     try {
         const tab = new URLSearchParams(window.location.search).get('tab')
 
-        return tab === 'issues' || tab === 'pulls' ? tab : 'issues'
+        // `patches` seit P5 (2026-08-23). Die Rail und die Werkbank verlinken
+        // gezielt auf eine Liste; ein `?tab=`, das still auf „Issues" fiele,
+        // zeigte etwas anderes als die Zeile, die dorthin geführt hat.
+        return tab === 'issues' || tab === 'pulls' || tab === 'patches' || tab === 'activity'
+            ? tab
+            : 'issues'
     } catch {
         return 'issues'
     }
@@ -1407,6 +1520,7 @@ export function wireForge(Alpine: {
             // nicht. Dieselbe Richtung wie `viewport.ts` beim `desktop`-Flag.
             zweispaltig: false,
             overview: EMPTY_OVERVIEW,
+            suche: '',
             _base: String(base ?? '').replace(/\/+$/, ''),
             _dead: false,
             _controller: null,
@@ -1635,6 +1749,26 @@ export function wireForge(Alpine: {
             },
             counts() {
                 return this.overview.counts
+            },
+            /**
+             * Gefiltert wird beim LESEN, nicht beim Laden.
+             *
+             * `overview.repos` bleibt vollstaendig — die Zustandszeile oben
+             * zaehlt weiter den ganzen Bestand, und das ist Absicht: „3 von 47"
+             * ist eine Aussage, „3 von 3" waere eine Luege ueber den Workspace.
+             */
+            sichtbareRepos() {
+                return filterRepos(this.overview.repos, this.suche)
+            },
+            ohneTreffer() {
+                return (
+                    this.suche.trim() !== '' &&
+                    this.overview.repos.length > 0 &&
+                    this.sichtbareRepos().length === 0
+                )
+            },
+            sucheLoeschen() {
+                this.suche = ''
             },
             repoHref(row: { naddr: string }) {
                 return row.naddr ? `${this._base}/${row.naddr}` : ''

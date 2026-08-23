@@ -21,6 +21,7 @@ import { buildActivity } from './forgeActivity.ts'
 import {
     FORGE_COMMENT,
     GIT_ISSUE,
+    GIT_PATCH,
     GIT_PR_UPDATE,
     GIT_PULL_REQUEST,
     GIT_STATUS_CLOSED,
@@ -151,4 +152,107 @@ test('Unberechtigte Statuswechsel und PR-Updates erscheinen nicht in der Leiste'
 
 test('Leerer Bestand ergibt eine leere Leiste — und wirft nicht', () => {
     assert.deepEqual(buildActivity({ repos: [], events: [] }), [])
+})
+
+// ── Patches in der Spur (P5) ────────────────────────────────────────────────
+
+/** Ein knapper, aber echt geformter `git format-patch`-Text. */
+const PATCH_TEXT = `From ${COMMIT} Mon Sep 17 00:00:00 2001
+From: Test <t@e.st>
+Subject: [PATCH] Den Zaehler zuruecksetzen
+
+---
+diff --git a/a.txt b/a.txt
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1 @@
+-alt
++neu
+`
+
+const patchEvent = ev({
+    kind: GIT_PATCH,
+    created_at: 4_000,
+    content: PATCH_TEXT,
+    tags: [['a', REPO_ADDR], ['commit', COMMIT], ['t', 'root']],
+})
+
+test('ein 1617 erzeugt eine eigene Zeile — bis zum 2026-08-23 fehlte es ganz', () => {
+    const spur = buildActivity({ repos: REPOS, events: [patchEvent] })
+    const zeile = spur.find((item) => item.type === 'patch-opened')
+    assert.ok(zeile, 'Kein `patch-opened` in der Spur — Patches sind unsichtbar.')
+    assert.equal(zeile.repoAddress, REPO_ADDR)
+    assert.equal(zeile.badge, COMMIT.slice(0, 7))
+})
+
+test('WÄCHTER: der Patch-Titel ist der Betreff, NICHT die erste Inhaltszeile', () => {
+    // Ohne eigenen Titelweg fiele `rootTitle` auf die erste Zeile des Inhalts
+    // zurück — und die lautet bei jedem `git format-patch`
+    // „From <sha> Mon Sep 17 00:00:00 2001". Jede Patchzeile der Spur sähe
+    // dann gleich aus, und keine sagte, worum es geht.
+    const zeile = buildActivity({ repos: REPOS, events: [patchEvent] }).find(
+        (item) => item.type === 'patch-opened',
+    )
+    assert.equal(zeile?.object, 'Den Zaehler zuruecksetzen')
+    assert.ok(!zeile?.object.startsWith('From '), 'Der Git-Header ist als Titel durchgerutscht.')
+})
+
+test('der ROHE Patchtext landet nicht im Rumpf der Zeile', () => {
+    // `body` ist die zweite Zeile einer Aktivitätszeile. Ein Diff darin wäre
+    // Zeichensalat über die halbe Spur.
+    const zeile = buildActivity({ repos: REPOS, events: [patchEvent] }).find(
+        (item) => item.type === 'patch-opened',
+    )
+    assert.equal(zeile?.body, '')
+})
+
+test('ein Statuswechsel an einem Patch heisst `patch-status`, nicht `issue-status`', () => {
+    const status = ev({
+        kind: GIT_STATUS_CLOSED,
+        created_at: 5_000,
+        tags: [['e', patchEvent.id], ['a', REPO_ADDR]],
+    })
+    const spur = buildActivity({ repos: REPOS, events: [patchEvent, status] })
+    const zeile = spur.find((item) => item.id === `status:${status.id}`)
+    assert.equal(zeile?.type, 'patch-status')
+    assert.equal(zeile?.status, 'closed')
+    // Auch hier der Betreff, nicht der Git-Header.
+    assert.equal(zeile?.object, 'Den Zaehler zuruecksetzen')
+})
+
+test('KONTROLLE: ein Patch auf ein UNBEKANNTES Repo erscheint nicht', () => {
+    const fremd = ev({
+        kind: GIT_PATCH,
+        content: PATCH_TEXT,
+        tags: [['a', repoAddressOf(FREMD, 'gibt-es-nicht')]],
+    })
+    const spur = buildActivity({ repos: REPOS, events: [fremd] })
+    assert.equal(spur.filter((item) => item.type === 'patch-opened').length, 0)
+})
+
+test('KONTROLLE: ein fremder Statuswechsel an einem Patch zählt nicht', () => {
+    const fremdStatus = ev({
+        kind: GIT_STATUS_CLOSED,
+        pubkey: FREMD,
+        created_at: 6_000,
+        tags: [['e', patchEvent.id], ['a', REPO_ADDR]],
+    })
+    const spur = buildActivity({ repos: REPOS, events: [patchEvent, fremdStatus] })
+    assert.equal(spur.filter((item) => item.type === 'patch-status').length, 0)
+})
+
+test('ein Kommentar an einem Patch findet seine Wurzel', () => {
+    // Ohne den Patch in der Wurzel-Landkarte fiele der Kommentar heraus —
+    // „jemand hat etwas kommentiert" ohne Objekt ist Rauschen, und genau
+    // deshalb verwirft die Spur wurzellose Ereignisse.
+    const kommentar = ev({
+        kind: FORGE_COMMENT,
+        created_at: 7_000,
+        content: 'passt',
+        tags: [['e', patchEvent.id], ['a', REPO_ADDR]],
+    })
+    const spur = buildActivity({ repos: REPOS, events: [patchEvent, kommentar] })
+    const zeile = spur.find((item) => item.id === `comment:${kommentar.id}`)
+    assert.ok(zeile, 'Der Kommentar an einem Patch ist verschwunden.')
+    assert.equal(zeile.object, 'Den Zaehler zuruecksetzen')
 })
