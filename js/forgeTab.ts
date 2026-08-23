@@ -29,8 +29,21 @@
 /** Der Query-Parameter, der den Tab der Forge-Übersicht trägt. */
 export const FORGE_TAB_PARAM = 'tab'
 
-/** Die vier Tabs aus `⚡forge.blade.php`, in Anzeige-Reihenfolge. */
-export const FORGE_TABS = ['activity', 'projects', 'repos', 'workspaces'] as const
+/**
+ * Die drei Tabs aus `⚡forge.blade.php`, in Anzeige-Reihenfolge.
+ *
+ * **`'projects'` stand hier bis 2026-08-23 und ist bewusst entfallen** — der Tab ist
+ * gestrichen, die Projekte leben ab `xl` in der Rail weiter (`js/railForge.ts`). Ein
+ * geteiltes `/forge?tab=projects` fällt damit auf `DEFAULT_FORGE_TAB` zurück; genau dafür
+ * ist die Whitelist da, und deshalb wird sie hier gekürzt statt der Wert stillschweigend
+ * durchgereicht.
+ *
+ * **`'workspaces'` bleibt als BEZEICHNER**, obwohl der Tab seit 2026-08-23 „Kanäle" heißt.
+ * Der Wert steht in geteilten Links, in der serverseitigen Weiterleitung aus
+ * `⚡spaces.blade.php` und in `OrtskartenTest.php`. Ihn umzubenennen bräche jeden Bookmark
+ * — still, mit Rückfall auf `activity`. Beschriftung und Bezeichner sind zwei Dinge.
+ */
+export const FORGE_TABS = ['activity', 'repos', 'workspaces'] as const
 
 export type ForgeTab = (typeof FORGE_TABS)[number]
 

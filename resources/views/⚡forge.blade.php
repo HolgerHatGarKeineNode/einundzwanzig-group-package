@@ -112,9 +112,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Die Farbe steht unbedingt an jeder Zelle, geschaltet wird nur
                          die BREITE; eine Kante mit Breite 0 ist unsichtbar, und so
                          braucht keine der Bedingungen einen zweiten Dark-Zweig. --}}
-                    <div class="surface-card mb-4 grid grid-cols-2 overflow-hidden sm:grid-cols-4">
+                    {{-- DREI Zellen seit 2026-08-23 (die Projekte-Kachel ist mit ihrem Tab
+                         entfallen) — und damit EIN Raster auf jeder Breite statt zweier.
+
+                         Das ist die Vereinfachung, die der Wegfall erlaubt: `grid-cols-2`
+                         hätte die dritte Zelle allein in eine zweite Zeile gestellt, mit
+                         leerer Hälfte daneben. Bei drei Zellen ist `grid-cols-3` auf jeder
+                         Breite richtig, und die Kantenlogik schrumpft von drei
+                         Index-Bedingungen auf eine: jede Zelle ausser der ersten bekommt
+                         links eine Kante. Eine untere Reihe gibt es nicht mehr, also auch
+                         kein `border-t`.
+
+                         Das Literal steht als Ganzes im Quelltext — Tailwind scannt
+                         Quelltext, ein aus `count()` zusammengesetzter Klassenname
+                         entstünde im JIT nie. --}}
+                    <div class="surface-card mb-4 grid grid-cols-3 overflow-hidden">
                         @php($tiles = [
-                            ['key' => 'projects', 'label' => __('Projekte'), 'icon' => 'rectangle-stack'],
                             ['key' => 'repos', 'label' => __('Repositories'), 'icon' => 'code-bracket'],
                             ['key' => 'pullRequests', 'label' => __('Pull Requests'), 'icon' => 'arrows-right-left'],
                             ['key' => 'issues', 'label' => __('Issues'), 'icon' => 'exclamation-circle'],
@@ -122,12 +135,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         @foreach ($tiles as $i => $tile)
                             <div @class([
                                 'border-zinc-200 px-4 py-3 dark:border-zinc-800',
-                                // 2. und 4. Zelle: linke Kante in BEIDEN Rastern.
-                                'border-s' => $i % 2 === 1,
-                                // 3. Zelle: linke Kante erst, wenn sie in dieselbe Zeile rutscht.
-                                'sm:border-s' => $i === 2,
-                                // Untere Reihe des 2-Spalten-Rasters — im 4er-Raster gibt es sie nicht.
-                                'border-t sm:border-t-0' => $i >= 2,
+                                'border-s' => $i > 0,
                             ])>
                                 <div class="flex items-start justify-between gap-2">
                                     <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $tile['label'] }}</span>
@@ -174,11 +182,51 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          beantworten „was ist hier passiert / woran wird gearbeitet", der
                          vierte „wo wird darüber geredet". Das ist die Reihenfolge, in der
                          jemand eine Forge betritt. --}}
-                    <flux:tabs variant="segmented" x-model="tab" class="mb-3">
+                    {{-- ── `scrollable` ist die Reparatur, nicht Zierat ────────────────
+                         Ohne das Attribut rendert Flux ein nacktes `<ui-tabs>` mit
+                         `inline-flex p-1` (`flux-pro/stubs/…/tabs.blade.php:66-68`) — also
+                         OHNE Overflow-Container. Die Tabs tragen `whitespace-nowrap
+                         flex-1`; `flex-1` heisst Basis 0, aber `whitespace-nowrap` hebt die
+                         minimale Inhaltsbreite auf max-content, und ein `inline-flex`-Kasten
+                         ohne Breitenzwang wächst auf die Summe der Eigenbreiten.
+
+                         Gemessen bei 320 px mit den vier alten Tabs: die Bar war 409 px
+                         breit in einem 288-px-Kasten, das Dokument scrollte 105 px
+                         waagerecht. Der Fehler bestand bis Viewport < 425 px (de) bzw.
+                         < 439 px (nl/hu) — also auf JEDEM gängigen Telefon im Hochformat,
+                         iPhone 15 Pro Max eingeschlossen.
+
+                         **Drei Tabs allein heilen es nicht.** In acht Sprachen gemessen:
+                         de/en/es/pt/pl passen mit 2 bis 9 px Luft, nl/hu/lv laufen mit
+                         +12 px über. Ein Entwurf, der an zwei Pixeln hängt, ist keiner —
+                         ein Wort, das um zwei Zeichen wächst, kippt ihn zurück.
+
+                         Mit `scrollable` ist der Dokument-Überlauf in allen 16 gemessenen
+                         Fällen 0, und wo es nicht gebraucht wird, entsteht gar keine
+                         Scroll-Fläche. `scrollable:fade` ist ebenfalls nicht Deko: ohne die
+                         Maske wird die letzte Beschriftung hart abgeschnitten und liest sich
+                         als Renderfehler statt als „hier geht es weiter".
+                         `scrollable:scrollbar="hide"` bewusst NICHT — bei 12 px Überlauf ist
+                         der Balken die einzige Affordanz neben der Maske.
+
+                         ── Die Beschriftung heisst „Kanäle", der Bezeichner bleibt ────────
+                         `name="workspaces"` ist unverändert: er steht in geteilten Links, in
+                         der serverseitigen Weiterleitung aus `⚡spaces.blade.php` und in
+                         `OrtskartenTest.php`. Umbenannt wird nur, was der Mensch liest.
+
+                         Und es ist ein EIGENER Übersetzungsschlüssel, nicht das vorhandene
+                         `__('Räume')`. Der bezeichnet an vier Stellen die Chat-Räume des
+                         Vereins-Relays (`ortskarten`, `command-palette`, `desktop-rail`,
+                         `⚡spaces`); ihn mitzubenutzen hiesse, zwei verschiedene Dinge
+                         dauerhaft aneinanderzubinden — ab `xl` stünden „Räume" (Rail) und
+                         „Räume" (Tab) gleichzeitig im Bild, für zwei verschiedene Relays.
+                         „Kanäle" ist zugleich das Wort, das dieses Paket in seinen
+                         Wake-Meldungen ohnehin benutzt („dieses Repository gehört zu keinem
+                         Kanal") und das Buzz selbst verwendet. --}}
+                    <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab" class="mb-3">
                         <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
-                        <flux:tab name="projects">{{ __('Projekte') }}</flux:tab>
                         <flux:tab name="repos">{{ __('Repositories') }}</flux:tab>
-                        <flux:tab name="workspaces">{{ __('Workspaces') }}</flux:tab>
+                        <flux:tab name="workspaces">{{ __('Kanäle') }}</flux:tab>
                     </flux:tabs>
 
                     {{-- Kürzungshinweis. Er steht nur da, wenn eine Liste GENAU am
@@ -355,72 +403,31 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </div>
                     </div>
 
-                    {{-- ── Projekte ────────────────────────────────────────────────
-                         Wir erfinden KEIN Projekt aus einem Repository ohne 30621
-                         (Buzz Desktop tut das und zeigt deshalb „Projects 1", obwohl
-                         kein einziges Projekt-Ereignis existiert). Stattdessen sagt
-                         der Leerzustand, wo diese Repositories stehen. --}}
-                    <div x-show="tab === 'projects' && !(loading && isEmpty())" x-cloak>
-                        <template x-if="overview.projects.length === 0">
-                            <div class="surface-card empty-state px-6 py-12 text-center" data-forge-empty="projects">
-                                <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
-                                    <flux:icon.rectangle-stack class="size-6 text-zinc-500 dark:text-zinc-400" />
-                                </span>
-                                <flux:heading class="mt-4">{{ __('Noch keine Projekte.') }}</flux:heading>
-                                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Ein Projekt bündelt mehrere Repositories. Einzelne Repositories stehen im Tab „Repositories".') }}</flux:text>
-                                <div class="mt-5">
-                                    <flux:button size="sm" variant="ghost" icon="code-bracket" x-on:click="tab = 'repos'">{{ __('Zu den Repositories') }}</flux:button>
-                                </div>
-                            </div>
-                        </template>
-
-                        {{-- Eine Liste in EINER Karte. Die Trennkante sitzt UNTEN und wird
-                             an der letzten Zeile abgeschaltet — nicht oben mit `divide-y`
-                             oder `first:`: Alpines `x-for` lässt das `<template>` als
-                             erstes Kind stehen, `:first-child` trifft damit nie eine
-                             echte Zeile, `:last-child` dagegen schon. Dieselbe
-                             Konstruktion wie in der Ref-Spur weiter oben. --}}
-                        <div x-show="overview.projects.length > 0" class="surface-card">
-                            <template x-for="project in overview.projects" :key="project.address">
-                                <div class="border-b border-zinc-200 p-4 last:border-b-0 dark:border-zinc-800" data-forge-project :data-address="project.address">
-                                    <div class="flex items-start gap-3">
-                                        <span class="flex size-9 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-300">
-                                            <flux:icon.rectangle-stack class="size-5" />
-                                        </span>
-                                        <div class="min-w-0 flex-1">
-                                            <p class="font-semibold" x-text="project.name"></p>
-                                            <p class="mt-0.5 line-clamp-2 text-sm text-muted" x-text="project.description"></p>
-                                        </div>
-                                        <span class="shrink-0 text-xs text-muted" x-text="project.dateLabel"></span>
-                                    </div>
-
-                                    <ul class="mt-2.5 flex flex-wrap gap-1.5 ps-12">
-                                        <template x-for="repo in project.repoNaddrs" :key="repo.naddr || repo.name">
-                                            <li>
-                                                <a :href="repo.naddr ? repoHref(repo) : null" wire:navigate
-                                                   class="pressable inline-flex items-center gap-1 rounded-pill bg-zinc-100 px-2 py-0.5 text-xs transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700">
-                                                    <flux:icon.code-bracket variant="micro" class="size-3.5" />
-                                                    <span x-text="repo.name"></span>
-                                                </a>
-                                            </li>
-                                        </template>
-                                    </ul>
-
-                                    {{-- Eine Koordinate, zu der kein Repository vorliegt,
-                                         wird BENANNT statt verschluckt: ein Projekt, das
-                                         drei Repositories nennt und zwei zeigt, sieht aus
-                                         wie eins mit zweien. --}}
-                                    <template x-if="project.missingAddresses.length > 0">
-                                        <p class="mt-2 ps-12 text-xs text-muted"
-                                           x-text="$plural(project.missingAddresses.length, '1 Repository des Projekts liegt nicht auf diesem Relay.', ':count Repositories des Projekts liegen nicht auf diesem Relay.')"></p>
-                                    </template>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-
                     {{-- ── Repositories ────────────────────────────────────────────── --}}
                     <div x-show="tab === 'repos' && !(loading && isEmpty())" x-cloak>
+                        {{-- ── Gerettet aus dem entfallenen Projekte-Tab (2026-08-23) ──────
+                             Diese Zeile war die EINZIGE Stelle im ganzen Paket, die eine
+                             Projekt-Koordinate ohne zugehöriges 30617 benennt. Der
+                             Rail-Baum verschluckt sie (`railForge.ts`: ein Projekt ohne
+                             eigene Repos wird übersprungen) — mit dem Tab wäre die Auskunft
+                             ersatzlos verschwunden, und niemand wüsste mehr, dass das Relay
+                             unvollständig ist.
+
+                             Sie steht jetzt hier, weil sie eine Aussage über den
+                             REPOSITORY-Bestand ist: „es gibt Repositories, die hierher
+                             gehören und die du nicht siehst". Über alle Projekte summiert
+                             statt je Projekt aufgeführt — die Projekte selbst haben auf
+                             dieser Fläche keinen Ort mehr, die Zahl schon.
+
+                             `overview.projects` bleibt geladen (die Rail liest es ab `xl`),
+                             die Summe kostet also keine zusätzliche Anfrage. --}}
+                        <template x-if="overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0) > 0">
+                            <flux:callout variant="secondary" icon="information-circle" class="mb-3" data-forge-fehlende-projekt-repos>
+                                <flux:callout.text
+                                    x-text="$plural(overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0), '1 Repository eines Projekts liegt nicht auf diesem Relay.', ':count Repositories von Projekten liegen nicht auf diesem Relay.')"></flux:callout.text>
+                            </flux:callout>
+                        </template>
+
                         <template x-if="overview.repos.length === 0">
                             <div class="surface-card empty-state px-6 py-12 text-center" data-forge-empty="repos">
                                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
