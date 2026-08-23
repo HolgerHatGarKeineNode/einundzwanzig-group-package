@@ -1614,8 +1614,14 @@ export type ReplyTarget = { id: string; pubkey: string }
  * Hängt `["p", pk, url]`-Tags für jede `nostr:npub…`-Mention (NIP-08/27) im Text an,
  * ohne bereits gesetzte p-Tags (z.B. den Reply-Autor) zu doppeln. Mutiert & liefert
  * dasselbe Array zurück (Aufrufer bauen ihre Tag-Liste ohnehin frisch).
+ *
+ * **Exportiert allein für den Nachweis** (`agentPTag.test.ts`), nicht als API: seit
+ * die Agenten-Erwähnung an diesem Weg hängt, entscheidet er darüber, ob ein
+ * headless Agent überhaupt geweckt wird (`buzz-acp` vergleicht den zweiten
+ * Tag-Wert als rohe 64-hex-Zeichenkette, `filter.rs:392-396`). Ein Test darf das
+ * nicht nachbauen, er muss genau diese Funktion fahren.
  */
-const withMentionTags = (tags: string[][], content: string, url: string): string[][] => {
+export const withMentionTags = (tags: string[][], content: string, url: string): string[][] => {
     const seen = new Set(tags.filter((t) => t[0] === 'p').map((t) => t[1]))
     for (const pk of mentionPubkeys(content)) {
         if (!seen.has(pk)) {
