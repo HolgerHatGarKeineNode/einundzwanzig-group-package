@@ -242,6 +242,42 @@ export const nextCreatedAt = (now: number, previous: number): number =>
 // ── Tag-Bau ─────────────────────────────────────────────────────────────────
 
 /**
+ * Erwähnte Pubkeys als zusätzliche `p`-Tags — **ohne** die schon gesetzten zu
+ * doppeln.
+ *
+ * `mentioned` kommt aus `mentionPubkeys` (`interactions.ts`), also aus dem
+ * Rumpf des Beitrags. Übergeben statt hier geparst, weil dieses Modul rein
+ * bleibt (`mentionPubkeys` hängt über `interactions.ts` an welshman); dass der
+ * Weg vom Rumpf bis ins Tag wirklich trägt, hält `forgeMentionTags.test.ts`
+ * fest — mit den ECHTEN Funktionen, nicht mit einem Nachbau.
+ *
+ * Drei Eigenschaften, und jede hat einen Grund:
+ *
+ * - **Nur 64-hex.** `buzz-acp` vergleicht den zweiten Tag-Wert als rohe
+ *   Zeichenkette gegen den Hex-Pubkey des Agenten (`filter.rs:392-396`). Ein
+ *   npub an dieser Stelle weckt niemanden, sieht aber im Event richtig aus.
+ * - **Kleingeschrieben und dedupliziert**, gegen die bereits vorhandenen
+ *   `p`-Zeilen (Eigentümer, Wurzel-Autor) und gegeneinander. Zwei `p`-Zeilen auf
+ *   denselben Schlüssel sind für jeden Leser eine Frage ohne Antwort.
+ * - **Reihenfolge stabil**: erstes Auftreten im Text. Sie ist Teil der
+ *   Ereignis-Id; eine Umsortierung nach Laune machte zwei gleiche Beiträge zu
+ *   zwei verschiedenen Ereignissen.
+ */
+const mentionTags = (tags: string[][], mentioned: readonly string[]): string[][] => {
+    const gesetzt = new Set(tags.filter((tag) => tag[0] === 'p').map((tag) => tag[1]))
+    for (const roh of mentioned) {
+        const pubkey = roh.toLowerCase()
+        if (!HEX64.test(pubkey) || gesetzt.has(pubkey)) {
+            continue
+        }
+        gesetzt.add(pubkey)
+        tags.push(['p', pubkey])
+    }
+
+    return tags
+}
+
+/**
  * Tags eines neuen Issues (1621).
  *
  * Form 1:1 wie `buildGitIssueTags` im Referenzclient: `a` auf das Repo, `p` auf
@@ -249,8 +285,16 @@ export const nextCreatedAt = (now: number, previous: number): number =>
  * Der Eigentümer wird NICHT vom Aufrufer geglaubt, sondern aus der Koordinate
  * gelesen — eine `p`-Zeile, die auf jemand anderen zeigt als das `a`, wäre eine
  * Falschaussage, die kein Leser prüft.
+ *
+ * `mentioned` sind die im Rumpf erwähnten Schlüssel (NIP-27). Sie stehen HINTER
+ * dem `subject`, weil das `subject` zur Form des Referenzclients gehört und ein
+ * Leser, der nur die ersten Tags liest, sie dort erwartet.
  */
-export const buildIssueTags = (repoAddress: string, title: string): string[][] => {
+export const buildIssueTags = (
+    repoAddress: string,
+    title: string,
+    mentioned: readonly string[] = [],
+): string[][] => {
     const owner = parseRepoAddress(repoAddress)?.owner ?? ''
     const tags: string[][] = [['a', repoAddress]]
     if (owner) {
@@ -258,7 +302,7 @@ export const buildIssueTags = (repoAddress: string, title: string): string[][] =
     }
     tags.push(['subject', title.trim()])
 
-    return tags
+    return mentionTags(tags, mentioned)
 }
 
 /**
@@ -278,15 +322,33 @@ const recipientsFor = (repoAddress: string, rootAuthor: string): string[] => {
  * dritte; die dritte ist der Relay-Hinweis und bleibt leer. `commentsForRoot`
  * liest nur `tag[1]`, Buzz Desktop wertet den Marker aus.
  */
-export const buildCommentTags = (repoAddress: string, rootId: string, rootAuthor: string): string[][] => [
-    ['e', rootId, '', 'root'],
-    ['a', repoAddress],
-    ...recipientsFor(repoAddress, rootAuthor).map((pk) => ['p', pk]),
-]
+export const buildCommentTags = (
+    repoAddress: string,
+    rootId: string,
+    rootAuthor: string,
+    mentioned: readonly string[] = [],
+): string[][] =>
+    mentionTags(
+        [
+            ['e', rootId, '', 'root'],
+            ['a', repoAddress],
+            ...recipientsFor(repoAddress, rootAuthor).map((pk) => ['p', pk]),
+        ],
+        mentioned,
+    )
 
 /**
  * Tags eines Statuswechsels (1630/1631/1632). Gleiche Form wie der Kommentar —
  * die Aussage steckt im Kind, nicht in den Tags.
+ *
+ * **Ohne erwähnte Schlüssel, und das ist kein Vergessen.** Ein Statuswechsel hat
+ * keinen Rumpf: `publishIssueStatus` sendet `content: ''` (`forgeWrite.ts`), es
+ * gibt also nichts, worin jemand jemanden erwähnen könnte. Ein Parameter für
+ * eine Zeichenkette, die per Konstruktion leer ist, wäre eine Einladung, ihn
+ * später mit etwas anderem zu füllen — etwa dem Rumpf des Issues, dessen Status
+ * gerade wechselt. Dann bekäme jeder dort Erwähnte bei jedem Klick auf
+ * „Geschlossen" eine neue Benachrichtigung, und ein geweckter Agent liefe für
+ * einen Vorgang an, den er längst gesehen hat.
  */
 export const buildStatusTags = (repoAddress: string, rootId: string, rootAuthor: string): string[][] =>
     buildCommentTags(repoAddress, rootId, rootAuthor)
