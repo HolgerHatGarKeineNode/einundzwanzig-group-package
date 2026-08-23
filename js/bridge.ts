@@ -6771,6 +6771,11 @@ export function registerNostrComponents(Alpine: {
                       spaceKind: view.spaceKind,
                       encodeNpub: nip19.npubEncode,
                       memberItems: this._members,
+                      // Im Chat ist der Raum, in dem der Nutzer steht, per
+                      // Konstruktion einer von seinen — der Riegel ist hier
+                      // erfüllt und steht trotzdem da, damit die Regel EINE
+                      // Fassung hat und nicht zwei.
+                      knownChannelIds: new Set([this.h]),
                   })
                 : []
             // **Ein laufender Vorschlag zieht nach.** Beide Quellen tröpfeln

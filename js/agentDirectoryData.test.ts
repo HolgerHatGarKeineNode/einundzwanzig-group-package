@@ -210,6 +210,9 @@ const items = (over: Parameters<typeof agentMentionItems>[0] extends infer T ? P
         viewerPubkey: OWNER,
         spaceKind: 'buzz',
         encodeNpub: nip19.npubEncode,
+        // Die Raumliste des Nutzers — ohne sie schlaegt die Flaeche niemanden vor
+        // (`knownChannelIds`, Begruendung dort).
+        knownChannelIds: new Set([KANAL]),
         ...over,
     })
 
@@ -282,6 +285,7 @@ test('ein Encoder, der wirft, kostet den einen Eintrag — nicht die Liste', () 
             }
             return nip19.npubEncode(pk)
         },
+        knownChannelIds: new Set([KANAL]),
     })
     assert.deepEqual(
         ergebnis.map((i) => i.pubkey),
@@ -348,6 +352,7 @@ test('zwei Agenten mit demselben Namen sind ueber die Kurzform unterscheidbar', 
         viewerPubkey: OWNER,
         spaceKind: 'buzz',
         encodeNpub: nip19.npubEncode,
+        knownChannelIds: new Set([KANAL]),
     })
     assert.equal(beide.length, 2)
     assert.equal(beide[0].name, beide[1].name, 'Vorbedingung: gleicher Anzeigename')
@@ -456,4 +461,21 @@ test('wenige Agenten schenken ihre Plätze nicht her — und nehmen keine weg', 
 
 test('ohne Agenten bleibt die Menschenliste unverändert gedeckelt', () => {
     assert.equal(mergeMentionItems(vieleMenschen(3), []).length, 3)
+})
+
+/**
+ * **Der Vorschlag hält denselben Kanal-Riegel wie das Senden.**
+ *
+ * `planWake` verhindert die Weckmeldung in einen fremdgesetzten Kanal; ohne
+ * diesen Riegel schlüge die Fläche den Agenten aber vorher trotzdem vor — ein
+ * Knopf, der garantiert nichts tut. Im E2E genau so aufgeschlagen.
+ */
+test('ein Agent in einem Kanal außerhalb der eigenen Räume wird nicht vorgeschlagen', () => {
+    assert.deepEqual(items({ knownChannelIds: new Set(['ein-anderer-raum']) }), [])
+})
+
+test('eine fehlende Raumliste heißt „unbekannt", nicht „egal"', () => {
+    // `undefined` darf nicht durchrutschen — sonst wäre der Riegel bei jedem
+    // Aufrufer aus, der ihn schlicht vergisst.
+    assert.deepEqual(items({ knownChannelIds: undefined }), [])
 })

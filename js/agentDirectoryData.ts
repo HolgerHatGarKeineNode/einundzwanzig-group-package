@@ -344,6 +344,7 @@ export const agentMentionItems = ({
     spaceKind,
     encodeNpub,
     memberItems = [],
+    knownChannelIds,
 }: {
     agents: AgentEntry[]
     h: string
@@ -351,8 +352,22 @@ export const agentMentionItems = ({
     spaceKind: string
     encodeNpub: (pubkey: string) => string
     memberItems?: MentionItemLike[]
+    /**
+     * Die Kanäle dieses Nutzers (39000). **Fehlt die Menge, wird nicht
+     * vorgeschlagen** — `undefined` heißt „unbekannt", nicht „egal".
+     *
+     * Der Riegel steht hier UND in `planWake`, und das ist kein Doppel ohne
+     * Grund: `planWake` verhindert, dass die Weckmeldung in einen fremden Kanal
+     * geht; dieser Riegel verhindert, dass die Fläche vorher jemanden
+     * VORSCHLÄGT, der dort garantiert nicht geweckt wird. Ohne ihn wäre der
+     * Vorschlag genau das, was diese Fläche nie sein soll: ein Knopf, der
+     * sicher nichts tut. Im E2E genau so aufgeschlagen — der Agent eines
+     * fremden Kanals stand im Popover, während das Senden ihn (richtig)
+     * verwarf.
+     */
+    knownChannelIds?: ReadonlySet<string>
 }): MentionItemLike[] => {
-    if (spaceKind !== 'buzz') {
+    if (spaceKind !== 'buzz' || !knownChannelIds?.has(h)) {
         return []
     }
     const memberByPubkey = new Map(memberItems.map((m) => [m.pubkey, m]))

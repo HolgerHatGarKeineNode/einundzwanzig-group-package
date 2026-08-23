@@ -2042,6 +2042,7 @@ export function wireForge(Alpine: {
                           spaceKind: view.spaceKind,
                           encodeNpub: nip19.npubEncode,
                           memberItems: this._members,
+                          knownChannelIds: this._channelIds,
                       })
                     : []
                 // **Ein offener Vorschlag zieht nach.** Beide Quellen tröpfeln
