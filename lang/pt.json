@@ -961,13 +961,14 @@
     "Vom Relay abgelehnt: :grund": "Rejeitado pelo relé: :grund",
     "Zum Kommentieren musst du angemeldet sein.": "Tens de iniciar sessão para comentar.",
     "Zum Reagieren musst du angemeldet sein.": "Tens de iniciar sessão para reagir.",
-    "Neues Issue in :repo: :titel": "Novo issue em :repo: :titel",
-    "Im Projektkanal benachrichtigt: :namen": "Notificado no canal do projeto: :namen",
     "Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).": "Este repositório não pertence a nenhum canal — ninguém foi notificado (:namen).",
     "Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).": "Aqui ninguém responde a você — nenhuma notificação foi enviada (:namen).",
     "Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler": "A sua contribuição está publicada. A notificação para :namen não saiu: :fehler",
     "Optional. Markdown wird gerendert. @ erwähnt jemanden.": "Opcional. Markdown é renderizado. @ menciona alguém.",
     "Antwort schreiben … @ erwähnt jemanden.": "Escrever uma resposta … @ menciona alguém.",
-    "Neuer Kommentar am Issue „:titel“ in :repo": "Novo comentário no issue “:titel” em :repo",
-    "Neuer Kommentar am Pull Request „:titel“ in :repo": "Novo comentário no pull request “:titel” em :repo"
+    "Weckmeldung im Projektkanal veröffentlicht für :namen": "Mensagem de alerta publicada no canal do projeto para :namen",
+    "Dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört — es wurde niemand benachrichtigt (:namen).": "Este repositório aponta para um canal que não é uma das suas salas — ninguém foi notificado (:namen).",
+    "Neues Issue in :repo": "Novo issue em :repo",
+    "Neuer Kommentar an einem Issue in :repo": "Novo comentário num issue em :repo",
+    "Neuer Kommentar an einem Pull Request in :repo": "Novo comentário num pull request em :repo"
 }

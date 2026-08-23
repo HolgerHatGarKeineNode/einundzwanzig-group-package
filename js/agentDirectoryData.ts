@@ -93,26 +93,134 @@ export type MentionItemLike = {
     picture: string
     search: string
     isAgent?: boolean
+    /**
+     * Kurzform des npub, die BEI AGENTEN immer mit angezeigt wird.
+     *
+     * Der Name eines Agenten ist selbstgewählter Fremdtext (siehe
+     * {@link cleanDisplayName}); zwei Profile dürfen „ceo" heißen, und welches
+     * davon der Prozess ist, den der Nutzer meint, sagt allein der Schlüssel.
+     * Deshalb führt die Fläche den Namen nie allein — das löst zugleich die
+     * Dublettenfrage, ohne einen Eintrag zu unterdrücken (unterdrückt würde
+     * womöglich der echte).
+     */
+    hint?: string
 }
 
-/** `String[]` aus einem beliebigen JSON-Wert: alles andere fällt still weg. */
-const stringList = (value: unknown): string[] => {
+/** `npub1abc…wxyz` — genug zum Vergleichen, kurz genug für eine Zeile. */
+export const shortNpub = (npub: string): string =>
+    npub.length > 20 ? `${npub.slice(0, 10)}…${npub.slice(-4)}` : npub
+
+/**
+ * Obergrenzen eines Verzeichniseintrags — **Verwerfungsgrenzen, keine Kappungen.**
+ *
+ * ── Warum das ein Riegel sein muss und keine Bequemlichkeit ─────────────────
+ *
+ * `parseAgentProfiles` läuft bei JEDEM Verzeichnis-Update über ALLE Profile
+ * (`agentDirectory.ts` → `throttled(300, …)`), und zwar auf dem Hauptthread der
+ * Insel. Ein einziges überdimensioniertes 10100 hält damit jeden Client dieses
+ * Space an — nicht nur den, der es anzeigt. Gemessen (2026-08-23): 25 000
+ * Einträge in `channel_ids`, 220 KB Content → **1 303 ms** Hauptthread pro
+ * Durchlauf. Und 220 KB kommen durch: die Grenze des Relays liegt bei 256 KB
+ * (`buzz-relay/src/handlers/ingest.rs:2014`), publizieren darf jedes Mitglied.
+ *
+ * Gekappt wird deshalb NICHT (ein halb gelesenes Profil ist eine Aussage, die so
+ * nie jemand publiziert hat), sondern **verworfen wie jeder andere Formfehler**.
+ * Ein Agent, der 4 000 Kanäle führt, ist kein Agent, den diese Fläche sinnvoll
+ * vorschlagen kann.
+ */
+export const AGENT_PROFILE_MAX_CONTENT = 8_192
+/** Mehr Kanäle/Allowlist-Einträge als das: verworfen. Zehnfach über dem, was die Produktivagenten führen (je 1 Kanal, 2 Allowlist-Einträge, 2026-08-23 gemessen). */
+export const AGENT_PROFILE_MAX_LIST = 256
+
+/**
+ * `String[]` aus einem beliebigen JSON-Wert: alles andere fällt still weg.
+ *
+ * `Set` statt `out.includes(…)`: die lineare Suche in der Schleife machte das
+ * quadratisch, und die Funktion lief für dasselbe Array auch noch **zweimal**
+ * (`channel_ids` erst für die Längenprüfung, dann für die Zuweisung). Beides ist
+ * die eigentliche Ursache der 1 303 ms oben — die Grenzen darüber sind der
+ * zweite Gurt, nicht der erste.
+ *
+ * `null` (statt einer gekürzten Liste) bei Überlänge, damit der Aufrufer das
+ * ganze Profil verwerfen kann.
+ */
+const stringList = (value: unknown): string[] | null => {
     if (!Array.isArray(value)) {
         return []
     }
+    if (value.length > AGENT_PROFILE_MAX_LIST) {
+        return null
+    }
+    const gesehen = new Set<string>()
     const out: string[] = []
     for (const raw of value) {
         if (typeof raw === 'string') {
             const trimmed = raw.trim()
-            if (trimmed && !out.includes(trimmed)) {
+            if (trimmed && !gesehen.has(trimmed)) {
+                gesehen.add(trimmed)
                 out.push(trimmed)
             }
         }
     }
+
     return out
 }
 
 const stringValue = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
+
+/** Höchstlänge eines Anzeigenamens in der Vorschlagsliste. */
+export const AGENT_NAME_MAX = 48
+
+/**
+ * Ein Anzeigename, wie er in einer Zeile stehen darf.
+ *
+ * **Der Name eines Agenten ist Fremdtext aus einem selbstsignierten JSON** — er
+ * sagt nichts darüber, wer da schreibt (siehe Modulkopf: maßgeblich ist
+ * `event.pubkey`, und das ist der Schlüssel dessen, der das Profil publiziert
+ * hat, nicht der eines geprüften „ceo"). Deshalb wird er behandelt wie jeder
+ * fremde Text in einer Oberfläche:
+ *
+ * - **Steuer- und Bidi-Zeichen raus.** `U+202E` (RIGHT-TO-LEFT OVERRIDE) und
+ *   Verwandte drehen die Anzeige der FOLGENDEN Zeile mit um — ein Name kann
+ *   damit die Darstellung anderer Einträge verfälschen. Ebenso Zeilenumbrüche
+ *   und `U+200B`-artige Unsichtbarkeiten, mit denen sich der Name eines echten
+ *   Agenten zeichengleich nachbauen lässt.
+ * - **Eine Zeile, harte Länge.** Ein 4 000 Zeichen langer Name schöbe die
+ *   restliche Liste aus dem Bild.
+ *
+ * Was hier NICHT passiert: eine Aussage darüber, ob der Name echt ist. Die kann
+ * dieses Modul nicht treffen — deshalb führt die Fläche den Namen nie allein,
+ * sondern immer mit der npub-Kurzform (siehe {@link agentMentionItems}).
+ */
+export const cleanDisplayName = (value: string): string => {
+    const gesaeubert = [...value]
+        // C0/C1-Steuerzeichen, Zeilentrenner, Bidi-Steuerung, Zero-Width, BOM.
+        //
+        // Ersetzt durch ein LEERZEICHEN, nicht ersatzlos entfernt: aus
+        // `ceo\nADMIN` würde sonst `ceoADMIN` — ein Wort, das wie ein gewählter
+        // Name aussieht. Ein Leerzeichen erhält die Wortgrenze und macht den
+        // Versuch sichtbar, statt ihn zu glätten.
+        .map((zeichen) => {
+            const code = zeichen.codePointAt(0) ?? 0
+
+            const verboten =
+                code < 0x20 ||
+                (code >= 0x7f && code <= 0x9f) ||
+                (code >= 0x200b && code <= 0x200f) ||
+                (code >= 0x202a && code <= 0x202e) ||
+                (code >= 0x2066 && code <= 0x2069) ||
+                code === 0x2028 ||
+                code === 0x2029 ||
+                code === 0xfeff
+
+            return verboten ? ' ' : zeichen
+        })
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    return gesaeubert.length > AGENT_NAME_MAX ? gesaeubert.slice(0, AGENT_NAME_MAX) : gesaeubert
+}
 
 /**
  * Ein kind-10100-Event → Verzeichniseintrag, oder `null`.
@@ -125,6 +233,11 @@ const stringValue = (value: unknown): string => (typeof value === 'string' ? val
  */
 export const parseAgentProfile = (event: AgentProfileEventLike): AgentEntry | null => {
     if (event.kind !== AGENT_PROFILE || !HEX64.test(event.pubkey)) {
+        return null
+    }
+    // **Vor dem Parsen, nicht danach.** `JSON.parse` auf 256 KB (die Grenze des
+    // Relays) ist selbst schon die Arbeit, die dieser Riegel verhindern soll.
+    if (event.content.length > AGENT_PROFILE_MAX_CONTENT) {
         return null
     }
     let raw: unknown
@@ -140,14 +253,20 @@ export const parseAgentProfile = (event: AgentProfileEventLike): AgentEntry | nu
     // `channels` ist das Zwillingsfeld, das dasselbe Skript mitschreibt
     // (publish-agent-profiles.mjs:86-87). `channel_ids` führt; `channels` dient
     // nur als Rückfall, falls ein anderer Schreiber nur eins von beiden setzt.
-    const channelIds = stringList(body.channel_ids).length
-        ? stringList(body.channel_ids)
-        : stringList(body.channels)
-    if (channelIds.length === 0) {
+    //
+    // **Je Feld genau EIN Durchlauf.** Vorher stand `stringList(body.channel_ids)`
+    // zweimal da — einmal für die Längenprüfung, einmal für die Zuweisung; bei
+    // einem großen Array war das die doppelte Arbeit an der teuersten Stelle.
+    const ausChannelIds = stringList(body.channel_ids)
+    const channelIds = ausChannelIds === null ? null : ausChannelIds.length ? ausChannelIds : stringList(body.channels)
+    const allowlist = stringList(body.respond_to_allowlist)
+    // Überlange Listen sind ein Formfehler wie jeder andere — verwerfen, nicht
+    // kürzen (Begründung an AGENT_PROFILE_MAX_LIST).
+    if (channelIds === null || allowlist === null || channelIds.length === 0) {
         return null
     }
-    const name = stringValue(body.name)
-    const displayName = stringValue(body.display_name) || name
+    const name = cleanDisplayName(stringValue(body.name))
+    const displayName = cleanDisplayName(stringValue(body.display_name)) || name
     if (!name && !displayName) {
         return null
     }
@@ -158,7 +277,7 @@ export const parseAgentProfile = (event: AgentProfileEventLike): AgentEntry | nu
         agentType: stringValue(body.agent_type),
         channelIds,
         respondTo: stringValue(body.respond_to),
-        respondToAllowlist: stringList(body.respond_to_allowlist).filter((pk) => HEX64.test(pk)),
+        respondToAllowlist: allowlist.filter((pk) => HEX64.test(pk)),
         status: stringValue(body.status),
         createdAt: typeof event.created_at === 'number' ? event.created_at : 0,
     }
@@ -254,6 +373,11 @@ export const agentMentionItems = ({
             pubkey: agent.pubkey,
             npub,
             name,
+            // Immer mitgeführt, nicht nur bei Namensgleichheit: ein Fälscher
+            // wählt seinen Namen NACH dem des echten Agenten, und wer erst bei
+            // erkannter Dublette warnt, warnt genau dann nicht, wenn der echte
+            // Eintrag noch nicht geladen ist.
+            hint: shortNpub(npub),
             // Avatar aus dem Space-Directory (kind 0), wenn der Agent dort auch
             // Mitglied ist — das Verzeichnisprofil trägt selbst kein Bild.
             picture: member?.picture ?? '',
@@ -273,8 +397,39 @@ export const agentMentionItems = ({
  * zugleich Relay-Mitglied ist (bei uns: alle zehn), erscheint **nur** als Agent —
  * zwei Zeilen mit demselben Pubkey wären zwei Zeilen mit derselben Wirkung, und
  * der Nutzer könnte die wirkungslose erwischen.
+ *
+ * ── Zwei getrennte Deckel statt eines gemeinsamen ───────────────────────────
+ *
+ * Vorher schnitten die Flächen die **fertige** Liste auf acht Einträge ab. Weil
+ * die Agenten vorn stehen, war das eine Falle in beide Richtungen, und beide
+ * sind eingetreten bzw. absehbar:
+ *
+ * - **Agenten verdrängen alle Menschen.** Mit zehn Produktivagenten in EINEM
+ *   Kanal (Stand 2026-08-23) hätte eine leere Suche nur noch Maschinen gezeigt.
+ * - **Agenten verdrängen einander.** Im E2E gemessen: 13 taugliche Agenten, acht
+ *   Plätze, alphabetisch sortiert — der gesuchte fiel hinten heraus, und derselbe
+ *   Test war einmal grün und einmal rot.
+ *
+ * Getrennte Deckel lösen beides: Menschen behalten ihre acht Plätze, Agenten
+ * bekommen fünf. Dass ein Agent jenseits der fünf nur noch über die **Suche**
+ * erreichbar ist, bleibt bestehen — das ist bewusst so und nicht zu heilen,
+ * solange die Sortierung alphabetisch ist. Eine Sortierung nach Relevanz wäre
+ * die eigentliche Antwort; sie braucht ein Nutzungssignal (zuletzt erwähnt), das
+ * diese Fläche heute nicht führt, und ist deshalb hier NICHT eingebaut statt
+ * halb geraten.
  */
-export const mergeMentionItems = (memberItems: MentionItemLike[], agentItems: MentionItemLike[]): MentionItemLike[] => {
+export const MENTION_AGENT_LIMIT = 5
+export const MENTION_MEMBER_LIMIT = 8
+
+export const mergeMentionItems = (
+    memberItems: MentionItemLike[],
+    agentItems: MentionItemLike[],
+    limits: { agents?: number; members?: number } = {},
+): MentionItemLike[] => {
     const agentPubkeys = new Set(agentItems.map((a) => a.pubkey))
-    return [...agentItems, ...memberItems.filter((m) => !agentPubkeys.has(m.pubkey))]
+
+    return [
+        ...agentItems.slice(0, limits.agents ?? MENTION_AGENT_LIMIT),
+        ...memberItems.filter((m) => !agentPubkeys.has(m.pubkey)).slice(0, limits.members ?? MENTION_MEMBER_LIMIT),
+    ]
 }

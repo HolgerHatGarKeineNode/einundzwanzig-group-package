@@ -1308,6 +1308,7 @@ type RoomChatState = {
     sendComment(): Promise<void>
     copy(text: string, message: string): void
     onComposerInput(el: HTMLTextAreaElement, target?: 'main' | 'thread'): void
+    _mentionItemsFor(query: string): MentionItem[]
     pickMention(item: MentionItem): void
     closeMentions(): void
     insertEmoji(target: 'main' | 'thread', text: string, emojiTag?: string[], label?: string): void
@@ -6730,13 +6731,25 @@ export function registerNostrComponents(Alpine: {
             }
             this.mentionQuery = treffer.query
             this._mentionStart = treffer.start
-            const q = this.mentionQuery.toLowerCase()
-            // Agenten vor Mitgliedern und jede Identität genau einmal — die Regel
-            // steht in `mergeMentionItems` (rein, getestet), nicht hier.
-            const quellen = mergeMentionItems(this._members, this._agentItems)
-            this.mentionItems = quellen.filter((mem) => !q || mem.search.includes(q)).slice(0, 8)
+            this.mentionItems = this._mentionItemsFor(this.mentionQuery)
             this.mentionIndex = 0
             this.mentionOpen = this.mentionItems.length > 0
+        },
+        /**
+         * Die gefilterte Vorschlagsliste zu einer Suche.
+         *
+         * Eigene Funktion, weil sie an ZWEI Stellen gebraucht wird: beim Tippen
+         * und beim Nachziehen einer Quelle. Agenten vor Mitgliedern, jede
+         * Identität genau einmal, Deckel getrennt je Sorte — alle drei Regeln
+         * stehen in `mergeMentionItems` (rein, getestet), nicht hier.
+         */
+        _mentionItemsFor(query: string) {
+            const q = query.toLowerCase()
+
+            return mergeMentionItems(
+                this._members.filter((mem) => !q || mem.search.includes(q)),
+                this._agentItems.filter((mem) => !q || mem.search.includes(q)),
+            )
         },
         /**
          * Die Agenten-Vorschläge dieses Raums neu falten. Läuft bei jeder Änderung
@@ -6760,6 +6773,26 @@ export function registerNostrComponents(Alpine: {
                       memberItems: this._members,
                   })
                 : []
+            // **Ein laufender Vorschlag zieht nach.** Beide Quellen tröpfeln
+            // asynchron herein (das Verzeichnis wartet auf die NIP-11-Runde);
+            // berechnet wurde die Liste bisher nur je Tastendruck. Wer eine
+            // Zehntelsekunde vor dem Eintreffen `@ceo` tippt, sah den Agenten
+            // deshalb NIE — es brauchte einen weiteren Tastendruck. In der
+            // Forge-Fläche als E2E-Flake aufgeschlagen und dort zuerst behoben;
+            // dies ist dieselbe Lücke im Chat.
+            //
+            // Die Bedingung ist der offene SUCHBEGRIFF (`_mentionStart >= 0`),
+            // nicht das offene Fenster: der schlimmere Fall ist gerade der, in
+            // dem das Fenster mangels Treffern zu ist.
+            if (this._mentionStart >= 0) {
+                const items = this._mentionItemsFor(this.mentionQuery)
+                this.mentionItems = items
+                // Die Auswahl NICHT auf 0 zurücksetzen: wer gerade mit den
+                // Pfeilen wählt, spränge sonst bei jedem eintreffenden Profil
+                // zurück an den Anfang.
+                this.mentionIndex = Math.min(this.mentionIndex, Math.max(0, items.length - 1))
+                this.mentionOpen = items.length > 0
+            }
         },
         // Vorschlag übernehmen: `@query` (ab dem @) durch `nostr:npub… ` ersetzen,
         // Cursor dahinter setzen. Der Render-Pfad löst das npub zu `@Name` auf.

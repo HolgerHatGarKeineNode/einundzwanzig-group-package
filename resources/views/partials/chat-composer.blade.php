@@ -66,11 +66,20 @@
                         :data-agent="item.isAgent ? 'true' : null"
                         :class="mentionIndex === i ? 'bg-brand-500/15' : ''">
                     <x-group::nostr-avatar picture="item.picture" name="item.name" />
-                    <span class="truncate text-sm" x-text="item.name"></span>
+                    <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm" x-text="item.name"></span>
+                        {{-- Der Schlüssel gehört zum Agentenvorschlag wie der Name:
+                             ein 10100 ist selbstsigniert, zwei Einträge dürfen „ceo"
+                             heißen, und welcher der gemeinte Prozess ist, sagt allein
+                             der Schlüssel. Begründung an `MentionItemLike.hint`. --}}
+                        <template x-if="item.hint">
+                            <span class="block truncate font-mono text-[10px] text-muted" x-text="item.hint"></span>
+                        </template>
+                    </span>
                     {{-- Erkennbar als Maschine: der Vorschlag verhält sich beim Senden wie
                          jeder andere, aber am anderen Ende antwortet ein Prozess. --}}
                     <template x-if="item.isAgent">
-                        <span class="ml-auto shrink-0 rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-brand-600 dark:text-brand-300"
+                        <span class="shrink-0 rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-brand-600 dark:text-brand-300"
                               title="{{ __('Headless Agent — antwortet auf Erwähnung') }}">{{ __('Agent') }}</span>
                     </template>
                 </button>

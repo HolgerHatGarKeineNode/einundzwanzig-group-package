@@ -37,8 +37,15 @@ import {
     agentMentionItems,
     agentServesChannel,
     mergeMentionItems,
+    AGENT_NAME_MAX,
+    MENTION_AGENT_LIMIT,
+    MENTION_MEMBER_LIMIT,
+    AGENT_PROFILE_MAX_CONTENT,
+    AGENT_PROFILE_MAX_LIST,
+    cleanDisplayName,
     parseAgentProfile,
     parseAgentProfiles,
+    shortNpub,
     type AgentEntry,
     type MentionItemLike,
 } from './agentDirectoryData.ts'
@@ -280,4 +287,173 @@ test('ein Encoder, der wirft, kostet den einen Eintrag — nicht die Liste', () 
         ergebnis.map((i) => i.pubkey),
         [REVIEWER],
     )
+})
+
+
+// -- Fremdtext im Anzeigenamen (Sicherheitsbefund F3) ------------------------
+
+/**
+ * **Der Name eines Agenten ist selbstsignierter Fremdtext.**
+ *
+ * Jedes Relay-Mitglied darf ein 10100 publizieren, und Buzz sagt ausdruecklich,
+ * dass die Durchsetzung relay-seitig fehlt
+ * (`buzz-cli/src/commands/channels.rs:1030-1035`). Der Name traegt also keine
+ * Identitaet - er darf aber auch nicht die ANZEIGE anderer Eintraege verfaelschen.
+ */
+test('ein Bidi-Override im Namen wird entfernt, nicht durchgereicht', () => {
+    // U+202E dreht die Darstellung der folgenden Zeichen um - damit laesst sich
+    // eine Zeile so setzen, dass sie wie ein anderer Eintrag aussieht.
+    const eintrag = parseAgentProfile(event({ content: inhalt({ name: 'ce‮oo', display_name: 'ce‮oo' }) }))
+    assert.ok(eintrag)
+    assert.equal(eintrag!.name.includes('‮'), false)
+})
+
+test('Zeilenumbrueche und Zero-Width-Zeichen fallen aus dem Namen', () => {
+    const eintrag = parseAgentProfile(
+        event({ content: inhalt({ name: 'ceo\nADMIN​', display_name: 'ceo\nADMIN​' }) }),
+    )
+    assert.ok(eintrag)
+    assert.equal(eintrag!.name, 'ceo ADMIN')
+})
+
+test('ein ueberlanger Name wird auf die Anzeigelaenge gekappt', () => {
+    const eintrag = parseAgentProfile(event({ content: inhalt({ name: 'z'.repeat(4000), display_name: '' }) }))
+    assert.ok(eintrag)
+    assert.equal(eintrag!.name.length, AGENT_NAME_MAX)
+})
+
+test('cleanDisplayName laesst gewoehnliche Namen unangetastet', () => {
+    // Positivkontrolle: ein Filter, der alles frisst, bestuende die Faelle oben auch.
+    assert.equal(cleanDisplayName('ceo'), 'ceo')
+    assert.equal(cleanDisplayName('Müller-Lüdenscheidt'), 'Müller-Lüdenscheidt')
+})
+
+/**
+ * Der Vorschlag fuehrt den Namen NIE allein: zwei Profile duerfen „ceo" heissen,
+ * und welches der Prozess ist, den der Nutzer meint, sagt allein der Schluessel.
+ */
+test('jeder Agentenvorschlag traegt die npub-Kurzform', () => {
+    const [eintrag] = items()
+    assert.ok(eintrag.hint, 'ohne Kurzform ist der Name die einzige Aussage')
+    assert.match(eintrag.hint!, /^npub1.+….{4}$/)
+})
+
+test('zwei Agenten mit demselben Namen sind ueber die Kurzform unterscheidbar', () => {
+    const beide = agentMentionItems({
+        agents: [
+            entry(),
+            { ...entry(), pubkey: REVIEWER, name: 'ceo', displayName: 'ceo' },
+        ],
+        h: KANAL,
+        viewerPubkey: OWNER,
+        spaceKind: 'buzz',
+        encodeNpub: nip19.npubEncode,
+    })
+    assert.equal(beide.length, 2)
+    assert.equal(beide[0].name, beide[1].name, 'Vorbedingung: gleicher Anzeigename')
+    assert.notEqual(beide[0].hint, beide[1].hint)
+})
+
+test('shortNpub kuerzt in der Mitte und laesst Kurzes stehen', () => {
+    const npub = nip19.npubEncode(CEO)
+    assert.equal(shortNpub(npub).startsWith(npub.slice(0, 10)), true)
+    assert.equal(shortNpub(npub).endsWith(npub.slice(-4)), true)
+    assert.equal(shortNpub('npub1kurz'), 'npub1kurz')
+})
+
+// -- Groesse eines Profils (Sicherheitsbefund F4) ----------------------------
+
+/**
+ * **Ein einziges Profil darf nicht die Insel anhalten.**
+ *
+ * `parseAgentProfiles` laeuft bei JEDEM Verzeichnis-Update ueber alle Events, auf
+ * dem Hauptthread. Gemessen: 25 000 Eintraege / 220 KB -> 1 303 ms; die Grenze
+ * des Relays liegt bei 256 KB (`ingest.rs:2014`), publizieren darf jedes
+ * Mitglied. Verworfen wird wie bei jedem anderen Formfehler.
+ */
+test('ein Profil mit zu vielen Kanaelen wird verworfen', () => {
+    const viele = Array.from({ length: AGENT_PROFILE_MAX_LIST + 1 }, (_, i) => `kanal-${i}`)
+    assert.equal(parseAgentProfile(event({ content: inhalt({ channel_ids: viele, channels: viele }) })), null)
+})
+
+test('eine zu lange Allowlist verwirft das Profil ebenfalls', () => {
+    const viele = Array.from({ length: AGENT_PROFILE_MAX_LIST + 1 }, () => OWNER)
+    assert.equal(parseAgentProfile(event({ content: inhalt({ respond_to_allowlist: viele }) })), null)
+})
+
+test('ein zu grosser Content wird gar nicht erst geparst', () => {
+    const gross = JSON.stringify({
+        name: 'ceo',
+        display_name: 'ceo',
+        channel_ids: [KANAL],
+        fuellung: 'x'.repeat(AGENT_PROFILE_MAX_CONTENT),
+    })
+    assert.ok(gross.length > AGENT_PROFILE_MAX_CONTENT, 'Vorbedingung: der Content ist wirklich zu gross')
+    assert.equal(parseAgentProfile(event({ content: gross })), null)
+})
+
+test('die Grenzen liegen ueber dem, was echte Profile brauchen', () => {
+    // Positivkontrolle gegen einen zu engen Riegel: das echte Format (ein Kanal,
+    // zwei Allowlist-Eintraege, 2026-08-23 gemessen) muss bequem durchpassen.
+    assert.ok(parseAgentProfile(event({ content: inhalt() })))
+    assert.ok(AGENT_PROFILE_MAX_LIST >= 64 && AGENT_PROFILE_MAX_CONTENT >= 4096)
+})
+
+test('ein Profil mit vielen, aber zulaessigen Kanaelen bleibt schnell', () => {
+    // Die eigentliche Ursache der 1 303 ms war `out.includes(...)` in der
+    // Schleife, zweimal je Feld. Mit `Set` ist der zulaessige Hoechstfall
+    // unauffaellig - eine Zeitmessung als Riegel waere auf fremder Hardware
+    // wackelig, deshalb steht hier nur die Groessenordnung.
+    const viele = Array.from({ length: AGENT_PROFILE_MAX_LIST }, (_, i) => `kanal-${i}`)
+    const start = Date.now()
+    for (let i = 0; i < 200; i++) {
+        parseAgentProfile(event({ content: inhalt({ channel_ids: viele, channels: viele }) }))
+    }
+    assert.ok(Date.now() - start < 2000, 'zu langsam - steht `includes` wieder in der Schleife?')
+})
+
+// ── Deckelung der Vorschlagsliste ───────────────────────────────────────────
+
+const vieleAgenten = (n: number): MentionItemLike[] =>
+    Array.from({ length: n }, (_, i) => ({
+        pubkey: `${i}`.padStart(64, '0'),
+        npub: `npub1agent${i}`,
+        name: `agent-${i}`,
+        picture: '',
+        search: `agent-${i}`,
+        isAgent: true,
+    }))
+
+const vieleMenschen = (n: number): MentionItemLike[] =>
+    Array.from({ length: n }, (_, i) => ({
+        pubkey: `${i}`.padStart(63, 'f') + '1',
+        npub: `npub1mensch${i}`,
+        name: `mensch-${i}`,
+        picture: '',
+        search: `mensch-${i}`,
+    }))
+
+/**
+ * **Agenten dürfen die Menschen nicht verdrängen.** Mit zehn Produktivagenten in
+ * EINEM Kanal (2026-08-23 gemessen) hätte ein gemeinsamer Achter-Deckel bei
+ * leerer Suche nur noch Maschinen gezeigt — die Agenten stehen ja vorn.
+ */
+test('ein Schwarm Agenten lässt den Menschen ihre Plätze', () => {
+    const liste = mergeMentionItems(vieleMenschen(20), vieleAgenten(20))
+    const menschen = liste.filter((item) => !item.isAgent)
+    const agenten = liste.filter((item) => item.isAgent)
+    assert.equal(agenten.length, MENTION_AGENT_LIMIT)
+    assert.equal(menschen.length, MENTION_MEMBER_LIMIT)
+})
+
+test('wenige Agenten schenken ihre Plätze nicht her — und nehmen keine weg', () => {
+    const liste = mergeMentionItems(vieleMenschen(20), vieleAgenten(1))
+    assert.equal(liste.filter((item) => item.isAgent).length, 1)
+    // Der Menschen-Deckel ist von der Agentenzahl unabhängig; vorher war die
+    // Gesamtliste gedeckelt und ein Agent kostete einen Menschen.
+    assert.equal(liste.filter((item) => !item.isAgent).length, MENTION_MEMBER_LIMIT)
+})
+
+test('ohne Agenten bleibt die Menschenliste unverändert gedeckelt', () => {
+    assert.equal(mergeMentionItems(vieleMenschen(3), []).length, 3)
 })

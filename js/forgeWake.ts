@@ -24,15 +24,20 @@ import { makeEvent } from '@welshman/util'
 import type { AgentEntry } from './agentDirectoryData.ts'
 import { PROTECTED, canEnforceNip70, mentionPubkeys } from './interactions.ts'
 import { publishOptimistic } from './publishOptimistic.ts'
-import { agentNames, buildWakeMessage, planWake, type WakeTarget } from './forgeWakeModels.ts'
+import * as nip19 from 'nostr-tools/nip19'
+import { agentLabels, buildWakeMessage, planWake, type WakeTarget } from './forgeWakeModels.ts'
 
 /**
  * Wie die Weckmeldung ausgegangen ist. `none` heißt: es war keine nötig — nur
  * dieser eine Fall bleibt in der Fläche stumm.
  */
 export type WakeResult = {
-    code: 'none' | 'no-channel' | 'not-wakeable' | 'sent' | 'failed'
-    /** Anzeigenamen der betroffenen Agenten (für den Hinweistext). */
+    code: 'none' | 'no-channel' | 'channel-foreign' | 'not-wakeable' | 'sent' | 'failed'
+    /**
+     * Wie die betroffenen Agenten in der Meldung benannt werden — Name UND
+     * Schlüssel-Kurzform. Der Name allein wäre eine Zusicherung über eine
+     * Identität, die niemand geprüft hat (Begründung an `agentLabels`).
+     */
     names: string[]
     /** Relay-Begründung, nur bei `failed`. */
     error: string
@@ -54,6 +59,7 @@ export const wakeMentionedAgents = async ({
     viewerPubkey,
     content,
     target,
+    knownChannelIds,
 }: {
     url: string
     channelId: string
@@ -61,12 +67,20 @@ export const wakeMentionedAgents = async ({
     viewerPubkey: string
     content: string
     target: WakeTarget
+    /** Die Kanäle dieses Nutzers — der Riegel gegen einen fremdgesetzten Zielkanal. */
+    knownChannelIds: ReadonlySet<string>
 }): Promise<WakeResult> => {
-    const plan = planWake({ agents, channelId, viewerPubkey, mentioned: mentionPubkeys(content) })
+    const plan = planWake({
+        agents,
+        channelId,
+        viewerPubkey,
+        mentioned: mentionPubkeys(content),
+        knownChannelIds,
+    })
     if (plan.code !== 'ready') {
-        return { code: plan.code, names: agentNames(plan.mentionedAgents), error: '' }
+        return { code: plan.code, names: agentLabels(plan.mentionedAgents, nip19.npubEncode), error: '' }
     }
-    const names = agentNames(plan.wakeable)
+    const names = agentLabels(plan.wakeable, nip19.npubEncode)
     const message = buildWakeMessage({
         channelId,
         wakeable: plan.wakeable,

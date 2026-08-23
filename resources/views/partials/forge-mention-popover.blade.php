@@ -26,12 +26,25 @@
                     :data-agent="item.isAgent ? 'true' : null"
                     :class="mention.index === i ? 'bg-brand-500/15' : ''">
                 <x-group::nostr-avatar picture="item.picture" name="item.name" />
-                <span class="truncate text-sm" x-text="item.name"></span>
+                <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm" x-text="item.name"></span>
+                    {{-- **Der Name allein ist keine Identität.** Ein Agentenprofil
+                         (kind 10100) ist selbstsigniert: jedes Relay-Mitglied darf
+                         eins publizieren, und Buzz sagt ausdrücklich, dass die
+                         Durchsetzung relay-seitig fehlt (`buzz-cli/src/commands/
+                         channels.rs:1030-1035`). Zwei Einträge dürfen „ceo" heißen.
+                         Deshalb steht der Schlüssel IMMER daneben — nicht erst,
+                         wenn eine Dublette auffällt: wer erst dann warnt, warnt
+                         genau dann nicht, wenn der echte Eintrag noch fehlt. --}}
+                    <template x-if="item.hint">
+                        <span class="block truncate font-mono text-[10px] text-muted" x-text="item.hint"></span>
+                    </template>
+                </span>
                 {{-- Erkennbar als Maschine: der Vorschlag verhält sich beim
                      Absenden wie jeder andere, aber am anderen Ende antwortet
                      ein Prozess — und nur für ihn entsteht die Weckmeldung. --}}
                 <template x-if="item.isAgent">
-                    <span class="ml-auto shrink-0 rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-brand-600 dark:text-brand-300"
+                    <span class="shrink-0 rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-brand-600 dark:text-brand-300"
                           title="{{ __('Headless Agent — antwortet auf Erwähnung') }}">{{ __('Agent') }}</span>
                 </template>
             </button>

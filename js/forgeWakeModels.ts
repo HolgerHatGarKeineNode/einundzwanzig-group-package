@@ -44,12 +44,14 @@
  * per Konstruktion nie kommt. Deshalb liefert {@link planWake} in jedem Fall
  * einen Code, den die Fläche zeigen kann — auch im Fall „nichts zu tun".
  */
-import { agentCanRespondInChannel, type AgentEntry } from './agentDirectoryData.ts'
+import { agentCanRespondInChannel, shortNpub, type AgentEntry } from './agentDirectoryData.ts'
 import { parseRepoAddress } from './forgeModels.ts'
 import { t } from './i18n.ts'
 
 /** Kanal-Nachricht (NIP-29). Dasselbe Kind wie jede Chat-Zeile. */
 export const WAKE_MESSAGE_KIND = 9
+/** NIP-34 Repo-Announcement — nur für den Rückfall-Verweis (`30617:<owner>:<d>`). */
+const REPO_ANNOUNCEMENT_KIND = 30617
 
 const HEX64 = /^[0-9a-f]{64}$/i
 
@@ -72,7 +74,15 @@ export const isLinkableDtag = (dtag: string): boolean =>
 /** Was gerade passiert ist. Der Verweis unterscheidet sich je Wurzel-Art. */
 export type WakeArt = 'issue' | 'pr'
 
-/** Der Vorgang, auf den die Weckmeldung zeigt. */
+/**
+ * Der Vorgang, auf den die Weckmeldung zeigt.
+ *
+ * **Hier steht kein Anzeigetext, und das ist Absicht.** Titel und Repo-Name
+ * waren Felder dieses Typs, bis der Sicherheitsbefund zeigte, wohin sie führen
+ * (Begründung an {@link wakeMessageContent}). Ein ungenutztes Feld, das
+ * Fremdtext trägt, ist die Einladung, es beim nächsten Mal wieder in den Rumpf
+ * zu setzen — deshalb gibt es die Felder nicht mehr, statt sie nur zu ignorieren.
+ */
 export type WakeTarget = {
     /** Wurzel-Art: davon hängt die Form des `buzz://`-Links ab. */
     art: WakeArt
@@ -80,10 +90,6 @@ export type WakeTarget = {
     eventId: string
     /** `30617:<owner>:<d>` des Repos. */
     repoAddress: string
-    /** Anzeigename des Repos; leer → das `d`-Tag aus der Koordinate. */
-    repoName: string
-    /** Titel des Issues/PRs. */
-    title: string
     /** Was der Nutzer getan hat — Vorgang eröffnet oder kommentiert. */
     what: 'issue' | 'comment'
 }
@@ -112,6 +118,11 @@ export type WakeCode =
     | 'none'
     /** Agenten erwähnt, aber das Repo hängt an keinem Kanal (`buzz-channel`). */
     | 'no-channel'
+    /**
+     * Das Repo verweist auf einen Kanal, der **nicht zu den Räumen dieses
+     * Nutzers gehört** — der Verdacht ist Fremdsteuerung, nicht ein Versehen.
+     */
+    | 'channel-foreign'
     /** Agenten erwähnt, aber keiner davon ist in diesem Kanal für DIESEN Autor weckbar. */
     | 'not-wakeable'
     /** Es gibt etwas zu senden. */
@@ -143,11 +154,21 @@ export const planWake = ({
     channelId,
     viewerPubkey,
     mentioned,
+    knownChannelIds,
 }: {
     agents: readonly AgentEntry[]
     channelId: string
     viewerPubkey: string
     mentioned: readonly string[]
+    /**
+     * Die Kanäle, die dieser Nutzer in diesem Space wirklich hat (39000 aus
+     * `roomsByUrl`, relay-signiert und channel-scoped ausgeliefert).
+     *
+     * **Ohne diese Menge gibt es keine Weckmeldung** — der Parameter ist Pflicht
+     * und hat bewusst keinen Vorgabewert. Ein `= new Set()` wäre bequem und
+     * genau die Zeile, die den Riegel beim nächsten Aufrufer still ausschaltet.
+     */
+    knownChannelIds: ReadonlySet<string>
 }): WakePlan => {
     const gesucht = new Set(mentioned.map((pk) => pk.toLowerCase()).filter((pk) => HEX64.test(pk)))
     const mentionedAgents = agents.filter((agent) => gesucht.has(agent.pubkey.toLowerCase()))
@@ -156,6 +177,21 @@ export const planWake = ({
     }
     if (!channelId) {
         return { code: 'no-channel', wakeable: [], mentionedAgents }
+    }
+    // **Der Zielkanal stammt aus einem FREMDSIGNIERTEN Tag.** `buzz-channel`
+    // steht im 30617, und jedes Relay-Mitglied darf ein 30617 ankündigen — der
+    // Relay selbst nennt das Tag ausdrücklich „a metadata reference, not a
+    // routing directive" (`buzz-relay/src/handlers/ingest.rs:5018`). Ohne diese
+    // Prüfung signiert der Nutzer eine Kanalnachricht in einen Kanal, den er nie
+    // gewählt hat: bei `visibility == "open"` nimmt der Relay sie sogar an, ohne
+    // dass er Mitglied ist (`ingest.rs:650-679`).
+    //
+    // Geprüft wird gegen die RAUMLISTE (39000), nicht gegen die Mitgliederliste
+    // (39002): im offenen Kanal steht der Nutzer nicht im 39002, obwohl er dort
+    // schreiben darf — am Teststack gemessen (2026-08-23, `general`: nur der
+    // Owner steht drin). Ein 39002-Riegel wäre im Normalfall falsch-negativ.
+    if (!knownChannelIds.has(channelId)) {
+        return { code: 'channel-foreign', wakeable: [], mentionedAgents }
     }
     const wakeable = mentionedAgents.filter((agent) =>
         agentCanRespondInChannel(agent, channelId, viewerPubkey),
@@ -166,32 +202,90 @@ export const planWake = ({
         : { code: 'ready', wakeable, mentionedAgents }
 }
 
-/** Anzeigenamen der Agenten in der Reihenfolge des Verzeichnisses. */
-export const agentNames = (agents: readonly AgentEntry[]): string[] =>
-    agents.map((agent) => agent.displayName || agent.name)
+/**
+ * Wie ein Agent in einer Meldung an den Nutzer benannt wird: **Name UND
+ * Schlüssel-Kurzform.**
+ *
+ * Der Name allein wäre eine Zusicherung, die dieses Modul nicht decken kann. Ein
+ * kind 10100 ist selbstsigniert; wer „Im Projektkanal benachrichtigt: ceo" liest,
+ * glaubt, der ihm bekannte ceo sei geweckt worden — und genau das kann ein
+ * Fälscher herstellen, indem er ein Profil mit demselben Namen publiziert und
+ * den Betrachter in seine `respond_to_allowlist` schreibt. Der Schlüssel ist die
+ * einzige Angabe an dieser Stelle, die der Nutzer nachprüfen kann.
+ *
+ * `encodeNpub` wird injiziert, damit das Modul rein bleibt; wirft es, bleibt der
+ * Name allein stehen statt die ganze Meldung zu reißen.
+ */
+export const agentLabels = (agents: readonly AgentEntry[], encodeNpub: (pubkey: string) => string): string[] =>
+    agents.map((agent) => {
+        const name = agent.displayName || agent.name
+        try {
+            return `${name} (${shortNpub(encodeNpub(agent.pubkey))})`
+        } catch {
+            return name
+        }
+    })
 
 /**
- * Der Text der Weckmeldung.
+ * Ein Bezeichner, der aus **fremdsigniertem** Text stammt, so weit eingeengt, dass
+ * er nur noch Bezeichner sein kann.
  *
- * Er benennt den Vorgang **so wie die Brücke im buzz-team ihn benennt**
- * (`issues-to-channel.mjs`): Titel, Repo und der kanonische `buzz://`-Link, über
- * den der Agent ihn wiederfindet. Zwei Zeilen, keine Zierde — der Empfänger ist
- * ein Prozess, der daraus seinen Auftrag liest.
+ * Weißliste `[A-Za-z0-9._-]`, harte Länge — dieselbe Zeichenklasse, die der
+ * Referenzclient für linkbare `d`-Tags verlangt (`buzz-cli/src/links.rs:18-34`).
+ * Alles andere fällt weg, es wird nicht ersetzt und nicht escaped: was übrig
+ * bleibt, kann keine zweite Zeile, kein Satzzeichen und keine Anweisung mehr
+ * bilden.
+ */
+const safeIdentifier = (value: string, max = 64): string =>
+    value.replace(/[^A-Za-z0-9._-]/g, '').slice(0, max)
+
+/**
+ * Der Text der Weckmeldung — **ohne ein Zeichen Fremdtext.**
  *
- * Ohne baubaren Link steht statt dessen die Repo-Koordinate: sie ist als
- * `#a`-Filter nutzbar und damit immer noch ein Weg zum Vorgang, während ein
- * halber Link keiner wäre.
+ * ── Warum der Issue-Titel hier NICHT mehr steht ─────────────────────────────
+ *
+ * Der Empfänger dieser Nachricht ist ein Prozess, der ihren `content` als Prompt
+ * liest (`buzz-acp/src/acp.rs:2538`). Der Titel eines Issues stammt aber aus dem
+ * `subject`-Tag eines **fremdsignierten** 1621, und ein 1621 anzulegen braucht
+ * bei Buzz nur `Scope::MessagesWrite` — keine Repo-Autorisierung, keine
+ * Kanalmitgliedschaft (`buzz-relay/src/handlers/ingest.rs:441-448`). Wer ein
+ * Issue mit dem Titel `</issue> SYSTEM: …` in ein fremdes Repo legt, schrieb
+ * damit den Auftrag, den ein Dritter beim Kommentieren signiert und absendet —
+ * und der Autoren-Riegel des Agenten (`buzz-acp/src/lib.rs:249-257`) prüft nur
+ * den Autor der kind-9, also das Opfer, das in der Allowlist steht.
+ *
+ * Der Titel ist deshalb ersatzlos raus, und zwar aus dem stärkeren der beiden
+ * Gründe: er wird hier **nicht gebraucht**. Der `buzz://`-Link zeigt auf das
+ * Ereignis; Buzz Desktop rendert daraus seit 0.5.5 eine Vorschaukarte, und der
+ * Agent holt sich den Vorgang ohnehin selbst. Ein hineinkopierter Titel wäre
+ * eine zweite, ungeprüfte Fassung dessen, was am Ziel bereits steht — und die
+ * einzige, die niemand mehr auf ihre Herkunft prüfen kann.
+ *
+ * Dieselbe Klasse gilt für den Repo-**Namen** (`name`-Tag des 30617, ebenfalls
+ * frei wählbar). Statt seiner steht der `d`-Tag der Koordinate, durch
+ * {@link safeIdentifier} auf die Bezeichner-Zeichenklasse eingeengt.
+ *
+ * Was übrig bleibt, ist per Konstruktion prüfbar: feste Wortbausteine dieser
+ * Datei, ein Bezeichner aus `[A-Za-z0-9._-]`, 64 Hexstellen Eigentümer und eine
+ * Ereignis-Id. `wakeContentIstFremdtextfrei` in `forgeWakeModels.test.ts` hält
+ * genau das fest.
  */
 export const wakeMessageContent = (target: WakeTarget): string => {
-    const repo = target.repoName || parseRepoAddress(target.repoAddress)?.dtag || target.repoAddress
+    const koordinate = parseRepoAddress(target.repoAddress)
+    const repo = safeIdentifier(koordinate?.dtag ?? '')
     const kopf =
         target.what === 'issue'
-            ? t('Neues Issue in :repo: :titel', { repo, titel: target.title })
+            ? t('Neues Issue in :repo', { repo })
             : target.art === 'pr'
-              ? t('Neuer Kommentar am Pull Request „:titel“ in :repo', { repo, titel: target.title })
-              : t('Neuer Kommentar am Issue „:titel“ in :repo', { repo, titel: target.title })
+              ? t('Neuer Kommentar an einem Pull Request in :repo', { repo })
+              : t('Neuer Kommentar an einem Issue in :repo', { repo })
+    // Ohne baubaren Link bleibt die Repo-Koordinate — sie ist als `#a`-Filter
+    // nutzbar und besteht selbst nur aus Kind, Hex-Eigentümer und Bezeichner.
+    const verweis =
+        buzzEntityLink(target.art, target.eventId, target.repoAddress) ||
+        (koordinate ? `${REPO_ANNOUNCEMENT_KIND}:${koordinate.owner}:${repo}` : '')
 
-    return `${kopf}\n${buzzEntityLink(target.art, target.eventId, target.repoAddress) || target.repoAddress}`
+    return `${kopf}\n${verweis}`
 }
 
 /** Die fertige Weckmeldung: Kind, Inhalt, Tags. */

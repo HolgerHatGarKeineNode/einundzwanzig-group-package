@@ -48,6 +48,8 @@ import { toast } from './toast.ts'
 import { formatTimestamp } from './locale.ts'
 import { warmProfiles } from './profiles.ts'
 import { deriveEventsForUrl } from './repository.ts'
+import { roomsByUrl } from './groups.ts'
+import { normalizeRelayUrl } from '@welshman/util'
 import { deriveSpaceDirectory, loadMemberProfiles, loadSpaceDirectory, watchSpaceDirectory, type DirectoryView } from './members.ts'
 import { deriveAgentDirectory, listenAgentDirectory, type AgentDirectoryView } from './agentDirectory.ts'
 import { agentMentionItems, mergeMentionItems, type MentionItemLike } from './agentDirectoryData.ts'
@@ -1249,6 +1251,15 @@ type ForgeRepoState = {
     _agentView: AgentDirectoryView | null
     /** Schon angeforderte Profile — verhindert dieselbe Anfrage bei jedem Update. */
     _loadedProfiles: Set<string>
+    /**
+     * Die Kanäle DIESES Nutzers in diesem Space (39000 aus `roomsByUrl`).
+     *
+     * Der Riegel gegen einen fremdgesetzten Zielkanal: `buzz-channel` steht in
+     * einem 30617, das jedes Relay-Mitglied ankündigen darf. Begründung und
+     * Messung stehen an `planWake`.
+     */
+    _channelIds: Set<string>
+    _unsubRooms: (() => void) | null
     /** Index des `@` im Entwurf, `-1` = kein offener Vorschlag. */
     _mentionStart: number
     init(): void
@@ -1306,7 +1317,7 @@ type ForgeRepoState = {
 }
 
 /** Was `_wake` über den Vorgang wissen muss, den es meldet. */
-type WakeTargetInput = { art: 'issue' | 'pr'; eventId: string; title: string; what: 'issue' | 'comment' }
+type WakeTargetInput = { art: 'issue' | 'pr'; eventId: string; what: 'issue' | 'comment' }
 
 /**
  * Registrierung der beiden Inseln.
@@ -1501,6 +1512,8 @@ export function wireForge(Alpine: {
             _members: [],
             _agentItems: [],
             _agentView: null,
+            _channelIds: new Set<string>(),
+            _unsubRooms: null,
             _mentionStart: -1,
             _loadedProfiles: new Set<string>(),
             init() {
@@ -1556,6 +1569,14 @@ export function wireForge(Alpine: {
                         // aus dieser Liste (ein 10100 trägt kein Bild).
                         this._recomputeAgentItems()
                     })
+                    // Die Raumliste des Nutzers — Grundlage des Kanal-Riegels.
+                    // Sie liegt in der Insel ohnehin vor (Rail/Palette lesen
+                    // dieselbe Quelle); ein eigener REQ entsteht dafür nicht.
+                    this._unsubRooms = roomsByUrl.subscribe((byUrl: Map<string, { h: string }[]>) => {
+                        this._channelIds = new Set(
+                            (byUrl.get(normalizeRelayUrl(WORKSPACE_URL)) ?? []).map((room) => room.h),
+                        )
+                    })
                     void listenAgentDirectory(WORKSPACE_URL, signal)
                     this._unsubAgents = deriveAgentDirectory(WORKSPACE_URL).subscribe((view: AgentDirectoryView) => {
                         this._agentView = view
@@ -1573,6 +1594,7 @@ export function wireForge(Alpine: {
                 this._unsubPending?.()
                 this._unsubMembers?.()
                 this._unsubAgents?.()
+                this._unsubRooms?.()
                 this._controller?.abort()
                 // Die Fehlermeldung eines Schreibversuchs gehört zu DIESEM
                 // Bildschirm. Wer die Seite verlässt, hat sie zur Kenntnis
@@ -1744,7 +1766,6 @@ export function wireForge(Alpine: {
                     await this._wake('issue', rumpf, {
                         art: 'issue',
                         eventId: outcome.id,
-                        title: titel,
                         what: 'issue',
                     })
                 }
@@ -1798,7 +1819,6 @@ export function wireForge(Alpine: {
                     await this._wake(`comment:${root.id}`, draft, {
                         art,
                         eventId: root.id,
-                        title: root.title ?? '',
                         what: 'comment',
                     })
                 }
@@ -1931,9 +1951,14 @@ export function wireForge(Alpine: {
             _mentionItemsFor(query: string) {
                 const q = query.toLowerCase()
 
-                return mergeMentionItems(this._members, this._agentItems)
-                    .filter((item) => !q || item.search.includes(q))
-                    .slice(0, 8)
+                // Der Deckel liegt in `mergeMentionItems` und ist ZWEIGETEILT
+                // (Agenten/Menschen getrennt) — ein gemeinsamer Schnitt auf der
+                // fertigen Liste ließ Agenten die Menschen verdrängen und
+                // einander dazu. Begründung dort.
+                return mergeMentionItems(
+                    this._members.filter((item) => !q || item.search.includes(q)),
+                    this._agentItems.filter((item) => !q || item.search.includes(q)),
+                )
             },
             /**
              * Tastatur am Composer. Gibt der Vorschlag nichts her, passiert
@@ -2065,12 +2090,11 @@ export function wireForge(Alpine: {
                     agents: this._agentView?.agents ?? [],
                     viewerPubkey: this.viewer,
                     content,
+                    knownChannelIds: this._channelIds,
                     target: {
                         art: vorgang.art,
                         eventId: vorgang.eventId,
                         repoAddress: repo.address,
-                        repoName: repo.name,
-                        title: vorgang.title,
                         what: vorgang.what,
                     },
                 })
@@ -2080,8 +2104,16 @@ export function wireForge(Alpine: {
                 const namen = ergebnis.names.join(', ')
                 const hinweis =
                     ergebnis.code === 'sent'
-                        ? { tone: 'ok' as const, text: t('Im Projektkanal benachrichtigt: :namen', { namen }) }
-                        : ergebnis.code === 'no-channel'
+                        ? { tone: 'ok' as const, text: t('Weckmeldung im Projektkanal veröffentlicht für :namen', { namen }) }
+                        : ergebnis.code === 'channel-foreign'
+                          ? {
+                                tone: 'warn' as const,
+                                text: t(
+                                    'Dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört — es wurde niemand benachrichtigt (:namen).',
+                                    { namen },
+                                ),
+                            }
+                          : ergebnis.code === 'no-channel'
                           ? {
                                 tone: 'warn' as const,
                                 text: t(
