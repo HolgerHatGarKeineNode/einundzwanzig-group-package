@@ -968,5 +968,8 @@
     "Kanäle": "Canais",
     "1 Repository eines Projekts liegt nicht auf diesem Relay.": "1 repositório de um projeto não está neste relay.",
     ":count Repositories von Projekten liegen nicht auf diesem Relay.": ":count repositórios de projetos não estão neste relay.",
-    ":count Repositories von Projekten liegen nicht auf diesem Relay.#one": ":count repositório de um projeto não está neste relay."
+    ":count Repositories von Projekten liegen nicht auf diesem Relay.#one": ":count repositório de um projeto não está neste relay.",
+    "Branch": "Ramo",
+    "PRs": "PRs",
+    "Kein Branch-Zustand bekannt": "Estado do ramo desconhecido"
 }

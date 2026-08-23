@@ -996,5 +996,8 @@
     "1 Repository eines Projekts liegt nicht auf diesem Relay.": "1 projekta repozitorijs nav šajā relejā.",
     ":count Repositories von Projekten liegen nicht auf diesem Relay.": ":count projektu repozitoriju nav šajā relejā.",
     ":count Repositories von Projekten liegen nicht auf diesem Relay.#zero": ":count projektu repozitoriju nav šajā relejā.",
-    ":count Repositories von Projekten liegen nicht auf diesem Relay.#one": ":count projekta repozitorijs nav šajā relejā."
+    ":count Repositories von Projekten liegen nicht auf diesem Relay.#one": ":count projekta repozitorijs nav šajā relejā.",
+    "Branch": "Zars",
+    "PRs": "PRs",
+    "Kein Branch-Zustand bekannt": "Zara stāvoklis nav zināms"
 }

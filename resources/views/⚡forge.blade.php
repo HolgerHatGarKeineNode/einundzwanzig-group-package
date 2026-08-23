@@ -24,9 +24,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
     }
 }; ?>
 
-{{-- `width="wide"`: diese Fläche zeigt ein RASTER (vier Kennzahl-Kacheln, darunter
-     Listen), keinen Fließtext. Der 62-rem-Lesedeckel ließ auf einem 1440er-Schirm
-     rechts eine Handbreit leer, während die Kacheln sich drängten. --}}
+{{-- `width="wide"`: diese Fläche zeigt ein RASTER (Kennzahlen, darunter Listen),
+     keinen Fließtext. Der 62-rem-Lesedeckel ließ auf einem 1440er-Schirm rechts
+     eine Handbreit leer, während die Kacheln sich drängten. --}}
+{{-- ── Der HOST entscheidet, nicht die Breite (P4) ────────────────────────────
+     Dieselbe Frage und dieselbe Antwort wie in `bottom-nav.blade.php:52` und
+     `app-frame.blade.php:41`: ab `xl` trägt der Navigator links die Ortswechsel
+     und die Kanäle — aber NUR im Web-Host, denn die NativePHP-App hat kein
+     Desktop-Chassis. Ein iPad Pro quer misst 1366 CSS-px und läge über `xl`;
+     dort bliebe die App ohne Rail und ohne Tabs zurück.
+
+     Deshalb steht hier eine Host-Bedingung und KEIN neuer Breakpoint. --}}
+@php($native = config('nativephp-internal.running'))
 <x-group::app-shell width="wide">
 
     {{-- Der Basis-Pfad kommt aus `route()`, nicht als Literal: die Route heißt an
@@ -35,7 +44,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
         <x-group::app-header :title="__('Forge')" :back="route('group.spaces')" />
 
-        <x-group::ortskarten />
+        {{-- ── Die Ortsleiste endet ab `xl` (P4) ──────────────────────────────
+             Gemessen am gebauten Stand: auf `/forge` @1920 trugen ZWEI sichtbare
+             Elemente `aria-current="page"` mit demselben `href=/forge` — die
+             Rail-Zeile (295 px) und die Ortskarte (496 px); bei 1279 px genau
+             eines. Zwei „du bist hier"-Markierungen auf dasselbe Ziel sind keine
+             Redundanz, sondern eine Zweideutigkeit: welche ist DIE aktuelle?
+
+             Die Begründung im Kopf von `ortskarten.blade.php` („die Rail-Zeile
+             fragt *kann ich dorthin gehen*, die Ortskarte *wo bin ich*") trägt
+             unterhalb `xl` vollständig — dort gibt es die Rail nicht. Ab `xl`
+             trägt sie nicht mehr, weil die Rail-Zeile selbst `aria-current`
+             setzt und damit beide Fragen beantwortet.
+
+             Dazu die Größenordnung: bei 1920 px maß jede der drei Karten 496 px
+             Breite und 70 px Höhe — für die Wörter „Chat", „Artikel", „Forge".
+
+             NUR auf dieser Fläche: `/articles` und `/spaces` binden dieselbe
+             Komponente ein und behalten sie, solange niemand dort dasselbe
+             gemessen und entschieden hat. Die Klasse kommt deshalb von HIER und
+             steht nicht in der Komponente. --}}
+        <x-group::ortskarten :class="$native ? null : 'xl:hidden'" />
 
         @if (! config('group.workspace_url'))
             {{-- Kein Workspace konfiguriert. Kein Fehler, sondern eine bewusste
@@ -63,7 +92,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      Speicher liegt, steht weiter da. Gleicher Wortlaut-Bau wie auf
                      `/articles` und `/updates`. --}}
                 <template x-if="error">
-                    <flux:callout variant="danger" icon="exclamation-triangle" class="mb-3">
+                    <flux:callout variant="danger" icon="exclamation-triangle" class="forge-mass mb-3">
                         <flux:callout.text x-text="error"></flux:callout.text>
                         <x-slot name="actions">
                             <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="retry()">{{ __('Erneut laden') }}</flux:button>
@@ -79,7 +108,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      `kind === 'unknown'` sagt hier bewusst NICHTS: da ist das Dokument
                      noch unterwegs. --}}
                 <template x-if="kind === 'other'">
-                    <flux:callout variant="warning" icon="information-circle" class="mb-3">
+                    <flux:callout variant="warning" icon="information-circle" class="forge-mass mb-3">
                         <flux:callout.text>{{ __('Der Workspace hat sich nicht als Buzz-Relay gemeldet. Repositories und Issues werden trotzdem gelesen; der Branch-Zustand kann fehlen.') }}</flux:callout.text>
                     </flux:callout>
                 </template>
@@ -93,76 +122,51 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <span class="sr-only" aria-live="polite"
                           x-text="loading ? @js(__('Die Forge wird geladen…')) : ''"></span>
 
-                    {{-- ── Kennzahlen ──────────────────────────────────────────────
-                         Vier Kacheln statt vier Leermeldungen. Eine `0` in einer
-                         Kachel ist eine AUSSAGE („es gibt keine Issues"); eine leere
-                         Fläche ist ein Loch, das der Leser als Ladefehler deutet.
-                         Deshalb erscheint die Zahl erst, wenn der Relay geantwortet
-                         hat — bis dahin steht ein Balken. Eine `0` während des Ladens
-                         wäre dieselbe Lüge, nur andersherum. --}}
-                    {{-- EINE Karte mit vier Zellen, nicht vier Karten: die vier Zahlen
-                         sind vier Messwerte an DEMSELBEN Gegenstand (dieser Workspace),
-                         und vier gleich schwere Kacheln nebeneinander sagen genau das
-                         nicht. Getrennt wird mit Haarlinien statt mit Abstand.
+                    {{-- ── Die Zustandszeile ───────────────────────────────────────
+                         Drei Zahlen in EINER Zeile — bis P4 war das eine Karte mit
+                         drei Zellen.
 
-                         Die Trennlinien kommen aus dem Index, nicht aus `divide-*`:
-                         `divide-y` zieht seine Kante über `> * + *` und kennt die
-                         Spaltenzahl nicht — im 2-Spalten-Raster bekäme die Zelle oben
-                         RECHTS eine Oberkante, obwohl sie in der ersten Zeile steht.
-                         Die Farbe steht unbedingt an jeder Zelle, geschaltet wird nur
-                         die BREITE; eine Kante mit Breite 0 ist unsichtbar, und so
-                         braucht keine der Bedingungen einen zweiten Dark-Zweig. --}}
-                    {{-- DREI Zellen seit 2026-08-23 (die Projekte-Kachel ist mit ihrem Tab
-                         entfallen) — und damit EIN Raster auf jeder Breite statt zweier.
+                         Warum sie weicht, gemessen statt geschätzt: bei 1920 px maß
+                         die Karte 1504 × 86,8 px; eine Zelle war 375,5 px breit und
+                         trug eine einstellige Zahl. Zusammen mit der Ortsleiste
+                         darüber (70 px) standen 156,8 px Höhe über der Falz für drei
+                         Zahlen und eine Navigation, die die Rail schon führt.
 
-                         Das ist die Vereinfachung, die der Wegfall erlaubt: `grid-cols-2`
-                         hätte die dritte Zelle allein in eine zweite Zeile gestellt, mit
-                         leerer Hälfte daneben. Bei drei Zellen ist `grid-cols-3` auf jeder
-                         Breite richtig, und die Kantenlogik schrumpft von drei
-                         Index-Bedingungen auf eine: jede Zelle ausser der ersten bekommt
-                         links eine Kante. Eine untere Reihe gibt es nicht mehr, also auch
-                         kein `border-t`.
+                         Was BLEIBT, und zwar unverändert: die Regel, dass eine `0`
+                         eine Aussage ist („es gibt keine Issues") und deshalb erst
+                         erscheinen darf, wenn der Relay geantwortet hat. Bis dahin
+                         steht ein Balken. Eine `0` während des Ladens wäre dieselbe
+                         Lüge, nur andersherum — `settled()` entscheidet das, nicht
+                         die Bauform der Zeile.
 
-                         Das Literal steht als Ganzes im Quelltext — Tailwind scannt
-                         Quelltext, ein aus `count()` zusammengesetzter Klassenname
-                         entstünde im JIT nie. --}}
-                    <div class="surface-card mb-4 grid grid-cols-3 overflow-hidden">
+                         Die Icons sind mit den Kacheln gegangen. In einer Zeile aus
+                         Wort und Zahl trägt eine Glyphe nichts bei, was das Wort
+                         nicht schon sagt. (Die Falle mit dem dynamischen Icon-Namen —
+                         `<flux:icon :name="…">` statt `<flux:icon.{{ … }}>`, sonst
+                         500er beim Rendern — steht weiter dokumentiert an
+                         `nav-tab.blade.php:85`.)
+
+                         `tabular-nums` ist NICHT nötig und steht deshalb nicht da:
+                         die Hausschrift ist Inconsolata, eine Zellenschrift — jede
+                         Ziffer belegt bereits exakt eine Zelle (gemessen 7,00 px bei
+                         14 px, 8,00 px bei 16 px). --}}
+                    <div class="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-1" data-forge-zustandszeile>
                         @php($tiles = [
-                            ['key' => 'repos', 'label' => __('Repositories'), 'icon' => 'code-bracket'],
-                            ['key' => 'pullRequests', 'label' => __('Pull Requests'), 'icon' => 'arrows-right-left'],
-                            ['key' => 'issues', 'label' => __('Issues'), 'icon' => 'exclamation-circle'],
+                            ['key' => 'repos', 'label' => __('Repositories')],
+                            ['key' => 'pullRequests', 'label' => __('Pull Requests')],
+                            ['key' => 'issues', 'label' => __('Issues')],
                         ])
-                        @foreach ($tiles as $i => $tile)
-                            <div @class([
-                                'border-zinc-200 px-4 py-3 dark:border-zinc-800',
-                                'border-s' => $i > 0,
-                            ])>
-                                <div class="flex items-start justify-between gap-2">
-                                    <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $tile['label'] }}</span>
-                                    {{-- `<flux:icon :name="…">` und NICHT `<flux:icon.{{ … }}>`: der
-                                         Tag-Name einer Blade-Komponente wird beim KOMPILIEREN
-                                         aufgelöst, ein Echo darin landet wörtlich im Namen. Das
-                                         Ergebnis war ein 500er („Flux component [icon.1] does not
-                                         exist") — und zwar erst beim Rendern, `view:cache` hatte
-                                         die Datei anstandslos übersetzt. Dieselbe Form wie
-                                         `nav-tab.blade.php:85`.
-
-                                         zinc-500 statt zinc-400 im Hellen: zinc-400 auf Weiß misst
-                                         2,52:1 und liegt damit unter den 3:1 aus WCAG 1.4.11,
-                                         zinc-500 hält 4,74:1 (gerechnet mit `p2-kontrast.mjs`).
-                                         Im Dunklen bleibt zinc-400 — dort sind es 7,11:1. --}}
-                                    <flux:icon :name="$tile['icon']" variant="micro" class="size-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
-                                </div>
-                                {{-- Die Zahl ist die Aussage der Kachel und trägt deshalb das
-                                     volle Gewicht — auch und gerade als `0`. `tabular-nums`
-                                     hält die vier Zellen bei wechselnden Ziffern in Reihe. --}}
-                                <div class="mt-2 h-9">
-                                    <div x-show="!settled()" class="skeleton mt-1.5 h-6 w-10"></div>
-                                    <span x-show="settled()" x-cloak data-forge-tile="{{ $tile['key'] }}"
-                                          class="block text-4xl font-bold leading-none tabular-nums tracking-tight text-zinc-900 dark:text-zinc-100"
-                                          x-text="$num(counts().{{ $tile['key'] }})"></span>
-                                </div>
-                            </div>
+                        @foreach ($tiles as $tile)
+                            <span class="flex items-baseline gap-1.5">
+                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $tile['label'] }}</span>
+                                {{-- Der Balken hat die Zeilenhöhe der Zahl, damit die Zeile
+                                     beim Eintreffen der Zahl nicht springt. `align-baseline`
+                                     hält ihn auf der Schriftlinie der Beschriftung. --}}
+                                <span x-show="!settled()" class="skeleton inline-block h-4 w-6 align-baseline"></span>
+                                <span x-show="settled()" x-cloak data-forge-tile="{{ $tile['key'] }}"
+                                      class="text-base font-semibold leading-5 text-zinc-900 dark:text-zinc-100"
+                                      x-text="$num(counts().{{ $tile['key'] }})"></span>
+                            </span>
                         @endforeach
                     </div>
 
@@ -223,20 +227,79 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          „Kanäle" ist zugleich das Wort, das dieses Paket in seinen
                          Wake-Meldungen ohnehin benutzt („dieses Repository gehört zu keinem
                          Kanal") und das Buzz selbst verwendet. --}}
-                    <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab" class="mb-3">
-                        <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
-                        <flux:tab name="repos">{{ __('Repositories') }}</flux:tab>
-                        <flux:tab name="workspaces">{{ __('Kanäle') }}</flux:tab>
-                    </flux:tabs>
+                    {{-- ── Ab `xl` schaltet hier nichts mehr um (P4) ────────────────────
+                         Drei Inhalte, die nebeneinander passen, brauchen keinen
+                         Umschalter: bei 1920 px maß die Bar 409 px in einer 1504 px
+                         breiten Zeile. Ab `xl` stehen Werkbank und Spur gleichzeitig,
+                         die Kanäle führt die Rail.
+
+                         ── Warum ein eigener WRAPPER und nicht `class="xl:hidden"` am
+                         `flux:tabs` ────────────────────────────────────────────────
+                         Mit `scrollable` rendert der Stub drei verschachtelte Kästen
+                         (`flux-pro/stubs/resources/views/flux/tabs.blade.php:53-64`), und
+                         `$attributes->class(...)` landet am INNERSTEN (`<ui-tabs>`). Ein
+                         `xl:hidden` dort blendete die Tabs aus und liesse die äussere
+                         Hülle stehen — eine leere graue Leiste mit `rounded-lg` und
+                         `bg-zinc-800/5`. Der Wrapper trifft alle drei Kästen.
+
+                         Er ist zugleich der Messpunkt der Insel: `nostrForge` liest
+                         seinen gerenderten `display`, um zu wissen, ob die Bühne
+                         zweispaltig steht. So gibt es KEIN drittes Literal der
+                         xl-Schwelle — CSS und `viewport.ts` führen sie schon, und der
+                         Modulkopf dort nennt das ausdrücklich als Risiko. --}}
+                    <div data-forge-tabs @class(['mb-3', 'xl:hidden' => ! $native])>
+                        <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab">
+                            <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
+                            <flux:tab name="repos">{{ __('Repositories') }}</flux:tab>
+                            <flux:tab name="workspaces">{{ __('Kanäle') }}</flux:tab>
+                        </flux:tabs>
+                    </div>
 
                     {{-- Kürzungshinweis. Er steht nur da, wenn eine Liste GENAU am
                          Limit ankam — dann kann sie gekürzt sein, und das ist eine
                          Aussage über den Bestand, die die Fläche schuldet. --}}
                     <template x-if="tab !== 'workspaces' && truncatedText()">
-                        <flux:callout variant="secondary" icon="information-circle" class="mb-3" data-forge-truncated>
+                        <flux:callout variant="secondary" icon="information-circle" class="forge-mass mb-3" data-forge-truncated>
                             <flux:callout.text x-text="truncatedText()"></flux:callout.text>
                         </flux:callout>
                     </template>
+
+                    {{-- ══ DIE BÜHNE ══════════════════════════════════════════════════
+                         Ab `xl` im Web-Host zwei Spuren nebeneinander statt drei Tabs
+                         hintereinander: WERKBANK (der Zustand je Repository) links,
+                         AKTIVITÄTSSPUR (was zuletzt geschah) rechts. Die Kanäle führt
+                         der Navigator.
+
+                         ── Die Rangfolge, und warum nicht umgekehrt ──────────────────
+                         Die Rail ist ein INDEX — sie beantwortet „wo ist das Ding" und
+                         trägt Repos, Issues, Pull Requests, Projekte und Foren als
+                         Baum. Ein Index kann Zustand nicht zeigen. Die eine Frage, die
+                         die Bühne beantworten kann und die Rail nicht, ist „wie steht
+                         es?". Deshalb bekommt der Zustand die breite Spur, und der
+                         Strom bekommt die schmale — nicht aus Platznot, sondern weil
+                         seine Zeilen einzelne SÄTZE sind und bei 45–75 Zeichen bleiben
+                         müssen.
+
+                         ── Die Klassen stehen NUR im Web-Host ────────────────────────
+                         `forge-buehne` ist der benannte Container, an dem alle
+                         Schwellen in `theme.css` hängen. Ohne ihn feuert dort keine
+                         einzige `@container forge`-Regel — die App bleibt also
+                         einspaltig, auf JEDER Breite, ohne dass die Host-Bedingung ein
+                         zweites Mal ausgeschrieben werden müsste. Eine Bedingung, ein
+                         Ort.
+
+                         (`forge-werkbank` steht dagegen unbedingt: die Zeichenspalten
+                         der Repo-Zeile sind auch in einer breiten App richtig.) --}}
+                    {{-- ── ZWEI Elemente, und das ist keine Verschachtelung aus Bequemlichkeit ──
+                         Ein Element ist sein EIGENER Container und wird von der eigenen
+                         `@container`-Regel nicht getroffen — Container-Queries gelten für
+                         NACHFAHREN. Standen `forge-buehne` (Container) und `forge-raster`
+                         (Raster) am selben Knoten, blieb das Raster einspaltig, und zwar
+                         lautlos: `grid-template-columns` meldete `1504px` statt
+                         `1fr 30rem`, nichts wurde rot, die Bühne sah nur aus wie vorher.
+                         Gemessen am 2026-08-23, deshalb steht es hier. --}}
+                    <div @class(['forge-buehne' => ! $native])>
+                    <div @class(['forge-raster' => ! $native])>
 
                     {{-- Ladezustand: SERVER-gerendert per @for, NICHT x-if — der Inhalt
                          eines `x-if`-Templates existiert vor dem Alpine-Boot gar nicht
@@ -247,7 +310,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          beim Öffnen eines kalten `/forge?tab=workspaces` das
                          Forge-Skelett UND die Raumliste gleichzeitig da — ein Skelett
                          für Daten, auf die diese Fläche gar nicht wartet. --}}
-                    <div x-show="tab !== 'workspaces' && loading && isEmpty()" class="surface-card px-4">
+                    <div x-show="(zweispaltig || tab !== 'workspaces') && loading && isEmpty()" class="forge-voll surface-card px-4">
                         @for ($i = 0; $i < 4; $i++)
                             {{-- Formgleich zur fertigen Ref-Spur: gleicher Avatar-Ort,
                                  gleiche Zeilenhöhe. Ein Skelett, das anders gebaut ist
@@ -263,12 +326,189 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         @endfor
                     </div>
 
+                    {{-- ── Repositories ────────────────────────────────────────────── --}}
+                    <section x-show="(zweispaltig || tab === 'repos') && !(loading && isEmpty())" x-cloak
+                             id="forge-werkbank" class="forge-werkbank scroll-mt-6" data-forge-region="repos">
+                        {{-- Sichtbar nur in der zweispaltigen Form — in der Tab-Form sagt
+                             der Tab bereits, was man sieht. Für Screenreader steht sie in
+                             BEIDEN Formen im DOM (siehe `.forge-regionstitel`).
+                             `tabindex="-1"`: Ziel des `?tab=`-Sprungs, nicht des Tab-Laufs. --}}
+                        <h2 class="forge-regionstitel" tabindex="-1" data-forge-region-titel>{{ __('Repositories') }}</h2>
+                        {{-- ── Gerettet aus dem entfallenen Projekte-Tab (2026-08-23) ──────
+                             Diese Zeile war die EINZIGE Stelle im ganzen Paket, die eine
+                             Projekt-Koordinate ohne zugehöriges 30617 benennt. Der
+                             Rail-Baum verschluckt sie (`railForge.ts`: ein Projekt ohne
+                             eigene Repos wird übersprungen) — mit dem Tab wäre die Auskunft
+                             ersatzlos verschwunden, und niemand wüsste mehr, dass das Relay
+                             unvollständig ist.
+
+                             Sie steht jetzt hier, weil sie eine Aussage über den
+                             REPOSITORY-Bestand ist: „es gibt Repositories, die hierher
+                             gehören und die du nicht siehst". Über alle Projekte summiert
+                             statt je Projekt aufgeführt — die Projekte selbst haben auf
+                             dieser Fläche keinen Ort mehr, die Zahl schon.
+
+                             `overview.projects` bleibt geladen (die Rail liest es ab `xl`),
+                             die Summe kostet also keine zusätzliche Anfrage. --}}
+                        <template x-if="overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0) > 0">
+                            <flux:callout variant="secondary" icon="information-circle" class="forge-mass mb-3" data-forge-fehlende-projekt-repos>
+                                <flux:callout.text
+                                    x-text="$plural(overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0), '1 Repository eines Projekts liegt nicht auf diesem Relay.', ':count Repositories von Projekten liegen nicht auf diesem Relay.')"></flux:callout.text>
+                            </flux:callout>
+                        </template>
+
+                        <template x-if="overview.repos.length === 0">
+                            <div class="surface-card empty-state px-6 py-12 text-center" data-forge-empty="repos">
+                                <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
+                                    <flux:icon.code-bracket class="size-6 text-zinc-500 dark:text-zinc-400" />
+                                </span>
+                                <flux:heading class="mt-4">{{ __('Noch keine Repositories.') }}</flux:heading>
+                                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Repository ankündigt, erscheint es hier.') }}</flux:text>
+                            </div>
+                        </template>
+
+                        {{-- ── Die Werkbank: das Zustandsboard ────────────────────────
+                             Bis zu einer Werkbankbreite von 48 rem ist das dieselbe
+                             gestapelte Zeile wie auf dem Telefon; darüber wird sie zur
+                             ZEICHENSPALTEN-Zeile. Ein Markup, zwei Formen — die
+                             Umschaltung steht in `theme.css` unter
+                             `@container werkbank`, samt der Rechnung, warum 48 rem und
+                             nicht weniger.
+
+                             ── Die Signatur dieser Fläche ──────────────────────────────
+                             Die Spalten sind in `ch` deklariert, nicht in Pixeln, und
+                             das ist hier keine Spielerei: `--font-sans` ist Inconsolata,
+                             eine Zellenschrift (gemessen exakt 7,00 px je Glyphe bei
+                             14 px). `ch` IST damit die Zelle. Refs, Zähler und Namen
+                             stehen dadurch untereinander wie in einem `git status` über
+                             den ganzen Workspace — ohne `<table>`, ohne `tabular-nums`
+                             und ohne eine zweite Schriftfamilie (die es hier auch nicht
+                             geben darf: `--font-mono` ist nicht definiert, jedes
+                             `font-mono` zöge eine fremde Schrift ein).
+
+                             KEIN `subgrid`: die Spaltenbreiten sind feste Zeichenmaße,
+                             also fluchten unabhängige Zeilen ohnehin. `subgrid` legt bei
+                             abweichender Kinderzahl lautlos ein Kind auf ein anderes —
+                             ein Risiko ohne Gegenwert.
+
+                             ── Die Zahlen und ihre Wörter ──────────────────────────────
+                             Gestapelt steht „12 Issues" als ganzer Text da. In der
+                             Spaltenform trägt die Spaltenüberschrift das Wort, in der
+                             Zelle steht die nackte Ziffer — und das Wort bleibt als
+                             `sr-only` erhalten. Ein Screenreader liest also in BEIDEN
+                             Formen „12 Issues" und nie „12 3 4". Umgeschaltet wird das
+                             in CSS (`.forge-zahl` / `.forge-wort`), nicht im DOM: doppelt
+                             vorgehaltener Text wäre zwei Stellen für dieselbe Aussage. --}}
+                        <div x-show="overview.repos.length > 0" class="surface-card">
+                            {{-- Die Spaltenüberschriften. `aria-hidden`, weil jede Zelle
+                                 ihr Wort selbst mitbringt — sonst läse ein Screenreader
+                                 die Beschriftung zweimal. Sie sind Orientierung fürs
+                                 Auge, keine Tabellensemantik: das hier ist eine LISTE
+                                 von Links, keine Datentabelle, und `role="table"` würde
+                                 eine Navigation versprechen, die es nicht gibt. --}}
+                            <div class="forge-kopfzeile border-b border-zinc-200 px-4 py-2 dark:border-zinc-800" aria-hidden="true">
+                                {{-- Die erste Spur (Glyphe) und die Namensspur bleiben LEER:
+                                     der Regionstitel „Repositories" steht zwei Zeilen
+                                     höher, ein Spaltenkopf „REPOSITORY" darunter wäre
+                                     dasselbe Wort ein drittes Mal (Zustandszeile,
+                                     Regionstitel, Spaltenkopf). Beschriftet wird nur, was
+                                     ohne Beschriftung mehrdeutig ist — die Zahlen. --}}
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                                {{-- ── Die Schriftgröße gehört an die KINDER, nicht an das Raster ──
+                                     `ch` löst gegen die EIGENE Schriftgröße des Elements auf.
+                                     Stand `text-[0.7rem]` hier an `.forge-daten`, rechnete
+                                     dieselbe Spur `16ch` gegen 11,2 px statt gegen 14 px — die
+                                     Kopfzeile war schmaler als die Zellen darunter, und die
+                                     Spalten standen um 56 px versetzt. Am Bildschirm gesehen,
+                                     von keiner Zusage gefangen; deshalb bewacht
+                                     `desktop-forge.spec.ts` jetzt die Fluchtlinie. --}}
+                                <span class="forge-daten font-semibold uppercase tracking-wider text-muted">
+                                    {{-- „Branch" und nicht „Ref": die Zelle zeigt den HEAD des
+                                         Repositories, und das Haus übersetzt „Branches" seit je
+                                         in jede der sieben Sprachen (Ramas · Ramos · Gałęzie ·
+                                         Ágak · Zari). Ein untranslatiertes „Ref" wäre der
+                                         einzige Spaltenkopf, der nur Englischsprachige lesen. --}}
+                                    <span class="text-[0.7rem]">{{ __('Branch') }}</span>
+                                    <span class="forge-zelle-zahl text-[0.7rem]">{{ __('Issues') }}</span>
+                                    <span class="forge-zelle-zahl text-[0.7rem]">{{ __('PRs') }}</span>
+                                    <span class="forge-zelle-zahl text-[0.7rem]">{{ __('Maintainer') }}</span>
+                                </span>
+                            </div>
+
+                            <template x-for="repo in overview.repos" :key="repo.address">
+                                {{-- GANZE Zeile = ein Link (keine verschachtelten Links) —
+                                     dieselbe Regel wie `room-tile` und die Artikelkarte. --}}
+                                <a :href="repoHref(repo) || null" wire:navigate data-forge-repo :data-naddr="repo.naddr"
+                                   class="forge-zeile pressable group border-b border-zinc-200 p-4 transition-colors last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/60">
+                                    <span class="forge-glyphe flex size-9 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-300">
+                                        <flux:icon.code-bracket class="size-5" />
+                                    </span>
+                                    <div class="forge-text min-w-0">
+                                        <p class="text-base font-semibold leading-snug" x-text="repo.name"></p>
+                                        {{-- `forge-mass` deckelt bei 62 Zeichen. Ohne ihn
+                                             maß diese Zeile bei 1920 px 1422 px = 203
+                                             Zeichen; der Lesekanon endet bei 75. --}}
+                                        <p class="forge-mass mt-0.5 line-clamp-2 text-sm text-muted" x-text="repo.description"></p>
+                                    </div>
+                                    <span class="forge-rinne" aria-hidden="true"></span>
+                                    <span class="forge-daten text-xs text-muted">
+                                        {{-- Der Ref trägt als einziges Element hier die
+                                             Markenfarbe: er ist die Kennung des
+                                             Repositories, die Zählungen sind Beiwerk.
+                                             Gemessen brand-800 auf brand-500/10 = 5,92:1
+                                             hell, brand-300 auf zinc-900 = 9,56:1 dunkel —
+                                             das alte brand-700 lag bei 4,05:1 und riss
+                                             damit WCAG 1.4.3.
+
+                                             Die Zelle steht IMMER da, auch ohne 30618:
+                                             in einer Spaltenform ist eine fehlende Zelle
+                                             ein Loch, das die Spalten verschiebt. Ohne Ref
+                                             steht ein Gedankenstrich — und für den
+                                             Screenreader das ausgeschriebene „kein Ref
+                                             bekannt", denn ein „–" allein ist keine
+                                             Auskunft. --}}
+                                        <span class="min-w-0 truncate">
+                                            <template x-if="repo.state && repo.state.head">
+                                                <span class="inline-flex max-w-full items-center gap-1 truncate rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold text-brand-800 dark:text-brand-300">
+                                                    <flux:icon.code-bracket-square variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
+                                                    <span class="truncate" x-text="repo.state.head"></span>
+                                                </span>
+                                            </template>
+                                            <template x-if="!(repo.state && repo.state.head)">
+                                                <span>
+                                                    <span aria-hidden="true">&ndash;</span>
+                                                    <span class="sr-only">{{ __('Kein Branch-Zustand bekannt') }}</span>
+                                                </span>
+                                            </template>
+                                        </span>
+                                        <span class="forge-zelle-zahl">
+                                            <span class="forge-zahl font-semibold text-zinc-900 dark:text-zinc-100" aria-hidden="true" x-text="repo.issueCount"></span>
+                                            <span class="forge-wort" x-text="$plural(repo.issueCount, '1 Issue', ':count Issues')"></span>
+                                        </span>
+                                        <span class="forge-zelle-zahl">
+                                            <span class="forge-zahl font-semibold text-zinc-900 dark:text-zinc-100" aria-hidden="true" x-text="repo.pullRequestCount"></span>
+                                            <span class="forge-wort" x-text="$plural(repo.pullRequestCount, '1 Pull Request', ':count Pull Requests')"></span>
+                                        </span>
+                                        <span class="forge-zelle-zahl">
+                                            <span class="forge-zahl font-semibold text-zinc-900 dark:text-zinc-100" aria-hidden="true" x-text="repo.people.length"></span>
+                                            <span class="forge-wort" x-text="$plural(repo.people.length, '1 Maintainer', ':count Maintainer')"></span>
+                                        </span>
+                                    </span>
+                                </a>
+                            </template>
+                        </div>
+                    </section>
+
                     {{-- ── Aktivität ───────────────────────────────────────────────
                          Jede Zeile ist ein SATZ: wer, was, woran — und rechts das
                          Ergebnis (Commit-Kurzhash oder Statuswort). Das folgt Buzz'
                          eigener Leitlinie „Verb, Objekt, Ergebnis" und ist der Grund,
                          warum hier kein Kind und keine Event-Id steht. --}}
-                    <div x-show="tab === 'activity' && !(loading && isEmpty())" x-cloak>
+                    <section x-show="(zweispaltig || tab === 'activity') && !(loading && isEmpty())" x-cloak
+                             id="forge-spur" class="scroll-mt-6" data-forge-region="activity">
+                        <h2 class="forge-regionstitel" tabindex="-1" data-forge-region-titel>{{ __('Aktivität') }}</h2>
                         <template x-if="overview.activityGroups.length === 0">
                             <div class="surface-card empty-state px-6 py-12 text-center" data-forge-empty="activity">
                                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
@@ -303,8 +543,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              ── Die Tages-Trenner ──────────────────────────────────
                              Dieselbe Bucket-Sprache wie `/updates` (HEUTE · GESTERN ·
                              DIESE WOCHE · ÄLTER), leere Buckets liefert das Modell gar
-                             nicht erst aus, und der Titel ist ein echtes <h2> —
-                             Screenreader springen damit von Gruppe zu Gruppe. Kein
+                             nicht erst aus, und der Titel ist eine echte Überschrift —
+                             Screenreader springen damit von Gruppe zu Gruppe.
+
+                             Seit P4 ein <h3> und nicht mehr <h2>: die Spur hat jetzt
+                             selbst einen Regionstitel (<h2> „Aktivität", oben). Bliebe
+                             der Trenner ein <h2>, stünden Region und Gruppe auf
+                             derselben Ebene, und die Gliederung behauptete vier
+                             gleichrangige Abschnitte statt einer Region mit vier
+                             Gruppen. Kein
                              dekorativer Balken und keine zweite Ordnung: zwei
                              Zeitleisten im selben Produkt dürfen nicht zwei Sprachen
                              sprechen. Der Faden endet an jedem Trenner, weil jede
@@ -313,8 +560,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <div x-show="overview.activityGroups.length > 0" class="surface-card px-4 pb-2">
                             <template x-for="bucket in overview.activityGroups" :key="bucket.label">
                                 <section>
-                                    <h2 class="pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
-                                        x-text="bucket.label"></h2>
+                                    <h3 class="pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
+                                        x-text="bucket.label"></h3>
                                     <ol>
                                         <template x-for="row in bucket.items" :key="row.id">
                                             <li class="group relative flex gap-3 py-3"
@@ -382,9 +629,46 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             <span class="rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
                                                                   x-text="row.badge"></span>
                                                         </template>
+                                                        {{-- ── Der Zustand: DREI Träger, einer davon Farbe (P4) ──
+                                                             Bis P4 war jeder Status dieselbe graue Pille — „Offen",
+                                                             „Geschlossen" und „Zusammengeführt" sahen identisch aus,
+                                                             die Aussage steckte allein im Wort. Jetzt tragen sie
+                                                             Farbe UND Glyphe UND Wort.
+
+                                                             Die Farbe ist nie der alleinige Träger (WCAG 1.4.1): das
+                                                             Wort steht ausgeschrieben daneben, und die Glyphe
+                                                             unterscheidet die vier Zustände auch dann, wenn beide
+                                                             Farbwerte gleich aussehen (geschlossen und Entwurf teilen
+                                                             `--color-forge-ruhend`).
+
+                                                             Kein Grün/Rot: die Rolle greift die Hausrampe ab, siehe
+                                                             die Herleitung bei `--color-forge-offen` in `theme.css`.
+                                                             `row.status` ist der rohe Code aus `statusCodeOf()`
+                                                             (`forgeActivity.ts:93`), `row.statusLabel` das übersetzte
+                                                             Wort — die Fläche rät nichts. --}}
                                                         <template x-if="row.statusLabel">
-                                                            <span class="rounded-pill bg-zinc-100 px-1.5 py-0.5 font-medium dark:bg-zinc-800"
-                                                                  x-text="row.statusLabel"></span>
+                                                            <span class="inline-flex items-center gap-1 rounded-pill bg-zinc-100 px-1.5 py-0.5 font-medium dark:bg-zinc-800"
+                                                                  data-forge-status
+                                                                  :data-status="row.status"
+                                                                  :class="{
+                                                                      'text-forge-offen': row.status === 'open',
+                                                                      'text-forge-erledigt': row.status === 'applied' || row.status === 'merged' || row.status === 'resolved',
+                                                                      'text-forge-ruhend': row.status === 'closed' || row.status === 'draft',
+                                                                  }">
+                                                                <template x-if="row.status === 'open'">
+                                                                    <flux:icon.exclamation-circle variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
+                                                                </template>
+                                                                <template x-if="row.status === 'applied' || row.status === 'merged' || row.status === 'resolved'">
+                                                                    <flux:icon.check-circle variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
+                                                                </template>
+                                                                <template x-if="row.status === 'closed'">
+                                                                    <flux:icon.x-circle variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
+                                                                </template>
+                                                                <template x-if="row.status === 'draft'">
+                                                                    <flux:icon.pencil-square variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
+                                                                </template>
+                                                                <span x-text="row.statusLabel"></span>
+                                                            </span>
                                                         </template>
                                                     </p>
                                                     {{-- Zweite Zeile: IMMER `x-text`. Der Rumpf ist
@@ -401,81 +685,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </section>
                             </template>
                         </div>
-                    </div>
-
-                    {{-- ── Repositories ────────────────────────────────────────────── --}}
-                    <div x-show="tab === 'repos' && !(loading && isEmpty())" x-cloak>
-                        {{-- ── Gerettet aus dem entfallenen Projekte-Tab (2026-08-23) ──────
-                             Diese Zeile war die EINZIGE Stelle im ganzen Paket, die eine
-                             Projekt-Koordinate ohne zugehöriges 30617 benennt. Der
-                             Rail-Baum verschluckt sie (`railForge.ts`: ein Projekt ohne
-                             eigene Repos wird übersprungen) — mit dem Tab wäre die Auskunft
-                             ersatzlos verschwunden, und niemand wüsste mehr, dass das Relay
-                             unvollständig ist.
-
-                             Sie steht jetzt hier, weil sie eine Aussage über den
-                             REPOSITORY-Bestand ist: „es gibt Repositories, die hierher
-                             gehören und die du nicht siehst". Über alle Projekte summiert
-                             statt je Projekt aufgeführt — die Projekte selbst haben auf
-                             dieser Fläche keinen Ort mehr, die Zahl schon.
-
-                             `overview.projects` bleibt geladen (die Rail liest es ab `xl`),
-                             die Summe kostet also keine zusätzliche Anfrage. --}}
-                        <template x-if="overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0) > 0">
-                            <flux:callout variant="secondary" icon="information-circle" class="mb-3" data-forge-fehlende-projekt-repos>
-                                <flux:callout.text
-                                    x-text="$plural(overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0), '1 Repository eines Projekts liegt nicht auf diesem Relay.', ':count Repositories von Projekten liegen nicht auf diesem Relay.')"></flux:callout.text>
-                            </flux:callout>
-                        </template>
-
-                        <template x-if="overview.repos.length === 0">
-                            <div class="surface-card empty-state px-6 py-12 text-center" data-forge-empty="repos">
-                                <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
-                                    <flux:icon.code-bracket class="size-6 text-zinc-500 dark:text-zinc-400" />
-                                </span>
-                                <flux:heading class="mt-4">{{ __('Noch keine Repositories.') }}</flux:heading>
-                                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Repository ankündigt, erscheint es hier.') }}</flux:text>
-                            </div>
-                        </template>
-
-                        <div x-show="overview.repos.length > 0" class="surface-card">
-                            <template x-for="repo in overview.repos" :key="repo.address">
-                                {{-- GANZE Zeile = ein Link (keine verschachtelten Links) —
-                                     dieselbe Regel wie `room-tile` und die Artikelkarte. --}}
-                                <a :href="repoHref(repo) || null" wire:navigate data-forge-repo :data-naddr="repo.naddr"
-                                   class="pressable group flex items-start gap-3 border-b border-zinc-200 p-4 transition-colors last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/60">
-                                    <span class="flex size-9 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-300">
-                                        <flux:icon.code-bracket class="size-5" />
-                                    </span>
-                                    <div class="min-w-0 flex-1">
-                                        <p class="font-semibold" x-text="repo.name"></p>
-                                        <p class="mt-0.5 line-clamp-2 text-sm text-muted" x-text="repo.description"></p>
-                                        {{-- Der aktuelle Ref steht VOR den Zählungen und trägt
-                                             als einziges Element hier die Markenfarbe: er ist
-                                             die Kennung des Repositories, die Zählungen sind
-                                             Beiwerk. Gemessen brand-800 auf brand-500/10 =
-                                             5,92:1 hell, brand-300 auf zinc-900 = 9,56:1
-                                             dunkel — das alte brand-700 lag bei 4,05:1 und
-                                             riss damit WCAG 1.4.3. --}}
-                                        <p class="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted">
-                                            <template x-if="repo.state && repo.state.head">
-                                                <span class="inline-flex items-center gap-1 rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold text-brand-800 dark:text-brand-300">
-                                                    <flux:icon.code-bracket-square variant="micro" class="size-3.5" />
-                                                    <span x-text="repo.state.head"></span>
-                                                </span>
-                                            </template>
-                                            <span x-text="$plural(repo.issueCount, '1 Issue', ':count Issues')"></span>
-                                            <span aria-hidden="true">·</span>
-                                            <span x-text="$plural(repo.pullRequestCount, '1 Pull Request', ':count Pull Requests')"></span>
-                                            <span aria-hidden="true">·</span>
-                                            <span x-text="$plural(repo.people.length, '1 Maintainer', ':count Maintainer')"></span>
-                                        </p>
-                                    </div>
-                                    <flux:icon.chevron-right class="mt-1 size-4 shrink-0 text-zinc-500 transition-transform group-hover:translate-x-0.5 dark:text-zinc-400" />
-                                </a>
-                            </template>
-                        </div>
-                    </div>
+                    </section>
 
                     {{-- ── Workspaces: die Kanäle des Workspace-Relays (P5) ────────────
                          Wortgleich aus `⚡spaces.blade.php` hierher gezogen; geändert
@@ -494,7 +704,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          kein `flux:tab.panel` (diese Bar fährt ohne `flux:tab.group`, siehe
                          die Begründung an der Bar). Er trägt deshalb keine `tabpanel`-Rolle,
                          über die ein Test ihn fassen könnte — der Anker steht hier. --}}
-                    <div x-show="tab === 'workspaces'" x-cloak x-data="nostrWorkspaceRooms" data-forge-workspaces>
+                    {{-- Ab `xl` im Web-Host entfällt dieser Panel: die Kanäle stehen im
+                         Foren-Zweig des Navigators (`desktop-rail.blade.php:162`,
+                         `rail-forge-row.blade.php`, `node.kind === 'forum'`). Zwei Listen
+                         derselben Kanäle im selben Bild wären zwei Orte, an denen sie
+                         auseinanderlaufen können.
+
+                         `x-show` und nicht `x-if` bleibt: die Begründung unten (zwei Abos,
+                         die ein `x-if` bei jedem Tab-Wechsel neu aufbaut) gilt unverändert.
+                         `zweispaltig` wechselt nur beim Überschreiten der xl-Schwelle, also
+                         genau dann nicht. --}}
+                    <section x-show="!zweispaltig && tab === 'workspaces'" x-cloak x-data="nostrWorkspaceRooms" data-forge-workspaces>
                         <div class="rounded-card border border-zinc-200 p-1 dark:border-zinc-800">
                             {{-- Kopfzeile: Name des Workspace-Relays aus dem NIP-11-Doc. --}}
                             <div class="flex items-baseline justify-between px-2 py-1.5">
@@ -572,6 +792,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </template>
                         </div>
+                    </section>
+                    </div>
                     </div>
                 </div>
             </div>

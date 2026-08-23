@@ -968,5 +968,8 @@
     "Kanäle": "Kanały",
     "1 Repository eines Projekts liegt nicht auf diesem Relay.": "1 repozytorium pewnego projektu nie znajduje się na tym przekaźniku.",
     ":count Repositories von Projekten liegen nicht auf diesem Relay.": ":count repozytoriów projektów nie znajduje się na tym przekaźniku.",
-    ":count Repositories von Projekten liegen nicht auf diesem Relay.#few": ":count repozytoria projektów nie znajdują się na tym przekaźniku."
+    ":count Repositories von Projekten liegen nicht auf diesem Relay.#few": ":count repozytoria projektów nie znajdują się na tym przekaźniku.",
+    "Branch": "Gałąź",
+    "PRs": "PRs",
+    "Kein Branch-Zustand bekannt": "Stan gałęzi nieznany"
 }

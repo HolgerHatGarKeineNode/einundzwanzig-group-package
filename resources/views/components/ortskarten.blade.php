@@ -187,12 +187,17 @@
     ] : null,
 ])))
 
+{{-- `$attributes->class(...)` statt `@class(...)`: seit P4 gibt es einen Aufrufer,
+     der die Leiste ab `xl` ausblendet (`⚡forge.blade.php` — dort steht die
+     Begründung samt Messwerten). Die Bedingung gehört an den Aufrufer, nicht
+     hierher: `/articles` und `/spaces` binden dieselbe Komponente ein und
+     behalten die Leiste. Ohne Attribut verhält sich die Komponente unverändert. --}}
 <nav x-data="nostrOrtskarten" aria-label="{{ __('Bereiche') }}"
-     @class([
+     {{ $attributes->class([
          'mb-4 grid gap-2',
          'grid-cols-3' => $hatForge,
          'grid-cols-2' => ! $hatForge,
-     ])>
+     ]) }}>
     @foreach ($orte as $ort)
         @php($aktiv = request()->routeIs(...$ort['match']))
         <a href="{{ route($ort['route']) }}" wire:navigate
