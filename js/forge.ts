@@ -2103,14 +2103,38 @@ export function wireForge(Alpine: {
                     return
                 }
                 const namen = ergebnis.names.join(', ')
+                // ── Warum jede dieser Zeilen mit dem AUSGANG beginnt ──────────
+                //
+                // Die Frage des Nutzers in diesem Moment ist eine einzige:
+                // „antwortet da jetzt jemand?". Bis 2026-08-23 stand die Antwort
+                // in drei von vier Nullfällen hinter einem Gedankenstrich am
+                // Satzende — davor die Begründung, die er erst braucht, wenn er
+                // die Antwort schon kennt. Jetzt trägt jede Meldung sie in den
+                // ersten beiden Wörtern („Geweckt:" / „Niemand geweckt:"), und
+                // der Grund folgt.
+                //
+                // Und sie tun es mit EINEM Verb. Vorher hießen derselbe Vorgang
+                // „Weckmeldung", „benachrichtigt", „Benachrichtigung", „ging
+                // nicht raus" und „reagiert niemand auf dich" — fünf Wörter für
+                // eine Sache, während die Fläche daneben „Agent" und „antwortet
+                // auf Erwähnung" sagt. Ein Nutzer, der eine Oberfläche lernt,
+                // lernt ihre Wörter; wechseln sie, lernt er nichts.
+                //
+                // `:namen` kommt aus `agentLabels` und ist bereits „Name (npub…)".
+                // Die alten Fassungen setzten das noch einmal in Klammern —
+                // „(ceo (npub1abc…wxyz))" — und die doppelte Klammer las sich wie
+                // ein Tippfehler. Der Name steht jetzt im Satz.
                 const hinweis =
                     ergebnis.code === 'sent'
-                        ? { tone: 'ok' as const, text: t('Weckmeldung im Projektkanal veröffentlicht für :namen', { namen }) }
+                        ? {
+                              tone: 'ok' as const,
+                              text: t('Geweckt: :namen. Die Antwort erscheint im Projektkanal.', { namen }),
+                          }
                         : ergebnis.code === 'channel-foreign'
                           ? {
                                 tone: 'warn' as const,
                                 text: t(
-                                    'Dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört — es wurde niemand benachrichtigt (:namen).',
+                                    'Niemand geweckt: dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört. :namen erfährt nichts von deinem Beitrag.',
                                     { namen },
                                 ),
                             }
@@ -2118,23 +2142,24 @@ export function wireForge(Alpine: {
                           ? {
                                 tone: 'warn' as const,
                                 text: t(
-                                    'Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).',
+                                    'Niemand geweckt: dieses Repository gehört zu keinem Kanal. :namen erfährt nichts von deinem Beitrag.',
                                     { namen },
                                 ),
                             }
                           : ergebnis.code === 'not-wakeable'
                             ? {
                                   tone: 'warn' as const,
-                                  text: t('Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).', {
-                                      namen,
-                                  }),
+                                  text: t(
+                                      'Niemand geweckt: :namen antwortet in diesem Kanal nicht auf dich. Dein Beitrag steht trotzdem.',
+                                      { namen },
+                                  ),
                               }
                             : {
                                   tone: 'warn' as const,
-                                  text: t('Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler', {
-                                      namen,
-                                      fehler: ergebnis.error,
-                                  }),
+                                  text: t(
+                                      'Niemand geweckt: die Meldung an :namen ging nicht raus — :fehler. Dein Beitrag steht trotzdem.',
+                                      { namen, fehler: ergebnis.error },
+                                  ),
                               }
                 this.wakeNotice = { ...this.wakeNotice, [target]: hinweis }
             },

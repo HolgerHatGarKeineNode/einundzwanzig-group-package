@@ -11,6 +11,25 @@
     $sendDisabled = $isThread
         ? "{$draft}.trim().length === 0 && !{$attachment}"
         : "sending || ({$draft}.trim().length === 0 && !sharing && !{$attachment})";
+
+    // Welcher Composer die @-Vorschläge gerade füttert (`onComposerInput` merkt es
+    // sich in `_mentionTarget`). Siehe die Begründung am Popover weiter unten.
+    //
+    // Ausgegeben wird der Ausdruck mit `{!! !!}`, nicht mit `{{ }}`: er enthält
+    // `&&` und Apostrophe, die `{{ }}` zu `&amp;&amp;` bzw. `&#039;` escapte.
+    // Im Browser fällt das nicht auf — der HTML-Parser dreht die Entities beim
+    // Lesen des Attributs zurück, Alpine sieht wieder `&&`. Auffallen tut es
+    // dem, der die Quelle liest, und dem Quelltext-Test in `ChatStatesTest`,
+    // der genau diese Bedingung festhält. Eine Escape-Sequenz, die nur an
+    // manchen Stellen sichtbar ist, ist der Anfang einer Suche nach dem
+    // falschen Fehler.
+    $mentionTarget = $isThread ? 'thread' : 'main';
+    $mentionMine = "mentionOpen && _mentionTarget === '{$mentionTarget}'";
+    // Ein Vorschlag in Worten — EINE Fassung für Zeilen-Label und Ansage.
+    $beschreibung = fn (string $e): string => "[{$e}.name, {$e}.isAgent ? "
+        . \Illuminate\Support\Js::from(__('Agent'))
+        . " : null, {$e}.hint || null].filter(Boolean).join(', ')";
+    $ausgewaehlt = 'mentionItems[mentionIndex]';
 @endphp
 
 {{-- Anhang-Vorschau: zugeschnittenes Bild wartet auf Senden.
@@ -43,25 +62,78 @@
 <div class="relative flex items-end gap-2">
     {{-- @-Mention-Autocomplete (C4, geteilt): Pfeile wählen, Enter/Tab übernimmt, Escape schließt.
          pickMention splict in den richtigen Draft (onComposerInput merkt sich den Kontext). --}}
-    <template x-if="mentionOpen">
+    {{-- **Die Ansage, weil die kanonische Form hier verschlossen ist.**
+
+         Das Muster für eine Vorschlagsliste an einem Eingabefeld ist die
+         APG-Editable-Combobox: `role="combobox"` am Feld, `aria-expanded`,
+         `aria-activedescendant`. Der Composer ist aber eine `<textarea>`, und für
+         die gilt laut „ARIA in HTML" (W3C, geprüft 2026-08-23): „No `role` other
+         than `textbox`". Ein `role="combobox"` wäre dort nicht konform, und
+         `aria-expanded` hängt an genau dieser Rolle.
+
+         Bleibt die höfliche Live-Region: sie sagt beim Öffnen und bei jedem Pfeil,
+         WAS ausgewählt ist und an welcher Stelle. Sie steht AUSSERHALB des `x-if`
+         und ist damit schon da, bevor Text hineinkommt — eine Live-Region, die
+         gemeinsam mit ihrem Inhalt entsteht, wird von mehreren Screenreadern
+         verschluckt. --}}
+    <div class="sr-only" role="status" aria-live="polite" data-mention-ansage="{{ $context }}"
+         x-text="{!! $mentionMine !!} && {!! $ausgewaehlt !!}
+             ? {!! \Illuminate\Support\Js::from(__('Vorschlag :position von :anzahl: :eintrag')) !!}
+                 .replace(':position', mentionIndex + 1)
+                 .replace(':anzahl', mentionItems.length)
+                 .replace(':eintrag', () => {!! $beschreibung($ausgewaehlt) !!})
+             : ''"></div>
+
+    <template x-if="{!! $mentionMine !!}">
         {{-- `data-mention-popover` grenzt die Vorschläge im DOM ab. Ohne den Haken
              träfe ein `getByText('…')` im Negativbeweis auch die Mitgliederliste der
              Seite, und „im Popover steht kein Agent" wäre nicht von „auf der Seite
              steht der Name nirgends" zu unterscheiden.
 
-             Der WERT ist der Kontext, nicht bloß ein Marker: `mentionOpen` ist EIN
-             Zustand für beide Composer, also stehen bei offenem Popover immer ZWEI
-             solche Blöcke im DOM (einer davon im ausgeblendeten Thread-Panel). Beim
-             Bau dieser Spec traf `.first()` genau den unsichtbaren — der Test meldete
-             „hidden" und sah aus wie ein Produktfehler. Eine DOM-Reihenfolge ist kein
-             Vertrag; dieser Wert ist einer. --}}
-        <div data-mention-popover="{{ $context }}" class="surface-card absolute bottom-full left-0 z-30 mb-1 max-h-56 w-full max-w-xs overflow-y-auto rounded-card p-1 shadow-xl"
+             Der WERT ist der Kontext, nicht bloß ein Marker — und die Bedingung
+             oben trägt denselben Kontext ein zweites Mal. Grund: `mentionOpen` ist
+             EIN Zustand für beide Composer; bis 2026-08-23 stand bei offenem
+             Popover deshalb IMMER ein zweiter, identischer Block im DOM (der des
+             anderen Composers). Beim Bau der Spec traf `.first()` genau den
+             unsichtbaren — der Test meldete „hidden" und sah aus wie ein
+             Produktfehler. Solange die Liste nur `div` war, war das ein reines
+             Test-Ärgernis. Mit `role="listbox"` wird daraus ein zweites,
+             wortgleiches Listenfeld im Barrierefreiheitsbaum, sobald das
+             Thread-Panel offen ist. `_mentionTarget` weiß, welcher Composer
+             gerade tippt (`onComposerInput` setzt es); nur der zeigt seine Liste. --}}
+        <div data-mention-popover="{{ $context }}" role="listbox" aria-label="{{ __('Vorschläge für die Erwähnung') }}"
+             class="surface-card absolute bottom-full left-0 z-30 mb-1 max-h-56 w-full max-w-xs overflow-y-auto rounded-card p-1 shadow-xl"
              x-on:click.stop>
             <template x-for="(item, i) in mentionItems" :key="item.pubkey">
                 {{-- `data-agent` ist der Haken für die Tests: ein Agentenvorschlag darf
                      auf einem zooid-Space GAR NICHT entstehen, und „gar nicht" ist nur
-                     prüfbar, wenn die Zeile im Ja-Fall ein eigenes Merkmal trägt. --}}
+                     prüfbar, wenn die Zeile im Ja-Fall ein eigenes Merkmal trägt.
+
+                     `x-effect` + `scrollIntoView`: die Liste ist auf `max-h-56`
+                     gedeckelt (224 px), eine Zeile ist 48 px hoch — sichtbar sind
+                     gut vier von bis zu dreizehn Einträgen (5 Agenten + 8 Menschen,
+                     getrennte Deckel). Ohne diese Zeile blieb `scrollTop` beim
+                     Blättern auf 0: ab dem fünften Pfeildruck wanderte die Auswahl
+                     aus dem Fenster und der Nutzer blätterte blind (gemessen
+                     2026-08-23: ab Index 4 außerhalb, scrollHeight 595 zu
+                     clientHeight 224). `block: 'nearest'` scrollt nur, wenn nötig,
+                     und zieht keine Vorfahren mit. --}}
                 <button type="button" x-on:click="pickMention(item)" x-on:mouseenter="mentionIndex = i"
+                        {{-- `tabindex="-1"`: eine Option ist kein eigener Tabstopp. Die
+                         Tastaturbedienung dieser Liste läuft über ↑/↓/Enter am
+                         Composer (durchgespielt 2026-08-23, funktioniert in beiden
+                         Flächen) — Tab wird dort abgefangen und übernimmt den
+                         Vorschlag, man kann also gar nicht vorwärts hineintabben.
+                         Rückwärts ging es aber sehr wohl: das Popover steht im DOM
+                         VOR dem Feld, Shift+Tab landete mitten in der Liste, und
+                         dort tun die Pfeiltasten nichts mehr (der Handler hängt am
+                         Feld). Sieben transiente Tabstopps, die anders funktionieren
+                         als die Liste, aus der sie stammen. Kein Verlust an
+                         Bedienbarkeit: derselbe Vorschlag bleibt über die Pfeile
+                         erreichbar, und Klicken/Tippen ist unberührt. --}}
+                        role="option" tabindex="-1" :aria-selected="mentionIndex === i ? 'true' : 'false'"
+                        :aria-label="{!! $beschreibung('item') !!}"
+                        x-effect="mentionIndex === i && $el.scrollIntoView({ block: 'nearest' })"
                         class="pressable flex w-full items-center gap-2 rounded-tile px-2 py-1.5 text-left"
                         :data-agent="item.isAgent ? 'true' : null"
                         :class="mentionIndex === i ? 'bg-brand-500/15' : ''">
@@ -71,15 +143,31 @@
                         {{-- Der Schlüssel gehört zum Agentenvorschlag wie der Name:
                              ein 10100 ist selbstsigniert, zwei Einträge dürfen „ceo"
                              heißen, und welcher der gemeinte Prozess ist, sagt allein
-                             der Schlüssel. Begründung an `MentionItemLike.hint`. --}}
+                             der Schlüssel. Begründung an `MentionItemLike.hint`.
+
+                             `text-xs` (12 px) statt `text-[10px]`: 10 px steht auf
+                             keiner Stufe der Haus-Typoskala, und der Schlüssel ist
+                             hier nicht Beiwerk, sondern das einzige Merkmal, an dem
+                             zwei gleichnamige Einträge auseinandergehen. 12 px zeigt
+                             dieses Haus einen npub ohnehin schon
+                             (`login-form.blade.php:33`). --}}
                         <template x-if="item.hint">
-                            <span class="block truncate font-mono text-[10px] text-muted" x-text="item.hint"></span>
+                            <span class="block truncate font-mono text-xs text-muted" x-text="item.hint"></span>
                         </template>
                     </span>
                     {{-- Erkennbar als Maschine: der Vorschlag verhält sich beim Senden wie
-                         jeder andere, aber am anderen Ende antwortet ein Prozess. --}}
+                         jeder andere, aber am anderen Ende antwortet ein Prozess.
+
+                         `text-brand-800` statt `text-brand-600`: gemessen am
+                         gerenderten Chip stand brand-600 auf der getönten Fläche bei
+                         **2,36:1** (markierte Zeile) bzw. 2,63:1 (unmarkiert) — WCAG
+                         1.4.3 verlangt 4,5:1. Die beiden `brand-500/15`-Schichten
+                         (Zeilenmarkierung UND Chipfläche) addieren sich unter dem
+                         Text; brand-800 hält 5,12:1 bzw. 5,72:1. Der Dunkelzweig war
+                         nie betroffen (6,61:1). --}}
                     <template x-if="item.isAgent">
-                        <span class="shrink-0 rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-brand-600 dark:text-brand-300"
+                        <span aria-hidden="true"
+                              class="shrink-0 rounded-full bg-brand-500/15 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-800 dark:text-brand-300"
                               title="{{ __('Headless Agent — antwortet auf Erwähnung') }}">{{ __('Agent') }}</span>
                     </template>
                 </button>

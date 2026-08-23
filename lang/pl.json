@@ -961,14 +961,16 @@
     "Vom Relay abgelehnt: :grund": "Odrzucone przez przekaźnik: :grund",
     "Zum Kommentieren musst du angemeldet sein.": "Aby komentować, musisz się zalogować.",
     "Zum Reagieren musst du angemeldet sein.": "Aby zareagować, musisz się zalogować.",
-    "Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).": "To repozytorium nie należy do żadnego kanału — nikogo nie powiadomiono (:namen).",
-    "Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).": "Tutaj nikt ci nie odpowiada — nie wysłano powiadomienia (:namen).",
-    "Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler": "Twój wpis jest opublikowany. Powiadomienie do :namen nie wyszło: :fehler",
     "Optional. Markdown wird gerendert. @ erwähnt jemanden.": "Opcjonalnie. Markdown jest renderowany. @ oznacza kogoś.",
     "Antwort schreiben … @ erwähnt jemanden.": "Napisz odpowiedź … @ oznacza kogoś.",
-    "Weckmeldung im Projektkanal veröffentlicht für :namen": "Powiadomienie opublikowane na kanale projektu dla :namen",
-    "Dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört — es wurde niemand benachrichtigt (:namen).": "To repozytorium wskazuje kanał, który nie należy do twoich pokoi — nikogo nie powiadomiono (:namen).",
     "Neues Issue in :repo": "Nowe zgłoszenie w :repo",
     "Neuer Kommentar an einem Issue in :repo": "Nowy komentarz do zgłoszenia w :repo",
-    "Neuer Kommentar an einem Pull Request in :repo": "Nowy komentarz do pull requesta w :repo"
+    "Neuer Kommentar an einem Pull Request in :repo": "Nowy komentarz do pull requesta w :repo",
+    "Geweckt: :namen. Die Antwort erscheint im Projektkanal.": "Obudzono: :namen. Odpowiedź pojawi się na kanale projektu.",
+    "Niemand geweckt: dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört. :namen erfährt nichts von deinem Beitrag.": "Nikogo nie obudzono: to repozytorium wskazuje kanał, który nie należy do twoich pokoi. :namen nie dowie się o twoim wpisie.",
+    "Niemand geweckt: dieses Repository gehört zu keinem Kanal. :namen erfährt nichts von deinem Beitrag.": "Nikogo nie obudzono: to repozytorium nie należy do żadnego kanału. :namen nie dowie się o twoim wpisie.",
+    "Niemand geweckt: :namen antwortet in diesem Kanal nicht auf dich. Dein Beitrag steht trotzdem.": "Nikogo nie obudzono: :namen nie odpowiada ci na tym kanale. Twój wpis i tak został opublikowany.",
+    "Niemand geweckt: die Meldung an :namen ging nicht raus — :fehler. Dein Beitrag steht trotzdem.": "Nikogo nie obudzono: wiadomość do :namen nie wyszła — :fehler. Twój wpis i tak został opublikowany.",
+    "Vorschlag :position von :anzahl: :eintrag": "Podpowiedź :position z :anzahl: :eintrag",
+    "Vorschläge für die Erwähnung": "Podpowiedzi wzmianek"
 }

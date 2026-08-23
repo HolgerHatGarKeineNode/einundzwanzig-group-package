@@ -933,14 +933,16 @@
     "Vom Relay abgelehnt: :grund": "Geweigerd door de relay: :grund",
     "Zum Kommentieren musst du angemeldet sein.": "Je moet ingelogd zijn om te reageren.",
     "Zum Reagieren musst du angemeldet sein.": "Je moet ingelogd zijn om een reactie te geven.",
-    "Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).": "Deze repository hoort bij geen enkel kanaal — niemand is gemeld (:namen).",
-    "Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).": "Hier reageert niemand op jou — er is geen melding verstuurd (:namen).",
-    "Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler": "Je bijdrage staat er. De melding aan :namen is niet verstuurd: :fehler",
     "Optional. Markdown wird gerendert. @ erwähnt jemanden.": "Optioneel. Markdown wordt gerenderd. @ vermeldt iemand.",
     "Antwort schreiben … @ erwähnt jemanden.": "Antwoord schrijven … @ vermeldt iemand.",
-    "Weckmeldung im Projektkanal veröffentlicht für :namen": "Wekbericht gepubliceerd in het projectkanaal voor :namen",
-    "Dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört — es wurde niemand benachrichtigt (:namen).": "Deze repository verwijst naar een kanaal dat niet bij jouw ruimtes hoort — niemand is gemeld (:namen).",
     "Neues Issue in :repo": "Nieuw issue in :repo",
     "Neuer Kommentar an einem Issue in :repo": "Nieuwe reactie op een issue in :repo",
-    "Neuer Kommentar an einem Pull Request in :repo": "Nieuwe reactie op een pull request in :repo"
+    "Neuer Kommentar an einem Pull Request in :repo": "Nieuwe reactie op een pull request in :repo",
+    "Geweckt: :namen. Die Antwort erscheint im Projektkanal.": "Gewekt: :namen. Het antwoord verschijnt in het projectkanaal.",
+    "Niemand geweckt: dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört. :namen erfährt nichts von deinem Beitrag.": "Niemand gewekt: deze repository verwijst naar een kanaal dat niet bij jouw ruimtes hoort. :namen hoort niets over je bijdrage.",
+    "Niemand geweckt: dieses Repository gehört zu keinem Kanal. :namen erfährt nichts von deinem Beitrag.": "Niemand gewekt: deze repository hoort bij geen enkel kanaal. :namen hoort niets over je bijdrage.",
+    "Niemand geweckt: :namen antwortet in diesem Kanal nicht auf dich. Dein Beitrag steht trotzdem.": "Niemand gewekt: :namen reageert in dit kanaal niet op jou. Je bijdrage staat er toch.",
+    "Niemand geweckt: die Meldung an :namen ging nicht raus — :fehler. Dein Beitrag steht trotzdem.": "Niemand gewekt: het bericht aan :namen is niet verstuurd — :fehler. Je bijdrage staat er toch.",
+    "Vorschlag :position von :anzahl: :eintrag": "Suggestie :position van :anzahl: :eintrag",
+    "Vorschläge für die Erwähnung": "Vermeldingssuggesties"
 }

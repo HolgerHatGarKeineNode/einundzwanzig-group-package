@@ -933,14 +933,16 @@
     "Vom Relay abgelehnt: :grund": "Rechazado por el relé: :grund",
     "Zum Kommentieren musst du angemeldet sein.": "Debes iniciar sesión para comentar.",
     "Zum Reagieren musst du angemeldet sein.": "Debes iniciar sesión para reaccionar.",
-    "Dieses Repository gehört zu keinem Kanal — niemand wurde benachrichtigt (:namen).": "Este repositorio no pertenece a ningún canal: no se notificó a nadie (:namen).",
-    "Hier reagiert niemand auf dich — es ging keine Benachrichtigung raus (:namen).": "Aquí nadie te responde: no se envió ninguna notificación (:namen).",
-    "Dein Beitrag steht. Die Benachrichtigung an :namen ging nicht raus: :fehler": "Tu aportación está publicada. La notificación a :namen no salió: :fehler",
     "Optional. Markdown wird gerendert. @ erwähnt jemanden.": "Opcional. Se renderiza Markdown. @ menciona a alguien.",
     "Antwort schreiben … @ erwähnt jemanden.": "Escribe una respuesta … @ menciona a alguien.",
-    "Weckmeldung im Projektkanal veröffentlicht für :namen": "Mensaje de aviso publicado en el canal del proyecto para :namen",
-    "Dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört — es wurde niemand benachrichtigt (:namen).": "Este repositorio apunta a un canal que no es una de tus salas: no se notificó a nadie (:namen).",
     "Neues Issue in :repo": "Nueva incidencia en :repo",
     "Neuer Kommentar an einem Issue in :repo": "Nuevo comentario en una incidencia de :repo",
-    "Neuer Kommentar an einem Pull Request in :repo": "Nuevo comentario en un pull request de :repo"
+    "Neuer Kommentar an einem Pull Request in :repo": "Nuevo comentario en un pull request de :repo",
+    "Geweckt: :namen. Die Antwort erscheint im Projektkanal.": "Despertado: :namen. La respuesta aparecerá en el canal del proyecto.",
+    "Niemand geweckt: dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört. :namen erfährt nichts von deinem Beitrag.": "No se despertó a nadie: este repositorio apunta a un canal que no está entre tus salas. :namen no sabrá nada de tu publicación.",
+    "Niemand geweckt: dieses Repository gehört zu keinem Kanal. :namen erfährt nichts von deinem Beitrag.": "No se despertó a nadie: este repositorio no pertenece a ningún canal. :namen no sabrá nada de tu publicación.",
+    "Niemand geweckt: :namen antwortet in diesem Kanal nicht auf dich. Dein Beitrag steht trotzdem.": "No se despertó a nadie: :namen no te responde en este canal. Tu publicación se ha guardado igualmente.",
+    "Niemand geweckt: die Meldung an :namen ging nicht raus — :fehler. Dein Beitrag steht trotzdem.": "No se despertó a nadie: el mensaje para :namen no salió — :fehler. Tu publicación se ha guardado igualmente.",
+    "Vorschlag :position von :anzahl: :eintrag": "Sugerencia :position de :anzahl: :eintrag",
+    "Vorschläge für die Erwähnung": "Sugerencias de mención"
 }
