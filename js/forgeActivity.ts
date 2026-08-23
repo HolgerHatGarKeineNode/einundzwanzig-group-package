@@ -32,6 +32,7 @@ import {
     DELETION,
     FORGE_COMMENT,
     GIT_ISSUE,
+    GIT_PATCH,
     GIT_PR_UPDATE,
     GIT_PULL_REQUEST,
     GIT_STATUS_APPLIED,
@@ -48,6 +49,7 @@ import {
     type ForgeEvent,
     type Repo,
 } from './forgeModels.ts'
+import { patchSubject } from './forgeDiff.ts'
 
 /**
  * Die Satzarten der Zeitleiste. Jede entspricht genau einer Formulierung in der
@@ -59,6 +61,8 @@ export type ActivityType =
     | 'push'
     | 'issue-opened'
     | 'issue-status'
+    | 'patch-opened'
+    | 'patch-status'
     | 'pr-opened'
     | 'pr-updated'
     | 'pr-status'
@@ -89,6 +93,16 @@ const SHORT_HASH = 7
 
 const shortCommit = (commit: string): string =>
     /^[0-9a-f]{7,64}$/i.test(commit) ? commit.slice(0, SHORT_HASH) : ''
+
+/**
+ * Der Titel eines 1617 fuer die Zeitleiste.
+ *
+ * Ein `subject`-Tag setzt kein bekannter Client an einem Patch — gilt aber,
+ * wenn eines da ist. Sonst der `Subject:`-Header aus dem Patch-Text, der
+ * RFC-5322-gefaltet sein darf (`forgeDiff.ts`).
+ */
+const patchTitle = (event: ForgeEvent): string =>
+    tagValue(event, 'subject') || patchSubject(event.content)
 
 const statusCodeOf = (kind: number): string => {
     switch (kind) {
@@ -159,7 +173,7 @@ const pushItems = (stateEvents: ForgeEvent[], repo: Repo): ActivityItem[] => {
 export type ActivityInput = {
     /** Die sichtbaren Repos — sie liefern Namen und begrenzen den Bestand. */
     repos: Repo[]
-    /** Rohe Ereignisse: 30617, 30618, 1621, 1618, 1619, 1630–1633, 1. */
+    /** Rohe Ereignisse: 30617, 30618, 1621, 1617, 1618, 1619, 1630–1633, 1. */
     events: ForgeEvent[]
 }
 
@@ -176,7 +190,7 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
     const byAddress = new Map(repos.map((repo) => [repo.address, repo]))
     const roots = new Map<string, ForgeEvent>()
     for (const event of events) {
-        if (event.kind === GIT_ISSUE || event.kind === GIT_PULL_REQUEST) {
+        if (event.kind === GIT_ISSUE || event.kind === GIT_PULL_REQUEST || event.kind === GIT_PATCH) {
             roots.set(event.id, event)
         }
     }
@@ -206,20 +220,32 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
             continue
         }
 
-        if (event.kind === GIT_ISSUE || event.kind === GIT_PULL_REQUEST) {
+        if (event.kind === GIT_ISSUE || event.kind === GIT_PULL_REQUEST || event.kind === GIT_PATCH) {
             if (!byAddress.has(repoAddress)) {
                 continue
             }
+            const istPatch = event.kind === GIT_PATCH
             items.push({
                 id: `root:${event.id}`,
-                type: event.kind === GIT_ISSUE ? 'issue-opened' : 'pr-opened',
+                type: istPatch ? 'patch-opened' : event.kind === GIT_ISSUE ? 'issue-opened' : 'pr-opened',
                 createdAt: event.created_at,
                 actor: event.pubkey.toLowerCase(),
                 repoAddress,
                 repoName: nameOf(repoAddress),
-                object: rootTitle(event),
-                body: event.content,
-                badge: event.kind === GIT_PULL_REQUEST ? shortCommit(tagValue(event, 'c')) : '',
+                // Ein 1617 trägt kein `subject`-Tag; sein Titel steht im
+                // `Subject:`-Header des Patch-Textes. `rootTitle` fiele sonst
+                // auf die erste Inhaltszeile zurück — und die lautet bei jedem
+                // `git format-patch` „From <sha> Mon Sep 17 00:00:00 2001".
+                object: istPatch ? patchTitle(event) : rootTitle(event),
+                // Der ROHE Patchtext gehört nicht in die Zeitleiste: `body` ist
+                // die zweite Zeile einer Aktivitätszeile, und ein Diff darin
+                // wäre unlesbarer Zeichensalat. Statt dessen die Kennzahlen.
+                body: istPatch ? '' : event.content,
+                badge: istPatch
+                    ? shortCommit(tagValue(event, 'commit') || tagValue(event, 'c'))
+                    : event.kind === GIT_PULL_REQUEST
+                      ? shortCommit(tagValue(event, 'c'))
+                      : '',
                 status: '',
             })
             continue
@@ -240,6 +266,7 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
             continue
         }
         const isPr = root.kind === GIT_PULL_REQUEST
+        const isPatch = root.kind === GIT_PATCH
 
         if (event.kind === GIT_PR_UPDATE) {
             // Dieselbe Berechtigungsprüfung wie bei den Statuswechseln: ein
@@ -259,7 +286,7 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
                 actor: event.pubkey.toLowerCase(),
                 repoAddress: rootAddress,
                 repoName: nameOf(rootAddress),
-                object: rootTitle(root),
+                object: isPatch ? patchTitle(root) : rootTitle(root),
                 body: event.content,
                 badge: shortCommit(tagValue(event, 'c')),
                 status: '',
@@ -280,12 +307,12 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
             }
             items.push({
                 id: `status:${event.id}`,
-                type: isPr ? 'pr-status' : 'issue-status',
+                type: isPr ? 'pr-status' : isPatch ? 'patch-status' : 'issue-status',
                 createdAt: event.created_at,
                 actor: event.pubkey.toLowerCase(),
                 repoAddress: rootAddress,
                 repoName: nameOf(rootAddress),
-                object: rootTitle(root),
+                object: isPatch ? patchTitle(root) : rootTitle(root),
                 body: event.content,
                 badge: '',
                 status: statusCodeOf(event.kind),
@@ -301,7 +328,7 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
                 actor: event.pubkey.toLowerCase(),
                 repoAddress: rootAddress,
                 repoName: nameOf(rootAddress),
-                object: rootTitle(root),
+                object: isPatch ? patchTitle(root) : rootTitle(root),
                 body: event.content,
                 badge: '',
                 status: '',

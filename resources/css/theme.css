@@ -1086,3 +1086,176 @@ select:focus[data-flux-control] {
         border-width: 0;
     }
 }
+
+/* ── Der Diff eines Patches (kind 1617, P5) ───────────────────────────────────
+
+   Die Zeile ist ein Raster aus DREI Zeichenspalten plus Text: alte Nummer, neue
+   Nummer, Vorzeichen, Inhalt. `ch` ist hier die richtige Einheit und keine
+   Spielerei — `--font-sans` ist Inconsolata, eine Zellenschrift, `ch` IST also
+   die Zelle. Der Code steht dadurch untereinander wie in einem Terminal, ohne
+   `<table>`, ohne `tabular-nums` und ohne eine zweite Schriftfamilie (die es
+   hier auch nicht geben darf: `--font-mono` ist nicht definiert, jedes
+   `font-mono` zöge eine fremde Schrift ein).
+
+   ── Warum die Schriftgröße AN der Zeile steht ──────────────────────────────
+   `ch` löst gegen die EIGENE Schriftgröße des Elements auf. Steht die Größe am
+   Container statt an der Zeile, rechnen Nummernspalte und Textspalte gegen
+   verschiedene Zellen und die Spalten stehen versetzt — genau der Fehler, den
+   die Werkbank in P4 hatte (`text-[0.7rem]` am spurdefinierenden Element,
+   56 px Versatz).
+
+   ── Farbe trägt hier KEINE Bedeutung ───────────────────────────────────────
+   Jede Zeile führt ihr Vorzeichen (`+`/`-`/Leerzeichen) als ZEICHEN im Text
+   (`.forge-diff-zeichen`), und jeder Dateikopf sein Änderungswort ausgeschrieben
+   („neu" · „gelöscht" · „umbenannt" · „geändert"). Wer keine Farbe sieht,
+   verliert nichts (WCAG 1.4.1) — dieselbe Regel wie bei den Statuswörtern oben.
+
+   Die Tönungen sind bewusst schwach und ändern die TEXTFARBE nicht: der Text
+   bleibt der Primärwert (zinc-900 hell / zinc-100 dunkel), die Tönung liegt nur
+   dahinter. Damit bleibt der Kontrast der des Fließtextes und kann durch die
+   Tönung nicht unter 4,5:1 fallen (WCAG 1.4.3) — gerechnet: zinc-900 auf
+   12 % green-500 über weiß ≈ 15:1, zinc-100 auf 18 % green-500 über zinc-900
+   ≈ 11:1; für rot dieselbe Größenordnung. */
+
+.forge-diff {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.forge-diff-datei {
+    overflow: hidden;
+    border: 1px solid var(--color-zinc-200);
+    border-radius: var(--radius-tile);
+}
+
+.forge-diff-kopf {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--color-zinc-200);
+    background: var(--color-zinc-50);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+}
+
+/* Das Änderungswort. Versal und klein, damit es den Pfad nicht überstimmt —
+   der Pfad ist die Hauptinformation der Kopfzeile. */
+.forge-diff-art {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-muted);
+}
+
+/* Lange Pfade brechen an den Trennern statt die Karte aufzureißen. */
+.forge-diff-pfad {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    font-weight: 600;
+}
+
+.forge-diff-zahlen {
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* Der Körper scrollt WAAGERECHT, und zwar er allein.
+
+   Das ist der Grund, warum eine Codezeile die Seite nicht sprengt: ohne diesen
+   eigenen Scroll-Kontext schöbe eine 300-Zeichen-Zeile das ganze Dokument nach
+   rechts, und der 320-px-Überlaufwächter aus P3 fiele — zu Recht, denn genau
+   das ist der Defekt, gegen den er geschrieben ist (WCAG 1.4.10). */
+.forge-diff-koerper {
+    overflow-x: auto;
+    max-height: 32rem;
+    overflow-y: auto;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+
+.forge-diff-zeile {
+    display: grid;
+    grid-template-columns: 5ch 5ch 2ch minmax(0, 1fr);
+    /* Nicht umbrechen: eine umbrochene Codezeile verschiebt die Zeilennummern
+       gegen ihren Inhalt, und der Leser liest die falsche Nummer zur Zeile.
+       Deshalb scrollt der Körper stattdessen (siehe oben). */
+    white-space: pre;
+    /* Die Zeile ist mindestens so breit wie der Körper, damit ihre Tönung über
+       die ganze sichtbare Breite läuft und nicht am Textende abreißt. */
+    min-width: max-content;
+}
+
+.forge-diff-nr {
+    padding-inline: 0.25rem;
+    text-align: end;
+    color: var(--color-muted);
+    /* Die Nummern scrollen NICHT mit — sonst verlöre man beim Blättern nach
+       rechts genau die Orientierung, für die sie da sind. */
+    position: sticky;
+    inset-inline-start: 0;
+    background: inherit;
+}
+
+.forge-diff-zeichen {
+    text-align: center;
+    font-weight: 600;
+}
+
+.forge-diff-text {
+    padding-inline-end: 0.75rem;
+    overflow-wrap: normal;
+}
+
+.forge-diff-zeile[data-kind='add'] {
+    background: color-mix(in oklab, var(--color-green-500) 12%, transparent);
+}
+
+.forge-diff-zeile[data-kind='del'] {
+    background: color-mix(in oklab, var(--color-red-500) 12%, transparent);
+}
+
+/* Der Hunk-Kopf (`@@ -1,3 +1,3 @@`) ist Navigation, kein Code. Er bekommt
+   deshalb die gedämpfte Textfarbe und eine eigene Tönung. */
+.forge-diff-zeile[data-kind='meta'] {
+    background: var(--color-zinc-100);
+    color: var(--color-muted);
+}
+
+.forge-diff-binaer {
+    padding: 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+}
+
+@layer theme {
+    .dark .forge-diff-datei {
+        border-color: var(--color-zinc-800);
+    }
+
+    .dark .forge-diff-kopf {
+        border-color: var(--color-zinc-800);
+        background: var(--color-zinc-900);
+    }
+
+    /* Dunkel etwas kräftiger: dieselbe Tönung wirkt auf dunklem Grund
+       schwächer, weil der Untergrund weniger Helligkeit beisteuert. */
+    .dark .forge-diff-zeile[data-kind='add'] {
+        background: color-mix(in oklab, var(--color-green-500) 18%, transparent);
+    }
+
+    .dark .forge-diff-zeile[data-kind='del'] {
+        background: color-mix(in oklab, var(--color-red-500) 18%, transparent);
+    }
+
+    .dark .forge-diff-zeile[data-kind='meta'] {
+        background: var(--color-zinc-800);
+    }
+}

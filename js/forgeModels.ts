@@ -29,6 +29,21 @@
  *    abgelehnt. Am 2026-08-17 an `crates/buzz-core/src/kind.rs` gegengeprüft.
  */
 
+/**
+ * Der EINZIGE Import dieses Moduls, und er ist beabsichtigt.
+ *
+ * Bis zum 2026-08-23 kam `forgeModels.ts` ohne aus. Der Titel eines kind 1617
+ * steht aber in keinem Tag, sondern im `Subject:`-Header des Patch-TEXTES
+ * (siehe {@link GIT_PATCH}) — das ist Wissen über das Diff-Format, nicht über
+ * das Ereignismodell, und es steht deshalb in `forgeDiff.ts`. Die Alternative
+ * wäre gewesen, den Titel vom Aufrufer hereinreichen zu lassen; dann läge die
+ * Titelregel ausserhalb des Modells, das sie beschreibt.
+ *
+ * Beide Module sind rein und relativ importiert — `node --test` lädt sie
+ * unverändert.
+ */
+import { patchSubject } from './forgeDiff.ts'
+
 // ── Kinds ───────────────────────────────────────────────────────────────────
 
 /** NIP-34 Repository-Announcement (ersetzbar, `d` = Repo-Kennung). */
@@ -50,6 +65,24 @@ export const GIT_PULL_REQUEST = 1618
 export const GIT_PR_UPDATE = 1619
 /** NIP-34 Issue. */
 export const GIT_ISSUE = 1621
+/**
+ * NIP-34 Patch — die `git format-patch`-Ausgabe steht **im `content`**.
+ *
+ * Das ist die einzige Codeanzeige dieses Protokolls, die ohne Git-Zugriff
+ * auskommt: kein Clone, keine HTTP-Brücke, keine Auth, kein CORS. Amethyst
+ * liest und rendert sie (`nip34Git/patch/GitPatchEvent.kt:146`), Buzz nimmt sie
+ * an (`buzz-core/src/kind.rs:609`, in `ALL_KINDS`), hat einen Builder
+ * (`buzz-sdk/src/builders.rs:1018`) und einen CLI-Sendeweg — und Buzz Desktop
+ * zählt sie in seiner Aktivität (`projectActivity.mjs:84-99`). Bis zum
+ * 2026-08-23 waren wir der einzige der drei Clients, der sie nicht sah.
+ *
+ * **Ein 1617 trägt KEIN `subject`-Tag.** Am Builder gegengeprüft
+ * (`build_git_patch`): `a`, `r`/euc, `p`, `e`, `t`, `commit`, `parent-commit`,
+ * `commit-pgp-sig`, `committer` — mehr nicht. Der Titel kann deshalb NUR aus
+ * dem `Subject:`-Header des Inhalts kommen, und der ist RFC-5322-faltbar; das
+ * Lesen davon steht in `forgeDiff.ts`.
+ */
+export const GIT_PATCH = 1617
 /** NIP-34 Status: offen / angewandt (merged) / geschlossen / Entwurf. */
 export const GIT_STATUS_OPEN = 1630
 export const GIT_STATUS_APPLIED = 1631
@@ -293,6 +326,32 @@ export type Repo = {
     description: string
     cloneUrls: string[]
     webUrl: string
+    /**
+     * Alle `web`-URLs, nicht nur die erste.
+     *
+     * `webUrl` bleibt daneben stehen, weil die Fläche genau einen Link zeigt.
+     * Gesucht wird aber über alle: NIP-34 erlaubt `["web", a, b]` mehrwertig
+     * **und** wiederholt einwertig, und wer nur die erste Form liest, findet
+     * ein Repo nicht über seine zweite Adresse.
+     */
+    webUrls: string[]
+    /**
+     * Die Relays, die der Autor laut `relays`-Tag auf Patches und Issues
+     * beobachtet. Wird nicht angezeigt — die Fläche liest genau einen
+     * Workspace —, ist aber Teil des Suchheuhaufens: wer ein Repo über die
+     * Adresse seines Heimat-Relays sucht, sucht danach.
+     */
+    relays: string[]
+    /**
+     * Earliest Unique Commit (`["r", <commit>, "euc"]`).
+     *
+     * Die Identität eines Repos über Forks hinweg. Sie steht nirgends im Bild,
+     * ist aber suchbar: einen Commit-Hash aus einem fremden Client einzufügen
+     * und beim Repo zu landen, ist genau der Weg, den ein `euc` möglich macht.
+     */
+    euc: string
+    /** `t`-Tags des Announcements — Themen, und Teil des Suchheuhaufens. */
+    hashtags: string[]
     /** `default-branch`-Tag, sonst `''` — der echte HEAD steht im 30618. */
     defaultBranch: string
     /** Pubkeys mit Schreibrecht laut Announcement. */
@@ -324,6 +383,12 @@ export const toRepo = (event: ForgeEvent): Repo | null => {
         description: tagValue(event, 'description') || event.content,
         cloneUrls: tagValuesFlat(event, 'clone'),
         webUrl: tagValue(event, 'web'),
+        webUrls: tagValuesFlat(event, 'web'),
+        relays: tagValuesFlat(event, 'relays'),
+        // `["r", <commit>, "euc"]` — das dritte Feld unterscheidet ihn vom
+        // gewöhnlichen `r`, das Buzz am Patch auch für den Commit-Hash setzt.
+        euc: event.tags.find((tag) => tag[0] === 'r' && tag[2] === 'euc')?.[1] ?? '',
+        hashtags: tagValues(event, 't'),
         defaultBranch: tagValue(event, 'default-branch'),
         maintainers: [
             ...new Set(tagValuesFlat(event, 'maintainers').map((value) => value.toLowerCase())),
@@ -622,6 +687,15 @@ export const foldStatus = (
 export type IssueStatus = 'open' | 'resolved' | 'closed' | 'draft'
 /** Zustandscode eines Pull Requests. */
 export type PullRequestStatus = 'open' | 'merged' | 'closed' | 'draft'
+/**
+ * Zustandscode eines Patches.
+ *
+ * `applied` und nicht `merged`: NIP-34 nennt 1631 „Applied/Merged", und beim
+ * Patch ist die Handlung das Anwenden (`git am`), nicht das Zusammenführen
+ * eines Branches. Dasselbe Kind, drei Flächen, drei Wörter — genau wie 1631
+ * beim Issue „resolved" heisst.
+ */
+export type PatchStatus = 'open' | 'applied' | 'closed' | 'draft'
 
 /**
  * Statuscode aus dem gefalteten Ereignis.
@@ -665,6 +739,29 @@ export const pullRequestStatusFrom = (
             // als beim Issue ist „Entwurf" beim PR eine Eigenschaft, die der
             // Autor beim Anlegen mitgibt und nicht nachträglich setzt.
             return tagValues(root, 't').some((label) => label.toLowerCase() === 'draft') ? 'draft' : 'open'
+    }
+}
+
+/**
+ * Wie {@link issueStatusFrom}, nur heißt 1631 beim Patch „applied".
+ *
+ * Ohne Status-Ereignis ist ein Patch **offen**, und ein Label ändert daran
+ * nichts: `["t", "root"]` und `["t", "root-revision"]` sind die einzigen
+ * `t`-Werte, die Buzz an einem 1617 setzt (`build_git_patch`), und beide sagen
+ * etwas über die Stellung in der Serie, nicht über den Lebenszyklus. Beim PR
+ * gibt es die Label-Ausnahme für `draft`; hier gäbe es nichts, worauf sie
+ * zeigen könnte.
+ */
+export const patchStatusFrom = (statusEvent: ForgeEvent | null): PatchStatus => {
+    switch (statusEvent?.kind) {
+        case GIT_STATUS_APPLIED:
+            return 'applied'
+        case GIT_STATUS_CLOSED:
+            return 'closed'
+        case GIT_STATUS_DRAFT:
+            return 'draft'
+        default:
+            return 'open'
     }
 }
 
@@ -871,6 +968,100 @@ export const buildPullRequests = (
                 maintainersOf(tagValue(root, 'a')),
             ),
         )
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+
+// ── Patch (1617) ────────────────────────────────────────────────────────────
+
+export type Patch = {
+    id: string
+    /** Aus dem `Subject:`-Header; `''`, wenn keiner da ist (siehe {@link GIT_PATCH}). */
+    title: string
+    /** Der ROHE `git format-patch`-Text. Gelesen wird er in `forgeDiff.ts`. */
+    content: string
+    author: string
+    createdAt: number
+    updatedAt: number
+    repoAddress: string
+    labels: string[]
+    status: PatchStatus
+    /** Commit, den der Patch erzeugt (`commit`-Tag), sonst `''`. */
+    commit: string
+    /** Eltern-Commit (`parent-commit`), sonst `''`. */
+    parentCommit: string
+    /** `["t","root"]` — erster Patch einer neuen Serie. */
+    isRoot: boolean
+    /** `["t","root-revision"]` — erster Patch einer Neufassung. */
+    isRootRevision: boolean
+    /** `["e", <id>, "", "reply"]` — der Vorgänger in der Serie, sonst `''`. */
+    inReplyTo: string
+    commentCount: number
+    comments: ForgeComment[]
+}
+
+/**
+ * Ein 1617 → {@link Patch}.
+ *
+ * **Der Status läuft durch denselben Riegel wie bei Issue und PR** — Autor der
+ * Wurzel, Repo-Eigentümer, eingetragene Maintainer. Ein Patch ist für NIP-34
+ * dieselbe Art Wurzel wie ein Issue („from either the issue/patch author or a
+ * maintainer"); ihn hier laxer zu behandeln hiesse, denselben Fehler, der am
+ * 2026-08-23 in `allowedActorsFor` behoben wurde, an einer neuen Stelle wieder
+ * einzuführen.
+ *
+ * **Serien werden NICHT zusammengefasst.** Ein `git format-patch` über drei
+ * Commits erzeugt drei 1617, verkettet über `["e", <vorgänger>, "", "reply"]`.
+ * Sie zu einer Zeile zu falten hiesse, eine Kette zu laufen, die im Bestand
+ * lückenhaft sein kann (der Vorgänger liegt auf einem anderen Relay) — und aus
+ * einer Lücke würde still eine falsche Serienlänge. Die Marker stehen deshalb
+ * am Modell, die Fläche zeigt sie an, und jede Wurzel bleibt ihre eigene Zeile.
+ */
+export const toPatch = (
+    root: ForgeEvent,
+    statusEvents: ForgeEvent[] = [],
+    commentEvents: ForgeEvent[] = [],
+    maintainers: string[] = [],
+): Patch => {
+    const status = foldStatus(root, statusEvents, maintainers)
+    const comments = commentsForRoot(root.id, commentEvents)
+    const labels = tagValues(root, 't')
+
+    return {
+        id: root.id,
+        // Ein `subject`-Tag setzt zwar kein bekannter Client an einem 1617,
+        // ausgeschlossen ist es aber nicht — steht eines da, gilt es, wie bei
+        // jeder anderen Wurzel auch (`rootTitle`).
+        title: tagValue(root, 'subject') || patchSubject(root.content),
+        content: root.content,
+        author: root.pubkey.toLowerCase(),
+        createdAt: root.created_at,
+        updatedAt: Math.max(
+            root.created_at,
+            status?.created_at ?? 0,
+            ...comments.map((comment) => comment.createdAt),
+        ),
+        repoAddress: tagValue(root, 'a'),
+        labels,
+        status: patchStatusFrom(status),
+        commit: tagValue(root, 'commit'),
+        parentCommit: tagValue(root, 'parent-commit'),
+        isRoot: labels.some((label) => label.toLowerCase() === 'root'),
+        isRootRevision: labels.some((label) => label.toLowerCase() === 'root-revision'),
+        inReplyTo: root.tags.find((tag) => tag[0] === 'e' && tag[3] === 'reply')?.[1] ?? '',
+        commentCount: comments.length,
+        comments,
+    }
+}
+
+/** Alle Patches eines Bestands, zuletzt bewegte zuerst. */
+export const buildPatches = (
+    patchEvents: ForgeEvent[],
+    statusEvents: ForgeEvent[] = [],
+    commentEvents: ForgeEvent[] = [],
+    maintainersOf: MaintainerLookup = () => [],
+): Patch[] =>
+    patchEvents
+        .filter((event) => event.kind === GIT_PATCH)
+        .map((root) => toPatch(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a'))))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
 
 // ── Projekt (30621, NIP-MP) ─────────────────────────────────────────────────
