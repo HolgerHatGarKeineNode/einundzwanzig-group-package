@@ -805,6 +805,11 @@ const AUSGAENGE: Record<string, { anzeige: boolean; probe: () => unknown[] }> = 
     // Kein Ausgang: nimmt Daten AUF bzw. räumt auf. Wird oben scharf gefahren.
     loadSpaceProfiles: { anzeige: false, probe: () => [] },
     purgeSpaceLocalProfiles: { anzeige: false, probe: () => [] },
+    // Kein Ausgang: reine Steuerfunktionen des Anlauf-Riegels (markieren/entsperren
+    // einen pubkey als "natives Laden läuft") — geben nie ein Profil-Objekt zurück,
+    // tragen also strukturell keine Zahlungs-/Identitätsfelder.
+    markNativePending: { anzeige: false, probe: () => [] },
+    clearNativePending: { anzeige: false, probe: () => [] },
 }
 
 type Ernte = { objekte: Record<string, unknown>[]; strings: string[]; events: TrustedEvent[] }

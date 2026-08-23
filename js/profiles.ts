@@ -11,7 +11,7 @@ import { createProfile, editProfile, isPublishedProfile, makeEvent, makeProfile,
 import { Router } from '@welshman/router'
 import { isMobile } from './core.ts'
 import { WORKSPACE_URL } from './spaceCaps.ts'
-import { loadSpaceProfiles } from './spaceProfiles.ts'
+import { clearNativePending, loadSpaceProfiles, markNativePending } from './spaceProfiles.ts'
 
 const HOST = 'https://group.einundzwanzig.space'
 const HEX64 = /^[0-9a-f]{64}$/
@@ -34,6 +34,14 @@ export async function warmProfiles(pubkeys: Iterable<string>): Promise<void> {
     }
     await Promise.all(chunks)
 
+    // ERST das native Nachladen anstossen — das markiert die betroffenen pubkeys
+    // SYNCHRON als "pending" (spaceProfiles.ts markNativePending), BEVOR die
+    // Space-Anfrage unterwegs ist. Umgekehrt (wie bis 2026-08-23) kann die oft
+    // schnellere, lokale Space-Antwort eintreffen, WÄHREND die native Live-Anfrage
+    // noch läuft, und der Merge zeigt kurzzeitig das FALSCHE (Fremd-)Profil an —
+    // siehe spaceProfiles.ts, Kopf von `markNativePending`.
+    repairMissingProfiles(all)
+
     // Zweite Quelle: die Profile, die es NUR im Workspace gibt. Der Backend-Cache
     // erreicht sie strukturell nicht — er fragt Indexer + Vereins-Space
     // (`ProfileCache::sources()`), nie das Workspace-Relay. Gemessen am 2026-08-18:
@@ -41,8 +49,6 @@ export async function warmProfiles(pubkeys: Iterable<string>): Promise<void> {
     // landet NICHT im Repository, sondern in der Anzeige-Rueckfallebene
     // ([[spaceProfiles]]) — bewusst ohne `await`, die Fläche wartet darauf nicht.
     void loadSpaceProfiles(WORKSPACE_URL, all)
-
-    repairMissingProfiles(all)
 }
 
 /** Noch namenlose pubkeys, die der konservative Timer nachfasst. */
@@ -64,7 +70,12 @@ function repairMissingProfiles(pubkeys: string[]): void {
     for (const pk of pubkeys) {
         if (!profileHasName(getProfile(pk))) {
             watching.add(pk)
-            void loadProfile(pk)
+            // Riegel gegen die Space-Race (spaceProfiles.ts markNativePending): auf,
+            // solange die Anfrage läuft, zu — sobald sie sich entscheidet (gefunden
+            // oder endgültig leer). `loadProfile` wirft laut welshman nie (siehe
+            // `@welshman/store` `makeLoadItem`), `.finally` genügt.
+            markNativePending(pk)
+            void loadProfile(pk).finally(() => clearNativePending(pk))
         }
     }
     startRepairTimer()

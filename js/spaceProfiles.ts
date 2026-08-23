@@ -180,6 +180,64 @@ export const loadSpaceProfiles = async (spaceUrl: string, pubkeys: Iterable<stri
     return added
 }
 
+// ── Der Anlauf-Riegel gegen das Space-Profil ────────────────────────────────
+
+/**
+ * pubkeys, deren natives Profil GERADE per {@link markNativePending} als live
+ * unterwegs gemeldet ist (siehe `profiles.ts` `repairMissingProfiles`).
+ *
+ * **Der Fund (2026-08-23, CPU-Drossel ×20, `workspaces.spec.ts` „das Buzz-Profil
+ * verdrängt das echte Nostr-Profil nicht"):** `warmProfiles` stößt die native
+ * Live-Anfrage (`loadProfile`, zooid) und die Space-Anfrage (`loadSpaceProfiles`,
+ * Buzz) im SELBEN Tick an. Beide sind Websocket-Roundtrips zu je einem lokalen
+ * Test-Relay — unter Last gewinnt mal die eine, mal die andere Seite. Kommt die
+ * Space-Antwort zuerst, ist `$native.get(pubkey)` in diesem Moment noch `undefined`,
+ * und {@link mergeProfileForDisplay} fällt (korrekt für den Gast-Fall) auf das
+ * Space-Profil zurück — nur dass hier gar kein Gast vorliegt, das native Profil ist
+ * bloß noch nicht eingetroffen. Gemessen: 4 von 6 Läufen zeigten kurzzeitig den
+ * FALSCHEN (Fremd-)Namen, bevor die native Antwort nachzog und korrigierte — der
+ * Nutzer sieht den Sprung trotzdem.
+ *
+ * **Bounded, nicht an die volle `loadProfile`-Promise gekoppelt:** ein Pubkey ohne
+ * natives Profil (die Buzz-Maintainer-Regel, siehe Kopf dieser Datei) bekäme sonst
+ * NIE mehr ein Space-Profil, solange `loadProfile`s Outbox+Indexer-Kaskade noch
+ * läuft — das kann länger dauern als der Space-Loader je wartet
+ * ({@link loadSpaceProfiles} `REQUEST_TIMEOUT_MS`). Derselbe Timeout-Wert hier hält
+ * beide Seiten auf vergleichbarer Kulanz.
+ */
+const NATIVE_PENDING_TIMEOUT_MS = 8000
+const nativePending = new Map<string, ReturnType<typeof setTimeout>>()
+
+/** Ein natives Live-Nachladen für `pk` beginnt JETZT — Space-Fallback für `pk` bis dahin gesperrt. */
+export const markNativePending = (pk: string): void => {
+    if (nativePending.has(pk)) {
+        return
+    }
+    nativePending.set(
+        pk,
+        setTimeout(() => nativePending.delete(pk), NATIVE_PENDING_TIMEOUT_MS),
+    )
+}
+
+/** Das native Nachladen für `pk` ist fertig (gefunden oder endgültig leer) — Riegel auf. */
+export const clearNativePending = (pk: string): void => {
+    const timer = nativePending.get(pk)
+    if (timer) {
+        clearTimeout(timer)
+    }
+    nativePending.delete(pk)
+}
+
+const isNativePending = (pk: string): boolean => nativePending.has(pk)
+
+/**
+ * {@link mergeProfileForDisplay}, aber mit dem Anlauf-Riegel: fehlt das native Profil
+ * UND ist gerade ein Ladeversuch dafür unterwegs, zählt das Space-Profil (noch)
+ * nicht als Rückfallebene — sonst genau die Race oben.
+ */
+const mergeForDisplayGated = (pubkey: string, native: Profile | undefined, local: Profile | undefined): Profile | undefined =>
+    mergeProfileForDisplay(native, !native && isNativePending(pubkey) ? undefined : local)
+
 // ── Was die Anzeige-Module importieren ──────────────────────────────────────
 
 /**
@@ -201,7 +259,7 @@ export const profilesByPubkey: Readable<Map<string, Profile>> = derived(
         }
         const merged = new Map($native)
         for (const [pubkey, local] of $local) {
-            const value = mergeProfileForDisplay($native.get(pubkey), local)
+            const value = mergeForDisplayGated(pubkey, $native.get(pubkey), local)
             if (value) {
                 merged.set(pubkey, value)
             }
@@ -226,6 +284,11 @@ export const displayProfileByPubkey = (pubkey: string): string => {
     if (profileHasName(native)) {
         return displayProfile(native, displayPubkey(pubkey))
     }
+    // Anlauf-Riegel: solange die native Live-Antwort noch unterwegs ist, NICHT auf
+    // das Space-Profil ausweichen (siehe {@link mergeForDisplayGated}).
+    if (isNativePending(pubkey)) {
+        return displayProfile(native, displayPubkey(pubkey))
+    }
     const local = getSpaceProfile(pubkey)
     if (profileHasName(local)) {
         return displayProfile(local, displayPubkey(pubkey))
@@ -235,7 +298,7 @@ export const displayProfileByPubkey = (pubkey: string): string => {
 
 /** Natives + Space-Profil eines Pubkeys als EIN Anzeige-Objekt (Momentaufnahme). */
 export const getMergedProfile = (pubkey: string): Profile | undefined =>
-    mergeProfileForDisplay(getProfile(pubkey), getSpaceProfile(pubkey))
+    mergeForDisplayGated(pubkey, getProfile(pubkey), getSpaceProfile(pubkey))
 
 /**
  * Wie `deriveProfile` aus `@welshman/app`, nur gemergt — für Flächen, die EIN Profil
@@ -247,5 +310,5 @@ export const getMergedProfile = (pubkey: string): Profile | undefined =>
  */
 export const deriveMergedProfile = (pubkey: string): Readable<Profile | undefined> =>
     derived([deriveProfile(pubkey), spaceProfiles], ([$native, $local]: [Profile | undefined, Map<string, Profile>]) =>
-        mergeProfileForDisplay($native, $local.get(pubkey)),
+        mergeForDisplayGated(pubkey, $native, $local.get(pubkey)),
     )
