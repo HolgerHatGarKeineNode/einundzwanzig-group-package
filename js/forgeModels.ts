@@ -39,7 +39,14 @@ export const REPO_STATE = 30618
 export const PROJECT_ANNOUNCEMENT = 30621
 /** NIP-34 Pull Request. */
 export const GIT_PULL_REQUEST = 1618
-/** Buzz-Erweiterung: PR-Update (neuer Commit auf demselben PR). */
+/**
+ * NIP-34 PR-Update (neuer Commit auf demselben PR).
+ *
+ * Hier stand bis zum 2026-08-23 „Buzz-Erweiterung". Das war überholt: 1618, 1619 und
+ * 10317 sind Standard-NIP-34, keine Hauszusätze. Der Irrtum ist harmlos geblieben, weil
+ * am Verhalten nichts hing — aber ein Kommentar, der ein Standard-Kind für eine
+ * Eigenheit erklärt, lädt dazu ein, es bei der nächsten Aufräumrunde herauszuwerfen.
+ */
 export const GIT_PR_UPDATE = 1619
 /** NIP-34 Issue. */
 export const GIT_ISSUE = 1621
@@ -509,8 +516,30 @@ export const foldRepoState = (
  * fremde Issues als geschlossen anzeigen lassen — die Anzeige wäre trivial
  * fälschbar, ohne dass irgendetwas kaputtgeht, was auffiele.
  */
-export const allowedActorsForRoot = (root: ForgeEvent): Set<string> =>
-    allowedActorsFor({ author: root.pubkey, repoAddress: tagValue(root, 'a') })
+/**
+ * Nachschlagen der `maintainers` zu einer Repo-Adresse (`30617:<pubkey>:<d>`).
+ *
+ * Eine FUNKTION statt einer Map, damit der Aufrufer entscheidet, woher der Bestand kommt
+ * — die Übersichtsfläche hat alle Repos zur Hand, die Detailfläche genau eines. Beide
+ * bauen ihre Antwort selbst; dieses Modul bleibt frei von einer Bestandshaltung.
+ */
+export type MaintainerLookup = (repoAddress: string) => string[]
+
+/**
+ * Die Nachschlagefunktion zu einer Liste von Repos — der Normalfall der Aufrufer.
+ *
+ * `Repo.maintainers` ist beim Bauen bereits kleingeschrieben und entdoppelt
+ * (`buildRepos`), hier wird nichts nachgereinigt. Eine unbekannte Adresse liefert `[]`
+ * und damit die alte, engere Menge — kein Wurf, kein stiller Sonderweg.
+ */
+export const maintainerLookupFor = (repos: { address: string; maintainers: string[] }[]): MaintainerLookup => {
+    const byAddress = new Map(repos.map((repo) => [repo.address, repo.maintainers]))
+
+    return (repoAddress) => byAddress.get(repoAddress) ?? []
+}
+
+export const allowedActorsForRoot = (root: ForgeEvent, maintainers: string[] = []): Set<string> =>
+    allowedActorsFor({ author: root.pubkey, repoAddress: tagValue(root, 'a'), maintainers })
 
 /**
  * Dieselbe Regel, aber auf der **Zeile** statt auf dem Ereignis.
@@ -525,14 +554,33 @@ export const allowedActorsForRoot = (root: ForgeEvent): Set<string> =>
 export const allowedActorsFor = ({
     author,
     repoAddress,
+    maintainers = [],
 }: {
     author: string
     repoAddress: string
+    /**
+     * Die `maintainers` des 30617, auf das die Wurzel zeigt.
+     *
+     * **Ohne sie war diese Funktion spec-widrig, und zwar STILL.** NIP-34 sagt wörtlich:
+     * gültig ist der jüngste Status *„from either the issue/patch author **or a
+     * maintainer**"*. Wir liessen bis zum 2026-08-23 nur Autor und Repo-Eigentümer zu und
+     * verwarfen alles andere kommentarlos — schloss ein eingetragener Maintainer ein
+     * Issue, blieb die Zeile „offen", und nichts wies darauf hin. Kein Fehler, keine
+     * Meldung, kein Weg, es zu bemerken.
+     *
+     * Der Default `[]` hält die Funktion aufrufbar, wo kein Repo zur Hand ist (Tests,
+     * Ableitungen ohne Bestand). Er ist bewusst KEINE Einladung, ihn wegzulassen: wer die
+     * Maintainer hat und nicht durchreicht, stellt den alten Fehler wieder her.
+     */
+    maintainers?: string[]
 }): Set<string> => {
     const allowed = new Set([author.toLowerCase()])
     const address = parseRepoAddress(repoAddress)
     if (address) {
         allowed.add(address.owner)
+    }
+    for (const maintainer of maintainers) {
+        allowed.add(maintainer.toLowerCase())
     }
 
     return allowed
@@ -551,8 +599,12 @@ const referencesRoot = (event: ForgeEvent, rootId: string): boolean =>
  * Ankunftsreihenfolge des Relays — dieselbe Zeile zeigte nach einem Reload
  * etwas anderes.
  */
-export const foldStatus = (root: ForgeEvent, statusEvents: ForgeEvent[]): ForgeEvent | null => {
-    const allowed = allowedActorsForRoot(root)
+export const foldStatus = (
+    root: ForgeEvent,
+    statusEvents: ForgeEvent[],
+    maintainers: string[] = [],
+): ForgeEvent | null => {
+    const allowed = allowedActorsForRoot(root, maintainers)
 
     return (
         statusEvents
@@ -670,8 +722,9 @@ export const toIssue = (
     root: ForgeEvent,
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
+    maintainers: string[] = [],
 ): Issue => {
-    const status = foldStatus(root, statusEvents)
+    const status = foldStatus(root, statusEvents, maintainers)
     const comments = commentsForRoot(root.id, commentEvents)
 
     return {
@@ -698,10 +751,11 @@ export const buildIssues = (
     issueEvents: ForgeEvent[],
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
+    maintainersOf: MaintainerLookup = () => [],
 ): Issue[] =>
     issueEvents
         .filter((event) => event.kind === GIT_ISSUE)
-        .map((root) => toIssue(root, statusEvents, commentEvents))
+        .map((root) => toIssue(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a'))))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
 
 // ── Pull Request (1618 + 1619) ──────────────────────────────────────────────
@@ -750,9 +804,10 @@ export const toPullRequest = (
     updateEvents: ForgeEvent[] = [],
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
+    maintainers: string[] = [],
 ): PullRequest => {
-    const allowed = allowedActorsForRoot(root)
-    const status = foldStatus(root, statusEvents)
+    const allowed = allowedActorsForRoot(root, maintainers)
+    const status = foldStatus(root, statusEvents, maintainers)
     const comments = commentsForRoot(root.id, commentEvents)
     const updates = updateEvents
         .filter(
@@ -803,10 +858,19 @@ export const buildPullRequests = (
     updateEvents: ForgeEvent[] = [],
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
+    maintainersOf: MaintainerLookup = () => [],
 ): PullRequest[] =>
     pullRequestEvents
         .filter((event) => event.kind === GIT_PULL_REQUEST)
-        .map((root) => toPullRequest(root, updateEvents, statusEvents, commentEvents))
+        .map((root) =>
+            toPullRequest(
+                root,
+                updateEvents,
+                statusEvents,
+                commentEvents,
+                maintainersOf(tagValue(root, 'a')),
+            ),
+        )
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
 
 // ── Projekt (30621, NIP-MP) ─────────────────────────────────────────────────
