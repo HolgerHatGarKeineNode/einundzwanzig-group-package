@@ -34,6 +34,7 @@ import { publishThunk, pubkey, signer } from '@welshman/app'
 import { makeEvent } from '@welshman/util'
 import { writable, type Readable } from 'svelte/store'
 import { t } from './i18n.ts'
+import { mentionPubkeys } from './interactions.ts'
 import { waitForPublishError } from './publishResult.ts'
 import { WORKSPACE_URL } from './spaceCaps.ts'
 import {
@@ -185,7 +186,12 @@ export const publishIssue = async (
             {
                 kind: GIT_ISSUE_KIND,
                 content: draft.body.trim(),
-                tags: buildIssueTags(repoAddress, draft.title),
+                // Die Erwähnungen kommen aus dem RUMPF und werden hier gelesen,
+                // nicht vom Aufrufer gereicht: es gibt drei Absendewege (Knopf,
+                // Tastatur, künftige Fläche) und nur einen Rumpf. Ein Aufrufer,
+                // der es vergisst, erzeugte einen Beitrag, der aussieht wie eine
+                // Erwähnung und niemanden erreicht.
+                tags: buildIssueTags(repoAddress, draft.title, mentionPubkeys(draft.body)),
             },
             {
                 what: 'issue',
@@ -219,7 +225,12 @@ export const publishForgeComment = async (
             {
                 kind: FORGE_COMMENT_KIND,
                 content: content.trim(),
-                tags: buildCommentTags(target.repoAddress, target.rootId, target.rootAuthor),
+                tags: buildCommentTags(
+                    target.repoAddress,
+                    target.rootId,
+                    target.rootAuthor,
+                    mentionPubkeys(content),
+                ),
                 created_at: nextCreatedAt(now(), target.lastCreatedAt),
             },
             {

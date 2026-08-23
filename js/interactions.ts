@@ -212,6 +212,22 @@ export const makeThreadReply = (
 const MENTION = /nostr:(npub1[0-9a-z]+|nprofile1[0-9a-z]+)/g
 
 /**
+ * Was ein übernommener @-Vorschlag im Entwurf hinterlässt — die **Schreibseite**
+ * von {@link mentionPubkeys}, direkt daneben, damit beide Richtungen zusammen
+ * altern.
+ *
+ * Hier steht sie und nicht in `bridge.ts` (dort ruft `pickMention` sie auf), weil
+ * an genau dieser Zeichenkette hängt, ob eine Erwähnung überhaupt ein `p`-Tag
+ * erzeugt — und seit der Agenten-Erwähnung, ob ein headless Agent geweckt wird.
+ * Ein Test, der die Form nur nachbaut, bliebe grün, während die Fläche längst
+ * etwas anderes einfügt.
+ *
+ * Das nachlaufende Leerzeichen ist Teil des Vertrags: ohne es klebte das nächste
+ * getippte Zeichen an der bech32-Zeichenkette und `MENTION` läse es mit.
+ */
+export const mentionInsert = (item: { npub: string }): string => `nostr:${item.npub} `
+
+/**
  * Zieht die erwähnten Pubkeys (NIP-08/NIP-27) aus dem Klartext: jedes
  * `nostr:npub…`/`nostr:nprofile…` wird dekodiert, ungültige/unbekannte Tokens
  * fallen still raus. Dedupliziert; Reihenfolge = erstes Auftreten. Pure Funktion

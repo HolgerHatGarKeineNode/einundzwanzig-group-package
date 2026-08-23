@@ -127,10 +127,100 @@ test('Empfänger werden entdoppelt und Unbrauchbares fliegt raus', () => {
     )
 })
 
+// ── Erwähnungen aus dem Rumpf (P9) ──────────────────────────────────────────
+
+/** Ein zweiter und dritter Schlüssel, die nur als Erwähnung vorkommen. */
+const AGENT = 'e'.repeat(64)
+const ZWEITER_AGENT = 'f'.repeat(64)
+
+test('erwähnte Schlüssel werden zu zusätzlichen p-Tags, in der Reihenfolge des Textes', () => {
+    const tags = buildIssueTags(ADDRESS, 'Titel', [AGENT, ZWEITER_AGENT])
+    assert.deepEqual(
+        tagsOf(tags, 'p').map((tag) => tag[1]),
+        [OWNER, AGENT, ZWEITER_AGENT],
+    )
+    // Und sie stehen HINTER dem `subject` — die Form des Referenzclients bleibt
+    // vorne unangetastet.
+    assert.equal(firstValue(tags, 'subject'), 'Titel')
+})
+
+/**
+ * **Der Fall, der ohne Test still das Falsche täte.** Wer den Eigentümer seines
+ * eigenen Repos im Rumpf erwähnt, bekäme zwei `p`-Zeilen auf denselben
+ * Schlüssel: für jeden Leser eine Frage ohne Antwort, und für einen
+ * benachrichtigenden Client womöglich zwei Meldungen für einen Vorgang.
+ */
+test('ein erwähnter Eigentümer doppelt seine p-Zeile nicht', () => {
+    const tags = buildIssueTags(ADDRESS, 'Titel', [OWNER])
+    assert.deepEqual(
+        tagsOf(tags, 'p').map((tag) => tag[1]),
+        [OWNER],
+    )
+})
+
+test('am Kommentar entdoppelt sich die Erwähnung gegen Eigentümer UND Wurzel-Autor', () => {
+    const tags = buildCommentTags(ADDRESS, ROOT_ID, AUTHOR, [AUTHOR, OWNER, AGENT])
+    assert.deepEqual(
+        tagsOf(tags, 'p').map((tag) => tag[1]),
+        [OWNER, AUTHOR, AGENT],
+    )
+})
+
+test('zweimal derselbe erwähnte Schlüssel ergibt EINE p-Zeile', () => {
+    const tags = buildCommentTags(ADDRESS, ROOT_ID, AUTHOR, [AGENT, AGENT])
+    assert.deepEqual(
+        tagsOf(tags, 'p').map((tag) => tag[1]),
+        [OWNER, AUTHOR, AGENT],
+    )
+})
+
+/**
+ * `buzz-acp` vergleicht den zweiten Tag-Wert als **rohe** Zeichenkette gegen den
+ * Hex-Pubkey des Agenten (`filter.rs:392-396`). Groß geschrieben trifft er
+ * nicht — das Ereignis sähe aber vollkommen richtig aus.
+ */
+test('erwähnte Schlüssel werden kleingeschrieben', () => {
+    const tags = buildIssueTags(ADDRESS, 'Titel', [AGENT.toUpperCase()])
+    assert.deepEqual(
+        tagsOf(tags, 'p').map((tag) => tag[1]),
+        [OWNER, AGENT],
+    )
+})
+
+test('was kein 64-hex ist, wird kein p-Tag', () => {
+    // npub, nprofile, leerer Wert: alles Formen, die im Event richtig aussehen
+    // und niemanden erreichen.
+    const tags = buildIssueTags(ADDRESS, 'Titel', ['npub1abc', '', 'ab', `${AGENT}xx`])
+    assert.deepEqual(
+        tagsOf(tags, 'p').map((tag) => tag[1]),
+        [OWNER],
+    )
+})
+
 test('der Statuswechsel hat dieselbe Adressierung wie der Kommentar', () => {
     // Die Aussage steckt im Kind, nicht in den Tags — beide müssen deshalb
     // identisch adressieren, sonst fände `foldStatus` den Wechsel nicht.
     assert.deepEqual(buildStatusTags(ADDRESS, ROOT_ID, AUTHOR), buildCommentTags(ADDRESS, ROOT_ID, AUTHOR))
+    // **Und er nimmt keine Erwähnungen entgegen.** Ein Statuswechsel hat keinen
+    // Rumpf (`content: ''`); ein vierter Parameter wäre die Einladung, ihn mit
+    // dem Rumpf des ISSUES zu füllen — dann bekäme jeder dort Erwähnte bei jedem
+    // Klick auf „Geschlossen" eine neue Benachrichtigung.
+    //
+    // Geprüft wird das an der WIRKUNG, nicht an `buildStatusTags.length`: ein
+    // Parameter mit Vorgabewert zählt in `Function.length` nicht mit, die
+    // Stelligkeit bliebe also bei 3, und die Mutation „reich das vierte Argument
+    // durch" wäre grün geblieben. Genau so gemessen, bevor diese Zeilen hier
+    // standen.
+    const mitViertem = buildStatusTags as unknown as (
+        repoAddress: string,
+        rootId: string,
+        rootAuthor: string,
+        mentioned?: readonly string[],
+    ) => string[][]
+    assert.deepEqual(
+        mitViertem(ADDRESS, ROOT_ID, AUTHOR, [AGENT]),
+        buildCommentTags(ADDRESS, ROOT_ID, AUTHOR),
+    )
 })
 
 // ── Berechtigung ────────────────────────────────────────────────────────────

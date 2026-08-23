@@ -309,8 +309,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             <div class="surface-card mt-2 space-y-3 p-4" data-forge-issue-form>
                                                 <flux:input label="{{ __('Titel') }}" x-model="issueDraft.title"
                                                             maxlength="256" placeholder="{{ __('Worum geht es?') }}" />
-                                                <flux:textarea label="{{ __('Beschreibung') }}" x-model="issueDraft.body" rows="4"
-                                                               placeholder="{{ __('Optional. Markdown wird gerendert.') }}" />
+                                                {{-- @-Erwähnung (P9): `relative` trägt das absolut
+                                                     positionierte Popover, `data-forge-composer`
+                                                     ist der Weg des Fokus zurück ins Feld
+                                                     (x-ref taugt dafür in einem x-for nicht). --}}
+                                                <div class="relative">
+                                                    <flux:textarea label="{{ __('Beschreibung') }}" x-model="issueDraft.body" rows="4"
+                                                                   data-forge-composer="issue"
+                                                                   x-on:input="onComposerInput($event.target, 'issue')"
+                                                                   x-on:keydown="mentionKey($event)"
+                                                                   placeholder="{{ __('Optional. Markdown wird gerendert. @ erwähnt jemanden.') }}" />
+                                                    @include('group::partials.forge-mention-popover', [
+                                                        'targetExpr' => "'issue'",
+                                                        'targetLabel' => 'issue',
+                                                    ])
+                                                </div>
 
                                                 <div x-show="issueDraft.error" x-cloak role="alert" data-forge-issue-error
                                                      class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
@@ -342,6 +355,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <template x-if="!canWrite()">
                                     <p class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
                                 </template>
+
+                                @include('group::partials.forge-wake-notice', [
+                                    'target' => "'issue'",
+                                    'label' => 'issue',
+                                ])
 
                                 {{-- Ein Issue, das der Relay abgelehnt hat. welshman
                                      nimmt die Herkunft des Ereignisses bei einem
@@ -540,9 +558,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canWrite()">
                                                         <div class="space-y-2" data-forge-comment-form>
-                                                            <flux:textarea label="{{ __('Kommentar') }}" rows="2"
-                                                                           x-model="commentDraft[issue.id]"
-                                                                           placeholder="{{ __('Antwort schreiben …') }}" />
+                                                            {{-- @-Erwähnung (P9). Das Ziel des Vorschlags heißt
+                                                                 `comment:<wurzel-id>` und steht erst zur Laufzeit
+                                                                 fest — deshalb ein Ausdruck und kein fester Wert. --}}
+                                                            <div class="relative">
+                                                                <flux:textarea label="{{ __('Kommentar') }}" rows="2"
+                                                                               x-model="commentDraft[issue.id]"
+                                                                               ::data-forge-composer="'comment:' + issue.id"
+                                                                               x-on:input="onComposerInput($event.target, 'comment:' + issue.id)"
+                                                                               x-on:keydown="mentionKey($event)"
+                                                                               placeholder="{{ __('Antwort schreiben … @ erwähnt jemanden.') }}" />
+                                                                @include('group::partials.forge-mention-popover', [
+                                                                    'targetExpr' => "'comment:' + issue.id",
+                                                                    'targetLabel' => 'comment',
+                                                                ])
+                                                            </div>
                                                             <div x-show="commentError[issue.id]" x-cloak role="alert" data-forge-comment-error
                                                                  class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
                                                                 <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
@@ -550,11 +580,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             </div>
                                                             <div class="flex flex-wrap items-center gap-2">
                                                                 <flux:button size="xs" variant="primary"
-                                                                             x-on:click="submitComment(issue)"
+                                                                             x-on:click="submitComment(issue, 'issue')"
                                                                              ::disabled="commentBusy(issue.id)">{{ __('Kommentieren') }}</flux:button>
                                                                 <span x-show="commentBusy(issue.id)" x-cloak role="status"
                                                                       class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
                                                             </div>
+                                                            @include('group::partials.forge-wake-notice', [
+                                                                'target' => "'comment:' + issue.id",
+                                                                'label' => 'comment',
+                                                            ])
                                                         </div>
                                                     </template>
                                                     <template x-if="!canWrite()">
@@ -709,9 +743,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canWrite()">
                                                         <div class="space-y-2" data-forge-comment-form>
-                                                            <flux:textarea label="{{ __('Kommentar') }}" rows="2"
-                                                                           x-model="commentDraft[pr.id]"
-                                                                           placeholder="{{ __('Antwort schreiben …') }}" />
+                                                            {{-- @-Erwähnung (P9). Das Ziel des Vorschlags heißt
+                                                                 `comment:<wurzel-id>` und steht erst zur Laufzeit
+                                                                 fest — deshalb ein Ausdruck und kein fester Wert. --}}
+                                                            <div class="relative">
+                                                                <flux:textarea label="{{ __('Kommentar') }}" rows="2"
+                                                                               x-model="commentDraft[pr.id]"
+                                                                               ::data-forge-composer="'comment:' + pr.id"
+                                                                               x-on:input="onComposerInput($event.target, 'comment:' + pr.id)"
+                                                                               x-on:keydown="mentionKey($event)"
+                                                                               placeholder="{{ __('Antwort schreiben … @ erwähnt jemanden.') }}" />
+                                                                @include('group::partials.forge-mention-popover', [
+                                                                    'targetExpr' => "'comment:' + pr.id",
+                                                                    'targetLabel' => 'comment',
+                                                                ])
+                                                            </div>
                                                             <div x-show="commentError[pr.id]" x-cloak role="alert" data-forge-comment-error
                                                                  class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
                                                                 <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
@@ -719,11 +765,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             </div>
                                                             <div class="flex flex-wrap items-center gap-2">
                                                                 <flux:button size="xs" variant="primary"
-                                                                             x-on:click="submitComment(pr)"
+                                                                             x-on:click="submitComment(pr, 'pr')"
                                                                              ::disabled="commentBusy(pr.id)">{{ __('Kommentieren') }}</flux:button>
                                                                 <span x-show="commentBusy(pr.id)" x-cloak role="status"
                                                                       class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
                                                             </div>
+                                                            @include('group::partials.forge-wake-notice', [
+                                                                'target' => "'comment:' + pr.id",
+                                                                'label' => 'comment',
+                                                            ])
                                                         </div>
                                                     </template>
                                                     <template x-if="!canWrite()">

@@ -141,6 +141,12 @@ import { subscribeWorkspacePrefs } from './channelPrefs.ts'
 // P2/NIP-38 — Status lesen. `deriveStatusPending` ist der dreiwertige Zustand aus P1,
 // auf eine UI-Frage heruntergebrochen; `warmUserStatuses` ist der einzige Netz-Einstieg.
 import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserStatuses, warmUserStatuses, type UserStatus } from './userStatus.ts'
+// Headless Buzz-Agenten als zweite @-Mention-Quelle (kind 10100). Die Regeln
+// (Kanalfilter, Betrachterfilter, zooid-Riegel) stehen in `agentDirectoryData.ts`.
+import { deriveAgentDirectory, listenAgentDirectory, type AgentDirectoryView } from './agentDirectory.ts'
+import { agentMentionItems, mergeMentionItems } from './agentDirectoryData.ts'
+import { mentionInsert } from './interactions.ts'
+import { mentionQueryAt, spliceMention } from './mentionCompose.ts'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint.ts'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam.ts'
 import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab.ts'
@@ -1107,8 +1113,15 @@ type DirectoryState = {
     saveSpace(): Promise<void>
 }
 
-/** Ein @-Mention-Vorschlag (Space-Mitglied) im Composer-Autocomplete. */
-type MentionItem = { pubkey: string; npub: string; name: string; picture: string; search: string }
+/**
+ * Ein @-Mention-Vorschlag im Composer-Autocomplete.
+ *
+ * Zwei Quellen: Space-Mitglieder (13534-Directory) und — nur auf einem
+ * Buzz-Space — headless Agenten (kind 10100, `agentDirectoryData.ts`).
+ * `isAgent` unterscheidet sie in der Fläche; für den Sende-Pfad sind beide
+ * gleich (ein `nostr:npub…` im Text, daraus ein `["p", hex, url]`-Tag).
+ */
+type MentionItem = { pubkey: string; npub: string; name: string; picture: string; search: string; isAgent?: boolean }
 
 /** Roh-Event-Details für das Nachricht-Info-Modal (C4). */
 type MessageInfo = { nevent: string; npub: string; json: string; createdAt: string; seenOn: string[] }
@@ -1205,7 +1218,11 @@ type RoomChatState = {
     _mentionStart: number // Caret-Index des @ im Draft (für den Ersetz-Splice)
     _mentionTarget: 'main' | 'thread' // welcher Composer die @-Mention gerade füttert (draft vs threadDraft)
     _members: MentionItem[] // Space-Mitglieder als Mention-Quelle (Directory)
+    _agentItems: MentionItem[] // headless Agenten (kind 10100) als zweite Quelle — auf zooid IMMER leer
+    _agentView: AgentDirectoryView | null // letzter Stand des Agenten-Verzeichnisses (Einträge + Relay-Art + eigener Pubkey)
+    _recomputeAgentItems(): void
     _unsubMembers: null | (() => void)
+    _unsubAgents: null | (() => void) // deriveAgentDirectory-Subscription (Agent-Vorschläge)
     _unsubAdmin: null | (() => void) // deriveUserIsSpaceAdmin-Subscription (P1)
     // P2/NIP-38: die Relay-Art ist noch `'unknown'` → die Statusspalte zeigt einen
     // Platzhalter statt „kein Status" zu behaupten. Außerhalb des Workspace-Arms
@@ -1291,6 +1308,7 @@ type RoomChatState = {
     sendComment(): Promise<void>
     copy(text: string, message: string): void
     onComposerInput(el: HTMLTextAreaElement, target?: 'main' | 'thread'): void
+    _mentionItemsFor(query: string): MentionItem[]
     pickMention(item: MentionItem): void
     closeMentions(): void
     insertEmoji(target: 'main' | 'thread', text: string, emojiTag?: string[], label?: string): void
@@ -5397,7 +5415,10 @@ export function registerNostrComponents(Alpine: {
         mentionIndex: 0,
         _mentionStart: -1,
         _members: [],
+        _agentItems: [],
+        _agentView: null,
         _unsubMembers: null,
+        _unsubAgents: null,
         _unsubAdmin: null,
         statusPending: false,
         _unsubStatusPending: null,
@@ -5590,6 +5611,18 @@ export function registerNostrComponents(Alpine: {
                     missing.forEach((pk) => this._loadedProfiles.add(pk))
                     loadMemberProfiles(url, missing)
                 }
+                // Die Agenten-Vorschläge borgen sich Avatar/Profilnamen aus dieser
+                // Liste (das 10100 trägt kein Bild) → nach jedem Directory-Update
+                // neu falten, sonst blieben die Agenten dauerhaft ohne Avatar.
+                this._recomputeAgentItems()
+            })
+            // Headless Buzz-Agenten (kind 10100) als ZWEITE Mention-Quelle. Auf einem
+            // zooid-Space geht dafür kein REQ raus und `agentMentionItems` liefert
+            // ohnehin leer — beide Riegel stehen in `agentDirectory*.ts`, nicht hier.
+            void listenAgentDirectory(url, this._controller.signal)
+            this._unsubAgents = deriveAgentDirectory(url).subscribe((view: AgentDirectoryView) => {
+                this._agentView = view
+                this._recomputeAgentItems()
             })
             this._unsubJoined = deriveUserInRoom(url, this.h).subscribe((isMember: boolean) => {
                 this.joined = isMember
@@ -6071,6 +6104,9 @@ export function registerNostrComponents(Alpine: {
             this._unsubJoined = null
             this._unsubMembers?.()
             this._unsubMembers = null
+            this._unsubAgents?.()
+            this._unsubAgents = null
+            this._agentItems = []
             this._unsubAdmin?.()
             this._unsubAdmin = null
             this._unsubRoomMeta?.()
@@ -6683,38 +6719,109 @@ export function registerNostrComponents(Alpine: {
         // `name npub` kleingeschrieben (Directory), Query case-insensitiv.
         onComposerInput(el: HTMLTextAreaElement, target: 'main' | 'thread' = 'main') {
             this._mentionTarget = target // merkt, welchen Draft pickMention später splicen muss
-            const caret = el.selectionStart ?? el.value.length
-            const match = /(?:^|\s)@([^\s@]*)$/.exec(el.value.slice(0, caret))
-            if (!match) {
+            // Die Suchform lebt seit dem Forge-Composer in `mentionCompose.ts`:
+            // zwei Flächen mit demselben regulären Ausdruck wären zwei Antworten
+            // auf „was ist eine Erwähnung im Entwurf", und die zweite altert
+            // unbemerkt. Verhalten unverändert; die Regeln sind dort jetzt unter
+            // `node --test` festgehalten (`mentionCompose.test.ts`).
+            const treffer = mentionQueryAt(el.value, el.selectionStart ?? el.value.length)
+            if (!treffer) {
                 this.closeMentions()
                 return
             }
-            this.mentionQuery = match[1]
-            this._mentionStart = caret - match[1].length - 1
-            const q = this.mentionQuery.toLowerCase()
-            this.mentionItems = this._members.filter((mem) => !q || mem.search.includes(q)).slice(0, 8)
+            this.mentionQuery = treffer.query
+            this._mentionStart = treffer.start
+            this.mentionItems = this._mentionItemsFor(this.mentionQuery)
             this.mentionIndex = 0
             this.mentionOpen = this.mentionItems.length > 0
+        },
+        /**
+         * Die gefilterte Vorschlagsliste zu einer Suche.
+         *
+         * Eigene Funktion, weil sie an ZWEI Stellen gebraucht wird: beim Tippen
+         * und beim Nachziehen einer Quelle. Agenten vor Mitgliedern, jede
+         * Identität genau einmal, Deckel getrennt je Sorte — alle drei Regeln
+         * stehen in `mergeMentionItems` (rein, getestet), nicht hier.
+         */
+        _mentionItemsFor(query: string) {
+            const q = query.toLowerCase()
+
+            return mergeMentionItems(
+                this._members.filter((mem) => !q || mem.search.includes(q)),
+                this._agentItems.filter((mem) => !q || mem.search.includes(q)),
+            )
+        },
+        /**
+         * Die Agenten-Vorschläge dieses Raums neu falten. Läuft bei jeder Änderung
+         * an einer der beiden Quellen (Verzeichnis, Directory) — nicht bei jedem
+         * Tastendruck: `onComposerInput` filtert nur noch über das Ergebnis.
+         *
+         * Der Kanalfilter (`channel_ids` enthält `this.h`), der Betrachterfilter
+         * (`respond_to`/`respond_to_allowlist`) und der zooid-Riegel liegen
+         * vollständig in `agentMentionItems` — hier steht keine Regel, nur die
+         * Übergabe der Zustände.
+         */
+        _recomputeAgentItems() {
+            const view = this._agentView
+            this._agentItems = view
+                ? agentMentionItems({
+                      agents: view.agents,
+                      h: this.h,
+                      viewerPubkey: view.viewerPubkey,
+                      spaceKind: view.spaceKind,
+                      encodeNpub: nip19.npubEncode,
+                      memberItems: this._members,
+                      // Im Chat ist der Raum, in dem der Nutzer steht, per
+                      // Konstruktion einer von seinen — der Riegel ist hier
+                      // erfüllt und steht trotzdem da, damit die Regel EINE
+                      // Fassung hat und nicht zwei.
+                      knownChannelIds: new Set([this.h]),
+                  })
+                : []
+            // **Ein laufender Vorschlag zieht nach.** Beide Quellen tröpfeln
+            // asynchron herein (das Verzeichnis wartet auf die NIP-11-Runde);
+            // berechnet wurde die Liste bisher nur je Tastendruck. Wer eine
+            // Zehntelsekunde vor dem Eintreffen `@ceo` tippt, sah den Agenten
+            // deshalb NIE — es brauchte einen weiteren Tastendruck. In der
+            // Forge-Fläche als E2E-Flake aufgeschlagen und dort zuerst behoben;
+            // dies ist dieselbe Lücke im Chat.
+            //
+            // Die Bedingung ist der offene SUCHBEGRIFF (`_mentionStart >= 0`),
+            // nicht das offene Fenster: der schlimmere Fall ist gerade der, in
+            // dem das Fenster mangels Treffern zu ist.
+            if (this._mentionStart >= 0) {
+                const items = this._mentionItemsFor(this.mentionQuery)
+                this.mentionItems = items
+                // Die Auswahl NICHT auf 0 zurücksetzen: wer gerade mit den
+                // Pfeilen wählt, spränge sonst bei jedem eintreffenden Profil
+                // zurück an den Anfang.
+                this.mentionIndex = Math.min(this.mentionIndex, Math.max(0, items.length - 1))
+                this.mentionOpen = items.length > 0
+            }
         },
         // Vorschlag übernehmen: `@query` (ab dem @) durch `nostr:npub… ` ersetzen,
         // Cursor dahinter setzen. Der Render-Pfad löst das npub zu `@Name` auf.
         pickMention(item: MentionItem) {
             const isThread = this._mentionTarget === 'thread'
             const draft = isThread ? this.threadDraft : this.draft
-            const insert = `nostr:${item.npub} `
-            const before = draft.slice(0, this._mentionStart)
-            const after = draft.slice(this._mentionStart + 1 + this.mentionQuery.length)
+            // Die Form lebt in `interactions.ts` neben `mentionPubkeys`, das sie
+            // wieder auflöst — beide Richtungen altern dort gemeinsam und sind
+            // ohne welshman-Boot testbar (`agentPTag.test.ts`).
+            const insert = mentionInsert(item)
+            // Ersetzen UND die neue Schreibmarke: beides gehört zum selben
+            // Vorgang und steht deshalb zusammen in `mentionCompose.ts`.
+            const { text, caret } = spliceMention(draft, this._mentionStart, this.mentionQuery.length, insert)
             if (isThread) {
-                this.threadDraft = before + insert + after
+                this.threadDraft = text
             } else {
-                this.draft = before + insert + after
+                this.draft = text
             }
             this.closeMentions()
             const magics = this as unknown as AlpineMagics
             magics.$nextTick(() => {
                 const c = (isThread ? magics.$refs.threadComposer : magics.$refs.composer) as HTMLTextAreaElement | undefined
                 if (c) {
-                    const pos = before.length + insert.length
+                    const pos = caret
                     c.focus()
                     c.setSelectionRange(pos, pos)
                     this.autoGrow(c)

@@ -48,6 +48,14 @@ import { toast } from './toast.ts'
 import { formatTimestamp } from './locale.ts'
 import { warmProfiles } from './profiles.ts'
 import { deriveEventsForUrl } from './repository.ts'
+import { roomsByUrl } from './groups.ts'
+import { normalizeRelayUrl } from '@welshman/util'
+import { deriveSpaceDirectory, loadMemberProfiles, loadSpaceDirectory, watchSpaceDirectory, type DirectoryView } from './members.ts'
+import { deriveAgentDirectory, listenAgentDirectory, type AgentDirectoryView } from './agentDirectory.ts'
+import { agentMentionItems, mergeMentionItems, type MentionItemLike } from './agentDirectoryData.ts'
+import { mentionInsert } from './interactions.ts'
+import { mentionQueryAt, spliceMention } from './mentionCompose.ts'
+import { wakeMentionedAgents, type WakeResult } from './forgeWake.ts'
 import { WORKSPACE_URL, deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { DEFAULT_FORGE_TAB, FORGE_TAB_PARAM, readForgeTab } from './forgeTab.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
@@ -1207,6 +1215,23 @@ type ForgeRepoState = {
     commentError: Record<string, string>
     /** Neu gezeichnet, wenn sich ein Riegel ändert — `isBusy` ist kein Store. */
     busyTick: number
+    /**
+     * Der @-Vorschlag. EIN Zustand für alle Composer dieser Seite (ein Issue-
+     * Formular plus je ein Kommentarfeld pro Vorgang) — `target` sagt, welcher
+     * gerade tippt. Zwei offene Vorschläge kann es nicht geben: es tippt immer
+     * nur ein Feld.
+     */
+    mention: { open: boolean; items: MentionItemLike[]; index: number; query: string; target: string }
+    /**
+     * Was aus der Weckmeldung wurde, je Absendeziel (`issue` oder
+     * `comment:<wurzel-id>`) — auch der Fall „es ging keine raus".
+     *
+     * **Der leere Fall ist der wichtige.** Wer `@ceo` schreibt und absendet,
+     * wartet sonst auf eine Antwort, die per Konstruktion nie kommt: das Repo
+     * hängt an keinem Kanal, oder der Agent antwortet diesem Autor nicht. Ein
+     * stilles Nichts wäre hier die schlechteste aller Rückmeldungen.
+     */
+    wakeNotice: Record<string, { tone: 'ok' | 'warn'; text: string }>
     _naddr: string
     _dead: boolean
     _controller: AbortController | null
@@ -1215,7 +1240,28 @@ type ForgeRepoState = {
     _unsubSelf: (() => void) | null
     _unsubViewer: (() => void) | null
     _unsubPending: (() => void) | null
+    _unsubMembers: (() => void) | null
+    _unsubAgents: (() => void) | null
     _relaySelf: string
+    /** Mitglieder-Vorschläge aus dem Space-Directory (13534 + kind 0). */
+    _members: MentionItemLike[]
+    /** Agenten-Vorschläge, bereits auf Kanal und Betrachter gefiltert. */
+    _agentItems: MentionItemLike[]
+    /** Letzter Stand des Agenten-Verzeichnisses (Einträge + Relay-Art + Betrachter). */
+    _agentView: AgentDirectoryView | null
+    /** Schon angeforderte Profile — verhindert dieselbe Anfrage bei jedem Update. */
+    _loadedProfiles: Set<string>
+    /**
+     * Die Kanäle DIESES Nutzers in diesem Space (39000 aus `roomsByUrl`).
+     *
+     * Der Riegel gegen einen fremdgesetzten Zielkanal: `buzz-channel` steht in
+     * einem 30617, das jedes Relay-Mitglied ankündigen darf. Begründung und
+     * Messung stehen an `planWake`.
+     */
+    _channelIds: Set<string>
+    _unsubRooms: (() => void) | null
+    /** Index des `@` im Entwurf, `-1` = kein offener Vorschlag. */
+    _mentionStart: number
     init(): void
     destroy(): void
     _boot(): Promise<void>
@@ -1244,7 +1290,10 @@ type ForgeRepoState = {
     toggleIssueDraft(): void
     submitIssue(): Promise<void>
     commentBusy(rootId: string): boolean
-    submitComment(root: { id: string; author: string; repoAddress: string; comments: { createdAt: number }[] }): Promise<void>
+    submitComment(
+        root: { id: string; title?: string; author: string; repoAddress: string; comments: { createdAt: number }[] },
+        art?: 'issue' | 'pr',
+    ): Promise<void>
     statusOptions(): { code: WritableIssueStatus; label: string }[]
     statusGateFor(row: { author: string; repoAddress: string }): WriteGate
     canSetStatus(row: { author: string; repoAddress: string }): boolean
@@ -1256,7 +1305,19 @@ type ForgeRepoState = {
     failedIssues(): FailedWriteRow[]
     failedFor(rootId: string): FailedWriteRow[]
     dismiss(id: string): void
+    // ── @-Erwähnung + Weckmeldung ───────────────────────────────────────────
+    onComposerInput(el: HTMLTextAreaElement, target: string): void
+    mentionKey(event: KeyboardEvent): void
+    pickMention(item: MentionItemLike): void
+    closeMentions(): void
+    _mentionItemsFor(query: string): MentionItemLike[]
+    _recomputeAgentItems(): void
+    _wake(target: string, content: string, vorgang: WakeTargetInput): Promise<void>
+    dismissWake(target: string): void
 }
+
+/** Was `_wake` über den Vorgang wissen muss, den es meldet. */
+type WakeTargetInput = { art: 'issue' | 'pr'; eventId: string; what: 'issue' | 'comment' }
 
 /**
  * Registrierung der beiden Inseln.
@@ -1435,6 +1496,8 @@ export function wireForge(Alpine: {
             commentDraft: {},
             commentError: {},
             busyTick: 0,
+            mention: { open: false, items: [], index: 0, query: '', target: '' },
+            wakeNotice: {},
             _naddr: String(naddr ?? ''),
             _dead: false,
             _controller: null,
@@ -1443,7 +1506,16 @@ export function wireForge(Alpine: {
             _unsubSelf: null,
             _unsubViewer: null,
             _unsubPending: null,
+            _unsubMembers: null,
+            _unsubAgents: null,
             _relaySelf: '',
+            _members: [],
+            _agentItems: [],
+            _agentView: null,
+            _channelIds: new Set<string>(),
+            _unsubRooms: null,
+            _mentionStart: -1,
+            _loadedProfiles: new Set<string>(),
             init() {
                 this._controller = new AbortController()
                 this._unsubKind = deriveSpaceKind(WORKSPACE_URL).subscribe((kind: SpaceKind) => {
@@ -1463,6 +1535,54 @@ export function wireForge(Alpine: {
                 this._unsubPending = forgePending.subscribe((list: PendingWrite[]) => {
                     this.pending = list
                 })
+                // ── Zwei Quellen für den @-Vorschlag ────────────────────────
+                //
+                // Dieselben wie im Chat (`bridge.ts`), und aus demselben Grund
+                // hier noch einmal statt geteilt: der Chat hängt an einem RAUM,
+                // diese Fläche am Workspace. Was sie teilen, sind die reinen
+                // Regeln (`agentMentionItems`, `mergeMentionItems`,
+                // `mentionCompose.ts`) — nicht die Anbindung.
+                //
+                // Der Kanal für die Eignungsprüfung ist der `buzz-channel` des
+                // REPOS und steht erst mit `view` fest; deshalb faltet
+                // `_recomputeAgentItems` auch dort noch einmal.
+                const signal = this._controller?.signal
+                if (WORKSPACE_URL && signal) {
+                    void loadSpaceDirectory(WORKSPACE_URL)
+                    watchSpaceDirectory(WORKSPACE_URL, signal)
+                    this._unsubMembers = deriveSpaceDirectory(WORKSPACE_URL).subscribe((dir: DirectoryView) => {
+                        this._members = dir.members.map((m) => ({
+                            pubkey: m.pubkey,
+                            npub: m.npub,
+                            name: m.name,
+                            picture: m.picture,
+                            search: m.search,
+                        }))
+                        const fehlend = dir.members
+                            .map((m) => m.pubkey)
+                            .filter((pk) => !this._loadedProfiles.has(pk))
+                        if (fehlend.length) {
+                            fehlend.forEach((pk) => this._loadedProfiles.add(pk))
+                            loadMemberProfiles(WORKSPACE_URL, fehlend)
+                        }
+                        // Der Agentenvorschlag borgt sich Avatar und Profilnamen
+                        // aus dieser Liste (ein 10100 trägt kein Bild).
+                        this._recomputeAgentItems()
+                    })
+                    // Die Raumliste des Nutzers — Grundlage des Kanal-Riegels.
+                    // Sie liegt in der Insel ohnehin vor (Rail/Palette lesen
+                    // dieselbe Quelle); ein eigener REQ entsteht dafür nicht.
+                    this._unsubRooms = roomsByUrl.subscribe((byUrl: Map<string, { h: string }[]>) => {
+                        this._channelIds = new Set(
+                            (byUrl.get(normalizeRelayUrl(WORKSPACE_URL)) ?? []).map((room) => room.h),
+                        )
+                    })
+                    void listenAgentDirectory(WORKSPACE_URL, signal)
+                    this._unsubAgents = deriveAgentDirectory(WORKSPACE_URL).subscribe((view: AgentDirectoryView) => {
+                        this._agentView = view
+                        this._recomputeAgentItems()
+                    })
+                }
                 void this._boot()
             },
             destroy() {
@@ -1472,6 +1592,9 @@ export function wireForge(Alpine: {
                 this._unsubSelf?.()
                 this._unsubViewer?.()
                 this._unsubPending?.()
+                this._unsubMembers?.()
+                this._unsubAgents?.()
+                this._unsubRooms?.()
                 this._controller?.abort()
                 // Die Fehlermeldung eines Schreibversuchs gehört zu DIESEM
                 // Bildschirm. Wer die Seite verlässt, hat sie zur Kenntnis
@@ -1487,6 +1610,10 @@ export function wireForge(Alpine: {
                 }
                 this._unsub = deriveRepoView(this._naddr).subscribe((view: RepoView | null) => {
                     this.view = view
+                    // Der `buzz-channel` des Repos ist der Kanal, gegen den die
+                    // Eignung geprüft wird — er kommt mit dem Repo herein, nicht
+                    // mit dem Verzeichnis.
+                    this._recomputeAgentItems()
                     if (view) {
                         // Steht das Repo, ist die Frage beantwortet — auch wenn
                         // der `load` noch läuft (Kaltstart-Cache).
@@ -1616,6 +1743,10 @@ export function wireForge(Alpine: {
                 }
                 this.issueDraft = { ...this.issueDraft, busy: true, error: '' }
                 this.busyTick += 1
+                const titel = this.issueDraft.title.trim()
+                const rumpf = this.issueDraft.body
+                // Der Hinweis des VORIGEN Absendevorgangs gehört nicht zu diesem.
+                this.dismissWake('issue')
                 const outcome = await publishIssue(repoAddress, {
                     title: this.issueDraft.title,
                     body: this.issueDraft.body,
@@ -1627,13 +1758,24 @@ export function wireForge(Alpine: {
                 this.issueDraft = outcome.error
                     ? { ...this.issueDraft, busy: false, error: outcome.error }
                     : { open: false, title: '', body: '', error: '', busy: false }
+                // **Erst der Beitrag, dann der Weckruf** — und nur, wenn der
+                // Beitrag wirklich steht. Ein Weckruf auf ein Issue, das der
+                // Relay abgelehnt hat, schickte den Agenten auf einen Vorgang,
+                // den es nicht gibt.
+                if (!outcome.error && outcome.id) {
+                    await this._wake('issue', rumpf, {
+                        art: 'issue',
+                        eventId: outcome.id,
+                        what: 'issue',
+                    })
+                }
             },
             commentBusy(rootId: string) {
                 // `busyTick` steht hier, damit Alpine die Bindung überhaupt neu
                 // auswertet: `isBusy` liest ein Modul-`Set`, das kein Store ist.
                 return this.busyTick >= 0 && isBusy(`comment:${rootId}`)
             },
-            async submitComment(root) {
+            async submitComment(root, art = 'issue') {
                 const draft = this.commentDraft[root.id] ?? ''
                 const problem = commentDraftProblem(draft, {
                     rootId: root.id,
@@ -1648,6 +1790,7 @@ export function wireForge(Alpine: {
                     return
                 }
                 this.commentError = { ...this.commentError, [root.id]: '' }
+                this.dismissWake(`comment:${root.id}`)
                 this.busyTick += 1
                 const outcome = await publishForgeComment(
                     {
@@ -1668,6 +1811,16 @@ export function wireForge(Alpine: {
                 this.commentError = { ...this.commentError, [root.id]: outcome.error }
                 if (!outcome.error) {
                     this.commentDraft = { ...this.commentDraft, [root.id]: '' }
+                }
+                if (!outcome.error && outcome.id) {
+                    // Der Verweis zeigt auf die WURZEL: für einen Kommentar gibt
+                    // es keinen `buzz://`-Link, und der Agent soll ohnehin den
+                    // ganzen Vorgang sehen, nicht nur die letzte Zeile.
+                    await this._wake(`comment:${root.id}`, draft, {
+                        art,
+                        eventId: root.id,
+                        what: 'comment',
+                    })
                 }
             },
             statusOptions() {
@@ -1768,6 +1921,252 @@ export function wireForge(Alpine: {
             },
             dismiss(id: string) {
                 dismissPending(id)
+            },
+
+            // ── @-Erwähnung im Forge-Composer ───────────────────────────────
+            //
+            // Dieselbe Bedienung wie im Chat: Pfeile wählen, Enter/Tab übernimmt,
+            // Escape schließt. Die Mechanik (Suchform, Ersetzen) liegt in
+            // `mentionCompose.ts` und ist dort geprüft; hier steht nur, WELCHER
+            // Entwurf betroffen ist.
+            onComposerInput(el: HTMLTextAreaElement, target: string) {
+                const treffer = mentionQueryAt(el.value, el.selectionStart ?? el.value.length)
+                if (!treffer) {
+                    this.closeMentions()
+
+                    return
+                }
+                this._mentionStart = treffer.start
+                const items = this._mentionItemsFor(treffer.query)
+                this.mention = { open: items.length > 0, items, index: 0, query: treffer.query, target }
+            },
+            /**
+             * Die gefilterte Vorschlagsliste zu einer Suche.
+             *
+             * Eigene Funktion, weil sie an ZWEI Stellen gebraucht wird: beim Tippen
+             * und beim Nachziehen einer Quelle. Agenten vor Mitgliedern und jede
+             * Identität genau einmal — die Regel steht in `mergeMentionItems`
+             * (rein, getestet), nicht hier.
+             */
+            _mentionItemsFor(query: string) {
+                const q = query.toLowerCase()
+
+                // Der Deckel liegt in `mergeMentionItems` und ist ZWEIGETEILT
+                // (Agenten/Menschen getrennt) — ein gemeinsamer Schnitt auf der
+                // fertigen Liste ließ Agenten die Menschen verdrängen und
+                // einander dazu. Begründung dort.
+                return mergeMentionItems(
+                    this._members.filter((item) => !q || item.search.includes(q)),
+                    this._agentItems.filter((item) => !q || item.search.includes(q)),
+                )
+            },
+            /**
+             * Tastatur am Composer. Gibt der Vorschlag nichts her, passiert
+             * nichts — insbesondere wird dann NICHT `preventDefault` gerufen, und
+             * Zeilenumbruch/Tabulator verhalten sich wie immer.
+             */
+            mentionKey(event: KeyboardEvent) {
+                if (!this.mention.open || this.mention.items.length === 0) {
+                    return
+                }
+                const anzahl = this.mention.items.length
+                if (event.key === 'ArrowDown') {
+                    event.preventDefault()
+                    this.mention = { ...this.mention, index: (this.mention.index + 1) % anzahl }
+                } else if (event.key === 'ArrowUp') {
+                    event.preventDefault()
+                    this.mention = { ...this.mention, index: (this.mention.index - 1 + anzahl) % anzahl }
+                } else if (event.key === 'Enter' || event.key === 'Tab') {
+                    event.preventDefault()
+                    this.pickMention(this.mention.items[this.mention.index]!)
+                } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    this.closeMentions()
+                }
+            },
+            /**
+             * Vorschlag übernehmen: `@query` durch `nostr:npub… ` ersetzen.
+             *
+             * Der Fokus geht über ein **Datenattribut** zurück ins Feld und nicht
+             * über `x-ref`: die Kommentarfelder stehen in einem `x-for`, und ein
+             * `x-ref` im Schleifenrumpf zeigt dort nur auf den zuletzt
+             * gerenderten. Der Haken ist eindeutig, die Referenz wäre es nicht.
+             */
+            pickMention(item: MentionItemLike) {
+                if (!item) {
+                    return
+                }
+                const ziel = this.mention.target
+                const insert = mentionInsert(item)
+                const istIssue = ziel === 'issue'
+                const rootId = istIssue ? '' : ziel.slice('comment:'.length)
+                const entwurf = istIssue ? this.issueDraft.body : (this.commentDraft[rootId] ?? '')
+                const { text, caret } = spliceMention(entwurf, this._mentionStart, this.mention.query.length, insert)
+                if (istIssue) {
+                    this.issueDraft = { ...this.issueDraft, body: text }
+                } else {
+                    this.commentDraft = { ...this.commentDraft, [rootId]: text }
+                }
+                this.closeMentions()
+                const magics = this as unknown as { $nextTick: (cb: () => void) => void }
+                magics.$nextTick(() => {
+                    const feld = document.querySelector<HTMLTextAreaElement>(
+                        `[data-forge-composer="${CSS.escape(ziel)}"]`,
+                    )
+                    if (feld) {
+                        feld.focus()
+                        feld.setSelectionRange(caret, caret)
+                    }
+                })
+            },
+            closeMentions() {
+                this.mention = { open: false, items: [], index: 0, query: '', target: '' }
+                this._mentionStart = -1
+            },
+            /**
+             * Die Agenten-Vorschläge dieser Seite neu falten.
+             *
+             * Kanalfilter, Betrachterfilter und der zooid-Riegel liegen
+             * vollständig in `agentMentionItems` — hier steht keine Regel, nur
+             * die Übergabe. Maßgeblich ist der `buzz-channel` des REPOS: trägt
+             * das Announcement keinen, ist `h` leer, und `agentServesChannel`
+             * liefert für jeden Agenten `false`. Kein Kanal, kein Vorschlag.
+             */
+            _recomputeAgentItems() {
+                const view = this._agentView
+                this._agentItems = view
+                    ? agentMentionItems({
+                          agents: view.agents,
+                          h: this.view?.repo.channelId ?? '',
+                          viewerPubkey: view.viewerPubkey,
+                          spaceKind: view.spaceKind,
+                          encodeNpub: nip19.npubEncode,
+                          memberItems: this._members,
+                          knownChannelIds: this._channelIds,
+                      })
+                    : []
+                // **Ein offener Vorschlag zieht nach.** Beide Quellen tröpfeln
+                // asynchron herein: das Verzeichnis (10100) wartet auf die
+                // NIP-11-Runde, der Kanal kommt erst mit dem Repo. Wer eine
+                // Zehntelsekunde vorher `@` getippt hat, sähe sonst dauerhaft eine
+                // Liste ohne Agenten — die Vorschläge werden je Tastendruck
+                // berechnet und nie wieder angefasst. Im E2E genau so
+                // aufgeschlagen: derselbe Test, einmal grün, einmal rot.
+                if (this._mentionStart >= 0) {
+                    // **Die Bedingung ist der offene SUCHBEGRIFF, nicht das offene
+                    // Fenster.** Der schlimmste Fall ist gerade der, in dem das
+                    // Fenster ZU ist: wer den Namen eines Agenten tippt, dessen
+                    // 10100 noch unterwegs ist, hat null Treffer — und mit einer
+                    // Bedingung auf `open` käme der Vorschlag nie mehr, auch wenn
+                    // das Profil eine Sekunde später eintrifft.
+                    const items = this._mentionItemsFor(this.mention.query)
+                    this.mention = {
+                        ...this.mention,
+                        items,
+                        // Die Auswahl NICHT auf 0 zurücksetzen: wer gerade mit den
+                        // Pfeilen wählt, spränge sonst bei jedem eintreffenden
+                        // Profil zurück an den Anfang.
+                        index: Math.min(this.mention.index, Math.max(0, items.length - 1)),
+                        open: items.length > 0,
+                    }
+                }
+            },
+            /**
+             * Die Weckmeldung — **nach** einem erfolgreich veröffentlichten
+             * Beitrag, ausgelöst durch nichts als diese eine Nutzerhandlung.
+             *
+             * Ihr Ausgang ist ein EIGENES Ergebnis: scheitert sie, bleibt der
+             * Beitrag gültig und wird als gelungen dargestellt. Der Hinweis
+             * daneben sagt, was mit dem Weckruf ist — auch dann, wenn gar keiner
+             * nötig oder möglich war.
+             */
+            async _wake(target: string, content: string, vorgang: WakeTargetInput) {
+                const repo = this.view?.repo
+                if (!repo) {
+                    return
+                }
+                const ergebnis: WakeResult = await wakeMentionedAgents({
+                    url: WORKSPACE_URL,
+                    channelId: repo.channelId,
+                    agents: this._agentView?.agents ?? [],
+                    viewerPubkey: this.viewer,
+                    content,
+                    knownChannelIds: this._channelIds,
+                    target: {
+                        art: vorgang.art,
+                        eventId: vorgang.eventId,
+                        repoAddress: repo.address,
+                        what: vorgang.what,
+                    },
+                })
+                if (this._dead || ergebnis.code === 'none') {
+                    return
+                }
+                const namen = ergebnis.names.join(', ')
+                // ── Warum jede dieser Zeilen mit dem AUSGANG beginnt ──────────
+                //
+                // Die Frage des Nutzers in diesem Moment ist eine einzige:
+                // „antwortet da jetzt jemand?". Bis 2026-08-23 stand die Antwort
+                // in drei von vier Nullfällen hinter einem Gedankenstrich am
+                // Satzende — davor die Begründung, die er erst braucht, wenn er
+                // die Antwort schon kennt. Jetzt trägt jede Meldung sie in den
+                // ersten beiden Wörtern („Geweckt:" / „Niemand geweckt:"), und
+                // der Grund folgt.
+                //
+                // Und sie tun es mit EINEM Verb. Vorher hießen derselbe Vorgang
+                // „Weckmeldung", „benachrichtigt", „Benachrichtigung", „ging
+                // nicht raus" und „reagiert niemand auf dich" — fünf Wörter für
+                // eine Sache, während die Fläche daneben „Agent" und „antwortet
+                // auf Erwähnung" sagt. Ein Nutzer, der eine Oberfläche lernt,
+                // lernt ihre Wörter; wechseln sie, lernt er nichts.
+                //
+                // `:namen` kommt aus `agentLabels` und ist bereits „Name (npub…)".
+                // Die alten Fassungen setzten das noch einmal in Klammern —
+                // „(ceo (npub1abc…wxyz))" — und die doppelte Klammer las sich wie
+                // ein Tippfehler. Der Name steht jetzt im Satz.
+                const hinweis =
+                    ergebnis.code === 'sent'
+                        ? {
+                              tone: 'ok' as const,
+                              text: t('Geweckt: :namen. Die Antwort erscheint im Projektkanal.', { namen }),
+                          }
+                        : ergebnis.code === 'channel-foreign'
+                          ? {
+                                tone: 'warn' as const,
+                                text: t(
+                                    'Niemand geweckt: dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört. :namen erfährt nichts von deinem Beitrag.',
+                                    { namen },
+                                ),
+                            }
+                          : ergebnis.code === 'no-channel'
+                          ? {
+                                tone: 'warn' as const,
+                                text: t(
+                                    'Niemand geweckt: dieses Repository gehört zu keinem Kanal. :namen erfährt nichts von deinem Beitrag.',
+                                    { namen },
+                                ),
+                            }
+                          : ergebnis.code === 'not-wakeable'
+                            ? {
+                                  tone: 'warn' as const,
+                                  text: t(
+                                      'Niemand geweckt: :namen antwortet in diesem Kanal nicht auf dich. Dein Beitrag steht trotzdem.',
+                                      { namen },
+                                  ),
+                              }
+                            : {
+                                  tone: 'warn' as const,
+                                  text: t(
+                                      'Niemand geweckt: die Meldung an :namen ging nicht raus — :fehler. Dein Beitrag steht trotzdem.',
+                                      { namen, fehler: ergebnis.error },
+                                  ),
+                              }
+                this.wakeNotice = { ...this.wakeNotice, [target]: hinweis }
+            },
+            dismissWake(target: string) {
+                const rest = { ...this.wakeNotice }
+                delete rest[target]
+                this.wakeNotice = rest
             },
         }
     })
