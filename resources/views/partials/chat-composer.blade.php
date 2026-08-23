@@ -44,7 +44,18 @@
     {{-- @-Mention-Autocomplete (C4, geteilt): Pfeile wählen, Enter/Tab übernimmt, Escape schließt.
          pickMention splict in den richtigen Draft (onComposerInput merkt sich den Kontext). --}}
     <template x-if="mentionOpen">
-        <div class="surface-card absolute bottom-full left-0 z-30 mb-1 max-h-56 w-full max-w-xs overflow-y-auto rounded-card p-1 shadow-xl"
+        {{-- `data-mention-popover` grenzt die Vorschläge im DOM ab. Ohne den Haken
+             träfe ein `getByText('…')` im Negativbeweis auch die Mitgliederliste der
+             Seite, und „im Popover steht kein Agent" wäre nicht von „auf der Seite
+             steht der Name nirgends" zu unterscheiden.
+
+             Der WERT ist der Kontext, nicht bloß ein Marker: `mentionOpen` ist EIN
+             Zustand für beide Composer, also stehen bei offenem Popover immer ZWEI
+             solche Blöcke im DOM (einer davon im ausgeblendeten Thread-Panel). Beim
+             Bau dieser Spec traf `.first()` genau den unsichtbaren — der Test meldete
+             „hidden" und sah aus wie ein Produktfehler. Eine DOM-Reihenfolge ist kein
+             Vertrag; dieser Wert ist einer. --}}
+        <div data-mention-popover="{{ $context }}" class="surface-card absolute bottom-full left-0 z-30 mb-1 max-h-56 w-full max-w-xs overflow-y-auto rounded-card p-1 shadow-xl"
              x-on:click.stop>
             <template x-for="(item, i) in mentionItems" :key="item.pubkey">
                 {{-- `data-agent` ist der Haken für die Tests: ein Agentenvorschlag darf
