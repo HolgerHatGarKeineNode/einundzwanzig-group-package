@@ -23,7 +23,29 @@
     {{-- `xl:col-start-1 xl:row-start-1`: dieselbe Zelle, die `rail-skelett` bis zum
          Boot hält. Ausdrücklich statt per Auto-Placement — der Grund steht bei der
          Bühne in `app-frame.blade.php`. --}}
+    {{-- ── `/forge?tab=workspaces` ohne Tabs (P4) ────────────────────────────
+         Ab `xl` hat die Forge-Bühne keinen Kanäle-Tab mehr — die Kanäle stehen
+         hier, im Foren-Zweig. Ein geteilter Link auf diesen Tab darf deshalb
+         nicht ins Leere zeigen: die Forge-Insel schickt ein FENSTEREREIGNIS,
+         und dieser Zuhörer öffnet die Gruppe und rollt sie in den Blick.
+
+         Ein Ereignis statt eines direkten Zugriffs, weil sonst zwei Inseln
+         denselben Zustand schrieben — und die Forge-Insel müsste wissen, dass
+         es die Rail gibt. Gibt es sie nicht (Telefon, App), hört niemand zu,
+         und es passiert nichts. Das ist der richtige Ausgang, kein Fehler.
+
+         Nur vorhandene öffentliche Insel-API: `isOpen`/`toggleGroup`. Ein
+         `openGroup` gibt es nicht, deshalb die Bedingung davor — `toggleGroup`
+         unbedingt aufzurufen schlösse eine bereits offene Gruppe. --}}
     <div x-data="nostrRail" data-rail
+         x-on:forge-zeige-kanaele.window="
+             if (! isOpen('workspace')) { toggleGroup('workspace') }
+             $nextTick(() => {
+                 const gruppe = $el.querySelector('#rail-group-workspace')
+                 gruppe?.scrollIntoView({ block: 'nearest' })
+                 $el.querySelector('[data-rail-gruppenkopf=&quot;workspace&quot;]')?.focus({ preventScroll: true })
+             })
+         "
          class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
         {{-- Space-Kopf: „wo bin ich" gehört an den Anfang der Ortsspalte. --}}

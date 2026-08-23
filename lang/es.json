@@ -940,5 +940,8 @@
     "Vorschläge für die Erwähnung": "Sugerencias de mención",
     "Kanäle": "Canales",
     "1 Repository eines Projekts liegt nicht auf diesem Relay.": "1 repositorio de un proyecto no está en este relay.",
-    ":count Repositories von Projekten liegen nicht auf diesem Relay.": ":count repositorios de proyectos no están en este relay."
+    ":count Repositories von Projekten liegen nicht auf diesem Relay.": ":count repositorios de proyectos no están en este relay.",
+    "Branch": "Rama",
+    "PRs": "PRs",
+    "Kein Branch-Zustand bekannt": "Estado de rama desconocido"
 }

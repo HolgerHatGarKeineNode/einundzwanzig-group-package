@@ -126,7 +126,12 @@
                      gerissen: gemessen `scrollWidth`/`clientWidth` 55/44 für
                      „Workspace" und 160/126 für „· buzz.einundzwanzig.space", also
                      BEIDE Teile gekappt und kein ganzes Wort mehr übrig. --}}
-                <a href="{{ $headingHref }}" wire:navigate
+                {{-- `data-rail-gruppenkopf`: Sprungziel für `/forge?tab=workspaces`
+                     ab `xl`, wo die Forge-Bühne keinen Kanäle-Tab mehr hat (der
+                     Zuhörer steht in `desktop-rail.blade.php`). Generisch über den
+                     Gruppenschlüssel statt als Sonderfall für „workspace" — eine
+                     künftige Gruppe bekommt dasselbe, ohne zweite Regel. --}}
+                <a href="{{ $headingHref }}" wire:navigate data-rail-gruppenkopf="{{ $group }}"
                    @if ($headingTitle && $headingTitleValue)
                        x-bind:title="@js($headingTitle).split(':wert').join({{ $headingTitleValue }})"
                    @endif

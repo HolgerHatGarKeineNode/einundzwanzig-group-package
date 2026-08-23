@@ -139,7 +139,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              den Daten; welches immer da ist, weiß dagegen die View. --}}
                         <div class="surface-card overflow-hidden">
                             <div class="p-4">
-                                <p x-show="view.repo.description" class="text-sm text-zinc-700 dark:text-zinc-300" x-text="view.repo.description"></p>
+                                <p x-show="view.repo.description" class="forge-mass text-sm text-zinc-700 dark:text-zinc-300" x-text="view.repo.description"></p>
 
                                 {{-- Clone-URL. Kein Link: sie gehört in ein Terminal,
                                      nicht in einen Browser-Tab — der Git-Endpunkt
@@ -461,7 +461,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     <span data-forge-row-state="sending"
                                                           class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Wird gesendet …') }}</span>
                                                 </template>
-                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted" x-text="statusText(issue.status)"></span>
+                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
+                                                      :class="issue.status === 'open' ? 'text-forge-offen' : 'text-forge-ruhend'"
+                                                      x-text="statusText(issue.status)"></span>
                                                 <template x-if="issue.commentCount > 0">
                                                     <span class="inline-flex items-center gap-1 text-xs text-muted">
                                                         <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
@@ -484,7 +486,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      Renderer-Chunk noch lädt, ist `html`
                                                      leer und der Rohtext steht daneben —
                                                      als TEXT, nie als HTML. --}}
-                                                <div x-show="issue.html" class="article-content" x-html="issue.html"></div>
+                                                <div x-show="issue.html" class="article-content forge-mass" x-html="issue.html"></div>
                                                 <p x-show="!issue.html" class="whitespace-pre-wrap text-sm" x-text="issue.content"></p>
 
                                                 <template x-if="issue.comments.length > 0">
@@ -500,7 +502,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                               class="ms-1 font-semibold uppercase tracking-wider">{{ __('Wird gesendet …') }}</span>
                                                                     </template>
                                                                 </p>
-                                                                <div x-show="comment.html" class="article-content mt-1" x-html="comment.html"></div>
+                                                                <div x-show="comment.html" class="article-content forge-mass mt-1" x-html="comment.html"></div>
                                                             </li>
                                                         </template>
                                                     </ul>
@@ -662,7 +664,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
                                                           x-text="pr.shortCommit"></span>
                                                 </template>
-                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted" x-text="statusText(pr.status)"></span>
+                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
+                                                      :class="pr.status === 'open' ? 'text-forge-offen' : (pr.status === 'applied' || pr.status === 'merged' ? 'text-forge-erledigt' : 'text-forge-ruhend')"
+                                                      x-text="statusText(pr.status)"></span>
                                                 <template x-if="pr.commentCount > 0">
                                                     <span class="inline-flex items-center gap-1 text-xs text-muted">
                                                         <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
@@ -674,7 +678,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                                         <template x-if="open[pr.id]">
                                             <div class="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
-                                                <div x-show="pr.html" class="article-content" x-html="pr.html"></div>
+                                                <div x-show="pr.html" class="article-content forge-mass" x-html="pr.html"></div>
                                                 <p x-show="!pr.html" class="whitespace-pre-wrap text-sm" x-text="pr.content"></p>
 
                                                 <template x-if="pr.updates.length > 0">
@@ -712,7 +716,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                               class="ms-1 font-semibold uppercase tracking-wider">{{ __('Wird gesendet …') }}</span>
                                                                     </template>
                                                                 </p>
-                                                                <div x-show="comment.html" class="article-content mt-1" x-html="comment.html"></div>
+                                                                <div x-show="comment.html" class="article-content forge-mass mt-1" x-html="comment.html"></div>
                                                             </li>
                                                         </template>
                                                     </ul>
@@ -848,7 +852,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             </template>
                                                         </p>
                                                         <template x-if="row.body">
-                                                            <p class="mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                            <p class="forge-mass mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
                                                         </template>
                                                     </div>
                                                 </li>

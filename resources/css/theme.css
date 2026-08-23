@@ -109,6 +109,28 @@
        kein weicherer Wert. */
     --color-control-edge: var(--color-zinc-500);
 
+    /* ── Der Zustand eines Forge-Vorgangs (P4) ────────────────────────────
+       EINE neue Rolle mit drei Werten — nicht drei neue Farben. Zwei der drei
+       zeigen auf bestehende Haus-Token; nur „offen" bekommt den Markenton, weil
+       genau das der Zustand ist, der zum Handeln auffordert.
+
+       **Kein Grün/Rot/Lila.** Eine GitHub-Ampel wäre der Griff, den jeder tut,
+       und sie verstößt gegen die Hausregel „Farbe nie alleiniger Träger": sie
+       trägt die ganze Aussage in der Farbe. Hier tragen DREI Merkmale —
+       Farbe, Glyphe (`exclamation-circle` · `check-circle` · `x-circle` ·
+       `pencil-square`) und das ausgeschriebene Wort aus `statusLabel()`
+       (`forge.ts:343`). Wer keine Farbe sieht, verliert nichts (WCAG 1.4.1).
+
+       Kontrast, aus dem vorhandenen Bestand übernommen statt neu geraten:
+       brand-800 auf `bg-brand-500/10` = 5,92:1 hell, brand-300 auf zinc-900 =
+       9,56:1 dunkel (gemessen, siehe `⚡forge.blade.php` an der Ref-Pille);
+       `--color-muted` hält 7,81:1 hell / 7,11:1 dunkel (Herleitung oben);
+       zinc-900/zinc-100 sind die Primärtextwerte. Alle drei liegen über den
+       4,5:1 aus 1.4.3 und damit auch über den 3:1 aus 1.4.11 für die Glyphe. */
+    --color-forge-offen: var(--color-brand-800);
+    --color-forge-erledigt: var(--color-zinc-900);
+    --color-forge-ruhend: var(--color-muted);
+
     /* ── AAA Design-Tokens (übernommen aus einundzwanzig-mobile-app) ──────
        Radius-, Shadow- und Motion-Skala. Alle Cards/Sheets/Tiles greifen
        darauf zu, statt rounded-* punktuell zu streuen. */
@@ -148,6 +170,11 @@
         --color-accent-foreground: var(--color-zinc-950);
         --color-muted: var(--color-zinc-400);
         --color-control-edge: var(--color-zinc-400);
+        /* `--color-forge-ruhend` braucht KEINEN Dark-Zweig: es zeigt auf
+           `--color-muted`, und das wird zwei Zeilen höher schon umgeschaltet.
+           Ein zweiter Eintrag hier wäre eine zweite Wahrheit über denselben Wert. */
+        --color-forge-offen: var(--color-brand-300);
+        --color-forge-erledigt: var(--color-zinc-100);
     }
 }
 
@@ -747,3 +774,315 @@ select:focus[data-flux-control] {
     text-align: start;
 }
 .article-content th { font-weight: 600; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DIE FORGE-BÜHNE — das Zeichenraster (P4, Plan `2026-08-23T1745-forge-mobil-
+   desktop-amethyst.md`)
+   ══════════════════════════════════════════════════════════════════════════════
+
+   ── Warum HIER und nicht als Tailwind-Varianten am Markup ────────────────────
+   Container-Queries gibt es in Tailwind v4 als `@container` + `@min-[56rem]:`.
+   Beides wäre möglich; hier steht es trotzdem als echtes CSS, aus drei Gründen:
+     1. Die Schwellen sind GEMESSEN und tragen eine Begründung. Sie gehören an
+        einen Ort mit Platz für den Beleg, nicht verstreut über sechs
+        Klassenlisten.
+     2. Die Zeichenmaße (`ch`) müssen an EINER Stelle stehen. Zwei Klassen mit
+        derselben Zahl sind zwei Stellen, an denen sie auseinanderlaufen.
+     3. Arbitrary-Varianten sind JIT-abhängig — sie existieren nur, wenn sie
+        wörtlich im Quelltext stehen. Genau daran ist in diesem Haus schon eine
+        Messung gescheitert (eine `max-w-[65ch]`-Kontrolle, die es im gebauten
+        Stylesheet nie gab und deshalb nichts deckelte).
+
+   ── Warum CONTAINER und nicht Viewport-Breakpoints ───────────────────────────
+   Die Bühne ist NICHT das Fenster. Gemessen am gebauten Stand (2026-08-23,
+   Web-Host mit Rail):
+
+     | Fenster | Bühne | Inhaltsdeckel |
+     |---------|-------|---------------|
+     |  1280   |  960  |      896      |
+     |  1440   | 1120  |     1056      |
+     |  1920   | 1600  |     1504      |
+     |  2560   | 2240  |     1536 (96rem bindet) |
+
+   Zwischen Fenster und Deckel liegen die 20-rem-Rail und zwei Innenabstände,
+   die selbst breitenabhängig sind (`xl:px-8`, `2xl:px-12`). Eine aus der
+   FENSTERbreite gerechnete Schwelle feuert deshalb am falschen Punkt — und sie
+   bräche stumm, sobald die Rail je eine andere Breite bekommt. Der Container
+   misst, was wirklich da ist.
+
+   ── Die Schwellen, und woher die Zahlen kommen ───────────────────────────────
+   Die Hausschrift ist Inconsolata (`--font-sans`), eine ZELLENSCHRIFT: gemessen
+   exakt 7,00 px je Glyphe bei 14 px und 8,00 px bei 16 px. Damit ist `ch` hier
+   keine Schätzung, sondern die Zelle selbst — und `tabular-nums` überflüssig,
+   weil jede Ziffer ohnehin eine Zelle belegt.
+
+   Der Lesekanon verlangt 45–75 Zeichen je Zeile. Bei 14 px sind das 315–525 px.
+   Daraus, nicht umgekehrt, kommen alle Maße unten:
+
+     · Spur 26 rem (416 px) → 416 − 32 (Innenabstand) − 28 (Avatar+Lücke) = 356 px
+       = 51 Zeichen.
+     · Spur 30 rem (480 px) → 420 px = 60 Zeichen.
+     · Textdeckel 62 ch (434 px) = 62 Zeichen — die Obergrenze für ALLES
+       Fließende auf dieser Fläche.
+
+   `56rem` (896 px) für den Spaltenbruch: das ist genau der Deckel bei 1280 px,
+   also die erste Breite, auf der es das Desktop-Chassis überhaupt gibt. Bei
+   896 − 416 (Spur) − 24 (Lücke) bleiben 456 px Werkbank; die Beschreibung misst
+   dort 456 − 32 − 36 = 388 px = 55 Zeichen. Im Kanon.
+
+   `48rem` (768 px) für die Zeichenspalten der Werkbank: darunter reicht der
+   Platz nicht. Die Zeile braucht mindestens 32 (Innenabstand) + 36 (Glyphe) +
+   210 (30 ch Name) + 16 (Rinne) + 112 (16 ch Ref) + 147 (3 × 7 ch) + 72 (6
+   Lücken) = 625 px; bei 768 bleiben 143 px Luft. Darunter bleibt die Zeile
+   gestapelt — dieselbe Form wie auf dem Telefon, EIN Codepfad für beide Hosts.
+
+   `88rem` (1408 px) für die breitere Spur: ab dort trägt die Werkbank ihre
+   Zeichenspalten mit Reserve, und die Spur darf von 51 auf 60 Zeichen wachsen.
+*/
+
+/* Die Bühne selbst — Container, keine eigene Box-Wirkung. `inline-size`
+   (nicht `size`): die HÖHE soll weiter aus dem Inhalt kommen. */
+.forge-buehne {
+    container-type: inline-size;
+    container-name: forge;
+}
+
+.forge-raster {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+}
+
+@container forge (min-width: 56rem) {
+    .forge-raster {
+        /* `align-items: start` ist PFLICHT, nicht Feinschliff: der Default
+           `stretch` zöge die kürzere der beiden Spalten auf die Höhe der
+           längeren und gäbe ihr eine leere Fläche, die wie ein Ladefehler
+           aussieht. Dieselbe Falle wie bei `h-full` an Karten in einer
+           Flex-Zeile. */
+        grid-template-columns: minmax(0, 1fr) 26rem;
+        align-items: start;
+    }
+}
+
+@container forge (min-width: 88rem) {
+    .forge-raster {
+        grid-template-columns: minmax(0, 1fr) 30rem;
+        gap: 2rem;
+    }
+}
+
+/* Das Textmaß der ganzen Fläche. Alles Fließende trägt es — auch die Callouts:
+   ein Hinweissatz über der vollen Deckelbreite maß bei 1920 px 214 Zeichen. */
+.forge-mass {
+    max-width: 62ch;
+}
+
+/* Ein Kind, das beide Spuren einnimmt (Ladeskelett): während des Ladens ist
+   die ganze Bühne unterwegs, nicht eine ihrer Spalten. Ohne dies stünde das
+   Skelett in der 1fr-Spur und die 26-rem-Spur daneben leer. */
+.forge-voll {
+    grid-column: 1 / -1;
+}
+
+/* Der Titel einer Region. In der TAB-Form sagt der Tab bereits, was man sieht —
+   dort wäre eine zweite Überschrift Wiederholung. Für Screenreader muss sie
+   trotzdem in BEIDEN Formen existieren, sonst hängen die Tages-Trenner der Spur
+   (h3) ohne Elternebene in der Gliederung. Also: immer im DOM, sichtbar nur in
+   der zweispaltigen Form.
+
+   Die Regel hängt an `@container forge` — und die gibt es NUR im Web-Host, weil
+   dort allein `.forge-buehne` gesetzt wird. Damit ist die Host-Bedingung an
+   genau einer Stelle (im Blade) entschieden und wird hier nicht wiederholt. */
+.forge-regionstitel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+@container forge (min-width: 56rem) {
+    /* Eine echte ÜBERSCHRIFT, nicht noch eine Beschriftung.
+       Der erste Entwurf setzte sie wie die Zustandszeile darüber: 12 px,
+       versal, `text-muted`. Im Bild standen dann „REPOSITORIES 1" und
+       „REPOSITORIES" 35 px übereinander, zeichengleich gesetzt — zwei Dinge mit
+       verschiedener Aufgabe, die aussahen wie eine Wiederholung. Die
+       Zustandszeile ist eine Zusammenfassung, der Regionstitel gliedert die
+       Bühne; also bekommen sie verschiedene Rollen der Typoskala. */
+    .forge-regionstitel {
+        position: static;
+        width: auto;
+        height: auto;
+        margin: 0 0 0.5rem;
+        overflow: visible;
+        clip-path: none;
+        font-size: 0.875rem;
+        font-weight: 600;
+        line-height: 1.25rem;
+        letter-spacing: 0;
+        color: var(--color-zinc-900);
+    }
+}
+
+@layer theme {
+    .dark .forge-regionstitel {
+        color: var(--color-zinc-100);
+    }
+}
+
+/* ── Die Werkbank: das Zustandsboard ──────────────────────────────────────── */
+
+.forge-werkbank {
+    container-type: inline-size;
+    container-name: werkbank;
+}
+
+/* Die Zeichenspalten stehen GENAU EINMAL. `.forge-daten` und die Kopfzeile
+   greifen dieselbe Variable ab; beide tragen dieselbe Schriftgröße, damit `ch`
+   in beiden dieselbe Zelle meint (`ch` löst gegen die EIGENE Schriftgröße auf —
+   eine 12-px-Kopfzeile mit `16ch` wäre eine andere Breite als eine 14-px-Zelle
+   mit `16ch`, und die Spalten stünden versetzt). */
+.forge-werkbank {
+    /* REF · ISSUES · PRS · MAINTAINER. Die letzte Spur ist breiter, weil ihre
+       Überschrift ein ganzes Wort ist: „Maintainer" misst 10 Zeichen, eine
+       7-ch-Spur schnitte es ab. Ein abgeschnittener Spaltenkopf ist schlimmer
+       als eine breitere Spalte — er benennt die Zahl darunter nicht mehr. */
+    --forge-datenspalten: 16ch 7ch 7ch 12ch;
+}
+
+/* Die Zeile platziert JEDES Kind ausdrücklich. Auto-Placement neben expliziten
+   `grid-column`-Angaben führt sonst zu Kindern, die je nach Reihenfolge in einer
+   anderen Spur landen — und genau das fällt erst am Bildschirm auf. */
+.forge-zeile {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 0.75rem;
+    row-gap: 0.25rem;
+    font-size: 0.875rem;
+    align-items: start;
+}
+
+.forge-zeile > .forge-glyphe {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: start;
+}
+
+.forge-zeile > .forge-text {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+}
+
+/* Die Rinne trennt in der Spaltenform den Text von den Daten. Gestapelt gibt es
+   nichts zu trennen — dann ist sie kein Grid-Item und belegt keine Spur. */
+.forge-zeile > .forge-rinne {
+    display: none;
+}
+
+.forge-zeile > .forge-daten {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.625rem;
+    font-size: 0.875rem;
+}
+
+/* Die Kopfzeile der Spalten gibt es nur in der Spaltenform — gestapelt hätte
+   sie nichts zu beschriften. */
+.forge-kopfzeile {
+    display: none;
+}
+
+/* In der gestapelten Form trägt jede Zahl ihr Wort sichtbar („12 Issues"); die
+   nackte Ziffer daneben ist aus. In der Spaltenform kehrt sich das um: die
+   Ziffer steht in ihrer Spalte, das Wort bleibt für Screenreader erhalten.
+   BEIDE Zustände zeigen also dieselbe Aussage — der Unterschied ist nur, ob
+   die Spaltenüberschrift das Wort schon trägt. */
+.forge-zahl {
+    display: none;
+}
+
+@container werkbank (min-width: 48rem) {
+    .forge-zeile,
+    .forge-kopfzeile {
+        display: grid;
+        grid-template-columns: auto minmax(30ch, 62ch) minmax(1rem, 1fr) auto;
+        align-items: baseline;
+        column-gap: 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    .forge-zeile > .forge-glyphe {
+        grid-column: 1;
+        grid-row: 1;
+        align-self: start;
+    }
+
+    .forge-zeile > .forge-text {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .forge-zeile > .forge-rinne {
+        display: block;
+        grid-column: 3;
+        grid-row: 1;
+    }
+
+    .forge-zeile > .forge-daten,
+    .forge-kopfzeile > .forge-daten {
+        grid-column: 4;
+        grid-row: 1;
+        display: grid;
+        grid-template-columns: var(--forge-datenspalten);
+        column-gap: 0.75rem;
+        align-items: baseline;
+        row-gap: 0;
+        /* UNBEDINGT dieselbe Schriftgröße wie die Zeile: `ch` in
+           `--forge-datenspalten` löst gegen die Schrift DIESES Elements auf.
+           Eine kleinere Schrift hier ergäbe schmalere Spuren und damit eine
+           Kopfzeile, die neben ihren eigenen Zellen steht (gemessen: 56 px
+           Versatz). Wer den Kopf kleiner setzen will, setzt seine KINDER
+           kleiner — nicht dieses Raster. */
+        font-size: 0.875rem;
+    }
+
+    /* Zahlen rechtsbündig — hier ist die Vergleichbarkeit gedeckt: dieses Board
+       liest man, um Repositories gegeneinander zu halten („wo liegen 40 Issues
+       offen?"). Der Ref bleibt linksbündig, er ist eine Kennung, kein Messwert. */
+    .forge-daten > .forge-zelle-zahl {
+        text-align: end;
+    }
+
+    .forge-kopfzeile {
+        display: grid;
+    }
+
+    .forge-zahl {
+        display: inline;
+    }
+
+    /* = `sr-only`. Ausgeschrieben statt `@apply sr-only`, weil eine `@utility`
+       innerhalb einer `@container`-Regel in diesem Haus schon einmal zu einem
+       leeren `:where()` zusammengefallen ist (siehe die Herleitung bei
+       `--color-muted`). Eine ausgeschriebene Deklaration kann das nicht. */
+    .forge-wort {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border-width: 0;
+    }
+}

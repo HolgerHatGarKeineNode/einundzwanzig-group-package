@@ -940,5 +940,8 @@
     "Vorschläge für die Erwähnung": "Említési javaslatok",
     "Kanäle": "Csatornák",
     "1 Repository eines Projekts liegt nicht auf diesem Relay.": "Egy projekt 1 repositoryja nincs ezen a relayen.",
-    ":count Repositories von Projekten liegen nicht auf diesem Relay.": "Projektek :count repositoryja nincs ezen a relayen."
+    ":count Repositories von Projekten liegen nicht auf diesem Relay.": "Projektek :count repositoryja nincs ezen a relayen.",
+    "Branch": "Ág",
+    "PRs": "PRs",
+    "Kein Branch-Zustand bekannt": "Az ág állapota ismeretlen"
 }

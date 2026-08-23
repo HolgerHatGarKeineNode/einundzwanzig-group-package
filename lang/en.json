@@ -940,5 +940,8 @@
     "Vorschläge für die Erwähnung": "Mention suggestions",
     "Kanäle": "Channels",
     "1 Repository eines Projekts liegt nicht auf diesem Relay.": "1 repository of a project is not on this relay.",
-    ":count Repositories von Projekten liegen nicht auf diesem Relay.": ":count repositories of projects are not on this relay."
+    ":count Repositories von Projekten liegen nicht auf diesem Relay.": ":count repositories of projects are not on this relay.",
+    "Branch": "Branch",
+    "PRs": "PRs",
+    "Kein Branch-Zustand bekannt": "No branch state known"
 }

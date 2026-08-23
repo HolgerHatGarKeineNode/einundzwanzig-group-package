@@ -58,6 +58,11 @@ import { mentionQueryAt, spliceMention } from './mentionCompose.ts'
 import { wakeMentionedAgents, type WakeResult } from './forgeWake.ts'
 import { WORKSPACE_URL, deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { DEFAULT_FORGE_TAB, FORGE_TAB_PARAM, readForgeTab } from './forgeTab.ts'
+// Die xl-Schwelle kommt aus `viewport.ts` und wird hier NICHT als drittes Literal
+// wiederholt. Der Modulkopf dort führt aus, warum sie schon zweimal steht (CSS und
+// Store) und dass ein auseinanderlaufendes Paar ein stiller Fehler wäre — ein
+// drittes Paar wäre derselbe Fehler noch einmal.
+import { DESKTOP_QUERY } from './viewport.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
 import {
     groupTimeline,
@@ -1188,6 +1193,16 @@ type ForgeState = {
     error: string
     kind: SpaceKind
     tab: string
+    /**
+     * Steht die Bühne zweispaltig? Dann schaltet `tab` NICHTS mehr um — Werkbank
+     * und Spur sind beide sichtbar, und `?tab=` wird vom Schalter zum Sprungziel.
+     *
+     * Das ist NICHT dasselbe wie „breiter als xl": im App-Host gibt es kein
+     * Desktop-Chassis, dort bleiben die Tabs auf jeder Breite stehen (ein iPad Pro
+     * quer misst 1366 CSS-px). Gemessen wird deshalb der GERENDERTE Zustand der
+     * Tab-Leiste, nicht die Fensterbreite — siehe `_messeSpalten`.
+     */
+    zweispaltig: boolean
     overview: ForgeOverview
     _base: string
     _dead: boolean
@@ -1195,7 +1210,17 @@ type ForgeState = {
     _unsub: (() => void) | null
     _unsubKind: (() => void) | null
     _unsubSelf: (() => void) | null
+    /** Meldet den `matchMedia`-Listener der xl-Schwelle wieder ab. */
+    _unsubBreite: (() => void) | null
     _relaySelf: string
+    /** Liest am DOM ab, ob die Tab-Leiste ausgeblendet ist, und setzt `zweispaltig`. */
+    _messeSpalten(): void
+    /** Springt zu der Region, die `?tab=` benennt — nur in der zweispaltigen Form. */
+    _springZuRegion(): void
+    /** Ist der Sprung schon geglückt? Er passiert genau EINMAL je Seitenaufruf. */
+    _gesprungen: boolean
+    /** Stand `?tab=` in der Adresse? Nur dann wird überhaupt gesprungen. */
+    _tabAusAdresse: boolean
     init(): void
     destroy(): void
     _boot(): Promise<void>
@@ -1376,6 +1401,11 @@ export function wireForge(Alpine: {
             // behauptet einen Tab, der Bildschirm zeigt einen anderen. Seit P5 ist das
             // hier nicht mehr theoretisch — `/spaces?tab=workspaces` LEITET hierher.
             tab: readForgeTab(window.location.search),
+            // Startwert FALSCH, nicht `true`: das ist die harmlose Ausfallrichtung.
+            // Ohne Messung (kein `getComputedStyle`, kein DOM) bleibt die Fläche in
+            // der Tab-Form — die funktioniert auf jeder Breite, die zweispaltige
+            // nicht. Dieselbe Richtung wie `viewport.ts` beim `desktop`-Flag.
+            zweispaltig: false,
             overview: EMPTY_OVERVIEW,
             _base: String(base ?? '').replace(/\/+$/, ''),
             _dead: false,
@@ -1383,7 +1413,92 @@ export function wireForge(Alpine: {
             _unsub: null,
             _unsubKind: null,
             _unsubSelf: null,
+            _unsubBreite: null,
+            _gesprungen: false,
+            /**
+             * Stand `?tab=` WIRKLICH in der Adresse?
+             *
+             * `readForgeTab` liefert auch ohne Parameter einen Wert (den Startwert),
+             * und der erste Entwurf sprang deshalb bei JEDEM Aufruf von `/forge` —
+             * er rollte zur Aktivitätsspur und setzte den Fokus auf deren
+             * Überschrift. Im Bild war das ein Fokusring um „AKTIVITÄT", den
+             * niemand angefordert hatte; für die Tastatur war es ein gestohlener
+             * Fokus beim bloßen Öffnen einer Seite.
+             *
+             * Ein Sprung ist die Antwort auf eine ANWEISUNG in der Adresse. Ohne
+             * Anweisung wird nicht gesprungen.
+             */
+            _tabAusAdresse: new URLSearchParams(window.location.search).has(FORGE_TAB_PARAM),
             _relaySelf: '',
+            /**
+             * Zweispaltig ist die Bühne genau dann, wenn die Tab-Leiste nicht
+             * gerendert wird — das ist die EINE Wahrheit, und sie steht im
+             * ausgelieferten CSS (`xl:hidden`, gesetzt nur im Web-Host).
+             *
+             * Warum nicht `$store.viewport.desktop`: der Store kennt nur die BREITE.
+             * Im App-Host ab 1280 px stünde er auf `true`, obwohl es dort weder Rail
+             * noch zweispaltige Bühne gibt — die Kanäle wären dann von keiner Fläche
+             * mehr erreichbar. Und warum nicht ein eigenes `matchMedia` mit eigener
+             * Schwelle: das wäre das dritte Literal derselben Zahl.
+             */
+            _messeSpalten() {
+                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
+                const leiste = wurzel?.querySelector('[data-forge-tabs]')
+                this.zweispaltig =
+                    !!leiste &&
+                    typeof window.getComputedStyle === 'function' &&
+                    window.getComputedStyle(leiste).display === 'none'
+            },
+            /**
+             * `?tab=` ohne Tabs: in der zweispaltigen Form steht schon alles im Bild,
+             * ein Umschalten gäbe es also nicht mehr zu tun. Ein geteilter Link darf
+             * deshalb trotzdem nicht ins Leere zeigen — er wird zum SPRUNG.
+             *
+             * `repos`/`activity` → die Region in den Blick rollen und ihre Überschrift
+             * fokussieren (`tabindex="-1"`), damit auch ein Screenreader-Leser dort
+             * ankommt und nicht nur die Bildlaufleiste.
+             *
+             * `workspaces` → die Kanäle stehen ab `xl` im Navigator, nicht auf der
+             * Bühne. Statt von hier in die Rail-Insel hineinzugreifen (zwei Inseln, ein
+             * Zustand — genau die Kopplung, die man später nicht mehr auflösen kann),
+             * geht ein Fensterereignis hinaus. Wer zuhört, entscheidet die Rail; gibt
+             * es sie nicht, passiert nichts.
+             */
+            _springZuRegion() {
+                if (this._gesprungen || !this.zweispaltig || !this._tabAusAdresse) {
+                    return
+                }
+                if (this.tab === 'workspaces') {
+                    window.dispatchEvent(
+                        new CustomEvent('forge-zeige-kanaele', { detail: { gruppe: 'workspace' } }),
+                    )
+                    this._gesprungen = true
+
+                    return
+                }
+                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
+                const region = wurzel?.querySelector(`[data-forge-region="${this.tab}"]`)
+                const titel = region?.querySelector<HTMLElement>('[data-forge-region-titel]')
+                if (!region || !titel) {
+                    return
+                }
+                // ── Ein verstecktes Ziel nimmt keinen Fokus an ────────────────────
+                // Beim Mount steht `loading` noch, und beide Regionen sind per
+                // `x-show` aus. `focus()` auf ein `display:none`-Element tut still
+                // NICHTS — der Sprung lief ins Leere, und zwar ohne Fehler.
+                // (E2E-gemessen: „Der Fokus ist nicht auf der Werkbank-Überschrift
+                // gelandet".) Deshalb ist der Versuch wiederholbar: er meldet sich
+                // erst als erledigt, wenn der Fokus wirklich angekommen ist, und
+                // `init()` ruft ihn ein zweites Mal, sobald das Laden endet.
+                if (titel.checkVisibility?.() === false) {
+                    return
+                }
+                // `block: 'start'` und nicht `center`: die Region beginnt oben, und ein
+                // zentriertes Ziel schöbe ihre Überschrift aus dem Bild.
+                region.scrollIntoView({ block: 'start', behavior: 'auto' })
+                titel.focus({ preventScroll: true })
+                this._gesprungen = document.activeElement === titel
+            },
             init() {
                 // Tab-Wechsel in die Adresse spiegeln (`replaceState`, keine Navigation)
                 // — dieselbe Bauform und dieselbe Begründung wie auf `/spaces`: der
@@ -1407,6 +1522,44 @@ export function wireForge(Alpine: {
                 // bei einer ÄNDERUNG.
                 syncTabParam(this.tab)
                 ;(this as unknown as { $watch(p: string, cb: (v: string) => void): void }).$watch('tab', syncTabParam)
+
+                // ── Ein- oder zweispaltig? ───────────────────────────────────────
+                // Einmal sofort (das CSS steht im `<head>`, also vor dem Alpine-Boot
+                // — `getComputedStyle` liefert hier schon den endgültigen Wert), und
+                // danach bei jedem Überschreiten der xl-Schwelle. `matchMedia` und
+                // nicht `resize`: der Browser meldet nur den Wechsel, kein Debounce
+                // nötig. Dieselbe Bauform wie `viewport.ts`.
+                this._messeSpalten()
+                const mql =
+                    typeof window.matchMedia === 'function' ? window.matchMedia(DESKTOP_QUERY) : null
+                const beiWechsel = (): void => {
+                    this._messeSpalten()
+                }
+                mql?.addEventListener('change', beiWechsel)
+                this._unsubBreite = () => mql?.removeEventListener('change', beiWechsel)
+
+                // Der Sprung erst NACH dem ersten Alpine-Durchlauf: vorher trägt die
+                // Region noch `x-cloak` und hat weder Höhe noch Position, ein
+                // `scrollIntoView` liefe ins Leere. `$nextTick` statt eines Timers —
+                // eine Wartezeit wäre geraten, dieser Haken ist die Zusage.
+                const versucheSprung = (): void => {
+                    ;(this as unknown as { $nextTick(cb: () => void): void }).$nextTick(() => {
+                        this._springZuRegion()
+                    })
+                }
+                versucheSprung()
+                // Zweiter Versuch, sobald das Laden endet: vorher sind beide Regionen
+                // versteckt und nehmen keinen Fokus an. `_gesprungen` sorgt dafür,
+                // dass es trotzdem bei EINEM Sprung bleibt.
+                ;(this as unknown as { $watch(p: string, cb: (v: boolean) => void): void }).$watch(
+                    'loading',
+                    (v: boolean) => {
+                        if (!v) {
+                            versucheSprung()
+                        }
+                    },
+                )
+
                 this._controller = new AbortController()
                 this._unsubKind = deriveSpaceKind(WORKSPACE_URL).subscribe((kind: SpaceKind) => {
                     this.kind = kind
@@ -1421,6 +1574,9 @@ export function wireForge(Alpine: {
                 this._unsub?.()
                 this._unsubKind?.()
                 this._unsubSelf?.()
+                // Ohne dies überlebte der Media-Listener jede `wire:navigate`-
+                // Navigation und schriebe weiter in eine tote Insel.
+                this._unsubBreite?.()
                 this._controller?.abort()
             },
             async _boot() {
