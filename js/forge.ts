@@ -1299,6 +1299,7 @@ type ForgeRepoState = {
     mentionKey(event: KeyboardEvent): void
     pickMention(item: MentionItemLike): void
     closeMentions(): void
+    _mentionItemsFor(query: string): MentionItemLike[]
     _recomputeAgentItems(): void
     _wake(target: string, content: string, vorgang: WakeTargetInput): Promise<void>
     dismissWake(target: string): void
@@ -1915,13 +1916,24 @@ export function wireForge(Alpine: {
 
                     return
                 }
-                const q = treffer.query.toLowerCase()
                 this._mentionStart = treffer.start
-                // Agenten vor Mitgliedern, jede Identität genau einmal — die
-                // Regel steht in `mergeMentionItems` (rein, getestet).
-                const quellen = mergeMentionItems(this._members, this._agentItems)
-                const items = quellen.filter((item) => !q || item.search.includes(q)).slice(0, 8)
+                const items = this._mentionItemsFor(treffer.query)
                 this.mention = { open: items.length > 0, items, index: 0, query: treffer.query, target }
+            },
+            /**
+             * Die gefilterte Vorschlagsliste zu einer Suche.
+             *
+             * Eigene Funktion, weil sie an ZWEI Stellen gebraucht wird: beim Tippen
+             * und beim Nachziehen einer Quelle. Agenten vor Mitgliedern und jede
+             * Identität genau einmal — die Regel steht in `mergeMentionItems`
+             * (rein, getestet), nicht hier.
+             */
+            _mentionItemsFor(query: string) {
+                const q = query.toLowerCase()
+
+                return mergeMentionItems(this._members, this._agentItems)
+                    .filter((item) => !q || item.search.includes(q))
+                    .slice(0, 8)
             },
             /**
              * Tastatur am Composer. Gibt der Vorschlag nichts her, passiert
@@ -2007,6 +2019,31 @@ export function wireForge(Alpine: {
                           memberItems: this._members,
                       })
                     : []
+                // **Ein offener Vorschlag zieht nach.** Beide Quellen tröpfeln
+                // asynchron herein: das Verzeichnis (10100) wartet auf die
+                // NIP-11-Runde, der Kanal kommt erst mit dem Repo. Wer eine
+                // Zehntelsekunde vorher `@` getippt hat, sähe sonst dauerhaft eine
+                // Liste ohne Agenten — die Vorschläge werden je Tastendruck
+                // berechnet und nie wieder angefasst. Im E2E genau so
+                // aufgeschlagen: derselbe Test, einmal grün, einmal rot.
+                if (this._mentionStart >= 0) {
+                    // **Die Bedingung ist der offene SUCHBEGRIFF, nicht das offene
+                    // Fenster.** Der schlimmste Fall ist gerade der, in dem das
+                    // Fenster ZU ist: wer den Namen eines Agenten tippt, dessen
+                    // 10100 noch unterwegs ist, hat null Treffer — und mit einer
+                    // Bedingung auf `open` käme der Vorschlag nie mehr, auch wenn
+                    // das Profil eine Sekunde später eintrifft.
+                    const items = this._mentionItemsFor(this.mention.query)
+                    this.mention = {
+                        ...this.mention,
+                        items,
+                        // Die Auswahl NICHT auf 0 zurücksetzen: wer gerade mit den
+                        // Pfeilen wählt, spränge sonst bei jedem eintreffenden
+                        // Profil zurück an den Anfang.
+                        index: Math.min(this.mention.index, Math.max(0, items.length - 1)),
+                        open: items.length > 0,
+                    }
+                }
             },
             /**
              * Die Weckmeldung — **nach** einem erfolgreich veröffentlichten
