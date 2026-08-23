@@ -146,6 +146,7 @@ import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserSt
 import { deriveAgentDirectory, listenAgentDirectory, type AgentDirectoryView } from './agentDirectory.ts'
 import { agentMentionItems, mergeMentionItems } from './agentDirectoryData.ts'
 import { mentionInsert } from './interactions.ts'
+import { mentionQueryAt, spliceMention } from './mentionCompose.ts'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint.ts'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam.ts'
 import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab.ts'
@@ -6717,14 +6718,18 @@ export function registerNostrComponents(Alpine: {
         // `name npub` kleingeschrieben (Directory), Query case-insensitiv.
         onComposerInput(el: HTMLTextAreaElement, target: 'main' | 'thread' = 'main') {
             this._mentionTarget = target // merkt, welchen Draft pickMention später splicen muss
-            const caret = el.selectionStart ?? el.value.length
-            const match = /(?:^|\s)@([^\s@]*)$/.exec(el.value.slice(0, caret))
-            if (!match) {
+            // Die Suchform lebt seit dem Forge-Composer in `mentionCompose.ts`:
+            // zwei Flächen mit demselben regulären Ausdruck wären zwei Antworten
+            // auf „was ist eine Erwähnung im Entwurf", und die zweite altert
+            // unbemerkt. Verhalten unverändert; die Regeln sind dort jetzt unter
+            // `node --test` festgehalten (`mentionCompose.test.ts`).
+            const treffer = mentionQueryAt(el.value, el.selectionStart ?? el.value.length)
+            if (!treffer) {
                 this.closeMentions()
                 return
             }
-            this.mentionQuery = match[1]
-            this._mentionStart = caret - match[1].length - 1
+            this.mentionQuery = treffer.query
+            this._mentionStart = treffer.start
             const q = this.mentionQuery.toLowerCase()
             // Agenten vor Mitgliedern und jede Identität genau einmal — die Regel
             // steht in `mergeMentionItems` (rein, getestet), nicht hier.
@@ -6765,19 +6770,20 @@ export function registerNostrComponents(Alpine: {
             // wieder auflöst — beide Richtungen altern dort gemeinsam und sind
             // ohne welshman-Boot testbar (`agentPTag.test.ts`).
             const insert = mentionInsert(item)
-            const before = draft.slice(0, this._mentionStart)
-            const after = draft.slice(this._mentionStart + 1 + this.mentionQuery.length)
+            // Ersetzen UND die neue Schreibmarke: beides gehört zum selben
+            // Vorgang und steht deshalb zusammen in `mentionCompose.ts`.
+            const { text, caret } = spliceMention(draft, this._mentionStart, this.mentionQuery.length, insert)
             if (isThread) {
-                this.threadDraft = before + insert + after
+                this.threadDraft = text
             } else {
-                this.draft = before + insert + after
+                this.draft = text
             }
             this.closeMentions()
             const magics = this as unknown as AlpineMagics
             magics.$nextTick(() => {
                 const c = (isThread ? magics.$refs.threadComposer : magics.$refs.composer) as HTMLTextAreaElement | undefined
                 if (c) {
-                    const pos = before.length + insert.length
+                    const pos = caret
                     c.focus()
                     c.setSelectionRange(pos, pos)
                     this.autoGrow(c)
