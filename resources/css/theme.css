@@ -848,9 +848,21 @@ select:focus[data-flux-control] {
 
    `48rem` (768 px) für die Zeichenspalten der Werkbank: darunter reicht der
    Platz nicht. Die Zeile braucht mindestens 32 (Innenabstand) + 36 (Glyphe) +
-   210 (30 ch Name) + 16 (Rinne) + 112 (16 ch Ref) + 147 (3 × 7 ch) + 72 (6
-   Lücken) = 625 px; bei 768 bleiben 143 px Luft. Darunter bleibt die Zeile
-   gestapelt — dieselbe Form wie auf dem Telefon, EIN Codepfad für beide Hosts.
+   210 (30 ch Name) + 16 (Rinne) + 112 (16 ch Ref) + 49 (7 ch Issues) + 49
+   (7 ch PRs) + 84 (12 ch Maintainer) + 72 (6 Lücken) = **660 px**; bei 768
+   bleiben **108 px** Luft. Darunter bleibt die Zeile gestapelt — dieselbe Form
+   wie auf dem Telefon, EIN Codepfad für beide Hosts.
+   (Hier stand bis zum 2026-08-24 „147 (3 × 7 ch) = 625 px; 143 px Luft". Die
+   Datenspalten sind aber `16ch 7ch 7ch 12ch` — die Maintainer-Spur misst 12 ch,
+   und der Absatz direkt bei `--forge-datenspalten` begründet genau das. Der
+   Kommentar widersprach sich also zwei Absätze weiter. Korrigiert im Zuge von
+   P6, zusammen mit derselben Klasse Fehler in der 88-rem-Zeile weiter unten.)
+
+   **Die 108 px sind eine Komfort-, keine Hartgrenze.** Die 210 px für den Namen
+   sind ein Wunsch: die 1fr-Spur darf darunter, der Name bricht dann um. Hart
+   ist nur, was die Datenspalten selbst brauchen (32 + 36 + 16 + 294 + 72 =
+   450 px). Wer hier eine Spalte ergänzen will, rechnet gegen die 210 px — sie
+   sind es, die das Lesemaß der Beschreibung tragen.
 
    `88rem` (1408 px) für die breitere Spur: ab dort trägt die Werkbank ihre
    Zeichenspalten mit Reserve, und die Spur darf von 51 auf 60 Zeichen wachsen.
@@ -1348,8 +1360,14 @@ select:focus[data-flux-control] {
    Dieselbe zweite Stufe wie bei `.forge-raster`, aus demselben Grund. Bei
    24 rem misst der Fließtext im Steckbrief 384 − 32 (Innenabstand) = 352 px =
    50 Zeichen bei 14 px — im Kanon (45–75), aber an dessen unterem Rand. Ab
-   88 rem trägt die Werkbank 1408 − 480 = 928 px (142 Codespalten) und kann die
-   Spur auf 28 rem lassen: 416 px = 59 Zeichen. Weiter wächst sie nicht, der
+   88 rem trägt die Werkbank 1408 − 480 = 928 px (**128** Codespalten) und kann
+   die Spur auf 28 rem lassen: 416 px = 59 Zeichen.
+   (Hier stand bis zum 2026-08-24 „142". Das war nach einer ANDEREN Methode
+   gerechnet als die 83 Spalten der 65-rem-Herleitung darüber — dort wird der
+   Vorspann von 92 px abgezogen, hier war er vergessen: (928 − 92) / 6,50 = 128.
+   Reine Prosa, kein getesteter Wert; aber eine falsche Zahl neben einer
+   hergeleiteten entwertet die Herleitung. Am gebauten Stand gegengemessen: bei
+   Container 1408 meldet die Sonde 128.) Weiter wächst sie nicht, der
    Textdeckel `.forge-mass` (62 ch) bindet dann ohnehin.
 
    ── ZWEI Elemente, nicht eines ──────────────────────────────────────────────
@@ -1599,3 +1617,93 @@ select:focus[data-flux-control] {
     background: var(--color-brand-400);
 }
 
+
+/* ═══ Aktivitätsbalken und Maintainer-Stapel (P6, 2026-08-24) ═══════════════
+
+   ── Der Balken ─────────────────────────────────────────────────────────────
+   Ereignisse der letzten dreissig Tage je Repository, normalisiert auf das
+   aktivste — die Parametrierung ist ein Nutzerentscheid vom 2026-08-24, die
+   Rechnung steht in `js/forgeFilter.ts`.
+
+   40 × 4 px: er sitzt auf der NAMENSZEILE, nicht in einer Datenspalte (die
+   Herleitung steht im Blade — eine fünfte Spalte hätte den Fliesstext der Zeile
+   bei 48 rem unter das Lesemaß gedrückt). Auf einer Zeile mit 16-px-Schrift ist
+   4 px die Höhe, die noch als Balken lesbar ist und die Zeilenhöhe nicht
+   verändert; 40 px sind bei 7 px Zellenbreite knapp sechs Zeichen — schmal
+   genug, dass der Name den Platz behält.
+
+   ── Die Farbe, gerechnet ───────────────────────────────────────────────────
+   Füllung `--color-muted`, also zinc-600 hell und zinc-400 dunkel. Ein
+   Grafikobjekt nach WCAG 1.4.11 braucht 3:1 gegen JEDE angrenzende Fläche —
+   gemessen gegen Karte und Schiene:
+
+     hell:   zinc-600 auf Weiss     7,81:1  ·  auf zinc-200  6,20:1
+     dunkel: zinc-400 auf zinc-900  7,11:1  ·  auf zinc-800  6,00:1
+
+   Keine neue Farbe, und keine Markenfarbe: der Ref ist in dieser Zeile das
+   einzige Element mit brand — er ist die Kennung des Repositories, und ein
+   zweiter oranger Gegenstand daneben machte aus einem Akzent eine Aufzählung.
+   `--color-muted` ist eine VARIABLE und wechselt mit dem Modus von selbst; es
+   braucht also gar keine `.dark`-Regel, die man falsch schichten könnte.
+
+   Die Schiene trägt keine Information (sie ist die 100-%-Bezugsgröße) und
+   braucht deshalb keinen eigenen Kontrast — die Aussage steht als ZAHL daneben
+   (WCAG 1.4.1). */
+
+.forge-balken {
+    display: inline-block;
+    width: 2.5rem;
+    height: 0.25rem;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--color-zinc-200);
+}
+
+.dark .forge-balken {
+    background: var(--color-zinc-800);
+}
+
+/* Mindestens 4 % Füllung (im Blade als `Math.max(4, …)`): ein Repository mit
+   einem Ereignis gegen eines mit hundert ergäbe 1 % — bei 40 px sind das
+   0,4 px, also nichts. Ein Balken, der bei vorhandener Aktivität leer aussieht,
+   sagt das Gegenteil dessen, was er misst. Die Zahl daneben bleibt exakt. */
+.forge-balken-fuellung {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-muted);
+}
+
+/* ── Der Maintainer-Stapel ──────────────────────────────────────────────────
+   Überlappende Kreise, weil die Zelle 12 ch misst (84 px) und drei Gesichter
+   nebeneinander mit Lücke schon 72 px brauchen. Der Überlapp von 0,375 rem
+   macht daraus 44 px und lässt Platz für das „+9".
+
+   Die Reihenfolge im Stapel ist die der `maintainers`-Tags — nicht sortiert:
+   das Announcement nennt sie in einer Reihenfolge, und die ist die Aussage des
+   Repositories über sich selbst.
+
+   `isolation: isolate` plus aufsteigender `z-index` wäre die übliche Lösung für
+   „das erste Gesicht liegt oben"; hier liegt bewusst das LETZTE oben, weil der
+   Stapel von links gelesen wird und der Rand des jeweils nächsten Kreises die
+   Trennung zeigt. Der Ring in Kartenfarbe zeichnet diese Trennung — ohne ihn
+   verschmelzen zwei dunkle Avatare zu einer Form. */
+.forge-stapel {
+    display: inline-flex;
+    align-items: center;
+}
+
+.forge-stapel-platz {
+    display: inline-flex;
+    border-radius: 9999px;
+    box-shadow: 0 0 0 2px #fff;
+}
+
+.forge-stapel-platz + .forge-stapel-platz {
+    margin-inline-start: -0.375rem;
+}
+
+.dark .forge-stapel-platz {
+    box-shadow: 0 0 0 2px var(--color-zinc-900);
+}

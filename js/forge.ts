@@ -58,6 +58,17 @@ import { mentionQueryAt, spliceMention } from './mentionCompose.ts'
 import { wakeMentionedAgents, type WakeResult } from './forgeWake.ts'
 import { WORKSPACE_URL, deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { DEFAULT_FORGE_TAB, FORGE_TAB_PARAM, readForgeTab } from './forgeTab.ts'
+import {
+    type Scope,
+    type Sortierung,
+    aktivitaetJeRepo,
+    balkenLohnt,
+    filtereVorgaenge,
+    leseScope,
+    leseSortierung,
+    sortiereRepos,
+    sortiereVorgaenge,
+} from './forgeFilter.ts'
 import { readVorgang, tabForVorgang, withVorgang, type VorgangArt, type VorgangZiel } from './forgeVorgang.ts'
 // Die xl-Schwelle kommt aus `viewport.ts` und wird hier NICHT als drittes Literal
 // wiederholt. Der Modulkopf dort führt aus, warum sie schon zweimal steht (CSS und
@@ -282,6 +293,12 @@ export type RepoRow = Repo & {
      * die Initiale aus einer Hex-Ziffer bilden würde.
      */
     people: { pubkey: string; name: string; picture: string }[]
+    /** Ereignisse der letzten dreissig Tage — die Zahl neben dem Balken (P6). */
+    activityCount: number
+    /** Dieselbe Zahl, geteilt durch die des aktivsten Repos: die Balkenlänge. */
+    activityShare: number
+    /** Jüngste Regung ÜBERHAUPT — Schlüssel der Sortierung „Zuletzt aktiv". */
+    lastActivityAt: number
 }
 
 export type ProjectRow = Project & {
@@ -327,6 +344,21 @@ export type VorgangRow = {
     commentCount: number
     /** Die Adresse dieses Vorgangs auf seiner Repo-Seite — `withVorgang` aus P2. */
     href: string
+    /** Verfasser, roh und kleingeschrieben — Schlüssel des Scopes „Von mir". */
+    author: string
+    /**
+     * Auf WEN dieser Vorgang wartet — Schlüssel des Scopes „Mir zugewiesen".
+     *
+     * Ein Feld, zwei Quellen, eine Bedeutung: bei einem Issue sind es die
+     * Zugewiesenen (`assignees`), bei einem Pull Request die angefragten
+     * Reviewer (`reviewers`). Ein PR kennt keine Zuweisung — er wartet auf eine
+     * Durchsicht. Beides beantwortet dieselbe Frage („liegt das bei mir?"), und
+     * genau deshalb steht es unter EINEM Namen statt unter zweien, die die
+     * Fläche dann wieder zusammenführen müsste.
+     */
+    wartetAuf: string[]
+    /** Zeitstempel der letzten Regung — Schlüssel der Sortierung. */
+    updatedAt: number
 }
 
 /** Die Vorgänge EINES Repositories, für die workspace-weite Liste. */
@@ -354,6 +386,11 @@ export type ForgeOverview = {
     issueGroups: VorgangGruppe[]
     /** Dasselbe für Pull Requests. */
     pullGroups: VorgangGruppe[]
+    /**
+     * Lohnt der Aktivitätsbalken? Nur bei mehr als EINEM aktiven Repository —
+     * sonst wäre er immer voll und sagte nichts ({@link balkenLohnt}).
+     */
+    aktivitaetsbalken: boolean
     /**
      * Repos, die kein Projekt für sich beansprucht.
      *
@@ -385,6 +422,7 @@ const EMPTY_OVERVIEW: ForgeOverview = {
     pullGroups: [],
     unclaimed: [],
     counts: { projects: 0, repos: 0, pullRequests: 0, issues: 0, patches: 0 },
+    aktivitaetsbalken: false,
     activityGroups: [],
     truncated: [],
 }
@@ -589,8 +627,28 @@ const toActivityGroups = (
  * wird wieder auf Pfad+Query gekürzt — ein absoluter Link im `href` wäre für
  * `wire:navigate` ein Fremdziel.
  */
+/**
+ * Auf wen wartet dieser Vorgang?
+ *
+ * Ein Issue nennt seine Zugewiesenen, ein Pull Request seine angefragten
+ * Reviewer — verschiedene Felder, dieselbe Frage. Die Vereinheitlichung steht
+ * HIER und nicht in der Fläche: sonst müsste jede Liste die Fallunterscheidung
+ * noch einmal treffen, und zwei Stellen driften.
+ */
+const wartetAufVon = (item: { assignees?: string[]; reviewers?: string[] }): string[] =>
+    (item.assignees ?? item.reviewers ?? []).map((pk) => String(pk).toLowerCase())
+
 const zuGruppen = (
-    gruppen: RepoGruppe<{ id: string; title: string; status: string; author: string; updatedAt: number; commentCount: number }>[],
+    gruppen: RepoGruppe<{
+        id: string
+        title: string
+        status: string
+        author: string
+        updatedAt: number
+        commentCount: number
+        assignees?: string[]
+        reviewers?: string[]
+    }>[],
     art: VorgangArt,
     naddrOf: (address: string) => string,
 ): VorgangGruppe[] =>
@@ -612,6 +670,9 @@ const zuGruppen = (
                 timeLabel: dateLabel(item.updatedAt),
                 commentCount: item.commentCount,
                 href: basis === '' ? '' : pfadUndQuery(withVorgang(absolut(basis), { art, id: item.id })),
+                author: String(item.author ?? '').toLowerCase(),
+                wartetAuf: wartetAufVon(item),
+                updatedAt: item.updatedAt,
             })),
         }
     })
@@ -701,6 +762,18 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                     .filter((dtag, index, alle) => alle.indexOf(dtag) !== index),
             )
 
+            // ── Der Strom EINMAL, und die Zählung vom UNGEKAPPTEN Ertrag ────
+            //
+            // `ACTIVITY_LIMIT` schneidet die ANZEIGE. Zählte der Balken danach,
+            // hinge die Zahl eines Repos daran, wie viel ein anderes gepusht
+            // hat — ein Messwert, der sich durch fremde Arbeit ändert.
+            const alleEreignisse = buildActivity({
+                repos,
+                events: all,
+                relaySelf: relaySelf as string,
+            })
+            const aktivitaet = aktivitaetJeRepo(alleEreignisse, now)
+
             const rows: RepoRow[] = repos.map((repo) => ({
                 ...repo,
                 naddr: naddrForRepo(repo.owner, repo.dtag, WORKSPACE_URL ? [WORKSPACE_URL] : []),
@@ -716,6 +789,9 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                 pullRequestCount: pullsByRepo.get(repo.address) ?? 0,
                 patchCount: patchesByRepo.get(repo.address) ?? 0,
                 people: peopleOf(repo.maintainers, profiles as Map<string, { picture?: string }>),
+                activityCount: aktivitaet.get(repo.address)?.anzahl ?? 0,
+                activityShare: aktivitaet.get(repo.address)?.anteil ?? 0,
+                lastActivityAt: aktivitaet.get(repo.address)?.letzteRegung ?? 0,
             }))
             const byAddress = new Map(rows.map((row) => [row.address, row]))
             /** Repo-Koordinate → `naddr`; die Zeilen liegen ohnehin schon vor. */
@@ -757,12 +833,14 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                 },
                 // Die Übersicht mischt Repos — hier nennt die Zeile ihr Repo,
                 // aber nur beim Wechsel.
+                aktivitaetsbalken: balkenLohnt(aktivitaet),
                 activityGroups: toActivityGroups(
+                    // Derselbe Ertrag wie oben, nur für die Anzeige geschnitten.
                     // `relaySelf` ist bei Buzz der SIGNIERER der 30618 — ohne ihn
                     // fällt jede Push-Zeile heraus (F2). Er liegt in dieser
                     // Ableitung ohnehin vor; genau derselbe Wert speist
                     // `foldRepoState` ein paar Zeilen darüber.
-                    buildActivity({ repos, events: all, relaySelf: relaySelf as string }).slice(0, ACTIVITY_LIMIT),
+                    alleEreignisse.slice(0, ACTIVITY_LIMIT),
                     profiles as Map<string, { picture?: string }>,
                     now,
                     true,
@@ -1284,6 +1362,15 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                 pullRequestCount: pulls.length,
                 patchCount: patches.length,
                 people: peopleOf(repo.maintainers, profiles as Map<string, { picture?: string }>),
+                // Der Aktivitätsbalken ist ein VERGLEICH zwischen Repositories
+                // (P6). Auf der Detailseite gibt es nichts zu vergleichen — ein
+                // Balken, der immer voll ist, sagt nichts. Die Felder tragen
+                // deshalb hier bewusst 0 und werden von dieser Fläche nicht
+                // gerendert; sie stehen nur, weil `RepoRow` EIN Typ ist und
+                // bleiben soll.
+                activityCount: 0,
+                activityShare: 0,
+                lastActivityAt: 0,
             }
 
             return {
@@ -1655,6 +1742,26 @@ type ForgeState = {
     sichtbareRepos(): RepoRow[]
     /** Steht eine Suche an, die nichts gefunden hat? */
     ohneTreffer(): boolean
+    /** Der angemeldete Pubkey — `''` heisst: nicht angemeldet. */
+    viewer: string
+    _unsubViewer: (() => void) | null
+    /** In welcher Reihenfolge die Liste steht (P6). */
+    sortierung: Sortierung
+    /** Welcher Ausschnitt: alle, von mir, mir zugewiesen (P6). */
+    scope: Scope
+    /**
+     * Darf überhaupt nach „mir" gefiltert werden?
+     *
+     * Nur mit angemeldetem Schlüssel. Ohne ihn blendet die Fläche die Auswahl
+     * aus, statt eine Option anzubieten, die per Konstruktion nichts tut.
+     */
+    kannScope(): boolean
+    /** Wie viele Zeilen die aktive Liste NACH Suche und Scope zeigt. */
+    sichtbareAnzahl(): number
+    /** Wie viele es ohne Suche und Scope wären — die Bezugsgrösse daneben. */
+    gesamtAnzahl(): number
+    /** Scope und Sortierung innerhalb der Repo-Gruppen anwenden. */
+    _gefilterteGruppen(gruppen: VorgangGruppe[]): VorgangGruppe[]
     /** Suchfeld leeren. */
     sucheLoeschen(): void
     settled(): boolean
@@ -1985,6 +2092,15 @@ export function wireForge(Alpine: {
             zweispaltig: false,
             overview: EMPTY_OVERVIEW,
             suche: '',
+            // Startwerte, nicht aus der Adresse gelesen: Sortierung und Scope
+            // sind eine ANSICHT, kein Ort. Ein geteilter Link soll dieselbe
+            // Liste zeigen, nicht dieselbe Sicht darauf — und `?tab=` trägt
+            // bereits die Frage, die geteilt gehört. (Anders als bei `?issue=`
+            // aus P2: dort IST der Vorgang das Ziel des Links.)
+            sortierung: leseSortierung(undefined),
+            scope: leseScope(undefined),
+            viewer: '',
+            _unsubViewer: null,
             _base: String(base ?? '').replace(/\/+$/, ''),
             _dead: false,
             _controller: null,
@@ -2140,6 +2256,14 @@ export function wireForge(Alpine: {
                 syncTabParam(this.tab)
                 ;(this as unknown as { $watch(p: string, cb: (v: string) => void): void }).$watch('tab', syncTabParam)
 
+                // Der angemeldete Schlüssel: Grundlage des Scopes. Als ABO und
+                // nicht als einmaliges `pubkey.get()` — er kann nach dem Mount
+                // eintreffen (localStorage-Rehydrierung) und sich im Betrieb
+                // ändern (Abmelden). Dieselbe Bauform wie auf der Repo-Seite.
+                this._unsubViewer = pubkey.subscribe((pk: string | undefined) => {
+                    this.viewer = pk ?? ''
+                })
+
                 // ── Ein- oder zweispaltig? ───────────────────────────────────────
                 // Einmal sofort (das CSS steht im `<head>`, also vor dem Alpine-Boot
                 // — `getComputedStyle` liefert hier schon den endgültigen Wert), und
@@ -2194,6 +2318,7 @@ export function wireForge(Alpine: {
                 // Ohne dies überlebte der Media-Listener jede `wire:navigate`-
                 // Navigation und schriebe weiter in eine tote Insel.
                 this._unsubBreite?.()
+                this._unsubViewer?.()
                 this._controller?.abort()
             },
             async _boot() {
@@ -2261,7 +2386,37 @@ export function wireForge(Alpine: {
              * ist eine Aussage, „3 von 3" waere eine Luege ueber den Workspace.
              */
             sichtbareRepos() {
-                return filterRepos(this.overview.repos, this.suche)
+                return sortiereRepos(filterRepos(this.overview.repos, this.suche), this.sortierung)
+            },
+            kannScope() {
+                return this.viewer !== ''
+            },
+            /**
+             * Die Zahlen neben der Auswahl: „12 von 47".
+             *
+             * Sie beantworten, was Suche und Scope gerade weggenommen haben —
+             * ohne sie ist eine gefilterte Liste von einem leeren Workspace
+             * nicht zu unterscheiden. Gezählt wird die AKTIVE Liste, nicht immer
+             * die Repos: der Umschalter entscheidet, worüber die Zahl spricht.
+             */
+            sichtbareAnzahl() {
+                if (this.listeAktiv() === 'repos') {
+                    return this.sichtbareRepos().length
+                }
+
+                return (this.listeAktiv() === 'issues' ? this.issueGroups() : this.pullGroups()).reduce(
+                    (n, gruppe) => n + gruppe.items.length,
+                    0,
+                )
+            },
+            gesamtAnzahl() {
+                if (this.listeAktiv() === 'repos') {
+                    return this.overview.repos.length
+                }
+                const roh =
+                    this.listeAktiv() === 'issues' ? this.overview.issueGroups : this.overview.pullGroups
+
+                return roh.reduce((n, gruppe) => n + gruppe.items.length, 0)
             },
             ohneTreffer() {
                 return (
@@ -2291,11 +2446,40 @@ export function wireForge(Alpine: {
                 // der Normalfall hätte eine unnötig laute Adresse.
                 return tab === DEFAULT_FORGE_TAB ? this._base : `${this._base}?${FORGE_TAB_PARAM}=${tab}`
             },
+            /**
+             * Scope und Sortierung wirken INNERHALB der Repo-Gruppen.
+             *
+             * Die Gruppierung nach Repository bleibt: sie beantwortet „wo liegt
+             * das", die Sortierung „was zuerst". Eine Sortierung über die
+             * Gruppengrenzen hinweg löste die Gruppierung faktisch auf — dann
+             * wären zwei Ordnungen im Bild, und die Überschrift eines
+             * Repositories stünde über einer Zeile, die nicht mehr zu ihm
+             * gehört.
+             *
+             * Eine Gruppe, die durch den Scope leer wird, verschwindet — ein
+             * Repo-Kopf über null Zeilen behauptete einen Bestand, den es unter
+             * diesem Ausschnitt nicht gibt.
+             */
             issueGroups() {
-                return this.overview.issueGroups
+                return this._gefilterteGruppen(this.overview.issueGroups)
             },
             pullGroups() {
-                return this.overview.pullGroups
+                return this._gefilterteGruppen(this.overview.pullGroups)
+            },
+            _gefilterteGruppen(gruppen: VorgangGruppe[]) {
+                return gruppen
+                    .map((gruppe) => ({
+                        ...gruppe,
+                        items: sortiereVorgaenge(
+                            filtereVorgaenge(
+                                gruppe.items.map((row) => ({ ...row, assignees: row.wartetAuf })),
+                                this.scope,
+                                this.viewer,
+                            ),
+                            this.sortierung,
+                        ),
+                    }))
+                    .filter((gruppe) => gruppe.items.length > 0)
             },
         }
     })

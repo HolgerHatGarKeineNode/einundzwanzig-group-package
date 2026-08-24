@@ -1071,5 +1071,18 @@
     "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Ten pull request jest zamknięty. Zatwierdzenie już nic nie zmieni.",
     "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "To przypisanie nie wskazuje nikogo poprawnego — albo więcej osób, niż może unieść jedno zdarzenie.",
     "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay przyjął przypisanie, ale nie weszło ono w życie — stan w międzyczasie się zmienił.",
-    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay przyjął cofnięcie, ale nie weszło ono w życie — stan w międzyczasie się zmienił."
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay przyjął cofnięcie, ale nie weszło ono w życie — stan w międzyczasie się zmienił.",
+    ":n von :gesamt": ":n z :gesamt",
+    "Alle Vorgänge": "Wszystkie zgłoszenia",
+    "Mir zugewiesen": "Przypisane do mnie",
+    "Nach Name": "Według nazwy",
+    "Reihenfolge der Liste": "Kolejność listy",
+    "Von mir": "Ode mnie",
+    "Welche Vorgänge?": "Które zgłoszenia?",
+    "Zuletzt aktiv": "Ostatnio aktywne",
+    "Älteste zuerst": "Najstarsze najpierw",
+    "1 Ereignis in den letzten 30 Tagen": "1 zdarzenie w ostatnich 30 dniach",
+    ":count Ereignisse in den letzten 30 Tagen": ":count zdarzeń w ostatnich 30 dniach",
+    ":count Ereignisse in den letzten 30 Tagen#few": ":count zdarzenia w ostatnich 30 dniach",
+    "Pfad": "Ścieżka"
 }

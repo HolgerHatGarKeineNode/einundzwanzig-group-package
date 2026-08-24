@@ -1040,5 +1040,17 @@
     "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Deze pull request is afgesloten. Een goedkeuring verandert daar niets meer aan.",
     "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "Deze toewijzing noemt niemand geldigs — of meer mensen dan één event kan dragen.",
     "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "De relay accepteerde de toewijzing, maar ze is niet doorgevoerd — de stand is intussen veranderd.",
-    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "De relay accepteerde de intrekking, maar ze is niet doorgevoerd — de stand is intussen veranderd."
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "De relay accepteerde de intrekking, maar ze is niet doorgevoerd — de stand is intussen veranderd.",
+    ":n von :gesamt": ":n van :gesamt",
+    "Alle Vorgänge": "Alle items",
+    "Mir zugewiesen": "Aan mij toegewezen",
+    "Nach Name": "Op naam",
+    "Reihenfolge der Liste": "Volgorde van de lijst",
+    "Von mir": "Van mij",
+    "Welche Vorgänge?": "Welke items?",
+    "Zuletzt aktiv": "Recent actief",
+    "Älteste zuerst": "Oudste eerst",
+    "1 Ereignis in den letzten 30 Tagen": "1 gebeurtenis in de laatste 30 dagen",
+    ":count Ereignisse in den letzten 30 Tagen": ":count gebeurtenissen in de laatste 30 dagen",
+    "Pfad": "Pad"
 }

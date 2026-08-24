@@ -1040,5 +1040,17 @@
     "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Ez a pull request lezárult. A jóváhagyás már nem változtat rajta.",
     "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "Ez a hozzárendelés senkit sem nevez meg érvényesen — vagy több személyt, mint amennyit egy esemény hordozhat.",
     "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "A relay elfogadta a hozzárendelést, de nem érvényesült — az állapot időközben megváltozott.",
-    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "A relay elfogadta a visszavonást, de nem érvényesült — az állapot időközben megváltozott."
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "A relay elfogadta a visszavonást, de nem érvényesült — az állapot időközben megváltozott.",
+    ":n von :gesamt": ":n / :gesamt",
+    "Alle Vorgänge": "Összes bejegyzés",
+    "Mir zugewiesen": "Rám bízva",
+    "Nach Name": "Név szerint",
+    "Reihenfolge der Liste": "A lista sorrendje",
+    "Von mir": "Tőlem",
+    "Welche Vorgänge?": "Mely bejegyzések?",
+    "Zuletzt aktiv": "Legutóbb aktív",
+    "Älteste zuerst": "Legrégebbi elöl",
+    "1 Ereignis in den letzten 30 Tagen": "1 esemény az elmúlt 30 napban",
+    ":count Ereignisse in den letzten 30 Tagen": ":count esemény az elmúlt 30 napban",
+    "Pfad": "Útvonal"
 }

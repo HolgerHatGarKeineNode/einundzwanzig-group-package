@@ -1071,5 +1071,18 @@
     "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Este pull request está concluído. Uma aprovação já não altera nada.",
     "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "Esta atribuição não indica ninguém válido — ou mais pessoas do que um evento consegue transportar.",
     "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "O relay aceitou a atribuição, mas ela não vingou — o estado mudou entretanto.",
-    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "O relay aceitou a remoção, mas ela não vingou — o estado mudou entretanto."
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "O relay aceitou a remoção, mas ela não vingou — o estado mudou entretanto.",
+    ":n von :gesamt": ":n de :gesamt",
+    "Alle Vorgänge": "Todos os itens",
+    "Mir zugewiesen": "Atribuídos a mim",
+    "Nach Name": "Por nome",
+    "Reihenfolge der Liste": "Ordem da lista",
+    "Von mir": "De mim",
+    "Welche Vorgänge?": "Que itens?",
+    "Zuletzt aktiv": "Ativos recentemente",
+    "Älteste zuerst": "Mais antigos primeiro",
+    "1 Ereignis in den letzten 30 Tagen": "1 evento nos últimos 30 dias",
+    ":count Ereignisse in den letzten 30 Tagen": ":count eventos nos últimos 30 dias",
+    ":count Ereignisse in den letzten 30 Tagen#one": ":count evento nos últimos 30 dias",
+    "Pfad": "Caminho"
 }

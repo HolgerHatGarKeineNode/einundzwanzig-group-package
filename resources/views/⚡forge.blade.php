@@ -404,6 +404,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          nicht aufreißen, sondern in ihrem eigenen Überlauf bleiben. --}}
                     <div class="min-w-0">
                     @include('group::partials.forge-listen-umschalter')
+                    @include('group::partials.forge-ansicht')
 
                     {{-- ── Repositories ────────────────────────────────────────────── --}}
                     {{-- `listeAktiv()` kam mit P3 dazu: die linke Spur trägt jetzt DREI
@@ -607,7 +608,51 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <flux:icon.code-bracket class="size-5" />
                                     </span>
                                     <div class="forge-text min-w-0">
-                                        <p class="text-base font-semibold leading-snug" x-text="repo.name"></p>
+                                        {{-- ── Der Aktivitätsbalken (P6, Schritt 25) ──────────────
+                                             **Er steht auf der NAMENSZEILE und nicht in einer
+                                             eigenen Datenspalte, und das ist gerechnet.** Eine
+                                             fünfte Spalte hätte die Zeile bei 48 rem (der
+                                             Schwelle, ab der es die Spaltenform überhaupt gibt)
+                                             auf 32 Zeichen für Name UND Beschreibung gedrückt —
+                                             der Lesekanon beginnt bei 45. Eine Zahl, die einen
+                                             Fliesstext unter sein Maß drückt, ist zu teuer.
+                                             Hier kostet sie nur die NAMENSZEILE etwas, und ein
+                                             Name ist eine Beschriftung, kein Fliesstext.
+
+                                             Nebenbei löst der Ort das Problem, an dem die
+                                             Maintainer-Ziffer krankte: die Datenspalten gibt es
+                                             erst ab ~1624 px Fensterbreite, die Textzelle
+                                             IMMER. Der Balken steht damit auch auf dem Telefon.
+
+                                             Rechtsbündig, damit alle Balken derselben Kante
+                                             folgen — sonst gäbe es nichts zu vergleichen, und
+                                             ein Vergleichsbild ohne gemeinsame Grundlinie ist
+                                             Dekoration.
+
+                                             Kein Balken bei nur EINEM aktiven Repository
+                                             (`overview.aktivitaetsbalken`): er wäre immer voll.
+                                             Und kein Balken bei 0 Ereignissen — dort steht die
+                                             Zeile ruhig, statt eine leere Schiene zu zeigen. --}}
+                                        <p class="flex items-baseline gap-3 leading-snug">
+                                            <span class="min-w-0 flex-1 text-base font-semibold" x-text="repo.name"></span>
+                                            <template x-if="overview.aktivitaetsbalken && repo.activityCount > 0">
+                                                {{-- Die Zahl trägt die Aussage, der Balken zeigt
+                                                     sie (WCAG 1.4.1). `aria-hidden` an der
+                                                     Schiene: die Sprachausgabe hört den ganzen
+                                                     Satz aus dem `sr-only`-Text daneben, nicht
+                                                     „Grafik". --}}
+                                                <span class="flex shrink-0 items-center gap-1.5 text-xs text-muted">
+                                                    <span aria-hidden="true" class="forge-balken" data-forge-balken
+                                                          :data-anteil="Math.round(repo.activityShare * 100)">
+                                                        <span class="forge-balken-fuellung"
+                                                              :style="'width:' + Math.max(4, Math.round(repo.activityShare * 100)) + '%'"></span>
+                                                    </span>
+                                                    <span aria-hidden="true" x-text="$num(repo.activityCount)"></span>
+                                                    <span class="sr-only"
+                                                          x-text="$plural(repo.activityCount, '1 Ereignis in den letzten 30 Tagen', ':count Ereignisse in den letzten 30 Tagen')"></span>
+                                                </span>
+                                            </template>
+                                        </p>
                                         {{-- `forge-mass` deckelt bei 62 Zeichen. Ohne ihn
                                              maß diese Zeile bei 1920 px 1422 px = 203
                                              Zeichen; der Lesekanon endet bei 75. --}}
@@ -652,8 +697,55 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             <span class="forge-zahl font-semibold text-zinc-900 dark:text-zinc-100" aria-hidden="true" x-text="repo.pullRequestCount"></span>
                                             <span class="forge-wort" x-text="$plural(repo.pullRequestCount, '1 Pull Request', ':count Pull Requests')"></span>
                                         </span>
+                                        {{-- ── Gesichter statt Ziffer (P6, Schritt 24) ────────
+                                             Die Daten lagen die ganze Zeit vollständig vor —
+                                             `RepoRow.people` trägt Schlüssel, Namen und Bild —,
+                                             gerendert wurde davon nur `.length`. Und das auch
+                                             nur in der Spaltenform, also oberhalb ~1624 px
+                                             Fensterbreite; auf jedem Telefon stand statt der
+                                             Zahl das Wort und sonst nichts.
+
+                                             Der Stapel steht jetzt in BEIDEN Formen, und der
+                                             Satz („3 Maintainer") wird zum `sr-only`-Namen der
+                                             Zelle statt zu einer zweiten sichtbaren Fassung
+                                             derselben Auskunft. Damit entfällt hier das
+                                             `forge-zahl`/`forge-wort`-Paar — die beiden anderen
+                                             Zellen behalten es, sie zeigen echte Zahlen.
+
+                                             `peopleOf` ist der EINE Auflösungsweg (kein zweiter
+                                             gebaut): ein Schlüssel ohne bekanntes Profil fällt
+                                             dort auf die gekürzte npub-Form zurück, und der
+                                             Avatar bildet seine Initiale daraus. Das ist die
+                                             bewusste Rückfallebene, kein Defekt.
+
+                                             Drei Gesichter, dann eine Zahl: bei zwölf
+                                             Maintainern sind zwölf 20-px-Kreise in einer
+                                             84-px-Zelle nicht mehr Personen, sondern Textur. --}}
                                         <span class="forge-zelle-zahl">
-                                            <span class="forge-zahl font-semibold text-zinc-900 dark:text-zinc-100" aria-hidden="true" x-text="repo.people.length"></span>
+                                            <span class="forge-stapel" aria-hidden="true">
+                                                <template x-for="person in repo.people.slice(0, 3)" :key="person.pubkey">
+                                                    <span class="forge-stapel-platz" :title="person.name">
+                                                        <x-group::nostr-avatar picture="person.picture" name="person.name" size="1.25rem" />
+                                                    </span>
+                                                </template>
+                                                <template x-if="repo.people.length > 3">
+                                                    <span class="ms-1 text-[0.7rem] font-semibold text-muted"
+                                                          x-text="'+' + (repo.people.length - 3)"></span>
+                                                </template>
+                                                <template x-if="repo.people.length === 0">
+                                                    <span class="text-muted">&ndash;</span>
+                                                </template>
+                                            </span>
+                                            {{-- `forge-wort` und NICHT `sr-only`: die Klasse ist in
+                                                 der gestapelten Form sichtbar und in der Spaltenform
+                                                 visuell versteckt, aber im Vorlesebaum (siehe
+                                                 `theme.css` — sie wird dort NICHT `display:none`,
+                                                 sondern auf 1 px geklemmt). Damit steht neben dem
+                                                 Gesicht auf dem Telefon das Wort „1 Maintainer",
+                                                 während in der Spaltenform der Spaltenkopf es schon
+                                                 sagt — und die Sprachausgabe hört es in BEIDEN Formen
+                                                 genau einmal. Ein zusätzliches `sr-only` daneben
+                                                 hätte es in der gestapelten Form doppelt vorgelesen. --}}
                                             <span class="forge-wort" x-text="$plural(repo.people.length, '1 Maintainer', ':count Maintainer')"></span>
                                         </span>
                                     </span>
@@ -816,7 +908,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                              braucht, bekommt sie über `title`.
                                                              `x-bind:title` ausgeschrieben: auf normalem
                                                              HTML ist die Blade-Kurzform kein Binding. --}}
-                                                        <span x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
+                                                        {{-- `data-forge-zeit` (P6): der Prüfstand griff
+                                                             bis hierher auf „das erste `span[title]` der
+                                                             Zeile" — und das ist seit dem P1-Nachzug der
+                                                             Personen-Chip mit dem ROHEN Schlüssel im
+                                                             `title`, nicht die Zeit. Ein Anker, der die
+                                                             Position beschreibt statt der Sache, wandert
+                                                             mit dem nächsten Einschub weiter. --}}
+                                                        <span data-forge-zeit x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
                                                         {{-- Der Repo-Name steht nur, wo er sich ÄNDERT
                                                              (`showRepoName` aus `groupTimeline`) — und
                                                              nach jedem Trenner wieder. In einer Liste,

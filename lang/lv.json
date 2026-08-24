@@ -1102,5 +1102,19 @@
     "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Šis pull request ir pabeigts. Apstiprinājums tur vairs neko nemaina.",
     "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "Šis piešķīrums nenosauc nevienu derīgu — vai vairāk cilvēku, nekā viens notikums var nest.",
     "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay pieņēma piešķīrumu, bet tas nav stājies spēkā — stāvoklis pa to laiku ir mainījies.",
-    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay pieņēma atsaukšanu, bet tā nav stājusies spēkā — stāvoklis pa to laiku ir mainījies."
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay pieņēma atsaukšanu, bet tā nav stājusies spēkā — stāvoklis pa to laiku ir mainījies.",
+    ":n von :gesamt": ":n no :gesamt",
+    "Alle Vorgänge": "Visi ieraksti",
+    "Mir zugewiesen": "Piešķirts man",
+    "Nach Name": "Pēc nosaukuma",
+    "Reihenfolge der Liste": "Saraksta secība",
+    "Von mir": "No manis",
+    "Welche Vorgänge?": "Kuri ieraksti?",
+    "Zuletzt aktiv": "Nesen aktīvs",
+    "Älteste zuerst": "Vecākie vispirms",
+    "1 Ereignis in den letzten 30 Tagen": "1 notikums pēdējās 30 dienās",
+    ":count Ereignisse in den letzten 30 Tagen": ":count notikumu pēdējās 30 dienās",
+    ":count Ereignisse in den letzten 30 Tagen#zero": ":count notikumu pēdējās 30 dienās",
+    ":count Ereignisse in den letzten 30 Tagen#one": ":count notikums pēdējās 30 dienās",
+    "Pfad": "Ceļš"
 }

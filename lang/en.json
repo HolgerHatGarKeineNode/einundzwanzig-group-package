@@ -1040,5 +1040,17 @@
     "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "This pull request is closed. An approval changes nothing about it any more.",
     "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "This assignment names nobody valid — or more people than one event can carry.",
     "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "The relay accepted the assignment, but it did not take effect — the state has changed in the meantime.",
-    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "The relay accepted the removal, but it did not take effect — the state has changed in the meantime."
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "The relay accepted the removal, but it did not take effect — the state has changed in the meantime.",
+    ":n von :gesamt": ":n of :gesamt",
+    "Alle Vorgänge": "All items",
+    "Mir zugewiesen": "Assigned to me",
+    "Nach Name": "By name",
+    "Reihenfolge der Liste": "List order",
+    "Von mir": "From me",
+    "Welche Vorgänge?": "Which items?",
+    "Zuletzt aktiv": "Recently active",
+    "Älteste zuerst": "Oldest first",
+    "1 Ereignis in den letzten 30 Tagen": "1 event in the last 30 days",
+    ":count Ereignisse in den letzten 30 Tagen": ":count events in the last 30 days",
+    "Pfad": "Path"
 }

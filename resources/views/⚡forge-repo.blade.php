@@ -68,7 +68,40 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Stellen unabhängig von jedem Verschub. --}}
         @php($titleExpr = 'view ? view.repo.name : '.json_encode(__('Repository')))
 
-        <x-group::app-header :title="__('Repository')" :title-expr="$titleExpr" :back="route('group.forge')" />
+        {{-- ── Krümelspur (P6, Schritt 27) ──────────────────────────────────────
+             **Nur unterhalb `xl`, und das ist keine Geometriefrage.** Ab `xl`
+             steht der Navigator links und zeigt Workspace, Forge und das
+             geöffnete Repository als Baum — die Spur wäre dort eine zweite
+             Antwort auf dieselbe Frage. Die Bedingung ist damit „gibt es die
+             Rail", nicht „wie breit ist die Bühne", und dafür ist `xl:hidden`
+             das richtige Werkzeug: dieselbe Mechanik und derselbe Grund wie beim
+             Zurück-Pfeil des Raums (`app-header`, `backClass`). Die
+             Container-Query-Regel des Hauses gilt der GEOMETRIE der Bühne; das
+             Chassis entscheidet weiterhin der Breakpoint.
+
+             **Was sie dem Zurück-Pfeil daneben voraus hat:** der Pfeil sagt
+             „zurück", die Spur sagt WOHIN. `aria-label` des Pfeils ist
+             „Zurück" — für jemanden, der über einen geteilten Link hier
+             gelandet ist, ist das keine Ortsangabe.
+
+             Eine `nav` mit Liste, nicht eine Reihe loser Links: der Weg IST
+             eine Struktur (dieselbe Bauform wie die Pfad-Krümelspur im
+             Code-Reiter weiter unten). Der letzte Krümel ist kein Link und
+             trägt `aria-current="page"` — er ist der Ort, an dem man steht. --}}
+        <x-group::app-header :title="__('Repository')" :title-expr="$titleExpr" :back="route('group.forge')">
+            <x-slot name="subtitle">
+                <nav class="mt-0.5 flex items-center gap-1.5 text-xs text-muted xl:hidden"
+                     aria-label="{{ __('Pfad') }}" data-forge-kruemel>
+                    <a href="{{ route('group.forge') }}" wire:navigate
+                       class="pressable rounded-tile px-1 py-0.5 -mx-1 font-semibold hover:text-zinc-900 dark:hover:text-zinc-100">{{ __('Forge') }}</a>
+                    <span aria-hidden="true">/</span>
+                    {{-- `truncate` plus `min-w-0`: ein Repo-Name ist Fremdtext und
+                         kann beliebig lang sein — ohne Deckel schöbe er die Spur
+                         über den Rand und risse den 320-px-Wächter. --}}
+                    <span class="min-w-0 truncate" aria-current="page" x-text="view ? view.repo.name : ''"></span>
+                </nav>
+            </x-slot>
+        </x-group::app-header>
 
         @if (! config('group.workspace_url'))
             {{-- Keine Quelle konfiguriert — und das ist etwas ANDERES als „dieses
