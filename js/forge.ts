@@ -1700,6 +1700,23 @@ type ForgeRepoState = {
     missing: boolean
     kind: SpaceKind
     tab: string
+    /**
+     * Steht der Steckbrief in einer eigenen SPUR (statt hinter einem
+     * Aufklapper)? Dann ist er offen, und zwar unverhandelbar: seine
+     * Zusammenfassung ist in dieser Form `display: none`, es gäbe also keinen
+     * Weg mehr, ihn wieder aufzuziehen.
+     *
+     * Startwert `false` — die harmlose Ausfallrichtung, dieselbe wie bei
+     * `zweispaltig` auf der Übersicht: ohne Messung bleibt es beim Aufklapper,
+     * und der funktioniert auf jeder Breite.
+     */
+    steckbriefSpur: boolean
+    /** Liest am DOM ab, welche Form der Steckbrief gerade hat. */
+    _messeSteckbrief(): void
+    /** Hängt den Breitenbeobachter an die Bühne — genau einmal. */
+    _beobachteBreite(): void
+    /** Beobachtet die Bühne, weil eine Container-Schwelle kein `matchMedia` hat. */
+    _breiteBeobachter: ResizeObserver | null
     view: RepoView | null
     open: Record<string, boolean>
     /** Der angemeldete Pubkey — `''` heißt: nicht angemeldet. */
@@ -2206,6 +2223,8 @@ export function wireForge(Alpine: {
             // schlimmer als keine. Ohne Parameter bleibt es beim bisherigen
             // Startwert.
             tab: tabFromLocation(),
+            steckbriefSpur: false,
+            _breiteBeobachter: null,
             view: null,
             open: {},
             viewer: '',
@@ -2236,6 +2255,58 @@ export function wireForge(Alpine: {
             _loadedProfiles: new Set<string>(),
             _ziel: readVorgang(typeof window === 'undefined' ? '' : window.location.search),
             _gesprungen: false,
+            /**
+             * Welche Form hat der Steckbrief gerade — Aufklapper oder Spur?
+             *
+             * Gemessen wird die `display`-Berechnung SEINER ZUSAMMENFASSUNG, nicht
+             * eine Breite. Die Schwelle steht damit an genau einer Stelle
+             * (`@container repo (min-width: 65rem)` in `theme.css`); eine Zahl hier
+             * wäre ihr zweites Literal und liefe beim nächsten Umbau still
+             * auseinander. Dieselbe Bauform wie `_messeSpalten()` auf der Übersicht.
+             *
+             * Warum überhaupt JavaScript: es gibt keine portable CSS-Regel, die ein
+             * geschlossenes `<details>` aufzieht (`::details-content` ist jünger als
+             * der Browser-Boden dieses Hauses). Und es gibt keinen Ausfallpfad, der
+             * dadurch schlechter würde — die ganze Repo-Fläche steht in
+             * `<template x-if="view">` und existiert ohne diese Insel gar nicht.
+             */
+            _messeSteckbrief() {
+                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
+                const schalter = wurzel?.querySelector('[data-forge-steckbrief-schalter]')
+                this.steckbriefSpur =
+                    !!schalter &&
+                    typeof window.getComputedStyle === 'function' &&
+                    window.getComputedStyle(schalter).display === 'none'
+            },
+            /**
+             * Hängt den Beobachter an die Bühne — genau einmal.
+             *
+             * Ein `matchMedia` gibt es hier nicht: die Schwelle ist eine
+             * CONTAINER-Schwelle, und die kennt das Fenster nicht. Der
+             * `ResizeObserver` liefert nur das WANN; das WAS liest weiterhin
+             * `_messeSteckbrief()` aus dem Stylesheet.
+             *
+             * Ohne `ResizeObserver` (alte Umgebung, Testdouble) bleibt es beim
+             * einmaligen Messwert. Das ist die harmlose Richtung: der Aufklapper
+             * steht dann auch auf einem breiten Schirm — und er funktioniert dort.
+             */
+            _beobachteBreite() {
+                this._messeSteckbrief()
+                if (this._breiteBeobachter || typeof ResizeObserver === 'undefined') {
+                    return
+                }
+                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
+                const buehne = wurzel?.querySelector('.forge-repo-buehne')
+                if (!buehne) {
+                    // Kein Container = App-Host (die Klasse steht dort nicht). Die
+                    // Spur gibt es da nicht, also gibt es auch nichts zu beobachten.
+                    return
+                }
+                this._breiteBeobachter = new ResizeObserver(() => {
+                    this._messeSteckbrief()
+                })
+                this._breiteBeobachter.observe(buehne)
+            },
             init() {
                 // ── Ein kalt geöffneter Vorgangs-Link (P2) ──────────────────
                 //
@@ -2318,10 +2389,16 @@ export function wireForge(Alpine: {
                         this._recomputeAgentItems()
                     })
                 }
+                // Erstwert für den Fall, dass die Fläche schon steht
+                // (Kaltstart-Cache). Die Bühne selbst gibt es erst mit `view`;
+                // der Beobachter hängt sich deshalb unten in `_boot` nach.
+                this._messeSteckbrief()
                 void this._boot()
             },
             destroy() {
                 this._dead = true
+                this._breiteBeobachter?.disconnect()
+                this._breiteBeobachter = null
                 this._unsub?.()
                 this._unsubKind?.()
                 this._unsubSelf?.()
@@ -2366,6 +2443,13 @@ export function wireForge(Alpine: {
                         if (this.klon.lage === 'pruefe') {
                             void this.klonPruefen()
                         }
+                        // Die Bühne existiert erst mit `view`. `$nextTick`, weil
+                        // Alpine das `x-if` im selben Durchlauf noch nicht
+                        // ausgerollt hat — eine Wartezeit wäre geraten, dieser
+                        // Haken ist die Zusage.
+                        ;(this as unknown as { $nextTick(cb: () => void): void }).$nextTick(() => {
+                            this._beobachteBreite()
+                        })
                         // Der Sprung zum adressierten Vorgang (P2): erst JETZT
                         // gibt es die Zeile. `$nextTick`, weil Alpine die Liste
                         // im selben Durchlauf noch nicht gerendert hat — eine
@@ -2887,6 +2971,16 @@ export function wireForge(Alpine: {
                 return this.writeGate().allowed
             },
             toggleIssueDraft() {
+                // Beim ÖFFNEN auf die Issue-Liste wechseln (P4). Der Knopf steht
+                // seither am Bildrand und ist auf jedem Reiter erreichbar — ohne
+                // diesen Wechsel legte ein Klick auf dem Code-Reiter ein Issue an,
+                // von dem danach nichts zu sehen wäre: die neue Zeile, ein
+                // abgelehnter Schreibversuch und die Weckmeldung stehen alle drei
+                // in dieser Liste. Nur beim Öffnen, nie beim Schließen — sonst
+                // risse ein Abbruch den Leser von seinem Reiter weg.
+                if (!this.issueDraft.open) {
+                    this.tab = 'issues'
+                }
                 this.issueDraft = { ...this.issueDraft, open: !this.issueDraft.open, error: '' }
             },
             async submitIssue() {

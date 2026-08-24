@@ -39,9 +39,19 @@ new #[Layout('group::einundzwanzig')] class extends Component
      zurück steht im `app-header` (Pfeil auf die Forge-Übersicht), genau wie in der
      Artikel-Vollansicht. Eine Ortsleiste über einer Detailseite behauptete, man sei
      an einem der drei Orte angekommen — man ist eine Ebene darunter. --}}
+@php($native = config('nativephp-internal.running'))
 <x-group::app-shell width="wide">
 
-    <div x-data="nostrForgeRepo(@js($naddr))" class="page-enter">
+    {{-- ── Warum die Insel und `page-enter` seit P4 ZWEI Elemente sind ─────────
+         Der Handlungsknopf (unten) ist `position: fixed`. Ein Vorfahr mit
+         `transform` macht daraus ein `absolute` gegen diesen Vorfahren — und
+         `page-enter` trägt 0,3 s lang genau das (`page-in`: `translateY(8px)`
+         → `0`). Der Knopf sprang damit beim Seitenaufbau an eine andere Stelle.
+         Die Insel bleibt die Alpine-Wurzel; die Einblendung umfasst nur noch
+         den scrollenden Inhalt, was ohnehin richtig ist: ein Handlungsknopf
+         blendet nicht mit ein, er ist da. --}}
+    <div x-data="nostrForgeRepo(@js($naddr))">
+    <div class="page-enter">
 
         {{-- `json_encode` statt `@js()`: `app-header` echot den Ausdruck über `{{ }}`
              und escapt ihn damit selbst genau einmal — dieselbe Begründung wie in
@@ -116,7 +126,79 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
 
                 <template x-if="view">
-                    <div>
+                    {{-- ══ ZWEI RÄNGE, EIN DOM (P4, 2026-08-24) ═══════════════════════
+                         WERKBANK = woran man arbeitet (Issues, Pull Requests, Code,
+                         Aktivität, Patches). STECKBRIEF = was man nachschlägt
+                         (Beschreibung, Clone-Befehl, Branches, Schutzregeln,
+                         Maintainer, README).
+
+                         Bis hierher stand der Steckbrief ÜBER der Reiterleiste, in
+                         voller Breite — auf dem Telefon vier Bildschirmhöhen, bevor das
+                         erste Issue in Sicht kam. Jetzt: schmal ein geschlossener
+                         Aufklapper, breit eine eigene Spur daneben. Derselbe Knoten,
+                         zwei Anordnungen; ein per `hidden` versteckter Zwilling bliebe
+                         für die Tastatur erreichbar und verdoppelte jeden Fokus-Stopp.
+
+                         ── Warum der Steckbrief im DOM VOR der Werkbank steht ─────────
+                         Weil die schmale Form die häufigere ist, und dort gehört ein
+                         44-px-Aufklapper zwischen die Überschrift und die Reiter — nicht
+                         unter 800 Zeilen Vorgangsliste. In der zweispaltigen Form
+                         platziert das Raster ihn ausdrücklich in Spalte 2
+                         (`grid-column`), die Lesereihenfolge bleibt also „was ist das
+                         hier" → „was liegt an". Der Preis ist bewusst gezahlt: auf dem
+                         Schirm erreicht die Tastatur die rechte Spur vor den Reitern.
+                         Sie trägt dort drei Stopps (Clone kopieren, README laden,
+                         Speicher) und beschreibt das Repository — WCAG 2.4.3 verlangt
+                         eine Reihenfolge, die Bedeutung und Bedienbarkeit erhält, und
+                         „Kopf vor Inhalt" tut das.
+
+                         ── Die Klassen stehen NUR im Web-Host ─────────────────────────
+                         Ohne `forge-repo-buehne` feuert keine einzige
+                         `@container repo`-Regel; die App bleibt damit auf JEDER Breite
+                         beim Aufklapper, ohne dass die Host-Bedingung ein zweites Mal
+                         ausgeschrieben würde. Eine Bedingung, ein Ort.
+
+                         ── ZWEI Elemente, nicht eines ─────────────────────────────────
+                         Ein Element ist sein eigener Container und wird von der eigenen
+                         `@container`-Regel nicht getroffen. Standen Container und Raster
+                         am selben Knoten, blieb das Raster lautlos einspaltig (am
+                         2026-08-23 an `.forge-raster` gemessen: `grid-template-columns`
+                         meldete `1504px` statt `1fr 30rem`). --}}
+                    <div @class(['forge-repo-buehne' => ! $native])>
+                    <div @class(['forge-repo-raster' => ! $native])>
+
+                    {{-- ── SPUR 2: der Steckbrief ─────────────────────────────────────
+                         Ein echtes `<details>`, damit Tastatur, Sprachausgabe und
+                         `aria-expanded` ohne eine Zeile JavaScript stimmen.
+
+                         **Das `open` setzt die Insel, und sie liest dafür KEINE eigene
+                         Zahl.** Es gibt keine portable CSS-Regel, die ein geschlossenes
+                         `<details>` aufzieht. Also misst `_messeSteckbrief()` die
+                         `display`-Berechnung genau dieser Zusammenfassung — sie ist in
+                         der zweispaltigen Form `none`. Dieselbe Bauform wie
+                         `_messeSpalten()` auf der Übersicht und aus demselben Grund: die
+                         Schwelle steht an genau einer Stelle, in `theme.css`. --}}
+                    {{-- Der Landmark trägt seinen NAMEN selbst. In der schmalen Form
+                         benennt ihn die Zusammenfassung; in der Spur ist die
+                         `display: none` und damit aus dem Zugänglichkeitsbaum — die
+                         Spalte hieße dort „complementary" und sonst nichts. Derselbe
+                         Schlüssel, also kein zweiter Katalogeintrag. --}}
+                    <aside class="forge-repo-spur min-w-0" aria-label="{{ __('Über dieses Repository') }}">
+                    <details class="forge-steckbrief" data-forge-steckbrief :open="steckbriefSpur">
+                        {{-- Die Zusammenfassung ist zugleich die SONDE (siehe oben) und
+                             muss deshalb im DOM bleiben. In der Spur ist sie
+                             `display: none` — damit weder sichtbar noch tabbierbar.
+
+                             Der Winkel dreht sich; die Farbe trägt hier nichts
+                             (WCAG 1.4.1). Die Zeile misst 44 px (WCAG 2.5.8 verlangt
+                             24 × 24, Apples HIG 44 × 44) und ist über die volle Breite
+                             anfassbar. --}}
+                        <summary class="surface-card" data-forge-steckbrief-schalter>
+                            <flux:icon.identification variant="micro" class="size-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+                            <span>{{ __('Über dieses Repository') }}</span>
+                            <flux:icon.chevron-right variant="micro" class="forge-steckbrief-winkel size-4 text-zinc-500 dark:text-zinc-400" />
+                        </summary>
+                        <div class="forge-steckbrief-rumpf">
                         {{-- ── Kopf des Repositories ──────────────────────────────
                              Zwei Teile mit unterschiedlichem Rang statt eines
                              Formulars: oben die Identität (Beschreibung + der Befehl,
@@ -434,6 +516,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </template>
                         </section>
+                        </div>{{-- /forge-steckbrief-rumpf --}}
+                    </details>
+                    </aside>
+
+                    {{-- ── SPUR 1: die Werkbank ───────────────────────────────────────
+                         Alles, woran man arbeitet. `min-w-0`, damit die dichten Inhalte
+                         (Diff, Dateibaum) die Spur nicht aufreißen, sondern in ihrem
+                         eigenen `overflow-x` scrollen. --}}
+                    <div class="forge-repo-werkbank min-w-0">
 
                         {{-- `scrollable scrollable:fade` — dieselbe Heilung, die P1 der
                              Übersicht gegeben hat, und hier bis zum 2026-08-23 NICHT
@@ -449,13 +540,45 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              man klonen muss; der Patch TRÄGT seine Änderung mit sich.
                              Wer sie in eine Liste wirft, muss in jeder Zeile erklären,
                              welche Sorte gerade gemeint ist. --}}
-                        <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab" class="mb-3 mt-4">
-                            <flux:tab name="code">{{ __('Code') }}</flux:tab>
+                        {{-- ── Die Leiste KLEBT (P4) ──────────────────────────────────
+                             Deckender Seitengrund, **kein** `backdrop-blur`: ein
+                             `backdrop-filter` über scrollendem Inhalt wird pro Frame neu
+                             berechnet und ist der klassische Mobile-WebView-Scroll-Killer
+                             — dieselbe Begründung, aus der die Bottom-Nav ihn auf Native
+                             ausschaltet (`components/bottom-nav.blade.php`).
+
+                             `top: 0` meint beide Male die Oberkante der scrollenden
+                             Fläche: unterhalb `xl` das Dokument, ab `xl` die Bühne
+                             (`app-shell.blade.php`, `xl:overflow-y-auto`). Die Regel
+                             musste deshalb NACH der zweiten Spur gebaut werden — der
+                             Scrollport wechselt mit ihr, und ein vorher gesetztes
+                             `sticky` hätte man zweimal gebaut. Zwischen Leiste und
+                             Scrollport liegt kein `overflow: hidden`; die Bühne und das
+                             Raster setzen keines, und die Karten mit `overflow-hidden`
+                             sind Geschwister, keine Vorfahren.
+
+                             Die Maße stehen in `theme.css` bei `.forge-reiterbank`. --}}
+                        <div class="forge-reiterbank">
+                        <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab" class="mb-0">
+                            {{-- ── Die Reihenfolge ist die Rangfolge (P4) ─────────────
+                                 „Issues" zuerst, „Code" auf drei. Der Code-Reiter lädt
+                                 bis 8,3 MB Repository-Klon (gemessen am grössten Repo
+                                 dieses Relays) und gehört damit nicht auf Position 1 —
+                                 der erste Reiter ist der, den man am häufigsten will,
+                                 nicht der teuerste. „Patches" steht hinten: die Form ist
+                                 selten und wird gesucht, nicht überflogen.
+
+                                 **Kein Verhaltenswechsel.** Der Startwert kommt aus
+                                 `tabFromLocation()` und ist seit jeher `issues`
+                                 (`js/forge.ts`); `x-model="tab"` wählt nach dem Namen,
+                                 nicht nach der Position. --}}
                             <flux:tab name="issues">{{ __('Issues') }}</flux:tab>
-                            <flux:tab name="patches">{{ __('Patches') }}</flux:tab>
                             <flux:tab name="pulls">{{ __('Pull Requests') }}</flux:tab>
+                            <flux:tab name="code">{{ __('Code') }}</flux:tab>
                             <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
+                            <flux:tab name="patches">{{ __('Patches') }}</flux:tab>
                         </flux:tabs>
+                        </div>
 
                         <template x-if="truncatedText()">
                             <flux:callout variant="secondary" icon="information-circle" class="mb-3">
@@ -465,71 +588,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                         {{-- ── Issues ───────────────────────────────────────────── --}}
                         <div x-show="tab === 'issues'" x-cloak>
-                            {{-- ── Schreibzeile (P8) ──────────────────────────────
-                                 **Wer nicht darf, sieht das hier — vor dem Klick.**
+                            {{-- ── Wer nicht darf, sieht das hier — vor dem Klick ──
                                  Es gibt bewusst kein Formular, das erst beim
                                  Absenden scheitert: entweder steht der Knopf da,
                                  oder es steht der Grund da, warum nicht.
 
-                                 Der Knopf liegt ÜBER der Liste und nicht in einer
-                                 Zeile. Ein zweiter `button` in der Kopfzeile eines
-                                 Issues machte aus dem `getByRole('button')` der
-                                 Lese-Spec einen Strict-Mode-Treffer auf zwei
-                                 Elemente — dieselbe Begründung wie am
-                                 Aufklapp-Knopf weiter unten. --}}
+                                 **Der Knopf selbst steht seit P4 nicht mehr hier.**
+                                 Er ist der Handlungsknopf am unteren Bildrand — die
+                                 einzige schöpferische Handlung dieser Fläche, und
+                                 damit erreichbar, ohne an einer Liste vorbeizurollen.
+                                 Was HIER bleibt, ist alles, was nach dem Schließen
+                                 des Blattes noch etwas zu sagen hat: der Grund einer
+                                 Verweigerung, die Weckmeldung und ein
+                                 fehlgeschlagener Schreibversuch. Ein Fehler, der mit
+                                 dem Blatt verschwände, wäre von „hat funktioniert"
+                                 nicht zu unterscheiden. --}}
                             <div class="mb-3 space-y-2">
-                                <template x-if="canWrite()">
-                                    <div>
-                                        <flux:button size="sm" variant="ghost" icon="plus"
-                                                     x-on:click="toggleIssueDraft()"
-                                                     ::aria-expanded="issueDraft.open ? 'true' : 'false'">{{ __('Neues Issue') }}</flux:button>
-
-                                        <template x-if="issueDraft.open">
-                                            <div class="surface-card mt-2 space-y-3 p-4" data-forge-issue-form>
-                                                <flux:input label="{{ __('Titel') }}" x-model="issueDraft.title"
-                                                            maxlength="256" placeholder="{{ __('Worum geht es?') }}" />
-                                                {{-- @-Erwähnung (P9): `relative` trägt das absolut
-                                                     positionierte Popover, `data-forge-composer`
-                                                     ist der Weg des Fokus zurück ins Feld
-                                                     (x-ref taugt dafür in einem x-for nicht). --}}
-                                                <div class="relative">
-                                                    <flux:textarea label="{{ __('Beschreibung') }}" x-model="issueDraft.body" rows="4"
-                                                                   data-forge-composer="issue"
-                                                                   x-on:input="onComposerInput($event.target, 'issue')"
-                                                                   x-on:keydown="mentionKey($event)"
-                                                                   placeholder="{{ __('Optional. Markdown wird gerendert. @ erwähnt jemanden.') }}" />
-                                                    @include('group::partials.forge-mention-popover', [
-                                                        'targetExpr' => "'issue'",
-                                                        'targetLabel' => 'issue',
-                                                    ])
-                                                </div>
-
-                                                <div x-show="issueDraft.error" x-cloak role="alert" data-forge-issue-error
-                                                     class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                                                    <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
-                                                    <span x-text="issueDraft.error"></span>
-                                                </div>
-
-                                                <div class="flex flex-wrap items-center gap-2">
-                                                    {{-- Der Name des Knopfes WECHSELT NICHT, wenn er
-                                                         fliegt — er wird nur unbedienbar, und der
-                                                         Zustand steht als eigener Text daneben. Ein
-                                                         Knopf, der beim Drücken seinen Namen ändert,
-                                                         ist für die Sprachausgabe ein anderer Knopf. --}}
-                                                    <flux:button size="sm" variant="primary"
-                                                                 data-forge-issue-submit
-                                                                 x-on:click="submitIssue()"
-                                                                 ::disabled="issueDraft.busy">{{ __('Issue anlegen') }}</flux:button>
-                                                    <flux:button size="sm" variant="ghost"
-                                                                 x-on:click="toggleIssueDraft()"
-                                                                 ::disabled="issueDraft.busy">{{ __('Abbrechen') }}</flux:button>
-                                                    <span x-show="issueDraft.busy" x-cloak role="status"
-                                                          class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </template>
 
                                 <template x-if="!canWrite()">
                                     <p class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
@@ -1579,10 +1653,157 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </template>
                             </div>
                         </div>
-                    </div>
+                    </div>{{-- /forge-repo-werkbank --}}
+                    </div>{{-- /forge-repo-raster --}}
+                    </div>{{-- /forge-repo-buehne --}}
                 </template>
             </div>
         @endif
+    </div>{{-- /page-enter --}}
+
+    {{-- ══ DER HANDLUNGSKNOPF ═══════════════════════════════════════════════════
+         Die EINE schöpferische Handlung dieser Fläche. Bis P4 war sie eine
+         Geisterzeile über der Issue-Liste: unsichtbar, solange man auf einem der
+         vier anderen Reiter stand, und auf dem Telefon erst nach dem Rollen.
+
+         **Nur hier, nicht auf `/forge`.** Die Übersicht bleibt auf ihrer Ebene
+         lesend — aus diesem Client geht kein `kind 30617` und kein `kind 30621`
+         hinaus (Nutzerentscheidung vom 2026-08-24). Ein Knopf dort hätte nichts
+         anzulegen.
+
+         **Ausserhalb von `page-enter` und ausserhalb der Bühne**, und beides aus
+         demselben Grund: `position: fixed` bricht an jedem Vorfahren mit
+         `transform` (die 0,3-s-Einblendung) und an jedem mit `contain: layout`
+         (das bringt `container-type: inline-size` der Bühne mit). Ein Knopf, der
+         beim Seitenaufbau springt oder am Rand der Bühne statt am Rand des
+         Fensters klebt, ist kein fester Bezugspunkt mehr.
+
+         `x-if` und nicht `x-show`: wer nicht schreiben darf, bekommt hier gar
+         nichts — den Grund sagt die Issue-Liste im Satz (`writeHint()`), nicht
+         ein toter Knopf. Und `canWrite()` wechselt nicht, während das Blatt
+         offen ist, der Auslöser bleibt für die Fokusrückgabe also stehen. --}}
+    <template x-if="!!view && canWrite()">
+        {{-- Die Breitenklammer steht ZEICHENGLEICH an drei Stellen: hier, an
+             `main` (`components/app-shell.blade.php`) und an der Bottom-Nav
+             (`components/bottom-nav.blade.php`). Ausgeschrieben und nicht
+             zusammengesetzt — Tailwind scannt den Quelltext, ein zur Laufzeit
+             gebauter Klassenname existierte im Stylesheet nie. --}}
+        <div class="forge-fab-spur mx-auto max-w-md md:max-w-lg lg:max-w-2xl xl:max-w-none">
+        <button type="button" class="forge-fab" data-forge-fab
+                x-on:click="toggleIssueDraft()"
+                aria-haspopup="dialog"
+                ::aria-expanded="issueDraft.open ? 'true' : 'false'"
+                aria-label="{{ __('Neues Issue') }}">
+            {{-- Die Glyphe ist Zierrat, das `aria-label` trägt. Ein Knopf ohne
+                 sichtbares Wort braucht einen zugänglichen Namen, und der ist hier
+                 wörtlich derselbe wie vorher an der Zeile — geteilte Prüfstände und
+                 Sprachausgabe finden ihn unverändert unter „Neues Issue". --}}
+            <flux:icon.plus class="size-6" />
+        </button>
+        </div>
+    </template>
+
+    {{-- ══ DAS BLATT ════════════════════════════════════════════════════════════
+         Unten angeschlagen auf dem Telefon, mittig ab `sm` — dieselbe Bauform wie
+         das Anmeldeblatt (`components/login-sheet.blade.php`), damit es im Haus
+         genau eine Blattform gibt.
+
+         ── Die drei Dialogregeln ──────────────────────────────────────────────────
+         `x-trap.noscroll` fängt den Fokus, sperrt den Hintergrund-Bildlauf und gibt
+         den Fokus beim Loslassen an den auslösenden Knopf zurück (Alpines
+         Fokus-Plugin, mit Livewire ausgeliefert; `returnFocus` ist dort der
+         Standard). Escape muss der Aufruf selbst erledigen: das Plugin setzt
+         `escapeDeactivates: false`, ein alleiniges Verlassen des Fokusrings ließe
+         also ein offenes Blatt ohne Falle zurück.
+
+         **Das Blatt bleibt im DOM, das FORMULAR nicht.** `x-trap` braucht ein
+         stehendes Element, an dem es hängen kann; die dokumentierte Zusage „nach
+         dem Absenden ist `[data-forge-issue-form]` weg" hängt dagegen am `x-if`
+         darin. Der Schließen-Knopf steht ausserhalb dieses `x-if` — damit hat die
+         Falle in jedem Zustand mindestens ein Ziel.
+
+         ── Bewegung ───────────────────────────────────────────────────────────────
+         240 ms hinein, 180 ms hinaus, `ease-out` beim Erscheinen. Unter
+         `prefers-reduced-motion` neutralisieren die `motion-reduce:*`-Utilities
+         Schub UND Skalierung in den Start-/Endzuständen; es bleibt ein reiner
+         Deckkraft-Übergang. --}}
+    <div x-show="issueDraft.open" x-cloak
+         class="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+         role="dialog" aria-modal="true" aria-label="{{ __('Neues Issue') }}"
+         data-forge-issue-blatt
+         x-trap.noscroll="issueDraft.open"
+         x-on:keydown.escape.prevent.stop="if (issueDraft.open && !issueDraft.busy) { toggleIssueDraft() }">
+        {{-- Der Schleier schließt bei Tipp. Kein `button`: er ist ein
+             Ausweichziel, keine Handlung — der Fokusring bliebe sonst an einer
+             leeren Fläche hängen. Für die Tastatur gibt es Escape und den
+             Schließen-Knopf. --}}
+        <div x-show="issueDraft.open" x-transition.opacity class="absolute inset-0 bg-black/40"
+             x-on:click="if (!issueDraft.busy) { toggleIssueDraft() }"></div>
+
+        <div x-show="issueDraft.open"
+             x-transition:enter="transition ease-out duration-300 motion-reduce:duration-150"
+             x-transition:enter-start="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95 motion-reduce:translate-y-0! motion-reduce:scale-100!"
+             x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave="transition ease-in duration-200 motion-reduce:duration-150"
+             x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave-end="opacity-0 translate-y-full sm:translate-y-4 sm:scale-95 motion-reduce:translate-y-0! motion-reduce:scale-100!"
+             class="surface-card relative z-10 max-h-[90dvh] w-full overflow-y-auto rounded-t-sheet pb-safe sm:max-w-lg sm:rounded-sheet">
+            <div class="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+                {{-- `h2`: das Blatt ist ein eigener Abschnitt, und die Überschrift
+                     ist der Name, den `aria-label` oben wiederholt. --}}
+                <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Neues Issue') }}</h2>
+                <flux:button size="sm" variant="ghost" icon="x-mark" square
+                             class="icon-btn-touch"
+                             x-on:click="toggleIssueDraft()"
+                             ::disabled="issueDraft.busy"
+                             aria-label="{{ __('Schließen') }}" />
+            </div>
+            <template x-if="issueDraft.open">
+                <div class="space-y-3 p-4" data-forge-issue-form>
+                    <flux:input label="{{ __('Titel') }}" x-model="issueDraft.title"
+                                maxlength="256" placeholder="{{ __('Worum geht es?') }}" />
+                    {{-- @-Erwähnung (P9): `relative` trägt das absolut
+                         positionierte Popover, `data-forge-composer`
+                         ist der Weg des Fokus zurück ins Feld
+                         (x-ref taugt dafür in einem x-for nicht). --}}
+                    <div class="relative">
+                        <flux:textarea label="{{ __('Beschreibung') }}" x-model="issueDraft.body" rows="4"
+                                       data-forge-composer="issue"
+                                       x-on:input="onComposerInput($event.target, 'issue')"
+                                       x-on:keydown="mentionKey($event)"
+                                       placeholder="{{ __('Optional. Markdown wird gerendert. @ erwähnt jemanden.') }}" />
+                        @include('group::partials.forge-mention-popover', [
+                            'targetExpr' => "'issue'",
+                            'targetLabel' => 'issue',
+                        ])
+                    </div>
+
+                    <div x-show="issueDraft.error" x-cloak role="alert" data-forge-issue-error
+                         class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                        <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
+                        <span x-text="issueDraft.error"></span>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2">
+                        {{-- Der Name des Knopfes WECHSELT NICHT, wenn er
+                             fliegt — er wird nur unbedienbar, und der
+                             Zustand steht als eigener Text daneben. Ein
+                             Knopf, der beim Drücken seinen Namen ändert,
+                             ist für die Sprachausgabe ein anderer Knopf. --}}
+                        <flux:button size="sm" variant="primary"
+                                     data-forge-issue-submit
+                                     x-on:click="submitIssue()"
+                                     ::disabled="issueDraft.busy">{{ __('Issue anlegen') }}</flux:button>
+                        <flux:button size="sm" variant="ghost"
+                                     x-on:click="toggleIssueDraft()"
+                                     ::disabled="issueDraft.busy">{{ __('Abbrechen') }}</flux:button>
+                        <span x-show="issueDraft.busy" x-cloak role="status"
+                              class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
+                    </div>
+                </div>
+            </template>
+        </div>
     </div>
+    </div>{{-- /Insel --}}
 
 </x-group::app-shell>

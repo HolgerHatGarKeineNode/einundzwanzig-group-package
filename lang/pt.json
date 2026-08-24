@@ -915,6 +915,7 @@
     ":count Artikel#one": ":count artigo",
     ":count Min. Lesezeit#one": ":count min de leitura",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.#one": "Pesquisado :count artigo — título, resumo, texto e autor.",
+    "Über dieses Repository": "Sobre este repositório",
     "Über den Autor": "Sobre o autor",
     "Autor": "Autor",
     "Autor wird gesucht…": "À procura do autor…",

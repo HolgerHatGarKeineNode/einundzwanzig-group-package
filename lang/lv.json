@@ -940,6 +940,7 @@
     ":count Min. Lesezeit#zero": ":count min lasīšanas",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.#one": "Pārmeklēts :count raksts — nosaukums, kopsavilkums, teksts un autors.",
     "Durchsucht wurden :count Artikel — Titel, Kurzfassung, Text und Autor.#zero": "Pārmeklēti :count rakstu — nosaukums, kopsavilkums, teksts un autors.",
+    "Über dieses Repository": "Par šo repozitoriju",
     "Über den Autor": "Par autoru",
     "Autor": "Autors",
     "Autor wird gesucht…": "Meklē autoru…",
