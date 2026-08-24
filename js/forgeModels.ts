@@ -779,11 +779,27 @@ export const foldStatus = (
     root: ForgeEvent,
     statusEvents: ForgeEvent[],
     maintainers: string[] = [],
+    index?: RootIndex,
 ): ForgeEvent | null => {
     const allowed = allowedActorsForRoot(root, maintainers)
+    /*
+     * **Nur der EINGANG wechselt, nicht die Regel** (Restposten P1, 2026-08-25).
+     *
+     * Ohne Index wie bisher die ganze Liste; mit Index der Eimer dieser Wurzel,
+     * den {@link indexStatus} vorsortiert und entdoppelt hat. Filter und
+     * Sortierung darunter sind Zeichen für Zeichen dieselben geblieben — auch
+     * die `referencesRoot`-Prüfung, die der Eimer bereits garantiert. Sie
+     * kostet einen Vergleich je Kandidat und macht den Vergleich mit dem alten
+     * Pfad führbar; sie wegzulassen wäre eine zweite Änderung in einem Eingriff,
+     * der ausdrücklich keine sein soll.
+     *
+     * `foldStatus` trägt die Berechtigungsentscheidung dieser Fläche. Was hier
+     * geändert wird, ist die Reihenfolge des Nachschlagens — nichts sonst.
+     */
+    const kandidaten = index ? (index.get(root.id) ?? []) : statusEvents
 
     return (
-        statusEvents
+        kandidaten
             .filter(
                 (event) =>
                     GIT_STATUS_KINDS.includes(event.kind) &&
@@ -1096,12 +1112,22 @@ export const operationOf = (event: ForgeEvent): ForgeOperation => {
  * Byte für Byte dieselben. Was hier entsteht, ist ausschliesslich eine andere
  * Reihenfolge des Nachschlagens.
  */
-export type NotizIndex = ReadonlyMap<string, readonly ForgeEvent[]>
+export type RootIndex = ReadonlyMap<string, readonly ForgeEvent[]>
 
-export const indexNotes = (commentEvents: readonly ForgeEvent[]): NotizIndex => {
+/**
+ * Der gemeinsame Kern beider Indizes: Ereignisse nach ihrer Wurzel einsortieren.
+ *
+ * **Ein Bauteil, zwei Anwendungen** — Notizen (kind 1) und Statuswechsel
+ * (1630–1633). Sie unterscheiden sich ausschliesslich im Kind-Filter; die zwei
+ * Eigenschaften, auf die sich die Faltungen verlassen, sind für beide dieselben
+ * und stehen deshalb genau einmal hier. Zwei Kopien wären zwei Orte, an denen
+ * eine davon vergessen wird — und beim Notizen-Index war genau die
+ * Entdopplung der Punkt, der ohne Absicht still gefehlt hätte.
+ */
+const indexByRoot = (events: readonly ForgeEvent[], gilt: (event: ForgeEvent) => boolean): RootIndex => {
     const eimer = new Map<string, ForgeEvent[]>()
-    for (const event of commentEvents) {
-        if (event.kind !== FORGE_COMMENT) {
+    for (const event of events) {
+        if (!gilt(event)) {
             continue
         }
         // Eigenschaft 2: je Wurzel höchstens einmal, auch bei `e` UND `E`.
@@ -1120,12 +1146,49 @@ export const indexNotes = (commentEvents: readonly ForgeEvent[]): NotizIndex => 
             }
         }
     }
+    // Eigenschaft 1: aufsteigend, bei Gleichstand die kleinere Id.
     for (const liste of eimer.values()) {
         liste.sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
     }
 
     return eimer
 }
+
+export const indexNotes = (commentEvents: readonly ForgeEvent[]): RootIndex =>
+    indexByRoot(commentEvents, (event) => event.kind === FORGE_COMMENT)
+
+/**
+ * Dasselbe für die Statuswechsel (1630–1633) — der zweite überlineare Scan.
+ *
+ * **Der Restposten aus P7.** `foldStatus` lief weiter je Wurzel über seine
+ * ganze Ereignisliste; gemessen mit dem Gesamtbestand als `statusEvents`:
+ * 8,5 / 22,5 / 83,2 ms bei 400 / 800 / 1600 Wurzeln. Herausgehalten wurde er
+ * damals bewusst — eine Signaturänderung an einer gerade sicherheitsgeprüften
+ * Faltung gehört nicht in denselben Commit wie ein Performance-Umbau.
+ *
+ * **Die Faltungsregel selbst bleibt unangetastet**: {@link foldStatus} filtert
+ * und sortiert unverändert weiter, nur über einen kleineren Eingang. Der Eimer
+ * enthält per Konstruktion genau die Ereignisse, für die `referencesRoot`
+ * wahr ist — die Prüfung bleibt trotzdem stehen, damit der Vergleich mit dem
+ * alten Pfad Zeile für Zeile zu führen ist.
+ */
+export const indexStatus = (statusEvents: readonly ForgeEvent[]): RootIndex =>
+    indexByRoot(statusEvents, (event) => GIT_STATUS_KINDS.includes(event.kind))
+
+/**
+ * Die Indizes, die ein Konstruktor an seine Wurzel-Bauer weiterreicht.
+ *
+ * **Ein Bündel statt zweier weiterer Stellungsparameter.** `toPullRequest` hat
+ * schon fünf; ein sechster und siebter, beide vom selben Typ und beide optional,
+ * wären an der Aufrufstelle nicht mehr auseinanderzuhalten — und eine
+ * vertauschte Reihenfolge fiele nirgends auf, weil beide Indizes strukturell
+ * gleich aussehen. Benannte Felder machen den Fehler unmöglich statt
+ * unwahrscheinlich.
+ *
+ * Beide Felder sind optional: ohne sie verhalten sich die Bauer wie vor dem
+ * Index — sie sind weiterhin einzeln aufrufbar (Tests, Einzelabfragen).
+ */
+export type ForgeIndex = { notes?: RootIndex; status?: RootIndex }
 
 /**
  * Alle kind-1-Notizen an einer Wurzel, **älteste zuerst** — Vorgangsformen
@@ -1137,7 +1200,7 @@ export const indexNotes = (commentEvents: readonly ForgeEvent[]): NotizIndex => 
  * entscheidet nach dieser Reihenfolge, wer bei einem Konflikt gewinnt. Ohne
  * feste Regel hinge das Ergebnis an der Ankunftsreihenfolge des Relays.
  */
-const notesForRoot = (rootId: string, commentEvents: ForgeEvent[], index?: NotizIndex): ForgeEvent[] => {
+const notesForRoot = (rootId: string, commentEvents: ForgeEvent[], index?: RootIndex): ForgeEvent[] => {
     // Der Index ist vorsortiert und entdoppelt — dieselbe Liste, nur nicht
     // jedes Mal neu erarbeitet. Ohne ihn bleibt der alte Weg: die Funktion ist
     // weiterhin allein aufrufbar (Tests, Einzelabfragen).
@@ -1164,7 +1227,7 @@ const notesForRoot = (rootId: string, commentEvents: ForgeEvent[], index?: Notiz
  * sich still geändert, ohne dass ein Test es gesehen hätte. Eine Zuweisung IST
  * Bewegung am Vorgang; nur ein Gesprächsbeitrag ist sie nicht.
  */
-const lastNoteAt = (rootId: string, commentEvents: ForgeEvent[], index?: NotizIndex): number => {
+const lastNoteAt = (rootId: string, commentEvents: ForgeEvent[], index?: RootIndex): number => {
     if (index) {
         // Der Eimer ist aufsteigend sortiert — die letzte Regung ist sein Ende.
         const gebucht = index.get(rootId)
@@ -1261,7 +1324,7 @@ export const foldAssignments = (
     root: ForgeEvent,
     commentEvents: ForgeEvent[],
     maintainers: string[] = [],
-    index?: NotizIndex,
+    index?: RootIndex,
 ): AssignmentState => {
     const allowed = allowedActorsForRoot(root, maintainers)
     const uncausedSelf: AssignmentOperation[] = []
@@ -1384,7 +1447,7 @@ export const foldReviews = (
     commentEvents: ForgeEvent[],
     currentCommit: string,
     maintainers: string[] = [],
-    index?: NotizIndex,
+    index?: RootIndex,
 ): ReviewState => {
     const author = root.pubkey.toLowerCase()
     const allowed = allowedActorsForRoot(root, maintainers)
@@ -1567,7 +1630,7 @@ const toComment = (event: ForgeEvent): ForgeComment => ({
 export const commentsForRoot = (
     rootId: string,
     commentEvents: ForgeEvent[],
-    index?: NotizIndex,
+    index?: RootIndex,
 ): ForgeComment[] =>
     notesForRoot(rootId, commentEvents, index)
         .filter((event) => !isOperationNote(event))
@@ -1619,13 +1682,13 @@ export const toIssue = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
-    index?: NotizIndex,
+    index: ForgeIndex = {},
 ): Issue => {
-    const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents, index)
+    const status = foldStatus(root, statusEvents, maintainers, index.status)
+    const comments = commentsForRoot(root.id, commentEvents, index.notes)
     // Die ROHE Liste, nicht `comments`: die Faltung braucht genau die Notizen,
     // die `commentsForRoot` gerade herausgeworfen hat.
-    const assignments = foldAssignments(root, commentEvents, maintainers, index)
+    const assignments = foldAssignments(root, commentEvents, maintainers, index.notes)
 
     return {
         id: root.id,
@@ -1636,7 +1699,7 @@ export const toIssue = (
         updatedAt: Math.max(
             root.created_at,
             status?.created_at ?? 0,
-            lastNoteAt(root.id, commentEvents, index),
+            lastNoteAt(root.id, commentEvents, index.notes),
         ),
         repoAddress: tagValue(root, 'a'),
         labels: tagValues(root, 't'),
@@ -1655,8 +1718,9 @@ export const buildIssues = (
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
 ): Issue[] => {
-    // EINMAL je Aufruf, nicht je Wurzel (P7). Siehe {@link indexNotes}.
-    const index = indexNotes(commentEvents)
+    // EINMAL je Aufruf, nicht je Wurzel (P7 für die Notizen, Restposten P1 für
+    // die Statuswechsel). Siehe {@link indexByRoot}.
+    const index: ForgeIndex = { notes: indexNotes(commentEvents), status: indexStatus(statusEvents) }
 
     return issueEvents
         .filter((event) => event.kind === GIT_ISSUE)
@@ -1717,11 +1781,11 @@ export const toPullRequest = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
-    index?: NotizIndex,
+    index: ForgeIndex = {},
 ): PullRequest => {
     const allowed = allowedActorsForRoot(root, maintainers)
-    const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents, index)
+    const status = foldStatus(root, statusEvents, maintainers, index.status)
+    const comments = commentsForRoot(root.id, commentEvents, index.notes)
     const updates = updateEvents
         .filter(
             (event) =>
@@ -1742,7 +1806,7 @@ export const toPullRequest = (
     // weil `foldReviews` ihn braucht: eine Freigabe gilt genau für diesen einen
     // Stand und wird von einem Push danach entwertet.
     const commit = newestUpdate?.commit || tagValue(root, 'c')
-    const reviews = foldReviews(root, commentEvents, commit, maintainers, index)
+    const reviews = foldReviews(root, commentEvents, commit, maintainers, index.notes)
 
     return {
         id: root.id,
@@ -1754,7 +1818,7 @@ export const toPullRequest = (
             root.created_at,
             status?.created_at ?? 0,
             ...updates.map((update) => update.createdAt),
-            lastNoteAt(root.id, commentEvents, index),
+            lastNoteAt(root.id, commentEvents, index.notes),
         ),
         repoAddress: tagValue(root, 'a'),
         labels: tagValues(root, 't'),
@@ -1781,7 +1845,7 @@ export const buildPullRequests = (
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
 ): PullRequest[] => {
-    const index = indexNotes(commentEvents)
+    const index: ForgeIndex = { notes: indexNotes(commentEvents), status: indexStatus(statusEvents) }
 
     return pullRequestEvents
         .filter((event) => event.kind === GIT_PULL_REQUEST)
@@ -1848,10 +1912,10 @@ export const toPatch = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
-    index?: NotizIndex,
+    index: ForgeIndex = {},
 ): Patch => {
-    const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents, index)
+    const status = foldStatus(root, statusEvents, maintainers, index.status)
+    const comments = commentsForRoot(root.id, commentEvents, index.notes)
     const labels = tagValues(root, 't')
 
     return {
@@ -1863,7 +1927,7 @@ export const toPatch = (
         content: root.content,
         author: root.pubkey.toLowerCase(),
         createdAt: root.created_at,
-        updatedAt: Math.max(root.created_at, status?.created_at ?? 0, lastNoteAt(root.id, commentEvents, index)),
+        updatedAt: Math.max(root.created_at, status?.created_at ?? 0, lastNoteAt(root.id, commentEvents, index.notes)),
         repoAddress: tagValue(root, 'a'),
         labels,
         status: patchStatusFrom(status),
@@ -1884,7 +1948,7 @@ export const buildPatches = (
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
 ): Patch[] => {
-    const index = indexNotes(commentEvents)
+    const index: ForgeIndex = { notes: indexNotes(commentEvents), status: indexStatus(statusEvents) }
 
     return patchEvents
         .filter((event) => event.kind === GIT_PATCH)
