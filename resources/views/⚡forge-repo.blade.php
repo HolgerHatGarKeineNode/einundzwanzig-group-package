@@ -572,7 +572,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                             <ul x-show="view.issues.length > 0" class="surface-card">
                                 <template x-for="issue in view.issues" :key="issue.id">
-                                    <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-issue :data-status="issue.status" :data-id="issue.id">
+                                    {{-- `data-forge-vorgang` + `tabindex="-1"`: das Sprungziel eines
+                                         geteilten `?issue=`-Links (P2). Fokussiert wird die ZEILE
+                                         und nicht ihr Knopf — der Knopf ist der Umschalter, und ein
+                                         Enter darauf klappte den gerade geöffneten Vorgang sofort
+                                         wieder zu. Dasselbe Muster wie beim Regionssprung auf der
+                                         Übersicht (`forge.ts _springZuRegion`). --}}
+                                    <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
+                                        data-forge-issue data-forge-vorgang tabindex="-1"
+                                        :data-status="issue.status" :data-id="issue.id">
                                         {{-- Die ganze Zeile schaltet den Rumpf auf. Ein
                                              `button` und kein `div` mit Klick-Handler:
                                              sie ist mit der Tastatur erreichbar und
@@ -586,7 +594,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              `getByRole('button')` der E2E-Spec einen
                                              Strict-Mode-Treffer auf zwei Elemente. --}}
                                         <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
-                                                x-on:click="toggle(issue.id)" :aria-expanded="open[issue.id] ? 'true' : 'false'">
+                                                x-on:click="toggle(issue.id, 'issue')" :aria-expanded="open[issue.id] ? 'true' : 'false'">
                                             {{-- Der Statusknoten: GEFÜLLT heißt offen, ein
                                                  Ring heißt erledigt. Er ersetzt das immer
                                                  gleiche Ausrufezeichen, das in einer Liste
@@ -698,6 +706,28 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                                         <template x-if="open[issue.id]">
                                             <div class="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+                                                {{-- ── Link auf DIESEN Vorgang (P2) ──────────────
+                                                     Steht im RUMPF und nicht in der Kopfzeile:
+                                                     dort gilt „genau ein `button` je Zeile" als
+                                                     stehende Zusage — ein zweiter machte aus dem
+                                                     `getByRole('button')` der E2E-Spec einen
+                                                     Strict-Mode-Treffer auf zwei Elemente.
+
+                                                     Wie beim Clone-Knopf entscheidet die Frage
+                                                     über das RENDERN: `navigator.clipboard` gibt
+                                                     es nur in sicheren Kontexten (HTTPS oder
+                                                     localhost). Über eine nackte HTTP-Adresse im
+                                                     LAN — der Fall bei einer selbst betriebenen
+                                                     Instanz — ist die Eigenschaft schlicht
+                                                     `undefined`, und ein Knopf, der dann nichts
+                                                     tut, wäre schlechter als keiner. --}}
+                                                <template x-if="canCopyClone()">
+                                                    <div class="mb-2 flex justify-end">
+                                                        <flux:button size="xs" variant="ghost" icon="link"
+                                                                     data-forge-vorgang-copy
+                                                                     x-on:click="copyVorgang(issue.id, 'issue')">{{ __('Link kopieren') }}</flux:button>
+                                                    </div>
+                                                </template>
                                                 {{-- `x-html` ist hier bewusst gesetzt. Der
                                                      Wert kommt AUSSCHLIESSLICH aus
                                                      `renderArticleHtml` (`js/longform.ts`),
@@ -1203,9 +1233,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                             <ul x-show="view.pullRequests.length > 0" class="surface-card">
                                 <template x-for="pr in view.pullRequests" :key="pr.id">
-                                    <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-pr :data-status="pr.status" :data-id="pr.id">
+                                    {{-- Sprungziel eines geteilten `?pr=`-Links — siehe die
+                                         Begründung an der Issue-Zeile. --}}
+                                    <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
+                                        data-forge-pr data-forge-vorgang tabindex="-1"
+                                        :data-status="pr.status" :data-id="pr.id">
                                         <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
-                                                x-on:click="toggle(pr.id)" :aria-expanded="open[pr.id] ? 'true' : 'false'">
+                                                x-on:click="toggle(pr.id, 'pr')" :aria-expanded="open[pr.id] ? 'true' : 'false'">
                                             {{-- Derselbe Statusknoten wie bei den Issues:
                                                  gefüllt = offen, Ring = zusammengeführt oder
                                                  geschlossen. Ein Zeichen, eine Bedeutung —
@@ -1336,6 +1370,28 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                                         <template x-if="open[pr.id]">
                                             <div class="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+                                                {{-- ── Link auf DIESEN Vorgang (P2) ──────────────
+                                                     Steht im RUMPF und nicht in der Kopfzeile:
+                                                     dort gilt „genau ein `button` je Zeile" als
+                                                     stehende Zusage — ein zweiter machte aus dem
+                                                     `getByRole('button')` der E2E-Spec einen
+                                                     Strict-Mode-Treffer auf zwei Elemente.
+
+                                                     Wie beim Clone-Knopf entscheidet die Frage
+                                                     über das RENDERN: `navigator.clipboard` gibt
+                                                     es nur in sicheren Kontexten (HTTPS oder
+                                                     localhost). Über eine nackte HTTP-Adresse im
+                                                     LAN — der Fall bei einer selbst betriebenen
+                                                     Instanz — ist die Eigenschaft schlicht
+                                                     `undefined`, und ein Knopf, der dann nichts
+                                                     tut, wäre schlechter als keiner. --}}
+                                                <template x-if="canCopyClone()">
+                                                    <div class="mb-2 flex justify-end">
+                                                        <flux:button size="xs" variant="ghost" icon="link"
+                                                                     data-forge-vorgang-copy
+                                                                     x-on:click="copyVorgang(pr.id, 'pr')">{{ __('Link kopieren') }}</flux:button>
+                                                    </div>
+                                                </template>
                                                 <div x-show="pr.html" class="article-content forge-mass" x-html="pr.html"></div>
                                                 <p x-show="!pr.html" class="whitespace-pre-wrap text-sm" x-text="pr.content"></p>
 

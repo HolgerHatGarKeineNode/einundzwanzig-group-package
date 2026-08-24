@@ -1020,5 +1020,7 @@
     "hat :namen um einen Review gebeten:": "requested a review from :namen:",
     "hat freigegeben:": "approved:",
     "hat Änderungen erbeten:": "requested changes:",
-    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "A second repository carries the same name. The published branch state names no owner and therefore cannot be attributed to either of them."
+    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "A second repository carries the same name. The published branch state names no owner and therefore cannot be attributed to either of them.",
+    "Link zum Vorgang kopiert.": "Link to the item copied.",
+    "Der Link liess sich nicht kopieren.": "The link could not be copied."
 }

@@ -58,6 +58,7 @@ import { mentionQueryAt, spliceMention } from './mentionCompose.ts'
 import { wakeMentionedAgents, type WakeResult } from './forgeWake.ts'
 import { WORKSPACE_URL, deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { DEFAULT_FORGE_TAB, FORGE_TAB_PARAM, readForgeTab } from './forgeTab.ts'
+import { readVorgang, tabForVorgang, withVorgang, type VorgangArt, type VorgangZiel } from './forgeVorgang.ts'
 // Die xl-Schwelle kommt aus `viewport.ts` und wird hier NICHT als drittes Literal
 // wiederholt. Der Modulkopf dort führt aus, warum sie schon zweimal steht (CSS und
 // Store) und dass ein auseinanderlaufendes Paar ein stiller Fehler wäre — ein
@@ -1688,6 +1689,15 @@ type ForgeRepoState = {
      */
     canCopyClone(): boolean
     copyClone(): void
+    // ── Adressierbarkeit eines einzelnen Vorgangs (P2) ──────────────────────
+    /** Das Ziel aus `?issue=`/`?pr=`, einmal beim Mount gelesen. */
+    _ziel: VorgangZiel | null
+    /** Der Sprung ist erledigt — er bleibt bei EINEM, wie `_springZuRegion`. */
+    _gesprungen: boolean
+    _springZuVorgang(): void
+    /** Die teilbare Adresse eines Vorgangs. */
+    vorgangHref(id: string, art: VorgangArt): string
+    copyVorgang(id: string, art: VorgangArt): void
     // ── Schreiben ───────────────────────────────────────────────────────────
     writeGate(): WriteGate
     writeHint(): string
@@ -2084,7 +2094,24 @@ export function wireForge(Alpine: {
             _unsubRooms: null,
             _mentionStart: -1,
             _loadedProfiles: new Set<string>(),
+            _ziel: readVorgang(typeof window === 'undefined' ? '' : window.location.search),
+            _gesprungen: false,
             init() {
+                // ── Ein kalt geöffneter Vorgangs-Link (P2) ──────────────────
+                //
+                // Der Tab folgt der ART des Ziels und nicht einem zweiten
+                // Parameter: `?issue=…&tab=code` wäre eine Adresse, die sich
+                // selbst widerspricht. `?tab=` behält dabei seine Bedeutung für
+                // alle Adressen OHNE Vorgang — die Rail verlinkt weiterhin so.
+                //
+                // Das Akkordeon wird hier schon geöffnet, obwohl `view` noch
+                // `null` ist: `open` ist eine reine Id-Karte, sie braucht die
+                // Zeile nicht. Wäre es umgekehrt, müsste dieser Zustand auf die
+                // Daten warten und zweimal gesetzt werden.
+                if (this._ziel) {
+                    this.tab = tabForVorgang(this._ziel.art)
+                    this.open = { ...this.open, [this._ziel.id]: true }
+                }
                 this._controller = new AbortController()
                 this._unsubKind = deriveSpaceKind(WORKSPACE_URL).subscribe((kind: SpaceKind) => {
                     this.kind = kind
@@ -2199,6 +2226,15 @@ export function wireForge(Alpine: {
                         if (this.klon.lage === 'pruefe') {
                             void this.klonPruefen()
                         }
+                        // Der Sprung zum adressierten Vorgang (P2): erst JETZT
+                        // gibt es die Zeile. `$nextTick`, weil Alpine die Liste
+                        // im selben Durchlauf noch nicht gerendert hat — eine
+                        // Wartezeit wäre geraten, dieser Haken ist die Zusage.
+                        // `_gesprungen` hält es bei EINEM Sprung, obwohl diese
+                        // Ableitung bei jedem eintreffenden Ereignis neu feuert.
+                        ;(this as unknown as { $nextTick(cb: () => void): void }).$nextTick(() => {
+                            this._springZuVorgang()
+                        })
                     }
                 })
                 await this._load()
@@ -2231,7 +2267,22 @@ export function wireForge(Alpine: {
                 this.loading = true
                 void this._load()
             },
-            toggle(id: string) {
+            /**
+             * Ein Akkordeon auf- oder zuklappen — und die Adresse mitführen (P2).
+             *
+             * `art` ist optional und fehlt bei den Patches mit Absicht: die
+             * Adressform kennt `?issue=` und `?pr=`, ein Patch (1617) hat keine.
+             * Ein Vorgang ohne `art` schaltet also um, ohne die Adresse
+             * anzufassen — statt einen Parameter zu erfinden, den niemand liest.
+             *
+             * **Die Adresse nennt höchstens EINEN Vorgang**, auch wenn mehrere
+             * Akkordeons offen sind: sie beantwortet „worauf zeigt dieser Link",
+             * nicht „was ist gerade alles aufgeklappt". Geöffnet wird sie auf den
+             * zuletzt geöffneten gesetzt; geschlossen nur dann geräumt, wenn sie
+             * genau diesen nennt — sonst risse das Schliessen eines zweiten
+             * Vorgangs den Link auf den ersten weg.
+             */
+            toggle(id: string, art?: VorgangArt) {
                 const next = !this.open[id]
                 this.open = { ...this.open, [id]: next }
                 // Den Kommentarentwurf ANLEGEN, bevor das Feld ihn bindet: ein
@@ -2241,6 +2292,25 @@ export function wireForge(Alpine: {
                 if (next && this.commentDraft[id] === undefined) {
                     this.commentDraft = { ...this.commentDraft, [id]: '' }
                 }
+                if (!art || typeof window === 'undefined') {
+                    return
+                }
+                if (next) {
+                    this._ziel = { art, id }
+                } else if (this._ziel?.id !== id) {
+                    return
+                } else {
+                    this._ziel = null
+                }
+                // `replaceState`, keine Navigation — dieselbe Bauform und
+                // dieselbe Begründung wie beim `?tab=`-Abgleich der Übersicht:
+                // ein Eintrag in der Verlaufsliste je Klick auf ein Akkordeon
+                // machte die Zurück-Taste unbenutzbar.
+                window.history.replaceState(
+                    window.history.state,
+                    '',
+                    withVorgang(window.location.href, this._ziel),
+                )
             },
             statusText(code: string) {
                 return statusLabel(code)
@@ -2579,6 +2649,56 @@ export function wireForge(Alpine: {
             // Begründung am Typ. Bewusst eine Frage an `navigator`, nicht ein
             // gemerkter Wert: der Kontext einer Seite ändert sich nicht, und ein
             // Schnappschuss im `init` wäre eine Kopie ohne Gewinn.
+            /**
+             * Zum adressierten Vorgang springen — scrollen, fokussieren (P2).
+             *
+             * **Dasselbe Muster wie `_springZuRegion` auf der Übersicht, samt
+             * der Falle, die dort teuer gelernt wurde:** beim Mount ist `view`
+             * noch `null`, die Liste existiert nicht, und `focus()` auf ein
+             * `display:none`-Element tut still NICHTS. Der Versuch ist deshalb
+             * wiederholbar und meldet sich erst als erledigt, wenn der Fokus
+             * wirklich angekommen ist; `init` ruft ihn erneut, sobald `view`
+             * eintrifft.
+             *
+             * Fokussiert wird die ZEILE (`tabindex="-1"`), nicht ihr Knopf: der
+             * Knopf ist der Umschalter, und ein Enter auf dem gerade geöffneten
+             * Vorgang klappte ihn sofort wieder zu.
+             */
+            _springZuVorgang() {
+                const ziel = this._ziel
+                if (this._gesprungen || !ziel || typeof document === 'undefined') {
+                    return
+                }
+                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
+                // Der Attributselektor ist sicher, weil `readVorgang` nur eine
+                // 64-stellige Hex-Id durchlässt — sonst stünde hier Fremdtext in
+                // einer Selektor-Zeichenkette.
+                const zeile = wurzel?.querySelector<HTMLElement>(`[data-forge-vorgang][data-id="${ziel.id}"]`)
+                if (!zeile || zeile.checkVisibility?.() === false) {
+                    return
+                }
+                zeile.scrollIntoView({ block: 'start', behavior: 'auto' })
+                zeile.focus({ preventScroll: true })
+                this._gesprungen = document.activeElement === zeile
+            },
+            /** Die teilbare Adresse dieses Vorgangs (P2). */
+            vorgangHref(id: string, art: VorgangArt) {
+                if (typeof window === 'undefined') {
+                    return ''
+                }
+
+                return withVorgang(window.location.href, { art, id })
+            },
+            copyVorgang(id: string, art: VorgangArt) {
+                const href = this.vorgangHref(id, art)
+                if (!href) {
+                    return
+                }
+                void navigator.clipboard.writeText(href).then(
+                    () => toast(t('Link zum Vorgang kopiert.'), 'success'),
+                    () => toast(t('Der Link liess sich nicht kopieren.')),
+                )
+            },
             canCopyClone() {
                 return typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function'
             },

@@ -1020,5 +1020,7 @@
     "hat :namen um einen Review gebeten:": "pidió una revisión a :namen:",
     "hat freigegeben:": "aprobó:",
     "hat Änderungen erbeten:": "solicitó cambios:",
-    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Un segundo repositorio lleva el mismo nombre. El estado de ramas publicado no indica propietario y por eso no puede atribuirse a ninguno de los dos."
+    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Un segundo repositorio lleva el mismo nombre. El estado de ramas publicado no indica propietario y por eso no puede atribuirse a ninguno de los dos.",
+    "Link zum Vorgang kopiert.": "Enlace al elemento copiado.",
+    "Der Link liess sich nicht kopieren.": "No se pudo copiar el enlace."
 }

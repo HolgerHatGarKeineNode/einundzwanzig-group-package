@@ -1051,5 +1051,7 @@
     "hat :namen um einen Review gebeten:": "poprosił :namen o recenzję:",
     "hat freigegeben:": "zatwierdził:",
     "hat Änderungen erbeten:": "poprosił o zmiany:",
-    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Drugie repozytorium nosi tę samą nazwę. Opublikowany stan gałęzi nie wskazuje właściciela, więc nie da się go przypisać do żadnego z nich."
+    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Drugie repozytorium nosi tę samą nazwę. Opublikowany stan gałęzi nie wskazuje właściciela, więc nie da się go przypisać do żadnego z nich.",
+    "Link zum Vorgang kopiert.": "Skopiowano link do wpisu.",
+    "Der Link liess sich nicht kopieren.": "Nie udało się skopiować linku."
 }

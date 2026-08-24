@@ -1020,5 +1020,7 @@
     "hat :namen um einen Review gebeten:": ":namen ellenőrzését kérte:",
     "hat freigegeben:": "jóváhagyta:",
     "hat Änderungen erbeten:": "módosításokat kért:",
-    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Egy másik tároló ugyanezt a nevet viseli. A közzétett ágállapot nem nevez meg tulajdonost, ezért egyikhez sem rendelhető hozzá."
+    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Egy másik tároló ugyanezt a nevet viseli. A közzétett ágállapot nem nevez meg tulajdonost, ezért egyikhez sem rendelhető hozzá.",
+    "Link zum Vorgang kopiert.": "A hivatkozás másolva.",
+    "Der Link liess sich nicht kopieren.": "A hivatkozást nem sikerült másolni."
 }
