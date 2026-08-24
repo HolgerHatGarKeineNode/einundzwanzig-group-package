@@ -46,8 +46,27 @@
          `xl:overflow-y-auto` macht die Bühne zur scrollenden Fläche — ab xl
          scrollt nicht mehr das Dokument, sondern die Spalte.
          `pb-28` (Platz für die fixe Bottom-Bar) fällt ab xl weg: dort gibt es
-         keine Bottom-Bar mehr, der Abstand wäre toter Boden. --}}
-    <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-8 xl:pt-6 2xl:px-12 '.($chrome ? 'pb-28 xl:pb-8' : 'pb-8')) }}>
+         keine Bottom-Bar mehr, der Abstand wäre toter Boden.
+
+         ── …ABER NUR IM WEB-HOST, und das war hier ein Fehler ────────────────
+         Die Begründung darüber stimmt für die Web-Shell und war im App-Host
+         falsch. Dort bleibt die Bottom-Bar auf JEDER Breite stehen — genau
+         darum trägt `bottom-nav.blade.php:52` ihr `xl:hidden` hinter
+         `! $native`. Ab 1280 px (Tablet quer) fiel der Abstand hier trotzdem
+         von 112 px auf 32 px, und die fixe Bar überlappte den Inhalt.
+         Gemessen am 2026-08-23 bei `NATIVEPHP_RUNNING=true`, 1366 × 1024.
+
+         **Der Host ist die richtige Frage, nicht die Breite** — dieselbe
+         Unterscheidung wie in `app-frame.blade.php:44` und
+         `bottom-nav.blade.php:41`, und aus demselben Grund: eine
+         Breitenschwelle beschreibt das Chassis der Web-Shell, nicht die
+         Anwesenheit einer fixen Leiste.
+
+         Alle drei Literale (`pb-28`, `xl:pb-8`, `pb-8`) stehen weiterhin
+         vollständig im Quelltext — Tailwind scannt Quelltext, ein
+         zusammengesetzter Klassenname entstünde im JIT nie. --}}
+    @php($nativeShell = config('nativephp-internal.running'))
+    <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-8 xl:pt-6 2xl:px-12 '.($chrome ? ($nativeShell ? 'pb-28' : 'pb-28 xl:pb-8') : 'pb-8')) }}>
         {{-- Ab xl bekommt der Seiteninhalt einen eigenen Deckel, statt die ganze
              Spaltenbreite zu füllen — eine Bühne ohne Deckel ist Slacks
              Lesbarkeitsfehler.
