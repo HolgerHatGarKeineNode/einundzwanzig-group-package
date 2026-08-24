@@ -151,13 +151,28 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Ziffer belegt bereits exakt eine Zelle (gemessen 7,00 px bei
                          14 px, 8,00 px bei 16 px). --}}
                     <div class="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-1" data-forge-zustandszeile>
+                        {{-- ── Die Kacheln sind seit P3 LINKS ──────────────────────
+                             `tab` ist der Zielwert der Übersichts-Whitelist, nicht der
+                             Feldname: die Kachel „Pull Requests" liest `counts.pullRequests`
+                             und führt nach `?tab=pulls`. Zwei Namen für dieselbe Sache, und
+                             genau deshalb steht die Zuordnung hier EINMAL in der Tabelle
+                             statt zweimal im Markup.
+
+                             `wire:navigate` fehlt mit Absicht: das Ziel ist dieselbe Seite,
+                             ein Nachladen wäre reine Arbeit. Der Klick bleibt in der Insel
+                             (`x-on:click.prevent`), die Adresse schreibt der `?tab=`-Abgleich
+                             ohnehin zurück. Das `href` steht trotzdem echt da — für
+                             Mittelklick, „Link kopieren" und alles, was kein Klick ist. --}}
                         @php($tiles = [
-                            ['key' => 'repos', 'label' => __('Repositories')],
-                            ['key' => 'pullRequests', 'label' => __('Pull Requests')],
-                            ['key' => 'issues', 'label' => __('Issues')],
+                            ['key' => 'repos', 'label' => __('Repositories'), 'tab' => 'repos'],
+                            ['key' => 'pullRequests', 'label' => __('Pull Requests'), 'tab' => 'pulls'],
+                            ['key' => 'issues', 'label' => __('Issues'), 'tab' => 'issues'],
                         ])
                         @foreach ($tiles as $tile)
-                            <span class="flex items-baseline gap-1.5">
+                            <a :href="forgeTabHref('{{ $tile['tab'] }}')"
+                               x-on:click.prevent="tab = '{{ $tile['tab'] }}'"
+                               data-forge-kachel="{{ $tile['tab'] }}"
+                               class="flex items-baseline gap-1.5 rounded-tile px-1 py-0.5 -mx-1 hover:bg-zinc-100 dark:hover:bg-zinc-800">
                                 <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $tile['label'] }}</span>
                                 {{-- Der Balken hat die Zeilenhöhe der Zahl, damit die Zeile
                                      beim Eintreffen der Zahl nicht springt. `align-baseline`
@@ -166,7 +181,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <span x-show="settled()" x-cloak data-forge-tile="{{ $tile['key'] }}"
                                       class="text-base font-semibold leading-5 text-zinc-900 dark:text-zinc-100"
                                       x-text="$num(counts().{{ $tile['key'] }})"></span>
-                            </span>
+                            </a>
                         @endforeach
                         {{-- Patches (1617) — anders als die drei darüber NUR, wenn es
                              welche gibt. Eine `0` ist bei Repos, Issues und PRs eine
@@ -174,6 +189,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              die in den meisten Workspaces nie etwas sagt. Viele
                              arbeiten ausschliesslich mit Pull Requests und werden nie
                              ein 1617 sehen. --}}
+                        {{-- **Die vierte Zelle bleibt KEIN Link, und das ist eine
+                             Entscheidung.** Es gibt keine workspace-weite Patch-Liste —
+                             P3 baut Issues und Pull Requests. Eine Kachel, die aussieht
+                             wie ihre drei Nachbarn und beim Antippen nichts tut oder auf
+                             eine andere Liste führt, wäre schlimmer als eine, die
+                             erkennbar nur zählt. Sie erscheint ohnehin nur, wenn es
+                             Patches GIBT — in den meisten Workspaces nie.
+
+                             Damit trägt das Raster drei Zellen (alle Links) oder vier
+                             (drei Links, eine Zahl). --}}
                         <span x-show="settled() && counts().patches > 0" x-cloak class="flex items-baseline gap-1.5">
                             <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Patches') }}</span>
                             <span data-forge-tile="patches"
@@ -339,13 +364,19 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </div>
 
                     {{-- ── Repositories ────────────────────────────────────────────── --}}
-                    <section x-show="(zweispaltig || tab === 'repos') && !(loading && isEmpty())" x-cloak
+                    {{-- `listeAktiv()` kam mit P3 dazu: die linke Spur trägt jetzt DREI
+                         Listen. In der Tab-Form entscheidet `tab` allein; in der
+                         zweispaltigen zeigt sie bei `tab === 'activity'` (dem Startwert)
+                         weiter die Repos — genau wie vor P3. Ein eigener Zustand für die
+                         Auswahl wäre eine zweite Wahrheit neben dem Tab. --}}
+                    <section x-show="(zweispaltig || tab === 'repos') && listeAktiv() === 'repos' && !(loading && isEmpty())" x-cloak
                              id="forge-werkbank" class="forge-werkbank scroll-mt-6" data-forge-region="repos">
                         {{-- Sichtbar nur in der zweispaltigen Form — in der Tab-Form sagt
                              der Tab bereits, was man sieht. Für Screenreader steht sie in
                              BEIDEN Formen im DOM (siehe `.forge-regionstitel`).
                              `tabindex="-1"`: Ziel des `?tab=`-Sprungs, nicht des Tab-Laufs. --}}
                         <h2 class="forge-regionstitel" tabindex="-1" data-forge-region-titel>{{ __('Repositories') }}</h2>
+                        @include('group::partials.forge-listen-umschalter')
                         {{-- ── Gerettet aus dem entfallenen Projekte-Tab (2026-08-23) ──────
                              Diese Zeile war die EINZIGE Stelle im ganzen Paket, die eine
                              Projekt-Koordinate ohne zugehöriges 30617 benennt. Der
@@ -588,6 +619,36 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </a>
                             </template>
                         </div>
+                    </section>
+
+                    {{-- ── Issues, workspace-weit (P3) ─────────────────────────────
+                         Die inhaltlich grösste Lücke vor P3: „was liegt insgesamt
+                         offen?" war nur repo-für-repo beantwortbar. Die Antwort lag
+                         die ganze Zeit im Speicher — `loadForge` lädt die Vorgänge
+                         ALLER Repos, gezählt wurden sie schon, gezeigt nicht. --}}
+                    <section x-show="(zweispaltig || tab === 'issues') && listeAktiv() === 'issues' && !(loading && isEmpty())" x-cloak
+                             id="forge-issues" class="forge-werkbank scroll-mt-6" data-forge-region="issues">
+                        <h2 class="forge-regionstitel" tabindex="-1" data-forge-region-titel>{{ __('Issues') }}</h2>
+                        @include('group::partials.forge-listen-umschalter')
+                        @include('group::partials.forge-vorgangsliste', [
+                            'art' => 'issues',
+                            'quelle' => 'issueGroups()',
+                            'leerTitel' => __('Noch keine Issues.'),
+                            'leerText' => __('Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.'),
+                        ])
+                    </section>
+
+                    {{-- ── Pull Requests, workspace-weit (P3) ──────────────────────── --}}
+                    <section x-show="(zweispaltig || tab === 'pulls') && listeAktiv() === 'pulls' && !(loading && isEmpty())" x-cloak
+                             id="forge-pulls" class="forge-werkbank scroll-mt-6" data-forge-region="pulls">
+                        <h2 class="forge-regionstitel" tabindex="-1" data-forge-region-titel>{{ __('Pull Requests') }}</h2>
+                        @include('group::partials.forge-listen-umschalter')
+                        @include('group::partials.forge-vorgangsliste', [
+                            'art' => 'pulls',
+                            'quelle' => 'pullGroups()',
+                            'leerTitel' => __('Noch keine Pull Requests.'),
+                            'leerText' => __('Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.'),
+                        ])
                     </section>
 
                     {{-- ── Aktivität ───────────────────────────────────────────────

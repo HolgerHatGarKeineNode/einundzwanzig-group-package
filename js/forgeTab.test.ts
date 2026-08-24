@@ -36,9 +36,28 @@ test('das Ziel der P5-Weiterleitung kommt wirklich an', () => {
 })
 
 test('readForgeTab verwirft alles andere', () => {
-    for (const search of ['', '?', '?tab=', '?tab=Workspaces', '?tab=issues', '?tab=../etc', '?rt=meetups']) {
+    /*
+     * **`?tab=issues` stand bis P3 (2026-08-24) in dieser Liste — berechtigt, und
+     * berechtigt entfernt.** Damals gab es die Liste nicht; ein solcher Parameter
+     * war Müll und musste zurückfallen. Seit P3 ist er ein gültiger Wert
+     * (workspace-weite Issue-Liste). Die Zeile hier wandert deshalb nach unten in
+     * den Positivfall statt gestrichen zu werden — sonst verlöre die Whitelist
+     * genau den Fall, der ihre Bedeutung geändert hat.
+     *
+     * `?tab=Workspaces` bleibt: die Whitelist vergleicht Zeichen für Zeichen,
+     * und eine Grossschreibung aus einer fremden Adresse ist kein Tab.
+     */
+    for (const search of ['', '?', '?tab=', '?tab=Workspaces', '?tab=Issues', '?tab=../etc', '?rt=meetups']) {
         assert.equal(readForgeTab(search), DEFAULT_FORGE_TAB, search)
     }
+})
+
+test('readForgeTab nimmt die workspace-weiten Listen an (P3)', () => {
+    assert.equal(readForgeTab('?tab=issues'), 'issues')
+    assert.equal(readForgeTab('?tab=pulls'), 'pulls')
+    // KONTROLLE: `pr` ist NICHT der Tab-Bezeichner — die Liste heisst `pulls`,
+    // wie auf der Repo-Seite. Zwei Namen für dieselbe Liste wären zwei Bedeutungen.
+    assert.equal(readForgeTab('?tab=pr'), DEFAULT_FORGE_TAB)
 })
 
 test('der Startwert ist WÖRTLICH „activity"', () => {
@@ -52,7 +71,10 @@ test('der Parametername ist WÖRTLICH „tab" — derselbe wie auf der Space- un
 })
 
 test('die Tab-Liste ist WÖRTLICH die drei aus dem Markup, in Anzeige-Reihenfolge', () => {
-    assert.deepEqual([...FORGE_TABS], ['activity', 'repos', 'workspaces'])
+    // Seit P3 fünf Werte: `issues`/`pulls` sind die workspace-weiten Listen. Sie
+    // stehen in der Whitelist, aber NICHT in der Tab-Reihe — die bleibt bei drei
+    // (der Kanäle-Tab ist unterhalb `xl` der einzige Zugang zu den Kanälen).
+    assert.deepEqual([...FORGE_TABS], ['activity', 'repos', 'workspaces', 'issues', 'pulls'])
 })
 
 test('jeder gültige Tab überlebt die Runde schreiben → lesen', () => {

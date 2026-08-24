@@ -1022,5 +1022,8 @@
     "hat Änderungen erbeten:": "módosításokat kért:",
     "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Egy másik tároló ugyanezt a nevet viseli. A közzétett ágállapot nem nevez meg tulajdonost, ezért egyikhez sem rendelhető hozzá.",
     "Link zum Vorgang kopiert.": "A hivatkozás másolva.",
-    "Der Link liess sich nicht kopieren.": "A hivatkozást nem sikerült másolni."
+    "Der Link liess sich nicht kopieren.": "A hivatkozást nem sikerült másolni.",
+    "Welche Liste?": "Melyik lista?",
+    "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "Amint valaki hibajegyet nyit a munkaterület egyik tárolójában, itt megjelenik.",
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "A pull request egy ág feltöltésekor jön létre — ez a kliens nem tud létrehozni ilyet."
 }

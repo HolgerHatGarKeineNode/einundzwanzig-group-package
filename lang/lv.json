@@ -1084,5 +1084,8 @@
     "hat Änderungen erbeten:": "pieprasīja izmaiņas:",
     "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Otra krātuve nes to pašu nosaukumu. Publicētais zaru stāvoklis nenorāda īpašnieku, tāpēc to nevar attiecināt ne uz vienu no tām.",
     "Link zum Vorgang kopiert.": "Saite uz ierakstu nokopēta.",
-    "Der Link liess sich nicht kopieren.": "Saiti neizdevās nokopēt."
+    "Der Link liess sich nicht kopieren.": "Saiti neizdevās nokopēt.",
+    "Welche Liste?": "Kurš saraksts?",
+    "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "Tiklīdz kāds šīs darbvietas krātuvē atvērs problēmu, tā parādīsies šeit.",
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Pull request rodas, nosūtot zaru — šis klients nevar izveidot nevienu."
 }

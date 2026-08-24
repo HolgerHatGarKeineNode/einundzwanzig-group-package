@@ -1022,5 +1022,8 @@
     "hat Änderungen erbeten:": "requested changes:",
     "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "A second repository carries the same name. The published branch state names no owner and therefore cannot be attributed to either of them.",
     "Link zum Vorgang kopiert.": "Link to the item copied.",
-    "Der Link liess sich nicht kopieren.": "The link could not be copied."
+    "Der Link liess sich nicht kopieren.": "The link could not be copied.",
+    "Welche Liste?": "Which list?",
+    "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "As soon as someone opens an issue in a repository of this workspace, it appears here.",
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "A pull request is created by pushing a branch — this client cannot create one."
 }

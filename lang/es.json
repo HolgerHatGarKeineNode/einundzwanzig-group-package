@@ -1022,5 +1022,8 @@
     "hat Änderungen erbeten:": "solicitó cambios:",
     "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Un segundo repositorio lleva el mismo nombre. El estado de ramas publicado no indica propietario y por eso no puede atribuirse a ninguno de los dos.",
     "Link zum Vorgang kopiert.": "Enlace al elemento copiado.",
-    "Der Link liess sich nicht kopieren.": "No se pudo copiar el enlace."
+    "Der Link liess sich nicht kopieren.": "No se pudo copiar el enlace.",
+    "Welche Liste?": "¿Qué lista?",
+    "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "En cuanto alguien abra una incidencia en un repositorio de este espacio de trabajo, aparecerá aquí.",
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Un pull request se crea al hacer push de una rama: este cliente no puede crear ninguno."
 }

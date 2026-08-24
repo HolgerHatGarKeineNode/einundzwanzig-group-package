@@ -1788,6 +1788,56 @@ export const buildPatches = (
         .map((root) => toPatch(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a'))))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
 
+/** Eine Gruppe gleichartiger Vorgänge, die zu EINEM Repository gehören. */
+export type RepoGruppe<T> = {
+    /** `30617:<owner>:<d>` — die Identität, an der die Gruppe hängt. */
+    address: string
+    /** Anzeigename des Repos. */
+    name: string
+    items: T[]
+}
+
+/**
+ * Vorgänge nach Repository gruppieren — die Grundlage der workspace-weiten Listen (P3).
+ *
+ * ── Warum gruppiert und nicht flach ─────────────────────────────────────────
+ *
+ * Eine flache Liste über alle Repos beantwortet „was liegt offen" und nimmt
+ * dabei die Antwort auf „wo" wieder weg: zwanzig Zeilen, jede mit einem
+ * Repo-Namen als Präfix, sind zwanzigmal dieselbe Information neben der, die man
+ * sucht. Die Gruppe nennt das Repo EINMAL.
+ *
+ * ── Zwei Regeln, die man beim Nachbauen anders macht ────────────────────────
+ *
+ * 1. **Die Reihenfolge der Repos kommt von aussen, nicht aus den Vorgängen.**
+ *    `buildRepos` sortiert bereits (neueste Ankündigung zuerst); hier noch einmal
+ *    zu sortieren hiesse, dieselbe Frage an zwei Orten zu beantworten — und beim
+ *    nächsten Mal an einem davon anders. Innerhalb der Gruppe bleibt die
+ *    Reihenfolge der Eingabe erhalten (`buildIssues` sortiert nach Bewegung).
+ * 2. **Leere Gruppen fallen weg.** Ein Repo ohne Issues ist in einer
+ *    Issue-Liste keine Aussage, sondern eine Zeile, die man überliest. Wer die
+ *    Null sehen will, sieht sie in der Repo-Liste daneben.
+ *
+ * Ein Vorgang, dessen `repoAddress` in `repos` nicht vorkommt, fällt heraus —
+ * die Aufrufer filtern zwar schon darauf, aber eine Gruppierung, die eine
+ * unbekannte Koordinate zu einer namenlosen Gruppe machte, wäre eine stille
+ * Einladung für fremde `a`-Tags.
+ */
+export const gruppiereNachRepo = <T extends { repoAddress: string }>(
+    items: readonly T[],
+    repos: readonly { address: string; name: string }[],
+): RepoGruppe<T>[] => {
+    const gruppen = new Map<string, RepoGruppe<T>>()
+    for (const repo of repos) {
+        gruppen.set(repo.address, { address: repo.address, name: repo.name, items: [] })
+    }
+    for (const item of items) {
+        gruppen.get(item.repoAddress)?.items.push(item)
+    }
+
+    return [...gruppen.values()].filter((gruppe) => gruppe.items.length > 0)
+}
+
 // ── Projekt (30621, NIP-MP) ─────────────────────────────────────────────────
 
 export type Project = {

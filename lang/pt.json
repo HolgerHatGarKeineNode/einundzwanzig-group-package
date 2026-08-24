@@ -1053,5 +1053,8 @@
     "hat Änderungen erbeten:": "solicitou alterações:",
     "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Um segundo repositório tem o mesmo nome. O estado de ramos publicado não indica proprietário e por isso não pode ser atribuído a nenhum deles.",
     "Link zum Vorgang kopiert.": "Ligação para o item copiada.",
-    "Der Link liess sich nicht kopieren.": "Não foi possível copiar a ligação."
+    "Der Link liess sich nicht kopieren.": "Não foi possível copiar a ligação.",
+    "Welche Liste?": "Que lista?",
+    "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "Assim que alguém abrir um issue num repositório deste workspace, aparece aqui.",
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Um pull request surge ao enviar um ramo — este cliente não consegue criar nenhum."
 }

@@ -112,6 +112,7 @@ import {
     buildPullRequests,
     buildRepos,
     foldRepoState,
+    gruppiereNachRepo,
     isPubkey,
     maintainerLookupFor,
     reviewerRows,
@@ -123,6 +124,7 @@ import {
     type Project,
     type PullRequest,
     type Repo,
+    type RepoGruppe,
     type ReviewerRow,
     type RepoState,
 } from './forgeModels.ts'
@@ -302,9 +304,52 @@ export type ForgeCounts = {
     patches: number
 }
 
+/**
+ * Eine Zeile der workspace-weiten Vorgangslisten (P3).
+ *
+ * **Bewusst schmaler als `IssueRow`/`PullRequestRow`.** Diese Liste beantwortet
+ * „was liegt insgesamt offen und wo" — sie zeigt keinen Rumpf, keine Kommentare
+ * und keinen gerenderten Markdown. Das ist nicht Sparsamkeit: `renderMarkdown`
+ * über alle Vorgänge ALLER Repos liefe bei jedem Emit der Ableitung, und die
+ * Antwort auf die Frage dieser Fläche steht im Titel.
+ */
+export type VorgangRow = {
+    id: string
+    title: string
+    status: string
+    statusLabel: string
+    authorName: string
+    timeLabel: string
+    commentCount: number
+    /** Die Adresse dieses Vorgangs auf seiner Repo-Seite — `withVorgang` aus P2. */
+    href: string
+}
+
+/** Die Vorgänge EINES Repositories, für die workspace-weite Liste. */
+export type VorgangGruppe = {
+    address: string
+    name: string
+    /** Ziel des Gruppenkopfes: die Repo-Seite mit der passenden Liste. */
+    href: string
+    items: VorgangRow[]
+}
+
 export type ForgeOverview = {
     repos: RepoRow[]
     projects: ProjectRow[]
+    /**
+     * Alle Issues des Workspace, nach Repository gruppiert (P3).
+     *
+     * **Kostet keine einzige zusätzliche Abfrage:** `loadForge` sammelt die
+     * Adressen aus ALLEN 30617 und lädt die Vorgänge dazu (`contentFilters`);
+     * bis P3 wurden sie nur gezählt und weggeworfen. Die Decke von
+     * {@link FORGE_ROOT_LIMIT} gilt dabei je Kind über alle Repos ZUSAMMEN —
+     * deshalb trägt diese Fläche denselben `truncated`-Hinweis wie die
+     * Repo-Liste.
+     */
+    issueGroups: VorgangGruppe[]
+    /** Dasselbe für Pull Requests. */
+    pullGroups: VorgangGruppe[]
     /**
      * Repos, die kein Projekt für sich beansprucht.
      *
@@ -332,6 +377,8 @@ export type ForgeOverview = {
 const EMPTY_OVERVIEW: ForgeOverview = {
     repos: [],
     projects: [],
+    issueGroups: [],
+    pullGroups: [],
     unclaimed: [],
     counts: { projects: 0, repos: 0, pullRequests: 0, issues: 0, patches: 0 },
     activityGroups: [],
@@ -525,6 +572,61 @@ const toActivityGroups = (
     repoNames: boolean,
 ): ActivityGroup[] => groupTimeline(toActivityRows(items, profiles, now), now, { repoNames })
 
+/**
+ * Vorgänge → anzeigefertige Gruppen mit Sprungzielen (P3).
+ *
+ * Der `href` einer Zeile ist die P2-Adresse auf der Repo-Seite: dieselbe Form,
+ * die der Kopier-Knopf dort liefert. Sie wird hier nicht neu erfunden, sondern
+ * mit `withVorgang` aus derselben Quelle gebaut — sonst gäbe es zwei
+ * Schreibweisen desselben Links, und die zweite altert.
+ *
+ * `withVorgang` verlangt eine absolute Adresse; `naddr` liefert nur den Pfad.
+ * Die Basis kommt deshalb aus `window.location.origin`, und was herauskommt,
+ * wird wieder auf Pfad+Query gekürzt — ein absoluter Link im `href` wäre für
+ * `wire:navigate` ein Fremdziel.
+ */
+const zuGruppen = (
+    gruppen: RepoGruppe<{ id: string; title: string; status: string; author: string; updatedAt: number; commentCount: number }>[],
+    art: VorgangArt,
+    naddrOf: (address: string) => string,
+): VorgangGruppe[] =>
+    gruppen.map((gruppe) => {
+        const naddr = naddrOf(gruppe.address)
+        const basis = naddr === '' ? '' : `/forge/${encodeURIComponent(naddr)}`
+        const listenTab = art === 'issue' ? 'issues' : 'pulls'
+
+        return {
+            address: gruppe.address,
+            name: gruppe.name,
+            href: basis === '' ? '' : `${basis}?tab=${listenTab}`,
+            items: gruppe.items.map((item) => ({
+                id: item.id,
+                title: item.title,
+                status: item.status,
+                statusLabel: statusLabel(item.status),
+                authorName: nameOf(item.author),
+                timeLabel: dateLabel(item.updatedAt),
+                commentCount: item.commentCount,
+                href: basis === '' ? '' : pfadUndQuery(withVorgang(absolut(basis), { art, id: item.id })),
+            })),
+        }
+    })
+
+/** Pfad einer Repo-Seite → absolute Adresse, damit `withVorgang` sie annimmt. */
+const absolut = (pfad: string): string =>
+    typeof window === 'undefined' ? `http://localhost${pfad}` : new URL(pfad, window.location.origin).toString()
+
+/** …und wieder zurück: ein absoluter `href` wäre für `wire:navigate` ein Fremdziel. */
+const pfadUndQuery = (href: string): string => {
+    try {
+        const url = new URL(href)
+
+        return `${url.pathname}${url.search}`
+    } catch {
+        return href
+    }
+}
+
 /** Alle Forge-Ereignisse des Workspace, gedrosselt. */
 const forgeEvents = (): Readable<ForgeEvent[]> =>
     throttled(300, deriveEventsForUrl(WORKSPACE_URL, [{ kinds: ALL_FORGE_KINDS }])) as unknown as Readable<
@@ -612,6 +714,8 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                 people: peopleOf(repo.maintainers, profiles as Map<string, { picture?: string }>),
             }))
             const byAddress = new Map(rows.map((row) => [row.address, row]))
+            /** Repo-Koordinate → `naddr`; die Zeilen liegen ohnehin schon vor. */
+            const naddrOf = (address: string): string => byAddress.get(address)?.naddr ?? ''
 
             const truncated = truncatedLists({
                 repos: repos.length,
@@ -635,6 +739,11 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                         name: repo.name,
                     })),
                 })),
+                // Die workspace-weiten Listen (P3) — dieselben `issues`/`pulls`,
+                // aus denen einen Absatz weiter oben die Kacheln gezählt werden.
+                // Zwei Ableitungen für denselben Bestand wären zwei Zahlen.
+                issueGroups: zuGruppen(gruppiereNachRepo(issues, repos), 'issue', naddrOf),
+                pullGroups: zuGruppen(gruppiereNachRepo(pulls, repos), 'pr', naddrOf),
                 counts: {
                     projects: projects.length,
                     repos: repos.length,
@@ -1510,6 +1619,21 @@ type ForgeState = {
     counts(): ForgeCounts
     repoHref(row: { naddr: string }): string
     truncatedText(): string
+    // ── Workspace-weite Listen (P3) ─────────────────────────────────────────
+    /**
+     * Welche Liste die linke Spur zeigt: `repos`, `issues` oder `pulls`.
+     *
+     * **Abgeleitet, kein zweiter Zustand.** Der Tab IST die Auswahl; ein eigenes
+     * Feld daneben wäre eine zweite Wahrheit, die auseinanderläuft, sobald
+     * jemand nur eine von beiden setzt. In der breiten Form steht der Strom
+     * ohnehin daneben — ist der Tab `activity` (der Startwert), zeigt die linke
+     * Spur weiter die Repos, genau wie vor P3.
+     */
+    listeAktiv(): 'repos' | 'issues' | 'pulls'
+    /** Die teilbare Adresse einer Übersichts-Liste (`/forge?tab=…`). */
+    forgeTabHref(tab: string): string
+    issueGroups(): VorgangGruppe[]
+    pullGroups(): VorgangGruppe[]
 }
 
 /** Der Entwurf eines neuen Issues, wie ihn das Formular hält. */
@@ -2044,6 +2168,22 @@ export function wireForge(Alpine: {
                 return this.overview.truncated.length === 0
                     ? ''
                     : t('Die Liste ist gekürzt — es liegen mehr Einträge auf dem Relay, als hier geladen wurden.')
+            },
+            listeAktiv() {
+                return this.tab === 'issues' || this.tab === 'pulls' ? this.tab : 'repos'
+            },
+            forgeTabHref(tab: string) {
+                // Der Startwert steht bewusst NICHT in der Adresse — dieselbe
+                // Regel, die `syncTabParam` beim Zurückschreiben anwendet. Sonst
+                // trüge ein aus der Kachel kopierter Link `?tab=activity`, und
+                // der Normalfall hätte eine unnötig laute Adresse.
+                return tab === DEFAULT_FORGE_TAB ? this._base : `${this._base}?${FORGE_TAB_PARAM}=${tab}`
+            },
+            issueGroups() {
+                return this.overview.issueGroups
+            },
+            pullGroups() {
+                return this.overview.pullGroups
             },
         }
     })

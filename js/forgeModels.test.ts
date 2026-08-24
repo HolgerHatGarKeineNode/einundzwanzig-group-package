@@ -48,6 +48,7 @@ import {
     foldRepoState,
     foldReviews,
     foldStatus,
+    gruppiereNachRepo,
     isOperationNote,
     maintainerLookupFor,
     operationOf,
@@ -1621,4 +1622,39 @@ test('N1: ohne jeden Zustand bleibt die Antwort `null`, nicht „mehrdeutig"', (
         foldRepoState([], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D, dtagGeteilt: true }),
         null,
     )
+})
+
+// ── Workspace-weite Gruppierung (P3) ────────────────────────────────────────
+
+test('gruppiereNachRepo: Repo-Reihenfolge von aussen, Item-Reihenfolge erhalten, leere Gruppen weg', () => {
+    const repos = [
+        { address: 'a', name: 'Zebra' },
+        { address: 'b', name: 'Anton' },
+        { address: 'c', name: 'Ohne' },
+    ]
+    const items = [
+        { repoAddress: 'b', id: 'b1' },
+        { repoAddress: 'a', id: 'a1' },
+        { repoAddress: 'b', id: 'b2' },
+    ]
+
+    const gruppen = gruppiereNachRepo(items, repos)
+
+    // Die Reihenfolge ist die der REPOS (hier bewusst nicht alphabetisch) —
+    // nicht die des ersten Treffers und nicht neu sortiert.
+    assert.deepEqual(gruppen.map((g) => g.name), ['Zebra', 'Anton'])
+    // Innerhalb der Gruppe bleibt die Eingabe-Reihenfolge stehen.
+    assert.deepEqual(gruppen[1].items.map((i) => i.id), ['b1', 'b2'])
+    // `Ohne` hat keine Vorgänge und erscheint nicht.
+    assert.equal(gruppen.some((g) => g.name === 'Ohne'), false)
+})
+
+test('gruppiereNachRepo: eine unbekannte Koordinate erzeugt KEINE namenlose Gruppe', () => {
+    const gruppen = gruppiereNachRepo(
+        [{ repoAddress: 'fremd' }, { repoAddress: 'a' }],
+        [{ address: 'a', name: 'Anton' }],
+    )
+
+    assert.equal(gruppen.length, 1)
+    assert.equal(gruppen[0].items.length, 1)
 })
