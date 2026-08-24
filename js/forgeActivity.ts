@@ -45,6 +45,7 @@ import {
     allowedActorsForRoot,
     foldReviews,
     isOperationNote,
+    isPubkey,
     operationOf,
     rootTitle,
     tagValue,
@@ -122,6 +123,37 @@ const shortCommit = (commit: string): string =>
     /^[0-9a-f]{7,64}$/i.test(commit) ? commit.slice(0, SHORT_HASH) : ''
 
 /**
+ * Alle Commits, die dieser Pull Request je getragen hat: das `c` des 1618 und
+ * das jedes VERTRAUTEN 1619 (F3).
+ *
+ * Ein fremdes 1619 zählt nicht — sonst könnte ein Unbeteiligter durch ein
+ * erfundenes Update jeden beliebigen Commit nachträglich zu einem „gültigen"
+ * Bezugspunkt machen und damit eine unbegründete Freigabe legitimieren. Es ist
+ * dieselbe Berechtigungsmenge, die `toPullRequest` für seine Updates nimmt.
+ */
+const commitsOfPr = (root: ForgeEvent, events: ForgeEvent[], allowed: Set<string>): Set<string> => {
+    const commits = new Set<string>()
+    const initial = tagValue(root, 'c')
+    if (initial) {
+        commits.add(initial)
+    }
+    for (const event of events) {
+        if (
+            event.kind === GIT_PR_UPDATE &&
+            allowed.has(event.pubkey.toLowerCase()) &&
+            event.tags.some((tag) => (tag[0] === 'e' || tag[0] === 'E') && tag[1] === root.id)
+        ) {
+            const commit = tagValue(event, 'c')
+            if (commit) {
+                commits.add(commit)
+            }
+        }
+    }
+
+    return commits
+}
+
+/**
  * Der Titel eines 1617 fuer die Zeitleiste.
  *
  * Ein `subject`-Tag setzt kein bekannter Client an einem Patch — gilt aber,
@@ -158,9 +190,32 @@ const statusCodeOf = (kind: number): string => {
  * Ein gelöschter Ref erzeugt bewusst keine Zeile: der Löschvorgang ist am 30618
  * nicht vom „Relay hat den Zustand neu aufgebaut" zu unterscheiden.
  */
-const pushItems = (stateEvents: ForgeEvent[], repo: Repo): ActivityItem[] => {
+const pushItems = (stateEvents: ForgeEvent[], repo: Repo, relaySelf: string): ActivityItem[] => {
+    /**
+     * **Wer einen Branch-Zustand behaupten darf** (F2, 2026-08-24).
+     *
+     * Dieselbe Menge wie in `foldRepoState` (`forgeModels.ts:557`): der
+     * Repo-Eigentümer und der Relay selbst — bei Buzz schreibt der Relay das
+     * 30618, nicht der Mensch. Bis zum 2026-08-24 filterte diese Funktion NUR
+     * nach `d`, und der Handelnde kam aus dem `p`-Tag: jedes Relay-Mitglied
+     * konnte damit „«Opfer» hat gepusht nach master → deadbee" in die Leiste
+     * schreiben. Dasselbe Ereignis wies der Steckbrief daneben korrekt ab — die
+     * beiden Flächen widersprachen sich, und die falsche war die auffälligere.
+     *
+     * Ohne bekanntes `relaySelf` (NIP-11 noch unterwegs, oder kein Buzz) bleibt
+     * der Eigentümer übrig. Das ist eng, aber nie falsch — und es ist genau die
+     * Auskunft, die `foldRepoState` in derselben Lage gibt.
+     */
+    const trusted = new Set(
+        [repo.owner.toLowerCase(), relaySelf.toLowerCase()].filter((value) => value !== ''),
+    )
     const ordered = stateEvents
-        .filter((event) => event.kind === REPO_STATE && tagValue(event, 'd') === repo.dtag)
+        .filter(
+            (event) =>
+                event.kind === REPO_STATE &&
+                tagValue(event, 'd') === repo.dtag &&
+                trusted.has(event.pubkey.toLowerCase()),
+        )
         .sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
 
     const seen = new Map<string, string>()
@@ -202,6 +257,14 @@ export type ActivityInput = {
     repos: Repo[]
     /** Rohe Ereignisse: 30617, 30618, 1621, 1617, 1618, 1619, 1630–1633, 1. */
     events: ForgeEvent[]
+    /**
+     * Der Pubkey des Relays aus NIP-11 (`self`) — er signiert die 30618.
+     *
+     * Optional, weil er beim ersten Aufbau noch fehlt; dann bleibt als
+     * vertrauenswürdiger Absender nur der Repo-Eigentümer übrig. Siehe
+     * {@link pushItems}.
+     */
+    relaySelf?: string
 }
 
 /**
@@ -213,7 +276,7 @@ export type ActivityInput = {
  * fluten. Ausnahme sind die 30617/30618 selbst — sie tragen kein `a`, sie SIND
  * das Repo.
  */
-export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] => {
+export const buildActivity = ({ repos, events, relaySelf = '' }: ActivityInput): ActivityItem[] => {
     const byAddress = new Map(repos.map((repo) => [repo.address, repo]))
     const roots = new Map<string, ForgeEvent>()
     for (const event of events) {
@@ -225,6 +288,8 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
     const nameOf = (address: string): string => byAddress.get(address)?.name ?? ''
     /** Je Wurzel die Menge, die eine Freigabe aussprechen darf — siehe unten. */
     const trustedByRoot = new Map<string, Set<string>>()
+    /** Je PR-Wurzel alle Commits, die sie je getragen hat — siehe F3 unten. */
+    const commitsByRoot = new Map<string, Set<string>>()
     const items: ActivityItem[] = []
 
     for (const repo of repos) {
@@ -240,7 +305,7 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
             badge: '',
             status: '',
         })
-        items.push(...pushItems(events, repo))
+        items.push(...pushItems(events, repo, relaySelf))
     }
 
     for (const event of events) {
@@ -283,13 +348,30 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
         // Ab hier hängt alles an einer Wurzel: PR-Update, Statuswechsel,
         // Kommentar. Ohne auflösbare Wurzel gibt es keinen Satz — „jemand hat
         // etwas kommentiert" ist keine Information, sondern Rauschen.
-        const root = event.tags
-            .filter((tag) => tag[0] === 'e' || tag[0] === 'E')
-            .map((tag) => roots.get(tag[1] ?? ''))
-            .find((candidate): candidate is ForgeEvent => candidate !== undefined)
-        if (!root) {
-            continue
-        }
+        //
+        // **ALLE auflösbaren Wurzeln, nicht die erste** (F5, 2026-08-24). Hier
+        // stand `.find(…)`, während jede Faltung mit `referencesRoot` arbeitet
+        // und damit JEDES `e`/`E` gelten lässt (ebenso Buzz,
+        // `projectIssues.mjs:107-110`). Eine Notiz mit zwei `e`-Tags wirkte
+        // deshalb in der Faltung auf beide Wurzeln, in der Leiste aber nur auf
+        // die erste — die zweite bekam ihre Zeile nie, und ein Fremder konnte
+        // durch Voranstellen eines fremden `e` bestimmen, an welcher Wurzel sein
+        // Beitrag erscheint. Entdoppelt über die Id, damit ein zweifach
+        // genanntes `e` keine zwei Zeilen ergibt.
+        const rootIds = new Set(
+            event.tags
+                .filter((tag) => tag[0] === 'e' || tag[0] === 'E')
+                .map((tag) => tag[1] ?? '')
+                .filter((id) => roots.has(id)),
+        )
+        //
+        // **Jede Zeile im inneren Lauf ist wurzel-qualifiziert** (`…:${root.id}`).
+        // Dieselbe Notiz kann an zwei Wurzeln hängen und ergibt dann zwei Zeilen;
+        // mit einem gemeinsamen Schlüssel verwirft `x-for` die zweite still — und
+        // still ist genau die Eigenschaft, die man hier nicht will. Beim Bau
+        // zuerst nur an der Vorgangszeile gesetzt und vom Test aufgedeckt.
+        for (const rootId of rootIds) {
+        const root = roots.get(rootId) as ForgeEvent
         const rootAddress = tagValue(root, 'a')
         if (!byAddress.has(rootAddress)) {
             continue
@@ -309,7 +391,7 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
                 continue
             }
             items.push({
-                id: `update:${event.id}`,
+                id: `update:${event.id}:${root.id}`,
                 type: 'pr-updated',
                 createdAt: event.created_at,
                 actor: event.pubkey.toLowerCase(),
@@ -335,7 +417,7 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
                 continue
             }
             items.push({
-                id: `status:${event.id}`,
+                id: `status:${event.id}:${root.id}`,
                 type: isPr ? 'pr-status' : isPatch ? 'patch-status' : 'issue-status',
                 createdAt: event.created_at,
                 actor: event.pubkey.toLowerCase(),
@@ -364,7 +446,7 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
             // ── Der gewöhnliche Gesprächsbeitrag ────────────────────────────
             if (!isOperationNote(event)) {
                 items.push({
-                    id: `comment:${event.id}`,
+                    id: `comment:${event.id}:${root.id}`,
                     type: 'comment',
                     createdAt: event.created_at,
                     actor: event.pubkey.toLowerCase(),
@@ -407,6 +489,8 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
             const signer = event.pubkey.toLowerCase()
             const allowed = allowedActorsForRoot(root, byAddress.get(rootAddress)?.maintainers ?? [])
             const genannte = tagValues(event, 'p').map((value) => value.toLowerCase())
+            /** Nur bei Freigabe/Einspruch belegt — der Commit, für den sie gilt (F3). */
+            let entscheidungsCommit = ''
 
             if (operation === 'assignment' || operation === 'unassignment') {
                 // Dieselbe Regel wie `foldAssignments`: autoritativ oder
@@ -420,8 +504,19 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
                     continue
                 }
             } else {
-                // Freigabe / Einspruch: Reviewer oder berechtigter Akteur, nie
-                // der Autor der Wurzel selbst — `trustedReviewActors` bei Buzz.
+                // ── Freigabe / Einspruch ────────────────────────────────────
+                //
+                // **F4 (2026-08-24): NUR an einem Pull Request.** `foldReviews`
+                // wird ausschliesslich aus `toPullRequest` gerufen; ein Issue
+                // und ein Patch kennen gar keine Reviewer. Die Leiste rannte
+                // hier auch über Issue- und Patch-Wurzeln und erfand damit eine
+                // Freigabe für ein Objekt, das keine haben kann — die Zeile
+                // hatte auf der Detailfläche kein Gegenstück.
+                if (!isPr) {
+                    continue
+                }
+                // Reviewer oder berechtigter Akteur, nie der Autor der Wurzel
+                // selbst — `trustedReviewActors` bei Buzz.
                 //
                 // Die Reviewer-Menge hängt nicht am Commit, deshalb reicht ein
                 // `foldReviews(..., '')`: es kehrt vor der Entscheidungsschleife
@@ -441,10 +536,48 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
                 if (!vertraut.has(signer) || signer === autor) {
                     continue
                 }
+                // ── F3 (2026-08-24): der Commit gehört zur Aussage ───────────
+                //
+                // `foldReviews` verlangt zusätzlich, dass sich die Entscheidung
+                // auf den AKTUELLEN Commit bezieht; die Leiste prüfte das nicht.
+                // Ergebnis: die PR-Zeile zählte null Freigaben, während die
+                // Leiste „hat freigegeben" sagte — genau das Häkchen für
+                // ungesehenen Code, das der Docblock an {@link foldReviews}
+                // ausschliessen will.
+                //
+                // **Von den zwei zulässigen Fixen ist dies BEIDES, und das ist
+                // eine Entscheidung, keine Unentschlossenheit:**
+                //
+                //  1. *Nie gültig* — die Notiz nennt einen Commit, der an diesem
+                //     PR nie stand. Dafür gibt es keine historische Lesart; so
+                //     eine Zeile ist nicht „veraltet", sie ist unbegründet. Sie
+                //     fällt heraus.
+                //  2. *Nachträglich entwertet* — die Notiz galt für einen Stand,
+                //     den ein späterer Push abgelöst hat. Das IST Historie, und
+                //     eine Leiste ist eine Chronik: die Zeile bleibt, trägt aber
+                //     den Commit als Abzeichen, damit ein Leser sie einordnen
+                //     kann. Bis heute stand dort `badge: ''`, also gar nichts.
+                //
+                // Die Unterscheidung ist billig: `commitsOfPr` sammelt einmal je
+                // Wurzel alle Commits, die dieser PR je getragen hat (1618 plus
+                // jedes vertraute 1619).
+                const bezug = tagValue(event, 'c') || tagValue(root, 'c')
+                let bekannt = commitsByRoot.get(root.id)
+                if (!bekannt) {
+                    bekannt = commitsOfPr(root, events, allowed)
+                    commitsByRoot.set(root.id, bekannt)
+                }
+                if (!bekannt.has(bezug)) {
+                    continue
+                }
+                entscheidungsCommit = bezug
             }
 
             items.push({
-                id: `operation:${event.id}`,
+                // **Wurzel-qualifiziert** (F5): dieselbe Notiz kann über zwei
+                // `e`-Tags an zwei Wurzeln hängen, und zwei Zeilen brauchen zwei
+                // Schlüssel — sonst verwirft `x-for` die zweite still.
+                id: `operation:${event.id}:${root.id}`,
                 type: operation,
                 createdAt: event.created_at,
                 actor: signer,
@@ -457,10 +590,17 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
                 // Text war der sichtbare Teil des Fehlers; er kommt nicht als
                 // zweite Zeile zurück.
                 body: '',
-                badge: '',
+                // Bei einer Freigabe der Commit, für den sie gilt — siehe F3.
+                // Bei allem anderen leer.
+                badge: entscheidungsCommit === '' ? '' : shortCommit(entscheidungsCommit),
                 status: '',
-                targets: genannte,
+                // **F1: nur Schlüssel.** Ein `["p","Bob"]` lief bis zum
+                // 2026-08-24 bis in `npubEncode` und riss die ganze Insel mit;
+                // der Riegel stand in `foldAssignments` und war beim Bau dieser
+                // Fläche nicht mitgenommen worden.
+                targets: genannte.filter(isPubkey),
             })
+        }
         }
     }
 

@@ -681,7 +681,19 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </span>
                                                 <div class="min-w-0 flex-1">
                                                     <p class="text-sm leading-snug">
-                                                        <span class="font-semibold" x-text="row.actorName"></span>
+                                                        {{-- Der ROHE Schlüssel im `title` (F6, 2026-08-24).
+                                                             Ein Anzeigename stammt aus einem kind 0, das
+                                                             jeder für sich selbst schreibt: „kein Profil
+                                                             bekannt" und „Profil behauptet, ich sei X" sind
+                                                             am Text nicht zu unterscheiden. Die Chips im
+                                                             Vorgangsband tragen den Schlüssel längst
+                                                             (`:title`), die Zeitleistenzeile trug ihn nicht
+                                                             — wer nachsehen will, konnte es hier als
+                                                             einziger Stelle nicht.
+                                                             `x-bind:title` ausgeschrieben: auf normalem HTML
+                                                             ist die Blade-Kurzform kein Binding. --}}
+                                                        <span class="font-semibold" x-text="row.actorName"
+                                                              x-bind:title="row.actor"></span>
                                                         <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
                                                         <span class="font-medium" x-text="row.object"></span>
                                                     </p>

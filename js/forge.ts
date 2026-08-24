@@ -111,6 +111,7 @@ import {
     buildPullRequests,
     buildRepos,
     foldRepoState,
+    isPubkey,
     maintainerLookupFor,
     reviewerRows,
     truncatedLists,
@@ -349,7 +350,33 @@ const timeLabel = (ts: number): string =>
  * kind 0 noch nicht da ist — die Zeile bleibt also lesbar, statt eine rohe
  * 64-stellige Hex-Kennung zu zeigen („Resolve references", VISION_ACTIVITY.md).
  */
-const nameOf = (pubkey: string): string => (pubkey ? displayProfileByPubkey(pubkey) : '')
+/**
+ * Der Anzeigename eines Schlüssels — **und die Engstelle, an der kein Wurf
+ * durchkommen darf** (F1, 2026-08-24).
+ *
+ * `displayProfileByPubkey` endet bei fehlendem kind 0 in `displayPubkey`, also
+ * in `nip19.npubEncode`, und das **wirft** bei allem, was nicht hexadezimal ist
+ * (`npubEncode('Bob')` → SyntaxError, nachgestellt). Jeder Aufruf dieser
+ * Funktion steht in einem `derived()`-Callback. Svelte hält seine
+ * `subscriber_queue` modulweit: ein Wurf darin lässt sie ungeleert zurück, und
+ * danach stellt **jeder** Store der Seite die Auslieferung ein — auch die, die
+ * mit der Forge nichts zu tun haben. Aus einem falschen Tag wird so eine tote
+ * Seite, und weil das Ereignis am Relay liegen bleibt, überlebt der Zustand
+ * jeden Reload.
+ *
+ * **Der Riegel steht hier und nicht nur an den Datenquellen.** Beides ist
+ * gebaut — `toRepoState` filtert den `p`-Tag, `foldAssignments` und
+ * `foldReviews` filtern ihre `p`-Listen —, aber diese Quellen sind aufzählbar
+ * und wachsen. Die Engstelle ist es nicht: jeder Schlüssel, der je zu einem
+ * Namen wird, kommt hier durch. Genau das war der Fehler von P1 — der Riegel
+ * existierte in `foldAssignments`, wurde beim Bau des Aktivitätsstroms aber
+ * nicht mitgenommen.
+ *
+ * Ein unbrauchbarer Wert ergibt `''` statt einer erfundenen Kennung: die Fläche
+ * zeigt dann keinen Namen, was zutrifft — sie kennt keinen.
+ */
+const nameOf = (pubkey: string): string =>
+    isPubkey(pubkey) ? displayProfileByPubkey(pubkey) : ''
 
 /** Pubkeys → Personen mit Namen und ROHEM Bild (`nostr-avatar` proxifiziert selbst). */
 const peopleOf = (
@@ -591,7 +618,11 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                 // Die Übersicht mischt Repos — hier nennt die Zeile ihr Repo,
                 // aber nur beim Wechsel.
                 activityGroups: toActivityGroups(
-                    buildActivity({ repos, events: all }).slice(0, ACTIVITY_LIMIT),
+                    // `relaySelf` ist bei Buzz der SIGNIERER der 30618 — ohne ihn
+                    // fällt jede Push-Zeile heraus (F2). Er liegt in dieser
+                    // Ableitung ohnehin vor; genau derselbe Wert speist
+                    // `foldRepoState` ein paar Zeilen darüber.
+                    buildActivity({ repos, events: all, relaySelf: relaySelf as string }).slice(0, ACTIVITY_LIMIT),
                     profiles as Map<string, { picture?: string }>,
                     now,
                     true,
@@ -1149,7 +1180,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     })),
                 })),
                 activityGroups: toActivityGroups(
-                    buildActivity({ repos: [repo], events: all }).slice(0, ACTIVITY_LIMIT),
+                    buildActivity({ repos: [repo], events: all, relaySelf: relaySelf as string }).slice(0, ACTIVITY_LIMIT),
                     profiles as Map<string, { picture?: string }>,
                     now,
                     false,

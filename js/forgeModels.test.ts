@@ -1359,8 +1359,10 @@ test('foldAssignments: ein Zugewiesener muss kein Maintainer sein', () => {
 // ── operationOf ─────────────────────────────────────────────────────────────
 
 test('operationOf: ein Label je Kategorie ergibt die Form, zwei Kategorien ergeben nichts', () => {
+    // Mit `p`: die drei personennennenden Label brauchen es (Mindestform, siehe
+    // `traegtOperation`), die beiden anderen stört es nicht.
     const mit = (...labels: string[]): ForgeEvent =>
-        ev({ kind: FORGE_COMMENT, tags: labels.map((label) => ['t', label]) })
+        ev({ kind: FORGE_COMMENT, tags: [['p', MAINTAINER], ...labels.map((label) => ['t', label])] })
 
     assert.equal(operationOf(mit('assignment')), 'assignment')
     assert.equal(operationOf(mit('unassignment')), 'unassignment')
@@ -1391,7 +1393,7 @@ test('operationOf: ein Label je Kategorie ergibt die Form, zwei Kategorien ergeb
 test('isOperationNote ist weiter als operationOf — und genau darauf kommt es an', () => {
     const widerspruch = ev({
         kind: FORGE_COMMENT,
-        tags: [['t', 'assignment'], ['t', 'unassignment']],
+        tags: [['p', MAINTAINER], ['t', 'assignment'], ['t', 'unassignment']],
     })
 
     assert.equal(operationOf(widerspruch), '')
@@ -1401,7 +1403,115 @@ test('isOperationNote ist weiter als operationOf — und genau darauf kommt es a
     const notiz = ev({
         kind: FORGE_COMMENT,
         content: 'sieht aus wie ein Kommentar',
-        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['t', 'assignment'], ['t', 'unassignment']],
+        tags: [
+            ['e', root.id, '', 'root'],
+            ['a', REPO_ADDR],
+            ['p', MAINTAINER],
+            ['t', 'assignment'],
+            ['t', 'unassignment'],
+        ],
     })
     assert.deepEqual(commentsForRoot(root.id, [notiz]), [])
+})
+
+/**
+ * **Die Testlücke aus der Abnahme (2026-08-24).**
+ *
+ * `foldAssignments` prüft die Selbstbedienung bewusst auf der ROHEN `p`-Liste:
+ * genau ein Tag, und es ist der Signierer. Wer vor dieser Prüfung zusätzlich mit
+ * `isPubkey` filterte, machte aus `["p", <selbst>], ["p","müll"]` eine
+ * Selbstbedienung — wir wären **großzügiger** als der Referenzparser statt
+ * strenger. Die Eigenschaft war gebaut und dokumentiert, aber von keinem Test
+ * gehalten: ein solcher Vorfilter liess alle Fälle grün.
+ *
+ * Dieser Test schliesst genau das. Er ist ohne die Eigenschaft rot.
+ */
+test('foldAssignments: der Selbstbedienungs-Riegel zählt die ROHEN `p`-Tags, nicht die brauchbaren', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const getarnt = ev({
+        kind: FORGE_COMMENT,
+        pubkey: FREMD,
+        tags: [
+            ['e', root.id, '', 'root'],
+            ['a', REPO_ADDR],
+            ['p', FREMD],
+            // Ein zweiter, unbrauchbarer Wert. Würde er vor der Prüfung
+            // weggefiltert, sähe die Notiz wie eine Selbstzuweisung aus.
+            ['p', 'kein-schluessel'],
+            ['t', 'assignment'],
+        ],
+    })
+
+    assert.deepEqual(foldAssignments(root, [getarnt]).assignees, [])
+
+    // KONTROLLE: mit nur dem einen Tag ist es eine echte Selbstzuweisung und
+    // geht durch — der Riegel sperrt nicht pauschal.
+    const echt = ev({
+        kind: FORGE_COMMENT,
+        pubkey: FREMD,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', FREMD], ['t', 'assignment']],
+    })
+    assert.deepEqual(foldAssignments(root, [echt]).assignees, [FREMD])
+})
+
+/** F1 an der Quelle: der `p`-Tag eines 30618 ist Fremdeingabe wie jede andere. */
+test('F1 toRepoState: ein `p`, das kein Schlüssel ist, ergibt KEINEN Handelnden', () => {
+    const mit = (wert: string): ForgeEvent =>
+        ev({ kind: REPO_STATE, tags: [['d', REPO_D], ['refs/heads/master', 'a'.repeat(40)], ['p', wert]] })
+
+    assert.equal(toRepoState(mit('Bob')).actor, '')
+    assert.equal(toRepoState(mit('refs/heads/master')).actor, '')
+    assert.equal(toRepoState(mit('')).actor, '')
+    // KONTROLLE: der echte Schlüssel kommt weiterhin an.
+    assert.equal(toRepoState(mit(MAINTAINER)).actor, MAINTAINER)
+})
+
+/**
+ * **Der Hashtag-Fall (Befund der Sicherheitsprüfung, 2026-08-24).**
+ *
+ * `assignment` ist ein gewöhnliches englisches Wort. Ein Client, der Hashtags in
+ * `t`-Tags spiegelt, macht aus „#assignment noch offen" eine Notiz, die wie eine
+ * Vorgangsform aussieht — und sie verschwände lautlos aus Liste, Zähler und
+ * Leiste. Für die drei Label, bei denen das SDK selbst eine Mindestform erzwingt
+ * (mindestens ein `p`, `builders.rs:1219-1223`), verlangen wir sie jetzt auch.
+ *
+ * Das schliesst die Kante nicht ganz — `approval` hat keine solche Invariante —,
+ * und genau das steht als bewusst getragener Rest am Ort.
+ */
+test('Hashtag-Falle: `#assignment` ohne genannte Person bleibt ein gewöhnlicher Kommentar', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const hashtag = ev({
+        kind: FORGE_COMMENT,
+        pubkey: MAINTAINER,
+        content: 'Das braucht noch ein #assignment.',
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['t', 'assignment']],
+    })
+
+    assert.equal(isOperationNote(hashtag), false)
+    assert.equal(operationOf(hashtag), '')
+    const [kommentar] = commentsForRoot(root.id, [hashtag])
+    assert.equal(kommentar?.content, 'Das braucht noch ein #assignment.')
+    assert.equal(toIssue(root, [], [hashtag]).commentCount, 1)
+
+    // KONTROLLE: mit genannter Person ist es wieder eine Vorgangsform — die
+    // Mindestform sperrt echte Zuweisungen nicht aus.
+    const echt = ev({
+        kind: FORGE_COMMENT,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', MAINTAINER], ['t', 'assignment']],
+    })
+    assert.equal(isOperationNote(echt), true)
+    assert.deepEqual(commentsForRoot(root.id, [echt]), [])
+})
+
+/**
+ * Die verbleibende Kante, ausdrücklich festgehalten statt verschwiegen: für
+ * `approval` gibt es keine Mindestform im SDK, also greift dort weiterhin das
+ * blosse Label. Dieser Test hält den Ist-Zustand fest — schliesst jemand die
+ * Kante später, wird er rot und zwingt zur bewussten Entscheidung.
+ */
+test('BEKANNTE KANTE: `#approval` ohne alles gilt weiterhin als Vorgangsform', () => {
+    const hashtag = ev({ kind: FORGE_COMMENT, content: 'Wartet auf #approval.', tags: [['t', 'approval']] })
+
+    assert.equal(isOperationNote(hashtag), true)
+    assert.equal(operationOf(hashtag), 'approval')
 })

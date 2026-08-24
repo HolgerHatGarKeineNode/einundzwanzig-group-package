@@ -1474,7 +1474,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     </span>
                                                     <div class="min-w-0 flex-1">
                                                         <p class="text-sm leading-snug">
-                                                            <span class="font-semibold" x-text="row.actorName"></span>
+                                                            {{-- Roher Schlüssel im `title` — dieselbe
+                                                                 Begründung wie in `⚡forge.blade.php` (F6). --}}
+                                                            <span class="font-semibold" x-text="row.actorName"
+                                                                  x-bind:title="row.actor"></span>
                                                             <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
                                                             <span class="font-medium" x-text="row.object"></span>
                                                         </p>

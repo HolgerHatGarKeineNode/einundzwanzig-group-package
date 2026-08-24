@@ -148,7 +148,18 @@ export const tagValuesFlat = (event: ForgeEvent, name: string): string[] =>
     event.tags.filter((tag) => tag[0] === name).flatMap((tag) => tag.slice(1)).filter(isFilled)
 
 const HEX64 = /^[0-9a-f]{64}$/
-const isPubkey = (value: string): boolean => HEX64.test(value.toLowerCase())
+
+/**
+ * Ist das ein Nostr-Schlüssel (64 Hexstellen)?
+ *
+ * **Exportiert seit F1 (2026-08-24), und der Grund ist kein Stil.** Derselbe
+ * Riegel wurde an drei Stellen gebraucht — hier, im Aktivitätsstrom und an der
+ * Namensauflösung in `forge.ts` — und in P1 stand er nur an einer davon. Drei
+ * Kopien einer Sicherheitsprüfung sind drei Gelegenheiten, eine davon zu
+ * vergessen; genau das ist passiert. Ab jetzt gibt es eine Definition, und wer
+ * eine vierte Stelle baut, importiert sie, statt sie abzuschreiben.
+ */
+export const isPubkey = (value: string): boolean => HEX64.test(value.toLowerCase())
 
 // ── Adressen ────────────────────────────────────────────────────────────────
 
@@ -457,7 +468,24 @@ export const toRepoState = (event: ForgeEvent): RepoState => {
         tags: tags.sort((a, b) => a.name.localeCompare(b.name)),
         head,
         updatedAt: event.created_at,
-        actor: tagValue(event, 'p').toLowerCase(),
+        /**
+         * Der Pusher — **nur, wenn es ein Schlüssel ist** (F1, 2026-08-24).
+         *
+         * Der `p`-Tag eines 30618 ist Fremdeingabe wie jeder andere Tag. Stand
+         * hier `["p","Bob"]`, reichte dieses Feld den Rohwert bis in
+         * `displayPubkey` durch — und das **wirft** einen SyntaxError
+         * (`npubEncode('Bob')`: „Input string must contain hex characters in
+         * even length", am 2026-08-24 nachgestellt). Der Wurf passiert in einem
+         * `derived()`-Callback, und svelte hält seine `subscriber_queue`
+         * modulweit: danach liefert **jeder** Store der Seite nichts mehr aus,
+         * auch völlig unbeteiligte. Ein einziges Ereignis genügte, die Insel war
+         * bis zum Reload tot — und beim nächsten Reload liegt es wieder da.
+         *
+         * `''` heisst „das Ereignis nennt ihn nicht", und genau das ist bei
+         * einem unbrauchbaren Wert die richtige Auskunft. Der zweite Riegel
+         * sitzt in `forge.ts` an `nameOf`; dieser hier ist der an der Quelle.
+         */
+        actor: isPubkey(tagValue(event, 'p')) ? tagValue(event, 'p').toLowerCase() : '',
     }
 }
 
@@ -826,9 +854,61 @@ const labelsOf = (event: ForgeEvent): Set<string> =>
  * (`projectPullRequests.mjs:180-184`, `projectIssues.mjs:114`). Ein `["t","Approval"]`
  * aus einem dritten Client zählte sonst als Kommentar hier und als Freigabe dort.
  */
+/**
+ * Die drei Label, die ohne genannte Person **keine** Operation sein können.
+ *
+ * Das ist keine Erfindung, sondern die Invariante des SDK: eine Zuweisung ohne
+ * Zugewiesene lässt sich gar nicht bauen (`builders.rs:1219-1223` — „between 1
+ * and 50 assignees are required"), und eine Review-Anfrage ohne Angefragten
+ * ebenso wenig (`pullRequestReviews.ts:110-113` — „Select at least one
+ * reviewer."). Wer `["t","assignment"]` ohne `p` schreibt, hat also nicht eine
+ * kaputte Zuweisung geschrieben, sondern **keine**.
+ */
+const LABELS_MIT_PERSON: ReadonlySet<string> = new Set([
+    ASSIGNMENT_LABEL,
+    UNASSIGNMENT_LABEL,
+    REVIEW_REQUEST_LABEL,
+])
+
+/**
+ * Trägt das Ereignis dieses Label **und** das, was das Label braucht?
+ *
+ * ── Warum es diese zweite Hälfte gibt (2026-08-24) ──────────────────────────
+ *
+ * Die fünf Label sind gewöhnliche englische Wörter. Ein Client, der Hashtags aus
+ * dem Fliesstext in `t`-Tags spiegelt, macht aus „#approval nötig" eine Notiz,
+ * die für uns eine Vorgangsform ist — und sie verschwindet dann aus
+ * Kommentarliste, Zähler und Leiste. Für den Schreiber ist das sichtbar (sein
+ * Beitrag erscheint nicht), für alle anderen nicht.
+ *
+ * **Gemessen, wie real das ist:** keiner der beiden Clients an diesem Relay tut
+ * es. Unser eigener Kommentar-Schreiber setzt überhaupt kein `t`
+ * (`forgeWriteModels.buildCommentTags` — nur `e`, `a`, `p`), und Buzz setzt `t`
+ * ausschliesslich für ausdrücklich gewählte Vorgänge
+ * (`features/projects/hooks.ts:352-371`, `issueAssignments.ts:104-112`,
+ * `pullRequestReviews.ts:125-134`). Der Pfad braucht einen DRITTEN Client.
+ *
+ * **Warum das Label trotzdem das Erkennungsmerkmal bleibt.** Die naheliegende
+ * Alternative wäre, eine Notiz erst dann auszuschliessen, wenn die Faltung sie
+ * auch ANERKENNT. Das dreht den Fehler aber in die gefährlichere Richtung: eine
+ * abgelehnte Zuweisung — also genau die, die ein Angreifer schreibt — käme als
+ * Kommentar zurück, mitsamt ihrer Maschinenprosa („Assigned this issue to Bob")
+ * und, bei leerem Rumpf, als leere Sprechblase. Ein hypothetisches
+ * Falsch-Positiv eines dritten Clients gegen ein angreifer-steuerbares
+ * Falsch-Negativ zu tauschen, ist das schlechtere Geschäft.
+ *
+ * **Was stattdessen passiert:** für die drei Label, bei denen das SDK selbst
+ * eine Mindestform erzwingt, wird sie hier verlangt. „#assignment" in einem
+ * Fliesstext ohne `p`-Tag ist damit wieder ein gewöhnlicher Kommentar. Für
+ * `approval`/`changes-requested` gibt es keine solche Invariante — dort bleibt
+ * es beim blossen Label, und das ist die verbleibende, bewusst getragene Kante.
+ */
+const traegtOperation = (event: ForgeEvent, label: string): boolean =>
+    !LABELS_MIT_PERSON.has(label) || tagValues(event, 'p').length > 0
+
 export const isOperationNote = (event: ForgeEvent): boolean => {
     for (const label of labelsOf(event)) {
-        if (OPERATION_LABELS.has(label)) {
+        if (OPERATION_LABELS.has(label) && traegtOperation(event, label)) {
             return true
         }
     }
@@ -866,11 +946,15 @@ export type ForgeOperation =
 
 export const operationOf = (event: ForgeEvent): ForgeOperation => {
     const labels = labelsOf(event)
-    const istZuweisung = labels.has(ASSIGNMENT_LABEL)
-    const istEntzug = labels.has(UNASSIGNMENT_LABEL)
-    const istAnfrage = labels.has(REVIEW_REQUEST_LABEL)
-    const istFreigabe = labels.has(APPROVAL_LABEL)
-    const istEinspruch = labels.has(CHANGES_REQUESTED_LABEL)
+    // Dieselbe Mindestform wie {@link isOperationNote} — sonst liefen die beiden
+    // Funktionen auseinander, und die Notiz wäre an einer Fläche ein Vorgang und
+    // an der anderen ein Gespräch.
+    const hat = (label: string): boolean => labels.has(label) && traegtOperation(event, label)
+    const istZuweisung = hat(ASSIGNMENT_LABEL)
+    const istEntzug = hat(UNASSIGNMENT_LABEL)
+    const istAnfrage = hat(REVIEW_REQUEST_LABEL)
+    const istFreigabe = hat(APPROVAL_LABEL)
+    const istEinspruch = hat(CHANGES_REQUESTED_LABEL)
 
     // Widersprüchliche Paare zuerst: sie heben sich auf, wie in der Faltung.
     if (istZuweisung && istEntzug) {
