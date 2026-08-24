@@ -19,8 +19,20 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+    BILD_GRENZE,
     README_VORZUG,
+    TEXT_GRENZE,
+    ZEILEN_GRENZE,
+    bildMime,
+    dateiArt,
+    elternPfad,
     findeReadme,
+    istBinaer,
+    krumelspur,
+    kuerzeZeilen,
+    sortiereEintraege,
+    verbinde,
+    type BaumEintrag,
     groesse,
     istEigenerHost,
     istMarkdown,
@@ -186,4 +198,120 @@ test('was sich nicht einordnen lässt, heisst „unbekannt" — statt falsch ein
     assert.equal(ordneFehlerEin(new Error('Could not find HEAD')), 'unbekannt')
     assert.equal(ordneFehlerEin(null), 'unbekannt')
     assert.equal(ordneFehlerEin('irgendwas'), 'unbekannt')
+})
+
+// ── Baum ────────────────────────────────────────────────────────────────────
+
+test('sortiereEintraege: Verzeichnisse zuerst, dann alphabetisch OHNE Gross/Klein', () => {
+    // Git liefert seine eigene Sortierung, in der `Zebra` vor `apfel` steht.
+    // Wer sie durchreicht, zeigt eine Liste, die niemand überfliegen kann.
+    const eintraege: BaumEintrag[] = [
+        { name: 'index.js', art: 'blob' },
+        { name: 'Zebra', art: 'blob' },
+        { name: 'src', art: 'tree' },
+        { name: 'apfel', art: 'blob' },
+        { name: 'Docs', art: 'tree' },
+    ]
+    assert.deepEqual(
+        sortiereEintraege(eintraege).map((e) => e.name),
+        ['Docs', 'src', 'apfel', 'index.js', 'Zebra'],
+    )
+})
+
+test('sortiereEintraege verändert die EINGABE nicht', () => {
+    // Die Ableitung läuft bei jedem Ereignis neu; ein `sort` an Ort und Stelle
+    // schriebe in ein Modell, das jemand anders hält.
+    const eintraege: BaumEintrag[] = [{ name: 'b', art: 'blob' }, { name: 'a', art: 'blob' }]
+    sortiereEintraege(eintraege)
+    assert.deepEqual(eintraege.map((e) => e.name), ['b', 'a'])
+})
+
+test('krumelspur und elternPfad', () => {
+    assert.deepEqual(krumelspur('src/js/app.ts'), [
+        { name: 'src', pfad: 'src' },
+        { name: 'js', pfad: 'src/js' },
+        { name: 'app.ts', pfad: 'src/js/app.ts' },
+    ])
+    // Die Wurzel benennt die FLÄCHE — ihr Wort muss übersetzt sein.
+    assert.deepEqual(krumelspur(''), [])
+    assert.equal(elternPfad('src/js/app.ts'), 'src/js')
+    assert.equal(elternPfad('src'), '')
+    assert.equal(elternPfad(''), '')
+})
+
+test('verbinde erzeugt keine doppelten Schrägstriche', () => {
+    assert.equal(verbinde('', 'src'), 'src')
+    assert.equal(verbinde('src', 'app.ts'), 'src/app.ts')
+})
+
+// ── Dateiart ────────────────────────────────────────────────────────────────
+
+const bytesAus = (s: string): Uint8Array => new TextEncoder().encode(s)
+const nullBytes = (n: number): Uint8Array => new Uint8Array(n)
+
+test('istBinaer erkennt ein NUL — und schaut nur in die ersten 8000 Bytes', () => {
+    assert.equal(istBinaer(bytesAus('nur text')), false)
+    const mitNull = new Uint8Array([104, 0, 105])
+    assert.equal(istBinaer(mitNull), true)
+    // Ein NUL JENSEITS des Fensters wird nicht gefunden — das ist die bewusste
+    // Grenze der Heuristik, kein Versehen.
+    const spaet = new Uint8Array(9000)
+    spaet.fill(65)
+    spaet[8500] = 0
+    assert.equal(istBinaer(spaet), false)
+})
+
+test('WÄCHTER: ein Bild wird als BILD erkannt, nicht als binär', () => {
+    // Ein PNG enthält NUL-Bytes. Prüfte man den Inhalt vor der Endung, landete
+    // jedes Bild bei „binär" und würde nie angezeigt.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 13])
+    assert.equal(dateiArt('logo.png', png), 'bild')
+    assert.equal(istBinaer(png), true, 'Vorbedingung: dieses Byte-Muster IST binär.')
+})
+
+test('Grösse schlägt Inhalt — eine Riesendatei wird gar nicht erst untersucht', () => {
+    const riesig = new Uint8Array(TEXT_GRENZE + 1)
+    riesig.fill(65)
+    assert.equal(dateiArt('vendor.js.map', riesig), 'zu-gross')
+    // Auch ein Bild über seiner eigenen Grenze.
+    assert.equal(dateiArt('gross.png', new Uint8Array(BILD_GRENZE + 1)), 'zu-gross')
+})
+
+test('svg gilt als TEXT, nicht als Bild', () => {
+    // Es ist Quelltext. Als Bild eingebunden liesse es fremdes Markup ins
+    // Dokument — eine Sicherheitszusage, die niemand geprüft hat.
+    assert.equal(dateiArt('logo.svg', bytesAus('<svg></svg>')), 'text')
+})
+
+test('Markdown, Text und Binär werden unterschieden', () => {
+    assert.equal(dateiArt('README.md', bytesAus('# Titel')), 'markdown')
+    assert.equal(dateiArt('index.js', bytesAus('const a = 1')), 'text')
+    assert.equal(dateiArt('daten.bin', nullBytes(64)), 'binaer')
+    assert.equal(dateiArt('leer.txt', new Uint8Array(0)), 'text')
+})
+
+test('bildMime trifft die gängigen Endungen und rät sonst nicht', () => {
+    assert.equal(bildMime('a.PNG'), 'image/png')
+    assert.equal(bildMime('a.jpg'), 'image/jpeg')
+    assert.equal(bildMime('a.jpeg'), 'image/jpeg')
+    assert.equal(bildMime('a.unbekannt'), 'application/octet-stream')
+})
+
+// ── Kürzen ──────────────────────────────────────────────────────────────────
+
+test('kuerzeZeilen sagt die WAHRE Gesamtzahl, nicht die gekürzte', () => {
+    // „3000 von 41 233 Zeilen" ist eine Auskunft; „gekürzt" ist keine.
+    const viele = Array.from({ length: ZEILEN_GRENZE + 233 }, (_, i) => `Zeile ${i}`).join('\n')
+    const r = kuerzeZeilen(viele)
+    assert.equal(r.gekuerzt, true)
+    assert.equal(r.zeilen, ZEILEN_GRENZE + 233)
+    assert.equal(r.text.split('\n').length, ZEILEN_GRENZE)
+})
+
+test('KONTROLLE: unter der Grenze wird nichts angefasst', () => {
+    const kurz = 'a\nb\nc'
+    const r = kuerzeZeilen(kurz)
+    assert.equal(r.gekuerzt, false)
+    assert.equal(r.text, kurz)
+    assert.equal(r.zeilen, 3)
 })
