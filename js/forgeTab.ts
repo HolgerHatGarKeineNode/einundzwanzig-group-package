@@ -30,7 +30,18 @@
 export const FORGE_TAB_PARAM = 'tab'
 
 /**
- * Die drei Tabs aus `⚡forge.blade.php`, in Anzeige-Reihenfolge.
+ * Die gültigen Werte von `?tab=` auf der Übersicht — **eine Whitelist, keine
+ * Anzeigeliste**.
+ *
+ * **Seit P3 (2026-08-24) sind es fünf, und drei davon rendert die Tab-Reihe.**
+ * `issues` und `pulls` sind die workspace-weiten Listen: erreichbar über die
+ * Bestandskacheln und über den Segment-Umschalter der breiten Form, aber
+ * bewusst NICHT als vierter und fünfter Reiter. Die mobile Reihe bleibt bei
+ * drei — sie ist unterhalb `xl` der einzige Zugang zu den Kanälen, und
+ * `⚡spaces.blade.php` leitet serverseitig dorthin; jeder weitere Reiter drängte
+ * sie in den Überlauf. Der Docblock sagte bis dahin „die drei Tabs …, in
+ * Anzeige-Reihenfolge"; das galt, solange Whitelist und Reihe dasselbe waren.
+ * Sie sind es nicht mehr, und wer das verwechselt, baut den vierten Reiter.
  *
  * **`'projects'` stand hier bis 2026-08-23 und ist bewusst entfallen** — der Tab ist
  * gestrichen, die Projekte leben ab `xl` in der Rail weiter (`js/railForge.ts`). Ein
@@ -43,7 +54,7 @@ export const FORGE_TAB_PARAM = 'tab'
  * `⚡spaces.blade.php` und in `OrtskartenTest.php`. Ihn umzubenennen bräche jeden Bookmark
  * — still, mit Rückfall auf `activity`. Beschriftung und Bezeichner sind zwei Dinge.
  */
-export const FORGE_TABS = ['activity', 'repos', 'workspaces'] as const
+export const FORGE_TABS = ['activity', 'repos', 'workspaces', 'issues', 'pulls'] as const
 
 export type ForgeTab = (typeof FORGE_TABS)[number]
 

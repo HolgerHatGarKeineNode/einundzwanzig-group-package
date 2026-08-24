@@ -71,7 +71,7 @@ const ECHTE_ZUSTAENDE: ForgeEvent[] = [
 ]
 
 test('Drei 30618 am Ziel-Relay ergeben GENAU EINE Push-Zeile — die beiden leeren Ref-Zustände sind keine Handlung', () => {
-    const items = buildActivity({ repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE] })
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE] })
     const pushes = items.filter((item) => item.type === 'push')
 
     assert.equal(pushes.length, 1)
@@ -82,7 +82,7 @@ test('Drei 30618 am Ziel-Relay ergeben GENAU EINE Push-Zeile — die beiden leer
 })
 
 test('Die Repo-Zeile steht mit Name und Beschreibung; zusammen sind es zwei Zeilen, neueste zuerst', () => {
-    const items = buildActivity({ repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE] })
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE] })
 
     assert.equal(items.length, 2)
     assert.equal(items[0].type, 'repo-created', 'das Announcement ist jünger als der Push')
@@ -95,10 +95,10 @@ test('Ein zweiter Push auf denselben Branch mit NEUEM Commit ergibt eine zweite 
     const gleich = ev({ kind: REPO_STATE, pubkey: RELAY_SELF, created_at: 1785499900, tags: [['d', REPO_D], ['refs/heads/master', COMMIT], ['p', PUSHER]] })
     const neuer = ev({ kind: REPO_STATE, pubkey: RELAY_SELF, created_at: 1785499999, tags: [['d', REPO_D], ['refs/heads/master', 'b'.repeat(40)], ['p', PUSHER]] })
 
-    const nurGleich = buildActivity({ repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE, gleich] })
+    const nurGleich = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE, gleich] })
     assert.equal(nurGleich.filter((i) => i.type === 'push').length, 1, 'unveränderter Ref = kein Push')
 
-    const mitNeuem = buildActivity({ repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE, gleich, neuer] })
+    const mitNeuem = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE, gleich, neuer] })
     assert.equal(mitNeuem.filter((i) => i.type === 'push').length, 2)
 })
 
@@ -109,7 +109,7 @@ test('Issue, PR, PR-Update, Statuswechsel und Kommentar werden zu je einer Zeile
     const zu = ev({ kind: GIT_STATUS_CLOSED, pubkey: OWNER, created_at: 1786792600, tags: [['e', issue.id]] })
     const kommentar = ev({ kind: FORGE_COMMENT, pubkey: FREMD, created_at: 1786792700, content: 'Danke', tags: [['e', issue.id]] })
 
-    const items = buildActivity({ repos: REPOS, events: [repoEvent, issue, pr, update, zu, kommentar] })
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, issue, pr, update, zu, kommentar] })
     const typen = items.map((item) => item.type)
 
     assert.deepEqual(typen, ['comment', 'issue-status', 'pr-updated', 'pr-opened', 'issue-opened', 'repo-created'])
@@ -128,7 +128,7 @@ test('Ohne auflösbare Wurzel entsteht keine Zeile — auch nicht für Statuswec
         ev({ kind: FORGE_COMMENT, pubkey: FREMD, created_at: 1786793100, content: 'ganz ohne Bezug' }),
     ]
 
-    const items = buildActivity({ repos: REPOS, events: [repoEvent, ...verwaist] })
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, ...verwaist] })
     assert.deepEqual(items.map((i) => i.type), ['repo-created'])
 })
 
@@ -136,7 +136,7 @@ test('Ein Issue auf ein UNBEKANNTES Repo erscheint nicht — sonst flutet ein Fr
     const fremdesRepo = ev({ kind: GIT_ISSUE, pubkey: FREMD, created_at: 1786793200, tags: [['a', repoAddressOf(FREMD, 'nicht-unseres')]] })
 
     assert.deepEqual(
-        buildActivity({ repos: REPOS, events: [repoEvent, fremdesRepo] }).map((i) => i.type),
+        buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, fremdesRepo] }).map((i) => i.type),
         ['repo-created'],
     )
 })
@@ -146,7 +146,7 @@ test('Unberechtigte Statuswechsel und PR-Updates erscheinen nicht in der Leiste'
     const fremderStatus = ev({ kind: GIT_STATUS_CLOSED, pubkey: FREMD, created_at: 1786793400, tags: [['e', pr.id]] })
     const fremdesUpdate = ev({ kind: GIT_PR_UPDATE, pubkey: FREMD, created_at: 1786793500, tags: [['E', pr.id], ['c', 'e'.repeat(40)]] })
 
-    const typen = buildActivity({ repos: REPOS, events: [repoEvent, pr, fremderStatus, fremdesUpdate] }).map((i) => i.type)
+    const typen = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, pr, fremderStatus, fremdesUpdate] }).map((i) => i.type)
     assert.deepEqual(typen, ['pr-opened', 'repo-created'])
 })
 
@@ -178,7 +178,7 @@ const patchEvent = ev({
 })
 
 test('ein 1617 erzeugt eine eigene Zeile — bis zum 2026-08-23 fehlte es ganz', () => {
-    const spur = buildActivity({ repos: REPOS, events: [patchEvent] })
+    const spur = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [patchEvent] })
     const zeile = spur.find((item) => item.type === 'patch-opened')
     assert.ok(zeile, 'Kein `patch-opened` in der Spur — Patches sind unsichtbar.')
     assert.equal(zeile.repoAddress, REPO_ADDR)
@@ -190,7 +190,7 @@ test('WÄCHTER: der Patch-Titel ist der Betreff, NICHT die erste Inhaltszeile', 
     // zurück — und die lautet bei jedem `git format-patch`
     // „From <sha> Mon Sep 17 00:00:00 2001". Jede Patchzeile der Spur sähe
     // dann gleich aus, und keine sagte, worum es geht.
-    const zeile = buildActivity({ repos: REPOS, events: [patchEvent] }).find(
+    const zeile = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [patchEvent] }).find(
         (item) => item.type === 'patch-opened',
     )
     assert.equal(zeile?.object, 'Den Zaehler zuruecksetzen')
@@ -200,7 +200,7 @@ test('WÄCHTER: der Patch-Titel ist der Betreff, NICHT die erste Inhaltszeile', 
 test('der ROHE Patchtext landet nicht im Rumpf der Zeile', () => {
     // `body` ist die zweite Zeile einer Aktivitätszeile. Ein Diff darin wäre
     // Zeichensalat über die halbe Spur.
-    const zeile = buildActivity({ repos: REPOS, events: [patchEvent] }).find(
+    const zeile = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [patchEvent] }).find(
         (item) => item.type === 'patch-opened',
     )
     assert.equal(zeile?.body, '')
@@ -212,8 +212,10 @@ test('ein Statuswechsel an einem Patch heisst `patch-status`, nicht `issue-statu
         created_at: 5_000,
         tags: [['e', patchEvent.id], ['a', REPO_ADDR]],
     })
-    const spur = buildActivity({ repos: REPOS, events: [patchEvent, status] })
-    const zeile = spur.find((item) => item.id === `status:${status.id}`)
+    const spur = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [patchEvent, status] })
+    // Der Schlüssel ist seit F5 wurzel-qualifiziert: dieselbe Notiz kann an zwei
+    // Wurzeln hängen, und zwei Zeilen brauchen zwei Schlüssel.
+    const zeile = spur.find((item) => item.id === `status:${status.id}:${patchEvent.id}`)
     assert.equal(zeile?.type, 'patch-status')
     assert.equal(zeile?.status, 'closed')
     // Auch hier der Betreff, nicht der Git-Header.
@@ -226,7 +228,7 @@ test('KONTROLLE: ein Patch auf ein UNBEKANNTES Repo erscheint nicht', () => {
         content: PATCH_TEXT,
         tags: [['a', repoAddressOf(FREMD, 'gibt-es-nicht')]],
     })
-    const spur = buildActivity({ repos: REPOS, events: [fremd] })
+    const spur = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [fremd] })
     assert.equal(spur.filter((item) => item.type === 'patch-opened').length, 0)
 })
 
@@ -237,7 +239,7 @@ test('KONTROLLE: ein fremder Statuswechsel an einem Patch zählt nicht', () => {
         created_at: 6_000,
         tags: [['e', patchEvent.id], ['a', REPO_ADDR]],
     })
-    const spur = buildActivity({ repos: REPOS, events: [patchEvent, fremdStatus] })
+    const spur = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [patchEvent, fremdStatus] })
     assert.equal(spur.filter((item) => item.type === 'patch-status').length, 0)
 })
 
@@ -251,8 +253,417 @@ test('ein Kommentar an einem Patch findet seine Wurzel', () => {
         content: 'passt',
         tags: [['e', patchEvent.id], ['a', REPO_ADDR]],
     })
-    const spur = buildActivity({ repos: REPOS, events: [patchEvent, kommentar] })
-    const zeile = spur.find((item) => item.id === `comment:${kommentar.id}`)
+    const spur = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [patchEvent, kommentar] })
+    const zeile = spur.find((item) => item.id === `comment:${kommentar.id}:${patchEvent.id}`)
     assert.ok(zeile, 'Der Kommentar an einem Patch ist verschwunden.')
     assert.equal(zeile.object, 'Den Zaehler zuruecksetzen')
+})
+
+// ── Vorgangsformen im Strom (Nachzug zu P1) ─────────────────────────────────
+
+const ZWEITER = '2'.repeat(64)
+const issueRoot = ev({ kind: GIT_ISSUE, pubkey: OWNER, created_at: 2_000, tags: [['a', REPO_ADDR], ['subject', 'Titel']] })
+
+const notiz = (over: {
+    pubkey?: string
+    label?: string
+    p?: string[]
+    content?: string
+    created_at?: number
+    root?: ForgeEvent
+}): ForgeEvent =>
+    ev({
+        kind: FORGE_COMMENT,
+        pubkey: over.pubkey ?? OWNER,
+        created_at: over.created_at ?? 3_000,
+        content: over.content ?? '',
+        tags: [
+            ['e', (over.root ?? issueRoot).id, '', 'root'],
+            ['a', REPO_ADDR],
+            ...(over.p ?? []).map((pubkey) => ['p', pubkey]),
+            ...(over.label ? [['t', over.label]] : []),
+        ],
+    })
+
+/**
+ * RICHTUNG 1 — der Fehler, der repariert wurde.
+ *
+ * Bis zum Nachzug erzeugte eine Zuweisungsnotiz eine Zeile vom Typ `comment`,
+ * und der Strom gab die englische Prosa eines fremden Clients als Äußerung des
+ * Nutzers aus. Beide Hälften einzeln geprüft: KEIN Kommentar-Satz, und der
+ * Fremdtext taucht in KEINEM `body` auf.
+ */
+test('Strom: eine Zuweisungsnotiz ist kein Kommentar-Satz — und ihr Fremdtext erscheint nirgends', () => {
+    const items = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ label: 'assignment', p: [PUSHER], content: 'Assigned this issue to Bob' })],
+    })
+
+    assert.equal(items.some((item) => item.type === 'comment'), false)
+    assert.equal(items.some((item) => item.body.includes('Assigned this issue')), false)
+})
+
+/**
+ * RICHTUNG 2 — sie verschwindet aber auch NICHT.
+ *
+ * Die naheliegende Reparatur wäre gewesen, die Notizen aus dem Strom zu werfen.
+ * Der Strom beantwortet „was ist hier passiert" — eine Zuweisung ist genau das,
+ * und eine Lücke sieht niemand. Sie bekommt deshalb einen eigenen Satztyp und
+ * nennt die Person, um die es geht.
+ */
+test('Strom: die Zuweisung bekommt einen EIGENEN Satz und nennt den Zugewiesenen', () => {
+    const items = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ label: 'assignment', p: [PUSHER], content: 'Assigned this issue to Bob' })],
+    })
+
+    const zeile = items.find((item) => item.type === 'assignment')
+    assert.ok(zeile, 'kein Satz vom Typ `assignment`')
+    assert.equal(zeile.actor, OWNER)
+    assert.deepEqual(zeile.targets, [PUSHER])
+    assert.equal(zeile.object, 'Titel')
+})
+
+test('Strom: gewöhnliche Kommentare bleiben unverändert Kommentare', () => {
+    const items = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ pubkey: PUSHER, content: 'Ich schaue mir das an.' })],
+    })
+
+    const zeile = items.find((item) => item.type === 'comment')
+    assert.ok(zeile, 'kein Kommentar-Satz')
+    assert.equal(zeile.body, 'Ich schaue mir das an.')
+})
+
+/**
+ * Der Riegel, ohne den der Strom zur Gerüchteküche würde: ein
+ * `["t","approval"]` ist ein gewöhnliches kind 1, der Relay prüft daran nichts.
+ * Ohne dieselbe Vertrauensfrage wie in der Faltung stünde „X hat freigegeben"
+ * in der Leiste, während die PR-Zeile daneben nichts davon anerkennt.
+ */
+test('Strom: eine Freigabe von einem Unbeteiligten erscheint NICHT', () => {
+    const prRoot = ev({
+        kind: GIT_PULL_REQUEST,
+        pubkey: PUSHER,
+        created_at: 2_000,
+        tags: [['a', REPO_ADDR], ['subject', 'PR'], ['c', COMMIT], ['p', ZWEITER]],
+    })
+    const events = [repoEvent, prRoot]
+
+    // KONTROLLE zuerst: der angefragte Reviewer kommt durch — sonst misst der
+    // Negativfall unten womöglich gar nichts.
+    const echt = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [...events, notiz({ root: prRoot, pubkey: ZWEITER, label: 'approval' })],
+    })
+    assert.equal(echt.filter((item) => item.type === 'approval').length, 1)
+
+    const gefaelscht = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [...events, notiz({ root: prRoot, pubkey: FREMD, label: 'approval' })],
+    })
+    assert.equal(gefaelscht.filter((item) => item.type === 'approval').length, 0)
+})
+
+test('Strom: der Autor eines PR kann sich nicht selbst freigeben', () => {
+    const prRoot = ev({
+        kind: GIT_PULL_REQUEST,
+        pubkey: OWNER,
+        created_at: 2_000,
+        tags: [['a', REPO_ADDR], ['subject', 'PR'], ['c', COMMIT]],
+    })
+    const items = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [repoEvent, prRoot, notiz({ root: prRoot, pubkey: OWNER, label: 'approval' })],
+    })
+
+    assert.equal(items.some((item) => item.type === 'approval'), false)
+})
+
+test('Strom: eine Fremdzuweisung zählt nicht, eine Selbstzuweisung schon', () => {
+    const fremd = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ pubkey: FREMD, label: 'assignment', p: [PUSHER] })],
+    })
+    assert.equal(fremd.some((item) => item.type === 'assignment'), false)
+
+    const selbst = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ pubkey: FREMD, label: 'assignment', p: [FREMD] })],
+    })
+    assert.equal(selbst.filter((item) => item.type === 'assignment').length, 1)
+})
+
+test('Strom: eine Notiz mit zwei widersprüchlichen Labeln ergibt gar keinen Satz', () => {
+    const beide = ev({
+        kind: FORGE_COMMENT,
+        created_at: 3_000,
+        content: 'was auch immer',
+        tags: [
+            ['e', issueRoot.id, '', 'root'],
+            ['a', REPO_ADDR],
+            ['p', PUSHER],
+            ['t', 'assignment'],
+            ['t', 'unassignment'],
+        ],
+    })
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, issueRoot, beide] })
+
+    // Weder Vorgang noch Kommentar: `operationOf` erkennt sie als Vorgangsform
+    // (sie trägt die Label), kann sie aber nicht eindeutig einordnen.
+    assert.equal(items.some((item) => item.type === 'assignment' || item.type === 'unassignment'), false)
+    assert.equal(items.some((item) => item.type === 'comment'), false)
+})
+
+// ── Die Befunde der Sicherheitsprüfung (2026-08-24) ─────────────────────────
+
+/**
+ * F2 — bis zum 2026-08-24 filterte `pushItems` NUR nach `d`. Jedes
+ * Relay-Mitglied konnte damit „«Opfer» hat gepusht nach master → deadbee" in die
+ * Leiste schreiben, während `foldRepoState` dasselbe Ereignis auf der Fläche
+ * daneben korrekt abwies.
+ */
+test('F2: ein 30618 von einem Fremden erzeugt KEINE Push-Zeile', () => {
+    const gefaelscht = ev({
+        kind: REPO_STATE,
+        pubkey: FREMD,
+        created_at: 1785499999,
+        tags: [['d', REPO_D], ['refs/heads/master', 'deadbeef' + 'a'.repeat(32)], ['p', OWNER]],
+    })
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, gefaelscht] })
+
+    assert.equal(items.some((item) => item.type === 'push'), false)
+
+    // KONTROLLE: dasselbe Ereignis vom Relay signiert kommt durch — sonst
+    // misst der Negativfall womöglich nur, dass hier nie etwas entsteht.
+    const echt = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 1785499999,
+        tags: [['d', REPO_D], ['refs/heads/master', 'deadbeef' + 'a'.repeat(32)], ['p', OWNER]],
+    })
+    assert.equal(
+        buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, echt] }).filter(
+            (item) => item.type === 'push',
+        ).length,
+        1,
+    )
+})
+
+test('F2: ohne bekanntes `relaySelf` bleibt der Repo-Eigentümer übrig — eng, aber nie falsch', () => {
+    const vomEigentuemer = ev({
+        kind: REPO_STATE,
+        pubkey: OWNER,
+        created_at: 1785499999,
+        tags: [['d', REPO_D], ['refs/heads/master', 'c'.repeat(40)], ['p', PUSHER]],
+    })
+    const items = buildActivity({ repos: REPOS, events: [repoEvent, vomEigentuemer] })
+
+    assert.equal(items.filter((item) => item.type === 'push').length, 1)
+})
+
+/**
+ * F3 — die schärfere der beiden Lagen: eine Freigabe auf einen Commit, den der
+ * PR **nie** getragen hat. Dafür gibt es keine „das war halt Historie"-Lesart.
+ */
+test('F3: eine Freigabe auf einen nie gültigen Commit erscheint NICHT', () => {
+    const prRoot = ev({
+        kind: GIT_PULL_REQUEST,
+        pubkey: PUSHER,
+        created_at: 2_000,
+        tags: [['a', REPO_ADDR], ['subject', 'PR'], ['c', COMMIT], ['p', ZWEITER]],
+    })
+    const nieGueltig = notiz({ root: prRoot, pubkey: ZWEITER, label: 'approval' })
+    nieGueltig.tags.push(['c', 'd'.repeat(40)])
+
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, prRoot, nieGueltig] })
+    assert.equal(items.some((item) => item.type === 'approval'), false)
+
+    // KONTROLLE: dieselbe Notiz auf den Commit des PR kommt durch.
+    const gueltig = notiz({ root: prRoot, pubkey: ZWEITER, label: 'approval' })
+    const durch = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, prRoot, gueltig] })
+    assert.equal(durch.filter((item) => item.type === 'approval').length, 1)
+})
+
+/**
+ * Die zweite Lage: nachträglich entwertet. Sie IST Historie und bleibt — aber
+ * mit dem Commit als Abzeichen, damit ein Leser die Zeile einordnen kann. Bis
+ * zum Fix stand dort gar nichts.
+ */
+test('F3: eine nachträglich entwertete Freigabe bleibt — und trägt ihren Commit', () => {
+    const prRoot = ev({
+        kind: GIT_PULL_REQUEST,
+        pubkey: PUSHER,
+        created_at: 2_000,
+        tags: [['a', REPO_ADDR], ['subject', 'PR'], ['c', COMMIT], ['p', ZWEITER]],
+    })
+    // Der Repo-Eigentümer schiebt den PR auf einen neuen Commit.
+    const update = ev({
+        kind: GIT_PR_UPDATE,
+        pubkey: OWNER,
+        created_at: 4_000,
+        tags: [['E', prRoot.id], ['a', REPO_ADDR], ['c', 'e'.repeat(40)]],
+    })
+    const alt = notiz({ root: prRoot, pubkey: ZWEITER, label: 'approval', created_at: 3_000 })
+
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, prRoot, alt, update] })
+    const zeile = items.find((item) => item.type === 'approval')
+
+    assert.ok(zeile, 'die historische Freigabe fehlt')
+    assert.equal(zeile.badge, COMMIT.slice(0, 7))
+})
+
+/** F4 — ein Issue und ein Patch kennen gar keine Reviewer. */
+test('F4: Freigaben gelten nur am Pull Request, nicht an Issue oder Patch', () => {
+    const anIssue = notiz({ pubkey: PUSHER, label: 'approval' })
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, issueRoot, anIssue] })
+
+    assert.equal(items.some((item) => item.type === 'approval'), false)
+})
+
+/**
+ * F5 — die Faltung lässt JEDES `e`/`E` gelten (`referencesRoot`), die Leiste nahm
+ * das ERSTE. Eine Notiz mit zwei `e` wirkte damit in der Faltung auf beide
+ * Wurzeln, in der Leiste nur auf eine — und ein Fremder konnte durch
+ * Voranstellen eines fremden `e` bestimmen, wo sein Beitrag erscheint.
+ */
+test('F5: eine Notiz mit zwei Wurzeln erscheint an BEIDEN, mit eigenen Schlüsseln', () => {
+    const zweiterRoot = ev({
+        kind: GIT_ISSUE,
+        pubkey: OWNER,
+        created_at: 2_100,
+        tags: [['a', REPO_ADDR], ['subject', 'Zweites Thema']],
+    })
+    const doppelt = ev({
+        kind: FORGE_COMMENT,
+        pubkey: PUSHER,
+        created_at: 3_000,
+        content: 'betrifft beide',
+        tags: [
+            ['e', issueRoot.id, '', 'root'],
+            ['e', zweiterRoot.id, '', 'root'],
+            ['a', REPO_ADDR],
+        ],
+    })
+
+    const kommentare = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: REPOS,
+        events: [repoEvent, issueRoot, zweiterRoot, doppelt],
+    }).filter((item) => item.type === 'comment')
+
+    assert.equal(kommentare.length, 2)
+    assert.deepEqual(kommentare.map((item) => item.object).sort(), ['Titel', 'Zweites Thema'])
+    // Zwei Zeilen brauchen zwei Schlüssel, sonst verwirft `x-for` die zweite still.
+    assert.equal(new Set(kommentare.map((item) => item.id)).size, 2)
+})
+
+test('F5: ein zweimal genanntes `e` ergibt trotzdem nur EINE Zeile', () => {
+    const doppeltGenannt = ev({
+        kind: FORGE_COMMENT,
+        pubkey: PUSHER,
+        created_at: 3_000,
+        content: 'einmal gesagt',
+        tags: [
+            ['e', issueRoot.id, '', 'root'],
+            ['e', issueRoot.id],
+            ['a', REPO_ADDR],
+        ],
+    })
+    const items = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, issueRoot, doppeltGenannt] })
+
+    assert.equal(items.filter((item) => item.type === 'comment').length, 1)
+})
+
+// ── N1/N2: zwei Repositories mit gleichem `d` ───────────────────────────────
+
+const ZWEITER_OWNER = '7'.repeat(64)
+const ZWEITES_REPO = ev({
+    kind: REPO_ANNOUNCEMENT,
+    pubkey: ZWEITER_OWNER,
+    created_at: 1786792300,
+    // GLEICHES `d` wie `repoEvent`, anderer Eigentümer. Der Relay erlaubt das:
+    // er keyt Repositories über `(owner, d)` (`api/git/binding.rs:36`).
+    tags: [['d', REPO_D], ['name', REPO_D]],
+})
+const BEIDE_REPOS = buildRepos([repoEvent, ZWEITES_REPO])
+
+/**
+ * N1/N2 — **der Fall ohne jeden Angreifer.**
+ *
+ * Ein relay-signiertes 30618 trägt keinen Eigentümer und kein `a`
+ * (`manifest_event.rs:1-18`); der Relay signiert alle mit demselben Schlüssel.
+ * Es wird deshalb von BEIDEN gleichnamigen Repositories angenommen — und das
+ * ist clientseitig nicht auflösbar, siehe die Kante an `pushItems`.
+ *
+ * Was hier geprüft wird, ist nicht die Auflösung (die gibt es nicht), sondern
+ * dass der Fehler **sichtbar** bleibt: zwei Zeilen mit zwei Schlüsseln. Vorher
+ * trugen beide `push:${event.id}` — `x-for` verwarf eine still, und still ist
+ * genau die Eigenschaft, gegen die der F5-Fix gebaut wurde.
+ */
+test('N1: ein relay-signierter Zustand bei gleichem `d` ergibt zwei Zeilen mit ZWEI Schlüsseln', () => {
+    const zustand = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 1785499999,
+        tags: [['d', REPO_D], ['refs/heads/master', 'c'.repeat(40)], ['p', PUSHER]],
+    })
+    const pushes = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: BEIDE_REPOS,
+        events: [repoEvent, ZWEITES_REPO, zustand],
+    }).filter((item) => item.type === 'push')
+
+    assert.equal(pushes.length, 2, 'beide gleichnamigen Repos müssen die Zeile zeigen')
+    // Der eigentliche Beweis: zwei Schlüssel, sonst verschluckt `x-for` eine.
+    assert.equal(new Set(pushes.map((item) => item.id)).size, 2)
+    // Und jede Zeile sagt, zu welchem Repo sie gehört.
+    assert.deepEqual(
+        pushes.map((item) => item.repoAddress).sort(),
+        [repoAddressOf(OWNER, REPO_D), repoAddressOf(ZWEITER_OWNER, REPO_D)].sort(),
+    )
+})
+
+/**
+ * Die auflösbare Hälfte: ein EIGENTÜMER-signiertes 30618 gehört eindeutig zu
+ * seinem Repo. Der Signierer gibt die Zuordnung her, also wird sie genutzt.
+ */
+test('N1: ein eigentümer-signierter Zustand erscheint NUR beim eigenen Repo', () => {
+    const vonZweitem = ev({
+        kind: REPO_STATE,
+        pubkey: ZWEITER_OWNER,
+        created_at: 1785499999,
+        tags: [['d', REPO_D], ['refs/heads/master', 'd'.repeat(40)], ['p', ZWEITER_OWNER]],
+    })
+    const pushes = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: BEIDE_REPOS,
+        events: [repoEvent, ZWEITES_REPO, vonZweitem],
+    }).filter((item) => item.type === 'push')
+
+    assert.equal(pushes.length, 1)
+    assert.equal(pushes[0].repoAddress, repoAddressOf(ZWEITER_OWNER, REPO_D))
+})
+
+/**
+ * POSITIVKONTROLLE — genau daran ist der F2-Fix beinahe gescheitert: ein
+ * Riegel, der auch die echten Zeilen verschluckt, ist kein Riegel, sondern ein
+ * zweiter Fehler. Der Bestand des EIGENEN Repos muss unverändert durchkommen.
+ */
+test('N1 POSITIVKONTROLLE: die Push-Historie des eigenen Repos bleibt vollständig', () => {
+    const pushes = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE] }).filter(
+        (item) => item.type === 'push',
+    )
+
+    assert.equal(pushes.length, 1)
+    assert.equal(pushes[0].repoAddress, repoAddressOf(OWNER, REPO_D))
+    assert.equal(new Set(pushes.map((item) => item.id)).size, pushes.length)
 })

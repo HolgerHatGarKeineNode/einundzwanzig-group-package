@@ -148,7 +148,18 @@ export const tagValuesFlat = (event: ForgeEvent, name: string): string[] =>
     event.tags.filter((tag) => tag[0] === name).flatMap((tag) => tag.slice(1)).filter(isFilled)
 
 const HEX64 = /^[0-9a-f]{64}$/
-const isPubkey = (value: string): boolean => HEX64.test(value.toLowerCase())
+
+/**
+ * Ist das ein Nostr-Schlüssel (64 Hexstellen)?
+ *
+ * **Exportiert seit F1 (2026-08-24), und der Grund ist kein Stil.** Derselbe
+ * Riegel wurde an drei Stellen gebraucht — hier, im Aktivitätsstrom und an der
+ * Namensauflösung in `forge.ts` — und in P1 stand er nur an einer davon. Drei
+ * Kopien einer Sicherheitsprüfung sind drei Gelegenheiten, eine davon zu
+ * vergessen; genau das ist passiert. Ab jetzt gibt es eine Definition, und wer
+ * eine vierte Stelle baut, importiert sie, statt sie abzuschreiben.
+ */
+export const isPubkey = (value: string): boolean => HEX64.test(value.toLowerCase())
 
 // ── Adressen ────────────────────────────────────────────────────────────────
 
@@ -427,6 +438,17 @@ export type RepoState = {
     updatedAt: number
     /** Wer den Zustand ausgelöst hat (`p`-Tag, Buzz-Erweiterung: der Pusher). */
     actor: string
+    /**
+     * **Der Zustand ist diesem Repository nicht zuzuordnen — es wird keiner
+     * behauptet** (N1, 2026-08-24).
+     *
+     * Ist er gesetzt, sind `branches`, `tags` und `head` leer. Das ist NICHT
+     * dasselbe wie „es gibt keinen Zustand": es gibt einen, wir wissen nur
+     * nicht, ob er zu diesem Repo gehört. Die Fläche muss beide Fälle
+     * unterscheiden, sonst tauscht sie eine falsche Behauptung gegen eine
+     * andere („noch nichts veröffentlicht", obwohl sehr wohl gepusht wurde).
+     */
+    ambiguous: boolean
 }
 
 /**
@@ -457,7 +479,27 @@ export const toRepoState = (event: ForgeEvent): RepoState => {
         tags: tags.sort((a, b) => a.name.localeCompare(b.name)),
         head,
         updatedAt: event.created_at,
-        actor: tagValue(event, 'p').toLowerCase(),
+        /**
+         * Der Pusher — **nur, wenn es ein Schlüssel ist** (F1, 2026-08-24).
+         *
+         * Der `p`-Tag eines 30618 ist Fremdeingabe wie jeder andere Tag. Stand
+         * hier `["p","Bob"]`, reichte dieses Feld den Rohwert bis in
+         * `displayPubkey` durch — und das **wirft** einen SyntaxError
+         * (`npubEncode('Bob')`: „Input string must contain hex characters in
+         * even length", am 2026-08-24 nachgestellt). Der Wurf passiert in einem
+         * `derived()`-Callback, und svelte hält seine `subscriber_queue`
+         * modulweit: danach liefert **jeder** Store der Seite nichts mehr aus,
+         * auch völlig unbeteiligte. Ein einziges Ereignis genügte, die Insel war
+         * bis zum Reload tot — und beim nächsten Reload liegt es wieder da.
+         *
+         * `''` heisst „das Ereignis nennt ihn nicht", und genau das ist bei
+         * einem unbrauchbaren Wert die richtige Auskunft. Der zweite Riegel
+         * sitzt in `forge.ts` an `nameOf`; dieser hier ist der an der Quelle.
+         */
+        actor: isPubkey(tagValue(event, 'p')) ? tagValue(event, 'p').toLowerCase() : '',
+        // Ein einzelnes Ereignis ist nie mehrdeutig — die Mehrdeutigkeit
+        // entsteht erst aus dem Repo-BESTAND (siehe {@link foldRepoState}).
+        ambiguous: false,
     }
 }
 
@@ -550,25 +592,94 @@ export const toRepoState = (event: ForgeEvent): RepoState => {
 const hasRefs = (event: ForgeEvent): boolean =>
     event.tags.some(([name, value]) => isFilled(name) && isFilled(value) && name.startsWith('refs/'))
 
+/**
+ * **Bekannte Kante (N1, 2026-08-24): bei relay-signiertem Zustand ist die
+ * Zuordnung mehrdeutig, und zwar prinzipiell.**
+ *
+ * Ein 30618 trägt keinen Eigentümer und kein `a`
+ * (`api/git/manifest_event.rs:1-18`), der Relay signiert alle mit demselben
+ * Schlüssel (`api/git/transport.rs:2009`) und trägt das nackte `repo_id` als
+ * `d` ein. Repositories sind aber über `(owner, d)` gekeyt
+ * (`api/git/binding.rs:36`) — zwei Eigentümer dürfen dasselbe `d` führen.
+ *
+ * Folge: haben „demo" von X und „demo" von Y beide relay-signierte Zustände,
+ * sieht jede der beiden Repo-Flächen unter Umständen den Zustand der anderen.
+ * **Das ist clientseitig nicht auflösbar**; die Reparatur wäre ein `a`-Tag am
+ * 30618 auf Relay-Seite. Hier wird deshalb NICHT geraten — eine erfundene
+ * Zuordnung wäre genau dann falsch, wenn es darauf ankommt.
+ *
+ * Auflösbar ist der andere Fall: ein **eigentümer-signiertes** 30618 gehört
+ * eindeutig zum Repo dieses Eigentümers, und genau das leistet der Filter unten
+ * über `trusted` — ein fremder Eigentümer mit gleichem `d` fällt heraus.
+ *
+ * ── Was `dtagGeteilt` entscheidet, und warum es von aussen kommt ────────────
+ *
+ * **Die Mehrdeutigkeit ist an den Ereignissen NICHT ablesbar.** Zwei
+ * relay-signierte 30618 mit gleichem `d` sind der Normalfall — der Relay hält
+ * alte Fassungen und liefert sie mit aus (gemessen: drei Stück zu EINEM Repo,
+ * siehe {@link dedupeReplaceable}). Ob die zwei zu einem Repo oder zu zweien
+ * gehören, steht in keinem Tag. Die Auskunft hat nur, wer den REPO-BESTAND
+ * kennt — also der Aufrufer. Deshalb ist es ein Parameter und keine Ableitung:
+ * eine hier erfundene Heuristik („mehr als eins ⇒ verdächtig") hätte den
+ * Normalfall zerschossen.
+ *
+ * **Und hier stand bis zum 2026-08-24 ein Satz, der für diese Funktion nicht
+ * stimmte.** Er lautete, es werde „nicht geraten" — während
+ * `dedupeReplaceable` + `.sort()[0]` sehr wohl eine Wahl trafen: bei zwei
+ * gleichnamigen Repos bekam Alices Zweig-Anzeige Bobs Commit, ohne Marker und
+ * ohne zweiten Eintrag. Der Strom machte den Fehler zur selben Zeit sichtbar
+ * (zwei Zeilen, zwei Schlüssel), diese Fläche löste ihn still auf. Zwei
+ * Politiken für dieselbe Mehrdeutigkeit, und die sichere lag auf der
+ * unwichtigeren Fläche.
+ *
+ * **Die Regel jetzt, bei geteiltem `d`: nur Selbstbezeugtes zählt.** Ein
+ * eigentümer-signiertes 30618 ist eindeutig — es gilt. Bleibt nur
+ * relay-signiertes übrig, wird **kein Zustand behauptet**; die Funktion liefert
+ * dann einen Marker mit leeren Refs ({@link RepoState.ambiguous}) statt `null`,
+ * damit die Fläche „nicht zuzuordnen" von „nichts veröffentlicht"
+ * unterscheiden kann. Ein fail-closed, das beides zu „nichts da" verschmilzt,
+ * tauschte nur eine falsche Aussage gegen eine andere.
+ *
+ * @param dtagGeteilt Trägt ein ANDERES sichtbares Repo dasselbe `d`? Der
+ *   Aufrufer weiss das, diese Funktion nicht.
+ */
 export const foldRepoState = (
     events: ForgeEvent[],
-    { owner, relaySelf, dtag }: { owner: string; relaySelf: string; dtag: string },
+    {
+        owner,
+        relaySelf,
+        dtag,
+        dtagGeteilt = false,
+    }: { owner: string; relaySelf: string; dtag: string; dtagGeteilt?: boolean },
 ): RepoState | null => {
-    const trusted = new Set([owner.toLowerCase(), relaySelf.toLowerCase()].filter((value) => value !== ''))
+    const ownerKey = owner.toLowerCase()
+    const trusted = new Set([ownerKey, relaySelf.toLowerCase()].filter((value) => value !== ''))
     const candidates = events.filter(
         (event) =>
             event.kind === REPO_STATE &&
             tagValue(event, 'd') === dtag &&
             trusted.has(event.pubkey.toLowerCase()),
     )
-    const newest = dedupeReplaceable(candidates).sort(
+    // Bei geteiltem Namen bleibt nur, was der Eigentümer selbst bezeugt hat.
+    const zulaessig = dtagGeteilt
+        ? candidates.filter((event) => event.pubkey.toLowerCase() === ownerKey)
+        : candidates
+    const newest = dedupeReplaceable(zulaessig).sort(
         (a, b) =>
             b.created_at - a.created_at ||
             Number(hasRefs(b)) - Number(hasRefs(a)) ||
             a.id.localeCompare(b.id),
     )[0]
+    if (newest) {
+        return toRepoState(newest)
+    }
+    // Es gab etwas, es war nur nicht zuzuordnen — das ist eine andere Auskunft
+    // als „es gibt nichts", und die Fläche muss beide auseinanderhalten.
+    if (candidates.length > 0) {
+        return { branches: [], tags: [], head: '', updatedAt: 0, actor: '', ambiguous: true }
+    }
 
-    return newest ? toRepoState(newest) : null
+    return null
 }
 
 // ── Status-Faltung (1630–1633) ──────────────────────────────────────────────
@@ -765,6 +876,650 @@ export const patchStatusFrom = (statusEvent: ForgeEvent | null): PatchStatus => 
     }
 }
 
+// ── Vorgangsformen: Zuweisung, Reviewer, Freigabe ───────────────────────────
+
+/**
+ * Die fünf `t`-Label, mit denen Buzz **Vorgangsformen** in kind 1 unterbringt.
+ *
+ * ── Warum das überhaupt kind 1 ist ──────────────────────────────────────────
+ *
+ * NIP-34 kennt weder Zuweisung noch Review. Buzz erfindet dafür **kein** Kind,
+ * sondern beschriftet einen gewöhnlichen Kommentar: „labeled text notes stay
+ * readable for any client that treats them as plain comments"
+ * (`projectIssues.mjs:3-7`). Das ist die Wahl, die uns den Fehler eingebrockt
+ * hat, den P1 repariert — und zugleich der Grund, warum sie richtig war: ein
+ * eigenes Kind hätte Buzz' Relay abgelehnt, wie es 1111 ablehnt.
+ *
+ * **Und das Rust-SDK ist hier NICHT die Quelle.** Für die Zuweisung schon
+ * (`buzz-sdk/src/builders.rs:1122-1246` baut sie), für Reviewer und Freigaben
+ * nicht: dort gibt es kein Review-Ereignis, „approval" ist im Rust-Baum
+ * ausschließlich das Workflow-Kind 46030/46031 und hat mit Git nichts zu tun.
+ * Die Reviewer-Semantik ist eine reine **Client-Konvention** und lebt in
+ * `desktop/src/features/projects/pullRequestReviews.ts` und
+ * `projectPullRequests.mjs:150-300`. Wer sie im SDK sucht, findet nichts und
+ * schließt daraus das Falsche.
+ *
+ * Konsequenz für jede Fläche: der Relay setzt nichts davon durch. Er quittiert
+ * jede Freigabe mit `OK true`, auch die eines Unbeteiligten — sichtbar wird sie
+ * nur, wenn der Signierer die Faltung unten passiert. Ein Knopf ohne
+ * vorgelagerten Riegel erzeugt also kein Fehlerbild, sondern **stillen
+ * Leerlauf** (das ist P5, nicht P1).
+ */
+export const ASSIGNMENT_LABEL = 'assignment'
+export const UNASSIGNMENT_LABEL = 'unassignment'
+export const REVIEW_REQUEST_LABEL = 'review-request'
+export const APPROVAL_LABEL = 'approval'
+export const CHANGES_REQUESTED_LABEL = 'changes-requested'
+
+/**
+ * Alle fünf als Menge — der Ausschluss in {@link commentsForRoot}.
+ *
+ * Sie stehen hier **einmal**. Eine zweite Liste an der Anzeigestelle wäre der
+ * Riss, den dieses Projekt schon mehrfach hatte: der Zähler bliebe korrekt und
+ * das Band alterte, oder umgekehrt.
+ */
+export const OPERATION_LABELS: ReadonlySet<string> = new Set([
+    ASSIGNMENT_LABEL,
+    UNASSIGNMENT_LABEL,
+    REVIEW_REQUEST_LABEL,
+    APPROVAL_LABEL,
+    CHANGES_REQUESTED_LABEL,
+])
+
+/** Die `t`-Label eines Ereignisses, kleingeschrieben — wie Buzz sie vergleicht. */
+const labelsOf = (event: ForgeEvent): Set<string> =>
+    new Set(tagValues(event, 't').map((label) => label.toLowerCase()))
+
+/**
+ * Ist das eine Vorgangsform und **kein** Gesprächsbeitrag?
+ *
+ * Der Vergleich läuft kleingeschrieben, weil Buzz es so tut
+ * (`projectPullRequests.mjs:180-184`, `projectIssues.mjs:114`). Ein `["t","Approval"]`
+ * aus einem dritten Client zählte sonst als Kommentar hier und als Freigabe dort.
+ */
+/**
+ * Die drei Label, die ohne genannte Person **keine** Operation sein können.
+ *
+ * Das ist keine Erfindung, sondern die Invariante des SDK: eine Zuweisung ohne
+ * Zugewiesene lässt sich gar nicht bauen (`builders.rs:1219-1223` — „between 1
+ * and 50 assignees are required"), und eine Review-Anfrage ohne Angefragten
+ * ebenso wenig (`pullRequestReviews.ts:110-113` — „Select at least one
+ * reviewer."). Wer `["t","assignment"]` ohne `p` schreibt, hat also nicht eine
+ * kaputte Zuweisung geschrieben, sondern **keine**.
+ */
+const LABELS_MIT_PERSON: ReadonlySet<string> = new Set([
+    ASSIGNMENT_LABEL,
+    UNASSIGNMENT_LABEL,
+    REVIEW_REQUEST_LABEL,
+])
+
+/**
+ * Trägt das Ereignis dieses Label **und** das, was das Label braucht?
+ *
+ * ── Warum es diese zweite Hälfte gibt (2026-08-24) ──────────────────────────
+ *
+ * Die fünf Label sind gewöhnliche englische Wörter. Ein Client, der Hashtags aus
+ * dem Fliesstext in `t`-Tags spiegelt, macht aus „#approval nötig" eine Notiz,
+ * die für uns eine Vorgangsform ist — und sie verschwindet dann aus
+ * Kommentarliste, Zähler und Leiste. Für den Schreiber ist das sichtbar (sein
+ * Beitrag erscheint nicht), für alle anderen nicht.
+ *
+ * **Gemessen, wie real das ist:** keiner der beiden Clients an diesem Relay tut
+ * es. Unser eigener Kommentar-Schreiber setzt überhaupt kein `t`
+ * (`forgeWriteModels.buildCommentTags` — nur `e`, `a`, `p`), und Buzz setzt `t`
+ * ausschliesslich für ausdrücklich gewählte Vorgänge
+ * (`features/projects/hooks.ts:352-371`, `issueAssignments.ts:104-112`,
+ * `pullRequestReviews.ts:125-134`). Der Pfad braucht einen DRITTEN Client.
+ *
+ * **Warum das Label trotzdem das Erkennungsmerkmal bleibt.** Die naheliegende
+ * Alternative wäre, eine Notiz erst dann auszuschliessen, wenn die Faltung sie
+ * auch ANERKENNT. Das dreht den Fehler aber in die gefährlichere Richtung: eine
+ * abgelehnte Zuweisung — also genau die, die ein Angreifer schreibt — käme als
+ * Kommentar zurück, mitsamt ihrer Maschinenprosa („Assigned this issue to Bob")
+ * und, bei leerem Rumpf, als leere Sprechblase. Ein hypothetisches
+ * Falsch-Positiv eines dritten Clients gegen ein angreifer-steuerbares
+ * Falsch-Negativ zu tauschen, ist das schlechtere Geschäft.
+ *
+ * **Was stattdessen passiert:** für die drei Label, bei denen das SDK selbst
+ * eine Mindestform erzwingt, wird sie hier verlangt. „#assignment" in einem
+ * Fliesstext ohne `p`-Tag ist damit wieder ein gewöhnlicher Kommentar. Für
+ * `approval`/`changes-requested` gibt es keine solche Invariante — dort bleibt
+ * es beim blossen Label, und das ist die verbleibende, bewusst getragene Kante.
+ */
+const traegtOperation = (event: ForgeEvent, label: string): boolean =>
+    !LABELS_MIT_PERSON.has(label) || tagValues(event, 'p').length > 0
+
+export const isOperationNote = (event: ForgeEvent): boolean => {
+    for (const label of labelsOf(event)) {
+        if (OPERATION_LABELS.has(label) && traegtOperation(event, label)) {
+            return true
+        }
+    }
+
+    return false
+}
+
+/**
+ * Welche Vorgangsform eine Notiz trägt — `''`, wenn keine oder keine eindeutige.
+ *
+ * **Strenger als Buzz, und mit Absicht.** Buzz wertet die drei Kategorien
+ * unabhängig aus: eine Notiz darf zugleich Review-Anfrage und Freigabe sein, und
+ * die Zeitleiste zeigt dann die eine (`projectPullRequestCommentTimelineKind`,
+ * `projectPullRequests.mjs:84-94`). Für EINEN Satz in der Aktivitätsleiste gibt
+ * es diese Wahl nicht — man müsste eine Kategorie küren. Deshalb hier: mehr als
+ * eine Kategorie, oder ein widersprüchliches Paar, ergibt keine Aussage.
+ *
+ * Das kostet nichts, was jemand wirklich schreibt (Buzz setzt je Notiz genau ein
+ * Label, `builders.rs:1236` und `pullRequestReviews.ts:129,181`), und es
+ * verhindert, dass ein fremder Client durch Label-Stapelung bestimmt, welchen
+ * Satz unsere Leiste über ihn bildet.
+ *
+ * **Nicht zu verwechseln mit der Faltung.** Diese Funktion sagt nur, was
+ * DRAUFSTEHT. Ob es auch GILT, entscheiden {@link foldAssignments} und
+ * {@link foldReviews} — und die Aktivitätsleiste muss dieselbe Frage stellen,
+ * sonst zeigt sie eine Freigabe, die kein Leser je anerkennt.
+ */
+export type ForgeOperation =
+    | ''
+    | 'assignment'
+    | 'unassignment'
+    | 'review-request'
+    | 'approval'
+    | 'changes-requested'
+
+export const operationOf = (event: ForgeEvent): ForgeOperation => {
+    const labels = labelsOf(event)
+    // Dieselbe Mindestform wie {@link isOperationNote} — sonst liefen die beiden
+    // Funktionen auseinander, und die Notiz wäre an einer Fläche ein Vorgang und
+    // an der anderen ein Gespräch.
+    const hat = (label: string): boolean => labels.has(label) && traegtOperation(event, label)
+    const istZuweisung = hat(ASSIGNMENT_LABEL)
+    const istEntzug = hat(UNASSIGNMENT_LABEL)
+    const istAnfrage = hat(REVIEW_REQUEST_LABEL)
+    const istFreigabe = hat(APPROVAL_LABEL)
+    const istEinspruch = hat(CHANGES_REQUESTED_LABEL)
+
+    // Widersprüchliche Paare zuerst: sie heben sich auf, wie in der Faltung.
+    if (istZuweisung && istEntzug) {
+        return ''
+    }
+    if (istFreigabe && istEinspruch) {
+        return ''
+    }
+    const kategorien = (istZuweisung || istEntzug ? 1 : 0) + (istAnfrage ? 1 : 0) + (istFreigabe || istEinspruch ? 1 : 0)
+    if (kategorien !== 1) {
+        return ''
+    }
+    if (istZuweisung) {
+        return ASSIGNMENT_LABEL
+    }
+    if (istEntzug) {
+        return UNASSIGNMENT_LABEL
+    }
+    if (istAnfrage) {
+        return REVIEW_REQUEST_LABEL
+    }
+
+    return istFreigabe ? APPROVAL_LABEL : CHANGES_REQUESTED_LABEL
+}
+
+/**
+ * Die Notizen aller Wurzeln, **einmal** nach `e`/`E` einsortiert (P7).
+ *
+ * ── Was das ersetzt ─────────────────────────────────────────────────────────
+ *
+ * Bis P7 lief jede Wurzel mit {@link notesForRoot} über den GESAMTEN Bestand —
+ * und das viermal (Kommentare, letzte Regung, Zuweisungen, Reviews). Bei `m`
+ * Wurzeln und `n` Notizen ergab das `O(m·n)`. Gemessen am 2026-08-24
+ * (1600 Wurzeln je Kind, je zwei Notizen): **2146 ms**, Faktor ~4,2 je
+ * Verdopplung, also sauber quadratisch.
+ *
+ * **Erreichbar war der grosse Fall über keinen Weg** — `FORGE_ROOT_LIMIT = 200`
+ * je Kind über den Draht, `FORGE_ROOT_CAP_TOTAL`/`FORGE_META_CAP_TOTAL` in
+ * `js/storage.ts` deckeln den Cache. Gebaut ist es trotzdem: eine Grenze, die
+ * nur durch zwei fremde Konstanten hält, ist keine Eigenschaft dieses Moduls.
+ *
+ * ── Zwei Eigenschaften, die die Faltung voraussetzt ─────────────────────────
+ *
+ * 1. **Die Ordnung ist dieselbe wie vorher** — aufsteigend nach `created_at`,
+ *    bei Gleichstand die kleinere Id (Buzz' `sortEvents`). Sie ist bei den
+ *    Zuweisungen TRAGEND: die `prior`-Kette entscheidet nach dieser Reihenfolge,
+ *    wer bei einem Konflikt gewinnt. Sortiert wird einmal je Eimer statt einmal
+ *    je Abfrage.
+ * 2. **Ein Ereignis steht höchstens EINMAL in einem Eimer.** Eine Notiz darf
+ *    dieselbe Wurzel zweimal nennen (`["e",x]` und `["E",x]`); `notesForRoot`
+ *    filterte mit `some()` und lieferte sie deshalb einfach. Ohne die
+ *    Entdopplung hier zählte sie ab P7 doppelt — im Kommentarzähler sichtbar,
+ *    in der Zuweisungskette still.
+ *
+ * **`indizieren` heisst nicht `Verhalten ändern`:** die Faltungsregeln bleiben
+ * Byte für Byte dieselben. Was hier entsteht, ist ausschliesslich eine andere
+ * Reihenfolge des Nachschlagens.
+ */
+export type NotizIndex = ReadonlyMap<string, readonly ForgeEvent[]>
+
+export const indexNotes = (commentEvents: readonly ForgeEvent[]): NotizIndex => {
+    const eimer = new Map<string, ForgeEvent[]>()
+    for (const event of commentEvents) {
+        if (event.kind !== FORGE_COMMENT) {
+            continue
+        }
+        // Eigenschaft 2: je Wurzel höchstens einmal, auch bei `e` UND `E`.
+        const wurzeln = new Set<string>()
+        for (const tag of event.tags) {
+            if ((tag[0] === 'e' || tag[0] === 'E') && isFilled(tag[1])) {
+                wurzeln.add(tag[1])
+            }
+        }
+        for (const wurzel of wurzeln) {
+            const liste = eimer.get(wurzel)
+            if (liste) {
+                liste.push(event)
+            } else {
+                eimer.set(wurzel, [event])
+            }
+        }
+    }
+    for (const liste of eimer.values()) {
+        liste.sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
+    }
+
+    return eimer
+}
+
+/**
+ * Alle kind-1-Notizen an einer Wurzel, **älteste zuerst** — Vorgangsformen
+ * eingeschlossen.
+ *
+ * Dieselbe Ordnung wie Buzz' `sortEvents` (`shared/api/relayClientShared.ts:92-103`):
+ * aufsteigend nach `created_at`, bei Gleichstand die kleinere Id. Der Tiebreak
+ * ist bei Zuweisungen **tragend**, nicht kosmetisch: die `prior`-Kette unten
+ * entscheidet nach dieser Reihenfolge, wer bei einem Konflikt gewinnt. Ohne
+ * feste Regel hinge das Ergebnis an der Ankunftsreihenfolge des Relays.
+ */
+const notesForRoot = (rootId: string, commentEvents: ForgeEvent[], index?: NotizIndex): ForgeEvent[] => {
+    // Der Index ist vorsortiert und entdoppelt — dieselbe Liste, nur nicht
+    // jedes Mal neu erarbeitet. Ohne ihn bleibt der alte Weg: die Funktion ist
+    // weiterhin allein aufrufbar (Tests, Einzelabfragen).
+    const gebucht = index?.get(rootId)
+    if (gebucht) {
+        return [...gebucht]
+    }
+    if (index) {
+        return []
+    }
+
+    return commentEvents
+        .filter((event) => event.kind === FORGE_COMMENT && referencesRoot(event, rootId))
+        .sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
+}
+
+/**
+ * Die letzte Regung an einer Wurzel aus ihren Notizen — **inklusive** der
+ * Vorgangsformen.
+ *
+ * **Das ist der Grund, warum es diese Funktion gibt.** `updatedAt` speiste sich
+ * bis P1 aus `comments`; mit dem Label-Ausschluss unten hörte eine Zuweisung
+ * damit auf, die Zeile in der Liste nach oben zu ziehen — die Sortierung hätte
+ * sich still geändert, ohne dass ein Test es gesehen hätte. Eine Zuweisung IST
+ * Bewegung am Vorgang; nur ein Gesprächsbeitrag ist sie nicht.
+ */
+const lastNoteAt = (rootId: string, commentEvents: ForgeEvent[], index?: NotizIndex): number => {
+    if (index) {
+        // Der Eimer ist aufsteigend sortiert — die letzte Regung ist sein Ende.
+        const gebucht = index.get(rootId)
+
+        return gebucht && gebucht.length > 0 ? gebucht[gebucht.length - 1].created_at : 0
+    }
+
+    return commentEvents.reduce(
+        (newest, event) =>
+            event.kind === FORGE_COMMENT && referencesRoot(event, rootId)
+                ? Math.max(newest, event.created_at)
+                : newest,
+        0,
+    )
+}
+
+/** Der Zustand der Zuweisungen einer Wurzel. */
+export type AssignmentState = {
+    /** Die aktuell Zugewiesenen, in der Reihenfolge ihrer ersten Zuweisung. */
+    assignees: string[]
+    /**
+     * Je Pubkey die Id der zuletzt für ihn wirksamen Operation.
+     *
+     * Wird in P1 von keiner Fläche angezeigt und steht trotzdem hier: das ist
+     * der Wert, den ein `["prior", …]`-Tag beim Schreiben tragen muss
+     * (`builders.rs:1240-1243`). Ihn später aus einer zweiten Faltung zu holen
+     * hiesse, dieselbe Kette zweimal zu laufen — und beim zweiten Mal anders.
+     */
+    heads: Record<string, string>
+}
+
+type AssignmentOperation = {
+    id: string
+    isAssignment: boolean
+    pubkeys: string[]
+    prior?: string
+}
+
+/**
+ * Die Zuweisungen einer Wurzel — **geordnet gefaltet**, nicht gefiltert.
+ *
+ * Referenz ist Buzz' eigene Faltung (`projectIssues.mjs:99-165`), Regel für
+ * Regel nachgelesen und nicht nachempfunden. Vier Dinge daran macht man falsch,
+ * wenn man sie nicht liest:
+ *
+ * **1. Wer darf zuweisen.** Der Wurzel-Autor und der Repo-Eigentümer dürfen
+ * **jeden** benennen; alle anderen nur **sich selbst** — erkennbar daran, dass
+ * genau EIN `p`-Tag dasteht und es der Signierer ist (`builders.rs:1163-1167`,
+ * Faltung `projectIssues.mjs:122-124`). Ohne diese Selbstbedienungs-Ausnahme
+ * könnte niemand ein Issue an sich ziehen; ohne den Ein-Tag-Riegel könnte
+ * jeder Fremde jeden zuweisen und hinge sich selbst als Alibi mit hinein.
+ *
+ * **2. `assignment` und `unassignment` schliessen einander aus.** Trägt eine
+ * Notiz beide Label (oder keins), wird sie übersprungen statt geraten
+ * (`projectIssues.mjs:116`). Eine Notiz, die zugleich zuweist und entzieht, hat
+ * keine definierte Wirkung — und eine geratene wäre schlimmer als keine.
+ *
+ * **3. Die drei Phasen sind KEINE Sortierung, sondern eine Rangfolge.**
+ * Erst die Selbstbedienung ohne `prior`, dann die autoritativen Operationen,
+ * zuletzt die kausalen Selbstbedienungen. Sinn: eine Entscheidung des Autors
+ * oder Eigentümers schlägt eine unverkettete Selbstzuweisung — aber der
+ * Betroffene kann sie danach überstimmen, **wenn** er sich ausdrücklich auf
+ * genau diese Entscheidung beruft (`prior`). Damit kann ein
+ * selbstgewählter Zeitstempel die Autorität nicht aushebeln, und der
+ * Zugewiesene bleibt trotzdem handlungsfähig.
+ *
+ * **4. Der Konfliktfall — zwei Operationen, ein `prior`.** Die offene Frage des
+ * Plans, am Referenzparser beantwortet statt geraten: die Kette wird in der
+ * Ordnung aus {@link notesForRoot} abgelaufen, die erste passende Operation
+ * gewinnt und **verschiebt den Kopf**. Die zweite mit demselben `prior` findet
+ * den Kopf nicht mehr vor und fällt heraus. Erster gewinnt, deterministisch,
+ * ohne Sonderregel.
+ *
+ * ── Eine bewusste Abweichung von Buzz ───────────────────────────────────────
+ *
+ * `allowedActorsForRoot` ist bei uns die **weitere** Menge: sie enthält seit dem
+ * 2026-08-23 auch die eingetragenen `maintainers` des 30617, weil NIP-34 das für
+ * Statuswechsel verlangt. Buzz kennt nur Autor + Eigentümer. Ein Maintainer darf
+ * hier also zuweisen; bei Buzz Desktop wird seine Zuweisung nicht angezeigt. Das
+ * ist dieselbe, bereits getroffene Entscheidung wie bei `foldStatus` — sie hier
+ * anders zu treffen hiesse, zwei Berechtigungsbegriffe an einer Fläche zu führen.
+ *
+ * ── Und eine Härtung gegenüber Buzz ─────────────────────────────────────────
+ *
+ * Ein `p`-Wert, der kein 64-stelliger Hex-Schlüssel ist, landet **nicht** in
+ * `assignees`. Buzz nimmt ihn auf; bei uns geriete er in `peopleOf`/`nameOf` und
+ * die Fläche zeigte eine erfundene Person. Der Riegel greift erst bei der
+ * WIRKUNG, nicht bei der Vertrauensfrage: `isSelfOperation` und die
+ * `prior`-Prüfung laufen über die rohe Liste, exakt wie bei Buzz. Andernfalls
+ * machte das Aussortieren aus einer Zwei-Tag-Notiz eine Selbstbedienung und wir
+ * wären **grosszügiger** als die Referenz statt strenger.
+ */
+export const foldAssignments = (
+    root: ForgeEvent,
+    commentEvents: ForgeEvent[],
+    maintainers: string[] = [],
+    index?: NotizIndex,
+): AssignmentState => {
+    const allowed = allowedActorsForRoot(root, maintainers)
+    const uncausedSelf: AssignmentOperation[] = []
+    const authoritative: AssignmentOperation[] = []
+    const causalSelf: AssignmentOperation[] = []
+
+    for (const event of notesForRoot(root.id, commentEvents, index)) {
+        const labels = labelsOf(event)
+        const isAssignment = labels.has(ASSIGNMENT_LABEL)
+        const isUnassignment = labels.has(UNASSIGNMENT_LABEL)
+        // Regel 2: beide oder keins ist keine Zuweisungsoperation.
+        if (isAssignment === isUnassignment) {
+            continue
+        }
+        const signer = event.pubkey.toLowerCase()
+        const pubkeys = tagValues(event, 'p').map((value) => value.toLowerCase())
+        const isSelfOperation = pubkeys.length === 1 && pubkeys[0] === signer
+        // Regel 1: autoritativ oder Selbstbedienung — sonst zählt sie nicht.
+        if (!allowed.has(signer) && !isSelfOperation) {
+            continue
+        }
+        const operation: AssignmentOperation = { id: event.id.toLowerCase(), isAssignment, pubkeys }
+        if (allowed.has(signer)) {
+            authoritative.push(operation)
+            continue
+        }
+        const priors = event.tags.filter((tag) => tag[0] === 'prior')
+        if (priors.length === 0) {
+            uncausedSelf.push(operation)
+            continue
+        }
+        // Mehrere `prior` sind keine Kette, sondern eine Behauptung über zwei
+        // Vergangenheiten — und ein nicht-hexadezimaler Wert kann keinen Kopf
+        // treffen. Beides fällt heraus, statt eine Auswahl zu erfinden.
+        const prior = (priors[0]?.[1] ?? '').toLowerCase()
+        if (priors.length !== 1 || !HEX64.test(prior)) {
+            continue
+        }
+        causalSelf.push({ ...operation, prior })
+    }
+
+    const assignees = new Set<string>()
+    const heads = new Map<string, string>()
+    // Regel 3 + 4: die Rangfolge der drei Phasen, innerhalb jeder die Zeitordnung.
+    for (const operation of [...uncausedSelf, ...authoritative, ...causalSelf]) {
+        if (operation.prior !== undefined && heads.get(operation.pubkeys[0] ?? '') !== operation.prior) {
+            continue
+        }
+        for (const pubkey of operation.pubkeys) {
+            if (!isPubkey(pubkey)) {
+                continue
+            }
+            if (operation.isAssignment) {
+                assignees.add(pubkey)
+            } else {
+                assignees.delete(pubkey)
+            }
+            heads.set(pubkey, operation.id)
+        }
+    }
+
+    return { assignees: [...assignees], heads: Object.fromEntries(heads) }
+}
+
+/** Eine getroffene Review-Entscheidung, auf einen Commit bezogen. */
+export type ReviewDecision = {
+    id: string
+    author: string
+    createdAt: number
+    /** Der Commit, für den sie gilt — `c` der Notiz, sonst der des 1618. */
+    commit: string
+    decision: 'approved' | 'changes-requested'
+}
+
+/** Reviewer und Entscheidungen eines Pull Requests. */
+export type ReviewState = {
+    /** Angefragte Reviewer, ohne den Autor des PR. */
+    reviewers: string[]
+    /** Je Reviewer die jüngste Freigabe zum AKTUELLEN Commit, älteste zuerst. */
+    approvals: ReviewDecision[]
+    /** Dasselbe für „Änderungen erbeten". */
+    changeRequests: ReviewDecision[]
+}
+
+const EMPTY_REVIEWS: ReviewState = { reviewers: [], approvals: [], changeRequests: [] }
+
+/**
+ * Reviewer und Freigaben eines Pull Requests — nach Buzz' **Client-Konvention**
+ * (`projectPullRequests.mjs:223-296`), nicht nach einer Spezifikation. Es gibt
+ * keine; siehe den Kopf bei {@link APPROVAL_LABEL}.
+ *
+ * Drei Regeln, jede mit einer Ausfallrichtung, die man sonst baut:
+ *
+ * **1. Reviewer = `p` der Wurzel PLUS `p` vertrauter `review-request`-Notizen,
+ * minus der Autor.** Wer nur die Wurzel liest, sieht keinen nachträglich
+ * angefragten Reviewer; wer jede Anfrage zählt, lässt jeden Fremden sich selbst
+ * zum Reviewer erklären. Der Autor fliegt zuletzt heraus — sein eigener `p`-Tag
+ * am 1618 ist Zustellung, keine Anfrage.
+ *
+ * **2. Entscheiden darf, wer Reviewer ist ODER berechtigter Akteur — aber nie
+ * der Autor.** `trustedActors` bei Buzz (`:250-256`). Der Repo-Eigentümer darf
+ * also freigeben, ohne vorher angefragt worden zu sein; der Autor darf seinen
+ * eigenen PR nicht freigeben, auch wenn er Eigentümer ist.
+ *
+ * **3. Eine Freigabe gilt für EINEN Commit.** Sie trägt entweder ein eigenes
+ * `c` oder erbt das des 1618; stimmt es nicht mit dem aktuellen überein, zählt
+ * sie nicht mehr (`:265-274`). Genau das ist der Sinn: ein Push nach der
+ * Freigabe entwertet sie, sonst zeigte die Fläche ein Häkchen für Code, den
+ * niemand gesehen hat. Ohne aktuellen Commit gibt es deshalb **gar keine**
+ * Entscheidungen — nicht etwa alle.
+ *
+ * Je Entscheider bleibt die jüngste Notiz stehen (Gleichstand: die GRÖSSERE Id,
+ * wie bei Buzz `:271`) — jemand darf seine Meinung ändern.
+ *
+ * @param currentCommit Der Commit, auf den der PR heute zeigt (jüngstes
+ *   vertrautes 1619, sonst das `c` des 1618). Leer heisst: keine Entscheidungen.
+ */
+export const foldReviews = (
+    root: ForgeEvent,
+    commentEvents: ForgeEvent[],
+    currentCommit: string,
+    maintainers: string[] = [],
+    index?: NotizIndex,
+): ReviewState => {
+    const author = root.pubkey.toLowerCase()
+    const allowed = allowedActorsForRoot(root, maintainers)
+    const notes = notesForRoot(root.id, commentEvents, index)
+
+    // Regel 1
+    const reviewers = new Set(
+        tagValues(root, 'p')
+            .map((value) => value.toLowerCase())
+            .filter(isPubkey),
+    )
+    for (const note of notes) {
+        if (!labelsOf(note).has(REVIEW_REQUEST_LABEL) || !allowed.has(note.pubkey.toLowerCase())) {
+            continue
+        }
+        for (const pubkey of tagValues(note, 'p').map((value) => value.toLowerCase())) {
+            if (isPubkey(pubkey)) {
+                reviewers.add(pubkey)
+            }
+        }
+    }
+    reviewers.delete(author)
+
+    if (!currentCommit) {
+        return { ...EMPTY_REVIEWS, reviewers: [...reviewers] }
+    }
+
+    // Regel 2
+    const trusted = new Set(reviewers)
+    for (const actor of allowed) {
+        if (actor !== author) {
+            trusted.add(actor)
+        }
+    }
+
+    // Regel 3
+    const initialCommit = tagValue(root, 'c')
+    const byAuthor = new Map<string, ReviewDecision>()
+    for (const note of notes) {
+        const labels = labelsOf(note)
+        const isApproval = labels.has(APPROVAL_LABEL)
+        const isChangeRequest = labels.has(CHANGES_REQUESTED_LABEL)
+        if (isApproval === isChangeRequest) {
+            continue
+        }
+        const key = note.pubkey.toLowerCase()
+        if (!trusted.has(key)) {
+            continue
+        }
+        const commit = tagValue(note, 'c') || initialCommit
+        if (commit !== currentCommit) {
+            continue
+        }
+        const existing = byAuthor.get(key)
+        const decision: ReviewDecision = {
+            id: note.id,
+            author: key,
+            createdAt: note.created_at,
+            commit,
+            decision: isApproval ? 'approved' : 'changes-requested',
+        }
+        if (
+            !existing ||
+            decision.createdAt > existing.createdAt ||
+            (decision.createdAt === existing.createdAt && decision.id > existing.id)
+        ) {
+            byAuthor.set(key, decision)
+        }
+    }
+
+    const decisions = [...byAuthor.values()].sort(
+        (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+    )
+
+    return {
+        reviewers: [...reviewers],
+        approvals: decisions.filter((decision) => decision.decision === 'approved'),
+        changeRequests: decisions.filter((decision) => decision.decision === 'changes-requested'),
+    }
+}
+
+/** Ein Reviewer mit seiner Entscheidung zum aktuellen Commit. */
+export type ReviewerRow = {
+    pubkey: string
+    /** `''` = angefragt, aber noch nicht entschieden. */
+    decision: '' | 'approved' | 'changes-requested'
+}
+
+/**
+ * Die Reviewer-Zeile als LISTE — angefragte Reviewer zuerst, danach jeder, der
+ * entschieden hat, ohne angefragt worden zu sein.
+ *
+ * **Warum das hier steht und nicht als `.some()` im Markup.** Genau diese Frage
+ * („hat dieser Reviewer schon?") stand bis zum Nachzug als Alpine-Ausdruck in
+ * `⚡forge-repo.blade.php` — dreimal je Zeile, ungetestet, und die zweite Hälfte
+ * fehlte ganz: der Repo-Eigentümer darf freigeben, ohne je angefragt worden zu
+ * sein ({@link foldReviews}, Regel 2). Er stand damit in KEINEM Chip und tauchte
+ * nur in der Zahl daneben auf — zwei Darstellungen desselben Bestands, die
+ * auseinanderlaufen. Hier ist es eine Liste, ein Test und eine Wahrheit.
+ *
+ * Die Reihenfolge ist nicht kosmetisch: wer angefragt wurde, gehört nach vorn,
+ * auch wenn er noch nicht entschieden hat — das ist die offene Erwartung, und
+ * sie ist die Information, die man auf einer PR-Zeile sucht.
+ */
+export const reviewerRows = (
+    reviewers: readonly string[],
+    approvals: readonly ReviewDecision[],
+    changeRequests: readonly ReviewDecision[],
+): ReviewerRow[] => {
+    const decisionOf = new Map<string, ReviewerRow['decision']>()
+    for (const decision of changeRequests) {
+        decisionOf.set(decision.author, 'changes-requested')
+    }
+    // Freigaben zuletzt: `foldReviews` behält je Entscheider ohnehin nur EINE
+    // Entscheidung, die beiden Listen können sich also gar nicht überschneiden.
+    // Die Reihenfolge steht hier trotzdem fest, statt sich auf diese Zusage einer
+    // anderen Funktion zu verlassen.
+    for (const decision of approvals) {
+        decisionOf.set(decision.author, 'approved')
+    }
+
+    const rows: ReviewerRow[] = reviewers.map((pubkey) => ({
+        pubkey,
+        decision: decisionOf.get(pubkey) ?? '',
+    }))
+    const bekannt = new Set(reviewers)
+    for (const [pubkey, decision] of decisionOf) {
+        if (!bekannt.has(pubkey)) {
+            rows.push({ pubkey, decision })
+        }
+    }
+
+    return rows
+}
+
 // ── Kommentare ──────────────────────────────────────────────────────────────
 
 export type ForgeComment = {
@@ -781,12 +1536,42 @@ const toComment = (event: ForgeEvent): ForgeComment => ({
     createdAt: event.created_at,
 })
 
-/** Kommentare (kind 1) zu einer Wurzel, älteste zuerst. */
-export const commentsForRoot = (rootId: string, commentEvents: ForgeEvent[]): ForgeComment[] =>
-    commentEvents
-        .filter((event) => event.kind === FORGE_COMMENT && referencesRoot(event, rootId))
+/**
+ * Gesprächsbeiträge (kind 1) zu einer Wurzel, älteste zuerst — **ohne die
+ * Vorgangsformen**.
+ *
+ * ── Der Fehler, den dieser Ausschluss behebt ────────────────────────────────
+ *
+ * `referencesRoot` nimmt jedes `e`/`E` auf die Wurzel, und eine Zuweisungsnotiz
+ * trägt genau dieses `["e", <id>, "", "root"]`. Sie war damit ein Kommentar wie
+ * jeder andere: sie stand in der Liste und sie zählte. Gemessen am 2026-08-24
+ * vor dem Eingriff, an allen drei Zählstellen — Issue **3** statt 1, Pull
+ * Request **3** statt 1, Patch **2** statt 1.
+ *
+ * Und es war nicht nur die Zahl: eine Zuweisungsnotiz darf bis 64 KiB Freitext
+ * tragen (`builders.rs:1223`) und **darf leer sein**. Die Sonde zeigte genau
+ * das — der dritte „Kommentar" war die leere Zeichenkette, also eine leere
+ * Sprechblase auf der Fläche, ohne Autor-Aussage und ohne Anlass.
+ *
+ * ── Wo wir bewusst von Buzz abweichen ───────────────────────────────────────
+ *
+ * Buzz **behält** die Notizen in `comments` und markiert sie (`isApproval`,
+ * `isTrustedReviewRequest`, …); erst die Zeitleiste rendert sie anders
+ * (`projectPullRequests.mjs:328-346`). Wir werfen sie hier heraus. Folge, die
+ * man kennen muss: **ihr Freitext erscheint in P1 nirgends.** Wer einer
+ * Zuweisung eine Begründung mitgibt, sieht sie in dieser Fläche nicht — das
+ * Band zeigt WER, nicht WARUM. Das ist der Preis der einfacheren Zusage „was in
+ * `comments` steht, ist ein Gesprächsbeitrag"; eine Vorgangs-Zeitleiste wäre
+ * eine eigene Fläche und keine Fussnote an dieser.
+ */
+export const commentsForRoot = (
+    rootId: string,
+    commentEvents: ForgeEvent[],
+    index?: NotizIndex,
+): ForgeComment[] =>
+    notesForRoot(rootId, commentEvents, index)
+        .filter((event) => !isOperationNote(event))
         .map(toComment)
-        .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
 
 // ── Issue (1621) ────────────────────────────────────────────────────────────
 
@@ -796,11 +1581,25 @@ export type Issue = {
     content: string
     author: string
     createdAt: number
-    /** Letzte Regung: Kommentar oder Statuswechsel, sonst die Erstellung. */
+    /**
+     * Letzte Regung: Notiz (Kommentar **oder** Zuweisung) oder Statuswechsel,
+     * sonst die Erstellung. Zur Begründung siehe {@link lastNoteAt}.
+     */
     updatedAt: number
     repoAddress: string
     labels: string[]
     status: IssueStatus
+    /**
+     * Die aktuell Zugewiesenen ({@link foldAssignments}).
+     *
+     * Steht neben `labels` und nicht darin: ein Label ist Fremdtext aus dem
+     * `t`-Tag der Wurzel, ein Zugewiesener ist ein Schlüssel aus einer
+     * gefalteten Operationskette. Sie sehen auf der Fläche ähnlich aus und
+     * entstehen völlig verschieden.
+     */
+    assignees: string[]
+    /** Je Zugewiesenem der Kopf seiner Operationskette — Schreibseite (P5). */
+    assignmentHeads: Record<string, string>
     commentCount: number
     comments: ForgeComment[]
 }
@@ -820,9 +1619,13 @@ export const toIssue = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
+    index?: NotizIndex,
 ): Issue => {
     const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents)
+    const comments = commentsForRoot(root.id, commentEvents, index)
+    // Die ROHE Liste, nicht `comments`: die Faltung braucht genau die Notizen,
+    // die `commentsForRoot` gerade herausgeworfen hat.
+    const assignments = foldAssignments(root, commentEvents, maintainers, index)
 
     return {
         id: root.id,
@@ -833,11 +1636,13 @@ export const toIssue = (
         updatedAt: Math.max(
             root.created_at,
             status?.created_at ?? 0,
-            ...comments.map((comment) => comment.createdAt),
+            lastNoteAt(root.id, commentEvents, index),
         ),
         repoAddress: tagValue(root, 'a'),
         labels: tagValues(root, 't'),
         status: issueStatusFrom(status),
+        assignees: assignments.assignees,
+        assignmentHeads: assignments.heads,
         commentCount: comments.length,
         comments,
     }
@@ -849,11 +1654,15 @@ export const buildIssues = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
-): Issue[] =>
-    issueEvents
+): Issue[] => {
+    // EINMAL je Aufruf, nicht je Wurzel (P7). Siehe {@link indexNotes}.
+    const index = indexNotes(commentEvents)
+
+    return issueEvents
         .filter((event) => event.kind === GIT_ISSUE)
-        .map((root) => toIssue(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a'))))
+        .map((root) => toIssue(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a')), index))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+}
 
 // ── Pull Request (1618 + 1619) ──────────────────────────────────────────────
 
@@ -875,6 +1684,12 @@ export type PullRequest = {
     repoAddress: string
     labels: string[]
     status: PullRequestStatus
+    /** Angefragte Reviewer ohne den Autor ({@link foldReviews}). */
+    reviewers: string[]
+    /** Freigaben zum AKTUELLEN Commit, je Reviewer die jüngste. */
+    approvals: ReviewDecision[]
+    /** „Änderungen erbeten" zum aktuellen Commit, je Reviewer die jüngste. */
+    changeRequests: ReviewDecision[]
     /** Quell-Branch (`branch-name`), `''` wenn keiner angegeben ist. */
     branch: string
     /** Ziel-Branch (`target-branch`). */
@@ -902,10 +1717,11 @@ export const toPullRequest = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
+    index?: NotizIndex,
 ): PullRequest => {
     const allowed = allowedActorsForRoot(root, maintainers)
     const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents)
+    const comments = commentsForRoot(root.id, commentEvents, index)
     const updates = updateEvents
         .filter(
             (event) =>
@@ -922,6 +1738,11 @@ export const toPullRequest = (
             createdAt: event.created_at,
         }))
     const newestUpdate = updates[updates.length - 1]
+    // Der Commit, auf den der PR HEUTE zeigt. Er steht vor der Faltung fest,
+    // weil `foldReviews` ihn braucht: eine Freigabe gilt genau für diesen einen
+    // Stand und wird von einem Push danach entwertet.
+    const commit = newestUpdate?.commit || tagValue(root, 'c')
+    const reviews = foldReviews(root, commentEvents, commit, maintainers, index)
 
     return {
         id: root.id,
@@ -933,14 +1754,17 @@ export const toPullRequest = (
             root.created_at,
             status?.created_at ?? 0,
             ...updates.map((update) => update.createdAt),
-            ...comments.map((comment) => comment.createdAt),
+            lastNoteAt(root.id, commentEvents, index),
         ),
         repoAddress: tagValue(root, 'a'),
         labels: tagValues(root, 't'),
         status: pullRequestStatusFrom(root, status),
+        reviewers: reviews.reviewers,
+        approvals: reviews.approvals,
+        changeRequests: reviews.changeRequests,
         branch: tagValue(root, 'branch-name'),
         targetBranch: tagValue(root, 'target-branch'),
-        commit: newestUpdate?.commit || tagValue(root, 'c'),
+        commit,
         cloneUrls: tagValuesFlat(root, 'clone'),
         updateCount: updates.length,
         updates,
@@ -956,8 +1780,10 @@ export const buildPullRequests = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
-): PullRequest[] =>
-    pullRequestEvents
+): PullRequest[] => {
+    const index = indexNotes(commentEvents)
+
+    return pullRequestEvents
         .filter((event) => event.kind === GIT_PULL_REQUEST)
         .map((root) =>
             toPullRequest(
@@ -966,9 +1792,11 @@ export const buildPullRequests = (
                 statusEvents,
                 commentEvents,
                 maintainersOf(tagValue(root, 'a')),
+                index,
             ),
         )
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+}
 
 // ── Patch (1617) ────────────────────────────────────────────────────────────
 
@@ -1020,9 +1848,10 @@ export const toPatch = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
+    index?: NotizIndex,
 ): Patch => {
     const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents)
+    const comments = commentsForRoot(root.id, commentEvents, index)
     const labels = tagValues(root, 't')
 
     return {
@@ -1034,11 +1863,7 @@ export const toPatch = (
         content: root.content,
         author: root.pubkey.toLowerCase(),
         createdAt: root.created_at,
-        updatedAt: Math.max(
-            root.created_at,
-            status?.created_at ?? 0,
-            ...comments.map((comment) => comment.createdAt),
-        ),
+        updatedAt: Math.max(root.created_at, status?.created_at ?? 0, lastNoteAt(root.id, commentEvents, index)),
         repoAddress: tagValue(root, 'a'),
         labels,
         status: patchStatusFrom(status),
@@ -1058,11 +1883,64 @@ export const buildPatches = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
-): Patch[] =>
-    patchEvents
+): Patch[] => {
+    const index = indexNotes(commentEvents)
+
+    return patchEvents
         .filter((event) => event.kind === GIT_PATCH)
-        .map((root) => toPatch(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a'))))
+        .map((root) => toPatch(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a')), index))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+}
+
+/** Eine Gruppe gleichartiger Vorgänge, die zu EINEM Repository gehören. */
+export type RepoGruppe<T> = {
+    /** `30617:<owner>:<d>` — die Identität, an der die Gruppe hängt. */
+    address: string
+    /** Anzeigename des Repos. */
+    name: string
+    items: T[]
+}
+
+/**
+ * Vorgänge nach Repository gruppieren — die Grundlage der workspace-weiten Listen (P3).
+ *
+ * ── Warum gruppiert und nicht flach ─────────────────────────────────────────
+ *
+ * Eine flache Liste über alle Repos beantwortet „was liegt offen" und nimmt
+ * dabei die Antwort auf „wo" wieder weg: zwanzig Zeilen, jede mit einem
+ * Repo-Namen als Präfix, sind zwanzigmal dieselbe Information neben der, die man
+ * sucht. Die Gruppe nennt das Repo EINMAL.
+ *
+ * ── Zwei Regeln, die man beim Nachbauen anders macht ────────────────────────
+ *
+ * 1. **Die Reihenfolge der Repos kommt von aussen, nicht aus den Vorgängen.**
+ *    `buildRepos` sortiert bereits (neueste Ankündigung zuerst); hier noch einmal
+ *    zu sortieren hiesse, dieselbe Frage an zwei Orten zu beantworten — und beim
+ *    nächsten Mal an einem davon anders. Innerhalb der Gruppe bleibt die
+ *    Reihenfolge der Eingabe erhalten (`buildIssues` sortiert nach Bewegung).
+ * 2. **Leere Gruppen fallen weg.** Ein Repo ohne Issues ist in einer
+ *    Issue-Liste keine Aussage, sondern eine Zeile, die man überliest. Wer die
+ *    Null sehen will, sieht sie in der Repo-Liste daneben.
+ *
+ * Ein Vorgang, dessen `repoAddress` in `repos` nicht vorkommt, fällt heraus —
+ * die Aufrufer filtern zwar schon darauf, aber eine Gruppierung, die eine
+ * unbekannte Koordinate zu einer namenlosen Gruppe machte, wäre eine stille
+ * Einladung für fremde `a`-Tags.
+ */
+export const gruppiereNachRepo = <T extends { repoAddress: string }>(
+    items: readonly T[],
+    repos: readonly { address: string; name: string }[],
+): RepoGruppe<T>[] => {
+    const gruppen = new Map<string, RepoGruppe<T>>()
+    for (const repo of repos) {
+        gruppen.set(repo.address, { address: repo.address, name: repo.name, items: [] })
+    }
+    for (const item of items) {
+        gruppen.get(item.repoAddress)?.items.push(item)
+    }
+
+    return [...gruppen.values()].filter((gruppe) => gruppe.items.length > 0)
+}
 
 // ── Projekt (30621, NIP-MP) ─────────────────────────────────────────────────
 

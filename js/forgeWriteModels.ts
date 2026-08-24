@@ -160,14 +160,28 @@ export const commentDraftProblem = (
  *
  * - `anonymous` — niemand angemeldet, es gibt keinen Signer.
  * - `not-actor` — angemeldet, aber für DIESE Wurzel nicht zuständig.
+ * - `no-commit` — der Pull Request nennt keinen Commit (P5). Eine Freigabe gilt
+ *   für GENAU EINEN Stand ({@link forgeModels.foldReviews}); ohne ihn gäbe es
+ *   nichts, worauf sie sich bezöge, und jeder Leser verwürfe sie still.
+ * - `settled` — der Vorgang ist zusammengeführt oder geschlossen. Eine Freigabe
+ *   danach ändert nichts mehr; Buzz sperrt sie ebenfalls
+ *   (`pullRequestReviews.ts:canReviewProjectPullRequest`).
+ * - `targets` — die Operation nennt niemanden Brauchbaren oder zu viele (F3).
+ *   **Keine Berechtigungsfrage**, und deshalb ein eigener Code: der Gate sagte
+ *   sonst ALLOWED, `buildAssignmentTags` lieferte `[]`, und die Fläche meldete
+ *   „Diese Zuweisung nennt niemanden." — bei 51 Namen. Es ging nichts raus, aber
+ *   wer die Meldung las, suchte an der falschen Stelle.
  */
-export type WriteGateReason = 'ok' | 'anonymous' | 'not-actor'
+export type WriteGateReason = 'ok' | 'anonymous' | 'not-actor' | 'no-commit' | 'settled' | 'targets'
 
 export type WriteGate = { allowed: boolean; reason: WriteGateReason }
 
 const ALLOWED: WriteGate = { allowed: true, reason: 'ok' }
 const ANONYMOUS: WriteGate = { allowed: false, reason: 'anonymous' }
 const NOT_ACTOR: WriteGate = { allowed: false, reason: 'not-actor' }
+const NO_COMMIT: WriteGate = { allowed: false, reason: 'no-commit' }
+const SETTLED: WriteGate = { allowed: false, reason: 'settled' }
+const TARGETS: WriteGate = { allowed: false, reason: 'targets' }
 
 /**
  * Darf dieser Betrachter ein Issue anlegen oder kommentieren?
@@ -212,6 +226,160 @@ export const statusGate = (
         ? ALLOWED
         : NOT_ACTOR
 }
+
+/**
+ * Obergrenze aus `builders.rs:1219-1223` — „between 1 and 50 assignees".
+ *
+ * Steht VOR {@link assignGate}, obwohl sie erst im Tag-Bau gebraucht wurde: seit
+ * F3 prüft auch der Riegel gegen sie, und eine Konstante, die unterhalb ihres
+ * ersten Lesers steht, ist eine Einladung in die temporale Todeszone.
+ */
+export const MAX_ASSIGNEES = 50
+
+/**
+ * Darf dieser Betrachter diese Menschen zuweisen — oder ihre Zuweisung entziehen?
+ *
+ * ── Die Regel steht nicht hier, sie steht in der Faltung ────────────────────
+ *
+ * Das ist der Kern von P5 und keine Formsache: `foldAssignments`
+ * (`forgeModels.ts`) entscheidet beim LESEN, welche Operation gilt, und exakt
+ * dieselbe Bedingung entscheidet hier, ob der Knopf offen ist. Die geteilte
+ * Quelle ist `allowedActorsFor` — dieselbe Funktion, die `foldAssignments`
+ * über `allowedActorsForRoot` aufruft. Liefen die beiden auseinander, entstünde
+ * genau der Fehler, den der Docblock an {@link statusGate} beschreibt: der
+ * Riegel im Leser bleibt scharf, der im Schreiber altert unbemerkt.
+ *
+ * **Warum ein offener Knopf ohne diese Prüfung KEIN kleiner Fehler wäre.** Buzz'
+ * Relay prüft an einem `kind 1` gar nichts und quittiert mit `OK true`. Eine
+ * unberechtigte Zuweisung geht also raus, wird angenommen — und von JEDEM
+ * Client beim Lesen verworfen. Der Nutzer sähe Erfolg und hätte nichts
+ * erreicht: stiller Leerlauf, kein Fehlerbild.
+ *
+ * ── Zwei Wege, und der zweite ist der wichtigere ────────────────────────────
+ *
+ * 1. **Autoritativ** — Wurzel-Autor, Repo-Eigentümer oder eingetragener
+ *    Maintainer. Sie dürfen JEDEN benennen.
+ * 2. **Selbstbedienung** — alle anderen dürfen genau EINEN Namen nennen, und
+ *    das muss der eigene sein (`builders.rs:1163-1167`, Faltung
+ *    `projectIssues.mjs:122-124`). Ohne diesen Weg könnte niemand ein Issue an
+ *    sich ziehen; ohne die Ein-Namen-Grenze könnte jeder Fremde jeden zuweisen
+ *    und sich selbst als Alibi mit hineinhängen.
+ *
+ * Die Prüfung läuft über die ROHE Zielliste, nicht über eine bereinigte —
+ * dieselbe Härtung wie in der Faltung. Wer vorher aussortierte, machte aus
+ * `[selbst, müll]` eine Selbstbedienung und wäre grosszügiger als die Referenz.
+ *
+ * **Zuweisen und Entziehen teilen diese Regel.** Sie sind zwei Operationen mit
+ * einer Berechtigung — das SDK sagt für beide denselben Satz
+ * (`builders.rs:1122-1128` und `:1163-1167`). Zwei Gates dafür wären zwei Orte,
+ * an denen dieselbe Regel altern kann.
+ *
+ * @param targets Die `p`-Werte, die die Notiz nennen SOLL — roh, ungefiltert.
+ */
+export const assignGate = (
+    viewer: string,
+    root: { author: string; repoAddress: string; maintainers?: string[] },
+    targets: readonly string[],
+): WriteGate => {
+    if (!HEX64.test(viewer)) {
+        return ANONYMOUS
+    }
+    // **Erst der Gegenstand, dann die Berechtigung** (F3, 2026-08-24). Wer
+    // niemanden nennt oder mehr Namen als das SDK zulässt, bekommt einen eigenen
+    // Grund — sonst stünde der Gate offen und `buildAssignmentTags` schwiege
+    // dazu mit einer Meldung, die das Gegenteil behauptet.
+    //
+    // Gezählt werden die BRAUCHBAREN Namen (dieselbe Bedingung wie im Tag-Bau),
+    // die Selbstprüfung unten läuft weiter über die ROHE Liste. Beides ist
+    // Absicht: die eine Frage lautet „gibt es überhaupt einen Gegenstand", die
+    // andere „ist es ausschliesslich der eigene".
+    const brauchbar = new Set(targets.map((value) => value.toLowerCase()).filter((pk) => HEX64.test(pk)))
+    if (brauchbar.size === 0 || brauchbar.size > MAX_ASSIGNEES) {
+        return TARGETS
+    }
+    const self = viewer.toLowerCase()
+    if (
+        allowedActorsFor({
+            author: root.author,
+            repoAddress: root.repoAddress,
+            maintainers: root.maintainers ?? [],
+        }).has(self)
+    ) {
+        return ALLOWED
+    }
+    const roh = targets.map((value) => value.toLowerCase())
+
+    return roh.length === 1 && roh[0] === self ? ALLOWED : NOT_ACTOR
+}
+
+/**
+ * Darf dieser Betrachter diesen Pull Request freigeben oder Änderungen erbitten?
+ *
+ * ── Dieselbe Menge wie beim Lesen, und sie kommt fertig herein ──────────────
+ *
+ * `reviewers` ist **kein** Parameter, den der Aufrufer zusammenstellt: es ist
+ * genau die Liste, die {@link forgeModels.foldReviews} beim Lesen gefaltet hat
+ * und die die Zeile ohnehin trägt (`PullRequest.reviewers`, seit P1). Damit
+ * gibt es keine zweite Herleitung, die altern könnte — der Riegel liest, was
+ * die Fläche zeigt.
+ *
+ * Die vertrauenswürdige Menge ist `reviewers` **plus** die berechtigten Akteure,
+ * **ohne** den Autor — wortgleich zu `trustedReviewActors`
+ * (`projectPullRequests.mjs:250-256`). Der Repo-Eigentümer darf also freigeben,
+ * ohne angefragt worden zu sein; der Autor darf es nie, auch als Eigentümer
+ * nicht.
+ *
+ * ── Zwei Gründe, die nichts mit Berechtigung zu tun haben ───────────────────
+ *
+ * Eine Freigabe gilt für GENAU EINEN Commit und wird von einem Push danach
+ * entwertet. Ohne `commit` gäbe es nichts, worauf sie sich bezöge — sie ginge
+ * raus, der Relay nähme sie, und jeder Leser verwürfe sie
+ * (`foldReviews`: ohne aktuellen Commit gibt es gar keine Entscheidungen).
+ * Und an einem zusammengeführten oder geschlossenen PR ändert sie nichts mehr.
+ * Beides sind eigene Gründe, damit die Fläche den richtigen Satz zeigen kann
+ * statt „du darfst nicht" zu behaupten, wo „hier gibt es nichts zu tun" gilt.
+ */
+export const approveGate = (
+    viewer: string,
+    pr: {
+        author: string
+        repoAddress: string
+        maintainers?: string[]
+        reviewers: readonly string[]
+        commit: string
+        status: string
+    },
+): WriteGate => {
+    if (!HEX64.test(viewer)) {
+        return ANONYMOUS
+    }
+    if (pr.status !== 'open' && pr.status !== 'draft') {
+        return SETTLED
+    }
+    if (!HEX40_OR_64.test(pr.commit)) {
+        return NO_COMMIT
+    }
+    const self = viewer.toLowerCase()
+    const author = pr.author.toLowerCase()
+    if (self === author) {
+        return NOT_ACTOR
+    }
+    const trusted = new Set(pr.reviewers.map((value) => value.toLowerCase()))
+    for (const actor of allowedActorsFor({
+        author: pr.author,
+        repoAddress: pr.repoAddress,
+        maintainers: pr.maintainers ?? [],
+    })) {
+        if (actor !== author) {
+            trusted.add(actor)
+        }
+    }
+
+    return trusted.has(self) ? ALLOWED : NOT_ACTOR
+}
+
+/** Ein Commit-Hash, wie NIP-34 ihn führt: SHA-1 (40) oder SHA-256 (64). */
+const HEX40_OR_64 = /^[0-9a-f]{40}([0-9a-f]{24})?$/i
 
 // ── Zeitstempel ─────────────────────────────────────────────────────────────
 
@@ -364,6 +532,128 @@ export const buildCommentTags = (
 export const buildStatusTags = (repoAddress: string, rootId: string, rootAuthor: string): string[][] =>
     buildCommentTags(repoAddress, rootId, rootAuthor)
 
+/**
+ * Die Rümpfe der Vorgangsnotizen — **bewusst englisch und bewusst NICHT durch
+ * `t()`**.
+ *
+ * Das ist kein Oberflächentext, sondern eine Interop-Nutzlast. Buzz Desktop und
+ * `buzz` CLI lesen dieselben Ereignisse; sie rendern ihre eigene Satzform und
+ * zeigen den Rumpf nur dort, wo sie eine Notiz als gewöhnlichen Kommentar
+ * behandeln. Schrieben wir Deutsch, stünde in einem fremden Client ein
+ * deutscher Satz mitten in einer englischen Zeitleiste. Schrieben wir gar
+ * nichts, erschiene dort eine leere Sprechblase — genau der Fehler, den P1 auf
+ * unserer Seite behoben hat.
+ *
+ * Deshalb wörtlich die Sätze des Referenzclients
+ * (`issueAssignments.ts:74-77`, `pullRequestReviews.ts:179-192`). Unsere eigene
+ * Fläche zeigt sie seit P1 ohnehin nicht mehr an.
+ */
+export const OPERATION_CONTENT = {
+    assignment: 'Assigned this issue to',
+    unassignment: 'Unassigned',
+    approval: 'Approved these changes',
+    'changes-requested': 'Requested changes',
+} as const
+
+/**
+ * Tags einer Zuweisung oder Entziehung (kind 1, `t`-beschriftet).
+ *
+ * Form wörtlich aus `builders.rs:1234-1246`: `["e", <root>, "", "root"]`,
+ * `["a", <repo>]`, ein `["p", …]` je Genannten, `["t", <label>]`, optional
+ * `["prior", <event-id>]`.
+ *
+ * ── `prior` ist der Grund, warum P1 die Köpfe mitgeliefert hat ──────────────
+ *
+ * Eine Selbstbedienung OHNE `prior` verliert gegen eine autoritative
+ * Entscheidung — sie läuft in der Faltung in der ERSTEN Phase, die Autorität
+ * danach (`projectIssues.mjs:149-153`). Wer sich einer Zuweisung entziehen
+ * will, muss sich ausdrücklich auf sie berufen. `heads[viewer]` aus
+ * `foldAssignments` ist genau dieser Bezug; fehlt er, wird kein `prior`
+ * gesetzt, und das Ereignis ist dann eine unverkettete Selbstbedienung — was
+ * beim ERSTEN Zugriff auf ein unzugewiesenes Issue auch richtig ist.
+ *
+ * Die Namen werden kleingeschrieben, entdoppelt und auf Schlüsselform geprüft:
+ * ein `p`, das kein Schlüssel ist, käme über die Faltung nie zurück und stünde
+ * nur als Müll im Ereignis. Das SDK verlangt zwischen 1 und 50 Namen
+ * (`builders.rs:1219-1223`); dieselbe Grenze gilt hier, sonst baute die Fläche
+ * ein Ereignis, das der Referenzclient gar nicht erst erzeugen könnte.
+ */
+export const buildAssignmentTags = ({
+    repoAddress,
+    rootId,
+    targets,
+    label,
+    prior = '',
+}: {
+    repoAddress: string
+    rootId: string
+    targets: readonly string[]
+    label: 'assignment' | 'unassignment'
+    prior?: string
+}): string[][] => {
+    const namen = [...new Set(targets.map((value) => value.toLowerCase()).filter((pk) => HEX64.test(pk)))]
+    if (namen.length === 0 || namen.length > MAX_ASSIGNEES) {
+        return []
+    }
+    const tags: string[][] = [
+        ['e', rootId, '', 'root'],
+        ['a', repoAddress],
+        ...namen.map((pk) => ['p', pk]),
+        ['t', label],
+    ]
+    if (HEX64.test(prior.toLowerCase())) {
+        tags.push(['prior', prior.toLowerCase()])
+    }
+
+    return tags
+}
+
+/**
+ * Tags einer Freigabe oder eines Änderungswunsches (kind 1, `t`-beschriftet).
+ *
+ * **Das `c` ist keine Zierde, sondern die halbe Aussage.** `foldReviews`
+ * verwirft jede Entscheidung, deren Commit nicht der aktuelle ist — ohne dieses
+ * Tag erbte die Notiz stillschweigend das `c` des 1618 und wirkte damit auf
+ * einen Stand, den der Freigebende womöglich nie gesehen hat. Es steht hier
+ * explizit, damit die Aussage den Commit trägt, für den sie gemeint war
+ * (`pullRequestReviews.ts:196-215` setzt es aus demselben Grund).
+ *
+ * Kein `p`-Tag: die Empfänger einer Review-Entscheidung sind Autor und
+ * Eigentümer, und die stehen bereits am 1618. Ein zusätzliches `p` hier machte
+ * aus jeder Freigabe eine Erwähnung — und weckte damit Agenten
+ * (`forgeWake.ts`), die nichts damit zu tun haben.
+ */
+export const buildReviewTags = ({
+    repoAddress,
+    rootId,
+    commit,
+    label,
+}: {
+    repoAddress: string
+    rootId: string
+    commit: string
+    label: 'approval' | 'changes-requested'
+}): string[][] => [
+    ['e', rootId, '', 'root'],
+    ['a', repoAddress],
+    ['t', label],
+    // **UNVERÄNDERT durchgereicht, nicht kleingeschrieben** (F1, 2026-08-24).
+    //
+    // Hier stand `commit.toLowerCase()`, und das war eine zweite Meinung über
+    // denselben Wert: `foldReviews` vergleicht BYTEWEISE gegen das `c` des 1618
+    // (ebenso Buzz, `projectPullRequests.mjs:265-274`). Ein grossgeschriebener
+    // Commit öffnete damit den Gate — die Formprüfung ist case-insensitiv —,
+    // das Ereignis ginge raus, der Relay quittierte mit `OK true`, und die
+    // Faltung erkennte NICHTS an. Genau die Klasse, gegen die P5 gebaut wurde.
+    //
+    // Der Wert kommt aus `PullRequest.commit`, also aus demselben Tag, gegen das
+    // später verglichen wird. Ihn unterwegs anzufassen kann nur schaden: an
+    // dieser Kette gibt es genau eine Schreibweise, und das ist die des
+    // Erzeugers. Die Formprüfung im Gate bleibt case-insensitiv — sie beschreibt
+    // die GESTALT eines Commits, nicht seine Identität.
+    ['c', commit],
+]
+
 // ── Optimistischer Eintrag ──────────────────────────────────────────────────
 
 /**
@@ -452,21 +742,28 @@ export const pendingState = (list: readonly PendingWrite[], id: string): Pending
  * und die sieht das Ereignis erst nach dem `throttled(300)` der Ableitung.
  * Ohne Warten stünde hier ein Ergebnis von vor dem Schreiben.
  *
+ * **Seit F2 (2026-08-24) generisch**, weil die Zuweisung dieselbe Frage stellt
+ * und ihre Antwort ein `boolean` ist („bin ich zugewiesen?"). Der Typ war auf
+ * `string` genagelt, ohne dass irgendetwas im Rumpf das brauchte — eine
+ * Zeichenkette daraus zu machen wäre eine Verrenkung um eine Signatur herum
+ * gewesen, die nichts festhält. Bestehende Aufrufer leiten `string` weiterhin
+ * ab, ihr Verhalten ändert sich nicht.
+ *
  * Uhr und Schlaf sind Parameter, damit die Funktion ohne echte Zeit prüfbar ist.
  */
-export const awaitValue = async ({
+export const awaitValue = async <T>({
     read,
     accept,
     timeoutMs,
     stepMs,
     sleep,
 }: {
-    read: () => string
-    accept: (value: string) => boolean
+    read: () => T
+    accept: (value: T) => boolean
     timeoutMs: number
     stepMs: number
     sleep: (ms: number) => Promise<void>
-}): Promise<{ ok: boolean; value: string }> => {
+}): Promise<{ ok: boolean; value: T }> => {
     let waited = 0
     let value = read()
     while (!accept(value) && waited < timeoutMs) {

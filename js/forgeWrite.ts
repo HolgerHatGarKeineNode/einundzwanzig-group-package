@@ -42,7 +42,10 @@ import {
     GIT_ISSUE_KIND,
     addPending,
     awaitValue,
+    OPERATION_CONTENT,
+    buildAssignmentTags,
     buildCommentTags,
+    buildReviewTags,
     buildIssueTags,
     buildStatusTags,
     dropPending,
@@ -321,6 +324,122 @@ export const publishIssueStatus = async (
             return { id: outcome.id, error }
         }
         dismissPending(outcome.id)
+
+        return outcome
+    })
+
+// ── P5: Zuweisen, Entziehen, Freigeben ──────────────────────────────────────
+
+/**
+ * Eine Zuweisung oder Entziehung (kind 1, `t`-beschriftet) — **mit Nachprüfung**.
+ *
+ * ── Hier stand, eine Nachprüfung sei überflüssig. Das war falsch (F2) ───────
+ *
+ * Die Begründung lautete: die Faltung verwerfe eine Zuweisung nur bei
+ * unberechtigtem Signierer, und genau das prüfe {@link assignGate} vorher. Das
+ * ist **nicht die einzige Verwerfungsbedingung.** Die zweite ist die
+ * `prior`-Kette: `foldAssignments` wendet eine kausale Selbstbedienung nur an,
+ * wenn ihr `prior` den KOPF trifft, den die Faltung zu diesem Zeitpunkt sieht
+ * (`projectIssues.mjs:154`). `prior` kommt aus `Issue.assignmentHeads`, also aus
+ * einer Momentaufnahme der letzten Faltung — landet zwischen Rendern und Klick
+ * eine autoritative Neuzuweisung, zeigt es ins Leere. Das Ereignis geht raus,
+ * der Relay nimmt es, und die Faltung lässt es fallen: **ohne Fehler, ohne
+ * Spur.**
+ *
+ * Ein Gate kann das prinzipiell nicht wissen — die Bedingung hängt am Zustand
+ * zur FALTUNGSZEIT, nicht zur Klickzeit. Es gibt also sehr wohl eine zweite
+ * Frage, und es ist dieselbe wie bei `publishIssueStatus`: *hat mein Ereignis
+ * nach der Faltung die Wirkung, die ich wollte?*
+ *
+ * `readAssigned` liefert deshalb den gefalteten Ist-Zustand („bin ich
+ * zugewiesen?"), und die Zusage lautet: nach `assignment` ja, nach
+ * `unassignment` nein. Trifft sie nicht ein, sagt die Fläche das — statt Erfolg
+ * zu behaupten.
+ *
+ * **Optional, und das ist kein Schlupfloch.** Ohne `readAssigned` verhält sich
+ * die Funktion wie vorher; der einzige Aufrufer (die Insel) reicht ihn durch.
+ * Der Parameter ist optional, weil `publishAssignment` auch aus einem Kontext
+ * ohne Ableitung heraus benutzbar bleiben soll — dann ohne diese Zusage, nicht
+ * mit einer falschen.
+ */
+export const publishAssignment = async (
+    target: { repoAddress: string; rootId: string; targets: readonly string[]; prior?: string },
+    label: 'assignment' | 'unassignment',
+    readAssigned?: () => boolean,
+): Promise<WriteOutcome> =>
+    withLock(`assign:${target.rootId}`, async () => {
+        const tags = buildAssignmentTags({
+            repoAddress: target.repoAddress,
+            rootId: target.rootId,
+            targets: target.targets,
+            label,
+            prior: target.prior ?? '',
+        })
+        if (tags.length === 0) {
+            // Kein brauchbarer Name — `buildAssignmentTags` hat die Grenzen des
+            // SDK durchgesetzt. Ein Ereignis ohne Genannte wäre eine Operation
+            // ohne Gegenstand.
+            return { id: '', error: t('Diese Zuweisung nennt niemanden.') }
+        }
+        const outcome = await send(
+            { kind: FORGE_COMMENT_KIND, content: OPERATION_CONTENT[label], tags },
+            { what: 'comment', repoAddress: target.repoAddress, rootId: target.rootId, label: '', content: '' },
+        )
+        if (outcome.error || !outcome.id) {
+            return outcome
+        }
+        if (readAssigned) {
+            const erwartet = label === 'assignment'
+            const settled = await awaitValue({
+                read: readAssigned,
+                accept: (value) => value === erwartet,
+                timeoutMs: STATUS_VERIFY_TIMEOUT_MS,
+                stepMs: STATUS_VERIFY_STEP_MS,
+                sleep,
+            })
+            if (!settled.ok) {
+                const error = erwartet
+                    ? t('Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.')
+                    : t('Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.')
+                pendingWrites.update((list) => failPending(list, outcome.id, error))
+
+                return { id: outcome.id, error }
+            }
+        }
+        dismissPending(outcome.id)
+
+        return outcome
+    })
+
+/**
+ * Eine Freigabe oder ein Änderungswunsch an einem Pull Request (kind 1).
+ *
+ * Der Commit ist Pflicht und kommt vom Aufrufer aus der bereits gefalteten
+ * Zeile (`PullRequest.commit`): eine Entscheidung ohne ihn wäre für jeden Leser
+ * wertlos, weil `foldReviews` sie verwürfe. {@link approveGate} sperrt den Knopf
+ * deshalb schon vorher mit einem eigenen Grund.
+ */
+export const publishReview = async (
+    target: { repoAddress: string; rootId: string; commit: string },
+    label: 'approval' | 'changes-requested',
+): Promise<WriteOutcome> =>
+    withLock(`review:${target.rootId}`, async () => {
+        const outcome = await send(
+            {
+                kind: FORGE_COMMENT_KIND,
+                content: OPERATION_CONTENT[label],
+                tags: buildReviewTags({
+                    repoAddress: target.repoAddress,
+                    rootId: target.rootId,
+                    commit: target.commit,
+                    label,
+                }),
+            },
+            { what: 'comment', repoAddress: target.repoAddress, rootId: target.rootId, label: '', content: '' },
+        )
+        if (!outcome.error && outcome.id) {
+            dismissPending(outcome.id)
+        }
 
         return outcome
     })

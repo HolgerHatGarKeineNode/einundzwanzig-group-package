@@ -209,6 +209,22 @@
         min-height: 2.75rem;
         min-width: 2.75rem;
     }
+
+    /* Dasselbe für BESCHRIFTETE Ziele: die tragen ihre Breite schon im Wort,
+       nur die Höhe fehlt. `min-width` wäre hier falsch — es blähte eine
+       einzeilige Zahl auf 44 px Breite und risse die Zeile auseinander.
+
+       Warum nur auf grobem Pointer, und warum überhaupt: WCAG 2.5.8 verlangt
+       24 × 24 px, Apples HIG 44 × 44. Die Bestandskacheln der Forge maßen
+       gemessene 24 px — die Norm gerade so erfüllt, den Daumen verfehlt. Sie
+       sind unterhalb `xl` zugleich der EINZIGE Weg in die workspace-weiten
+       Issue- und PR-Listen (die Tab-Reihe führt sie nicht), also genau die
+       Fläche, für die die 44 px gedacht sind. Auf der Maus bleibt die Zeile
+       kompakt: dort ist sie eine Zusammenfassung über einer Liste, und 20 px
+       mehr Höhe wären dort nur verlorener Platz. */
+    .text-btn-touch {
+        min-height: 2.75rem;
+    }
 }
 
 /* Press-Feedback für tappbare Flächen: kurzer Scale-Down + reduzierte Elevation. */
@@ -832,9 +848,21 @@ select:focus[data-flux-control] {
 
    `48rem` (768 px) für die Zeichenspalten der Werkbank: darunter reicht der
    Platz nicht. Die Zeile braucht mindestens 32 (Innenabstand) + 36 (Glyphe) +
-   210 (30 ch Name) + 16 (Rinne) + 112 (16 ch Ref) + 147 (3 × 7 ch) + 72 (6
-   Lücken) = 625 px; bei 768 bleiben 143 px Luft. Darunter bleibt die Zeile
-   gestapelt — dieselbe Form wie auf dem Telefon, EIN Codepfad für beide Hosts.
+   210 (30 ch Name) + 16 (Rinne) + 112 (16 ch Ref) + 49 (7 ch Issues) + 49
+   (7 ch PRs) + 84 (12 ch Maintainer) + 72 (6 Lücken) = **660 px**; bei 768
+   bleiben **108 px** Luft. Darunter bleibt die Zeile gestapelt — dieselbe Form
+   wie auf dem Telefon, EIN Codepfad für beide Hosts.
+   (Hier stand bis zum 2026-08-24 „147 (3 × 7 ch) = 625 px; 143 px Luft". Die
+   Datenspalten sind aber `16ch 7ch 7ch 12ch` — die Maintainer-Spur misst 12 ch,
+   und der Absatz direkt bei `--forge-datenspalten` begründet genau das. Der
+   Kommentar widersprach sich also zwei Absätze weiter. Korrigiert im Zuge von
+   P6, zusammen mit derselben Klasse Fehler in der 88-rem-Zeile weiter unten.)
+
+   **Die 108 px sind eine Komfort-, keine Hartgrenze.** Die 210 px für den Namen
+   sind ein Wunsch: die 1fr-Spur darf darunter, der Name bricht dann um. Hart
+   ist nur, was die Datenspalten selbst brauchen (32 + 36 + 16 + 294 + 72 =
+   450 px). Wer hier eine Spalte ergänzen will, rechnet gegen die 210 px — sie
+   sind es, die das Lesemaß der Beschreibung tragen.
 
    `88rem` (1408 px) für die breitere Spur: ab dort trägt die Werkbank ihre
    Zeichenspalten mit Reserve, und die Spur darf von 51 auf 60 Zeichen wachsen.
@@ -929,10 +957,38 @@ select:focus[data-flux-control] {
     }
 }
 
-@layer theme {
-    .dark .forge-regionstitel {
-        color: var(--color-zinc-100);
-    }
+/* ── Warum die Dunkel-Regeln hier UNGESCHICHTET stehen ─────────────────────
+   Sie standen bis zum 2026-08-24 in `@layer theme { … }` und waren damit
+   WIRKUNGSLOS. Der Grund ist keine Spezifitätsfrage: ungeschichtetes CSS
+   schlägt in der Kaskade JEDE `@layer`, unabhängig vom Selektor. Die
+   Grundregel darüber ist ungeschichtet — also gewann sie auch im dunklen
+   Modus, und `.dark .x { … }` in einer Schicht kam nie zum Zug.
+
+   Am gebauten Stylesheet gemessen (Sonde: `getComputedStyle` mit und ohne
+   `.dark` an `<html>`, jeweils NACH Ablauf laufender Übergänge — eine Messung
+   unterhalb der Übergangsdauer meldet den Zwischenwert und damit
+   falsch-negativ):
+
+     · `.forge-regionstitel`     zinc-900 auf zinc-950 = **1,10:1**
+     · `.forge-diff-pfad`        zinc-100 auf zinc-50  = **1,04:1**
+     · `.forge-diff-art`         zinc-400 auf zinc-50  = **2,42:1**
+     · `.forge-diff-zeile[meta]` zinc-400 auf zinc-100 = **2,31:1**
+
+   Alle vier verlangen nach WCAG 1.4.3 mindestens 4,5:1. Die Regionstitel und
+   der Dateipfad eines Diffs waren im dunklen Modus also praktisch unsichtbar.
+
+   **Die Bauform kommt im ganzen Haus genau sechsmal vor, alle sechs hier und
+   alle sechs in der Forge** (gezählt über alle CSS-Dateien ausserhalb von
+   `node_modules`/`vendor`/`public/build`: `resources/css/app.css` führt weder
+   `@layer` noch `.dark`). Ausserhalb der Forge steht sie nicht.
+
+   **Was hier NICHT gemeint ist:** `@layer theme { .dark { --color-x: … } }`
+   weiter oben ist richtig und wirkt. Dort werden VARIABLEN gesetzt, und ihr
+   Gegenspieler (`@theme`) liegt in derselben Schicht — da entscheidet wieder
+   die Spezifität, und `.dark` gewinnt. Nachgemessen: `--color-muted` löst hell
+   zu zinc-600, dunkel zu zinc-400 auf. */
+.dark .forge-regionstitel {
+    color: var(--color-zinc-100);
 }
 
 /* ── Die Werkbank: das Zustandsboard ──────────────────────────────────────── */
@@ -1235,27 +1291,419 @@ select:focus[data-flux-control] {
     color: var(--color-muted);
 }
 
-@layer theme {
-    .dark .forge-diff-datei {
-        border-color: var(--color-zinc-800);
+/* Ungeschichtet, aus demselben Grund wie bei `.forge-regionstitel` oben — die
+   Herleitung und die vier gemessenen Kontraste stehen dort. */
+.dark .forge-diff-datei {
+    border-color: var(--color-zinc-800);
+}
+
+.dark .forge-diff-kopf {
+    border-color: var(--color-zinc-800);
+    background: var(--color-zinc-900);
+}
+
+/* Dunkel etwas kräftiger: dieselbe Tönung wirkt auf dunklem Grund
+   schwächer, weil der Untergrund weniger Helligkeit beisteuert. */
+.dark .forge-diff-zeile[data-kind='add'] {
+    background: color-mix(in oklab, var(--color-green-500) 18%, transparent);
+}
+
+.dark .forge-diff-zeile[data-kind='del'] {
+    background: color-mix(in oklab, var(--color-red-500) 18%, transparent);
+}
+
+.dark .forge-diff-zeile[data-kind='meta'] {
+    background: var(--color-zinc-800);
+}
+
+/* ═══ Die Repo-Fläche: Werkbank und Steckbrief (P4, 2026-08-24) ═════════════
+   `/forge/{naddr}` hatte bis hierher KEIN Raster. Der Kopf des Repositories
+   (Beschreibung, Clone-Befehl, Branches, Schutzregeln, Maintainer) plus die
+   README-Ansage standen ÜBER der Reiterleiste — auf dem Telefon vier
+   Bildschirmhöhen, bevor das erste Issue in Sicht kam.
+
+   Der Umbau trennt zwei Ränge: die WERKBANK (Issues, Pull Requests, Code,
+   Aktivität, Patches — das, woran man arbeitet) und den STECKBRIEF (das, was
+   man nachschlägt). Ein DOM-Knoten, zwei Anordnungen: schmal ein
+   geschlossener Aufklapper über der Leiste, breit eine eigene Spur daneben.
+
+   ── Warum CONTAINER und nicht `xl:` ─────────────────────────────────────────
+   Dieselbe Begründung wie oben bei `.forge-buehne`, und hier mit einer
+   zusätzlichen Schärfe: ein `xl:grid-cols-[1fr_24rem]` feuerte bei 1280 px
+   Fenster, wo dieser Fläche 896 px zur Verfügung stehen (Rail 20 rem + 2 ×
+   `xl:px-8`, gemessene Tabelle bei `.forge-buehne`). Die Werkbank fiele damit
+   auf 456 px — und sie trägt die dichteste Tabelle des Clients.
+
+   ── Die Schwelle 65 rem, und woher die Zahl kommt ───────────────────────────
+   Der engste Inhalt der Werkbank ist der Diff (`.forge-diff-zeile`): zwei
+   Nummernspuren à 5 ch, eine Zeichenspur à 2 ch, dann der Code. Gesetzt ist er
+   in 0.8125 rem = 13 px, und Inconsolata ist eine ZELLENSCHRIFT — 6,50 px je
+   Glyphe bei 13 px (7,00 px bei 14, 8,00 px bei 16; dieselbe Messung wie oben).
+
+     Rinnen: 12 ch × 6,50 = 78 px · Rand der Dateikarte: 2 px ·
+     `padding-inline-end` des Textes: 12 px  →  92 px Vorspann.
+
+   Git selbst setzt die Grenze einer Commit-/Codezeile bei 80 Zeichen. 80 ×
+   6,50 = 520 px, plus Vorspann = **612 px Boden für die Werkbank**. Mit einer
+   24-rem-Spur (384 px) und 1,5 rem Lücke (24 px) ergibt das
+
+     612 + 24 + 384 = 1020 px  →  aufgerundet auf die Achterskala: **65 rem**.
+
+   Bei 65 rem Container bleiben der Werkbank 1040 − 408 = 632 px, also 83
+   Codespalten — über den 80. Die Schwelle ist damit die erste Breite, auf der
+   die zweite Spur den Diff NICHT beschneidet, und nicht die erste, auf der sie
+   hineinpasst. Erreicht wird sie im Web-Host ab 1440 px Fenster
+   (1440 − 320 Rail − 64 Innenabstand = 1056 px, abzüglich Bildlaufleiste
+   ≈ 1041 px) — genau die Breite, auf der der `desktop`-Arm der E2E-Suite misst.
+
+   ── 88 rem: die Spur darf wachsen, die Werkbank ist dann satt ───────────────
+   Dieselbe zweite Stufe wie bei `.forge-raster`, aus demselben Grund. Bei
+   24 rem misst der Fließtext im Steckbrief 384 − 32 (Innenabstand) = 352 px =
+   50 Zeichen bei 14 px — im Kanon (45–75), aber an dessen unterem Rand. Ab
+   88 rem trägt die Werkbank 1408 − 480 = 928 px (**128** Codespalten) und kann
+   die Spur auf 28 rem lassen: 416 px = 59 Zeichen.
+   (Hier stand bis zum 2026-08-24 „142". Das war nach einer ANDEREN Methode
+   gerechnet als die 83 Spalten der 65-rem-Herleitung darüber — dort wird der
+   Vorspann von 92 px abgezogen, hier war er vergessen: (928 − 92) / 6,50 = 128.
+   Reine Prosa, kein getesteter Wert; aber eine falsche Zahl neben einer
+   hergeleiteten entwertet die Herleitung. Am gebauten Stand gegengemessen: bei
+   Container 1408 meldet die Sonde 128.) Weiter wächst sie nicht, der
+   Textdeckel `.forge-mass` (62 ch) bindet dann ohnehin.
+
+   ── ZWEI Elemente, nicht eines ──────────────────────────────────────────────
+   Container und Raster stehen an VERSCHIEDENEN Knoten. Ein Element ist sein
+   eigener Container und wird von der eigenen `@container`-Regel nicht
+   getroffen; standen beide am selben Knoten, blieb das Raster lautlos
+   einspaltig (am 2026-08-23 an `.forge-raster` gemessen: `1504px` statt
+   `1fr 30rem`). */
+
+.forge-repo-buehne {
+    container-type: inline-size;
+    container-name: repo;
+}
+
+.forge-repo-raster {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+}
+
+@container repo (min-width: 65rem) {
+    .forge-repo-raster {
+        /* `align-items: start` ist PFLICHT: der Default `stretch` zöge den
+           Steckbrief auf die Höhe der Werkbank und gäbe ihm eine leere Fläche,
+           die wie ein Ladefehler aussieht — und `position: sticky` fände darin
+           nichts zum Kleben. Dieselbe Falle wie bei `.forge-raster` und beim
+           Autoren-Nachspann in `⚡article.blade.php`. */
+        grid-template-columns: minmax(0, 1fr) 24rem;
+        align-items: start;
     }
 
-    .dark .forge-diff-kopf {
-        border-color: var(--color-zinc-800);
-        background: var(--color-zinc-900);
+    /* AUSDRÜCKLICH platziert, nicht dem Auto-Placement überlassen: im DOM steht
+       der Steckbrief VOR der Werkbank (Begründung im Blade — schmal gehört der
+       Aufklapper zwischen Überschrift und Reiter, nicht unter 800 Zeilen
+       Vorgangsliste). Ohne diese zwei Regeln landete er links und die Werkbank
+       rechts, also genau falschherum. Und Auto-Placement neben expliziten
+       Angaben ist im Haus schon einmal schiefgegangen (`.forge-zeile`). */
+    .forge-repo-werkbank {
+        grid-column: 1;
+        grid-row: 1;
     }
 
-    /* Dunkel etwas kräftiger: dieselbe Tönung wirkt auf dunklem Grund
-       schwächer, weil der Untergrund weniger Helligkeit beisteuert. */
-    .dark .forge-diff-zeile[data-kind='add'] {
-        background: color-mix(in oklab, var(--color-green-500) 18%, transparent);
+    .forge-repo-spur {
+        grid-column: 2;
+        grid-row: 1;
+    }
+}
+
+@container repo (min-width: 88rem) {
+    .forge-repo-raster {
+        grid-template-columns: minmax(0, 1fr) 28rem;
+        gap: 2rem;
+    }
+}
+
+/* ── Der Steckbrief ─────────────────────────────────────────────────────────
+   Ein `<details>`, und zwar dasselbe in beiden Formen. In der schmalen Form
+   ist es ein geschlossener Aufklapper; in der zweispaltigen verschwindet die
+   Zusammenfassung und der Rumpf steht offen in seiner Spur.
+
+   **Das `open` setzt die Insel, nicht dieses Stylesheet.** Es gibt keine
+   portable CSS-Regel, die ein geschlossenes `<details>` öffnet
+   (`::details-content` ist jünger als der Browser-Boden dieses Hauses). Die
+   Insel liest den Zustand aber NICHT an einer eigenen Zahl ab, sondern an der
+   `display`-Berechnung genau dieser Zusammenfassung — dieselbe Bauform wie
+   `_messeSpalten()` auf der Übersicht, und aus demselben Grund: die Schwelle
+   steht an EINER Stelle, hier. */
+.forge-steckbrief > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    /* WCAG 2.5.8 verlangt 24 × 24 px; Apples HIG 44 × 44. Die Zeile ist über
+       die volle Breite anfassbar und misst mit 0,75 rem Polsterung plus
+       1,25 rem Zeilenhöhe 44 px. */
+    min-height: 2.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+}
+
+/* Der Marker verschwindet in BEIDEN Engines: WebKit braucht das
+   Pseudo-Element, Blink/Gecko nehmen `list-style: none` oben. */
+.forge-steckbrief > summary::-webkit-details-marker {
+    display: none;
+}
+
+/* Der Winkel zeigt den Zustand — zusätzlich zu `aria-expanded`, das die
+   Zusammenfassung von sich aus trägt. Farbe ist hier NICHT der Träger
+   (WCAG 1.4.1): es dreht sich eine Form. */
+.forge-steckbrief > summary > .forge-steckbrief-winkel {
+    margin-inline-start: auto;
+    flex-shrink: 0;
+    transition: transform var(--duration-tap) ease-out;
+}
+
+.forge-steckbrief[open] > summary > .forge-steckbrief-winkel {
+    transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .forge-steckbrief > summary > .forge-steckbrief-winkel {
+        transition: none;
+    }
+}
+
+/* Der Abstand zwischen Zusammenfassung und Rumpf — in der Spur gibt es keine
+   Zusammenfassung mehr, also auch nichts abzusetzen. */
+.forge-steckbrief-rumpf {
+    margin-top: 0.75rem;
+}
+
+@container repo (min-width: 65rem) {
+    /* In der Spur sagt die Spur schon, was man sieht. Die Zusammenfassung
+       bleibt im DOM — sie ist die Sonde, an der die Insel die Form abliest —
+       und ist als `display: none` weder sichtbar noch tabbierbar. */
+    .forge-steckbrief > summary {
+        display: none;
     }
 
-    .dark .forge-diff-zeile[data-kind='del'] {
-        background: color-mix(in oklab, var(--color-red-500) 18%, transparent);
+    .forge-steckbrief-rumpf {
+        margin-top: 0;
     }
+}
 
-    .dark .forge-diff-zeile[data-kind='meta'] {
-        background: var(--color-zinc-800);
-    }
+/* ── Die Reiterleiste klebt ────────────────────────────────────────────────
+   Deckender Hintergrund, KEIN `backdrop-blur`: ein `backdrop-filter` über
+   scrollendem Inhalt wird pro Frame neu berechnet und ist der klassische
+   Mobile-WebView-Scroll-Killer (dieselbe Begründung wie an der Bottom-Nav,
+   `bottom-nav.blade.php:37-40` — dort ist es genau deshalb auf Native aus).
+
+   Die Farbe ist die des SEITENGRUNDS, nicht die einer Karte: die Leiste
+   schwebt über der Fläche, sie liegt nicht auf einem Blatt.
+
+   Ab `xl` ist der Scrollport `main` (`app-shell.blade.php`, `xl:overflow-y-auto`)
+   und nicht mehr das Dokument. `sticky` klebt am nächsten Scrollport — die
+   Regel gilt unverändert für beide, weil `top: 0` beide Male die Oberkante der
+   scrollenden Fläche meint. Zwischen Leiste und Scrollport darf deshalb kein
+   `overflow: hidden` liegen; das Raster und die Bühne setzen keines. */
+.forge-reiterbank {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--color-zinc-50);
+    /* Oben 8, unten 12: das Polster über der Leiste ist der deckende Streifen,
+       unter dem der Inhalt durchläuft; das darunter ist der Abstand zur Liste
+       (vorher `mb-3` am Reiterelement). Beide aus der Viererskala. */
+    padding-block: 0.5rem 0.75rem;
+}
+
+/* UNGESCHICHTET, und das ist der Punkt: die Grundregel darüber steht ebenfalls
+   ausserhalb jeder `@layer`, und ungeschichtetes CSS schlägt JEDE Schicht —
+   unabhängig von der Spezifität. Ein `@layer theme { .dark … }` daneben wäre
+   also wirkungslos. Am 2026-08-24 im gebauten Stylesheet gemessen (Sonde:
+   `getComputedStyle` mit und ohne `.dark` an `<html>`): fünf bestehende Regeln
+   dieser Bauform wechseln ihren Wert NICHT (siehe den Befund zu
+   `.forge-regionstitel` und den fünf Diff-Regeln). */
+.dark .forge-reiterbank {
+    background: var(--color-zinc-950);
+}
+
+/* ── Der Handlungsknopf ────────────────────────────────────────────────────
+   Die EINE schöpferische Handlung dieser Fläche — und der einzige schwebende
+   Gegenstand darauf. Alles andere bleibt ruhig; die Kühnheit steckt hier.
+
+   ── Die Maße ────────────────────────────────────────────────────────────────
+   56 × 56 px (Materials FAB-Maß, weit über den 44 × 44 der HIG und den
+   24 × 24 aus WCAG 2.5.8). Der Boden: die Bottom-Nav misst 64 px plus
+   Sicherheitsabstand des Geräts; 5 rem = 80 px setzt den Knopf mit 16 px Luft
+   darüber. Die `pb-28`-Reserve der Shell (112 px) trägt ihn, ohne dass Inhalt
+   darunter verschwindet. Ab `xl` im Web-Host gibt es keine Bar mehr — dann
+   stehen 80 px Luft statt 16, was auf einem Schirm niemanden stört und dafür
+   OHNE eine zweite Breitenschwelle auskommt.
+
+   ── Die Farbe ───────────────────────────────────────────────────────────────
+   Keine neue Farbe; die Hausmarke in der Rolle, die dieses Haus ihr gibt
+   („brand-700 = Linie/Grafik, brand-800 = Text", `theme.css` oben). Gerechnet
+   mit `p2-kontrast.mjs`, WCAG-2.2-Formel, gegen den ECHTEN Untergrund:
+
+     · hell:   brand-700 #c05c08 auf zinc-50 #fafafa = **4,21:1** (1.4.11 ≥ 3)
+               brand-700 auf Weiß (Karte darunter)   = **4,40:1**
+               Weiß auf brand-700 (die Glyphe)       = **4,40:1**
+     · dunkel: brand-500 #f7931a auf zinc-950 #0a0a0a = **8,62:1**
+               brand-500 auf zinc-900 #171717         = **7,81:1**
+               brand-950 #421d06 auf brand-500        = **6,48:1**
+               brand-400 #fda537 auf zinc-950 (Hover) = **10,01:1**
+
+   brand-500 auf Weiß misst 2,30:1 und fiele durch 1.4.11 — deshalb steht im
+   hellen Modus brand-700 und nicht die Vollmarke. */
+/* ── Die Spur, in der er steht ───────────────────────────────────────────────
+   Der Knopf hängt am INHALT, nicht am Fensterrand. Die Breitenklammer ist
+   zeichengleich die von `main` (`app-shell.blade.php`) und der Bottom-Nav
+   (`components/bottom-nav.blade.php`) — sie steht im Blade als
+   Tailwind-Literale, damit ein `grep max-w-md` alle drei Stellen findet;
+   hier steht nur, was KEINE Breitenfrage ist.
+
+   Ohne sie klebte er auf einem Tablet quer 300 px rechts neben einer
+   mittigen Inhaltsspalte, während die Bottom-Nav darunter mittig steht —
+   zwei Bezugssysteme auf einem Bildschirm.
+
+   `pointer-events: none` an der Spur, `auto` am Knopf: die Spur ist unsichtbar
+   und über die ganze Breite gespannt, sie darf nichts abfangen, was hinter ihr
+   liegt. */
+.forge-fab-spur {
+    position: fixed;
+    inset-inline: 0;
+    bottom: calc(env(safe-area-inset-bottom) + 5rem);
+    z-index: 30;
+    display: flex;
+    justify-content: flex-end;
+    padding-inline: 1rem;
+    pointer-events: none;
+}
+
+.forge-fab {
+    pointer-events: auto;
+    display: inline-flex;
+    height: 3.5rem;
+    width: 3.5rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: var(--color-brand-700);
+    color: #fff;
+    box-shadow: var(--shadow-pop);
+}
+
+/* Bewegung und Fokusring kommen aus `.pressable` am Element, nicht von hier —
+   sonst gäbe es im Haus zwei Press-Gefühle und zwei Ringe. Diese Regel
+   beschreibt nur noch das AUSSEHEN des Knopfes.
+   (P4-Nacharbeit: hier standen eine eigene `transition`, ein eigenes `:active`
+   und gar kein `:focus-visible`. Der Knopf trug damit den Chromium-Standardring
+   statt des Hausrings.) */
+.forge-fab:hover {
+    background: var(--color-brand-800);
+}
+
+/* Ungeschichtet, aus demselben Grund wie bei `.forge-reiterbank` oben. */
+.dark .forge-fab {
+    background: var(--color-brand-500);
+    color: var(--color-brand-950);
+}
+
+.dark .forge-fab:hover {
+    background: var(--color-brand-400);
+}
+
+
+/* ═══ Aktivitätsbalken und Maintainer-Stapel (P6, 2026-08-24) ═══════════════
+
+   ── Der Balken ─────────────────────────────────────────────────────────────
+   Ereignisse der letzten dreissig Tage je Repository, normalisiert auf das
+   aktivste — die Parametrierung ist ein Nutzerentscheid vom 2026-08-24, die
+   Rechnung steht in `js/forgeFilter.ts`.
+
+   40 × 4 px: er sitzt auf der NAMENSZEILE, nicht in einer Datenspalte (die
+   Herleitung steht im Blade — eine fünfte Spalte hätte den Fliesstext der Zeile
+   bei 48 rem unter das Lesemaß gedrückt). Auf einer Zeile mit 16-px-Schrift ist
+   4 px die Höhe, die noch als Balken lesbar ist und die Zeilenhöhe nicht
+   verändert; 40 px sind bei 7 px Zellenbreite knapp sechs Zeichen — schmal
+   genug, dass der Name den Platz behält.
+
+   ── Die Farbe, gerechnet ───────────────────────────────────────────────────
+   Füllung `--color-muted`, also zinc-600 hell und zinc-400 dunkel. Ein
+   Grafikobjekt nach WCAG 1.4.11 braucht 3:1 gegen JEDE angrenzende Fläche —
+   gemessen gegen Karte und Schiene:
+
+     hell:   zinc-600 auf Weiss     7,81:1  ·  auf zinc-200  6,20:1
+     dunkel: zinc-400 auf zinc-900  7,11:1  ·  auf zinc-800  6,00:1
+
+   Keine neue Farbe, und keine Markenfarbe: der Ref ist in dieser Zeile das
+   einzige Element mit brand — er ist die Kennung des Repositories, und ein
+   zweiter oranger Gegenstand daneben machte aus einem Akzent eine Aufzählung.
+   `--color-muted` ist eine VARIABLE und wechselt mit dem Modus von selbst; es
+   braucht also gar keine `.dark`-Regel, die man falsch schichten könnte.
+
+   Die Schiene trägt keine Information (sie ist die 100-%-Bezugsgröße) und
+   braucht deshalb keinen eigenen Kontrast — die Aussage steht als ZAHL daneben
+   (WCAG 1.4.1). */
+
+.forge-balken {
+    display: inline-block;
+    width: 2.5rem;
+    height: 0.25rem;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--color-zinc-200);
+}
+
+.dark .forge-balken {
+    background: var(--color-zinc-800);
+}
+
+/* Mindestens 4 % Füllung (im Blade als `Math.max(4, …)`): ein Repository mit
+   einem Ereignis gegen eines mit hundert ergäbe 1 % — bei 40 px sind das
+   0,4 px, also nichts. Ein Balken, der bei vorhandener Aktivität leer aussieht,
+   sagt das Gegenteil dessen, was er misst. Die Zahl daneben bleibt exakt. */
+.forge-balken-fuellung {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-muted);
+}
+
+/* ── Der Maintainer-Stapel ──────────────────────────────────────────────────
+   Überlappende Kreise, weil die Zelle 12 ch misst (84 px) und drei Gesichter
+   nebeneinander mit Lücke schon 72 px brauchen. Der Überlapp von 0,375 rem
+   macht daraus 44 px und lässt Platz für das „+9".
+
+   Die Reihenfolge im Stapel ist die der `maintainers`-Tags — nicht sortiert:
+   das Announcement nennt sie in einer Reihenfolge, und die ist die Aussage des
+   Repositories über sich selbst.
+
+   `isolation: isolate` plus aufsteigender `z-index` wäre die übliche Lösung für
+   „das erste Gesicht liegt oben"; hier liegt bewusst das LETZTE oben, weil der
+   Stapel von links gelesen wird und der Rand des jeweils nächsten Kreises die
+   Trennung zeigt. Der Ring in Kartenfarbe zeichnet diese Trennung — ohne ihn
+   verschmelzen zwei dunkle Avatare zu einer Form. */
+.forge-stapel {
+    display: inline-flex;
+    align-items: center;
+}
+
+.forge-stapel-platz {
+    display: inline-flex;
+    border-radius: 9999px;
+    box-shadow: 0 0 0 2px #fff;
+}
+
+.forge-stapel-platz + .forge-stapel-platz {
+    margin-inline-start: -0.375rem;
+}
+
+.dark .forge-stapel-platz {
+    box-shadow: 0 0 0 2px var(--color-zinc-900);
 }

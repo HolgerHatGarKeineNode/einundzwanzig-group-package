@@ -41,11 +41,18 @@ import {
     buildProjects,
     buildPullRequests,
     buildRepos,
+    commentsForRoot,
     dedupeReplaceable,
     deletionThresholds,
+    foldAssignments,
     foldRepoState,
+    foldReviews,
     foldStatus,
+    gruppiereNachRepo,
+    isOperationNote,
     maintainerLookupFor,
+    operationOf,
+    reviewerRows,
     parseRepoAddress,
     repoAddressOf,
     toIssue,
@@ -62,6 +69,10 @@ const OWNER = '0adf67475ccc5ca456fd3022e46f5d526eb0af6284bf85494c0dd7847f3e5033'
 const RELAY_SELF = 'e699af6e6e9802ea253b18a8cbb8f816f8533708f08164469eba99f1ccacdf53'
 const MAINTAINER = '40b87b4cc62aeb820b10b4e652b26ba7e6793933736185ee2b821dafa2683b49'
 const FREMD = 'f'.repeat(64)
+const ZWEITER = '2'.repeat(64)
+const DRITTER = '3'.repeat(64)
+const COMMIT_A = 'a'.repeat(40)
+const COMMIT_B = 'b'.repeat(40)
 const REPO_D = 'einundzwanzig-verein'
 const REPO_ADDR = repoAddressOf(OWNER, REPO_D)
 
@@ -910,4 +921,740 @@ test('toRepo liest `relays`, `euc` und ALLE web-URLs — der Heuhaufen der Suche
     assert.equal(repo.euc, 'a'.repeat(40))
     // Die Einzel-URL bleibt die erste — die Fläche zeigt genau einen Link.
     assert.equal(repo.webUrl, 'https://eins.example')
+})
+
+// ── Zuweisungen, Reviewer, Freigaben (P1) ───────────────────────────────────
+
+/**
+ * KERNBEWEIS 1 — der Zähler.
+ *
+ * `commentCount` wird als `comments.length` gesetzt; ein Test, der beide
+ * gegeneinander hält, hält NICHTS fest. Deshalb steht hier die **literale** 1.
+ *
+ * Dieser Test war vor der Reparatur rot (`commentCount` lieferte 2) — gemessen
+ * am 2026-08-24, bevor `commentsForRoot` den Label-Ausschluss bekam. Er ist
+ * damit ein belegter Regressionsfall und keine Hypothese.
+ */
+test('KERNBEWEIS Zähler: die Zuweisungs-Notiz ist kein Kommentar — nicht in der Liste, nicht in der Zahl', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR], ['subject', 'Titel']] })
+    const echt = ev({
+        kind: FORGE_COMMENT,
+        pubkey: MAINTAINER,
+        created_at: 1_100,
+        content: 'Ich schaue mir das an.',
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR]],
+    })
+    const zuweisung = ev({
+        kind: FORGE_COMMENT,
+        pubkey: OWNER,
+        created_at: 1_200,
+        content: 'Assigned this issue to Bob',
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', MAINTAINER], ['t', 'assignment']],
+    })
+
+    const [issue] = buildIssues([root], [], [echt, zuweisung])
+
+    // Beide Ausfallrichtungen einzeln — „assignees nicht leer" allein deckte nur eine.
+    assert.deepEqual(issue.assignees, [MAINTAINER])
+    assert.equal(issue.comments.length, 1)
+    assert.equal(issue.comments[0].content, 'Ich schaue mir das an.')
+    assert.equal(issue.commentCount, 1)
+})
+
+/**
+ * KERNBEWEIS 2 — der Fehler war DREIFACH.
+ *
+ * Derselbe Ausschluss wirkt an allen drei Zählstellen, weil alle drei durch
+ * `commentsForRoot` laufen. Gemessen vor dem Eingriff: Issue 3, PR 3, Patch 2.
+ * Auch hier literale Zahlen — `comments.length` gegen `commentCount` zu halten
+ * hielte nichts fest.
+ */
+test('KERNBEWEIS Zähler: dieselbe Korrektur an PR und Patch, nicht nur am Issue', () => {
+    const pr = ev({ kind: GIT_PULL_REQUEST, tags: [['a', REPO_ADDR], ['subject', 'PR'], ['c', COMMIT_A]] })
+    const prNotizen = [
+        ev({ kind: FORGE_COMMENT, pubkey: MAINTAINER, created_at: 1_100, content: 'Sieht gut aus.', tags: [['e', pr.id, '', 'root'], ['a', REPO_ADDR]] }),
+        ev({ kind: FORGE_COMMENT, pubkey: OWNER, created_at: 1_150, content: 'Requested a review', tags: [['e', pr.id, '', 'root'], ['a', REPO_ADDR], ['p', MAINTAINER], ['t', 'review-request']] }),
+        ev({ kind: FORGE_COMMENT, pubkey: MAINTAINER, created_at: 1_200, content: 'Approved these changes', tags: [['e', pr.id, '', 'root'], ['a', REPO_ADDR], ['t', 'approval'], ['c', COMMIT_A]] }),
+    ]
+    assert.equal(buildPullRequests([pr], [], [], prNotizen)[0].commentCount, 1)
+
+    const patch = ev({ kind: GIT_PATCH, content: 'Subject: [PATCH] x\n\n---\n', tags: [['a', REPO_ADDR]] })
+    const patchNotizen = [
+        ev({ kind: FORGE_COMMENT, pubkey: MAINTAINER, created_at: 1_100, content: 'Danke.', tags: [['e', patch.id, '', 'root'], ['a', REPO_ADDR]] }),
+        ev({ kind: FORGE_COMMENT, pubkey: OWNER, created_at: 1_200, content: '', tags: [['e', patch.id, '', 'root'], ['a', REPO_ADDR], ['p', MAINTAINER], ['t', 'assignment']] }),
+    ]
+    assert.equal(buildPatches([patch], [], patchNotizen)[0].commentCount, 1)
+})
+
+/**
+ * Die Regression, die der naive Fix erzeugt: fällt die Zuweisung aus
+ * `comments`, verliert `updatedAt` sie mit — und die Liste sortiert plötzlich
+ * anders, ohne dass ein Test es sieht. Eine Zuweisung IST Bewegung.
+ */
+test('updatedAt: eine Zuweisung zieht die Zeile weiter nach oben, obwohl sie kein Kommentar mehr ist', () => {
+    const root = ev({ kind: GIT_ISSUE, created_at: 1_000, tags: [['a', REPO_ADDR]] })
+    const zuweisung = ev({
+        kind: FORGE_COMMENT,
+        created_at: 9_000,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', MAINTAINER], ['t', 'assignment']],
+    })
+
+    const [issue] = buildIssues([root], [], [zuweisung])
+
+    assert.equal(issue.commentCount, 0)
+    assert.equal(issue.updatedAt, 9_000)
+})
+
+// ── foldAssignments ─────────────────────────────────────────────────────────
+
+const zuweisung = (
+    root: ForgeEvent,
+    over: { pubkey?: string; p: string[]; label?: string; created_at?: number; prior?: string[] },
+): ForgeEvent =>
+    ev({
+        kind: FORGE_COMMENT,
+        pubkey: over.pubkey ?? OWNER,
+        created_at: over.created_at ?? 1_000,
+        tags: [
+            ['e', root.id, '', 'root'],
+            ['a', REPO_ADDR],
+            ...over.p.map((pubkey) => ['p', pubkey]),
+            ['t', over.label ?? 'assignment'],
+            ...(over.prior ?? []).map((value) => ['prior', value]),
+        ],
+    })
+
+test('foldAssignments: der Autor darf jeden zuweisen, ein Fremder nur sich selbst', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+
+    // Autor/Eigentümer weist einen Dritten zu — gilt.
+    assert.deepEqual(
+        foldAssignments(root, [zuweisung(root, { p: [MAINTAINER] })]).assignees,
+        [MAINTAINER],
+    )
+    // Ein Fremder zieht das Issue an sich — gilt ebenfalls (Selbstbedienung).
+    assert.deepEqual(
+        foldAssignments(root, [zuweisung(root, { pubkey: FREMD, p: [FREMD] })]).assignees,
+        [FREMD],
+    )
+    // KONTROLLE: derselbe Fremde weist einen Dritten zu — zählt NICHT.
+    assert.deepEqual(
+        foldAssignments(root, [zuweisung(root, { pubkey: FREMD, p: [MAINTAINER] })]).assignees,
+        [],
+    )
+    // KONTROLLE: und er hängt sich nicht als Alibi mit hinein — zwei `p` sind
+    // keine Selbstbedienung, auch wenn einer davon der Signierer ist.
+    assert.deepEqual(
+        foldAssignments(root, [zuweisung(root, { pubkey: FREMD, p: [FREMD, MAINTAINER] })]).assignees,
+        [],
+    )
+})
+
+test('foldAssignments: ein eingetragener MAINTAINER darf zuweisen — unsere Abweichung von Buzz', () => {
+    const root = ev({ kind: GIT_ISSUE, pubkey: FREMD, tags: [['a', REPO_ADDR]] })
+    const notiz = zuweisung(root, { pubkey: MAINTAINER, p: [ZWEITER] })
+
+    assert.deepEqual(foldAssignments(root, [notiz], [MAINTAINER]).assignees, [ZWEITER])
+    // KONTROLLE: ohne die Maintainer-Liste ist derselbe Mensch ein Fremder.
+    assert.deepEqual(foldAssignments(root, [notiz]).assignees, [])
+})
+
+test('foldAssignments: beide Label oder keins ist keine Operation — sie wird übersprungen, nicht geraten', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const beide = ev({
+        kind: FORGE_COMMENT,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', MAINTAINER], ['t', 'assignment'], ['t', 'unassignment']],
+    })
+    const keins = ev({
+        kind: FORGE_COMMENT,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', MAINTAINER]],
+    })
+
+    assert.deepEqual(foldAssignments(root, [beide, keins]).assignees, [])
+})
+
+/**
+ * **Hier stand zuerst die naive Erwartung, und der Referenzparser hat sie
+ * widerlegt** — der Test war rot, der Code nicht.
+ *
+ * Ein Selbst-Entzug OHNE `prior` verliert gegen eine autoritative Zuweisung,
+ * auch wenn er später datiert ist: die unverkettete Selbstbedienung läuft in der
+ * ERSTEN Phase, die autoritative Entscheidung danach
+ * (`projectIssues.mjs:149-153`). Wer sich einer Zuweisung entziehen will, muss
+ * sich auf sie berufen. Das ist keine Kuriosität, sondern der Kern des Aufbaus:
+ * ein selbstgewählter Zeitstempel darf Autorität nicht aushebeln.
+ */
+test('foldAssignments: Entzug wirkt vom Autor; ein Selbst-Entzug braucht das `prior`', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const zu = zuweisung(root, { p: [MAINTAINER], created_at: 1_000 })
+
+    // Der Autor nimmt seine eigene Zuweisung zurück — beides autoritativ, Zeit entscheidet.
+    assert.deepEqual(
+        foldAssignments(root, [zu, zuweisung(root, { p: [MAINTAINER], label: 'unassignment', created_at: 2_000 })])
+            .assignees,
+        [],
+    )
+    // Der Betroffene entzieht sich UNVERKETTET — die Autorität bleibt stehen.
+    assert.deepEqual(
+        foldAssignments(root, [
+            zu,
+            zuweisung(root, { pubkey: MAINTAINER, p: [MAINTAINER], label: 'unassignment', created_at: 2_000 }),
+        ]).assignees,
+        [MAINTAINER],
+    )
+    // Beruft er sich auf genau diese Zuweisung, kommt er heraus.
+    assert.deepEqual(
+        foldAssignments(root, [
+            zu,
+            zuweisung(root, {
+                pubkey: MAINTAINER,
+                p: [MAINTAINER],
+                label: 'unassignment',
+                created_at: 2_000,
+                prior: [zu.id],
+            }),
+        ]).assignees,
+        [],
+    )
+    // KONTROLLE: ein Unbeteiligter kann niemanden herauswerfen.
+    assert.deepEqual(
+        foldAssignments(root, [
+            zu,
+            zuweisung(root, { pubkey: FREMD, p: [MAINTAINER], label: 'unassignment', created_at: 2_000 }),
+        ]).assignees,
+        [MAINTAINER],
+    )
+})
+
+/**
+ * Die Rangfolge der drei Phasen — der Grund, warum das keine Sortierung ist.
+ *
+ * Die unverkettete Selbstzuweisung ist die ÄLTESTE Notiz und der autoritative
+ * Entzug die jüngere; nach reiner Zeitordnung gewänne der Entzug ohnehin. Der
+ * Test taugt deshalb erst mit umgekehrten Zeitstempeln: die Selbstzuweisung ist
+ * hier die JÜNGERE und verliert trotzdem.
+ */
+test('foldAssignments: eine autoritative Entscheidung schlägt die unverkettete Selbstbedienung, auch die jüngere', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const autoritativ = zuweisung(root, { p: [FREMD], label: 'unassignment', created_at: 1_000 })
+    const selbst = zuweisung(root, { pubkey: FREMD, p: [FREMD], created_at: 5_000 })
+
+    assert.deepEqual(foldAssignments(root, [autoritativ, selbst]).assignees, [])
+})
+
+test('foldAssignments: mit `prior` auf genau diese Entscheidung überstimmt der Betroffene sie doch', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const autoritativ = zuweisung(root, { p: [FREMD], label: 'unassignment', created_at: 1_000 })
+    const kausal = zuweisung(root, { pubkey: FREMD, p: [FREMD], created_at: 5_000, prior: [autoritativ.id] })
+
+    assert.deepEqual(foldAssignments(root, [autoritativ, kausal]).assignees, [FREMD])
+    // Und der Kopf zeigt danach auf die eigene Operation — das ist der Wert,
+    // den ein nächstes `prior` tragen muss.
+    assert.equal(foldAssignments(root, [autoritativ, kausal]).heads[FREMD], kausal.id)
+})
+
+test('foldAssignments: ein `prior`, das den Kopf nicht trifft, wirkt nicht', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const autoritativ = zuweisung(root, { p: [FREMD], label: 'unassignment', created_at: 1_000 })
+    const daneben = zuweisung(root, { pubkey: FREMD, p: [FREMD], created_at: 5_000, prior: ['a'.repeat(64)] })
+
+    assert.deepEqual(foldAssignments(root, [autoritativ, daneben]).assignees, [])
+})
+
+test('foldAssignments: zwei `prior` oder ein unsinniges `prior` fallen heraus statt eine Auswahl zu erfinden', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const autoritativ = zuweisung(root, { p: [FREMD], label: 'unassignment', created_at: 1_000 })
+    const zweiPriors = zuweisung(root, {
+        pubkey: FREMD,
+        p: [FREMD],
+        created_at: 5_000,
+        prior: [autoritativ.id, 'a'.repeat(64)],
+    })
+    const muell = zuweisung(root, { pubkey: FREMD, p: [FREMD], created_at: 6_000, prior: ['nicht-hex'] })
+
+    assert.deepEqual(foldAssignments(root, [autoritativ, zweiPriors, muell]).assignees, [])
+})
+
+/**
+ * Die offene Frage des Plans, am Referenzparser beantwortet
+ * (`projectIssues.mjs:150-163`): zwei Operationen mit demselben `prior`.
+ * Die erste in der Zeitordnung gewinnt und verschiebt den Kopf; die zweite
+ * findet ihn nicht mehr vor. Erster gewinnt, ohne Sonderregel.
+ */
+test('foldAssignments: beanspruchen zwei Operationen denselben `prior`, gewinnt die erste', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const autoritativ = zuweisung(root, { p: [FREMD], label: 'unassignment', created_at: 1_000 })
+    const erste = zuweisung(root, { pubkey: FREMD, p: [FREMD], created_at: 5_000, prior: [autoritativ.id] })
+    const zweite = zuweisung(root, {
+        pubkey: FREMD,
+        p: [FREMD],
+        label: 'unassignment',
+        created_at: 6_000,
+        prior: [autoritativ.id],
+    })
+
+    const state = foldAssignments(root, [autoritativ, erste, zweite])
+    assert.deepEqual(state.assignees, [FREMD])
+    assert.equal(state.heads[FREMD], erste.id)
+})
+
+test('foldAssignments: ein `p`-Wert, der kein Schlüssel ist, wird nie zu einer Person', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const notiz = zuweisung(root, { p: ['nicht-hex', MAINTAINER] })
+
+    assert.deepEqual(foldAssignments(root, [notiz]).assignees, [MAINTAINER])
+})
+
+// ── foldReviews ─────────────────────────────────────────────────────────────
+
+const reviewNotiz = (
+    root: ForgeEvent,
+    over: { pubkey?: string; label: string; p?: string[]; commit?: string; created_at?: number },
+): ForgeEvent =>
+    ev({
+        kind: FORGE_COMMENT,
+        pubkey: over.pubkey ?? OWNER,
+        created_at: over.created_at ?? 1_000,
+        tags: [
+            ['e', root.id, '', 'root'],
+            ['a', REPO_ADDR],
+            ...(over.p ?? []).map((pubkey) => ['p', pubkey]),
+            ['t', over.label],
+            ...(over.commit ? [['c', over.commit]] : []),
+        ],
+    })
+
+test('foldReviews: Reviewer sind Wurzel-`p` plus vertraute Anfragen — ohne den Autor', () => {
+    const root = ev({
+        kind: GIT_PULL_REQUEST,
+        pubkey: FREMD,
+        tags: [['a', REPO_ADDR], ['c', COMMIT_A], ['p', MAINTAINER], ['p', FREMD]],
+    })
+    const anfrage = reviewNotiz(root, { label: 'review-request', p: [ZWEITER] })
+    const fremdeAnfrage = reviewNotiz(root, { pubkey: DRITTER, label: 'review-request', p: [DRITTER] })
+
+    const state = foldReviews(root, [anfrage, fremdeAnfrage], COMMIT_A)
+
+    assert.deepEqual(state.reviewers.sort(), [MAINTAINER, ZWEITER].sort())
+    // Der Autor steht im eigenen `p` — das ist Zustellung, keine Anfrage.
+    assert.equal(state.reviewers.includes(FREMD), false)
+    // KONTROLLE: wer sich selbst zum Reviewer erklärt, ist keiner.
+    assert.equal(state.reviewers.includes(DRITTER), false)
+})
+
+test('foldReviews: eine Freigabe gilt für EINEN Commit — ein Push danach entwertet sie', () => {
+    const root = ev({ kind: GIT_PULL_REQUEST, tags: [['a', REPO_ADDR], ['c', COMMIT_A], ['p', MAINTAINER]] })
+    const freigabe = reviewNotiz(root, { pubkey: MAINTAINER, label: 'approval', created_at: 2_000 })
+
+    // Die Freigabe erbt das `c` der Wurzel und passt.
+    assert.equal(foldReviews(root, [freigabe], COMMIT_A).approvals.length, 1)
+    // Nach einem Push zeigt der PR auf COMMIT_B — dieselbe Freigabe zählt nicht mehr.
+    assert.equal(foldReviews(root, [freigabe], COMMIT_B).approvals.length, 0)
+    // Ohne bekannten Commit gibt es GAR KEINE Entscheidungen, nicht etwa alle.
+    assert.equal(foldReviews(root, [freigabe], '').approvals.length, 0)
+    // Die Reviewer bleiben trotzdem sichtbar — sie hängen nicht am Commit.
+    assert.deepEqual(foldReviews(root, [freigabe], '').reviewers, [MAINTAINER])
+})
+
+test('foldReviews: der Autor gibt seinen eigenen PR nicht frei, auch als Repo-Eigentümer', () => {
+    const root = ev({ kind: GIT_PULL_REQUEST, pubkey: OWNER, tags: [['a', REPO_ADDR], ['c', COMMIT_A]] })
+    const selbst = reviewNotiz(root, { pubkey: OWNER, label: 'approval' })
+
+    assert.deepEqual(foldReviews(root, [selbst], COMMIT_A).approvals, [])
+})
+
+test('foldReviews: je Entscheider die JÜNGSTE Meinung — jemand darf sie ändern', () => {
+    const root = ev({ kind: GIT_PULL_REQUEST, pubkey: FREMD, tags: [['a', REPO_ADDR], ['c', COMMIT_A], ['p', MAINTAINER]] })
+    const zuerst = reviewNotiz(root, { pubkey: MAINTAINER, label: 'changes-requested', created_at: 2_000 })
+    const danach = reviewNotiz(root, { pubkey: MAINTAINER, label: 'approval', created_at: 3_000 })
+
+    const state = foldReviews(root, [zuerst, danach], COMMIT_A)
+
+    assert.equal(state.approvals.length, 1)
+    assert.equal(state.approvals[0].id, danach.id)
+    assert.deepEqual(state.changeRequests, [])
+})
+
+test('foldReviews: ein Unbeteiligter kann nicht freigeben, der Repo-Eigentümer schon', () => {
+    const root = ev({ kind: GIT_PULL_REQUEST, pubkey: FREMD, tags: [['a', REPO_ADDR], ['c', COMMIT_A]] })
+
+    assert.deepEqual(foldReviews(root, [reviewNotiz(root, { pubkey: DRITTER, label: 'approval' })], COMMIT_A).approvals, [])
+    assert.equal(
+        foldReviews(root, [reviewNotiz(root, { pubkey: OWNER, label: 'approval' })], COMMIT_A).approvals.length,
+        1,
+    )
+})
+
+test('toPullRequest reicht Reviewer und Freigaben durch — mit dem Commit des jüngsten 1619', () => {
+    const root = ev({ kind: GIT_PULL_REQUEST, tags: [['a', REPO_ADDR], ['c', COMMIT_A], ['p', MAINTAINER]] })
+    const update = ev({
+        kind: GIT_PR_UPDATE,
+        created_at: 2_000,
+        tags: [['E', root.id], ['a', REPO_ADDR], ['c', COMMIT_B]],
+    })
+    const alteFreigabe = reviewNotiz(root, { pubkey: MAINTAINER, label: 'approval', created_at: 1_500 })
+    const neueFreigabe = reviewNotiz(root, {
+        pubkey: MAINTAINER,
+        label: 'approval',
+        created_at: 3_000,
+        commit: COMMIT_B,
+    })
+
+    const pr = toPullRequest(root, [update], [], [alteFreigabe, neueFreigabe])
+
+    assert.equal(pr.commit, COMMIT_B)
+    assert.deepEqual(pr.reviewers, [MAINTAINER])
+    assert.equal(pr.approvals.length, 1)
+    assert.equal(pr.approvals[0].id, neueFreigabe.id)
+    assert.equal(pr.commentCount, 0)
+})
+
+// ── reviewerRows (Nachzug zu P1) ────────────────────────────────────────────
+
+/**
+ * Die Lücke, die dieser Aufbau schliesst: das Markup rechnete die Zuordnung
+ * Reviewer→Entscheidung mit `.some()` selbst und kannte nur die ANGEFRAGTEN.
+ * Wer freigibt, ohne angefragt worden zu sein — der Repo-Eigentümer darf das
+ * ({@link foldReviews}, Regel 2) —, stand in keinem Chip.
+ */
+test('reviewerRows: angefragte zuerst, Entscheider ohne Anfrage danach', () => {
+    const rows = reviewerRows(
+        [MAINTAINER, ZWEITER],
+        [{ id: 'a', author: OWNER, createdAt: 1, commit: COMMIT_A, decision: 'approved' }],
+        [{ id: 'b', author: MAINTAINER, createdAt: 2, commit: COMMIT_A, decision: 'changes-requested' }],
+    )
+
+    assert.deepEqual(rows, [
+        { pubkey: MAINTAINER, decision: 'changes-requested' },
+        // Angefragt, aber noch nicht entschieden — die offene Erwartung bleibt
+        // sichtbar und steht VOR dem ungefragten Entscheider.
+        { pubkey: ZWEITER, decision: '' },
+        { pubkey: OWNER, decision: 'approved' },
+    ])
+})
+
+test('reviewerRows: ohne Reviewer und ohne Entscheidung bleibt die Zeile leer', () => {
+    assert.deepEqual(reviewerRows([], [], []), [])
+})
+
+/**
+ * Der Fall, den ein Nachschlagen in `RepoRow.people` still falsch beantwortet
+ * hätte: ein Zugewiesener, der KEIN Maintainer des Repos ist. Jedes Mitglied
+ * darf ein Issue an sich ziehen — die Faltung kennt ihn, die Maintainer-Liste
+ * des Announcements nicht.
+ */
+test('foldAssignments: ein Zugewiesener muss kein Maintainer sein', () => {
+    const repo = ev({ kind: REPO_ANNOUNCEMENT, tags: [['d', REPO_D], ['maintainers', MAINTAINER]] })
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const selbst = ev({
+        kind: FORGE_COMMENT,
+        pubkey: ZWEITER,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', ZWEITER], ['t', 'assignment']],
+    })
+
+    const [gebaut] = buildRepos([repo])
+    assert.equal(gebaut.maintainers.includes(ZWEITER), false, 'Vorbedingung: kein Maintainer')
+    assert.deepEqual(foldAssignments(root, [selbst], gebaut.maintainers).assignees, [ZWEITER])
+})
+
+// ── operationOf ─────────────────────────────────────────────────────────────
+
+test('operationOf: ein Label je Kategorie ergibt die Form, zwei Kategorien ergeben nichts', () => {
+    // Mit `p`: die drei personennennenden Label brauchen es (Mindestform, siehe
+    // `traegtOperation`), die beiden anderen stört es nicht.
+    const mit = (...labels: string[]): ForgeEvent =>
+        ev({ kind: FORGE_COMMENT, tags: [['p', MAINTAINER], ...labels.map((label) => ['t', label])] })
+
+    assert.equal(operationOf(mit('assignment')), 'assignment')
+    assert.equal(operationOf(mit('unassignment')), 'unassignment')
+    assert.equal(operationOf(mit('review-request')), 'review-request')
+    assert.equal(operationOf(mit('approval')), 'approval')
+    assert.equal(operationOf(mit('changes-requested')), 'changes-requested')
+    // Grosskleinschreibung zählt nicht — wie bei Buzz.
+    assert.equal(operationOf(mit('Approval')), 'approval')
+    // Ein fremdes Label daneben stört nicht: es ist keine der fünf Kategorien.
+    assert.equal(operationOf(mit('approval', 'bug')), 'approval')
+
+    assert.equal(operationOf(mit()), '')
+    assert.equal(operationOf(mit('bug')), '')
+    assert.equal(operationOf(mit('assignment', 'unassignment')), '')
+    assert.equal(operationOf(mit('approval', 'changes-requested')), '')
+    // Zwei Kategorien: keine Wahl treffen, die ein fremder Client bestimmt.
+    assert.equal(operationOf(mit('review-request', 'approval')), '')
+    assert.equal(operationOf(mit('assignment', 'approval')), '')
+})
+
+/**
+ * `isOperationNote` und `operationOf` sind NICHT dasselbe, und der Unterschied
+ * trägt: die widersprüchlich beschriftete Notiz ist kein Gesprächsbeitrag
+ * (fliegt also aus `comments`) und zugleich kein benennbarer Vorgang. Wer im
+ * Aktivitätsstrom `operationOf(…) === ''` als „ist ein Kommentar" liest, holt
+ * genau sie als Kommentar zurück — beim Testen aufgefallen.
+ */
+test('isOperationNote ist weiter als operationOf — und genau darauf kommt es an', () => {
+    const widerspruch = ev({
+        kind: FORGE_COMMENT,
+        tags: [['p', MAINTAINER], ['t', 'assignment'], ['t', 'unassignment']],
+    })
+
+    assert.equal(operationOf(widerspruch), '')
+    assert.equal(isOperationNote(widerspruch), true)
+
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const notiz = ev({
+        kind: FORGE_COMMENT,
+        content: 'sieht aus wie ein Kommentar',
+        tags: [
+            ['e', root.id, '', 'root'],
+            ['a', REPO_ADDR],
+            ['p', MAINTAINER],
+            ['t', 'assignment'],
+            ['t', 'unassignment'],
+        ],
+    })
+    assert.deepEqual(commentsForRoot(root.id, [notiz]), [])
+})
+
+/**
+ * **Die Testlücke aus der Abnahme (2026-08-24).**
+ *
+ * `foldAssignments` prüft die Selbstbedienung bewusst auf der ROHEN `p`-Liste:
+ * genau ein Tag, und es ist der Signierer. Wer vor dieser Prüfung zusätzlich mit
+ * `isPubkey` filterte, machte aus `["p", <selbst>], ["p","müll"]` eine
+ * Selbstbedienung — wir wären **großzügiger** als der Referenzparser statt
+ * strenger. Die Eigenschaft war gebaut und dokumentiert, aber von keinem Test
+ * gehalten: ein solcher Vorfilter liess alle Fälle grün.
+ *
+ * Dieser Test schliesst genau das. Er ist ohne die Eigenschaft rot.
+ */
+test('foldAssignments: der Selbstbedienungs-Riegel zählt die ROHEN `p`-Tags, nicht die brauchbaren', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const getarnt = ev({
+        kind: FORGE_COMMENT,
+        pubkey: FREMD,
+        tags: [
+            ['e', root.id, '', 'root'],
+            ['a', REPO_ADDR],
+            ['p', FREMD],
+            // Ein zweiter, unbrauchbarer Wert. Würde er vor der Prüfung
+            // weggefiltert, sähe die Notiz wie eine Selbstzuweisung aus.
+            ['p', 'kein-schluessel'],
+            ['t', 'assignment'],
+        ],
+    })
+
+    assert.deepEqual(foldAssignments(root, [getarnt]).assignees, [])
+
+    // KONTROLLE: mit nur dem einen Tag ist es eine echte Selbstzuweisung und
+    // geht durch — der Riegel sperrt nicht pauschal.
+    const echt = ev({
+        kind: FORGE_COMMENT,
+        pubkey: FREMD,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', FREMD], ['t', 'assignment']],
+    })
+    assert.deepEqual(foldAssignments(root, [echt]).assignees, [FREMD])
+})
+
+/** F1 an der Quelle: der `p`-Tag eines 30618 ist Fremdeingabe wie jede andere. */
+test('F1 toRepoState: ein `p`, das kein Schlüssel ist, ergibt KEINEN Handelnden', () => {
+    const mit = (wert: string): ForgeEvent =>
+        ev({ kind: REPO_STATE, tags: [['d', REPO_D], ['refs/heads/master', 'a'.repeat(40)], ['p', wert]] })
+
+    assert.equal(toRepoState(mit('Bob')).actor, '')
+    assert.equal(toRepoState(mit('refs/heads/master')).actor, '')
+    assert.equal(toRepoState(mit('')).actor, '')
+    // KONTROLLE: der echte Schlüssel kommt weiterhin an.
+    assert.equal(toRepoState(mit(MAINTAINER)).actor, MAINTAINER)
+})
+
+/**
+ * **Der Hashtag-Fall (Befund der Sicherheitsprüfung, 2026-08-24).**
+ *
+ * `assignment` ist ein gewöhnliches englisches Wort. Ein Client, der Hashtags in
+ * `t`-Tags spiegelt, macht aus „#assignment noch offen" eine Notiz, die wie eine
+ * Vorgangsform aussieht — und sie verschwände lautlos aus Liste, Zähler und
+ * Leiste. Für die drei Label, bei denen das SDK selbst eine Mindestform erzwingt
+ * (mindestens ein `p`, `builders.rs:1219-1223`), verlangen wir sie jetzt auch.
+ *
+ * Das schliesst die Kante nicht ganz — `approval` hat keine solche Invariante —,
+ * und genau das steht als bewusst getragener Rest am Ort.
+ */
+test('Hashtag-Falle: `#assignment` ohne genannte Person bleibt ein gewöhnlicher Kommentar', () => {
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const hashtag = ev({
+        kind: FORGE_COMMENT,
+        pubkey: MAINTAINER,
+        content: 'Das braucht noch ein #assignment.',
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['t', 'assignment']],
+    })
+
+    assert.equal(isOperationNote(hashtag), false)
+    assert.equal(operationOf(hashtag), '')
+    const [kommentar] = commentsForRoot(root.id, [hashtag])
+    assert.equal(kommentar?.content, 'Das braucht noch ein #assignment.')
+    assert.equal(toIssue(root, [], [hashtag]).commentCount, 1)
+
+    // KONTROLLE: mit genannter Person ist es wieder eine Vorgangsform — die
+    // Mindestform sperrt echte Zuweisungen nicht aus.
+    const echt = ev({
+        kind: FORGE_COMMENT,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', MAINTAINER], ['t', 'assignment']],
+    })
+    assert.equal(isOperationNote(echt), true)
+    assert.deepEqual(commentsForRoot(root.id, [echt]), [])
+})
+
+/**
+ * Die verbleibende Kante, ausdrücklich festgehalten statt verschwiegen: für
+ * `approval` gibt es keine Mindestform im SDK, also greift dort weiterhin das
+ * blosse Label. Dieser Test hält den Ist-Zustand fest — schliesst jemand die
+ * Kante später, wird er rot und zwingt zur bewussten Entscheidung.
+ */
+test('BEKANNTE KANTE: `#approval` ohne alles gilt weiterhin als Vorgangsform', () => {
+    const hashtag = ev({ kind: FORGE_COMMENT, content: 'Wartet auf #approval.', tags: [['t', 'approval']] })
+
+    assert.equal(isOperationNote(hashtag), true)
+    assert.equal(operationOf(hashtag), 'approval')
+})
+
+// ── N1 an der Zweig-Anzeige: geteilter Name, relay-signierter Zustand ───────
+
+const ZWEITER_OWNER = '7'.repeat(64)
+
+/**
+ * **Der Fall, den `foldRepoState` bis zum 2026-08-24 still auflöste.**
+ *
+ * Zwei Repositories gleichen Namens, zwei distinkte relay-signierte 30618.
+ * `dedupeReplaceable` faltet sie auf ihre gemeinsame Koordinate
+ * `(30618, relaySelf, d)` zusammen — zwei rein, einer raus — und die Anzeige
+ * behauptete daraufhin für BEIDE denselben Zustand. Alice sah Bobs Commit,
+ * ohne Marker, ohne zweiten Eintrag.
+ *
+ * Der Strom machte denselben Fehler zur selben Zeit SICHTBAR (zwei Zeilen, zwei
+ * Schlüssel); diese Fläche löste ihn still auf. Zwei Politiken für dieselbe
+ * Mehrdeutigkeit — und die sichere lag auf der unwichtigeren Fläche.
+ */
+test('N1: bei geteiltem `d` wird ein relay-signierter Zustand NICHT behauptet', () => {
+    const vonAlice = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 5_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '1'.repeat(40)], ['p', OWNER]],
+    })
+    const vonBob = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 6_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '2'.repeat(40)], ['p', ZWEITER_OWNER]],
+    })
+
+    const state = foldRepoState([vonAlice, vonBob], {
+        owner: OWNER,
+        relaySelf: RELAY_SELF,
+        dtag: REPO_D,
+        dtagGeteilt: true,
+    })
+
+    assert.ok(state, 'kein Marker — die Fläche kann „nicht zuzuordnen" dann nicht sagen')
+    assert.equal(state.ambiguous, true)
+    // Und vor allem: KEIN fremder Commit wird behauptet.
+    assert.deepEqual(state.branches, [])
+    assert.equal(state.head, '')
+})
+
+/**
+ * POSITIVKONTROLLE — ein fail-closed, das immer zumacht, ist kein Riegel.
+ * Derselbe Bestand, aber der Name ist NICHT geteilt: der Zustand steht.
+ */
+test('N1 POSITIVKONTROLLE: ohne geteilten Namen bleibt der relay-signierte Zustand sichtbar', () => {
+    const zustand = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 5_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '1'.repeat(40)], ['p', OWNER]],
+    })
+
+    const state = foldRepoState([zustand], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D })
+
+    assert.ok(state)
+    assert.equal(state.ambiguous, false)
+    assert.deepEqual(state.branches, [{ name: 'master', commit: '1'.repeat(40) }])
+})
+
+/**
+ * Die auflösbare Hälfte, auch bei geteiltem Namen: was der Eigentümer SELBST
+ * signiert hat, ist eindeutig seins — und gilt, obwohl der relay-signierte
+ * Zustand jünger ist. „Sicher und älter" schlägt „unsicher und neuer".
+ */
+test('N1: bei geteiltem `d` zählt der eigentümer-signierte Zustand — auch als älterer', () => {
+    const selbstBezeugt = ev({
+        kind: REPO_STATE,
+        pubkey: OWNER,
+        created_at: 5_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '1'.repeat(40)], ['p', OWNER]],
+    })
+    const jüngerVomRelay = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 9_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '2'.repeat(40)], ['p', ZWEITER_OWNER]],
+    })
+
+    const state = foldRepoState([selbstBezeugt, jüngerVomRelay], {
+        owner: OWNER,
+        relaySelf: RELAY_SELF,
+        dtag: REPO_D,
+        dtagGeteilt: true,
+    })
+
+    assert.ok(state)
+    assert.equal(state.ambiguous, false)
+    assert.deepEqual(state.branches, [{ name: 'master', commit: '1'.repeat(40) }])
+})
+
+/**
+ * Und die dritte Lage bleibt unterscheidbar: gibt es GAR NICHTS, ist die
+ * Antwort `null` — nicht der Mehrdeutigkeits-Marker. Sonst zeigte die Fläche
+ * „nicht zuzuordnen" über einen Zustand, den niemand je veröffentlicht hat.
+ */
+test('N1: ohne jeden Zustand bleibt die Antwort `null`, nicht „mehrdeutig"', () => {
+    assert.equal(
+        foldRepoState([], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D, dtagGeteilt: true }),
+        null,
+    )
+})
+
+// ── Workspace-weite Gruppierung (P3) ────────────────────────────────────────
+
+test('gruppiereNachRepo: Repo-Reihenfolge von aussen, Item-Reihenfolge erhalten, leere Gruppen weg', () => {
+    const repos = [
+        { address: 'a', name: 'Zebra' },
+        { address: 'b', name: 'Anton' },
+        { address: 'c', name: 'Ohne' },
+    ]
+    const items = [
+        { repoAddress: 'b', id: 'b1' },
+        { repoAddress: 'a', id: 'a1' },
+        { repoAddress: 'b', id: 'b2' },
+    ]
+
+    const gruppen = gruppiereNachRepo(items, repos)
+
+    // Die Reihenfolge ist die der REPOS (hier bewusst nicht alphabetisch) —
+    // nicht die des ersten Treffers und nicht neu sortiert.
+    assert.deepEqual(gruppen.map((g) => g.name), ['Zebra', 'Anton'])
+    // Innerhalb der Gruppe bleibt die Eingabe-Reihenfolge stehen.
+    assert.deepEqual(gruppen[1].items.map((i) => i.id), ['b1', 'b2'])
+    // `Ohne` hat keine Vorgänge und erscheint nicht.
+    assert.equal(gruppen.some((g) => g.name === 'Ohne'), false)
+})
+
+test('gruppiereNachRepo: eine unbekannte Koordinate erzeugt KEINE namenlose Gruppe', () => {
+    const gruppen = gruppiereNachRepo(
+        [{ repoAddress: 'fremd' }, { repoAddress: 'a' }],
+        [{ address: 'a', name: 'Anton' }],
+    )
+
+    assert.equal(gruppen.length, 1)
+    assert.equal(gruppen[0].items.length, 1)
 })
