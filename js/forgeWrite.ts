@@ -42,7 +42,10 @@ import {
     GIT_ISSUE_KIND,
     addPending,
     awaitValue,
+    OPERATION_CONTENT,
+    buildAssignmentTags,
     buildCommentTags,
+    buildReviewTags,
     buildIssueTags,
     buildStatusTags,
     dropPending,
@@ -321,6 +324,92 @@ export const publishIssueStatus = async (
             return { id: outcome.id, error }
         }
         dismissPending(outcome.id)
+
+        return outcome
+    })
+
+// ── P5: Zuweisen, Entziehen, Freigeben ──────────────────────────────────────
+
+/**
+ * Eine Zuweisung oder Entziehung (kind 1, `t`-beschriftet).
+ *
+ * ── Warum hier KEINE Nachprüfung wie beim Statuswechsel steht ───────────────
+ *
+ * `publishIssueStatus` liest nach dem `OK` am gefalteten Ergebnis nach, ob
+ * wirklich die eigene Fassung steht — dort entscheidet die Faltung zwischen
+ * konkurrierenden Statuswechseln, und `OK true` sagt darüber nichts. Bei einer
+ * Zuweisung ist die Lage anders: die Faltung verwirft sie nur, wenn der
+ * Signierer nicht berechtigt war, und genau das hat {@link assignGate} **vor**
+ * dem Absenden geprüft. Eine Nachprüfung wiederholte hier also den Riegel statt
+ * eine zweite Frage zu beantworten.
+ *
+ * **Was der Aufrufer schuldet:** `assignGate` muss vorher `allowed` gesagt
+ * haben. Der Riegel steht in der Insel, sichtbar am Knopf — hier liegt nur der
+ * Backstop gegen einen fehlenden Signer (`send` → `senderReady`).
+ *
+ * `prior` kommt aus `Issue.assignmentHeads` (P1) und ist bei einer
+ * Selbstbedienung der Bezug, ohne den sie gegen eine autoritative Entscheidung
+ * verliert. Fehlt er, wird keiner gesetzt — beim ersten Zugriff auf ein
+ * unzugewiesenes Issue ist das richtig.
+ */
+export const publishAssignment = async (
+    target: { repoAddress: string; rootId: string; targets: readonly string[]; prior?: string },
+    label: 'assignment' | 'unassignment',
+): Promise<WriteOutcome> =>
+    withLock(`assign:${target.rootId}`, async () => {
+        const tags = buildAssignmentTags({
+            repoAddress: target.repoAddress,
+            rootId: target.rootId,
+            targets: target.targets,
+            label,
+            prior: target.prior ?? '',
+        })
+        if (tags.length === 0) {
+            // Kein brauchbarer Name — `buildAssignmentTags` hat die Grenzen des
+            // SDK durchgesetzt. Ein Ereignis ohne Genannte wäre eine Operation
+            // ohne Gegenstand.
+            return { id: '', error: t('Diese Zuweisung nennt niemanden.') }
+        }
+        const outcome = await send(
+            { kind: FORGE_COMMENT_KIND, content: OPERATION_CONTENT[label], tags },
+            { what: 'comment', repoAddress: target.repoAddress, rootId: target.rootId, label: '', content: '' },
+        )
+        if (!outcome.error && outcome.id) {
+            dismissPending(outcome.id)
+        }
+
+        return outcome
+    })
+
+/**
+ * Eine Freigabe oder ein Änderungswunsch an einem Pull Request (kind 1).
+ *
+ * Der Commit ist Pflicht und kommt vom Aufrufer aus der bereits gefalteten
+ * Zeile (`PullRequest.commit`): eine Entscheidung ohne ihn wäre für jeden Leser
+ * wertlos, weil `foldReviews` sie verwürfe. {@link approveGate} sperrt den Knopf
+ * deshalb schon vorher mit einem eigenen Grund.
+ */
+export const publishReview = async (
+    target: { repoAddress: string; rootId: string; commit: string },
+    label: 'approval' | 'changes-requested',
+): Promise<WriteOutcome> =>
+    withLock(`review:${target.rootId}`, async () => {
+        const outcome = await send(
+            {
+                kind: FORGE_COMMENT_KIND,
+                content: OPERATION_CONTENT[label],
+                tags: buildReviewTags({
+                    repoAddress: target.repoAddress,
+                    rootId: target.rootId,
+                    commit: target.commit,
+                    label,
+                }),
+            },
+            { what: 'comment', repoAddress: target.repoAddress, rootId: target.rootId, label: '', content: '' },
+        )
+        if (!outcome.error && outcome.id) {
+            dismissPending(outcome.id)
+        }
 
         return outcome
     })

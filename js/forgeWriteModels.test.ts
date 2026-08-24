@@ -35,9 +35,13 @@ import {
     MAX_CREATED_AT_BUMP,
     WRITABLE_ISSUE_STATUSES,
     addPending,
+    approveGate,
+    assignGate,
     awaitValue,
+    buildAssignmentTags,
     buildCommentTags,
     buildIssueTags,
+    buildReviewTags,
     buildStatusTags,
     commentDraftProblem,
     dropPending,
@@ -418,4 +422,149 @@ test('awaitValue schläft gar nicht, wenn der Wert schon stimmt', async () => {
     })
     assert.deepEqual(ergebnis, { ok: true, value: 'closed' })
     assert.equal(runden, 0)
+})
+
+// ── P5: die Riegel vor Zuweisen und Freigeben ───────────────────────────────
+
+const REVIEWER = 'e'.repeat(64)
+const MAINTAINER = 'f'.repeat(64)
+const COMMIT = '1'.repeat(40)
+const ISSUE = { author: AUTHOR, repoAddress: ADDRESS }
+
+/**
+ * **Warum diese Riegel schwerer wiegen als eine Formularprüfung.**
+ *
+ * Buzz' Relay prüft an einem `kind 1` gar nichts und quittiert mit `OK true`.
+ * Eine unberechtigte Zuweisung geht also raus, wird angenommen — und von JEDEM
+ * Client beim Lesen verworfen. Ohne sichtbaren Riegel sähe der Nutzer Erfolg und
+ * hätte nichts erreicht: stiller Leerlauf, kein Fehlerbild.
+ */
+test('assignGate: autoritativ darf jeden benennen — Autor, Eigentümer, Maintainer', () => {
+    assert.equal(assignGate(AUTHOR, ISSUE, [STRANGER]).allowed, true)
+    assert.equal(assignGate(OWNER, ISSUE, [STRANGER]).allowed, true)
+    assert.equal(
+        assignGate(MAINTAINER, { ...ISSUE, maintainers: [MAINTAINER] }, [STRANGER]).allowed,
+        true,
+    )
+    // KONTROLLE: derselbe Mensch OHNE Eintrag in der Maintainer-Liste ist ein Fremder.
+    assert.equal(assignGate(MAINTAINER, ISSUE, [STRANGER]).reason, 'not-actor')
+})
+
+test('assignGate: ein Fremder darf genau sich selbst — und nur allein', () => {
+    assert.equal(assignGate(STRANGER, ISSUE, [STRANGER]).allowed, true)
+    assert.equal(assignGate(STRANGER, ISSUE, [REVIEWER]).reason, 'not-actor')
+    // Der Alibi-Fall: sich selbst mit hineinhängen macht es nicht zur Selbstbedienung.
+    assert.equal(assignGate(STRANGER, ISSUE, [STRANGER, REVIEWER]).reason, 'not-actor')
+})
+
+/**
+ * Dieselbe Härtung wie in der Faltung (`foldAssignments`): geprüft wird die ROHE
+ * Liste. Wer vorher aussortierte, machte aus `[selbst, müll]` eine
+ * Selbstbedienung — und wäre grosszügiger als der Referenzparser statt strenger.
+ */
+test('assignGate: die Selbstprüfung zählt die ROHEN Ziele, nicht die brauchbaren', () => {
+    assert.equal(assignGate(STRANGER, ISSUE, [STRANGER, 'kein-schluessel']).reason, 'not-actor')
+})
+
+test('assignGate: ohne Anmeldung und ohne Ziel bleibt der Knopf zu', () => {
+    assert.equal(assignGate('', ISSUE, [STRANGER]).reason, 'anonymous')
+    assert.equal(assignGate(AUTHOR, ISSUE, []).reason, 'not-actor')
+})
+
+/**
+ * **Der Riegel liest, was die Fläche zeigt.** `reviewers` ist genau die Liste,
+ * die `foldReviews` beim Lesen gefaltet hat und die die Zeile trägt — keine
+ * zweite Herleitung, die altern könnte.
+ */
+const PR = { author: AUTHOR, repoAddress: ADDRESS, reviewers: [REVIEWER], commit: COMMIT, status: 'open' }
+
+test('approveGate: angefragter Reviewer und Repo-Eigentümer dürfen, der Autor nie', () => {
+    assert.equal(approveGate(REVIEWER, PR).allowed, true)
+    // Der Eigentümer darf, ohne angefragt worden zu sein (`trustedReviewActors`).
+    assert.equal(approveGate(OWNER, PR).allowed, true)
+    // Der Autor nicht — auch dann nicht, wenn er der Eigentümer ist.
+    assert.equal(approveGate(AUTHOR, PR).reason, 'not-actor')
+    assert.equal(approveGate(OWNER, { ...PR, author: OWNER }).reason, 'not-actor')
+    // Und ein Unbeteiligter erst recht nicht.
+    assert.equal(approveGate(STRANGER, PR).reason, 'not-actor')
+})
+
+/**
+ * Zwei Gründe, die NICHTS mit Berechtigung zu tun haben — und die deshalb eigene
+ * Codes tragen: die Fläche soll „hier gibt es nichts zu tun" sagen können statt
+ * „du darfst nicht".
+ */
+test('approveGate: ohne Commit und an einem erledigten PR gibt es nichts freizugeben', () => {
+    assert.equal(approveGate(REVIEWER, { ...PR, commit: '' }).reason, 'no-commit')
+    assert.equal(approveGate(REVIEWER, { ...PR, commit: 'kein-hash' }).reason, 'no-commit')
+    for (const status of ['merged', 'closed']) {
+        assert.equal(approveGate(REVIEWER, { ...PR, status }).reason, 'settled')
+    }
+    // KONTROLLE: am Entwurf darf man sehr wohl — Buzz sperrt nur merged/closed.
+    assert.equal(approveGate(REVIEWER, { ...PR, status: 'draft' }).allowed, true)
+    // Die Reihenfolge der Gründe ist eine Aussage: „erledigt" schlägt „kein
+    // Commit", weil an einem geschlossenen PR auch ein Commit nichts änderte.
+    assert.equal(approveGate(REVIEWER, { ...PR, status: 'merged', commit: '' }).reason, 'settled')
+})
+
+// ── P5: die Tags der neuen Operationen ──────────────────────────────────────
+
+test('buildAssignmentTags: Form wörtlich aus dem SDK, mit Wurzel-Marker an vierter Stelle', () => {
+    const tags = buildAssignmentTags({ repoAddress: ADDRESS, rootId: ROOT_ID, targets: [REVIEWER], label: 'assignment' })
+
+    assert.deepEqual(tags[0], ['e', ROOT_ID, '', 'root'])
+    assert.deepEqual(tags[1], ['a', ADDRESS])
+    assert.deepEqual(tagsOf(tags, 'p'), [['p', REVIEWER]])
+    assert.equal(firstValue(tags, 't'), 'assignment')
+    // Ohne `prior` steht keins da — eine leere Kette ist keine Kette.
+    assert.deepEqual(tagsOf(tags, 'prior'), [])
+})
+
+/**
+ * `prior` ist der Grund, warum P1 die Köpfe mitgeliefert hat: eine
+ * Selbstbedienung OHNE Bezug verliert gegen eine autoritative Entscheidung
+ * (`projectIssues.mjs:149-153`). Wer sich entziehen will, muss sich auf sie
+ * berufen.
+ */
+test('buildAssignmentTags: `prior` nur, wenn es eine Ereignis-Id ist', () => {
+    const mit = buildAssignmentTags({
+        repoAddress: ADDRESS, rootId: ROOT_ID, targets: [STRANGER], label: 'unassignment', prior: ROOT_ID,
+    })
+    assert.deepEqual(tagsOf(mit, 'prior'), [['prior', ROOT_ID]])
+
+    const ohne = buildAssignmentTags({
+        repoAddress: ADDRESS, rootId: ROOT_ID, targets: [STRANGER], label: 'unassignment', prior: 'unsinn',
+    })
+    assert.deepEqual(tagsOf(ohne, 'prior'), [])
+})
+
+test('buildAssignmentTags: Müll fliegt raus, Dopplungen auch, und ohne Namen gibt es kein Ereignis', () => {
+    const tags = buildAssignmentTags({
+        repoAddress: ADDRESS, rootId: ROOT_ID,
+        targets: [REVIEWER, REVIEWER.toUpperCase(), 'kein-schluessel'], label: 'assignment',
+    })
+    assert.deepEqual(tagsOf(tags, 'p'), [['p', REVIEWER]])
+
+    // Leer und über der SDK-Grenze: beides ergibt KEINE Tags — die Fläche baut
+    // dann kein Ereignis, statt eines zu senden, das der Referenzclient gar
+    // nicht erst erzeugen könnte.
+    assert.deepEqual(buildAssignmentTags({ repoAddress: ADDRESS, rootId: ROOT_ID, targets: [], label: 'assignment' }), [])
+    const zuViele = Array.from({ length: 51 }, (_, i) => String(i).padStart(64, '0'))
+    assert.deepEqual(buildAssignmentTags({ repoAddress: ADDRESS, rootId: ROOT_ID, targets: zuViele, label: 'assignment' }), [])
+})
+
+/**
+ * Das `c` ist die halbe Aussage: `foldReviews` verwirft jede Entscheidung, deren
+ * Commit nicht der aktuelle ist. Ohne das Tag erbte die Notiz still das `c` des
+ * 1618 und wirkte auf einen Stand, den der Freigebende nie gesehen hat.
+ */
+test('buildReviewTags: trägt den Commit — und KEIN `p`', () => {
+    const tags = buildReviewTags({ repoAddress: ADDRESS, rootId: ROOT_ID, commit: COMMIT, label: 'approval' })
+
+    assert.deepEqual(tags[0], ['e', ROOT_ID, '', 'root'])
+    assert.equal(firstValue(tags, 't'), 'approval')
+    assert.equal(firstValue(tags, 'c'), COMMIT)
+    // Ein `p` machte aus jeder Freigabe eine Erwähnung — und weckte Agenten,
+    // die nichts damit zu tun haben (`forgeWake.ts`).
+    assert.deepEqual(tagsOf(tags, 'p'), [])
 })

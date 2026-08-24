@@ -1026,5 +1026,16 @@
     "Der Link liess sich nicht kopieren.": "A hivatkozást nem sikerült másolni.",
     "Welche Liste?": "Melyik lista?",
     "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "Amint valaki hibajegyet nyit a munkaterület egyik tárolójában, itt megjelenik.",
-    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "A pull request egy ág feltöltésekor jön létre — ez a kliens nem tud létrehozni ilyet."
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "A pull request egy ág feltöltésekor jön létre — ez a kliens nem tud létrehozni ilyet.",
+    "Diese Zuweisung nennt niemanden.": "Ez a hozzárendelés senkit sem nevez meg.",
+    "Freigeben": "Jóváhagyás",
+    "Freigegeben": "Jóváhagyva",
+    "Mir zuweisen": "Hozzám rendelés",
+    "Zuweisung entfernen": "Hozzárendelés eltávolítása",
+    "Änderungen erbeten": "Módosítás kérve",
+    "Änderungen erbitten": "Módosítást kérek",
+    "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Másokat csak a hibajegy megnyitója, a tároló tulajdonosa vagy egy bejegyzett karbantartó rendelhet hozzá. Magadat bármikor felveheted.",
+    "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Jóváhagyni a felkért ellenőrzők és a tároló felelősei tudnak — a pull request szerzője a sajátját nem.",
+    "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "Ez a pull request nem nevez meg commitot. A jóváhagyás pontosan egy állapotra vonatkozik — enélkül nem lenne hivatkozása, és minden kliens eldobná.",
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Ez a pull request lezárult. A jóváhagyás már nem változtat rajta."
 }

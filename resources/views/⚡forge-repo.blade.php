@@ -883,6 +883,49 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     </template>
                                                 </div>
 
+                                                {{-- ── Zuweisung (P5) ────────────────────────────
+                                                     **Der Knopf bleibt stehen, auch wenn er nicht
+                                                     darf** — das Haus-Muster für inerte Knöpfe
+                                                     (`⚡article.blade.php:119-126`): `aria-disabled`
+                                                     statt `disabled`, damit er den Fokus behält und
+                                                     eine Tastatur überhaupt an die Begründung kommt.
+                                                     Ein versteckter Knopf liesse den Nutzer suchen,
+                                                     ein ausgegrauter zweimal tippen.
+
+                                                     **Und die Begründung steht VOR dem Klick da,
+                                                     nicht danach.** Das ist bei dieser Aktion keine
+                                                     Höflichkeit: Buzz' Relay prüft an einem `kind 1`
+                                                     gar nichts und quittiert mit `OK true`. Eine
+                                                     unberechtigte Zuweisung ginge also raus, würde
+                                                     angenommen — und von jedem Client beim Lesen
+                                                     verworfen. Ohne sichtbaren Riegel sähe der
+                                                     Nutzer Erfolg und hätte nichts erreicht.
+
+                                                     Angeboten wird genau die SELBSTBEDIENUNG. Fremde
+                                                     zuzuweisen bräuchte eine Personenauswahl; die
+                                                     Regel dafür steht in `assignGate` schon, die
+                                                     Fläche dazu nicht — und ein Knopf ohne Auswahl,
+                                                     der das behauptet, wäre eine Attrappe. --}}
+                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800"
+                                                     data-forge-assign-block>
+                                                    <div class="flex flex-wrap items-center gap-2">
+                                                        <flux:button size="xs" variant="ghost"
+                                                                     data-forge-assign-self
+                                                                     x-on:click="toggleAssignSelf(issue)"
+                                                                     ::aria-disabled="canAssignSelf(issue) ? null : 'true'"
+                                                                     ::data-forge-assign-art="istZugewiesen(issue) ? 'unassignment' : 'assignment'"
+                                                                     ::class="canAssignSelf(issue) ? '' : 'opacity-60'">
+                                                            <span x-text="istZugewiesen(issue) ? @js(__('Zuweisung entfernen')) : @js(__('Mir zuweisen'))"></span>
+                                                        </flux:button>
+                                                        <span x-show="assignBusy(issue.id)" x-cloak role="status"
+                                                              class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
+                                                    </div>
+                                                    <template x-if="!canAssignSelf(issue)">
+                                                        <p class="mt-1.5 text-xs text-muted" data-forge-assign-hint
+                                                           x-text="assignHint(issue)"></p>
+                                                    </template>
+                                                </div>
+
                                                 {{-- ── Kommentieren (P8) ───────────────────────── --}}
                                                 <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canWrite()">
@@ -1522,6 +1565,53 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                 class="shrink-0 font-medium underline">{{ __('Verwerfen') }}</button>
                                                     </div>
                                                 </template>
+
+                                                {{-- ── Freigeben / Änderungen erbitten (P5) ─────
+                                                     Zwei Knöpfe, EIN Riegel. Beide bleiben stehen,
+                                                     wenn er zu ist (`aria-disabled`, Haus-Muster),
+                                                     und die Begründung steht daneben — vor dem
+                                                     Klick, nicht danach.
+
+                                                     **Warum die Begründung hier drei verschiedene
+                                                     Sätze kennt.** „Du darfst nicht", „dieser Pull
+                                                     Request nennt keinen Commit" und „er ist
+                                                     abgeschlossen" sind drei verschiedene Lagen,
+                                                     und nur die erste ist eine Berechtigungsfrage.
+                                                     Ein gemeinsamer Satz wäre die Sorte Begründung,
+                                                     nach der man erst recht fragt.
+
+                                                     Der Commit-Bezug ist kein Detail: `foldReviews`
+                                                     verwirft jede Entscheidung, deren Commit nicht
+                                                     der aktuelle ist. Ein Push nach der Freigabe
+                                                     entwertet sie — deshalb sagt der Knopf
+                                                     „freigegeben", solange die eigene Entscheidung
+                                                     für DIESEN Stand steht, und wird wieder
+                                                     anklickbar, sobald sie es nicht mehr tut. --}}
+                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800"
+                                                     data-forge-review-block>
+                                                    <div class="flex flex-wrap items-center gap-2">
+                                                        <flux:button size="xs" variant="ghost" icon="check"
+                                                                     data-forge-approve
+                                                                     x-on:click="submitReview(pr, 'approval')"
+                                                                     ::aria-disabled="canApprove(pr) && eigeneEntscheidung(pr) !== 'approval' ? null : 'true'"
+                                                                     ::class="canApprove(pr) && eigeneEntscheidung(pr) !== 'approval' ? '' : 'opacity-60'">
+                                                            <span x-text="eigeneEntscheidung(pr) === 'approval' ? @js(__('Freigegeben')) : @js(__('Freigeben'))"></span>
+                                                        </flux:button>
+                                                        <flux:button size="xs" variant="ghost" icon="exclamation-circle"
+                                                                     data-forge-request-changes
+                                                                     x-on:click="submitReview(pr, 'changes-requested')"
+                                                                     ::aria-disabled="canApprove(pr) && eigeneEntscheidung(pr) !== 'changes-requested' ? null : 'true'"
+                                                                     ::class="canApprove(pr) && eigeneEntscheidung(pr) !== 'changes-requested' ? '' : 'opacity-60'">
+                                                            <span x-text="eigeneEntscheidung(pr) === 'changes-requested' ? @js(__('Änderungen erbeten')) : @js(__('Änderungen erbitten'))"></span>
+                                                        </flux:button>
+                                                        <span x-show="reviewBusy(pr.id)" x-cloak role="status"
+                                                              class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
+                                                    </div>
+                                                    <template x-if="!canApprove(pr)">
+                                                        <p class="mt-1.5 text-xs text-muted" data-forge-review-hint
+                                                           x-text="approveHint(pr)"></p>
+                                                    </template>
+                                                </div>
 
                                                 {{-- ── Kommentieren (P8) ─────────────────────────
                                                      **Nur kommentieren, nicht anlegen.** Ein Pull

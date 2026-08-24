@@ -132,6 +132,8 @@ import {
     WRITABLE_ISSUE_STATUSES,
     commentDraftProblem,
     issueDraftProblem,
+    approveGate,
+    assignGate,
     memberGate,
     orphanedPending,
     pendingState,
@@ -146,9 +148,11 @@ import {
     dismissPending,
     forgePending,
     isBusy,
+    publishAssignment,
     publishForgeComment,
     publishIssue,
     publishIssueStatus,
+    publishReview,
 } from './forgeWrite.ts'
 
 // ── Grenzen ─────────────────────────────────────────────────────────────────
@@ -1532,6 +1536,29 @@ const GATE_TEXTS: Record<string, string> = {
 const gateText = (gate: WriteGate): string =>
     gate.allowed ? '' : t(GATE_TEXTS[gate.reason] ?? GATE_TEXTS.anonymous)
 
+/**
+ * Dieselben Codes, andere Sätze — je Aktion (P5).
+ *
+ * `not-actor` heisst bei jeder Aktion etwas anderes, und ein gemeinsamer Satz
+ * („du darfst das nicht") wäre die Sorte Begründung, nach der man erst recht
+ * fragt. Der Riegel ist **vor** dem Klick sichtbar; dann muss er auch sagen,
+ * WER es dürfte.
+ */
+const ASSIGN_GATE_TEXTS: Record<string, string> = {
+    anonymous: 'Zum Schreiben bitte anmelden.',
+    'not-actor': 'Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.',
+}
+
+const REVIEW_GATE_TEXTS: Record<string, string> = {
+    anonymous: 'Zum Schreiben bitte anmelden.',
+    'not-actor': 'Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.',
+    'no-commit': 'Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.',
+    settled: 'Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.',
+}
+
+const gateTextFrom = (texte: Record<string, string>, gate: WriteGate): string =>
+    gate.allowed ? '' : t(texte[gate.reason] ?? texte.anonymous)
+
 /** Was an einem Entwurf fehlt — als Satz für die Fläche. */
 const PROBLEM_TEXTS: Record<string, string> = {
     'title-required': 'Ohne Titel geht es nicht.',
@@ -1861,6 +1888,20 @@ type ForgeRepoState = {
     statusHint(row: { author: string; repoAddress: string }): string
     statusBusy(rootId: string): boolean
     setStatus(row: IssueRow, code: WritableIssueStatus): Promise<void>
+    // ── P5: Zuweisen und Freigeben ──────────────────────────────────────────
+    /** Ist der Betrachter bereits zugewiesen? Entscheidet über Wort und Wirkung. */
+    istZugewiesen(row: IssueRow): boolean
+    assignGateFor(row: IssueRow): WriteGate
+    canAssignSelf(row: IssueRow): boolean
+    assignHint(row: IssueRow): string
+    assignBusy(rootId: string): boolean
+    toggleAssignSelf(row: IssueRow): Promise<void>
+    approveGateFor(row: PullRequestRow): WriteGate
+    canApprove(row: PullRequestRow): boolean
+    approveHint(row: PullRequestRow): string
+    reviewBusy(rootId: string): boolean
+    eigeneEntscheidung(row: PullRequestRow): string
+    submitReview(row: PullRequestRow, label: 'approval' | 'changes-requested'): Promise<void>
     _statusCreatedAt(rootId: string): number
     rowState(id: string): string
     failedIssues(): FailedWriteRow[]
@@ -3139,6 +3180,109 @@ export function wireForge(Alpine: {
             },
             statusBusy(rootId: string) {
                 return this.busyTick >= 0 && isBusy(`status:${rootId}`)
+            },
+            // ── P5: Zuweisen und Freigeben ──────────────────────────────────
+            istZugewiesen(row: IssueRow) {
+                return this.viewer !== '' && row.assignees.includes(this.viewer.toLowerCase())
+            },
+            /**
+             * Der Riegel vor dem Zuweisen — **mit sich selbst als Ziel**.
+             *
+             * Die Fläche bietet in P5 genau die Selbstbedienung an („Mir
+             * zuweisen" / „Zuweisung entfernen"). Fremde zuzuweisen bräuchte
+             * eine Personenauswahl; die Regel dafür steht in `assignGate`
+             * bereits, die Fläche dazu nicht. Ein Knopf ohne Auswahl, der
+             * behauptet, jemand anderen zuzuweisen, wäre eine Attrappe.
+             */
+            assignGateFor(row: IssueRow) {
+                return assignGate(this.viewer, { author: row.author, repoAddress: row.repoAddress, maintainers: this.view?.repo.maintainers ?? [] }, [this.viewer])
+            },
+            canAssignSelf(row: IssueRow) {
+                return this.assignGateFor(row).allowed
+            },
+            assignHint(row: IssueRow) {
+                return gateTextFrom(ASSIGN_GATE_TEXTS, this.assignGateFor(row))
+            },
+            assignBusy(rootId: string) {
+                return this.busyTick >= 0 && isBusy(`assign:${rootId}`)
+            },
+            /**
+             * Sich selbst eintragen oder wieder austragen.
+             *
+             * EIN Knopf für zwei Operationen, weil es aus Sicht des Nutzers eine
+             * Handlung mit zwei Richtungen ist. Der Unterschied steckt im Label
+             * — und im `prior`: eine Entziehung ohne Bezug verlöre gegen eine
+             * autoritative Zuweisung (`foldAssignments`, Phase 1 vor Phase 2).
+             * Der Kopf kommt aus `assignmentHeads` (P1) und ist genau dieser
+             * Bezug.
+             */
+            async toggleAssignSelf(row: IssueRow) {
+                if (!this.canAssignSelf(row) || isBusy(`assign:${row.id}`)) {
+                    return
+                }
+                const label = this.istZugewiesen(row) ? 'unassignment' : 'assignment'
+                this.busyTick += 1
+                const outcome = await publishAssignment(
+                    {
+                        repoAddress: row.repoAddress,
+                        rootId: row.id,
+                        targets: [this.viewer],
+                        prior: row.assignmentHeads[this.viewer.toLowerCase()] ?? '',
+                    },
+                    label,
+                )
+                this.busyTick += 1
+                if (outcome.error) {
+                    toast(outcome.error)
+                }
+            },
+            approveGateFor(row: PullRequestRow) {
+                return approveGate(this.viewer, {
+                    author: row.author,
+                    repoAddress: row.repoAddress,
+                    maintainers: this.view?.repo.maintainers ?? [],
+                    reviewers: row.reviewers,
+                    commit: row.commit,
+                    status: row.status,
+                })
+            },
+            canApprove(row: PullRequestRow) {
+                return this.approveGateFor(row).allowed
+            },
+            approveHint(row: PullRequestRow) {
+                return gateTextFrom(REVIEW_GATE_TEXTS, this.approveGateFor(row))
+            },
+            reviewBusy(rootId: string) {
+                return this.busyTick >= 0 && isBusy(`review:${rootId}`)
+            },
+            /**
+             * Die eigene, aktuell gültige Entscheidung — `''`, wenn keine steht.
+             *
+             * Aus derselben gefalteten Liste, die die Reviewer-Zeile zeigt. Der
+             * Knopf sagt damit „freigegeben" statt „freigeben", wenn es schon
+             * getan ist; ein Klick darauf ist dann kein zweites Ereignis wert.
+             */
+            eigeneEntscheidung(row: PullRequestRow) {
+                const self = this.viewer.toLowerCase()
+                if (row.approvals.some((d) => d.author === self)) {
+                    return 'approval'
+                }
+
+                return row.changeRequests.some((d) => d.author === self) ? 'changes-requested' : ''
+            },
+            async submitReview(row: PullRequestRow, label: 'approval' | 'changes-requested') {
+                if (!this.canApprove(row) || isBusy(`review:${row.id}`) || this.eigeneEntscheidung(row) === label) {
+                    return
+                }
+                this.busyTick += 1
+                const outcome = await publishReview(
+                    { repoAddress: row.repoAddress, rootId: row.id, commit: row.commit },
+                    label,
+                )
+                this.busyTick += 1
+                if (outcome.error) {
+                    toast(outcome.error)
+                }
             },
             async setStatus(row: IssueRow, code: WritableIssueStatus) {
                 if (!this.canSetStatus(row) || row.status === code || isBusy(`status:${row.id}`)) {

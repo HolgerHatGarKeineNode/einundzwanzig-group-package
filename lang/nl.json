@@ -1026,5 +1026,16 @@
     "Der Link liess sich nicht kopieren.": "De link kon niet worden gekopieerd.",
     "Welche Liste?": "Welke lijst?",
     "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "Zodra iemand in een repository van deze workspace een issue opent, verschijnt het hier.",
-    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Een pull request ontstaat bij het pushen van een branch — deze client kan er geen aanmaken."
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Een pull request ontstaat bij het pushen van een branch — deze client kan er geen aanmaken.",
+    "Diese Zuweisung nennt niemanden.": "Deze toewijzing noemt niemand.",
+    "Freigeben": "Goedkeuren",
+    "Freigegeben": "Goedgekeurd",
+    "Mir zuweisen": "Aan mij toewijzen",
+    "Zuweisung entfernen": "Toewijzing verwijderen",
+    "Änderungen erbeten": "Wijzigingen gevraagd",
+    "Änderungen erbitten": "Wijzigingen vragen",
+    "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Alleen wie het issue opende, de eigenaar van de repository of een geregistreerde maintainer mag anderen toewijzen. Jezelf kun je altijd toevoegen.",
+    "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Gevraagde reviewers en de verantwoordelijken van de repository kunnen goedkeuren — de auteur van een pull request de eigen niet.",
+    "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "Deze pull request noemt geen commit. Een goedkeuring geldt voor precies één stand — zonder die zou ze geen referentie hebben en elke client zou ze verwerpen.",
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Deze pull request is afgesloten. Een goedkeuring verandert daar niets meer aan."
 }

@@ -1026,5 +1026,16 @@
     "Der Link liess sich nicht kopieren.": "The link could not be copied.",
     "Welche Liste?": "Which list?",
     "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "As soon as someone opens an issue in a repository of this workspace, it appears here.",
-    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "A pull request is created by pushing a branch — this client cannot create one."
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "A pull request is created by pushing a branch — this client cannot create one.",
+    "Diese Zuweisung nennt niemanden.": "This assignment names nobody.",
+    "Freigeben": "Approve",
+    "Freigegeben": "Approved",
+    "Mir zuweisen": "Assign to me",
+    "Zuweisung entfernen": "Remove assignment",
+    "Änderungen erbeten": "Changes requested",
+    "Änderungen erbitten": "Request changes",
+    "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Only the person who opened the issue, the repository owner or a listed maintainer may assign others. You can always add yourself.",
+    "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Requested reviewers and those responsible for the repository can approve — the author of a pull request cannot approve their own.",
+    "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "This pull request names no commit. An approval applies to exactly one state — without it, it would have no reference and every client would discard it.",
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "This pull request is closed. An approval changes nothing about it any more."
 }

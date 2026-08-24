@@ -1088,5 +1088,16 @@
     "Der Link liess sich nicht kopieren.": "Saiti neizdevās nokopēt.",
     "Welche Liste?": "Kurš saraksts?",
     "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "Tiklīdz kāds šīs darbvietas krātuvē atvērs problēmu, tā parādīsies šeit.",
-    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Pull request rodas, nosūtot zaru — šis klients nevar izveidot nevienu."
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Pull request rodas, nosūtot zaru — šis klients nevar izveidot nevienu.",
+    "Diese Zuweisung nennt niemanden.": "Šis piešķīrums nevienu nenosauc.",
+    "Freigeben": "Apstiprināt",
+    "Freigegeben": "Apstiprināts",
+    "Mir zuweisen": "Piešķirt man",
+    "Zuweisung entfernen": "Noņemt piešķīrumu",
+    "Änderungen erbeten": "Pieprasītas izmaiņas",
+    "Änderungen erbitten": "Pieprasīt izmaiņas",
+    "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Citus var piešķirt tikai tas, kas atvēra problēmu, krātuves īpašnieks vai reģistrēts uzturētājs. Sevi vari pievienot vienmēr.",
+    "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Apstiprināt var pieprasītie recenzenti un krātuves atbildīgie — pull request autors savu paša ne.",
+    "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "Šis pull request nenosauc nevienu commit. Apstiprinājums attiecas tieši uz vienu stāvokli — bez tā tam nebūtu atsauces un katrs klients to atmestu.",
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Šis pull request ir pabeigts. Apstiprinājums tur vairs neko nemaina."
 }

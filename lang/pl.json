@@ -1057,5 +1057,16 @@
     "Der Link liess sich nicht kopieren.": "Nie udało się skopiować linku.",
     "Welche Liste?": "Która lista?",
     "Sobald jemand in einem Repository dieses Workspace ein Issue eröffnet, erscheint es hier.": "Gdy tylko ktoś otworzy zgłoszenie w repozytorium tego workspace, pojawi się tutaj.",
-    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Pull request powstaje przy wypchnięciu gałęzi — ten klient nie może go utworzyć."
+    "Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.": "Pull request powstaje przy wypchnięciu gałęzi — ten klient nie może go utworzyć.",
+    "Diese Zuweisung nennt niemanden.": "To przypisanie nikogo nie wskazuje.",
+    "Freigeben": "Zatwierdź",
+    "Freigegeben": "Zatwierdzono",
+    "Mir zuweisen": "Przypisz do mnie",
+    "Zuweisung entfernen": "Usuń przypisanie",
+    "Änderungen erbeten": "Poproszono o zmiany",
+    "Änderungen erbitten": "Poproś o zmiany",
+    "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Innych może przypisać tylko autor zgłoszenia, właściciel repozytorium lub wpisany opiekun. Siebie możesz dodać zawsze.",
+    "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Zatwierdzać mogą poproszeni recenzenci i osoby odpowiedzialne za repozytorium — autor pull requesta swojego nie.",
+    "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "Ten pull request nie wskazuje commita. Zatwierdzenie dotyczy dokładnie jednego stanu — bez niego nie miałoby odniesienia i każdy klient by je odrzucił.",
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Ten pull request jest zamknięty. Zatwierdzenie już nic nie zmieni."
 }
