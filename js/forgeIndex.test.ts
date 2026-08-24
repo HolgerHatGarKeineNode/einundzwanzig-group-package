@@ -35,6 +35,20 @@
  * Grund, warum es überhaupt etwas festhält. Für den Statusindex steht darunter
  * ein **deterministisches** Gate, und das ist ohnehin das wichtigere.
  *
+ * ── Und der Update-Index kam danach (P4, 2026-08-25) ───────────────────────
+ *
+ * Der Statusindex legte die dritte Achse frei: `buildPullRequests` blieb als
+ * einziger überlinearer Konstruktor stehen, weil {@link toPullRequest} die
+ * 1619-Updates weiter je Wurzel über den Gesamtbestand siebte — **25,8 / 87,3
+ * / 287,4 ms** bei 400 / 800 / 1600 Wurzeln, Faktor ~3,4 je Verdopplung, neben
+ * linearen Issues und Patches. Mit {@link indexUpdates}: **3,5 / 7,5 / 13,9
+ * ms**, vierfache Eingabe bei vierfachem Aufwand.
+ *
+ * **Der Anteil war verdeckt, nicht abwesend** — solange `foldStatus` denselben
+ * Scan fuhr, ging er in dessen Zahl unter. Das ist der Grund, warum diese
+ * Datei ihre Zahlen mitschreibt: sonst sähe die nächste Achse aus wie ein
+ * Regress, statt wie das, was sie ist.
+ *
  * Ausführen:
  * node --experimental-strip-types --test packages/einundzwanzig-group/js/forgeIndex.test.ts
  */
@@ -43,6 +57,8 @@ import assert from 'node:assert/strict'
 import {
     FORGE_COMMENT,
     GIT_ISSUE,
+    GIT_PR_UPDATE,
+    GIT_PULL_REQUEST,
     GIT_STATUS_CLOSED,
     buildIssues,
     commentsForRoot,
@@ -51,7 +67,9 @@ import {
     foldStatus,
     indexNotes,
     indexStatus,
+    indexUpdates,
     repoAddressOf,
+    toPullRequest,
     type ForgeEvent,
 } from './forgeModels.ts'
 
@@ -294,4 +312,72 @@ test('KOMPLEXITÄT (zeitlich): achtfache Eingabe kostet nicht das Vielfache eine
     // Maschine und eng genug, um die Rückkehr zum Quadrat zu fangen — die
     // Mutationsprobe „Index entfernt" landete bei weit darüber.
     assert.ok(faktor < 20, `achtfache Eingabe kostete das ${faktor.toFixed(1)}-fache — das riecht nach O(m·n)`)
+})
+
+// ── Gate 1c: derselbe Schutz für den Update-Index ───────────────────────────
+
+/**
+ * Die 1619-Updates sind der dritte Eimer — und ein Rückfall ist hier NICHT nur
+ * eine Frage der Laufzeit.
+ *
+ * Ein Update zeigt den Commit um, auf den ein PR verweist, und `foldReviews`
+ * entwertet daran jede Freigabe. Ein Update, das aus einer Quelle stammt, die
+ * der Aufrufer nie indiziert hat, verschiebt also still eine
+ * Berechtigungsentscheidung — sichtbar nur daran, dass eine Freigabe
+ * verschwindet, die eben noch stand.
+ *
+ * Fixture nach derselben Lehre wie oben: Index und Rohliste fallen
+ * auseinander, und jede Zusicherung trägt ihre Gegenprobe.
+ */
+test('KOMPLEXITÄT (deterministisch): auch `toPullRequest` fällt nicht in den Scan zurück', () => {
+    const FREMD = hex(81)
+    const ROOT_COMMIT = 'a'.repeat(40)
+    const NEUER_COMMIT = 'b'.repeat(40)
+    const root: ForgeEvent = {
+        id: FREMD, pubkey: OWNER, kind: GIT_PULL_REQUEST, created_at: 2_000, content: '',
+        tags: [['a', ADDR], ['subject', 'PR ausserhalb des Index'], ['c', ROOT_COMMIT]],
+    }
+    const update: ForgeEvent = {
+        id: hex(810_001), pubkey: OWNER, kind: GIT_PR_UPDATE, created_at: 6_000, content: '',
+        tags: [['e', FREMD, '', 'root'], ['a', ADDR], ['c', NEUER_COMMIT]],
+    }
+
+    // Leerer Index: er kennt keine Wurzel. Die Rohliste kennt das Update.
+    const ohneEimer = toPullRequest(root, [update], [], [], [], { updates: indexUpdates([]) })
+    assert.equal(ohneEimer.updateCount, 0)
+    // Und damit zeigt der PR weiter auf seinen Ausgangs-Commit — die Zahl oben
+    // allein liesse offen, ob nur der Zähler oder die Faltung betroffen ist.
+    assert.equal(ohneEimer.commit, ROOT_COMMIT)
+
+    // KONTROLLE: ohne Index sieht dieselbe Rohliste das Update sehr wohl —
+    // sonst prüften die Zusicherungen darüber nur die Leere der Fixture.
+    const ohneIndex = toPullRequest(root, [update])
+    assert.equal(ohneIndex.updateCount, 1)
+    assert.equal(ohneIndex.commit, NEUER_COMMIT)
+
+    // Und mit dem passenden Eimer ebenfalls: der Riegel sperrt nicht alles aus.
+    const mitEimer = toPullRequest(root, [], [], [], [], { updates: indexUpdates([update]) })
+    assert.equal(mitEimer.updateCount, 1)
+    assert.equal(mitEimer.commit, NEUER_COMMIT)
+})
+
+test('indexUpdates: nimmt NUR 1619 auf — Status und Notiz gehören in andere Eimer', () => {
+    const wurzel = hex(82)
+    const update: ForgeEvent = {
+        id: hex(820_001), pubkey: OWNER, kind: GIT_PR_UPDATE, created_at: 5_000, content: '',
+        tags: [['e', wurzel]],
+    }
+    const wechsel: ForgeEvent = {
+        id: hex(820_002), pubkey: OWNER, kind: GIT_STATUS_CLOSED, created_at: 5_000, content: '',
+        tags: [['e', wurzel]],
+    }
+    const notiz: ForgeEvent = {
+        id: hex(820_003), pubkey: OWNER, kind: FORGE_COMMENT, created_at: 5_000, content: '',
+        tags: [['e', wurzel]],
+    }
+    const alle = [update, wechsel, notiz]
+
+    assert.deepEqual(indexUpdates(alle).get(wurzel)?.map((e) => e.id), [update.id])
+    assert.deepEqual(indexStatus(alle).get(wurzel)?.map((e) => e.id), [wechsel.id])
+    assert.deepEqual(indexNotes(alle).get(wurzel)?.map((e) => e.id), [notiz.id])
 })

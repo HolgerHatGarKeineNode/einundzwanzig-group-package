@@ -1176,19 +1176,39 @@ export const indexStatus = (statusEvents: readonly ForgeEvent[]): RootIndex =>
     indexByRoot(statusEvents, (event) => GIT_STATUS_KINDS.includes(event.kind))
 
 /**
+ * Und dasselbe für die PR-Updates (1619) — die dritte Achse derselben Bauart.
+ *
+ * **Warum sie erst jetzt auffiel:** solange {@link foldStatus} je Wurzel über
+ * den Gesamtbestand lief, verdeckte sein Anteil den hier. Nach dem Statusindex
+ * blieb `buildPullRequests` als einziger überlinearer Konstruktor stehen,
+ * gemessen 25,8 / 87,3 / 287,4 ms bei 400 / 800 / 1600 Wurzeln, während Issues
+ * und Patches linear wurden. Ein verdeckter Anteil ist kein abwesender.
+ *
+ * **Die Berechtigungsprüfung bleibt, wo sie ist.** Sie steht in
+ * {@link toPullRequest} und wird hier ausdrücklich NICHT vorgezogen: der Index
+ * ist wurzelunabhängig, `allowedActorsForRoot` ist es nicht — ein 1619, das für
+ * PR A unzulässig ist, kann für PR B zulässig sein. Wer die Prüfung in den
+ * Index zöge, müsste sie je Wurzel erneut fällen und hätte nichts gewonnen
+ * ausser einem zweiten Ort, an dem sie steht.
+ */
+export const indexUpdates = (updateEvents: readonly ForgeEvent[]): RootIndex =>
+    indexByRoot(updateEvents, (event) => event.kind === GIT_PR_UPDATE)
+
+/**
  * Die Indizes, die ein Konstruktor an seine Wurzel-Bauer weiterreicht.
  *
- * **Ein Bündel statt zweier weiterer Stellungsparameter.** `toPullRequest` hat
- * schon fünf; ein sechster und siebter, beide vom selben Typ und beide optional,
- * wären an der Aufrufstelle nicht mehr auseinanderzuhalten — und eine
- * vertauschte Reihenfolge fiele nirgends auf, weil beide Indizes strukturell
- * gleich aussehen. Benannte Felder machen den Fehler unmöglich statt
- * unwahrscheinlich.
+ * **Ein Bündel statt weiterer Stellungsparameter.** `toPullRequest` hat schon
+ * fünf; drei weitere, alle vom selben Typ und alle optional, wären an der
+ * Aufrufstelle nicht mehr auseinanderzuhalten — und eine vertauschte
+ * Reihenfolge fiele nirgends auf, weil die Indizes strukturell gleich
+ * aussehen. Benannte Felder machen den Fehler unmöglich statt unwahrscheinlich.
  *
- * Beide Felder sind optional: ohne sie verhalten sich die Bauer wie vor dem
+ * Alle Felder sind optional: ohne sie verhalten sich die Bauer wie vor dem
  * Index — sie sind weiterhin einzeln aufrufbar (Tests, Einzelabfragen).
+ * `updates` nutzt allein {@link toPullRequest}; Issues und Patches kennen
+ * keine 1619.
  */
-export type ForgeIndex = { notes?: RootIndex; status?: RootIndex }
+export type ForgeIndex = { notes?: RootIndex; status?: RootIndex; updates?: RootIndex }
 
 /**
  * Alle kind-1-Notizen an einer Wurzel, **älteste zuerst** — Vorgangsformen
@@ -1786,7 +1806,11 @@ export const toPullRequest = (
     const allowed = allowedActorsForRoot(root, maintainers)
     const status = foldStatus(root, statusEvents, maintainers, index.status)
     const comments = commentsForRoot(root.id, commentEvents, index.notes)
-    const updates = updateEvents
+    // Nur der EINGANG wechselt: der Eimer statt der ganzen Liste. Sieb und
+    // Sortierung darunter sind unverändert — auch `referencesRoot`, obwohl der
+    // Eimer sie garantiert (siehe {@link indexUpdates}).
+    const updateKandidaten = index.updates ? (index.updates.get(root.id) ?? []) : updateEvents
+    const updates = updateKandidaten
         .filter(
             (event) =>
                 event.kind === GIT_PR_UPDATE &&
@@ -1845,7 +1869,11 @@ export const buildPullRequests = (
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
 ): PullRequest[] => {
-    const index: ForgeIndex = { notes: indexNotes(commentEvents), status: indexStatus(statusEvents) }
+    const index: ForgeIndex = {
+        notes: indexNotes(commentEvents),
+        status: indexStatus(statusEvents),
+        updates: indexUpdates(updateEvents),
+    }
 
     return pullRequestEvents
         .filter((event) => event.kind === GIT_PULL_REQUEST)
