@@ -272,6 +272,151 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </dl>
                         </div>
 
+                        {{-- ── README (P6) ───────────────────────────────────────
+                             **Ein NIP-34-Repository enthält keinen Code.** Das
+                             30617 trägt clone-URLs, das 30618 Ref-Namen — mehr
+                             nicht. Wer eine Datei zeigen will, muss Git sprechen.
+
+                             Und der Server kann `filter=blob:none` NICHT (am
+                             2026-08-24 gemessen: `warning: filtering not
+                             recognized by server, ignoring`). Es gibt deshalb
+                             nur eine Bauform: einmal das ganze Repository holen,
+                             danach ist alles lokal. Das ist ein bewusster
+                             Download, kein Nebenbei — auf einem Telefon im
+                             Mobilfunknetz ist es das Datenvolumen des Nutzers.
+                             Deshalb startet hier NICHTS von selbst. --}}
+                        <section class="mt-4" data-forge-readme :data-lage="readme.lage">
+                            {{-- Der Titel steht über ALLEN Lagen: sonst springt
+                                 die Überschrift beim Zustandswechsel weg. --}}
+                            <h2 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('README') }}</h2>
+
+                            {{-- 1. Wird noch geprüft, ob es schon lokal liegt.
+                                    Kein Netz, deshalb sehr kurz — aber nicht
+                                    „bereit" behaupten, solange es unbekannt ist. --}}
+                            <div x-show="readme.lage === 'pruefe'" class="skeleton h-16 rounded-tile"></div>
+
+                            {{-- 2. Keine brauchbare clone-URL. Kein Fehler,
+                                    sondern eine Eigenschaft des Repositories. --}}
+                            <template x-if="readme.lage === 'keine-url'">
+                                <p class="forge-mass text-sm text-muted" data-forge-readme-hinweis>{{ __('Dieses Repository nennt keine Adresse, die ein Browser abrufen kann — es gibt nur Zugänge wie ssh oder git.') }}</p>
+                            </template>
+
+                            {{-- 3. Liegt woanders. Unser signierter Zugang gilt
+                                    nur für den eigenen Relay; ein fremder Host
+                                    ist kein Defekt, sondern ein Link. --}}
+                            <template x-if="readme.lage === 'fremd'">
+                                <p class="forge-mass text-sm text-muted" data-forge-readme-hinweis>
+                                    <span>{{ __('Dieses Repository liegt auf einem fremden Git-Host. Von hier lässt es sich nicht laden — der signierte Zugang gilt nur für das eigene Relay.') }}</span>
+                                    <template x-if="readme.fremdUrl">
+                                        <a :href="readme.fremdUrl" target="_blank" rel="noopener noreferrer"
+                                           class="ms-1 underline" x-text="@js(__('Dort öffnen'))"></a>
+                                    </template>
+                                </p>
+                            </template>
+
+                            {{-- 4. Die ANSAGE vor dem Download.
+                                    Was hier NICHT steht, ist eine Zahl für DIESES
+                                    Repository: die kennt vorher niemand, und der
+                                    Server nennt sie nicht. Eine erfundene Zahl
+                                    wäre schlimmer als keine. Stattdessen die
+                                    Größenordnung mit ihrem gemessenen Beleg —
+                                    ausdrücklich als Beispiel gekennzeichnet. --}}
+                            <template x-if="readme.lage === 'bereit'">
+                                <div class="surface-card p-4" data-forge-readme-ansage>
+                                    <p class="forge-mass text-sm">{{ __('Das README steht nicht im Nostr-Ereignis. Um es zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.') }}</p>
+                                    <p class="forge-mass mt-1.5 text-xs text-muted">{{ __('Das sind je nach Repository mehrere Megabyte (beim grössten hier gemessen: 8,3 MB). Im Mobilfunknetz zählt das auf dein Datenvolumen.') }}</p>
+                                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                                        <flux:button size="sm" variant="primary" icon="arrow-down-tray"
+                                                     x-on:click="readmeLaden()" data-forge-readme-start>{{ __('Repository laden und README zeigen') }}</flux:button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            {{-- 5. Läuft. Abbrechbar — und der Abbruch ist echt:
+                                    das Signal geht über `fetchOptions` in den
+                                    laufenden `fetch`, nicht in ein Weggucken.
+
+                                    Der Balken erscheint NUR, wenn ein Anteil
+                                    berechenbar ist. `total` ist bei mehreren
+                                    Phasen 0; ein Balken daraus behauptete
+                                    Stillstand, wo Arbeit läuft. Dann steht die
+                                    rohe Zahl da — die ist immer wahr. --}}
+                            <template x-if="readme.lage === 'laedt'">
+                                <div class="surface-card p-4" data-forge-readme-laeuft>
+                                    <p class="text-sm" role="status" aria-live="polite" data-forge-readme-phase
+                                       x-text="readme.fortschritt && readme.fortschritt.phase
+                                           ? readme.fortschritt.phase
+                                           : @js(__('Wird geladen …'))"></p>
+                                    <template x-if="readme.fortschritt && readme.fortschritt.anteil !== null">
+                                        <div class="mt-2">
+                                            <div class="h-1.5 overflow-hidden rounded-pill bg-zinc-200 dark:bg-zinc-800"
+                                                 role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                                                 :aria-valuenow="Math.round(readme.fortschritt.anteil * 100)"
+                                                 :aria-label="@js(__('Fortschritt des Downloads'))">
+                                                <div class="h-full rounded-pill bg-brand-500 transition-[width]"
+                                                     :style="'width:' + Math.round(readme.fortschritt.anteil * 100) + '%'"></div>
+                                            </div>
+                                            <p class="mt-1 text-xs text-muted" data-forge-readme-zahl
+                                               x-text="$num(readme.fortschritt.geladen) + ' / ' + $num(readme.fortschritt.gesamt)"></p>
+                                        </div>
+                                    </template>
+                                    {{-- Kein Anteil: dann die rohe Zahl, ohne Balken. --}}
+                                    <template x-if="readme.fortschritt && readme.fortschritt.anteil === null && readme.fortschritt.geladen > 0">
+                                        <p class="mt-1 text-xs text-muted" data-forge-readme-zahl
+                                           x-text="$plural(readme.fortschritt.geladen, '1 Objekt', ':count Objekte')"></p>
+                                    </template>
+                                    <div class="mt-3">
+                                        <flux:button size="sm" variant="ghost" icon="x-mark"
+                                                     x-on:click="readmeAbbrechen()" data-forge-readme-abbruch>{{ __('Abbrechen') }}</flux:button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            {{-- 6. Fehler. Der Grund steht ausgeschrieben — kein
+                                    „Fehler beim Laden". --}}
+                            <template x-if="readme.lage === 'fehler'">
+                                <flux:callout variant="danger" icon="exclamation-triangle" class="forge-mass" data-forge-readme-fehler>
+                                    <flux:callout.text x-text="readmeFehlerText()"></flux:callout.text>
+                                    <x-slot name="actions">
+                                        <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="readmeLaden()">{{ __('Erneut versuchen') }}</flux:button>
+                                    </x-slot>
+                                </flux:callout>
+                            </template>
+
+                            {{-- 7. Geladen, aber es GIBT kein README. Eine eigene
+                                    Aussage: ein leerer Kasten sähe aus wie ein
+                                    Fehler. --}}
+                            <template x-if="readme.lage === 'leer'">
+                                <p class="forge-mass text-sm text-muted" data-forge-readme-hinweis>{{ __('Dieses Repository hat keine README-Datei in seinem Wurzelverzeichnis.') }}</p>
+                            </template>
+
+                            {{-- 8. Da. --}}
+                            <template x-if="readme.lage === 'da'">
+                                <div class="surface-card p-4" data-forge-readme-inhalt>
+                                    <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                                        <span class="text-xs font-semibold text-muted" x-text="readme.name" data-forge-readme-name></span>
+                                        <span class="flex items-center gap-2">
+                                            {{-- Woher der Inhalt stammt, als Kurz-Hash. Ohne
+                                                 ihn behauptete die Fläche Aktualität, die sie
+                                                 nicht kennt: der Klon ist ein Stand, kein Live-Blick. --}}
+                                            <template x-if="readme.commit">
+                                                <span class="text-[0.7rem] text-muted" data-forge-readme-commit
+                                                      x-text="@js(__('Stand :commit')).replace(':commit', readme.commit)"></span>
+                                            </template>
+                                            <flux:button size="xs" variant="ghost" icon="arrow-path"
+                                                         x-on:click="readmeNeuLaden()" data-forge-readme-neu
+                                                         aria-label="{{ __('Repository neu laden') }}" />
+                                        </span>
+                                    </div>
+                                    {{-- Derselbe Renderer wie Artikel und Issue
+                                         (`markdown-it`, `html:false`). Ein zweiter
+                                         für Fremdtext wären zwei Sicherheitszusagen. --}}
+                                    <div x-show="readme.html" class="article-content forge-mass" x-html="readme.html"></div>
+                                    <pre x-show="readme.text" class="forge-mass overflow-x-auto whitespace-pre-wrap text-sm" x-text="readme.text"></pre>
+                                </div>
+                            </template>
+                        </section>
+
                         {{-- `scrollable scrollable:fade` — dieselbe Heilung, die P1 der
                              Übersicht gegeben hat, und hier bis zum 2026-08-23 NICHT
                              angekommen: das Vendor-Attribut stand nur an
