@@ -243,3 +243,178 @@ export const ordneFehlerEin = (fehler: unknown): KlonFehler => {
 
     return 'unbekannt'
 }
+
+// ── Der Baum ────────────────────────────────────────────────────────────────
+
+/** Ein Eintrag im Verzeichnisbaum, wie ihn die Fläche braucht. */
+export type BaumEintrag = { name: string; art: 'blob' | 'tree' | 'commit' }
+
+/**
+ * Anzeigereihenfolge: Verzeichnisse zuerst, dann alphabetisch ohne Rücksicht
+ * auf Gross-/Kleinschreibung.
+ *
+ * Dieselbe Regel wie in Amethysts `sortForDisplay` und wie in jedem Dateimanager
+ * — und sie ist nicht Geschmack: Git liefert die Baumeinträge in seiner eigenen
+ * Sortierung (Verzeichnisse mit angehängtem `/`), in der `Zebra` vor `apfel`
+ * steht. Wer sie durchreicht, zeigt eine Liste, die kein Mensch überfliegen kann.
+ *
+ * `localeCompare` ohne Locale-Argument: die Sprache der Oberfläche entscheidet,
+ * nicht die des Repositories.
+ */
+export const sortiereEintraege = (eintraege: readonly BaumEintrag[]): BaumEintrag[] =>
+    [...eintraege].sort((a, b) => {
+        const aOrdner = a.art === 'tree'
+        const bOrdner = b.art === 'tree'
+        if (aOrdner !== bOrdner) {
+            return aOrdner ? -1 : 1
+        }
+
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
+
+/**
+ * Ein Pfad als Krümelspur — Paare aus Beschriftung und Zielpfad.
+ *
+ * Der leere Pfad ergibt eine leere Spur; die Wurzel selbst benennt die Fläche,
+ * weil ihr Wort übersetzt sein muss.
+ */
+export const krumelspur = (pfad: string): { name: string; pfad: string }[] => {
+    const teile = pfad.split('/').filter((t) => t !== '')
+    const spur: { name: string; pfad: string }[] = []
+    let bisher = ''
+    for (const teil of teile) {
+        bisher = bisher === '' ? teil : `${bisher}/${teil}`
+        spur.push({ name: teil, pfad: bisher })
+    }
+
+    return spur
+}
+
+/** Pfad eine Ebene höher — `''` heisst Wurzel. */
+export const elternPfad = (pfad: string): string => {
+    const teile = pfad.split('/').filter((t) => t !== '')
+    teile.pop()
+
+    return teile.join('/')
+}
+
+/** Zwei Pfadteile verbinden, ohne doppelte oder führende Schrägstriche. */
+export const verbinde = (basis: string, name: string): string => (basis === '' ? name : `${basis}/${name}`)
+
+// ── Was mit einer Datei geschieht ───────────────────────────────────────────
+
+/**
+ * Ab hier wird Text NICHT mehr gerendert.
+ *
+ * 512 kB sind rund 15 000 Zeilen — mehr, als ein Mensch in einem Browserfenster
+ * liest, und genug, um das Layout eines Telefons in die Knie zu zwingen. Die
+ * Grenze ist bewusst grosszügig: sie soll die Ausreisser abfangen (in diesem
+ * einen Repository eine 6 MB grosse `vendor.js.map`), nicht normalen Quelltext.
+ */
+export const TEXT_GRENZE = 512_000
+
+/**
+ * Ab hier wird ein Bild nicht mehr angezeigt.
+ *
+ * Ein Bild landet als Blob-URL im Speicher des Dokuments; 2 MB sind für eine
+ * Vorschau reichlich und für den Speicher unauffällig.
+ */
+export const BILD_GRENZE = 2_000_000
+
+/**
+ * Höchstzahl gerenderter Zeilen einer Textdatei.
+ *
+ * Auch unterhalb von {@link TEXT_GRENZE} kann eine Datei zehntausend Zeilen
+ * haben (minifizierter Code hat eine einzige, dafür sehr lange). Gekürzt wird
+ * **sichtbar** — dieselbe Regel wie beim Diff.
+ */
+export const ZEILEN_GRENZE = 3000
+
+/** Was die Fläche mit einer Datei tun soll. */
+export type DateiArt = 'markdown' | 'text' | 'bild' | 'binaer' | 'zu-gross'
+
+const BILD_ENDUNGEN = /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i
+const SVG_ENDUNG = /\.svg$/i
+
+/**
+ * Enthalten diese Bytes ein NUL? Dann ist es keine Textdatei.
+ *
+ * Dieselbe Heuristik, die git und Amethyst benutzen (`isProbablyBinary`), und
+ * bewusst nur auf den ersten 8000 Bytes: eine 6-MB-Datei ganz zu durchsuchen
+ * kostet mehr, als die Antwort wert ist, und ein NUL kommt in echten
+ * Binärdateien praktisch immer früh.
+ */
+export const istBinaer = (bytes: Uint8Array): boolean => {
+    const bis = Math.min(bytes.length, 8000)
+    for (let i = 0; i < bis; i += 1) {
+        if (bytes[i] === 0) {
+            return true
+        }
+    }
+
+    return false
+}
+
+/**
+ * Die Entscheidung, was mit einer Datei passiert — **vor** dem Rendern.
+ *
+ * Die Reihenfolge ist die Aussage:
+ *
+ * 1. **Bilder zuerst**, und zwar an der Endung: ein PNG ist binär, soll aber
+ *    angezeigt werden. Andersherum geprüft, landete jedes Bild bei „binär".
+ * 2. **Grösse vor Inhalt.** Eine 6-MB-Datei wird gar nicht erst untersucht;
+ *    sie in den DOM zu schieben und dann festzustellen, dass es zu viel war,
+ *    ist genau die stillschweigende Entscheidung, die hier nicht passieren soll.
+ * 3. **NUL-Prüfung zuletzt**, weil sie die Bytes anfassen muss.
+ *
+ * `svg` gilt als **Text**, nicht als Bild: es ist Quelltext, und ihn als Bild
+ * einzubinden hiesse, fremdes Markup in das Dokument zu lassen.
+ */
+export const dateiArt = (name: string, bytes: Uint8Array): DateiArt => {
+    if (BILD_ENDUNGEN.test(name)) {
+        return bytes.length > BILD_GRENZE ? 'zu-gross' : 'bild'
+    }
+    if (bytes.length > TEXT_GRENZE) {
+        return 'zu-gross'
+    }
+    if (istBinaer(bytes)) {
+        return 'binaer'
+    }
+    if (SVG_ENDUNG.test(name)) {
+        return 'text'
+    }
+
+    return istMarkdown(name) ? 'markdown' : 'text'
+}
+
+/** MIME-Typ für die Blob-URL eines Bildes. */
+export const bildMime = (name: string): string => {
+    const endung = name.toLowerCase().split('.').pop() ?? ''
+    const karte: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        webp: 'image/webp',
+        avif: 'image/avif',
+        bmp: 'image/bmp',
+        ico: 'image/x-icon',
+    }
+
+    return karte[endung] ?? 'application/octet-stream'
+}
+
+/**
+ * Text auf {@link ZEILEN_GRENZE} kürzen — und **sagen**, dass gekürzt wurde.
+ *
+ * Gibt die Gesamtzahl mit zurück, damit die Fläche „3000 von 41 233 Zeilen"
+ * schreiben kann statt eines nichtssagenden „gekürzt".
+ */
+export const kuerzeZeilen = (text: string): { text: string; gekuerzt: boolean; zeilen: number } => {
+    const alle = text.split('\n')
+    if (alle.length <= ZEILEN_GRENZE) {
+        return { text, gekuerzt: false, zeilen: alle.length }
+    }
+
+    return { text: alle.slice(0, ZEILEN_GRENZE).join('\n'), gekuerzt: true, zeilen: alle.length }
+}

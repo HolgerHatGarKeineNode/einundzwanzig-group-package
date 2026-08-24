@@ -285,7 +285,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Download, kein Nebenbei — auf einem Telefon im
                              Mobilfunknetz ist es das Datenvolumen des Nutzers.
                              Deshalb startet hier NICHTS von selbst. --}}
-                        <section class="mt-4" data-forge-readme :data-lage="readme.lage">
+                        <section class="mt-4" data-forge-readme :data-lage="klon.lage">
                             {{-- Der Titel steht über ALLEN Lagen: sonst springt
                                  die Überschrift beim Zustandswechsel weg. --}}
                             <h2 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('README') }}</h2>
@@ -293,22 +293,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             {{-- 1. Wird noch geprüft, ob es schon lokal liegt.
                                     Kein Netz, deshalb sehr kurz — aber nicht
                                     „bereit" behaupten, solange es unbekannt ist. --}}
-                            <div x-show="readme.lage === 'pruefe'" class="skeleton h-16 rounded-tile"></div>
+                            <div x-show="klon.lage === 'pruefe'" class="skeleton h-16 rounded-tile"></div>
 
                             {{-- 2. Keine brauchbare clone-URL. Kein Fehler,
                                     sondern eine Eigenschaft des Repositories. --}}
-                            <template x-if="readme.lage === 'keine-url'">
+                            <template x-if="klon.lage === 'keine-url'">
                                 <p class="forge-mass text-sm text-muted" data-forge-readme-hinweis>{{ __('Dieses Repository nennt keine Adresse, die ein Browser abrufen kann — es gibt nur Zugänge wie ssh oder git.') }}</p>
                             </template>
 
                             {{-- 3. Liegt woanders. Unser signierter Zugang gilt
                                     nur für den eigenen Relay; ein fremder Host
                                     ist kein Defekt, sondern ein Link. --}}
-                            <template x-if="readme.lage === 'fremd'">
+                            <template x-if="klon.lage === 'fremd'">
                                 <p class="forge-mass text-sm text-muted" data-forge-readme-hinweis>
                                     <span>{{ __('Dieses Repository liegt auf einem fremden Git-Host. Von hier lässt es sich nicht laden — der signierte Zugang gilt nur für das eigene Relay.') }}</span>
-                                    <template x-if="readme.fremdUrl">
-                                        <a :href="readme.fremdUrl" target="_blank" rel="noopener noreferrer"
+                                    <template x-if="klon.fremdUrl">
+                                        <a :href="klon.fremdUrl" target="_blank" rel="noopener noreferrer"
                                            class="ms-1 underline" x-text="@js(__('Dort öffnen'))"></a>
                                     </template>
                                 </p>
@@ -321,13 +321,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     wäre schlimmer als keine. Stattdessen die
                                     Größenordnung mit ihrem gemessenen Beleg —
                                     ausdrücklich als Beispiel gekennzeichnet. --}}
-                            <template x-if="readme.lage === 'bereit'">
+                            <template x-if="klon.lage === 'bereit'">
                                 <div class="surface-card p-4" data-forge-readme-ansage>
                                     <p class="forge-mass text-sm">{{ __('Das README steht nicht im Nostr-Ereignis. Um es zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.') }}</p>
                                     <p class="forge-mass mt-1.5 text-xs text-muted">{{ __('Das sind je nach Repository mehrere Megabyte (beim grössten hier gemessen: 8,3 MB). Im Mobilfunknetz zählt das auf dein Datenvolumen.') }}</p>
                                     <div class="mt-3 flex flex-wrap items-center gap-2">
                                         <flux:button size="sm" variant="primary" icon="arrow-down-tray"
-                                                     x-on:click="readmeLaden()" data-forge-readme-start>{{ __('Repository laden und README zeigen') }}</flux:button>
+                                                     x-on:click="klonLaden()" data-forge-readme-start>{{ __('Repository laden und README zeigen') }}</flux:button>
                                     </div>
                                 </div>
                             </template>
@@ -341,44 +341,44 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     Phasen 0; ein Balken daraus behauptete
                                     Stillstand, wo Arbeit läuft. Dann steht die
                                     rohe Zahl da — die ist immer wahr. --}}
-                            <template x-if="readme.lage === 'laedt'">
+                            <template x-if="klon.lage === 'laedt'">
                                 <div class="surface-card p-4" data-forge-readme-laeuft>
                                     <p class="text-sm" role="status" aria-live="polite" data-forge-readme-phase
-                                       x-text="readme.fortschritt && readme.fortschritt.phase
-                                           ? readme.fortschritt.phase
+                                       x-text="klon.fortschritt && klon.fortschritt.phase
+                                           ? klon.fortschritt.phase
                                            : @js(__('Wird geladen …'))"></p>
-                                    <template x-if="readme.fortschritt && readme.fortschritt.anteil !== null">
+                                    <template x-if="klon.fortschritt && klon.fortschritt.anteil !== null">
                                         <div class="mt-2">
                                             <div class="h-1.5 overflow-hidden rounded-pill bg-zinc-200 dark:bg-zinc-800"
                                                  role="progressbar" aria-valuemin="0" aria-valuemax="100"
-                                                 :aria-valuenow="Math.round(readme.fortschritt.anteil * 100)"
+                                                 :aria-valuenow="Math.round(klon.fortschritt.anteil * 100)"
                                                  :aria-label="@js(__('Fortschritt des Downloads'))">
                                                 <div class="h-full rounded-pill bg-brand-500 transition-[width]"
-                                                     :style="'width:' + Math.round(readme.fortschritt.anteil * 100) + '%'"></div>
+                                                     :style="'width:' + Math.round(klon.fortschritt.anteil * 100) + '%'"></div>
                                             </div>
                                             <p class="mt-1 text-xs text-muted" data-forge-readme-zahl
-                                               x-text="$num(readme.fortschritt.geladen) + ' / ' + $num(readme.fortschritt.gesamt)"></p>
+                                               x-text="$num(klon.fortschritt.geladen) + ' / ' + $num(klon.fortschritt.gesamt)"></p>
                                         </div>
                                     </template>
                                     {{-- Kein Anteil: dann die rohe Zahl, ohne Balken. --}}
-                                    <template x-if="readme.fortschritt && readme.fortschritt.anteil === null && readme.fortschritt.geladen > 0">
+                                    <template x-if="klon.fortschritt && klon.fortschritt.anteil === null && klon.fortschritt.geladen > 0">
                                         <p class="mt-1 text-xs text-muted" data-forge-readme-zahl
-                                           x-text="$plural(readme.fortschritt.geladen, '1 Objekt', ':count Objekte')"></p>
+                                           x-text="$plural(klon.fortschritt.geladen, '1 Objekt', ':count Objekte')"></p>
                                     </template>
                                     <div class="mt-3">
                                         <flux:button size="sm" variant="ghost" icon="x-mark"
-                                                     x-on:click="readmeAbbrechen()" data-forge-readme-abbruch>{{ __('Abbrechen') }}</flux:button>
+                                                     x-on:click="klonAbbrechen()" data-forge-readme-abbruch>{{ __('Abbrechen') }}</flux:button>
                                     </div>
                                 </div>
                             </template>
 
                             {{-- 6. Fehler. Der Grund steht ausgeschrieben — kein
                                     „Fehler beim Laden". --}}
-                            <template x-if="readme.lage === 'fehler'">
+                            <template x-if="klon.lage === 'fehler'">
                                 <flux:callout variant="danger" icon="exclamation-triangle" class="forge-mass" data-forge-readme-fehler>
-                                    <flux:callout.text x-text="readmeFehlerText()"></flux:callout.text>
+                                    <flux:callout.text x-text="klonFehlerText()"></flux:callout.text>
                                     <x-slot name="actions">
-                                        <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="readmeLaden()">{{ __('Erneut versuchen') }}</flux:button>
+                                        <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="klonLaden()">{{ __('Erneut versuchen') }}</flux:button>
                                     </x-slot>
                                 </flux:callout>
                             </template>
@@ -386,33 +386,33 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             {{-- 7. Geladen, aber es GIBT kein README. Eine eigene
                                     Aussage: ein leerer Kasten sähe aus wie ein
                                     Fehler. --}}
-                            <template x-if="readme.lage === 'leer'">
+                            <template x-if="klon.lage === 'leer'">
                                 <p class="forge-mass text-sm text-muted" data-forge-readme-hinweis>{{ __('Dieses Repository hat keine README-Datei in seinem Wurzelverzeichnis.') }}</p>
                             </template>
 
                             {{-- 8. Da. --}}
-                            <template x-if="readme.lage === 'da'">
+                            <template x-if="klon.lage === 'da'">
                                 <div class="surface-card p-4" data-forge-readme-inhalt>
                                     <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                                        <span class="text-xs font-semibold text-muted" x-text="readme.name" data-forge-readme-name></span>
+                                        <span class="text-xs font-semibold text-muted" x-text="klon.name" data-forge-readme-name></span>
                                         <span class="flex items-center gap-2">
                                             {{-- Woher der Inhalt stammt, als Kurz-Hash. Ohne
                                                  ihn behauptete die Fläche Aktualität, die sie
                                                  nicht kennt: der Klon ist ein Stand, kein Live-Blick. --}}
-                                            <template x-if="readme.commit">
+                                            <template x-if="klon.commit">
                                                 <span class="text-[0.7rem] text-muted" data-forge-readme-commit
-                                                      x-text="@js(__('Stand :commit')).replace(':commit', readme.commit)"></span>
+                                                      x-text="@js(__('Stand :commit')).replace(':commit', klon.commit)"></span>
                                             </template>
                                             <flux:button size="xs" variant="ghost" icon="arrow-path"
-                                                         x-on:click="readmeNeuLaden()" data-forge-readme-neu
+                                                         x-on:click="klonNeuLaden()" data-forge-readme-neu
                                                          aria-label="{{ __('Repository neu laden') }}" />
                                         </span>
                                     </div>
                                     {{-- Derselbe Renderer wie Artikel und Issue
                                          (`markdown-it`, `html:false`). Ein zweiter
                                          für Fremdtext wären zwei Sicherheitszusagen. --}}
-                                    <div x-show="readme.html" class="article-content forge-mass" x-html="readme.html"></div>
-                                    <pre x-show="readme.text" class="forge-mass overflow-x-auto whitespace-pre-wrap text-sm" x-text="readme.text"></pre>
+                                    <div x-show="klon.html" class="article-content forge-mass" x-html="klon.html"></div>
+                                    <pre x-show="klon.text" class="forge-mass overflow-x-auto whitespace-pre-wrap text-sm" x-text="klon.text"></pre>
                                 </div>
                             </template>
                         </section>
@@ -432,6 +432,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Wer sie in eine Liste wirft, muss in jeder Zeile erklären,
                              welche Sorte gerade gemeint ist. --}}
                         <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab" class="mb-3 mt-4">
+                            <flux:tab name="code">{{ __('Code') }}</flux:tab>
                             <flux:tab name="issues">{{ __('Issues') }}</flux:tab>
                             <flux:tab name="patches">{{ __('Patches') }}</flux:tab>
                             <flux:tab name="pulls">{{ __('Pull Requests') }}</flux:tab>
@@ -762,6 +763,188 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </li>
                                 </template>
                             </ul>
+                        </div>
+
+                        {{-- ── Code (P6) ────────────────────────────────────────
+                             Liest aus DEMSELBEN Klon wie das README. Es gibt
+                             genau einen Ladeweg — das ist der einzige Vorteil,
+                             den das `blob:none`-Nein übriggelassen hat, und hier
+                             wird er eingelöst: kein Byte Netz für Baum und Datei. --}}
+                        <div x-show="tab === 'code'" x-cloak data-forge-code :data-lage="klon.lage">
+                            {{-- Nicht geklont: dieselbe Ansage wie beim README,
+                                 und derselbe Knopf — es ist derselbe Download. --}}
+                            <template x-if="klon.lage !== 'da' && klon.lage !== 'leer'">
+                                <div class="surface-card p-4" data-forge-code-ansage>
+                                    <p class="forge-mass text-sm" x-show="klon.lage === 'bereit'">{{ __('Der Dateibaum steht nicht im Nostr-Ereignis. Um ihn zu zeigen, lädt dieser Client das ganze Repository herunter — derselbe Download wie fürs README.') }}</p>
+                                    <p class="forge-mass text-sm" x-show="klon.lage === 'laedt'">{{ __('Wird geladen …') }}</p>
+                                    <p class="forge-mass text-sm text-muted" x-show="klon.lage === 'fremd' || klon.lage === 'keine-url'">{{ __('Von hier lässt sich dieses Repository nicht laden — siehe den Hinweis über den Reitern.') }}</p>
+                                    <div class="mt-3" x-show="klon.lage === 'bereit'">
+                                        <flux:button size="sm" variant="primary" icon="arrow-down-tray"
+                                                     x-on:click="klonLaden()" data-forge-code-start>{{ __('Repository laden') }}</flux:button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <template x-if="klon.lage === 'da' || klon.lage === 'leer'">
+                                <div>
+                                    {{-- ── Krümelspur ─────────────────────────
+                                         Eine `nav` mit Liste, nicht eine Reihe
+                                         loser Links: der Weg IST eine Struktur,
+                                         und ein Screenreader soll ihn als solche
+                                         hören. --}}
+                                    <nav class="mb-2 flex flex-wrap items-center gap-1 text-sm" data-forge-krumel
+                                         aria-label="{{ __('Pfad im Repository') }}">
+                                        <button type="button" class="pressable rounded-tile px-1.5 py-0.5 font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                                                x-on:click="codeOeffnen('')" data-forge-krumel-wurzel>{{ __('Wurzel') }}</button>
+                                        <template x-for="(k, i) in krumel()" :key="k.pfad">
+                                            <span class="flex items-center gap-1">
+                                                <span aria-hidden="true" class="text-muted">/</span>
+                                                <button type="button" class="pressable rounded-tile px-1.5 py-0.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                                                        :class="i === krumel().length - 1 && !code.datei ? 'font-semibold' : ''"
+                                                        x-on:click="code.datei ? dateiSchliessen() : codeOeffnen(k.pfad)"
+                                                        x-text="k.name"></button>
+                                            </span>
+                                        </template>
+                                    </nav>
+
+                                    <p x-show="code.fehler" x-cloak class="forge-mass mb-2 text-sm text-red-600 dark:text-red-400"
+                                       role="alert" data-forge-code-fehler x-text="code.fehler"></p>
+
+                                    {{-- ── Der Baum ───────────────────────── --}}
+                                    <template x-if="!code.datei">
+                                        <ul class="surface-card" data-forge-baum>
+                                            {{-- Eine Ebene höher — nur, wenn es eine gibt. --}}
+                                            <template x-if="code.pfad !== ''">
+                                                <li class="border-b border-zinc-200 dark:border-zinc-800">
+                                                    <button type="button" class="pressable flex w-full items-center gap-3 p-3 text-start"
+                                                            x-on:click="codeHoch()" data-forge-baum-hoch>
+                                                        <flux:icon.arrow-up class="size-4 shrink-0 text-muted" />
+                                                        <span class="text-sm">{{ __('Eine Ebene höher') }}</span>
+                                                    </button>
+                                                </li>
+                                            </template>
+                                            <template x-for="e in code.eintraege" :key="e.name">
+                                                <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800">
+                                                    <button type="button" class="pressable flex w-full items-center gap-3 p-3 text-start"
+                                                            data-forge-baum-eintrag :data-art="e.art" :data-name="e.name"
+                                                            x-on:click="e.art === 'tree' ? codeOeffnen(code.pfad ? code.pfad + '/' + e.name : e.name) : dateiOeffnen(code.pfad ? code.pfad + '/' + e.name : e.name)">
+                                                        {{-- Die Glyphe ist Zierrat, das Wort trägt:
+                                                             `sr-only` sagt die Art an, damit ein
+                                                             Screenreader Ordner und Datei
+                                                             unterscheidet (WCAG 1.4.1). --}}
+                                                        <template x-if="e.art === 'tree'">
+                                                            <flux:icon.folder class="size-4 shrink-0 text-brand-800 dark:text-brand-300" />
+                                                        </template>
+                                                        <template x-if="e.art !== 'tree'">
+                                                            <flux:icon.document class="size-4 shrink-0 text-muted" />
+                                                        </template>
+                                                        <span class="min-w-0 flex-1 truncate text-sm" x-text="e.name"></span>
+                                                        <span class="sr-only" x-text="e.art === 'tree' ? @js(__('Verzeichnis')) : @js(__('Datei'))"></span>
+                                                    </button>
+                                                </li>
+                                            </template>
+                                            <template x-if="code.eintraege.length === 0 && !code.laedt">
+                                                <li class="p-4 text-sm text-muted" data-forge-baum-leer>{{ __('Dieses Verzeichnis ist leer.') }}</li>
+                                            </template>
+                                        </ul>
+                                    </template>
+
+                                    {{-- ── Die Datei ──────────────────────────
+                                         Was mit ihr geschieht, ist VOR dem
+                                         Rendern entschieden (`dateiArt`): Bilder
+                                         an der Endung, Grösse vor Inhalt, die
+                                         NUL-Prüfung zuletzt. Eine 6-MB-Karte
+                                         wird gar nicht erst dekodiert. --}}
+                                    <template x-if="code.datei">
+                                        <div class="surface-card" data-forge-datei :data-art="code.art">
+                                            <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-200 p-3 dark:border-zinc-800">
+                                                <span class="text-sm font-semibold" data-forge-datei-name x-text="code.datei"></span>
+                                                <span class="flex items-center gap-2 text-xs text-muted">
+                                                    <span data-forge-datei-groesse x-text="groessenText(code.groesse)"></span>
+                                                    <flux:button size="xs" variant="ghost" icon="x-mark" square
+                                                                 x-on:click="dateiSchliessen()" data-forge-datei-zu
+                                                                 aria-label="{{ __('Datei schliessen') }}" />
+                                                </span>
+                                            </div>
+
+                                            <div x-show="code.laedt" class="skeleton m-3 h-24 rounded-tile"></div>
+
+                                            {{-- Zu gross: NICHT rendern, und den Grund
+                                                 mit der Zahl nennen. Ein Kasten, der
+                                                 sich beim Öffnen aufhängt, ist keine
+                                                 Entscheidung. --}}
+                                            <template x-if="code.art === 'zu-gross'">
+                                                <p class="forge-mass p-4 text-sm text-muted" data-forge-datei-hinweis
+                                                   x-text="@js(__('Diese Datei ist mit :groesse zu gross für die Anzeige. Sie liegt vollständig im lokalen Klon.')).replace(':groesse', groessenText(code.groesse))"></p>
+                                            </template>
+
+                                            {{-- Binär: dasselbe, mit anderem Grund. --}}
+                                            <template x-if="code.art === 'binaer'">
+                                                <p class="forge-mass p-4 text-sm text-muted" data-forge-datei-hinweis>{{ __('Diese Datei ist keine Textdatei — ihr Inhalt lässt sich nicht als Text zeigen.') }}</p>
+                                            </template>
+
+                                            <template x-if="code.art === 'bild'">
+                                                {{-- `alt` ist der DATEINAME: ein
+                                                     erfundener Bildinhalt wäre eine
+                                                     Behauptung über etwas, das wir
+                                                     nicht kennen. --}}
+                                                <img :src="code.bildUrl" :alt="code.datei" data-forge-datei-bild
+                                                     class="max-h-[32rem] max-w-full object-contain p-4" />
+                                            </template>
+
+                                            <template x-if="code.gekuerzt">
+                                                <p class="forge-mass border-b border-zinc-200 px-4 py-2 text-xs text-muted dark:border-zinc-800"
+                                                   data-forge-datei-gekuerzt
+                                                   x-text="@js(__('Gezeigt werden :gezeigt von :gesamt Zeilen.')).replace(':gezeigt', $num(3000)).replace(':gesamt', $num(code.zeilen))"></p>
+                                            </template>
+
+                                            <div x-show="code.html" class="article-content forge-mass p-4" x-html="code.html"></div>
+                                            <pre x-show="code.text" data-forge-datei-text
+                                                 class="overflow-x-auto whitespace-pre p-4 text-xs leading-relaxed"><code x-text="code.text"></code></pre>
+                                        </div>
+                                    </template>
+
+                                    {{-- ── Was lokal liegt ────────────────────
+                                         Mit Baum und Dateianzeige wird das Öffnen
+                                         mehrerer Repositories zum Normalfall. Wer
+                                         Daten auf dem Gerät ablegt, sagt wo und
+                                         wie viel — und lässt sie wieder entfernen.
+
+                                         Die Zahl je Klon ist die SUMME DER
+                                         DATEIGRÖSSEN, gemessen, nicht geschätzt.
+                                         Was IndexedDB darum herum verwaltet, sagt
+                                         der Browser nur für den ganzen Ursprung;
+                                         deshalb steht diese Zahl getrennt daneben
+                                         und nicht anteilig auf die Repos verteilt. --}}
+                                    <div class="mt-4">
+                                        <flux:button size="xs" variant="ghost" icon="circle-stack"
+                                                     x-on:click="speicherUmschalten()" data-forge-speicher-schalter
+                                                     ::aria-expanded="speicher.offen ? 'true' : 'false'">{{ __('Lokal gespeichert') }}</flux:button>
+                                        <template x-if="speicher.offen">
+                                            <div class="surface-card mt-2 p-3" data-forge-speicher>
+                                                <p class="text-xs text-muted" data-forge-speicher-ursprung
+                                                   x-show="speicher.kontingent > 0"
+                                                   x-text="@js(__('Dieser Ursprung belegt :belegt von :kontingent, die der Browser ihm zugesteht.')).replace(':belegt', groessenText(speicher.belegt)).replace(':kontingent', groessenText(speicher.kontingent))"></p>
+                                                <p class="text-xs text-muted" x-show="speicher.kontingent === 0">{{ __('Wie viel Speicher der Browser diesem Ursprung zugesteht, sagt er hier nicht.') }}</p>
+                                                <ul class="mt-2 divide-y divide-zinc-200 dark:divide-zinc-800">
+                                                    <template x-for="k in speicher.klone" :key="k.owner + '/' + k.dtag">
+                                                        <li class="flex flex-wrap items-center justify-between gap-2 py-2" data-forge-speicher-klon :data-dtag="k.dtag">
+                                                            <span class="min-w-0 flex-1 truncate text-sm" x-text="k.dtag"></span>
+                                                            <span class="text-xs text-muted" x-text="groessenText(k.nutzdaten)"></span>
+                                                            <flux:button size="xs" variant="ghost" icon="trash"
+                                                                         x-on:click="klonEntfernen(k.owner, k.dtag)"
+                                                                         data-forge-speicher-entfernen>{{ __('Entfernen') }}</flux:button>
+                                                        </li>
+                                                    </template>
+                                                    <template x-if="speicher.klone.length === 0">
+                                                        <li class="py-2 text-sm text-muted" data-forge-speicher-leer>{{ __('Es liegt nichts lokal.') }}</li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
 
                         {{-- ── Patches (1617, P5) ────────────────────────────────

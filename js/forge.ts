@@ -69,8 +69,17 @@ import { filterRepos } from './forgeSearch.ts'
 // NUR die REINEN Helfer statisch — `gitBrowser.ts` wird dynamisch geladen,
 // sonst läge `isomorphic-git` (84 kB gzip) im Chunk, den jede Seite zieht.
 import {
+    dateiArt,
     findeReadme,
     groesse,
+    krumelspur,
+    kuerzeZeilen,
+    sortiereEintraege,
+    verbinde,
+    bildMime,
+    elternPfad,
+    type BaumEintrag,
+    type DateiArt,
     istEigenerHost,
     istMarkdown,
     ordneFehlerEin,
@@ -1357,13 +1366,18 @@ type ForgeState = {
 type IssueDraft = { open: boolean; title: string; body: string; error: string; busy: boolean }
 
 /**
- * Die Lagen des README-Bereichs.
+ * Die Lagen des LOKALEN KLONS — nicht die des README.
+ *
+ * Der Unterschied ist der ganze Punkt: es gibt **einen** Klon, und README,
+ * Dateibaum und Dateianzeige lesen alle aus ihm. Hiesse dieser Zustand weiter
+ * `readme`, läse sich der zweite Verbraucher wie ein Sonderfall des ersten —
+ * und der nächste baute sich seinen eigenen Ladeweg daneben.
  *
  * `pruefe` ist der Anfangszustand und NICHT `bereit`: ob das Repository schon
  * lokal liegt, weiss erst ein Blick in IndexedDB. Wer hier zweiwertig anfängt,
  * zeigt einem Nutzer, der es längst hat, eine Download-Aufforderung.
  */
-export type ReadmeLage = {
+export type KlonLage = {
     lage: 'pruefe' | 'keine-url' | 'fremd' | 'bereit' | 'laedt' | 'da' | 'leer' | 'fehler'
     /** Dateiname des gefundenen README, `''` wenn keins da ist. */
     name: string
@@ -1377,6 +1391,33 @@ export type ReadmeLage = {
     commit: string
     /** Die `web`-URL, wenn das Repository woanders liegt. */
     fremdUrl: string
+}
+
+/**
+ * Die Lage des Code-Browsers — Baum ODER eine geöffnete Datei, nie beides.
+ *
+ * `datei === ''` heisst: der Baum steht im Bild. Zwei Felder „zeigeBaum" und
+ * „zeigeDatei" wären zwei Wahrheiten über dasselbe.
+ */
+export type CodeLage = {
+    /** Aktuelles Verzeichnis, `''` = Wurzel. */
+    pfad: string
+    eintraege: BaumEintrag[]
+    /** Geöffnete Datei (voller Pfad), `''` = keine. */
+    datei: string
+    art: DateiArt | ''
+    /** Gerendertes Markdown. */
+    html: string
+    /** Klartext — bereits auf {@link ZEILEN_GRENZE} gekürzt. */
+    text: string
+    /** Blob-URL eines Bildes; wird beim Wechsel freigegeben. */
+    bildUrl: string
+    groesse: number
+    gekuerzt: boolean
+    /** Wahre Zeilenzahl, auch wenn gekürzt wurde. */
+    zeilen: number
+    laedt: boolean
+    fehler: string
 }
 
 type ForgeRepoState = {
@@ -1416,23 +1457,35 @@ type ForgeRepoState = {
      */
     wakeNotice: Record<string, { tone: 'ok' | 'warn'; text: string }>
     /**
-     * Der Zustand des README (P6). Eine Zustandsmaschine, kein Bündel Flags:
-     * „lädt UND Fehler" wäre ein Zustand, den die Fläche nicht darstellen kann.
+     * Der Zustand des lokalen Klons (P6) — GETEILT von README, Baum und
+     * Dateianzeige. Eine Zustandsmaschine, kein Bündel Flags: „lädt UND Fehler"
+     * wäre ein Zustand, den die Fläche nicht darstellen kann.
      */
-    readme: ReadmeLage
+    klon: KlonLage
+    /** Der Code-Browser (P6). Liest aus demselben Klon wie das README. */
+    code: CodeLage
+    /** Was lokal in IndexedDB liegt — erst auf Nachfrage gefüllt. */
+    speicher: { offen: boolean; klone: { owner: string; dtag: string; nutzdaten: number }[]; belegt: number; kontingent: number }
+    codeOeffnen(pfad: string): Promise<void>
+    dateiOeffnen(pfad: string): Promise<void>
+    dateiSchliessen(): void
+    codeHoch(): Promise<void>
+    krumel(): { name: string; pfad: string }[]
+    speicherUmschalten(): Promise<void>
+    klonEntfernen(owner: string, dtag: string): Promise<void>
     /** Bricht den laufenden Download ab (`fetchOptions.signal` in `gitBrowser.ts`). */
-    _readmeAbbruch: AbortController | null
+    _klonAbbruch: AbortController | null
     /** Prüft, ob das Repository schon lokal liegt — OHNE Netz. */
-    readmePruefen(): Promise<void>
+    klonPruefen(): Promise<void>
     /** Startet den Download. Nur auf ausdrücklichen Klick. */
-    readmeLaden(): Promise<void>
-    readmeAbbrechen(): void
+    klonLaden(): Promise<void>
+    klonAbbrechen(): void
     /** Verwirft den lokalen Klon und lädt neu. */
-    readmeNeuLaden(): Promise<void>
+    klonNeuLaden(): Promise<void>
     /** Der übersetzte Satz zum Fehlercode. */
-    readmeFehlerText(): string
+    klonFehlerText(): string
     /** Liest aus dem LOKALEN Klon — ohne Netz. */
-    _readmeZeigen(): Promise<void>
+    _readmeLesen(): Promise<void>
     /** „12,3 MB" o. ä. — Zahl und Einheit getrennt gebildet. */
     groessenText(bytes: number): string
     _naddr: string
@@ -1545,7 +1598,7 @@ const tabFromLocation = (): string => {
         // `patches` seit P5 (2026-08-23). Die Rail und die Werkbank verlinken
         // gezielt auf eine Liste; ein `?tab=`, das still auf „Issues" fiele,
         // zeigte etwas anderes als die Zeile, die dorthin geführt hat.
-        return tab === 'issues' || tab === 'pulls' || tab === 'patches' || tab === 'activity'
+        return tab === 'issues' || tab === 'pulls' || tab === 'patches' || tab === 'activity' || tab === 'code'
             ? tab
             : 'issues'
     } catch {
@@ -1840,8 +1893,10 @@ export function wireForge(Alpine: {
         return {
             // `pruefe`, nicht `bereit`: ob das Repository schon lokal liegt,
             // weiss erst ein Blick in IndexedDB (siehe `ReadmeLage`).
-            readme: { lage: 'pruefe', name: '', html: '', text: '', fehler: '', fortschritt: null, commit: '', fremdUrl: '' },
-            _readmeAbbruch: null,
+            klon: { lage: 'pruefe', name: '', html: '', text: '', fehler: '', fortschritt: null, commit: '', fremdUrl: '' },
+            code: { pfad: '', eintraege: [], datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0, laedt: false, fehler: '' },
+            speicher: { offen: false, klone: [], belegt: 0, kontingent: 0 },
+            _klonAbbruch: null,
             loading: true,
             error: '',
             missing: false,
@@ -1968,8 +2023,8 @@ export function wireForge(Alpine: {
                 // Einen laufenden Klon abbrechen: die Seite ist weg, der
                 // Download nicht. Auf einem Telefon wäre das ein Datenvolumen,
                 // das niemand mehr sehen wird.
-                this._readmeAbbruch?.abort()
-                this._readmeAbbruch = null
+                this._klonAbbruch?.abort()
+                this._klonAbbruch = null
             },
             async _boot() {
                 if (!WORKSPACE_URL) {
@@ -1992,8 +2047,8 @@ export function wireForge(Alpine: {
                         // Die README-Vorprüfung GENAU EINMAL: diese Ableitung
                         // feuert bei jedem eintreffenden Ereignis neu, und ein
                         // laufender Download dürfte davon nichts merken.
-                        if (this.readme.lage === 'pruefe') {
-                            void this.readmePruefen()
+                        if (this.klon.lage === 'pruefe') {
+                            void this.klonPruefen()
                         }
                     }
                 })
@@ -2053,7 +2108,7 @@ export function wireForge(Alpine: {
                 return `${formatNumber(g.zahl)} ${g.einheit}`
             },
 
-            readmeFehlerText() {
+            klonFehlerText() {
                 const codes: Record<string, string> = {
                     'nicht-angemeldet': 'Zum Laden musst du angemeldet sein — der Git-Zugang wird signiert (NIP-98).',
                     'kein-zugriff': 'Der Relay hat den Zugriff abgelehnt. Entweder bist du kein Mitglied des Kanals, zu dem dieses Repository gehört, oder die Signatur ist abgelaufen.',
@@ -2062,7 +2117,7 @@ export function wireForge(Alpine: {
                     unbekannt: 'Das Repository liess sich nicht laden.',
                 }
 
-                return this.readme.fehler ? t(codes[this.readme.fehler] ?? codes.unbekannt) : ''
+                return this.klon.fehler ? t(codes[this.klon.fehler] ?? codes.unbekannt) : ''
             },
 
             /**
@@ -2070,14 +2125,14 @@ export function wireForge(Alpine: {
              * muss vor der Download-Aufforderung stehen, sonst bekommt jemand,
              * der das Repository längst hat, eine Aufforderung zum Herunterladen.
              */
-            async readmePruefen() {
+            async klonPruefen() {
                 const repo = this.view?.repo
                 if (!repo) {
                     return
                 }
                 const url = waehleCloneUrl(repo.cloneUrls)
                 if (!url) {
-                    this.readme = { ...this.readme, lage: 'keine-url' }
+                    this.klon = { ...this.klon, lage: 'keine-url' }
 
                     return
                 }
@@ -2085,32 +2140,32 @@ export function wireForge(Alpine: {
                 // trägt dort nur nicht. Die Fläche zeigt dann den Link statt
                 // einer Fehlermeldung.
                 if (!istEigenerHost(url, WORKSPACE_URL)) {
-                    this.readme = { ...this.readme, lage: 'fremd', fremdUrl: repo.webUrl || url }
+                    this.klon = { ...this.klon, lage: 'fremd', fremdUrl: repo.webUrl || url }
 
                     return
                 }
                 try {
                     const g = await import('./gitBrowser.ts')
                     if (await g.istGeklont(repo.owner, repo.dtag)) {
-                        await this._readmeZeigen()
+                        await this._readmeLesen()
 
                         return
                     }
                 } catch (error) {
                     console.warn('[forge] README-Vorprüfung fehlgeschlagen', error)
                 }
-                this.readme = { ...this.readme, lage: 'bereit' }
+                this.klon = { ...this.klon, lage: 'bereit' }
             },
 
-            async readmeLaden() {
+            async klonLaden() {
                 const repo = this.view?.repo
-                if (!repo || this.readme.lage === 'laedt') {
+                if (!repo || this.klon.lage === 'laedt') {
                     return
                 }
                 const url = waehleCloneUrl(repo.cloneUrls)
                 const abbruch = new AbortController()
-                this._readmeAbbruch = abbruch
-                this.readme = { ...this.readme, lage: 'laedt', fehler: '', fortschritt: null }
+                this._klonAbbruch = abbruch
+                this.klon = { ...this.klon, lage: 'laedt', fehler: '', fortschritt: null }
                 try {
                     const g = await import('./gitBrowser.ts')
                     await g.klone({
@@ -2122,17 +2177,17 @@ export function wireForge(Alpine: {
                             // Nur setzen, solange DIESER Vorgang läuft: ein
                             // abgebrochener Clone feuert noch Ereignisse nach,
                             // und die schrieben sonst über eine neue Lage.
-                            if (this._readmeAbbruch === abbruch && !this._dead) {
-                                this.readme = { ...this.readme, fortschritt: f }
+                            if (this._klonAbbruch === abbruch && !this._dead) {
+                                this.klon = { ...this.klon, fortschritt: f }
                             }
                         },
                     })
-                    if (this._readmeAbbruch !== abbruch || this._dead) {
+                    if (this._klonAbbruch !== abbruch || this._dead) {
                         return
                     }
-                    await this._readmeZeigen()
+                    await this._readmeLesen()
                 } catch (error) {
-                    if (this._readmeAbbruch !== abbruch || this._dead) {
+                    if (this._klonAbbruch !== abbruch || this._dead) {
                         return
                     }
                     const code = ordneFehlerEin(error)
@@ -2144,24 +2199,24 @@ export function wireForge(Alpine: {
                     // Ein Abbruch ist kein Fehlerzustand: die Fläche kehrt in
                     // den Ausgangszustand zurück, damit ein zweiter Versuch
                     // einen Klick entfernt ist.
-                    this.readme =
+                    this.klon =
                         code === 'abgebrochen'
-                            ? { ...this.readme, lage: 'bereit', fehler: '', fortschritt: null }
-                            : { ...this.readme, lage: 'fehler', fehler: code, fortschritt: null }
+                            ? { ...this.klon, lage: 'bereit', fehler: '', fortschritt: null }
+                            : { ...this.klon, lage: 'fehler', fehler: code, fortschritt: null }
                 } finally {
-                    if (this._readmeAbbruch === abbruch) {
-                        this._readmeAbbruch = null
+                    if (this._klonAbbruch === abbruch) {
+                        this._klonAbbruch = null
                     }
                 }
             },
 
-            readmeAbbrechen() {
-                this._readmeAbbruch?.abort()
-                this._readmeAbbruch = null
-                this.readme = { ...this.readme, lage: 'bereit', fehler: '', fortschritt: null }
+            klonAbbrechen() {
+                this._klonAbbruch?.abort()
+                this._klonAbbruch = null
+                this.klon = { ...this.klon, lage: 'bereit', fehler: '', fortschritt: null }
             },
 
-            async readmeNeuLaden() {
+            async klonNeuLaden() {
                 const repo = this.view?.repo
                 if (!repo) {
                     return
@@ -2172,12 +2227,162 @@ export function wireForge(Alpine: {
                 } catch (error) {
                     console.warn('[forge] Klon liess sich nicht entfernen', error)
                 }
-                this.readme = { ...this.readme, lage: 'bereit', name: '', html: '', text: '', commit: '' }
-                await this.readmeLaden()
+                this.klon = { ...this.klon, lage: 'bereit', name: '', html: '', text: '', commit: '' }
+                await this.klonLaden()
+            },
+
+            // ── Code-Browser (P6) ────────────────────────────────────────────
+            // Alles hier liest aus DEMSELBEN Klon wie das README. Kein zweiter
+            // Ladeweg: nach dem Clone ist alles lokal, und das ist der einzige
+            // Vorteil, den das `blob:none`-Nein übriggelassen hat.
+
+            krumel() {
+                return krumelspur(this.code.pfad)
+            },
+
+            /** Ein Verzeichnis öffnen. `''` ist die Wurzel. */
+            async codeOeffnen(pfad: string) {
+                this.dateiSchliessen()
+                this.code = { ...this.code, laedt: true, fehler: '' }
+                const repo = this.view?.repo
+                if (!repo) {
+                    return
+                }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    const eintraege = await g.baumEintraege(repo.owner, repo.dtag, pfad)
+                    this.code = { ...this.code, pfad, eintraege: sortiereEintraege(eintraege), laedt: false }
+                } catch (error) {
+                    console.warn('[forge] Baum konnte nicht gelesen werden', error)
+                    this.code = { ...this.code, laedt: false, fehler: t('Dieses Verzeichnis liess sich nicht lesen.') }
+                }
+            },
+
+            async codeHoch() {
+                await this.codeOeffnen(elternPfad(this.code.pfad))
+            },
+
+            /**
+             * Eine Datei öffnen — und VOR dem Rendern entscheiden, was mit ihr
+             * geschieht.
+             *
+             * Die Entscheidung fällt an den Bytes (`dateiArt`), nicht an der
+             * Endung allein: eine 6 MB grosse `vendor.js.map` wird gar nicht
+             * erst dekodiert, und ein PNG landet nicht bei „binär". Sie
+             * stillschweigend in den DOM zu schieben und dort scheitern zu
+             * lassen, wäre keine Entscheidung, sondern ihr Fehlen.
+             */
+            async dateiOeffnen(pfad: string) {
+                const repo = this.view?.repo
+                if (!repo) {
+                    return
+                }
+                // Eine vorherige Blob-URL freigeben, sonst hält das Dokument
+                // jedes angesehene Bild bis zum Seitenwechsel im Speicher.
+                if (this.code.bildUrl) {
+                    URL.revokeObjectURL(this.code.bildUrl)
+                }
+                this.code = { ...this.code, laedt: true, fehler: '', datei: pfad, bildUrl: '', html: '', text: '' }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    const bytes = await g.leseBytes(repo.owner, repo.dtag, pfad)
+                    const art = dateiArt(pfad.split('/').pop() ?? pfad, bytes)
+                    let html = ''
+                    let text = ''
+                    let bildUrl = ''
+                    let gekuerzt = false
+                    let zeilen = 0
+                    if (art === 'bild') {
+                        bildUrl = URL.createObjectURL(new Blob([bytes as BlobPart], { type: bildMime(pfad) }))
+                    } else if (art === 'markdown' || art === 'text') {
+                        const roh = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+                        const k = kuerzeZeilen(roh)
+                        gekuerzt = k.gekuerzt
+                        zeilen = k.zeilen
+                        if (art === 'markdown' && !k.gekuerzt) {
+                            await ensureRenderer()
+                            html = renderMarkdown(`datei:${repo.address}:${pfad}`, k.text)
+                        } else {
+                            // Gekürztes Markdown wird NICHT gerendert: ein
+                            // abgeschnittener Codeblock oder eine offene
+                            // Tabelle ergäben Markup, das etwas anderes zeigt
+                            // als die Datei enthält.
+                            text = k.text
+                        }
+                    }
+                    this.code = {
+                        ...this.code,
+                        datei: pfad,
+                        art,
+                        html,
+                        text,
+                        bildUrl,
+                        groesse: bytes.length,
+                        gekuerzt,
+                        zeilen,
+                        laedt: false,
+                    }
+                } catch (error) {
+                    console.warn('[forge] Datei konnte nicht gelesen werden', error)
+                    this.code = { ...this.code, laedt: false, datei: '', fehler: t('Diese Datei liess sich nicht lesen.') }
+                }
+            },
+
+            dateiSchliessen() {
+                if (this.code.bildUrl) {
+                    URL.revokeObjectURL(this.code.bildUrl)
+                }
+                this.code = { ...this.code, datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0 }
+            },
+
+            // ── Was lokal liegt ──────────────────────────────────────────────
+
+            /**
+             * Die Speicherauskunft — erst auf Nachfrage, weil sie das ganze
+             * Dateisystem durchzählt.
+             */
+            async speicherUmschalten() {
+                if (this.speicher.offen) {
+                    this.speicher = { ...this.speicher, offen: false }
+
+                    return
+                }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    const [klone, lage] = await Promise.all([g.lokaleKlone(), g.speicherLage()])
+                    this.speicher = {
+                        offen: true,
+                        klone,
+                        belegt: lage?.belegt ?? 0,
+                        kontingent: lage?.kontingent ?? 0,
+                    }
+                } catch (error) {
+                    console.warn('[forge] Speicherauskunft fehlgeschlagen', error)
+                    this.speicher = { ...this.speicher, offen: true, klone: [] }
+                }
+            },
+
+            async klonEntfernen(owner: string, dtag: string) {
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    await g.entferneKlon(owner, dtag)
+                    const [klone, lage] = await Promise.all([g.lokaleKlone(), g.speicherLage()])
+                    this.speicher = { offen: true, klone, belegt: lage?.belegt ?? 0, kontingent: lage?.kontingent ?? 0 }
+                } catch (error) {
+                    console.warn('[forge] Klon liess sich nicht entfernen', error)
+                }
+                // Wurde DIESES Repository entfernt, muss die Fläche zurück auf
+                // Anfang — sonst zeigte sie einen Baum, den es nicht mehr gibt.
+                const repo = this.view?.repo
+                if (repo && repo.owner === owner && repo.dtag === dtag) {
+                    this.dateiSchliessen()
+                    this.code = { ...this.code, pfad: '', eintraege: [] }
+                    this.klon = { ...this.klon, lage: 'bereit', name: '', html: '', text: '', commit: '' }
+                }
             },
 
             /** Aus dem lokalen Klon lesen — läuft ohne Netz. */
-            async _readmeZeigen() {
+            async _readmeLesen() {
                 const repo = this.view?.repo
                 if (!repo) {
                     return
@@ -2189,14 +2394,14 @@ export function wireForge(Alpine: {
                     const name = findeReadme(eintraege.filter((e) => e.art === 'blob').map((e) => e.name))
                     const kopf = await g.kopfCommit(repo.owner, repo.dtag)
                     if (!name) {
-                        this.readme = { ...this.readme, lage: 'leer', name: '', commit: kopf?.oid.slice(0, 7) ?? '' }
+                        this.klon = { ...this.klon, lage: 'leer', name: '', commit: kopf?.oid.slice(0, 7) ?? '' }
 
                         return
                     }
                     const roh = await g.leseDatei(repo.owner, repo.dtag, name)
                     await ensureRenderer()
-                    this.readme = {
-                        ...this.readme,
+                    this.klon = {
+                        ...this.klon,
                         lage: 'da',
                         name,
                         // Derselbe Renderer wie beim Artikel und beim Issue —
@@ -2208,8 +2413,12 @@ export function wireForge(Alpine: {
                         fehler: '',
                         fortschritt: null,
                     }
+                    // Der Wurzelbaum kommt gleich mit: er liegt im selben Klon,
+                    // kostet kein Netz, und der Code-Tab soll nicht erst beim
+                    // Anklicken zu laden anfangen.
+                    this.code = { ...this.code, eintraege: sortiereEintraege(eintraege), pfad: '', datei: '' }
                 } catch (error) {
-                    this.readme = { ...this.readme, lage: 'fehler', fehler: ordneFehlerEin(error), fortschritt: null }
+                    this.klon = { ...this.klon, lage: 'fehler', fehler: ordneFehlerEin(error), fortschritt: null }
                 }
             },
             truncatedText() {

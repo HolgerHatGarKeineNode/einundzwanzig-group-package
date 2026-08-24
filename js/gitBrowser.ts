@@ -264,6 +264,131 @@ export const kopfCommit = async (owner: string, dtag: string): Promise<{ oid: st
     }
 }
 
+// ── Baum und Dateien ────────────────────────────────────────────────────────
+
+/**
+ * Die Einträge EINES Verzeichnisses.
+ *
+ * **Aus demselben Klon wie das README** — es gibt genau einen Datenpfad. Nach
+ * dem Clone ist alles lokal; diese Funktion berührt kein Netz. Das ist der
+ * einzige Vorteil, den das `blob:none`-Nein übriggelassen hat, und er wird hier
+ * eingelöst.
+ *
+ * `filepath: ''` ist die Wurzel. Ein Pfad, den es nicht gibt, wirft — der
+ * Aufrufer ordnet das über {@link ordneFehlerEin} ein.
+ */
+export const baumEintraege = async (owner: string, dtag: string, pfad = ''): Promise<WurzelEintrag[]> => {
+    const { git, fs } = await ladeGit()
+    const dir = klonPfad(owner, dtag)
+    const oid = await git.resolveRef({ fs: fs as never, dir, ref: 'HEAD' })
+    const { tree } = await git.readTree({ fs: fs as never, dir, oid, filepath: pfad })
+
+    return tree.map((e) => ({ name: e.path, art: e.type as WurzelEintrag['art'] }))
+}
+
+/**
+ * Die ROHEN Bytes einer Datei.
+ *
+ * Bewusst Bytes und nicht Text: ob überhaupt Text daraus wird, entscheidet
+ * {@link import('./gitReadme.ts').dateiArt} — und die Entscheidung braucht die
+ * Bytes. Wer hier schon dekodierte, hätte aus einem PNG stillschweigend
+ * Ersatzzeichen gemacht und die Frage „ist das binär?" unbeantwortbar.
+ */
+export const leseBytes = async (owner: string, dtag: string, pfad: string): Promise<Uint8Array> => {
+    const { git, fs } = await ladeGit()
+    const dir = klonPfad(owner, dtag)
+    const oid = await git.resolveRef({ fs: fs as never, dir, ref: 'HEAD' })
+    const { blob } = await git.readBlob({ fs: fs as never, dir, oid, filepath: pfad })
+
+    return blob
+}
+
+/*
+ * HIER STAND EINE `verlauf()`-FUNKTION — und sie ist bewusst wieder raus.
+ *
+ * Ein Commit-Log braucht Historie, und die ist bei dieser Bauform nicht da: der
+ * Klon läuft auf `depth: 1`, weil der Server kein `filter=blob:none` kann. Was
+ * ein tieferer Klon kostet, ist gemessen (2026-08-24, lokal, zehn Commits mit je
+ * einer 1-MB-Datei):
+ *
+ *   Repository vollständig   14 MB   (10 Commits)
+ *   depth = 1               1,1 MB   ( 1 Commit)
+ *   nach deepen = 9          13 MB   (10 Commits)
+ *
+ * Neun Commits Historie kosten also fast das ganze Repository — ohne Filter
+ * bringt jeder Commit seine vollständigen Bäume und Blobs mit. Ein Commit-Log
+ * ist damit ein **zweiter, grosser Ladeweg**, keine Anzeige über vorhandene
+ * Daten.
+ *
+ * Eine Funktion, die genau einen Eintrag liefert und so tut, als wäre sie ein
+ * Verlauf, wäre die schlechtere Antwort als keine. Sie kommt wieder, wenn
+ * entschieden ist, ob der Nutzer diesen zweiten Download angeboten bekommt —
+ * mit derselben Ansage wie der erste.
+ */
+
+// ── Was lokal liegt ─────────────────────────────────────────────────────────
+
+/** Ein lokal liegender Klon. */
+export type LokalerKlon = { owner: string; dtag: string; nutzdaten: number }
+
+/**
+ * Alle lokal liegenden Klone — mit ihren **gemessenen** Nutzdaten.
+ *
+ * „Nutzdaten" und nicht „Speicherverbrauch", und der Unterschied ist keine
+ * Wortklauberei: die Zahl ist die Summe der Dateigrössen im virtuellen
+ * Dateisystem. Was IndexedDB darum herum an Verwaltung anlegt, weiss nur der
+ * Browser, und **je Repository sagt er es nicht**. Eine hochgerechnete Zahl
+ * wäre eine erfundene; deshalb steht die Ursprungszahl aus
+ * {@link speicherLage} getrennt daneben.
+ */
+export const lokaleKlone = async (): Promise<LokalerKlon[]> => {
+    const { fs } = await ladeGit()
+    const p = (fs as { promises: {
+        readdir(x: string): Promise<string[]>
+        stat(x: string): Promise<{ isDirectory(): boolean; size: number }>
+    } }).promises
+
+    const summe = async (pfad: string): Promise<number> => {
+        let kinder: string[] = []
+        try {
+            kinder = await p.readdir(pfad)
+        } catch {
+            try {
+                return (await p.stat(pfad)).size ?? 0
+            } catch {
+                return 0
+            }
+        }
+        let n = 0
+        for (const kind of kinder) {
+            n += await summe(`${pfad}/${kind}`)
+        }
+
+        return n
+    }
+
+    const out: LokalerKlon[] = []
+    let owners: string[] = []
+    try {
+        owners = await p.readdir('/repos')
+    } catch {
+        return out
+    }
+    for (const owner of owners) {
+        let dtags: string[] = []
+        try {
+            dtags = await p.readdir(`/repos/${owner}`)
+        } catch {
+            continue
+        }
+        for (const dtag of dtags) {
+            out.push({ owner, dtag, nutzdaten: await summe(`/repos/${owner}/${dtag}`) })
+        }
+    }
+
+    return out.sort((a, b) => b.nutzdaten - a.nutzdaten)
+}
+
 // ── Speicher ────────────────────────────────────────────────────────────────
 
 /**
