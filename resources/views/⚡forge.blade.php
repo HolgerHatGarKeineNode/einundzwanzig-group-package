@@ -168,12 +168,30 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             ['key' => 'pullRequests', 'label' => __('Pull Requests'), 'tab' => 'pulls'],
                             ['key' => 'issues', 'label' => __('Issues'), 'tab' => 'issues'],
                         ])
+                        {{-- ── Was eine Kachel von der Patch-Zelle unterscheidet ──────
+                             Drei dieser vier Zellen führen irgendwohin, die vierte
+                             nicht. Bis zur P4-Nacharbeit war das im RUHEZUSTAND
+                             nicht zu sehen: an den echten gerenderten Knoten
+                             gemessen waren Beschriftung (11,2 px / 600 / zinc-600 /
+                             versal / 0,56 px Sperrung) und Zahl (16 px / 600 /
+                             zinc-900) zeichengleich. Es unterschieden sie nur
+                             `cursor: pointer` und 4 px Höhe — beides sieht nur, wer
+                             eine Maus hat. Für den Daumen und für die Tastatur war
+                             die Patch-Zelle ein toter Link.
+
+                             Der Träger ist jetzt eine LINIE, keine Farbe: die drei
+                             Links unterstreichen ihre Beschriftung gepunktet, die
+                             Patch-Zelle nicht. Eine Linie ist da oder nicht da —
+                             das überlebt Graustufen, Farbenblindheit und ein
+                             invertiertes Display (WCAG 1.4.1). Die Polsterung ist
+                             an allen VIER Zellen dieselbe, damit die Linie der
+                             einzige Unterschied bleibt und die Zeile nicht springt. --}}
                         @foreach ($tiles as $tile)
                             <a :href="forgeTabHref('{{ $tile['tab'] }}')"
-                               x-on:click.prevent="tab = '{{ $tile['tab'] }}'"
+                               x-on:click.prevent="zeigeListe('{{ $tile['tab'] }}')"
                                data-forge-kachel="{{ $tile['tab'] }}"
-                               class="flex items-baseline gap-1.5 rounded-tile px-1 py-0.5 -mx-1 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ $tile['label'] }}</span>
+                               class="pressable text-btn-touch -mx-1 flex items-baseline gap-1.5 rounded-tile px-1 py-0.5 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted underline decoration-dotted underline-offset-4">{{ $tile['label'] }}</span>
                                 {{-- Der Balken hat die Zeilenhöhe der Zahl, damit die Zeile
                                      beim Eintreffen der Zahl nicht springt. `align-baseline`
                                      hält ihn auf der Schriftlinie der Beschriftung. --}}
@@ -199,7 +217,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                              Damit trägt das Raster drei Zellen (alle Links) oder vier
                              (drei Links, eine Zahl). --}}
-                        <span x-show="settled() && counts().patches > 0" x-cloak class="flex items-baseline gap-1.5">
+                        <span x-show="settled() && counts().patches > 0" x-cloak
+                              data-forge-zelle="patches"
+                              class="text-btn-touch -mx-1 flex items-baseline gap-1.5 px-1 py-0.5">
+                            {{-- KEINE gepunktete Linie, kein `pressable`, kein
+                                 `rounded-tile`-Anfassbereich: diese Zelle zählt nur.
+                                 Der Unterschied zu ihren drei Nachbarn ist damit im
+                                 Ruhezustand sichtbar — und zwar ohne Farbe. --}}
                             <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Patches') }}</span>
                             <span data-forge-tile="patches"
                                   class="text-base font-semibold leading-5 text-zinc-900 dark:text-zinc-100"
@@ -363,6 +387,24 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         @endfor
                     </div>
 
+                    {{-- ══ SPALTE 1: die drei Listen ═══════════════════════════════════
+                         Eine Klammer um Repositories, Issues und Pull Requests — und
+                         damit die Stelle, an der der Umschalter EINMAL steht statt
+                         dreimal (die Herleitung steht im Partial).
+
+                         Sie bringt nebenbei Bestimmtheit ins Raster: bis hierher
+                         entschied das Auto-Placement anhand dessen, welche Sektionen
+                         gerade `x-show` durchließ, welches Kind in Spalte 1 landete.
+                         Das ging gut, weil immer genau eine der drei Listen sichtbar
+                         ist — aber es war eine Eigenschaft der Daten, keine des
+                         Layouts. Jetzt ist die Klammer immer da und immer Spalte 1;
+                         die Aktivitätsspur ist immer Spalte 2.
+
+                         `min-w-0`, damit die Zeichenspalten der Werkbank die Spur
+                         nicht aufreißen, sondern in ihrem eigenen Überlauf bleiben. --}}
+                    <div class="min-w-0">
+                    @include('group::partials.forge-listen-umschalter')
+
                     {{-- ── Repositories ────────────────────────────────────────────── --}}
                     {{-- `listeAktiv()` kam mit P3 dazu: die linke Spur trägt jetzt DREI
                          Listen. In der Tab-Form entscheidet `tab` allein; in der
@@ -376,7 +418,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              BEIDEN Formen im DOM (siehe `.forge-regionstitel`).
                              `tabindex="-1"`: Ziel des `?tab=`-Sprungs, nicht des Tab-Laufs. --}}
                         <h2 class="forge-regionstitel" tabindex="-1" data-forge-region-titel>{{ __('Repositories') }}</h2>
-                        @include('group::partials.forge-listen-umschalter')
                         {{-- ── Gerettet aus dem entfallenen Projekte-Tab (2026-08-23) ──────
                              Diese Zeile war die EINZIGE Stelle im ganzen Paket, die eine
                              Projekt-Koordinate ohne zugehöriges 30617 benennt. Der
@@ -629,7 +670,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <section x-show="(zweispaltig || tab === 'issues') && listeAktiv() === 'issues' && !(loading && isEmpty())" x-cloak
                              id="forge-issues" class="forge-werkbank scroll-mt-6" data-forge-region="issues">
                         <h2 class="forge-regionstitel" tabindex="-1" data-forge-region-titel>{{ __('Issues') }}</h2>
-                        @include('group::partials.forge-listen-umschalter')
                         @include('group::partials.forge-vorgangsliste', [
                             'art' => 'issues',
                             'quelle' => 'issueGroups()',
@@ -642,7 +682,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <section x-show="(zweispaltig || tab === 'pulls') && listeAktiv() === 'pulls' && !(loading && isEmpty())" x-cloak
                              id="forge-pulls" class="forge-werkbank scroll-mt-6" data-forge-region="pulls">
                         <h2 class="forge-regionstitel" tabindex="-1" data-forge-region-titel>{{ __('Pull Requests') }}</h2>
-                        @include('group::partials.forge-listen-umschalter')
                         @include('group::partials.forge-vorgangsliste', [
                             'art' => 'pulls',
                             'quelle' => 'pullGroups()',
@@ -650,6 +689,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             'leerText' => __('Ein Pull Request entsteht beim Pushen eines Branches — dieser Client kann keinen anlegen.'),
                         ])
                     </section>
+                    </div>{{-- /Spalte 1 --}}
 
                     {{-- ── Aktivität ───────────────────────────────────────────────
                          Jede Zeile ist ein SATZ: wer, was, woran — und rechts das

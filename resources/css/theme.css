@@ -209,6 +209,22 @@
         min-height: 2.75rem;
         min-width: 2.75rem;
     }
+
+    /* Dasselbe für BESCHRIFTETE Ziele: die tragen ihre Breite schon im Wort,
+       nur die Höhe fehlt. `min-width` wäre hier falsch — es blähte eine
+       einzeilige Zahl auf 44 px Breite und risse die Zeile auseinander.
+
+       Warum nur auf grobem Pointer, und warum überhaupt: WCAG 2.5.8 verlangt
+       24 × 24 px, Apples HIG 44 × 44. Die Bestandskacheln der Forge maßen
+       gemessene 24 px — die Norm gerade so erfüllt, den Daumen verfehlt. Sie
+       sind unterhalb `xl` zugleich der EINZIGE Weg in die workspace-weiten
+       Issue- und PR-Listen (die Tab-Reihe führt sie nicht), also genau die
+       Fläche, für die die 44 px gedacht sind. Auf der Maus bleibt die Zeile
+       kompakt: dort ist sie eine Zusammenfassung über einer Liste, und 20 px
+       mehr Höhe wären dort nur verlorener Platz. */
+    .text-btn-touch {
+        min-height: 2.75rem;
+    }
 }
 
 /* Press-Feedback für tappbare Flächen: kurzer Scale-Down + reduzierte Elevation. */
@@ -929,10 +945,38 @@ select:focus[data-flux-control] {
     }
 }
 
-@layer theme {
-    .dark .forge-regionstitel {
-        color: var(--color-zinc-100);
-    }
+/* ── Warum die Dunkel-Regeln hier UNGESCHICHTET stehen ─────────────────────
+   Sie standen bis zum 2026-08-24 in `@layer theme { … }` und waren damit
+   WIRKUNGSLOS. Der Grund ist keine Spezifitätsfrage: ungeschichtetes CSS
+   schlägt in der Kaskade JEDE `@layer`, unabhängig vom Selektor. Die
+   Grundregel darüber ist ungeschichtet — also gewann sie auch im dunklen
+   Modus, und `.dark .x { … }` in einer Schicht kam nie zum Zug.
+
+   Am gebauten Stylesheet gemessen (Sonde: `getComputedStyle` mit und ohne
+   `.dark` an `<html>`, jeweils NACH Ablauf laufender Übergänge — eine Messung
+   unterhalb der Übergangsdauer meldet den Zwischenwert und damit
+   falsch-negativ):
+
+     · `.forge-regionstitel`     zinc-900 auf zinc-950 = **1,10:1**
+     · `.forge-diff-pfad`        zinc-100 auf zinc-50  = **1,04:1**
+     · `.forge-diff-art`         zinc-400 auf zinc-50  = **2,42:1**
+     · `.forge-diff-zeile[meta]` zinc-400 auf zinc-100 = **2,31:1**
+
+   Alle vier verlangen nach WCAG 1.4.3 mindestens 4,5:1. Die Regionstitel und
+   der Dateipfad eines Diffs waren im dunklen Modus also praktisch unsichtbar.
+
+   **Die Bauform kommt im ganzen Haus genau sechsmal vor, alle sechs hier und
+   alle sechs in der Forge** (gezählt über alle CSS-Dateien ausserhalb von
+   `node_modules`/`vendor`/`public/build`: `resources/css/app.css` führt weder
+   `@layer` noch `.dark`). Ausserhalb der Forge steht sie nicht.
+
+   **Was hier NICHT gemeint ist:** `@layer theme { .dark { --color-x: … } }`
+   weiter oben ist richtig und wirkt. Dort werden VARIABLEN gesetzt, und ihr
+   Gegenspieler (`@theme`) liegt in derselben Schicht — da entscheidet wieder
+   die Spezifität, und `.dark` gewinnt. Nachgemessen: `--color-muted` löst hell
+   zu zinc-600, dunkel zu zinc-400 auf. */
+.dark .forge-regionstitel {
+    color: var(--color-zinc-100);
 }
 
 /* ── Die Werkbank: das Zustandsboard ──────────────────────────────────────── */
@@ -1235,29 +1279,29 @@ select:focus[data-flux-control] {
     color: var(--color-muted);
 }
 
-@layer theme {
-    .dark .forge-diff-datei {
-        border-color: var(--color-zinc-800);
-    }
+/* Ungeschichtet, aus demselben Grund wie bei `.forge-regionstitel` oben — die
+   Herleitung und die vier gemessenen Kontraste stehen dort. */
+.dark .forge-diff-datei {
+    border-color: var(--color-zinc-800);
+}
 
-    .dark .forge-diff-kopf {
-        border-color: var(--color-zinc-800);
-        background: var(--color-zinc-900);
-    }
+.dark .forge-diff-kopf {
+    border-color: var(--color-zinc-800);
+    background: var(--color-zinc-900);
+}
 
-    /* Dunkel etwas kräftiger: dieselbe Tönung wirkt auf dunklem Grund
-       schwächer, weil der Untergrund weniger Helligkeit beisteuert. */
-    .dark .forge-diff-zeile[data-kind='add'] {
-        background: color-mix(in oklab, var(--color-green-500) 18%, transparent);
-    }
+/* Dunkel etwas kräftiger: dieselbe Tönung wirkt auf dunklem Grund
+   schwächer, weil der Untergrund weniger Helligkeit beisteuert. */
+.dark .forge-diff-zeile[data-kind='add'] {
+    background: color-mix(in oklab, var(--color-green-500) 18%, transparent);
+}
 
-    .dark .forge-diff-zeile[data-kind='del'] {
-        background: color-mix(in oklab, var(--color-red-500) 18%, transparent);
-    }
+.dark .forge-diff-zeile[data-kind='del'] {
+    background: color-mix(in oklab, var(--color-red-500) 18%, transparent);
+}
 
-    .dark .forge-diff-zeile[data-kind='meta'] {
-        background: var(--color-zinc-800);
-    }
+.dark .forge-diff-zeile[data-kind='meta'] {
+    background: var(--color-zinc-800);
 }
 
 /* ═══ Die Repo-Fläche: Werkbank und Steckbrief (P4, 2026-08-24) ═════════════
@@ -1533,17 +1577,16 @@ select:focus[data-flux-control] {
     background: var(--color-brand-700);
     color: #fff;
     box-shadow: var(--shadow-pop);
-    transition:
-        transform var(--duration-tap) ease-out,
-        background-color var(--duration-tap) ease-out;
 }
 
+/* Bewegung und Fokusring kommen aus `.pressable` am Element, nicht von hier —
+   sonst gäbe es im Haus zwei Press-Gefühle und zwei Ringe. Diese Regel
+   beschreibt nur noch das AUSSEHEN des Knopfes.
+   (P4-Nacharbeit: hier standen eine eigene `transition`, ein eigenes `:active`
+   und gar kein `:focus-visible`. Der Knopf trug damit den Chromium-Standardring
+   statt des Hausrings.) */
 .forge-fab:hover {
     background: var(--color-brand-800);
-}
-
-.forge-fab:active {
-    transform: scale(0.94);
 }
 
 /* Ungeschichtet, aus demselben Grund wie bei `.forge-reiterbank` oben. */
@@ -1556,12 +1599,3 @@ select:focus[data-flux-control] {
     background: var(--color-brand-400);
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .forge-fab {
-        transition: none;
-    }
-
-    .forge-fab:active {
-        transform: none;
-    }
-}

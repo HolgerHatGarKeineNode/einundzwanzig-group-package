@@ -1592,6 +1592,11 @@ type ForgeState = {
     _relaySelf: string
     /** Liest am DOM ab, ob die Tab-Leiste ausgeblendet ist, und setzt `zweispaltig`. */
     _messeSpalten(): void
+    /**
+     * Eine der drei Listen anfordern — aus einer Bestandskachel oder aus dem
+     * Segment-Umschalter. Setzt den Tab UND den Fokus.
+     */
+    zeigeListe(ziel: string): void
     /** Springt zu der Region, die `?tab=` benennt — nur in der zweispaltigen Form. */
     _springZuRegion(): void
     /** Ist der Sprung schon geglückt? Er passiert genau EINMAL je Seitenaufruf. */
@@ -1986,6 +1991,45 @@ export function wireForge(Alpine: {
              * geht ein Fensterereignis hinaus. Wer zuhört, entscheidet die Rail; gibt
              * es sie nicht, passiert nichts.
              */
+            /**
+             * Eine Liste anfordern — und den Fokus mitnehmen.
+             *
+             * Bis zur P4-Nacharbeit stand hier nur `tab = '…'`. Auf dem Schirm war
+             * das genug: die linke Spur tauscht ihre Liste, und die steht direkt
+             * unter der Kachel. Für die Tastatur und die Sprachausgabe war es
+             * nichts — der Fokus blieb auf der Kachel stehen, der Bereich daneben
+             * wechselte lautlos seinen Inhalt, und niemand erfuhr davon.
+             *
+             * Das Ziel ist die Überschrift der Region. Sie trägt seit P3
+             * `tabindex="-1"` und ist damit programmatisch anspringbar, ohne ein
+             * zusätzlicher Halt im Tab-Lauf zu werden — dasselbe Muster, das
+             * `_springZuRegion()` für den kalt geöffneten `?tab=`-Link benutzt.
+             * Wiederverwendet wird der DOM-Vertrag, nicht der Code: jener Sprung
+             * passiert EINMAL je Seitenaufruf (`_gesprungen`), dieser bei jedem
+             * Klick. Zwei verschiedene Anlässe, zwei Methoden.
+             *
+             * `preventScroll`: die Kacheln und der Umschalter stehen am Kopf der
+             * Bühne, die Region also ohnehin im Bild. Ein zusätzliches Rollen wäre
+             * ein Ruck ohne Gewinn.
+             *
+             * In der Tab-Form ist die Überschrift `sr-only` — sichtbar nicht, im
+             * Baum schon, und `focus()` trägt dort genauso. Deshalb wird hier auch
+             * nicht auf `zweispaltig` abgefragt.
+             */
+            zeigeListe(ziel) {
+                this.tab = ziel
+                ;(this as unknown as { $nextTick(cb: () => void): void }).$nextTick(() => {
+                    const wurzel = (this as unknown as { $root?: HTMLElement }).$root
+                    const region = wurzel?.querySelector(`[data-forge-region="${ziel}"]`)
+                    const titel = region?.querySelector<HTMLElement>('[data-forge-region-titel]')
+                    // Ein verstecktes Ziel nimmt keinen Fokus an — dann bleibt er,
+                    // wo er ist. Das ist die harmlose Richtung.
+                    if (!titel || titel.checkVisibility?.() === false) {
+                        return
+                    }
+                    titel.focus({ preventScroll: true })
+                })
+            },
             _springZuRegion() {
                 if (this._gesprungen || !this.zweispaltig || !this._tabAusAdresse) {
                     return

@@ -193,7 +193,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              (WCAG 1.4.1). Die Zeile misst 44 px (WCAG 2.5.8 verlangt
                              24 × 24, Apples HIG 44 × 44) und ist über die volle Breite
                              anfassbar. --}}
-                        <summary class="surface-card" data-forge-steckbrief-schalter>
+                        <summary class="pressable surface-card" data-forge-steckbrief-schalter>
                             <flux:icon.identification variant="micro" class="size-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
                             <span>{{ __('Über dieses Repository') }}</span>
                             <flux:icon.chevron-right variant="micro" class="forge-steckbrief-winkel size-4 text-zinc-500 dark:text-zinc-400" />
@@ -1689,10 +1689,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
              zusammengesetzt — Tailwind scannt den Quelltext, ein zur Laufzeit
              gebauter Klassenname existierte im Stylesheet nie. --}}
         <div class="forge-fab-spur mx-auto max-w-md md:max-w-lg lg:max-w-2xl xl:max-w-none">
-        <button type="button" class="forge-fab" data-forge-fab
+        {{-- `x-bind:aria-expanded` AUSGESCHRIEBEN, nicht `::aria-expanded`.
+             Der doppelte Doppelpunkt ist die Konvention für Blade-KOMPONENTEN
+             (`<flux:…>`), wo Blade ihn zu einem einfachen escapt; auf rohem HTML
+             gibt Blade ihn wörtlich aus, Alpine liest ihn als Bindung für ein
+             Attribut namens `:aria-expanded` und schreibt genau das. Das echte
+             `aria-expanded` entsteht nie — lautlos, kein Test wird rot.
+
+             Hier stand bis zur P4-Nacharbeit die falsche Form. Ich habe sie in
+             derselben Runde erst bei P3 gemessen und dann an meinem eigenen Knopf
+             wiedergefunden; im ganzen Paket sind es genau diese zwei Stellen
+             (gezählt über alle 86 `::attr=`-Vorkommen beider Repos, 84 davon auf
+             `<flux:…>` und damit richtig).
+
+             `aria-expanded` ist auf `role="button"` zulässig — anders als
+             `aria-pressed` auf einem Link, siehe die Herleitung im
+             Listen-Umschalter. --}}
+        <button type="button" class="forge-fab pressable" data-forge-fab
                 x-on:click="toggleIssueDraft()"
                 aria-haspopup="dialog"
-                ::aria-expanded="issueDraft.open ? 'true' : 'false'"
+                x-bind:aria-expanded="issueDraft.open ? 'true' : 'false'"
                 aria-label="{{ __('Neues Issue') }}">
             {{-- Die Glyphe ist Zierrat, das `aria-label` trägt. Ein Knopf ohne
                  sichtbares Wort braucht einen zugänglichen Namen, und der ist hier
