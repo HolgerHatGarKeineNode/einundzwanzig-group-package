@@ -317,16 +317,38 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      brand-700 mit 4,05:1 bzw. 3,89:1 auf der
                                                      15%-Fläche — beides unter den 4,5:1 aus
                                                      WCAG 1.4.3. --}}
+                                                {{-- ── `flux:badge` statt Hauspille ──────────────────
+                                                     Die Marke selbst kommt jetzt von Flux; sie steht
+                                                     IN einem `<li>` statt selbst eines zu sein, weil
+                                                     `flux:badge` über `flux:button-or-div` rendert
+                                                     und dort nur `<div>` oder `<button>` zur Wahl
+                                                     stehen — ein `<div>` als direktes Kind eines
+                                                     `<ul>` wäre ungültig.
+
+                                                     Gemessen tut ihr das gut: Flux' eigener
+                                                     Vordergrund misst 9,25:1 hell (zinc-700 auf
+                                                     `bg-zinc-400/15`) und 6,42:1 dunkel (zinc-200 auf
+                                                     `bg-zinc-400/40`) gegen die 7,03:1 / 5,81:1 der
+                                                     Hauspille. Der KURZHASH behält seine Markenfarbe
+                                                     (die Herleitung darüber gilt unverändert) und
+                                                     bleibt ein `<span>` — eine Marke in einer Marke
+                                                     wäre zwei Bauteile für eine Aussage. --}}
                                                 <template x-for="branch in view.repo.state.branches" :key="branch.name">
-                                                    <li class="inline-flex items-center gap-1.5 rounded-pill bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800"
-                                                        data-forge-branch :data-branch="branch.name">
-                                                        <flux:icon.code-bracket-square variant="micro" class="size-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
-                                                        <span class="font-semibold" x-text="branch.name"></span>
-                                                        <span class="rounded-pill bg-brand-500/10 px-1.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                              x-text="branch.commit.slice(0, 7)"></span>
-                                                        <template x-if="view.repo.state.head === branch.name">
-                                                            <span class="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">{{ __('HEAD') }}</span>
-                                                        </template>
+                                                    <li>
+                                                        {{-- `::data-branch`: siehe die Herleitung an
+                                                             `data-forge-status` in `⚡forge.blade.php` — auf
+                                                             einer Flux-Komponente ist ein einfacher
+                                                             Doppelpunkt eine PHP-Bindung, kein Alpine-Bind. --}}
+                                                        <flux:badge size="sm" class="gap-1.5"
+                                                                    data-forge-branch ::data-branch="branch.name">
+                                                            <flux:icon.code-bracket-square variant="micro" class="size-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
+                                                            <span class="font-semibold" x-text="branch.name"></span>
+                                                            <span class="rounded-pill bg-brand-500/10 px-1.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
+                                                                  x-text="branch.commit.slice(0, 7)"></span>
+                                                            <template x-if="view.repo.state.head === branch.name">
+                                                                <span class="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">{{ __('HEAD') }}</span>
+                                                            </template>
+                                                        </flux:badge>
                                                     </li>
                                                 </template>
                                             </ul>
@@ -373,11 +395,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <dt class="shrink-0 pt-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Geschützte Branches') }}</dt>
                                         <dd class="flex min-w-0 flex-1 flex-wrap gap-1.5">
                                             <template x-for="rule in view.repo.protections" :key="rule.ref + rule.rule">
-                                                <span data-forge-protection
-                                                      class="inline-flex items-center gap-1.5 rounded-pill bg-zinc-100 px-2 py-0.5 text-xs text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
+                                                {{-- `flux:badge` — dieselbe Marke wie bei den Branches
+                                                     eine Zelle höher, jetzt auch dieselbe Bauform.
+                                                     Hier ohne `<li>`-Hülle: das Elternelement ist ein
+                                                     `<dd>`, und ein `<div>` darin ist zulässig. --}}
+                                                <flux:badge size="sm" class="gap-1.5" data-forge-protection>
                                                     <flux:icon.lock-closed variant="micro" class="size-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
                                                     <span x-text="rule.ref.replace('refs/heads/', '') + ': ' + rule.rule"></span>
-                                                </span>
+                                                </flux:badge>
                                             </template>
                                         </dd>
                                     </div>
@@ -482,13 +507,45 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                            : @js(__('Wird geladen …'))"></p>
                                     <template x-if="klon.fortschritt && klon.fortschritt.anteil !== null">
                                         <div class="mt-2">
-                                            <div class="h-1.5 overflow-hidden rounded-pill bg-zinc-200 dark:bg-zinc-800"
-                                                 role="progressbar" aria-valuemin="0" aria-valuemax="100"
-                                                 :aria-valuenow="Math.round(klon.fortschritt.anteil * 100)"
-                                                 :aria-label="@js(__('Fortschritt des Downloads'))">
-                                                <div class="h-full rounded-pill bg-brand-500 transition-[width]"
-                                                     :style="'width:' + Math.round(klon.fortschritt.anteil * 100) + '%'"></div>
-                                            </div>
+                                            {{-- ── `flux:progress` statt zweier `<div>` ────────────
+                                                 Hier stand ein handgebauter Balken samt eigenem
+                                                 `role="progressbar"` und den drei `aria-value*`.
+                                                 Das kann Flux, und zwar deckungsgleich:
+                                                 `ui-progress` setzt Rolle, `aria-valuemin`,
+                                                 `aria-valuenow` und `aria-valuemax` selbst und
+                                                 hält sie bei jedem Wert nach
+                                                 (`vendor/livewire/flux-pro/dist/flux.js:10623`
+                                                 und `:10639`). Auch die FARBE ist dieselbe: der
+                                                 Stub greift `var(--color-accent)`, und das zeigt
+                                                 in diesem Haus auf `--color-brand-500`
+                                                 (`theme.css:47`) — genau das `bg-brand-500`, das
+                                                 hier von Hand stand.
+
+                                                 Der Wert geht über die EIGENSCHAFT, nicht über
+                                                 das Attribut: `ui-progress` liest `value` beim
+                                                 Booten einmal aus dem Attribut und beobachtet
+                                                 danach nur noch `max` (`attributeFilter: ["max"]`).
+                                                 Ein `x-bind:value` schriebe also genau einmal.
+                                                 `x-effect` schreibt auf die von `Controllable`
+                                                 definierte Eigenschaft und damit bei jedem Tick.
+
+                                                 **Das kostet den a11y-Riegel vier Träger** — die
+                                                 Rolle und die drei `aria-value*` stehen ab jetzt
+                                                 im Vendor-Stub statt in dieser Quelle. Sie sind
+                                                 nicht weg, sie sind nur nicht mehr HIER zählbar;
+                                                 der Diff in `EmptyStatesAndA11yTest.php` ist
+                                                 entsprechend einseitig (vier Deletions, keine
+                                                 Addition). `aria-label` bleibt an Ort und Stelle:
+                                                 einen Namen bringt `ui-progress` nicht mit. --}}
+                                            {{-- Der Name ist STATISCH und steht deshalb als schlichtes
+                                                 Attribut: das alte `:aria-label="@js(…)"` war eine
+                                                 Alpine-Bindung auf ein Zeichenketten-Literal. Auf einer
+                                                 Flux-Komponente wäre derselbe Doppelpunkt eine
+                                                 PHP-Bindung und schriebe die Anführungszeichen von
+                                                 `Js::from()` mit in das Attribut. --}}
+                                            <flux:progress class="mt-0"
+                                                           x-effect="$el.value = Math.round(klon.fortschritt.anteil * 100)"
+                                                           aria-label="{{ __('Fortschritt des Downloads') }}" />
                                             <p class="mt-1 text-xs text-muted" data-forge-readme-zahl
                                                x-text="$num(klon.fortschritt.geladen) + ' / ' + $num(klon.fortschritt.gesamt)"></p>
                                         </div>
@@ -654,16 +711,34 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      LAUTLOS, und „war da, ist weg" ist von „hat nie
                                      funktioniert" nicht zu unterscheiden. --}}
                                 <template x-for="row in failedIssues()" :key="row.id">
-                                    <div role="alert" data-forge-write-failed="issue"
-                                         class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                                        <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
-                                        <span class="min-w-0 flex-1">
+                                    {{-- ── Vom Handkasten auf `flux:callout` ───────────────
+                                         Hier stand ein zweiter, selbst gezeichneter Fehlerkasten
+                                         (roter 1-px-Rahmen auf getönter Fläche), während dieselbe
+                                         Datei denselben Anlass — Ladefehler, README-Fehler,
+                                         Klon-Fehler — bereits dreimal als `flux:callout
+                                         variant="danger"` zeigt. Zwei Bauformen für dieselbe
+                                         Aussage sind genau der Grund, aus dem die Fläche
+                                         selbstgebaut wirkte.
+
+                                         Gemessen wandert der Text nach OBEN: 5,91:1 hell
+                                         (red-700 auf red-50) und 8,14:1 dunkel (red-300 auf
+                                         `red-400/10` über zinc-900) gegen vorher 4,54:1 und
+                                         6,14:1 — der helle Wert lag 0,04 über der Grenze.
+
+                                         `role="alert"` und `data-forge-write-failed` bleiben
+                                         am Element: an beiden hängen Zusagen (`buzz-forge-
+                                         write.spec.ts`, und die Rolle zählt der a11y-Riegel
+                                         in `EmptyStatesAndA11yTest.php`). --}}
+                                    <flux:callout variant="danger" icon="exclamation-triangle" inline
+                                                  role="alert" data-forge-write-failed="issue">
+                                        <flux:callout.text class="text-xs!">
                                             <span class="font-semibold" x-text="row.label"></span>
                                             <span x-text="' — ' + row.error"></span>
-                                        </span>
-                                        <button type="button" x-on:click="dismiss(row.id)"
-                                                class="shrink-0 font-medium underline">{{ __('Verwerfen') }}</button>
-                                    </div>
+                                        </flux:callout.text>
+                                        <x-slot name="actions">
+                                            <flux:button size="xs" variant="ghost" class="icon-btn-touch shrink-0" x-on:click="dismiss(row.id)">{{ __('Verwerfen') }}</flux:button>
+                                        </x-slot>
+                                    </flux:callout>
                                 </template>
                             </div>
 
@@ -700,6 +775,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              Ein zweiter Knopf HIER machte aus dem
                                              `getByRole('button')` der E2E-Spec einen
                                              Strict-Mode-Treffer auf zwei Elemente. --}}
+                                        {{-- ── Zeilenknöpfe bleiben roh, und das gilt für alle
+                                             sechs in dieser Datei ───────────────────────────
+                                             `flux:button` ist ein KNOPF im Sinne eines
+                                             Bedienelements mit fester Höhe: `h-10` / `h-8` /
+                                             `h-6` je nach `size`, dazu `inline-flex`,
+                                             `justify-center` und eigenes Polster
+                                             (`flux/button/index.blade.php:73-98`). Eine
+                                             Listenzeile ist das Gegenteil davon — sie ist
+                                             mehrzeilig, linksbündig, so hoch wie ihr Inhalt
+                                             und trägt Marken, Avatare und eine Statusspalte.
+                                             Jede der drei Zwangsgrößen müsste überschrieben
+                                             werden; übrig bliebe von Flux das `<button>`, das
+                                             hier ohnehin steht.
+
+                                             Dasselbe gilt für den Baum-Eintrag, den
+                                             Handlungsknopf (`forge-fab`, ein rundes
+                                             56-px-Ziel) und die Vorschlagszeile im
+                                             Erwähnungs-Popover, die zusätzlich
+                                             `role="option"` trägt. --}}
                                         <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
                                                 x-on:click="toggle(issue.id, 'issue')" :aria-expanded="open[issue.id] ? 'true' : 'false'">
                                             {{-- Der Statusknoten: GEFÜLLT heißt offen, ein
@@ -875,16 +969,19 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      hier der einzige Ort, an dem sein Scheitern
                                                      überhaupt sichtbar werden kann. --}}
                                                 <template x-for="row in failedFor(issue.id)" :key="row.id">
-                                                    <div role="alert" data-forge-write-failed="root"
-                                                         class="mt-3 flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                                                        <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
-                                                        <span class="min-w-0 flex-1">
+                                                    {{-- Derselbe Tausch wie beim Schwesterkasten über
+                                                         der Liste (Herleitung dort) — dieselbe
+                                                         Aussage, dieselbe Bauform. --}}
+                                                    <flux:callout variant="danger" icon="exclamation-triangle" inline
+                                                                  class="mt-3" role="alert" data-forge-write-failed="root">
+                                                        <flux:callout.text class="text-xs!">
                                                             <span class="font-semibold" x-text="row.label"></span>
                                                             <span x-text="(row.label ? ' — ' : '') + row.error"></span>
-                                                        </span>
-                                                        <button type="button" x-on:click="dismiss(row.id)"
-                                                                class="shrink-0 font-medium underline">{{ __('Verwerfen') }}</button>
-                                                    </div>
+                                                        </flux:callout.text>
+                                                        <x-slot name="actions">
+                                                            <flux:button size="xs" variant="ghost" class="icon-btn-touch shrink-0" x-on:click="dismiss(row.id)">{{ __('Verwerfen') }}</flux:button>
+                                                        </x-slot>
+                                                    </flux:callout>
                                                 </template>
 
                                                 {{-- ── Status setzen (P8) ────────────────────────
@@ -978,11 +1075,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                     'targetLabel' => 'comment',
                                                                 ])
                                                             </div>
-                                                            <div x-show="commentError[issue.id]" x-cloak role="alert" data-forge-comment-error
-                                                                 class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                                                                <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
-                                                                <span x-text="commentError[issue.id]"></span>
-                                                            </div>
+                                                            {{-- Fehlermeldung als `flux:callout variant="danger"` statt als
+                                                                 nachgebauter roter Kasten — Herleitung an der ersten Fundstelle
+                                                                 dieser Datei (Suchwort `Vom Handkasten`). --}}
+                                                            <flux:callout variant="danger" icon="exclamation-triangle" inline
+                                                                          x-show="commentError[issue.id]" x-cloak role="alert" data-forge-comment-error>
+                                                                <flux:callout.text class="text-xs!" x-text="commentError[issue.id]"></flux:callout.text>
+                                                            </flux:callout>
                                                             <div class="flex flex-wrap items-center gap-2">
                                                                 <flux:button size="xs" variant="primary"
                                                                              x-on:click="submitComment(issue, 'issue')"
@@ -1034,6 +1133,28 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                          loser Links: der Weg IST eine Struktur,
                                          und ein Screenreader soll ihn als solche
                                          hören. --}}
+                                    {{-- ── Hier bleibt es HANDARBEIT, und zwar aus dem
+                                         Datenmodell heraus ──────────────────────────────
+                                         Für einen Pfad gibt es `flux:breadcrumbs` samt
+                                         `flux:breadcrumbs.item`. Die Komponente rendert
+                                         ihre Stufe aber ENTWEDER als `<a href>` ODER als
+                                         toten Text — einen Zweig für einen Knopf hat sie
+                                         nicht (`flux/breadcrumbs/item.blade.php`, die
+                                         einzige Verzweigung dort ist `if ($href)`).
+
+                                         Dieser Weg HAT keine Adressen: `codeOeffnen(pfad)`
+                                         öffnet ein Verzeichnis im geklonten Repository,
+                                         das nur im Speicher der Insel existiert. Ihm URLs
+                                         anzudichten, damit die Komponente passt, wäre eine
+                                         Verhaltensänderung — der Auftrag heißt Bauform
+                                         tauschen, nicht Funktion.
+
+                                         (Die Krümelspur im SEITENKOPF, `data-forge-kruemel`,
+                                         hat echte Adressen. Sie bleibt trotzdem: sie steht
+                                         im `subtitle`-Slot des App-Kopfes auf `text-xs`,
+                                         `flux:breadcrumbs.item` setzt `text-sm font-medium`
+                                         fest — sie brächte eine zweite Schriftgröße in eine
+                                         Kopfzeile, die eine hat.) --}}
                                     <nav class="mb-2 flex flex-wrap items-center gap-1 text-sm" data-forge-krumel
                                          aria-label="{{ __('Pfad im Repository') }}">
                                         <button type="button" class="pressable rounded-tile px-1.5 py-0.5 font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -1587,16 +1708,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </template>
 
                                                 <template x-for="row in failedFor(pr.id)" :key="row.id">
-                                                    <div role="alert" data-forge-write-failed="root"
-                                                         class="mt-3 flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                                                        <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
-                                                        <span class="min-w-0 flex-1">
+                                                    {{-- Derselbe Tausch wie beim Schwesterkasten in der Issue-Spalte
+                                                         (Herleitung dort) — dieselbe Aussage, dieselbe Bauform. --}}
+                                                    <flux:callout variant="danger" icon="exclamation-triangle" inline
+                                                                  class="mt-3" role="alert" data-forge-write-failed="root">
+                                                        <flux:callout.text class="text-xs!">
                                                             <span class="font-semibold" x-text="row.label"></span>
                                                             <span x-text="(row.label ? ' — ' : '') + row.error"></span>
-                                                        </span>
-                                                        <button type="button" x-on:click="dismiss(row.id)"
-                                                                class="shrink-0 font-medium underline">{{ __('Verwerfen') }}</button>
-                                                    </div>
+                                                        </flux:callout.text>
+                                                        <x-slot name="actions">
+                                                            <flux:button size="xs" variant="ghost" class="icon-btn-touch shrink-0" x-on:click="dismiss(row.id)">{{ __('Verwerfen') }}</flux:button>
+                                                        </x-slot>
+                                                    </flux:callout>
                                                 </template>
 
                                                 {{-- ── Freigeben / Änderungen erbitten (P5) ─────
@@ -1673,11 +1796,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                     'targetLabel' => 'comment',
                                                                 ])
                                                             </div>
-                                                            <div x-show="commentError[pr.id]" x-cloak role="alert" data-forge-comment-error
-                                                                 class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                                                                <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
-                                                                <span x-text="commentError[pr.id]"></span>
-                                                            </div>
+                                                            {{-- Fehlermeldung als `flux:callout variant="danger"` statt als
+                                                                 nachgebauter roter Kasten — Herleitung an der ersten Fundstelle
+                                                                 dieser Datei (Suchwort `Vom Handkasten`). --}}
+                                                            <flux:callout variant="danger" icon="exclamation-triangle" inline
+                                                                          x-show="commentError[pr.id]" x-cloak role="alert" data-forge-comment-error>
+                                                                <flux:callout.text class="text-xs!" x-text="commentError[pr.id]"></flux:callout.text>
+                                                            </flux:callout>
                                                             <div class="flex flex-wrap items-center gap-2">
                                                                 <flux:button size="xs" variant="primary"
                                                                              x-on:click="submitComment(pr, 'pr')"
@@ -1752,19 +1877,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
                                                             <span class="font-medium" x-text="row.object"></span>
                                                         </p>
-                                                        <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                        {{-- `<div>` und nicht `<p>`, und beide Marken von
+                                                             Flux: identisch zur Aktivitätszeile auf
+                                                             `⚡forge.blade.php` — es ist derselbe Strom,
+                                                             nur auf ein Repository verengt. Die Herleitung
+                                                             steht dort (Kurzfassung: `flux:badge` rendert
+                                                             ein `<div>`, und ein `<div>` in einem `<p>`
+                                                             schließt das `<p>` beim Parsen vorzeitig). --}}
+                                                        <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                                                             {{-- KURZ in der Zeile, VOLL im Tooltip —
                                                                  Begründung in `⚡forge.blade.php`. --}}
                                                             <span x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
                                                             <template x-if="row.badge">
-                                                                <span class="rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                                      x-text="row.badge"></span>
+                                                                <flux:badge size="sm" class="bg-brand-500/10 font-semibold tracking-tight text-brand-800 dark:bg-brand-500/10 dark:text-brand-300"
+                                                                            x-text="row.badge" />
                                                             </template>
                                                             <template x-if="row.statusLabel">
-                                                                <span class="rounded-pill bg-zinc-100 px-1.5 py-0.5 font-medium dark:bg-zinc-800"
-                                                                      x-text="row.statusLabel"></span>
+                                                                <flux:badge size="sm" x-text="row.statusLabel" />
                                                             </template>
-                                                        </p>
+                                                        </div>
                                                         <template x-if="row.body">
                                                             <p class="forge-mass mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
                                                         </template>
@@ -1917,11 +2048,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         ])
                     </div>
 
-                    <div x-show="issueDraft.error" x-cloak role="alert" data-forge-issue-error
-                         class="flex items-start gap-2 rounded-tile border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                        <flux:icon.exclamation-triangle class="mt-0.5 size-4 shrink-0" />
-                        <span x-text="issueDraft.error"></span>
-                    </div>
+                    {{-- Fehlermeldung als `flux:callout variant="danger"` statt als
+                         nachgebauter roter Kasten — Herleitung an der ersten Fundstelle
+                         dieser Datei (Suchwort `Vom Handkasten`). --}}
+                    <flux:callout variant="danger" icon="exclamation-triangle" inline
+                                  x-show="issueDraft.error" x-cloak role="alert" data-forge-issue-error>
+                        <flux:callout.text class="text-xs!" x-text="issueDraft.error"></flux:callout.text>
+                    </flux:callout>
 
                     <div class="flex flex-wrap items-center gap-2">
                         {{-- Der Name des Knopfes WECHSELT NICHT, wenn er
