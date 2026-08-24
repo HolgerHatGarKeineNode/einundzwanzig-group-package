@@ -1515,3 +1515,110 @@ test('BEKANNTE KANTE: `#approval` ohne alles gilt weiterhin als Vorgangsform', (
     assert.equal(isOperationNote(hashtag), true)
     assert.equal(operationOf(hashtag), 'approval')
 })
+
+// ── N1 an der Zweig-Anzeige: geteilter Name, relay-signierter Zustand ───────
+
+const ZWEITER_OWNER = '7'.repeat(64)
+
+/**
+ * **Der Fall, den `foldRepoState` bis zum 2026-08-24 still auflöste.**
+ *
+ * Zwei Repositories gleichen Namens, zwei distinkte relay-signierte 30618.
+ * `dedupeReplaceable` faltet sie auf ihre gemeinsame Koordinate
+ * `(30618, relaySelf, d)` zusammen — zwei rein, einer raus — und die Anzeige
+ * behauptete daraufhin für BEIDE denselben Zustand. Alice sah Bobs Commit,
+ * ohne Marker, ohne zweiten Eintrag.
+ *
+ * Der Strom machte denselben Fehler zur selben Zeit SICHTBAR (zwei Zeilen, zwei
+ * Schlüssel); diese Fläche löste ihn still auf. Zwei Politiken für dieselbe
+ * Mehrdeutigkeit — und die sichere lag auf der unwichtigeren Fläche.
+ */
+test('N1: bei geteiltem `d` wird ein relay-signierter Zustand NICHT behauptet', () => {
+    const vonAlice = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 5_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '1'.repeat(40)], ['p', OWNER]],
+    })
+    const vonBob = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 6_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '2'.repeat(40)], ['p', ZWEITER_OWNER]],
+    })
+
+    const state = foldRepoState([vonAlice, vonBob], {
+        owner: OWNER,
+        relaySelf: RELAY_SELF,
+        dtag: REPO_D,
+        dtagGeteilt: true,
+    })
+
+    assert.ok(state, 'kein Marker — die Fläche kann „nicht zuzuordnen" dann nicht sagen')
+    assert.equal(state.ambiguous, true)
+    // Und vor allem: KEIN fremder Commit wird behauptet.
+    assert.deepEqual(state.branches, [])
+    assert.equal(state.head, '')
+})
+
+/**
+ * POSITIVKONTROLLE — ein fail-closed, das immer zumacht, ist kein Riegel.
+ * Derselbe Bestand, aber der Name ist NICHT geteilt: der Zustand steht.
+ */
+test('N1 POSITIVKONTROLLE: ohne geteilten Namen bleibt der relay-signierte Zustand sichtbar', () => {
+    const zustand = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 5_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '1'.repeat(40)], ['p', OWNER]],
+    })
+
+    const state = foldRepoState([zustand], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D })
+
+    assert.ok(state)
+    assert.equal(state.ambiguous, false)
+    assert.deepEqual(state.branches, [{ name: 'master', commit: '1'.repeat(40) }])
+})
+
+/**
+ * Die auflösbare Hälfte, auch bei geteiltem Namen: was der Eigentümer SELBST
+ * signiert hat, ist eindeutig seins — und gilt, obwohl der relay-signierte
+ * Zustand jünger ist. „Sicher und älter" schlägt „unsicher und neuer".
+ */
+test('N1: bei geteiltem `d` zählt der eigentümer-signierte Zustand — auch als älterer', () => {
+    const selbstBezeugt = ev({
+        kind: REPO_STATE,
+        pubkey: OWNER,
+        created_at: 5_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '1'.repeat(40)], ['p', OWNER]],
+    })
+    const jüngerVomRelay = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 9_000,
+        tags: [['d', REPO_D], ['refs/heads/master', '2'.repeat(40)], ['p', ZWEITER_OWNER]],
+    })
+
+    const state = foldRepoState([selbstBezeugt, jüngerVomRelay], {
+        owner: OWNER,
+        relaySelf: RELAY_SELF,
+        dtag: REPO_D,
+        dtagGeteilt: true,
+    })
+
+    assert.ok(state)
+    assert.equal(state.ambiguous, false)
+    assert.deepEqual(state.branches, [{ name: 'master', commit: '1'.repeat(40) }])
+})
+
+/**
+ * Und die dritte Lage bleibt unterscheidbar: gibt es GAR NICHTS, ist die
+ * Antwort `null` — nicht der Mehrdeutigkeits-Marker. Sonst zeigte die Fläche
+ * „nicht zuzuordnen" über einen Zustand, den niemand je veröffentlicht hat.
+ */
+test('N1: ohne jeden Zustand bleibt die Antwort `null`, nicht „mehrdeutig"', () => {
+    assert.equal(
+        foldRepoState([], { owner: OWNER, relaySelf: RELAY_SELF, dtag: REPO_D, dtagGeteilt: true }),
+        null,
+    )
+})

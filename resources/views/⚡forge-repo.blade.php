@@ -216,7 +216,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </template>
                                             </ul>
                                         </template>
-                                        <template x-if="!view.repo.state || view.repo.state.branches.length === 0">
+                                        {{-- ── Drei Lagen, nicht zwei (N1, 2026-08-24) ──────────
+                                             „Es gibt keinen Zustand" und „der Zustand ist diesem
+                                             Repository nicht zuzuordnen" sind verschiedene
+                                             Auskünfte, und die zweite gab es hier nicht.
+
+                                             Ein 30618 nennt seinen Eigentümer nicht, und
+                                             Repositories sind über `(owner, d)` gekeyt — zwei
+                                             gleichnamige Repos teilen sich also den
+                                             relay-signierten Zustand, ohne dass ein Client sie
+                                             trennen könnte. Bis zum 2026-08-24 bekam der eine
+                                             stillschweigend den Commit des anderen angezeigt.
+
+                                             Jetzt wird keiner behauptet — aber auch nicht „noch
+                                             nichts veröffentlicht" behauptet, denn gepusht wurde
+                                             sehr wohl. Der Satz sagt, WARUM nichts dasteht. --}}
+                                        <template x-if="view.repo.state && view.repo.state.ambiguous">
+                                            <span class="text-xs text-muted" data-forge-state-mehrdeutig>{{ __('Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.') }}</span>
+                                        </template>
+                                        <template x-if="(!view.repo.state && true) || (view.repo.state && !view.repo.state.ambiguous && view.repo.state.branches.length === 0)">
                                             <span class="text-xs text-muted" data-forge-no-state>{{ __('Noch kein Branch-Zustand veröffentlicht.') }}</span>
                                         </template>
                                     </dd>

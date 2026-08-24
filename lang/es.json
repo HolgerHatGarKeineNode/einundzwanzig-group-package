@@ -1019,5 +1019,6 @@
     "hat um einen Review gebeten:": "pidió una revisión:",
     "hat :namen um einen Review gebeten:": "pidió una revisión a :namen:",
     "hat freigegeben:": "aprobó:",
-    "hat Änderungen erbeten:": "solicitó cambios:"
+    "hat Änderungen erbeten:": "solicitó cambios:",
+    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Un segundo repositorio lleva el mismo nombre. El estado de ramas publicado no indica propietario y por eso no puede atribuirse a ninguno de los dos."
 }

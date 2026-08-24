@@ -1081,5 +1081,6 @@
     "hat um einen Review gebeten:": "lūdza recenziju:",
     "hat :namen um einen Review gebeten:": "lūdza :namen recenziju:",
     "hat freigegeben:": "apstiprināja:",
-    "hat Änderungen erbeten:": "pieprasīja izmaiņas:"
+    "hat Änderungen erbeten:": "pieprasīja izmaiņas:",
+    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Otra krātuve nes to pašu nosaukumu. Publicētais zaru stāvoklis nenorāda īpašnieku, tāpēc to nevar attiecināt ne uz vienu no tām."
 }

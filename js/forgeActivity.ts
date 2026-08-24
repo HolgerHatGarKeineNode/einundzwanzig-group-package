@@ -224,6 +224,17 @@ const pushItems = (stateEvents: ForgeEvent[], repo: Repo, relaySelf: string): Ac
      * `x-for` verwarf eine der beiden still. Damit aus einem Anzeigefehler
      * kein unsichtbarer wird.
      *
+     * **Und warum `foldRepoState` sich in derselben Lage ANDERS entscheidet.**
+     * Dort wird bei geteiltem Namen gar kein Zustand behauptet. Das ist kein
+     * Widerspruch, sondern der Unterschied zwischen einer Chronik und einer
+     * Zustandsaussage: „am 17.8. wurde nach master gepusht, Zuordnung unklar"
+     * ist wahr und bleibt wahr, auch wenn beide Repos die Zeile zeigen. „Der
+     * HEAD dieses Repos ist 2222222" ist dagegen eine Behauptung über GENAU
+     * EIN Repo — und wenn sie falsch ist, liest sie niemand als unsicher.
+     * Deshalb hier sichtbar machen, dort nicht behaupten. Wer die beiden
+     * später vereinheitlichen will, entscheidet damit auch, welche der beiden
+     * Aussagearten er aufgibt.
+     *
      * Dieselbe Menge wie in `foldRepoState` (`forgeModels.ts:557`): der
      * Repo-Eigentümer und der Relay selbst — bei Buzz schreibt der Relay das
      * 30618, nicht der Mensch. Bis zum 2026-08-24 filterte diese Funktion NUR

@@ -438,6 +438,17 @@ export type RepoState = {
     updatedAt: number
     /** Wer den Zustand ausgelöst hat (`p`-Tag, Buzz-Erweiterung: der Pusher). */
     actor: string
+    /**
+     * **Der Zustand ist diesem Repository nicht zuzuordnen — es wird keiner
+     * behauptet** (N1, 2026-08-24).
+     *
+     * Ist er gesetzt, sind `branches`, `tags` und `head` leer. Das ist NICHT
+     * dasselbe wie „es gibt keinen Zustand": es gibt einen, wir wissen nur
+     * nicht, ob er zu diesem Repo gehört. Die Fläche muss beide Fälle
+     * unterscheiden, sonst tauscht sie eine falsche Behauptung gegen eine
+     * andere („noch nichts veröffentlicht", obwohl sehr wohl gepusht wurde).
+     */
+    ambiguous: boolean
 }
 
 /**
@@ -486,6 +497,9 @@ export const toRepoState = (event: ForgeEvent): RepoState => {
          * sitzt in `forge.ts` an `nameOf`; dieser hier ist der an der Quelle.
          */
         actor: isPubkey(tagValue(event, 'p')) ? tagValue(event, 'p').toLowerCase() : '',
+        // Ein einzelnes Ereignis ist nie mehrdeutig — die Mehrdeutigkeit
+        // entsteht erst aus dem Repo-BESTAND (siehe {@link foldRepoState}).
+        ambiguous: false,
     }
 }
 
@@ -597,26 +611,75 @@ const hasRefs = (event: ForgeEvent): boolean =>
  * Auflösbar ist der andere Fall: ein **eigentümer-signiertes** 30618 gehört
  * eindeutig zum Repo dieses Eigentümers, und genau das leistet der Filter unten
  * über `trusted` — ein fremder Eigentümer mit gleichem `d` fällt heraus.
+ *
+ * ── Was `dtagGeteilt` entscheidet, und warum es von aussen kommt ────────────
+ *
+ * **Die Mehrdeutigkeit ist an den Ereignissen NICHT ablesbar.** Zwei
+ * relay-signierte 30618 mit gleichem `d` sind der Normalfall — der Relay hält
+ * alte Fassungen und liefert sie mit aus (gemessen: drei Stück zu EINEM Repo,
+ * siehe {@link dedupeReplaceable}). Ob die zwei zu einem Repo oder zu zweien
+ * gehören, steht in keinem Tag. Die Auskunft hat nur, wer den REPO-BESTAND
+ * kennt — also der Aufrufer. Deshalb ist es ein Parameter und keine Ableitung:
+ * eine hier erfundene Heuristik („mehr als eins ⇒ verdächtig") hätte den
+ * Normalfall zerschossen.
+ *
+ * **Und hier stand bis zum 2026-08-24 ein Satz, der für diese Funktion nicht
+ * stimmte.** Er lautete, es werde „nicht geraten" — während
+ * `dedupeReplaceable` + `.sort()[0]` sehr wohl eine Wahl trafen: bei zwei
+ * gleichnamigen Repos bekam Alices Zweig-Anzeige Bobs Commit, ohne Marker und
+ * ohne zweiten Eintrag. Der Strom machte den Fehler zur selben Zeit sichtbar
+ * (zwei Zeilen, zwei Schlüssel), diese Fläche löste ihn still auf. Zwei
+ * Politiken für dieselbe Mehrdeutigkeit, und die sichere lag auf der
+ * unwichtigeren Fläche.
+ *
+ * **Die Regel jetzt, bei geteiltem `d`: nur Selbstbezeugtes zählt.** Ein
+ * eigentümer-signiertes 30618 ist eindeutig — es gilt. Bleibt nur
+ * relay-signiertes übrig, wird **kein Zustand behauptet**; die Funktion liefert
+ * dann einen Marker mit leeren Refs ({@link RepoState.ambiguous}) statt `null`,
+ * damit die Fläche „nicht zuzuordnen" von „nichts veröffentlicht"
+ * unterscheiden kann. Ein fail-closed, das beides zu „nichts da" verschmilzt,
+ * tauschte nur eine falsche Aussage gegen eine andere.
+ *
+ * @param dtagGeteilt Trägt ein ANDERES sichtbares Repo dasselbe `d`? Der
+ *   Aufrufer weiss das, diese Funktion nicht.
  */
 export const foldRepoState = (
     events: ForgeEvent[],
-    { owner, relaySelf, dtag }: { owner: string; relaySelf: string; dtag: string },
+    {
+        owner,
+        relaySelf,
+        dtag,
+        dtagGeteilt = false,
+    }: { owner: string; relaySelf: string; dtag: string; dtagGeteilt?: boolean },
 ): RepoState | null => {
-    const trusted = new Set([owner.toLowerCase(), relaySelf.toLowerCase()].filter((value) => value !== ''))
+    const ownerKey = owner.toLowerCase()
+    const trusted = new Set([ownerKey, relaySelf.toLowerCase()].filter((value) => value !== ''))
     const candidates = events.filter(
         (event) =>
             event.kind === REPO_STATE &&
             tagValue(event, 'd') === dtag &&
             trusted.has(event.pubkey.toLowerCase()),
     )
-    const newest = dedupeReplaceable(candidates).sort(
+    // Bei geteiltem Namen bleibt nur, was der Eigentümer selbst bezeugt hat.
+    const zulaessig = dtagGeteilt
+        ? candidates.filter((event) => event.pubkey.toLowerCase() === ownerKey)
+        : candidates
+    const newest = dedupeReplaceable(zulaessig).sort(
         (a, b) =>
             b.created_at - a.created_at ||
             Number(hasRefs(b)) - Number(hasRefs(a)) ||
             a.id.localeCompare(b.id),
     )[0]
+    if (newest) {
+        return toRepoState(newest)
+    }
+    // Es gab etwas, es war nur nicht zuzuordnen — das ist eine andere Auskunft
+    // als „es gibt nichts", und die Fläche muss beide auseinanderhalten.
+    if (candidates.length > 0) {
+        return { branches: [], tags: [], head: '', updatedAt: 0, actor: '', ambiguous: true }
+    }
 
-    return newest ? toRepoState(newest) : null
+    return null
 }
 
 // ── Status-Faltung (1630–1633) ──────────────────────────────────────────────

@@ -1019,5 +1019,6 @@
     "hat um einen Review gebeten:": "ellenőrzést kért:",
     "hat :namen um einen Review gebeten:": ":namen ellenőrzését kérte:",
     "hat freigegeben:": "jóváhagyta:",
-    "hat Änderungen erbeten:": "módosításokat kért:"
+    "hat Änderungen erbeten:": "módosításokat kért:",
+    "Ein zweites Repository trägt denselben Namen. Der veröffentlichte Branch-Zustand nennt keinen Eigentümer und lässt sich deshalb keinem von beiden zuordnen.": "Egy másik tároló ugyanezt a nevet viseli. A közzétett ágállapot nem nevez meg tulajdonost, ezért egyikhez sem rendelhető hozzá."
 }

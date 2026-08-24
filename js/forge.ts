@@ -581,12 +581,30 @@ export const deriveForgeOverview = (): Readable<ForgeOverview> => {
                 pullsByRepo.set(pr.repoAddress, (pullsByRepo.get(pr.repoAddress) ?? 0) + 1)
             }
 
+            /**
+             * Welche `d`-Tags sich mehr als ein Repository teilt (N1).
+             *
+             * Ein 30618 trägt keinen Eigentümer; bei geteiltem Namen ist ein
+             * relay-signierter Zustand deshalb nicht zuzuordnen. Nur der
+             * BESTAND weiss davon — `foldRepoState` kann es nicht sehen.
+             */
+            const geteilteNamen = new Set(
+                repos
+                    .map((repo) => repo.dtag)
+                    .filter((dtag, index, alle) => alle.indexOf(dtag) !== index),
+            )
+
             const rows: RepoRow[] = repos.map((repo) => ({
                 ...repo,
                 naddr: naddrForRepo(repo.owner, repo.dtag, WORKSPACE_URL ? [WORKSPACE_URL] : []),
                 ownerName: nameOf(repo.owner),
                 dateLabel: dateLabel(repo.createdAt),
-                state: foldRepoState(all, { owner: repo.owner, relaySelf: relaySelf as string, dtag: repo.dtag }),
+                state: foldRepoState(all, {
+                    owner: repo.owner,
+                    relaySelf: relaySelf as string,
+                    dtag: repo.dtag,
+                    dtagGeteilt: geteilteNamen.has(repo.dtag),
+                }),
                 issueCount: issuesByRepo.get(repo.address) ?? 0,
                 pullRequestCount: pullsByRepo.get(repo.address) ?? 0,
                 patchCount: patchesByRepo.get(repo.address) ?? 0,
@@ -1106,12 +1124,17 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
             // Eine Uhr für diesen Emit — siehe `toActivityGroups`.
             const now = Math.floor(Date.now() / 1000)
             const deletions = all.filter((event) => event.kind === DELETION)
-            const repo = buildRepos(all, deletions).find(
+            const alleRepos = buildRepos(all, deletions)
+            const repo = alleRepos.find(
                 (candidate) => candidate.owner === address.owner && candidate.dtag === address.dtag,
             )
             if (!repo) {
                 return null
             }
+            // Trägt ein ANDERES sichtbares Repo denselben Namen? Dann ist ein
+            // relay-signierter Zustand nicht zuzuordnen (N1). Die Liste lag
+            // ohnehin vor — sie wurde bis zum 2026-08-24 nur weggeworfen.
+            const dtagGeteilt = alleRepos.filter((candidate) => candidate.dtag === repo.dtag).length > 1
 
             // Genau ein Repo auf dieser Fläche — die Nachschlagefunktion baut sich aus ihm.
             const maintainersOf = maintainerLookupFor([repo])
@@ -1137,7 +1160,12 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                 naddr,
                 ownerName: nameOf(repo.owner),
                 dateLabel: dateLabel(repo.createdAt),
-                state: foldRepoState(all, { owner: repo.owner, relaySelf: relaySelf as string, dtag: repo.dtag }),
+                state: foldRepoState(all, {
+                    owner: repo.owner,
+                    relaySelf: relaySelf as string,
+                    dtag: repo.dtag,
+                    dtagGeteilt,
+                }),
                 issueCount: issues.length,
                 pullRequestCount: pulls.length,
                 patchCount: patches.length,
