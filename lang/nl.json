@@ -1037,5 +1037,8 @@
     "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Alleen wie het issue opende, de eigenaar van de repository of een geregistreerde maintainer mag anderen toewijzen. Jezelf kun je altijd toevoegen.",
     "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Gevraagde reviewers en de verantwoordelijken van de repository kunnen goedkeuren — de auteur van een pull request de eigen niet.",
     "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "Deze pull request noemt geen commit. Een goedkeuring geldt voor precies één stand — zonder die zou ze geen referentie hebben en elke client zou ze verwerpen.",
-    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Deze pull request is afgesloten. Een goedkeuring verandert daar niets meer aan."
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Deze pull request is afgesloten. Een goedkeuring verandert daar niets meer aan.",
+    "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "Deze toewijzing noemt niemand geldigs — of meer mensen dan één event kan dragen.",
+    "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "De relay accepteerde de toewijzing, maar ze is niet doorgevoerd — de stand is intussen veranderd.",
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "De relay accepteerde de intrekking, maar ze is niet doorgevoerd — de stand is intussen veranderd."
 }

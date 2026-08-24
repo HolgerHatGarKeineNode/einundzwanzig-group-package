@@ -1037,5 +1037,8 @@
     "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Only the person who opened the issue, the repository owner or a listed maintainer may assign others. You can always add yourself.",
     "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Requested reviewers and those responsible for the repository can approve — the author of a pull request cannot approve their own.",
     "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "This pull request names no commit. An approval applies to exactly one state — without it, it would have no reference and every client would discard it.",
-    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "This pull request is closed. An approval changes nothing about it any more."
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "This pull request is closed. An approval changes nothing about it any more.",
+    "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "This assignment names nobody valid — or more people than one event can carry.",
+    "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "The relay accepted the assignment, but it did not take effect — the state has changed in the meantime.",
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "The relay accepted the removal, but it did not take effect — the state has changed in the meantime."
 }

@@ -22,8 +22,10 @@
  * Ein `Map` hinter der `Storage`-Oberfläche, im Speicher, ohne Rückschreiben.
  * Es macht `forge.ts` **ladbar**, nicht funktionsfähig: Netz, Relay und Signer
  * fehlen weiter, und keine Ableitung dieses Moduls wird hier ausgeführt.
- * Geprüft wird ausschliesslich {@link nameOf} — eine reine Funktion über einen
- * Schlüssel, die kein Netz braucht.
+ * Geprüft werden ausschliesslich reine Werte aus `forge.ts`: {@link nameOf} —
+ * eine Funktion über einen Schlüssel, die kein Netz braucht — und seit P5 die
+ * beiden Riegel-Textzahlen, die überhaupt keine Funktionen sind. Nichts davon
+ * fasst eine Ableitung an.
  */
 if (typeof globalThis.localStorage === 'undefined') {
     const speicher = new Map<string, string>()
@@ -42,4 +44,4 @@ if (typeof globalThis.localStorage === 'undefined') {
     })
 }
 
-export { nameOf } from './forge.ts'
+export { nameOf, ASSIGN_GATE_TEXTS, REVIEW_GATE_TEXTS } from './forge.ts'

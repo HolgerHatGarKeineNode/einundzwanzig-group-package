@@ -331,30 +331,41 @@ export const publishIssueStatus = async (
 // ── P5: Zuweisen, Entziehen, Freigeben ──────────────────────────────────────
 
 /**
- * Eine Zuweisung oder Entziehung (kind 1, `t`-beschriftet).
+ * Eine Zuweisung oder Entziehung (kind 1, `t`-beschriftet) — **mit Nachprüfung**.
  *
- * ── Warum hier KEINE Nachprüfung wie beim Statuswechsel steht ───────────────
+ * ── Hier stand, eine Nachprüfung sei überflüssig. Das war falsch (F2) ───────
  *
- * `publishIssueStatus` liest nach dem `OK` am gefalteten Ergebnis nach, ob
- * wirklich die eigene Fassung steht — dort entscheidet die Faltung zwischen
- * konkurrierenden Statuswechseln, und `OK true` sagt darüber nichts. Bei einer
- * Zuweisung ist die Lage anders: die Faltung verwirft sie nur, wenn der
- * Signierer nicht berechtigt war, und genau das hat {@link assignGate} **vor**
- * dem Absenden geprüft. Eine Nachprüfung wiederholte hier also den Riegel statt
- * eine zweite Frage zu beantworten.
+ * Die Begründung lautete: die Faltung verwerfe eine Zuweisung nur bei
+ * unberechtigtem Signierer, und genau das prüfe {@link assignGate} vorher. Das
+ * ist **nicht die einzige Verwerfungsbedingung.** Die zweite ist die
+ * `prior`-Kette: `foldAssignments` wendet eine kausale Selbstbedienung nur an,
+ * wenn ihr `prior` den KOPF trifft, den die Faltung zu diesem Zeitpunkt sieht
+ * (`projectIssues.mjs:154`). `prior` kommt aus `Issue.assignmentHeads`, also aus
+ * einer Momentaufnahme der letzten Faltung — landet zwischen Rendern und Klick
+ * eine autoritative Neuzuweisung, zeigt es ins Leere. Das Ereignis geht raus,
+ * der Relay nimmt es, und die Faltung lässt es fallen: **ohne Fehler, ohne
+ * Spur.**
  *
- * **Was der Aufrufer schuldet:** `assignGate` muss vorher `allowed` gesagt
- * haben. Der Riegel steht in der Insel, sichtbar am Knopf — hier liegt nur der
- * Backstop gegen einen fehlenden Signer (`send` → `senderReady`).
+ * Ein Gate kann das prinzipiell nicht wissen — die Bedingung hängt am Zustand
+ * zur FALTUNGSZEIT, nicht zur Klickzeit. Es gibt also sehr wohl eine zweite
+ * Frage, und es ist dieselbe wie bei `publishIssueStatus`: *hat mein Ereignis
+ * nach der Faltung die Wirkung, die ich wollte?*
  *
- * `prior` kommt aus `Issue.assignmentHeads` (P1) und ist bei einer
- * Selbstbedienung der Bezug, ohne den sie gegen eine autoritative Entscheidung
- * verliert. Fehlt er, wird keiner gesetzt — beim ersten Zugriff auf ein
- * unzugewiesenes Issue ist das richtig.
+ * `readAssigned` liefert deshalb den gefalteten Ist-Zustand („bin ich
+ * zugewiesen?"), und die Zusage lautet: nach `assignment` ja, nach
+ * `unassignment` nein. Trifft sie nicht ein, sagt die Fläche das — statt Erfolg
+ * zu behaupten.
+ *
+ * **Optional, und das ist kein Schlupfloch.** Ohne `readAssigned` verhält sich
+ * die Funktion wie vorher; der einzige Aufrufer (die Insel) reicht ihn durch.
+ * Der Parameter ist optional, weil `publishAssignment` auch aus einem Kontext
+ * ohne Ableitung heraus benutzbar bleiben soll — dann ohne diese Zusage, nicht
+ * mit einer falschen.
  */
 export const publishAssignment = async (
     target: { repoAddress: string; rootId: string; targets: readonly string[]; prior?: string },
     label: 'assignment' | 'unassignment',
+    readAssigned?: () => boolean,
 ): Promise<WriteOutcome> =>
     withLock(`assign:${target.rootId}`, async () => {
         const tags = buildAssignmentTags({
@@ -374,9 +385,28 @@ export const publishAssignment = async (
             { kind: FORGE_COMMENT_KIND, content: OPERATION_CONTENT[label], tags },
             { what: 'comment', repoAddress: target.repoAddress, rootId: target.rootId, label: '', content: '' },
         )
-        if (!outcome.error && outcome.id) {
-            dismissPending(outcome.id)
+        if (outcome.error || !outcome.id) {
+            return outcome
         }
+        if (readAssigned) {
+            const erwartet = label === 'assignment'
+            const settled = await awaitValue({
+                read: readAssigned,
+                accept: (value) => value === erwartet,
+                timeoutMs: STATUS_VERIFY_TIMEOUT_MS,
+                stepMs: STATUS_VERIFY_STEP_MS,
+                sleep,
+            })
+            if (!settled.ok) {
+                const error = erwartet
+                    ? t('Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.')
+                    : t('Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.')
+                pendingWrites.update((list) => failPending(list, outcome.id, error))
+
+                return { id: outcome.id, error }
+            }
+        }
+        dismissPending(outcome.id)
 
         return outcome
     })

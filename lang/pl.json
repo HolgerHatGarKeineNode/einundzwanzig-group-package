@@ -1068,5 +1068,8 @@
     "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Innych może przypisać tylko autor zgłoszenia, właściciel repozytorium lub wpisany opiekun. Siebie możesz dodać zawsze.",
     "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Zatwierdzać mogą poproszeni recenzenci i osoby odpowiedzialne za repozytorium — autor pull requesta swojego nie.",
     "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "Ten pull request nie wskazuje commita. Zatwierdzenie dotyczy dokładnie jednego stanu — bez niego nie miałoby odniesienia i każdy klient by je odrzucił.",
-    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Ten pull request jest zamknięty. Zatwierdzenie już nic nie zmieni."
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Ten pull request jest zamknięty. Zatwierdzenie już nic nie zmieni.",
+    "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "To przypisanie nie wskazuje nikogo poprawnego — albo więcej osób, niż może unieść jedno zdarzenie.",
+    "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay przyjął przypisanie, ale nie weszło ono w życie — stan w międzyczasie się zmienił.",
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay przyjął cofnięcie, ale nie weszło ono w życie — stan w międzyczasie się zmienił."
 }

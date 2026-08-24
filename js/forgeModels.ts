@@ -1064,6 +1064,70 @@ export const operationOf = (event: ForgeEvent): ForgeOperation => {
 }
 
 /**
+ * Die Notizen aller Wurzeln, **einmal** nach `e`/`E` einsortiert (P7).
+ *
+ * ── Was das ersetzt ─────────────────────────────────────────────────────────
+ *
+ * Bis P7 lief jede Wurzel mit {@link notesForRoot} über den GESAMTEN Bestand —
+ * und das viermal (Kommentare, letzte Regung, Zuweisungen, Reviews). Bei `m`
+ * Wurzeln und `n` Notizen ergab das `O(m·n)`. Gemessen am 2026-08-24
+ * (1600 Wurzeln je Kind, je zwei Notizen): **2146 ms**, Faktor ~4,2 je
+ * Verdopplung, also sauber quadratisch.
+ *
+ * **Erreichbar war der grosse Fall über keinen Weg** — `FORGE_ROOT_LIMIT = 200`
+ * je Kind über den Draht, `FORGE_ROOT_CAP_TOTAL`/`FORGE_META_CAP_TOTAL` in
+ * `js/storage.ts` deckeln den Cache. Gebaut ist es trotzdem: eine Grenze, die
+ * nur durch zwei fremde Konstanten hält, ist keine Eigenschaft dieses Moduls.
+ *
+ * ── Zwei Eigenschaften, die die Faltung voraussetzt ─────────────────────────
+ *
+ * 1. **Die Ordnung ist dieselbe wie vorher** — aufsteigend nach `created_at`,
+ *    bei Gleichstand die kleinere Id (Buzz' `sortEvents`). Sie ist bei den
+ *    Zuweisungen TRAGEND: die `prior`-Kette entscheidet nach dieser Reihenfolge,
+ *    wer bei einem Konflikt gewinnt. Sortiert wird einmal je Eimer statt einmal
+ *    je Abfrage.
+ * 2. **Ein Ereignis steht höchstens EINMAL in einem Eimer.** Eine Notiz darf
+ *    dieselbe Wurzel zweimal nennen (`["e",x]` und `["E",x]`); `notesForRoot`
+ *    filterte mit `some()` und lieferte sie deshalb einfach. Ohne die
+ *    Entdopplung hier zählte sie ab P7 doppelt — im Kommentarzähler sichtbar,
+ *    in der Zuweisungskette still.
+ *
+ * **`indizieren` heisst nicht `Verhalten ändern`:** die Faltungsregeln bleiben
+ * Byte für Byte dieselben. Was hier entsteht, ist ausschliesslich eine andere
+ * Reihenfolge des Nachschlagens.
+ */
+export type NotizIndex = ReadonlyMap<string, readonly ForgeEvent[]>
+
+export const indexNotes = (commentEvents: readonly ForgeEvent[]): NotizIndex => {
+    const eimer = new Map<string, ForgeEvent[]>()
+    for (const event of commentEvents) {
+        if (event.kind !== FORGE_COMMENT) {
+            continue
+        }
+        // Eigenschaft 2: je Wurzel höchstens einmal, auch bei `e` UND `E`.
+        const wurzeln = new Set<string>()
+        for (const tag of event.tags) {
+            if ((tag[0] === 'e' || tag[0] === 'E') && isFilled(tag[1])) {
+                wurzeln.add(tag[1])
+            }
+        }
+        for (const wurzel of wurzeln) {
+            const liste = eimer.get(wurzel)
+            if (liste) {
+                liste.push(event)
+            } else {
+                eimer.set(wurzel, [event])
+            }
+        }
+    }
+    for (const liste of eimer.values()) {
+        liste.sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
+    }
+
+    return eimer
+}
+
+/**
  * Alle kind-1-Notizen an einer Wurzel, **älteste zuerst** — Vorgangsformen
  * eingeschlossen.
  *
@@ -1073,10 +1137,22 @@ export const operationOf = (event: ForgeEvent): ForgeOperation => {
  * entscheidet nach dieser Reihenfolge, wer bei einem Konflikt gewinnt. Ohne
  * feste Regel hinge das Ergebnis an der Ankunftsreihenfolge des Relays.
  */
-const notesForRoot = (rootId: string, commentEvents: ForgeEvent[]): ForgeEvent[] =>
-    commentEvents
+const notesForRoot = (rootId: string, commentEvents: ForgeEvent[], index?: NotizIndex): ForgeEvent[] => {
+    // Der Index ist vorsortiert und entdoppelt — dieselbe Liste, nur nicht
+    // jedes Mal neu erarbeitet. Ohne ihn bleibt der alte Weg: die Funktion ist
+    // weiterhin allein aufrufbar (Tests, Einzelabfragen).
+    const gebucht = index?.get(rootId)
+    if (gebucht) {
+        return [...gebucht]
+    }
+    if (index) {
+        return []
+    }
+
+    return commentEvents
         .filter((event) => event.kind === FORGE_COMMENT && referencesRoot(event, rootId))
         .sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
+}
 
 /**
  * Die letzte Regung an einer Wurzel aus ihren Notizen — **inklusive** der
@@ -1088,14 +1164,22 @@ const notesForRoot = (rootId: string, commentEvents: ForgeEvent[]): ForgeEvent[]
  * sich still geändert, ohne dass ein Test es gesehen hätte. Eine Zuweisung IST
  * Bewegung am Vorgang; nur ein Gesprächsbeitrag ist sie nicht.
  */
-const lastNoteAt = (rootId: string, commentEvents: ForgeEvent[]): number =>
-    commentEvents.reduce(
+const lastNoteAt = (rootId: string, commentEvents: ForgeEvent[], index?: NotizIndex): number => {
+    if (index) {
+        // Der Eimer ist aufsteigend sortiert — die letzte Regung ist sein Ende.
+        const gebucht = index.get(rootId)
+
+        return gebucht && gebucht.length > 0 ? gebucht[gebucht.length - 1].created_at : 0
+    }
+
+    return commentEvents.reduce(
         (newest, event) =>
             event.kind === FORGE_COMMENT && referencesRoot(event, rootId)
                 ? Math.max(newest, event.created_at)
                 : newest,
         0,
     )
+}
 
 /** Der Zustand der Zuweisungen einer Wurzel. */
 export type AssignmentState = {
@@ -1177,13 +1261,14 @@ export const foldAssignments = (
     root: ForgeEvent,
     commentEvents: ForgeEvent[],
     maintainers: string[] = [],
+    index?: NotizIndex,
 ): AssignmentState => {
     const allowed = allowedActorsForRoot(root, maintainers)
     const uncausedSelf: AssignmentOperation[] = []
     const authoritative: AssignmentOperation[] = []
     const causalSelf: AssignmentOperation[] = []
 
-    for (const event of notesForRoot(root.id, commentEvents)) {
+    for (const event of notesForRoot(root.id, commentEvents, index)) {
         const labels = labelsOf(event)
         const isAssignment = labels.has(ASSIGNMENT_LABEL)
         const isUnassignment = labels.has(UNASSIGNMENT_LABEL)
@@ -1299,10 +1384,11 @@ export const foldReviews = (
     commentEvents: ForgeEvent[],
     currentCommit: string,
     maintainers: string[] = [],
+    index?: NotizIndex,
 ): ReviewState => {
     const author = root.pubkey.toLowerCase()
     const allowed = allowedActorsForRoot(root, maintainers)
-    const notes = notesForRoot(root.id, commentEvents)
+    const notes = notesForRoot(root.id, commentEvents, index)
 
     // Regel 1
     const reviewers = new Set(
@@ -1478,8 +1564,12 @@ const toComment = (event: ForgeEvent): ForgeComment => ({
  * `comments` steht, ist ein Gesprächsbeitrag"; eine Vorgangs-Zeitleiste wäre
  * eine eigene Fläche und keine Fussnote an dieser.
  */
-export const commentsForRoot = (rootId: string, commentEvents: ForgeEvent[]): ForgeComment[] =>
-    notesForRoot(rootId, commentEvents)
+export const commentsForRoot = (
+    rootId: string,
+    commentEvents: ForgeEvent[],
+    index?: NotizIndex,
+): ForgeComment[] =>
+    notesForRoot(rootId, commentEvents, index)
         .filter((event) => !isOperationNote(event))
         .map(toComment)
 
@@ -1529,12 +1619,13 @@ export const toIssue = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
+    index?: NotizIndex,
 ): Issue => {
     const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents)
+    const comments = commentsForRoot(root.id, commentEvents, index)
     // Die ROHE Liste, nicht `comments`: die Faltung braucht genau die Notizen,
     // die `commentsForRoot` gerade herausgeworfen hat.
-    const assignments = foldAssignments(root, commentEvents, maintainers)
+    const assignments = foldAssignments(root, commentEvents, maintainers, index)
 
     return {
         id: root.id,
@@ -1545,7 +1636,7 @@ export const toIssue = (
         updatedAt: Math.max(
             root.created_at,
             status?.created_at ?? 0,
-            lastNoteAt(root.id, commentEvents),
+            lastNoteAt(root.id, commentEvents, index),
         ),
         repoAddress: tagValue(root, 'a'),
         labels: tagValues(root, 't'),
@@ -1563,11 +1654,15 @@ export const buildIssues = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
-): Issue[] =>
-    issueEvents
+): Issue[] => {
+    // EINMAL je Aufruf, nicht je Wurzel (P7). Siehe {@link indexNotes}.
+    const index = indexNotes(commentEvents)
+
+    return issueEvents
         .filter((event) => event.kind === GIT_ISSUE)
-        .map((root) => toIssue(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a'))))
+        .map((root) => toIssue(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a')), index))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+}
 
 // ── Pull Request (1618 + 1619) ──────────────────────────────────────────────
 
@@ -1622,10 +1717,11 @@ export const toPullRequest = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
+    index?: NotizIndex,
 ): PullRequest => {
     const allowed = allowedActorsForRoot(root, maintainers)
     const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents)
+    const comments = commentsForRoot(root.id, commentEvents, index)
     const updates = updateEvents
         .filter(
             (event) =>
@@ -1646,7 +1742,7 @@ export const toPullRequest = (
     // weil `foldReviews` ihn braucht: eine Freigabe gilt genau für diesen einen
     // Stand und wird von einem Push danach entwertet.
     const commit = newestUpdate?.commit || tagValue(root, 'c')
-    const reviews = foldReviews(root, commentEvents, commit, maintainers)
+    const reviews = foldReviews(root, commentEvents, commit, maintainers, index)
 
     return {
         id: root.id,
@@ -1658,7 +1754,7 @@ export const toPullRequest = (
             root.created_at,
             status?.created_at ?? 0,
             ...updates.map((update) => update.createdAt),
-            lastNoteAt(root.id, commentEvents),
+            lastNoteAt(root.id, commentEvents, index),
         ),
         repoAddress: tagValue(root, 'a'),
         labels: tagValues(root, 't'),
@@ -1684,8 +1780,10 @@ export const buildPullRequests = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
-): PullRequest[] =>
-    pullRequestEvents
+): PullRequest[] => {
+    const index = indexNotes(commentEvents)
+
+    return pullRequestEvents
         .filter((event) => event.kind === GIT_PULL_REQUEST)
         .map((root) =>
             toPullRequest(
@@ -1694,9 +1792,11 @@ export const buildPullRequests = (
                 statusEvents,
                 commentEvents,
                 maintainersOf(tagValue(root, 'a')),
+                index,
             ),
         )
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+}
 
 // ── Patch (1617) ────────────────────────────────────────────────────────────
 
@@ -1748,9 +1848,10 @@ export const toPatch = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainers: string[] = [],
+    index?: NotizIndex,
 ): Patch => {
     const status = foldStatus(root, statusEvents, maintainers)
-    const comments = commentsForRoot(root.id, commentEvents)
+    const comments = commentsForRoot(root.id, commentEvents, index)
     const labels = tagValues(root, 't')
 
     return {
@@ -1762,7 +1863,7 @@ export const toPatch = (
         content: root.content,
         author: root.pubkey.toLowerCase(),
         createdAt: root.created_at,
-        updatedAt: Math.max(root.created_at, status?.created_at ?? 0, lastNoteAt(root.id, commentEvents)),
+        updatedAt: Math.max(root.created_at, status?.created_at ?? 0, lastNoteAt(root.id, commentEvents, index)),
         repoAddress: tagValue(root, 'a'),
         labels,
         status: patchStatusFrom(status),
@@ -1782,11 +1883,14 @@ export const buildPatches = (
     statusEvents: ForgeEvent[] = [],
     commentEvents: ForgeEvent[] = [],
     maintainersOf: MaintainerLookup = () => [],
-): Patch[] =>
-    patchEvents
+): Patch[] => {
+    const index = indexNotes(commentEvents)
+
+    return patchEvents
         .filter((event) => event.kind === GIT_PATCH)
-        .map((root) => toPatch(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a'))))
+        .map((root) => toPatch(root, statusEvents, commentEvents, maintainersOf(tagValue(root, 'a')), index))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+}
 
 /** Eine Gruppe gleichartiger Vorgänge, die zu EINEM Repository gehören. */
 export type RepoGruppe<T> = {

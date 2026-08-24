@@ -166,8 +166,13 @@ export const commentDraftProblem = (
  * - `settled` — der Vorgang ist zusammengeführt oder geschlossen. Eine Freigabe
  *   danach ändert nichts mehr; Buzz sperrt sie ebenfalls
  *   (`pullRequestReviews.ts:canReviewProjectPullRequest`).
+ * - `targets` — die Operation nennt niemanden Brauchbaren oder zu viele (F3).
+ *   **Keine Berechtigungsfrage**, und deshalb ein eigener Code: der Gate sagte
+ *   sonst ALLOWED, `buildAssignmentTags` lieferte `[]`, und die Fläche meldete
+ *   „Diese Zuweisung nennt niemanden." — bei 51 Namen. Es ging nichts raus, aber
+ *   wer die Meldung las, suchte an der falschen Stelle.
  */
-export type WriteGateReason = 'ok' | 'anonymous' | 'not-actor' | 'no-commit' | 'settled'
+export type WriteGateReason = 'ok' | 'anonymous' | 'not-actor' | 'no-commit' | 'settled' | 'targets'
 
 export type WriteGate = { allowed: boolean; reason: WriteGateReason }
 
@@ -176,6 +181,7 @@ const ANONYMOUS: WriteGate = { allowed: false, reason: 'anonymous' }
 const NOT_ACTOR: WriteGate = { allowed: false, reason: 'not-actor' }
 const NO_COMMIT: WriteGate = { allowed: false, reason: 'no-commit' }
 const SETTLED: WriteGate = { allowed: false, reason: 'settled' }
+const TARGETS: WriteGate = { allowed: false, reason: 'targets' }
 
 /**
  * Darf dieser Betrachter ein Issue anlegen oder kommentieren?
@@ -220,6 +226,15 @@ export const statusGate = (
         ? ALLOWED
         : NOT_ACTOR
 }
+
+/**
+ * Obergrenze aus `builders.rs:1219-1223` — „between 1 and 50 assignees".
+ *
+ * Steht VOR {@link assignGate}, obwohl sie erst im Tag-Bau gebraucht wurde: seit
+ * F3 prüft auch der Riegel gegen sie, und eine Konstante, die unterhalb ihres
+ * ersten Lesers steht, ist eine Einladung in die temporale Todeszone.
+ */
+export const MAX_ASSIGNEES = 50
 
 /**
  * Darf dieser Betrachter diese Menschen zuweisen — oder ihre Zuweisung entziehen?
@@ -269,6 +284,19 @@ export const assignGate = (
     if (!HEX64.test(viewer)) {
         return ANONYMOUS
     }
+    // **Erst der Gegenstand, dann die Berechtigung** (F3, 2026-08-24). Wer
+    // niemanden nennt oder mehr Namen als das SDK zulässt, bekommt einen eigenen
+    // Grund — sonst stünde der Gate offen und `buildAssignmentTags` schwiege
+    // dazu mit einer Meldung, die das Gegenteil behauptet.
+    //
+    // Gezählt werden die BRAUCHBAREN Namen (dieselbe Bedingung wie im Tag-Bau),
+    // die Selbstprüfung unten läuft weiter über die ROHE Liste. Beides ist
+    // Absicht: die eine Frage lautet „gibt es überhaupt einen Gegenstand", die
+    // andere „ist es ausschliesslich der eigene".
+    const brauchbar = new Set(targets.map((value) => value.toLowerCase()).filter((pk) => HEX64.test(pk)))
+    if (brauchbar.size === 0 || brauchbar.size > MAX_ASSIGNEES) {
+        return TARGETS
+    }
     const self = viewer.toLowerCase()
     if (
         allowedActorsFor({
@@ -277,7 +305,7 @@ export const assignGate = (
             maintainers: root.maintainers ?? [],
         }).has(self)
     ) {
-        return targets.length > 0 ? ALLOWED : NOT_ACTOR
+        return ALLOWED
     }
     const roh = targets.map((value) => value.toLowerCase())
 
@@ -580,9 +608,6 @@ export const buildAssignmentTags = ({
     return tags
 }
 
-/** Obergrenze aus `builders.rs:1219-1223` — „between 1 and 50 assignees". */
-export const MAX_ASSIGNEES = 50
-
 /**
  * Tags einer Freigabe oder eines Änderungswunsches (kind 1, `t`-beschriftet).
  *
@@ -612,7 +637,21 @@ export const buildReviewTags = ({
     ['e', rootId, '', 'root'],
     ['a', repoAddress],
     ['t', label],
-    ['c', commit.toLowerCase()],
+    // **UNVERÄNDERT durchgereicht, nicht kleingeschrieben** (F1, 2026-08-24).
+    //
+    // Hier stand `commit.toLowerCase()`, und das war eine zweite Meinung über
+    // denselben Wert: `foldReviews` vergleicht BYTEWEISE gegen das `c` des 1618
+    // (ebenso Buzz, `projectPullRequests.mjs:265-274`). Ein grossgeschriebener
+    // Commit öffnete damit den Gate — die Formprüfung ist case-insensitiv —,
+    // das Ereignis ginge raus, der Relay quittierte mit `OK true`, und die
+    // Faltung erkennte NICHTS an. Genau die Klasse, gegen die P5 gebaut wurde.
+    //
+    // Der Wert kommt aus `PullRequest.commit`, also aus demselben Tag, gegen das
+    // später verglichen wird. Ihn unterwegs anzufassen kann nur schaden: an
+    // dieser Kette gibt es genau eine Schreibweise, und das ist die des
+    // Erzeugers. Die Formprüfung im Gate bleibt case-insensitiv — sie beschreibt
+    // die GESTALT eines Commits, nicht seine Identität.
+    ['c', commit],
 ]
 
 // ── Optimistischer Eintrag ──────────────────────────────────────────────────
@@ -703,21 +742,28 @@ export const pendingState = (list: readonly PendingWrite[], id: string): Pending
  * und die sieht das Ereignis erst nach dem `throttled(300)` der Ableitung.
  * Ohne Warten stünde hier ein Ergebnis von vor dem Schreiben.
  *
+ * **Seit F2 (2026-08-24) generisch**, weil die Zuweisung dieselbe Frage stellt
+ * und ihre Antwort ein `boolean` ist („bin ich zugewiesen?"). Der Typ war auf
+ * `string` genagelt, ohne dass irgendetwas im Rumpf das brauchte — eine
+ * Zeichenkette daraus zu machen wäre eine Verrenkung um eine Signatur herum
+ * gewesen, die nichts festhält. Bestehende Aufrufer leiten `string` weiterhin
+ * ab, ihr Verhalten ändert sich nicht.
+ *
  * Uhr und Schlaf sind Parameter, damit die Funktion ohne echte Zeit prüfbar ist.
  */
-export const awaitValue = async ({
+export const awaitValue = async <T>({
     read,
     accept,
     timeoutMs,
     stepMs,
     sleep,
 }: {
-    read: () => string
-    accept: (value: string) => boolean
+    read: () => T
+    accept: (value: T) => boolean
     timeoutMs: number
     stepMs: number
     sleep: (ms: number) => Promise<void>
-}): Promise<{ ok: boolean; value: string }> => {
+}): Promise<{ ok: boolean; value: T }> => {
     let waited = 0
     let value = read()
     while (!accept(value) && waited < timeoutMs) {

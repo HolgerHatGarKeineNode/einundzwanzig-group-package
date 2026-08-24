@@ -1099,5 +1099,8 @@
     "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Citus var piešķirt tikai tas, kas atvēra problēmu, krātuves īpašnieks vai reģistrēts uzturētājs. Sevi vari pievienot vienmēr.",
     "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Apstiprināt var pieprasītie recenzenti un krātuves atbildīgie — pull request autors savu paša ne.",
     "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "Šis pull request nenosauc nevienu commit. Apstiprinājums attiecas tieši uz vienu stāvokli — bez tā tam nebūtu atsauces un katrs klients to atmestu.",
-    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Šis pull request ir pabeigts. Apstiprinājums tur vairs neko nemaina."
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Šis pull request ir pabeigts. Apstiprinājums tur vairs neko nemaina.",
+    "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "Šis piešķīrums nenosauc nevienu derīgu — vai vairāk cilvēku, nekā viens notikums var nest.",
+    "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay pieņēma piešķīrumu, bet tas nav stājies spēkā — stāvoklis pa to laiku ir mainījies.",
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "Relay pieņēma atsaukšanu, bet tā nav stājusies spēkā — stāvoklis pa to laiku ir mainījies."
 }

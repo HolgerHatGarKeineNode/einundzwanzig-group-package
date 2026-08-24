@@ -1543,13 +1543,23 @@ const gateText = (gate: WriteGate): string =>
  * („du darfst das nicht") wäre die Sorte Begründung, nach der man erst recht
  * fragt. Der Riegel ist **vor** dem Klick sichtbar; dann muss er auch sagen,
  * WER es dürfte.
+ *
+ * **Exportiert, damit die Vollständigkeit einen Träger hat.** `gateTextFrom`
+ * fällt bei einem unbekannten Code stillschweigend auf den `anonymous`-Satz
+ * zurück — dann stünde „bitte anmelden" unter einem Knopf, der aus einem ganz
+ * anderen Grund zu ist, bei einem angemeldeten Nutzer. Genau diese Lücke
+ * entsteht, wenn jemand einen neuen `WriteGateReason` ergänzt und die Tabellen
+ * vergisst; `forgeRiegelTexte.test.ts` hält dagegen.
  */
-const ASSIGN_GATE_TEXTS: Record<string, string> = {
+export const ASSIGN_GATE_TEXTS: Record<string, string> = {
     anonymous: 'Zum Schreiben bitte anmelden.',
     'not-actor': 'Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.',
+    // F3: KEINE Berechtigungsfrage. Ohne eigenen Satz stünde hier „bitte
+    // anmelden" — bei einem angemeldeten Nutzer, dem nur der Gegenstand fehlt.
+    targets: 'Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.',
 }
 
-const REVIEW_GATE_TEXTS: Record<string, string> = {
+export const REVIEW_GATE_TEXTS: Record<string, string> = {
     anonymous: 'Zum Schreiben bitte anmelden.',
     'not-actor': 'Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.',
     'no-commit': 'Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.',
@@ -3230,6 +3240,16 @@ export function wireForge(Alpine: {
                         prior: row.assignmentHeads[this.viewer.toLowerCase()] ?? '',
                     },
                     label,
+                    // Die Nachprüfung liest den GEFALTETEN Ist-Zustand, nicht die
+                    // Zeile aus dem Klick-Augenblick: `row` ist eine
+                    // Momentaufnahme, `this.view` zieht mit jeder Ableitung nach.
+                    // Genau darum geht es — der `prior` kann zwischen Rendern und
+                    // Faltung veraltet sein (F2).
+                    () => {
+                        const frisch = this.view?.issues.find((issue) => issue.id === row.id)
+
+                        return frisch?.assignees.includes(this.viewer.toLowerCase()) ?? false
+                    },
                 )
                 this.busyTick += 1
                 if (outcome.error) {

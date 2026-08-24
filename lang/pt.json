@@ -1068,5 +1068,8 @@
     "Andere zuweisen darf nur, wer das Issue eröffnet hat, wem das Repository gehört oder wer als Maintainer eingetragen ist. Dich selbst kannst du jederzeit eintragen.": "Só quem abriu o issue, o proprietário do repositório ou um responsável registado pode atribuir a outros. A ti próprio podes acrescentar-te sempre.",
     "Freigeben können angefragte Reviewer und die Verantwortlichen des Repositorys — der Autor eines Pull Requests seinen eigenen nicht.": "Podem aprovar os revisores solicitados e os responsáveis do repositório — o autor de um pull request não o seu próprio.",
     "Dieser Pull Request nennt keinen Commit. Eine Freigabe gilt für genau einen Stand — ohne ihn hätte sie keinen Bezug und würde von jedem Client verworfen.": "Este pull request não indica nenhum commit. Uma aprovação aplica-se a exatamente um estado — sem ele não teria referência e qualquer cliente a descartaria.",
-    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Este pull request está concluído. Uma aprovação já não altera nada."
+    "Dieser Pull Request ist abgeschlossen. Eine Freigabe ändert daran nichts mehr.": "Este pull request está concluído. Uma aprovação já não altera nada.",
+    "Diese Zuweisung nennt niemanden Gültigen — oder mehr Personen, als ein Ereignis tragen kann.": "Esta atribuição não indica ninguém válido — ou mais pessoas do que um evento consegue transportar.",
+    "Das Relay hat die Zuweisung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "O relay aceitou a atribuição, mas ela não vingou — o estado mudou entretanto.",
+    "Das Relay hat die Entziehung angenommen, aber sie hat sich nicht durchgesetzt — der Stand hat sich inzwischen geändert.": "O relay aceitou a remoção, mas ela não vingou — o estado mudou entretanto."
 }

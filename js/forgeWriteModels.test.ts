@@ -468,7 +468,51 @@ test('assignGate: die Selbstprüfung zählt die ROHEN Ziele, nicht die brauchbar
 
 test('assignGate: ohne Anmeldung und ohne Ziel bleibt der Knopf zu', () => {
     assert.equal(assignGate('', ISSUE, [STRANGER]).reason, 'anonymous')
-    assert.equal(assignGate(AUTHOR, ISSUE, []).reason, 'not-actor')
+    /*
+     * **`not-actor` → `targets` mit F3 (2026-08-24), berechtigt geändert.** Der
+     * alte Code sagte bei leerer Zielliste „du bist nicht zuständig" — und beim
+     * autoritativen Autor war das schlicht falsch: er IST zuständig, es fehlt
+     * nur der Gegenstand. Bei 51 Namen sagte er sogar ALLOWED, worauf der
+     * Tag-Bau `[]` lieferte und die Fläche „nennt niemanden" meldete. Sie nannte
+     * 51.
+     */
+    assert.equal(assignGate(AUTHOR, ISSUE, []).reason, 'targets')
+})
+
+/**
+ * F3 — der Gegenstand wird VOR der Berechtigung geprüft, und zwar für beide
+ * Wege. Heute unerreichbar (die Fläche übergibt immer genau `[viewer]`), latent
+ * für eine Fremdzuweisungs-Fläche — und genau dann wird jemand diesen Riegel
+ * benutzen, ohne ihn noch einmal zu lesen.
+ */
+test('assignGate: zu viele oder unbrauchbare Namen sind ein EIGENER Grund, nicht „nicht zuständig"', () => {
+    const zuViele = Array.from({ length: 51 }, (_, i) => String(i).padStart(64, '0'))
+    assert.equal(assignGate(AUTHOR, ISSUE, zuViele).reason, 'targets')
+    assert.equal(assignGate(AUTHOR, ISSUE, ['kein-schluessel']).reason, 'targets')
+    // Genau an der Grenze steht der Riegel offen — sie ist die des SDK, keine
+    // eigene Vorsicht.
+    assert.equal(assignGate(AUTHOR, ISSUE, zuViele.slice(0, 50)).allowed, true)
+    // KONTROLLE: die Selbstbedienungs-Regel bleibt unberührt — `[selbst, müll]`
+    // ist weiterhin KEINE Selbstbedienung, sondern `not-actor`.
+    assert.equal(assignGate(STRANGER, ISSUE, [STRANGER, 'kein-schluessel']).reason, 'not-actor')
+})
+
+/**
+ * F1 — **eine Normalisierung, nicht zwei Meinungen.**
+ *
+ * `foldReviews` vergleicht byteweise gegen das `c` des 1618. Schrieb der
+ * Tag-Bau den Commit klein, öffnete ein grossgeschriebener Commit den Riegel,
+ * das Ereignis ginge raus, der Relay quittierte — und die Faltung erkennte
+ * nichts an. Der Wert wird deshalb unverändert durchgereicht.
+ */
+test('buildReviewTags: der Commit wird UNVERÄNDERT geschrieben — auch gross', () => {
+    const gross = COMMIT.toUpperCase().replace(/1/g, 'A')
+    const tags = buildReviewTags({ repoAddress: ADDRESS, rootId: ROOT_ID, commit: gross, label: 'approval' })
+
+    assert.equal(firstValue(tags, 'c'), gross)
+    // Und der Riegel nimmt ihn an: die Formprüfung beschreibt die GESTALT eines
+    // Commits, nicht seine Identität.
+    assert.equal(approveGate(REVIEWER, { ...PR, commit: gross }).allowed, true)
 })
 
 /**
@@ -567,4 +611,40 @@ test('buildReviewTags: trägt den Commit — und KEIN `p`', () => {
     // Ein `p` machte aus jeder Freigabe eine Erwähnung — und weckte Agenten,
     // die nichts damit zu tun haben (`forgeWake.ts`).
     assert.deepEqual(tagsOf(tags, 'p'), [])
+})
+
+/**
+ * F2 — `awaitValue` ist seit der Zuweisungs-Nachprüfung generisch. Der Fall mit
+ * `boolean` ist der neue; der mit `string` steht daneben, damit die alte Zusage
+ * nicht still verloren geht.
+ */
+test('awaitValue: trägt auch einen Wahrheitswert — und bleibt für Zeichenketten, wie sie war', async () => {
+    let n = 0
+    const boolesch = await awaitValue<boolean>({
+        read: () => ++n >= 3,
+        accept: (v) => v,
+        timeoutMs: 1_000,
+        stepMs: 10,
+        sleep: async () => {},
+    })
+    assert.equal(boolesch.ok, true)
+    assert.equal(boolesch.value, true)
+
+    const nie = await awaitValue<boolean>({
+        read: () => false,
+        accept: (v) => v,
+        timeoutMs: 30,
+        stepMs: 10,
+        sleep: async () => {},
+    })
+    assert.equal(nie.ok, false)
+
+    const text = await awaitValue({
+        read: () => 'resolved',
+        accept: (v) => v === 'resolved',
+        timeoutMs: 100,
+        stepMs: 10,
+        sleep: async () => {},
+    })
+    assert.equal(text.value, 'resolved')
 })
