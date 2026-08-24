@@ -598,6 +598,43 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                         </template>
                                                     </span>
                                                 </template>
+                                                {{-- ── Zuweisungs-Band (P1) ──────────────────────
+                                                     Wer arbeitet daran? Die Antwort lag bis P1
+                                                     unlesbar in der Liste: Buzz schreibt eine
+                                                     Zuweisung als beschrifteten `kind 1`, und der
+                                                     stand hier als gewöhnlicher Kommentar — samt
+                                                     seiner Prosa („Assigned this issue to …") und
+                                                     in der Kommentarzahl. `foldAssignments`
+                                                     (`js/forgeModels.ts`) faltet die Kette jetzt
+                                                     und liefert genau die aktuell Zuständigen.
+
+                                                     **Schlüssel statt Namen, und das ist keine
+                                                     Nachlässigkeit.** Namen und Bilder entstehen
+                                                     in `forge.ts` (`peopleOf`, dort für die
+                                                     Maintainer); diese Phase fasst die Datei nicht
+                                                     an. Der Schlüssel steht deshalb gekürzt da und
+                                                     vollständig im `title`. Was hier bewusst NICHT
+                                                     passiert: ein Avatar mit Initiale — die käme
+                                                     aus einer Hex-Ziffer, und genau davor warnt
+                                                     `forge.ts` an `RepoRow.people`.
+
+                                                     Kein neues Farbwort: dieselbe Pille wie die
+                                                     Labels darüber, nur mit vorangestelltem
+                                                     Bezeichner. --}}
+                                                <template x-if="issue.assignees.length > 0">
+                                                    <span class="mt-1.5 flex flex-wrap items-center gap-1" data-forge-assignees>
+                                                        <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Zugewiesen') }}</span>
+                                                        <template x-for="pubkey in issue.assignees.slice(0, 6)" :key="pubkey">
+                                                            <span class="rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800"
+                                                                  data-forge-assignee :data-pubkey="pubkey" :title="pubkey"
+                                                                  x-text="pubkey.slice(0, 8)"></span>
+                                                        </template>
+                                                        <template x-if="issue.assignees.length > 6">
+                                                            <span class="text-[0.7rem] text-muted"
+                                                                  x-text="'+' + (issue.assignees.length - 6)"></span>
+                                                        </template>
+                                                    </span>
+                                                </template>
                                             </span>
                                             {{-- Auf schmalen Schirmen eine EIGENE Zeile
                                                  (`basis-full`), erst ab `sm` wieder rechts
@@ -1166,6 +1203,71 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                           ? @js(__(':name hat ihn eröffnet aus :branch.')).split(':branch').join(pr.branch)
                                                           : @js(__(':name hat ihn eröffnet.'))).split(':name').join(pr.authorName)
                                                           + ' · ' + pr.timeLabel"></span>
+                                                {{-- ── Reviewer-Zeile (P1) ───────────────────────
+                                                     Wer soll draufschauen, und wer hat schon?
+                                                     `foldReviews` (`js/forgeModels.ts`) liefert
+                                                     beides. Zur Herkunft der Regeln: NIP-34 kennt
+                                                     kein Review — das ist eine reine
+                                                     Client-Konvention aus Buzz Desktop, und der
+                                                     Relay setzt nichts davon durch.
+
+                                                     **Das Häkchen gilt für EINEN Commit.** Eine
+                                                     Freigabe, die auf einen älteren Stand zeigt,
+                                                     ist bereits in der Faltung ausgesiebt — nach
+                                                     einem Push steht hier also wieder ein nacktes
+                                                     Reviewer-Zeichen. Das ist der Sinn: ein
+                                                     Häkchen für Code, den niemand gesehen hat,
+                                                     wäre schlimmer als keins.
+
+                                                     Die Aussage hängt an der FORM (Häkchen bzw.
+                                                     Ausrufezeichen) und an einem `sr-only`-Wort,
+                                                     nicht an der Farbe (WCAG 1.4.1). Die beiden
+                                                     Farbwörter sind die bestehenden Forge-Token
+                                                     der Statuszeile — kein neues.
+
+                                                     Schlüssel statt Namen aus demselben Grund wie
+                                                     beim Zuweisungs-Band darüber. --}}
+                                                <template x-if="pr.reviewers.length > 0 || pr.approvals.length > 0">
+                                                    <span class="mt-1.5 flex flex-wrap items-center gap-1" data-forge-reviewers>
+                                                        <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Reviewer') }}</span>
+                                                        <template x-for="pubkey in pr.reviewers.slice(0, 6)" :key="pubkey">
+                                                            <span class="inline-flex items-center gap-1 rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800"
+                                                                  data-forge-reviewer :data-pubkey="pubkey"
+                                                                  :data-entscheidung="pr.approvals.some((d) => d.author === pubkey)
+                                                                      ? 'approved'
+                                                                      : (pr.changeRequests.some((d) => d.author === pubkey) ? 'changes-requested' : '')"
+                                                                  :title="pubkey">
+                                                                <span x-text="pubkey.slice(0, 8)"></span>
+                                                                <template x-if="pr.approvals.some((d) => d.author === pubkey)">
+                                                                    <span class="inline-flex items-center text-forge-erledigt">
+                                                                        <flux:icon.check variant="micro" class="size-3.5" />
+                                                                        <span class="sr-only">{{ __('hat freigegeben') }}</span>
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="pr.changeRequests.some((d) => d.author === pubkey)">
+                                                                    <span class="inline-flex items-center text-forge-offen">
+                                                                        <flux:icon.exclamation-circle variant="micro" class="size-3.5" />
+                                                                        <span class="sr-only">{{ __('erbittet Änderungen') }}</span>
+                                                                    </span>
+                                                                </template>
+                                                            </span>
+                                                        </template>
+                                                        <template x-if="pr.reviewers.length > 6">
+                                                            <span class="text-[0.7rem] text-muted"
+                                                                  x-text="'+' + (pr.reviewers.length - 6)"></span>
+                                                        </template>
+                                                        {{-- Die Zahl steht daneben, weil eine
+                                                             Freigabe auch von jemandem kommen kann,
+                                                             der nie angefragt wurde — der
+                                                             Repo-Eigentümer darf das. Ohne sie
+                                                             verschwände seine Freigabe zwischen den
+                                                             Chips. --}}
+                                                        <template x-if="pr.approvals.length > 0">
+                                                            <span class="text-[0.7rem] text-muted" data-forge-approvals
+                                                                  x-text="$plural(pr.approvals.length, '1 Freigabe', ':count Freigaben')"></span>
+                                                        </template>
+                                                    </span>
+                                                </template>
                                             </span>
                                             {{-- Auf schmalen Schirmen eine EIGENE Zeile
                                                  (`basis-full`), erst ab `sm` wieder rechts

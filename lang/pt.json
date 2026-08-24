@@ -1035,5 +1035,12 @@
     "Lokal gespeichert": "Guardado localmente",
     "Dieser Ursprung belegt :belegt von :kontingent, die der Browser ihm zugesteht.": "Esta origem ocupa :belegt dos :kontingent que o navegador lhe concede.",
     "Wie viel Speicher der Browser diesem Ursprung zugesteht, sagt er hier nicht.": "Quanto armazenamento o navegador concede a esta origem não é indicado aqui.",
-    "Es liegt nichts lokal.": "Não há nada guardado localmente."
+    "Es liegt nichts lokal.": "Não há nada guardado localmente.",
+    "Zugewiesen": "Atribuído",
+    "Reviewer": "Revisores",
+    "hat freigegeben": "aprovou",
+    "erbittet Änderungen": "solicita alterações",
+    "1 Freigabe": "1 aprovação",
+    ":count Freigaben": ":count aprovações",
+    ":count Freigaben#one": ":count aprovação"
 }

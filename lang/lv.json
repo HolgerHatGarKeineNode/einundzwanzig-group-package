@@ -1065,5 +1065,13 @@
     "Lokal gespeichert": "Saglabāts lokāli",
     "Dieser Ursprung belegt :belegt von :kontingent, die der Browser ihm zugesteht.": "Šī izcelsme aizņem :belegt no :kontingent, ko pārlūks tai piešķir.",
     "Wie viel Speicher der Browser diesem Ursprung zugesteht, sagt er hier nicht.": "Cik daudz vietas pārlūks piešķir šai izcelsmei, tas šeit nesaka.",
-    "Es liegt nichts lokal.": "Lokāli nekas nav saglabāts."
+    "Es liegt nichts lokal.": "Lokāli nekas nav saglabāts.",
+    "Zugewiesen": "Piešķirts",
+    "Reviewer": "Recenzenti",
+    "hat freigegeben": "ir apstiprinājis",
+    "erbittet Änderungen": "pieprasa izmaiņas",
+    "1 Freigabe": "1 apstiprinājums",
+    ":count Freigaben": ":count apstiprinājumi",
+    ":count Freigaben#one": ":count apstiprinājums",
+    ":count Freigaben#zero": ":count apstiprinājumu"
 }

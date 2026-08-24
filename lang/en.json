@@ -1005,5 +1005,11 @@
     "Lokal gespeichert": "Stored locally",
     "Dieser Ursprung belegt :belegt von :kontingent, die der Browser ihm zugesteht.": "This origin uses :belegt of the :kontingent the browser grants it.",
     "Wie viel Speicher der Browser diesem Ursprung zugesteht, sagt er hier nicht.": "How much storage the browser grants this origin is not reported here.",
-    "Es liegt nichts lokal.": "Nothing is stored locally."
+    "Es liegt nichts lokal.": "Nothing is stored locally.",
+    "Zugewiesen": "Assigned",
+    "Reviewer": "Reviewers",
+    "hat freigegeben": "approved",
+    "erbittet Änderungen": "requests changes",
+    "1 Freigabe": "1 approval",
+    ":count Freigaben": ":count approvals"
 }

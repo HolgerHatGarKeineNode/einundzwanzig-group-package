@@ -1035,5 +1035,12 @@
     "Lokal gespeichert": "Zapisane lokalnie",
     "Dieser Ursprung belegt :belegt von :kontingent, die der Browser ihm zugesteht.": "To źródło zajmuje :belegt z :kontingent, które przyznaje mu przeglądarka.",
     "Wie viel Speicher der Browser diesem Ursprung zugesteht, sagt er hier nicht.": "Ile miejsca przeglądarka przyznaje temu źródłu, tutaj nie podaje.",
-    "Es liegt nichts lokal.": "Nic nie jest zapisane lokalnie."
+    "Es liegt nichts lokal.": "Nic nie jest zapisane lokalnie.",
+    "Zugewiesen": "Przypisane",
+    "Reviewer": "Recenzenci",
+    "hat freigegeben": "zatwierdził",
+    "erbittet Änderungen": "prosi o zmiany",
+    "1 Freigabe": "1 zatwierdzenie",
+    ":count Freigaben": ":count zatwierdzeń",
+    ":count Freigaben#few": ":count zatwierdzenia"
 }

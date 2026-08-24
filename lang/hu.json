@@ -1005,5 +1005,11 @@
     "Lokal gespeichert": "Helyben tárolva",
     "Dieser Ursprung belegt :belegt von :kontingent, die der Browser ihm zugesteht.": "Ez az eredet :belegt helyet foglal a böngésző által biztosított :kontingent keretből.",
     "Wie viel Speicher der Browser diesem Ursprung zugesteht, sagt er hier nicht.": "Hogy mennyi tárhelyet ad a böngésző ennek az eredetnek, itt nem árulja el.",
-    "Es liegt nichts lokal.": "Semmi sincs helyben tárolva."
+    "Es liegt nichts lokal.": "Semmi sincs helyben tárolva.",
+    "Zugewiesen": "Hozzárendelve",
+    "Reviewer": "Ellenőrzők",
+    "hat freigegeben": "jóváhagyta",
+    "erbittet Änderungen": "módosításokat kér",
+    "1 Freigabe": "1 jóváhagyás",
+    ":count Freigaben": ":count jóváhagyás"
 }

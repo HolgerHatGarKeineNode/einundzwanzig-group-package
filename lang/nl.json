@@ -1005,5 +1005,11 @@
     "Lokal gespeichert": "Lokaal opgeslagen",
     "Dieser Ursprung belegt :belegt von :kontingent, die der Browser ihm zugesteht.": "Deze oorsprong gebruikt :belegt van de :kontingent die de browser toestaat.",
     "Wie viel Speicher der Browser diesem Ursprung zugesteht, sagt er hier nicht.": "Hoeveel opslag de browser deze oorsprong toestaat, meldt hij hier niet.",
-    "Es liegt nichts lokal.": "Er staat niets lokaal."
+    "Es liegt nichts lokal.": "Er staat niets lokaal.",
+    "Zugewiesen": "Toegewezen",
+    "Reviewer": "Reviewers",
+    "hat freigegeben": "heeft goedgekeurd",
+    "erbittet Änderungen": "vraagt wijzigingen",
+    "1 Freigabe": "1 goedkeuring",
+    ":count Freigaben": ":count goedkeuringen"
 }
