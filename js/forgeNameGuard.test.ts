@@ -24,13 +24,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { displayPubkey } from '@welshman/util'
 import { buildActivity } from './forgeActivity.ts'
+import { nameOf } from './forgeNameGuardHost.ts'
 import {
     FORGE_COMMENT,
     GIT_ISSUE,
     REPO_ANNOUNCEMENT,
     REPO_STATE,
     buildRepos,
-    isPubkey,
     repoAddressOf,
     toRepoState,
     type ForgeEvent,
@@ -70,21 +70,66 @@ test('KALIBRIERUNG: `displayPubkey` WIRFT bei einem Wert, der kein Schlüssel is
 })
 
 /**
- * Der eigentliche Beweis: die Werte, die aus dem Modell herauskommen, dürfen
- * `displayPubkey` erreichen, ohne dass es wirft.
+ * **Die leere Zeichenkette ist die tückischste Kante — und gehört NICHT in die
+ * Giftliste** (N4, 2026-08-24).
  *
- * **Bewusst gegen die echte Funktion geprüft und nicht gegen `isPubkey`.** Eine
- * Zusicherung `isPubkey(x) === true` prüfte den Riegel gegen sich selbst und
- * hielte gar nichts fest; hier entscheidet die Bibliothek, die im Browser wirft.
+ * `displayPubkey('')` wirft nämlich gerade nicht: es liefert eine
+ * wohlgeformte, vollständig erfundene `npub`. Ein Riegel, der nur `''` abfängt
+ * (`pubkey ? … : ''` — genau die Form, die hier vor F1 stand), hätte den echten
+ * Wurf also nie berührt und dabei ausgesehen, als täte er etwas.
+ *
+ * Deshalb steht der Wert hier als eigener Fall mit einer LITERALEN Erwartung:
+ * geht die Schein-npub eines Tages als „harmlos" durch, wird dieser Test rot und
+ * zwingt zur bewussten Entscheidung.
+ */
+test('KANTE: `displayPubkey("")` wirft NICHT, sondern erfindet eine npub', () => {
+    // Der Wert ist GEMESSEN, nicht zitiert: `displayPubkey` kürzt in der Mitte
+    // mit einem Auslassungszeichen, die ungekürzte Lesart „npub106246s" gibt es
+    // an dieser Funktion gar nicht. Ein aus einem Bericht abgeschriebener
+    // Erwartungswert wäre hier rot geworden — und zwar zu Recht.
+    assert.equal(displayPubkey(''), 'npub1062\u20266246s')
+
+    // Und trotzdem kommt sie nicht auf die Fläche: `nameOf` fragt nach einem
+    // SCHLÜSSEL, nicht nach „irgendetwas Wahrem".
+    assert.equal(nameOf(''), '')
+})
+
+/**
+ * N3 — die Engstelle selbst, direkt geprüft.
+ *
+ * Bis zum 2026-08-24 hatte sie keinen Träger: keine `.test.ts` importierte
+ * `forge.ts`, und wer `nameOf` auf `pubkey ? displayProfileByPubkey(pubkey) : ''`
+ * zurückdrehte, blieb grün. Genau das ist die Stelle, die als die wichtigere
+ * begründet ist — „die Datenquellen wachsen, die Engstelle nicht".
+ */
+test('N3: `nameOf` wirft bei keinem Fremdwert und erfindet keinen Namen', () => {
+    for (const wert of GIFT) {
+        assert.doesNotThrow(() => nameOf(wert), `„${wert}" riss die Namensauflösung um`)
+        assert.equal(nameOf(wert), '', `„${wert}" wurde zu einem Namen`)
+    }
+
+    // POSITIVKONTROLLE: ein echter Schlüssel bekommt sehr wohl eine Auskunft.
+    // Ohne sie wäre ein `nameOf = () => ''` grün — der Riegel darf nicht alles
+    // aussperren.
+    assert.notEqual(nameOf(OWNER), '')
+})
+
+/**
+ * Der eigentliche Beweis: jeder Wert, den das Modell ausgibt, läuft durch die
+ * ECHTE Namensauflösung — und die darf nicht werfen.
+ *
+ * **Hier stand bis zum 2026-08-24 ein `continue` auf `!isPubkey(wert)`, und das
+ * war ein Fehler in der Sonde selbst** (N4): sie BILDETE den Riegel nach, statt
+ * ihn zu benutzen. Ein Wert, den die Fläche durchreicht, wurde damit vom
+ * Prüfstand mit derselben Bedingung weggefiltert, gegen die er schützen soll —
+ * eine Regression an der Engstelle konnte diese Sonde nicht sehen.
+ *
+ * Jetzt läuft jeder Wert durch `nameOf` aus `forge.ts`, also durch genau die
+ * Funktion, die im Browser aufgerufen wird. Sie ist deshalb exportiert.
  */
 const durchDieNamensaufloesung = (werte: string[]): void => {
     for (const wert of werte) {
-        // Genau die Bedingung aus `nameOf` (`forge.ts`) — ein leerer Wert erreicht
-        // `displayProfileByPubkey` nie.
-        if (!isPubkey(wert)) {
-            continue
-        }
-        assert.doesNotThrow(() => displayPubkey(wert), `„${wert}" kam durch den Riegel und wirft`)
+        assert.doesNotThrow(() => nameOf(wert), `„${wert}" riss die Namensauflösung um`)
     }
 }
 

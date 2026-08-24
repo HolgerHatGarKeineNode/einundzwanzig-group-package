@@ -578,6 +578,26 @@ export const toRepoState = (event: ForgeEvent): RepoState => {
 const hasRefs = (event: ForgeEvent): boolean =>
     event.tags.some(([name, value]) => isFilled(name) && isFilled(value) && name.startsWith('refs/'))
 
+/**
+ * **Bekannte Kante (N1, 2026-08-24): bei relay-signiertem Zustand ist die
+ * Zuordnung mehrdeutig, und zwar prinzipiell.**
+ *
+ * Ein 30618 trägt keinen Eigentümer und kein `a`
+ * (`api/git/manifest_event.rs:1-18`), der Relay signiert alle mit demselben
+ * Schlüssel (`api/git/transport.rs:2009`) und trägt das nackte `repo_id` als
+ * `d` ein. Repositories sind aber über `(owner, d)` gekeyt
+ * (`api/git/binding.rs:36`) — zwei Eigentümer dürfen dasselbe `d` führen.
+ *
+ * Folge: haben „demo" von X und „demo" von Y beide relay-signierte Zustände,
+ * sieht jede der beiden Repo-Flächen unter Umständen den Zustand der anderen.
+ * **Das ist clientseitig nicht auflösbar**; die Reparatur wäre ein `a`-Tag am
+ * 30618 auf Relay-Seite. Hier wird deshalb NICHT geraten — eine erfundene
+ * Zuordnung wäre genau dann falsch, wenn es darauf ankommt.
+ *
+ * Auflösbar ist der andere Fall: ein **eigentümer-signiertes** 30618 gehört
+ * eindeutig zum Repo dieses Eigentümers, und genau das leistet der Filter unten
+ * über `trusted` — ein fremder Eigentümer mit gleichem `d` fällt heraus.
+ */
 export const foldRepoState = (
     events: ForgeEvent[],
     { owner, relaySelf, dtag }: { owner: string; relaySelf: string; dtag: string },

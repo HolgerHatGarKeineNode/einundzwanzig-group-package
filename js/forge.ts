@@ -374,8 +374,16 @@ const timeLabel = (ts: number): string =>
  *
  * Ein unbrauchbarer Wert ergibt `''` statt einer erfundenen Kennung: die Fläche
  * zeigt dann keinen Namen, was zutrifft — sie kennt keinen.
+ *
+ * **Exportiert, damit die Zusage einen Träger hat** (N3, 2026-08-24). Sie war
+ * die einzige Stelle der Kette ohne Test: keine `.test.ts` importierte
+ * `forge.ts`, und wer diese Zeile auf `pubkey ? …` zurückdrehte, blieb grün —
+ * ausgerechnet an der Stelle, die als die wichtigere begründet ist. Der Export
+ * ist kein Test-Zubehör: eine Funktion, deren Vertrag „wirft unter keinen
+ * Umständen" lautet, gehört überprüfbar gemacht. Geprüft in
+ * `forgeNameGuard.test.ts` gegen die ECHTE `nip19`-Implementierung.
  */
-const nameOf = (pubkey: string): string =>
+export const nameOf = (pubkey: string): string =>
     isPubkey(pubkey) ? displayProfileByPubkey(pubkey) : ''
 
 /** Pubkeys → Personen mit Namen und ROHEM Bild (`nostr-avatar` proxifiziert selbst). */

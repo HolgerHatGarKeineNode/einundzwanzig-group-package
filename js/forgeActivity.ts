@@ -194,6 +194,36 @@ const pushItems = (stateEvents: ForgeEvent[], repo: Repo, relaySelf: string): Ac
     /**
      * **Wer einen Branch-Zustand behaupten darf** (F2, 2026-08-24).
      *
+     * ── Und was der Signierer NICHT hergibt (N1, 2026-08-24) ────────────────
+     *
+     * Ein 30618 trägt `d`, die Refs, `HEAD` und ein `p` — **keinen Eigentümer
+     * und kein `a`** (`crates/buzz-relay/src/api/git/manifest_event.rs:1-18`).
+     * Der Relay dagegen keyt ein Repository über `(owner, d)`
+     * (`api/git/binding.rs:36`: „30617 is keyed by `(author, d)`"). Zwei
+     * Eigentümer dürfen also dasselbe `d` haben — „demo", „website", „docs"
+     * sind keine exotischen Namen.
+     *
+     * Daraus folgen zwei Fälle, und nur einer ist auflösbar:
+     *
+     * - **Eigentümer-signiert** → eindeutig. Der Filter unten leistet das
+     *   bereits: ein von einem FREMDEN Eigentümer signiertes 30618 mit
+     *   gleichem `d` steht nicht in `trusted` und fällt heraus.
+     * - **Relay-signiert** → **prinzipiell mehrdeutig.** Der Relay signiert
+     *   jedes 30618 mit demselben Schlüssel (`transport.rs:2009`,
+     *   `state.relay_keypair`) und trägt das nackte `repo_id` als `d` ein
+     *   (`:2003-2007`). Aus dem Ereignis ist nicht abzulesen, welchem der
+     *   beiden gleichnamigen Repos es gehört — **kein Client kann das
+     *   auflösen.** Die Reparatur läge im Relay: ein `a`-Tag am 30618.
+     *
+     * **Was hier deshalb getan wird, und was ausdrücklich nicht.** Nicht
+     * geraten (etwa „nimm das Repo, dessen Eigentümer zuletzt aktiv war") —
+     * eine erfundene Zuordnung ist genau dann falsch, wenn es darauf ankommt.
+     * Stattdessen trägt die Zeile das Repo in ihrem SCHLÜSSEL (siehe unten):
+     * beide gleichnamigen Repos zeigen die Zeile dann, was falsch ist — aber
+     * **sichtbar** falsch. Vorher teilten sich beide einen Schlüssel und
+     * `x-for` verwarf eine der beiden still. Damit aus einem Anzeigefehler
+     * kein unsichtbarer wird.
+     *
      * Dieselbe Menge wie in `foldRepoState` (`forgeModels.ts:557`): der
      * Repo-Eigentümer und der Relay selbst — bei Buzz schreibt der Relay das
      * 30618, nicht der Mensch. Bis zum 2026-08-24 filterte diese Funktion NUR
@@ -236,7 +266,12 @@ const pushItems = (stateEvents: ForgeEvent[], repo: Repo, relaySelf: string): Ac
         // zählt den Rest nicht mit — mehr wäre erfunden, weniger unterschlagen.
         const first = moved[0]
         items.push({
-            id: `push:${event.id}`,
+            // **Wurzel- bzw. repo-qualifiziert** (N1/N2, 2026-08-24). Dies war
+            // die einzige Zeilen-Id, die ihren Bezug nicht trug — und
+            // ausgerechnet die, die ihn am nötigsten hat: ein relay-signiertes
+            // 30618 wird von JEDEM gleichnamigen Repo angenommen und erzeugte
+            // damit zwei Zeilen mit demselben Schlüssel.
+            id: `push:${event.id}:${repo.address}`,
             type: 'push',
             createdAt: event.created_at,
             actor: state.actor,

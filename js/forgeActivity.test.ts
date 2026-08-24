@@ -582,3 +582,88 @@ test('F5: ein zweimal genanntes `e` ergibt trotzdem nur EINE Zeile', () => {
 
     assert.equal(items.filter((item) => item.type === 'comment').length, 1)
 })
+
+// ── N1/N2: zwei Repositories mit gleichem `d` ───────────────────────────────
+
+const ZWEITER_OWNER = '7'.repeat(64)
+const ZWEITES_REPO = ev({
+    kind: REPO_ANNOUNCEMENT,
+    pubkey: ZWEITER_OWNER,
+    created_at: 1786792300,
+    // GLEICHES `d` wie `repoEvent`, anderer Eigentümer. Der Relay erlaubt das:
+    // er keyt Repositories über `(owner, d)` (`api/git/binding.rs:36`).
+    tags: [['d', REPO_D], ['name', REPO_D]],
+})
+const BEIDE_REPOS = buildRepos([repoEvent, ZWEITES_REPO])
+
+/**
+ * N1/N2 — **der Fall ohne jeden Angreifer.**
+ *
+ * Ein relay-signiertes 30618 trägt keinen Eigentümer und kein `a`
+ * (`manifest_event.rs:1-18`); der Relay signiert alle mit demselben Schlüssel.
+ * Es wird deshalb von BEIDEN gleichnamigen Repositories angenommen — und das
+ * ist clientseitig nicht auflösbar, siehe die Kante an `pushItems`.
+ *
+ * Was hier geprüft wird, ist nicht die Auflösung (die gibt es nicht), sondern
+ * dass der Fehler **sichtbar** bleibt: zwei Zeilen mit zwei Schlüsseln. Vorher
+ * trugen beide `push:${event.id}` — `x-for` verwarf eine still, und still ist
+ * genau die Eigenschaft, gegen die der F5-Fix gebaut wurde.
+ */
+test('N1: ein relay-signierter Zustand bei gleichem `d` ergibt zwei Zeilen mit ZWEI Schlüsseln', () => {
+    const zustand = ev({
+        kind: REPO_STATE,
+        pubkey: RELAY_SELF,
+        created_at: 1785499999,
+        tags: [['d', REPO_D], ['refs/heads/master', 'c'.repeat(40)], ['p', PUSHER]],
+    })
+    const pushes = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: BEIDE_REPOS,
+        events: [repoEvent, ZWEITES_REPO, zustand],
+    }).filter((item) => item.type === 'push')
+
+    assert.equal(pushes.length, 2, 'beide gleichnamigen Repos müssen die Zeile zeigen')
+    // Der eigentliche Beweis: zwei Schlüssel, sonst verschluckt `x-for` eine.
+    assert.equal(new Set(pushes.map((item) => item.id)).size, 2)
+    // Und jede Zeile sagt, zu welchem Repo sie gehört.
+    assert.deepEqual(
+        pushes.map((item) => item.repoAddress).sort(),
+        [repoAddressOf(OWNER, REPO_D), repoAddressOf(ZWEITER_OWNER, REPO_D)].sort(),
+    )
+})
+
+/**
+ * Die auflösbare Hälfte: ein EIGENTÜMER-signiertes 30618 gehört eindeutig zu
+ * seinem Repo. Der Signierer gibt die Zuordnung her, also wird sie genutzt.
+ */
+test('N1: ein eigentümer-signierter Zustand erscheint NUR beim eigenen Repo', () => {
+    const vonZweitem = ev({
+        kind: REPO_STATE,
+        pubkey: ZWEITER_OWNER,
+        created_at: 1785499999,
+        tags: [['d', REPO_D], ['refs/heads/master', 'd'.repeat(40)], ['p', ZWEITER_OWNER]],
+    })
+    const pushes = buildActivity({
+        relaySelf: RELAY_SELF,
+        repos: BEIDE_REPOS,
+        events: [repoEvent, ZWEITES_REPO, vonZweitem],
+    }).filter((item) => item.type === 'push')
+
+    assert.equal(pushes.length, 1)
+    assert.equal(pushes[0].repoAddress, repoAddressOf(ZWEITER_OWNER, REPO_D))
+})
+
+/**
+ * POSITIVKONTROLLE — genau daran ist der F2-Fix beinahe gescheitert: ein
+ * Riegel, der auch die echten Zeilen verschluckt, ist kein Riegel, sondern ein
+ * zweiter Fehler. Der Bestand des EIGENEN Repos muss unverändert durchkommen.
+ */
+test('N1 POSITIVKONTROLLE: die Push-Historie des eigenen Repos bleibt vollständig', () => {
+    const pushes = buildActivity({ relaySelf: RELAY_SELF, repos: REPOS, events: [repoEvent, ...ECHTE_ZUSTAENDE] }).filter(
+        (item) => item.type === 'push',
+    )
+
+    assert.equal(pushes.length, 1)
+    assert.equal(pushes[0].repoAddress, repoAddressOf(OWNER, REPO_D))
+    assert.equal(new Set(pushes.map((item) => item.id)).size, pushes.length)
+})
