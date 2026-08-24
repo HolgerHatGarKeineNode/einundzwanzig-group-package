@@ -1011,5 +1011,13 @@
     "hat freigegeben": "heeft goedgekeurd",
     "erbittet Änderungen": "vraagt wijzigingen",
     "1 Freigabe": "1 goedkeuring",
-    ":count Freigaben": ":count goedkeuringen"
+    ":count Freigaben": ":count goedkeuringen",
+    "hat zugewiesen:": "wees toe:",
+    "hat :namen zugewiesen:": "wees :namen toe:",
+    "hat die Zuweisung entfernt:": "verwijderde de toewijzing:",
+    "hat die Zuweisung von :namen entfernt:": "verwijderde de toewijzing van :namen:",
+    "hat um einen Review gebeten:": "vroeg een review aan:",
+    "hat :namen um einen Review gebeten:": "vroeg :namen om een review:",
+    "hat freigegeben:": "keurde goed:",
+    "hat Änderungen erbeten:": "vroeg wijzigingen aan:"
 }

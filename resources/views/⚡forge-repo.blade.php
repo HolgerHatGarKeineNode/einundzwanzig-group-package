@@ -608,30 +608,37 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      (`js/forgeModels.ts`) faltet die Kette jetzt
                                                      und liefert genau die aktuell Zuständigen.
 
-                                                     **Schlüssel statt Namen, und das ist keine
-                                                     Nachlässigkeit.** Namen und Bilder entstehen
-                                                     in `forge.ts` (`peopleOf`, dort für die
-                                                     Maintainer); diese Phase fasst die Datei nicht
-                                                     an. Der Schlüssel steht deshalb gekürzt da und
-                                                     vollständig im `title`. Was hier bewusst NICHT
-                                                     passiert: ein Avatar mit Initiale — die käme
-                                                     aus einer Hex-Ziffer, und genau davor warnt
-                                                     `forge.ts` an `RepoRow.people`.
+                                                     **Namen, nicht Schlüssel.** `assigneePeople`
+                                                     kommt aus demselben `peopleOf`, das die
+                                                     Maintainer-Reihe im Steckbrief speist — ein
+                                                     zweiter Auflösungsweg wäre die Stelle, an der
+                                                     zwei Zeilen desselben Bildschirms verschiedene
+                                                     Namen für denselben Schlüssel zeigen. Liegt
+                                                     kein kind 0 vor, steht dort die gekürzte
+                                                     `npub`-Form: eine bewusste Rückfallebene,
+                                                     dieselbe wie beim Autor der Zeile darüber —
+                                                     und nie die rohe Hex-Kette. Der volle
+                                                     Schlüssel bleibt im `title`, für den Fall,
+                                                     dass jemand ihn wirklich braucht.
+
+                                                     Kein Avatar: die Initiale käme bei fehlendem
+                                                     Profil aus einem `npub`-Zeichen, und davor
+                                                     warnt `forge.ts` an `RepoRow.people`.
 
                                                      Kein neues Farbwort: dieselbe Pille wie die
                                                      Labels darüber, nur mit vorangestelltem
                                                      Bezeichner. --}}
-                                                <template x-if="issue.assignees.length > 0">
+                                                <template x-if="issue.assigneePeople.length > 0">
                                                     <span class="mt-1.5 flex flex-wrap items-center gap-1" data-forge-assignees>
                                                         <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Zugewiesen') }}</span>
-                                                        <template x-for="pubkey in issue.assignees.slice(0, 6)" :key="pubkey">
+                                                        <template x-for="person in issue.assigneePeople.slice(0, 6)" :key="person.pubkey">
                                                             <span class="rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800"
-                                                                  data-forge-assignee :data-pubkey="pubkey" :title="pubkey"
-                                                                  x-text="pubkey.slice(0, 8)"></span>
+                                                                  data-forge-assignee :data-pubkey="person.pubkey" :title="person.pubkey"
+                                                                  x-text="person.name"></span>
                                                         </template>
-                                                        <template x-if="issue.assignees.length > 6">
+                                                        <template x-if="issue.assigneePeople.length > 6">
                                                             <span class="text-[0.7rem] text-muted"
-                                                                  x-text="'+' + (issue.assignees.length - 6)"></span>
+                                                                  x-text="'+' + (issue.assigneePeople.length - 6)"></span>
                                                         </template>
                                                     </span>
                                                 </template>
@@ -1225,26 +1232,34 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      Farbwörter sind die bestehenden Forge-Token
                                                      der Statuszeile — kein neues.
 
-                                                     Schlüssel statt Namen aus demselben Grund wie
-                                                     beim Zuweisungs-Band darüber. --}}
-                                                <template x-if="pr.reviewers.length > 0 || pr.approvals.length > 0">
+                                                     Namen statt Schlüssel aus demselben Grund wie
+                                                     beim Zuweisungs-Band darüber.
+
+                                                     **Die Zuordnung Reviewer→Entscheidung steht
+                                                     NICHT mehr hier.** Sie stand als drei
+                                                     `.some()`-Ausdrücke je Zeile im Markup —
+                                                     ungetestet, und mit einer Lücke: wer
+                                                     freigegeben hat, ohne angefragt worden zu sein
+                                                     (der Repo-Eigentümer darf das), fehlte in den
+                                                     Chips und tauchte nur in der Zahl daneben auf.
+                                                     `reviewerRows` in `js/forgeModels.ts` liefert
+                                                     jetzt EINE Liste, in der beide vorkommen. --}}
+                                                <template x-if="pr.reviewerPeople.length > 0">
                                                     <span class="mt-1.5 flex flex-wrap items-center gap-1" data-forge-reviewers>
                                                         <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Reviewer') }}</span>
-                                                        <template x-for="pubkey in pr.reviewers.slice(0, 6)" :key="pubkey">
+                                                        <template x-for="person in pr.reviewerPeople.slice(0, 6)" :key="person.pubkey">
                                                             <span class="inline-flex items-center gap-1 rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800"
-                                                                  data-forge-reviewer :data-pubkey="pubkey"
-                                                                  :data-entscheidung="pr.approvals.some((d) => d.author === pubkey)
-                                                                      ? 'approved'
-                                                                      : (pr.changeRequests.some((d) => d.author === pubkey) ? 'changes-requested' : '')"
-                                                                  :title="pubkey">
-                                                                <span x-text="pubkey.slice(0, 8)"></span>
-                                                                <template x-if="pr.approvals.some((d) => d.author === pubkey)">
+                                                                  data-forge-reviewer :data-pubkey="person.pubkey"
+                                                                  :data-entscheidung="person.decision"
+                                                                  :title="person.pubkey">
+                                                                <span x-text="person.name"></span>
+                                                                <template x-if="person.decision === 'approved'">
                                                                     <span class="inline-flex items-center text-forge-erledigt">
                                                                         <flux:icon.check variant="micro" class="size-3.5" />
                                                                         <span class="sr-only">{{ __('hat freigegeben') }}</span>
                                                                     </span>
                                                                 </template>
-                                                                <template x-if="pr.changeRequests.some((d) => d.author === pubkey)">
+                                                                <template x-if="person.decision === 'changes-requested'">
                                                                     <span class="inline-flex items-center text-forge-offen">
                                                                         <flux:icon.exclamation-circle variant="micro" class="size-3.5" />
                                                                         <span class="sr-only">{{ __('erbittet Änderungen') }}</span>
@@ -1252,9 +1267,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                 </template>
                                                             </span>
                                                         </template>
-                                                        <template x-if="pr.reviewers.length > 6">
+                                                        <template x-if="pr.reviewerPeople.length > 6">
                                                             <span class="text-[0.7rem] text-muted"
-                                                                  x-text="'+' + (pr.reviewers.length - 6)"></span>
+                                                                  x-text="'+' + (pr.reviewerPeople.length - 6)"></span>
                                                         </template>
                                                         {{-- Die Zahl steht daneben, weil eine
                                                              Freigabe auch von jemandem kommen kann,

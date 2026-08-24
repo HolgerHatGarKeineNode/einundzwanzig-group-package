@@ -112,6 +112,7 @@ import {
     buildRepos,
     foldRepoState,
     maintainerLookupFor,
+    reviewerRows,
     truncatedLists,
     unclaimedRepos,
     type ForgeEvent,
@@ -120,6 +121,7 @@ import {
     type Project,
     type PullRequest,
     type Repo,
+    type ReviewerRow,
     type RepoState,
 } from './forgeModels.ts'
 import {
@@ -378,6 +380,46 @@ const ACTIVITY_VERBS: Record<ActivityItem['type'], string> = {
     'pr-updated': 'hat einen Pull Request aktualisiert:',
     'pr-status': 'hat den Status eines Pull Requests geändert:',
     comment: 'hat kommentiert:',
+    // Die fünf Vorgangsformen (Nachzug zu P1). Drei davon NENNEN jemanden — der
+    // Name steht im Satz und nicht daneben, weil „hat zugewiesen: <Titel>" die
+    // eine Frage offenlässt, für die es die Zeile gibt. Deshalb tragen sie
+    // `:namen` und laufen über {@link verbFor}, nicht über diese Tabelle
+    // allein; die Tabelle hält den Fall ohne genannte Person offen.
+    assignment: 'hat zugewiesen:',
+    unassignment: 'hat die Zuweisung entfernt:',
+    'review-request': 'hat um einen Review gebeten:',
+    approval: 'hat freigegeben:',
+    'changes-requested': 'hat Änderungen erbeten:',
+}
+
+/** Die drei Satzarten, deren Verb eine Person nennt. */
+const VERBS_MIT_PERSON: Partial<Record<ActivityItem['type'], string>> = {
+    assignment: 'hat :namen zugewiesen:',
+    unassignment: 'hat die Zuweisung von :namen entfernt:',
+    'review-request': 'hat :namen um einen Review gebeten:',
+}
+
+/**
+ * Das Verb einer Zeile, mit den genannten Personen darin.
+ *
+ * Die Namen werden HIER eingesetzt und nicht im Markup: `forgeActivity.ts` ist
+ * sprachfrei (es liefert `targets` als rohe Schlüssel), und die Fläche darf
+ * keinen Satz zusammenstückeln — in einer Sprache mit anderer Wortstellung
+ * stünde die Person sonst an der falschen Stelle. Ein Platzhalter im
+ * Katalogsatz überlebt jede Übersetzung, eine Verkettung im Markup nicht.
+ *
+ * Ohne genannte Person (dürfte nur bei kaputten Ereignissen vorkommen — die
+ * Faltung verlangt mindestens ein `p`) fällt es auf die personenlose Form
+ * zurück, statt „hat  zugewiesen" mit einer Lücke zu zeigen.
+ */
+const verbFor = (item: ActivityItem): string => {
+    const form = VERBS_MIT_PERSON[item.type]
+    const targets = item.targets ?? []
+    if (!form || targets.length === 0) {
+        return t(ACTIVITY_VERBS[item.type])
+    }
+
+    return t(form, { namen: targets.map(nameOf).join(', ') })
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -422,7 +464,7 @@ const toActivityRows = (
         // ROH wie im Profil — `x-group::nostr-avatar` proxifiziert selbst; ein
         // hier schon proxifizierter Wert liefe zweimal durch den Proxy.
         actorPicture: profiles.get(item.actor)?.picture ?? '',
-        verb: t(ACTIVITY_VERBS[item.type]),
+        verb: verbFor(item),
         timeLabel: timelineTimeLabel(item.createdAt, now),
         fullLabel: timelineFullLabel(item.createdAt),
         statusLabel: statusLabel(item.status),
@@ -835,10 +877,33 @@ export type CommentRow = {
     timeLabel: string
 }
 
+/**
+ * Eine Person auf der Forge-Fläche: Schlüssel, Anzeigename, rohes Bild.
+ *
+ * Dieselbe Form wie `RepoRow.people` und aus derselben Quelle ({@link peopleOf})
+ * — es gibt auf dieser Fläche genau EINEN Weg, aus einem Schlüssel einen
+ * Menschen zu machen. Ein zweiter wäre der Punkt, an dem zwei Zeilen desselben
+ * Bildschirms verschiedene Namen für denselben Schlüssel zeigen.
+ */
+export type ForgePerson = { pubkey: string; name: string; picture: string }
+
 export type IssueRow = Omit<Issue, 'comments'> & {
     authorName: string
     timeLabel: string
     html: string
+    /**
+     * Die Zugewiesenen mit Namen — das Zuweisungs-Band.
+     *
+     * **Nicht aus `RepoRow.people` nachgeschlagen**, obwohl das naheliegt: dort
+     * stehen die MAINTAINER des Announcements. Ein Zugewiesener muss keiner
+     * sein (jedes Mitglied kann ein Issue an sich ziehen), und ein Nachschlagen
+     * hätte ihn still namenlos gelassen. `peopleOf` löst jeden Schlüssel auf,
+     * unabhängig von seiner Rolle.
+     *
+     * Ohne bekanntes kind 0 liefert `nameOf` die gekürzte `npub`-Form — dieselbe
+     * Rückfallebene wie beim Autor einer Zeile, nicht die rohe Hex-Kette.
+     */
+    assigneePeople: ForgePerson[]
     comments: CommentRow[]
 }
 
@@ -847,6 +912,15 @@ export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & {
     timeLabel: string
     html: string
     shortCommit: string
+    /**
+     * Die Reviewer-Zeile: Person **plus** ihre Entscheidung zum aktuellen Commit.
+     *
+     * Die Liste kommt aus `reviewerRows` (rein, geprüft) und enthält auch, wer
+     * entschieden hat, ohne angefragt worden zu sein — der Repo-Eigentümer darf
+     * das. Vor dem Nachzug rechnete das Markup diese Zuordnung mit drei
+     * `.some()`-Ausdrücken je Zeile selbst und übersah genau diesen Fall.
+     */
+    reviewerPeople: (ForgePerson & { decision: ReviewerRow['decision'] })[]
     comments: CommentRow[]
     updates: { id: string; authorName: string; shortCommit: string; timeLabel: string; html: string }[]
 }
@@ -1038,6 +1112,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     authorName: nameOf(issue.author),
                     timeLabel: timeLabel(issue.createdAt),
                     html: renderMarkdown(issue.id, issue.content),
+                    assigneePeople: peopleOf(issue.assignees, profiles as Map<string, { picture?: string }>),
                     comments: issue.comments.map(toCommentRow),
                 })),
                 patches: patches.map((patch) => ({
@@ -1057,6 +1132,13 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     timeLabel: timeLabel(pr.createdAt),
                     html: renderMarkdown(pr.id, pr.content),
                     shortCommit: shortCommit(pr.commit),
+                    // Erst die reine Zuordnung (Reviewer → Entscheidung), dann
+                    // die Namen darauf. Zwei Schritte, weil der erste ohne
+                    // Browser prüfbar ist und der zweite nicht.
+                    reviewerPeople: reviewerRows(pr.reviewers, pr.approvals, pr.changeRequests).map((row) => ({
+                        ...peopleOf([row.pubkey], profiles as Map<string, { picture?: string }>)[0],
+                        decision: row.decision,
+                    })),
                     comments: pr.comments.map(toCommentRow),
                     updates: pr.updates.map((update) => ({
                         id: update.id,

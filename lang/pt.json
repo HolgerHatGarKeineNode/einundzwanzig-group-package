@@ -1042,5 +1042,13 @@
     "erbittet Änderungen": "solicita alterações",
     "1 Freigabe": "1 aprovação",
     ":count Freigaben": ":count aprovações",
-    ":count Freigaben#one": ":count aprovação"
+    ":count Freigaben#one": ":count aprovação",
+    "hat zugewiesen:": "atribuiu:",
+    "hat :namen zugewiesen:": "atribuiu a :namen:",
+    "hat die Zuweisung entfernt:": "removeu a atribuição:",
+    "hat die Zuweisung von :namen entfernt:": "removeu a atribuição de :namen:",
+    "hat um einen Review gebeten:": "pediu uma revisão:",
+    "hat :namen um einen Review gebeten:": "pediu uma revisão a :namen:",
+    "hat freigegeben:": "aprovou:",
+    "hat Änderungen erbeten:": "solicitou alterações:"
 }

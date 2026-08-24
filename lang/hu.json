@@ -1011,5 +1011,13 @@
     "hat freigegeben": "jóváhagyta",
     "erbittet Änderungen": "módosításokat kér",
     "1 Freigabe": "1 jóváhagyás",
-    ":count Freigaben": ":count jóváhagyás"
+    ":count Freigaben": ":count jóváhagyás",
+    "hat zugewiesen:": "hozzárendelte:",
+    "hat :namen zugewiesen:": ":namen hozzárendelve:",
+    "hat die Zuweisung entfernt:": "eltávolította a hozzárendelést:",
+    "hat die Zuweisung von :namen entfernt:": "eltávolította :namen hozzárendelését:",
+    "hat um einen Review gebeten:": "ellenőrzést kért:",
+    "hat :namen um einen Review gebeten:": ":namen ellenőrzését kérte:",
+    "hat freigegeben:": "jóváhagyta:",
+    "hat Änderungen erbeten:": "módosításokat kért:"
 }

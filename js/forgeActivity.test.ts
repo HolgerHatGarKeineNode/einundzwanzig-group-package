@@ -256,3 +256,159 @@ test('ein Kommentar an einem Patch findet seine Wurzel', () => {
     assert.ok(zeile, 'Der Kommentar an einem Patch ist verschwunden.')
     assert.equal(zeile.object, 'Den Zaehler zuruecksetzen')
 })
+
+// ── Vorgangsformen im Strom (Nachzug zu P1) ─────────────────────────────────
+
+const ZWEITER = '2'.repeat(64)
+const issueRoot = ev({ kind: GIT_ISSUE, pubkey: OWNER, created_at: 2_000, tags: [['a', REPO_ADDR], ['subject', 'Titel']] })
+
+const notiz = (over: {
+    pubkey?: string
+    label?: string
+    p?: string[]
+    content?: string
+    created_at?: number
+    root?: ForgeEvent
+}): ForgeEvent =>
+    ev({
+        kind: FORGE_COMMENT,
+        pubkey: over.pubkey ?? OWNER,
+        created_at: over.created_at ?? 3_000,
+        content: over.content ?? '',
+        tags: [
+            ['e', (over.root ?? issueRoot).id, '', 'root'],
+            ['a', REPO_ADDR],
+            ...(over.p ?? []).map((pubkey) => ['p', pubkey]),
+            ...(over.label ? [['t', over.label]] : []),
+        ],
+    })
+
+/**
+ * RICHTUNG 1 — der Fehler, der repariert wurde.
+ *
+ * Bis zum Nachzug erzeugte eine Zuweisungsnotiz eine Zeile vom Typ `comment`,
+ * und der Strom gab die englische Prosa eines fremden Clients als Äußerung des
+ * Nutzers aus. Beide Hälften einzeln geprüft: KEIN Kommentar-Satz, und der
+ * Fremdtext taucht in KEINEM `body` auf.
+ */
+test('Strom: eine Zuweisungsnotiz ist kein Kommentar-Satz — und ihr Fremdtext erscheint nirgends', () => {
+    const items = buildActivity({
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ label: 'assignment', p: [PUSHER], content: 'Assigned this issue to Bob' })],
+    })
+
+    assert.equal(items.some((item) => item.type === 'comment'), false)
+    assert.equal(items.some((item) => item.body.includes('Assigned this issue')), false)
+})
+
+/**
+ * RICHTUNG 2 — sie verschwindet aber auch NICHT.
+ *
+ * Die naheliegende Reparatur wäre gewesen, die Notizen aus dem Strom zu werfen.
+ * Der Strom beantwortet „was ist hier passiert" — eine Zuweisung ist genau das,
+ * und eine Lücke sieht niemand. Sie bekommt deshalb einen eigenen Satztyp und
+ * nennt die Person, um die es geht.
+ */
+test('Strom: die Zuweisung bekommt einen EIGENEN Satz und nennt den Zugewiesenen', () => {
+    const items = buildActivity({
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ label: 'assignment', p: [PUSHER], content: 'Assigned this issue to Bob' })],
+    })
+
+    const zeile = items.find((item) => item.type === 'assignment')
+    assert.ok(zeile, 'kein Satz vom Typ `assignment`')
+    assert.equal(zeile.actor, OWNER)
+    assert.deepEqual(zeile.targets, [PUSHER])
+    assert.equal(zeile.object, 'Titel')
+})
+
+test('Strom: gewöhnliche Kommentare bleiben unverändert Kommentare', () => {
+    const items = buildActivity({
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ pubkey: PUSHER, content: 'Ich schaue mir das an.' })],
+    })
+
+    const zeile = items.find((item) => item.type === 'comment')
+    assert.ok(zeile, 'kein Kommentar-Satz')
+    assert.equal(zeile.body, 'Ich schaue mir das an.')
+})
+
+/**
+ * Der Riegel, ohne den der Strom zur Gerüchteküche würde: ein
+ * `["t","approval"]` ist ein gewöhnliches kind 1, der Relay prüft daran nichts.
+ * Ohne dieselbe Vertrauensfrage wie in der Faltung stünde „X hat freigegeben"
+ * in der Leiste, während die PR-Zeile daneben nichts davon anerkennt.
+ */
+test('Strom: eine Freigabe von einem Unbeteiligten erscheint NICHT', () => {
+    const prRoot = ev({
+        kind: GIT_PULL_REQUEST,
+        pubkey: PUSHER,
+        created_at: 2_000,
+        tags: [['a', REPO_ADDR], ['subject', 'PR'], ['c', COMMIT], ['p', ZWEITER]],
+    })
+    const events = [repoEvent, prRoot]
+
+    // KONTROLLE zuerst: der angefragte Reviewer kommt durch — sonst misst der
+    // Negativfall unten womöglich gar nichts.
+    const echt = buildActivity({
+        repos: REPOS,
+        events: [...events, notiz({ root: prRoot, pubkey: ZWEITER, label: 'approval' })],
+    })
+    assert.equal(echt.filter((item) => item.type === 'approval').length, 1)
+
+    const gefaelscht = buildActivity({
+        repos: REPOS,
+        events: [...events, notiz({ root: prRoot, pubkey: FREMD, label: 'approval' })],
+    })
+    assert.equal(gefaelscht.filter((item) => item.type === 'approval').length, 0)
+})
+
+test('Strom: der Autor eines PR kann sich nicht selbst freigeben', () => {
+    const prRoot = ev({
+        kind: GIT_PULL_REQUEST,
+        pubkey: OWNER,
+        created_at: 2_000,
+        tags: [['a', REPO_ADDR], ['subject', 'PR'], ['c', COMMIT]],
+    })
+    const items = buildActivity({
+        repos: REPOS,
+        events: [repoEvent, prRoot, notiz({ root: prRoot, pubkey: OWNER, label: 'approval' })],
+    })
+
+    assert.equal(items.some((item) => item.type === 'approval'), false)
+})
+
+test('Strom: eine Fremdzuweisung zählt nicht, eine Selbstzuweisung schon', () => {
+    const fremd = buildActivity({
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ pubkey: FREMD, label: 'assignment', p: [PUSHER] })],
+    })
+    assert.equal(fremd.some((item) => item.type === 'assignment'), false)
+
+    const selbst = buildActivity({
+        repos: REPOS,
+        events: [repoEvent, issueRoot, notiz({ pubkey: FREMD, label: 'assignment', p: [FREMD] })],
+    })
+    assert.equal(selbst.filter((item) => item.type === 'assignment').length, 1)
+})
+
+test('Strom: eine Notiz mit zwei widersprüchlichen Labeln ergibt gar keinen Satz', () => {
+    const beide = ev({
+        kind: FORGE_COMMENT,
+        created_at: 3_000,
+        content: 'was auch immer',
+        tags: [
+            ['e', issueRoot.id, '', 'root'],
+            ['a', REPO_ADDR],
+            ['p', PUSHER],
+            ['t', 'assignment'],
+            ['t', 'unassignment'],
+        ],
+    })
+    const items = buildActivity({ repos: REPOS, events: [repoEvent, issueRoot, beide] })
+
+    // Weder Vorgang noch Kommentar: `operationOf` erkennt sie als Vorgangsform
+    // (sie trägt die Label), kann sie aber nicht eindeutig einordnen.
+    assert.equal(items.some((item) => item.type === 'assignment' || item.type === 'unassignment'), false)
+    assert.equal(items.some((item) => item.type === 'comment'), false)
+})

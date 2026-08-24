@@ -837,6 +837,66 @@ export const isOperationNote = (event: ForgeEvent): boolean => {
 }
 
 /**
+ * Welche Vorgangsform eine Notiz trägt — `''`, wenn keine oder keine eindeutige.
+ *
+ * **Strenger als Buzz, und mit Absicht.** Buzz wertet die drei Kategorien
+ * unabhängig aus: eine Notiz darf zugleich Review-Anfrage und Freigabe sein, und
+ * die Zeitleiste zeigt dann die eine (`projectPullRequestCommentTimelineKind`,
+ * `projectPullRequests.mjs:84-94`). Für EINEN Satz in der Aktivitätsleiste gibt
+ * es diese Wahl nicht — man müsste eine Kategorie küren. Deshalb hier: mehr als
+ * eine Kategorie, oder ein widersprüchliches Paar, ergibt keine Aussage.
+ *
+ * Das kostet nichts, was jemand wirklich schreibt (Buzz setzt je Notiz genau ein
+ * Label, `builders.rs:1236` und `pullRequestReviews.ts:129,181`), und es
+ * verhindert, dass ein fremder Client durch Label-Stapelung bestimmt, welchen
+ * Satz unsere Leiste über ihn bildet.
+ *
+ * **Nicht zu verwechseln mit der Faltung.** Diese Funktion sagt nur, was
+ * DRAUFSTEHT. Ob es auch GILT, entscheiden {@link foldAssignments} und
+ * {@link foldReviews} — und die Aktivitätsleiste muss dieselbe Frage stellen,
+ * sonst zeigt sie eine Freigabe, die kein Leser je anerkennt.
+ */
+export type ForgeOperation =
+    | ''
+    | 'assignment'
+    | 'unassignment'
+    | 'review-request'
+    | 'approval'
+    | 'changes-requested'
+
+export const operationOf = (event: ForgeEvent): ForgeOperation => {
+    const labels = labelsOf(event)
+    const istZuweisung = labels.has(ASSIGNMENT_LABEL)
+    const istEntzug = labels.has(UNASSIGNMENT_LABEL)
+    const istAnfrage = labels.has(REVIEW_REQUEST_LABEL)
+    const istFreigabe = labels.has(APPROVAL_LABEL)
+    const istEinspruch = labels.has(CHANGES_REQUESTED_LABEL)
+
+    // Widersprüchliche Paare zuerst: sie heben sich auf, wie in der Faltung.
+    if (istZuweisung && istEntzug) {
+        return ''
+    }
+    if (istFreigabe && istEinspruch) {
+        return ''
+    }
+    const kategorien = (istZuweisung || istEntzug ? 1 : 0) + (istAnfrage ? 1 : 0) + (istFreigabe || istEinspruch ? 1 : 0)
+    if (kategorien !== 1) {
+        return ''
+    }
+    if (istZuweisung) {
+        return ASSIGNMENT_LABEL
+    }
+    if (istEntzug) {
+        return UNASSIGNMENT_LABEL
+    }
+    if (istAnfrage) {
+        return REVIEW_REQUEST_LABEL
+    }
+
+    return istFreigabe ? APPROVAL_LABEL : CHANGES_REQUESTED_LABEL
+}
+
+/**
  * Alle kind-1-Notizen an einer Wurzel, **älteste zuerst** — Vorgangsformen
  * eingeschlossen.
  *
@@ -1151,6 +1211,60 @@ export const foldReviews = (
         approvals: decisions.filter((decision) => decision.decision === 'approved'),
         changeRequests: decisions.filter((decision) => decision.decision === 'changes-requested'),
     }
+}
+
+/** Ein Reviewer mit seiner Entscheidung zum aktuellen Commit. */
+export type ReviewerRow = {
+    pubkey: string
+    /** `''` = angefragt, aber noch nicht entschieden. */
+    decision: '' | 'approved' | 'changes-requested'
+}
+
+/**
+ * Die Reviewer-Zeile als LISTE — angefragte Reviewer zuerst, danach jeder, der
+ * entschieden hat, ohne angefragt worden zu sein.
+ *
+ * **Warum das hier steht und nicht als `.some()` im Markup.** Genau diese Frage
+ * („hat dieser Reviewer schon?") stand bis zum Nachzug als Alpine-Ausdruck in
+ * `⚡forge-repo.blade.php` — dreimal je Zeile, ungetestet, und die zweite Hälfte
+ * fehlte ganz: der Repo-Eigentümer darf freigeben, ohne je angefragt worden zu
+ * sein ({@link foldReviews}, Regel 2). Er stand damit in KEINEM Chip und tauchte
+ * nur in der Zahl daneben auf — zwei Darstellungen desselben Bestands, die
+ * auseinanderlaufen. Hier ist es eine Liste, ein Test und eine Wahrheit.
+ *
+ * Die Reihenfolge ist nicht kosmetisch: wer angefragt wurde, gehört nach vorn,
+ * auch wenn er noch nicht entschieden hat — das ist die offene Erwartung, und
+ * sie ist die Information, die man auf einer PR-Zeile sucht.
+ */
+export const reviewerRows = (
+    reviewers: readonly string[],
+    approvals: readonly ReviewDecision[],
+    changeRequests: readonly ReviewDecision[],
+): ReviewerRow[] => {
+    const decisionOf = new Map<string, ReviewerRow['decision']>()
+    for (const decision of changeRequests) {
+        decisionOf.set(decision.author, 'changes-requested')
+    }
+    // Freigaben zuletzt: `foldReviews` behält je Entscheider ohnehin nur EINE
+    // Entscheidung, die beiden Listen können sich also gar nicht überschneiden.
+    // Die Reihenfolge steht hier trotzdem fest, statt sich auf diese Zusage einer
+    // anderen Funktion zu verlassen.
+    for (const decision of approvals) {
+        decisionOf.set(decision.author, 'approved')
+    }
+
+    const rows: ReviewerRow[] = reviewers.map((pubkey) => ({
+        pubkey,
+        decision: decisionOf.get(pubkey) ?? '',
+    }))
+    const bekannt = new Set(reviewers)
+    for (const [pubkey, decision] of decisionOf) {
+        if (!bekannt.has(pubkey)) {
+            rows.push({ pubkey, decision })
+        }
+    }
+
+    return rows
 }
 
 // ── Kommentare ──────────────────────────────────────────────────────────────

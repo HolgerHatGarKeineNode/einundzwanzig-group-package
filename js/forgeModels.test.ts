@@ -41,13 +41,17 @@ import {
     buildProjects,
     buildPullRequests,
     buildRepos,
+    commentsForRoot,
     dedupeReplaceable,
     deletionThresholds,
     foldAssignments,
     foldRepoState,
     foldReviews,
     foldStatus,
+    isOperationNote,
     maintainerLookupFor,
+    operationOf,
+    reviewerRows,
     parseRepoAddress,
     repoAddressOf,
     toIssue,
@@ -1302,4 +1306,102 @@ test('toPullRequest reicht Reviewer und Freigaben durch — mit dem Commit des j
     assert.equal(pr.approvals.length, 1)
     assert.equal(pr.approvals[0].id, neueFreigabe.id)
     assert.equal(pr.commentCount, 0)
+})
+
+// ── reviewerRows (Nachzug zu P1) ────────────────────────────────────────────
+
+/**
+ * Die Lücke, die dieser Aufbau schliesst: das Markup rechnete die Zuordnung
+ * Reviewer→Entscheidung mit `.some()` selbst und kannte nur die ANGEFRAGTEN.
+ * Wer freigibt, ohne angefragt worden zu sein — der Repo-Eigentümer darf das
+ * ({@link foldReviews}, Regel 2) —, stand in keinem Chip.
+ */
+test('reviewerRows: angefragte zuerst, Entscheider ohne Anfrage danach', () => {
+    const rows = reviewerRows(
+        [MAINTAINER, ZWEITER],
+        [{ id: 'a', author: OWNER, createdAt: 1, commit: COMMIT_A, decision: 'approved' }],
+        [{ id: 'b', author: MAINTAINER, createdAt: 2, commit: COMMIT_A, decision: 'changes-requested' }],
+    )
+
+    assert.deepEqual(rows, [
+        { pubkey: MAINTAINER, decision: 'changes-requested' },
+        // Angefragt, aber noch nicht entschieden — die offene Erwartung bleibt
+        // sichtbar und steht VOR dem ungefragten Entscheider.
+        { pubkey: ZWEITER, decision: '' },
+        { pubkey: OWNER, decision: 'approved' },
+    ])
+})
+
+test('reviewerRows: ohne Reviewer und ohne Entscheidung bleibt die Zeile leer', () => {
+    assert.deepEqual(reviewerRows([], [], []), [])
+})
+
+/**
+ * Der Fall, den ein Nachschlagen in `RepoRow.people` still falsch beantwortet
+ * hätte: ein Zugewiesener, der KEIN Maintainer des Repos ist. Jedes Mitglied
+ * darf ein Issue an sich ziehen — die Faltung kennt ihn, die Maintainer-Liste
+ * des Announcements nicht.
+ */
+test('foldAssignments: ein Zugewiesener muss kein Maintainer sein', () => {
+    const repo = ev({ kind: REPO_ANNOUNCEMENT, tags: [['d', REPO_D], ['maintainers', MAINTAINER]] })
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const selbst = ev({
+        kind: FORGE_COMMENT,
+        pubkey: ZWEITER,
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['p', ZWEITER], ['t', 'assignment']],
+    })
+
+    const [gebaut] = buildRepos([repo])
+    assert.equal(gebaut.maintainers.includes(ZWEITER), false, 'Vorbedingung: kein Maintainer')
+    assert.deepEqual(foldAssignments(root, [selbst], gebaut.maintainers).assignees, [ZWEITER])
+})
+
+// ── operationOf ─────────────────────────────────────────────────────────────
+
+test('operationOf: ein Label je Kategorie ergibt die Form, zwei Kategorien ergeben nichts', () => {
+    const mit = (...labels: string[]): ForgeEvent =>
+        ev({ kind: FORGE_COMMENT, tags: labels.map((label) => ['t', label]) })
+
+    assert.equal(operationOf(mit('assignment')), 'assignment')
+    assert.equal(operationOf(mit('unassignment')), 'unassignment')
+    assert.equal(operationOf(mit('review-request')), 'review-request')
+    assert.equal(operationOf(mit('approval')), 'approval')
+    assert.equal(operationOf(mit('changes-requested')), 'changes-requested')
+    // Grosskleinschreibung zählt nicht — wie bei Buzz.
+    assert.equal(operationOf(mit('Approval')), 'approval')
+    // Ein fremdes Label daneben stört nicht: es ist keine der fünf Kategorien.
+    assert.equal(operationOf(mit('approval', 'bug')), 'approval')
+
+    assert.equal(operationOf(mit()), '')
+    assert.equal(operationOf(mit('bug')), '')
+    assert.equal(operationOf(mit('assignment', 'unassignment')), '')
+    assert.equal(operationOf(mit('approval', 'changes-requested')), '')
+    // Zwei Kategorien: keine Wahl treffen, die ein fremder Client bestimmt.
+    assert.equal(operationOf(mit('review-request', 'approval')), '')
+    assert.equal(operationOf(mit('assignment', 'approval')), '')
+})
+
+/**
+ * `isOperationNote` und `operationOf` sind NICHT dasselbe, und der Unterschied
+ * trägt: die widersprüchlich beschriftete Notiz ist kein Gesprächsbeitrag
+ * (fliegt also aus `comments`) und zugleich kein benennbarer Vorgang. Wer im
+ * Aktivitätsstrom `operationOf(…) === ''` als „ist ein Kommentar" liest, holt
+ * genau sie als Kommentar zurück — beim Testen aufgefallen.
+ */
+test('isOperationNote ist weiter als operationOf — und genau darauf kommt es an', () => {
+    const widerspruch = ev({
+        kind: FORGE_COMMENT,
+        tags: [['t', 'assignment'], ['t', 'unassignment']],
+    })
+
+    assert.equal(operationOf(widerspruch), '')
+    assert.equal(isOperationNote(widerspruch), true)
+
+    const root = ev({ kind: GIT_ISSUE, tags: [['a', REPO_ADDR]] })
+    const notiz = ev({
+        kind: FORGE_COMMENT,
+        content: 'sieht aus wie ein Kommentar',
+        tags: [['e', root.id, '', 'root'], ['a', REPO_ADDR], ['t', 'assignment'], ['t', 'unassignment']],
+    })
+    assert.deepEqual(commentsForRoot(root.id, [notiz]), [])
 })

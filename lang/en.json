@@ -1011,5 +1011,13 @@
     "hat freigegeben": "approved",
     "erbittet Änderungen": "requests changes",
     "1 Freigabe": "1 approval",
-    ":count Freigaben": ":count approvals"
+    ":count Freigaben": ":count approvals",
+    "hat zugewiesen:": "assigned:",
+    "hat :namen zugewiesen:": "assigned :namen:",
+    "hat die Zuweisung entfernt:": "removed the assignment:",
+    "hat die Zuweisung von :namen entfernt:": "removed :namen from:",
+    "hat um einen Review gebeten:": "requested a review:",
+    "hat :namen um einen Review gebeten:": "requested a review from :namen:",
+    "hat freigegeben:": "approved:",
+    "hat Änderungen erbeten:": "requested changes:"
 }

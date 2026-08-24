@@ -43,10 +43,15 @@ import {
     REPO_ANNOUNCEMENT,
     REPO_STATE,
     allowedActorsForRoot,
+    foldReviews,
+    isOperationNote,
+    operationOf,
     rootTitle,
     tagValue,
+    tagValues,
     toRepoState,
     type ForgeEvent,
+    type ForgeOperation,
     type Repo,
 } from './forgeModels.ts'
 import { patchSubject } from './forgeDiff.ts'
@@ -67,6 +72,18 @@ export type ActivityType =
     | 'pr-updated'
     | 'pr-status'
     | 'comment'
+    /**
+     * Die fünf Vorgangsformen (`t`-beschriftete kind 1, siehe
+     * `forgeModels.OPERATION_LABELS`). Sie standen bis zum Nachzug am
+     * 2026-08-24 als `'comment'` in der Leiste — der Strom sagte „hat
+     * kommentiert: Assigned this issue to Bob" und gab damit die Prosa eines
+     * fremden Clients als Nutzeräußerung aus.
+     */
+    | 'assignment'
+    | 'unassignment'
+    | 'review-request'
+    | 'approval'
+    | 'changes-requested'
 
 export type ActivityItem = {
     /** Stabil über Neuberechnungen — der `:key` der Liste. */
@@ -87,6 +104,16 @@ export type ActivityItem = {
     badge: string
     /** Bei Statuszeilen der Code (`open`/`merged`/`closed`/`draft`), sonst `''`. */
     status: string
+    /**
+     * Die Personen, die der Satz NENNT — nicht der Handelnde.
+     *
+     * Nur die Vorgangsformen tragen sie: „hat **Bob** zugewiesen". Rohe Pubkeys,
+     * kleingeschrieben; die Auflösung zu Namen passiert in `forge.ts`, wie bei
+     * jedem anderen Schlüssel dieser Fläche. Optional, weil die grosse Mehrheit
+     * der Zeilen niemanden nennt — ein Pflichtfeld hätte an acht Stellen ein
+     * leeres Array erzwungen und dort nichts ausgesagt.
+     */
+    targets?: string[]
 }
 
 const SHORT_HASH = 7
@@ -196,6 +223,8 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
     }
 
     const nameOf = (address: string): string => byAddress.get(address)?.name ?? ''
+    /** Je Wurzel die Menge, die eine Freigabe aussprechen darf — siehe unten. */
+    const trustedByRoot = new Map<string, Set<string>>()
     const items: ActivityItem[] = []
 
     for (const repo of repos) {
@@ -321,17 +350,116 @@ export const buildActivity = ({ repos, events }: ActivityInput): ActivityItem[] 
         }
 
         if (event.kind === FORGE_COMMENT) {
+            // **Die Frage „ist das ein Gespräch?" wird mit DEMSELBEN Prädikat
+            // gestellt wie in `commentsForRoot` — `isOperationNote`, nicht
+            // `operationOf(…) === ''`.** Die beiden sind nicht dasselbe: eine
+            // Notiz mit `assignment` UND `unassignment` trägt Vorgangslabel
+            // (also kein Gespräch), lässt sich aber keinem Satz zuordnen.
+            // Über `operationOf` gefragt, wäre sie hier als Kommentar
+            // durchgerutscht, während `commentsForRoot` sie ausschliesst —
+            // genau die Asymmetrie, die dieser Nachzug beseitigt. Erst beim
+            // Test aufgefallen, nicht beim Schreiben.
+            const operation = operationOf(event)
+
+            // ── Der gewöhnliche Gesprächsbeitrag ────────────────────────────
+            if (!isOperationNote(event)) {
+                items.push({
+                    id: `comment:${event.id}`,
+                    type: 'comment',
+                    createdAt: event.created_at,
+                    actor: event.pubkey.toLowerCase(),
+                    repoAddress: rootAddress,
+                    repoName: nameOf(rootAddress),
+                    object: isPatch ? patchTitle(root) : rootTitle(root),
+                    body: event.content,
+                    badge: '',
+                    status: '',
+                })
+                continue
+            }
+
+            // Beschriftet, aber nicht eindeutig einzuordnen ({@link operationOf}
+            // ist dort strenger als Buzz). Kein Gespräch, kein benennbarer
+            // Vorgang — also kein Satz, statt einen zu erfinden.
+            if (operation === '') {
+                continue
+            }
+
+            // ── Vorgangsformen: eigener Satz, gleiche Vertrauensprüfung ─────
+            //
+            // **Warum sie NICHT einfach unterdrückt werden.** Die naheliegende
+            // Reparatur wäre `continue` — sie sind ja keine Kommentare. Aber
+            // dieser Strom beantwortet „was ist hier passiert", und eine
+            // Zuweisung ist genau das. Sie herauszuwerfen hiesse, dieselbe
+            // Fläche auf die andere Art falsch zu machen: aus einem falschen
+            // Satz würde eine Lücke, und eine Lücke sieht man nicht. Sie fliegen
+            // aus `comments` (dort sind sie kein Gesprächsbeitrag) und bleiben
+            // hier (hier sind sie ein Vorgang) — dasselbe Ereignis, zwei
+            // Fragen, zwei Antworten.
+            //
+            // **Und warum sie durch dieselbe Prüfung müssen wie ein
+            // Statuswechsel.** Ein `["t","approval"]` ist ein gewöhnliches
+            // kind 1; der Relay prüft daran nichts. Ohne Riegel könnte jeder
+            // Fremde die Leiste mit „X hat freigegeben" füllen, während die
+            // PR-Zeile daneben (aus {@link foldReviews}) nichts davon anerkennt.
+            // Genau diese Schere ist der Grund, warum die Prüfung hier steht und
+            // nicht nur in der Faltung.
+            const signer = event.pubkey.toLowerCase()
+            const allowed = allowedActorsForRoot(root, byAddress.get(rootAddress)?.maintainers ?? [])
+            const genannte = tagValues(event, 'p').map((value) => value.toLowerCase())
+
+            if (operation === 'assignment' || operation === 'unassignment') {
+                // Dieselbe Regel wie `foldAssignments`: autoritativ oder
+                // Selbstbedienung mit genau einem `p`, und der ist der Signierer.
+                const selbst = genannte.length === 1 && genannte[0] === signer
+                if (!allowed.has(signer) && !selbst) {
+                    continue
+                }
+            } else if (operation === 'review-request') {
+                if (!allowed.has(signer)) {
+                    continue
+                }
+            } else {
+                // Freigabe / Einspruch: Reviewer oder berechtigter Akteur, nie
+                // der Autor der Wurzel selbst — `trustedReviewActors` bei Buzz.
+                //
+                // Die Reviewer-Menge hängt nicht am Commit, deshalb reicht ein
+                // `foldReviews(..., '')`: es kehrt vor der Entscheidungsschleife
+                // um. Gemerkt je Wurzel, sonst liefe die Faltung einmal PRO
+                // Notiz über den gesamten Bestand.
+                const autor = root.pubkey.toLowerCase()
+                let vertraut = trustedByRoot.get(root.id)
+                if (!vertraut) {
+                    vertraut = new Set(foldReviews(root, events, '').reviewers)
+                    for (const actor of allowed) {
+                        if (actor !== autor) {
+                            vertraut.add(actor)
+                        }
+                    }
+                    trustedByRoot.set(root.id, vertraut)
+                }
+                if (!vertraut.has(signer) || signer === autor) {
+                    continue
+                }
+            }
+
             items.push({
-                id: `comment:${event.id}`,
-                type: 'comment',
+                id: `operation:${event.id}`,
+                type: operation,
                 createdAt: event.created_at,
-                actor: event.pubkey.toLowerCase(),
+                actor: signer,
                 repoAddress: rootAddress,
                 repoName: nameOf(rootAddress),
                 object: isPatch ? patchTitle(root) : rootTitle(root),
-                body: event.content,
+                // Der Rumpf einer Vorgangsnotiz ist die Prosa eines FREMDEN
+                // Clients („Assigned this issue to …") — auf Englisch, neben
+                // einem deutschen Satz, der dasselbe schon sagt. Genau dieser
+                // Text war der sichtbare Teil des Fehlers; er kommt nicht als
+                // zweite Zeile zurück.
+                body: '',
                 badge: '',
                 status: '',
+                targets: genannte,
             })
         }
     }

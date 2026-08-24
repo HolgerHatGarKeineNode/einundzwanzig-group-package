@@ -1073,5 +1073,13 @@
     "1 Freigabe": "1 apstiprinājums",
     ":count Freigaben": ":count apstiprinājumi",
     ":count Freigaben#one": ":count apstiprinājums",
-    ":count Freigaben#zero": ":count apstiprinājumu"
+    ":count Freigaben#zero": ":count apstiprinājumu",
+    "hat zugewiesen:": "piešķīra:",
+    "hat :namen zugewiesen:": "piešķīra :namen:",
+    "hat die Zuweisung entfernt:": "noņēma piešķīrumu:",
+    "hat die Zuweisung von :namen entfernt:": "noņēma :namen piešķīrumu:",
+    "hat um einen Review gebeten:": "lūdza recenziju:",
+    "hat :namen um einen Review gebeten:": "lūdza :namen recenziju:",
+    "hat freigegeben:": "apstiprināja:",
+    "hat Änderungen erbeten:": "pieprasīja izmaiņas:"
 }

@@ -1011,5 +1011,13 @@
     "hat freigegeben": "ha aprobado",
     "erbittet Änderungen": "solicita cambios",
     "1 Freigabe": "1 aprobación",
-    ":count Freigaben": ":count aprobaciones"
+    ":count Freigaben": ":count aprobaciones",
+    "hat zugewiesen:": "asignó:",
+    "hat :namen zugewiesen:": "asignó a :namen:",
+    "hat die Zuweisung entfernt:": "quitó la asignación:",
+    "hat die Zuweisung von :namen entfernt:": "quitó la asignación de :namen:",
+    "hat um einen Review gebeten:": "pidió una revisión:",
+    "hat :namen um einen Review gebeten:": "pidió una revisión a :namen:",
+    "hat freigegeben:": "aprobó:",
+    "hat Änderungen erbeten:": "solicitó cambios:"
 }

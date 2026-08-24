@@ -1042,5 +1042,13 @@
     "erbittet Änderungen": "prosi o zmiany",
     "1 Freigabe": "1 zatwierdzenie",
     ":count Freigaben": ":count zatwierdzeń",
-    ":count Freigaben#few": ":count zatwierdzenia"
+    ":count Freigaben#few": ":count zatwierdzenia",
+    "hat zugewiesen:": "przypisał:",
+    "hat :namen zugewiesen:": "przypisał :namen:",
+    "hat die Zuweisung entfernt:": "usunął przypisanie:",
+    "hat die Zuweisung von :namen entfernt:": "usunął przypisanie :namen:",
+    "hat um einen Review gebeten:": "poprosił o recenzję:",
+    "hat :namen um einen Review gebeten:": "poprosił :namen o recenzję:",
+    "hat freigegeben:": "zatwierdził:",
+    "hat Änderungen erbeten:": "poprosił o zmiany:"
 }
