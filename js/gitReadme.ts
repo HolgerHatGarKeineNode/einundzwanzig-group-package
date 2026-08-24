@@ -1,0 +1,245 @@
+/**
+ * P6 — die **reine** Hälfte des Code-Browsers: welche clone-URL, welches
+ * README, welcher Ablageort, welche Größenangabe.
+ *
+ * Kein Netz, kein `isomorphic-git`, keine welshman-Importe, relative Importe
+ * mit `.ts` — damit `node --experimental-strip-types --test` das Modul lädt.
+ * Alles Netznahe steht in `gitBrowser.ts`, und das wird **lazy** geladen: die
+ * Bibliothek wiegt 84 kB gzip und gehört nicht in den Chunk, den jede Seite
+ * zieht.
+ *
+ * ── Die Vorbedingung, ohne die dieses Modul nicht existieren dürfte ─────────
+ *
+ * Ein NIP-34-Repository enthält **keinen Code**. Das 30617 trägt nur
+ * `clone`/`web`-URLs, das 30618 nur Ref-Namen. Wer eine Datei zeigen will, muss
+ * Git sprechen. Am 2026-08-24 wurde gemessen, dass unser eigener Relay das
+ * hergibt: `/git/<owner>/<repo>` über NIP-98, CORS für beide Hosts frei,
+ * clone-URLs zeigen dorthin.
+ *
+ * ── Und die Grenze, die den ganzen Aufbau bestimmt ──────────────────────────
+ *
+ * **`filter=blob:none` trägt nicht.** Am 2026-08-24 gegen den echten Endpunkt
+ * gemessen: `warning: filtering not recognized by server, ignoring`, 8,3 MB
+ * kamen an — Byte für Byte so viel wie ungefiltert. Ursache ist
+ * `uploadpack.allowFilter` (Default `false`, im Buzz-Quellbaum nirgends
+ * gesetzt, und `harden_git_env` schneidet System- und Global-Config ab).
+ * Selbst wenn es gesetzt WÄRE, fragte `isomorphic-git` die Capability nie an —
+ * seine Liste ist ein festes Literal (`index.js:10172-10186`).
+ *
+ * Zwei Folgen, und beide stehen in der Fläche:
+ *
+ * 1. **Es gibt nur eine Bauform:** ganzes Repository auf `depth: 1`, ohne
+ *    Arbeitsbaum (`noCheckout`). Mit Arbeitsbaum wären es 39 MB statt 8,3 —
+ *    bei einer App mit 37 MB APK eine Verdopplung für EIN Repository.
+ * 2. **Der Download ist eine Entscheidung des Nutzers**, kein Nebenbei. Die
+ *    Fläche sagt das an, bevor sie lädt — auf einem Telefon im Mobilfunknetz
+ *    ist es sein Datenvolumen.
+ */
+
+// ── Die clone-URL ───────────────────────────────────────────────────────────
+
+/**
+ * Die erste brauchbare clone-URL — oder `''`.
+ *
+ * **Nur `http(s)`.** `git://` und `ssh://` kann ein Browser nicht sprechen; sie
+ * hier durchzulassen hiesse, den Fehler in die Bibliothek zu verschieben, wo er
+ * als unverständlicher Netzfehler ankommt statt als klare Auskunft „dieses
+ * Repository ist von hier nicht erreichbar".
+ *
+ * Der abschliessende `/` fällt weg: der NIP-98-`u`-Tag muss **zeichengenau**
+ * die Repo-Basis tragen, die der Server erwartet (`git_expected_url` baut sie
+ * aus `path` ohne Query zusammen), und ein Schrägstrich zu viel ist ein
+ * `401 NIP-98 auth failed`.
+ */
+export const waehleCloneUrl = (cloneUrls: readonly string[]): string => {
+    for (const roh of cloneUrls) {
+        const url = (roh ?? '').trim()
+        if (/^https?:\/\//i.test(url)) {
+            return url.replace(/\/+$/, '')
+        }
+    }
+
+    return ''
+}
+
+/**
+ * Zeigt diese clone-URL auf den Workspace-Relay selbst?
+ *
+ * Nur dann trägt unser NIP-98-Token: es ist auf `https://<host>/git/…`
+ * ausgestellt, und ein fremder Git-Host würde es nicht einmal verstehen. Ein
+ * GitHub-Repo ist deshalb keine Fehlermeldung, sondern eine andere Auskunft —
+ * „liegt woanders, hier ist der Link".
+ */
+export const istEigenerHost = (cloneUrl: string, relayUrl: string): boolean => {
+    if (!cloneUrl || !relayUrl) {
+        return false
+    }
+    try {
+        const a = new URL(cloneUrl)
+        const b = new URL(relayUrl.replace(/^ws/, 'http'))
+
+        return a.host.toLowerCase() === b.host.toLowerCase()
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Der Ablageort im Browser-Dateisystem (IndexedDB über LightningFS).
+ *
+ * Aus **Eigentümer und `d`-Tag**, nicht aus dem Repo-Namen: der Name ist frei
+ * wählbar und zweimal vergeben in derselben Sekunde. Die Koordinate ist die
+ * Identität — dieselbe Regel, nach der die ganze Forge ihre Adressen bildet.
+ */
+export const klonPfad = (owner: string, dtag: string): string =>
+    `/repos/${owner.toLowerCase()}/${dtag.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+
+// ── README ─────────────────────────────────────────────────────────────────
+
+/**
+ * Bevorzugte README-Dateinamen, in dieser Reihenfolge.
+ *
+ * Konzept von Amethysts `findReadme` (`GitReadmeTab.kt:166-174`) — Markdown
+ * zuerst, weil wir es rendern können; `.rst` steht am Ende, weil wir es nur als
+ * Text zeigen.
+ */
+export const README_VORZUG: readonly string[] = [
+    'readme.md',
+    'readme.markdown',
+    'readme.mdown',
+    'readme',
+    'readme.txt',
+    'readme.rst',
+]
+
+/**
+ * Der beste README-Kandidat aus einer Liste von Wurzel-Dateinamen — oder `''`.
+ *
+ * Nur die **Wurzel**: ein `docs/readme.md` ist die Anleitung eines
+ * Unterverzeichnisses, nicht die Visitenkarte des Repositories. Der Aufrufer
+ * reicht deshalb nur die oberste Ebene herein.
+ *
+ * Steht keiner der bevorzugten Namen da, gewinnt die erste Datei, deren Name
+ * ohne Endung `readme` heisst (`README.adoc`, `readme.org`) — sonst `''`.
+ */
+export const findeReadme = (wurzelNamen: readonly string[]): string => {
+    const kandidaten = wurzelNamen.filter((name) => {
+        const klein = name.toLowerCase()
+
+        return klein === 'readme' || klein.startsWith('readme.')
+    })
+    if (kandidaten.length === 0) {
+        return ''
+    }
+    for (const vorzug of README_VORZUG) {
+        const treffer = kandidaten.find((name) => name.toLowerCase() === vorzug)
+        if (treffer) {
+            return treffer
+        }
+    }
+
+    return [...kandidaten].sort((a, b) => a.localeCompare(b))[0] ?? ''
+}
+
+/** Rendern wir diese Datei als Markdown, oder zeigen wir sie als Text? */
+export const istMarkdown = (name: string): boolean =>
+    /\.(md|markdown|mdown)$/i.test(name)
+
+// ── Größen ─────────────────────────────────────────────────────────────────
+
+/**
+ * Bytes als Zahl und Einheit — **getrennt**, damit die Fläche sie übersetzen
+ * kann.
+ *
+ * Die Einheit ist ein Code (`B`/`kB`/`MB`), kein fertiger Satz: ein
+ * zusammengesetzter String hier hiesse, eine unübersetzbare Zeichenkette durch
+ * die Übersetzungsschicht zu schmuggeln — dieselbe Regel wie bei `rootTitle`.
+ *
+ * Dezimal (1000), nicht binär (1024): der Nutzer vergleicht die Zahl mit dem
+ * Datenvolumen seines Mobilfunkvertrags, und der rechnet in Megabyte zu 1000.
+ */
+export type Groesse = { zahl: number; einheit: 'B' | 'kB' | 'MB' }
+
+export const groesse = (bytes: number): Groesse => {
+    const n = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+    if (n < 1000) {
+        return { zahl: Math.round(n), einheit: 'B' }
+    }
+    if (n < 1_000_000) {
+        return { zahl: Math.round(n / 100) / 10, einheit: 'kB' }
+    }
+
+    return { zahl: Math.round(n / 100_000) / 10, einheit: 'MB' }
+}
+
+// ── Fortschritt ────────────────────────────────────────────────────────────
+
+/**
+ * Der Fortschritt eines Clones, anzeigefertig.
+ *
+ * `isomorphic-git` meldet `{phase, loaded, total}`. **`total` ist oft `0`** —
+ * bei der Phase „Receiving objects" kennt der Client die Gesamtzahl erst, wenn
+ * der Server sie genannt hat, und bei „Analyzing workdir" gibt es keine. Ein
+ * Balken, der aus `loaded/total` rechnet, springt dann auf `Infinity` oder
+ * bleibt bei 0 stehen und behauptet Stillstand, wo Arbeit läuft.
+ *
+ * Deshalb zwei getrennte Aussagen: ein **Anteil** nur, wenn er berechenbar ist
+ * (`null` sonst), und der rohe Zähler immer. Was die Fläche nicht weiß, sagt
+ * sie nicht.
+ */
+export type Fortschritt = { phase: string; anteil: number | null; geladen: number; gesamt: number }
+
+export const zuFortschritt = (p: { phase?: string; loaded?: number; total?: number }): Fortschritt => {
+    const geladen = Number.isFinite(p.loaded) ? Math.max(0, p.loaded as number) : 0
+    const gesamt = Number.isFinite(p.total) ? Math.max(0, p.total as number) : 0
+
+    return {
+        phase: p.phase ?? '',
+        anteil: gesamt > 0 ? Math.min(1, geladen / gesamt) : null,
+        geladen,
+        gesamt,
+    }
+}
+
+// ── Fehlercodes ────────────────────────────────────────────────────────────
+
+/**
+ * Warum ein Clone nicht geklappt hat — als CODE, nicht als Satz.
+ *
+ * Die Fläche übersetzt; dieses Modul bleibt sprachfrei. `unbekannt` ist
+ * ausdrücklich vorgesehen: einen Fehler in eine der bekannten Schubladen zu
+ * pressen, die nicht passt, wäre schlimmer als zuzugeben, dass wir ihn nicht
+ * einordnen können.
+ */
+export type KlonFehler =
+    | 'keine-clone-url'
+    | 'fremder-host'
+    | 'nicht-angemeldet'
+    | 'abgebrochen'
+    | 'kein-zugriff'
+    | 'netz'
+    | 'unbekannt'
+
+/**
+ * Einen geworfenen Fehler einordnen.
+ *
+ * **`AbortError` zuerst**, und das ist kein Stil: ein abgebrochener `fetch`
+ * wirft, und wer die Reihenfolge dreht, meldet dem Nutzer einen Netzfehler für
+ * etwas, das er selbst ausgelöst hat.
+ */
+export const ordneFehlerEin = (fehler: unknown): KlonFehler => {
+    const name = (fehler as { name?: string } | null)?.name ?? ''
+    const text = String((fehler as { message?: string } | null)?.message ?? fehler ?? '')
+
+    if (name === 'AbortError' || /abort/i.test(text)) {
+        return 'abgebrochen'
+    }
+    if (/\b401\b|unauthor|nip-98|not a member|forbidden|\b403\b/i.test(text)) {
+        return 'kein-zugriff'
+    }
+    if (/failed to fetch|networkerror|load failed|cors|econnrefused/i.test(text)) {
+        return 'netz'
+    }
+
+    return 'unbekannt'
+}

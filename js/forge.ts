@@ -45,7 +45,7 @@ import { derived, readable, writable, type Readable } from 'svelte/store'
 import { proxifyImage, storageReady } from './core.ts'
 import { t } from './i18n.ts'
 import { toast } from './toast.ts'
-import { formatTimestamp } from './locale.ts'
+import { formatNumber, formatTimestamp } from './locale.ts'
 import { warmProfiles } from './profiles.ts'
 import { deriveEventsForUrl } from './repository.ts'
 import { roomsByUrl } from './groups.ts'
@@ -66,6 +66,18 @@ import { DESKTOP_QUERY } from './viewport.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
 import { diffStat, parseUnifiedDiff, patchBody, type DiffStat, type ParsedDiff } from './forgeDiff.ts'
 import { filterRepos } from './forgeSearch.ts'
+// NUR die REINEN Helfer statisch — `gitBrowser.ts` wird dynamisch geladen,
+// sonst läge `isomorphic-git` (84 kB gzip) im Chunk, den jede Seite zieht.
+import {
+    findeReadme,
+    groesse,
+    istEigenerHost,
+    istMarkdown,
+    ordneFehlerEin,
+    waehleCloneUrl,
+    type Fortschritt,
+    type KlonFehler,
+} from './gitReadme.ts'
 import {
     groupTimeline,
     timelineFullLabel,
@@ -1344,6 +1356,29 @@ type ForgeState = {
 /** Der Entwurf eines neuen Issues, wie ihn das Formular hält. */
 type IssueDraft = { open: boolean; title: string; body: string; error: string; busy: boolean }
 
+/**
+ * Die Lagen des README-Bereichs.
+ *
+ * `pruefe` ist der Anfangszustand und NICHT `bereit`: ob das Repository schon
+ * lokal liegt, weiss erst ein Blick in IndexedDB. Wer hier zweiwertig anfängt,
+ * zeigt einem Nutzer, der es längst hat, eine Download-Aufforderung.
+ */
+export type ReadmeLage = {
+    lage: 'pruefe' | 'keine-url' | 'fremd' | 'bereit' | 'laedt' | 'da' | 'leer' | 'fehler'
+    /** Dateiname des gefundenen README, `''` wenn keins da ist. */
+    name: string
+    /** Gerendertes Markdown — nur gesetzt, wenn `istMarkdown(name)`. */
+    html: string
+    /** Rohtext, wenn es kein Markdown ist. */
+    text: string
+    fehler: KlonFehler | ''
+    fortschritt: Fortschritt | null
+    /** Kurz-Hash des Kopf-Commits, für „Stand". */
+    commit: string
+    /** Die `web`-URL, wenn das Repository woanders liegt. */
+    fremdUrl: string
+}
+
 type ForgeRepoState = {
     loading: boolean
     error: string
@@ -1380,6 +1415,26 @@ type ForgeRepoState = {
      * stilles Nichts wäre hier die schlechteste aller Rückmeldungen.
      */
     wakeNotice: Record<string, { tone: 'ok' | 'warn'; text: string }>
+    /**
+     * Der Zustand des README (P6). Eine Zustandsmaschine, kein Bündel Flags:
+     * „lädt UND Fehler" wäre ein Zustand, den die Fläche nicht darstellen kann.
+     */
+    readme: ReadmeLage
+    /** Bricht den laufenden Download ab (`fetchOptions.signal` in `gitBrowser.ts`). */
+    _readmeAbbruch: AbortController | null
+    /** Prüft, ob das Repository schon lokal liegt — OHNE Netz. */
+    readmePruefen(): Promise<void>
+    /** Startet den Download. Nur auf ausdrücklichen Klick. */
+    readmeLaden(): Promise<void>
+    readmeAbbrechen(): void
+    /** Verwirft den lokalen Klon und lädt neu. */
+    readmeNeuLaden(): Promise<void>
+    /** Der übersetzte Satz zum Fehlercode. */
+    readmeFehlerText(): string
+    /** Liest aus dem LOKALEN Klon — ohne Netz. */
+    _readmeZeigen(): Promise<void>
+    /** „12,3 MB" o. ä. — Zahl und Einheit getrennt gebildet. */
+    groessenText(bytes: number): string
     _naddr: string
     _dead: boolean
     _controller: AbortController | null
@@ -1783,6 +1838,10 @@ export function wireForge(Alpine: {
 
     Alpine.data('nostrForgeRepo', (naddr: unknown): ForgeRepoState => {
         return {
+            // `pruefe`, nicht `bereit`: ob das Repository schon lokal liegt,
+            // weiss erst ein Blick in IndexedDB (siehe `ReadmeLage`).
+            readme: { lage: 'pruefe', name: '', html: '', text: '', fehler: '', fortschritt: null, commit: '', fremdUrl: '' },
+            _readmeAbbruch: null,
             loading: true,
             error: '',
             missing: false,
@@ -1906,6 +1965,11 @@ export function wireForge(Alpine: {
                 // genommen; sie auf der nächsten Seite wieder aufzuschlagen wäre
                 // eine Nachricht ohne Zusammenhang.
                 clearPending()
+                // Einen laufenden Klon abbrechen: die Seite ist weg, der
+                // Download nicht. Auf einem Telefon wäre das ein Datenvolumen,
+                // das niemand mehr sehen wird.
+                this._readmeAbbruch?.abort()
+                this._readmeAbbruch = null
             },
             async _boot() {
                 if (!WORKSPACE_URL) {
@@ -1925,6 +1989,12 @@ export function wireForge(Alpine: {
                         this.loading = false
                         this.missing = false
                         this.error = ''
+                        // Die README-Vorprüfung GENAU EINMAL: diese Ableitung
+                        // feuert bei jedem eintreffenden Ereignis neu, und ein
+                        // laufender Download dürfte davon nichts merken.
+                        if (this.readme.lage === 'pruefe') {
+                            void this.readmePruefen()
+                        }
                     }
                 })
                 await this._load()
@@ -1970,6 +2040,177 @@ export function wireForge(Alpine: {
             },
             statusText(code: string) {
                 return statusLabel(code)
+            },
+
+            // ── README (P6) ──────────────────────────────────────────────────
+            // Der Git-Code wird DYNAMISCH geladen. Ein statischer Import zöge
+            // 84 kB gzip in den Chunk, den jede Seite holt — der ganze Sinn der
+            // lazy Chunks aus der Messung wäre dahin.
+
+            groessenText(bytes: number) {
+                const g = groesse(bytes)
+
+                return `${formatNumber(g.zahl)} ${g.einheit}`
+            },
+
+            readmeFehlerText() {
+                const codes: Record<string, string> = {
+                    'nicht-angemeldet': 'Zum Laden musst du angemeldet sein — der Git-Zugang wird signiert (NIP-98).',
+                    'kein-zugriff': 'Der Relay hat den Zugriff abgelehnt. Entweder bist du kein Mitglied des Kanals, zu dem dieses Repository gehört, oder die Signatur ist abgelaufen.',
+                    netz: 'Der Git-Endpunkt war nicht erreichbar.',
+                    abgebrochen: 'Abgebrochen.',
+                    unbekannt: 'Das Repository liess sich nicht laden.',
+                }
+
+                return this.readme.fehler ? t(codes[this.readme.fehler] ?? codes.unbekannt) : ''
+            },
+
+            /**
+             * Liegt es schon lokal? Diese Frage kostet KEIN Byte Netz — und sie
+             * muss vor der Download-Aufforderung stehen, sonst bekommt jemand,
+             * der das Repository längst hat, eine Aufforderung zum Herunterladen.
+             */
+            async readmePruefen() {
+                const repo = this.view?.repo
+                if (!repo) {
+                    return
+                }
+                const url = waehleCloneUrl(repo.cloneUrls)
+                if (!url) {
+                    this.readme = { ...this.readme, lage: 'keine-url' }
+
+                    return
+                }
+                // Ein fremder Git-Host ist kein Fehler — unser NIP-98-Token
+                // trägt dort nur nicht. Die Fläche zeigt dann den Link statt
+                // einer Fehlermeldung.
+                if (!istEigenerHost(url, WORKSPACE_URL)) {
+                    this.readme = { ...this.readme, lage: 'fremd', fremdUrl: repo.webUrl || url }
+
+                    return
+                }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    if (await g.istGeklont(repo.owner, repo.dtag)) {
+                        await this._readmeZeigen()
+
+                        return
+                    }
+                } catch (error) {
+                    console.warn('[forge] README-Vorprüfung fehlgeschlagen', error)
+                }
+                this.readme = { ...this.readme, lage: 'bereit' }
+            },
+
+            async readmeLaden() {
+                const repo = this.view?.repo
+                if (!repo || this.readme.lage === 'laedt') {
+                    return
+                }
+                const url = waehleCloneUrl(repo.cloneUrls)
+                const abbruch = new AbortController()
+                this._readmeAbbruch = abbruch
+                this.readme = { ...this.readme, lage: 'laedt', fehler: '', fortschritt: null }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    await g.klone({
+                        url,
+                        owner: repo.owner,
+                        dtag: repo.dtag,
+                        signal: abbruch.signal,
+                        aufFortschritt: (f) => {
+                            // Nur setzen, solange DIESER Vorgang läuft: ein
+                            // abgebrochener Clone feuert noch Ereignisse nach,
+                            // und die schrieben sonst über eine neue Lage.
+                            if (this._readmeAbbruch === abbruch && !this._dead) {
+                                this.readme = { ...this.readme, fortschritt: f }
+                            }
+                        },
+                    })
+                    if (this._readmeAbbruch !== abbruch || this._dead) {
+                        return
+                    }
+                    await this._readmeZeigen()
+                } catch (error) {
+                    if (this._readmeAbbruch !== abbruch || this._dead) {
+                        return
+                    }
+                    const code = ordneFehlerEin(error)
+                    // Den ORIGINALFEHLER protokollieren, nicht nur den Code:
+                    // `unbekannt` ist per Konstruktion die Schublade für alles,
+                    // was wir nicht einordnen — ohne die Meldung daneben wäre
+                    // sie eine Sackgasse für jeden, der das nachstellen muss.
+                    console.warn('[forge] Klon fehlgeschlagen', code, error)
+                    // Ein Abbruch ist kein Fehlerzustand: die Fläche kehrt in
+                    // den Ausgangszustand zurück, damit ein zweiter Versuch
+                    // einen Klick entfernt ist.
+                    this.readme =
+                        code === 'abgebrochen'
+                            ? { ...this.readme, lage: 'bereit', fehler: '', fortschritt: null }
+                            : { ...this.readme, lage: 'fehler', fehler: code, fortschritt: null }
+                } finally {
+                    if (this._readmeAbbruch === abbruch) {
+                        this._readmeAbbruch = null
+                    }
+                }
+            },
+
+            readmeAbbrechen() {
+                this._readmeAbbruch?.abort()
+                this._readmeAbbruch = null
+                this.readme = { ...this.readme, lage: 'bereit', fehler: '', fortschritt: null }
+            },
+
+            async readmeNeuLaden() {
+                const repo = this.view?.repo
+                if (!repo) {
+                    return
+                }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    await g.entferneKlon(repo.owner, repo.dtag)
+                } catch (error) {
+                    console.warn('[forge] Klon liess sich nicht entfernen', error)
+                }
+                this.readme = { ...this.readme, lage: 'bereit', name: '', html: '', text: '', commit: '' }
+                await this.readmeLaden()
+            },
+
+            /** Aus dem lokalen Klon lesen — läuft ohne Netz. */
+            async _readmeZeigen() {
+                const repo = this.view?.repo
+                if (!repo) {
+                    return
+                }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    const eintraege = await g.wurzelEintraege(repo.owner, repo.dtag)
+                    // NUR Dateien: ein Verzeichnis namens `readme` ist kein README.
+                    const name = findeReadme(eintraege.filter((e) => e.art === 'blob').map((e) => e.name))
+                    const kopf = await g.kopfCommit(repo.owner, repo.dtag)
+                    if (!name) {
+                        this.readme = { ...this.readme, lage: 'leer', name: '', commit: kopf?.oid.slice(0, 7) ?? '' }
+
+                        return
+                    }
+                    const roh = await g.leseDatei(repo.owner, repo.dtag, name)
+                    await ensureRenderer()
+                    this.readme = {
+                        ...this.readme,
+                        lage: 'da',
+                        name,
+                        // Derselbe Renderer wie beim Artikel und beim Issue —
+                        // `markdown-it` mit `html:false`. Ein zweiter Renderer
+                        // für Fremdtext wären zwei Sicherheitszusagen.
+                        html: istMarkdown(name) ? renderMarkdown(`readme:${repo.address}:${name}`, roh) : '',
+                        text: istMarkdown(name) ? '' : roh,
+                        commit: kopf?.oid.slice(0, 7) ?? '',
+                        fehler: '',
+                        fortschritt: null,
+                    }
+                } catch (error) {
+                    this.readme = { ...this.readme, lage: 'fehler', fehler: ordneFehlerEin(error), fortschritt: null }
+                }
             },
             truncatedText() {
                 return !this.view || this.view.truncated.length === 0
