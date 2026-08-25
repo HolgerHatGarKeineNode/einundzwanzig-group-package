@@ -991,6 +991,33 @@ select:focus[data-flux-control] {
     color: var(--color-zinc-100);
 }
 
+/* ── Sprungziele tragen keinen Fokusring ──────────────────────────────────────
+   Ein `tabindex="-1"`-Element ist KEIN Bedienelement, sondern ein Ziel: der
+   Regionstitel, auf den `zeigeListe()` nach einem Kachel- oder Umschalterklick
+   springt, und die Vorgangszeile, auf die ein `?issue=`/`?pr=`-Deeplink zeigt.
+   Es steht nicht in der Tab-Reihenfolge; man gelangt nur dorthin, weil ein
+   Skript den Fokus setzt.
+
+   Chromium malt dort trotzdem seinen blauen Standardring — beim Klick auf eine
+   Kachel umrandet also plötzlich die Überschrift „Repositories". Das markiert
+   nichts Bedienbares und liest sich als Fehler; genau so wurde es gemeldet.
+
+   **Warum `:not(:focus-visible)` und nicht schlicht `outline: none`:**
+   Der Ring fällt nur, wenn der Browser den Fokus selbst als *nicht*
+   tastatur-induziert einstuft. Gelangt jemand doch per Tastatur hierher —
+   etwa über die Suchfunktion des Browsers oder einen künftigen Skip-Link —,
+   feuert `:focus-visible`, diese Regel greift nicht, und der Ring bleibt.
+   Ein pauschales `outline: none` nähme ihn auch dort und verstieße gegen
+   WCAG 2.4.7.
+
+   Die ANSAGE bleibt unberührt: das Element bekommt den Fokus weiterhin, eine
+   Sprachausgabe liest die Überschrift also nach wie vor vor. Wir entfernen die
+   sichtbare Markierung, nicht den Sprung. */
+.forge-regionstitel:focus:not(:focus-visible),
+[data-forge-vorgang]:focus:not(:focus-visible) {
+    outline: none;
+}
+
 /* ── Die Werkbank: das Zustandsboard ──────────────────────────────────────── */
 
 .forge-werkbank {
