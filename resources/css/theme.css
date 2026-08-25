@@ -1179,9 +1179,23 @@ select:focus[data-flux-control] {
     gap: 0.75rem;
 }
 
+/* ── Eine Kante weniger (Flux-Angleich) ─────────────────────────────────────
+   Hier stand `border: 1px solid var(--color-zinc-200)`. Der Diff-Kasten liegt
+   IMMER in einer aufgeklappten Vorgangszeile, und die liegt in einer
+   `surface-card` — die Kante war also die zweite auf derselben Stelle, plus
+   der `border-top` der Aufklapp-Fläche darüber. Drei 1-px-Linien innerhalb von
+   16 px: genau die Schichtung, die die Fläche kleinteilig wirken ließ.
+
+   Getragen wird die Abgrenzung jetzt vom KOPF darunter, der beides schon hatte:
+   eine eigene Fläche (`zinc-50` hell) und eine Unterkante (`zinc-200` hell,
+   `zinc-800` dunkel). Im dunklen Modus liegt der Kopf auf `zinc-900` und damit
+   auf derselben Farbe wie die Karte — dort trägt allein die Unterkante, und
+   genau deshalb bleibt sie stehen.
+
+   `overflow: hidden` bleibt ebenfalls: es hält den waagerechten Scroll des
+   Körpers im Radius. */
 .forge-diff-datei {
     overflow: hidden;
-    border: 1px solid var(--color-zinc-200);
     border-radius: var(--radius-tile);
 }
 
@@ -1291,12 +1305,10 @@ select:focus[data-flux-control] {
     color: var(--color-muted);
 }
 
-/* Ungeschichtet, aus demselben Grund wie bei `.forge-regionstitel` oben — die
-   Herleitung und die vier gemessenen Kontraste stehen dort. */
-.dark .forge-diff-datei {
-    border-color: var(--color-zinc-800);
-}
-
+/* `.dark .forge-diff-datei` ist mit der Kante WEGGEFALLEN — die Regel setzte
+   ausschließlich deren `border-color`. Die Abgrenzung im dunklen Modus trägt
+   jetzt allein der Kopf darunter: `zinc-900` als Fläche gegen die `zinc-900`
+   der Karte wäre unsichtbar, deshalb behält ER seine Unterkante. */
 .dark .forge-diff-kopf {
     border-color: var(--color-zinc-800);
     background: var(--color-zinc-900);

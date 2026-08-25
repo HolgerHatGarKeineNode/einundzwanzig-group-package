@@ -21,15 +21,33 @@
  *    Rückkehr zum Quadrat zu fangen. **Das ist eine Aussage über die GESTALT
  *    der Kurve, keine Laufzeit-Zusage.**
  *
- * ── Was hier bewusst NICHT gemessen wird ────────────────────────────────────
+ * ── Der Statusindex kam nach (Restposten P1, 2026-08-25) ───────────────────
  *
- * Der Notizen-Pfad, isoliert (`statusEvents` leer). `foldStatus` scannt seine
- * Ereignisliste weiterhin je Wurzel und ist damit die verbliebene quadratische
- * Achse — gemessen am 2026-08-24: mit dem Gesamtbestand als `statusEvents`
- * kostet dasselbe Fixture 8,5 / 22,5 / 83,2 ms bei 400 / 800 / 1600. Das ist
- * ein eigener Gegenstand und gehört nicht in einen Prüfstand für den Index:
- * er würde dann rot, wenn jemand `foldStatus` anfasst, und grün bleiben, wenn
- * jemand den Index herausnimmt. Genau verkehrt herum.
+ * Hier stand, `foldStatus` scanne weiterhin je Wurzel und sei ein eigener
+ * Gegenstand — mit dem Gesamtbestand als `statusEvents` kostete dasselbe
+ * Fixture **8,5 / 22,5 / 83,2 ms** bei 400 / 800 / 1600 Wurzeln. Das ist
+ * eingelöst: **2,1 / 3,3 / 8,2 ms**, und der Pfad wächst linear (vierfache
+ * Eingabe, 3,9-facher Aufwand).
+ *
+ * Die Zeitmessung unten bleibt trotzdem auf dem Notizen-Pfad (`statusEvents`
+ * leer). Ein Gate, das beide Achsen zugleich misst, wird rot, wenn jemand
+ * irgendeine davon anfasst, und sagt dann nicht, welche — die Trennung ist der
+ * Grund, warum es überhaupt etwas festhält. Für den Statusindex steht darunter
+ * ein **deterministisches** Gate, und das ist ohnehin das wichtigere.
+ *
+ * ── Und der Update-Index kam danach (P4, 2026-08-25) ───────────────────────
+ *
+ * Der Statusindex legte die dritte Achse frei: `buildPullRequests` blieb als
+ * einziger überlinearer Konstruktor stehen, weil {@link toPullRequest} die
+ * 1619-Updates weiter je Wurzel über den Gesamtbestand siebte — **25,8 / 87,3
+ * / 287,4 ms** bei 400 / 800 / 1600 Wurzeln, Faktor ~3,4 je Verdopplung, neben
+ * linearen Issues und Patches. Mit {@link indexUpdates}: **3,5 / 7,5 / 13,9
+ * ms**, vierfache Eingabe bei vierfachem Aufwand.
+ *
+ * **Der Anteil war verdeckt, nicht abwesend** — solange `foldStatus` denselben
+ * Scan fuhr, ging er in dessen Zahl unter. Das ist der Grund, warum diese
+ * Datei ihre Zahlen mitschreibt: sonst sähe die nächste Achse aus wie ein
+ * Regress, statt wie das, was sie ist.
  *
  * Ausführen:
  * node --experimental-strip-types --test packages/einundzwanzig-group/js/forgeIndex.test.ts
@@ -39,15 +57,25 @@ import assert from 'node:assert/strict'
 import {
     FORGE_COMMENT,
     GIT_ISSUE,
+    GIT_PR_UPDATE,
+    GIT_PULL_REQUEST,
+    GIT_STATUS_CLOSED,
     buildIssues,
     commentsForRoot,
+    foldAssignments,
+    foldReviews,
+    foldStatus,
     indexNotes,
+    indexStatus,
+    indexUpdates,
     repoAddressOf,
+    toPullRequest,
     type ForgeEvent,
 } from './forgeModels.ts'
 
 const OWNER = '0adf67475ccc5ca456fd3022e46f5d526eb0af6284bf85494c0dd7847f3e5033'
 const ADDR = repoAddressOf(OWNER, 'r')
+const REVIEWER = 'e'.repeat(64)
 const hex = (n: number): string => String(n).padStart(64, '0')
 
 const bestand = (n: number): { roots: ForgeEvent[]; notes: ForgeEvent[] } => {
@@ -63,18 +91,79 @@ const bestand = (n: number): { roots: ForgeEvent[]; notes: ForgeEvent[] } => {
 
 // ── Gate 1: wird der Index überhaupt benutzt? ───────────────────────────────
 
+/**
+ * Eine Notiz, die der Index NICHT kennt — der Prüfstein für den Rückfall.
+ *
+ * **Der Punkt ist, dass Index und Rohliste auseinanderfallen.** Bis zum
+ * 2026-08-25 stand hier eine unbekannte Wurzel gegen eine Rohliste, die zu ihr
+ * ohnehin nichts enthielt: ein Scan-Rückfall lieferte dann zufällig ebenfalls
+ * `[]`, und die Zusicherung war erfüllt, ohne etwas zu halten. Belegt per
+ * Mutationsprobe — mit UND ohne Determinismus-Schutz blieb der Prüfstand 4/4
+ * grün. Der Fehler lag in der Fixture, nicht in der Behauptung.
+ */
+const ausserhalbDesIndex = (rootId: string, over: Partial<ForgeEvent> = {}): ForgeEvent => ({
+    id: hex(770_000),
+    pubkey: OWNER,
+    kind: FORGE_COMMENT,
+    created_at: 4_000,
+    content: 'nur in der Rohliste',
+    tags: [['e', rootId, '', 'root'], ['a', ADDR]],
+    ...over,
+})
+
 test('KOMPLEXITÄT (deterministisch): der Index ersetzt den Scan, er ergänzt ihn nicht', () => {
     const { notes } = bestand(3)
     const index = indexNotes(notes)
+    const FREMD = hex(77)
 
-    // Die Ereignisliste ist LEER — käme die Antwort aus ihr, wäre sie es auch.
+    // 1. Der Index antwortet, obwohl die Ereignisliste LEER ist — käme die
+    //    Antwort aus ihr, wäre sie es auch.
     const aus = commentsForRoot(hex(1), [], index)
     assert.equal(aus.length, 1)
     assert.equal(aus[0].id, hex(500_001))
 
-    // Und eine unbekannte Wurzel liefert nichts, statt in den Scan zurückzufallen:
-    // ein Rückfall wäre bei grossem Bestand genau die Arbeit, die P7 abschafft.
-    assert.deepEqual(commentsForRoot('unbekannt', notes, index), [])
+    // 2. **Index und Rohliste fallen auseinander.** Der Index kennt `FREMD`
+    //    nicht, die Rohliste sehr wohl. Mit Schutz: nichts. Ohne Schutz: der
+    //    Scan findet die Notiz — und genau daran wird die Mutation sichtbar.
+    const rohliste = [...notes, ausserhalbDesIndex(FREMD)]
+    assert.deepEqual(commentsForRoot(FREMD, rohliste, index), [])
+
+    // KONTROLLE: dieselbe Rohliste OHNE Index liefert die Notiz sehr wohl —
+    // sonst prüfte der Fall darüber nur, dass hier grundsätzlich nichts kommt.
+    assert.equal(commentsForRoot(FREMD, rohliste).length, 1)
+})
+
+/**
+ * Dieselbe Frage an den beiden Faltungen, die den Index ebenfalls tragen — und
+ * hier ist ein Rückfall die **stillere** Sorte Fehler: eine Zuweisung oder ein
+ * Reviewer, die aus einer Quelle stammen, die der Aufrufer gar nicht indiziert
+ * hat, tauchen ohne Fehlermeldung auf der Fläche auf.
+ */
+test('KOMPLEXITÄT (deterministisch): auch die Faltungen fallen nicht in den Scan zurück', () => {
+    const FREMD = hex(78)
+    const root: ForgeEvent = {
+        id: FREMD, pubkey: OWNER, kind: GIT_ISSUE, created_at: 2_000, content: '',
+        tags: [['a', ADDR], ['subject', 'Wurzel ausserhalb des Index']],
+    }
+    // Ein leerer Index: er kennt KEINE Wurzel. Die Rohliste kennt beide Notizen.
+    const leererIndex = indexNotes([])
+    const zuweisung = ausserhalbDesIndex(FREMD, {
+        id: hex(780_001),
+        tags: [['e', FREMD, '', 'root'], ['a', ADDR], ['p', OWNER], ['t', 'assignment']],
+    })
+    const anfrage = ausserhalbDesIndex(FREMD, {
+        id: hex(780_002),
+        tags: [['e', FREMD, '', 'root'], ['a', ADDR], ['p', REVIEWER], ['t', 'review-request']],
+    })
+    const rohliste = [zuweisung, anfrage]
+
+    assert.deepEqual(foldAssignments(root, rohliste, [], leererIndex).assignees, [])
+    assert.deepEqual(foldReviews(root, rohliste, 'a'.repeat(40), [], leererIndex).reviewers, [])
+
+    // KONTROLLE: ohne Index findet dieselbe Rohliste beides — die Zusicherungen
+    // oben messen also den Rückfall und nicht die Leere der Fixture.
+    assert.deepEqual(foldAssignments(root, rohliste).assignees, [OWNER])
+    assert.deepEqual(foldReviews(root, rohliste, 'a'.repeat(40)).reviewers, [REVIEWER])
 })
 
 test('indexNotes: EIN Eintrag je Notiz und Wurzel, auch bei `e` UND `E` auf dieselbe', () => {
@@ -104,6 +193,75 @@ test('indexNotes: die Eimer sind aufsteigend sortiert — die `prior`-Kette hän
         indexNotes([spaet, gleichA, frueh, gleichB]).get(hex(0))?.map((e) => e.id),
         [hex(3), hex(4), hex(5), hex(2)],
     )
+})
+
+// ── Gate 1b: derselbe Schutz für den Statusindex ────────────────────────────
+
+/**
+ * `foldStatus` trägt die Berechtigungsentscheidung dieser Fläche. Der Eingriff
+ * aus dem Restposten wechselt ausschliesslich den EINGANG — Filter und
+ * Sortierung sind Zeichen für Zeichen dieselben geblieben. Dass die Regel
+ * unverändert gilt, belegen die bestehenden Fälle in `forgeModels.test.ts`
+ * (Berechtigung, Tiebreak, Maintainer-Erweiterung); hier steht nur, dass der
+ * Index den Scan wirklich ERSETZT.
+ *
+ * Die Fixture lässt Index und Rohliste auseinanderfallen — dieselbe Lehre wie
+ * beim Notizen-Gate: eine unbekannte Wurzel gegen eine Rohliste, die zu ihr
+ * nichts enthält, prüft gar nichts.
+ */
+test('KOMPLEXITÄT (deterministisch): auch `foldStatus` fällt nicht in den Scan zurück', () => {
+    const FREMD = hex(79)
+    const root: ForgeEvent = {
+        id: FREMD, pubkey: OWNER, kind: GIT_ISSUE, created_at: 2_000, content: '',
+        tags: [['a', ADDR], ['subject', 'Wurzel ausserhalb des Index']],
+    }
+    const wechsel: ForgeEvent = {
+        id: hex(790_001), pubkey: OWNER, kind: GIT_STATUS_CLOSED, created_at: 5_000, content: '',
+        tags: [['e', FREMD], ['a', ADDR]],
+    }
+
+    // Leerer Index: er kennt keine Wurzel. Die Rohliste kennt den Wechsel.
+    assert.equal(foldStatus(root, [wechsel], [], indexStatus([])), null)
+
+    // KONTROLLE: ohne Index findet dieselbe Rohliste ihn sehr wohl — sonst
+    // prüfte die Zusicherung darüber nur die Leere der Fixture.
+    assert.equal(foldStatus(root, [wechsel])?.id, wechsel.id)
+
+    // Und mit dem passenden Index ebenfalls: der Riegel sperrt nicht alles aus.
+    assert.equal(foldStatus(root, [], [], indexStatus([wechsel]))?.id, wechsel.id)
+})
+
+test('indexStatus: nimmt NUR Statuswechsel auf — eine Notiz gehört in den anderen Eimer', () => {
+    const wurzel = hex(80)
+    const wechsel: ForgeEvent = {
+        id: hex(800_001), pubkey: OWNER, kind: GIT_STATUS_CLOSED, created_at: 5_000, content: '',
+        tags: [['e', wurzel]],
+    }
+    const notiz: ForgeEvent = {
+        id: hex(800_002), pubkey: OWNER, kind: FORGE_COMMENT, created_at: 5_000, content: 'kein Status',
+        tags: [['e', wurzel]],
+    }
+
+    assert.deepEqual(indexStatus([wechsel, notiz]).get(wurzel)?.map((e) => e.id), [wechsel.id])
+    assert.deepEqual(indexNotes([wechsel, notiz]).get(wurzel)?.map((e) => e.id), [notiz.id])
+})
+
+test('indexStatus: dieselben zwei Eigenschaften — entdoppelt und aufsteigend sortiert', () => {
+    const wurzel = hex(81)
+    const status = (id: number, created_at: number, tags: string[][]): ForgeEvent => ({
+        id: hex(id), pubkey: OWNER, kind: GIT_STATUS_CLOSED, created_at, content: '', tags,
+    })
+    // `e` UND `E` auf dieselbe Wurzel: EIN Eintrag, sonst zählte der Wechsel
+    // doppelt — beim Notizen-Index war genau das der stille Teil.
+    assert.equal(indexStatus([status(810_001, 5_000, [['e', wurzel], ['E', wurzel]])]).get(wurzel)?.length, 1)
+
+    // Gleichstand: die kleinere Id zuerst.
+    const eimer = indexStatus([
+        status(810_005, 5_000, [['e', wurzel]]),
+        status(810_004, 5_000, [['e', wurzel]]),
+        status(810_003, 1_000, [['e', wurzel]]),
+    ])
+    assert.deepEqual(eimer.get(wurzel)?.map((e) => e.id), [hex(810_003), hex(810_004), hex(810_005)])
 })
 
 // ── Gate 2: die Gestalt der Kurve ───────────────────────────────────────────
@@ -154,4 +312,72 @@ test('KOMPLEXITÄT (zeitlich): achtfache Eingabe kostet nicht das Vielfache eine
     // Maschine und eng genug, um die Rückkehr zum Quadrat zu fangen — die
     // Mutationsprobe „Index entfernt" landete bei weit darüber.
     assert.ok(faktor < 20, `achtfache Eingabe kostete das ${faktor.toFixed(1)}-fache — das riecht nach O(m·n)`)
+})
+
+// ── Gate 1c: derselbe Schutz für den Update-Index ───────────────────────────
+
+/**
+ * Die 1619-Updates sind der dritte Eimer — und ein Rückfall ist hier NICHT nur
+ * eine Frage der Laufzeit.
+ *
+ * Ein Update zeigt den Commit um, auf den ein PR verweist, und `foldReviews`
+ * entwertet daran jede Freigabe. Ein Update, das aus einer Quelle stammt, die
+ * der Aufrufer nie indiziert hat, verschiebt also still eine
+ * Berechtigungsentscheidung — sichtbar nur daran, dass eine Freigabe
+ * verschwindet, die eben noch stand.
+ *
+ * Fixture nach derselben Lehre wie oben: Index und Rohliste fallen
+ * auseinander, und jede Zusicherung trägt ihre Gegenprobe.
+ */
+test('KOMPLEXITÄT (deterministisch): auch `toPullRequest` fällt nicht in den Scan zurück', () => {
+    const FREMD = hex(81)
+    const ROOT_COMMIT = 'a'.repeat(40)
+    const NEUER_COMMIT = 'b'.repeat(40)
+    const root: ForgeEvent = {
+        id: FREMD, pubkey: OWNER, kind: GIT_PULL_REQUEST, created_at: 2_000, content: '',
+        tags: [['a', ADDR], ['subject', 'PR ausserhalb des Index'], ['c', ROOT_COMMIT]],
+    }
+    const update: ForgeEvent = {
+        id: hex(810_001), pubkey: OWNER, kind: GIT_PR_UPDATE, created_at: 6_000, content: '',
+        tags: [['e', FREMD, '', 'root'], ['a', ADDR], ['c', NEUER_COMMIT]],
+    }
+
+    // Leerer Index: er kennt keine Wurzel. Die Rohliste kennt das Update.
+    const ohneEimer = toPullRequest(root, [update], [], [], [], { updates: indexUpdates([]) })
+    assert.equal(ohneEimer.updateCount, 0)
+    // Und damit zeigt der PR weiter auf seinen Ausgangs-Commit — die Zahl oben
+    // allein liesse offen, ob nur der Zähler oder die Faltung betroffen ist.
+    assert.equal(ohneEimer.commit, ROOT_COMMIT)
+
+    // KONTROLLE: ohne Index sieht dieselbe Rohliste das Update sehr wohl —
+    // sonst prüften die Zusicherungen darüber nur die Leere der Fixture.
+    const ohneIndex = toPullRequest(root, [update])
+    assert.equal(ohneIndex.updateCount, 1)
+    assert.equal(ohneIndex.commit, NEUER_COMMIT)
+
+    // Und mit dem passenden Eimer ebenfalls: der Riegel sperrt nicht alles aus.
+    const mitEimer = toPullRequest(root, [], [], [], [], { updates: indexUpdates([update]) })
+    assert.equal(mitEimer.updateCount, 1)
+    assert.equal(mitEimer.commit, NEUER_COMMIT)
+})
+
+test('indexUpdates: nimmt NUR 1619 auf — Status und Notiz gehören in andere Eimer', () => {
+    const wurzel = hex(82)
+    const update: ForgeEvent = {
+        id: hex(820_001), pubkey: OWNER, kind: GIT_PR_UPDATE, created_at: 5_000, content: '',
+        tags: [['e', wurzel]],
+    }
+    const wechsel: ForgeEvent = {
+        id: hex(820_002), pubkey: OWNER, kind: GIT_STATUS_CLOSED, created_at: 5_000, content: '',
+        tags: [['e', wurzel]],
+    }
+    const notiz: ForgeEvent = {
+        id: hex(820_003), pubkey: OWNER, kind: FORGE_COMMENT, created_at: 5_000, content: '',
+        tags: [['e', wurzel]],
+    }
+    const alle = [update, wechsel, notiz]
+
+    assert.deepEqual(indexUpdates(alle).get(wurzel)?.map((e) => e.id), [update.id])
+    assert.deepEqual(indexStatus(alle).get(wurzel)?.map((e) => e.id), [wechsel.id])
+    assert.deepEqual(indexNotes(alle).get(wurzel)?.map((e) => e.id), [notiz.id])
 })

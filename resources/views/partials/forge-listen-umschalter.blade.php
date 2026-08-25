@@ -1,96 +1,98 @@
-{{-- ── Segment-Umschalter der linken Spur (P3, überarbeitet P4-Nacharbeit) ──
+{{-- ── Segment-Umschalter der linken Spur (P3 · P4-Nacharbeit · Flux-Angleich) ──
      `Repositories | Issues | Pull Requests` — er FILTERT eine Liste, er
      wechselt keine Fläche: die Aktivitätsspur daneben bleibt stehen.
 
-     **Eine Button-Gruppe und ausdrücklich KEIN `role="tablist"`.** Zwei Gründe,
-     und der zweite gibt den Ausschlag:
-       · Fachlich: ein Tablist verspricht „hier wechselt der Inhalt der Fläche".
-         Hier bleibt die halbe Fläche stehen.
-       · Gemessen: `desktop-forge.spec.ts:397-411` hält
-         `getByRole('tab')).toHaveCount(0)` auf Desktop als stehende Zusage fest.
-         Eine Gruppe hält sie grün ohne Anpassung; ein Tablist kehrte die
-         Aussage still um und verlangte zusätzlich Pfeiltasten-Navigation.
-     (Hier stand bis zur P4-Nacharbeit „ausdrücklich KEIN `role="group"`" —
-     während das Markup darunter eines trug. Gemeint war immer `tablist`; die
-     Gruppe ist gewollt, sie gibt den drei Links einen gemeinsamen Namen.)
+     ── Bis zum Flux-Angleich stand hier HANDARBEIT, und die Begründung dafür
+        war zu eng gedacht ────────────────────────────────────────────────────
+     Der alte Kommentar argumentierte: ein `role="tablist"` kehrte
+     `desktop-forge.spec.ts:397-411` (`getByRole('tab')).toHaveCount(0)`) still
+     um, also drei handgebaute `<a>`-Pillen. Richtig war nur die Hälfte — die
+     Zusage gilt weiter, aber sie verlangt keine Handarbeit: `flux:radio.group
+     variant="segmented"` rendert `<ui-radio-group>` / `<ui-radio>`, und die
+     bekommen zur Laufzeit `role="radiogroup"` bzw. `role="radio"`. Am Bundle
+     nachgelesen, nicht vermutet: `vendor/livewire/flux-pro/dist/flux.js:15920`
+     (`setAttribute(this, "role", "radiogroup")`) und `:15953`
+     (`"role", "radio"`). `role="tab"` setzt dort einzig `UITabs` (`:16127`,
+     `:16170`) — eine andere Klasse, ein anderes Element.
+
+     Im SERVER-HTML steht ohnehin gar keine Rolle (beide setzt erst das Skript),
+     womit auch `ForgeVorgangAdresseTest.php:99` grün bleibt: das prüft die
+     Quelle auf `role="tab"`, und die trägt keines.
+
+     Und die Rolle ist fachlich die richtigere: „genau eines aus drei" IST eine
+     Radiogruppe. Sie bringt die Pfeiltasten-Navigation von sich aus mit
+     (`flux.js:15909-15918`) — vorher waren es drei einzelne Tab-Stopps.
+
+     ── Was der Tausch KOSTET, und wie es aufgefangen ist ────────────────────
+     `<a href>` fällt weg: Mittelklick und „Link kopieren" gehen an DIESEN drei
+     Bedienelementen verloren. Die drei Adressen bleiben trotzdem auf demselben
+     Schirm teilbar — die Bestandskacheln darüber
+     (`⚡forge.blade.php`, `data-forge-kachel`) führen als echte `<a href>` auf
+     dieselben drei Ziele `?tab=repos|issues|pulls`, eins zu eins.
+
+     Zweitens: Flux markiert den gewählten Reiter allein über Fläche und
+     Textfarbe. Im dunklen Modus misst der Daumen (`bg-white/20`) gegen die
+     Schiene (`bg-white/10`) gerechnete 1,91:1 und liegt damit unter den 3:1 aus
+     WCAG 1.4.11 für einen Zustand. Deshalb bleibt die MARKE aus der
+     P4-Nacharbeit erhalten — gefüllt oder hohl, gezeichnet aus `currentColor`,
+     also ohne eine einzige neue Farbe. Sie hängt jetzt an Flux' eigenem
+     Zustands-Attribut (`ui-radio[data-checked]`) statt an einem
+     Alpine-Ausdruck; genau dieses Selektormuster benutzt Flux im
+     Segment-Stub selbst (`flux/radio/variants/segmented.blade.php`).
+
+     ── Warum `h-13!` und nicht Flux' Vorgabe ────────────────────────────────
+     Flux' Segment-Schiene ist `h-10` (40 px) bei `p-1`, das Segment darin also
+     32 px hoch; mit `size="sm"` sind es 32 / 24 px. WCAG 2.5.8 wäre damit
+     erfüllt (24 × 24), Apples HIG (44 × 44) nicht. `h-13` = 3,25 rem = 52 px
+     minus 2 × 4 px Schienenpolster ergibt exakt 44 px am Segment — der Wert,
+     den die Handarbeit vorher hatte (`text-sm` + `py-3` = 20 + 24). Das `!`
+     ist nötig, weil `h-10` aus demselben Utility-Layer kommt: bei gleicher
+     Spezifität entschiede sonst die Quellreihenfolge im GEBAUTEN Stylesheet,
+     und die ist kein Ort für eine Zusage.
+
+     ── Der Zustand kommt aus `listeAktiv()`, nicht aus `tab` ────────────────
+     `x-model="tab"` wäre falsch: `tab` trägt auch `activity`, `workspaces`,
+     `patches` und `code`, und bei keinem davon wäre ein Segment markiert —
+     obwohl die Repo-Liste darunter steht. `listeAktiv()` bildet genau das ab,
+     ist aber eine Methode und damit für `x-model` nicht zuweisbar. Deshalb
+     zwei Richtungen von Hand:
+
+       · hinein: `x-effect` schreibt auf die `value`-EIGENSCHAFT von
+         `ui-radio-group` (`flux.js:2124` definiert sie per
+         `Object.defineProperty`). Ein Attribut täte hier nichts.
+       · heraus: `x-on:change`. Der Setter und der Melder sind bei Flux
+         gegeneinander verriegelt (`detangle()`, `flux.js`), ein
+         programmatisches Setzen meldet also gar nichts. Der Vergleich gegen
+         `listeAktiv()` steht trotzdem da — er kostet nichts und fängt zugleich
+         den Klick auf das bereits gewählte Segment ab, der sonst den Fokus
+         grundlos in die Überschrift risse.
+
+     `zeigeListe()` bleibt unverändert der einzige Weg, der `tab` setzt und den
+     Fokus in die Regionsüberschrift trägt (`desktop-forge-feinschliff.spec.ts`
+     prüft beides über `[data-forge-liste="repos"]`).
 
      Er steht EINMAL, über den drei Listen — nicht dreimal, je einmal in jeder.
-     Bis zur P4-Nacharbeit war er in alle drei Regionen eingebunden: drei Kopien
-     im DOM, eine davon sichtbar. Für die Sprachausgabe war das harmlos (zwei
-     sind `display: none`), für jeden Prüfstand nicht — `[data-forge-liste=…]`
-     löste auf drei Elemente auf und riss jeden Zugriff in Playwrights
-     Strict-Mode. Genau da bin ich beim Nachmessen selbst hineingelaufen.
-
      Nur in der zweispaltigen Form: unterhalb davon führt die Tab-Reihe, und die
-     Bestandskacheln darüber sind der Weg in die beiden Listen. Zwei Umschalter
-     für dieselbe Frage auf einem Schirm wären eine doppelte Wahrheit. --}}
-<div x-show="zweispaltig" x-cloak class="mb-3 flex flex-wrap gap-1" role="group"
-     aria-label="{{ __('Welche Liste?') }}" data-forge-listen-umschalter>
+     Bestandskacheln darüber sind der Weg in die beiden Listen. --}}
+<div x-show="zweispaltig" x-cloak class="mb-3" data-forge-listen-umschalter>
     @php($segmente = [
         ['wert' => 'repos', 'label' => __('Repositories')],
         ['wert' => 'issues', 'label' => __('Issues')],
         ['wert' => 'pulls', 'label' => __('Pull Requests')],
     ])
-    @foreach ($segmente as $segment)
-        {{-- Ein `a` und kein `button`: das Ziel ist eine echte, teilbare Adresse
-             (`/forge?tab=issues`). Mittelklick und „Link kopieren" tun damit das,
-             was jeder erwartet; der Klick selbst bleibt in der Insel und lädt
-             nichts nach.
-
-             ── `aria-current`, NICHT `aria-pressed` (P4-Nacharbeit) ──────────
-             Hier stand `::aria-pressed`, und das war gleich zweimal falsch:
-
-             1. **Die Schreibweise.** Der doppelte Doppelpunkt ist die Konvention
-                für Blade-KOMPONENTEN (`<flux:…>`), wo Blade ihn zu einem
-                einfachen escapt. Auf rohem HTML gibt Blade ihn wörtlich aus,
-                Alpine liest ihn als Bindung für ein Attribut namens
-                `:aria-pressed` und schreibt genau das. Am gebauten Stand
-                gemessen: `getAttributeNames()` liefert `::aria-pressed` UND
-                `:aria-pressed`, `getAttribute('aria-pressed')` liefert `null`.
-                Das Attribut war also nie da.
-
-             2. **Das Attribut selbst.** `aria-pressed` ist laut W3C
-                (`html-aria`, geprüft 2026-08-24 an der Quelle) auf einem `a`
-                mit `href` NICHT zulässig — es gilt nur für `role="button"`.
-                Bloß die Schreibweise zu reparieren hätte ein syntaktisch
-                gültiges Attribut erzeugt, das die Sprachausgabe trotzdem
-                ignoriert: ein Fix, der nichts behebt. `aria-current` ist ein
-                GLOBALES Attribut und auf jedem Element zulässig — und es ist
-                hier auch fachlich richtiger, als der alte Kommentar behauptete:
-                der aktive Eintrag IST der aktuelle Ort, die Adresse wechselt
-                sichtbar auf `?tab=…` mit.
-
-             `false` statt `'false'`: Alpine ENTFERNT ein Attribut bei einem
-             booleschen Falsch. `aria-current="false"` an zwei von drei Links
-             wäre Lärm; das Attribut steht genau am aktuellen.
-
-             ── Der Zustand hängt nicht mehr an der Farbe (WCAG 1.4.1) ────────
-             Vorher unterschieden sich aktiv und inaktiv NUR durch vertauschte
-             Vorder- und Hintergrundfarbe. Jetzt trägt ihn eine FORM: die Marke
-             links ist gefüllt oder hohl. Sie zeichnet sich aus `currentColor`,
-             hat also immer den Kontrast des Textes daneben und kommt ohne eine
-             einzige neue Farbe aus. Dazu das Schriftgewicht (700 gegen 600).
-             Beide Marken sind gleich breit — beim Umschalten rückt nichts.
-
-             ── 44 px hoch ───────────────────────────────────────────────────
-             WCAG 2.5.8 verlangt 24 × 24; die Zeile maß vorher gemessene 24 px
-             und lag damit exakt auf der Grenze. Apples HIG verlangt 44 × 44,
-             und das kostet hier nichts: der Umschalter ist EINE Zeile über
-             einer Liste, keine dichte Tabelle. `text-sm` (14 px, Zeilenhöhe
-             20 px) plus `py-3` (2 × 12 px) ergibt genau 44. --}}
-        <a :href="forgeTabHref('{{ $segment['wert'] }}')"
-           x-on:click.prevent="zeigeListe('{{ $segment['wert'] }}')"
-           data-forge-liste="{{ $segment['wert'] }}"
-           x-bind:aria-current="listeAktiv() === '{{ $segment['wert'] }}' ? 'true' : false"
-           class="pressable inline-flex items-center gap-2 rounded-pill px-3 py-3 text-sm transition"
-           :class="listeAktiv() === '{{ $segment['wert'] }}'
-               ? 'bg-zinc-900 font-bold text-white dark:bg-zinc-100 dark:text-zinc-900'
-               : 'bg-zinc-100 font-semibold text-muted hover:text-zinc-900 dark:bg-zinc-800 dark:hover:text-zinc-100'">
-            {{-- Die Marke ist Zierrat für die Sprachausgabe — sie hört
-                 `aria-current`. Für das Auge ist sie der Zustandsträger. --}}
-            <span aria-hidden="true" class="size-2 shrink-0 rounded-full border border-current"
-                  :class="listeAktiv() === '{{ $segment['wert'] }}' ? 'bg-current' : ''"></span>
-            <span>{{ $segment['label'] }}</span>
-        </a>
-    @endforeach
+    <flux:radio.group variant="segmented" class="h-13!"
+                      aria-label="{{ __('Welche Liste?') }}"
+                      x-effect="$el.value = listeAktiv()"
+                      x-on:change="$event.target.value !== listeAktiv() && zeigeListe($event.target.value)">
+        @foreach ($segmente as $segment)
+            <flux:radio value="{{ $segment['wert'] }}" data-forge-liste="{{ $segment['wert'] }}">
+                {{-- Die Marke ist Zierrat für die Sprachausgabe — sie hört
+                     `aria-checked`, das `UIRadio` selbst pflegt. Für das Auge ist
+                     sie der Zustandsträger, der nicht an der Farbe hängt. --}}
+                <span aria-hidden="true"
+                      class="size-2 shrink-0 rounded-full border border-current [ui-radio[data-checked]_&]:bg-current"></span>
+                <span>{{ $segment['label'] }}</span>
+            </flux:radio>
+        @endforeach
+    </flux:radio.group>
 </div>

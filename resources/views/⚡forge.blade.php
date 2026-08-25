@@ -675,6 +675,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              Screenreader das ausgeschriebene „kein Ref
                                              bekannt", denn ein „–" allein ist keine
                                              Auskunft. --}}
+                                        {{-- ── Hier bleibt es HANDARBEIT, und das ist gerechnet ──
+                                             Für einen Chip gibt es `flux:badge`, und an drei
+                                             anderen Stellen dieser Datei steht er jetzt auch.
+                                             NICHT hier: diese Pille steht in `forge-daten`,
+                                             und deren Spalten sind in `ch` deklariert
+                                             (`theme.css`, `.forge-daten`) — sie fluchten ohne
+                                             `<table>` und ohne `subgrid`, weil jede Zelle
+                                             dieselbe Schriftgröße hat. `flux:badge` setzt
+                                             `text-sm` (bzw. `text-xs` bei `size="sm"`) selbst
+                                             und überschriebe damit die 12 px der Datenspalte;
+                                             die Fluchtlinie, die `desktop-forge.spec.ts` als
+                                             Zusage hält, hinge dann an einer Zahl aus einem
+                                             Vendor-Stub. Der Chip trägt deshalb weiter nur
+                                             Fläche und Radius, keine eigene Schriftgröße. --}}
                                         <span class="min-w-0 truncate">
                                             <template x-if="repo.state && repo.state.head">
                                                 <span class="inline-flex max-w-full items-center gap-1 truncate rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold text-brand-800 dark:text-brand-300">
@@ -898,7 +912,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                          eröffnet") — bei 360px nachgesehen. In der
                                                          Metazeile sind sie ruhiger Beleg statt
                                                          Blickfang. --}}
-                                                    <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                    {{-- ── `<div>` und nicht mehr `<p>` ──────────────────
+                                                         Diese Zeile trägt seit dem Flux-Angleich zwei
+                                                         `flux:badge`, und die rendern über
+                                                         `flux:button-or-div` ein `<div>`
+                                                         (`flux/button-or-div.blade.php` — ein `<span>`
+                                                         gibt es dort nicht, nur `<div>` oder, mit
+                                                         `as="button"`, `<button>`). Ein `<div>` in einem
+                                                         `<p>` ist kein Stilfehler, sondern ein PARSE-
+                                                         Fehler: der Parser schließt das `<p>` vor dem
+                                                         `<div>`, und alles danach fällt aus dem
+                                                         Flex-Kasten heraus. Also trägt die Zeile jetzt
+                                                         ein `<div>` — es ist ohnehin eine Metazeile aus
+                                                         Marken, kein Absatz Fließtext, und weder `<p>`
+                                                         noch `<div>` bringen eine Rolle mit. --}}
+                                                    <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                                                         {{-- KURZ in der Zeile („vor 3 Std"), VOLL im
                                                              Tooltip. Der Trenner über der Gruppe sagt
                                                              bereits, welcher Tag gemeint ist; ein
@@ -926,36 +954,53 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                         <template x-if="row.showRepoName">
                                                             <span><span aria-hidden="true">·</span> <span x-text="row.repoName"></span></span>
                                                         </template>
+                                                        {{-- `flux:badge` statt einer Hauspille: die Bauform kommt von
+                                                             Flux, die FARBE bleibt die des Hauses. Flux' Palette kennt
+                                                             kein `brand` (`flux/badge/index.blade.php` zählt die
+                                                             Tailwind-Töne einzeln auf, weil der JIT keine berechneten
+                                                             Klassennamen sieht) — und die Marke ist hier die Aussage.
+                                                             Gemessen bleibt sie, wo sie war: brand-800 auf
+                                                             `bg-brand-500/10` = 5,91:1 hell, brand-300 = 9,47:1 dunkel. --}}
                                                         <template x-if="row.badge">
-                                                            <span class="rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                                  x-text="row.badge"></span>
+                                                            <flux:badge size="sm" class="bg-brand-500/10 font-semibold tracking-tight text-brand-800 dark:bg-brand-500/10 dark:text-brand-300"
+                                                                        x-text="row.badge" />
                                                         </template>
-                                                        {{-- ── Der Zustand: DREI Träger, einer davon Farbe (P4) ──
-                                                             Bis P4 war jeder Status dieselbe graue Pille — „Offen",
-                                                             „Geschlossen" und „Zusammengeführt" sahen identisch aus,
-                                                             die Aussage steckte allein im Wort. Jetzt tragen sie
-                                                             Farbe UND Glyphe UND Wort.
+                                                        {{-- ── Der Zustand: GLYPHE und WORT, nicht mehr Farbe ────
+                                                             Bis P4 war jeder Status dieselbe graue Pille — die Aussage
+                                                             steckte allein im Wort. P4 gab ihr Farbe UND Glyphe UND
+                                                             Wort. Mit dem Flux-Angleich fällt die FARBE weg, und zwar
+                                                             gerechnet, nicht aus Geschmack:
 
-                                                             Die Farbe ist nie der alleinige Träger (WCAG 1.4.1): das
-                                                             Wort steht ausgeschrieben daneben, und die Glyphe
-                                                             unterscheidet die vier Zustände auch dann, wenn beide
-                                                             Farbwerte gleich aussehen (geschlossen und Entwurf teilen
-                                                             `--color-forge-ruhend`).
+                                                             `flux:badge` bringt seinen eigenen Grund mit
+                                                             (`bg-zinc-400/15` hell, `dark:bg-zinc-400/40`). Auf dem
+                                                             misst `--color-forge-ruhend` (zinc-400) im dunklen Modus
+                                                             3,18:1 und reißt WCAG 1.4.3 — auf der alten Hauspille
+                                                             (`dark:bg-zinc-800`) waren es 5,81:1. Die Hausfarbe
+                                                             ÜBERLEBT den Untergrundwechsel also nicht. Flux' eigener
+                                                             Vordergrund tut es: 9,25:1 hell (zinc-700) und 6,42:1
+                                                             dunkel (zinc-200), beide besser als die 7,03 / 5,81 der
+                                                             Hauspille.
 
-                                                             Kein Grün/Rot: die Rolle greift die Hausrampe ab, siehe
-                                                             die Herleitung bei `--color-forge-offen` in `theme.css`.
+                                                             WCAG 1.4.1 trägt das unverändert: die vier Zustände
+                                                             unterschied schon vorher die GLYPHE, nicht die Farbe —
+                                                             geschlossen und Entwurf teilten sich ohnehin einen
+                                                             Farbwert. Es fällt der Träger weg, der nie allein trug.
+
                                                              `row.status` ist der rohe Code aus `statusCodeOf()`
                                                              (`forgeActivity.ts:93`), `row.statusLabel` das übersetzte
                                                              Wort — die Fläche rät nichts. --}}
                                                         <template x-if="row.statusLabel">
-                                                            <span class="inline-flex items-center gap-1 rounded-pill bg-zinc-100 px-1.5 py-0.5 font-medium dark:bg-zinc-800"
+                                                            {{-- `::data-status` und nicht `:data-status`: auf rohem
+                                                                 HTML — was hier bis zum Flux-Angleich stand — ist der
+                                                                 einfache Doppelpunkt eine ALPINE-Bindung und Blade
+                                                                 fasst sie nicht an. Auf einer KOMPONENTE ist derselbe
+                                                                 Doppelpunkt eine PHP-Bindung; Blade kompilierte
+                                                                 `row.status` dann als PHP-Ausdruck und die Seite
+                                                                 stürbe mit `Undefined constant "row"`. Der doppelte
+                                                                 Doppelpunkt erzeugt das literale Attribut. --}}
+                                                            <flux:badge size="sm" class="gap-1"
                                                                   data-forge-status
-                                                                  :data-status="row.status"
-                                                                  :class="{
-                                                                      'text-forge-offen': row.status === 'open',
-                                                                      'text-forge-erledigt': row.status === 'applied' || row.status === 'merged' || row.status === 'resolved',
-                                                                      'text-forge-ruhend': row.status === 'closed' || row.status === 'draft',
-                                                                  }">
+                                                                  ::data-status="row.status">
                                                                 <template x-if="row.status === 'open'">
                                                                     <flux:icon.exclamation-circle variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
                                                                 </template>
@@ -969,9 +1014,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                     <flux:icon.pencil-square variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
                                                                 </template>
                                                                 <span x-text="row.statusLabel"></span>
-                                                            </span>
+                                                            </flux:badge>
                                                         </template>
-                                                    </p>
+                                                    </div>
                                                     {{-- Zweite Zeile: IMMER `x-text`. Der Rumpf ist
                                                          Fremdtext und wird hier nie als HTML
                                                          gebunden — gerendert wird Markdown nur auf
@@ -1016,7 +1061,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          `zweispaltig` wechselt nur beim Überschreiten der xl-Schwelle, also
                          genau dann nicht. --}}
                     <section x-show="!zweispaltig && tab === 'workspaces'" x-cloak x-data="nostrWorkspaceRooms" data-forge-workspaces>
-                        <div class="rounded-card border border-zinc-200 p-1 dark:border-zinc-800">
+                        {{-- `surface-card` statt einer nachgebauten Kante: hier stand
+                             `rounded-card border border-zinc-200 dark:border-zinc-800` —
+                             Zeichen für Zeichen die Hälfte dessen, was `surface-card`
+                             ohnehin ausrollt (`theme.css:201`), nur ohne dessen Schatten.
+                             Zwei Schreibweisen für dieselbe Oberfläche laufen früher oder
+                             später auseinander; an 127 Stellen im Paket steht die andere.
+
+                             KEIN `flux:card`, und das ist gerechnet: die Komponente backt
+                             `p-6` und einen anderen Dunkelgrund ein (`bg-white/10` statt
+                             `zinc-900`). 31 der 127 `surface-card` stehen in der Forge —
+                             tauschte man die, sähe genau diese eine Fläche anders aus als
+                             die 96 übrigen im selben Client. Der Bruch wäre größer als der
+                             Gewinn. --}}
+                        <div class="surface-card p-1">
                             {{-- Kopfzeile: Name des Workspace-Relays aus dem NIP-11-Doc. --}}
                             <div class="flex items-baseline justify-between px-2 py-1.5">
                                 <span class="text-xs font-semibold uppercase tracking-wide text-muted"
