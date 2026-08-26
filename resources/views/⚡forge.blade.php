@@ -308,11 +308,70 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          zweispaltig steht. So gibt es KEIN drittes Literal der
                          xl-Schwelle — CSS und `viewport.ts` führen sie schon, und der
                          Modulkopf dort nennt das ausdrücklich als Risiko. --}}
-                    <div data-forge-tabs @class(['mb-3', 'xl:hidden' => ! $native])>
-                        <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab">
-                            <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
-                            <flux:tab name="repos">{{ __('Repositories') }}</flux:tab>
-                            <flux:tab name="workspaces">{{ __('Kanäle') }}</flux:tab>
+                    {{-- ── Flux' DEFAULT-Variante, kein `segmented` (P1, 2026-08-26) ───
+                         Die Segment-Variante markierte den aktiven Reiter allein über
+                         seine FLÄCHE: `data-selected:bg-white` auf einer Schiene aus
+                         `bg-zinc-800/5` über dem Seitengrund. Gerechnet mit
+                         `p2-kontrast.mjs` (Negativkontrolle im selben Lauf) sind das
+                         1,15:1 hell (`white` auf `zinc-50 + zinc-800@0.05`) und 1,93:1
+                         dunkel (`white@0.2` auf `zinc-950 + white@0.1`) — WCAG 1.4.11
+                         verlangt 3:1 für ein Bedienelement, das seinen Zustand über ein
+                         Grafikobjekt trägt. Die Default-Variante trägt ihn über einen
+                         2-px-Unterstrich in `--color-accent-content`: **4,21:1 hell**
+                         (brand-700 auf zinc-50) und **10,01:1 dunkel** (brand-400 auf
+                         zinc-950).
+
+                         Zwei Stellen braucht Flux' Default trotzdem als Korrektur, und
+                         beide sind gerechnet, nicht geschmacklich — sie stehen in
+                         `theme.css` bei `.forge-reiterbank`: die INAKTIVE Beschriftung
+                         (Flux: `text-zinc-400`, hell 2,42:1 — reisst 1.4.3) und das WORT
+                         des aktiven Reiters (accent-content als TEXT misst hell 4,21:1
+                         und bliebe 0,29 unter den 4,5 aus 1.4.3; die Hausregel
+                         „brand-700 = Linie, brand-800 = Text" hebt es auf 6,15:1). Die
+                         LINIE bleibt unangetastet — für sie gilt 1.4.11 mit 3:1, und die
+                         hält sie.
+
+                         (Der Attributname steht hier bewusst nicht ausgeschrieben: die
+                         Abnahme dieser Phase misst sein Verschwinden mit `grep -c` über
+                         diese Datei, und ein Zitat im Kommentar wäre dort ein Treffer.)
+
+                         Zweiter Gewinn, und er ist mobil der grössere: der Reiter selbst
+                         wächst von 32 auf 40 px. Die Segment-Variante steckt ihre Knöpfe in eine
+                         Schiene mit `p-1`, die Default-Variante gibt ihnen die vollen
+                         `h-10`. Unterhalb `xl` ist diese Reihe die EINZIGE Navigation
+                         zwischen Aktivität, Repositories und Kanälen.
+
+                         `data-forge-reiter` ist der Anker für die eine Korrektur, die
+                         Flux' Default braucht (inaktive Beschriftung, `theme.css`).
+
+                         Die Icons stehen erst ab `lg`: mobil zählt jede Ziffer Breite,
+                         und die Reihe soll ohne Scrollen lesbar bleiben.
+                         `max-lg:[&>svg]:hidden` trifft das Icon am gerenderten `<button>`
+                         — die Klasse aus `$attributes` landet dort (`flux/tab/index`),
+                         das Icon ist sein direktes Kind. KEIN `::variant` am Icon: das
+                         löst zur Compile-Zeit auf und wäre eine tote Bindung.
+
+                         Nur „Repositories" trägt eine Zahl. „Aktivität" hat keine
+                         Bestandsgrösse, die etwas beantwortet, und die Kanalzahl lebt in
+                         einer ANDEREN Alpine-Insel (`nostrWorkspaceRooms`, unten in
+                         dieser Datei) — sie hier zu zeigen hiesse, einen zweiten Datenweg
+                         für dieselbe Zahl zu bauen. Das ist P6, Schritt 3. --}}
+                    <div data-forge-tabs data-forge-reiter @class(['mb-3', 'xl:hidden' => ! $native])>
+                        <flux:tabs scrollable scrollable:fade x-model="tab">
+                            <flux:tab name="activity" icon="clock" class="max-lg:[&>svg]:hidden">{{ __('Aktivität') }}</flux:tab>
+                            <flux:tab name="repos" icon="code-bracket-square" class="max-lg:[&>svg]:hidden">
+                                {{ __('Repositories') }}
+                                {{-- Bei 0 steht KEINE Pille — nicht die Ziffer „0".
+                                     `settled()` (= `!loading`) hält sie zusätzlich
+                                     zurück, solange noch geladen wird: eine Zahl, die
+                                     während des Ladens wächst, liest sich als Bestand
+                                     und ist keiner. Dieselbe Begründung, die die
+                                     Zustandszeile dieser Fläche schon führt. --}}
+                                <template x-if="settled() && counts().repos > 0">
+                                    <flux:badge size="sm" class="ms-1.5" x-text="$num(counts().repos)" />
+                                </template>
+                            </flux:tab>
+                            <flux:tab name="workspaces" icon="hashtag" class="max-lg:[&>svg]:hidden">{{ __('Kanäle') }}</flux:tab>
                         </flux:tabs>
                     </div>
 
@@ -965,56 +1024,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             <flux:badge size="sm" class="bg-brand-500/10 font-semibold tracking-tight text-brand-800 dark:bg-brand-500/10 dark:text-brand-300"
                                                                         x-text="row.badge" />
                                                         </template>
-                                                        {{-- ── Der Zustand: GLYPHE und WORT, nicht mehr Farbe ────
-                                                             Bis P4 war jeder Status dieselbe graue Pille — die Aussage
-                                                             steckte allein im Wort. P4 gab ihr Farbe UND Glyphe UND
-                                                             Wort. Mit dem Flux-Angleich fällt die FARBE weg, und zwar
-                                                             gerechnet, nicht aus Geschmack:
+                                                        {{-- ── Der Zustand: EINE Form für die ganze Forge ───────
+                                                             Die Pille stand bis P1 (2026-08-26) nur hier. Sie ist
+                                                             jetzt `x-group::forge-status-badge` und trägt denselben
+                                                             Zustand in der Issue-, PR-, Patch- und
+                                                             Vorgangslistenzeile — dort ersetzt sie den grauen
+                                                             Statuspunkt UND das versale Zustandswort. Die
+                                                             Begründung für die farblose Bauform steht in der
+                                                             Komponente.
 
-                                                             `flux:badge` bringt seinen eigenen Grund mit
-                                                             (`bg-zinc-400/15` hell, `dark:bg-zinc-400/40`). Auf dem
-                                                             misst `--color-forge-ruhend` (zinc-400) im dunklen Modus
-                                                             3,18:1 und reißt WCAG 1.4.3 — auf der alten Hauspille
-                                                             (`dark:bg-zinc-800`) waren es 5,81:1. Die Hausfarbe
-                                                             ÜBERLEBT den Untergrundwechsel also nicht. Flux' eigener
-                                                             Vordergrund tut es: 9,25:1 hell (zinc-700) und 6,42:1
-                                                             dunkel (zinc-200), beide besser als die 7,03 / 5,81 der
-                                                             Hauspille.
-
-                                                             WCAG 1.4.1 trägt das unverändert: die vier Zustände
-                                                             unterschied schon vorher die GLYPHE, nicht die Farbe —
-                                                             geschlossen und Entwurf teilten sich ohnehin einen
-                                                             Farbwert. Es fällt der Träger weg, der nie allein trug.
+                                                             `wort="immer"`: in der Aktivitätsspur bleibt das Wort
+                                                             auf jeder Breite sichtbar. Die Spur ist eine Liste von
+                                                             SÄTZEN, kein Raster — hier ist der Zustand Teil der
+                                                             Aussage und nicht eine Spalte, die mobil in eine eigene
+                                                             Zeile umbricht.
 
                                                              `row.status` ist der rohe Code aus `statusCodeOf()`
                                                              (`forgeActivity.ts:93`), `row.statusLabel` das übersetzte
                                                              Wort — die Fläche rät nichts. --}}
                                                         <template x-if="row.statusLabel">
-                                                            {{-- `::data-status` und nicht `:data-status`: auf rohem
-                                                                 HTML — was hier bis zum Flux-Angleich stand — ist der
-                                                                 einfache Doppelpunkt eine ALPINE-Bindung und Blade
-                                                                 fasst sie nicht an. Auf einer KOMPONENTE ist derselbe
-                                                                 Doppelpunkt eine PHP-Bindung; Blade kompilierte
-                                                                 `row.status` dann als PHP-Ausdruck und die Seite
-                                                                 stürbe mit `Undefined constant "row"`. Der doppelte
-                                                                 Doppelpunkt erzeugt das literale Attribut. --}}
-                                                            <flux:badge size="sm" class="gap-1"
-                                                                  data-forge-status
-                                                                  ::data-status="row.status">
-                                                                <template x-if="row.status === 'open'">
-                                                                    <flux:icon.exclamation-circle variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
-                                                                </template>
-                                                                <template x-if="row.status === 'applied' || row.status === 'merged' || row.status === 'resolved'">
-                                                                    <flux:icon.check-circle variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
-                                                                </template>
-                                                                <template x-if="row.status === 'closed'">
-                                                                    <flux:icon.x-circle variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
-                                                                </template>
-                                                                <template x-if="row.status === 'draft'">
-                                                                    <flux:icon.pencil-square variant="micro" aria-hidden="true" class="size-3.5 shrink-0" />
-                                                                </template>
-                                                                <span x-text="row.statusLabel"></span>
-                                                            </flux:badge>
+                                                            <x-group::forge-status-badge status="row.status" label="row.statusLabel" wort="immer" />
                                                         </template>
                                                     </div>
                                                     {{-- Zweite Zeile: IMMER `x-text`. Der Rumpf ist

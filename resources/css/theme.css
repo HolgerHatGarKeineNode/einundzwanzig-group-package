@@ -1256,12 +1256,17 @@ select:focus[data-flux-control] {
     font-weight: 600;
 }
 
+/* Seit P1 (2026-08-26) stehen hier zwei `flux:badge size="sm"` statt zweier
+   getönter Spans. Schriftgrad und -schnitt kommen jetzt aus der Komponente
+   (`text-xs`, `font-medium`) — sie hier nochmals zu setzen wäre eine zweite
+   Wahrheit über dieselbe Schrift. Der Abstand fällt von 8 auf 4 px, weil die
+   Pillen ihr eigenes `px-2` mitbringen; 8 px dazwischen rissen die beiden
+   Zahlen auseinander, die zusammengehören. */
 .forge-diff-zahlen {
     display: flex;
     flex-shrink: 0;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 600;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 /* Der Körper scrollt WAAGERECHT, und zwar er allein.
@@ -1568,6 +1573,58 @@ select:focus[data-flux-control] {
    `.forge-regionstitel` und den fünf Diff-Regeln). */
 .dark .forge-reiterbank {
     background: var(--color-zinc-950);
+}
+
+/* ── Zwei gerechnete Korrekturen an Flux' Reiter-Default (P1, 2026-08-26) ───
+   Mit dem Fall von `variant="segmented"` trägt die DEFAULT-Variante die Reiter.
+   Sie ist die Gitea-Form und repariert einen 1.4.11-Verstoss (Zustand über die
+   Fläche: 1,15:1 hell / 1,93:1 dunkel → Unterstrich in `accent-content`:
+   **4,21:1 hell** / **10,01:1 dunkel**). Zwei ihrer Textfarben halten die Norm
+   aber nicht, und eine W3C-Norm kann kein Design-System senken. Alle Zahlen mit
+   `docs/plans/done/2026-08-11T1321-restposten-aus-ux-plan/p2-kontrast.mjs`
+   gerechnet, Negativkontrolle im selben Lauf (1,00 / 21,00).
+
+   1. INAKTIVE Beschriftung. Flux setzt `text-zinc-400 dark:text-white/50`.
+      Gegen den Seitengrund `zinc-50` misst das **2,42:1** — WCAG 1.4.3 verlangt
+      4,5:1 für Text. (Die Ausnahme „inactive user interface component" trägt
+      hier nicht: ein nicht gewählter Reiter ist voll bedienbar, nicht
+      deaktiviert.) `--color-muted` ist der Hausschritt darauf und misst
+      **7,49:1 hell** (zinc-600 auf zinc-50) / **7,85:1 dunkel** (zinc-400 auf
+      zinc-950) — dunkel also besser als Flux' eigene 5,33:1.
+
+      `:not(:hover)` ist Absicht und kein Beiwerk: ungeschichtetes CSS schlägt
+      jede `@layer`, diese Regel schlüge also auch Flux' `hover:text-zinc-800`.
+      Mit dem `:not` greift sie im Hover-Fall gar nicht erst, und Flux' eigene
+      Hover-Farbe bleibt in Kraft — eine Korrektur, die nichts mitnimmt, was sie
+      nicht meint.
+
+   2. Das WORT des aktiven Reiters. Flux färbt es wie die Linie, in
+      `--color-accent-content`. Als LINIE ist das ein Grafikobjekt und 1.4.11
+      verlangt 3:1 — 4,21:1 trägt. Als TEXT gilt 1.4.3 mit 4,5:1, und 4,21
+      bleibt 0,29 darunter. Das Haus führt für genau diesen Fall eine
+      Rollenregel („brand-700 = Linie/Grafik, brand-800 = Text", oben im
+      @theme-Block): brand-800 auf zinc-50 misst **6,15:1**. Die LINIE bleibt
+      unangetastet.
+
+      Der dunkle Zweig setzt `accent-content` ausdrücklich zurück: dort ist es
+      brand-400 und misst als Text **10,01:1** — Flux' Default ist im Dunkeln
+      also schon richtig, und ohne diese Zeile zöge die helle Korrektur
+      (brand-800 auf zinc-950) ihn mit nach unten.
+
+   Beide Regeln hängen am Wrapper-Attribut `data-forge-reiter`, das an beiden
+   Reiterreihen der Forge steht (`⚡forge.blade.php`, `⚡forge-repo.blade.php`)
+   — und NUR dort: die Reiter in `⚡updates`, `⚡spaces` und die
+   Radio-Segmente bleiben unberührt. */
+[data-forge-reiter] [data-flux-tab]:not([data-selected]):not(:hover) {
+    color: var(--color-muted);
+}
+
+[data-forge-reiter] [data-flux-tab][data-selected] {
+    color: var(--color-brand-800);
+}
+
+.dark [data-forge-reiter] [data-flux-tab][data-selected] {
+    color: var(--color-accent-content);
 }
 
 /* ── Der Handlungsknopf ────────────────────────────────────────────────────

@@ -648,8 +648,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              sind Geschwister, keine Vorfahren.
 
                              Die Maße stehen in `theme.css` bei `.forge-reiterbank`. --}}
-                        <div class="forge-reiterbank">
-                        <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab" class="mb-0">
+                        {{-- ── Flux' DEFAULT-Variante, kein `segmented` (P1, 2026-08-26) ──
+                             Die Begründung steht ausgeschrieben an der Reiterreihe in
+                             `⚡forge.blade.php` — kurz: `segmented` markiert den aktiven
+                             Reiter allein über seine Fläche und misst dabei 1,15:1 hell /
+                             1,93:1 dunkel gegen die Schiene, WCAG 1.4.11 verlangt 3:1.
+                             Der Unterstrich der Default-Variante misst 4,21:1 / 10,01:1.
+                             Und der Reiter wächst von 32 auf 40 px — hier zählt das
+                             doppelt: unterhalb `xl` ist diese Reihe die einzige
+                             Navigation durch fünf Bereiche.
+
+                             `data-forge-reiter` trägt die beiden gerechneten Korrekturen
+                             an Flux' Default (inaktive Beschriftung, Wortfarbe des
+                             aktiven Reiters) — beide in `theme.css` bei
+                             `.forge-reiterbank`. --}}
+                        <div class="forge-reiterbank" data-forge-reiter>
+                        <flux:tabs scrollable scrollable:fade x-model="tab" class="mb-0">
                             {{-- ── Die Reihenfolge ist die Rangfolge (P4) ─────────────
                                  „Issues" zuerst, „Code" auf drei. Der Code-Reiter lädt
                                  bis 8,3 MB Repository-Klon (gemessen am grössten Repo
@@ -662,11 +676,62 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  `tabFromLocation()` und ist seit jeher `issues`
                                  (`js/forge.ts`); `x-model="tab"` wählt nach dem Namen,
                                  nicht nach der Position. --}}
-                            <flux:tab name="issues">{{ __('Issues') }}</flux:tab>
-                            <flux:tab name="pulls">{{ __('Pull Requests') }}</flux:tab>
-                            <flux:tab name="code">{{ __('Code') }}</flux:tab>
-                            <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
-                            <flux:tab name="patches">{{ __('Patches') }}</flux:tab>
+                            {{-- ── Zahlen an drei Reitern, an zweien bewusst nicht ──────
+                                 „Issues", „Pull Requests" und „Patches" führen einen
+                                 BESTAND — die Zahl beantwortet „lohnt sich der Griff
+                                 dorthin". „Code" führt keinen (ein Baum hat keine
+                                 sinnvolle Kopfzahl), „Aktivität" auch nicht: die Spur ist
+                                 endlos und ihre Länge sagt nichts.
+
+                                 Bei 0 steht KEINE Pille — nicht die Ziffer „0". Eine
+                                 Null, die 300 ms später auf 47 springt, ist eine
+                                 Falschaussage mit Selbstbewusstsein; dieselbe Regel wie
+                                 an der Ungelesen-Pille (`unread-badge.blade.php`). Und
+                                 der Leerzustand darunter sagt es ohnehin mit einem Satz.
+                                 Der ganze Reiterstreifen steht innerhalb
+                                 `<template x-if="view">` (`:161`) — vor dem ersten
+                                 Ertrag existiert er also gar nicht.
+
+                                 Die Zahl steht IM Accessible Name („Issues 12"), nicht
+                                 hinter einem `aria-hidden`. Sie ist Bestand, keine
+                                 Benachrichtigung; wer die Reiterreihe hört, will sie
+                                 hören. Playwright-Sonden mit `exact: true` müssen deshalb
+                                 auf ein `/^Name/` umgestellt sein — geschehen in
+                                 `forge-patches.spec.ts`.
+
+                                 Icons erst ab `lg` (`max-lg:[&>svg]:hidden`): mobil
+                                 müssen fünf Reiter lesbar bleiben. Die Klasse aus
+                                 `$attributes` landet am gerenderten `<button>`
+                                 (`flux/tab/index.blade.php`), das Icon ist sein direktes
+                                 Kind. KEIN `::variant` am Icon — das löst zur
+                                 Compile-Zeit auf und wäre eine tote Bindung.
+
+                                 Die fünf Zeichen sind KEINE Neuerfindung: jedes steht
+                                 schon im Leerzustand seines eigenen Bereichs
+                                 (`:748` exclamation-circle, `:1498` arrows-right-left,
+                                 `:141` code-bracket, `:1835` clock, `:1329`
+                                 document-text). Ein zweites Symbol für dieselbe Sache
+                                 wäre Nielsen #4. --}}
+                            <flux:tab name="issues" icon="exclamation-circle" class="max-lg:[&>svg]:hidden">
+                                {{ __('Issues') }}
+                                <template x-if="view.issues.length > 0">
+                                    <flux:badge size="sm" class="ms-1.5" x-text="$num(view.issues.length)" />
+                                </template>
+                            </flux:tab>
+                            <flux:tab name="pulls" icon="arrows-right-left" class="max-lg:[&>svg]:hidden">
+                                {{ __('Pull Requests') }}
+                                <template x-if="view.pullRequests.length > 0">
+                                    <flux:badge size="sm" class="ms-1.5" x-text="$num(view.pullRequests.length)" />
+                                </template>
+                            </flux:tab>
+                            <flux:tab name="code" icon="code-bracket" class="max-lg:[&>svg]:hidden">{{ __('Code') }}</flux:tab>
+                            <flux:tab name="activity" icon="clock" class="max-lg:[&>svg]:hidden">{{ __('Aktivität') }}</flux:tab>
+                            <flux:tab name="patches" icon="document-text" class="max-lg:[&>svg]:hidden">
+                                {{ __('Patches') }}
+                                <template x-if="view.patches.length > 0">
+                                    <flux:badge size="sm" class="ms-1.5" x-text="$num(view.patches.length)" />
+                                </template>
+                            </flux:tab>
                         </flux:tabs>
                         </div>
 
@@ -796,22 +861,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              `role="option"` trägt. --}}
                                         <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
                                                 x-on:click="toggle(issue.id, 'issue')" :aria-expanded="open[issue.id] ? 'true' : 'false'">
-                                            {{-- Der Statusknoten: GEFÜLLT heißt offen, ein
-                                                 Ring heißt erledigt. Er ersetzt das immer
-                                                 gleiche Ausrufezeichen, das in einer Liste
-                                                 aus Issues nichts unterschied. Die Form
-                                                 trägt die Aussage, nicht die Farbe (WCAG
-                                                 1.4.1) — und daneben steht sie ohnehin als
-                                                 Wort. Gemessen: zinc-900 auf Weiß 17,93:1,
-                                                 der Ring in zinc-500 4,74:1 (hell) bzw.
-                                                 zinc-400 auf zinc-900 7,11:1 (dunkel), also
-                                                 über den 3:1 aus WCAG 1.4.11. --}}
-                                            <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
-                                                <span class="size-2.5 rounded-full"
-                                                      :class="issue.status === 'open'
-                                                          ? 'bg-zinc-900 dark:bg-zinc-100'
-                                                          : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
-                                            </span>
+                                            {{-- ── Der Statusknoten ist GEFALLEN (P1, 2026-08-26) ──
+                                                 Hier stand ein grauer Punkt: gefüllt =
+                                                 offen, Ring = erledigt. Er sagte dasselbe
+                                                 wie das Wort 400 px weiter rechts — zwei
+                                                 Träger für eine Aussage — und belegte den
+                                                 Zeilenanfang, an dem Gitea seine
+                                                 TYP-Glyphe führt (Issue vs. PR vs.
+                                                 Patch). Diese Glyphe kommt mit dem
+                                                 Zeilenumbau (P3); der Punkt musste zuerst
+                                                 weg, sonst stünden dort drei Zeichen.
+
+                                                 Der Zustand steht jetzt einmal, rechts,
+                                                 als `x-group::forge-status-badge` — die
+                                                 Form aus der Aktivitätsspur. --}}
                                             <span class="min-w-0 flex-1">
                                                 <span class="block font-semibold leading-snug" x-text="issue.title || @js(__('Ohne Titel'))"></span>
                                                 <span class="mt-1 block text-xs text-muted">
@@ -882,10 +945,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                  eines Titels, der in zwei gepasst hätte,
                                                  am Gerät gesehen (2026-08-20).
 
-                                                 `ps-7` setzt sie unter den Titel statt
-                                                 unter den Statuspunkt: 16 px Punkt + 12 px
-                                                 Abstand. --}}
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
+                                                 Das `ps-7` ist MIT dem Statuspunkt gefallen
+                                                 (P1): es rückte die Zeile um 16 px Punkt +
+                                                 12 px Rinne ein, damit sie unter dem Titel
+                                                 und nicht unter dem Punkt beginnt. Ohne
+                                                 Punkt beginnt der Titel selbst am
+                                                 Zeilenanfang — die Einrückung zeigte jetzt
+                                                 ins Leere. --}}
+                                            <span class="flex shrink-0 basis-full items-center gap-2.5 sm:basis-auto">
                                                 {{-- Der optimistische Eintrag sagt, dass er noch
                                                      unterwegs ist. Ein `span` INNERHALB des
                                                      bestehenden Knopfes, kein zweiter Knopf. --}}
@@ -893,9 +960,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     <span data-forge-row-state="sending"
                                                           class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Wird gesendet …') }}</span>
                                                 </template>
-                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
-                                                      :class="issue.status === 'open' ? 'text-forge-offen' : 'text-forge-ruhend'"
-                                                      x-text="statusText(issue.status)"></span>
+                                                <x-group::forge-status-badge status="issue.status" label="statusText(issue.status)" />
                                                 <template x-if="issue.commentCount > 0">
                                                     <span class="inline-flex items-center gap-1 text-xs text-muted">
                                                         <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
@@ -1338,15 +1403,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-patch :data-status="patch.status" :data-id="patch.id">
                                         <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
                                                 x-on:click="toggle(patch.id)" :aria-expanded="open[patch.id] ? 'true' : 'false'">
-                                            {{-- Derselbe Statusknoten wie bei Issues und PRs:
-                                                 gefüllt = offen, Ring = angewandt oder
-                                                 geschlossen. --}}
-                                            <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
-                                                <span class="size-2.5 rounded-full"
-                                                      :class="patch.status === 'open'
-                                                          ? 'bg-zinc-900 dark:bg-zinc-100'
-                                                          : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
-                                            </span>
+                                            {{-- Der Statusknoten ist mit dem der Issue- und
+                                                 PR-Zeile gefallen (P1) — die Begründung
+                                                 steht dort ausgeschrieben. --}}
                                             <span class="min-w-0 flex-1">
                                                 {{-- Der Titel kommt aus dem `Subject:`-Header
                                                      des Patch-Textes; ein 1617 trägt kein
@@ -1373,26 +1432,39 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                               : (patch.isRoot ? @js(__('Beginn einer Serie')) : @js(__('Teil einer Serie')))"></span>
                                                 </template>
                                             </span>
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
-                                                {{-- Die Kennzahlen des Diffs. `+`/`−` stehen
-                                                     als ZEICHEN da und nicht nur als Farbe:
-                                                     Farbe allein trüge hier Bedeutung
-                                                     (WCAG 1.4.1). --}}
+                                            {{-- `ps-7` gefallen — siehe die Issue-Zeile: die
+                                                 Einrückung gehörte zum Statuspunkt. --}}
+                                            <span class="flex shrink-0 basis-full items-center gap-2.5 sm:basis-auto">
+                                                {{-- ── Die Kennzahlen des Diffs (P1, 2026-08-26) ──
+                                                     `+`/`−` stehen als ZEICHEN da und nicht
+                                                     nur als Farbe: Farbe allein trüge hier
+                                                     Bedeutung (WCAG 1.4.1).
+
+                                                     Die Farbe war bis P1 `text-forge-erledigt`
+                                                     — dasselbe Wort, mit dem die Zeile drei
+                                                     Elemente weiter „zusammengeführt" sagte.
+                                                     Ein Token, zwei Bedeutungen. Jetzt trägt
+                                                     die Zahl ein `flux:badge` in Grün bzw.
+                                                     Rot, und `text-forge-*` bedeutet wieder
+                                                     genau eine Sache.
+
+                                                     Das ist KEINE Ampel im Sinne der
+                                                     Plan-Entscheidung: die galt der
+                                                     ZUSTANDS-Pille (die daneben bewusst
+                                                     farblos bleibt), nie den Diff-Zahlen. --}}
                                                 <template x-if="patch.stat.files > 0">
                                                     <span class="inline-flex items-center gap-1.5 text-xs" data-forge-patch-stat>
                                                         <span class="text-muted" x-text="$plural(patch.stat.files, '1 Datei', ':count Dateien')"></span>
-                                                        <span class="font-semibold text-forge-erledigt" x-text="'+' + patch.stat.additions"></span>
-                                                        <span class="font-semibold text-forge-ruhend" x-text="'−' + patch.stat.deletions"></span>
+                                                        <flux:badge size="sm" color="green" x-text="'+' + patch.stat.additions" />
+                                                        <flux:badge size="sm" color="red" x-text="'−' + patch.stat.deletions" />
                                                     </span>
                                                 </template>
                                                 <template x-if="patch.shortCommit">
                                                     <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
                                                           x-text="patch.shortCommit"></span>
                                                 </template>
-                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
-                                                      :class="patch.status === 'open' ? 'text-forge-offen' : (patch.status === 'applied' ? 'text-forge-erledigt' : 'text-forge-ruhend')"
-                                                      data-forge-patch-status
-                                                      x-text="statusText(patch.status)"></span>
+                                                <x-group::forge-status-badge status="patch.status" label="statusText(patch.status)"
+                                                                             data-forge-patch-status />
                                                 <template x-if="patch.commentCount > 0">
                                                     <span class="inline-flex items-center gap-1 text-xs text-muted">
                                                         <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
@@ -1433,9 +1505,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                               : (datei.change === 'del' ? @js(__('gelöscht'))
                                                                               : (datei.change === 'ren' ? @js(__('umbenannt')) : @js(__('geändert'))))"></span>
                                                                     <span class="forge-diff-pfad" x-text="datei.path"></span>
+                                                                    {{-- Grün/Rot wie in der Patch-Zeile (P1) —
+                                                                         und im selben Zug fällt hier das
+                                                                         `text-forge-erledigt`, das drei Zeilen
+                                                                         tiefer im Diff-KÖRPER dieselbe Sache
+                                                                         schon grün tönte. Das Vorzeichen bleibt
+                                                                         als Zeichen im Text (WCAG 1.4.1). --}}
                                                                     <span class="forge-diff-zahlen">
-                                                                        <span class="text-forge-erledigt" x-text="'+' + datei.additions"></span>
-                                                                        <span class="text-forge-ruhend" x-text="'−' + datei.deletions"></span>
+                                                                        <flux:badge size="sm" color="green" x-text="'+' + datei.additions" />
+                                                                        <flux:badge size="sm" color="red" x-text="'−' + datei.deletions" />
                                                                     </span>
                                                                 </div>
                                                                 <template x-if="datei.binary">
@@ -1511,16 +1589,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         :data-status="pr.status" :data-id="pr.id">
                                         <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
                                                 x-on:click="toggle(pr.id, 'pr')" :aria-expanded="open[pr.id] ? 'true' : 'false'">
-                                            {{-- Derselbe Statusknoten wie bei den Issues:
-                                                 gefüllt = offen, Ring = zusammengeführt oder
-                                                 geschlossen. Ein Zeichen, eine Bedeutung —
-                                                 über beide Listen hinweg. --}}
-                                            <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
-                                                <span class="size-2.5 rounded-full"
-                                                      :class="pr.status === 'open'
-                                                          ? 'bg-zinc-900 dark:bg-zinc-100'
-                                                          : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
-                                            </span>
+                                            {{-- Der Statusknoten ist mit dem der Issue-Zeile
+                                                 gefallen (P1) — die Begründung steht dort
+                                                 ausgeschrieben. --}}
                                             <span class="min-w-0 flex-1">
                                                 <span class="block font-semibold leading-snug" x-text="pr.title || @js(__('Ohne Titel'))"></span>
                                                 {{-- Ein ganzer Satz, kein Feldsalat: wer
@@ -1619,17 +1690,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                  eines Titels, der in zwei gepasst hätte,
                                                  am Gerät gesehen (2026-08-20).
 
-                                                 `ps-7` setzt sie unter den Titel statt
-                                                 unter den Statuspunkt: 16 px Punkt + 12 px
-                                                 Abstand. --}}
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
+                                                 `ps-7` ist mit dem Statuspunkt gefallen
+                                                 (P1) — siehe die Issue-Zeile. --}}
+                                            <span class="flex shrink-0 basis-full items-center gap-2.5 sm:basis-auto">
                                                 <template x-if="pr.shortCommit">
                                                     <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
                                                           x-text="pr.shortCommit"></span>
                                                 </template>
-                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
-                                                      :class="pr.status === 'open' ? 'text-forge-offen' : (pr.status === 'applied' || pr.status === 'merged' ? 'text-forge-erledigt' : 'text-forge-ruhend')"
-                                                      x-text="statusText(pr.status)"></span>
+                                                <x-group::forge-status-badge status="pr.status" label="statusText(pr.status)" />
                                                 <template x-if="pr.commentCount > 0">
                                                     <span class="inline-flex items-center gap-1 text-xs text-muted">
                                                         <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />

@@ -42,15 +42,10 @@
                          neu zusammengesetzt, sondern kommt aus `withVorgang`. --}}
                     <a :href="row.href || null" wire:navigate data-forge-vorgang-link :data-id="row.id"
                        class="pressable flex w-full flex-wrap items-start gap-3 p-3 text-start">
-                        {{-- Derselbe Statusknoten wie auf der Repo-Seite:
-                             gefüllt = offen, Ring = erledigt. Ein Zeichen, eine
-                             Bedeutung, über alle Forge-Flächen hinweg. --}}
-                        <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
-                            <span class="size-2.5 rounded-full"
-                                  :class="row.status === 'open'
-                                      ? 'bg-zinc-900 dark:bg-zinc-100'
-                                      : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
-                        </span>
+                        {{-- Der Statusknoten ist mit dem der Repo-Seite gefallen
+                             (P1, 2026-08-26) — ein Zeichen, eine Bedeutung, über
+                             alle Forge-Flächen hinweg, und das eine Zeichen ist
+                             jetzt die Pille rechts. --}}
                         <span class="min-w-0 flex-1">
                             <span class="block text-sm font-medium leading-snug" x-text="row.title || @js(__('Ohne Titel'))"></span>
                             <span class="mt-0.5 block text-xs text-muted">
@@ -58,10 +53,10 @@
                                 <span x-text="' · ' + row.timeLabel"></span>
                             </span>
                         </span>
-                        <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
-                            <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
-                                  :class="row.status === 'open' ? 'text-forge-offen' : (row.status === 'merged' || row.status === 'resolved' || row.status === 'applied' ? 'text-forge-erledigt' : 'text-forge-ruhend')"
-                                  x-text="row.statusLabel"></span>
+                        {{-- `ps-7` ist mit dem Statuspunkt gefallen (P1): es rückte
+                             die umgebrochene Zeile um Punkt + Rinne ein. --}}
+                        <span class="flex shrink-0 basis-full items-center gap-2.5 sm:basis-auto">
+                            <x-group::forge-status-badge status="row.status" label="row.statusLabel" />
                             <template x-if="row.commentCount > 0">
                                 <span class="inline-flex items-center gap-1 text-xs text-muted">
                                     <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
