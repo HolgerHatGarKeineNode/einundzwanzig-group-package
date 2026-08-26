@@ -708,11 +708,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                                  Die fünf Zeichen sind KEINE Neuerfindung: jedes steht
                                  schon im Leerzustand seines eigenen Bereichs
-                                 (`:748` exclamation-circle, `:1498` arrows-right-left,
-                                 `:141` code-bracket, `:1835` clock, `:1329`
-                                 document-text). Ein zweites Symbol für dieselbe Sache
-                                 wäre Nielsen #4. --}}
-                            <flux:tab name="issues" icon="exclamation-circle" class="max-lg:[&>svg]:hidden">
+                                 (`arrows-right-left`, `code-bracket`, `clock`,
+                                 `document-text` — je aus dem Leerzustand ihres
+                                 Bereichs). Ein zweites Symbol für dieselbe Sache wäre
+                                 Nielsen #4.
+
+                                 **Ausnahme „Issues", korrigiert mit P3:** der Reiter
+                                 trug `exclamation-circle`, und genau dieses Zeichen
+                                 bedeutet in JEDER Vorgangszeile „Zustand: offen"
+                                 (Zustandspille aus P1). Ein Zeichen, zwei Bedeutungen,
+                                 gleichzeitig im Bild — dieselbe Fehlerklasse, die P3
+                                 bei den drei byte-gleichen Chips behebt. Issue heisst
+                                 jetzt überall `ticket`: am Reiter, am Zeilenanfang und
+                                 in der workspace-weiten Liste. --}}
+                            <flux:tab name="issues" icon="ticket" class="max-lg:[&>svg]:hidden">
                                 {{ __('Issues') }}
                                 <template x-if="view.issues.length > 0">
                                     <flux:badge size="sm" class="ms-1.5" x-text="$num(view.issues.length)" />
@@ -859,114 +868,109 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              56-px-Ziel) und die Vorschlagszeile im
                                              Erwähnungs-Popover, die zusätzlich
                                              `role="option"` trägt. --}}
-                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
-                                                x-on:click="toggle(issue.id, 'issue')" :aria-expanded="open[issue.id] ? 'true' : 'false'">
-                                            {{-- ── Der Statusknoten ist GEFALLEN (P1, 2026-08-26) ──
-                                                 Hier stand ein grauer Punkt: gefüllt =
-                                                 offen, Ring = erledigt. Er sagte dasselbe
-                                                 wie das Wort 400 px weiter rechts — zwei
-                                                 Träger für eine Aussage — und belegte den
-                                                 Zeilenanfang, an dem Gitea seine
-                                                 TYP-Glyphe führt (Issue vs. PR vs.
-                                                 Patch). Diese Glyphe kommt mit dem
-                                                 Zeilenumbau (P3); der Punkt musste zuerst
-                                                 weg, sonst stünden dort drei Zeichen.
+                                        {{-- ── ZWEI RÄNGE, ZWEI AUSGEZEICHNETE FASSUNGEN (P3) ──────
+                                             Rang 1: Typ-Glyphe · Titel · Labels.
+                                             Rang 2: EINE graue Metazeile.
+                                             Rechts: die Zustandspille aus P1.
 
-                                                 Der Zustand steht jetzt einmal, rechts,
-                                                 als `x-group::forge-status-badge` — die
-                                                 Form aus der Aktivitätsspur. --}}
-                                            <span class="min-w-0 flex-1">
-                                                <span class="block font-semibold leading-snug" x-text="issue.title || @js(__('Ohne Titel'))"></span>
-                                                <span class="mt-1 block text-xs text-muted">
+                                             Bis P3 standen hier vier Blockzeilen —
+                                             Titel, Autorsatz, Labelband,
+                                             Zuweisungsband — und keine davon war als
+                                             Rang ausgezeichnet: alle vier trugen
+                                             dasselbe `text-muted` bzw. dieselbe
+                                             Chip-Form.
+
+                                             Die schmale und die breite Fassung stehen
+                                             als je EIGENES `grid-template-areas` in
+                                             `theme.css` (`.forge-vorgangszeile`). Der
+                                             DOM ist derselbe: ein zweites Markup für
+                                             mobil hiesse ein zweites
+                                             `[data-forge-assignees]`, und das wäre ein
+                                             Strict-Mode-Treffer auf zwei Elemente. --}}
+                                        <button type="button" class="forge-vorgangskopf pressable block w-full p-4 text-start"
+                                                x-on:click="toggle(issue.id, 'issue')" :aria-expanded="open[issue.id] ? 'true' : 'false'">
+                                            <span class="forge-vorgangszeile">
+                                                {{-- ── Die Typ-Glyphe (P3/2) ──────────────────
+                                                     `ticket` und NICHT `exclamation-circle`:
+                                                     das Ausrufezeichen im Kreis bedeutet in
+                                                     dieser Zeile bereits „Zustand: offen"
+                                                     (Zustandspille, P1). Ein Zeichen mit zwei
+                                                     Bedeutungen in EINER Zeile ist Nielsen #4 —
+                                                     und es wäre derselbe Fehler, den P3 bei den
+                                                     drei byte-gleichen Chips gerade behebt.
+                                                     Der Reiter „Issues" trägt seit P3 dasselbe
+                                                     `ticket`, damit Issue genau ein Zeichen hat.
+
+                                                     **Ehrlich zum Nutzen:** innerhalb der
+                                                     Issue-Liste wiederholt sich die Glyphe und
+                                                     trägt dort keine Zeileninformation. Sie
+                                                     zahlt sich an drei anderen Stellen aus:
+                                                     auf `/forge` folgen Issue- und PR-Region
+                                                     auf EINER scrollenden Fläche aufeinander;
+                                                     ein geteilter `?issue=`-Link führt zu einer
+                                                     einzelnen Zeile ohne Reiter-Kontext; und
+                                                     sie gibt der Metazeile darunter die
+                                                     Fluchtlinie, aus der die Liste als Liste
+                                                     liest statt als gestapelte Absätze. --}}
+                                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+
+                                                <span class="forge-vz-titel block font-semibold leading-snug"
+                                                      x-text="issue.title || @js(__('Ohne Titel'))"></span>
+
+                                                {{-- Labels als PILLE — die eine der drei
+                                                     Chip-Rollen, die rund bleibt. Der Deckel
+                                                     ist bewusst grosszügig: welche davon in der
+                                                     schmalen Fassung noch ins Bild passen,
+                                                     entscheidet das Labelband selbst
+                                                     (`flex-wrap`), nicht eine zweite Zahl. --}}
+                                                <template x-if="issue.labels.length > 0">
+                                                    <span class="forge-vz-labels" data-forge-labels>
+                                                        <template x-for="label in issue.labels.slice(0, 6)" :key="label">
+                                                            <flux:badge size="sm" variant="pill" x-text="label" />
+                                                        </template>
+                                                        <template x-if="issue.labels.length > 6">
+                                                            <span class="text-[0.7rem] text-muted"
+                                                                  x-text="'+' + (issue.labels.length - 6)"></span>
+                                                        </template>
+                                                    </span>
+                                                </template>
+
+                                                {{-- ── Rang 2: EINE Metazeile ─────────────────
+                                                     Wer, wann — mehr nicht. Der optimistische
+                                                     Sendehinweis hängt hier mit dran, weil er
+                                                     dieselbe Frage beantwortet („in welchem
+                                                     Zustand ist dieser Eintrag gerade"). --}}
+                                                <span class="forge-vz-meta block text-xs text-muted">
                                                     <span x-text="issue.authorName"></span>
                                                     <span x-text="' · ' + issue.timeLabel"></span>
+                                                    <template x-if="rowState(issue.id) === 'sending'">
+                                                        <span data-forge-row-state="sending"
+                                                              class="ms-1 font-semibold uppercase tracking-wider">{{ __('Wird gesendet …') }}</span>
+                                                    </template>
                                                 </span>
-                                                <template x-if="issue.labels.length > 0">
-                                                    <span class="mt-1.5 flex flex-wrap gap-1">
-                                                        <template x-for="label in issue.labels.slice(0, 6)" :key="label">
-                                                            <span class="rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800" x-text="label"></span>
-                                                        </template>
-                                                    </span>
-                                                </template>
-                                                {{-- ── Zuweisungs-Band (P1) ──────────────────────
-                                                     Wer arbeitet daran? Die Antwort lag bis P1
-                                                     unlesbar in der Liste: Buzz schreibt eine
-                                                     Zuweisung als beschrifteten `kind 1`, und der
-                                                     stand hier als gewöhnlicher Kommentar — samt
-                                                     seiner Prosa („Assigned this issue to …") und
-                                                     in der Kommentarzahl. `foldAssignments`
-                                                     (`js/forgeModels.ts`) faltet die Kette jetzt
-                                                     und liefert genau die aktuell Zuständigen.
 
-                                                     **Namen, nicht Schlüssel.** `assigneePeople`
-                                                     kommt aus demselben `peopleOf`, das die
-                                                     Maintainer-Reihe im Steckbrief speist — ein
-                                                     zweiter Auflösungsweg wäre die Stelle, an der
-                                                     zwei Zeilen desselben Bildschirms verschiedene
-                                                     Namen für denselben Schlüssel zeigen. Liegt
-                                                     kein kind 0 vor, steht dort die gekürzte
-                                                     `npub`-Form: eine bewusste Rückfallebene,
-                                                     dieselbe wie beim Autor der Zeile darüber —
-                                                     und nie die rohe Hex-Kette. Der volle
-                                                     Schlüssel bleibt im `title`, für den Fall,
-                                                     dass jemand ihn wirklich braucht.
+                                                {{-- Personen und Kommentarzahl in EINER
+                                                     Fluchtlinie rechts. `data-forge-assignees`
+                                                     wandert mit — der Anker ist E2E-bewacht. --}}
+                                                <span class="forge-vz-leute">
+                                                    <template x-if="issue.assigneePeople.length > 0">
+                                                        <x-group::forge-personen-stapel
+                                                            personen="issue.assigneePeople"
+                                                            anker="data-forge-assignee"
+                                                            data-forge-assignees
+                                                            :sr-eins="__('Zugewiesen an :namen')"
+                                                            :sr-viele="__(':count Zuständige: :namen')" />
+                                                    </template>
+                                                    <template x-if="issue.commentCount > 0">
+                                                        <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                                            <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                                            <span x-text="issue.commentCount"></span>
+                                                        </span>
+                                                    </template>
+                                                </span>
 
-                                                     Kein Avatar: die Initiale käme bei fehlendem
-                                                     Profil aus einem `npub`-Zeichen, und davor
-                                                     warnt `forge.ts` an `RepoRow.people`.
-
-                                                     Kein neues Farbwort: dieselbe Pille wie die
-                                                     Labels darüber, nur mit vorangestelltem
-                                                     Bezeichner. --}}
-                                                <template x-if="issue.assigneePeople.length > 0">
-                                                    <span class="mt-1.5 flex flex-wrap items-center gap-1" data-forge-assignees>
-                                                        <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Zugewiesen') }}</span>
-                                                        <template x-for="person in issue.assigneePeople.slice(0, 6)" :key="person.pubkey">
-                                                            <span class="rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800"
-                                                                  data-forge-assignee :data-pubkey="person.pubkey" :title="person.pubkey"
-                                                                  x-text="person.name"></span>
-                                                        </template>
-                                                        <template x-if="issue.assigneePeople.length > 6">
-                                                            <span class="text-[0.7rem] text-muted"
-                                                                  x-text="'+' + (issue.assigneePeople.length - 6)"></span>
-                                                        </template>
-                                                    </span>
-                                                </template>
-                                            </span>
-                                            {{-- Auf schmalen Schirmen eine EIGENE Zeile
-                                                 (`basis-full`), erst ab `sm` wieder rechts
-                                                 neben dem Titel.
-
-                                                 Vorher stand sie dort immer, `shrink-0`
-                                                 neben einem `flex-1`-Titel — und
-                                                 „GESCHLOSSEN" samt Commit-Kurzform und
-                                                 Zähler nahm auf einem 390-px-Schirm gut
-                                                 die halbe Breite. Ein vierzeiliger Umbruch
-                                                 eines Titels, der in zwei gepasst hätte,
-                                                 am Gerät gesehen (2026-08-20).
-
-                                                 Das `ps-7` ist MIT dem Statuspunkt gefallen
-                                                 (P1): es rückte die Zeile um 16 px Punkt +
-                                                 12 px Rinne ein, damit sie unter dem Titel
-                                                 und nicht unter dem Punkt beginnt. Ohne
-                                                 Punkt beginnt der Titel selbst am
-                                                 Zeilenanfang — die Einrückung zeigte jetzt
-                                                 ins Leere. --}}
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 sm:basis-auto">
-                                                {{-- Der optimistische Eintrag sagt, dass er noch
-                                                     unterwegs ist. Ein `span` INNERHALB des
-                                                     bestehenden Knopfes, kein zweiter Knopf. --}}
-                                                <template x-if="rowState(issue.id) === 'sending'">
-                                                    <span data-forge-row-state="sending"
-                                                          class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Wird gesendet …') }}</span>
-                                                </template>
-                                                <x-group::forge-status-badge status="issue.status" label="statusText(issue.status)" />
-                                                <template x-if="issue.commentCount > 0">
-                                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
-                                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
-                                                        <span x-text="issue.commentCount"></span>
-                                                    </span>
-                                                </template>
+                                                <x-group::forge-status-badge klasse="forge-vz-zustand"
+                                                                             status="issue.status" label="statusText(issue.status)" />
                                             </span>
                                         </button>
 
@@ -1401,85 +1405,74 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <ul x-show="view.patches.length > 0" class="surface-card">
                                 <template x-for="patch in view.patches" :key="patch.id">
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-patch :data-status="patch.status" :data-id="patch.id">
-                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
+                                        {{-- Zwei Ränge wie an der Issue- und der PR-Zeile.
+                                             Hier fielen zwei Blockzeilen weg: der Serienmarker
+                                             stand als eigene Versalzeile unter dem Autorsatz,
+                                             obwohl er dieselbe Frage beantwortet („woher kommt
+                                             dieser Eintrag") und deshalb in die Metazeile
+                                             gehört. --}}
+                                        <button type="button" class="forge-vorgangskopf pressable block w-full p-4 text-start"
                                                 x-on:click="toggle(patch.id)" :aria-expanded="open[patch.id] ? 'true' : 'false'">
-                                            {{-- Der Statusknoten ist mit dem der Issue- und
-                                                 PR-Zeile gefallen (P1) — die Begründung
-                                                 steht dort ausgeschrieben. --}}
-                                            <span class="min-w-0 flex-1">
-                                                {{-- Der Titel kommt aus dem `Subject:`-Header
-                                                     des Patch-Textes; ein 1617 trägt kein
-                                                     `subject`-Tag. Fehlt er, steht hier der
-                                                     ÜBERSETZTE Ersatztext — genau deshalb
-                                                     liefert das Modell `''` und keinen
-                                                     englischen Vorgabetext. --}}
-                                                <span class="block font-semibold leading-snug" data-forge-patch-titel
+                                            <span class="forge-vorgangszeile">
+                                                {{-- Typ-Glyphe: dasselbe Zeichen wie am Reiter
+                                                     „Patches". Ein Patch TRÄGT seine Änderung als
+                                                     Text mit sich — ein Dokument, kein Verweis
+                                                     auf einen Branch. --}}
+                                                <flux:icon.document-text variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+
+                                                <span class="forge-vz-titel block font-semibold leading-snug" data-forge-patch-titel
                                                       x-text="patch.title || @js(__('Ohne Titel'))"></span>
-                                                <span class="mt-1 block text-xs text-muted"
-                                                      x-text="@js(__(':name hat ihn eingereicht.')).split(':name').join(patch.authorName) + ' · ' + patch.timeLabel"></span>
-                                                {{-- Serien-Marker. Ein `git format-patch` über
-                                                     drei Commits erzeugt DREI Ereignisse; das
-                                                     Modell fasst sie bewusst nicht zusammen
-                                                     (die Kette kann im Bestand Lücken haben,
-                                                     und aus einer Lücke würde still eine
-                                                     falsche Serienlänge). Der Marker sagt
-                                                     wenigstens, dass es eine Serie gibt. --}}
-                                                <template x-if="patch.isRoot || patch.isRootRevision || patch.inReplyTo">
-                                                    <span class="mt-1 block text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
-                                                          data-forge-patch-serie
-                                                          x-text="patch.isRootRevision
-                                                              ? @js(__('Beginn einer Neufassung'))
-                                                              : (patch.isRoot ? @js(__('Beginn einer Serie')) : @js(__('Teil einer Serie')))"></span>
-                                                </template>
-                                            </span>
-                                            {{-- `ps-7` gefallen — siehe die Issue-Zeile: die
-                                                 Einrückung gehörte zum Statuspunkt. --}}
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 sm:basis-auto">
-                                                {{-- ── Die Kennzahlen des Diffs (P1, 2026-08-26) ──
-                                                     `+`/`−` stehen als ZEICHEN da und nicht
-                                                     nur als Farbe: Farbe allein trüge hier
-                                                     Bedeutung (WCAG 1.4.1).
 
-                                                     Die Farbe war bis P1 `text-forge-erledigt`
-                                                     — dasselbe Wort, mit dem die Zeile drei
-                                                     Elemente weiter „zusammengeführt" sagte.
-                                                     Ein Token, zwei Bedeutungen. Jetzt trägt
-                                                     die Zahl ein `flux:badge` in Grün bzw.
-                                                     Rot, und `text-forge-*` bedeutet wieder
-                                                     genau eine Sache.
+                                                <span class="forge-vz-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                    <span class="min-w-0 truncate"
+                                                          x-text="@js(__(':name hat ihn eingereicht.')).split(':name').join(patch.authorName) + ' · ' + patch.timeLabel"></span>
+                                                    {{-- Serien-Marker. Ein `git format-patch` über
+                                                         drei Commits erzeugt DREI Ereignisse; das
+                                                         Modell fasst sie bewusst nicht zusammen
+                                                         (die Kette kann im Bestand Lücken haben,
+                                                         und aus einer Lücke würde still eine
+                                                         falsche Serienlänge). Der Marker sagt
+                                                         wenigstens, dass es eine Serie gibt —
+                                                         seit P3 als Wort IN der Metazeile statt
+                                                         als eigene Versalzeile darunter. --}}
+                                                    <template x-if="patch.isRoot || patch.isRootRevision || patch.inReplyTo">
+                                                        <span data-forge-patch-serie
+                                                              x-text="'· ' + (patch.isRootRevision
+                                                                  ? @js(__('Beginn einer Neufassung'))
+                                                                  : (patch.isRoot ? @js(__('Beginn einer Serie')) : @js(__('Teil einer Serie'))))"></span>
+                                                    </template>
+                                                    {{-- Die Kennzahlen des Diffs. `+`/`−` stehen
+                                                         als ZEICHEN da und nicht nur als Farbe
+                                                         (WCAG 1.4.1); die Farbe kam mit P1 und
+                                                         ist gemessen (5,20–6,20:1 hell,
+                                                         5,83–6,21:1 dunkel). --}}
+                                                    <template x-if="patch.stat.files > 0">
+                                                        <span class="inline-flex shrink-0 items-center gap-1.5" data-forge-patch-stat>
+                                                            <span x-text="$plural(patch.stat.files, '1 Datei', ':count Dateien')"></span>
+                                                            <flux:badge size="sm" color="green" data-forge-stat-plus x-text="'+' + patch.stat.additions" />
+                                                            <flux:badge size="sm" color="red" data-forge-stat-minus x-text="'−' + patch.stat.deletions" />
+                                                        </span>
+                                                    </template>
+                                                    {{-- Der Anker, eckig und in Mono — dieselbe
+                                                         Bauform wie an der PR-Zeile. --}}
+                                                    <template x-if="patch.shortCommit">
+                                                        <flux:badge size="sm" class="forge-anker shrink-0 tracking-tight"
+                                                                    data-forge-anker="head"
+                                                                    x-text="patch.shortCommit" />
+                                                    </template>
+                                                </span>
 
-                                                     Das ist KEINE Ampel im Sinne der
-                                                     Plan-Entscheidung: die galt der
-                                                     ZUSTANDS-Pille (die daneben bewusst
-                                                     farblos bleibt), nie den Diff-Zahlen.
+                                                <span class="forge-vz-leute">
+                                                    <template x-if="patch.commentCount > 0">
+                                                        <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                                            <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                                            <span x-text="patch.commentCount"></span>
+                                                        </span>
+                                                    </template>
+                                                </span>
 
-                                                     `data-forge-stat-plus`/`-minus` sind der
-                                                     Anker des Kontrast-Riegels in
-                                                     `forge-patches.spec.ts`. Sie stehen hier,
-                                                     weil ein Positions-Selektor
-                                                     (`div:nth-of-type(2)`) beim nächsten
-                                                     Umbau lautlos auf ein anderes Element
-                                                     zeigte — und ein Riegel, der aufs Falsche
-                                                     zeigt, misst weiter und meldet grün. --}}
-                                                <template x-if="patch.stat.files > 0">
-                                                    <span class="inline-flex items-center gap-1.5 text-xs" data-forge-patch-stat>
-                                                        <span class="text-muted" x-text="$plural(patch.stat.files, '1 Datei', ':count Dateien')"></span>
-                                                        <flux:badge size="sm" color="green" data-forge-stat-plus x-text="'+' + patch.stat.additions" />
-                                                        <flux:badge size="sm" color="red" data-forge-stat-minus x-text="'−' + patch.stat.deletions" />
-                                                    </span>
-                                                </template>
-                                                <template x-if="patch.shortCommit">
-                                                    <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                          x-text="patch.shortCommit"></span>
-                                                </template>
-                                                <x-group::forge-status-badge status="patch.status" label="statusText(patch.status)"
-                                                                             data-forge-patch-status />
-                                                <template x-if="patch.commentCount > 0">
-                                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
-                                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
-                                                        <span x-text="patch.commentCount"></span>
-                                                    </span>
-                                                </template>
+                                                <x-group::forge-status-badge klasse="forge-vz-zustand"
+                                                                             status="patch.status" label="statusText(patch.status)" />
                                             </span>
                                         </button>
 
@@ -1596,123 +1589,105 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
                                         data-forge-pr data-forge-vorgang tabindex="-1"
                                         :data-status="pr.status" :data-id="pr.id">
-                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
+                                        {{-- Zwei Ränge wie an der Issue-Zeile — die Begründung
+                                             steht dort ausgeschrieben. Hier fielen dabei DREI
+                                             Blockzeilen weg: Labelband gab es nie, dafür
+                                             standen Autorsatz, Reviewer-Chips und Statusband
+                                             untereinander. --}}
+                                        <button type="button" class="forge-vorgangskopf pressable block w-full p-4 text-start"
                                                 x-on:click="toggle(pr.id, 'pr')" :aria-expanded="open[pr.id] ? 'true' : 'false'">
-                                            {{-- Der Statusknoten ist mit dem der Issue-Zeile
-                                                 gefallen (P1) — die Begründung steht dort
-                                                 ausgeschrieben. --}}
-                                            <span class="min-w-0 flex-1">
-                                                <span class="block font-semibold leading-snug" x-text="pr.title || @js(__('Ohne Titel'))"></span>
-                                                {{-- Ein ganzer Satz, kein Feldsalat: wer
-                                                     hat ihn eröffnet, und aus welchem
-                                                     Branch. Die Teile stehen als
-                                                     Platzhalter im Katalog, damit der Satz
-                                                     übersetzbar bleibt. --}}
-                                                <span class="mt-1 block text-xs text-muted"
-                                                      x-text="(pr.branch
-                                                          ? @js(__(':name hat ihn eröffnet aus :branch.')).split(':branch').join(pr.branch)
-                                                          : @js(__(':name hat ihn eröffnet.'))).split(':name').join(pr.authorName)
-                                                          + ' · ' + pr.timeLabel"></span>
-                                                {{-- ── Reviewer-Zeile (P1) ───────────────────────
-                                                     Wer soll draufschauen, und wer hat schon?
-                                                     `foldReviews` (`js/forgeModels.ts`) liefert
-                                                     beides. Zur Herkunft der Regeln: NIP-34 kennt
-                                                     kein Review — das ist eine reine
-                                                     Client-Konvention aus Buzz Desktop, und der
-                                                     Relay setzt nichts davon durch.
+                                            <span class="forge-vorgangszeile">
+                                                {{-- Typ-Glyphe: dasselbe Zeichen wie am Reiter
+                                                     „Pull Requests". Zwei Pfeile gegeneinander —
+                                                     das ist die Sache selbst, und es kollidiert
+                                                     mit keinem der vier Zustandszeichen. --}}
+                                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
 
-                                                     **Das Häkchen gilt für EINEN Commit.** Eine
-                                                     Freigabe, die auf einen älteren Stand zeigt,
-                                                     ist bereits in der Faltung ausgesiebt — nach
-                                                     einem Push steht hier also wieder ein nacktes
-                                                     Reviewer-Zeichen. Das ist der Sinn: ein
-                                                     Häkchen für Code, den niemand gesehen hat,
-                                                     wäre schlimmer als keins.
+                                                <span class="forge-vz-titel block font-semibold leading-snug"
+                                                      x-text="pr.title || @js(__('Ohne Titel'))"></span>
 
-                                                     Die Aussage hängt an der FORM (Häkchen bzw.
-                                                     Ausrufezeichen) und an einem `sr-only`-Wort,
-                                                     nicht an der Farbe (WCAG 1.4.1). Die beiden
-                                                     Farbwörter sind die bestehenden Forge-Token
-                                                     der Statuszeile — kein neues.
+                                                {{-- ── Rang 2: EIN Satz, EIN Anker ────────────
+                                                     Wer hat ihn eröffnet, aus welchem Branch,
+                                                     wann — als ganzer Satz, nicht als Feldsalat.
+                                                     Die Teile stehen als Platzhalter im Katalog,
+                                                     damit der Satz übersetzbar bleibt. --}}
+                                                <span class="forge-vz-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                    <span class="min-w-0 truncate"
+                                                          x-text="(pr.branch
+                                                              ? @js(__(':name hat ihn eröffnet aus :branch.')).split(':branch').join(pr.branch)
+                                                              : @js(__(':name hat ihn eröffnet.'))).split(':name').join(pr.authorName)
+                                                              + ' · ' + pr.timeLabel"></span>
+                                                    {{-- ── Der Anker: RECHTECK mit Mono-Ziffern ──
+                                                         Die zweite der drei Chip-Rollen, und die
+                                                         einzige, die eckig bleibt. Er ist der
+                                                         Punkt, an dem das Auge in einer grauen
+                                                         Zeile einrastet (brand-800 auf
+                                                         `bg-brand-500/10`, gemessen 5,92:1).
 
-                                                     Namen statt Schlüssel aus demselben Grund wie
-                                                     beim Zuweisungs-Band darüber.
+                                                         GENAU EINER je Zeile, und er zeigt die
+                                                         Sache, die gerade zählt: ist der PR
+                                                         zusammengeführt, ist das der
+                                                         MERGE-Commit — der Kopf-Commit
+                                                         beantwortet dann nichts mehr. Sonst der
+                                                         Kopf-Commit.
 
-                                                     **Die Zuordnung Reviewer→Entscheidung steht
-                                                     NICHT mehr hier.** Sie stand als drei
-                                                     `.some()`-Ausdrücke je Zeile im Markup —
-                                                     ungetestet, und mit einer Lücke: wer
-                                                     freigegeben hat, ohne angefragt worden zu sein
-                                                     (der Repo-Eigentümer darf das), fehlte in den
-                                                     Chips und tauchte nur in der Zahl daneben auf.
-                                                     `reviewerRows` in `js/forgeModels.ts` liefert
-                                                     jetzt EINE Liste, in der beide vorkommen. --}}
-                                                <template x-if="pr.reviewerPeople.length > 0">
-                                                    <span class="mt-1.5 flex flex-wrap items-center gap-1" data-forge-reviewers>
-                                                        <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Reviewer') }}</span>
-                                                        <template x-for="person in pr.reviewerPeople.slice(0, 6)" :key="person.pubkey">
-                                                            <span class="inline-flex items-center gap-1 rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800"
-                                                                  data-forge-reviewer :data-pubkey="person.pubkey"
-                                                                  :data-entscheidung="person.decision"
-                                                                  :title="person.pubkey">
-                                                                <span x-text="person.name"></span>
-                                                                <template x-if="person.decision === 'approved'">
-                                                                    <span class="inline-flex items-center text-forge-erledigt">
-                                                                        <flux:icon.check variant="micro" class="size-3.5" />
-                                                                        <span class="sr-only">{{ __('hat freigegeben') }}</span>
-                                                                    </span>
-                                                                </template>
-                                                                <template x-if="person.decision === 'changes-requested'">
-                                                                    <span class="inline-flex items-center text-forge-offen">
-                                                                        <flux:icon.exclamation-circle variant="micro" class="size-3.5" />
-                                                                        <span class="sr-only">{{ __('erbittet Änderungen') }}</span>
-                                                                    </span>
-                                                                </template>
-                                                            </span>
-                                                        </template>
-                                                        <template x-if="pr.reviewerPeople.length > 6">
-                                                            <span class="text-[0.7rem] text-muted"
-                                                                  x-text="'+' + (pr.reviewerPeople.length - 6)"></span>
-                                                        </template>
-                                                        {{-- Die Zahl steht daneben, weil eine
-                                                             Freigabe auch von jemandem kommen kann,
-                                                             der nie angefragt wurde — der
-                                                             Repo-Eigentümer darf das. Ohne sie
-                                                             verschwände seine Freigabe zwischen den
-                                                             Chips. --}}
-                                                        <template x-if="pr.approvals.length > 0">
-                                                            <span class="text-[0.7rem] text-muted" data-forge-approvals
-                                                                  x-text="$plural(pr.approvals.length, '1 Freigabe', ':count Freigaben')"></span>
-                                                        </template>
-                                                    </span>
-                                                </template>
-                                            </span>
-                                            {{-- Auf schmalen Schirmen eine EIGENE Zeile
-                                                 (`basis-full`), erst ab `sm` wieder rechts
-                                                 neben dem Titel.
+                                                         `shortMergeCommit`/`shortCommit` und
+                                                         NICHT `…​.slice(0, 7)` im Markup: die
+                                                         Kürzung trägt die Formprüfung mit, sonst
+                                                         würde aus `["merge-commit","master"]`
+                                                         eine Pille namens „master".
 
-                                                 Vorher stand sie dort immer, `shrink-0`
-                                                 neben einem `flex-1`-Titel — und
-                                                 „GESCHLOSSEN" samt Commit-Kurzform und
-                                                 Zähler nahm auf einem 390-px-Schirm gut
-                                                 die halbe Breite. Ein vierzeiliger Umbruch
-                                                 eines Titels, der in zwei gepasst hätte,
-                                                 am Gerät gesehen (2026-08-20).
+                                                         `applied-as-commits` (eine Liste) und
+                                                         `merge-base` gehören nicht in eine
+                                                         Zeilenübersicht — sie stehen im
+                                                         aufgeklappten Rumpf (P7b). --}}
+                                                    <template x-if="pr.shortMergeCommit">
+                                                        <flux:badge size="sm" class="forge-anker shrink-0 tracking-tight"
+                                                                    icon="arrows-pointing-in" data-forge-anker="merge"
+                                                                    x-text="pr.shortMergeCommit" />
+                                                    </template>
+                                                    <template x-if="!pr.shortMergeCommit && pr.shortCommit">
+                                                        <flux:badge size="sm" class="forge-anker shrink-0 tracking-tight"
+                                                                    data-forge-anker="head"
+                                                                    x-text="pr.shortCommit" />
+                                                    </template>
+                                                </span>
 
-                                                 `ps-7` ist mit dem Statuspunkt gefallen
-                                                 (P1) — siehe die Issue-Zeile. --}}
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 sm:basis-auto">
-                                                <template x-if="pr.shortCommit">
-                                                    <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                          x-text="pr.shortCommit"></span>
-                                                </template>
-                                                <x-group::forge-status-badge status="pr.status" label="statusText(pr.status)" />
-                                                <template x-if="pr.commentCount > 0">
-                                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
-                                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
-                                                        <span x-text="pr.commentCount"></span>
-                                                    </span>
-                                                </template>
+                                                <span class="forge-vz-leute">
+                                                    {{-- Reviewer als Gesichter mit Plakette statt
+                                                         als Chip-Zeile mit Versalwort. Wer
+                                                         freigegeben hat, trägt ein Häkchen; wer
+                                                         Änderungen erbittet, ein Ausrufezeichen.
+                                                         Die Aussage hängt an der FORM (1.4.1).
+
+                                                         Die Freigabezahl daneben bleibt: eine
+                                                         Freigabe kann von jemandem kommen, der nie
+                                                         angefragt wurde (der Repo-Eigentümer darf
+                                                         das) — ohne sie verschwände seine Freigabe
+                                                         zwischen den Gesichtern. --}}
+                                                    <template x-if="pr.reviewerPeople.length > 0">
+                                                        <x-group::forge-personen-stapel
+                                                            personen="pr.reviewerPeople"
+                                                            entscheidung="person.decision"
+                                                            anker="data-forge-reviewer"
+                                                            data-forge-reviewers
+                                                            :sr-eins="__('Reviewer: :namen')"
+                                                            :sr-viele="__(':count Reviewer: :namen')" />
+                                                    </template>
+                                                    <template x-if="pr.approvals.length > 0">
+                                                        <span class="text-[0.7rem] text-muted" data-forge-approvals
+                                                              x-text="$plural(pr.approvals.length, '1 Freigabe', ':count Freigaben')"></span>
+                                                    </template>
+                                                    <template x-if="pr.commentCount > 0">
+                                                        <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                                            <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                                            <span x-text="pr.commentCount"></span>
+                                                        </span>
+                                                    </template>
+                                                </span>
+
+                                                <x-group::forge-status-badge klasse="forge-vz-zustand"
+                                                                             status="pr.status" label="statusText(pr.status)" />
                                             </span>
                                         </button>
 
@@ -1830,7 +1805,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                      ::class="canApprove(pr) && eigeneEntscheidung(pr) !== 'approval' ? '' : 'opacity-60'">
                                                             <span x-text="eigeneEntscheidung(pr) === 'approval' ? @js(__('Freigegeben')) : @js(__('Freigeben'))"></span>
                                                         </flux:button>
-                                                        <flux:button size="xs" variant="ghost" icon="exclamation-circle"
+                                                        {{-- Dasselbe Zeichen wie die Plakette am Reviewer-Gesicht
+                                                             (`arrow-uturn-left`): eine Handlung behält ihr Zeichen
+                                                             über den ganzen Weg. `exclamation-circle` stand hier bis
+                                                             P3 und bedeutet seit P1 in jeder Vorgangszeile
+                                                             „Zustand: offen" — ein Zeichen mit zwei Bedeutungen im
+                                                             selben Bild. --}}
+                                                        <flux:button size="xs" variant="ghost" icon="arrow-uturn-left"
                                                                      data-forge-request-changes
                                                                      x-on:click="submitReview(pr, 'changes-requested')"
                                                                      ::aria-disabled="canApprove(pr) && eigeneEntscheidung(pr) !== 'changes-requested' ? null : 'true'"

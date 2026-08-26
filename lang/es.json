@@ -1052,5 +1052,9 @@
     "Älteste zuerst": "Más antiguos primero",
     "1 Ereignis in den letzten 30 Tagen": "1 evento en los últimos 30 días",
     ":count Ereignisse in den letzten 30 Tagen": ":count eventos en los últimos 30 días",
-    "Pfad": "Ruta"
+    "Pfad": "Ruta",
+    "Zugewiesen an :namen": "Asignado a :namen",
+    ":count Zuständige: :namen": ":count responsables: :namen",
+    "Reviewer: :namen": "Revisor: :namen",
+    ":count Reviewer: :namen": ":count revisores: :namen"
 }

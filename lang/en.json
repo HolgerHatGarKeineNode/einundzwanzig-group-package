@@ -1052,5 +1052,9 @@
     "Älteste zuerst": "Oldest first",
     "1 Ereignis in den letzten 30 Tagen": "1 event in the last 30 days",
     ":count Ereignisse in den letzten 30 Tagen": ":count events in the last 30 days",
-    "Pfad": "Path"
+    "Pfad": "Path",
+    "Zugewiesen an :namen": "Assigned to :namen",
+    ":count Zuständige: :namen": ":count assignees: :namen",
+    "Reviewer: :namen": "Reviewer: :namen",
+    ":count Reviewer: :namen": ":count reviewers: :namen"
 }

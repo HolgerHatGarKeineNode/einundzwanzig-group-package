@@ -127,9 +127,21 @@
        `--color-muted` hält 7,81:1 hell / 7,11:1 dunkel (Herleitung oben);
        zinc-900/zinc-100 sind die Primärtextwerte. Alle drei liegen über den
        4,5:1 aus 1.4.3 und damit auch über den 3:1 aus 1.4.11 für die Glyphe. */
+    /* ── Nach P1/P3 tragen diese beiden Token je GENAU EINE Bedeutung ────────
+       `forge-offen` = „dieser Reviewer erbittet Änderungen", `forge-erledigt` =
+       „dieser Reviewer hat freigegeben". Beide malen nur noch die zwei
+       Entscheidungs-Plaketten am Reviewer-Avatar; die Zustandspille der Zeile
+       ist seit P1 farblos (Flux' eigener Vordergrund, Begründung in
+       `components/forge-status-badge.blade.php`).
+
+       **`--color-forge-ruhend` ist mit P3 GEFALLEN.** Es zeigte auf
+       `--color-muted` und hatte nach P1 null Verwendungen. Ein Token ohne
+       Träger ist kein Vorrat, sondern eine Falle: der nächste Leser hält es für
+       eine Rolle, die es gibt, und baut eine dritte Bedeutung hinein. Wer den
+       gedämpften Ton braucht, nimmt `--color-muted` — das ist derselbe Wert und
+       nennt seine Rolle richtig. */
     --color-forge-offen: var(--color-brand-800);
     --color-forge-erledigt: var(--color-zinc-900);
-    --color-forge-ruhend: var(--color-muted);
 
     /* ── AAA Design-Tokens (übernommen aus einundzwanzig-mobile-app) ──────
        Radius-, Shadow- und Motion-Skala. Alle Cards/Sheets/Tiles greifen
@@ -170,9 +182,6 @@
         --color-accent-foreground: var(--color-zinc-950);
         --color-muted: var(--color-zinc-400);
         --color-control-edge: var(--color-zinc-400);
-        /* `--color-forge-ruhend` braucht KEINEN Dark-Zweig: es zeigt auf
-           `--color-muted`, und das wird zwei Zeilen höher schon umgeschaltet.
-           Ein zweiter Eintrag hier wäre eine zweite Wahrheit über denselben Wert. */
         --color-forge-offen: var(--color-brand-300);
         --color-forge-erledigt: var(--color-zinc-100);
     }
@@ -1627,6 +1636,166 @@ select:focus[data-flux-control] {
     color: var(--color-accent-content);
 }
 
+/* ═══ DIE VORGANGSZEILE — zwei Ränge, zwei ausdrücklich gesetzte Fassungen ═══
+   (P3, Plan `2026-08-26T1912-forge-buzz-gitea-sprache.md`, 2026-08-26)
+
+   ── Der Befund ──────────────────────────────────────────────────────────────
+   Die PR-Zeile trug bis zu ZWÖLF gleichgewichtige Signale, verteilt auf vier
+   Blockzeilen: Titel · Autorsatz · Reviewer-Chips · Statusband. Keins davon war
+   typografisch untergeordnet — der einzige Rangunterschied war `text-muted`,
+   und den trugen vier verschiedene Dinge gleichzeitig.
+
+   Gitea löst dasselbe mit ZWEI Rängen, und beide gibt es hier schon: die zweite
+   Zeile stand längst da, sie war nur nicht als Rang ausgezeichnet.
+
+     Rang 1  Typ-Glyphe · Titel · Labels          ← das, was man scannt
+     Rang 2  eine graue Metazeile                 ← alles Übrige
+     rechts  die Zustandspille aus P1
+
+   ── Warum GRID mit benannten Feldern und nicht Flex mit Umbruch ─────────────
+   Die Abnahme dieser Phase verlangt, dass die mobile Fassung AUSGEZEICHNET ist
+   und nicht durch Umbruch entsteht. Ein `flex-wrap` erzeugt die schmale Form als
+   NEBENWIRKUNG: was wohin rutscht, entscheidet die Summe der Kindbreiten, und
+   niemand hat es entworfen. Genau daraus entstand die gemeldete Vier-Zeilen-
+   Kaskade auf 390 px.
+
+   Mit `grid-template-areas` steht jede Fassung als eigenes Bild im Quelltext.
+   Beide haben denselben DOM — die Labels wandern nicht per Duplikat in eine
+   zweite Fassung, sondern bekommen in jeder Fassung ein eigenes FELD. Das ist
+   auch der Grund, warum es kein zweites Markup gibt: ein doppelt gerendertes
+   `[data-forge-assignees]` wäre ein Strict-Mode-Treffer auf zwei Elemente und
+   damit ein gebrochener E2E-Anker.
+
+   ── Warum CONTAINER und nicht Viewport ──────────────────────────────────────
+   Dieselbe Zeile steht auf ZWEI Flächen: in der Repo-Liste (ab `xl` in einer
+   Spalte neben dem Steckbrief) und in der workspace-weiten Liste auf `/forge`
+   (ab `xl` in der schmaleren Werkbank-Spur). Die Fensterbreite sagt über die
+   verfügbare ZEILENBREITE dort nichts — bei 1920 px kann dieselbe Zeile 900 px
+   oder 420 px breit sein. Die Hausregel steht schon oben: Chassis = die eine
+   Schwelle, Geometrie = Container.
+
+   Der Container sitzt am KNOPF und nicht am Raster: ein Element kann seinen
+   eigenen Container nicht abfragen. `container-type: inline-size` macht den
+   Knopf zugleich zum Bezugsrahmen für `position: fixed` darin — deshalb liegt
+   er am Kopf der Zeile und nicht am `<li>`: das Erwähnungs-Popover und der
+   Kommentar-Composer stehen im aufgeklappten RUMPF, also ausserhalb.
+
+   ── Die Schwelle: 30rem ─────────────────────────────────────────────────────
+   Gemessen, nicht gesetzt: die breite Fassung braucht in einer Zeile Platz für
+   Titel (≥ 20 Zeichen lesbar), Labels und die Zustandspille. Unter 30rem
+   (480 px) drückt die Pille den Titel unter 20 Zeichen; darüber trägt er.
+   Ein 390-px-Telefon liegt damit sicher in der schmalen Fassung, die
+   Werkbank-Spur (ab 1280 px gemessen 420 px Inhalt) ebenfalls, die Repo-Liste
+   auf Desktop in der breiten. */
+
+.forge-vorgangskopf {
+    container-type: inline-size;
+    container-name: vorgang;
+}
+
+/* ── SCHMALE FASSUNG (Telefon) ───────────────────────────────────────────────
+   Drei Spalten. Der Zustand steht oben rechts neben dem Titel — dort ist er im
+   ersten Blick, ohne eine eigene Zeile zu kosten. Labels bekommen ein eigenes
+   Band darunter, die Metazeile teilt sich in „wer und wann" links und
+   „wer arbeitet daran, wie viel wurde gesagt" rechts. Das ist die zweizeilige
+   Form, die P3/7 ausdrücklich verlangt — und sie ist hier GESETZT. */
+.forge-vorgangszeile {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+        'glyphe titel  zustand'
+        '.      labels labels'
+        '.      meta   leute';
+    align-items: start;
+    column-gap: 0.5rem;
+    row-gap: 0.25rem;
+}
+
+/* ── BREITE FASSUNG ──────────────────────────────────────────────────────────
+   Vier Spalten. Labels rücken hinter den Titel — dort gehören sie hin, sie sind
+   Teil dessen, was man liest. Die Metazeile läuft über die volle Breite, die
+   Personen und die Kommentarzahl stehen rechts in einer Fluchtlinie mit der
+   Zustandspille darüber. */
+@container vorgang (min-width: 30rem) {
+    .forge-vorgangszeile {
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        grid-template-areas:
+            'glyphe titel labels zustand'
+            '.      meta  meta   leute';
+        column-gap: 0.75rem;
+    }
+}
+
+.forge-vz-glyphe {
+    grid-area: glyphe;
+    /* Auf der optischen Mittellinie der ersten Textzeile, nicht auf der Oberkante
+       des Kastens: der Titel ist `leading-snug` (1,375), 14 px Schrift ergibt
+       19,25 px Zeilenhöhe, die 16-px-Glyphe sitzt damit 1,6 px tiefer mittig. */
+    margin-top: 0.1rem;
+    color: var(--color-muted);
+}
+
+.forge-vz-titel {
+    grid-area: titel;
+    min-width: 0;
+}
+
+.forge-vz-labels {
+    grid-area: labels;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.forge-vz-meta {
+    grid-area: meta;
+    min-width: 0;
+}
+
+.forge-vz-leute {
+    grid-area: leute;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.forge-vz-zustand {
+    grid-area: zustand;
+    justify-self: end;
+}
+
+/* ── Der ANKER: die eine getönte Stelle in einer grauen Zeile ────────────────
+   Commit- bzw. Merge-Kurzform. Er ist der Punkt, an dem das Auge in der
+   Metazeile einrastet — und die zweite der drei Chip-Rollen, die P3
+   auseinanderzieht (Label = runde Pille · Anker = eckig und getönt · Person =
+   rundes Gesicht).
+
+   ── Warum das CSS ist und keine Klassenliste am `flux:badge` ────────────────
+   `class="bg-brand-500/10 text-brand-800"` an einem `flux:badge` VERLIERT.
+   Flux setzt seine Default-Farben über dieselben Utility-Klassen, und bei
+   gleicher Spezifität entscheidet die Quellreihenfolge im GEBAUTEN Stylesheet.
+   Nachgemessen an genau diesem Build: `.bg-brand-500/10` steht bei Byte 51545,
+   `.bg-zinc-400/15` bei 59504 — Flux gewinnt. Dasselbe bei der Textfarbe
+   (79901 gegen 83699). Die Pille kam grau heraus, und zwar lautlos.
+
+   Ungeschichtetes CSS schlägt jede `@layer` — dieselbe Bauform und derselbe
+   Grund wie bei den Reiterfarben oben.
+
+   **Kein `font-mono`:** die Hausschrift IST Inconsolata und damit dicktengleich.
+   `font-mono` zöge eine ZWEITE Schriftfamilie ein (Tailwind liefert
+   `--font-mono` selbst mit) — für Ziffern, die ohnehin schon fluchten. */
+.forge-anker {
+    background: color-mix(in oklab, var(--color-brand-500) 10%, transparent);
+    color: var(--color-brand-800);
+}
+
+.dark .forge-anker {
+    color: var(--color-brand-300);
+}
+
 /* ── Der Handlungsknopf ────────────────────────────────────────────────────
    Die EINE schöpferische Handlung dieser Fläche — und der einzige schwebende
    Gegenstand darauf. Alles andere bleibt ruhig; die Kühnheit steckt hier.
@@ -1802,4 +1971,26 @@ select:focus[data-flux-control] {
 
 .dark .forge-stapel-platz {
     box-shadow: 0 0 0 2px var(--color-zinc-900);
+}
+
+/* Die Entscheidungs-Plakette am Reviewer-Gesicht (P3, 2026-08-26). Dieselbe
+   Bauform wie die Status-Plakette in `nostr-avatar`: freigestanzt vom Ring in
+   Kartenfarbe, damit sie auch auf einem dunklen Profilbild lesbar bleibt. */
+.forge-plakette {
+    position: absolute;
+    inset-block-end: -0.15rem;
+    inset-inline-end: -0.15rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: #fff;
+    box-shadow: 0 0 0 1.5px #fff;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.dark .forge-plakette {
+    background: var(--color-zinc-900);
+    box-shadow: 0 0 0 1.5px var(--color-zinc-900);
 }

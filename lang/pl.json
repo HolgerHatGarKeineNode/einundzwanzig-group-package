@@ -1084,5 +1084,9 @@
     "1 Ereignis in den letzten 30 Tagen": "1 zdarzenie w ostatnich 30 dniach",
     ":count Ereignisse in den letzten 30 Tagen": ":count zdarzeń w ostatnich 30 dniach",
     ":count Ereignisse in den letzten 30 Tagen#few": ":count zdarzenia w ostatnich 30 dniach",
-    "Pfad": "Ścieżka"
+    "Pfad": "Ścieżka",
+    "Zugewiesen an :namen": "Przypisane do :namen",
+    ":count Zuständige: :namen": ":count przypisanych osób: :namen",
+    "Reviewer: :namen": "Recenzent: :namen",
+    ":count Reviewer: :namen": ":count recenzentów: :namen"
 }

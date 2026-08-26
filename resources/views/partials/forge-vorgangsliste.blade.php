@@ -40,29 +40,47 @@
                          (`?issue=`/`?pr=`), also derselbe Verweis, den der
                          Kopier-Knopf auf der Repo-Seite liefert. Er wird nicht
                          neu zusammengesetzt, sondern kommt aus `withVorgang`. --}}
+                    {{-- Zwei Ränge, dieselbe Bauform wie auf der Repo-Seite (P3):
+                         Typ-Glyphe · Titel oben, EINE graue Metazeile darunter,
+                         Zustand rechts. Die schmale und die breite Fassung stehen
+                         als je eigenes `grid-template-areas` in `theme.css`.
+
+                         Die Typ-Glyphe zahlt sich HIER am deutlichsten aus: auf
+                         `/forge` folgen die Issue-Region und die PR-Region auf
+                         EINER scrollenden Fläche aufeinander, und beide sind nach
+                         Repository gruppiert — wer mitten in der Liste steht, hat
+                         die Regionsüberschrift längst nach oben geschoben.
+
+                         `$art` ist `issues` oder `pulls`; die Glyphe kommt aus dem
+                         Aufruf, nicht aus der Zeile. --}}
                     <a :href="row.href || null" wire:navigate data-forge-vorgang-link :data-id="row.id"
-                       class="pressable flex w-full flex-wrap items-start gap-3 p-3 text-start">
-                        {{-- Der Statusknoten ist mit dem der Repo-Seite gefallen
-                             (P1, 2026-08-26) — ein Zeichen, eine Bedeutung, über
-                             alle Forge-Flächen hinweg, und das eine Zeichen ist
-                             jetzt die Pille rechts. --}}
-                        <span class="min-w-0 flex-1">
-                            <span class="block text-sm font-medium leading-snug" x-text="row.title || @js(__('Ohne Titel'))"></span>
-                            <span class="mt-0.5 block text-xs text-muted">
+                       class="forge-vorgangskopf pressable block w-full p-3 text-start">
+                        <span class="forge-vorgangszeile">
+                            @if ($art === 'issues')
+                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                            @else
+                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                            @endif
+
+                            <span class="forge-vz-titel block text-sm font-medium leading-snug"
+                                  x-text="row.title || @js(__('Ohne Titel'))"></span>
+
+                            <span class="forge-vz-meta block text-xs text-muted">
                                 <span x-text="row.authorName"></span>
                                 <span x-text="' · ' + row.timeLabel"></span>
                             </span>
-                        </span>
-                        {{-- `ps-7` ist mit dem Statuspunkt gefallen (P1): es rückte
-                             die umgebrochene Zeile um Punkt + Rinne ein. --}}
-                        <span class="flex shrink-0 basis-full items-center gap-2.5 sm:basis-auto">
-                            <x-group::forge-status-badge status="row.status" label="row.statusLabel" />
-                            <template x-if="row.commentCount > 0">
-                                <span class="inline-flex items-center gap-1 text-xs text-muted">
-                                    <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
-                                    <span x-text="row.commentCount"></span>
-                                </span>
-                            </template>
+
+                            <span class="forge-vz-leute">
+                                <template x-if="row.commentCount > 0">
+                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                        <span x-text="row.commentCount"></span>
+                                    </span>
+                                </template>
+                            </span>
+
+                            <x-group::forge-status-badge klasse="forge-vz-zustand"
+                                                         status="row.status" label="row.statusLabel" />
                         </span>
                     </a>
                 </li>

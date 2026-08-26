@@ -7,6 +7,22 @@
     /** `ab-sm` = mobil nur die Glyphe plus `sr-only`-Wort, ab `sm` mit Wort.
         `immer` = das Wort steht auf jeder Breite. */
     'wort' => 'ab-sm',
+    /**
+     * Zusätzliche Klassen für die Pille — z. B. das Rasterfeld der Vorgangszeile
+     * (`forge-vz-zustand`).
+     *
+     * **Ein eigener Prop und NICHT `$attributes`,** und das ist gemessen: auf
+     * einem Flux-Tag ist `:attributes="$attributes"` KEINE Laravel-Attributbeutel-
+     * Zusammenführung. Flux' Precompiler macht daraus ein Alpine-Bind, und im
+     * gerenderten Baum stand wörtlich `bind:attributes=""` — ein totes Attribut.
+     * Die Klasse des Aufrufers kam nie an, die Pille bekam `grid-area: auto` und
+     * wurde vom Browser automatisch platziert. Sie sah dabei fast richtig aus,
+     * was den Fund gefährlich macht: ein Layout-Zufall, der wie Absicht aussieht.
+     *
+     * Das ist dieselbe Falle wie `::attr` gegen `:attr` in diesem Haus, nur eine
+     * Ebene höher — auf Flux-Tags gilt: Werte interpolieren, keine Beutel reichen.
+     */
+    'klasse' => '',
 ])
 
 {{-- ── EINE Zustandsform für die ganze Forge (P1, 2026-08-26) ─────────────────
@@ -44,7 +60,12 @@
      Kein `aria-hidden="true"` an den Glyphen: `flux:icon` schreibt es selbst in
      das `<svg>` (`flux/icon/*.blade.php`, jeder Variantenzweig). Ein zweites
      hier erzeugte dasselbe Attribut zweimal am selben Tag. --}}
-<flux:badge size="sm" class="gap-1" data-forge-status ::data-status="{{ $status }}" :attributes="$attributes">
+{{-- `data-forge-status` ist der EINE Anker dieser Pille. Bis P3 trug die
+     Patch-Zeile daneben ein zweites, eigenes `data-forge-patch-status`; es war in
+     keinem Test referenziert (geprüft: 0 Treffer im ganzen E2E-Baum) und ist mit
+     dem Umbau in diesem einen aufgegangen. Wer die Sorte braucht, liest sie am
+     `<li>`: das trägt unverändert `data-forge-issue` / `-pr` / `-patch`. --}}
+<flux:badge size="sm" class="gap-1 {{ $klasse }}" data-forge-status ::data-status="{{ $status }}">
     <template x-if="{{ $status }} === 'open'">
         <flux:icon.exclamation-circle variant="micro" class="size-3.5 shrink-0" />
     </template>

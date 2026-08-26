@@ -1052,5 +1052,9 @@
     "Älteste zuerst": "Legrégebbi elöl",
     "1 Ereignis in den letzten 30 Tagen": "1 esemény az elmúlt 30 napban",
     ":count Ereignisse in den letzten 30 Tagen": ":count esemény az elmúlt 30 napban",
-    "Pfad": "Útvonal"
+    "Pfad": "Útvonal",
+    "Zugewiesen an :namen": "Hozzárendelve: :namen",
+    ":count Zuständige: :namen": ":count felelős: :namen",
+    "Reviewer: :namen": "Átnéző: :namen",
+    ":count Reviewer: :namen": ":count átnéző: :namen"
 }

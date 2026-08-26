@@ -1116,5 +1116,9 @@
     ":count Ereignisse in den letzten 30 Tagen": ":count notikumu pēdējās 30 dienās",
     ":count Ereignisse in den letzten 30 Tagen#zero": ":count notikumu pēdējās 30 dienās",
     ":count Ereignisse in den letzten 30 Tagen#one": ":count notikums pēdējās 30 dienās",
-    "Pfad": "Ceļš"
+    "Pfad": "Ceļš",
+    "Zugewiesen an :namen": "Piešķirts: :namen",
+    ":count Zuständige: :namen": ":count atbildīgie: :namen",
+    "Reviewer: :namen": "Recenzents: :namen",
+    ":count Reviewer: :namen": ":count recenzenti: :namen"
 }

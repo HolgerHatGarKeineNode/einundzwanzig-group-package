@@ -1084,5 +1084,9 @@
     "1 Ereignis in den letzten 30 Tagen": "1 evento nos últimos 30 dias",
     ":count Ereignisse in den letzten 30 Tagen": ":count eventos nos últimos 30 dias",
     ":count Ereignisse in den letzten 30 Tagen#one": ":count evento nos últimos 30 dias",
-    "Pfad": "Caminho"
+    "Pfad": "Caminho",
+    "Zugewiesen an :namen": "Atribuído a :namen",
+    ":count Zuständige: :namen": ":count responsáveis: :namen",
+    "Reviewer: :namen": "Revisor: :namen",
+    ":count Reviewer: :namen": ":count revisores: :namen"
 }

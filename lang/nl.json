@@ -1052,5 +1052,9 @@
     "Älteste zuerst": "Oudste eerst",
     "1 Ereignis in den letzten 30 Tagen": "1 gebeurtenis in de laatste 30 dagen",
     ":count Ereignisse in den letzten 30 Tagen": ":count gebeurtenissen in de laatste 30 dagen",
-    "Pfad": "Pad"
+    "Pfad": "Pad",
+    "Zugewiesen an :namen": "Toegewezen aan :namen",
+    ":count Zuständige: :namen": ":count toegewezen personen: :namen",
+    "Reviewer: :namen": "Reviewer: :namen",
+    ":count Reviewer: :namen": ":count reviewers: :namen"
 }
