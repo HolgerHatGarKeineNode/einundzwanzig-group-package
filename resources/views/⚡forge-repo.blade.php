@@ -835,7 +835,28 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </template>
 
-                            <ul x-show="view.issues.length > 0" class="surface-card">
+                            <section x-show="view.issues.length > 0" class="surface-card">
+                                {{-- ── EIN Kasten, Kopf UND Liste (P5) ──────────────────────────
+                                     Diese Liste hatte gar keinen Kopf: sie begann ohne
+                                     Ansage mit ihrer ersten Zeile. Der Reiter darüber
+                                     nennt zwar die Art, aber er gehört zur Navigation und
+                                     endet mit ihr — zwischen ihm und der Liste steht der
+                                     Meldungsblock. Der Kopfstreifen sagt, wo die Liste
+                                     ANFÄNGT, und er trägt die Zahl, die der Reiter nicht
+                                     trägt.
+
+                                     `aria-hidden` ist er NICHT — anders als der Kopf der
+                                     Werkbank. Er enthält eine Angabe, die sonst nirgends
+                                     steht (die Anzahl), und wer die Fläche vorgelesen
+                                     bekommt, hört sie sonst nie.
+
+                                     Die Bauform ist `.forge-kartenkopf`, dieselbe wie beim
+                                     Diff-Kopf und der workspace-weiten Liste. --}}
+                                <div class="forge-kartenkopf">
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Issues') }}</span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(view.issues.length)"></span>
+                                </div>
+                                <ul>
                                 <template x-for="issue in view.issues" :key="issue.id">
                                     {{-- `data-forge-vorgang` + `tabindex="-1"`: das Sprungziel eines
                                          geteilten `?issue=`-Links (P2). Fokussiert wird die ZEILE
@@ -1188,6 +1209,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </li>
                                 </template>
                             </ul>
+                            </section>
                         </div>
 
                         {{-- ── Code (P6) ────────────────────────────────────────
@@ -1417,7 +1439,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </template>
 
-                            <ul x-show="view.patches.length > 0" class="surface-card">
+                            <section x-show="view.patches.length > 0" class="surface-card">
+                                {{-- Kopfstreifen wie oben bei den Issues (P5). --}}
+                                <div class="forge-kartenkopf">
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Patches') }}</span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(view.patches.length)"></span>
+                                </div>
+                                <ul>
                                 <template x-for="patch in view.patches" :key="patch.id">
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-patch :data-status="patch.status" :data-id="patch.id">
                                         {{-- Zwei Ränge wie an der Issue- und der PR-Zeile.
@@ -1585,6 +1613,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </li>
                                 </template>
                             </ul>
+                            </section>
                         </div>
 
                         {{-- ── Pull Requests ────────────────────────────────────── --}}
@@ -1599,7 +1628,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </template>
 
-                            <ul x-show="view.pullRequests.length > 0" class="surface-card">
+                            <section x-show="view.pullRequests.length > 0" class="surface-card">
+                                {{-- Kopfstreifen wie oben bei den Issues (P5). --}}
+                                <div class="forge-kartenkopf">
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Pull Requests') }}</span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(view.pullRequests.length)"></span>
+                                </div>
+                                <ul>
                                 <template x-for="pr in view.pullRequests" :key="pr.id">
                                     {{-- Sprungziel eines geteilten `?pr=`-Links — siehe die
                                          Begründung an der Issue-Zeile. --}}
@@ -1901,6 +1936,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </li>
                                 </template>
                             </ul>
+                            </section>
                         </div>
 
                         {{-- ── Aktivität ────────────────────────────────────────── --}}
@@ -1931,54 +1967,71 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <section>
                                         <h2 class="pb-1 pt-4 text-xs font-semibold uppercase tracking-wider text-muted"
                                             x-text="bucket.label"></h2>
-                                        <ol>
+                                        {{-- ── Dieselbe Zeitleiste wie auf der Übersicht (P5) ──────
+                                             `flux:timeline` statt der handgezogenen Linie; die
+                                             ganze Herleitung steht in `⚡forge.blade.php` an der
+                                             Aktivitätsspur (zwei Magic Numbers, die 1,26:1-Linie,
+                                             die Alpine-Template-Falle und der Grund, warum
+                                             `status="complete"` hier NICHT gesetzt ist).
+
+                                             `x-bind:` ausgeschrieben und nicht `::`: `flux:timeline*`
+                                             wird als einziges Flux-Bauteil NICHT gefaltet, und nur
+                                             der Faltungs-Pfad wandelt `::attr` in `:attr`. Auf einer
+                                             ungefalteten Komponente bleibt `::` wörtlich im HTML
+                                             stehen und ist ein totes Attribut. --}}
+                                        <flux:timeline align="start" class="pb-2">
                                             <template x-for="row in bucket.items" :key="row.id">
-                                                <li class="group relative flex gap-3 py-3" data-forge-activity :data-type="row.type">
-                                                    <span aria-hidden="true"
-                                                          class="absolute start-[0.875rem] top-[1.625rem] h-full w-px bg-zinc-200 group-last:hidden dark:bg-zinc-800"></span>
-                                                    {{-- `self-start`: siehe Begründung in
-                                                         `⚡forge.blade.php` — ohne sie streckt sich die
-                                                         Hülle auf die Zeilenhöhe, der Ring wird oval
-                                                         und die Unterlage frisst den Faden. --}}
-                                                    <span class="relative shrink-0 self-start rounded-full bg-white dark:bg-zinc-900"
-                                                          :class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
-                                                        <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
-                                                    </span>
-                                                    <div class="min-w-0 flex-1">
-                                                        <p class="text-sm leading-snug">
-                                                            {{-- Roher Schlüssel im `title` — dieselbe
-                                                                 Begründung wie in `⚡forge.blade.php` (F6). --}}
-                                                            <span class="font-semibold" x-text="row.actorName"
-                                                                  x-bind:title="row.actor"></span>
-                                                            <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
-                                                            <span class="font-medium" x-text="row.object"></span>
-                                                        </p>
-                                                        {{-- `<div>` und nicht `<p>`, und beide Marken von
-                                                             Flux: identisch zur Aktivitätszeile auf
-                                                             `⚡forge.blade.php` — es ist derselbe Strom,
-                                                             nur auf ein Repository verengt. Die Herleitung
-                                                             steht dort (Kurzfassung: `flux:badge` rendert
-                                                             ein `<div>`, und ein `<div>` in einem `<p>`
-                                                             schließt das `<p>` beim Parsen vorzeitig). --}}
-                                                        <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                                                            {{-- KURZ in der Zeile, VOLL im Tooltip —
-                                                                 Begründung in `⚡forge.blade.php`. --}}
-                                                            <span x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
-                                                            <template x-if="row.badge">
-                                                                <flux:badge size="sm" class="bg-brand-500/10 font-semibold tracking-tight text-brand-800 dark:bg-brand-500/10 dark:text-brand-300"
-                                                                            x-text="row.badge" />
-                                                            </template>
-                                                            <template x-if="row.statusLabel">
-                                                                <flux:badge size="sm" x-text="row.statusLabel" />
-                                                            </template>
-                                                        </div>
-                                                        <template x-if="row.body">
-                                                            <p class="forge-mass mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                <flux:timeline.item data-forge-activity x-bind:data-type="row.type">
+                                                    {{-- Avatar auf Desktop, Punkt mobil: 28 px Knoten
+                                                         plus 12 px Rinne kosten mobil 40 px Textbreite.
+                                                         Der Name steht ohnehin im Satz. --}}
+                                                    <flux:timeline.indicator variant="bare">
+                                                        <template x-if="zweispaltig">
+                                                            <span class="block rounded-full"
+                                                                  x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
+                                                                <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
+                                                            </span>
+                                                        </template>
+                                                        <template x-if="!zweispaltig">
+                                                            <span class="block size-2 rounded-full bg-zinc-300 dark:bg-zinc-600"
+                                                                  x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''"></span>
+                                                        </template>
+                                                    </flux:timeline.indicator>
+                                                    <flux:timeline.content class="min-w-0 py-3">
+                                                    <p class="text-sm leading-snug">
+                                                        {{-- Roher Schlüssel im `title` — dieselbe
+                                                             Begründung wie in `⚡forge.blade.php` (F6). --}}
+                                                        <span class="font-semibold" x-text="row.actorName"
+                                                              x-bind:title="row.actor"></span>
+                                                        <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
+                                                        <span class="font-medium" x-text="row.object"></span>
+                                                    </p>
+                                                    {{-- `<div>` und nicht `<p>`, und beide Marken von
+                                                         Flux: identisch zur Aktivitätszeile auf
+                                                         `⚡forge.blade.php` — es ist derselbe Strom,
+                                                         nur auf ein Repository verengt. Die Herleitung
+                                                         steht dort (Kurzfassung: `flux:badge` rendert
+                                                         ein `<div>`, und ein `<div>` in einem `<p>`
+                                                         schließt das `<p>` beim Parsen vorzeitig). --}}
+                                                    <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                        {{-- KURZ in der Zeile, VOLL im Tooltip —
+                                                             Begründung in `⚡forge.blade.php`. --}}
+                                                        <span x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
+                                                        <template x-if="row.badge">
+                                                            <flux:badge size="sm" class="bg-brand-500/10 font-semibold tracking-tight text-brand-800 dark:bg-brand-500/10 dark:text-brand-300"
+                                                                        x-text="row.badge" />
+                                                        </template>
+                                                        <template x-if="row.statusLabel">
+                                                            <flux:badge size="sm" x-text="row.statusLabel" />
                                                         </template>
                                                     </div>
-                                                </li>
+                                                    <template x-if="row.body">
+                                                        <p class="forge-mass mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                    </template>
+                                                    </flux:timeline.content>
+                                                </flux:timeline.item>
                                             </template>
-                                        </ol>
+                                        </flux:timeline>
                                     </section>
                                 </template>
                             </div>

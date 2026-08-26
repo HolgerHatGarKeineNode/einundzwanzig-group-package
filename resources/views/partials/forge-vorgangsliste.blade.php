@@ -23,17 +23,31 @@
 </template>
 
 <template x-for="gruppe in {{ $quelle }}" :key="gruppe.address">
-    <section class="mb-4" data-forge-gruppe :data-address="gruppe.address">
-        {{-- Der Gruppenkopf ist der Weg ins Repository — dieselbe Liste, dort
-             aber mit Rumpf, Kommentaren und Schreibfeld. Die Zahl daneben sagt,
-             ob sich das Antippen lohnt. --}}
-        <div class="mb-1 flex items-baseline justify-between gap-3">
+    {{-- ── EIN Kasten, Kopf UND Liste (P5) ──────────────────────────────────────
+         Der Gruppenkopf stand bis hierher AUSSERHALB der `surface-card`, und in P4
+         ist an dieser Fläche nachgemessen worden, was das kostet: der Kopf sass auf
+         den Rändern der Region (x = 0 … 456), die Zeileninhalte im Kasten
+         (x = 13 … 443). Der Repo-Name stand damit 13 px links, die Zahl 13 px rechts
+         von allem, woran sie sich hätten ausrichten können — zwei Fluchtlinien für
+         ein Ding.
+
+         Jetzt umschliesst ein Rahmen beides, und der Kopf ist ein angesetzter
+         Streifen mit Unterkante. Das ist die Gitea-Signatur, und sie ist hier keine
+         Zierde: Kopf und Liste gehören zusammen, also sagt der Rahmen das.
+
+         Der Streifen ist `.forge-kartenkopf` und damit dieselbe Bauform wie der
+         Diff-Kopf — inklusive Innenabstand, der die Fluchtlinie der Zeilen trifft.
+         Die Herleitung steht an der Klasse in `theme.css`. --}}
+    <section class="surface-card mb-4" data-forge-gruppe :data-address="gruppe.address">
+        <div class="forge-kartenkopf">
             <a :href="gruppe.href || null" wire:navigate data-forge-gruppe-link
                class="min-w-0 truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
                x-text="gruppe.name"></a>
             <span class="shrink-0 text-xs text-muted" x-text="$num(gruppe.items.length)"></span>
         </div>
-        <ul class="surface-card">
+        {{-- Die Liste trägt KEINE eigene `surface-card` mehr — der Rahmen ist der
+             der Sektion. Zwei geschachtelte Karten wären zwei Kanten übereinander. --}}
+        <ul>
             <template x-for="row in gruppe.items" :key="row.id">
                 <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800">
                     {{-- Die ganze Zeile ist der Link — Ziel ist die P2-Adresse

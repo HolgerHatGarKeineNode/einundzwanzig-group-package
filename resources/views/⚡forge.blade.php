@@ -634,7 +634,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  Auge, keine Tabellensemantik: das hier ist eine LISTE
                                  von Links, keine Datentabelle, und `role="table"` würde
                                  eine Navigation versprechen, die es nicht gibt. --}}
-                            <div class="forge-kopfzeile border-b border-zinc-200 px-4 py-2 dark:border-zinc-800" aria-hidden="true">
+                            {{-- ── Derselbe Kopfstreifen wie die anderen Karten (P5) ─────
+                                 `forge-kartenstreifen` gibt ihm Fläche und oberen Radius
+                                 der Karte — dieselbe Bauform wie `.forge-kartenkopf` an
+                                 der Vorgangsliste und `.forge-diff-kopf` am Diff. Was er
+                                 NICHT übernimmt, ist deren Flex-Layout: dieser Kopf ist
+                                 ein SPALTENkopf und trägt die `ch`-Spuren
+                                 (`.forge-kopfzeile`, `30ch 62ch`). Ein `display: flex`
+                                 darüber hätte die Fluchtlinie zerstört, die
+                                 `desktop-forge.spec.ts` bewacht.
+
+                                 Deshalb sind es zwei Klassen und nicht eine: die eine
+                                 sagt „ich bin ein Kartenkopf", die andere „ich bin ein
+                                 Spaltenraster". --}}
+                            <div class="forge-kopfzeile forge-kartenstreifen border-b border-zinc-200 px-4 py-2 dark:border-zinc-800" aria-hidden="true">
                                 {{-- Die erste Spur (Glyphe) und die Namensspur bleiben LEER:
                                      der Regionstitel „Repositories" steht zwei Zeilen
                                      höher, ein Spaltenkopf „REPOSITORY" darunter wäre
@@ -667,7 +680,50 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                             <template x-for="repo in sichtbareRepos()" :key="repo.address">
                                 {{-- GANZE Zeile = ein Link (keine verschachtelten Links) —
-                                     dieselbe Regel wie `room-tile` und die Artikelkarte. --}}
+                                     dieselbe Regel wie `room-tile` und die Artikelkarte.
+
+                                     ── KEIN `flux:table`, und das ist GEMESSEN ────────────────
+                                     Der Plan sah für die Desktop-Fassung dieser Liste
+                                     `flux:table` mit `x-slot:header` vor. Die Komponente
+                                     rendert `<table><tbody><tr><td>` — und ein `<a>`, das eine
+                                     ganze Tabellenzeile umschliesst, überlebt das PARSEN nicht.
+                                     Am echten Parser nachgemessen
+                                     (`p5-fluxtable-sonden.log`, Sonde A):
+
+                                       <a><tr>  → A landet als LEERES Geschwister neben der
+                                                  Tabelle (`DIV > A`), die Zeile darunter
+                                                  (`DIV > TABLE > TBODY > TR`). `tr.closest('a')`
+                                                  ist danach **null**.
+                                       <button><tr> → dasselbe Bild.
+                                       <a><li>  → **bleibt** verschachtelt (Positivkontrolle im
+                                                  selben Lauf; ohne sie misst die Sonde sich
+                                                  selbst).
+
+                                     Das ist kein Flux-Mangel, sondern das Foster-Parenting des
+                                     HTML-Parsers. Die Folge wäre nicht „sieht anders aus",
+                                     sondern: die Zeile ist kein Bedienelement mehr — lautlos.
+                                     Ersatz wäre ein Link je Zelle (vier Ziele für dasselbe
+                                     Repo) oder ein Link in der Namenszelle mit einer
+                                     aufgespannten Überlagerung; beides tauscht ein sauberes
+                                     Bedienelement gegen eine Attrappe.
+
+                                     Dazu käme eine ZWEITE Fassung im selben Baum (mobil
+                                     gestapelt, Desktop Tabelle), weil `flux:table`
+                                     `whitespace-nowrap` und `overflow-auto` einbackt und mobil
+                                     die Überlauf-Zusage bräche. Gemessen (Sonde B): eine
+                                     zweite, versteckte Fassung verdoppelt `[data-forge-repo]`
+                                     von **6 auf 12**. Ehrlich dazu, weil es die Ablehnung
+                                     schwächt: `.filter({hasText})` und `.click()` überstehen
+                                     das (gemessen 1 bzw. „kein Fehler") — die rohe Zählung
+                                     nicht. Und P3 hat für genau diese Frage schon entschieden:
+                                     **ein DOM, zwei ausgezeichnete Bilder.**
+
+                                     Was `flux:table` an dieser Stelle KÖNNEN sollte — Kopf im
+                                     selben Rahmen, eine Haarlinie darunter — leistet
+                                     `.forge-kartenstreifen` (Kopf) und `.forge-zeile` (Raster),
+                                     ohne Tabellensemantik zu behaupten, die diese Liste nicht
+                                     hat. Die Ablehnung steht hier und nicht nur im Plan, damit
+                                     der nächste Leser sie am Gegenstand findet. --}}
                                 <a :href="repoHref(repo) || null" wire:navigate data-forge-repo :data-naddr="repo.naddr"
                                    class="forge-zeile pressable group border-b border-zinc-200 p-4 transition-colors last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/60">
                                     <span class="forge-glyphe flex size-9 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-300">
@@ -924,167 +980,222 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <section>
                                     <h3 class="pb-1 pt-4 text-xs font-semibold uppercase tracking-wider text-muted"
                                         x-text="bucket.label"></h3>
-                                    <ol>
+                                    {{-- ── Die Zeitleiste ist jetzt ein BAUTEIL (P5) ──────────────
+                                         Hier stand eine handgezogene Linie:
+                                         `absolute start-[0.875rem] top-[1.625rem] h-full w-px`.
+                                         Zwei Magic Numbers, die den halben Avatar und den
+                                         Innenabstand nachrechneten — sie mussten bei jeder
+                                         Änderung der Avatargröße mitgepflegt werden, und
+                                         gemessen trug die Linie 1,26:1.
+
+                                         `flux:timeline` zieht Leit- und Folgelinie selbst.
+
+                                         ── `status="complete"` ist BEWUSST nicht im Einsatz ───
+                                         Der Plan sah es vor: Flux färbt bei
+                                         `data-flux-timeline-status=complete` Knoten und Linie in
+                                         `bg-accent`, ein Abschluss bekäme also eine Markierung
+                                         ohne neue Hausfarbe. Am gebauten Stand angesehen
+                                         (`p5-zeitleiste-desktop-complete.png`, Zustand für den
+                                         Blick erzwungen) färbt sich die FOLGElinie — das ist das
+                                         Stück UNTER dem Knoten. Diese Liste läuft neueste zuerst;
+                                         unter einem Knoten stehen die ÄLTEREN Ereignisse. Die
+                                         Tönung behauptet damit „ab hier abgeschlossen" über
+                                         Zeilen, die mit dem Abschluss nichts zu tun haben.
+
+                                         Eine Zeitleiste mit Fortschritts-Semantik läuft von alt
+                                         nach neu; unsere ist ein Journal. Das Zustandswort steht
+                                         ohnehin als TEXT in derselben Zeile
+                                         (`forge-status-badge`, `wort="immer"`) — es sagt dasselbe
+                                         richtig, und ein zweiter Träger wäre nach Rams einer zu
+                                         viel.
+
+                                         ── `x-bind:` AUSGESCHRIEBEN, und warum genau hier ─────
+                                         Die Hausregel „auf Flux-Komponenten bindet man mit
+                                         `::`" gilt für `flux:timeline` NICHT. Gemessen am
+                                         Compiler (`Blade::compileString`): Flux FALTET die
+                                         meisten Bauteile beim Kompilieren ein, und nur dieser
+                                         Faltungs-Pfad wandelt `::attr` in `:attr`.
+                                         `flux:badge`, `flux:table`, `flux:tooltip`,
+                                         `flux:popover`, `flux:tabs` werden gefaltet —
+                                         `flux:timeline*` als einziges NICHT, es bleibt eine
+                                         echte Blade-Komponente. Dort landet `::data-type`
+                                         wörtlich im HTML und ist ein TOTES Attribut: Alpine
+                                         bindet `:` und `x-bind:`, nicht `::`.
+                                         Beleg: `p5-bindungsformen.log`. Die E2E-Anker dieser
+                                         Zeile (`data-forge-activity`, `data-type`) wären
+                                         lautlos verschwunden. --}}
+                                    <flux:timeline align="start" class="pb-2">
                                         <template x-for="row in bucket.items" :key="row.id">
-                                            <li class="group relative flex gap-3 py-3"
-                                                data-forge-activity :data-type="row.type">
-                                                <span aria-hidden="true"
-                                                      class="absolute start-[0.875rem] top-[1.625rem] h-full w-px bg-zinc-200 group-last:hidden dark:bg-zinc-800"></span>
-                                                {{-- Deckende Unterlage: der Avatar selbst ist mit
-                                                     `bg-brand-500/10` halbtransparent, der Faden
-                                                     liefe sonst sichtbar durch ihn hindurch. Der
-                                                     Ring markiert die Ereignisse, die ein echtes
-                                                     Git-Objekt erzeugt haben (Push, PR-Update) —
-                                                     dieselbe Aussage trägt der Kurzhash als TEXT
-                                                     in der Metazeile, die Farbe ist also nie der
-                                                     alleinige Träger (WCAG 1.4.1). Gemessen:
-                                                     brand-700 auf Weiß 4,40:1, brand-500 auf
-                                                     zinc-900 7,81:1 — beide über den 3:1 aus
-                                                     1.4.11. --}}
-                                                {{-- `self-start` ist PFLICHT, nicht Feinschliff: als
-                                                     Flex-Kind streckt sich diese Hülle sonst auf die
-                                                     volle Zeilenhöhe (`align-items: stretch`). Am
-                                                     Bildschirm nachgesehen war der Ring dann eine
-                                                     ELLIPSE, und die deckende Unterlage verschluckte
-                                                     den Faden über und unter dem Avatar — der Faden
-                                                     sah aus, als träfe er die Knoten nicht. --}}
-                                                <span class="relative shrink-0 self-start rounded-full bg-white dark:bg-zinc-900"
-                                                      :class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
-                                                    <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
-                                                </span>
-                                                <div class="min-w-0 flex-1">
-                                                    <p class="text-sm leading-snug">
-                                                        {{-- Der ROHE Schlüssel im `title` (F6, 2026-08-24).
-                                                             Ein Anzeigename stammt aus einem kind 0, das
-                                                             jeder für sich selbst schreibt: „kein Profil
-                                                             bekannt" und „Profil behauptet, ich sei X" sind
-                                                             am Text nicht zu unterscheiden. Die Chips im
-                                                             Vorgangsband tragen den Schlüssel längst
-                                                             (`:title`), die Zeitleistenzeile trug ihn nicht
-                                                             — wer nachsehen will, konnte es hier als
-                                                             einziger Stelle nicht.
-                                                             `x-bind:title` ausgeschrieben: auf normalem HTML
-                                                             ist die Blade-Kurzform kein Binding. --}}
-                                                        <span class="font-semibold" x-text="row.actorName"
-                                                              x-bind:title="row.actor"></span>
-                                                        <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
-                                                        <span class="font-medium" x-text="row.object"></span>
-                                                    </p>
-                                                    {{-- Kurzhash und Statuswort stehen HIER und nicht
-                                                         mehr rechts in der Zeile. Als Flex-Geschwister
-                                                         des Satzes schnitten sie ihm auf schmalen
-                                                         Fenstern die Breite ab und standen mitten im
-                                                         Satzbau („hat einen [ca1c707] Pull Request
-                                                         eröffnet") — bei 360px nachgesehen. In der
-                                                         Metazeile sind sie ruhiger Beleg statt
-                                                         Blickfang. --}}
-                                                    {{-- ── `<div>` und nicht mehr `<p>` ──────────────────
-                                                         Diese Zeile trägt seit dem Flux-Angleich zwei
-                                                         `flux:badge`, und die rendern über
-                                                         `flux:button-or-div` ein `<div>`
-                                                         (`flux/button-or-div.blade.php` — ein `<span>`
-                                                         gibt es dort nicht, nur `<div>` oder, mit
-                                                         `as="button"`, `<button>`). Ein `<div>` in einem
-                                                         `<p>` ist kein Stilfehler, sondern ein PARSE-
-                                                         Fehler: der Parser schließt das `<p>` vor dem
-                                                         `<div>`, und alles danach fällt aus dem
-                                                         Flex-Kasten heraus. Also trägt die Zeile jetzt
-                                                         ein `<div>` — es ist ohnehin eine Metazeile aus
-                                                         Marken, kein Absatz Fließtext, und weder `<p>`
-                                                         noch `<div>` bringen eine Rolle mit. --}}
-                                                    <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                                                        {{-- KURZ in der Zeile („vor 3 Std"), VOLL im
-                                                             Tooltip. Der Trenner über der Gruppe sagt
-                                                             bereits, welcher Tag gemeint ist; ein
-                                                             zweiter absoluter Zeitstempel je Zeile
-                                                             wiederholte ihn nur — zwanzig Mal dieselbe
-                                                             Jahreszahl untereinander. Wer die Minute
-                                                             braucht, bekommt sie über `title`.
-                                                             `x-bind:title` ausgeschrieben: auf normalem
-                                                             HTML ist die Blade-Kurzform kein Binding. --}}
-                                                        {{-- `data-forge-zeit` (P6): der Prüfstand griff
-                                                             bis hierher auf „das erste `span[title]` der
-                                                             Zeile" — und das ist seit dem P1-Nachzug der
-                                                             Personen-Chip mit dem ROHEN Schlüssel im
-                                                             `title`, nicht die Zeit. Ein Anker, der die
-                                                             Position beschreibt statt der Sache, wandert
-                                                             mit dem nächsten Einschub weiter. --}}
-                                                        <span data-forge-zeit x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
-                                                        {{-- Der Repo-Name steht nur, wo er sich ÄNDERT
-                                                             (`showRepoName` aus `groupTimeline`) — und
-                                                             nach jedem Trenner wieder. In einer Liste,
-                                                             die zehnmal dasselbe Repo betrifft, ist die
-                                                             Wiederholung kein Kontext, sondern Rauschen;
-                                                             der Wechsel dagegen ist genau die
-                                                             Information, die man sucht. --}}
-                                                        <template x-if="row.showRepoName">
-                                                            <span><span aria-hidden="true">·</span> <span x-text="row.repoName"></span></span>
-                                                        </template>
-                                                        {{-- ── Der Repo-Name trägt die Marke — jetzt WIRKLICH ───
-                                                             Hier stand `class="bg-brand-500/10 … text-brand-800"` an
-                                                             einem `flux:badge` und daneben die Behauptung „5,91:1 hell,
-                                                             9,47:1 dunkel". Beide Zahlen waren falsch, und zwar aus
-                                                             einem Grund, der nichts mit Rechnen zu tun hat: die Klassen
-                                                             kamen nie an.
+                                            {{-- Nebenbefund für den nächsten, der hier bindet:
+                                                 `status` ist ein PHP-Prop und damit Compile-Zeit.
+                                                 Ein Laufzeitwert muss `data-flux-timeline-status`
+                                                 DIREKT binden — Flux' CSS hängt ohnehin am
+                                                 Attribut, nicht am Prop. --}}
+                                            <flux:timeline.item data-forge-activity
+                                                                x-bind:data-type="row.type">
+                                                {{-- ── Der Knoten: Avatar auf Desktop, Punkt mobil ──
+                                                     28-px-Avatar plus 12-px-Rinne kosten mobil 40 px
+                                                     von rund 330 px Textbreite. Auf Desktop ist „wer"
+                                                     die schnellere Frage als „was" und der Avatar
+                                                     bleibt der Knoten; mobil trägt der Name im Satz
+                                                     dieselbe Auskunft, und der Platz gehört dem Text.
 
-                                                             Flux setzt seine Default-Farben über dieselben
-                                                             Utility-Klassen. Bei gleicher Spezifität entscheidet die
-                                                             Quellreihenfolge im GEBAUTEN Stylesheet, und dort steht
-                                                             `.bg-zinc-400/15` HINTER `.bg-brand-500/10`. Real gerendert
-                                                             und am Bauteil gemessen (Laravel-gerendert, Canvas-Sonde,
-                                                             Negativkontrolle im selben Lauf): **#404040 auf #f1f1f1 =
-                                                             9,18:1 hell** und **#e5e5e5 auf #4e4e4e = 6,61:1 dunkel** —
-                                                             das sind Flux' Graustufen.
+                                                     `zweispaltig` ist die CHASSIS-Schwelle, nicht die
+                                                     Geometrie: hier wechselt nicht ein Maß, sondern
+                                                     das gezeigte DING. Die Hausregel („Geometrie über
+                                                     Container-Queries") ist damit nicht verletzt,
+                                                     sondern nicht berührt. --}}
+                                                <flux:timeline.indicator variant="bare">
+                                                    <template x-if="zweispaltig">
+                                                        {{-- Der Ring markiert Ereignisse, die ein echtes
+                                                             Git-Objekt erzeugt haben; dieselbe Aussage
+                                                             trägt der Kurzhash als TEXT in der Metazeile.
+                                                             Die deckende Unterlage von früher entfällt:
+                                                             die Linie hört jetzt am Knoten auf, statt
+                                                             hinter ihm durchzulaufen. --}}
+                                                        <span class="block rounded-full"
+                                                              x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
+                                                            <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
+                                                        </span>
+                                                    </template>
+                                                    <template x-if="!zweispaltig">
+                                                        <span class="block size-2 rounded-full bg-zinc-300 dark:bg-zinc-600"
+                                                              x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''"></span>
+                                                    </template>
+                                                </flux:timeline.indicator>
+                                                <flux:timeline.content class="min-w-0 py-3">
+                                                <p class="text-sm leading-snug">
+                                                    {{-- Der ROHE Schlüssel im `title` (F6, 2026-08-24).
+                                                         Ein Anzeigename stammt aus einem kind 0, das
+                                                         jeder für sich selbst schreibt: „kein Profil
+                                                         bekannt" und „Profil behauptet, ich sei X" sind
+                                                         am Text nicht zu unterscheiden. Die Chips im
+                                                         Vorgangsband tragen den Schlüssel längst
+                                                         (`:title`), die Zeitleistenzeile trug ihn nicht
+                                                         — wer nachsehen will, konnte es hier als
+                                                         einziger Stelle nicht.
+                                                         `x-bind:title` ausgeschrieben: auf normalem HTML
+                                                         ist die Blade-Kurzform kein Binding. --}}
+                                                    <span class="font-semibold" x-text="row.actorName"
+                                                          x-bind:title="row.actor"></span>
+                                                    <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
+                                                    <span class="font-medium" x-text="row.object"></span>
+                                                </p>
+                                                {{-- Kurzhash und Statuswort stehen HIER und nicht
+                                                     mehr rechts in der Zeile. Als Flex-Geschwister
+                                                     des Satzes schnitten sie ihm auf schmalen
+                                                     Fenstern die Breite ab und standen mitten im
+                                                     Satzbau („hat einen [ca1c707] Pull Request
+                                                     eröffnet") — bei 360px nachgesehen. In der
+                                                     Metazeile sind sie ruhiger Beleg statt
+                                                     Blickfang. --}}
+                                                {{-- ── `<div>` und nicht mehr `<p>` ──────────────────
+                                                     Diese Zeile trägt seit dem Flux-Angleich zwei
+                                                     `flux:badge`, und die rendern über
+                                                     `flux:button-or-div` ein `<div>`
+                                                     (`flux/button-or-div.blade.php` — ein `<span>`
+                                                     gibt es dort nicht, nur `<div>` oder, mit
+                                                     `as="button"`, `<button>`). Ein `<div>` in einem
+                                                     `<p>` ist kein Stilfehler, sondern ein PARSE-
+                                                     Fehler: der Parser schließt das `<p>` vor dem
+                                                     `<div>`, und alles danach fällt aus dem
+                                                     Flex-Kasten heraus. Also trägt die Zeile jetzt
+                                                     ein `<div>` — es ist ohnehin eine Metazeile aus
+                                                     Marken, kein Absatz Fließtext, und weder `<p>`
+                                                     noch `<div>` bringen eine Rolle mit. --}}
+                                                <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                    {{-- KURZ in der Zeile („vor 3 Std"), VOLL im
+                                                         Tooltip. Der Trenner über der Gruppe sagt
+                                                         bereits, welcher Tag gemeint ist; ein
+                                                         zweiter absoluter Zeitstempel je Zeile
+                                                         wiederholte ihn nur — zwanzig Mal dieselbe
+                                                         Jahreszahl untereinander. Wer die Minute
+                                                         braucht, bekommt sie über `title`.
+                                                         `x-bind:title` ausgeschrieben: auf normalem
+                                                         HTML ist die Blade-Kurzform kein Binding. --}}
+                                                    {{-- `data-forge-zeit` (P6): der Prüfstand griff
+                                                         bis hierher auf „das erste `span[title]` der
+                                                         Zeile" — und das ist seit dem P1-Nachzug der
+                                                         Personen-Chip mit dem ROHEN Schlüssel im
+                                                         `title`, nicht die Zeit. Ein Anker, der die
+                                                         Position beschreibt statt der Sache, wandert
+                                                         mit dem nächsten Einschub weiter. --}}
+                                                    <span data-forge-zeit x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
+                                                    {{-- Der Repo-Name steht nur, wo er sich ÄNDERT
+                                                         (`showRepoName` aus `groupTimeline`) — und
+                                                         nach jedem Trenner wieder. In einer Liste,
+                                                         die zehnmal dasselbe Repo betrifft, ist die
+                                                         Wiederholung kein Kontext, sondern Rauschen;
+                                                         der Wechsel dagegen ist genau die
+                                                         Information, die man sucht. --}}
+                                                    <template x-if="row.showRepoName">
+                                                        <span><span aria-hidden="true">·</span> <span x-text="row.repoName"></span></span>
+                                                    </template>
+                                                    {{-- ── Der Repo-Name trägt die Marke — jetzt WIRKLICH ───
+                                                         Hier stand `class="bg-brand-500/10 … text-brand-800"` an
+                                                         einem `flux:badge` und daneben die Behauptung „5,91:1 hell,
+                                                         9,47:1 dunkel". Beide Zahlen waren falsch, und zwar aus
+                                                         einem Grund, der nichts mit Rechnen zu tun hat: die Klassen
+                                                         kamen nie an.
 
-                                                             WCAG war damit nie in Gefahr, im Gegenteil. Verloren war
-                                                             die MARKE: die Repo-Pille sah aus wie die Zustandspille
-                                                             drei Elemente weiter — dieselbe byte-gleiche Chip-Form, die
-                                                             P3 in der Vorgangszeile gerade beseitigt hat.
+                                                         Flux setzt seine Default-Farben über dieselben
+                                                         Utility-Klassen. Bei gleicher Spezifität entscheidet die
+                                                         Quellreihenfolge im GEBAUTEN Stylesheet, und dort steht
+                                                         `.bg-zinc-400/15` HINTER `.bg-brand-500/10`. Real gerendert
+                                                         und am Bauteil gemessen (Laravel-gerendert, Canvas-Sonde,
+                                                         Negativkontrolle im selben Lauf): **#404040 auf #f1f1f1 =
+                                                         9,18:1 hell** und **#e5e5e5 auf #4e4e4e = 6,61:1 dunkel** —
+                                                         das sind Flux' Graustufen.
 
-                                                             `.forge-anker` ist die Antwort und schon da: eine
-                                                             UNGESCHICHTETE Regel schlägt jede `@layer`, und sie trägt
-                                                             genau diese Rolle („der eine getönte Anker in einer grauen
-                                                             Zeile"). Gemessen: **5,92:1 hell** (brand-800 auf
-                                                             brand-500/10 über Weiß) und **9,61:1 dunkel** (brand-300 auf demselben
-                                                             Tint über zinc-900) — beides am gerenderten Bauteil, nicht
-                                                             gerechnet. --}}
-                                                        <template x-if="row.badge">
-                                                            <flux:badge size="sm" class="forge-anker font-semibold tracking-tight"
-                                                                        x-text="row.badge" />
-                                                        </template>
-                                                        {{-- ── Der Zustand: EINE Form für die ganze Forge ───────
-                                                             Die Pille stand bis P1 (2026-08-26) nur hier. Sie ist
-                                                             jetzt `x-group::forge-status-badge` und trägt denselben
-                                                             Zustand in der Issue-, PR-, Patch- und
-                                                             Vorgangslistenzeile — dort ersetzt sie den grauen
-                                                             Statuspunkt UND das versale Zustandswort. Die
-                                                             Begründung für die farblose Bauform steht in der
-                                                             Komponente.
+                                                         WCAG war damit nie in Gefahr, im Gegenteil. Verloren war
+                                                         die MARKE: die Repo-Pille sah aus wie die Zustandspille
+                                                         drei Elemente weiter — dieselbe byte-gleiche Chip-Form, die
+                                                         P3 in der Vorgangszeile gerade beseitigt hat.
 
-                                                             `wort="immer"`: in der Aktivitätsspur bleibt das Wort
-                                                             auf jeder Breite sichtbar. Die Spur ist eine Liste von
-                                                             SÄTZEN, kein Raster — hier ist der Zustand Teil der
-                                                             Aussage und nicht eine Spalte, die mobil in eine eigene
-                                                             Zeile umbricht.
+                                                         `.forge-anker` ist die Antwort und schon da: eine
+                                                         UNGESCHICHTETE Regel schlägt jede `@layer`, und sie trägt
+                                                         genau diese Rolle („der eine getönte Anker in einer grauen
+                                                         Zeile"). Gemessen: **5,92:1 hell** (brand-800 auf
+                                                         brand-500/10 über Weiß) und **9,61:1 dunkel** (brand-300 auf demselben
+                                                         Tint über zinc-900) — beides am gerenderten Bauteil, nicht
+                                                         gerechnet. --}}
+                                                    <template x-if="row.badge">
+                                                        <flux:badge size="sm" class="forge-anker font-semibold tracking-tight"
+                                                                    x-text="row.badge" />
+                                                    </template>
+                                                    {{-- ── Der Zustand: EINE Form für die ganze Forge ───────
+                                                         Die Pille stand bis P1 (2026-08-26) nur hier. Sie ist
+                                                         jetzt `x-group::forge-status-badge` und trägt denselben
+                                                         Zustand in der Issue-, PR-, Patch- und
+                                                         Vorgangslistenzeile — dort ersetzt sie den grauen
+                                                         Statuspunkt UND das versale Zustandswort. Die
+                                                         Begründung für die farblose Bauform steht in der
+                                                         Komponente.
 
-                                                             `row.status` ist der rohe Code aus `statusCodeOf()`
-                                                             (`forgeActivity.ts:93`), `row.statusLabel` das übersetzte
-                                                             Wort — die Fläche rät nichts. --}}
-                                                        <template x-if="row.statusLabel">
-                                                            <x-group::forge-status-badge status="row.status" label="row.statusLabel" wort="immer" />
-                                                        </template>
-                                                    </div>
-                                                    {{-- Zweite Zeile: IMMER `x-text`. Der Rumpf ist
-                                                         Fremdtext und wird hier nie als HTML
-                                                         gebunden — gerendert wird Markdown nur auf
-                                                         der Repo-Seite, über den Artikel-Renderer. --}}
-                                                    <template x-if="row.body">
-                                                        <p class="mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                         `wort="immer"`: in der Aktivitätsspur bleibt das Wort
+                                                         auf jeder Breite sichtbar. Die Spur ist eine Liste von
+                                                         SÄTZEN, kein Raster — hier ist der Zustand Teil der
+                                                         Aussage und nicht eine Spalte, die mobil in eine eigene
+                                                         Zeile umbricht.
+
+                                                         `row.status` ist der rohe Code aus `statusCodeOf()`
+                                                         (`forgeActivity.ts:93`), `row.statusLabel` das übersetzte
+                                                         Wort — die Fläche rät nichts. --}}
+                                                    <template x-if="row.statusLabel">
+                                                        <x-group::forge-status-badge status="row.status" label="row.statusLabel" wort="immer" />
                                                     </template>
                                                 </div>
-                                            </li>
+                                                {{-- Zweite Zeile: IMMER `x-text`. Der Rumpf ist
+                                                     Fremdtext und wird hier nie als HTML
+                                                     gebunden — gerendert wird Markdown nur auf
+                                                     der Repo-Seite, über den Artikel-Renderer. --}}
+                                                <template x-if="row.body">
+                                                    <p class="mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                </template>
+                                                </flux:timeline.content>
+                                            </flux:timeline.item>
                                         </template>
-                                    </ol>
+                                    </flux:timeline>
                                 </section>
                             </template>
                         </div>

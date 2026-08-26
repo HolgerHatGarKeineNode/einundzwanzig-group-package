@@ -2064,3 +2064,109 @@ select:focus[data-flux-control] {
     background: var(--color-zinc-900);
     box-shadow: 0 0 0 1.5px var(--color-zinc-900);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   FLUX-ZEITLEISTE UNTER ALPINE (P5)
+   ══════════════════════════════════════════════════════════════════════════════
+   Flux zeichnet die Leitlinie über
+   `[data-flux-timeline-item]:not(:first-child) [data-flux-timeline-line-leading]`
+   — die erste Zeile bekommt also keine Linie nach oben. Das stimmt, solange die
+   Zeilen die ersten Kinder des `<ol>` sind.
+
+   Unter Alpine sind sie das NICHT: `x-for` hängt die Zeilen HINTER das
+   `<template>`, und das Template bleibt als erstes Kind im DOM stehen. Damit ist
+   die erste sichtbare Zeile `:nth-child(2)`, `:not(:first-child)` trifft sie, und
+   sie zieht eine Linie nach oben ins Leere — ein Stummel über dem ersten Knoten,
+   der behauptet, die Liste ginge weiter.
+
+   Dieselbe Falle hat in diesem Haus schon `divide-y` und `first:` erwischt; sie
+   ist der Grund, warum die handgezogene Vorgängerlinie nur nach UNTEN zeichnete.
+
+   UNGESCHICHTET, weil sie eine Flux-Regel schlagen muss: eine `@layer`-Regel
+   verliert gegen Flux' eigene, unabhängig von der Spezifität. */
+[data-flux-timeline] > template + [data-flux-timeline-item] [data-flux-timeline-line-leading] {
+    display: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DER KARTENKOPF — ein Kasten, Kopf UND Liste (P5)
+   ══════════════════════════════════════════════════════════════════════════════
+   Die Gitea-Signatur: ein 1-px-Rahmen umschliesst Kopf und Liste, oben ein
+   angesetzter Streifen. Es entsteht EIN Ding statt zweier, die zufällig
+   untereinander liegen.
+
+   Warum das hier eine KLASSE ist und keine Klassenkette an drei Stellen: es sind
+   drei Flächen (workspace-weite Vorgangsliste, die Listen der Repo-Seite, die
+   Werkbank), und sie sollen nicht auseinanderlaufen. Genau das war der Zustand
+   vorher — eine Fläche hatte einen Kopf, eine keinen, und die dritte hatte einen
+   ausserhalb des Rahmens.
+
+   Die Farbwahl ist NICHT neu, sondern die des Diff-Kopfs (`.forge-diff-kopf`):
+   hell eine `zinc-50`-Fläche mit `zinc-200`-Unterkante; dunkel liegt der Kopf auf
+   derselben `zinc-900` wie die Karte, dort trägt allein die Unterkante. Zwei
+   Kopfstreifen im selben Haus mit zwei verschiedenen Grautönen wären genau die
+   Uneinheitlichkeit, gegen die dieser Plan geschrieben ist.
+
+   `padding-inline: 0.75rem` ist dieselbe Fluchtlinie wie der `p-3` der Zeilen —
+   Kopf und Zeileninhalt stehen damit übereinander. In P4 wurde nachgemessen, was
+   passiert, wenn sie es nicht tun: 13 px Versatz nach links UND nach rechts.
+
+   Der Radius steht nur OBEN, statt die Karte mit `overflow: hidden` zu
+   beschneiden. `overflow: hidden` hätte die Fokusringe der ersten und letzten
+   Zeile an der Kartenkante abgeschnitten (WCAG 2.4.7 will sie sichtbar). */
+/* Die FLÄCHE des Streifens — für sich nutzbar, weil ein Kopf auch ein
+   SPALTENkopf sein kann und dann sein eigenes Raster mitbringt (die Werkbank
+   trägt `.forge-kopfzeile` mit `30ch 62ch`; ein `display: flex` von aussen
+   hätte deren Fluchtlinie zerstört). */
+.forge-kartenstreifen {
+    border-start-start-radius: var(--radius-card);
+    border-start-end-radius: var(--radius-card);
+    background: var(--color-zinc-50);
+}
+
+.dark .forge-kartenstreifen {
+    background: var(--color-zinc-900);
+}
+
+/* ── Warum die Beschriftung KEIN `flux:heading` ist ───────────────────────────
+   Der Plan schrieb für diesen Streifen „eine `flux:heading size='sm'`-Zeile".
+   Am Stub nachgelesen (`flux/heading.blade.php`) trägt die Komponente hier
+   nichts bei:
+
+     · ohne `level` rendert sie ein `<div>` — also KEINE Überschriften-Semantik,
+       nur Klassen. Der Gewinn wäre null.
+     · `size="sm"` existiert gar nicht; jeder unbekannte Wert fällt in denselben
+       Default-Zweig wie `base` (`text-sm`).
+     · sie setzt `font-medium` (500). Der Streifen braucht 600: rechts daneben
+       steht die Zahl in `text-xs text-muted`, und der Rang zwischen beiden ist
+       das Einzige, was diese Zeile leistet.
+
+   Die Flux-Default-Auflage ist damit nicht verletzt, sondern nicht berührt —
+   sie gilt Komponenten, die einen MECHANISMUS tragen (Reiter, Zeitleiste,
+   Badge). Ein gestyltes `<div>` ist keiner.
+
+   OFFEN, mit Fälligkeit (P6 oder P7, nicht später): ob diese Streifen ECHTE
+   Überschriften sein sollten (`<h3>`) — auf der Workspace-Liste ist jeder
+   Gruppenkopf ein Repo-Name, und Überschriften-Navigation wäre dort ein echter
+   Gewinn (WCAG 1.3.1). Hier bewusst NICHT nebenbei mitgemacht: der Kopf der
+   Workspace-Liste ist bereits ein `<a>`, ein `<h3>` darum verschiebt die
+   Elternkette — und genau die misst die Lageprüfung in
+   `forge-patches.spec.ts` (`…-gruppe-link'].parentElement`). Das wäre eine
+   Sonde, die still das falsche Element misst und grün bleibt. */
+/* Der Titelstreifen: Fläche plus das Layout „Name links, Zahl rechts". */
+.forge-kartenkopf {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 1px solid var(--color-zinc-200);
+    border-start-start-radius: var(--radius-card);
+    border-start-end-radius: var(--radius-card);
+    background: var(--color-zinc-50);
+    padding: 0.5rem 0.75rem;
+}
+
+.dark .forge-kartenkopf {
+    border-color: var(--color-zinc-800);
+    background: var(--color-zinc-900);
+}
