@@ -208,9 +208,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Zahl.** Es gibt keine portable CSS-Regel, die ein geschlossenes
                          `<details>` aufzieht. Also misst `_messeSteckbrief()` die
                          `display`-Berechnung genau dieser Zusammenfassung — sie ist in
-                         der zweispaltigen Form `none`. Dieselbe Bauform wie
-                         `_messeSpalten()` auf der Übersicht und aus demselben Grund: die
-                         Schwelle steht an genau einer Stelle, in `theme.css`. --}}
+                         der zweispaltigen Form `none`. Die Schwelle steht damit an genau
+                         einer Stelle, in `theme.css`.
+
+                         **Es ist die EINZIGE verbliebene Rückmessung am DOM, und das ist
+                         eine Entscheidung, kein Rest.** Hier stand bis P2 (2026-08-26)
+                         „dieselbe Bauform wie `_messeSpalten()` auf der Übersicht" — die
+                         Funktion gibt es nicht mehr. Sie las die FENSTER-Breite zurück,
+                         und dafür gibt es eine Quelle: `$store.viewport.form` kennt Host
+                         UND Breite (P2). Diese hier fragt eine CONTAINER-Schwelle
+                         (`@container repo (min-width: 65rem)`), und die kennt das Fenster
+                         prinzipiell nicht — `matchMedia` kann sie nicht beantworten.
+                         Chassis = die eine Schwelle, Geometrie = Container. --}}
                     {{-- Der Landmark trägt seinen NAMEN selbst. In der schmalen Form
                          benennt ihn die Zusammenfassung; in der Spur ist die
                          `display: none` und damit aus dem Zugänglichkeitsbaum — die

@@ -825,12 +825,22 @@ select:focus[data-flux-control] {
      | Fenster | Bühne | Inhaltsdeckel |
      |---------|-------|---------------|
      |  1280   |  960  |      896      |
-     |  1440   | 1120  |     1056      |
+     |  1440   | 1120  |     1048      |
      |  1920   | 1600  |     1504      |
      |  2560   | 2240  |     1536 (96rem bindet) |
 
-   Zwischen Fenster und Deckel liegen die 20-rem-Rail und zwei Innenabstände,
-   die selbst breitenabhängig sind (`xl:px-8`, `2xl:px-12`). Eine aus der
+   **Nachgemessen mit P2 (2026-08-26).** Die Zeile 1440 stand hier auf 1056 und
+   war seit dem Polster-Umbau falsch: das Seitenpolster wächst seither stetig
+   statt in zwei Stufen. Die Endpunkte 1280 → 896 und 1920 → 1504 sind
+   unverändert — `clamp(2rem, 2.5vw, 3rem)` trifft beide alten Stufenwerte exakt
+   (32 px bei 1280, 48 px bei 1920); dazwischen liegt der Deckel jetzt etwas
+   tiefer und, vor allem, MONOTON. Vorher fiel er an der 2xl-Kante um 31 px,
+   während das Fenster wuchs. Volle Reihe über alle 641 Breiten:
+   `docs/plans/2026-08-26T1912-forge-buzz-gitea-sprache/p2-inhaltsdeckel-messreihe.log`
+   (App-Repo), bewacht in `tests/e2e/desktop-schwelle.spec.ts` (Host-Repo).
+
+   Zwischen Fenster und Deckel liegen die 20-rem-Rail und zwei Innenabstände, die
+   selbst breitenabhängig sind (`xl:px-[clamp(2rem,2.5vw,3rem)]`). Eine aus der
    FENSTERbreite gerechnete Schwelle feuert deshalb am falschen Punkt — und sie
    bräche stumm, sobald die Rail je eine andere Breite bekommt. Der Container
    misst, was wirklich da ist.
@@ -1383,8 +1393,9 @@ select:focus[data-flux-control] {
    ── Warum CONTAINER und nicht `xl:` ─────────────────────────────────────────
    Dieselbe Begründung wie oben bei `.forge-buehne`, und hier mit einer
    zusätzlichen Schärfe: ein `xl:grid-cols-[1fr_24rem]` feuerte bei 1280 px
-   Fenster, wo dieser Fläche 896 px zur Verfügung stehen (Rail 20 rem + 2 ×
-   `xl:px-8`, gemessene Tabelle bei `.forge-buehne`). Die Werkbank fiele damit
+   Fenster, wo dieser Fläche 896 px zur Verfügung stehen (Rail 20 rem + 2 × 32 px
+   Seitenpolster; seit P2 `clamp(2rem, 2.5vw, 3rem)`, das bei 1280 px genau diese
+   32 px trifft — gemessene Tabelle bei `.forge-buehne`). Die Werkbank fiele damit
    auf 456 px — und sie trägt die dichteste Tabelle des Clients.
 
    ── Die Schwelle 65 rem, und woher die Zahl kommt ───────────────────────────
@@ -1485,9 +1496,15 @@ select:focus[data-flux-control] {
    portable CSS-Regel, die ein geschlossenes `<details>` öffnet
    (`::details-content` ist jünger als der Browser-Boden dieses Hauses). Die
    Insel liest den Zustand aber NICHT an einer eigenen Zahl ab, sondern an der
-   `display`-Berechnung genau dieser Zusammenfassung — dieselbe Bauform wie
-   `_messeSpalten()` auf der Übersicht, und aus demselben Grund: die Schwelle
-   steht an EINER Stelle, hier. */
+   `display`-Berechnung genau dieser Zusammenfassung: die Schwelle steht damit an
+   EINER Stelle, hier.
+
+   **Die einzige verbliebene Rückmessung am DOM — bewusst.** Hier stand bis P2
+   (2026-08-26) „dieselbe Bauform wie `_messeSpalten()` auf der Übersicht"; die
+   Funktion ist mit P2 gefallen. Sie las die FENSTER-Breite zurück, und dafür gibt
+   es seither eine Quelle (`$store.viewport.form` kennt Host UND Breite). Diese
+   hier fragt eine CONTAINER-Schwelle, und die kennt das Fenster prinzipiell
+   nicht. */
 .forge-steckbrief > summary {
     cursor: pointer;
     list-style: none;
