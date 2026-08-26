@@ -1451,12 +1451,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      Das ist KEINE Ampel im Sinne der
                                                      Plan-Entscheidung: die galt der
                                                      ZUSTANDS-Pille (die daneben bewusst
-                                                     farblos bleibt), nie den Diff-Zahlen. --}}
+                                                     farblos bleibt), nie den Diff-Zahlen.
+
+                                                     `data-forge-stat-plus`/`-minus` sind der
+                                                     Anker des Kontrast-Riegels in
+                                                     `forge-patches.spec.ts`. Sie stehen hier,
+                                                     weil ein Positions-Selektor
+                                                     (`div:nth-of-type(2)`) beim nächsten
+                                                     Umbau lautlos auf ein anderes Element
+                                                     zeigte — und ein Riegel, der aufs Falsche
+                                                     zeigt, misst weiter und meldet grün. --}}
                                                 <template x-if="patch.stat.files > 0">
                                                     <span class="inline-flex items-center gap-1.5 text-xs" data-forge-patch-stat>
                                                         <span class="text-muted" x-text="$plural(patch.stat.files, '1 Datei', ':count Dateien')"></span>
-                                                        <flux:badge size="sm" color="green" x-text="'+' + patch.stat.additions" />
-                                                        <flux:badge size="sm" color="red" x-text="'−' + patch.stat.deletions" />
+                                                        <flux:badge size="sm" color="green" data-forge-stat-plus x-text="'+' + patch.stat.additions" />
+                                                        <flux:badge size="sm" color="red" data-forge-stat-minus x-text="'−' + patch.stat.deletions" />
                                                     </span>
                                                 </template>
                                                 <template x-if="patch.shortCommit">
@@ -1512,8 +1521,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                          schon grün tönte. Das Vorzeichen bleibt
                                                                          als Zeichen im Text (WCAG 1.4.1). --}}
                                                                     <span class="forge-diff-zahlen">
-                                                                        <flux:badge size="sm" color="green" x-text="'+' + datei.additions" />
-                                                                        <flux:badge size="sm" color="red" x-text="'−' + datei.deletions" />
+                                                                        <flux:badge size="sm" color="green" data-forge-diff-plus x-text="'+' + datei.additions" />
+                                                                        <flux:badge size="sm" color="red" data-forge-diff-minus x-text="'−' + datei.deletions" />
                                                                     </span>
                                                                 </div>
                                                                 <template x-if="datei.binary">
