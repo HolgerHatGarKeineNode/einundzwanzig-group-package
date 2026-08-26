@@ -107,7 +107,7 @@
                          12 px ist zugleich die Größe, in der dieses Haus einen npub
                          sonst schon zeigt (`login-form.blade.php:33`). --}}
                     <template x-if="item.hint">
-                        <span class="block truncate font-mono text-xs text-muted" x-text="item.hint"></span>
+                        <span class="block truncate text-xs text-muted" x-text="item.hint"></span>
                     </template>
                 </span>
                 {{-- Erkennbar als Maschine: der Vorschlag verhält sich beim

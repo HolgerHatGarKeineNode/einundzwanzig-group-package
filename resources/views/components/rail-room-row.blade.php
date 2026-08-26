@@ -104,7 +104,7 @@
     <span x-data="{ imgOrig: false, imgBroken: false }"
           class="relative inline-flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md">
         <template x-if="!room.picture || imgBroken">
-            <span aria-hidden="true" class="font-mono text-sm text-muted">#</span>
+            <span aria-hidden="true" class="text-sm text-muted">#</span>
         </template>
         <template x-if="room.picture && !imgBroken">
             <img alt="" class="size-full object-cover"

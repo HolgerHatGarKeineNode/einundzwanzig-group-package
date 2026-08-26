@@ -1056,5 +1056,6 @@
     "Zugewiesen an :namen": "Hozzárendelve: :namen",
     ":count Zuständige: :namen": ":count felelős: :namen",
     "Reviewer: :namen": "Átnéző: :namen",
-    ":count Reviewer: :namen": ":count átnéző: :namen"
+    ":count Reviewer: :namen": ":count átnéző: :namen",
+    "Räume und Bereiche": "Szobák és területek"
 }

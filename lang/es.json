@@ -1056,5 +1056,6 @@
     "Zugewiesen an :namen": "Asignado a :namen",
     ":count Zuständige: :namen": ":count responsables: :namen",
     "Reviewer: :namen": "Revisor: :namen",
-    ":count Reviewer: :namen": ":count revisores: :namen"
+    ":count Reviewer: :namen": ":count revisores: :namen",
+    "Räume und Bereiche": "Salas y áreas"
 }

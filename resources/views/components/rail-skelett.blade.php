@@ -42,11 +42,17 @@
      nicht bewegt.
 
      KEIN Text, kein einziges Zeichen. Der `#`-Prompt des echten Suchfelds fehlt hier
-     bewusst — er trägt dort `font-mono`, und `--font-mono` ist im Haus-Theme nicht
-     gesetzt (`theme.css` überschreibt nur `--font-sans`), Tailwind liefert seinen
-     eigenen Default. Das Zeichen käme also in einer ZWEITEN Schriftfamilie und
-     wechselte beim Austausch sichtbar die Form. Ein Befund am Bestand, kein Grund,
-     ihn zu vervielfältigen.
+     bewusst — ein Zeichen im Platzhalter behauptet Inhalt, den es noch nicht gibt.
+
+     KORRIGIERT (P6b, 2026-08-27): hier stand als Begründung, der Prompt trage
+     `font-mono` und `--font-mono` sei „im Haus-Theme nicht gesetzt". BEIDE Hälften
+     stimmen nicht mehr. Die Variable IST gesetzt — Tailwind v4 liefert sie selbst
+     mit, das Haus überschreibt nur `--font-sans` (in P4 am gebauten Stylesheet
+     nachgemessen, sieben Kommentare mit derselben Behauptung korrigiert). Und der
+     Prompt trägt seit P6b kein `font-mono` mehr: am gerenderten Baum stand er in
+     `ui-monospace`, während der Rest der Rail in `Inconsolata` läuft — eine zweite
+     Schriftfamilie für ein `#`. Der Grund, ihn hier NICHT zu vervielfältigen, bleibt
+     unverändert; nur trägt ihn jetzt die Platzhalter-Regel und kein Schriftbefund.
 
      ── Höhen kommen aus der TYPO, nicht aus Pixeln ─────────────────────────────────
      Die beiden Kopfzeilen reservieren ihre Höhe über die echten Textklassen

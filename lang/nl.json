@@ -1056,5 +1056,6 @@
     "Zugewiesen an :namen": "Toegewezen aan :namen",
     ":count Zuständige: :namen": ":count toegewezen personen: :namen",
     "Reviewer: :namen": "Reviewer: :namen",
-    ":count Reviewer: :namen": ":count reviewers: :namen"
+    ":count Reviewer: :namen": ":count reviewers: :namen",
+    "Räume und Bereiche": "Kamers en gebieden"
 }

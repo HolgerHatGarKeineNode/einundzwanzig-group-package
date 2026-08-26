@@ -1088,5 +1088,6 @@
     "Zugewiesen an :namen": "Przypisane do :namen",
     ":count Zuständige: :namen": ":count przypisanych osób: :namen",
     "Reviewer: :namen": "Recenzent: :namen",
-    ":count Reviewer: :namen": ":count recenzentów: :namen"
+    ":count Reviewer: :namen": ":count recenzentów: :namen",
+    "Räume und Bereiche": "Pokoje i obszary"
 }
