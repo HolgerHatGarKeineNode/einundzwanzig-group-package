@@ -61,8 +61,6 @@ import {
 } from './railGroups.ts'
 import {
     FORGE_OVERVIEW_HREF,
-    buildForgeNav,
-    flattenForgeNav,
     groupTargets,
     isForgeNodeOpen,
     railTargets,
@@ -72,6 +70,12 @@ import {
     type ForgeNavRepo,
     type RailTarget,
 } from './railForge.ts'
+import {
+    buildWorkspaceModel,
+    isChannelMuted,
+    isChannelPinned,
+    type WorkspaceModel,
+} from './workspaceModel.ts'
 import { subscribeWorkspacePrefs } from './channelPrefs.ts'
 import { subscribeForgeNav } from './forge.ts'
 import { t } from './i18n.ts'
@@ -159,7 +163,13 @@ export type RailState = {
     readonly rooms: RailRoom[]
     /** Die sichtbare Sprungliste über alle offenen Gruppen — Alt+↑/↓ und Enter. */
     readonly targets: RailTarget[]
-    /** Der Forge-Baum der Workspace-Sektion (P1). */
+    /**
+     * **Die eine Ableitung der Workspace-Frage** (P6) — geteilt mit der mobilen
+     * Kanalliste (`nostrWorkspaceRooms` in `bridge.ts`). Baum UND flache Liste
+     * kommen aus demselben Aufruf; siehe `workspaceModel.ts`.
+     */
+    readonly workspaceModel: WorkspaceModel
+    /** Der Forge-Baum der Workspace-Sektion (P1) — die Baum-Fassung des Modells. */
     readonly forgeNav: ForgeNav
     /** Die sichtbaren Baum-Zeilen, abgeflacht — genau das, was das Markup rendert. */
     readonly forgeRows: ForgeNavNode[]
@@ -369,7 +379,10 @@ export const createRail = (): RailState => ({
     },
 
     /**
-     * Der Forge-Baum (P1).
+     * **Die eine Ableitung** (P6) — dieselbe Funktion, aus der die mobile
+     * Kanalliste ihre Zeilen zieht (`nostrWorkspaceRooms._apply()` in
+     * `bridge.ts`). Der Pin-Vorrang, die Repo-Bindung und die Zustände
+     * `pinned`/`muted` stehen seither genau einmal, in `workspaceModel.ts`.
      *
      * **Bei aktiver Suche gibt es keinen Baum.** Eine Suche ist eine flache
      * Trefferliste; eine Hierarchie darüber verbärge Treffer hinter zugeklappten
@@ -377,34 +390,34 @@ export const createRail = (): RailState => ({
      * gibt. Aufgelöst heißt hier zugleich: `claimed` ist leer, die Kanäle stehen
      * flach in ihrer Gruppe und werden ganz normal mitgefiltert — genau der
      * Zustand von vor dieser Phase. Dieselbe Logik wie „gefiltert wird nie
-     * gekappt" in `buildGroups`.
+     * gekappt" in `buildGroups`. Die Regel steht als `filtering` im Modell, damit
+     * beide Fassungen sie aus derselben Quelle bekommen.
+     *
+     * Getter und kein gespiegeltes Feld — aus demselben Grund wie {@link groups}:
+     * ein Feld daneben wäre eine zweite Wahrheit über dieselbe Frage.
      */
-    get forgeNav(): ForgeNav {
+    get workspaceModel(): WorkspaceModel {
         const self = this as RailState
 
-        const filtering = self.query.trim() !== '' || self.scope.group !== null || self.scope.country !== ''
-        if (filtering) {
-            return { nodes: [], claimed: [], collapsed: false, total: 0 }
-        }
-
-        // Angeheftete Kanäle sind für den Baum NICHT verfügbar: der Pin ist die
-        // ausdrückliche Wahl „steht oben" und schlägt die Repo-Bindung, genau wie
-        // er in `buildGroups` schon die Sektion schlägt.
-        const pinned = new Set(self.prefs.pinned ?? [])
-
-        return buildForgeNav({
+        return buildWorkspaceModel({
+            rooms: toRailRooms(self.workspace),
+            prefs: self.prefs,
             repos: self.forgeRepos,
             projects: self.forgeProjects,
-            rooms: toRailRooms(self.workspace).filter((room) => !pinned.has(room.h)),
             activeRoomH: self.activeRoomH,
             activeId: self.activeTargetId.startsWith('room:') ? '' : self.activeTargetId,
+            filtering: self.query.trim() !== '' || self.scope.group !== null || self.scope.country !== '',
+            open: self.open,
         })
     },
 
-    get forgeRows(): ForgeNavNode[] {
-        const self = this as RailState
+    /** Der Forge-Baum (P1) — die Baum-Fassung des Modells. */
+    get forgeNav(): ForgeNav {
+        return (this as RailState).workspaceModel.nav
+    },
 
-        return flattenForgeNav(self.forgeNav.nodes, (node) => self.isNodeOpen(node))
+    get forgeRows(): ForgeNavNode[] {
+        return (this as RailState).workspaceModel.rows
     },
 
     /**
@@ -541,9 +554,10 @@ export const createRail = (): RailState => ({
         const store = (window as unknown as { Alpine?: { store(n: string): { rooms?: Record<string, number> } } })
             .Alpine?.store('unread')
         const all = key === 'workspace' ? toRailRooms(this.workspace) : toRailRooms(this.space)
-        const muted = new Set(this.prefs.muted ?? [])
+        // `isChannelMuted` und kein eigenes Set (P6): das war die dritte Stelle,
+        // die „ist dieser Kanal stumm?" selbst beantwortet hat.
         const hs = all
-            .filter((r) => (key === 'workspace' ? !muted.has(r.h) : groupKeyOf(r) === key))
+            .filter((r) => (key === 'workspace' ? !isChannelMuted(this.prefs, r.h) : groupKeyOf(r) === key))
             .map((r) => r.h)
 
         return sumUnreadRooms(store?.rooms, hs)
@@ -580,8 +594,9 @@ export const createRail = (): RailState => ({
         // und genau dann muss die Gruppe darüber aufgehen. Dieselbe Funktion, die
         // auch `targets` speist — Sektions- UND Baum-Zeilen zählen mit, ein Raum
         // in einer Sektion oder unter einem Repo ist der aktive Raum wie jeder
-        // andere.
-        const rows = flattenForgeNav(this.forgeNav.nodes, () => true)
+        // andere. `allRows` statt eines zweiten `flattenForgeNav`-Aufrufs: die
+        // ungefaltete Liste liefert das Modell mit (P6).
+        const rows = this.workspaceModel.allRows
         for (const key of RAIL_GROUP_ORDER) {
             const targets = groupTargets(this.groupFor(key), key === 'workspace' ? rows : [])
             if (targets.some((target) => target.id === active)) {
@@ -699,19 +714,24 @@ export const createRail = (): RailState => ({
     },
 
     /**
-     * Stummgeschaltet? Gelesen wird aus `prefs.muted` und NICHT aus
-     * `groupFor('workspace').muted`: der Getter `groups` baut bei jedem Zugriff
-     * alle vier Gruppen neu, und diese Frage stellt das Markup einmal PRO ZEILE.
-     * Die Gruppen-Liste trägt dieselbe Auskunft für die Kopf-Summe, wo sie einmal
-     * je Gruppe kostet — dieselbe Quelle, zwei Verbrauchsstellen.
+     * Stummgeschaltet? Beantwortet von {@link isChannelMuted} — der EINEN
+     * Implementierung dieser Frage im Paket (P6). Vorher stand sie hier und ein
+     * zweites Mal in `bridge.ts`.
+     *
+     * **Nicht über {@link workspaceModel}**, obwohl das Modell die Antwort je
+     * Zeile mitführt: der Getter baut bei jedem Zugriff neu, und diese Frage
+     * stellt das Markup einmal PRO ZEILE — die mobile Fassung fragt sie einmal
+     * je Liste. Zwei Verbrauchsstellen, eine Implementierung; das ist die Regel,
+     * nicht ein Kompromiss. Der andere Weg wäre derselbe Fehler wie das
+     * `groupFor('workspace').muted`, das hier schon einmal stand.
      */
     isMuted(room: RailRoom): boolean {
-        return (this.prefs.muted ?? []).includes(room.h)
+        return isChannelMuted(this.prefs, room.h)
     },
 
     /** Angeheftet? Trägt das Nadel-Icon der Zeile — dieselbe Quelle wie {@link isMuted}. */
     isPinned(room: RailRoom): boolean {
-        return (this.prefs.pinned ?? []).includes(room.h)
+        return isChannelPinned(this.prefs, room.h)
     },
 
     /** Stadt als Trefferbegründung — nur, wenn die Suche NICHT über den Namen traf. */
