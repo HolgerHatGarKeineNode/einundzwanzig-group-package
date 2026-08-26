@@ -1,5 +1,11 @@
 /**
- * P5 — die **Repo-Suche der Forge**, rein clientseitig.
+ * P5 — die **Suche der Forge**, rein clientseitig.
+ *
+ * **Seit P7/4 auch über Vorgänge** (Issues, PRs, Patches), nicht nur über
+ * Repositories. Der Grund ist derselbe, aus dem sie hier überhaupt clientseitig
+ * läuft: der Vorgangsbestand liegt ohnehin schon im Speicher — `contentFilters`
+ * holt ihn für die Zählung. Bis dahin durchsuchte das Suchfeld ihn nicht, obwohl
+ * er dalag; wer auf dem Reiter „Issues" tippte, sah die Liste unverändert.
  *
  * Rein bis auf `nostr-tools/nip19` (bech32) — kein Netz, kein Store, keine
  * welshman-Importe; `node --experimental-strip-types --test` lädt das Modul
@@ -118,6 +124,55 @@ const pubkeysOf = (repo: SearchableRepo): string[] => [
 ]
 
 /**
+ * Was die Suche von einem **Vorgang** (Issue, PR, Patch) braucht — P7/4.
+ *
+ * Wieder eine Teilmenge statt der vollen Zeile, und diesmal aus einem zweiten
+ * Grund: die drei Vorgangsformen tragen unterschiedlich viel. Die
+ * workspace-weite Liste (`VorgangRow`) hat aus Kostengründen **keinen Rumpf**
+ * und keine Labels — `renderMarkdown` über alle Vorgänge aller Repos liefe bei
+ * jedem Emit. Die Detailseite hat beides. Die optionalen Felder sind also keine
+ * Bequemlichkeit, sondern die Aussage „diese Fläche kennt das nicht": was fehlt,
+ * wird nicht durchsucht, statt still als leerer Text mitzulaufen.
+ */
+export type SearchableVorgang = {
+    /** Event-Id, hex. Der Anker der Zeile ist ihre gekürzte Form — also suchbar. */
+    id: string
+    title: string
+    /** Verfasser, hex und kleingeschrieben. */
+    author: string
+    /** Aufgelöster Name, wenn die Fläche ihn schon hat. */
+    authorName?: string
+    /** Rumpftext — nur, wo er ohnehin vorliegt. */
+    content?: string
+    /** `t`-Tags der Wurzel. */
+    labels?: string[]
+    /** Auf wen gewartet wird: Zugewiesene bzw. angefragte Reviewer, hex. */
+    wartetAuf?: string[]
+}
+
+/** Die durchsuchbaren TEXT-Felder eines Vorgangs, alle kleingeschrieben. */
+export const vorgangHaystack = (vorgang: SearchableVorgang): string[] => {
+    const felder: string[] = [
+        vorgang.title,
+        vorgang.id,
+        vorgang.author,
+        vorgang.authorName ?? '',
+        vorgang.content ?? '',
+        ...(vorgang.labels ?? []),
+        ...(vorgang.wartetAuf ?? []),
+    ]
+
+    return felder.filter((wert) => typeof wert === 'string' && wert !== '').map((wert) => wert.toLowerCase())
+}
+
+/** Alle Pubkeys eines Vorgangs: Verfasser plus die, auf die gewartet wird. */
+const vorgangPubkeys = (vorgang: SearchableVorgang): string[] => [
+    ...new Set(
+        [vorgang.author, ...(vorgang.wartetAuf ?? [])].filter((pk) => /^[0-9a-f]{64}$/i.test(pk)),
+    ),
+]
+
+/**
  * `npub1…` → Hex, oder `''`, wenn es kein vollständiger npub ist.
  *
  * `nip19.decode` wirft bei unvollständigem oder verfälschtem bech32 — das ist
@@ -162,8 +217,20 @@ export const zerlegeAnfrage = (anfrage: string): Suchbegriff[] =>
         .filter((wort) => wort !== '')
         .map((text) => ({ text, hex: npubZuHex(text), alsNpub: NPUB_PRAEFIX.test(text) }))
 
-/** Trifft EIN vorbereiteter Begriff dieses Repo? */
-const begriffTrifft = (repo: SearchableRepo, heuhaufen: string[], begriff: Suchbegriff): boolean => {
+/**
+ * Trifft EIN vorbereiteter Begriff diesen Heuhaufen?
+ *
+ * **Eine Regel für Repos und Vorgänge**, seit P7/4. Sie nimmt seither Heuhaufen
+ * und Pubkeys statt eines Repos: die npub-Wege sind bei beiden Gegenständen
+ * dieselben, und eine zweite Kopie wäre die zweite Stelle, an der jemand den
+ * teuren Weg 2 vergisst. Die Regel selbst ist Zeichen für Zeichen dieselbe
+ * geblieben.
+ */
+const begriffTrifft = (
+    pubkeys: () => string[],
+    heuhaufen: string[],
+    begriff: Suchbegriff,
+): boolean => {
     if (heuhaufen.some((feld) => feld.includes(begriff.text))) {
         return true
     }
@@ -176,7 +243,10 @@ const begriffTrifft = (repo: SearchableRepo, heuhaufen: string[], begriff: Suchb
     // Weg 2 — der vollständige, aber teure: kodieren und Präfix vergleichen.
     // Er läuft nur, wenn Weg 1 nichts hergab, und nur bei einem npub-Begriff.
     if (begriff.alsNpub) {
-        return pubkeysOf(repo).some((pk) => npubVon(pk).startsWith(begriff.text))
+        // `pubkeys` ist eine Funktion und kein Feld: sie wird NUR hier
+        // gebraucht, und dieser Zweig läuft selten. Ausgerechnet würde sie
+        // sonst je Begriff und je Zeile — bei 500 Repos und jedem Tastendruck.
+        return pubkeys().some((pk) => npubVon(pk).startsWith(begriff.text))
     }
 
     return false
@@ -189,7 +259,7 @@ export const repoTrifftBegriffe = (repo: SearchableRepo, begriffe: Suchbegriff[]
     }
     const heuhaufen = repoHaystack(repo)
 
-    return begriffe.every((begriff) => begriffTrifft(repo, heuhaufen, begriff))
+    return begriffe.every((begriff) => begriffTrifft(() => pubkeysOf(repo), heuhaufen, begriff))
 }
 
 /**
@@ -219,4 +289,51 @@ export const filterRepos = <T extends SearchableRepo>(repos: T[], anfrage: strin
     }
 
     return repos.filter((repo) => repoTrifftBegriffe(repo, begriffe))
+}
+
+// ── Vorgänge (P7/4) ─────────────────────────────────────────────────────────
+
+/**
+ * Trifft ein Vorgang alle vorbereiteten Begriffe? Keine Begriffe = kein Treffer.
+ *
+ * Dieselbe Regel wie bei {@link repoTrifftBegriffe} — UND über Wörter, ODER über
+ * Felder —, nur mit dem Heuhaufen eines Vorgangs. Absichtlich **keine** eigene
+ * Zerlegung: `npub`-Auflösung, Kleinschreibung und Wortgrenzen sind Eigenschaft
+ * der Anfrage, nicht des Gegenstands.
+ */
+export const vorgangTrifftBegriffe = (
+    vorgang: SearchableVorgang,
+    begriffe: Suchbegriff[],
+): boolean => {
+    if (begriffe.length === 0) {
+        return false
+    }
+    const heuhaufen = vorgangHaystack(vorgang)
+
+    return begriffe.every((begriff) => begriffTrifft(() => vorgangPubkeys(vorgang), heuhaufen, begriff))
+}
+
+/** Trifft die Anfrage diesen Vorgang? Leere Anfrage trifft **nichts**. */
+export const vorgangTrifft = (vorgang: SearchableVorgang, anfrage: string): boolean =>
+    vorgangTrifftBegriffe(vorgang, zerlegeAnfrage(anfrage))
+
+/**
+ * Vorgänge nach dem Suchtext auswählen — bei leerer Anfrage **unverändert**
+ * zurück. Wortgleich zu {@link filterRepos} und aus demselben Grund: „nichts
+ * eingegeben" heisst „kein Filter". Die Reihenfolge bleibt; sortiert wird
+ * anderswo (`forgeFilter.ts`), und zwar **nach** dieser Auswahl.
+ *
+ * **`suche…` und nicht `filter…`, obwohl der Zwilling `filterRepos` heisst.**
+ * `forgeFilter.ts` exportiert bereits ein `filtereVorgaenge` — das ist der
+ * Scope („alle / von mir / mir zugewiesen"), etwas ganz anderes. Beide werden in
+ * `forge.ts` **ineinander verschachtelt** aufgerufen; zwei Namen, die sich um
+ * einen Buchstaben unterscheiden, wären dort eine Verwechslung mit Ansage.
+ */
+export const sucheVorgaenge = <T extends SearchableVorgang>(vorgaenge: T[], anfrage: string): T[] => {
+    const begriffe = zerlegeAnfrage(anfrage)
+    if (begriffe.length === 0) {
+        return vorgaenge
+    }
+
+    return vorgaenge.filter((vorgang) => vorgangTrifftBegriffe(vorgang, begriffe))
 }

@@ -161,6 +161,23 @@ const HEX64 = /^[0-9a-f]{64}$/
  */
 export const isPubkey = (value: string): boolean => HEX64.test(value.toLowerCase())
 
+/**
+ * Sieht das aus wie eine Git-Objekt-Id? (P7, 2026-08-26)
+ *
+ * **Eine Formprüfung, keine Existenzaussage** — wie bei {@link parseRepoAddress}
+ * gilt: die Zeichenkette ist Fremdeingabe, ihr Ziel kann es nie gegeben haben.
+ *
+ * `7..64` und nicht `40|64`: Git kürzt Hashes im Alltag auf sieben Stellen, und
+ * die Anzeige tut es auch (`shortCommit` in `forge.ts` benutzt **diese**
+ * Funktion). Enger wäre spec-treuer — Buzz' Builder verlangt volle 40 —, würde
+ * aber einen gekürzten Hash aus einem fremden Client wegwerfen, obwohl er
+ * lesbar und verlinkbar ist. Wichtig ist die Untergrenze: ohne sie stünde
+ * `["merge-commit", "-"]` als Commit im Bild.
+ */
+const COMMIT_ID = /^[0-9a-f]{7,64}$/
+
+export const isCommitId = (value: string): boolean => COMMIT_ID.test(value.toLowerCase())
+
 // ── Adressen ────────────────────────────────────────────────────────────────
 
 /** Die Koordinate eines Repos, wie sie im `a`-Tag steht. */
@@ -424,6 +441,51 @@ export const buildRepos = (repoEvents: ForgeEvent[], deletionEvents: ForgeEvent[
         .map(toRepo)
         .filter((repo): repo is Repo => repo !== null)
         .sort((a, b) => b.createdAt - a.createdAt || a.address.localeCompare(b.address))
+}
+
+/**
+ * Repos, die denselben `euc` tragen wie dieses — **ohne es selbst** (P7/3).
+ *
+ * ── Warum das Wort „Fork" hier NICHT steht ──────────────────────────────────
+ *
+ * `["r", <commit>, "euc"]` ist der *earliest unique commit* eines Repos: zwei
+ * Repos mit demselben `euc` haben nachweislich dieselbe Wurzel. Das ist eine
+ * **Äquivalenz**, keine Richtung. Wer daraus „B ist ein Fork von A" macht,
+ * braucht eine Reihenfolge, und die gibt es hier nicht:
+ *
+ * - `created_at` taugt nicht. Ein 30617 ist ersetzbar; der Zeitstempel ist der
+ *   der **letzten Neuankündigung**, nicht der Entstehung. Ein Repo, das gestern
+ *   seine Beschreibung geändert hat, sähe damit jünger aus als sein eigener
+ *   Fork.
+ * - Der `euc` selbst trägt keinen Verweis auf ein Ursprungs-Repo, und NIP-34
+ *   kennt kein `fork-of`-Tag.
+ *
+ * Die ehrliche Aussage ist deshalb „dieselbe Historie", nicht „Original und
+ * Kopie" — und genau so heißt die Funktion.
+ *
+ * **Ein leerer `euc` verwandtschaftet nichts.** Sonst fielen alle Repos ohne
+ * `r`-Tag in eine Riesengruppe; die häufigste Angabe wäre die stärkste
+ * Behauptung. Ebenso zählt die eigene Adresse nie mit — auch dann nicht, wenn
+ * sie zweimal in der Liste steht.
+ */
+export const verwandteRepos = <T extends { address: string; euc: string }>(
+    repo: T,
+    alle: readonly T[],
+): T[] => {
+    const euc = repo.euc.toLowerCase()
+    if (!isCommitId(euc)) {
+        return []
+    }
+    const gesehen = new Set<string>([repo.address])
+
+    return alle.filter((kandidat) => {
+        if (kandidat.euc.toLowerCase() !== euc || gesehen.has(kandidat.address)) {
+            return false
+        }
+        gesehen.add(kandidat.address)
+
+        return true
+    })
 }
 
 // ── Repo-Zustand (30618) ────────────────────────────────────────────────────
@@ -890,6 +952,83 @@ export const patchStatusFrom = (statusEvent: ForgeEvent | null): PatchStatus => 
         default:
             return 'open'
     }
+}
+
+// ── Was beim Anwenden/Mergen herauskam (1631) ───────────────────────────────
+
+/**
+ * Wo ein Pull Request oder Patch gelandet ist — die Auskunft aus dem 1631.
+ *
+ * Beide Felder sind leer, solange kein gültiges 1631 vorliegt; das ist der
+ * Normalfall und keine Lücke.
+ */
+export type MergeInfo = {
+    /** `merge-commit` — der Merge-Commit, wenn zusammengeführt wurde. */
+    mergeCommit: string
+    /** `applied-as-commits` — die Commits, als die angewandt wurde. */
+    appliedAsCommits: string[]
+}
+
+const KEINE_MERGE_INFO: MergeInfo = { mergeCommit: '', appliedAsCommits: [] }
+
+/**
+ * `merge-commit` und `applied-as-commits` aus dem **gefalteten** Status lesen
+ * (P7/2, NIP-34).
+ *
+ * ── Drei Dinge, die man hier falsch macht ───────────────────────────────────
+ *
+ * 1. **Nur ein 1631 trägt sie.** NIP-34 nennt beide Tags ausdrücklich unter
+ *    „Status: Applied/Merged"; Buzz' Builder lehnt sie an jedem anderen Status
+ *    sogar ab (`builders.rs:1386-1390`: „only apply to the merged/resolved
+ *    status"). Ein `merge-commit` an einem 1632 ist deshalb kein Merge, sondern
+ *    eine Behauptung, die kein Schreiber dieses Protokolls erzeugt — sie wird
+ *    verworfen, nicht angezeigt.
+ * 2. **Der Absender muss berechtigt sein.** Diese Funktion prüft das NICHT
+ *    selbst: sie bekommt das Ergebnis von {@link foldStatus}, und dort sitzt
+ *    Regel 1 des Dateikopfs. Wer sie mit einem beliebigen Ereignis aufruft,
+ *    umgeht den Riegel — deshalb nimmt sie `ForgeEvent | null` und nicht eine
+ *    Liste.
+ * 3. **Nicht über den `r`-Tag gehen.** Buzz schreibt zu jedem Merge- und
+ *    Anwendungs-Commit zusätzlich ein `["r", <commit>]` (`builders.rs:1412,1422`)
+ *    — dasselbe Tag trägt am 30617 den `euc` und am 1631 laut Spec den
+ *    „earliest unique commit id of repo". Ein `r`-Tag ist hier also mehrdeutig;
+ *    die benannten Tags sind es nicht.
+ *
+ * Mehrwertig **und** wiederholt einwertig werden beide gelesen
+ * (`tagValuesFlat`): die Spec schreibt `["applied-as-commits", c1, c2, …]`, ein
+ * anderer Client darf es auch zeilenweise sagen.
+ */
+export const mergeInfoOf = (statusEvent: ForgeEvent | null): MergeInfo => {
+    if (!statusEvent || statusEvent.kind !== GIT_STATUS_APPLIED) {
+        return KEINE_MERGE_INFO
+    }
+    const mergeCommit = tagValue(statusEvent, 'merge-commit').toLowerCase()
+
+    return {
+        mergeCommit: isCommitId(mergeCommit) ? mergeCommit : '',
+        appliedAsCommits: [
+            ...new Set(
+                tagValuesFlat(statusEvent, 'applied-as-commits')
+                    .map((wert) => wert.toLowerCase())
+                    .filter(isCommitId),
+            ),
+        ],
+    }
+}
+
+/**
+ * Der `merge-base` eines 1618/1619 — der jüngste gemeinsame Vorfahr mit dem
+ * Zielbranch (NIP-34, optional).
+ *
+ * **Der Schlüssel zum PR-Diff**, und der Grund, warum das Feld gelesen wird,
+ * obwohl heute noch nichts es zeigt: ein 1618 trägt keinen Patch, nur einen
+ * Tip-Commit. Was ein PR *ändert*, ist die Strecke `merge-base..tip` — ohne die
+ * Basis wäre der Vergleichspunkt geraten.
+ */
+export const mergeBaseOf = (event: ForgeEvent): string => {
+    const wert = tagValue(event, 'merge-base').toLowerCase()
+
+    return isCommitId(wert) ? wert : ''
 }
 
 // ── Vorgangsformen: Zuweisung, Reviewer, Freigabe ───────────────────────────
@@ -1755,6 +1894,8 @@ export type PullRequestUpdate = {
     author: string
     content: string
     commit: string
+    /** `merge-base` dieses Standes — ein Rebase verschiebt ihn (P7/2). */
+    mergeBase: string
     createdAt: number
 }
 
@@ -1776,10 +1917,33 @@ export type PullRequest = {
     changeRequests: ReviewDecision[]
     /** Quell-Branch (`branch-name`), `''` wenn keiner angegeben ist. */
     branch: string
-    /** Ziel-Branch (`target-branch`). */
-    targetBranch: string
-    /** Aktueller Commit: aus dem jüngsten vertrauten 1619, sonst aus dem 1618. */
+    /**
+     * Aktueller Commit: aus dem jüngsten vertrauten 1619, sonst aus dem 1618.
+     *
+     * **Hier stand bis P7 ein `targetBranch` daneben** (`target-branch`-Tag).
+     * Es war per Konstruktion leer: den Tag schreibt weder NIP-34 noch Buzz —
+     * `build_git_pull_request` setzt `branch-name`, `merge-base`, `c`, `clone`,
+     * `subject`, `t`, `a`, `p`, `r`, `h`, `e`, mehr nicht. Ein Feld, das nie
+     * einen Wert hat, ist keine Lücke im Bild, sondern eine falsche Zusage im
+     * Modell: die Fläche fragt es ab, bekommt `''` und zeigt „unbekannt", wo
+     * gar nichts unbekannt ist.
+     *
+     * **Was an seine Stelle tritt:** die Basis, nicht der Name. `merge-base`
+     * ({@link mergeBase}) benennt den Punkt, gegen den dieser PR gerechnet wird
+     * — als Commit-Id und damit prüfbar. Wer trotzdem einen Branch-NAMEN zeigen
+     * will, nimmt den des Repos (`default-branch` am 30617, sonst `HEAD` am
+     * 30618); das ist eine Auskunft über das Repository, nicht über den PR, und
+     * gehört deshalb nicht an dieses Modell.
+     */
     commit: string
+    /**
+     * Jüngster gemeinsamer Vorfahr mit dem Zielbranch (`merge-base`), `''` wenn
+     * keiner genannt ist. Aus dem jüngsten vertrauten 1619, sonst aus dem 1618 —
+     * dieselbe Regel wie beim Commit, denn ein Rebase verschiebt beides.
+     */
+    mergeBase: string
+    /** Wo dieser PR gelandet ist — leer, solange kein 1631 vorliegt. */
+    merge: MergeInfo
     cloneUrls: string[]
     updateCount: number
     updates: PullRequestUpdate[]
@@ -1823,6 +1987,7 @@ export const toPullRequest = (
             author: event.pubkey.toLowerCase(),
             content: event.content,
             commit: tagValue(event, 'c'),
+            mergeBase: mergeBaseOf(event),
             createdAt: event.created_at,
         }))
     const newestUpdate = updates[updates.length - 1]
@@ -1851,8 +2016,14 @@ export const toPullRequest = (
         approvals: reviews.approvals,
         changeRequests: reviews.changeRequests,
         branch: tagValue(root, 'branch-name'),
-        targetBranch: tagValue(root, 'target-branch'),
         commit,
+        // Dieselbe Regel wie beim Commit: der jüngste vertraute Stand gewinnt.
+        // Ein Rebase schreibt ein 1619 mit neuem `c` UND neuem `merge-base` —
+        // die alte Basis gehört dann zu einem Diff, den es nicht mehr gibt.
+        // `||` und nicht `??`: ein 1619 ohne `merge-base` liefert `''`, und dann
+        // ist die Angabe der Wurzel die beste vorhandene.
+        mergeBase: newestUpdate?.mergeBase || mergeBaseOf(root),
+        merge: mergeInfoOf(status),
         cloneUrls: tagValuesFlat(root, 'clone'),
         updateCount: updates.length,
         updates,
@@ -1908,6 +2079,15 @@ export type Patch = {
     commit: string
     /** Eltern-Commit (`parent-commit`), sonst `''`. */
     parentCommit: string
+    /**
+     * Als was dieser Patch angewandt wurde — aus dem 1631 (P7/2).
+     *
+     * Beim Patch ist `appliedAsCommits` der Normalfall und `mergeCommit` die
+     * Ausnahme: `git am` erzeugt Commits, keinen Merge. Beides steht trotzdem
+     * da, weil NIP-34 beides an demselben Kind erlaubt und ein Client, der nur
+     * eins liest, den anderen Weg still verschweigt.
+     */
+    merge: MergeInfo
     /** `["t","root"]` — erster Patch einer neuen Serie. */
     isRoot: boolean
     /** `["t","root-revision"]` — erster Patch einer Neufassung. */
@@ -1961,6 +2141,7 @@ export const toPatch = (
         status: patchStatusFrom(status),
         commit: tagValue(root, 'commit'),
         parentCommit: tagValue(root, 'parent-commit'),
+        merge: mergeInfoOf(status),
         isRoot: labels.some((label) => label.toLowerCase() === 'root'),
         isRootRevision: labels.some((label) => label.toLowerCase() === 'root-revision'),
         inReplyTo: root.tags.find((tag) => tag[0] === 'e' && tag[3] === 'reply')?.[1] ?? '',

@@ -77,7 +77,16 @@ import { readVorgang, tabForVorgang, withVorgang, type VorgangArt, type VorgangZ
 import { DESKTOP_QUERY } from './viewport.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
 import { diffStat, parseUnifiedDiff, patchBody, type DiffStat, type ParsedDiff } from './forgeDiff.ts'
-import { filterRepos } from './forgeSearch.ts'
+import { filterRepos, sucheVorgaenge } from './forgeSearch.ts'
+import {
+    FORGE_LIST_LIMIT,
+    FORGE_ROOT_LIMIT,
+    TOMBSTONE_CHUNK,
+    contentFilters,
+    overviewFilters,
+    repoContentFilters,
+    tombstoneFilters,
+} from './forgeAbfragen.ts'
 // NUR die REINEN Helfer statisch — `gitBrowser.ts` wird dynamisch geladen,
 // sonst läge `isomorphic-git` (84 kB gzip) im Chunk, den jede Seite zieht.
 import {
@@ -124,11 +133,14 @@ import {
     buildRepos,
     foldRepoState,
     gruppiereNachRepo,
+    isCommitId,
     isPubkey,
     maintainerLookupFor,
+    repoAddressOf,
     reviewerRows,
     truncatedLists,
     unclaimedRepos,
+    verwandteRepos,
     type ForgeEvent,
     type Issue,
     type Patch,
@@ -168,12 +180,12 @@ import {
 
 // ── Grenzen ─────────────────────────────────────────────────────────────────
 
-/** Obergrenze der Bestandslisten. Buzz deckelt selbst auf `max_limit: 1000`. */
-export const FORGE_LIST_LIMIT = 500
-/** Obergrenze für Issues und PRs je Repo (wie im Referenzclient). */
-export const FORGE_ROOT_LIMIT = 200
-/** Höchstzahl `#a`-Werte je Grabstein-Anfrage. */
-export const TOMBSTONE_CHUNK = 100
+/**
+ * Die Deckel und die Relay-Filter liegen seit P7 in `forgeAbfragen.ts` — rein
+ * und damit prüfbar. Hier bleiben sie als Re-Export stehen, weil sie zur
+ * Aussenseite dieser Datei gehören; die Definition steht genau einmal.
+ */
+export { FORGE_LIST_LIMIT, FORGE_ROOT_LIMIT, TOMBSTONE_CHUNK } from './forgeAbfragen.ts'
 /** Wie viele Zeilen die Zeitleiste höchstens zeigt (wie im Referenzclient: 30). */
 export const ACTIVITY_LIMIT = 50
 
@@ -204,45 +216,13 @@ export const decodeRepoNaddr = (naddr: string): { owner: string; dtag: string } 
 }
 
 // ── Filter ──────────────────────────────────────────────────────────────────
-
-/** Repos, Projekte und Branch-Zustände — der Bestand der Übersichtsseite. */
-const overviewFilters = (relaySelf: string): Filter[] => [
-    { kinds: [REPO_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
-    { kinds: [PROJECT_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
-    // Der `authors`-Filter ist hier die eigentliche Aussage: siehe Eigenheit 1
-    // im Modulkopf. Ohne bekanntes `self` bleibt er weg — dann liefert der Relay
-    // alle 30618 und `foldRepoState` sortiert die unberechtigten selbst aus.
-    relaySelf
-        ? { kinds: [REPO_STATE], authors: [relaySelf], limit: FORGE_LIST_LIMIT }
-        : { kinds: [REPO_STATE], limit: FORGE_LIST_LIMIT },
-]
-
-/** Issues, PRs, PR-Updates, Statuswechsel und Kommentare zu gegebenen Repos. */
-const contentFilters = (addresses: string[]): Filter[] =>
-    addresses.length === 0
-        ? []
-        : [
-              { kinds: [GIT_ISSUE], '#a': addresses, limit: FORGE_ROOT_LIMIT },
-              // 1617 seit dem 2026-08-23 (P5). Eigener Filter statt eines
-              // gemeinsamen mit 1621/1618: `limit` gilt je Filter, und ein
-              // geteiltes Budget liesse die eine Art die andere verdraengen.
-              { kinds: [GIT_PATCH], '#a': addresses, limit: FORGE_ROOT_LIMIT },
-              { kinds: [GIT_PULL_REQUEST], '#a': addresses, limit: FORGE_ROOT_LIMIT },
-              { kinds: [GIT_PR_UPDATE], '#a': addresses, limit: FORGE_LIST_LIMIT },
-              { kinds: [...GIT_STATUS_KINDS], '#a': addresses, limit: FORGE_LIST_LIMIT },
-              // Eigenheit 2: kind 1, nicht 1111.
-              { kinds: [FORGE_COMMENT], '#a': addresses, limit: FORGE_LIST_LIMIT },
-          ]
-
-/** Grabsteine, gescopet über `#a` (Eigenheit 3). */
-const tombstoneFilters = (addresses: string[]): Filter[] => {
-    const filters: Filter[] = []
-    for (let i = 0; i < addresses.length; i += TOMBSTONE_CHUNK) {
-        filters.push({ kinds: [DELETION], '#a': addresses.slice(i, i + TOMBSTONE_CHUNK) })
-    }
-
-    return filters
-}
+//
+// Die Relay-Filter selbst stehen seit P7 in `forgeAbfragen.ts` — rein, ohne
+// welshman und damit unter `node --test` prüfbar. Hier stand bis dahin nur EIN
+// Zuschnitt (`contentFilters` über alle Repo-Adressen), und die Detailseite
+// benutzte ihn mit: ein Repo konnte auf seiner eigenen Seite Issues fehlen
+// sehen, weil ein anderes das gemeinsame `limit` aufgebraucht hatte. Der
+// repo-gescopte Gegenzuschnitt ist `repoContentFilters`.
 
 /**
  * Der lokale Filter über den geteilten `repository`.
@@ -1201,11 +1181,33 @@ export type PatchRow = Omit<Patch, 'comments'> & {
     comments: CommentRow[]
 }
 
+/**
+ * Ein Repo mit derselben Historie (`euc`) — anzeigefertig (P7/3).
+ *
+ * **Bewusst „verwandt" und nicht „Fork":** siehe {@link verwandteRepos}. Aus
+ * dem `euc` folgt, dass zwei Repos dieselbe Wurzel haben, **nicht**, welches
+ * von welchem abstammt. Eine Fläche, die hier „Fork von X" schreibt, behauptet
+ * eine Richtung, die im Protokoll nicht steht.
+ */
+export type VerwandtesRepo = {
+    address: string
+    /** Ziel der Zeile: die Detailseite dieses Repos. */
+    naddr: string
+    name: string
+    ownerName: string
+}
+
 export type RepoView = {
     repo: RepoRow
     issues: IssueRow[]
     patches: PatchRow[]
     pullRequests: PullRequestRow[]
+    /**
+     * Repos mit demselben `euc`, ohne dieses selbst. Leer ist der Normalfall —
+     * und heißt „keins bekannt", nicht „keins vorhanden": gesehen wird nur, was
+     * dieser Workspace kennt.
+     */
+    verwandte: VerwandtesRepo[]
     /**
      * Dieselbe Tages-Gruppierung wie auf der Übersicht — aber OHNE Repo-Namen in
      * den Zeilen: hier ist er für alle derselbe und steht als Seitentitel über
@@ -1299,8 +1301,12 @@ const toCommentRow = (comment: { id: string; author: string; content: string; cr
 })
 
 const SHORT_HASH = 7
-const shortCommit = (commit: string): string =>
-    /^[0-9a-f]{7,64}$/i.test(commit) ? commit.slice(0, SHORT_HASH) : ''
+/**
+ * Die Formprüfung kommt seit P7 aus `forgeModels.ts` — dieselbe Regel, die dort
+ * über `merge-commit` und `merge-base` entscheidet. Zwei Kopien wären zwei
+ * Gelegenheiten, sie auseinanderlaufen zu lassen (F1, 2026-08-24, `isPubkey`).
+ */
+const shortCommit = (commit: string): string => (isCommitId(commit) ? commit.slice(0, SHORT_HASH) : '')
 
 /** Ein einzelnes Repository mit seinen Issues, PRs und seiner Zeitleiste. */
 export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
@@ -1375,6 +1381,18 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
 
             return {
                 repo: row,
+                // `alleRepos` lag ohnehin vor (es beantwortet `dtagGeteilt`) —
+                // die Verwandtschaft kostet keine zusätzliche Abfrage, nur einen
+                // Durchlauf über eine Liste, die schon im Speicher steht.
+                verwandte: verwandteRepos(repo, alleRepos).map((andere) => ({
+                    address: andere.address,
+                    // Mit Relay-Hinweis wie an den beiden anderen Fundstellen:
+                    // ein `naddr`, den jemand aus der App kopiert, soll auch in
+                    // einem fremden Client sagen, wo das Repo liegt (NIP-19).
+                    naddr: naddrForRepo(andere.owner, andere.dtag, WORKSPACE_URL ? [WORKSPACE_URL] : []),
+                    name: andere.name,
+                    ownerName: nameOf(andere.owner),
+                })),
                 issues: issues.map((issue) => ({
                     ...issue,
                     authorName: nameOf(issue.author),
@@ -1513,6 +1531,71 @@ export const loadForge = async (relaySelf: string, signal?: AbortSignal): Promis
     const rest = await load({
         relays: [WORKSPACE_URL],
         filters: [...content, ...tombstoneFilters(addresses), ...tombstoneFiltersForCached(content)],
+        signal,
+    })
+    warm(rest)
+
+    return { complete, count: base.length + local.length + rest.length }
+}
+
+/**
+ * Bestand für **eine** Repo-Seite laden — der Ladeweg der Detailfläche (P7/1).
+ *
+ * Unterschied zu {@link loadForge} in genau einem Punkt, und der ist der ganze
+ * Zweck: die **zweite** Runde fragt nur nach diesem einen Repo
+ * ({@link repoContentFilters}). `FORGE_ROOT_LIMIT` ist damit dieses Repos
+ * eigenes Budget; kein Nachbar kann es aufbrauchen. Vorher lief hier
+ * `loadForge`, also derselbe workspace-weite Zuschnitt wie auf der Übersicht —
+ * bei einem aktiven Nachbarn zeigte die Seite still eine gekürzte Liste.
+ *
+ * **Die erste Runde bleibt global, und das ist kein Versehen.** Diese Fläche
+ * braucht den Repo-BESTAND, nicht nur ihr eigenes Announcement: `deriveRepoView`
+ * entscheidet daran, ob ein zweites sichtbares Repo denselben `d`-Tag trägt (N1,
+ * dann ist ein relay-signierter Branch-Zustand nicht zuzuordnen), und seit P7/3
+ * findet sie darüber die Repos mit gleichem `euc`. Runde 1 kostet drei Filter
+ * mit `limit: 500` und trägt keinen `#a`-Deckel — sie war nie das Problem.
+ *
+ * **Die Adresse kommt aus dem `naddr`, nicht aus Runde 1.** Sie ist darin
+ * vollständig enthalten (`kind:pubkey:d`), und das schliesst nebenbei die Lücke,
+ * an der {@link loadForge} bei leerem Rückgabewert die zweite Runde ganz
+ * ausliess (siehe {@link localForgeEvents}): hier gibt es nichts abzuleiten.
+ */
+export const loadRepoDetail = async (
+    naddr: string,
+    relaySelf: string,
+    signal?: AbortSignal,
+): Promise<ForgeLoadOutcome> => {
+    const ziel = decodeRepoNaddr(naddr)
+    if (!WORKSPACE_URL || !ziel) {
+        return NOT_ASKED
+    }
+    await ensureRenderer().catch(() => {
+        // Ohne Renderer bleibt der Text roh — die Liste selbst trägt trotzdem.
+    })
+    await forgeCacheReady()
+
+    let complete = false
+    const overview = overviewFilters(relaySelf)
+    const base = await load({
+        relays: [WORKSPACE_URL],
+        filters: overview,
+        signal,
+        onEose: () => {
+            complete = true
+        },
+    })
+    warm(base)
+
+    const local = localForgeEvents(overview)
+    if (signal?.aborted) {
+        return { complete, count: base.length + local.length }
+    }
+
+    const address = repoAddressOf(ziel.owner, ziel.dtag)
+    const content = repoContentFilters(address)
+    const rest = await load({
+        relays: [WORKSPACE_URL],
+        filters: [...content, ...tombstoneFilters([address]), ...tombstoneFiltersForCached(content)],
         signal,
     })
     warm(rest)
@@ -1742,6 +1825,14 @@ type ForgeState = {
     sichtbareRepos(): RepoRow[]
     /** Steht eine Suche an, die nichts gefunden hat? */
     ohneTreffer(): boolean
+    /**
+     * Wie viele Zeilen die aktive Liste NACH der Suche zeigt — ohne Scope.
+     *
+     * Getrennt von {@link sichtbareAnzahl}, weil {@link ohneTreffer} eine
+     * Aussage ÜBER DIE SUCHE macht. Zählte sie den Scope mit, stünde
+     * „Suche zurücksetzen" unter einer Liste, die der Scope geleert hat.
+     */
+    _sucheTreffer(): number
     /** Der angemeldete Pubkey — `''` heisst: nicht angemeldet. */
     viewer: string
     _unsubViewer: (() => void) | null
@@ -1760,7 +1851,7 @@ type ForgeState = {
     sichtbareAnzahl(): number
     /** Wie viele es ohne Suche und Scope wären — die Bezugsgrösse daneben. */
     gesamtAnzahl(): number
-    /** Scope und Sortierung innerhalb der Repo-Gruppen anwenden. */
+    /** Suche, Scope und Sortierung innerhalb der Repo-Gruppen anwenden. */
     _gefilterteGruppen(gruppen: VorgangGruppe[]): VorgangGruppe[]
     /** Suchfeld leeren. */
     sucheLoeschen(): void
@@ -2418,12 +2509,22 @@ export function wireForge(Alpine: {
 
                 return roh.reduce((n, gruppe) => n + gruppe.items.length, 0)
             },
+            _sucheTreffer() {
+                if (this.listeAktiv() === 'repos') {
+                    return filterRepos(this.overview.repos, this.suche).length
+                }
+                const roh =
+                    this.listeAktiv() === 'issues' ? this.overview.issueGroups : this.overview.pullGroups
+
+                return roh.reduce((n, gruppe) => n + sucheVorgaenge(gruppe.items, this.suche).length, 0)
+            },
+            /**
+             * Seit P7/4 gilt die Frage für die AKTIVE Liste, nicht mehr nur für
+             * die Repos: die Suche wirkt jetzt auf allen dreien. Vorher hätte
+             * eine leere Issue-Liste unter einer Suche kommentarlos dagestanden.
+             */
             ohneTreffer() {
-                return (
-                    this.suche.trim() !== '' &&
-                    this.overview.repos.length > 0 &&
-                    this.sichtbareRepos().length === 0
-                )
+                return this.suche.trim() !== '' && this.gesamtAnzahl() > 0 && this._sucheTreffer() === 0
             },
             sucheLoeschen() {
                 this.suche = ''
@@ -2466,13 +2567,27 @@ export function wireForge(Alpine: {
             pullGroups() {
                 return this._gefilterteGruppen(this.overview.pullGroups)
             },
+            /**
+             * Drei Stufen, und die Reihenfolge ist keine Geschmacksfrage:
+             * **Suche → Scope → Sortierung.** Erst was gemeint ist (Text), dann
+             * wessen es ist (Scope), dann in welcher Reihenfolge. Umgekehrt
+             * sortierte man Zeilen, die gleich wieder wegfallen.
+             *
+             * Die Suche ist seit P7/4 dabei. Vorher filterte das Feld
+             * ausschliesslich Repositories — auf den Reitern „Issues" und „Pull
+             * Requests" tat es sichtbar nichts, obwohl der Bestand im Speicher
+             * lag.
+             */
             _gefilterteGruppen(gruppen: VorgangGruppe[]) {
                 return gruppen
                     .map((gruppe) => ({
                         ...gruppe,
                         items: sortiereVorgaenge(
                             filtereVorgaenge(
-                                gruppe.items.map((row) => ({ ...row, assignees: row.wartetAuf })),
+                                sucheVorgaenge(gruppe.items, this.suche).map((row) => ({
+                                    ...row,
+                                    assignees: row.wartetAuf,
+                                })),
                                 this.scope,
                                 this.viewer,
                             ),
@@ -2744,7 +2859,14 @@ export function wireForge(Alpine: {
             },
             async _load() {
                 try {
-                    const outcome = await loadForge(this._relaySelf, this._controller?.signal)
+                    // Repo-gescopt (P7/1): `loadForge` stand hier bis zum
+                    // 2026-08-26 und teilte `FORGE_ROOT_LIMIT` mit jedem anderen
+                    // Repo des Workspace.
+                    const outcome = await loadRepoDetail(
+                        this._naddr,
+                        this._relaySelf,
+                        this._controller?.signal,
+                    )
                     if (this._dead) {
                         return
                     }
