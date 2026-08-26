@@ -194,7 +194,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                             <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
 
-                            <div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
+                            <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                 {{-- npub: 1-Klick-Kopieren (copy() im nostrAuth-Island, „Kopiert"-Toast). --}}
                                 <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
                                         class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
@@ -720,7 +720,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                       `$store.viewport` ist dabei keine zweite Wahrheit über den
                                       Breakpoint, sondern dieselbe, aus der auch die Rail ihre
                                       Existenz bezieht. --}}
-                                 x-bind:class="!$store.viewport?.desktop && (filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200/60 pt-1.5 dark:border-zinc-800/60' : ''">
+                                 x-bind:class="!$store.viewport?.desktop && (filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200 pt-1.5 dark:border-zinc-800' : ''">
                                 {{-- ── Die Reihenfolge dieses Blocks: erst fest, dann veränderlich ──
                                      Artikel und Forge hängen an der KONFIGURATION
                                      ($hasBoard/$hasForge, server-seitig): sie stehen immer da

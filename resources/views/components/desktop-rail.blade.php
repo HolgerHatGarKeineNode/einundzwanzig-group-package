@@ -53,7 +53,7 @@
             <x-group::nostr-avatar picture="space?.icon" name="spaceLabel" size="2rem" />
             <div class="min-w-0 flex-1">
                 <div class="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="spaceLabel"></div>
-                <div x-show="space?.description" x-cloak class="truncate text-[0.7rem] text-muted" x-text="space?.description"></div>
+                <div x-show="space?.description" x-cloak class="truncate text-xs text-muted" x-text="space?.description"></div>
             </div>
         </div>
 
@@ -72,7 +72,7 @@
             <template x-if="scope.group || scope.country">
                 <button type="button" x-on:click="clearScope()"
                         x-bind:aria-label="@js(__('Suchbereich aufheben: :label')).split(':label').join(scopeLabel)"
-                        class="pressable inline-flex shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-1.5 py-0.5 text-[0.7rem] font-semibold text-zinc-900 dark:text-zinc-50">
+                        class="pressable inline-flex shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-1.5 py-0.5 text-xs font-semibold text-zinc-900 dark:text-zinc-50">
                     <span x-text="scopeLabel"></span>
                     <flux:icon.x-mark variant="micro" aria-hidden="true" class="size-3" />
                 </button>
@@ -106,7 +106,7 @@
                     x-on:click.stop.prevent="$dispatch('open-command-palette')"
                     aria-label="{{ __('Befehlspalette öffnen') }}" aria-haspopup="dialog"
                     aria-keyshortcuts="Meta+K Control+K"
-                    class="pressable inline-flex h-6 shrink-0 items-center rounded bg-black/5 px-1.5 font-mono text-[0.65rem] text-muted transition-colors hover:text-zinc-900 dark:bg-white/10 dark:hover:text-zinc-100">⌘K</button>
+                    class="pressable inline-flex h-6 shrink-0 items-center rounded bg-black/5 px-1.5 font-mono text-xs text-muted transition-colors hover:text-zinc-900 dark:bg-white/10 dark:hover:text-zinc-100">⌘K</button>
         </label>
 
         {{-- Die einzige Fläche, die scrollt. `min-h-0` ist Pflicht: ohne das
@@ -204,7 +204,7 @@
                          schreibt (`scopeToken`). `w:` funktioniert weiter, steht hier aber
                          nicht: ein Hilfetext nennt EINEN Weg, sonst muss der Leser sich
                          fragen, worin der Unterschied besteht. --}}
-                    <p class="mt-1 text-[0.7rem] text-muted">{{ __('Alt + ↑/↓ wechselt den Raum · m: p: r: f: grenzen ein') }}</p>
+                    <p class="mt-1 text-xs text-muted">{{ __('Alt + ↑/↓ wechselt den Raum · m: p: r: f: grenzen ein') }}</p>
                 </div>
             </template>
 
@@ -372,13 +372,13 @@
 
                         <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
 
-                        <div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
+                        <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                             <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
                                     class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                                <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
+                                <span class="min-w-0 flex-1 break-all font-mono text-xs leading-relaxed text-muted" x-text="npub"></span>
                                 <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
                             </button>
-                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
+                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-medium text-brand-800 dark:text-brand-400">
                                 <flux:icon.key variant="micro" class="size-3 shrink-0" />
                                 <span x-text="@js(__('Angemeldet über :signer')).split(':signer').join(signerLabel)"></span>
                             </div>

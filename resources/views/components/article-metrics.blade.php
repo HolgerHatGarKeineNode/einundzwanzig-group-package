@@ -35,11 +35,14 @@
 
      ── `tabular-nums`, kein `font-mono` ────────────────────────────────────────────
 
-     `--font-mono` ist im Theme **nicht definiert**. Am 2026-08-21 nachgemessen: der
-     `@theme`-Block von `theme.css` setzt ausschließlich `--font-sans` (auf Inconsolata);
-     die drei Vorkommen von `--font-mono` sind alle NUTZUNGEN mit Rückfall
-     (`var(--font-mono, monospace)`), keine Deklaration. Ein `font-mono` zöge hier also
-     eine zweite Schriftfamilie in die Karte, und gebraucht wird ohnehin nur die gleiche
+     `--font-mono` ist im HAUS nicht deklariert — im gebauten Stylesheet aber sehr wohl.
+     Am 2026-08-21 im Repo nachgemessen: der `@theme`-Block von `theme.css` setzt
+     ausschließlich `--font-sans` (auf Inconsolata). Am 2026-08-26 im BUILD nachgemessen:
+     Tailwind v4 liefert `--font-mono: ui-monospace, …` selbst mit, und
+     `.font-mono{font-family:var(--font-mono)}` steht im Stylesheet. Die frühere Fassung
+     schloss aus dem Repo-Befund auf „nicht definiert" — das war der falsche Schluss aus
+     der richtigen Beobachtung. Ein `font-mono` zöge hier also eine zweite Schriftfamilie
+     in die Karte, und gebraucht wird ohnehin nur die gleiche
      Ziffernbreite. --}}
 
 <template x-if="{{ $metrics }}?.reaktionen > 0 || {{ $metrics }}?.zaps > 0 || {{ $metrics }}?.kommentare > 0">

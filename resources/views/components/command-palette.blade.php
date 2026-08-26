@@ -41,7 +41,7 @@
 ])
 @php($paletteActions = array_values(array_filter($paletteActions)))
 {{-- Ein Stil für alle Tastenkappen: derselbe wie am Rail-Prompt. --}}
-@php($kbd = 'shrink-0 rounded bg-black/5 px-1 py-0.5 font-mono text-[0.7rem] leading-none text-muted dark:bg-white/10')
+@php($kbd = 'shrink-0 rounded bg-black/5 px-1 py-0.5 font-mono text-xs leading-none text-muted dark:bg-white/10')
 
 <div x-data="nostrPalette(@js(['actions' => $paletteActions]))"
      x-on:open-command-palette.window="open()"
@@ -91,7 +91,7 @@
                         <button type="button" x-on:click.stop.prevent="clearScope()"
                                 x-bind:aria-label="@js(__('Suchbereich aufheben: :label')).split(':label').join(scopeLabel)"
                                 data-palette-chip
-                                class="pressable inline-flex min-h-8 shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-2 text-[0.7rem] font-semibold text-zinc-900 dark:text-zinc-50">
+                                class="pressable inline-flex min-h-8 shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-2 text-xs font-semibold text-zinc-900 dark:text-zinc-50">
                             <span x-text="scopeLabel"></span>
                             <flux:icon.x-mark variant="micro" aria-hidden="true" class="size-3" />
                         </button>
@@ -156,7 +156,7 @@
                          Ohne Eingabe die zuletzt benutzten fünf; sobald gesucht
                          oder eingegrenzt wird, der volle Bestand. --}}
                     <div data-palette-heading="rooms" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">{{ __('Räume') }}</div>
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Räume') }}</div>
                     <template x-for="room in roomItems" :key="'room:' + (room.workspace ? 'w' : 's') + ':' + room.h">
                         <flux:command.item
                             data-palette-section="rooms"
@@ -181,13 +181,13 @@
                             x-on:click="openRoom(room)"
                             class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
                             <span class="min-w-0 flex-1 truncate" x-text="room.name"></span>
-                            <span class="ms-2 shrink-0 truncate text-[0.7rem] font-normal text-muted" x-text="room.hint"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="room.hint"></span>
                         </flux:command.item>
                     </template>
 
                     {{-- ── Mitglieder (`@`) ───────────────────────────────────── --}}
                     <div data-palette-heading="members" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">{{ __('Mitglieder') }}</div>
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Mitglieder') }}</div>
                     <template x-for="member in memberItems" :key="'member:' + member.pubkey">
                         <flux:command.item
                             data-palette-section="members"
@@ -197,13 +197,13 @@
                             x-on:click="openMember(member)"
                             class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
                             <span class="min-w-0 flex-1 truncate" x-text="member.name"></span>
-                            <span class="ms-2 shrink-0 truncate text-[0.7rem] font-normal text-muted" x-text="member.nip05"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="member.nip05"></span>
                         </flux:command.item>
                     </template>
 
                     {{-- ── Spaces ─────────────────────────────────────────────── --}}
                     <div data-palette-heading="spaces" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">{{ __('Spaces') }}</div>
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Spaces') }}</div>
                     <template x-for="space in spaceItems" :key="'space:' + space.url">
                         <flux:command.item
                             data-palette-section="spaces"
@@ -213,13 +213,13 @@
                             x-on:click="openSpace(space)"
                             class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
                             <span class="min-w-0 flex-1 truncate" x-text="space.label"></span>
-                            <span class="ms-2 shrink-0 truncate text-[0.7rem] font-normal text-muted" x-text="space.hint"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="space.hint"></span>
                         </flux:command.item>
                     </template>
 
                     {{-- ── Aktionen (`>`) ─────────────────────────────────────── --}}
                     <div data-palette-heading="actions" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">{{ __('Aktionen') }}</div>
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Aktionen') }}</div>
                     <template x-for="action in actionItems" :key="'action:' + action.id">
                         <flux:command.item
                             data-palette-section="actions"
@@ -274,7 +274,7 @@
 
             {{-- Kürzel-Zeile. Blendet unter `xl` aus, statt tote Tasten zu
                  bewerben: dort gibt es kein ⌘K, kein Alt+↑/↓ und kein `?`. --}}
-            <div class="hidden shrink-0 items-center gap-3 border-t border-zinc-200 bg-white px-3 py-2 text-[0.7rem] text-muted dark:border-zinc-800 dark:bg-zinc-900 xl:flex">
+            <div class="hidden shrink-0 items-center gap-3 border-t border-zinc-200 bg-white px-3 py-2 text-xs text-muted dark:border-zinc-800 dark:bg-zinc-900 xl:flex">
                 <span class="inline-flex items-center gap-1"><kbd class="{{ $kbd }}">↑</kbd><kbd class="{{ $kbd }}">↓</kbd>{{ __('Navigieren') }}</span>
                 <span class="inline-flex items-center gap-1"><kbd class="{{ $kbd }}">↵</kbd>{{ __('Öffnen') }}</span>
                 <span class="inline-flex items-center gap-1"><kbd class="{{ $kbd }}">Esc</kbd>{{ __('Schließen') }}</span>
@@ -305,7 +305,7 @@
                 ['keys' => ['?'], 'text' => __('Diese Übersicht')],
             ])
             @foreach ($shortcuts as $row)
-                <div class="flex items-center justify-between gap-4 border-b border-zinc-200/60 py-1.5 last:border-0 dark:border-zinc-800/60">
+                <div class="flex items-center justify-between gap-4 border-b border-zinc-200 py-1.5 last:border-0 dark:border-zinc-800">
                     <dt class="min-w-0 text-sm text-zinc-900 dark:text-zinc-100">{{ $row['text'] }}</dt>
                     <dd class="flex shrink-0 items-center gap-1">
                         @foreach ($row['keys'] as $key)

@@ -1196,8 +1196,15 @@ select:focus[data-flux-control] {
    Spielerei — `--font-sans` ist Inconsolata, eine Zellenschrift, `ch` IST also
    die Zelle. Der Code steht dadurch untereinander wie in einem Terminal, ohne
    `<table>`, ohne `tabular-nums` und ohne eine zweite Schriftfamilie (die es
-   hier auch nicht geben darf: `--font-mono` ist nicht definiert, jedes
-   `font-mono` zöge eine fremde Schrift ein).
+   hier auch nicht geben darf).
+
+   KORRIGIERT 2026-08-26: hier stand, `--font-mono` sei „nicht definiert". Am
+   GEBAUTEN Stylesheet nachgemessen ist das falsch — Tailwind v4 liefert die
+   Variable selbst mit (`--font-mono: ui-monospace, SFMono-Regular, …`), und
+   `.font-mono{font-family:var(--font-mono)}` steht im Build. Das Haus setzt in
+   seinem `@theme`-Block nur `--font-sans`. Die Regel „kein `font-mono` hier"
+   bleibt gültig, ihr Grund kehrt sich um: `font-mono` zieht eine fremde Schrift
+   ein, WEIL die Variable definiert ist, nicht obwohl sie fehlt.
 
    ── Warum die Schriftgröße AN der Zeile steht ──────────────────────────────
    `ch` löst gegen die EIGENE Schriftgröße des Elements auf. Steht die Größe am
@@ -1253,14 +1260,14 @@ select:focus[data-flux-control] {
     border-bottom: 1px solid var(--color-zinc-200);
     background: var(--color-zinc-50);
     padding: 0.5rem 0.75rem;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
 }
 
 /* Das Änderungswort. Versal und klein, damit es den Pfad nicht überstimmt —
    der Pfad ist die Hauptinformation der Kopfzeile. */
 .forge-diff-art {
     flex-shrink: 0;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -1298,7 +1305,7 @@ select:focus[data-flux-control] {
     overflow-x: auto;
     max-height: 32rem;
     overflow-y: auto;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     line-height: 1.5;
 }
 
@@ -1352,7 +1359,7 @@ select:focus[data-flux-control] {
 
 .forge-diff-binaer {
     padding: 0.75rem;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--color-muted);
 }
 

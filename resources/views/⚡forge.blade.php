@@ -83,8 +83,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                     <flux:icon.code-bracket-square class="size-6 text-zinc-500 dark:text-zinc-400" />
                 </span>
-                <flux:heading class="mt-4">{{ __('Keine Forge-Quelle eingerichtet.') }}</flux:heading>
-                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Dieser Client kennt kein Relay, auf dem Repositories liegen.') }}</flux:text>
+                <flux:heading size="lg" class="mt-4">{{ __('Keine Forge-Quelle eingerichtet.') }}</flux:heading>
+                <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Dieser Client kennt kein Relay, auf dem Repositories liegen.') }}</flux:text>
             </div>
         @else
             <div>
@@ -92,7 +92,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      Speicher liegt, steht weiter da. Gleicher Wortlaut-Bau wie auf
                      `/articles` und `/updates`. --}}
                 <template x-if="error">
-                    <flux:callout variant="danger" icon="exclamation-triangle" class="forge-mass mb-3">
+                    <flux:callout variant="danger" icon="exclamation-triangle" class="forge-mass mb-4">
                         <flux:callout.text x-text="error"></flux:callout.text>
                         <x-slot name="actions">
                             <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="retry()">{{ __('Erneut laden') }}</flux:button>
@@ -108,7 +108,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      `kind === 'unknown'` sagt hier bewusst NICHTS: da ist das Dokument
                      noch unterwegs. --}}
                 <template x-if="kind === 'other'">
-                    <flux:callout variant="warning" icon="information-circle" class="forge-mass mb-3">
+                    <flux:callout variant="warning" icon="information-circle" class="forge-mass mb-4">
                         <flux:callout.text>{{ __('Der Workspace hat sich nicht als Buzz-Relay gemeldet. Repositories und Issues werden trotzdem gelesen; der Branch-Zustand kann fehlen.') }}</flux:callout.text>
                     </flux:callout>
                 </template>
@@ -191,7 +191,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                x-on:click.prevent="zeigeListe('{{ $tile['tab'] }}')"
                                data-forge-kachel="{{ $tile['tab'] }}"
                                class="pressable text-btn-touch -mx-1 flex items-baseline gap-1.5 rounded-tile px-1 py-0.5 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted underline decoration-dotted underline-offset-4">{{ $tile['label'] }}</span>
+                                <span class="text-xs font-semibold uppercase tracking-wider text-muted underline decoration-dotted underline-offset-4">{{ $tile['label'] }}</span>
                                 {{-- Der Balken hat die Zeilenhöhe der Zahl, damit die Zeile
                                      beim Eintreffen der Zahl nicht springt. `align-baseline`
                                      hält ihn auf der Schriftlinie der Beschriftung. --}}
@@ -224,7 +224,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  `rounded-tile`-Anfassbereich: diese Zelle zählt nur.
                                  Der Unterschied zu ihren drei Nachbarn ist damit im
                                  Ruhezustand sichtbar — und zwar ohne Farbe. --}}
-                            <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Patches') }}</span>
+                            <span class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Patches') }}</span>
                             <span data-forge-tile="patches"
                                   class="text-base font-semibold leading-5 text-zinc-900 dark:text-zinc-100"
                                   x-text="$num(counts().patches)"></span>
@@ -356,7 +356,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          einer ANDEREN Alpine-Insel (`nostrWorkspaceRooms`, unten in
                          dieser Datei) — sie hier zu zeigen hiesse, einen zweiten Datenweg
                          für dieselbe Zahl zu bauen. Das ist P6, Schritt 3. --}}
-                    <div data-forge-tabs data-forge-reiter @class(['mb-3', 'xl:hidden' => ! $native])>
+                    <div data-forge-tabs data-forge-reiter @class(['mb-4', 'xl:hidden' => ! $native])>
                         <flux:tabs scrollable scrollable:fade x-model="tab">
                             <flux:tab name="activity" icon="clock" class="max-lg:[&>svg]:hidden">{{ __('Aktivität') }}</flux:tab>
                             <flux:tab name="repos" icon="code-bracket-square" class="max-lg:[&>svg]:hidden">
@@ -379,7 +379,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Limit ankam — dann kann sie gekürzt sein, und das ist eine
                          Aussage über den Bestand, die die Fläche schuldet. --}}
                     <template x-if="tab !== 'workspaces' && truncatedText()">
-                        <flux:callout variant="secondary" icon="information-circle" class="forge-mass mb-3" data-forge-truncated>
+                        <flux:callout variant="secondary" icon="information-circle" class="forge-mass mb-4" data-forge-truncated>
                             <flux:callout.text x-text="truncatedText()"></flux:callout.text>
                         </flux:callout>
                     </template>
@@ -495,7 +495,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              `overview.projects` bleibt geladen (die Rail liest es ab `xl`),
                              die Summe kostet also keine zusätzliche Anfrage. --}}
                         <template x-if="overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0) > 0">
-                            <flux:callout variant="secondary" icon="information-circle" class="forge-mass mb-3" data-forge-fehlende-projekt-repos>
+                            <flux:callout variant="secondary" icon="information-circle" class="forge-mass mb-4" data-forge-fehlende-projekt-repos>
                                 <flux:callout.text
                                     x-text="$plural(overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0), '1 Repository eines Projekts liegt nicht auf diesem Relay.', ':count Repositories von Projekten liegen nicht auf diesem Relay.')"></flux:callout.text>
                             </flux:callout>
@@ -514,7 +514,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Das Feld steht NUR da, wenn es etwas zu durchsuchen gibt:
                              ein Suchfeld über einer leeren Liste ist eine Aufforderung
                              ins Nichts. --}}
-                        <div x-show="overview.repos.length > 0" class="mb-3 flex items-center gap-2" data-forge-suche>
+                        <div x-show="overview.repos.length > 0" class="mb-4 flex items-center gap-2" data-forge-suche>
                             <div class="min-w-0 flex-1">
                                 {{-- `aria-label` und nicht nur `placeholder`: ein
                                      Platzhalter ist kein zugänglicher Name, er
@@ -567,8 +567,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                     <flux:icon.magnifying-glass class="size-6 text-zinc-500 dark:text-zinc-400" />
                                 </span>
-                                <flux:heading class="mt-4">{{ __('Kein Repository passt dazu.') }}</flux:heading>
-                                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Gesucht wird über Name, Kennung, Beschreibung, Themen, Clone- und Web-Adressen, Relays und Maintainer — als npub oder als Hex.') }}</flux:text>
+                                <flux:heading size="lg" class="mt-4">{{ __('Kein Repository passt dazu.') }}</flux:heading>
+                                <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Gesucht wird über Name, Kennung, Beschreibung, Themen, Clone- und Web-Adressen, Relays und Maintainer — als npub oder als Hex.') }}</flux:text>
                                 <flux:button size="sm" variant="ghost" class="mt-4" x-on:click="sucheLoeschen()">{{ __('Suche zurücksetzen') }}</flux:button>
                             </div>
                         </template>
@@ -578,8 +578,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                     <flux:icon.code-bracket class="size-6 text-zinc-500 dark:text-zinc-400" />
                                 </span>
-                                <flux:heading class="mt-4">{{ __('Noch keine Repositories.') }}</flux:heading>
-                                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Repository ankündigt, erscheint es hier.') }}</flux:text>
+                                <flux:heading size="lg" class="mt-4">{{ __('Noch keine Repositories.') }}</flux:heading>
+                                <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Repository ankündigt, erscheint es hier.') }}</flux:text>
                             </div>
                         </template>
 
@@ -599,8 +599,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              stehen dadurch untereinander wie in einem `git status` über
                              den ganzen Workspace — ohne `<table>`, ohne `tabular-nums`
                              und ohne eine zweite Schriftfamilie (die es hier auch nicht
-                             geben darf: `--font-mono` ist nicht definiert, jedes
-                             `font-mono` zöge eine fremde Schrift ein).
+                             geben darf). KORRIGIERT 2026-08-26: hier stand,
+                             `--font-mono` sei „nicht definiert" — das ist am
+                             GEBAUTEN Stylesheet falsch. Tailwind v4 liefert die
+                             Variable selbst mit (`--font-mono: ui-monospace, …`),
+                             und `.font-mono{font-family:var(--font-mono)}` greift.
+                             Das Haus überschreibt nur `--font-sans`. Die Regel
+                             bleibt also dieselbe — aber aus dem umgekehrten Grund:
+                             `font-mono` zöge eine fremde Schrift ein, WEIL die
+                             Variable definiert ist.
 
                              KEIN `subgrid`: die Spaltenbreiten sind feste Zeichenmaße,
                              also fluchten unabhängige Zeilen ohnehin. `subgrid` legt bei
@@ -651,10 +658,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                          in jede der sieben Sprachen (Ramas · Ramos · Gałęzie ·
                                          Ágak · Zari). Ein untranslatiertes „Ref" wäre der
                                          einzige Spaltenkopf, der nur Englischsprachige lesen. --}}
-                                    <span class="text-[0.7rem]">{{ __('Branch') }}</span>
-                                    <span class="forge-zelle-zahl text-[0.7rem]">{{ __('Issues') }}</span>
-                                    <span class="forge-zelle-zahl text-[0.7rem]">{{ __('PRs') }}</span>
-                                    <span class="forge-zelle-zahl text-[0.7rem]">{{ __('Maintainer') }}</span>
+                                    <span class="text-xs">{{ __('Branch') }}</span>
+                                    <span class="forge-zelle-zahl text-xs">{{ __('Issues') }}</span>
+                                    <span class="forge-zelle-zahl text-xs">{{ __('PRs') }}</span>
+                                    <span class="forge-zelle-zahl text-xs">{{ __('Maintainer') }}</span>
                                 </span>
                             </div>
 
@@ -715,7 +722,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         {{-- `forge-mass` deckelt bei 62 Zeichen. Ohne ihn
                                              maß diese Zeile bei 1920 px 1422 px = 203
                                              Zeichen; der Lesekanon endet bei 75. --}}
-                                        <p class="forge-mass mt-0.5 line-clamp-2 text-sm text-muted" x-text="repo.description"></p>
+                                        <p class="forge-mass mt-1 line-clamp-2 text-sm text-muted" x-text="repo.description"></p>
                                     </div>
                                     <span class="forge-rinne" aria-hidden="true"></span>
                                     <span class="forge-daten text-xs text-muted">
@@ -802,7 +809,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     </span>
                                                 </template>
                                                 <template x-if="repo.people.length > 3">
-                                                    <span class="ms-1 text-[0.7rem] font-semibold text-muted"
+                                                    <span class="ms-1 text-xs font-semibold text-muted"
                                                           x-text="'+' + (repo.people.length - 3)"></span>
                                                 </template>
                                                 <template x-if="repo.people.length === 0">
@@ -869,8 +876,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                     <flux:icon.clock class="size-6 text-zinc-500 dark:text-zinc-400" />
                                 </span>
-                                <flux:heading class="mt-4">{{ __('Noch keine Aktivität.') }}</flux:heading>
-                                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Repository anlegt, etwas pusht oder ein Issue eröffnet, erscheint es hier.') }}</flux:text>
+                                <flux:heading size="lg" class="mt-4">{{ __('Noch keine Aktivität.') }}</flux:heading>
+                                <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Repository anlegt, etwas pusht oder ein Issue eröffnet, erscheint es hier.') }}</flux:text>
                             </div>
                         </template>
 
@@ -915,7 +922,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <div x-show="overview.activityGroups.length > 0" class="surface-card px-4 pb-2">
                             <template x-for="bucket in overview.activityGroups" :key="bucket.label">
                                 <section>
-                                    <h3 class="pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
+                                    <h3 class="pb-1 pt-4 text-xs font-semibold uppercase tracking-wider text-muted"
                                         x-text="bucket.label"></h3>
                                     <ol>
                                         <template x-for="row in bucket.items" :key="row.id">
@@ -1072,7 +1079,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                          gebunden — gerendert wird Markdown nur auf
                                                          der Repo-Seite, über den Artikel-Renderer. --}}
                                                     <template x-if="row.body">
-                                                        <p class="mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                        <p class="mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
                                                     </template>
                                                 </div>
                                             </li>

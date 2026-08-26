@@ -31,7 +31,7 @@
      ── Warum das die Chip-Frage mitlöst ───────────────────────────────────────
      Drei bedeutungsverschiedene Chips waren byte-gleich: Label, Assignee und
      Reviewer trugen identisch `rounded-pill bg-zinc-100 px-2 py-0.5
-     text-[0.7rem] text-muted`, unterschieden nur durch das Wort davor — und das
+     text-xs text-muted`, unterschieden nur durch das Wort davor — und das
      Label hatte gar keins. In einer PR-Zeile mit Labels UND Reviewern standen
      bis zu zwölf gleich aussehende Chips nebeneinander.
 
@@ -93,7 +93,7 @@
             </span>
         </template>
         <template x-if="({{ $personen }}).length > {{ $deckel }}">
-            <span class="ms-1 text-[0.7rem] font-semibold text-muted"
+            <span class="ms-1 text-xs font-semibold text-muted"
                   x-text="'+' + (({{ $personen }}).length - {{ $deckel }})"></span>
         </template>
     </span>

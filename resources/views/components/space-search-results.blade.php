@@ -24,7 +24,7 @@
      Einschränkung, nicht nur einen Namen. --}}
 
 @php($ws = 'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-start text-sm hover:bg-zinc-100 focus-visible:bg-zinc-100 focus-visible:outline-none dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800')
-@php($headStyle = 'px-2 pt-3 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted')
+@php($headStyle = 'px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted')
 
 <template x-if="workspaceActive">
     <div data-space-search
@@ -68,7 +68,7 @@
                                     <span x-text="part.text" x-bind:class="part.hit ? 'bg-brand-500/25 rounded-sm' : ''"></span>
                                 </template>
                             </span>
-                            <span class="block truncate text-[0.7rem] text-muted">
+                            <span class="block truncate text-xs text-muted">
                                 <template x-for="(part, i) in hit.segments" :key="'s' + i">
                                     <span x-text="part.text" x-bind:class="part.hit ? 'bg-brand-500/25 rounded-sm' : ''"></span>
                                 </template>
@@ -88,13 +88,13 @@
         <div class="{{ $headStyle }}">{{ __('Am Relay gefunden — ganze Wörter') }}</div>
 
         <template x-if="!searchRan && !searching">
-            <p data-space-search-idle class="px-2 pb-2 text-[0.75rem] text-muted">
+            <p data-space-search-idle class="px-2 pb-2 text-xs text-muted">
                 {{ __('Mit ↵ den ganzen Workspace durchsuchen. Der Relay findet ganze Wörter, keine Wortanfänge — „meetup“ statt „meet“.') }}
             </p>
         </template>
 
         <template x-if="searching">
-            <p data-space-search-busy role="status" aria-live="polite" class="px-2 pb-2 text-[0.75rem] text-muted">
+            <p data-space-search-busy role="status" aria-live="polite" class="px-2 pb-2 text-xs text-muted">
                 {{ __('Wird am Relay gesucht…') }}
             </p>
         </template>
@@ -104,7 +104,7 @@
              Ursache zu erfinden, die wir nicht kennen. --}}
         <template x-if="searchRejected !== null">
             <p data-space-search-rejected role="alert"
-               class="mx-2 mb-2 rounded-lg bg-red-500/10 px-2 py-1.5 text-[0.75rem] text-red-700 dark:text-red-300">
+               class="mx-2 mb-2 rounded-lg bg-red-500/10 px-2 py-1.5 text-xs text-red-700 dark:text-red-300">
                 <span>{{ __('Der Relay hat die Suche abgelehnt:') }}</span>
                 <span class="font-mono" x-text="searchRejected"></span>
             </p>
@@ -112,13 +112,13 @@
 
         <template x-if="!searching && searchRan && searchRejected === null && !searchComplete">
             <p data-space-search-incomplete role="status"
-               class="px-2 pb-2 text-[0.75rem] text-muted">
+               class="px-2 pb-2 text-xs text-muted">
                 {{ __('Der Relay hat nicht vollständig geantwortet — das Ergebnis kann unvollständig sein. Mit ↵ erneut versuchen.') }}
             </p>
         </template>
 
         <template x-if="!searching && searchRan && searchComplete && searchHitCount === 0">
-            <p data-space-search-empty role="status" class="px-2 pb-2 text-[0.75rem] text-muted">
+            <p data-space-search-empty role="status" class="px-2 pb-2 text-xs text-muted">
                 {{ __('Keine Treffer im Workspace.') }}
             </p>
         </template>
@@ -131,7 +131,7 @@
                     class="{{ $ws }}">
                 <span aria-hidden="true" class="w-[1ch] shrink-0 text-center font-mono text-xs text-muted">›</span>
                 <span class="min-w-0 flex-1">
-                    <span class="block truncate text-[0.7rem] font-semibold text-muted" x-text="hit.name"></span>
+                    <span class="block truncate text-xs font-semibold text-muted" x-text="hit.name"></span>
                     <span class="block truncate">
                         <template x-for="(part, i) in hit.segments" :key="'m' + i">
                             <span x-text="part.text" x-bind:class="part.hit ? 'bg-brand-500/25 rounded-sm' : ''"></span>

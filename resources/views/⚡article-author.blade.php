@@ -70,9 +70,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
       · Auszeichnung 14 px / 400–500 — Bio, Website
       · Monatsmarke & Grundangaben 12 px / 600 — leichtes `tracking`, `tabular-nums`
     KEIN `uppercase` an der Monatsmarke: „AUGUST 2026" schriee, und ein Monatsname ist ein
-    Wort, keine Marke. KEIN `font-mono`: `--font-mono` ist im Theme nicht definiert
-    (`theme.css` setzt nur `--font-sans`), jedes `font-mono` zöge still eine zweite
-    Schriftfamilie herein. Zahlen bekommen `tabular-nums` — die Marken stehen sonst
+    Wort, keine Marke. KEIN `font-mono` — der Grund ist seit 2026-08-26 korrigiert: die Variable ist NICHT
+    undefiniert, Tailwind v4 liefert `--font-mono` mit und das Haus überschreibt nur
+    `--font-sans`. Genau deshalb zöge `font-mono` still eine zweite Schriftfamilie
+    herein. Zahlen bekommen `tabular-nums` — die Marken stehen sonst
     unterschiedlich breit untereinander, und genau das soll man an ihnen ablesen können.
 
     FARBE. Fünf Rollen, alle aus dem Haus-Token-Satz — kein neuer Hex-Wert:

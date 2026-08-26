@@ -90,7 +90,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              trägt `aria-current="page"` — er ist der Ort, an dem man steht. --}}
         <x-group::app-header :title="__('Repository')" :title-expr="$titleExpr" :back="route('group.forge')">
             <x-slot name="subtitle">
-                <nav class="mt-0.5 flex items-center gap-1.5 text-xs text-muted xl:hidden"
+                <nav class="mt-1 flex items-center gap-1.5 text-xs text-muted xl:hidden"
                      aria-label="{{ __('Pfad') }}" data-forge-kruemel>
                     <a href="{{ route('group.forge') }}" wire:navigate
                        class="pressable rounded-tile px-1 py-0.5 -mx-1 font-semibold hover:text-zinc-900 dark:hover:text-zinc-100">{{ __('Forge') }}</a>
@@ -117,13 +117,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                     <flux:icon.code-bracket-square class="size-6 text-zinc-500 dark:text-zinc-400" />
                 </span>
-                <flux:heading class="mt-4">{{ __('Keine Forge-Quelle eingerichtet.') }}</flux:heading>
-                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Dieser Client kennt kein Relay, auf dem Repositories liegen.') }}</flux:text>
+                <flux:heading size="lg" class="mt-4">{{ __('Keine Forge-Quelle eingerichtet.') }}</flux:heading>
+                <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Dieser Client kennt kein Relay, auf dem Repositories liegen.') }}</flux:text>
             </div>
         @else
             <div>
                 <template x-if="error">
-                    <flux:callout variant="danger" icon="exclamation-triangle" class="mb-3">
+                    <flux:callout variant="danger" icon="exclamation-triangle" class="mb-4">
                         <flux:callout.text x-text="error"></flux:callout.text>
                         <x-slot name="actions">
                             <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="retry()">{{ __('Erneut laden') }}</flux:button>
@@ -140,9 +140,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                             <flux:icon.code-bracket class="size-6 text-zinc-500 dark:text-zinc-400" />
                         </span>
-                        <flux:heading class="mt-4">{{ __('Dieses Repository kennt der Workspace nicht.') }}</flux:heading>
-                        <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Vielleicht wurde es entfernt, oder der Link zeigt auf ein anderes Relay.') }}</flux:text>
-                        <div class="mt-5">
+                        <flux:heading size="lg" class="mt-4">{{ __('Dieses Repository kennt der Workspace nicht.') }}</flux:heading>
+                        <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Vielleicht wurde es entfernt, oder der Link zeigt auf ein anderes Relay.') }}</flux:text>
+                        <div class="mt-4">
                             <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.forge')" wire:navigate>{{ __('Zur Forge') }}</flux:button>
                         </div>
                     </div>
@@ -276,7 +276,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Zeichen, kein Wort, und `aria-hidden`, damit die
                                      Sprachausgabe nicht „Dollar" vorliest. --}}
                                 <template x-if="view.repo.cloneUrls.length > 0">
-                                    <div class="mt-3 flex items-baseline gap-2 rounded-tile bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
+                                    <div class="mt-4 flex items-baseline gap-2 rounded-tile bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
                                         <span aria-hidden="true" class="shrink-0 select-none font-semibold text-muted">$</span>
                                         <span aria-hidden="true" class="shrink-0 select-none text-muted">git clone</span>
                                         <span class="min-w-0 select-all break-all font-semibold" data-forge-clone x-text="view.repo.cloneUrls[0]"></span>
@@ -313,7 +313,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      statt einen Branch zu raten. Immer gerendert —
                                      und deshalb die Zeile ohne Oberkante. --}}
                                 <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
-                                    <dt class="shrink-0 pt-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Branches') }}</dt>
+                                    <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Branches') }}</dt>
                                     <dd class="min-w-0 flex-1">
                                         <template x-if="view.repo.state && view.repo.state.branches.length > 0">
                                             <ul class="flex flex-wrap gap-1.5">
@@ -355,7 +355,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             <span class="rounded-pill bg-brand-500/10 px-1.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
                                                                   x-text="branch.commit.slice(0, 7)"></span>
                                                             <template x-if="view.repo.state.head === branch.name">
-                                                                <span class="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">{{ __('HEAD') }}</span>
+                                                                <span class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('HEAD') }}</span>
                                                             </template>
                                                         </flux:badge>
                                                     </li>
@@ -401,7 +401,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Schloss plus der Regelname im Text. --}}
                                 <template x-if="view.repo.protections.length > 0">
                                     <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
-                                        <dt class="shrink-0 pt-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Geschützte Branches') }}</dt>
+                                        <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Geschützte Branches') }}</dt>
                                         <dd class="flex min-w-0 flex-1 flex-wrap gap-1.5">
                                             <template x-for="rule in view.repo.protections" :key="rule.ref + rule.rule">
                                                 {{-- `flux:badge` — dieselbe Marke wie bei den Branches
@@ -422,7 +422,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Ereignis selbst benennt. --}}
                                 <template x-if="view.repo.people.length > 0">
                                     <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
-                                        <dt class="shrink-0 pt-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Maintainer') }}</dt>
+                                        <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Maintainer') }}</dt>
                                         <dd class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                                             <template x-for="person in view.repo.people.slice(0, 12)" :key="person.pubkey">
                                                 <span data-forge-person :data-pubkey="person.pubkey" :title="person.name">
@@ -491,8 +491,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <template x-if="klon.lage === 'bereit'">
                                 <div class="surface-card p-4" data-forge-readme-ansage>
                                     <p class="forge-mass text-sm">{{ __('Das README steht nicht im Nostr-Ereignis. Um es zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.') }}</p>
-                                    <p class="forge-mass mt-1.5 text-xs text-muted">{{ __('Das sind je nach Repository mehrere Megabyte (beim grössten hier gemessen: 8,3 MB). Im Mobilfunknetz zählt das auf dein Datenvolumen.') }}</p>
-                                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                                    <p class="forge-mass mt-1 text-xs text-muted">{{ __('Das sind je nach Repository mehrere Megabyte (beim grössten hier gemessen: 8,3 MB). Im Mobilfunknetz zählt das auf dein Datenvolumen.') }}</p>
+                                    <div class="mt-4 flex flex-wrap items-center gap-2">
                                         <flux:button size="sm" variant="primary" icon="arrow-down-tray"
                                                      x-on:click="klonLaden()" data-forge-readme-start>{{ __('Repository laden und README zeigen') }}</flux:button>
                                     </div>
@@ -564,7 +564,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <p class="mt-1 text-xs text-muted" data-forge-readme-zahl
                                            x-text="$plural(klon.fortschritt.geladen, '1 Objekt', ':count Objekte')"></p>
                                     </template>
-                                    <div class="mt-3">
+                                    <div class="mt-4">
                                         <flux:button size="sm" variant="ghost" icon="x-mark"
                                                      x-on:click="klonAbbrechen()" data-forge-readme-abbruch>{{ __('Abbrechen') }}</flux:button>
                                     </div>
@@ -599,7 +599,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                  ihn behauptete die Fläche Aktualität, die sie
                                                  nicht kennt: der Klon ist ein Stand, kein Live-Blick. --}}
                                             <template x-if="klon.commit">
-                                                <span class="text-[0.7rem] text-muted" data-forge-readme-commit
+                                                <span class="text-xs text-muted" data-forge-readme-commit
                                                       x-text="@js(__('Stand :commit')).replace(':commit', klon.commit)"></span>
                                             </template>
                                             <flux:button size="xs" variant="ghost" icon="arrow-path"
@@ -754,7 +754,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </div>
 
                         <template x-if="truncatedText()">
-                            <flux:callout variant="secondary" icon="information-circle" class="mb-3">
+                            <flux:callout variant="secondary" icon="information-circle" class="mb-4">
                                 <flux:callout.text x-text="truncatedText()"></flux:callout.text>
                             </flux:callout>
                         </template>
@@ -776,7 +776,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  fehlgeschlagener Schreibversuch. Ein Fehler, der mit
                                  dem Blatt verschwände, wäre von „hat funktioniert"
                                  nicht zu unterscheiden. --}}
-                            <div class="mb-3 space-y-2">
+                            <div class="mb-4 space-y-2">
 
                                 <template x-if="!canWrite()">
                                     <p class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
@@ -830,8 +830,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.exclamation-circle class="size-6 text-zinc-500 dark:text-zinc-400" />
                                     </span>
-                                    <flux:heading class="mt-4">{{ __('Noch keine Issues.') }}</flux:heading>
-                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Issue eröffnet, erscheint es hier.') }}</flux:text>
+                                    <flux:heading size="lg" class="mt-4">{{ __('Noch keine Issues.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Issue eröffnet, erscheint es hier.') }}</flux:text>
                                 </div>
                             </template>
 
@@ -943,7 +943,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                 <flux:badge size="sm" variant="pill" x-text="label" />
                                                             </template>
                                                             <template x-if="issue.labels.length > 6">
-                                                                <span class="ms-1 text-[0.7rem] text-muted"
+                                                                <span class="ms-1 text-xs text-muted"
                                                                       x-text="'+' + (issue.labels.length - 6)"></span>
                                                             </template>
                                                         </span>
@@ -1028,7 +1028,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <p x-show="!issue.html" class="whitespace-pre-wrap text-sm" x-text="issue.content"></p>
 
                                                 <template x-if="issue.comments.length > 0">
-                                                    <ul class="mt-3 space-y-2">
+                                                    <ul class="mt-4 space-y-2">
                                                         <template x-for="comment in issue.comments" :key="comment.id">
                                                             <li class="rounded-tile bg-zinc-100 p-3 dark:bg-zinc-800"
                                                                 :class="rowState(comment.id) === 'sending' ? 'opacity-60' : ''">
@@ -1057,7 +1057,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                          der Liste (Herleitung dort) — dieselbe
                                                          Aussage, dieselbe Bauform. --}}
                                                     <flux:callout variant="danger" icon="exclamation-triangle" inline
-                                                                  class="mt-3" role="alert" data-forge-write-failed="root">
+                                                                  class="mt-4" role="alert" data-forge-write-failed="root">
                                                         <flux:callout.text class="text-xs!">
                                                             <span class="font-semibold" x-text="row.label"></span>
                                                             <span x-text="(row.label ? ' — ' : '') + row.error"></span>
@@ -1076,10 +1076,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      und der Eigentümer des Repos. Ein Knopf für
                                                      alle anderen schriebe ein Ereignis, das kein
                                                      Client je zeigt: ein stiller Leerlauf. --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canSetStatus(issue)">
                                                         <div class="flex flex-wrap items-center gap-2" data-forge-status-actions>
-                                                            <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Status setzen') }}</span>
+                                                            <span class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Status setzen') }}</span>
                                                             <template x-for="opt in statusOptions()" :key="opt.code">
                                                                 <flux:button size="xs" variant="ghost"
                                                                              x-on:click="setStatus(issue, opt.code)"
@@ -1120,7 +1120,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      Regel dafür steht in `assignGate` schon, die
                                                      Fläche dazu nicht — und ein Knopf ohne Auswahl,
                                                      der das behauptet, wäre eine Attrappe. --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800"
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800"
                                                      data-forge-assign-block>
                                                     <div class="flex flex-wrap items-center gap-2">
                                                         <flux:button size="xs" variant="ghost"
@@ -1135,13 +1135,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                               class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
                                                     </div>
                                                     <template x-if="!canAssignSelf(issue)">
-                                                        <p class="mt-1.5 text-xs text-muted" data-forge-assign-hint
+                                                        <p class="mt-1 text-xs text-muted" data-forge-assign-hint
                                                            x-text="assignHint(issue)"></p>
                                                     </template>
                                                 </div>
 
                                                 {{-- ── Kommentieren (P8) ───────────────────────── --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canWrite()">
                                                         <div class="space-y-2" data-forge-comment-form>
                                                             {{-- @-Erwähnung (P9). Das Ziel des Vorschlags heißt
@@ -1203,7 +1203,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <p class="forge-mass text-sm" x-show="klon.lage === 'bereit'">{{ __('Der Dateibaum steht nicht im Nostr-Ereignis. Um ihn zu zeigen, lädt dieser Client das ganze Repository herunter — derselbe Download wie fürs README.') }}</p>
                                     <p class="forge-mass text-sm" x-show="klon.lage === 'laedt'">{{ __('Wird geladen …') }}</p>
                                     <p class="forge-mass text-sm text-muted" x-show="klon.lage === 'fremd' || klon.lage === 'keine-url'">{{ __('Von hier lässt sich dieses Repository nicht laden — siehe den Hinweis über den Reitern.') }}</p>
-                                    <div class="mt-3" x-show="klon.lage === 'bereit'">
+                                    <div class="mt-4" x-show="klon.lage === 'bereit'">
                                         <flux:button size="sm" variant="primary" icon="arrow-down-tray"
                                                      x-on:click="klonLaden()" data-forge-code-start>{{ __('Repository laden') }}</flux:button>
                                     </div>
@@ -1412,8 +1412,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.document-text class="size-6 text-zinc-500 dark:text-zinc-400" />
                                     </span>
-                                    <flux:heading class="mt-4">{{ __('Noch keine Patches.') }}</flux:heading>
-                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Ein Patch trägt seine Änderung selbst — sobald jemand einen einreicht, steht er hier.') }}</flux:text>
+                                    <flux:heading size="lg" class="mt-4">{{ __('Noch keine Patches.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Ein Patch trägt seine Änderung selbst — sobald jemand einen einreicht, steht er hier.') }}</flux:text>
                                 </div>
                             </template>
 
@@ -1507,13 +1507,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      stillschweigend gekürzte Datei wäre eine
                                                      falsche Aussage über den Patch. --}}
                                                 <template x-if="patch.diff.truncated">
-                                                    <flux:callout variant="secondary" icon="information-circle" class="forge-mass mt-3" data-forge-patch-gekuerzt>
+                                                    <flux:callout variant="secondary" icon="information-circle" class="forge-mass mt-4" data-forge-patch-gekuerzt>
                                                         <flux:callout.text>{{ __('Dieser Patch ist zu lang für die vollständige Anzeige — es werden nicht alle Zeilen gezeigt.') }}</flux:callout.text>
                                                     </flux:callout>
                                                 </template>
 
                                                 <template x-if="patch.diff.files.length > 0">
-                                                    <div class="forge-diff mt-3" data-forge-diff>
+                                                    <div class="forge-diff mt-4" data-forge-diff>
                                                         <template x-for="datei in patch.diff.files" :key="datei.path + datei.change">
                                                             <div class="forge-diff-datei" data-forge-diff-datei :data-change="datei.change">
                                                                 <div class="forge-diff-kopf">
@@ -1568,7 +1568,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 {{-- Kommentare — dieselbe Bauform wie bei
                                                      Issue und PR. --}}
                                                 <template x-if="patch.comments.length > 0">
-                                                    <ul class="mt-3 space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                    <ul class="mt-4 space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                         <template x-for="comment in patch.comments" :key="comment.id">
                                                             <li class="text-sm">
                                                                 <p class="text-xs text-muted">
@@ -1594,8 +1594,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.arrows-right-left class="size-6 text-zinc-500 dark:text-zinc-400" />
                                     </span>
-                                    <flux:heading class="mt-4">{{ __('Noch keine Pull Requests.') }}</flux:heading>
-                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand einen Pull Request eröffnet, erscheint er hier.') }}</flux:text>
+                                    <flux:heading size="lg" class="mt-4">{{ __('Noch keine Pull Requests.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Sobald jemand einen Pull Request eröffnet, erscheint er hier.') }}</flux:text>
                                 </div>
                             </template>
 
@@ -1693,7 +1693,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             :sr-viele="__(':count Reviewer: :namen')" />
                                                     </template>
                                                     <template x-if="pr.approvals.length > 0">
-                                                        <span class="text-[0.7rem] text-muted" data-forge-approvals
+                                                        <span class="text-xs text-muted" data-forge-approvals
                                                               x-text="$plural(pr.approvals.length, '1 Freigabe', ':count Freigaben')"></span>
                                                     </template>
                                                     <template x-if="pr.commentCount > 0">
@@ -1737,7 +1737,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <p x-show="!pr.html" class="whitespace-pre-wrap text-sm" x-text="pr.content"></p>
 
                                                 <template x-if="pr.updates.length > 0">
-                                                    <ul class="mt-3 space-y-1">
+                                                    <ul class="mt-4 space-y-1">
                                                         <template x-for="update in pr.updates" :key="update.id">
                                                             {{-- Kein `font-mono`: die App IST durchgehend
                                                                  Inconsolata (`--font-sans` in `theme.css`),
@@ -1759,7 +1759,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </template>
 
                                                 <template x-if="pr.comments.length > 0">
-                                                    <ul class="mt-3 space-y-2">
+                                                    <ul class="mt-4 space-y-2">
                                                         <template x-for="comment in pr.comments" :key="comment.id">
                                                             <li class="rounded-tile bg-zinc-100 p-3 dark:bg-zinc-800"
                                                                 :class="rowState(comment.id) === 'sending' ? 'opacity-60' : ''">
@@ -1781,7 +1781,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     {{-- Derselbe Tausch wie beim Schwesterkasten in der Issue-Spalte
                                                          (Herleitung dort) — dieselbe Aussage, dieselbe Bauform. --}}
                                                     <flux:callout variant="danger" icon="exclamation-triangle" inline
-                                                                  class="mt-3" role="alert" data-forge-write-failed="root">
+                                                                  class="mt-4" role="alert" data-forge-write-failed="root">
                                                         <flux:callout.text class="text-xs!">
                                                             <span class="font-semibold" x-text="row.label"></span>
                                                             <span x-text="(row.label ? ' — ' : '') + row.error"></span>
@@ -1813,7 +1813,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      „freigegeben", solange die eigene Entscheidung
                                                      für DIESEN Stand steht, und wird wieder
                                                      anklickbar, sobald sie es nicht mehr tut. --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800"
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800"
                                                      data-forge-review-block>
                                                     <div class="flex flex-wrap items-center gap-2">
                                                         <flux:button size="xs" variant="ghost" icon="check"
@@ -1840,7 +1840,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                               class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
                                                     </div>
                                                     <template x-if="!canApprove(pr)">
-                                                        <p class="mt-1.5 text-xs text-muted" data-forge-review-hint
+                                                        <p class="mt-1 text-xs text-muted" data-forge-review-hint
                                                            x-text="approveHint(pr)"></p>
                                                     </template>
                                                 </div>
@@ -1854,7 +1854,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      Attrappe — den Statuswechsel eines PR
                                                      verantwortet aus demselben Grund, wer ihn
                                                      gepusht hat, nicht diese Fläche. --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canWrite()">
                                                         <div class="space-y-2" data-forge-comment-form>
                                                             {{-- @-Erwähnung (P9). Das Ziel des Vorschlags heißt
@@ -1910,8 +1910,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.clock class="size-6 text-zinc-500 dark:text-zinc-400" />
                                     </span>
-                                    <flux:heading class="mt-4">{{ __('Noch keine Aktivität.') }}</flux:heading>
-                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand etwas pusht oder ein Issue eröffnet, erscheint es hier.') }}</flux:text>
+                                    <flux:heading size="lg" class="mt-4">{{ __('Noch keine Aktivität.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Sobald jemand etwas pusht oder ein Issue eröffnet, erscheint es hier.') }}</flux:text>
                                 </div>
                             </template>
 
@@ -1929,7 +1929,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <div x-show="view.activityGroups.length > 0" class="surface-card px-4 pb-2">
                                 <template x-for="bucket in view.activityGroups" :key="bucket.label">
                                     <section>
-                                        <h2 class="pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
+                                        <h2 class="pb-1 pt-4 text-xs font-semibold uppercase tracking-wider text-muted"
                                             x-text="bucket.label"></h2>
                                         <ol>
                                             <template x-for="row in bucket.items" :key="row.id">
@@ -1973,7 +1973,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             </template>
                                                         </div>
                                                         <template x-if="row.body">
-                                                            <p class="forge-mass mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                            <p class="forge-mass mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
                                                         </template>
                                                     </div>
                                                 </li>

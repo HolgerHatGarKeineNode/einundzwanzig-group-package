@@ -17,8 +17,8 @@
         <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
             <flux:icon.inbox class="size-6 text-zinc-500 dark:text-zinc-400" />
         </span>
-        <flux:heading class="mt-4">{{ $leerTitel }}</flux:heading>
-        <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ $leerText }}</flux:text>
+        <flux:heading size="lg" class="mt-4">{{ $leerTitel }}</flux:heading>
+        <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ $leerText }}</flux:text>
     </div>
 </template>
 
@@ -27,7 +27,7 @@
         {{-- Der Gruppenkopf ist der Weg ins Repository — dieselbe Liste, dort
              aber mit Rumpf, Kommentaren und Schreibfeld. Die Zahl daneben sagt,
              ob sich das Antippen lohnt. --}}
-        <div class="mb-1.5 flex items-baseline justify-between gap-3">
+        <div class="mb-1 flex items-baseline justify-between gap-3">
             <a :href="gruppe.href || null" wire:navigate data-forge-gruppe-link
                class="min-w-0 truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
                x-text="gruppe.name"></a>

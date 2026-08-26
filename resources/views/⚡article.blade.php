@@ -77,8 +77,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
       · Fließtext  16 px / 1.7  — `.article-content`, unverändert aus P7
       · Auszeichnung 14 px / 400–500 — Byline, Autorenname, Website
       · Kleinschrift 12 px / 500 — Lesestand, Themen, Grundangaben
-    KEIN `font-mono`: `--font-mono` ist im Theme nicht definiert (`theme.css` setzt nur
-    `--font-sans`), jedes `font-mono` zöge still eine zweite Schriftfamilie herein.
+    KEIN `font-mono` — der Grund ist seit 2026-08-26 korrigiert: die Variable ist NICHT
+    undefiniert. Tailwind v4 liefert `--font-mono` mit, das Haus überschreibt nur
+    `--font-sans`, und genau deshalb zöge `font-mono` eine zweite Schriftfamilie herein.
     Zahlen bekommen `tabular-nums` — sonst wackelt der Lesestand bei jedem Zählerschritt.
 
     FARBE. Fünf Rollen, alle aus dem Haus-Token-Satz — kein neuer Hex-Wert:
@@ -362,7 +363,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          `readingMinutes === 0` heißt „keine Angabe" (so wie in der Zeile)
                          — dann fällt die ganze Zeile weg statt „0 Min" zu behaupten.
                          `tabular-nums`, damit die Zahl beim Herunterzählen nicht wackelt;
-                         **kein `font-mono`**, `--font-mono` ist im Theme nicht definiert.
+                         **kein `font-mono`** — die Variable ist sehr wohl definiert (Tailwind v4 liefert sie
+                         mit), und deshalb zöge sie eine fremde Schrift ein.
                          `aria-live="polite"` steht hier bewusst NICHT: die Zahl ändert
                          sich beim Scrollen fortlaufend, und eine Ansage je Schritt wäre
                          Lärm. Der Wert ist als Text vorhanden und jederzeit lesbar. --}}

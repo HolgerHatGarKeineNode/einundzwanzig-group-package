@@ -18,8 +18,8 @@
      frei stehende Zeilen-Pillen verlangt — 20 px neben einem 20-px-Icon in einer
      44-px-Fläche wäre kein Zähler mehr, sondern ein zweites Icon. --}}
 @php($geometry = match ($size) {
-    'sm' => 'h-4 min-w-4 px-1 text-[0.65rem]',
-    default => 'h-5 min-w-5 px-1.5 text-[0.7rem]',
+    'sm' => 'h-4 min-w-4 px-1 text-xs',
+    default => 'h-5 min-w-5 px-1.5 text-xs',
 })
 
 {{-- Ungelesen-ZÄHLER (P6, §4.1) — die Pille, die in P3 noch ein Punkt war

@@ -114,7 +114,7 @@
                                              x-bind:class="isOpen(@js($group)) ? 'rotate-90' : ''" />
                 </span>
                 @unless ($headingHref)
-                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider">{{ $label }}</span>
+                    <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-wider">{{ $label }}</span>
                 @endunless
             </button>
 
@@ -139,13 +139,13 @@
                         bei 19,7 px Höhe — SC 2.5.8 verlangt 24, und die
                         Abstands-Ausnahme greift nicht, das Chevron liegt 4 px daneben. --}}
                    class="pressable flex min-h-6 min-w-0 flex-1 items-center rounded text-start text-muted transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">
-                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider">{{ $label }}</span>
+                    <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-wider">{{ $label }}</span>
                 </a>
             @endif
 
             {{-- Bestand grau, immer. Bei ZUGEKLAPPTER Gruppe zusätzlich die
                  Ungelesen-Summe — der einzige Ort, an dem sie erscheint. --}}
-            <span class="shrink-0 font-mono text-[0.7rem] tabular-nums text-muted"
+            <span class="shrink-0 font-mono text-xs tabular-nums text-muted"
                   x-text="groupTotal(@js($group))"></span>
             <template x-if="!isOpen(@js($group))">
                 <x-group::unread-badge :count="'groupUnread(\''.$group.'\')'" size="sm" :sr="false" />
@@ -181,7 +181,7 @@
                             <button type="button" x-on:click="toggleCountry(c.country)"
                                     x-bind:aria-label="c.name + ' (' + c.count + ')'"
                                     x-bind:aria-pressed="scope.country === c.country ? 'true' : 'false'"
-                                    class="pressable inline-flex items-center gap-1 rounded-pill px-1.5 py-0.5 text-[0.7rem] transition-colors"
+                                    class="pressable inline-flex items-center gap-1 rounded-pill px-1.5 py-0.5 text-xs transition-colors"
                                     x-bind:class="scope.country === c.country
                                         ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
                                         : 'bg-zinc-100 text-muted hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700'">
@@ -210,7 +210,7 @@
             </template>
 
             <template x-if="groupFor(@js($group)).pinned.length && (groupFor(@js($group)).sections.length || groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
-                <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
             </template>
 
             @if ($tree)
@@ -235,7 +235,7 @@
                 </template>
 
                 <template x-if="forgeRows.length && (groupFor(@js($group)).sections.length || groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
-                    <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                    <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
                 </template>
             @endif
 
@@ -264,7 +264,7 @@
                  trägt der Name. --}}
             <template x-for="sec in groupFor(@js($group)).sections" :key="sec.id">
                 <div class="mt-1">
-                    <p class="flex items-baseline gap-1 px-2 pb-0.5 text-[0.7rem] font-semibold text-muted">
+                    <p class="flex items-baseline gap-1 px-2 pb-0.5 text-xs font-semibold text-muted">
                         <span x-show="sec.icon" x-cloak aria-hidden="true" class="shrink-0" x-text="sec.icon"></span>
                         <span class="min-w-0 truncate" x-text="sec.name"></span>
                         <span class="shrink-0 font-mono font-normal tabular-nums" x-text="sec.rooms.length"></span>
@@ -282,7 +282,7 @@
                  Gruppe „Channels", `AppSidebar.tsx:731`) und brauchen dieselbe
                  Grenze, die auch die Angehefteten vom Rest trennt. --}}
             <template x-if="groupFor(@js($group)).sections.length && (groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
-                <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
             </template>
 
             <template x-for="room in groupFor(@js($group)).joined" :key="room.h">
@@ -293,7 +293,7 @@
                  bereits „nicht beigetreten". Ein zweites Sektionslabel brächte die
                  Achse zurück, die der Gruppenschnitt gerade entfernt hat. --}}
             <template x-if="groupFor(@js($group)).joined.length && groupFor(@js($group)).others.length">
-                <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
             </template>
 
             <template x-for="room in groupFor(@js($group)).others" :key="room.h">
@@ -304,13 +304,13 @@
                  Eine stille Kappung liest sich wie „mehr gibt es nicht". --}}
             <template x-if="groupFor(@js($group)).hiddenCount > 0">
                 <button type="button" x-on:click="scopeToGroup(@js($group))"
-                        class="pressable flex min-h-7 w-full items-center gap-1 rounded-tile px-2 text-start text-[0.7rem] text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+                        class="pressable flex min-h-7 w-full items-center gap-1 rounded-tile px-2 text-start text-xs text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
                     <span x-text="@js(__('Noch :count — tippen zum Filtern')).replace(':count', groupFor(@js($group)).hiddenCount)"></span>
                 </button>
             </template>
 
             <template x-if="!({{ $present }})">
-                <p class="px-2 py-1.5 text-[0.7rem] text-muted">{{ __('Kein Treffer in dieser Gruppe.') }}</p>
+                <p class="px-2 py-1.5 text-xs text-muted">{{ __('Kein Treffer in dieser Gruppe.') }}</p>
             </template>
         </div>
     </section>
