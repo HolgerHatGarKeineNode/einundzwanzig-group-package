@@ -29,7 +29,16 @@
  */
 import { signer } from '@welshman/app'
 import { nip98AuthHeader, type SignedLike } from './nip98.ts'
-import { klonPfad, ordneFehlerEin, zuFortschritt, type Fortschritt, type KlonFehler } from './gitReadme.ts'
+import {
+    istBinaer,
+    klonPfad,
+    ordneFehlerEin,
+    zuFortschritt,
+    TEXT_GRENZE,
+    type Fortschritt,
+    type KlonFehler,
+} from './gitReadme.ts'
+import type { DateiPaar } from './forgePrDiff.ts'
 
 /**
  * Der `buffer`-Shim (6.0.3, MIT). Statisch, weil er das Global NICHT braucht —
@@ -438,6 +447,258 @@ export const entferneKlon = async (owner: string, dtag: string): Promise<void> =
     // Sonst stünde der gelöschte Baum nach einem Neuladen wieder da: gelöscht
     // ist er nur im Speicher, bis der Superblock geschrieben ist.
     await flush(fs)
+}
+
+// ── Der PR-Diff (P7b) ───────────────────────────────────────────────────────
+
+/**
+ * Wie viele Commits tief nachgeholt wird, wenn der `merge-base` im flachen
+ * Bestand fehlt.
+ *
+ * **Die Zahl ist eine Kostenentscheidung, keine technische Grenze.** Gemessen
+ * am selben Repository (2026-08-24): 1 Commit = 1,1 MB, 10 Commits = 13 MB von
+ * 14 MB gesamt — der Server kann kein `filter=blob:none`, also bringt jeder
+ * zusätzliche Commit seine vollständigen Bäume und Blobs mit. 50 ist großzügig
+ * für einen normalen Vorschlag und bleibt eine Zahl, die man in der Ansage
+ * nennen kann.
+ */
+export const PR_DIFF_TIEFE = 50
+
+/** Warum ein PR-Diff am Git-Endpunkt nicht zustande kam. */
+export type PrDiffFehler = KlonFehler | 'spitze-fehlt' | 'basis-fehlt'
+
+export type PrDiffAuftrag = {
+    /** Die Repo-Basis, zeichengenau so wie im `u`-Tag. */
+    url: string
+    owner: string
+    dtag: string
+    /** `merge-base` — der Punkt, gegen den gerechnet wird. */
+    basis: string
+    /** `c` — der Stand, den der Vorschlag vorschlägt. */
+    spitze: string
+    aufFortschritt?: (f: Fortschritt) => void
+    signal?: AbortSignal
+}
+
+/**
+ * Die berührten Dateien zwischen `merge-base` und Tip — **als Text, noch nicht
+ * verglichen.**
+ *
+ * Der Vergleich selbst steht in `forgePrDiff.ts` und ist ohne Browser prüfbar;
+ * hier passiert nur, was Git braucht. Dieselbe Trennung wie zwischen
+ * `gitBrowser.ts` und `gitReadme.ts`, und aus demselben Grund.
+ *
+ * ── Warum ALLE Branches geholt werden und nicht der Tip ─────────────────────
+ *
+ * Ein `want <oid>` auf einen Commit, der kein Ref-Tip ist, setzt
+ * `uploadpack.allowReachableSHA1InWant` voraus — im Buzz-Quellbaum nirgends
+ * gesetzt, und `isomorphic-git` fragt die Capability ohnehin nie an (seine
+ * Liste ist ein festes Literal). Der tragfähige Weg ist deshalb: die Ref-Tips
+ * holen und danach **nachsehen**, ob der gesuchte Commit dabei ist. Ist er es
+ * nicht, ist das eine Auskunft (`spitze-fehlt`) und keine Fehlermeldung — der
+ * Tip liegt dann in einem Fork, und den kennt dieser Endpunkt nicht.
+ *
+ * ── Und warum in zwei Stufen ────────────────────────────────────────────────
+ *
+ * Erst `depth: 1`: das reicht, wenn der Vorschlag genau einen Commit vor seiner
+ * Basis liegt — der häufigste Fall. Fehlt die Basis danach, wird EINMAL auf
+ * {@link PR_DIFF_TIEFE} vertieft. Zwei bewusste Schritte statt eines großen:
+ * der billige Fall bleibt billig, und der teure ist in der Ansage genannt.
+ */
+export const holePrDateipaare = async ({
+    url,
+    owner,
+    dtag,
+    basis,
+    spitze,
+    aufFortschritt,
+    signal,
+}: PrDiffAuftrag): Promise<DateiPaar[]> => {
+    const { git, webHttp, fs } = await ladeGit()
+    const dir = klonPfad(owner, dtag)
+    const headers = { Authorization: await gitAuthHeader(url) }
+    const http = {
+        request: (req: Record<string, unknown>) => webHttp.request({ ...req, fetchOptions: { signal } }),
+    }
+
+    // Ein Repository, das noch nie geholt wurde, hat kein `.git` — `fetch`
+    // braucht eins. `init` auf ein bestehendes ist folgenlos.
+    try {
+        await git.resolveRef({ fs: fs as never, dir, ref: 'HEAD' })
+    } catch {
+        await git.init({ fs: fs as never, dir })
+    }
+
+    const liegtVor = async (oid: string): Promise<boolean> => {
+        try {
+            await git.readCommit({ fs: fs as never, dir, oid })
+
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    const hole = async (depth: number): Promise<void> => {
+        await git.fetch({
+            fs: fs as never,
+            http: http as never,
+            dir,
+            url,
+            headers,
+            singleBranch: false,
+            tags: false,
+            depth,
+            onProgress: aufFortschritt ? (p) => aufFortschritt(zuFortschritt(p)) : undefined,
+        })
+        await flush(fs)
+    }
+
+    if (!(await liegtVor(spitze)) || !(await liegtVor(basis))) {
+        await hole(1)
+    }
+    if (!(await liegtVor(spitze))) {
+        throw Object.assign(new Error('spitze-fehlt'), { code: 'spitze-fehlt' })
+    }
+    if (!(await liegtVor(basis))) {
+        await hole(PR_DIFF_TIEFE)
+    }
+    if (!(await liegtVor(basis))) {
+        throw Object.assign(new Error('basis-fehlt'), { code: 'basis-fehlt' })
+    }
+
+    const baumVon = async (commitOid: string): Promise<string> =>
+        (await git.readCommit({ fs: fs as never, dir, oid: commitOid })).commit.tree
+
+    const paare: DateiPaar[] = []
+    await sammleUnterschiede(git, fs, dir, await baumVon(basis), await baumVon(spitze), '', paare)
+
+    return paare.sort((a, b) => a.pfad.localeCompare(b.pfad))
+}
+
+/** Ein Eintrag eines Git-Baums, auf das reduziert, was der Vergleich braucht. */
+type BaumZeile = { path: string; oid: string; type: string }
+
+const leseBaum = async (git: GitModule['default'], fs: unknown, dir: string, oid: string): Promise<BaumZeile[]> => {
+    try {
+        const { tree } = await git.readTree({ fs: fs as never, dir, oid })
+
+        return tree.map((e) => ({ path: e.path, oid: e.oid, type: e.type as string }))
+    } catch {
+        return []
+    }
+}
+
+/**
+ * Zwei Bäume gegeneinander laufen lassen — rekursiv, Ebene für Ebene.
+ *
+ * **Gleiche Oid heißt gleicher Inhalt.** Ein Unterverzeichnis mit unverändertem
+ * Baum-Hash wird gar nicht erst betreten; das ist der Grund, warum ein Vergleich
+ * über ein großes Repository trotzdem schnell ist.
+ *
+ * **Umbenennungen werden NICHT erkannt.** Git rechnet sie heuristisch aus
+ * Ähnlichkeit aus; wir zeigen sie als Löschung plus Neuanlage. Das ist die
+ * ehrlichere Anzeige für einen Client, der die Heuristik nicht hat — eine
+ * geratene Umbenennung wäre eine Behauptung über Absicht.
+ */
+const sammleUnterschiede = async (
+    git: GitModule['default'],
+    fs: unknown,
+    dir: string,
+    oidAlt: string,
+    oidNeu: string,
+    praefix: string,
+    out: DateiPaar[],
+): Promise<void> => {
+    if (oidAlt === oidNeu) {
+        return
+    }
+    const alt = new Map((await leseBaum(git, fs, dir, oidAlt)).map((e) => [e.path, e]))
+    const neu = new Map((await leseBaum(git, fs, dir, oidNeu)).map((e) => [e.path, e]))
+    const namen = [...new Set([...alt.keys(), ...neu.keys()])].sort()
+
+    for (const name of namen) {
+        const a = alt.get(name)
+        const b = neu.get(name)
+        const pfad = praefix === '' ? name : `${praefix}/${name}`
+
+        if (a?.type === 'tree' && b?.type === 'tree') {
+            await sammleUnterschiede(git, fs, dir, a.oid, b.oid, pfad, out)
+            continue
+        }
+        // Ein Verzeichnis, das zur Datei wurde (oder umgekehrt): beide Seiten
+        // getrennt behandeln, statt so zu tun, als wäre es dasselbe Ding.
+        if (a?.type === 'tree') {
+            await sammleUnterschiede(git, fs, dir, a.oid, '', pfad, out)
+            if (b) {
+                out.push(await zuPaar(git, fs, dir, pfad, undefined, b))
+            }
+            continue
+        }
+        if (b?.type === 'tree') {
+            if (a) {
+                out.push(await zuPaar(git, fs, dir, pfad, a, undefined))
+            }
+            await sammleUnterschiede(git, fs, dir, '', b.oid, pfad, out)
+            continue
+        }
+        if (a && b && a.oid === b.oid) {
+            continue
+        }
+        // `commit` ist ein Submodul-Zeiger — kein Inhalt, den ein Browser hätte.
+        if (a?.type === 'commit' || b?.type === 'commit') {
+            continue
+        }
+        out.push(await zuPaar(git, fs, dir, pfad, a, b))
+    }
+}
+
+/**
+ * Einen Blob als Text holen — oder als „binär" markieren.
+ *
+ * Dieselbe Entscheidungsreihe wie in der Dateianzeige
+ * ({@link import('./gitReadme.ts').dateiArt}): erst die Größe, dann die
+ * NUL-Prüfung. Wer zuerst dekodiert, hat aus einem PNG stillschweigend
+ * Ersatzzeichen gemacht und die Frage „ist das binär?" unbeantwortbar.
+ */
+const leseText = async (
+    git: GitModule['default'],
+    fs: unknown,
+    dir: string,
+    oid: string,
+): Promise<{ text: string; binaer: boolean }> => {
+    try {
+        const { blob } = await git.readBlob({ fs: fs as never, dir, oid })
+        if (blob.length > TEXT_GRENZE || istBinaer(blob)) {
+            return { text: '', binaer: true }
+        }
+
+        return { text: new TextDecoder('utf-8', { fatal: false }).decode(blob), binaer: false }
+    } catch {
+        return { text: '', binaer: true }
+    }
+}
+
+const zuPaar = async (
+    git: GitModule['default'],
+    fs: unknown,
+    dir: string,
+    pfad: string,
+    a: BaumZeile | undefined,
+    b: BaumZeile | undefined,
+): Promise<DateiPaar> => {
+    const alt = a ? await leseText(git, fs, dir, a.oid) : { text: '', binaer: false }
+    const neu = b ? await leseText(git, fs, dir, b.oid) : { text: '', binaer: false }
+
+    return {
+        pfad,
+        oldPath: a ? pfad : '/dev/null',
+        newPath: b ? pfad : '/dev/null',
+        change: !a ? 'add' : !b ? 'del' : 'mod',
+        binaer: alt.binaer || neu.binaer,
+        alt: alt.text,
+        neu: neu.text,
+    }
 }
 
 export { ordneFehlerEin, type KlonFehler, type Fortschritt }

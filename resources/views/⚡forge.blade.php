@@ -465,6 +465,101 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     @include('group::partials.forge-listen-umschalter')
                     @include('group::partials.forge-ansicht')
 
+                    {{-- ── Die Suche über den Bestand (P5, listenbewusst seit P7b) ──
+                         **Rein clientseitig.** Der Bestand liegt ohnehin vollständig
+                         im Speicher — `overviewFilters` lädt alle 30617 des Workspace
+                         in einem Zug, und `loadForge` die Vorgänge dazu. Eine
+                         Relay-Suche wäre ein zusätzlicher Roundtrip für Daten, die
+                         schon da sind, und sie könnte WENIGER: NIP-50 durchsucht den
+                         indizierten Text, nicht die clone-URL, nicht die
+                         Maintainer-Pubkeys und nicht den `euc`. Die Regeln stehen in
+                         `js/forgeSearch.ts`.
+
+                         ── Warum das Feld hier steht und nicht mehr in der Repo-Region
+                         Seit P7a filtert dieselbe Eingabe auch Issues und Pull Requests
+                         (`sucheVorgaenge` in `issueGroups()`/`pullGroups()`). Das Feld
+                         stand aber INNERHALB von `data-forge-region="repos"` — einer
+                         Sektion, die bei `listeAktiv() !== 'repos'` per `x-show`
+                         verschwindet. Die Vorgangssuche war damit gebaut, verdrahtet
+                         und **für niemanden erreichbar**; nur die Beschriftung zu
+                         korrigieren hätte einen Text repariert, den kein Nutzer je
+                         sieht. Gemessen am Markup, nicht vermutet.
+
+                         Das Feld steht NUR da, wenn es etwas zu durchsuchen gibt:
+                         ein Suchfeld über einer leeren Liste ist eine Aufforderung
+                         ins Nichts. `gesamtAnzahl()` und nicht `overview.repos.length`
+                         — die Frage gilt der AKTIVEN Liste. --}}
+                    <div x-show="gesamtAnzahl() > 0" class="mb-4 flex items-center gap-2" data-forge-suche>
+                        <div class="min-w-0 flex-1">
+                            {{-- `aria-label` und nicht nur `placeholder`: ein
+                                 Platzhalter ist kein zugänglicher Name, er
+                                 verschwindet beim Tippen, und K3 misst genau das.
+                                 Dieser Defekt ist in diesem Projekt schon dreimal
+                                 behoben worden.
+
+                                 Name UND Platzhalter folgen der aktiven Liste. Ein
+                                 Feld, das „Repositories durchsuchen" heisst und
+                                 Issues filtert, ist derselbe Fehler in Grün.
+
+                                 `class:input` statt `class`: der Flux-Stub legt
+                                 `class` an die HÜLLE. Was ans <input> muss, ist das
+                                 Abschalten der browsereigenen Löschtaste von
+                                 `type="search"` — sonst stehen zwei Knöpfe
+                                 nebeneinander, die dasselbe tun. Gleiche Begründung
+                                 wie in `⚡room.blade.php:207`. --}}
+                            <flux:input type="search" size="sm" icon="magnifying-glass"
+                                        class:input="[&::-webkit-search-cancel-button]:hidden"
+                                        x-ref="sucheFeld" x-model="suche"
+                                        autocomplete="off" autocorrect="off" spellcheck="false"
+                                        data-forge-suche-feld
+                                        ::placeholder="sucheHilfe().platzhalter"
+                                        ::aria-label="sucheHilfe().name" />
+                        </div>
+                        {{-- Eigener Leeren-Knopf statt Flux' `clearable`: dessen
+                             Beschriftung kommt aus Flux' eigenem Katalog („Clear
+                             input") und liegt ausserhalb unserer Sprachdateien —
+                             ein englisches Label mitten in einer deutschen Fläche.
+                             Dieselbe Entscheidung wie im Raum. --}}
+                        <flux:button size="sm" variant="ghost" icon="backspace" square class="icon-btn-touch shrink-0"
+                                     x-show="suche !== ''" x-cloak
+                                     x-on:click="sucheLoeschen(); $refs.sucheFeld?.focus()"
+                                     data-forge-suche-leeren
+                                     aria-label="{{ __('Eingabe leeren') }}" />
+                    </div>
+
+                    {{-- Die Grenze der Suche, sobald eine läuft. `role="status"`
+                         meldet sie dem Screenreader, sobald sich die Zahl ändert —
+                         sonst filterte die Liste lautlos.
+
+                         „:count von :total" und nicht „:count Treffer": die
+                         Gesamtzahl bleibt im Bild, damit niemand die gefilterte
+                         Liste für den Bestand des Workspace hält. Das Substantiv
+                         folgt der aktiven Liste — `sichtbareAnzahl()` und
+                         `gesamtAnzahl()` zählen sie ohnehin schon. --}}
+                    <p x-show="suche.trim() !== '' && gesamtAnzahl() > 0" x-cloak
+                       role="status" class="mb-2 px-1 text-xs text-muted" data-forge-suche-zahl
+                       x-text="sucheHilfe().zahl.split(':count').join($num(sichtbareAnzahl())).split(':total').join($num(gesamtAnzahl()))"></p>
+
+                    {{-- Null Treffer ist eine eigene Aussage, kein leerer Kasten.
+                         Sie nennt auch, WORÜBER gesucht wurde — sonst rät der
+                         Leser, warum sein Begriff nicht zieht.
+
+                         Steht ebenfalls ausserhalb der Regionen: bis P7b zeigte
+                         eine erfolglose Issue-Suche den GENERISCHEN Leerzustand
+                         („Noch keine Issues.") und behauptete damit etwas über den
+                         Workspace, was nur über die Suche galt. --}}
+                    <template x-if="ohneTreffer()">
+                        <div class="surface-card empty-state px-6 py-10 text-center" data-forge-empty="suche">
+                            <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
+                                <flux:icon.magnifying-glass class="size-6 text-zinc-500 dark:text-zinc-400" />
+                            </span>
+                            <flux:heading size="lg" class="mt-4" x-text="sucheHilfe().leer"></flux:heading>
+                            <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted" x-text="sucheHilfe().felder"></flux:text>
+                            <flux:button size="sm" variant="ghost" class="mt-4" x-on:click="sucheLoeschen()">{{ __('Suche zurücksetzen') }}</flux:button>
+                        </div>
+                    </template>
+
+
                     {{-- ── Repositories ────────────────────────────────────────────── --}}
                     {{-- `listeAktiv()` kam mit P3 dazu: die linke Spur trägt jetzt DREI
                          Listen. In der Tab-Form entscheidet `tab` allein; in der
@@ -499,78 +594,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <flux:callout.text
                                     x-text="$plural(overview.projects.reduce((n, p) => n + p.missingAddresses.length, 0), '1 Repository eines Projekts liegt nicht auf diesem Relay.', ':count Repositories von Projekten liegen nicht auf diesem Relay.')"></flux:callout.text>
                             </flux:callout>
-                        </template>
-
-                        {{-- ── Die Suche über den Bestand (P5) ──────────────────────
-                             **Rein clientseitig.** Der Bestand liegt ohnehin
-                             vollständig im Speicher — `overviewFilters` lädt alle
-                             30617 des Workspace in einem Zug. Eine Relay-Suche wäre
-                             ein zusätzlicher Roundtrip für Daten, die schon da sind,
-                             und sie könnte WENIGER: NIP-50 durchsucht den indizierten
-                             Text, nicht die clone-URL, nicht die Maintainer-Pubkeys
-                             und nicht den `euc`. Die Regeln stehen in
-                             `js/forgeSearch.ts`.
-
-                             Das Feld steht NUR da, wenn es etwas zu durchsuchen gibt:
-                             ein Suchfeld über einer leeren Liste ist eine Aufforderung
-                             ins Nichts. --}}
-                        <div x-show="overview.repos.length > 0" class="mb-4 flex items-center gap-2" data-forge-suche>
-                            <div class="min-w-0 flex-1">
-                                {{-- `aria-label` und nicht nur `placeholder`: ein
-                                     Platzhalter ist kein zugänglicher Name, er
-                                     verschwindet beim Tippen, und K3 misst genau das.
-                                     Dieser Defekt ist in diesem Projekt schon dreimal
-                                     behoben worden.
-
-                                     `class:input` statt `class`: der Flux-Stub legt
-                                     `class` an die HÜLLE. Was ans <input> muss, ist das
-                                     Abschalten der browsereigenen Löschtaste von
-                                     `type="search"` — sonst stehen zwei Knöpfe
-                                     nebeneinander, die dasselbe tun. Gleiche Begründung
-                                     wie in `⚡room.blade.php:207`. --}}
-                                <flux:input type="search" size="sm" icon="magnifying-glass"
-                                            class:input="[&::-webkit-search-cancel-button]:hidden"
-                                            x-ref="sucheFeld" x-model="suche"
-                                            autocomplete="off" autocorrect="off" spellcheck="false"
-                                            data-forge-suche-feld
-                                            placeholder="{{ __('Name, Thema, Clone-URL, Maintainer …') }}"
-                                            aria-label="{{ __('Repositories durchsuchen') }}" />
-                            </div>
-                            {{-- Eigener Leeren-Knopf statt Flux' `clearable`: dessen
-                                 Beschriftung kommt aus Flux' eigenem Katalog („Clear
-                                 input") und liegt ausserhalb unserer Sprachdateien —
-                                 ein englisches Label mitten in einer deutschen Fläche.
-                                 Dieselbe Entscheidung wie im Raum. --}}
-                            <flux:button size="sm" variant="ghost" icon="backspace" square class="icon-btn-touch shrink-0"
-                                         x-show="suche !== ''" x-cloak
-                                         x-on:click="sucheLoeschen(); $refs.sucheFeld?.focus()"
-                                         data-forge-suche-leeren
-                                         aria-label="{{ __('Eingabe leeren') }}" />
-                        </div>
-
-                        {{-- Die Grenze der Suche, sobald eine läuft. `role="status"`
-                             meldet sie dem Screenreader, sobald sich die Zahl ändert —
-                             sonst filterte die Liste lautlos.
-
-                             „:count von :total" und nicht „:count Treffer": die
-                             Gesamtzahl bleibt im Bild, damit niemand die gefilterte
-                             Liste für den Bestand des Workspace hält. --}}
-                        <p x-show="suche.trim() !== '' && overview.repos.length > 0" x-cloak
-                           role="status" class="mb-2 px-1 text-xs text-muted" data-forge-suche-zahl
-                           x-text="@js(__(':count von :total Repositories')).split(':count').join($num(sichtbareRepos().length)).split(':total').join($num(overview.repos.length))"></p>
-
-                        {{-- Null Treffer ist eine eigene Aussage, kein leerer Kasten.
-                             Sie nennt auch, WORÜBER gesucht wurde — sonst rät der
-                             Leser, warum sein Begriff nicht zieht. --}}
-                        <template x-if="ohneTreffer()">
-                            <div class="surface-card empty-state px-6 py-10 text-center" data-forge-empty="suche">
-                                <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
-                                    <flux:icon.magnifying-glass class="size-6 text-zinc-500 dark:text-zinc-400" />
-                                </span>
-                                <flux:heading size="lg" class="mt-4">{{ __('Kein Repository passt dazu.') }}</flux:heading>
-                                <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Gesucht wird über Name, Kennung, Beschreibung, Themen, Clone- und Web-Adressen, Relays und Maintainer — als npub oder als Hex.') }}</flux:text>
-                                <flux:button size="sm" variant="ghost" class="mt-4" x-on:click="sucheLoeschen()">{{ __('Suche zurücksetzen') }}</flux:button>
-                            </div>
                         </template>
 
                         <template x-if="overview.repos.length === 0">

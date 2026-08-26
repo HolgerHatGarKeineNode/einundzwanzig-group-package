@@ -76,7 +76,18 @@ import { readVorgang, tabForVorgang, withVorgang, type VorgangArt, type VorgangZ
 // drittes Paar wäre derselbe Fehler noch einmal.
 import { DESKTOP_QUERY, type ViewportForm as ForgeForm } from './viewport.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
-import { diffStat, parseUnifiedDiff, patchBody, type DiffStat, type ParsedDiff } from './forgeDiff.ts'
+import {
+    EMPTY_DIFF,
+    diffStat,
+    parseUnifiedDiff,
+    patchBody,
+    type DiffStat,
+    type ParsedDiff,
+} from './forgeDiff.ts'
+// Rein und ohne Netz: WOHER der Diff eines Pull Requests käme, und wann gar
+// nicht. Das Holen selbst steht im lazy geladenen `gitBrowser.ts`.
+import { baueDiff, prDiffQuelle, type PrDiffQuelle } from './forgePrDiff.ts'
+import type { PrDiffFehler } from './gitBrowser.ts'
 import { filterRepos, sucheVorgaenge } from './forgeSearch.ts'
 import {
     FORGE_LIST_LIMIT,
@@ -1884,6 +1895,14 @@ type ForgeState = {
     _gefilterteGruppen(gruppen: VorgangGruppe[]): VorgangGruppe[]
     /** Suchfeld leeren. */
     sucheLoeschen(): void
+    /**
+     * Die fünf Texte der Suche für die AKTIVE Liste (P7b).
+     *
+     * Ein Bündel und nicht fünf Methoden: sie gehören zusammen und würden sonst
+     * fünfmal dieselbe Weiche stellen — fünf Gelegenheiten, dass eine davon
+     * hängen bleibt und „Repositories durchsuchen" über einer Issue-Liste steht.
+     */
+    sucheHilfe(): { name: string; platzhalter: string; zahl: string; leer: string; felder: string }
     settled(): boolean
     counts(): ForgeCounts
     repoHref(row: { naddr: string }): string
@@ -1962,6 +1981,47 @@ export type CodeLage = {
     laedt: boolean
     fehler: string
 }
+
+/**
+ * Die Lage des PR-Diffs EINES Vorschlags (P7b).
+ *
+ * `quelle` ist die Antwort auf „woher käme er" und steht **ohne ein Byte Netz**
+ * fest ({@link prDiffQuelle}); erst `lage: 'laedt'` fasst das Netz an. Die
+ * Trennung ist der Grund, warum die Kostenansage VOR dem Download stehen kann
+ * und nicht danach: die Fläche weiß beim ersten Rendern schon, ob es überhaupt
+ * etwas zu holen gibt.
+ */
+export type PrDiffLage = {
+    /**
+     * `quelle` = die Ansage steht (oder die Auskunft, dass es nichts zu holen
+     * gibt) · `laedt` · `da` · `fehler`. Eine Maschine, kein Bündel Flags:
+     * „lädt UND Fehler" ist ein Zustand, den die Fläche nicht darstellen kann.
+     */
+    lage: 'quelle' | 'laedt' | 'da' | 'fehler'
+    quelle: PrDiffQuelle
+    diff: ParsedDiff
+    stat: DiffStat
+    fehler: PrDiffFehler | ''
+    fortschritt: Fortschritt | null
+    /**
+     * Die Spitze, für die dieser Diff gilt.
+     *
+     * Ein 1619 verschiebt `c` UND `merge-base` — ein danach noch angezeigter
+     * Diff gehörte zu einem Stand, den es nicht mehr gibt. Beim Neubau der Karte
+     * entscheidet dieses Feld, ob das geladene Ergebnis mit hinüberdarf.
+     */
+    _spitze: string
+}
+
+const leerePrDiffLage = (quelle: PrDiffQuelle): PrDiffLage => ({
+    lage: 'quelle',
+    quelle,
+    diff: EMPTY_DIFF,
+    stat: { files: 0, additions: 0, deletions: 0 },
+    fehler: '',
+    fortschritt: null,
+    _spitze: quelle.art === 'ladbar' ? quelle.spitze : '',
+})
 
 type ForgeRepoState = {
     loading: boolean
@@ -2048,6 +2108,45 @@ type ForgeRepoState = {
     _readmeLesen(): Promise<void>
     /** „12,3 MB" o. ä. — Zahl und Einheit getrennt gebildet. */
     groessenText(bytes: number): string
+    /**
+     * Der PR-Diff je Wurzel-Id (P7b) — **eine Zustandsmaschine je Vorschlag.**
+     *
+     * Nicht EIN Zustand für die Seite: zwei aufgeklappte Pull Requests sind der
+     * Normalfall, und ein geteilter Zustand zeigte dem einen den Diff des
+     * anderen. Die Karte wird bei jedem `view`-Emit neu gebildet und trägt
+     * geladene Diffs mit hinüber — außer die Spitze hat sich bewegt.
+     */
+    prDiff: Record<string, PrDiffLage>
+    /** Läuft gerade ein Download, dann seine Abbruchleine. Je Wurzel-Id eine. */
+    _prDiffAbbruch: Record<string, AbortController>
+    /** Startet den Download. Nur auf ausdrücklichen Klick — die Ansage steht davor. */
+    prDiffLaden(pr: { id: string }): Promise<void>
+    prDiffAbbrechen(pr: { id: string }): void
+    /** Der übersetzte Satz zum Fehlercode dieses Vorschlags. */
+    prDiffFehlerText(pr: { id: string }): string
+    /** Die Lage dieses Vorschlags — nie `undefined`, damit das Markup nichts abfangen muss. */
+    prDiffVon(pr: { id: string }): PrDiffLage
+    /** Baut {@link prDiff} aus dem neuen `view` — geladene Diffs überleben, veraltete nicht. */
+    _prDiffKarteNeu(view: RepoView | null): void
+    /**
+     * Der Text im Suchfeld der Detailseite (P7b). EIN Zustand für alle drei
+     * Vorgangsreiter: es tippt immer nur einer, und drei Felder mit drei
+     * Zuständen wären drei Wahrheiten über dieselbe Frage.
+     */
+    suche: string
+    sichtbareIssues(): RepoView['issues']
+    sichtbarePulls(): RepoView['pullRequests']
+    sichtbarePatches(): RepoView['patches']
+    /** Wie viele Vorgänge der aktive Reiter OHNE Suche hätte. */
+    vorgaengeGesamt(): number
+    /** Wie viele nach der Suche übrig sind. */
+    vorgaengeSichtbar(): number
+    /** Der zugängliche Name des Suchfelds — folgt dem Reiter. */
+    detailSucheName(): string
+    /** Die Zählzeile („:count von :total …") — folgt dem Reiter. */
+    detailSucheZahl(): string
+    /** Der Satz über null Treffern — folgt dem Reiter. */
+    detailSucheLeer(): string
     _naddr: string
     _dead: boolean
     _controller: AbortController | null
@@ -2548,6 +2647,45 @@ export function wireForge(Alpine: {
             sucheLoeschen() {
                 this.suche = ''
             },
+            /**
+             * **Die Texte folgen der Liste, weil die Suche es seit P7a tut.**
+             *
+             * `sucheVorgaenge` filtert Issues und Pull Requests genauso wie
+             * `filterRepos` die Repositories — nur hiess das Feld weiterhin
+             * „Repositories durchsuchen" und die Zählzeile „:count von :total
+             * Repositories". Über einer Issue-Liste war beides schlicht falsch.
+             *
+             * Die durchsuchten FELDER sind ebenfalls verschiedene: bei einem
+             * Repo Name, Kennung, Beschreibung, Themen, Adressen und Maintainer
+             * (`repoHaystack`), bei einem Vorgang Titel, Rumpf, Labels, Autor
+             * und die, auf die gewartet wird (`vorgangHaystack`). Ein
+             * gemeinsamer Satz nennte für jede der beiden Listen Felder, die es
+             * dort nicht gibt.
+             */
+            sucheHilfe() {
+                if (this.listeAktiv() === 'repos') {
+                    return {
+                        name: t('Repositories durchsuchen'),
+                        platzhalter: t('Name, Thema, Clone-URL, Maintainer …'),
+                        zahl: t(':count von :total Repositories'),
+                        leer: t('Kein Repository passt dazu.'),
+                        felder: t(
+                            'Gesucht wird über Name, Kennung, Beschreibung, Themen, Clone- und Web-Adressen, Relays und Maintainer — als npub oder als Hex.',
+                        ),
+                    }
+                }
+                const issues = this.listeAktiv() === 'issues'
+
+                return {
+                    name: issues ? t('Issues durchsuchen') : t('Pull Requests durchsuchen'),
+                    platzhalter: t('Titel, Text, Label, Autor …'),
+                    zahl: issues ? t(':count von :total Issues') : t(':count von :total Pull Requests'),
+                    leer: issues ? t('Kein Issue passt dazu.') : t('Kein Pull Request passt dazu.'),
+                    felder: t(
+                        'Gesucht wird über Titel, Rumpftext, Labels, Verfasser und die Beteiligten, auf die gewartet wird — als npub oder als Hex.',
+                    ),
+                }
+            },
             repoHref(row: { naddr: string }) {
                 return row.naddr ? `${this._base}/${row.naddr}` : ''
             },
@@ -2625,6 +2763,9 @@ export function wireForge(Alpine: {
             klon: { lage: 'pruefe', name: '', html: '', text: '', fehler: '', fortschritt: null, commit: '', fremdUrl: '' },
             code: { pfad: '', eintraege: [], datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0, laedt: false, fehler: '' },
             speicher: { offen: false, klone: [], belegt: 0, kontingent: 0 },
+            prDiff: {},
+            _prDiffAbbruch: {},
+            suche: '',
             _klonAbbruch: null,
             loading: true,
             error: '',
@@ -2839,6 +2980,12 @@ export function wireForge(Alpine: {
                 // das niemand mehr sehen wird.
                 this._klonAbbruch?.abort()
                 this._klonAbbruch = null
+                // Dasselbe für laufende PR-Diffs: sie holen Git-Objekte, und
+                // der Download läuft weiter, auch wenn die Seite weg ist.
+                for (const abbruch of Object.values(this._prDiffAbbruch)) {
+                    abbruch.abort()
+                }
+                this._prDiffAbbruch = {}
             },
             async _boot() {
                 if (!WORKSPACE_URL) {
@@ -2848,6 +2995,7 @@ export function wireForge(Alpine: {
                 }
                 this._unsub = deriveRepoView(this._naddr).subscribe((view: RepoView | null) => {
                     this.view = view
+                    this._prDiffKarteNeu(view)
                     // Der `buzz-channel` des Repos ist der Kanal, gegen den die
                     // Eignung geprüft wird — er kommt mit dem Repo herein, nicht
                     // mit dem Verzeichnis.
@@ -3100,6 +3248,205 @@ export function wireForge(Alpine: {
                 }
                 this.klon = { ...this.klon, lage: 'bereit', name: '', html: '', text: '', commit: '' }
                 await this.klonLaden()
+            },
+
+            // ── Der PR-Diff (P7b) ────────────────────────────────────────────
+            //
+            // Ein kind 1618 trägt seinen Diff NICHT bei sich — anders als ein
+            // 1617, dessen Unified Diff im `content` steht. Es nennt zwei
+            // Commit-Ids und eine clone-URL; was dazwischen liegt, weiß nur Git.
+            // Deshalb ist das hier ein zweiter, ANGESAGTER Ladeweg und keine
+            // Anzeige über vorhandene Daten.
+
+            _prDiffKarteNeu(view) {
+                if (!view) {
+                    return
+                }
+                const neu: Record<string, PrDiffLage> = {}
+                for (const pr of view.pullRequests) {
+                    const quelle = prDiffQuelle({
+                        cloneUrls: pr.cloneUrls,
+                        // Der Link im Fremdfall kommt aus den `web`-Tags des
+                        // REPOS: ein 1618 trägt keine.
+                        webUrls: view.repo.webUrls,
+                        commit: pr.commit,
+                        mergeBase: pr.mergeBase,
+                        workspaceUrl: WORKSPACE_URL,
+                    })
+                    const alt = this.prDiff[pr.id]
+                    const spitze = quelle.art === 'ladbar' ? quelle.spitze : ''
+                    // Ein geladener Diff darf mit hinüber — aber nur, wenn er
+                    // noch zu dieser Spitze gehört. Ein 1619 verschiebt `c` und
+                    // `merge-base`; der alte Diff zeigte dann einen Stand, den
+                    // es nicht mehr gibt.
+                    neu[pr.id] =
+                        alt && alt._spitze === spitze ? { ...alt, quelle } : leerePrDiffLage(quelle)
+                }
+                this.prDiff = neu
+            },
+
+            // ── Die Vorgangssuche der Detailseite (P7b) ──────────────────────
+            //
+            // Dieselben Regeln wie auf der Übersicht (`forgeSearch.ts`) und
+            // derselbe Grund: der Bestand dieses Repositories liegt seit P7a
+            // ohnehin vollständig und repo-gescopt im Speicher. Eine Relay-Suche
+            // wäre ein Roundtrip für Daten, die schon da sind — und sie könnte
+            // weniger (NIP-50 durchsucht Text, keine Pubkeys).
+
+            sichtbareIssues() {
+                return sucheVorgaenge(this.view?.issues ?? [], this.suche)
+            },
+            sichtbarePulls() {
+                return sucheVorgaenge(this.view?.pullRequests ?? [], this.suche)
+            },
+            sichtbarePatches() {
+                return sucheVorgaenge(this.view?.patches ?? [], this.suche)
+            },
+            vorgaengeGesamt() {
+                if (this.tab === 'issues') {
+                    return this.view?.issues.length ?? 0
+                }
+                if (this.tab === 'pulls') {
+                    return this.view?.pullRequests.length ?? 0
+                }
+
+                return this.tab === 'patches' ? (this.view?.patches.length ?? 0) : 0
+            },
+            vorgaengeSichtbar() {
+                if (this.tab === 'issues') {
+                    return this.sichtbareIssues().length
+                }
+                if (this.tab === 'pulls') {
+                    return this.sichtbarePulls().length
+                }
+
+                return this.tab === 'patches' ? this.sichtbarePatches().length : 0
+            },
+            detailSucheName() {
+                if (this.tab === 'pulls') {
+                    return t('Pull Requests durchsuchen')
+                }
+
+                return this.tab === 'patches' ? t('Patches durchsuchen') : t('Issues durchsuchen')
+            },
+            detailSucheZahl() {
+                if (this.tab === 'pulls') {
+                    return t(':count von :total Pull Requests')
+                }
+
+                return this.tab === 'patches'
+                    ? t(':count von :total Patches')
+                    : t(':count von :total Issues')
+            },
+            detailSucheLeer() {
+                if (this.tab === 'pulls') {
+                    return t('Kein Pull Request passt dazu.')
+                }
+
+                return this.tab === 'patches' ? t('Kein Patch passt dazu.') : t('Kein Issue passt dazu.')
+            },
+
+            prDiffVon(pr) {
+                return (
+                    this.prDiff[pr.id] ??
+                    leerePrDiffLage({ art: 'unvollstaendig', fehlt: 'beides' })
+                )
+            },
+
+            /**
+             * **Zwei der sechs Codes sind gar keine Fehler.** `spitze-fehlt`
+             * heißt: der Endpunkt kennt diesen Commit nicht — der Vorschlag
+             * kommt aus einem Fork, den NIP-34 ausdrücklich zulässt.
+             * `basis-fehlt` heißt: der Vergleichspunkt liegt tiefer, als dieser
+             * Client geholt hat, und tiefer zu holen kostet Datenvolumen. Beide
+             * bekommen deshalb einen Satz, der SAGT was ist, statt zu behaupten,
+             * etwas sei kaputt.
+             */
+            prDiffFehlerText(pr) {
+                const codes: Record<string, string> = {
+                    'nicht-angemeldet': 'Zum Laden musst du angemeldet sein — der Git-Zugang wird signiert (NIP-98).',
+                    'kein-zugriff': 'Der Relay hat den Zugriff abgelehnt. Entweder bist du kein Mitglied des Kanals, zu dem dieses Repository gehört, oder die Signatur ist abgelaufen.',
+                    netz: 'Der Git-Endpunkt war nicht erreichbar.',
+                    abgebrochen: 'Abgebrochen.',
+                    'spitze-fehlt': 'Dieser Git-Endpunkt kennt den vorgeschlagenen Stand nicht — er liegt in einer Kopie des Repositories, die hier nicht abrufbar ist.',
+                    'basis-fehlt': 'Der Vergleichspunkt liegt weiter zurück, als hier geholt wurde. Die Dateiliste lässt sich daraus nicht bilden.',
+                    unbekannt: 'Die Dateiliste liess sich nicht bilden.',
+                }
+                const fehler = this.prDiffVon(pr).fehler
+
+                return fehler ? t(codes[fehler] ?? codes.unbekannt) : ''
+            },
+
+            prDiffAbbrechen(pr) {
+                this._prDiffAbbruch[pr.id]?.abort()
+                delete this._prDiffAbbruch[pr.id]
+                const lage = this.prDiffVon(pr)
+                this.prDiff = {
+                    ...this.prDiff,
+                    [pr.id]: { ...lage, lage: 'quelle', fehler: '', fortschritt: null },
+                }
+            },
+
+            async prDiffLaden(pr) {
+                const repo = this.view?.repo
+                const lage = this.prDiffVon(pr)
+                if (!repo || lage.quelle.art !== 'ladbar' || lage.lage === 'laedt') {
+                    return
+                }
+                const quelle = lage.quelle
+                const abbruch = new AbortController()
+                this._prDiffAbbruch[pr.id] = abbruch
+                const setze = (teil: Partial<PrDiffLage>): void => {
+                    // Nur schreiben, solange DIESER Vorgang läuft: ein
+                    // abgebrochener Fetch feuert noch Fortschritte nach, und die
+                    // schrieben sonst über eine neue Lage.
+                    if (this._prDiffAbbruch[pr.id] === abbruch && !this._dead) {
+                        this.prDiff = { ...this.prDiff, [pr.id]: { ...this.prDiffVon(pr), ...teil } }
+                    }
+                }
+                setze({ lage: 'laedt', fehler: '', fortschritt: null })
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    const paare = await g.holePrDateipaare({
+                        url: quelle.url,
+                        owner: repo.owner,
+                        dtag: repo.dtag,
+                        basis: quelle.basis,
+                        spitze: quelle.spitze,
+                        signal: abbruch.signal,
+                        aufFortschritt: (f) => setze({ fortschritt: f }),
+                    })
+                    if (this._prDiffAbbruch[pr.id] !== abbruch || this._dead) {
+                        return
+                    }
+                    const diff = baueDiff(paare)
+                    setze({ lage: 'da', diff, stat: diffStat(diff), fortschritt: null })
+                } catch (error) {
+                    if (this._prDiffAbbruch[pr.id] !== abbruch || this._dead) {
+                        return
+                    }
+                    // Der eigene Code gewinnt gegen die Einordnung nach
+                    // Wortlaut: `spitze-fehlt` ist eine AUSKUNFT (der Tip liegt
+                    // in einem Fork), kein Netzfehler, und `ordneFehlerEin`
+                    // kennt ihn nicht.
+                    const eigen = (error as { code?: string } | null)?.code ?? ''
+                    const code: PrDiffFehler =
+                        eigen === 'spitze-fehlt' || eigen === 'basis-fehlt'
+                            ? eigen
+                            : ordneFehlerEin(error)
+                    // Den ORIGINALFEHLER protokollieren, nicht nur den Code —
+                    // dieselbe Begründung wie beim Klon.
+                    console.warn('[forge] PR-Diff fehlgeschlagen', code, error)
+                    setze(
+                        code === 'abgebrochen'
+                            ? { lage: 'quelle', fehler: '', fortschritt: null }
+                            : { lage: 'fehler', fehler: code, fortschritt: null },
+                    )
+                } finally {
+                    if (this._prDiffAbbruch[pr.id] === abbruch) {
+                        delete this._prDiffAbbruch[pr.id]
+                    }
+                }
             },
 
             // ── Code-Browser (P6) ────────────────────────────────────────────

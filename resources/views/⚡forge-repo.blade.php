@@ -386,6 +386,124 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </dd>
                                 </div>
 
+                                {{-- ── Tags aus dem kind 30618 (P7b) ──────────────────────
+                                     Sie wurden seit jeher geparst (`toRepoState`:
+                                     `refs/tags/*` stehen als TAG-NAMEN da, nicht als
+                                     Werte — eine NIP-34-Eigenheit, die man beim
+                                     Überfliegen übersieht) und **nirgends** angezeigt.
+
+                                     ── DREI Lagen, und keine zwei davon dürfen denselben
+                                        Satz bekommen ──────────────────────────────────
+                                     `state === null` heißt „es liegt gar kein
+                                     veröffentlichter Ref-Zustand vor".
+                                     `state.ambiguous === true` heißt etwas ganz anderes:
+                                     es liegt einer vor, er nennt aber keinen Eigentümer,
+                                     und ein zweites Repository trägt denselben Namen —
+                                     dann sind `branches` UND `tags` leer, obwohl sehr
+                                     wohl gepusht wurde. Der dritte Fall ist der
+                                     langweilige: Zustand da, nur eben ohne Tags.
+
+                                     Wer die drei zusammenlegt, tauscht eine falsche
+                                     Behauptung gegen eine andere. --}}
+                                <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
+                                    <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Tags') }}</dt>
+                                    <dd class="min-w-0 flex-1">
+                                        <template x-if="view.repo.state && view.repo.state.tags.length > 0">
+                                            <ul class="flex flex-wrap gap-1.5">
+                                                {{-- Dieselbe Bauform wie eine Zelle höher bei den
+                                                     Branches: `flux:badge` mit dem brand-getönten
+                                                     Kurzhash darin. Das Zeichen unterscheidet die
+                                                     beiden Rollen — ein Tag ist ein Etikett, ein
+                                                     Branch eine Linie. --}}
+                                                <template x-for="tag in view.repo.state.tags" :key="tag.name">
+                                                    <li>
+                                                        <flux:badge size="sm" class="gap-1.5"
+                                                                    data-forge-tag ::data-tag="tag.name">
+                                                            <flux:icon.tag variant="micro" class="size-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
+                                                            <span class="font-semibold" x-text="tag.name"></span>
+                                                            <span class="rounded-pill bg-brand-500/10 px-1.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
+                                                                  x-text="tag.commit.slice(0, 7)"></span>
+                                                        </flux:badge>
+                                                    </li>
+                                                </template>
+                                            </ul>
+                                        </template>
+                                        <template x-if="!view.repo.state">
+                                            <span class="text-xs text-muted" data-forge-tags-kein-zustand>{{ __('Zu diesem Repository liegt noch kein veröffentlichter Ref-Zustand vor — deshalb steht hier auch keine Tag-Liste.') }}</span>
+                                        </template>
+                                        <template x-if="view.repo.state && view.repo.state.ambiguous">
+                                            <span class="text-xs text-muted" data-forge-tags-mehrdeutig>{{ __('Ein zweites Repository trägt denselben Namen. Der veröffentlichte Ref-Zustand nennt keinen Eigentümer — welche Tags zu diesem hier gehören, ist deshalb nicht zu sagen.') }}</span>
+                                        </template>
+                                        <template x-if="view.repo.state && !view.repo.state.ambiguous && view.repo.state.tags.length === 0">
+                                            <span class="text-xs text-muted" data-forge-tags-leer>{{ __('Dieses Repository hat noch keinen Tag veröffentlicht.') }}</span>
+                                        </template>
+                                    </dd>
+                                </div>
+
+                                {{-- ── Themen (P7b) ───────────────────────────────────────
+                                     Die `t`-Tags des 30617. Sie wurden gelesen und waren
+                                     seit P5 sogar suchbar (`forgeSearch.ts`) — nur nie im
+                                     Bild. Ein Suchbegriff, der Treffer liefert und dessen
+                                     Grundlage man nirgends sieht, ist eine Fläche, die
+                                     mehr weiß als sie sagt.
+
+                                     Keine Leerzeile, wenn es keine gibt: ein Repository
+                                     ohne Themen ist der Normalfall und keine Lücke. --}}
+                                <template x-if="view.repo.hashtags.length > 0">
+                                    <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
+                                        <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Themen') }}</dt>
+                                        <dd class="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                                            <template x-for="thema in view.repo.hashtags" :key="thema">
+                                                {{-- `variant="pill"` — die dritte Chip-Rolle aus
+                                                     P3: Label-artig und damit rund, während der
+                                                     Git-Anker eckig bleibt. --}}
+                                                <flux:badge size="sm" variant="pill" data-forge-thema x-text="thema" />
+                                            </template>
+                                        </dd>
+                                    </div>
+                                </template>
+
+                                {{-- ── Gleiche Historie (P7b) ─────────────────────────────
+                                     Repos mit demselben `["r", <commit>, "euc"]` haben
+                                     nachweislich dieselbe Wurzel.
+
+                                     **Hier steht NICHT „Fork von X", und das ist keine
+                                     Wortwahl, sondern eine Aussage über das Protokoll.**
+                                     Der `euc` ist eine ÄQUIVALENZ ohne Richtung. Eine
+                                     Richtung wäre nur aus `created_at` zu holen — und das
+                                     ist am ersetzbaren 30617 der Zeitpunkt der letzten
+                                     Neuankündigung, nicht der Entstehung: ein Repo, das
+                                     gestern seine Beschreibung geändert hat, sähe damit
+                                     jünger aus als sein eigener Fork. Ein `fork-of`-Tag
+                                     kennt NIP-34 nicht. Eine Fläche, die „Fork von X"
+                                     schreibt, behauptet also etwas, das im Ereignis nicht
+                                     steht. --}}
+                                <template x-if="view.verwandte.length > 0">
+                                    <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
+                                        <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Gleiche Historie') }}</dt>
+                                        <dd class="min-w-0 flex-1">
+                                            <ul class="flex flex-wrap gap-1.5" data-forge-verwandte>
+                                                <template x-for="andere in view.verwandte" :key="andere.address">
+                                                    <li>
+                                                        <a :href="'{{ route('group.forge') }}/' + andere.naddr" wire:navigate
+                                                           class="forge-anker pressable inline-flex items-center gap-1.5 rounded-tile px-2 py-1 text-xs"
+                                                           {{-- EINFACHER Doppelpunkt: das hier ist ein
+                                                                normales `<a>`, keine Flux-Komponente.
+                                                                `::data-…` erzeugte auf gewöhnlichem
+                                                                HTML lautlos ein totes Attribut. --}}
+                                                           data-forge-verwandt :data-address="andere.address">
+                                                            <flux:icon.arrows-right-left variant="micro" class="size-3.5 shrink-0" />
+                                                            <span class="font-semibold" x-text="andere.name"></span>
+                                                            <span class="text-muted" x-text="andere.ownerName"></span>
+                                                        </a>
+                                                    </li>
+                                                </template>
+                                            </ul>
+                                            <p class="mt-1 text-xs text-muted">{{ __('Diese Repositories teilen den ersten Commit (euc). Welches davon zuerst da war, sagt das Protokoll nicht.') }}</p>
+                                        </dd>
+                                    </div>
+                                </template>
+
                                 {{-- Branch-Schutz aus `buzz-protect`. Eine
                                      Buzz-Erweiterung, kein NIP-34 — sie steht hier,
                                      weil sie beantwortet, warum ein Push abgelehnt
@@ -759,6 +877,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </flux:callout>
                         </template>
 
+                        {{-- Die Vorgangssuche steht ÜBER den drei Listen und nicht in
+                             jeder einzelnen: eine Eingabe, drei Reiter, ein Zustand.
+                             Die Herleitung — auch die, warum das ein Partial ist —
+                             steht in der eingebundenen Datei. --}}
+                        @include('group::partials.forge-detail-suche')
+
                         {{-- ── Issues ───────────────────────────────────────────── --}}
                         <div x-show="tab === 'issues'" x-cloak>
                             {{-- ── Wer nicht darf, sieht das hier — vor dem Klick ──
@@ -835,7 +959,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </template>
 
-                            <section x-show="view.issues.length > 0" class="surface-card">
+                            <section x-show="sichtbareIssues().length > 0" class="surface-card">
                                 {{-- ── EIN Kasten, Kopf UND Liste (P5) ──────────────────────────
                                      Diese Liste hatte gar keinen Kopf: sie begann ohne
                                      Ansage mit ihrer ersten Zeile. Der Reiter darüber
@@ -854,10 +978,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Diff-Kopf und der workspace-weiten Liste. --}}
                                 <div class="forge-kartenkopf">
                                     <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Issues') }}</span>
-                                    <span class="shrink-0 text-xs text-muted" x-text="$num(view.issues.length)"></span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(sichtbareIssues().length)"></span>
                                 </div>
                                 <ul>
-                                <template x-for="issue in view.issues" :key="issue.id">
+                                <template x-for="issue in sichtbareIssues()" :key="issue.id">
                                     {{-- `data-forge-vorgang` + `tabindex="-1"`: das Sprungziel eines
                                          geteilten `?issue=`-Links (P2). Fokussiert wird die ZEILE
                                          und nicht ihr Knopf — der Knopf ist der Umschalter, und ein
@@ -1439,14 +1563,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </template>
 
-                            <section x-show="view.patches.length > 0" class="surface-card">
+                            <section x-show="sichtbarePatches().length > 0" class="surface-card">
                                 {{-- Kopfstreifen wie oben bei den Issues (P5). --}}
                                 <div class="forge-kartenkopf">
                                     <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Patches') }}</span>
-                                    <span class="shrink-0 text-xs text-muted" x-text="$num(view.patches.length)"></span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(sichtbarePatches().length)"></span>
                                 </div>
                                 <ul>
-                                <template x-for="patch in view.patches" :key="patch.id">
+                                <template x-for="patch in sichtbarePatches()" :key="patch.id">
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-patch :data-status="patch.status" :data-id="patch.id">
                                         {{-- Zwei Ränge wie an der Issue- und der PR-Zeile.
                                              Hier fielen zwei Blockzeilen weg: der Serienmarker
@@ -1531,6 +1655,51 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      aus Variablennamen. --}}
                                                 <p x-show="patch.body" class="forge-mass whitespace-pre-wrap text-sm" data-forge-patch-body x-text="patch.body"></p>
 
+                                                {{-- ── Wo dieser Patch gelandet ist (P7b) ────────
+                                                     Derselbe Pfad wie beim Pull Request: ein
+                                                     1631 trägt `merge-commit` und
+                                                     `applied-as-commits`, und `mergeRow()` in
+                                                     `forge.ts` bildet beide Wurzelarten über
+                                                     dieselbe Funktion ab. Bei einem Patch ist
+                                                     „angewandt als" der häufigere der beiden —
+                                                     ein Patch wird gecherrypickt, nicht
+                                                     gemerged. --}}
+                                                <template x-if="patch.shortMergeCommit || patch.shortAppliedAsCommits.length > 0">
+                                                    <p class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted"
+                                                       data-forge-landung>
+                                                        <template x-if="patch.shortMergeCommit">
+                                                            <span class="inline-flex items-center gap-1.5">
+                                                                <span>{{ __('Zusammengeführt als') }}</span>
+                                                                <flux:badge size="sm" class="forge-anker tracking-tight"
+                                                                            data-forge-merge-commit
+                                                                            x-text="patch.shortMergeCommit" />
+                                                            </span>
+                                                        </template>
+                                                        <template x-if="patch.shortAppliedAsCommits.length > 0">
+                                                            <span class="inline-flex flex-wrap items-center gap-1.5">
+                                                                <span>{{ __('Angewandt als') }}</span>
+                                                                <template x-for="c in patch.shortAppliedAsCommits" :key="c">
+                                                                    <flux:badge size="sm" class="forge-anker tracking-tight"
+                                                                                data-forge-applied-as
+                                                                                x-text="c" />
+                                                                </template>
+                                                            </span>
+                                                        </template>
+                                                    </p>
+                                                </template>
+
+                                                {{-- ── Warum dieses Diff-Markup hier NOCH einmal steht
+                                                     Dieselbe Bauform liegt seit P7b als Komponente
+                                                     vor (`components/forge-pr-diff.blade.php`) und
+                                                     gehört genau einmal beschrieben. Der Tausch ist
+                                                     hier trotzdem NICHT gemacht, und der Grund ist
+                                                     kein technischer: `EmptyStatesAndA11yTest` zählt
+                                                     ARIA-Träger aus dem QUELLTEXT dieser Datei —
+                                                     wandern die beiden `aria-hidden` an den
+                                                     Zeilennummern in eine Komponente, sinkt die
+                                                     kalibrierte Zahl von 33 auf 31 und der Test wird
+                                                     rot. Die Zusammenführung ist fällig, aber nur
+                                                     GEMEINSAM mit dem Nachziehen jener Zahl. --}}
                                                 {{-- Der gekürzte Diff sagt es an. Eine
                                                      stillschweigend gekürzte Datei wäre eine
                                                      falsche Aussage über den Patch. --}}
@@ -1628,14 +1797,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                             </template>
 
-                            <section x-show="view.pullRequests.length > 0" class="surface-card">
+                            <section x-show="sichtbarePulls().length > 0" class="surface-card">
                                 {{-- Kopfstreifen wie oben bei den Issues (P5). --}}
                                 <div class="forge-kartenkopf">
                                     <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Pull Requests') }}</span>
-                                    <span class="shrink-0 text-xs text-muted" x-text="$num(view.pullRequests.length)"></span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(sichtbarePulls().length)"></span>
                                 </div>
                                 <ul>
-                                <template x-for="pr in view.pullRequests" :key="pr.id">
+                                <template x-for="pr in sichtbarePulls()" :key="pr.id">
                                     {{-- Sprungziel eines geteilten `?pr=`-Links — siehe die
                                          Begründung an der Issue-Zeile. --}}
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
@@ -1770,6 +1939,50 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </template>
                                                 <div x-show="pr.html" class="article-content forge-mass" x-html="pr.html"></div>
                                                 <p x-show="!pr.html" class="whitespace-pre-wrap text-sm" x-text="pr.content"></p>
+
+                                                {{-- ── Wo dieser Vorschlag gelandet ist (P7b) ────
+                                                     `merge-commit` und `applied-as-commits`
+                                                     stehen am 1631 und sind seit P7a am Modell.
+                                                     Sie gehören NICHT in die Zeilenübersicht —
+                                                     dort steht genau EIN Anker, und
+                                                     `applied-as-commits` ist eine Liste.
+
+                                                     Für die Pillen die `short…`-Felder, für
+                                                     nichts anderes: die Kürzung trägt die
+                                                     Formprüfung aus `forgeModels.ts` mit. Im
+                                                     Markup zu slicen machte aus
+                                                     `["merge-commit","master"]` eine Pille namens
+                                                     „master". --}}
+                                                <template x-if="pr.shortMergeCommit || pr.shortAppliedAsCommits.length > 0">
+                                                    <p class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted"
+                                                       data-forge-landung>
+                                                        <template x-if="pr.shortMergeCommit">
+                                                            <span class="inline-flex items-center gap-1.5">
+                                                                <span>{{ __('Zusammengeführt als') }}</span>
+                                                                <flux:badge size="sm" class="forge-anker tracking-tight"
+                                                                            data-forge-merge-commit
+                                                                            x-text="pr.shortMergeCommit" />
+                                                            </span>
+                                                        </template>
+                                                        <template x-if="pr.shortAppliedAsCommits.length > 0">
+                                                            <span class="inline-flex flex-wrap items-center gap-1.5">
+                                                                <span>{{ __('Angewandt als') }}</span>
+                                                                <template x-for="c in pr.shortAppliedAsCommits" :key="c">
+                                                                    <flux:badge size="sm" class="forge-anker tracking-tight"
+                                                                                data-forge-applied-as
+                                                                                x-text="c" />
+                                                                </template>
+                                                            </span>
+                                                        </template>
+                                                    </p>
+                                                </template>
+
+                                                {{-- ── Die Dateiliste (P7b) ──────────────────────
+                                                     Eigene Komponente, weil sie einen zweiten,
+                                                     ANGESAGTEN Ladeweg mitbringt: ein kind 1618
+                                                     trägt seinen Diff nicht bei sich. Die
+                                                     Herleitung samt Messzahlen steht dort. --}}
+                                                <x-group::forge-pr-diff vorgang="pr" />
 
                                                 <template x-if="pr.updates.length > 0">
                                                     <ul class="mt-4 space-y-1">
