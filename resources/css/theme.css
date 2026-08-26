@@ -1698,12 +1698,24 @@ select:focus[data-flux-control] {
    Kommentar-Composer stehen im aufgeklappten RUMPF, also ausserhalb.
 
    ── Die Schwelle: 30rem ─────────────────────────────────────────────────────
-   Gemessen, nicht gesetzt: die breite Fassung braucht in einer Zeile Platz für
-   Titel (≥ 20 Zeichen lesbar), Labels und die Zustandspille. Unter 30rem
-   (480 px) drückt die Pille den Titel unter 20 Zeichen; darüber trägt er.
-   Ein 390-px-Telefon liegt damit sicher in der schmalen Fassung, die
-   Werkbank-Spur (ab 1280 px gemessen 420 px Inhalt) ebenfalls, die Repo-Liste
-   auf Desktop in der breiten. */
+   **GERECHNET, nicht gemessen** — und hier stand bis zur Nachbesserung das
+   Gegenteil („Gemessen, nicht gesetzt"). Das war eine falsche Aussage über die
+   eigene Methode: die Zahl kommt aus einer Überlegung (unter 30 rem drückt die
+   Zustandspille den Titel unter ~20 Zeichen), nicht aus einem Lauf. Eine Zahl
+   ohne Beleg trägt in diesem Haus das Etikett — jetzt trägt sie es.
+
+   Ebenfalls falsch war der Satz, die Werkbank-Spur liege „ab 1280 px bei 420 px
+   Inhalt" und damit in der schmalen Fassung. **Gemessen sind es 608 px** bei
+   1440 px Fenster (`p4n-vorher.log`, `.forge-werkbank`); 608 px liegen ÜBER
+   480 px, die Spur bekommt also die BREITE Fassung. Die Zahl 420 war geraten und
+   die Folgerung daraus verkehrt herum.
+
+   Was bleibt und was belegt ist: ein 390-px-Telefon misst in dieser Zeile 324 px
+   Containerbreite (gemessen) und liegt damit sicher in der schmalen Fassung; die
+   Repo-Liste auf Desktop misst 606 px (gemessen) und liegt in der breiten. Die
+   Schwelle dazwischen ist mit 480 px so gewählt, dass beide gemessenen Fälle mit
+   Abstand auf ihrer Seite liegen — sie ist eine ENTSCHEIDUNG mit zwei belegten
+   Randpunkten, keine Messung. */
 
 .forge-vorgangskopf {
     container-type: inline-size;
@@ -1711,34 +1723,54 @@ select:focus[data-flux-control] {
 }
 
 /* ── SCHMALE FASSUNG (Telefon) ───────────────────────────────────────────────
-   Drei Spalten. Der Zustand steht oben rechts neben dem Titel — dort ist er im
-   ersten Blick, ohne eine eigene Zeile zu kosten. Labels bekommen ein eigenes
-   Band darunter, die Metazeile teilt sich in „wer und wann" links und
-   „wer arbeitet daran, wie viel wurde gesagt" rechts. Das ist die zweizeilige
-   Form, die P3/7 ausdrücklich verlangt — und sie ist hier GESETZT. */
+   Drei Spalten, ZWEI Zeilen. Der Zustand steht oben rechts neben dem Titel —
+   dort ist er im ersten Blick, ohne eine eigene Zeile zu kosten. Die Metazeile
+   teilt sich in „wer und wann" links und „wer arbeitet daran, wie viel wurde
+   gesagt" rechts. Das ist die zweizeilige Form, die P3/7 verlangt.
+
+   **Das Labelband ist mit der Nachbesserung GEFALLEN, und es war ein dritter
+   Rang.** Hier stand eine eigene Rasterzeile `. labels labels`. Damit hatte die
+   Zeile drei Bänder statt zweier — genau das, was die Abnahme ausschliesst. Ich
+   hatte argumentiert, Labels seien typografisch derselbe Rang wie der Titel;
+   im Bild sind sie es nicht, sobald sie eine eigene Zeile bekommen. Sie fliessen
+   jetzt INLINE hinter dem Titel, in beiden Fassungen — das ist zugleich die
+   Gitea-Form. */
 .forge-vorgangszeile {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-        'glyphe titel  zustand'
-        '.      labels labels'
-        '.      meta   leute';
+        'glyphe titel zustand'
+        '.      meta  leute';
     align-items: start;
     column-gap: 0.5rem;
     row-gap: 0.25rem;
 }
 
 /* ── BREITE FASSUNG ──────────────────────────────────────────────────────────
-   Vier Spalten. Labels rücken hinter den Titel — dort gehören sie hin, sie sind
-   Teil dessen, was man liest. Die Metazeile läuft über die volle Breite, die
-   Personen und die Kommentarzahl stehen rechts in einer Fluchtlinie mit der
-   Zustandspille darüber. */
+   Vier Spalten, und der Unterschied ist die Lage der PERSONEN.
+
+   Auf einer breiten Zeile beantwortet die erste Zeile „was und wer": Titel,
+   Labels, die Gesichter der Zuständigen, ganz rechts der Zustand. Die Metazeile
+   darunter läuft dann über die volle Breite.
+
+   Auf einem Telefon darf die erste Zeile NUR den Titel tragen — Gesichter
+   daneben nähmen ihm die halbe Breite. Dort rutschen sie deshalb auf die
+   Metazeile nach rechts.
+
+   Das ist der eine strukturelle Unterschied zwischen den Fassungen, und er ist
+   messbar: in der breiten Fassung steht `leute` auf der Höhe des TITELS, in der
+   schmalen auf der Höhe der METAZEILE. Genau darauf zielt die Mutationsprobe in
+   `tests/e2e/forge-patches.spec.ts`.
+
+   Der Zustand spannt hier über beide Zeilen und bleibt oben verankert
+   (`align-self: start`) — eine durchgehende rechte Kante, an der das Auge die
+   Liste abwärts liest. */
 @container vorgang (min-width: 30rem) {
     .forge-vorgangszeile {
         grid-template-columns: auto minmax(0, 1fr) auto auto;
         grid-template-areas:
-            'glyphe titel labels zustand'
-            '.      meta  meta   leute';
+            'glyphe titel leute zustand'
+            '.      meta  meta  zustand';
         column-gap: 0.75rem;
     }
 }
@@ -1752,18 +1784,31 @@ select:focus[data-flux-control] {
     color: var(--color-muted);
 }
 
+/* Titel UND Labels teilen sich eine Zelle: die Labels fliessen als inline-Kästen
+   hinter dem Titeltext und brechen mit ihm um. Kein eigenes Rasterfeld, also
+   auch kein dritter Rang. */
 .forge-vz-titel {
     grid-area: titel;
     min-width: 0;
+    line-height: 1.375;
 }
 
+.forge-vz-name {
+    font-weight: 600;
+}
+
+/* `display: contents` löst die Hülle auf: die Pillen werden zu inline-Kindern
+   des Titelblocks und fliessen mit seinem Text. Ein `inline-flex` an der Hülle
+   täte das NICHT — es bliebe ein einziger, nicht umbrechender Kasten. Das
+   Attribut `data-forge-labels` bleibt für Sonden greifbar; `display: contents`
+   nimmt nur die BOX aus dem Baum, nicht den Knoten. */
 .forge-vz-labels {
-    grid-area: labels;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.25rem;
-    min-width: 0;
+    display: contents;
+}
+
+.forge-vz-titel [data-flux-badge] {
+    margin-inline-start: 0.25rem;
+    vertical-align: baseline;
 }
 
 .forge-vz-meta {
@@ -1782,6 +1827,7 @@ select:focus[data-flux-control] {
 .forge-vz-zustand {
     grid-area: zustand;
     justify-self: end;
+    align-self: start;
 }
 
 /* ── Der ANKER: die eine getönte Stelle in einer grauen Zeile ────────────────

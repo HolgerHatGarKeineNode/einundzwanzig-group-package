@@ -62,8 +62,9 @@
                                 <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
                             @endif
 
-                            <span class="forge-vz-titel block text-sm font-medium leading-snug"
-                                  x-text="row.title || @js(__('Ohne Titel'))"></span>
+                            <span class="forge-vz-titel text-sm">
+                                <span class="forge-vz-name" x-text="row.title || @js(__('Ohne Titel'))"></span>
+                            </span>
 
                             <span class="forge-vz-meta block text-xs text-muted">
                                 <span x-text="row.authorName"></span>

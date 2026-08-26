@@ -1013,15 +1013,36 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                         <template x-if="row.showRepoName">
                                                             <span><span aria-hidden="true">·</span> <span x-text="row.repoName"></span></span>
                                                         </template>
-                                                        {{-- `flux:badge` statt einer Hauspille: die Bauform kommt von
-                                                             Flux, die FARBE bleibt die des Hauses. Flux' Palette kennt
-                                                             kein `brand` (`flux/badge/index.blade.php` zählt die
-                                                             Tailwind-Töne einzeln auf, weil der JIT keine berechneten
-                                                             Klassennamen sieht) — und die Marke ist hier die Aussage.
-                                                             Gemessen bleibt sie, wo sie war: brand-800 auf
-                                                             `bg-brand-500/10` = 5,91:1 hell, brand-300 = 9,47:1 dunkel. --}}
+                                                        {{-- ── Der Repo-Name trägt die Marke — jetzt WIRKLICH ───
+                                                             Hier stand `class="bg-brand-500/10 … text-brand-800"` an
+                                                             einem `flux:badge` und daneben die Behauptung „5,91:1 hell,
+                                                             9,47:1 dunkel". Beide Zahlen waren falsch, und zwar aus
+                                                             einem Grund, der nichts mit Rechnen zu tun hat: die Klassen
+                                                             kamen nie an.
+
+                                                             Flux setzt seine Default-Farben über dieselben
+                                                             Utility-Klassen. Bei gleicher Spezifität entscheidet die
+                                                             Quellreihenfolge im GEBAUTEN Stylesheet, und dort steht
+                                                             `.bg-zinc-400/15` HINTER `.bg-brand-500/10`. Real gerendert
+                                                             und am Bauteil gemessen (Laravel-gerendert, Canvas-Sonde,
+                                                             Negativkontrolle im selben Lauf): **#404040 auf #f1f1f1 =
+                                                             9,18:1 hell** und **#e5e5e5 auf #4e4e4e = 6,61:1 dunkel** —
+                                                             das sind Flux' Graustufen.
+
+                                                             WCAG war damit nie in Gefahr, im Gegenteil. Verloren war
+                                                             die MARKE: die Repo-Pille sah aus wie die Zustandspille
+                                                             drei Elemente weiter — dieselbe byte-gleiche Chip-Form, die
+                                                             P3 in der Vorgangszeile gerade beseitigt hat.
+
+                                                             `.forge-anker` ist die Antwort und schon da: eine
+                                                             UNGESCHICHTETE Regel schlägt jede `@layer`, und sie trägt
+                                                             genau diese Rolle („der eine getönte Anker in einer grauen
+                                                             Zeile"). Gemessen: **5,92:1 hell** (brand-800 auf
+                                                             brand-500/10 über Weiß) und **9,61:1 dunkel** (brand-300 auf demselben
+                                                             Tint über zinc-900) — beides am gerenderten Bauteil, nicht
+                                                             gerechnet. --}}
                                                         <template x-if="row.badge">
-                                                            <flux:badge size="sm" class="bg-brand-500/10 font-semibold tracking-tight text-brand-800 dark:bg-brand-500/10 dark:text-brand-300"
+                                                            <flux:badge size="sm" class="forge-anker font-semibold tracking-tight"
                                                                         x-text="row.badge" />
                                                         </template>
                                                         {{-- ── Der Zustand: EINE Form für die ganze Forge ───────

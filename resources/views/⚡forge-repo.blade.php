@@ -923,26 +923,32 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      liest statt als gestapelte Absätze. --}}
                                                 <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
 
-                                                <span class="forge-vz-titel block font-semibold leading-snug"
-                                                      x-text="issue.title || @js(__('Ohne Titel'))"></span>
+                                                {{-- ── EIN Rang: Titel und Labels in EINER Zelle ──
+                                                     Die Labels hatten bis zur Nachbesserung ein
+                                                     eigenes Rasterfeld unter dem Titel. Das war
+                                                     ein DRITTER Rang — im Bild unübersehbar,
+                                                     auch wenn die Schriftgrösse dieselbe blieb.
+                                                     Jetzt fliessen sie inline hinter dem Titel
+                                                     und brechen mit ihm um; das ist zugleich
+                                                     die Gitea-Form.
 
-                                                {{-- Labels als PILLE — die eine der drei
-                                                     Chip-Rollen, die rund bleibt. Der Deckel
-                                                     ist bewusst grosszügig: welche davon in der
-                                                     schmalen Fassung noch ins Bild passen,
-                                                     entscheidet das Labelband selbst
-                                                     (`flex-wrap`), nicht eine zweite Zahl. --}}
-                                                <template x-if="issue.labels.length > 0">
-                                                    <span class="forge-vz-labels" data-forge-labels>
-                                                        <template x-for="label in issue.labels.slice(0, 6)" :key="label">
-                                                            <flux:badge size="sm" variant="pill" x-text="label" />
-                                                        </template>
-                                                        <template x-if="issue.labels.length > 6">
-                                                            <span class="text-[0.7rem] text-muted"
-                                                                  x-text="'+' + (issue.labels.length - 6)"></span>
-                                                        </template>
-                                                    </span>
-                                                </template>
+                                                     Der Deckel von 6 ist grosszügig: welche noch
+                                                     ins Bild passen, entscheidet der Umbruch,
+                                                     nicht eine zweite Zahl. --}}
+                                                <span class="forge-vz-titel">
+                                                    <span class="forge-vz-name" x-text="issue.title || @js(__('Ohne Titel'))"></span>
+                                                    <template x-if="issue.labels.length > 0">
+                                                        <span class="forge-vz-labels" data-forge-labels>
+                                                            <template x-for="label in issue.labels.slice(0, 6)" :key="label">
+                                                                <flux:badge size="sm" variant="pill" x-text="label" />
+                                                            </template>
+                                                            <template x-if="issue.labels.length > 6">
+                                                                <span class="ms-1 text-[0.7rem] text-muted"
+                                                                      x-text="'+' + (issue.labels.length - 6)"></span>
+                                                            </template>
+                                                        </span>
+                                                    </template>
+                                                </span>
 
                                                 {{-- ── Rang 2: EINE Metazeile ─────────────────
                                                      Wer, wann — mehr nicht. Der optimistische
@@ -1429,8 +1435,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      auf einen Branch. --}}
                                                 <flux:icon.document-text variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
 
-                                                <span class="forge-vz-titel block font-semibold leading-snug" data-forge-patch-titel
-                                                      x-text="patch.title || @js(__('Ohne Titel'))"></span>
+                                                <span class="forge-vz-titel">
+                                                    <span class="forge-vz-name" data-forge-patch-titel
+                                                          x-text="patch.title || @js(__('Ohne Titel'))"></span>
+                                                </span>
 
                                                 <span class="forge-vz-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                                                     <span class="min-w-0 truncate"
@@ -1612,8 +1620,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      mit keinem der vier Zustandszeichen. --}}
                                                 <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
 
-                                                <span class="forge-vz-titel block font-semibold leading-snug"
-                                                      x-text="pr.title || @js(__('Ohne Titel'))"></span>
+                                                <span class="forge-vz-titel">
+                                                    <span class="forge-vz-name" x-text="pr.title || @js(__('Ohne Titel'))"></span>
+                                                </span>
 
                                                 {{-- ── Rang 2: EIN Satz, EIN Anker ────────────
                                                      Wer hat ihn eröffnet, aus welchem Branch,
