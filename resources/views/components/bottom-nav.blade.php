@@ -38,7 +38,7 @@
      scrollendem Inhalt ist der klassische Mobile-WebView-Scroll-Killer (Blur wird
      pro Frame neu berechnet → Ruckeln/schwarze Flächen). Auf Native daher opaker
      Hintergrund ohne Blur. --}}
-@php($native = config('nativephp-internal.running'))
+@php($native = \Einundzwanzig\Group\Chassis::istApp())
 <nav
     aria-label="Hauptnavigation"
     @class([

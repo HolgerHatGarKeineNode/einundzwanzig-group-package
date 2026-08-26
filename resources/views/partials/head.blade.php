@@ -49,7 +49,7 @@
 
 {{-- Plattform-Flag: auf dem Gerät gated die Insel client-seitig (kein NIP-98).
      Ein vorab gesetztes Flag gewinnt (E2E via addInitScript, wie __nostrRelays). --}}
-<script>window.__nostrMobile = window.__nostrMobile ?? @js((bool) config('nativephp-internal.running'));</script>
+<script>window.__nostrMobile = window.__nostrMobile ?? @js(\Einundzwanzig\Group\Chassis::istApp());</script>
 
 {{-- P5 (Onboarding): Vereins-Basis-URL, Proxy-Origin, Wartezeit und die
      öffentliche Ausweichadresse. Die Basis-URL ist KEIN Geheimnis (der

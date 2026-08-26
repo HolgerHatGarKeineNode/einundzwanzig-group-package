@@ -39,7 +39,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
      zurück steht im `app-header` (Pfeil auf die Forge-Übersicht), genau wie in der
      Artikel-Vollansicht. Eine Ortsleiste über einer Detailseite behauptete, man sei
      an einem der drei Orte angekommen — man ist eine Ebene darunter. --}}
-@php($native = config('nativephp-internal.running'))
+@php($native = \Einundzwanzig\Group\Chassis::istApp())
 <x-group::app-shell width="wide">
 
     {{-- ── Warum die Insel und `page-enter` seit P4 ZWEI Elemente sind ─────────

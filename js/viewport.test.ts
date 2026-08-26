@@ -11,7 +11,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { wireViewport, DESKTOP_QUERY, POINTER_QUERY, type ViewportStore } from './viewport.ts'
+import { wireViewport, formOf, DESKTOP_QUERY, POINTER_QUERY, type ViewportStore } from './viewport.ts'
 
 type Listener = (e: { matches: boolean }) => void
 
@@ -153,4 +153,70 @@ test('zweiter wireViewport-Aufruf ist idempotent (kein Reset, kein doppelter Lis
     const store = alpine.store('viewport') as ViewportStore
     assert.equal(store.desktop, true)
     assert.equal(store.mouse, true)
+})
+
+// ── Die FORM, drei Werte (P2, 2026-08-26) ────────────────────────────────────
+// Sie ersetzt eine DOM-Rückmessung in `js/forge.ts`: die Insel las dort den
+// gerenderten `display` der Tab-Leiste zurück, weil `desktop` allein die Frage
+// „zweispaltig?" nicht beantworten konnte — im App-Host steht es ab der
+// xl-Schwelle auf `true`, obwohl es dort weder Rail noch zweite Spur gibt.
+//
+// Genau diese Verwechslung prüfen die vier Fälle: die Achsen HOST und BREITE
+// sind unabhängig, und `app` schlägt die Breite.
+
+test('formOf: die vier Kombinationen aus Host und Breite', () => {
+    assert.equal(formOf(false, false), 'web-schmal', 'Web, schmal')
+    assert.equal(formOf(false, true), 'web-breit', 'Web, ab xl — Rail und zweite Spur')
+    assert.equal(formOf(true, false), 'app', 'App, schmal')
+    assert.equal(
+        formOf(true, true),
+        'app',
+        'App auf einem breiten Schirm (iPad Pro quer misst 1366 CSS-px) bleibt `app` — genau der Fall, an dem eine Boolean-Antwort scheiterte',
+    )
+})
+
+test('Store: form=web-breit bei Desktop-Breite im Web-Host', (t) => {
+    withWindow(t, fakeWindow({ [DESKTOP_QUERY]: true, [POINTER_QUERY]: true }))
+    const alpine = fakeAlpine()
+    wireViewport(alpine)
+    const store = alpine.store('viewport') as ViewportStore
+    assert.equal(store.form, 'web-breit')
+})
+
+test('Store: form=app bei Desktop-Breite im NativePHP-Host — desktop bleibt trotzdem true', (t) => {
+    withWindow(t, fakeWindow({ [DESKTOP_QUERY]: true, [POINTER_QUERY]: false }))
+    const alpine = fakeAlpine()
+    wireViewport(alpine, { nativeApp: true })
+    const store = alpine.store('viewport') as ViewportStore
+    assert.equal(store.form, 'app', 'die Form kennt den Host')
+    assert.equal(store.desktop, true, 'desktop bedeutet weiterhin NUR „die Breite reicht"')
+})
+
+test('Store: form zieht beim Schwellenwechsel NACH — sonst bliebe die Fläche stehen', (t) => {
+    const win = fakeWindow({ [DESKTOP_QUERY]: false, [POINTER_QUERY]: false })
+    withWindow(t, win)
+    const alpine = fakeAlpine()
+    wireViewport(alpine)
+    const store = alpine.store('viewport') as ViewportStore
+    assert.equal(store.form, 'web-schmal', 'Ausgangszustand')
+
+    const mql = win._mqls.get(DESKTOP_QUERY)!
+    mql.listeners.forEach((fn) => fn({ matches: true } as MediaQueryListEvent))
+    assert.equal(store.desktop, true)
+    assert.equal(store.form, 'web-breit', 'die Form muss mitwandern, nicht nur `desktop`')
+
+    mql.listeners.forEach((fn) => fn({ matches: false } as MediaQueryListEvent))
+    assert.equal(store.form, 'web-schmal', 'und wieder zurück')
+})
+
+test('Store: im App-Host bleibt form=app, auch wenn die Schwelle wechselt', (t) => {
+    const win = fakeWindow({ [DESKTOP_QUERY]: false, [POINTER_QUERY]: false })
+    withWindow(t, win)
+    const alpine = fakeAlpine()
+    wireViewport(alpine, { nativeApp: true })
+    const store = alpine.store('viewport') as ViewportStore
+    const mql = win._mqls.get(DESKTOP_QUERY)!
+    mql.listeners.forEach((fn) => fn({ matches: true } as MediaQueryListEvent))
+    assert.equal(store.desktop, true, 'die Breite reicht')
+    assert.equal(store.form, 'app', 'der Host schlaegt die Breite — sonst verschwaende die Kanalliste ohne Ersatz')
 })

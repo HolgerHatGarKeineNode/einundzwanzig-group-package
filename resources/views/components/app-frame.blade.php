@@ -41,7 +41,7 @@
 
      EIN Wurzel-Element: die Shell ist Root eines Livewire-Full-Page-SFC, und
      Livewire erlaubt nur genau eine Wurzel. `app-frame` liefert genau ein <div>. --}}
-@php($desktop = $rail && ! config('nativephp-internal.running'))
+@php($desktop = $rail && ! \Einundzwanzig\Group\Chassis::istApp())
 
 <div @class([
     'contents',

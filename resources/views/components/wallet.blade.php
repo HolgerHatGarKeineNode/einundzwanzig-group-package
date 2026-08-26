@@ -24,7 +24,7 @@
                     {{-- Ehrlich getrennt: Native = Geräte-Keystore (Keychain/Keystore),
                          Web = verschlüsselt im Browser (WebCrypto at-rest). Nie am Server. --}}
                     <flux:subheading>
-                        {{ config('nativephp-internal.running')
+                        {{ \Einundzwanzig\Group\Chassis::istApp()
                             ? __('Nostr Wallet Connect (NWC) — dein Secret bleibt sicher im Geräte-Keystore.')
                             : __('Nostr Wallet Connect (NWC) — dein Secret bleibt verschlüsselt in diesem Browser, nie auf dem Server.') }}
                     </flux:subheading>

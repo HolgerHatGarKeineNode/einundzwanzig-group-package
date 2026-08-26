@@ -3,6 +3,7 @@
 namespace Einundzwanzig\Group\Http\Middleware;
 
 use Closure;
+use Einundzwanzig\Group\Chassis;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -21,7 +22,7 @@ class EnsureNostrAuth
         // Präsenz-Gate kommt mit dem Mobile-Signer-Pfad (M8). NICHT
         // `function_exists('nativephp_call')` — die Funktion existiert auch im
         // Web (PHP-Fallback des Pakets); nur `NATIVEPHP_RUNNING` heißt echtes Gerät.
-        if (config('nativephp-internal.running')) {
+        if (Chassis::istApp()) {
             return $next($request);
         }
 

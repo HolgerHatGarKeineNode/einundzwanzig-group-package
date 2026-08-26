@@ -74,7 +74,7 @@ import { readVorgang, tabForVorgang, withVorgang, type VorgangArt, type VorgangZ
 // wiederholt. Der Modulkopf dort führt aus, warum sie schon zweimal steht (CSS und
 // Store) und dass ein auseinanderlaufendes Paar ein stiller Fehler wäre — ein
 // drittes Paar wäre derselbe Fehler noch einmal.
-import { DESKTOP_QUERY } from './viewport.ts'
+import { DESKTOP_QUERY, type ViewportForm as ForgeForm } from './viewport.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
 import { diffStat, parseUnifiedDiff, patchBody, type DiffStat, type ParsedDiff } from './forgeDiff.ts'
 import { filterRepos, sucheVorgaenge } from './forgeSearch.ts'
@@ -1807,8 +1807,15 @@ type ForgeState = {
      *
      * Das ist NICHT dasselbe wie „breiter als xl": im App-Host gibt es kein
      * Desktop-Chassis, dort bleiben die Tabs auf jeder Breite stehen (ein iPad Pro
-     * quer misst 1366 CSS-px). Gemessen wird deshalb der GERENDERTE Zustand der
-     * Tab-Leiste, nicht die Fensterbreite — siehe `_messeSpalten`.
+     * quer misst 1366 CSS-px).
+     *
+     * **Bis P2 (2026-08-26) las diese Insel den gerenderten `display` der
+     * Tab-Leiste zurück** (`getComputedStyle(leiste).display === 'none'`) und
+     * begründete das damit, der Store kenne „nur die BREITE". Die Beobachtung war
+     * richtig, die Behebung falsch: statt die Quelle zu reparieren, fragte die
+     * Insel ihre eigene Ausgabe. Seit P2 hat der Store drei Werte
+     * (`$store.viewport.form`), und `web-breit` ist genau diese Frage —
+     * Host UND Breite, an einer Stelle abgeleitet.
      */
     zweispaltig: boolean
     overview: ForgeOverview
@@ -1821,8 +1828,6 @@ type ForgeState = {
     /** Meldet den `matchMedia`-Listener der xl-Schwelle wieder ab. */
     _unsubBreite: (() => void) | null
     _relaySelf: string
-    /** Liest am DOM ab, ob die Tab-Leiste ausgeblendet ist, und setzt `zweispaltig`. */
-    _messeSpalten(): void
     /**
      * Eine der drei Listen anfordern — aus einer Bestandskachel oder aus dem
      * Segment-Umschalter. Setzt den Tab UND den Fokus.
@@ -2240,25 +2245,6 @@ export function wireForge(Alpine: {
             _tabAusAdresse: new URLSearchParams(window.location.search).has(FORGE_TAB_PARAM),
             _relaySelf: '',
             /**
-             * Zweispaltig ist die Bühne genau dann, wenn die Tab-Leiste nicht
-             * gerendert wird — das ist die EINE Wahrheit, und sie steht im
-             * ausgelieferten CSS (`xl:hidden`, gesetzt nur im Web-Host).
-             *
-             * Warum nicht `$store.viewport.desktop`: der Store kennt nur die BREITE.
-             * Im App-Host ab 1280 px stünde er auf `true`, obwohl es dort weder Rail
-             * noch zweispaltige Bühne gibt — die Kanäle wären dann von keiner Fläche
-             * mehr erreichbar. Und warum nicht ein eigenes `matchMedia` mit eigener
-             * Schwelle: das wäre das dritte Literal derselben Zahl.
-             */
-            _messeSpalten() {
-                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
-                const leiste = wurzel?.querySelector('[data-forge-tabs]')
-                this.zweispaltig =
-                    !!leiste &&
-                    typeof window.getComputedStyle === 'function' &&
-                    window.getComputedStyle(leiste).display === 'none'
-            },
-            /**
              * `?tab=` ohne Tabs: in der zweispaltigen Form steht schon alles im Bild,
              * ein Umschalten gäbe es also nicht mehr zu tun. Ein geteilter Link darf
              * deshalb trotzdem nicht ins Leere zeigen — er wird zum SPRUNG.
@@ -2380,19 +2366,28 @@ export function wireForge(Alpine: {
                 })
 
                 // ── Ein- oder zweispaltig? ───────────────────────────────────────
-                // Einmal sofort (das CSS steht im `<head>`, also vor dem Alpine-Boot
-                // — `getComputedStyle` liefert hier schon den endgültigen Wert), und
-                // danach bei jedem Überschreiten der xl-Schwelle. `matchMedia` und
-                // nicht `resize`: der Browser meldet nur den Wechsel, kein Debounce
-                // nötig. Dieselbe Bauform wie `viewport.ts`.
-                this._messeSpalten()
+                // Gelesen, nicht zurückgemessen (P2, 2026-08-26). Hier stand ein
+                // `getComputedStyle` auf die Tab-Leiste: die Insel fragte ihre eigene
+                // Ausgabe, weil der Store die Frage nicht beantworten konnte. Er kann
+                // es jetzt — `form` trägt HOST und BREITE.
+                //
+                // Der `matchMedia`-Listener bleibt, aber er liest nur noch: das
+                // Alpine-`$store` ist von hier aus nicht reaktiv beobachtbar (diese
+                // Insel ist ein `Alpine.data`-Objekt, kein `x-effect`), also wird der
+                // abgeleitete Wert beim Schwellenwechsel nachgezogen. Die SCHWELLE
+                // steht dabei weiterhin nur an einer Stelle (`DESKTOP_QUERY`).
+                const formLesen = (): ForgeForm =>
+                    ((window as unknown as { Alpine?: { store: (n: string) => { form?: ForgeForm } } }).Alpine?.store(
+                        'viewport',
+                    )?.form ?? 'web-schmal')
+                const uebernehmen = (): void => {
+                    this.zweispaltig = formLesen() === 'web-breit'
+                }
+                uebernehmen()
                 const mql =
                     typeof window.matchMedia === 'function' ? window.matchMedia(DESKTOP_QUERY) : null
-                const beiWechsel = (): void => {
-                    this._messeSpalten()
-                }
-                mql?.addEventListener('change', beiWechsel)
-                this._unsubBreite = () => mql?.removeEventListener('change', beiWechsel)
+                mql?.addEventListener('change', uebernehmen)
+                this._unsubBreite = () => mql?.removeEventListener('change', uebernehmen)
 
                 // Der Sprung erst NACH dem ersten Alpine-Durchlauf: vorher trägt die
                 // Region noch `x-cloak` und hat weder Höhe noch Position, ein
@@ -2680,7 +2675,15 @@ export function wireForge(Alpine: {
              * eine Breite. Die Schwelle steht damit an genau einer Stelle
              * (`@container repo (min-width: 65rem)` in `theme.css`); eine Zahl hier
              * wäre ihr zweites Literal und liefe beim nächsten Umbau still
-             * auseinander. Dieselbe Bauform wie `_messeSpalten()` auf der Übersicht.
+             * auseinander.
+             *
+             * **Diese Rückmessung bleibt, und der Unterschied ist der Punkt:** sie
+             * fragt eine CONTAINER-Schwelle ab (`@container repo (min-width: 65rem)`),
+             * und die kennt das Fenster nicht — `matchMedia` kann sie prinzipiell
+             * nicht beantworten. Gefallen ist in P2 die Rückmessung der FENSTER-Breite
+             * der Übersicht, für die es eine Quelle gibt. „Geometrie bleibt bei
+             * Container-Queries, Chassis bei der einen Schwelle" ist die Hausregel
+             * dazu (`theme.css`).
              *
              * Warum überhaupt JavaScript: es gibt keine portable CSS-Regel, die ein
              * geschlossenes `<details>` aufzieht (`::details-content` ist jünger als

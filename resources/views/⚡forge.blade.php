@@ -35,7 +35,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
      dort bliebe die App ohne Rail und ohne Tabs zurück.
 
      Deshalb steht hier eine Host-Bedingung und KEIN neuer Breakpoint. --}}
-@php($native = config('nativephp-internal.running'))
+@php($native = \Einundzwanzig\Group\Chassis::istApp())
 <x-group::app-shell width="wide">
 
     {{-- Der Basis-Pfad kommt aus `route()`, nicht als Literal: die Route heißt an
