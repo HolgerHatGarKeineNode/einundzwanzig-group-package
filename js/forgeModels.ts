@@ -178,6 +178,33 @@ const COMMIT_ID = /^[0-9a-f]{7,64}$/
 
 export const isCommitId = (value: string): boolean => COMMIT_ID.test(value.toLowerCase())
 
+/** Wie viele Stellen eine gekürzte Commit-Id trägt — Gits eigenes Maß. */
+export const SHORT_COMMIT = 7
+
+/**
+ * Die Kurzform einer Commit-Id, `''` wenn es keine ist.
+ *
+ * Steht hier und nicht in `forge.ts`, seit die 1631-Commits (P7/2) dieselbe
+ * Kürzung brauchen wie der Tip eines PR: eine zweite Kopie wäre die Stelle, an
+ * der die Formprüfung irgendwann fehlt und ein `["merge-commit","master"]` als
+ * Commit-Pille im Bild landet.
+ *
+ * **Kein `toLowerCase()`** — die Anzeige zeigt die Id so, wie das Ereignis sie
+ * schreibt. Wer vergleichen will, nimmt {@link isCommitId} und den Rohwert.
+ */
+export const shortCommitId = (commit: string): string =>
+    isCommitId(commit) ? commit.slice(0, SHORT_COMMIT) : ''
+
+/**
+ * Eine Liste von Commit-Ids kürzen — **Unbrauchbares fällt raus, nicht durch**.
+ *
+ * `map(shortCommitId)` allein liesse für jede ungültige Id ein `''` in der Liste
+ * stehen; die Fläche malte daraus eine leere Pille. Eine Zeile, die nichts sagt,
+ * ist schlimmer als eine fehlende.
+ */
+export const kurzeCommits = (commits: readonly string[]): string[] =>
+    commits.map(shortCommitId).filter((wert) => wert !== '')
+
 // ── Adressen ────────────────────────────────────────────────────────────────
 
 /** Die Koordinate eines Repos, wie sie im `a`-Tag steht. */

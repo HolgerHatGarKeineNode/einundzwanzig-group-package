@@ -133,16 +133,18 @@ import {
     buildRepos,
     foldRepoState,
     gruppiereNachRepo,
-    isCommitId,
+    kurzeCommits,
     isPubkey,
     maintainerLookupFor,
     repoAddressOf,
+    shortCommitId,
     reviewerRows,
     truncatedLists,
     unclaimedRepos,
     verwandteRepos,
     type ForgeEvent,
     type Issue,
+    type MergeInfo,
     type Patch,
     type Project,
     type PullRequest,
@@ -1136,7 +1138,21 @@ export type IssueRow = Omit<Issue, 'comments'> & {
     comments: CommentRow[]
 }
 
-export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & {
+/**
+ * Die gekürzten Formen der 1631-Commits — anzeigefertig (P7/2).
+ *
+ * Dieselbe Begründung wie bei `shortCommit`: die Fläche zeigt überall sieben
+ * Stellen, und `commit.slice(0, 7)` im Markup wäre eine achte Kopie derselben
+ * Regel — dort ohne die Formprüfung, die aus `["merge-commit","master"]`
+ * sonst eine Pille namens „master" machte. Die vollen Ids stehen daneben
+ * (`merge.mergeCommit`, `merge.appliedAsCommits`); wer verlinkt, nimmt die.
+ */
+export type MergeRow = {
+    shortMergeCommit: string
+    shortAppliedAsCommits: string[]
+}
+
+export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & MergeRow & {
     authorName: string
     timeLabel: string
     html: string
@@ -1161,7 +1177,7 @@ export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & {
  * kann jemand `git am` fuettern. Ein Modell, das nur das Geparste behielte,
  * naehme die einzige Handlung weg, fuer die es ein 1617 ueberhaupt gibt.
  */
-export type PatchRow = Omit<Patch, 'comments'> & {
+export type PatchRow = Omit<Patch, 'comments'> & MergeRow & {
     authorName: string
     timeLabel: string
     shortCommit: string
@@ -1300,13 +1316,19 @@ const toCommentRow = (comment: { id: string; author: string; content: string; cr
     timeLabel: timeLabel(comment.createdAt),
 })
 
-const SHORT_HASH = 7
 /**
- * Die Formprüfung kommt seit P7 aus `forgeModels.ts` — dieselbe Regel, die dort
- * über `merge-commit` und `merge-base` entscheidet. Zwei Kopien wären zwei
- * Gelegenheiten, sie auseinanderlaufen zu lassen (F1, 2026-08-24, `isPubkey`).
+ * Kürzung UND Formprüfung kommen seit P7 aus `forgeModels.ts` — dieselbe Regel,
+ * die dort über `merge-commit` und `merge-base` entscheidet, und dort geprüft.
+ * Zwei Kopien wären zwei Gelegenheiten, sie auseinanderlaufen zu lassen
+ * (F1, 2026-08-24, `isPubkey`).
  */
-const shortCommit = (commit: string): string => (isCommitId(commit) ? commit.slice(0, SHORT_HASH) : '')
+const shortCommit = shortCommitId
+
+/** Die gekürzten 1631-Commits einer Wurzel — leer, solange kein 1631 vorliegt. */
+const mergeRow = (merge: MergeInfo): MergeRow => ({
+    shortMergeCommit: shortCommit(merge.mergeCommit),
+    shortAppliedAsCommits: kurzeCommits(merge.appliedAsCommits),
+})
 
 /** Ein einzelnes Repository mit seinen Issues, PRs und seiner Zeitleiste. */
 export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
@@ -1406,6 +1428,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     authorName: nameOf(patch.author),
                     timeLabel: timeLabel(patch.createdAt),
                     shortCommit: shortCommit(patch.commit),
+                    ...mergeRow(patch.merge),
                     diff: parseDiffMemo(patch.id, patch.content),
                     stat: diffStat(parseDiffMemo(patch.id, patch.content)),
                     // KLARTEXT, nicht gerendert — siehe `patchBody` in `forgeDiff.ts`.
@@ -1418,6 +1441,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     timeLabel: timeLabel(pr.createdAt),
                     html: renderMarkdown(pr.id, pr.content),
                     shortCommit: shortCommit(pr.commit),
+                    ...mergeRow(pr.merge),
                     // Erst die reine Zuordnung (Reviewer → Entscheidung), dann
                     // die Namen darauf. Zwei Schritte, weil der erste ohne
                     // Browser prüfbar ist und der zweite nicht.

@@ -50,12 +50,14 @@ import {
     foldStatus,
     gruppiereNachRepo,
     isOperationNote,
+    kurzeCommits,
     maintainerLookupFor,
     mergeInfoOf,
     operationOf,
     reviewerRows,
     parseRepoAddress,
     repoAddressOf,
+    shortCommitId,
     toIssue,
     toPatch,
     toPullRequest,
@@ -1853,4 +1855,23 @@ test('toRepo liest die `t`-Tags als Themen — sie liegen als `hashtags` am Mode
     )
     assert.ok(repo)
     assert.deepEqual(repo.hashtags, ['bitcoin', 'lightning'])
+})
+
+// ── P7/2 — die Kurzform der Commit-Ids ──────────────────────────────────────
+
+test('shortCommitId kürzt auf sieben Stellen — und verwirft, was keine Id ist', () => {
+    assert.equal(shortCommitId(COMMIT_A), 'aaaaaaa')
+    assert.equal(shortCommitId('abc1234'), 'abc1234', 'sieben Stellen sind die Untergrenze')
+    assert.equal(shortCommitId('abc123'), '', 'sechs sind zu wenig')
+    assert.equal(shortCommitId('master'), '', 'ein Branchname ist keine Commit-Id')
+    assert.equal(shortCommitId(''), '')
+    // Die Schreibweise des Ereignisses bleibt stehen — gekürzt wird, nicht normiert.
+    assert.equal(shortCommitId(COMMIT_A.toUpperCase()), 'AAAAAAA')
+})
+
+test('kurzeCommits lässt Unbrauchbares WEG statt es als leere Pille durchzureichen', () => {
+    assert.deepEqual(kurzeCommits([COMMIT_A, 'master', COMMIT_B, '']), ['aaaaaaa', 'bbbbbbb'])
+    assert.deepEqual(kurzeCommits([]), [])
+    // Der Fall, um den es geht: `map` allein liesse hier ['', 'bbbbbbb'] stehen.
+    assert.deepEqual(kurzeCommits(['-', COMMIT_B]), ['bbbbbbb'])
 })
