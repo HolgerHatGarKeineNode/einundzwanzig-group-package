@@ -15,6 +15,8 @@ import {
     PUBLISH_VERDICT_TIMEOUT_MS,
     mapRelayError,
     publishError,
+    publishFehlermeldung,
+    relayHinweis,
     setRelayNoticeReader,
     waitForPublishError,
 } from './publishResult.ts'
@@ -198,4 +200,54 @@ test('`auth` steht ZULETZT — eine spezifischere Ursache im selben Text gewinnt
 
 test('leerer Grund → der einzige Satz, der dann noch stimmt', () => {
     assert.equal(mapRelayError('   '), 'Konnte nicht gesendet werden.')
+})
+
+// ── Der Ausgang, den ein Nutzer sieht (`publishFehlermeldung`) ──────────────────────
+//
+// Die zwei Ausgänge sind sachlich VERSCHIEDEN und dürfen deshalb nicht denselben
+// Rahmensatz bekommen: „Vom Relay abgelehnt: …" setzt eine Ablehnung voraus. Beim
+// Ratenbegrenzer von Buzz gibt es keine — es gibt eine `NOTICE` und kein `OK`.
+
+test('Erfolg bleibt Erfolg — `publishFehlermeldung` erfindet keinen Fehler', () => {
+    assert.equal(publishFehlermeldung(''), '')
+})
+
+test('eine echte Ablehnung laeuft weiter durch `mapRelayError`', () => {
+    const roh = 'blocked: NIP-05 verification needed to publish events'
+    assert.equal(publishFehlermeldung(roh), mapRelayError(roh))
+    assert.ok(publishFehlermeldung(roh).includes(roh), 'der Wortlaut des Relays bleibt drin')
+})
+
+test('KERNBEWEIS: das ausbleibende Verdikt behaelt seinen Satz — und bekommt den Hinweis DAVOR', () => {
+    // So sieht es aus, wenn Buzz\' Ratenbegrenzer zuschlaegt: kein `OK`, nur eine
+    // NOTICE. `waitForPublishError` baut daraus genau diese Zeichenkette.
+    const roh = `${NO_VERDICT_ERROR} rate-limited: quota exceeded; retry in 2s`
+    const meldung = publishFehlermeldung(roh)
+
+    assert.ok(meldung.includes('Zu viele Nachrichten in kurzer Zeit'), meldung)
+    assert.ok(meldung.includes('rate-limited: quota exceeded; retry in 2s'), meldung)
+    assert.ok(meldung.includes(NO_VERDICT_ERROR), meldung)
+    // Und ausdruecklich NICHT: eine Ablehnung, die nicht stattgefunden hat.
+    assert.ok(!meldung.includes('Vom Relay abgelehnt'), meldung)
+})
+
+test('ausbleibendes Verdikt OHNE NOTICE: der Satz steht allein, unveraendert', () => {
+    assert.equal(publishFehlermeldung(NO_VERDICT_ERROR), NO_VERDICT_ERROR)
+})
+
+test('`relayHinweis` ist verhaltensgleich mit dem, was `mapRelayError` intern hatte', () => {
+    // Die Extraktion war eine reine Umstellung. Dieser Fall haelt fest, dass sie
+    // es geblieben ist: fuer jeden Wortlaut mit Hinweis rahmt `mapRelayError`
+    // genau diesen Hinweis, fuer jeden ohne bleibt es beim Ablehnungssatz.
+    for (const roh of [
+        'rate-limited: slow down',
+        'blocked: NIP-05 verification needed',
+        'restricted: you are not a member of this relay',
+        'auth-required: we only accept events from authenticated users',
+    ]) {
+        assert.equal(mapRelayError(roh), `${relayHinweis(roh)} (${roh})`, roh)
+    }
+    const ohne = 'invalid: channel-scoped events must include an h tag'
+    assert.equal(relayHinweis(ohne), '')
+    assert.ok(mapRelayError(ohne).includes('Vom Relay abgelehnt'))
 })
