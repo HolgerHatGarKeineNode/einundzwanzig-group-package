@@ -4160,6 +4160,25 @@ export function wireForge(Alpine: {
                     this.pickMention(this.mention.items[this.mention.index]!)
                 } else if (event.key === 'Escape') {
                     event.preventDefault()
+                    // ── EIN Escape trägt GENAU EINE Schicht ab ──────────────
+                    // `stopPropagation` und nicht nur `preventDefault`: das
+                    // Issue-Blatt hört seit P4 selbst auf Escape
+                    // (`⚡forge-repo.blade.php`, `x-on:keydown.escape.prevent.stop`
+                    // am Blatt-Div). Ohne diese Zeile stieg dasselbe Ereignis
+                    // vom Textfeld dorthin auf und schloss das Blatt MIT — der
+                    // Entwurf war weg, weil jemand einen Vorschlag wegklicken
+                    // wollte.
+                    //
+                    // Der Frühausstieg oben trägt die andere Hälfte: steht kein
+                    // Vorschlag offen, läuft Escape durch und schliesst das
+                    // Blatt. Zwei Schichten, zwei Tastendrücke.
+                    //
+                    // **Regress aus P4 (`d0b88a2`, 2026-08-24).** Diese Funktion
+                    // ist vom 2026-08-23 und war bis dahin richtig: da gab es
+                    // den Escape-Horcher am Blatt noch nicht. Gefunden hat es
+                    // `buzz-agent-mention-form.spec.ts:377`, das seit P4 rot
+                    // stand — im buzz-Arm, der beim Merge nicht mitlief.
+                    event.stopPropagation()
                     this.closeMentions()
                 }
             },

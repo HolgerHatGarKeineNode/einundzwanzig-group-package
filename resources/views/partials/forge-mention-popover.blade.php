@@ -106,8 +106,18 @@
                          Merkmal, an dem zwei gleichnamige Einträge auseinandergehen.
                          12 px ist zugleich die Größe, in der dieses Haus einen npub
                          sonst schon zeigt (`login-form.blade.php:33`). --}}
+                    {{-- ── Der Haken zeigt auf die BEDEUTUNG, nicht auf die Form ──
+                         `data-forge-mention-schluessel` und nicht `span.font-mono`:
+                         genau dieser Selektor stand bis zum 2026-08-27 in
+                         `buzz-agent-mention-form.spec.ts` und zeigte seit P6b
+                         (`e8ec3d1`) ins Leere — dort sind elf `font-mono`-Träger
+                         gefallen, weil sie eine zweite Schriftfamilie einbrachten.
+                         Eine Schriftklasse ist eine Formentscheidung und darf
+                         wechseln; WAS hier steht, wechselt nicht. Der Name sagt es:
+                         der Schlüssel ist das einzige Merkmal, an dem zwei
+                         gleichnamige Agentenprofile auseinandergehen. --}}
                     <template x-if="item.hint">
-                        <span class="block truncate text-xs text-muted" x-text="item.hint"></span>
+                        <span data-forge-mention-schluessel class="block truncate text-xs text-muted" x-text="item.hint"></span>
                     </template>
                 </span>
                 {{-- Erkennbar als Maschine: der Vorschlag verhält sich beim
@@ -121,8 +131,12 @@
                      `brand-500/15`-Schichten (Zeilenmarkierung UND Chipfläche)
                      addieren sich unter dem Text; brand-800 hält damit 5,12:1
                      bzw. 5,72:1. Der Dunkelzweig war nie betroffen (6,61:1). --}}
+                {{-- Derselbe Haken aus demselben Grund. Der Prüfstand griff das
+                     Abzeichen bis hierher als `> span:last-child` — das hält nur
+                     so lange, wie niemand ein zweites Element anhängt, und es
+                     sagt nirgends, WAS gemessen wird. --}}
                 <template x-if="item.isAgent">
-                    <span aria-hidden="true"
+                    <span aria-hidden="true" data-forge-mention-marke
                           class="shrink-0 rounded-full bg-brand-500/15 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-800 dark:text-brand-300"
                           title="{{ __('Headless Agent — antwortet auf Erwähnung') }}">{{ __('Agent') }}</span>
                 </template>
