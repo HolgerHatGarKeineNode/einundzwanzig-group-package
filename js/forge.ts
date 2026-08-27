@@ -4429,6 +4429,46 @@ export function wireForge(Alpine: {
         }
     })
 
+/**
+ * Der Leer-Zwilling eines Vorgangs (P1).
+ *
+ * **Warum ein Stub und kein `null`:** Die Blatt-Markups binden Dutzende
+ * Ausdrücke der Form `vorgang().title`. Mit `null` WERFEN diese, solange der
+ * Relay-Bestand unterwegs ist — und ein Alpine-Ausdruck, der geworfen hat,
+ * erholt sich nicht mehr: der Effekt verliert seine Abhängigkeiten, und selbst
+ * nach dem Eintreffen der Daten bleibt die Fläche leer. Gemessen am Buzz-Stack
+ * (Plan 2026-08-27T1950, P2): Kommentarform und Statusknöpfe blieben inert.
+ * Der Stub macht jeden Ausdruck wohlgeformt (`''`, `[]`), und wenn der echte
+ * Vorgang eintrifft, zieht dieselbe Bindung nach.
+ */
+const LEERER_VORGANG: Readonly<Record<string, unknown>> = Object.freeze({
+    id: '',
+    title: '',
+    status: '',
+    author: '',
+    authorName: '',
+    authorPicture: '',
+    timeLabel: '',
+    html: '',
+    content: '',
+    branch: '',
+    repoAddress: '',
+    labels: [],
+    assignees: [],
+    assignmentHeads: {},
+    assigneePeople: [],
+    commentCount: 0,
+    comments: [],
+    updates: [],
+    reviewers: [],
+    approvals: [],
+    changeRequests: [],
+    reviewerPeople: [],
+    shortCommit: '',
+    shortMergeCommit: '',
+    shortAppliedAsCommits: [],
+})
+
     Alpine.data('nostrForgeVorgang', (naddr: unknown, art: unknown, id: unknown) => {
         return {
             ...forgeVorgangWerkzeuge,
@@ -4473,7 +4513,16 @@ export function wireForge(Alpine: {
             /** Kam das EOSE der Laderunde? Erst dann ist „nicht gefunden" gedeckt. */
             _eose: false,
 
+            /**
+             * Der EINE Vorgang aus dem View — oder sein LEER-Zwilling (nie
+             * `null`, Begründung am Stub). Wer die WAHRHEIT braucht (Leer-
+             * flächen, Missing-Logik), fragt {@link vorgangDa}.
+             */
             vorgang() {
+                return this.vorgangRoh() ?? LEERER_VORGANG
+            },
+            /** Der rohe Befund: Zeile oder `null` — Grundlage aller Weichen. */
+            vorgangRoh() {
                 if (!this.view) {
                     return null
                 }
@@ -4483,6 +4532,10 @@ export function wireForge(Alpine: {
                         (row) => row.id === this._id,
                     ) ?? null
                 )
+            },
+            /** Steht der EINZIG echte Vorgang? (`x-show`-Wächter des Blatts.) */
+            vorgangDa() {
+                return this.vorgangRoh() !== null
             },
             /**
              * `#a1b2c3d` — sieben Stellen, wie `shortCommitId`. GitHub zählt
@@ -4569,13 +4622,19 @@ export function wireForge(Alpine: {
                 }
             },
             /**
-             * „Diesen Vorgang gibt es nicht" — erst eine Aussage, wenn das
-             * Relay geantwortet HAT und das Repo (nicht der Vorgang!) steht.
-             * Ohne EOSE könnte der Vorgang noch unterwegs sein; dieselbe
-             * Trennung wie `missing` auf der Repo-Seite.
+             * „Nicht gefunden" — erst eine Aussage, wenn das Relay geantwortet
+             * HAT (EOSE). Zwei Gestalten mit zwei Sätzen: kennt der Relay das
+             * REPO nicht, fehlt der ganze Rahmen; kennt er das Repo, nicht aber
+             * den Vorgang, fehlt nur dieser. Ein gemeinsamer Satz für beide
+             * wäre die Sorte Begründung, nach der man erst recht fragt.
              */
             _messeMissing() {
-                this.missing = this._eose && !!this.view && this.vorgang() === null
+                if (!this._eose) {
+                    this.missing = false
+
+                    return
+                }
+                this.missing = !this.view || this.vorgangRoh() === null
             },
             retry() {
                 this.error = ''

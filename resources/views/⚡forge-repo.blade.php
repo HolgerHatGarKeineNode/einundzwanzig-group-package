@@ -1613,12 +1613,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                                 <ul>
                                 <template x-for="pr in sichtbarePulls()" :key="pr.id">
-                                     {{-- `data-forge-pr` + `data-id`/`data-status`: die E2E-Anker der Zeile.
-                                          Das Sprungziel eines geteilten Links ist seit P1 die EIGENE
-                                          ROUTE (`/forge/{naddr}/pulls/{id}`) — siehe die Issue-Zeile. --}}
-                                         Begründung an der Issue-Zeile. --}}
+                                    {{-- `data-forge-pr` + `data-id`/`data-status`: die E2E-Anker der Zeile.
+                                         Das Sprungziel eines geteilten Links ist seit P1 die EIGENE
+                                         ROUTE (`/forge/{naddr}/pulls/{id}`) — siehe die Issue-Zeile. --}}
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
                                         data-forge-pr tabindex="-1"
+                                        :data-status="pr.status" :data-id="pr.id">
+                                        {{-- Die ganze Zeile ist der LINK auf die Einzelansicht — seit P1
+                                             (GitHub-Parität): kein Akkordeon, kein `button`, sondern
+                                             `wire:navigate` auf die Route. --}}
+                                        <a :href="vorgangHrefFuer(pr, 'pr')" wire:navigate data-forge-vorgang-link
+                                           class="forge-vorgangskopf pressable block w-full p-4 text-start">
                                             <span class="forge-vorgangszeile">
                                                 {{-- Typ-Glyphe: dasselbe Zeichen wie am Reiter
                                                      „Pull Requests". Zwei Pfeile gegeneinander —

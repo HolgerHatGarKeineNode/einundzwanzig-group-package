@@ -82,8 +82,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </flux:callout>
             </template>
 
-            <template x-if="missing">
-                <div class="surface-card empty-state px-6 py-12 text-center" data-forge-einzel-fehlt>
+            {{-- Zwei Gestalten des „nicht gefunden" (siehe `_messeMissing` in
+                 der Insel) — dieselbe Trennung wie beim Issue. --}}
+            <template x-if="missing && !view">
+                <div class="surface-card empty-state px-6 py-12 text-center" data-forge-einzel-fehlt="repo">
+                    <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
+                        <flux:icon.code-bracket class="size-6 text-zinc-500 dark:text-zinc-400" />
+                    </span>
+                    <flux:heading size="lg" class="mt-4">{{ __('Dieses Repository kennt der Workspace nicht.') }}</flux:heading>
+                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Vielleicht wurde es entfernt, oder der Link zeigt auf ein anderes Relay.') }}</flux:text>
+                    <div class="mt-4">
+                        <flux:button size="sm" variant="ghost" icon="arrow-left" href="{{ route('group.forge') }}" wire:navigate>{{ __('Zur Forge') }}</flux:button>
+                    </div>
+                </div>
+            </template>
+
+            <template x-if="missing && view">
+                <div class="surface-card empty-state px-6 py-12 text-center" data-forge-einzel-fehlt="vorgang">
                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                         <flux:icon.arrows-right-left class="size-6 text-zinc-500 dark:text-zinc-400" />
                     </span>
@@ -103,7 +118,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </template>
 
-            <template x-if="vorgang()">
+            <div x-show="vorgangDa()" x-cloak>
                 <div class="xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-start xl:gap-8" data-forge-einzel-blatt>
                     <div class="min-w-0">
 
@@ -273,7 +288,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  stand am Rumpf, unverändert gültig). --}}
                             <div class="surface-card mt-4" data-forge-einzel-antwort>
                                 <template x-if="canWrite()">
-                                    <div class="p-4">
+                                    <div class="p-4" data-forge-comment-form>
                                         <div class="relative">
                                             <flux:textarea label="{{ __('Kommentar') }}" rows="4"
                                                            x-model="commentDraft[vorgang().id]"
@@ -352,7 +367,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </section>
                     </aside>
                 </div>
-            </template>
+            </div>
         @endif
     </div>
     </div>

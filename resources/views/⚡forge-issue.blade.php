@@ -97,10 +97,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </flux:callout>
             </template>
 
-            {{-- Das Relay HAT geantwortet und kennt Repo oder Vorgang nicht.
-                 Erst mit EOSE ist diese Aussage gedeckt (siehe Insel). --}}
-            <template x-if="missing">
-                <div class="surface-card empty-state px-6 py-12 text-center" data-forge-einzel-fehlt>
+            {{-- Das Relay HAT geantwortet — Repo oder Vorgang sind nicht zu finden.
+                 Zwei Sätze für zwei Gestalten (siehe `_messeMissing` in der Insel):
+                 fehlt das REPO, fehlt der ganze Rahmen; fehlt nur der Vorgang,
+                 geht es zurück zur Liste desselben Repos. --}}
+            <template x-if="missing && !view">
+                <div class="surface-card empty-state px-6 py-12 text-center" data-forge-einzel-fehlt="repo">
+                    <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
+                        <flux:icon.code-bracket class="size-6 text-zinc-500 dark:text-zinc-400" />
+                    </span>
+                    <flux:heading size="lg" class="mt-4">{{ __('Dieses Repository kennt der Workspace nicht.') }}</flux:heading>
+                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Vielleicht wurde es entfernt, oder der Link zeigt auf ein anderes Relay.') }}</flux:text>
+                    <div class="mt-4">
+                        <flux:button size="sm" variant="ghost" icon="arrow-left" href="{{ route('group.forge') }}" wire:navigate>{{ __('Zur Forge') }}</flux:button>
+                    </div>
+                </div>
+            </template>
+
+            <template x-if="missing && view">
+                <div class="surface-card empty-state px-6 py-12 text-center" data-forge-einzel-fehlt="vorgang">
                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                         <flux:icon.ticket class="size-6 text-zinc-500 dark:text-zinc-400" />
                     </span>
@@ -122,7 +137,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </template>
 
-            <template x-if="vorgang()">
+            <div x-show="vorgangDa()" x-cloak>
                 {{-- ── Kopf: Titel, Nummer, Zustand — GitHub-Form ─────────────
                      Die Überschrift ist EIN Satz mit zwei Gewichten: Titel
                      getragen, `#kurz` als Verweis auf dasselbe in grau. KEINE
@@ -220,7 +235,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              VOR dem Absenden (Haus-Muster, unverändert). --}}
                         <div class="surface-card mt-6" data-forge-einzel-antwort>
                             <template x-if="canWrite()">
-                                <div class="p-4">
+                                <div class="p-4" data-forge-comment-form>
                                     <div class="relative">
                                         <flux:textarea label="{{ __('Kommentar') }}" rows="4"
                                                        x-model="commentDraft[vorgang().id]"
@@ -243,8 +258,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                          die dritte, deutsche Form — sie bleibt
                                          Angebot, nicht Attrappe: der Riegel
                                          (`canSetStatus`) entscheidet, der Satz
-                                         daneben begründet. --}}
-                                    <div class="mt-3 flex flex-wrap items-center gap-2" data-forge-status-actions>
+                                         daneben begründet.
+                                         `data-forge-status-actions` trägt NUR
+                                         der erlaubte Zweig — der Anker ist die
+                                         Zusage „hier stehen Knöpfe", nicht
+                                         „hier steht eine Leiste". --}}
+                                    <div class="mt-3 flex flex-wrap items-center gap-2">
                                         <flux:button size="sm" variant="primary"
                                                      x-on:click="submitComment(vorgang(), 'issue')"
                                                      ::disabled="commentBusy(vorgang().id)">{{ __('Kommentieren') }}</flux:button>
@@ -252,7 +271,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                               class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
 
                                         <template x-if="canSetStatus(vorgang())">
-                                            <span class="ms-auto flex flex-wrap items-center gap-2">
+                                            <span class="ms-auto flex flex-wrap items-center gap-2" data-forge-status-actions>
                                                 <flux:button size="sm" variant="ghost"
                                                              x-on:click="setStatus(vorgang(), vorgang().status === 'open' ? 'closed' : 'open')"
                                                              ::disabled="statusBusy(vorgang().id)"
@@ -409,7 +428,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </section>
                     </aside>
                 </div>
-            </template>
+            </div>
         @endif
     </div>
     </div>
