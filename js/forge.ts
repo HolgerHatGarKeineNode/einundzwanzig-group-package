@@ -2206,7 +2206,14 @@ type ForgeRepoState = {
      * trägt das Werkzeug.
      */
     pickMention(item: MentionItemLike): void
-} & typeof forgeVorgangWerkzeuge
+} & VorgangWerkzeugeAmOrt
+
+/** Die Werkzeuge aus Sicht einer rufenden Insel: gleiche Signaturen, `this`
+ *  bewusst offen — die Repo-Insel trägt nicht jedes Feld der Einzel-Insel
+ *  (etwa `_id`), und Alpine evaluateht zur Laufzeit gegen das gemergte Objekt. */
+type VorgangWerkzeugeAmOrt = {
+    [K in keyof VorgangWerkzeuge]: (this: any, ...args: Parameters<VorgangWerkzeuge[K]>) => ReturnType<VorgangWerkzeuge[K]>
+}
 
 /** Was `_wake` über den Vorgang wissen muss, den es meldet. */
 type WakeTargetInput = { art: 'issue' | 'pr'; eventId: string; what: 'issue' | 'comment' }
@@ -2263,7 +2270,119 @@ const tabFromLocation = (): string => {
  * überschreibt ihn für ihr Anlege-Formular und reicht alle anderen Ziele
  * an {@link forgeVorgangWerkzeuge.pickMention} weiter.
  */
-const forgeVorgangWerkzeuge = {
+/**
+ * Der gemeinsame ZUSTAND beider Inseln — die Felder, auf die die Werkzeuge
+ * zugreifen. Steht als eigener Typ, weil die Werkzeuge als plain object
+ * geteilt sind: Ohne ihn wäre `this` in jeder Methode das Objekt-Literal
+ * selbst, und jeder Griff auf `view` & Co. wäre ein Typfehler (274 Stück
+ * beim ersten Schnitt, gemessen über `npm run typecheck`).
+ */
+type VorgangInselstaat = {
+    view: RepoView | null
+    viewer: string
+    pending: PendingWrite[]
+    busyTick: number
+    commentDraft: Record<string, string>
+    commentError: Record<string, string>
+    assignQuery: Record<string, string>
+    assignPicks: Record<string, MentionItemLike[]>
+    mention: { open: boolean; items: MentionItemLike[]; index: number; query: string; target: string }
+    wakeNotice: Record<string, { tone: string; text: string }>
+    prDiff: Record<string, PrDiffLage>
+    _prDiffAbbruch: Record<string, AbortController>
+    _members: MentionItemLike[]
+    _agentItems: MentionItemLike[]
+    _agentView: AgentDirectoryView | null
+    _channelIds: Set<string>
+    _loadedProfiles: Set<string>
+    _mentionStart: number
+    _dead: boolean
+    _naddr: string
+    _id: string
+    _relaySelf: string
+    art: VorgangArt
+    tab: string
+    _unsubViewer: (() => void) | null
+    _unsubPending: (() => void) | null
+    _unsubMembers: (() => void) | null
+    _unsubAgents: (() => void) | null
+    _unsubRooms: (() => void) | null
+}
+
+/** Eine Wurzel, zu der kommentiert/gesetzt/gereviewt wird — die Zeilenform. */
+type VorgangWurzel = {
+    id: string
+    author: string
+    repoAddress: string
+    status: string
+    comments: { createdAt: number }[]
+} & Record<string, unknown>
+
+
+/**
+ * Die Werkzeuge EINES Vorgangs, typisiert — dieselben Signaturen, die bis P1
+ * an `ForgeRepoState` standen; sie wandern mit den Körpern ins Mixin. `this`
+ * ist der gemeinsame Inselstaat, damit `view` & Co. gegriffen werden können.
+ */
+type VorgangWerkzeuge = {
+    writeGate(this: VorgangInselstaat & VorgangWerkzeuge): WriteGate
+    writeHint(this: VorgangInselstaat & VorgangWerkzeuge): string
+    canWrite(this: VorgangInselstaat & VorgangWerkzeuge): boolean
+    commentBusy(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): boolean
+    submitComment(this: VorgangInselstaat & VorgangWerkzeuge, root: VorgangWurzel, art?: 'issue' | 'pr'): Promise<void>
+    statusOptions(this: VorgangInselstaat & VorgangWerkzeuge): { code: WritableIssueStatus; label: string }[]
+    statusGateFor(this: VorgangInselstaat & VorgangWerkzeuge, row: { author: string; repoAddress: string }): WriteGate
+    canSetStatus(this: VorgangInselstaat & VorgangWerkzeuge, row: { author: string; repoAddress: string }): boolean
+    statusHint(this: VorgangInselstaat & VorgangWerkzeuge, row: { author: string; repoAddress: string }): string
+    statusBusy(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): boolean
+    setStatus(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow, code: WritableIssueStatus): Promise<void>
+    _statusCreatedAt(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): number
+    istZugewiesen(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): boolean
+    assignGateFor(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): WriteGate
+    canAssignSelf(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): boolean
+    assignHint(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): string
+    assignBusy(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): boolean
+    toggleAssignSelf(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): Promise<void>
+    assignPicksFor(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): MentionItemLike[]
+    darfFremdeZuweisen(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): boolean
+    assignOthersGateFor(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): WriteGate
+    canAssignPicked(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): boolean
+    assignOthersHint(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): string
+    onAssignInput(this: VorgangInselstaat & VorgangWerkzeuge, el: HTMLInputElement, rootId: string): void
+    removeAssignPick(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string, pubkey: string): void
+    submitAssignOthers(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow, label: 'assignment' | 'unassignment'): Promise<void>
+    approveGateFor(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow): WriteGate
+    canApprove(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow): boolean
+    approveHint(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow): string
+    reviewBusy(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): boolean
+    eigeneEntscheidung(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow): string
+    submitReview(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow, label: 'approval' | 'changes-requested'): Promise<void>
+    _prDiffKarteNeu(this: VorgangInselstaat & VorgangWerkzeuge, view: RepoView | null): void
+    prDiffVon(this: VorgangInselstaat & VorgangWerkzeuge, pr: { id: string }): PrDiffLage
+    prDiffFehlerText(this: VorgangInselstaat & VorgangWerkzeuge, pr: { id: string }): string
+    prDiffAbbrechen(this: VorgangInselstaat & VorgangWerkzeuge, pr: { id: string }): void
+    prDiffLaden(this: VorgangInselstaat & VorgangWerkzeuge, pr: { id: string }): Promise<void>
+    vorgangHrefFuer(this: VorgangInselstaat & VorgangWerkzeuge, row: { id: string }, art: VorgangArt): string
+    vorgangHref(this: VorgangInselstaat & VorgangWerkzeuge): string
+    repoHref(this: VorgangInselstaat & VorgangWerkzeuge): string
+    copyVorgang(this: VorgangInselstaat & VorgangWerkzeuge): void
+    canCopyClone(this: VorgangInselstaat & VorgangWerkzeuge): boolean
+    rowState(this: VorgangInselstaat & VorgangWerkzeuge, id: string): string
+    failedFor(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): FailedWriteRow[]
+    dismiss(this: VorgangInselstaat & VorgangWerkzeuge, id: string): void
+    onComposerInput(this: VorgangInselstaat & VorgangWerkzeuge, el: HTMLTextAreaElement, target: string): void
+    _mentionItemsFor(this: VorgangInselstaat & VorgangWerkzeuge, query: string, target?: string): MentionItemLike[]
+    mentionKey(this: VorgangInselstaat & VorgangWerkzeuge, event: KeyboardEvent): void
+    pickMention(this: VorgangInselstaat & VorgangWerkzeuge, item: MentionItemLike): void
+    closeMentions(this: VorgangInselstaat & VorgangWerkzeuge): void
+    _recomputeAgentItems(this: VorgangInselstaat & VorgangWerkzeuge): void
+    _wake(this: VorgangInselstaat & VorgangWerkzeuge, target: string, content: string, vorgang: WakeTargetInput): Promise<void>
+    dismissWake(this: VorgangInselstaat & VorgangWerkzeuge, target: string): void
+    _abonniereSchreibQuellen(this: VorgangInselstaat & VorgangWerkzeuge, signal: AbortSignal | undefined): void
+    _trenneSchreibQuellen(this: VorgangInselstaat & VorgangWerkzeuge): void
+}
+
+const forgeVorgangWerkzeuge: VorgangWerkzeuge = {
     // ── Riegel ─────────────────────────────────────────────────────────────
     // **Wer nicht darf, sieht das VOR dem Absenden.** Zwei Ebenen, und sie
     // sind nicht dasselbe: `writeGate` fragt nur, ob überhaupt jemand
@@ -2652,7 +2771,7 @@ const forgeVorgangWerkzeuge = {
         if (!view) {
             return
         }
-        const neu = {}
+        const neu: Record<string, PrDiffLage> = {}
         for (const pr of view.pullRequests) {
             const quelle = prDiffQuelle({
                 cloneUrls: pr.cloneUrls,
@@ -2689,7 +2808,7 @@ const forgeVorgangWerkzeuge = {
      * sei kaputt.
      */
     prDiffFehlerText(pr) {
-        const codes = {
+        const codes: Record<string, string> = {
             'nicht-angemeldet': 'Zum Laden musst du angemeldet sein — der Git-Zugang wird signiert (NIP-98).',
             'kein-zugriff': 'Der Relay hat den Zugriff abgelehnt. Entweder bist du kein Mitglied des Kanals, zu dem dieses Repository gehört, oder die Signatur ist abgelaufen.',
             netz: 'Der Git-Endpunkt war nicht erreichbar.',
@@ -2720,7 +2839,7 @@ const forgeVorgangWerkzeuge = {
         const quelle = lage.quelle
         const abbruch = new AbortController()
         this._prDiffAbbruch[pr.id] = abbruch
-        const setze = (teil) => {
+        const setze = (teil: Partial<PrDiffLage>): void => {
             // Nur schreiben, solange DIESER Vorgang läuft: ein abgebrochener
             // Fetch feuert noch Fortschritte nach, und die schrieben sonst
             // über eine neue Lage.
@@ -2752,7 +2871,7 @@ const forgeVorgangWerkzeuge = {
             // Der eigene Code gewinnt gegen die Einordnung nach Wortlaut:
             // `spitze-fehlt` ist eine AUSKUNFT (der Tip liegt in einem
             // Fork), kein Netzfehler, und `ordneFehlerEin` kennt ihn nicht.
-            const eigen = error?.code ?? ''
+            const eigen = (error as { code?: string } | null | undefined)?.code ?? ''
             const code =
                 eigen === 'spitze-fehlt' || eigen === 'basis-fehlt'
                     ? eigen
@@ -2856,7 +2975,7 @@ const forgeVorgangWerkzeuge = {
      * Agenten vor Mitgliedern und jede Identität genau einmal — die Regel
      * steht in `mergeMentionItems` (rein, getestet), nicht hier.
      */
-    _mentionItemsFor(query: string, target = '') {
+    _mentionItemsFor(query: string, target = ''): MentionItemLike[] {
         const q = query.toLowerCase()
         // **Schon Gewähltes fällt heraus — aber nur im Zuweisen-Feld.**
         // Im Composer darf man dieselbe Person zweimal erwähnen; in
@@ -2868,7 +2987,7 @@ const forgeVorgangWerkzeuge = {
             target.startsWith('assign:')
                 ? new Set(this.assignPicksFor(target.slice('assign:'.length)).map((item) => item.pubkey))
                 : new Set()
-        const offen = (item) =>
+        const offen = (item: MentionItemLike): boolean =>
             (!q || item.search.includes(q)) && !gewaehlt.has(item.pubkey)
 
         // Der Deckel liegt in `mergeMentionItems` und ist ZWEIGETEILT
@@ -2929,7 +3048,7 @@ const forgeVorgangWerkzeuge = {
             }
             this.assignQuery = { ...this.assignQuery, [rootId]: '' }
             this.closeMentions()
-            const zurueck = this
+            const zurueck = this as unknown as { $nextTick: (cb: () => void) => void }
             zurueck.$nextTick(() => {
                 document
                     .querySelector<HTMLInputElement>(`[data-forge-composer="${CSS.escape(ziel)}"]`)
@@ -2944,7 +3063,7 @@ const forgeVorgangWerkzeuge = {
         const ergebnis = spliceMention(entwurf, this._mentionStart, this.mention.query.length, insert)
         this.commentDraft = { ...this.commentDraft, [rootId]: ergebnis.text }
         this.closeMentions()
-        const magics = this
+        const magics = this as unknown as { $nextTick: (cb: () => void) => void }
         magics.$nextTick(() => {
             const feld = document.querySelector<HTMLTextAreaElement>(`[data-forge-composer="${CSS.escape(ziel)}"]`)
             if (feld) {
@@ -3168,6 +3287,7 @@ export function wireForge(Alpine: {
     Alpine.data('nostrForge', (base: unknown): ForgeState => {
         return {
             loading: true,
+            _gesprungen: false,
             error: '',
             // `'unknown'` ist ein eigener Zustand: Skeleton zeigen, NICHTS
             // entscheiden (siehe `spaceCaps.ts`). Wer hier zweiwertig anfängt,
@@ -3207,7 +3327,6 @@ export function wireForge(Alpine: {
             _unsubKind: null,
             _unsubSelf: null,
             _unsubBreite: null,
-            _gesprungen: false,
             /**
              * Stand `?tab=` WIRKLICH in der Adresse?
              *
@@ -4347,7 +4466,7 @@ export function wireForge(Alpine: {
                     )
                     this.issueDraft = { ...this.issueDraft, body: ergebnis.text }
                     this.closeMentions()
-                    const magics = this
+                    const magics = this as unknown as { $nextTick: (cb: () => void) => void }
                     magics.$nextTick(() => {
                         const feld = document.querySelector<HTMLTextAreaElement>(
                             `[data-forge-composer="issue"]`,
@@ -4361,7 +4480,7 @@ export function wireForge(Alpine: {
                     return
                 }
 
-                forgeVorgangWerkzeuge.pickMention.call(this, item)
+                forgeVorgangWerkzeuge.pickMention.call(this as unknown as VorgangInselstaat & VorgangWerkzeuge, item)
             },
 
         }
@@ -4407,7 +4526,30 @@ const LEERER_VORGANG: Readonly<Record<string, unknown>> = Object.freeze({
     shortAppliedAsCommits: [],
 })
 
-    Alpine.data('nostrForgeVorgang', (naddr: unknown, art: unknown, id: unknown) => {
+
+/** Die EIGENEN Felder und Wege der Einzel-Insel (über die Werkzeuge hinaus). */
+type ForgeVorgangStaaten = VorgangInselstaat & VorgangWerkzeuge & {
+    loading: boolean
+    error: string
+    missing: boolean
+    ungueltig: boolean
+    _eose: boolean
+    _controller: AbortController | null
+    _unsub: (() => void) | null
+    _unsubSelf: (() => void) | null
+    vorgang(): IssueRow | PullRequestRow | Readonly<Record<string, unknown>>
+    vorgangRoh(): IssueRow | PullRequestRow | null
+    vorgangDa(): boolean
+    shortId(): string
+    statusText(code: string): string
+    init(): void
+    destroy(): void
+    _boot(): Promise<void>
+    retry(): void
+    _messeMissing(): void
+}
+
+    Alpine.data('nostrForgeVorgang', (naddr: unknown, art: unknown, id: unknown): ForgeVorgangStaaten => {
         return {
             ...forgeVorgangWerkzeuge,
             commentDraft: {},
@@ -4442,6 +4584,7 @@ const LEERER_VORGANG: Readonly<Record<string, unknown>> = Object.freeze({
             art: (art === 'pr' ? 'pr' : 'issue') as VorgangArt,
             /** Nur PRs: `diskussion` | `dateien` (`?tab=`, teilbar). */
             tab: vorgangTabFromLocation(),
+            _unsubSelf: null,
             _naddr: String(naddr ?? ''),
             _id: String(id ?? '').toLowerCase(),
             _relaySelf: '',
