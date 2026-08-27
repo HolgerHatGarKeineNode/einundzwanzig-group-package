@@ -264,3 +264,14 @@ export const aktivitaetJeRepo = (
  */
 export const balkenLohnt = (aktivitaet: Map<string, RepoAktivitaet>): boolean =>
     [...aktivitaet.values()].filter((a) => a.anzahl > 0).length > 1
+
+/**
+ * Zählt ein Vorgangszustand als „offen"? (GitHub-Parität P4.)
+ *
+ * Issue: nur `open`. Pull Request: auch `draft` — bei GitHub zählt ein
+ * Entwurf als offen, und ein Umschalter, der Entwürfe auf der Offen-Seite
+ * versteckt und auf der Geschlossen-Seite ebenfalls, verlöre sie aus
+ * beiden Ansichten.
+ */
+export const istZustandOffen = (status: string, art: 'issue' | 'pr'): boolean =>
+    art === 'pr' ? status === 'open' || status === 'draft' : status === 'open'

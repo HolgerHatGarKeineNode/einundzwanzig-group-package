@@ -72,9 +72,11 @@
                        class="forge-vorgangskopf pressable block w-full p-3 text-start">
                         <span class="forge-vorgangszeile">
                             @if ($art === 'issues')
-                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0"
+                                                             ::class="row.status === 'open' ? 'text-emerald-600 dark:text-emerald-400' : (row.status === 'closed' ? 'text-red-600 dark:text-red-400' : 'text-purple-600 dark:text-purple-400')" />
                             @else
-                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0"
+                                                             ::class="row.status === 'open' || row.status === 'draft' ? 'text-emerald-600 dark:text-emerald-400' : (row.status === 'closed' ? 'text-red-600 dark:text-red-400' : 'text-purple-600 dark:text-purple-400')" />
                             @endif
 
                             <span class="forge-vz-titel text-sm">
@@ -82,6 +84,7 @@
                             </span>
 
                             <span class="forge-vz-meta block text-xs text-muted">
+                                <span class="font-semibold tracking-tight" x-text="'#' + row.id.slice(0, 7)"></span>
                                 <span x-text="row.authorName"></span>
                                 <span x-text="' · ' + row.timeLabel"></span>
                             </span>

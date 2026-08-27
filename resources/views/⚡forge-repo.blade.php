@@ -521,7 +521,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      sie gibt der Metazeile darunter die
                                                      Fluchtlinie, aus der die Liste als Liste
                                                      liest statt als gestapelte Absätze. --}}
-                                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0"
+                                                             ::class="issue.status === 'open' ? 'text-emerald-600 dark:text-emerald-400' : (issue.status === 'closed' ? 'text-red-600 dark:text-red-400' : 'text-purple-600 dark:text-purple-400')" />
 
                                                 {{-- ── EIN Rang: Titel und Labels in EINER Zelle ──
                                                      Die Labels hatten bis zur Nachbesserung ein
@@ -556,6 +557,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      dieselbe Frage beantwortet („in welchem
                                                      Zustand ist dieser Eintrag gerade"). --}}
                                                 <span class="forge-vz-meta block text-xs text-muted">
+                                                    <span class="font-semibold tracking-tight" x-text="'#' + issue.id.slice(0, 7)"></span>
                                                     <span x-text="issue.authorName"></span>
                                                     <span x-text="' · ' + issue.timeLabel"></span>
                                                     <template x-if="rowState(issue.id) === 'sending'">
@@ -1035,6 +1037,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </span>
 
                                                 <span class="forge-vz-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                    <span class="font-semibold tracking-tight" x-text="'#' + pr.id.slice(0, 7)"></span>
                                                     <span class="min-w-0 truncate"
                                                           x-text="@js(__(':name hat ihn eingereicht.')).split(':name').join(patch.authorName) + ' · ' + patch.timeLabel"></span>
                                                     {{-- Serien-Marker. Ein `git format-patch` über
@@ -1263,7 +1266,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      „Pull Requests". Zwei Pfeile gegeneinander —
                                                      das ist die Sache selbst, und es kollidiert
                                                      mit keinem der vier Zustandszeichen. --}}
-                                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0"
+                                                             ::class="pr.status === 'open' || pr.status === 'draft' ? 'text-emerald-600 dark:text-emerald-400' : (pr.status === 'closed' ? 'text-red-600 dark:text-red-400' : 'text-purple-600 dark:text-purple-400')" />
 
                                                 <span class="forge-vz-titel">
                                                     <span class="forge-vz-name" x-text="pr.title || @js(__('Ohne Titel'))"></span>

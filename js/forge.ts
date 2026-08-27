@@ -64,6 +64,7 @@ import {
     aktivitaetJeRepo,
     balkenLohnt,
     filtereVorgaenge,
+    istZustandOffen,
     leseScope,
     leseSortierung,
     sortiereRepos,
@@ -2121,6 +2122,12 @@ type ForgeRepoState = {
      * Zuständen wären drei Wahrheiten über dieselbe Frage.
      */
     suche: string
+    /** Zustands-Ausschnitt der Listen: 'offen' | 'geschlossen' (GH-Form, P4). */
+    zustand: 'offen' | 'geschlossen'
+    /** Wie viele UNGESUCHT offen sind (GH-Zahlangabe am Umschalter). */
+    offenZahl(): number
+    /** …und geschlossen. */
+    geschlossenZahl(): number
     sichtbareIssues(): RepoView['issues']
     sichtbarePulls(): RepoView['pullRequests']
     sichtbarePatches(): RepoView['patches']
@@ -3643,6 +3650,8 @@ export function wireForge(Alpine: {
             code: { pfad: '', eintraege: [], datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0, laedt: false, fehler: '' },
             speicher: { offen: false, klone: [], belegt: 0, kontingent: 0 },
             suche: '',
+            // GH-Form: welcher Zustands-Ausschnitt der Listen steht da (P4).
+            zustand: 'offen',
             _klonAbbruch: null,
             loading: true,
             error: '',
@@ -3936,13 +3945,31 @@ export function wireForge(Alpine: {
             // weniger (NIP-50 durchsucht Text, keine Pubkeys).
 
             sichtbareIssues() {
-                return sucheVorgaenge(this.view?.issues ?? [], this.suche)
+                return sucheVorgaenge<IssueRow>(this.view?.issues ?? [], this.suche).filter(
+                    (row) => (this.zustand === 'offen') === istZustandOffen(row.status, 'issue'),
+                )
             },
             sichtbarePulls() {
-                return sucheVorgaenge(this.view?.pullRequests ?? [], this.suche)
+                return sucheVorgaenge<PullRequestRow>(this.view?.pullRequests ?? [], this.suche).filter(
+                    (row) => (this.zustand === 'offen') === istZustandOffen(row.status, 'pr'),
+                )
             },
             sichtbarePatches() {
                 return sucheVorgaenge(this.view?.patches ?? [], this.suche)
+            },
+            /** GH-Form: „N offen / M geschlossen" — UNGESUCHT, sonst zählte die
+             *  Suche Bestand weg, den der Umschalter zurückbringen soll. */
+            offenZahl() {
+                const reihe = this.tab === 'pulls' ? (this.view?.pullRequests ?? []) : (this.view?.issues ?? [])
+                const art = this.tab === 'pulls' ? 'pr' : 'issue'
+
+                return reihe.filter((row) => istZustandOffen(row.status, art)).length
+            },
+            geschlossenZahl() {
+                const reihe = this.tab === 'pulls' ? (this.view?.pullRequests ?? []) : (this.view?.issues ?? [])
+                const art = this.tab === 'pulls' ? 'pr' : 'issue'
+
+                return reihe.filter((row) => !istZustandOffen(row.status, art)).length
             },
             vorgaengeGesamt() {
                 if (this.tab === 'issues') {
