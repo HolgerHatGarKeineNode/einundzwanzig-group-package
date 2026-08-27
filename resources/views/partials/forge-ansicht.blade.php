@@ -28,7 +28,7 @@
      ── Der Ausschnitt erscheint nur mit Schlüssel ───────────────────────────
      Ohne angemeldeten Nutzer gibt es kein „mir". Die Auswahl fehlt dann ganz,
      statt zwei Optionen anzubieten, die per Konstruktion nichts tun. --}}
-<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2" data-forge-ansicht>
+<div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2" data-forge-ansicht>
     <flux:select size="sm" class="w-auto" x-model="sortierung"
                  data-forge-sortierung aria-label="{{ __('Reihenfolge der Liste') }}">
         <flux:select.option value="aktiv">{{ __('Zuletzt aktiv') }}</flux:select.option>
@@ -59,7 +59,7 @@
          in mehreren Screenreadern gar nichts; sie muss vorher da sein, damit
          die Änderung eine Änderung IST. Und ohne aktiven Filter steht dort
          nichts: „47 von 47" ist keine Auskunft, sondern Lärm. --}}
-    <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
+    <span class="text-xs font-semibold uppercase tracking-wider text-muted"
           role="status" aria-live="polite" data-forge-trefferzahl
           x-text="(suche.trim() !== '' || scope !== 'alle') && sichtbareAnzahl() !== gesamtAnzahl()
               ? @js(__(':n von :gesamt')).replace(':n', $num(sichtbareAnzahl())).replace(':gesamt', $num(gesamtAnzahl()))

@@ -17,57 +17,85 @@
         <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
             <flux:icon.inbox class="size-6 text-zinc-500 dark:text-zinc-400" />
         </span>
-        <flux:heading class="mt-4">{{ $leerTitel }}</flux:heading>
-        <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ $leerText }}</flux:text>
+        <flux:heading size="lg" class="mt-4">{{ $leerTitel }}</flux:heading>
+        <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ $leerText }}</flux:text>
     </div>
 </template>
 
 <template x-for="gruppe in {{ $quelle }}" :key="gruppe.address">
-    <section class="mb-4" data-forge-gruppe :data-address="gruppe.address">
-        {{-- Der Gruppenkopf ist der Weg ins Repository — dieselbe Liste, dort
-             aber mit Rumpf, Kommentaren und Schreibfeld. Die Zahl daneben sagt,
-             ob sich das Antippen lohnt. --}}
-        <div class="mb-1.5 flex items-baseline justify-between gap-3">
+    {{-- ── EIN Kasten, Kopf UND Liste (P5) ──────────────────────────────────────
+         Der Gruppenkopf stand bis hierher AUSSERHALB der `surface-card`, und in P4
+         ist an dieser Fläche nachgemessen worden, was das kostet: der Kopf sass auf
+         den Rändern der Region (x = 0 … 456), die Zeileninhalte im Kasten
+         (x = 13 … 443). Der Repo-Name stand damit 13 px links, die Zahl 13 px rechts
+         von allem, woran sie sich hätten ausrichten können — zwei Fluchtlinien für
+         ein Ding.
+
+         Jetzt umschliesst ein Rahmen beides, und der Kopf ist ein angesetzter
+         Streifen mit Unterkante. Das ist die Gitea-Signatur, und sie ist hier keine
+         Zierde: Kopf und Liste gehören zusammen, also sagt der Rahmen das.
+
+         Der Streifen ist `.forge-kartenkopf` und damit dieselbe Bauform wie der
+         Diff-Kopf — inklusive Innenabstand, der die Fluchtlinie der Zeilen trifft.
+         Die Herleitung steht an der Klasse in `theme.css`. --}}
+    <section class="surface-card mb-4" data-forge-gruppe :data-address="gruppe.address">
+        <div class="forge-kartenkopf">
             <a :href="gruppe.href || null" wire:navigate data-forge-gruppe-link
                class="min-w-0 truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
                x-text="gruppe.name"></a>
             <span class="shrink-0 text-xs text-muted" x-text="$num(gruppe.items.length)"></span>
         </div>
-        <ul class="surface-card">
+        {{-- Die Liste trägt KEINE eigene `surface-card` mehr — der Rahmen ist der
+             der Sektion. Zwei geschachtelte Karten wären zwei Kanten übereinander. --}}
+        <ul>
             <template x-for="row in gruppe.items" :key="row.id">
                 <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800">
                     {{-- Die ganze Zeile ist der Link — Ziel ist die P2-Adresse
                          (`?issue=`/`?pr=`), also derselbe Verweis, den der
                          Kopier-Knopf auf der Repo-Seite liefert. Er wird nicht
                          neu zusammengesetzt, sondern kommt aus `withVorgang`. --}}
+                    {{-- Zwei Ränge, dieselbe Bauform wie auf der Repo-Seite (P3):
+                         Typ-Glyphe · Titel oben, EINE graue Metazeile darunter,
+                         Zustand rechts. Die schmale und die breite Fassung stehen
+                         als je eigenes `grid-template-areas` in `theme.css`.
+
+                         Die Typ-Glyphe zahlt sich HIER am deutlichsten aus: auf
+                         `/forge` folgen die Issue-Region und die PR-Region auf
+                         EINER scrollenden Fläche aufeinander, und beide sind nach
+                         Repository gruppiert — wer mitten in der Liste steht, hat
+                         die Regionsüberschrift längst nach oben geschoben.
+
+                         `$art` ist `issues` oder `pulls`; die Glyphe kommt aus dem
+                         Aufruf, nicht aus der Zeile. --}}
                     <a :href="row.href || null" wire:navigate data-forge-vorgang-link :data-id="row.id"
-                       class="pressable flex w-full flex-wrap items-start gap-3 p-3 text-start">
-                        {{-- Derselbe Statusknoten wie auf der Repo-Seite:
-                             gefüllt = offen, Ring = erledigt. Ein Zeichen, eine
-                             Bedeutung, über alle Forge-Flächen hinweg. --}}
-                        <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
-                            <span class="size-2.5 rounded-full"
-                                  :class="row.status === 'open'
-                                      ? 'bg-zinc-900 dark:bg-zinc-100'
-                                      : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
-                        </span>
-                        <span class="min-w-0 flex-1">
-                            <span class="block text-sm font-medium leading-snug" x-text="row.title || @js(__('Ohne Titel'))"></span>
-                            <span class="mt-0.5 block text-xs text-muted">
+                       class="forge-vorgangskopf pressable block w-full p-3 text-start">
+                        <span class="forge-vorgangszeile">
+                            @if ($art === 'issues')
+                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                            @else
+                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                            @endif
+
+                            <span class="forge-vz-titel text-sm">
+                                <span class="forge-vz-name" x-text="row.title || @js(__('Ohne Titel'))"></span>
+                            </span>
+
+                            <span class="forge-vz-meta block text-xs text-muted">
                                 <span x-text="row.authorName"></span>
                                 <span x-text="' · ' + row.timeLabel"></span>
                             </span>
-                        </span>
-                        <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
-                            <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
-                                  :class="row.status === 'open' ? 'text-forge-offen' : (row.status === 'merged' || row.status === 'resolved' || row.status === 'applied' ? 'text-forge-erledigt' : 'text-forge-ruhend')"
-                                  x-text="row.statusLabel"></span>
-                            <template x-if="row.commentCount > 0">
-                                <span class="inline-flex items-center gap-1 text-xs text-muted">
-                                    <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
-                                    <span x-text="row.commentCount"></span>
-                                </span>
-                            </template>
+
+                            <span class="forge-vz-leute">
+                                <template x-if="row.commentCount > 0">
+                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                        <span x-text="row.commentCount"></span>
+                                    </span>
+                                </template>
+                            </span>
+
+                            <x-group::forge-status-badge klasse="forge-vz-zustand"
+                                                         status="row.status" label="row.statusLabel" />
                         </span>
                     </a>
                 </li>

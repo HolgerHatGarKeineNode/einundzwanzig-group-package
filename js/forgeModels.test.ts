@@ -50,11 +50,14 @@ import {
     foldStatus,
     gruppiereNachRepo,
     isOperationNote,
+    kurzeCommits,
     maintainerLookupFor,
+    mergeInfoOf,
     operationOf,
     reviewerRows,
     parseRepoAddress,
     repoAddressOf,
+    shortCommitId,
     toIssue,
     toPatch,
     toPullRequest,
@@ -62,6 +65,7 @@ import {
     toRepoState,
     truncatedLists,
     unclaimedRepos,
+    verwandteRepos,
     type ForgeEvent,
 } from './forgeModels.ts'
 
@@ -456,7 +460,9 @@ const prRoot = (id = 'p'.repeat(64)): ForgeEvent =>
             ['a', REPO_ADDR],
             ['subject', 'Titel des PR'],
             ['branch-name', 'feat/x'],
-            ['target-branch', 'master'],
+            // `target-branch` stand hier bis P7 (2026-08-26) — den Tag schreibt
+            // weder NIP-34 noch Buzz, das Feld war per Konstruktion leer.
+            ['merge-base', 'a'.repeat(40)],
             ['c', '1111111111111111111111111111111111111111'],
         ],
     })
@@ -476,7 +482,6 @@ test('PR-Zustand aus 1618 + MEHREREN 1619: der jüngste Commit gewinnt, alle Upd
     assert.equal(pr.updateCount, 3)
     assert.equal(pr.commit, '3'.repeat(40), 'der Commit des JÜNGSTEN Updates')
     assert.equal(pr.branch, 'feat/x')
-    assert.equal(pr.targetBranch, 'master')
     assert.equal(pr.updatedAt, 400)
     assert.equal(pr.status, 'open', 'ohne Status-Ereignis ist ein PR offen')
     // Die Updates sind aufsteigend sortiert — die Zeitleiste liest sie so.
@@ -1657,4 +1662,216 @@ test('gruppiereNachRepo: eine unbekannte Koordinate erzeugt KEINE namenlose Grup
 
     assert.equal(gruppen.length, 1)
     assert.equal(gruppen[0].items.length, 1)
+})
+
+// ── P7/2 — `merge-base`, `merge-commit`, `applied-as-commits` ───────────────
+
+/**
+ * Die drei Felder, die NIP-34 vorsieht und die wir bis zum 2026-08-26 nicht
+ * gelesen haben. Geprüft wird nicht „steht im Objekt", sondern jeweils die
+ * Regel, an der ein Client sie falsch liest:
+ *
+ *   - **`merge-commit` gilt nur am 1631.** Ein Client, der das Kind nicht prüft,
+ *     zeigt einen Merge unter einem geschlossenen PR an.
+ *   - **`merge-commit` gilt nur von einem Berechtigten.** Der Riegel sitzt in
+ *     `foldStatus`; wer das Tag am Rohereignis liest, umgeht ihn.
+ *   - **`merge-base` folgt dem jüngsten Update.** Ein Rebase ändert Tip UND
+ *     Basis; die alte Basis gehört zu einem Diff, den es nicht mehr gibt.
+ */
+
+const status1631 = (rootId: string, tags: string[][], pubkey = OWNER, created_at = 2_000) =>
+    ev({ kind: GIT_STATUS_APPLIED, pubkey, created_at, tags: [['e', rootId], ...tags] })
+
+test('mergeInfoOf liest `merge-commit` und `applied-as-commits` — mehrwertig UND wiederholt', () => {
+    const mehrwertig = mergeInfoOf(
+        status1631('x'.repeat(64), [
+            ['merge-commit', COMMIT_A],
+            ['applied-as-commits', COMMIT_B, 'c'.repeat(40)],
+        ]),
+    )
+    assert.equal(mehrwertig.mergeCommit, COMMIT_A)
+    assert.deepEqual(mehrwertig.appliedAsCommits, [COMMIT_B, 'c'.repeat(40)])
+
+    // Dieselbe Aussage zeilenweise — NIP-34 schreibt die mehrwertige Form vor,
+    // verbietet die andere aber nicht.
+    const wiederholt = mergeInfoOf(
+        status1631('x'.repeat(64), [
+            ['applied-as-commits', COMMIT_B],
+            ['applied-as-commits', 'c'.repeat(40)],
+            // Dieselbe Id zweimal ist eine Zeile, kein zweiter Commit.
+            ['applied-as-commits', COMMIT_B],
+        ]),
+    )
+    assert.deepEqual(wiederholt.appliedAsCommits, [COMMIT_B, 'c'.repeat(40)])
+})
+
+test('mergeInfoOf verwirft, was kein 1631 ist, und was keine Commit-Id ist', () => {
+    const amFalschenKind = ev({
+        kind: GIT_STATUS_CLOSED,
+        tags: [['e', 'x'.repeat(64)], ['merge-commit', COMMIT_A]],
+    })
+    assert.deepEqual(mergeInfoOf(amFalschenKind), { mergeCommit: '', appliedAsCommits: [] })
+    assert.deepEqual(mergeInfoOf(null), { mergeCommit: '', appliedAsCommits: [] })
+
+    const muell = mergeInfoOf(
+        status1631('x'.repeat(64), [
+            ['merge-commit', 'master'],
+            ['applied-as-commits', '-', 'zzzz', COMMIT_A],
+        ]),
+    )
+    assert.equal(muell.mergeCommit, '', '`master` ist kein Commit, sondern ein Branchname')
+    assert.deepEqual(muell.appliedAsCommits, [COMMIT_A], 'nur die eine gültige Id bleibt')
+})
+
+test('mergeInfoOf geht NICHT über den `r`-Tag — der ist am 1631 mehrdeutig', () => {
+    // Buzz schreibt zu jedem Merge-Commit zusätzlich ein `r`; laut NIP-34 trägt
+    // dasselbe Tag am 1631 aber den `euc` des Repos. Wer `r` liest, zeigt bei
+    // einem spec-konformen Ereignis den euc als Merge-Commit an.
+    const nurR = status1631('x'.repeat(64), [['r', COMMIT_A]])
+    assert.equal(mergeInfoOf(nurR).mergeCommit, '')
+    assert.deepEqual(mergeInfoOf(nurR).appliedAsCommits, [])
+})
+
+test('PR: `merge-base` kommt aus der Wurzel — und ein Rebase-Update schiebt ihn weiter', () => {
+    const root = prRoot()
+    assert.equal(toPullRequest(root).mergeBase, 'a'.repeat(40), 'die Basis der Wurzel')
+
+    const rebase = ev({
+        kind: GIT_PR_UPDATE,
+        pubkey: MAINTAINER,
+        created_at: 3_000,
+        tags: [['E', root.id], ['a', REPO_ADDR], ['c', '9'.repeat(40)], ['merge-base', COMMIT_B]],
+    })
+    const aelter = ev({
+        kind: GIT_PR_UPDATE,
+        pubkey: MAINTAINER,
+        created_at: 1_500,
+        tags: [['E', root.id], ['a', REPO_ADDR], ['c', '8'.repeat(40)], ['merge-base', 'd'.repeat(40)]],
+    })
+    const pr = toPullRequest(root, [rebase, aelter])
+    assert.equal(pr.mergeBase, COMMIT_B, 'die Basis des JÜNGSTEN Updates, nicht die der Wurzel')
+    assert.equal(pr.commit, '9'.repeat(40))
+    // Und das Update trägt sie auch einzeln — die Zeitleiste liest sie dort.
+    assert.deepEqual(pr.updates.map((u) => u.mergeBase), ['d'.repeat(40), COMMIT_B])
+})
+
+test('PR: ein Update OHNE `merge-base` lässt die Basis der Wurzel stehen', () => {
+    const root = prRoot()
+    const ohneBasis = ev({
+        kind: GIT_PR_UPDATE,
+        pubkey: MAINTAINER,
+        created_at: 3_000,
+        tags: [['E', root.id], ['a', REPO_ADDR], ['c', '9'.repeat(40)]],
+    })
+
+    assert.equal(toPullRequest(root, [ohneBasis]).mergeBase, 'a'.repeat(40))
+})
+
+test('PR: der Merge-Commit zählt nur vom Berechtigten — derselbe Riegel wie der Status', () => {
+    const root = prRoot()
+    const vomEigentuemer = status1631(root.id, [['merge-commit', COMMIT_A]])
+    const vomFremden = status1631(root.id, [['merge-commit', COMMIT_B]], FREMD, 9_000)
+
+    const echt = toPullRequest(root, [], [vomEigentuemer])
+    assert.equal(echt.status, 'merged')
+    assert.equal(echt.merge.mergeCommit, COMMIT_A)
+
+    // Das fremde Ereignis ist JÜNGER und würde ohne den Riegel gewinnen.
+    const gefaelscht = toPullRequest(root, [], [vomEigentuemer, vomFremden])
+    assert.equal(gefaelscht.merge.mergeCommit, COMMIT_A, 'der Fremde setzt keinen Merge-Commit')
+
+    // Und ganz ohne Status ist da nichts zu berichten.
+    assert.deepEqual(toPullRequest(root).merge, { mergeCommit: '', appliedAsCommits: [] })
+})
+
+test('Patch: `applied-as-commits` landet am Modell — beim `git am` ist das der Normalfall', () => {
+    const patch = ev({
+        kind: GIT_PATCH,
+        pubkey: MAINTAINER,
+        created_at: 100,
+        content: 'Subject: [PATCH] Etwas\n\n---\n',
+        tags: [['a', REPO_ADDR], ['commit', COMMIT_A]],
+    })
+    const angewandt = toPatch(patch, [status1631(patch.id, [['applied-as-commits', COMMIT_B]])])
+
+    assert.equal(angewandt.status, 'applied')
+    assert.deepEqual(angewandt.merge.appliedAsCommits, [COMMIT_B])
+    assert.equal(angewandt.merge.mergeCommit, '')
+})
+
+// ── P7/3 — Verwandtschaft über `euc` ────────────────────────────────────────
+
+const eucRepo = (address: string, euc: string) => ({ address, euc })
+
+test('verwandteRepos findet Repos mit gleichem `euc` — und niemals sich selbst', () => {
+    const a = eucRepo('30617:aa:eins', COMMIT_A)
+    const b = eucRepo('30617:bb:zwei', COMMIT_A)
+    const c = eucRepo('30617:cc:drei', COMMIT_B)
+    const alle = [a, b, c]
+
+    assert.deepEqual(verwandteRepos(a, alle).map((r) => r.address), ['30617:bb:zwei'])
+    assert.deepEqual(verwandteRepos(b, alle).map((r) => r.address), ['30617:aa:eins'])
+    assert.deepEqual(verwandteRepos(c, alle), [], 'ein Repo allein ist mit niemandem verwandt')
+})
+
+test('verwandteRepos: Grossschreibung trennt nicht, ein leerer `euc` verbindet nicht', () => {
+    const a = eucRepo('30617:aa:eins', COMMIT_A.toUpperCase())
+    const b = eucRepo('30617:bb:zwei', COMMIT_A)
+    assert.deepEqual(verwandteRepos(a, [a, b]).map((r) => r.address), ['30617:bb:zwei'])
+
+    // Der häufigste Wert darf nicht die stärkste Behauptung sein: ohne `r`-Tag
+    // ist `euc` leer, und leer heisst „unbekannt", nicht „gleich".
+    const ohne1 = eucRepo('30617:cc:drei', '')
+    const ohne2 = eucRepo('30617:dd:vier', '')
+    assert.deepEqual(verwandteRepos(ohne1, [ohne1, ohne2]), [])
+
+    // Und was keine Commit-Id ist, verbindet auch nicht.
+    const muell1 = eucRepo('30617:ee:fuenf', 'master')
+    const muell2 = eucRepo('30617:ff:sechs', 'master')
+    assert.deepEqual(verwandteRepos(muell1, [muell1, muell2]), [])
+})
+
+test('verwandteRepos: dieselbe Adresse zweimal in der Liste ergibt EINE Zeile', () => {
+    const a = eucRepo('30617:aa:eins', COMMIT_A)
+    const b = eucRepo('30617:bb:zwei', COMMIT_A)
+
+    assert.deepEqual(verwandteRepos(a, [a, b, b, a]).map((r) => r.address), ['30617:bb:zwei'])
+})
+
+// ── P7/2 — Themen (`t`) am Repo ─────────────────────────────────────────────
+
+test('toRepo liest die `t`-Tags als Themen — sie liegen als `hashtags` am Modell', () => {
+    const repo = toRepo(
+        ev({
+            kind: REPO_ANNOUNCEMENT,
+            tags: [
+                ['d', REPO_D],
+                ['t', 'bitcoin'],
+                ['t', 'lightning'],
+                // Ein leerer Wert ist kein Thema.
+                ['t', ''],
+            ],
+        }),
+    )
+    assert.ok(repo)
+    assert.deepEqual(repo.hashtags, ['bitcoin', 'lightning'])
+})
+
+// ── P7/2 — die Kurzform der Commit-Ids ──────────────────────────────────────
+
+test('shortCommitId kürzt auf sieben Stellen — und verwirft, was keine Id ist', () => {
+    assert.equal(shortCommitId(COMMIT_A), 'aaaaaaa')
+    assert.equal(shortCommitId('abc1234'), 'abc1234', 'sieben Stellen sind die Untergrenze')
+    assert.equal(shortCommitId('abc123'), '', 'sechs sind zu wenig')
+    assert.equal(shortCommitId('master'), '', 'ein Branchname ist keine Commit-Id')
+    assert.equal(shortCommitId(''), '')
+    // Die Schreibweise des Ereignisses bleibt stehen — gekürzt wird, nicht normiert.
+    assert.equal(shortCommitId(COMMIT_A.toUpperCase()), 'AAAAAAA')
+})
+
+test('kurzeCommits lässt Unbrauchbares WEG statt es als leere Pille durchzureichen', () => {
+    assert.deepEqual(kurzeCommits([COMMIT_A, 'master', COMMIT_B, '']), ['aaaaaaa', 'bbbbbbb'])
+    assert.deepEqual(kurzeCommits([]), [])
+    // Der Fall, um den es geht: `map` allein liesse hier ['', 'bbbbbbb'] stehen.
+    assert.deepEqual(kurzeCommits(['-', COMMIT_B]), ['bbbbbbb'])
 })

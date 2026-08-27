@@ -133,7 +133,14 @@ import { KOMMENTAR_MAX_ZEICHEN, kommentarSperre } from './articleWrite.ts'
 import { DEFAULT_ARTICLE_SORT, type ArticleSort } from './articleSorts.ts'
 import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseForumTag, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories.ts'
 import { deriveForumTopics, listenForum, loadForumTopics, type ForumTopic } from './forumFeed.ts'
-import { buildWorkspaceList, splitMine, type WorkspacePrefs } from './railGroups.ts'
+import { splitMine, type WorkspacePrefs } from './railGroups.ts'
+// P6 — die EINE Ableitung der Workspace-Frage, geteilt mit der Desktop-Rail
+// (`rail.ts`). `buildWorkspaceList` steht bewusst NICHT mehr hier: die mobile
+// Kanalliste und `forgeRows` kommen seither aus derselben Funktion, und ein
+// zweiter Einstieg daneben wäre genau die Doppelung, die P6 aufgelöst hat
+// (bewacht von `workspaceQuelleGate.test.ts`).
+import { buildWorkspaceModel, type WorkspaceChannelRow } from './workspaceModel.ts'
+import type { ForgeNavProject, ForgeNavRepo } from './railForge.ts'
 // P7/NIP-78 — die in Buzz Desktop gesetzten Kanal-Präferenzen auch auf der Bühne
 // anwenden. `subscribeWorkspacePrefs` ist der EINZIGE Einstieg: er schaltet den
 // Netzweg beim ersten Abonnenten scharf (siehe `channelPrefs.ts`).
@@ -599,8 +606,24 @@ type WorkspaceRoomView = RoomView & { joined: boolean }
  * Forge-Datenraum zugeschnitten.
  */
 type WorkspaceRoomsState = {
-    /** Räume des Workspace-Space, in Anzeige-Reihenfolge. */
-    rooms: WorkspaceRoomView[]
+    /**
+     * Die Kanalzeilen in Anzeige-Reihenfolge — **die mobile Fassung des einen
+     * Workspace-Modells** (P6, `workspaceModel.ts`). Jede Zeile trägt ihren
+     * Zustand (`pinned`/`muted`) und ihre Repo-Bindung (`repoName`) bereits mit;
+     * das Markup muss dafür keine Funktion je Zeile mehr aufrufen.
+     */
+    rows: WorkspaceChannelRow<WorkspaceRoomView>[]
+    /**
+     * Die Räume ohne Zeilenhülle — die Form, die das heutige Markup rendert
+     * (`x-for="room in rooms"`).
+     *
+     * **Ein Getter, kein zweites Feld.** Er ist die Projektion von
+     * {@link rows} und damit keine zweite Liste; er steht hier, damit die
+     * Zusammenführung des Datenwegs das Markup nicht mitreißt (`resources/`
+     * gehört in dieser Phase einem anderen Autor). Wandert die Kanalliste auf
+     * `flux:navlist`, rendert sie {@link rows} und dieser Getter fällt.
+     */
+    readonly rooms: WorkspaceRoomView[]
     /** Anzeigename aus dem NIP-11-Doc des Workspace-Relays. */
     label: string
     loading: boolean
@@ -608,12 +631,23 @@ type WorkspaceRoomsState = {
     muted: string[]
     /** `h` der in Buzz angehefteten Räume. */
     pinned: string[]
+    /**
+     * Bestand dieses Workspace — die Zahl für den Reiter „Kanäle".
+     *
+     * Sie kommt aus demselben Aufruf wie die Zeilen; ein zweiter Datenweg für
+     * eine Zahl war der Befund aus P1, der zu dieser Phase geführt hat.
+     */
+    channelCount: number
     /** Rohsicht, aus der die Liste neu gebaut wird. */
     _view: SpaceView | null
     _prefs: WorkspacePrefs
+    /** Repositories/Projekte des Workspace — die Repo-Bindung der Kanäle. */
+    _repos: ForgeNavRepo[]
+    _projects: ForgeNavProject[]
     _controller: AbortController | null
     _unsub: null | (() => void)
     _unsubPrefs: null | (() => void)
+    _unsubForge: null | (() => void)
     init(): void
     destroy(): void
     _apply(): void
@@ -3255,16 +3289,23 @@ export function registerNostrComponents(Alpine: {
      * Deshalb `x-show` im Markup, wie bei den drei Geschwister-Tabs.
      */
     Alpine.data('nostrWorkspaceRooms', (): WorkspaceRoomsState => ({
-        rooms: [],
+        rows: [],
+        get rooms(): WorkspaceRoomView[] {
+            return (this as unknown as WorkspaceRoomsState).rows.map((row) => row.room)
+        },
         label: '',
         loading: true,
         muted: [],
         pinned: [],
+        channelCount: 0,
         _view: null,
         _prefs: {},
+        _repos: [],
+        _projects: [],
         _controller: null,
         _unsub: null,
         _unsubPrefs: null,
+        _unsubForge: null,
         init() {
             // Ohne konfigurierten Workspace gibt es nichts zu holen — und `/forge`
             // rendert diese Insel dann gar nicht erst (Server-Gate in der Blade). Der
@@ -3292,37 +3333,75 @@ export function registerNostrComponents(Alpine: {
                 this._prefs = prefs
                 this._apply()
             })
+            // ── Repositories und Projekte: die dritte Quelle des einen Modells (P6) ──
+            //
+            // Ohne sie beantwortete diese Fläche eine ANDERE Frage als die Rail —
+            // „welche Kanäle gibt es" statt „welche Kanäle gibt es und wozu gehören
+            // sie" —, und das wäre wieder ein zweites Modell, nur unauffälliger.
+            //
+            // **Was es kostet, offen benannt** (dieselbe Rechnung wie bei
+            // `nostrOrtskarten`): `subscribeForgeNav` schaltet den Netzweg modulweit
+            // idempotent scharf. Oberhalb `xl` null Aufpreis — die Desktop-Rail ruft
+            // ihn ohnehin. Unterhalb `xl` auf `/forge`, wo es keine Rail gibt, sind es
+            // vier REQs auf den Workspace-Relay; **kein zweiter Socket und keine
+            // zweite AUTH-Runde**, denn diese Seite spricht ohnehin ausschließlich mit
+            // diesem Relay. Die Filter sind zudem eine Teilmenge dessen, was `/forge`
+            // über `loadForge` schon holt.
+            this._unsubForge = subscribeForgeNav((data) => {
+                this._repos = data.repos
+                this._projects = data.projects
+                this._apply()
+            })
         },
         destroy() {
             this._unsub?.()
             this._unsubPrefs?.()
+            this._unsubForge?.()
             this._controller?.abort()
         },
         /**
-         * Die Liste aus Rohsicht + Präferenzen neu bauen.
+         * Die Zeilen aus Rohsicht + Präferenzen + Repo-Bindung neu bauen — über
+         * {@link buildWorkspaceModel}, **dieselbe Funktion, aus der die Desktop-Rail
+         * ihre `forgeRows` zieht** (P6).
          *
-         * Läuft aus BEIDEN Quellen, weil beide unabhängig voneinander nachziehen: die
+         * Läuft aus DREI Quellen, weil alle drei unabhängig voneinander nachziehen: die
          * Räume über `watchSpaceRooms`, die Präferenzen über einen eigenen REQ nach
-         * NIP-42-AUTH. Wer nur eine Seite abonniert, zeigt die halbe Wahrheit — meist
-         * die ohne Präferenzen, weil sie schneller da ist.
+         * NIP-42-AUTH, die Repos über `subscribeForgeNav`. Wer nur eine Seite
+         * abonniert, zeigt die halbe Wahrheit — meist die ohne Präferenzen, weil sie
+         * schneller da ist.
+         *
+         * **Kein `open`, kein `activeRoomH`, kein `filtering`:** das sind die drei
+         * Eingaben, die nur die Rail hat (Klappzustand, Ortsmarke, Suchfeld). Die
+         * mobile Fassung rendert die flache Liste, und die hängt an keinem von ihnen —
+         * ein Modell, zwei Fassungen, nicht zwei Modelle mit gleichen Feldern.
          */
         _apply() {
             const view = this._view
             if (!view) {
                 return
             }
-            const list = buildWorkspaceList<WorkspaceRoomView>([
-                ...view.userRooms.map((r) => ({ ...r, joined: true })),
-                ...view.otherRooms.map((r) => ({ ...r, joined: false })),
-            ], this._prefs)
-            this.rooms = list.rooms
-            this.muted = list.muted
-            this.pinned = list.pinned
+            const model = buildWorkspaceModel<WorkspaceRoomView>({
+                rooms: [
+                    ...view.userRooms.map((r) => ({ ...r, joined: true })),
+                    ...view.otherRooms.map((r) => ({ ...r, joined: false })),
+                ],
+                prefs: this._prefs,
+                repos: this._repos,
+                projects: this._projects,
+            })
+            this.rows = model.channels
+            this.muted = model.muted
+            this.pinned = model.pinned
+            this.channelCount = model.channelCount
         },
         /**
          * Stummgeschaltet? Gelesen aus der fertigen Liste, nicht neu gerechnet —
          * dieselbe Aufteilung wie in der Rail (`rail.ts isMuted`): das Markup stellt
          * diese Frage EINMAL PRO ZEILE.
+         *
+         * `this.muted` stammt seit P6 aus {@link buildWorkspaceModel} und damit aus
+         * derselben Implementierung wie die Antwort der Rail (`isChannelMuted`). Das
+         * neue Markup fragt gar nicht mehr: die Zeile trägt ihr `muted` selbst.
          */
         isMuted(room: RoomView) {
             return this.muted.includes(room.h)

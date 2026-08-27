@@ -53,7 +53,7 @@
             <x-group::nostr-avatar picture="space?.icon" name="spaceLabel" size="2rem" />
             <div class="min-w-0 flex-1">
                 <div class="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="spaceLabel"></div>
-                <div x-show="space?.description" x-cloak class="truncate text-[0.7rem] text-muted" x-text="space?.description"></div>
+                <div x-show="space?.description" x-cloak class="truncate text-xs text-muted" x-text="space?.description"></div>
             </div>
         </div>
 
@@ -61,18 +61,41 @@
              darunter, Enter springt in den ersten Treffer. `type=search` gibt dem
              Feld die native Leeren-Geste; `#` ist Dekoration und deshalb
              aria-hidden — das Label steht am Input. --}}
+        {{-- ══ KEIN `font-mono` IN DER RAIL — die eine Begründung für elf Stellen ══
+             Gefallen sind in P6b elf Träger: die vier `#`-Glyphen (hier, Raumzeile,
+             Forge-Zeile, Raumkachel), vier Zähler, der `⌘K`-Chip, der npub in der
+             Fußzeile und der Hinweis im Erwähnungs-Popover.
+
+             Der Grund ist gemessen, nicht stilistisch (`p6b-rail-VORHER.log`, am
+             gerenderten Baum bei 1440 px): der Rumpf läuft in **`Inconsolata`**,
+             jeder `font-mono`-Träger lief in **`ui-monospace`**. Das war eine ZWEITE
+             Schriftfamilie — der Kanon lässt zwei zu, das Haus hat sich aber auf
+             EINE festgelegt (Nutzerentscheid 2026-08-26: „Inconsolata bleibt
+             überall"). Und sie kaufte nichts ein: Inconsolata IST eine Zellenschrift,
+             die Ziffern stehen ohnehin im Raster.
+
+             Was BLEIBT, ist `tabular-nums`. Es schaltet keine Familie um, sondern
+             eine Zifferngestalt — in einer Zellenschrift heute wirkungslos, aber die
+             richtige Zusage an der richtigen Stelle, falls der Rumpf je proportional
+             wird. Eine Klasse, die nichts kostet und eine Absicht festhält, ist kein
+             toter Vorrat.
+
+             NICHT angefasst: `unread-badge.blade.php`. Die Komponente rendert auch in
+             `⚡forge-repo.blade.php` und `⚡spaces.blade.php`, also ausserhalb dieser
+             Fläche — und ihre Ziffer sitzt in einer FESTEN Geometrie, wo ein
+             Familienwechsel die Glyphenbreite ändert. Gemeldet, nicht mitgenommen. --}}
         {{-- Ein Feld, ein Scope. Zehn Suchfelder (vier Gruppen + sieben Länder)
              wären 340px in einer Spalte mit ~600px Scrollfläche — die Rail wäre
              zur Hälfte Formular, und man müsste zum Suchen erst scrollen.
              Der Chip kostet 0px zusätzliche Höhe und macht die Gruppenstruktur
              adressierbar statt nur aufklappbar. --}}
         <label class="mx-3 mb-2 flex shrink-0 items-center gap-1.5 rounded-tile bg-zinc-100 px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-accent dark:bg-zinc-800">
-            <span aria-hidden="true" class="font-mono text-sm font-bold text-brand-800 dark:text-brand-400">#</span>
+            <span aria-hidden="true" class="text-sm font-bold text-brand-800 dark:text-brand-400">#</span>
 
             <template x-if="scope.group || scope.country">
                 <button type="button" x-on:click="clearScope()"
                         x-bind:aria-label="@js(__('Suchbereich aufheben: :label')).split(':label').join(scopeLabel)"
-                        class="pressable inline-flex shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-1.5 py-0.5 text-[0.7rem] font-semibold text-zinc-900 dark:text-zinc-50">
+                        class="pressable inline-flex shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-1.5 py-0.5 text-xs font-semibold text-zinc-900 dark:text-zinc-50">
                     <span x-text="scopeLabel"></span>
                     <flux:icon.x-mark variant="micro" aria-hidden="true" class="size-3" />
                 </button>
@@ -106,7 +129,7 @@
                     x-on:click.stop.prevent="$dispatch('open-command-palette')"
                     aria-label="{{ __('Befehlspalette öffnen') }}" aria-haspopup="dialog"
                     aria-keyshortcuts="Meta+K Control+K"
-                    class="pressable inline-flex h-6 shrink-0 items-center rounded bg-black/5 px-1.5 font-mono text-[0.65rem] text-muted transition-colors hover:text-zinc-900 dark:bg-white/10 dark:hover:text-zinc-100">⌘K</button>
+                    class="pressable inline-flex h-6 shrink-0 items-center rounded bg-black/5 px-1.5 text-xs text-muted transition-colors hover:text-zinc-900 dark:bg-white/10 dark:hover:text-zinc-100">⌘K</button>
         </label>
 
         {{-- Die einzige Fläche, die scrollt. `min-h-0` ist Pflicht: ohne das
@@ -131,6 +154,30 @@
                  die Begründung steht an der Konstante, damit sie EINEN Ort hat.
                  `railGroups.test.ts` hält die Konstante fest, `buzz-rail-forge`
                  hält Markup und Tastatur gegen sie. --}}
+            {{-- ══ DAS LANDMARK DER RAUMLISTE — hier trägt `flux:navlist` wirklich ══
+                 Gemessen und dabei die eigene Annahme korrigiert: die Rail hatte
+                 sehr wohl ein `<nav>` — aber das der FUSSZEILE (`bottom-nav`,
+                 `orientation="rail"`). Die Raumliste selbst stand in keinem
+                 (`p6b-rail-VORHER.log`: `scrollerIstNav: false`). Das eigentliche
+                 Navigationsangebot des Clients — vier Gruppen, Räume, Forge-Baum —
+                 war also kein Landmark, während die kleine Linkreihe darunter eines
+                 war. Wer per Landmark springt, landet im Fuss und nicht in der Liste.
+
+                 `flux:navlist` rendert genau das: `<nav class="flex flex-col
+                 overflow-visible min-h-auto">`. Das ist die eine Stelle in diesem
+                 Umbau, an der die Komponente einen MECHANISMUS mitbringt und nicht
+                 nur Klassen — deshalb wird sie hier genommen und an den drei anderen
+                 Stellen mit Rechnung abgelehnt (siehe `rail-group.blade.php`).
+
+                 Der Name ist NICHT „Navigation": es gibt bereits ein
+                 `aria-label="Hauptnavigation"` in der Fusszeile derselben Spalte.
+                 Zwei Landmarks gleichen Typs brauchen unterscheidbare Namen, sonst
+                 sind sie in der Landmark-Liste nicht auseinanderzuhalten.
+
+                 `flex flex-col` ist neu an dieser Stelle — vorher lag hier Blockfluss.
+                 Deshalb ist die Geometrie vorher/nachher gemessen und nicht
+                 abgeschätzt (`p6b-rail-VORHER.log` / `-NACHHER.log`). --}}
+            <flux:navlist aria-label="{{ __('Räume und Bereiche') }}">
             <x-group::rail-group group="rooms" :label="__('Räume')" />
 
             {{-- Der zweite Space. Existiert nur bei gesetztem `NOSTR_WORKSPACE_URL`;
@@ -192,6 +239,7 @@
 
             <x-group::rail-group group="meetups" :label="__('Meetups')" :countries="true" />
             <x-group::rail-group group="proposals" :label="__('Projektunterstützung')" />
+            </flux:navlist>
 
             {{-- Leerer Filter ist ein Zustand, keine Panne — er bekommt einen Satz.
                  Und den Ort für den Tastatur-Hinweis: im Ruhezustand wäre er eine
@@ -204,7 +252,7 @@
                          schreibt (`scopeToken`). `w:` funktioniert weiter, steht hier aber
                          nicht: ein Hilfetext nennt EINEN Weg, sonst muss der Leser sich
                          fragen, worin der Unterschied besteht. --}}
-                    <p class="mt-1 text-[0.7rem] text-muted">{{ __('Alt + ↑/↓ wechselt den Raum · m: p: r: f: grenzen ein') }}</p>
+                    <p class="mt-1 text-xs text-muted">{{ __('Alt + ↑/↓ wechselt den Raum · m: p: r: f: grenzen ein') }}</p>
                 </div>
             </template>
 
@@ -372,13 +420,13 @@
 
                         <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
 
-                        <div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
+                        <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                             <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
                                     class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                                <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
+                                <span class="min-w-0 flex-1 break-all text-xs leading-relaxed text-muted" x-text="npub"></span>
                                 <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
                             </button>
-                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
+                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-medium text-brand-800 dark:text-brand-400">
                                 <flux:icon.key variant="micro" class="size-3 shrink-0" />
                                 <span x-text="@js(__('Angemeldet über :signer')).split(':signer').join(signerLabel)"></span>
                             </div>

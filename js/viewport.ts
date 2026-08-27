@@ -10,16 +10,44 @@
  * Konstruktion, die das verhindert: `x-if` entscheidet über die EXISTENZ des
  * Knotens, nicht über seine Sichtbarkeit.
  *
- * Die Schwelle ist zeichengleich mit Tailwinds `xl` (1280px). Sie steht hier ein
- * zweites Mal als Literal — bewusst: CSS und JS haben keinen gemeinsamen Ort
- * dafür, und ein auseinanderlaufendes Paar wäre ein stiller Fehler (Rail-Markup
- * ohne Grid oder Grid ohne Rail-Markup). Wer `xl` verschiebt, verschiebt hier mit.
+ * ── Die Einheit ist REM, und das ist der Kern (P2, 2026-08-26) ───────────────
+ * Hier stand `(min-width: 1280px)`. Tailwind v4 emittiert `@media (width>=80rem)`
+ * — am gebauten Stylesheet nachgesehen, es gibt dort KEINE einzige px-Schwelle.
+ * Bei 16 px Standardschrift fallen 80rem und 1280px exakt zusammen; deshalb ist
+ * das Paar jahrelang nicht auseinandergelaufen, obwohl es nie dasselbe MASS hatte.
+ *
+ * `rem` in einer MEDIA QUERY bezieht sich auf den INITIALEN Wert von `font-size`,
+ * also auf die Standardschrift des BROWSERS — nicht auf `html { font-size }`.
+ * Stellt ein Nutzer sie auf 20 px (eine reguläre Barrierefreiheits-Einstellung,
+ * genau der Fall von WCAG 1.4.4), greift `xl:` erst ab 1600 px, ein px-Literal
+ * hier aber weiter ab 1280 px.
+ *
+ * **Das Band dazwischen ist gemessen, nicht gerechnet.** Am gebauten Stylesheet,
+ * im Browser, mit der Standardschrift über CDP auf 20 px gestellt (derselbe Weg
+ * wie chrome://settings): zwischen 1280 und 1599 px sagt der Store „Desktop",
+ * während `hidden xl:flex` noch `display: none` liefert — **320 px breit**,
+ * binär eingegrenzt. Bei 16 px meldet dieselbe Sonde null Widersprüche
+ * (Negativkontrolle). Protokoll:
+ * `docs/plans/2026-08-26T1912-forge-buzz-gitea-sprache/p2-band-messung.log`
+ * (App-Repo).
+ *
+ * **Was in dem Band passierte, ist nicht kosmetisch.** `⚡room.blade.php` schaltet
+ * an genau diesem Flag `role` zwischen `complementary` und `dialog`, entfernt
+ * `aria-modal` und setzt den Fokus NUR im Nicht-Desktop-Zweig. Im Band wäre das
+ * Thread-Panel also ein nicht-modaler `complementary` — in einem Layout, das
+ * mobil rendert und ihn bildfüllend zeigt.
+ *
+ * Die Schwelle steht hier weiterhin als zweites Literal — CSS und JS haben keinen
+ * gemeinsamen Ort dafür. Neu ist, dass beide dieselbe EINHEIT tragen und dass ein
+ * Riegel das misst statt es zu behaupten (`tests/e2e/desktop-schwelle.spec.ts`,
+ * Host-Repo: die JS-Abfrage und eine echte `xl:`-Utility müssen bei 16 px UND bei
+ * 20 px Standardschrift an derselben Breite umschlagen).
  *
  * `matchMedia` statt `resize`-Listener: der Browser feuert nur beim ÜBERSCHREITEN
  * der Schwelle, nicht bei jedem Pixel. Kein Debounce nötig, kein Layout-Thrash.
  */
 
-export const DESKTOP_QUERY = '(min-width: 1280px)'
+export const DESKTOP_QUERY = '(min-width: 80rem)'
 
 /**
  * „Wird dieser Client mit einem echten Zeigegerät bedient?" — Maus/Trackpad, das
@@ -33,11 +61,44 @@ export const DESKTOP_QUERY = '(min-width: 1280px)'
  */
 export const POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 
+/**
+ * Die FORM, in der dieser Client gerade rendert — drei Werte, nicht zwei
+ * (P2, 2026-08-26).
+ *
+ * Warum kein Boolean: die Frage hat zwei unabhängige Achsen, und sie werden
+ * regelmässig verwechselt. `desktop` beantwortet allein die BREITE. Im
+ * App-Host ab der xl-Schwelle steht es auf `true`, obwohl es dort weder Rail
+ * noch zweispaltige Bühne gibt — wer daraus „zweispaltig" schliesst, blendet
+ * auf einem grossen Tablet die Kanalliste aus, ohne dass eine zweite Spur sie
+ * auffängt. Genau deshalb hat `js/forge.ts` bis P2 am DOM zurückgemessen
+ * (`getComputedStyle(leiste).display === 'none'`): der Store konnte die Frage
+ * nicht beantworten, also fragte die Insel das Stylesheet.
+ *
+ * Mit drei Werten kann er sie beantworten. Der HOST kommt vom Server
+ * (`Einundzwanzig\Group\Chassis::istApp()`, die eine Stelle, die den
+ * NativePHP-Schalter liest, hereingereicht als `nativeApp`), die BREITE aus
+ * `DESKTOP_QUERY` — und die misst seit P2 in `rem` wie Tailwind.
+ *
+ *   · `app`        — NativePHP-Host. Immer schmal, unabhängig von der Breite.
+ *   · `web-schmal` — Web-Host unterhalb der xl-Schwelle.
+ *   · `web-breit`  — Web-Host ab der xl-Schwelle: Rail und zweispaltige Bühne.
+ *
+ * `desktop` bleibt daneben bestehen und bedeutet unverändert „die BREITE reicht"
+ * — daran hängt u. a. das Zeigegerät-unabhängige Panel-Verhalten im Raum.
+ */
+export type ViewportForm = 'app' | 'web-schmal' | 'web-breit'
+
 export type ViewportStore = {
     desktop: boolean
     mouse: boolean
+    /** Siehe {@link ViewportForm}. Abgeleitet, nie eigenständig gesetzt. */
+    form: ViewportForm
     init(): void
 }
+
+/** Die EINE Ableitung der Form — hier, damit sie nicht an drei Orten entsteht. */
+export const formOf = (nativeApp: boolean, desktop: boolean): ViewportForm =>
+    nativeApp ? 'app' : desktop ? 'web-breit' : 'web-schmal'
 
 /**
  * Registriert `$store.viewport`. Idempotent — `registerNostrComponents` kann
@@ -78,9 +139,11 @@ export function wireViewport(
     // bekäme jedes Telefon einen unbedienbaren Knopf samt schwerem Picker-Boot.
     const pointer = query(POINTER_QUERY)
 
+    const desktop = mql?.matches ?? false
     Alpine.store('viewport', {
-        desktop: mql?.matches ?? false,
+        desktop,
         mouse: !nativeApp && (pointer?.matches ?? false),
+        form: formOf(nativeApp, desktop),
     })
     const store = Alpine.store('viewport') as ViewportStore
 
@@ -90,6 +153,11 @@ export function wireViewport(
     // auch, sonst stünde die Rail nach dem ersten Raumwechsel auf dem falschen Fuß.
     mql?.addEventListener('change', (e: MediaQueryListEvent) => {
         store.desktop = e.matches
+        // `form` wird MITGEZOGEN und nicht als Getter gebaut: Alpines Reaktivität
+        // hängt an der Zuweisung, und ein `get form()` auf dem Store-Objekt wäre
+        // beim Ableiten in Blade (`$store.viewport.form === 'web-breit'`) zwar
+        // korrekt, aber nicht als Abhängigkeit erfasst — die Fläche bliebe stehen.
+        store.form = formOf(nativeApp, e.matches)
     })
     // Das Zeigegerät wechselt seltener als die Breite, aber es wechselt: ein
     // abgedocktes 2-in-1, ein angestecktes Trackpad, DevTools-Geräteemulation.

@@ -39,7 +39,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
      zurück steht im `app-header` (Pfeil auf die Forge-Übersicht), genau wie in der
      Artikel-Vollansicht. Eine Ortsleiste über einer Detailseite behauptete, man sei
      an einem der drei Orte angekommen — man ist eine Ebene darunter. --}}
-@php($native = config('nativephp-internal.running'))
+@php($native = \Einundzwanzig\Group\Chassis::istApp())
 <x-group::app-shell width="wide">
 
     {{-- ── Warum die Insel und `page-enter` seit P4 ZWEI Elemente sind ─────────
@@ -90,7 +90,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              trägt `aria-current="page"` — er ist der Ort, an dem man steht. --}}
         <x-group::app-header :title="__('Repository')" :title-expr="$titleExpr" :back="route('group.forge')">
             <x-slot name="subtitle">
-                <nav class="mt-0.5 flex items-center gap-1.5 text-xs text-muted xl:hidden"
+                <nav class="mt-1 flex items-center gap-1.5 text-xs text-muted xl:hidden"
                      aria-label="{{ __('Pfad') }}" data-forge-kruemel>
                     <a href="{{ route('group.forge') }}" wire:navigate
                        class="pressable rounded-tile px-1 py-0.5 -mx-1 font-semibold hover:text-zinc-900 dark:hover:text-zinc-100">{{ __('Forge') }}</a>
@@ -117,13 +117,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                     <flux:icon.code-bracket-square class="size-6 text-zinc-500 dark:text-zinc-400" />
                 </span>
-                <flux:heading class="mt-4">{{ __('Keine Forge-Quelle eingerichtet.') }}</flux:heading>
-                <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Dieser Client kennt kein Relay, auf dem Repositories liegen.') }}</flux:text>
+                <flux:heading size="lg" class="mt-4">{{ __('Keine Forge-Quelle eingerichtet.') }}</flux:heading>
+                <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Dieser Client kennt kein Relay, auf dem Repositories liegen.') }}</flux:text>
             </div>
         @else
             <div>
                 <template x-if="error">
-                    <flux:callout variant="danger" icon="exclamation-triangle" class="mb-3">
+                    <flux:callout variant="danger" icon="exclamation-triangle" class="mb-4">
                         <flux:callout.text x-text="error"></flux:callout.text>
                         <x-slot name="actions">
                             <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="retry()">{{ __('Erneut laden') }}</flux:button>
@@ -140,9 +140,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                             <flux:icon.code-bracket class="size-6 text-zinc-500 dark:text-zinc-400" />
                         </span>
-                        <flux:heading class="mt-4">{{ __('Dieses Repository kennt der Workspace nicht.') }}</flux:heading>
-                        <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Vielleicht wurde es entfernt, oder der Link zeigt auf ein anderes Relay.') }}</flux:text>
-                        <div class="mt-5">
+                        <flux:heading size="lg" class="mt-4">{{ __('Dieses Repository kennt der Workspace nicht.') }}</flux:heading>
+                        <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Vielleicht wurde es entfernt, oder der Link zeigt auf ein anderes Relay.') }}</flux:text>
+                        <div class="mt-4">
                             <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.forge')" wire:navigate>{{ __('Zur Forge') }}</flux:button>
                         </div>
                     </div>
@@ -208,9 +208,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Zahl.** Es gibt keine portable CSS-Regel, die ein geschlossenes
                          `<details>` aufzieht. Also misst `_messeSteckbrief()` die
                          `display`-Berechnung genau dieser Zusammenfassung — sie ist in
-                         der zweispaltigen Form `none`. Dieselbe Bauform wie
-                         `_messeSpalten()` auf der Übersicht und aus demselben Grund: die
-                         Schwelle steht an genau einer Stelle, in `theme.css`. --}}
+                         der zweispaltigen Form `none`. Die Schwelle steht damit an genau
+                         einer Stelle, in `theme.css`.
+
+                         **Es ist die EINZIGE verbliebene Rückmessung am DOM, und das ist
+                         eine Entscheidung, kein Rest.** Hier stand bis P2 (2026-08-26)
+                         „dieselbe Bauform wie `_messeSpalten()` auf der Übersicht" — die
+                         Funktion gibt es nicht mehr. Sie las die FENSTER-Breite zurück,
+                         und dafür gibt es eine Quelle: `$store.viewport.form` kennt Host
+                         UND Breite (P2). Diese hier fragt eine CONTAINER-Schwelle
+                         (`@container repo (min-width: 65rem)`), und die kennt das Fenster
+                         prinzipiell nicht — `matchMedia` kann sie nicht beantworten.
+                         Chassis = die eine Schwelle, Geometrie = Container. --}}
                     {{-- Der Landmark trägt seinen NAMEN selbst. In der schmalen Form
                          benennt ihn die Zusammenfassung; in der Spur ist die
                          `display: none` und damit aus dem Zugänglichkeitsbaum — die
@@ -267,7 +276,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Zeichen, kein Wort, und `aria-hidden`, damit die
                                      Sprachausgabe nicht „Dollar" vorliest. --}}
                                 <template x-if="view.repo.cloneUrls.length > 0">
-                                    <div class="mt-3 flex items-baseline gap-2 rounded-tile bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
+                                    <div class="mt-4 flex items-baseline gap-2 rounded-tile bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
                                         <span aria-hidden="true" class="shrink-0 select-none font-semibold text-muted">$</span>
                                         <span aria-hidden="true" class="shrink-0 select-none text-muted">git clone</span>
                                         <span class="min-w-0 select-all break-all font-semibold" data-forge-clone x-text="view.repo.cloneUrls[0]"></span>
@@ -304,7 +313,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      statt einen Branch zu raten. Immer gerendert —
                                      und deshalb die Zeile ohne Oberkante. --}}
                                 <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
-                                    <dt class="shrink-0 pt-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Branches') }}</dt>
+                                    <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Branches') }}</dt>
                                     <dd class="min-w-0 flex-1">
                                         <template x-if="view.repo.state && view.repo.state.branches.length > 0">
                                             <ul class="flex flex-wrap gap-1.5">
@@ -346,7 +355,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                             <span class="rounded-pill bg-brand-500/10 px-1.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
                                                                   x-text="branch.commit.slice(0, 7)"></span>
                                                             <template x-if="view.repo.state.head === branch.name">
-                                                                <span class="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">{{ __('HEAD') }}</span>
+                                                                <span class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('HEAD') }}</span>
                                                             </template>
                                                         </flux:badge>
                                                     </li>
@@ -377,6 +386,124 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </dd>
                                 </div>
 
+                                {{-- ── Tags aus dem kind 30618 (P7b) ──────────────────────
+                                     Sie wurden seit jeher geparst (`toRepoState`:
+                                     `refs/tags/*` stehen als TAG-NAMEN da, nicht als
+                                     Werte — eine NIP-34-Eigenheit, die man beim
+                                     Überfliegen übersieht) und **nirgends** angezeigt.
+
+                                     ── DREI Lagen, und keine zwei davon dürfen denselben
+                                        Satz bekommen ──────────────────────────────────
+                                     `state === null` heißt „es liegt gar kein
+                                     veröffentlichter Ref-Zustand vor".
+                                     `state.ambiguous === true` heißt etwas ganz anderes:
+                                     es liegt einer vor, er nennt aber keinen Eigentümer,
+                                     und ein zweites Repository trägt denselben Namen —
+                                     dann sind `branches` UND `tags` leer, obwohl sehr
+                                     wohl gepusht wurde. Der dritte Fall ist der
+                                     langweilige: Zustand da, nur eben ohne Tags.
+
+                                     Wer die drei zusammenlegt, tauscht eine falsche
+                                     Behauptung gegen eine andere. --}}
+                                <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
+                                    <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Tags') }}</dt>
+                                    <dd class="min-w-0 flex-1">
+                                        <template x-if="view.repo.state && view.repo.state.tags.length > 0">
+                                            <ul class="flex flex-wrap gap-1.5">
+                                                {{-- Dieselbe Bauform wie eine Zelle höher bei den
+                                                     Branches: `flux:badge` mit dem brand-getönten
+                                                     Kurzhash darin. Das Zeichen unterscheidet die
+                                                     beiden Rollen — ein Tag ist ein Etikett, ein
+                                                     Branch eine Linie. --}}
+                                                <template x-for="tag in view.repo.state.tags" :key="tag.name">
+                                                    <li>
+                                                        <flux:badge size="sm" class="gap-1.5"
+                                                                    data-forge-tag ::data-tag="tag.name">
+                                                            <flux:icon.tag variant="micro" class="size-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
+                                                            <span class="font-semibold" x-text="tag.name"></span>
+                                                            <span class="rounded-pill bg-brand-500/10 px-1.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
+                                                                  x-text="tag.commit.slice(0, 7)"></span>
+                                                        </flux:badge>
+                                                    </li>
+                                                </template>
+                                            </ul>
+                                        </template>
+                                        <template x-if="!view.repo.state">
+                                            <span class="text-xs text-muted" data-forge-tags-kein-zustand>{{ __('Zu diesem Repository liegt noch kein veröffentlichter Ref-Zustand vor — deshalb steht hier auch keine Tag-Liste.') }}</span>
+                                        </template>
+                                        <template x-if="view.repo.state && view.repo.state.ambiguous">
+                                            <span class="text-xs text-muted" data-forge-tags-mehrdeutig>{{ __('Ein zweites Repository trägt denselben Namen. Der veröffentlichte Ref-Zustand nennt keinen Eigentümer — welche Tags zu diesem hier gehören, ist deshalb nicht zu sagen.') }}</span>
+                                        </template>
+                                        <template x-if="view.repo.state && !view.repo.state.ambiguous && view.repo.state.tags.length === 0">
+                                            <span class="text-xs text-muted" data-forge-tags-leer>{{ __('Dieses Repository hat noch keinen Tag veröffentlicht.') }}</span>
+                                        </template>
+                                    </dd>
+                                </div>
+
+                                {{-- ── Themen (P7b) ───────────────────────────────────────
+                                     Die `t`-Tags des 30617. Sie wurden gelesen und waren
+                                     seit P5 sogar suchbar (`forgeSearch.ts`) — nur nie im
+                                     Bild. Ein Suchbegriff, der Treffer liefert und dessen
+                                     Grundlage man nirgends sieht, ist eine Fläche, die
+                                     mehr weiß als sie sagt.
+
+                                     Keine Leerzeile, wenn es keine gibt: ein Repository
+                                     ohne Themen ist der Normalfall und keine Lücke. --}}
+                                <template x-if="view.repo.hashtags.length > 0">
+                                    <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
+                                        <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Themen') }}</dt>
+                                        <dd class="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                                            <template x-for="thema in view.repo.hashtags" :key="thema">
+                                                {{-- `variant="pill"` — die dritte Chip-Rolle aus
+                                                     P3: Label-artig und damit rund, während der
+                                                     Git-Anker eckig bleibt. --}}
+                                                <flux:badge size="sm" variant="pill" data-forge-thema x-text="thema" />
+                                            </template>
+                                        </dd>
+                                    </div>
+                                </template>
+
+                                {{-- ── Gleiche Historie (P7b) ─────────────────────────────
+                                     Repos mit demselben `["r", <commit>, "euc"]` haben
+                                     nachweislich dieselbe Wurzel.
+
+                                     **Hier steht NICHT „Fork von X", und das ist keine
+                                     Wortwahl, sondern eine Aussage über das Protokoll.**
+                                     Der `euc` ist eine ÄQUIVALENZ ohne Richtung. Eine
+                                     Richtung wäre nur aus `created_at` zu holen — und das
+                                     ist am ersetzbaren 30617 der Zeitpunkt der letzten
+                                     Neuankündigung, nicht der Entstehung: ein Repo, das
+                                     gestern seine Beschreibung geändert hat, sähe damit
+                                     jünger aus als sein eigener Fork. Ein `fork-of`-Tag
+                                     kennt NIP-34 nicht. Eine Fläche, die „Fork von X"
+                                     schreibt, behauptet also etwas, das im Ereignis nicht
+                                     steht. --}}
+                                <template x-if="view.verwandte.length > 0">
+                                    <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
+                                        <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Gleiche Historie') }}</dt>
+                                        <dd class="min-w-0 flex-1">
+                                            <ul class="flex flex-wrap gap-1.5" data-forge-verwandte>
+                                                <template x-for="andere in view.verwandte" :key="andere.address">
+                                                    <li>
+                                                        <a :href="'{{ route('group.forge') }}/' + andere.naddr" wire:navigate
+                                                           class="forge-anker pressable inline-flex items-center gap-1.5 rounded-tile px-2 py-1 text-xs"
+                                                           {{-- EINFACHER Doppelpunkt: das hier ist ein
+                                                                normales `<a>`, keine Flux-Komponente.
+                                                                `::data-…` erzeugte auf gewöhnlichem
+                                                                HTML lautlos ein totes Attribut. --}}
+                                                           data-forge-verwandt :data-address="andere.address">
+                                                            <flux:icon.arrows-right-left variant="micro" class="size-3.5 shrink-0" />
+                                                            <span class="font-semibold" x-text="andere.name"></span>
+                                                            <span class="text-muted" x-text="andere.ownerName"></span>
+                                                        </a>
+                                                    </li>
+                                                </template>
+                                            </ul>
+                                            <p class="mt-1 text-xs text-muted">{{ __('Diese Repositories teilen den ersten Commit (euc). Welches davon zuerst da war, sagt das Protokoll nicht.') }}</p>
+                                        </dd>
+                                    </div>
+                                </template>
+
                                 {{-- Branch-Schutz aus `buzz-protect`. Eine
                                      Buzz-Erweiterung, kein NIP-34 — sie steht hier,
                                      weil sie beantwortet, warum ein Push abgelehnt
@@ -392,7 +519,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Schloss plus der Regelname im Text. --}}
                                 <template x-if="view.repo.protections.length > 0">
                                     <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
-                                        <dt class="shrink-0 pt-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Geschützte Branches') }}</dt>
+                                        <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Geschützte Branches') }}</dt>
                                         <dd class="flex min-w-0 flex-1 flex-wrap gap-1.5">
                                             <template x-for="rule in view.repo.protections" :key="rule.ref + rule.rule">
                                                 {{-- `flux:badge` — dieselbe Marke wie bei den Branches
@@ -413,7 +540,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Ereignis selbst benennt. --}}
                                 <template x-if="view.repo.people.length > 0">
                                     <div class="flex flex-col gap-1 border-t border-zinc-200 px-4 py-3 sm:flex-row sm:gap-4 dark:border-zinc-800">
-                                        <dt class="shrink-0 pt-0.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Maintainer') }}</dt>
+                                        <dt class="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-muted sm:w-44">{{ __('Maintainer') }}</dt>
                                         <dd class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                                             <template x-for="person in view.repo.people.slice(0, 12)" :key="person.pubkey">
                                                 <span data-forge-person :data-pubkey="person.pubkey" :title="person.name">
@@ -482,8 +609,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <template x-if="klon.lage === 'bereit'">
                                 <div class="surface-card p-4" data-forge-readme-ansage>
                                     <p class="forge-mass text-sm">{{ __('Das README steht nicht im Nostr-Ereignis. Um es zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.') }}</p>
-                                    <p class="forge-mass mt-1.5 text-xs text-muted">{{ __('Das sind je nach Repository mehrere Megabyte (beim grössten hier gemessen: 8,3 MB). Im Mobilfunknetz zählt das auf dein Datenvolumen.') }}</p>
-                                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                                    <p class="forge-mass mt-1 text-xs text-muted">{{ __('Das sind je nach Repository mehrere Megabyte (beim grössten hier gemessen: 8,3 MB). Im Mobilfunknetz zählt das auf dein Datenvolumen.') }}</p>
+                                    <div class="mt-4 flex flex-wrap items-center gap-2">
                                         <flux:button size="sm" variant="primary" icon="arrow-down-tray"
                                                      x-on:click="klonLaden()" data-forge-readme-start>{{ __('Repository laden und README zeigen') }}</flux:button>
                                     </div>
@@ -555,7 +682,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         <p class="mt-1 text-xs text-muted" data-forge-readme-zahl
                                            x-text="$plural(klon.fortschritt.geladen, '1 Objekt', ':count Objekte')"></p>
                                     </template>
-                                    <div class="mt-3">
+                                    <div class="mt-4">
                                         <flux:button size="sm" variant="ghost" icon="x-mark"
                                                      x-on:click="klonAbbrechen()" data-forge-readme-abbruch>{{ __('Abbrechen') }}</flux:button>
                                     </div>
@@ -590,7 +717,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                  ihn behauptete die Fläche Aktualität, die sie
                                                  nicht kennt: der Klon ist ein Stand, kein Live-Blick. --}}
                                             <template x-if="klon.commit">
-                                                <span class="text-[0.7rem] text-muted" data-forge-readme-commit
+                                                <span class="text-xs text-muted" data-forge-readme-commit
                                                       x-text="@js(__('Stand :commit')).replace(':commit', klon.commit)"></span>
                                             </template>
                                             <flux:button size="xs" variant="ghost" icon="arrow-path"
@@ -648,8 +775,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              sind Geschwister, keine Vorfahren.
 
                              Die Maße stehen in `theme.css` bei `.forge-reiterbank`. --}}
-                        <div class="forge-reiterbank">
-                        <flux:tabs variant="segmented" scrollable scrollable:fade x-model="tab" class="mb-0">
+                        {{-- ── Flux' DEFAULT-Variante, kein `segmented` (P1, 2026-08-26) ──
+                             Die Begründung steht ausgeschrieben an der Reiterreihe in
+                             `⚡forge.blade.php` — kurz: `segmented` markiert den aktiven
+                             Reiter allein über seine Fläche und misst dabei 1,15:1 hell /
+                             1,93:1 dunkel gegen die Schiene, WCAG 1.4.11 verlangt 3:1.
+                             Der Unterstrich der Default-Variante misst 4,21:1 / 10,01:1.
+                             Und der Reiter wächst von 32 auf 40 px — hier zählt das
+                             doppelt: unterhalb `xl` ist diese Reihe die einzige
+                             Navigation durch fünf Bereiche.
+
+                             `data-forge-reiter` trägt die beiden gerechneten Korrekturen
+                             an Flux' Default (inaktive Beschriftung, Wortfarbe des
+                             aktiven Reiters) — beide in `theme.css` bei
+                             `.forge-reiterbank`. --}}
+                        <div class="forge-reiterbank" data-forge-reiter>
+                        <flux:tabs scrollable scrollable:fade x-model="tab" class="mb-0">
                             {{-- ── Die Reihenfolge ist die Rangfolge (P4) ─────────────
                                  „Issues" zuerst, „Code" auf drei. Der Code-Reiter lädt
                                  bis 8,3 MB Repository-Klon (gemessen am grössten Repo
@@ -662,19 +803,85 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  `tabFromLocation()` und ist seit jeher `issues`
                                  (`js/forge.ts`); `x-model="tab"` wählt nach dem Namen,
                                  nicht nach der Position. --}}
-                            <flux:tab name="issues">{{ __('Issues') }}</flux:tab>
-                            <flux:tab name="pulls">{{ __('Pull Requests') }}</flux:tab>
-                            <flux:tab name="code">{{ __('Code') }}</flux:tab>
-                            <flux:tab name="activity">{{ __('Aktivität') }}</flux:tab>
-                            <flux:tab name="patches">{{ __('Patches') }}</flux:tab>
+                            {{-- ── Zahlen an drei Reitern, an zweien bewusst nicht ──────
+                                 „Issues", „Pull Requests" und „Patches" führen einen
+                                 BESTAND — die Zahl beantwortet „lohnt sich der Griff
+                                 dorthin". „Code" führt keinen (ein Baum hat keine
+                                 sinnvolle Kopfzahl), „Aktivität" auch nicht: die Spur ist
+                                 endlos und ihre Länge sagt nichts.
+
+                                 Bei 0 steht KEINE Pille — nicht die Ziffer „0". Eine
+                                 Null, die 300 ms später auf 47 springt, ist eine
+                                 Falschaussage mit Selbstbewusstsein; dieselbe Regel wie
+                                 an der Ungelesen-Pille (`unread-badge.blade.php`). Und
+                                 der Leerzustand darunter sagt es ohnehin mit einem Satz.
+                                 Der ganze Reiterstreifen steht innerhalb
+                                 `<template x-if="view">` (`:161`) — vor dem ersten
+                                 Ertrag existiert er also gar nicht.
+
+                                 Die Zahl steht IM Accessible Name („Issues 12"), nicht
+                                 hinter einem `aria-hidden`. Sie ist Bestand, keine
+                                 Benachrichtigung; wer die Reiterreihe hört, will sie
+                                 hören. Playwright-Sonden mit `exact: true` müssen deshalb
+                                 auf ein `/^Name/` umgestellt sein — geschehen in
+                                 `forge-patches.spec.ts`.
+
+                                 Icons erst ab `lg` (`max-lg:[&>svg]:hidden`): mobil
+                                 müssen fünf Reiter lesbar bleiben. Die Klasse aus
+                                 `$attributes` landet am gerenderten `<button>`
+                                 (`flux/tab/index.blade.php`), das Icon ist sein direktes
+                                 Kind. KEIN `::variant` am Icon — das löst zur
+                                 Compile-Zeit auf und wäre eine tote Bindung.
+
+                                 Die fünf Zeichen sind KEINE Neuerfindung: jedes steht
+                                 schon im Leerzustand seines eigenen Bereichs
+                                 (`arrows-right-left`, `code-bracket`, `clock`,
+                                 `document-text` — je aus dem Leerzustand ihres
+                                 Bereichs). Ein zweites Symbol für dieselbe Sache wäre
+                                 Nielsen #4.
+
+                                 **Ausnahme „Issues", korrigiert mit P3:** der Reiter
+                                 trug `exclamation-circle`, und genau dieses Zeichen
+                                 bedeutet in JEDER Vorgangszeile „Zustand: offen"
+                                 (Zustandspille aus P1). Ein Zeichen, zwei Bedeutungen,
+                                 gleichzeitig im Bild — dieselbe Fehlerklasse, die P3
+                                 bei den drei byte-gleichen Chips behebt. Issue heisst
+                                 jetzt überall `ticket`: am Reiter, am Zeilenanfang und
+                                 in der workspace-weiten Liste. --}}
+                            <flux:tab name="issues" icon="ticket" class="max-lg:[&>svg]:hidden">
+                                {{ __('Issues') }}
+                                <template x-if="view.issues.length > 0">
+                                    <flux:badge size="sm" class="ms-1.5" x-text="$num(view.issues.length)" />
+                                </template>
+                            </flux:tab>
+                            <flux:tab name="pulls" icon="arrows-right-left" class="max-lg:[&>svg]:hidden">
+                                {{ __('Pull Requests') }}
+                                <template x-if="view.pullRequests.length > 0">
+                                    <flux:badge size="sm" class="ms-1.5" x-text="$num(view.pullRequests.length)" />
+                                </template>
+                            </flux:tab>
+                            <flux:tab name="code" icon="code-bracket" class="max-lg:[&>svg]:hidden">{{ __('Code') }}</flux:tab>
+                            <flux:tab name="activity" icon="clock" class="max-lg:[&>svg]:hidden">{{ __('Aktivität') }}</flux:tab>
+                            <flux:tab name="patches" icon="document-text" class="max-lg:[&>svg]:hidden">
+                                {{ __('Patches') }}
+                                <template x-if="view.patches.length > 0">
+                                    <flux:badge size="sm" class="ms-1.5" x-text="$num(view.patches.length)" />
+                                </template>
+                            </flux:tab>
                         </flux:tabs>
                         </div>
 
                         <template x-if="truncatedText()">
-                            <flux:callout variant="secondary" icon="information-circle" class="mb-3">
+                            <flux:callout variant="secondary" icon="information-circle" class="mb-4">
                                 <flux:callout.text x-text="truncatedText()"></flux:callout.text>
                             </flux:callout>
                         </template>
+
+                        {{-- Die Vorgangssuche steht ÜBER den drei Listen und nicht in
+                             jeder einzelnen: eine Eingabe, drei Reiter, ein Zustand.
+                             Die Herleitung — auch die, warum das ein Partial ist —
+                             steht in der eingebundenen Datei. --}}
+                        @include('group::partials.forge-detail-suche')
 
                         {{-- ── Issues ───────────────────────────────────────────── --}}
                         <div x-show="tab === 'issues'" x-cloak>
@@ -693,7 +900,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  fehlgeschlagener Schreibversuch. Ein Fehler, der mit
                                  dem Blatt verschwände, wäre von „hat funktioniert"
                                  nicht zu unterscheiden. --}}
-                            <div class="mb-3 space-y-2">
+                            <div class="mb-4 space-y-2">
 
                                 <template x-if="!canWrite()">
                                     <p class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
@@ -747,13 +954,34 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.exclamation-circle class="size-6 text-zinc-500 dark:text-zinc-400" />
                                     </span>
-                                    <flux:heading class="mt-4">{{ __('Noch keine Issues.') }}</flux:heading>
-                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Issue eröffnet, erscheint es hier.') }}</flux:text>
+                                    <flux:heading size="lg" class="mt-4">{{ __('Noch keine Issues.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Sobald jemand ein Issue eröffnet, erscheint es hier.') }}</flux:text>
                                 </div>
                             </template>
 
-                            <ul x-show="view.issues.length > 0" class="surface-card">
-                                <template x-for="issue in view.issues" :key="issue.id">
+                            <section x-show="sichtbareIssues().length > 0" class="surface-card">
+                                {{-- ── EIN Kasten, Kopf UND Liste (P5) ──────────────────────────
+                                     Diese Liste hatte gar keinen Kopf: sie begann ohne
+                                     Ansage mit ihrer ersten Zeile. Der Reiter darüber
+                                     nennt zwar die Art, aber er gehört zur Navigation und
+                                     endet mit ihr — zwischen ihm und der Liste steht der
+                                     Meldungsblock. Der Kopfstreifen sagt, wo die Liste
+                                     ANFÄNGT, und er trägt die Zahl, die der Reiter nicht
+                                     trägt.
+
+                                     `aria-hidden` ist er NICHT — anders als der Kopf der
+                                     Werkbank. Er enthält eine Angabe, die sonst nirgends
+                                     steht (die Anzahl), und wer die Fläche vorgelesen
+                                     bekommt, hört sie sonst nie.
+
+                                     Die Bauform ist `.forge-kartenkopf`, dieselbe wie beim
+                                     Diff-Kopf und der workspace-weiten Liste. --}}
+                                <div class="forge-kartenkopf">
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Issues') }}</span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(sichtbareIssues().length)"></span>
+                                </div>
+                                <ul>
+                                <template x-for="issue in sichtbareIssues()" :key="issue.id">
                                     {{-- `data-forge-vorgang` + `tabindex="-1"`: das Sprungziel eines
                                          geteilten `?issue=`-Links (P2). Fokussiert wird die ZEILE
                                          und nicht ihr Knopf — der Knopf ist der Umschalter, und ein
@@ -794,114 +1022,115 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              56-px-Ziel) und die Vorschlagszeile im
                                              Erwähnungs-Popover, die zusätzlich
                                              `role="option"` trägt. --}}
-                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
+                                        {{-- ── ZWEI RÄNGE, ZWEI AUSGEZEICHNETE FASSUNGEN (P3) ──────
+                                             Rang 1: Typ-Glyphe · Titel · Labels.
+                                             Rang 2: EINE graue Metazeile.
+                                             Rechts: die Zustandspille aus P1.
+
+                                             Bis P3 standen hier vier Blockzeilen —
+                                             Titel, Autorsatz, Labelband,
+                                             Zuweisungsband — und keine davon war als
+                                             Rang ausgezeichnet: alle vier trugen
+                                             dasselbe `text-muted` bzw. dieselbe
+                                             Chip-Form.
+
+                                             Die schmale und die breite Fassung stehen
+                                             als je EIGENES `grid-template-areas` in
+                                             `theme.css` (`.forge-vorgangszeile`). Der
+                                             DOM ist derselbe: ein zweites Markup für
+                                             mobil hiesse ein zweites
+                                             `[data-forge-assignees]`, und das wäre ein
+                                             Strict-Mode-Treffer auf zwei Elemente. --}}
+                                        <button type="button" class="forge-vorgangskopf pressable block w-full p-4 text-start"
                                                 x-on:click="toggle(issue.id, 'issue')" :aria-expanded="open[issue.id] ? 'true' : 'false'">
-                                            {{-- Der Statusknoten: GEFÜLLT heißt offen, ein
-                                                 Ring heißt erledigt. Er ersetzt das immer
-                                                 gleiche Ausrufezeichen, das in einer Liste
-                                                 aus Issues nichts unterschied. Die Form
-                                                 trägt die Aussage, nicht die Farbe (WCAG
-                                                 1.4.1) — und daneben steht sie ohnehin als
-                                                 Wort. Gemessen: zinc-900 auf Weiß 17,93:1,
-                                                 der Ring in zinc-500 4,74:1 (hell) bzw.
-                                                 zinc-400 auf zinc-900 7,11:1 (dunkel), also
-                                                 über den 3:1 aus WCAG 1.4.11. --}}
-                                            <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
-                                                <span class="size-2.5 rounded-full"
-                                                      :class="issue.status === 'open'
-                                                          ? 'bg-zinc-900 dark:bg-zinc-100'
-                                                          : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
-                                            </span>
-                                            <span class="min-w-0 flex-1">
-                                                <span class="block font-semibold leading-snug" x-text="issue.title || @js(__('Ohne Titel'))"></span>
-                                                <span class="mt-1 block text-xs text-muted">
+                                            <span class="forge-vorgangszeile">
+                                                {{-- ── Die Typ-Glyphe (P3/2) ──────────────────
+                                                     `ticket` und NICHT `exclamation-circle`:
+                                                     das Ausrufezeichen im Kreis bedeutet in
+                                                     dieser Zeile bereits „Zustand: offen"
+                                                     (Zustandspille, P1). Ein Zeichen mit zwei
+                                                     Bedeutungen in EINER Zeile ist Nielsen #4 —
+                                                     und es wäre derselbe Fehler, den P3 bei den
+                                                     drei byte-gleichen Chips gerade behebt.
+                                                     Der Reiter „Issues" trägt seit P3 dasselbe
+                                                     `ticket`, damit Issue genau ein Zeichen hat.
+
+                                                     **Ehrlich zum Nutzen:** innerhalb der
+                                                     Issue-Liste wiederholt sich die Glyphe und
+                                                     trägt dort keine Zeileninformation. Sie
+                                                     zahlt sich an drei anderen Stellen aus:
+                                                     auf `/forge` folgen Issue- und PR-Region
+                                                     auf EINER scrollenden Fläche aufeinander;
+                                                     ein geteilter `?issue=`-Link führt zu einer
+                                                     einzelnen Zeile ohne Reiter-Kontext; und
+                                                     sie gibt der Metazeile darunter die
+                                                     Fluchtlinie, aus der die Liste als Liste
+                                                     liest statt als gestapelte Absätze. --}}
+                                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+
+                                                {{-- ── EIN Rang: Titel und Labels in EINER Zelle ──
+                                                     Die Labels hatten bis zur Nachbesserung ein
+                                                     eigenes Rasterfeld unter dem Titel. Das war
+                                                     ein DRITTER Rang — im Bild unübersehbar,
+                                                     auch wenn die Schriftgrösse dieselbe blieb.
+                                                     Jetzt fliessen sie inline hinter dem Titel
+                                                     und brechen mit ihm um; das ist zugleich
+                                                     die Gitea-Form.
+
+                                                     Der Deckel von 6 ist grosszügig: welche noch
+                                                     ins Bild passen, entscheidet der Umbruch,
+                                                     nicht eine zweite Zahl. --}}
+                                                <span class="forge-vz-titel">
+                                                    <span class="forge-vz-name" x-text="issue.title || @js(__('Ohne Titel'))"></span>
+                                                    <template x-if="issue.labels.length > 0">
+                                                        <span class="forge-vz-labels" data-forge-labels>
+                                                            <template x-for="label in issue.labels.slice(0, 6)" :key="label">
+                                                                <flux:badge size="sm" variant="pill" x-text="label" />
+                                                            </template>
+                                                            <template x-if="issue.labels.length > 6">
+                                                                <span class="ms-1 text-xs text-muted"
+                                                                      x-text="'+' + (issue.labels.length - 6)"></span>
+                                                            </template>
+                                                        </span>
+                                                    </template>
+                                                </span>
+
+                                                {{-- ── Rang 2: EINE Metazeile ─────────────────
+                                                     Wer, wann — mehr nicht. Der optimistische
+                                                     Sendehinweis hängt hier mit dran, weil er
+                                                     dieselbe Frage beantwortet („in welchem
+                                                     Zustand ist dieser Eintrag gerade"). --}}
+                                                <span class="forge-vz-meta block text-xs text-muted">
                                                     <span x-text="issue.authorName"></span>
                                                     <span x-text="' · ' + issue.timeLabel"></span>
+                                                    <template x-if="rowState(issue.id) === 'sending'">
+                                                        <span data-forge-row-state="sending"
+                                                              class="ms-1 font-semibold uppercase tracking-wider">{{ __('Wird gesendet …') }}</span>
+                                                    </template>
                                                 </span>
-                                                <template x-if="issue.labels.length > 0">
-                                                    <span class="mt-1.5 flex flex-wrap gap-1">
-                                                        <template x-for="label in issue.labels.slice(0, 6)" :key="label">
-                                                            <span class="rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800" x-text="label"></span>
-                                                        </template>
-                                                    </span>
-                                                </template>
-                                                {{-- ── Zuweisungs-Band (P1) ──────────────────────
-                                                     Wer arbeitet daran? Die Antwort lag bis P1
-                                                     unlesbar in der Liste: Buzz schreibt eine
-                                                     Zuweisung als beschrifteten `kind 1`, und der
-                                                     stand hier als gewöhnlicher Kommentar — samt
-                                                     seiner Prosa („Assigned this issue to …") und
-                                                     in der Kommentarzahl. `foldAssignments`
-                                                     (`js/forgeModels.ts`) faltet die Kette jetzt
-                                                     und liefert genau die aktuell Zuständigen.
 
-                                                     **Namen, nicht Schlüssel.** `assigneePeople`
-                                                     kommt aus demselben `peopleOf`, das die
-                                                     Maintainer-Reihe im Steckbrief speist — ein
-                                                     zweiter Auflösungsweg wäre die Stelle, an der
-                                                     zwei Zeilen desselben Bildschirms verschiedene
-                                                     Namen für denselben Schlüssel zeigen. Liegt
-                                                     kein kind 0 vor, steht dort die gekürzte
-                                                     `npub`-Form: eine bewusste Rückfallebene,
-                                                     dieselbe wie beim Autor der Zeile darüber —
-                                                     und nie die rohe Hex-Kette. Der volle
-                                                     Schlüssel bleibt im `title`, für den Fall,
-                                                     dass jemand ihn wirklich braucht.
+                                                {{-- Personen und Kommentarzahl in EINER
+                                                     Fluchtlinie rechts. `data-forge-assignees`
+                                                     wandert mit — der Anker ist E2E-bewacht. --}}
+                                                <span class="forge-vz-leute">
+                                                    <template x-if="issue.assigneePeople.length > 0">
+                                                        <x-group::forge-personen-stapel
+                                                            personen="issue.assigneePeople"
+                                                            anker="data-forge-assignee"
+                                                            data-forge-assignees
+                                                            :sr-eins="__('Zugewiesen an :namen')"
+                                                            :sr-viele="__(':count Zuständige: :namen')" />
+                                                    </template>
+                                                    <template x-if="issue.commentCount > 0">
+                                                        <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                                            <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                                            <span x-text="issue.commentCount"></span>
+                                                        </span>
+                                                    </template>
+                                                </span>
 
-                                                     Kein Avatar: die Initiale käme bei fehlendem
-                                                     Profil aus einem `npub`-Zeichen, und davor
-                                                     warnt `forge.ts` an `RepoRow.people`.
-
-                                                     Kein neues Farbwort: dieselbe Pille wie die
-                                                     Labels darüber, nur mit vorangestelltem
-                                                     Bezeichner. --}}
-                                                <template x-if="issue.assigneePeople.length > 0">
-                                                    <span class="mt-1.5 flex flex-wrap items-center gap-1" data-forge-assignees>
-                                                        <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Zugewiesen') }}</span>
-                                                        <template x-for="person in issue.assigneePeople.slice(0, 6)" :key="person.pubkey">
-                                                            <span class="rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800"
-                                                                  data-forge-assignee :data-pubkey="person.pubkey" :title="person.pubkey"
-                                                                  x-text="person.name"></span>
-                                                        </template>
-                                                        <template x-if="issue.assigneePeople.length > 6">
-                                                            <span class="text-[0.7rem] text-muted"
-                                                                  x-text="'+' + (issue.assigneePeople.length - 6)"></span>
-                                                        </template>
-                                                    </span>
-                                                </template>
-                                            </span>
-                                            {{-- Auf schmalen Schirmen eine EIGENE Zeile
-                                                 (`basis-full`), erst ab `sm` wieder rechts
-                                                 neben dem Titel.
-
-                                                 Vorher stand sie dort immer, `shrink-0`
-                                                 neben einem `flex-1`-Titel — und
-                                                 „GESCHLOSSEN" samt Commit-Kurzform und
-                                                 Zähler nahm auf einem 390-px-Schirm gut
-                                                 die halbe Breite. Ein vierzeiliger Umbruch
-                                                 eines Titels, der in zwei gepasst hätte,
-                                                 am Gerät gesehen (2026-08-20).
-
-                                                 `ps-7` setzt sie unter den Titel statt
-                                                 unter den Statuspunkt: 16 px Punkt + 12 px
-                                                 Abstand. --}}
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
-                                                {{-- Der optimistische Eintrag sagt, dass er noch
-                                                     unterwegs ist. Ein `span` INNERHALB des
-                                                     bestehenden Knopfes, kein zweiter Knopf. --}}
-                                                <template x-if="rowState(issue.id) === 'sending'">
-                                                    <span data-forge-row-state="sending"
-                                                          class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Wird gesendet …') }}</span>
-                                                </template>
-                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
-                                                      :class="issue.status === 'open' ? 'text-forge-offen' : 'text-forge-ruhend'"
-                                                      x-text="statusText(issue.status)"></span>
-                                                <template x-if="issue.commentCount > 0">
-                                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
-                                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
-                                                        <span x-text="issue.commentCount"></span>
-                                                    </span>
-                                                </template>
+                                                <x-group::forge-status-badge klasse="forge-vz-zustand"
+                                                                             status="issue.status" label="statusText(issue.status)" />
                                             </span>
                                         </button>
 
@@ -944,7 +1173,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <p x-show="!issue.html" class="whitespace-pre-wrap text-sm" x-text="issue.content"></p>
 
                                                 <template x-if="issue.comments.length > 0">
-                                                    <ul class="mt-3 space-y-2">
+                                                    <ul class="mt-4 space-y-2">
                                                         <template x-for="comment in issue.comments" :key="comment.id">
                                                             <li class="rounded-tile bg-zinc-100 p-3 dark:bg-zinc-800"
                                                                 :class="rowState(comment.id) === 'sending' ? 'opacity-60' : ''">
@@ -973,7 +1202,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                          der Liste (Herleitung dort) — dieselbe
                                                          Aussage, dieselbe Bauform. --}}
                                                     <flux:callout variant="danger" icon="exclamation-triangle" inline
-                                                                  class="mt-3" role="alert" data-forge-write-failed="root">
+                                                                  class="mt-4" role="alert" data-forge-write-failed="root">
                                                         <flux:callout.text class="text-xs!">
                                                             <span class="font-semibold" x-text="row.label"></span>
                                                             <span x-text="(row.label ? ' — ' : '') + row.error"></span>
@@ -992,10 +1221,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      und der Eigentümer des Repos. Ein Knopf für
                                                      alle anderen schriebe ein Ereignis, das kein
                                                      Client je zeigt: ein stiller Leerlauf. --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canSetStatus(issue)">
                                                         <div class="flex flex-wrap items-center gap-2" data-forge-status-actions>
-                                                            <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Status setzen') }}</span>
+                                                            <span class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Status setzen') }}</span>
                                                             <template x-for="opt in statusOptions()" :key="opt.code">
                                                                 <flux:button size="xs" variant="ghost"
                                                                              x-on:click="setStatus(issue, opt.code)"
@@ -1036,7 +1265,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      Regel dafür steht in `assignGate` schon, die
                                                      Fläche dazu nicht — und ein Knopf ohne Auswahl,
                                                      der das behauptet, wäre eine Attrappe. --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800"
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800"
                                                      data-forge-assign-block>
                                                     <div class="flex flex-wrap items-center gap-2">
                                                         <flux:button size="xs" variant="ghost"
@@ -1051,13 +1280,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                               class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
                                                     </div>
                                                     <template x-if="!canAssignSelf(issue)">
-                                                        <p class="mt-1.5 text-xs text-muted" data-forge-assign-hint
+                                                        <p class="mt-1 text-xs text-muted" data-forge-assign-hint
                                                            x-text="assignHint(issue)"></p>
                                                     </template>
                                                 </div>
 
                                                 {{-- ── Kommentieren (P8) ───────────────────────── --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canWrite()">
                                                         <div class="space-y-2" data-forge-comment-form>
                                                             {{-- @-Erwähnung (P9). Das Ziel des Vorschlags heißt
@@ -1104,6 +1333,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </li>
                                 </template>
                             </ul>
+                            </section>
                         </div>
 
                         {{-- ── Code (P6) ────────────────────────────────────────
@@ -1119,7 +1349,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <p class="forge-mass text-sm" x-show="klon.lage === 'bereit'">{{ __('Der Dateibaum steht nicht im Nostr-Ereignis. Um ihn zu zeigen, lädt dieser Client das ganze Repository herunter — derselbe Download wie fürs README.') }}</p>
                                     <p class="forge-mass text-sm" x-show="klon.lage === 'laedt'">{{ __('Wird geladen …') }}</p>
                                     <p class="forge-mass text-sm text-muted" x-show="klon.lage === 'fremd' || klon.lage === 'keine-url'">{{ __('Von hier lässt sich dieses Repository nicht laden — siehe den Hinweis über den Reitern.') }}</p>
-                                    <div class="mt-3" x-show="klon.lage === 'bereit'">
+                                    <div class="mt-4" x-show="klon.lage === 'bereit'">
                                         <flux:button size="sm" variant="primary" icon="arrow-down-tray"
                                                      x-on:click="klonLaden()" data-forge-code-start>{{ __('Repository laden') }}</flux:button>
                                     </div>
@@ -1328,77 +1558,90 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.document-text class="size-6 text-zinc-500 dark:text-zinc-400" />
                                     </span>
-                                    <flux:heading class="mt-4">{{ __('Noch keine Patches.') }}</flux:heading>
-                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Ein Patch trägt seine Änderung selbst — sobald jemand einen einreicht, steht er hier.') }}</flux:text>
+                                    <flux:heading size="lg" class="mt-4">{{ __('Noch keine Patches.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Ein Patch trägt seine Änderung selbst — sobald jemand einen einreicht, steht er hier.') }}</flux:text>
                                 </div>
                             </template>
 
-                            <ul x-show="view.patches.length > 0" class="surface-card">
-                                <template x-for="patch in view.patches" :key="patch.id">
+                            <section x-show="sichtbarePatches().length > 0" class="surface-card">
+                                {{-- Kopfstreifen wie oben bei den Issues (P5). --}}
+                                <div class="forge-kartenkopf">
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Patches') }}</span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(sichtbarePatches().length)"></span>
+                                </div>
+                                <ul>
+                                <template x-for="patch in sichtbarePatches()" :key="patch.id">
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800" data-forge-patch :data-status="patch.status" :data-id="patch.id">
-                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
+                                        {{-- Zwei Ränge wie an der Issue- und der PR-Zeile.
+                                             Hier fielen zwei Blockzeilen weg: der Serienmarker
+                                             stand als eigene Versalzeile unter dem Autorsatz,
+                                             obwohl er dieselbe Frage beantwortet („woher kommt
+                                             dieser Eintrag") und deshalb in die Metazeile
+                                             gehört. --}}
+                                        <button type="button" class="forge-vorgangskopf pressable block w-full p-4 text-start"
                                                 x-on:click="toggle(patch.id)" :aria-expanded="open[patch.id] ? 'true' : 'false'">
-                                            {{-- Derselbe Statusknoten wie bei Issues und PRs:
-                                                 gefüllt = offen, Ring = angewandt oder
-                                                 geschlossen. --}}
-                                            <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
-                                                <span class="size-2.5 rounded-full"
-                                                      :class="patch.status === 'open'
-                                                          ? 'bg-zinc-900 dark:bg-zinc-100'
-                                                          : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
-                                            </span>
-                                            <span class="min-w-0 flex-1">
-                                                {{-- Der Titel kommt aus dem `Subject:`-Header
-                                                     des Patch-Textes; ein 1617 trägt kein
-                                                     `subject`-Tag. Fehlt er, steht hier der
-                                                     ÜBERSETZTE Ersatztext — genau deshalb
-                                                     liefert das Modell `''` und keinen
-                                                     englischen Vorgabetext. --}}
-                                                <span class="block font-semibold leading-snug" data-forge-patch-titel
-                                                      x-text="patch.title || @js(__('Ohne Titel'))"></span>
-                                                <span class="mt-1 block text-xs text-muted"
-                                                      x-text="@js(__(':name hat ihn eingereicht.')).split(':name').join(patch.authorName) + ' · ' + patch.timeLabel"></span>
-                                                {{-- Serien-Marker. Ein `git format-patch` über
-                                                     drei Commits erzeugt DREI Ereignisse; das
-                                                     Modell fasst sie bewusst nicht zusammen
-                                                     (die Kette kann im Bestand Lücken haben,
-                                                     und aus einer Lücke würde still eine
-                                                     falsche Serienlänge). Der Marker sagt
-                                                     wenigstens, dass es eine Serie gibt. --}}
-                                                <template x-if="patch.isRoot || patch.isRootRevision || patch.inReplyTo">
-                                                    <span class="mt-1 block text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
-                                                          data-forge-patch-serie
-                                                          x-text="patch.isRootRevision
-                                                              ? @js(__('Beginn einer Neufassung'))
-                                                              : (patch.isRoot ? @js(__('Beginn einer Serie')) : @js(__('Teil einer Serie')))"></span>
-                                                </template>
-                                            </span>
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
-                                                {{-- Die Kennzahlen des Diffs. `+`/`−` stehen
-                                                     als ZEICHEN da und nicht nur als Farbe:
-                                                     Farbe allein trüge hier Bedeutung
-                                                     (WCAG 1.4.1). --}}
-                                                <template x-if="patch.stat.files > 0">
-                                                    <span class="inline-flex items-center gap-1.5 text-xs" data-forge-patch-stat>
-                                                        <span class="text-muted" x-text="$plural(patch.stat.files, '1 Datei', ':count Dateien')"></span>
-                                                        <span class="font-semibold text-forge-erledigt" x-text="'+' + patch.stat.additions"></span>
-                                                        <span class="font-semibold text-forge-ruhend" x-text="'−' + patch.stat.deletions"></span>
-                                                    </span>
-                                                </template>
-                                                <template x-if="patch.shortCommit">
-                                                    <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                          x-text="patch.shortCommit"></span>
-                                                </template>
-                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
-                                                      :class="patch.status === 'open' ? 'text-forge-offen' : (patch.status === 'applied' ? 'text-forge-erledigt' : 'text-forge-ruhend')"
-                                                      data-forge-patch-status
-                                                      x-text="statusText(patch.status)"></span>
-                                                <template x-if="patch.commentCount > 0">
-                                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
-                                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
-                                                        <span x-text="patch.commentCount"></span>
-                                                    </span>
-                                                </template>
+                                            <span class="forge-vorgangszeile">
+                                                {{-- Typ-Glyphe: dasselbe Zeichen wie am Reiter
+                                                     „Patches". Ein Patch TRÄGT seine Änderung als
+                                                     Text mit sich — ein Dokument, kein Verweis
+                                                     auf einen Branch. --}}
+                                                <flux:icon.document-text variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+
+                                                <span class="forge-vz-titel">
+                                                    <span class="forge-vz-name" data-forge-patch-titel
+                                                          x-text="patch.title || @js(__('Ohne Titel'))"></span>
+                                                </span>
+
+                                                <span class="forge-vz-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                    <span class="min-w-0 truncate"
+                                                          x-text="@js(__(':name hat ihn eingereicht.')).split(':name').join(patch.authorName) + ' · ' + patch.timeLabel"></span>
+                                                    {{-- Serien-Marker. Ein `git format-patch` über
+                                                         drei Commits erzeugt DREI Ereignisse; das
+                                                         Modell fasst sie bewusst nicht zusammen
+                                                         (die Kette kann im Bestand Lücken haben,
+                                                         und aus einer Lücke würde still eine
+                                                         falsche Serienlänge). Der Marker sagt
+                                                         wenigstens, dass es eine Serie gibt —
+                                                         seit P3 als Wort IN der Metazeile statt
+                                                         als eigene Versalzeile darunter. --}}
+                                                    <template x-if="patch.isRoot || patch.isRootRevision || patch.inReplyTo">
+                                                        <span data-forge-patch-serie
+                                                              x-text="'· ' + (patch.isRootRevision
+                                                                  ? @js(__('Beginn einer Neufassung'))
+                                                                  : (patch.isRoot ? @js(__('Beginn einer Serie')) : @js(__('Teil einer Serie'))))"></span>
+                                                    </template>
+                                                    {{-- Die Kennzahlen des Diffs. `+`/`−` stehen
+                                                         als ZEICHEN da und nicht nur als Farbe
+                                                         (WCAG 1.4.1); die Farbe kam mit P1 und
+                                                         ist gemessen (5,20–6,20:1 hell,
+                                                         5,83–6,21:1 dunkel). --}}
+                                                    <template x-if="patch.stat.files > 0">
+                                                        <span class="inline-flex shrink-0 items-center gap-1.5" data-forge-patch-stat>
+                                                            <span x-text="$plural(patch.stat.files, '1 Datei', ':count Dateien')"></span>
+                                                            <flux:badge size="sm" color="green" data-forge-stat-plus x-text="'+' + patch.stat.additions" />
+                                                            <flux:badge size="sm" color="red" data-forge-stat-minus x-text="'−' + patch.stat.deletions" />
+                                                        </span>
+                                                    </template>
+                                                    {{-- Der Anker, eckig und in Mono — dieselbe
+                                                         Bauform wie an der PR-Zeile. --}}
+                                                    <template x-if="patch.shortCommit">
+                                                        <flux:badge size="sm" class="forge-anker shrink-0 tracking-tight"
+                                                                    data-forge-anker="head"
+                                                                    x-text="patch.shortCommit" />
+                                                    </template>
+                                                </span>
+
+                                                <span class="forge-vz-leute">
+                                                    <template x-if="patch.commentCount > 0">
+                                                        <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                                            <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                                            <span x-text="patch.commentCount"></span>
+                                                        </span>
+                                                    </template>
+                                                </span>
+
+                                                <x-group::forge-status-badge klasse="forge-vz-zustand"
+                                                                             status="patch.status" label="statusText(patch.status)" />
                                             </span>
                                         </button>
 
@@ -1412,17 +1655,62 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      aus Variablennamen. --}}
                                                 <p x-show="patch.body" class="forge-mass whitespace-pre-wrap text-sm" data-forge-patch-body x-text="patch.body"></p>
 
+                                                {{-- ── Wo dieser Patch gelandet ist (P7b) ────────
+                                                     Derselbe Pfad wie beim Pull Request: ein
+                                                     1631 trägt `merge-commit` und
+                                                     `applied-as-commits`, und `mergeRow()` in
+                                                     `forge.ts` bildet beide Wurzelarten über
+                                                     dieselbe Funktion ab. Bei einem Patch ist
+                                                     „angewandt als" der häufigere der beiden —
+                                                     ein Patch wird gecherrypickt, nicht
+                                                     gemerged. --}}
+                                                <template x-if="patch.shortMergeCommit || patch.shortAppliedAsCommits.length > 0">
+                                                    <p class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted"
+                                                       data-forge-landung>
+                                                        <template x-if="patch.shortMergeCommit">
+                                                            <span class="inline-flex items-center gap-1.5">
+                                                                <span>{{ __('Zusammengeführt als') }}</span>
+                                                                <flux:badge size="sm" class="forge-anker tracking-tight"
+                                                                            data-forge-merge-commit
+                                                                            x-text="patch.shortMergeCommit" />
+                                                            </span>
+                                                        </template>
+                                                        <template x-if="patch.shortAppliedAsCommits.length > 0">
+                                                            <span class="inline-flex flex-wrap items-center gap-1.5">
+                                                                <span>{{ __('Angewandt als') }}</span>
+                                                                <template x-for="c in patch.shortAppliedAsCommits" :key="c">
+                                                                    <flux:badge size="sm" class="forge-anker tracking-tight"
+                                                                                data-forge-applied-as
+                                                                                x-text="c" />
+                                                                </template>
+                                                            </span>
+                                                        </template>
+                                                    </p>
+                                                </template>
+
+                                                {{-- ── Warum dieses Diff-Markup hier NOCH einmal steht
+                                                     Dieselbe Bauform liegt seit P7b als Komponente
+                                                     vor (`components/forge-pr-diff.blade.php`) und
+                                                     gehört genau einmal beschrieben. Der Tausch ist
+                                                     hier trotzdem NICHT gemacht, und der Grund ist
+                                                     kein technischer: `EmptyStatesAndA11yTest` zählt
+                                                     ARIA-Träger aus dem QUELLTEXT dieser Datei —
+                                                     wandern die beiden `aria-hidden` an den
+                                                     Zeilennummern in eine Komponente, sinkt die
+                                                     kalibrierte Zahl von 33 auf 31 und der Test wird
+                                                     rot. Die Zusammenführung ist fällig, aber nur
+                                                     GEMEINSAM mit dem Nachziehen jener Zahl. --}}
                                                 {{-- Der gekürzte Diff sagt es an. Eine
                                                      stillschweigend gekürzte Datei wäre eine
                                                      falsche Aussage über den Patch. --}}
                                                 <template x-if="patch.diff.truncated">
-                                                    <flux:callout variant="secondary" icon="information-circle" class="forge-mass mt-3" data-forge-patch-gekuerzt>
+                                                    <flux:callout variant="secondary" icon="information-circle" class="forge-mass mt-4" data-forge-patch-gekuerzt>
                                                         <flux:callout.text>{{ __('Dieser Patch ist zu lang für die vollständige Anzeige — es werden nicht alle Zeilen gezeigt.') }}</flux:callout.text>
                                                     </flux:callout>
                                                 </template>
 
                                                 <template x-if="patch.diff.files.length > 0">
-                                                    <div class="forge-diff mt-3" data-forge-diff>
+                                                    <div class="forge-diff mt-4" data-forge-diff>
                                                         <template x-for="datei in patch.diff.files" :key="datei.path + datei.change">
                                                             <div class="forge-diff-datei" data-forge-diff-datei :data-change="datei.change">
                                                                 <div class="forge-diff-kopf">
@@ -1433,9 +1721,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                               : (datei.change === 'del' ? @js(__('gelöscht'))
                                                                               : (datei.change === 'ren' ? @js(__('umbenannt')) : @js(__('geändert'))))"></span>
                                                                     <span class="forge-diff-pfad" x-text="datei.path"></span>
+                                                                    {{-- Grün/Rot wie in der Patch-Zeile (P1) —
+                                                                         und im selben Zug fällt hier das
+                                                                         `text-forge-erledigt`, das drei Zeilen
+                                                                         tiefer im Diff-KÖRPER dieselbe Sache
+                                                                         schon grün tönte. Das Vorzeichen bleibt
+                                                                         als Zeichen im Text (WCAG 1.4.1). --}}
                                                                     <span class="forge-diff-zahlen">
-                                                                        <span class="text-forge-erledigt" x-text="'+' + datei.additions"></span>
-                                                                        <span class="text-forge-ruhend" x-text="'−' + datei.deletions"></span>
+                                                                        <flux:badge size="sm" color="green" data-forge-diff-plus x-text="'+' + datei.additions" />
+                                                                        <flux:badge size="sm" color="red" data-forge-diff-minus x-text="'−' + datei.deletions" />
                                                                     </span>
                                                                 </div>
                                                                 <template x-if="datei.binary">
@@ -1471,7 +1765,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 {{-- Kommentare — dieselbe Bauform wie bei
                                                      Issue und PR. --}}
                                                 <template x-if="patch.comments.length > 0">
-                                                    <ul class="mt-3 space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                    <ul class="mt-4 space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                         <template x-for="comment in patch.comments" :key="comment.id">
                                                             <li class="text-sm">
                                                                 <p class="text-xs text-muted">
@@ -1488,6 +1782,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </li>
                                 </template>
                             </ul>
+                            </section>
                         </div>
 
                         {{-- ── Pull Requests ────────────────────────────────────── --}}
@@ -1497,145 +1792,124 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.arrows-right-left class="size-6 text-zinc-500 dark:text-zinc-400" />
                                     </span>
-                                    <flux:heading class="mt-4">{{ __('Noch keine Pull Requests.') }}</flux:heading>
-                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand einen Pull Request eröffnet, erscheint er hier.') }}</flux:text>
+                                    <flux:heading size="lg" class="mt-4">{{ __('Noch keine Pull Requests.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Sobald jemand einen Pull Request eröffnet, erscheint er hier.') }}</flux:text>
                                 </div>
                             </template>
 
-                            <ul x-show="view.pullRequests.length > 0" class="surface-card">
-                                <template x-for="pr in view.pullRequests" :key="pr.id">
+                            <section x-show="sichtbarePulls().length > 0" class="surface-card">
+                                {{-- Kopfstreifen wie oben bei den Issues (P5). --}}
+                                <div class="forge-kartenkopf">
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ __('Pull Requests') }}</span>
+                                    <span class="shrink-0 text-xs text-muted" x-text="$num(sichtbarePulls().length)"></span>
+                                </div>
+                                <ul>
+                                <template x-for="pr in sichtbarePulls()" :key="pr.id">
                                     {{-- Sprungziel eines geteilten `?pr=`-Links — siehe die
                                          Begründung an der Issue-Zeile. --}}
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
                                         data-forge-pr data-forge-vorgang tabindex="-1"
                                         :data-status="pr.status" :data-id="pr.id">
-                                        <button type="button" class="pressable flex w-full flex-wrap items-start gap-3 p-4 text-start"
+                                        {{-- Zwei Ränge wie an der Issue-Zeile — die Begründung
+                                             steht dort ausgeschrieben. Hier fielen dabei DREI
+                                             Blockzeilen weg: Labelband gab es nie, dafür
+                                             standen Autorsatz, Reviewer-Chips und Statusband
+                                             untereinander. --}}
+                                        <button type="button" class="forge-vorgangskopf pressable block w-full p-4 text-start"
                                                 x-on:click="toggle(pr.id, 'pr')" :aria-expanded="open[pr.id] ? 'true' : 'false'">
-                                            {{-- Derselbe Statusknoten wie bei den Issues:
-                                                 gefüllt = offen, Ring = zusammengeführt oder
-                                                 geschlossen. Ein Zeichen, eine Bedeutung —
-                                                 über beide Listen hinweg. --}}
-                                            <span aria-hidden="true" class="mt-1 flex size-4 shrink-0 items-center justify-center">
-                                                <span class="size-2.5 rounded-full"
-                                                      :class="pr.status === 'open'
-                                                          ? 'bg-zinc-900 dark:bg-zinc-100'
-                                                          : 'ring-[1.5px] ring-zinc-500 dark:ring-zinc-400'"></span>
-                                            </span>
-                                            <span class="min-w-0 flex-1">
-                                                <span class="block font-semibold leading-snug" x-text="pr.title || @js(__('Ohne Titel'))"></span>
-                                                {{-- Ein ganzer Satz, kein Feldsalat: wer
-                                                     hat ihn eröffnet, und aus welchem
-                                                     Branch. Die Teile stehen als
-                                                     Platzhalter im Katalog, damit der Satz
-                                                     übersetzbar bleibt. --}}
-                                                <span class="mt-1 block text-xs text-muted"
-                                                      x-text="(pr.branch
-                                                          ? @js(__(':name hat ihn eröffnet aus :branch.')).split(':branch').join(pr.branch)
-                                                          : @js(__(':name hat ihn eröffnet.'))).split(':name').join(pr.authorName)
-                                                          + ' · ' + pr.timeLabel"></span>
-                                                {{-- ── Reviewer-Zeile (P1) ───────────────────────
-                                                     Wer soll draufschauen, und wer hat schon?
-                                                     `foldReviews` (`js/forgeModels.ts`) liefert
-                                                     beides. Zur Herkunft der Regeln: NIP-34 kennt
-                                                     kein Review — das ist eine reine
-                                                     Client-Konvention aus Buzz Desktop, und der
-                                                     Relay setzt nichts davon durch.
+                                            <span class="forge-vorgangszeile">
+                                                {{-- Typ-Glyphe: dasselbe Zeichen wie am Reiter
+                                                     „Pull Requests". Zwei Pfeile gegeneinander —
+                                                     das ist die Sache selbst, und es kollidiert
+                                                     mit keinem der vier Zustandszeichen. --}}
+                                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
 
-                                                     **Das Häkchen gilt für EINEN Commit.** Eine
-                                                     Freigabe, die auf einen älteren Stand zeigt,
-                                                     ist bereits in der Faltung ausgesiebt — nach
-                                                     einem Push steht hier also wieder ein nacktes
-                                                     Reviewer-Zeichen. Das ist der Sinn: ein
-                                                     Häkchen für Code, den niemand gesehen hat,
-                                                     wäre schlimmer als keins.
+                                                <span class="forge-vz-titel">
+                                                    <span class="forge-vz-name" x-text="pr.title || @js(__('Ohne Titel'))"></span>
+                                                </span>
 
-                                                     Die Aussage hängt an der FORM (Häkchen bzw.
-                                                     Ausrufezeichen) und an einem `sr-only`-Wort,
-                                                     nicht an der Farbe (WCAG 1.4.1). Die beiden
-                                                     Farbwörter sind die bestehenden Forge-Token
-                                                     der Statuszeile — kein neues.
+                                                {{-- ── Rang 2: EIN Satz, EIN Anker ────────────
+                                                     Wer hat ihn eröffnet, aus welchem Branch,
+                                                     wann — als ganzer Satz, nicht als Feldsalat.
+                                                     Die Teile stehen als Platzhalter im Katalog,
+                                                     damit der Satz übersetzbar bleibt. --}}
+                                                <span class="forge-vz-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                    <span class="min-w-0 truncate"
+                                                          x-text="(pr.branch
+                                                              ? @js(__(':name hat ihn eröffnet aus :branch.')).split(':branch').join(pr.branch)
+                                                              : @js(__(':name hat ihn eröffnet.'))).split(':name').join(pr.authorName)
+                                                              + ' · ' + pr.timeLabel"></span>
+                                                    {{-- ── Der Anker: RECHTECK mit Mono-Ziffern ──
+                                                         Die zweite der drei Chip-Rollen, und die
+                                                         einzige, die eckig bleibt. Er ist der
+                                                         Punkt, an dem das Auge in einer grauen
+                                                         Zeile einrastet (brand-800 auf
+                                                         `bg-brand-500/10`, gemessen 5,92:1).
 
-                                                     Namen statt Schlüssel aus demselben Grund wie
-                                                     beim Zuweisungs-Band darüber.
+                                                         GENAU EINER je Zeile, und er zeigt die
+                                                         Sache, die gerade zählt: ist der PR
+                                                         zusammengeführt, ist das der
+                                                         MERGE-Commit — der Kopf-Commit
+                                                         beantwortet dann nichts mehr. Sonst der
+                                                         Kopf-Commit.
 
-                                                     **Die Zuordnung Reviewer→Entscheidung steht
-                                                     NICHT mehr hier.** Sie stand als drei
-                                                     `.some()`-Ausdrücke je Zeile im Markup —
-                                                     ungetestet, und mit einer Lücke: wer
-                                                     freigegeben hat, ohne angefragt worden zu sein
-                                                     (der Repo-Eigentümer darf das), fehlte in den
-                                                     Chips und tauchte nur in der Zahl daneben auf.
-                                                     `reviewerRows` in `js/forgeModels.ts` liefert
-                                                     jetzt EINE Liste, in der beide vorkommen. --}}
-                                                <template x-if="pr.reviewerPeople.length > 0">
-                                                    <span class="mt-1.5 flex flex-wrap items-center gap-1" data-forge-reviewers>
-                                                        <span class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Reviewer') }}</span>
-                                                        <template x-for="person in pr.reviewerPeople.slice(0, 6)" :key="person.pubkey">
-                                                            <span class="inline-flex items-center gap-1 rounded-pill bg-zinc-100 px-2 py-0.5 text-[0.7rem] text-muted dark:bg-zinc-800"
-                                                                  data-forge-reviewer :data-pubkey="person.pubkey"
-                                                                  :data-entscheidung="person.decision"
-                                                                  :title="person.pubkey">
-                                                                <span x-text="person.name"></span>
-                                                                <template x-if="person.decision === 'approved'">
-                                                                    <span class="inline-flex items-center text-forge-erledigt">
-                                                                        <flux:icon.check variant="micro" class="size-3.5" />
-                                                                        <span class="sr-only">{{ __('hat freigegeben') }}</span>
-                                                                    </span>
-                                                                </template>
-                                                                <template x-if="person.decision === 'changes-requested'">
-                                                                    <span class="inline-flex items-center text-forge-offen">
-                                                                        <flux:icon.exclamation-circle variant="micro" class="size-3.5" />
-                                                                        <span class="sr-only">{{ __('erbittet Änderungen') }}</span>
-                                                                    </span>
-                                                                </template>
-                                                            </span>
-                                                        </template>
-                                                        <template x-if="pr.reviewerPeople.length > 6">
-                                                            <span class="text-[0.7rem] text-muted"
-                                                                  x-text="'+' + (pr.reviewerPeople.length - 6)"></span>
-                                                        </template>
-                                                        {{-- Die Zahl steht daneben, weil eine
-                                                             Freigabe auch von jemandem kommen kann,
-                                                             der nie angefragt wurde — der
-                                                             Repo-Eigentümer darf das. Ohne sie
-                                                             verschwände seine Freigabe zwischen den
-                                                             Chips. --}}
-                                                        <template x-if="pr.approvals.length > 0">
-                                                            <span class="text-[0.7rem] text-muted" data-forge-approvals
-                                                                  x-text="$plural(pr.approvals.length, '1 Freigabe', ':count Freigaben')"></span>
-                                                        </template>
-                                                    </span>
-                                                </template>
-                                            </span>
-                                            {{-- Auf schmalen Schirmen eine EIGENE Zeile
-                                                 (`basis-full`), erst ab `sm` wieder rechts
-                                                 neben dem Titel.
+                                                         `shortMergeCommit`/`shortCommit` und
+                                                         NICHT `…​.slice(0, 7)` im Markup: die
+                                                         Kürzung trägt die Formprüfung mit, sonst
+                                                         würde aus `["merge-commit","master"]`
+                                                         eine Pille namens „master".
 
-                                                 Vorher stand sie dort immer, `shrink-0`
-                                                 neben einem `flex-1`-Titel — und
-                                                 „GESCHLOSSEN" samt Commit-Kurzform und
-                                                 Zähler nahm auf einem 390-px-Schirm gut
-                                                 die halbe Breite. Ein vierzeiliger Umbruch
-                                                 eines Titels, der in zwei gepasst hätte,
-                                                 am Gerät gesehen (2026-08-20).
+                                                         `applied-as-commits` (eine Liste) und
+                                                         `merge-base` gehören nicht in eine
+                                                         Zeilenübersicht — sie stehen im
+                                                         aufgeklappten Rumpf (P7b). --}}
+                                                    <template x-if="pr.shortMergeCommit">
+                                                        <flux:badge size="sm" class="forge-anker shrink-0 tracking-tight"
+                                                                    icon="arrows-pointing-in" data-forge-anker="merge"
+                                                                    x-text="pr.shortMergeCommit" />
+                                                    </template>
+                                                    <template x-if="!pr.shortMergeCommit && pr.shortCommit">
+                                                        <flux:badge size="sm" class="forge-anker shrink-0 tracking-tight"
+                                                                    data-forge-anker="head"
+                                                                    x-text="pr.shortCommit" />
+                                                    </template>
+                                                </span>
 
-                                                 `ps-7` setzt sie unter den Titel statt
-                                                 unter den Statuspunkt: 16 px Punkt + 12 px
-                                                 Abstand. --}}
-                                            <span class="flex shrink-0 basis-full items-center gap-2.5 ps-7 sm:basis-auto sm:ps-0">
-                                                <template x-if="pr.shortCommit">
-                                                    <span class="rounded-pill bg-brand-500/10 px-2 py-0.5 text-xs font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                          x-text="pr.shortCommit"></span>
-                                                </template>
-                                                <span class="text-[0.7rem] font-semibold uppercase tracking-wider"
-                                                      :class="pr.status === 'open' ? 'text-forge-offen' : (pr.status === 'applied' || pr.status === 'merged' ? 'text-forge-erledigt' : 'text-forge-ruhend')"
-                                                      x-text="statusText(pr.status)"></span>
-                                                <template x-if="pr.commentCount > 0">
-                                                    <span class="inline-flex items-center gap-1 text-xs text-muted">
-                                                        <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
-                                                        <span x-text="pr.commentCount"></span>
-                                                    </span>
-                                                </template>
+                                                <span class="forge-vz-leute">
+                                                    {{-- Reviewer als Gesichter mit Plakette statt
+                                                         als Chip-Zeile mit Versalwort. Wer
+                                                         freigegeben hat, trägt ein Häkchen; wer
+                                                         Änderungen erbittet, ein Ausrufezeichen.
+                                                         Die Aussage hängt an der FORM (1.4.1).
+
+                                                         Die Freigabezahl daneben bleibt: eine
+                                                         Freigabe kann von jemandem kommen, der nie
+                                                         angefragt wurde (der Repo-Eigentümer darf
+                                                         das) — ohne sie verschwände seine Freigabe
+                                                         zwischen den Gesichtern. --}}
+                                                    <template x-if="pr.reviewerPeople.length > 0">
+                                                        <x-group::forge-personen-stapel
+                                                            personen="pr.reviewerPeople"
+                                                            entscheidung="person.decision"
+                                                            anker="data-forge-reviewer"
+                                                            data-forge-reviewers
+                                                            :sr-eins="__('Reviewer: :namen')"
+                                                            :sr-viele="__(':count Reviewer: :namen')" />
+                                                    </template>
+                                                    <template x-if="pr.approvals.length > 0">
+                                                        <span class="text-xs text-muted" data-forge-approvals
+                                                              x-text="$plural(pr.approvals.length, '1 Freigabe', ':count Freigaben')"></span>
+                                                    </template>
+                                                    <template x-if="pr.commentCount > 0">
+                                                        <span class="inline-flex items-center gap-1 text-xs text-muted">
+                                                            <flux:icon.chat-bubble-left-ellipsis variant="micro" class="size-4" />
+                                                            <span x-text="pr.commentCount"></span>
+                                                        </span>
+                                                    </template>
+                                                </span>
+
+                                                <x-group::forge-status-badge klasse="forge-vz-zustand"
+                                                                             status="pr.status" label="statusText(pr.status)" />
                                             </span>
                                         </button>
 
@@ -1666,8 +1940,52 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <div x-show="pr.html" class="article-content forge-mass" x-html="pr.html"></div>
                                                 <p x-show="!pr.html" class="whitespace-pre-wrap text-sm" x-text="pr.content"></p>
 
+                                                {{-- ── Wo dieser Vorschlag gelandet ist (P7b) ────
+                                                     `merge-commit` und `applied-as-commits`
+                                                     stehen am 1631 und sind seit P7a am Modell.
+                                                     Sie gehören NICHT in die Zeilenübersicht —
+                                                     dort steht genau EIN Anker, und
+                                                     `applied-as-commits` ist eine Liste.
+
+                                                     Für die Pillen die `short…`-Felder, für
+                                                     nichts anderes: die Kürzung trägt die
+                                                     Formprüfung aus `forgeModels.ts` mit. Im
+                                                     Markup zu slicen machte aus
+                                                     `["merge-commit","master"]` eine Pille namens
+                                                     „master". --}}
+                                                <template x-if="pr.shortMergeCommit || pr.shortAppliedAsCommits.length > 0">
+                                                    <p class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted"
+                                                       data-forge-landung>
+                                                        <template x-if="pr.shortMergeCommit">
+                                                            <span class="inline-flex items-center gap-1.5">
+                                                                <span>{{ __('Zusammengeführt als') }}</span>
+                                                                <flux:badge size="sm" class="forge-anker tracking-tight"
+                                                                            data-forge-merge-commit
+                                                                            x-text="pr.shortMergeCommit" />
+                                                            </span>
+                                                        </template>
+                                                        <template x-if="pr.shortAppliedAsCommits.length > 0">
+                                                            <span class="inline-flex flex-wrap items-center gap-1.5">
+                                                                <span>{{ __('Angewandt als') }}</span>
+                                                                <template x-for="c in pr.shortAppliedAsCommits" :key="c">
+                                                                    <flux:badge size="sm" class="forge-anker tracking-tight"
+                                                                                data-forge-applied-as
+                                                                                x-text="c" />
+                                                                </template>
+                                                            </span>
+                                                        </template>
+                                                    </p>
+                                                </template>
+
+                                                {{-- ── Die Dateiliste (P7b) ──────────────────────
+                                                     Eigene Komponente, weil sie einen zweiten,
+                                                     ANGESAGTEN Ladeweg mitbringt: ein kind 1618
+                                                     trägt seinen Diff nicht bei sich. Die
+                                                     Herleitung samt Messzahlen steht dort. --}}
+                                                <x-group::forge-pr-diff vorgang="pr" />
+
                                                 <template x-if="pr.updates.length > 0">
-                                                    <ul class="mt-3 space-y-1">
+                                                    <ul class="mt-4 space-y-1">
                                                         <template x-for="update in pr.updates" :key="update.id">
                                                             {{-- Kein `font-mono`: die App IST durchgehend
                                                                  Inconsolata (`--font-sans` in `theme.css`),
@@ -1689,7 +2007,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </template>
 
                                                 <template x-if="pr.comments.length > 0">
-                                                    <ul class="mt-3 space-y-2">
+                                                    <ul class="mt-4 space-y-2">
                                                         <template x-for="comment in pr.comments" :key="comment.id">
                                                             <li class="rounded-tile bg-zinc-100 p-3 dark:bg-zinc-800"
                                                                 :class="rowState(comment.id) === 'sending' ? 'opacity-60' : ''">
@@ -1711,7 +2029,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                     {{-- Derselbe Tausch wie beim Schwesterkasten in der Issue-Spalte
                                                          (Herleitung dort) — dieselbe Aussage, dieselbe Bauform. --}}
                                                     <flux:callout variant="danger" icon="exclamation-triangle" inline
-                                                                  class="mt-3" role="alert" data-forge-write-failed="root">
+                                                                  class="mt-4" role="alert" data-forge-write-failed="root">
                                                         <flux:callout.text class="text-xs!">
                                                             <span class="font-semibold" x-text="row.label"></span>
                                                             <span x-text="(row.label ? ' — ' : '') + row.error"></span>
@@ -1743,7 +2061,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      „freigegeben", solange die eigene Entscheidung
                                                      für DIESEN Stand steht, und wird wieder
                                                      anklickbar, sobald sie es nicht mehr tut. --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800"
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800"
                                                      data-forge-review-block>
                                                     <div class="flex flex-wrap items-center gap-2">
                                                         <flux:button size="xs" variant="ghost" icon="check"
@@ -1753,7 +2071,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                                      ::class="canApprove(pr) && eigeneEntscheidung(pr) !== 'approval' ? '' : 'opacity-60'">
                                                             <span x-text="eigeneEntscheidung(pr) === 'approval' ? @js(__('Freigegeben')) : @js(__('Freigeben'))"></span>
                                                         </flux:button>
-                                                        <flux:button size="xs" variant="ghost" icon="exclamation-circle"
+                                                        {{-- Dasselbe Zeichen wie die Plakette am Reviewer-Gesicht
+                                                             (`arrow-uturn-left`): eine Handlung behält ihr Zeichen
+                                                             über den ganzen Weg. `exclamation-circle` stand hier bis
+                                                             P3 und bedeutet seit P1 in jeder Vorgangszeile
+                                                             „Zustand: offen" — ein Zeichen mit zwei Bedeutungen im
+                                                             selben Bild. --}}
+                                                        <flux:button size="xs" variant="ghost" icon="arrow-uturn-left"
                                                                      data-forge-request-changes
                                                                      x-on:click="submitReview(pr, 'changes-requested')"
                                                                      ::aria-disabled="canApprove(pr) && eigeneEntscheidung(pr) !== 'changes-requested' ? null : 'true'"
@@ -1764,7 +2088,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                               class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
                                                     </div>
                                                     <template x-if="!canApprove(pr)">
-                                                        <p class="mt-1.5 text-xs text-muted" data-forge-review-hint
+                                                        <p class="mt-1 text-xs text-muted" data-forge-review-hint
                                                            x-text="approveHint(pr)"></p>
                                                     </template>
                                                 </div>
@@ -1778,7 +2102,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      Attrappe — den Statuswechsel eines PR
                                                      verantwortet aus demselben Grund, wer ihn
                                                      gepusht hat, nicht diese Fläche. --}}
-                                                <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                                                     <template x-if="canWrite()">
                                                         <div class="space-y-2" data-forge-comment-form>
                                                             {{-- @-Erwähnung (P9). Das Ziel des Vorschlags heißt
@@ -1825,6 +2149,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     </li>
                                 </template>
                             </ul>
+                            </section>
                         </div>
 
                         {{-- ── Aktivität ────────────────────────────────────────── --}}
@@ -1834,8 +2159,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="mx-auto flex size-12 items-center justify-center rounded-tile bg-zinc-100 dark:bg-zinc-800">
                                         <flux:icon.clock class="size-6 text-zinc-500 dark:text-zinc-400" />
                                     </span>
-                                    <flux:heading class="mt-4">{{ __('Noch keine Aktivität.') }}</flux:heading>
-                                    <flux:text class="mx-auto mt-1.5 max-w-sm text-sm text-muted">{{ __('Sobald jemand etwas pusht oder ein Issue eröffnet, erscheint es hier.') }}</flux:text>
+                                    <flux:heading size="lg" class="mt-4">{{ __('Noch keine Aktivität.') }}</flux:heading>
+                                    <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Sobald jemand etwas pusht oder ein Issue eröffnet, erscheint es hier.') }}</flux:text>
                                 </div>
                             </template>
 
@@ -1853,56 +2178,86 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <div x-show="view.activityGroups.length > 0" class="surface-card px-4 pb-2">
                                 <template x-for="bucket in view.activityGroups" :key="bucket.label">
                                     <section>
-                                        <h2 class="pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted"
+                                        <h2 class="pb-1 pt-4 text-xs font-semibold uppercase tracking-wider text-muted"
                                             x-text="bucket.label"></h2>
-                                        <ol>
+                                        {{-- ── Dieselbe Zeitleiste wie auf der Übersicht (P5) ──────
+                                             `flux:timeline` statt der handgezogenen Linie; die
+                                             ganze Herleitung steht in `⚡forge.blade.php` an der
+                                             Aktivitätsspur (zwei Magic Numbers, die 1,26:1-Linie,
+                                             die Alpine-Template-Falle und der Grund, warum
+                                             `status="complete"` hier NICHT gesetzt ist).
+
+                                             `x-bind:` ausgeschrieben und nicht `::`: `flux:timeline*`
+                                             wird als einziges Flux-Bauteil NICHT gefaltet, und nur
+                                             der Faltungs-Pfad wandelt `::attr` in `:attr`. Auf einer
+                                             ungefalteten Komponente bleibt `::` wörtlich im HTML
+                                             stehen und ist ein totes Attribut. --}}
+                                        {{-- Der BEZUGSRAHMEN des Knotens (P7b-N). Ein Element kann seinen
+                                             eigenen Container nicht abfragen, deshalb die Hülle. --}}
+                                        <div class="forge-zeitleiste">
+                                        <flux:timeline align="start" class="pb-2">
                                             <template x-for="row in bucket.items" :key="row.id">
-                                                <li class="group relative flex gap-3 py-3" data-forge-activity :data-type="row.type">
-                                                    <span aria-hidden="true"
-                                                          class="absolute start-[0.875rem] top-[1.625rem] h-full w-px bg-zinc-200 group-last:hidden dark:bg-zinc-800"></span>
-                                                    {{-- `self-start`: siehe Begründung in
-                                                         `⚡forge.blade.php` — ohne sie streckt sich die
-                                                         Hülle auf die Zeilenhöhe, der Ring wird oval
-                                                         und die Unterlage frisst den Faden. --}}
-                                                    <span class="relative shrink-0 self-start rounded-full bg-white dark:bg-zinc-900"
-                                                          :class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
-                                                        <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
-                                                    </span>
-                                                    <div class="min-w-0 flex-1">
-                                                        <p class="text-sm leading-snug">
-                                                            {{-- Roher Schlüssel im `title` — dieselbe
-                                                                 Begründung wie in `⚡forge.blade.php` (F6). --}}
-                                                            <span class="font-semibold" x-text="row.actorName"
-                                                                  x-bind:title="row.actor"></span>
-                                                            <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
-                                                            <span class="font-medium" x-text="row.object"></span>
-                                                        </p>
-                                                        {{-- `<div>` und nicht `<p>`, und beide Marken von
-                                                             Flux: identisch zur Aktivitätszeile auf
-                                                             `⚡forge.blade.php` — es ist derselbe Strom,
-                                                             nur auf ein Repository verengt. Die Herleitung
-                                                             steht dort (Kurzfassung: `flux:badge` rendert
-                                                             ein `<div>`, und ein `<div>` in einem `<p>`
-                                                             schließt das `<p>` beim Parsen vorzeitig). --}}
-                                                        <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                                                            {{-- KURZ in der Zeile, VOLL im Tooltip —
-                                                                 Begründung in `⚡forge.blade.php`. --}}
-                                                            <span x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
-                                                            <template x-if="row.badge">
-                                                                <flux:badge size="sm" class="bg-brand-500/10 font-semibold tracking-tight text-brand-800 dark:bg-brand-500/10 dark:text-brand-300"
-                                                                            x-text="row.badge" />
-                                                            </template>
-                                                            <template x-if="row.statusLabel">
-                                                                <flux:badge size="sm" x-text="row.statusLabel" />
-                                                            </template>
-                                                        </div>
-                                                        <template x-if="row.body">
-                                                            <p class="forge-mass mt-1.5 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                <flux:timeline.item data-forge-activity x-bind:data-type="row.type">
+                                                    {{-- Avatar auf breiter Spur, Marke auf schmaler:
+                                                         28 px Knoten plus 12 px Rinne kosten schmal
+                                                         40 px Textbreite; der Name steht ohnehin im
+                                                         Satz. Entschieden wird das über
+                                                         `@container zeitleiste` — bis zum 2026-08-27
+                                                         stand hier `x-if="zweispaltig"`, und das Feld
+                                                         gibt es in `nostrForgeRepo` NICHT. Beide Zweige
+                                                         warfen, KEINER rendete. Herleitung in
+                                                         `theme.css` an `.forge-zeitleiste`. --}}
+                                                    <flux:timeline.indicator variant="bare">
+                                                        {{-- BEIDE Knoten stehen im DOM; welcher SICHTBAR ist,
+                                                             entscheidet `@container zeitleiste` in
+                                                             `theme.css`. Kein `x-if` mehr — die Herleitung
+                                                             steht dort und an der Klasse. --}}
+                                                        <span class="forge-knoten-marke"
+                                                              x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''"></span>
+                                                        {{-- Der Ring markiert Ereignisse, die ein echtes
+                                                             Git-Objekt erzeugt haben; dieselbe Aussage trägt
+                                                             der Kurzhash als TEXT in der Metazeile. --}}
+                                                        <span class="forge-knoten-gesicht"
+                                                              x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
+                                                            <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" lazy />
+                                                        </span>
+                                                    </flux:timeline.indicator>
+                                                    <flux:timeline.content class="min-w-0 py-3">
+                                                    <p class="text-sm leading-snug">
+                                                        {{-- Roher Schlüssel im `title` — dieselbe
+                                                             Begründung wie in `⚡forge.blade.php` (F6). --}}
+                                                        <span class="font-semibold" x-text="row.actorName"
+                                                              x-bind:title="row.actor"></span>
+                                                        <span class="text-muted" x-text="' ' + row.verb + ' '"></span>
+                                                        <span class="font-medium" x-text="row.object"></span>
+                                                    </p>
+                                                    {{-- `<div>` und nicht `<p>`, und beide Marken von
+                                                         Flux: identisch zur Aktivitätszeile auf
+                                                         `⚡forge.blade.php` — es ist derselbe Strom,
+                                                         nur auf ein Repository verengt. Die Herleitung
+                                                         steht dort (Kurzfassung: `flux:badge` rendert
+                                                         ein `<div>`, und ein `<div>` in einem `<p>`
+                                                         schließt das `<p>` beim Parsen vorzeitig). --}}
+                                                    <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                                                        {{-- KURZ in der Zeile, VOLL im Tooltip —
+                                                             Begründung in `⚡forge.blade.php`. --}}
+                                                        <span x-text="row.timeLabel" x-bind:title="row.fullLabel"></span>
+                                                        <template x-if="row.badge">
+                                                            <flux:badge size="sm" class="bg-brand-500/10 font-semibold tracking-tight text-brand-800 dark:bg-brand-500/10 dark:text-brand-300"
+                                                                        x-text="row.badge" />
+                                                        </template>
+                                                        <template x-if="row.statusLabel">
+                                                            <flux:badge size="sm" x-text="row.statusLabel" />
                                                         </template>
                                                     </div>
-                                                </li>
+                                                    <template x-if="row.body">
+                                                        <p class="forge-mass mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300" x-text="row.body"></p>
+                                                    </template>
+                                                    </flux:timeline.content>
+                                                </flux:timeline.item>
                                             </template>
-                                        </ol>
+                                        </flux:timeline>
+                                        </div>
                                     </section>
                                 </template>
                             </div>

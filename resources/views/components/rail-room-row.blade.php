@@ -104,7 +104,7 @@
     <span x-data="{ imgOrig: false, imgBroken: false }"
           class="relative inline-flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md">
         <template x-if="!room.picture || imgBroken">
-            <span aria-hidden="true" class="font-mono text-sm text-muted">#</span>
+            <span aria-hidden="true" class="text-sm text-muted">#</span>
         </template>
         <template x-if="room.picture && !imgBroken">
             <img alt="" class="size-full object-cover"
@@ -120,7 +120,7 @@
          die man mit einem Blick scannt. Ausgeblendet, sobald ein Land gescopt ist —
          in einer Liste, die nur 🇩🇪 enthält, trägt 🇩🇪 keine Information. --}}
     <span x-show="roomFlag(room) && !scope.country" x-cloak aria-hidden="true"
-          class="shrink-0 text-[0.875rem] leading-none" x-text="roomFlag(room)"></span>
+          class="shrink-0 text-sm leading-none" x-text="roomFlag(room)"></span>
 
     <flux:icon.lock-closed x-show="room.locked" x-cloak variant="micro" aria-hidden="true"
                            class="size-3.5 shrink-0 text-muted" />
@@ -154,6 +154,6 @@
      Suchwort nicht vorkommt — und traut der Suche nicht mehr. Erscheint NUR im
      Trefferfall; im Ruhezustand wäre es eine zweite Textspalte in 280px. --}}
 <template x-if="cityHint(room)">
-        <div class="-mt-0.5 mb-0.5 ps-9 text-[0.7rem] text-muted" x-text="cityHint(room)"></div>
+        <div class="-mt-0.5 mb-0.5 ps-9 text-xs text-muted" x-text="cityHint(room)"></div>
     </template>
 </div>

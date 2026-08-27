@@ -52,8 +52,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
       · Titel     16 px / 600 / `leading-snug`   — Primärebene jeder übrigen Karte
       · Fließtext 14 px / 400 / `leading-normal` — Teaser, `text-muted`
       · Auszeichnung 12 px / 500–600            — Byline, Datum, Lesezeit, Plakette
-    KEIN `font-mono`: `--font-mono` ist im Theme gar nicht definiert (`theme.css` setzt
-    nur `--font-sans`), jedes `font-mono` zöge still eine zweite Schriftfamilie. Zahlen
+    KEIN `font-mono` — aber nicht aus dem Grund, der hier bis 2026-08-26 stand: die
+    Variable ist NICHT undefiniert. Tailwind v4 liefert `--font-mono` selbst mit; das
+    Haus überschreibt nur `--font-sans`. Genau deshalb zöge `font-mono` still eine
+    zweite Schriftfamilie herein. Zahlen
     bekommen `tabular-nums`.
 
     FARBE. Fünf Rollen, alle aus dem Haus-Token-Satz — kein neuer Hex-Wert:

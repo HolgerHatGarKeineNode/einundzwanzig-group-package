@@ -74,10 +74,30 @@ import { readVorgang, tabForVorgang, withVorgang, type VorgangArt, type VorgangZ
 // wiederholt. Der Modulkopf dort führt aus, warum sie schon zweimal steht (CSS und
 // Store) und dass ein auseinanderlaufendes Paar ein stiller Fehler wäre — ein
 // drittes Paar wäre derselbe Fehler noch einmal.
-import { DESKTOP_QUERY } from './viewport.ts'
+import { DESKTOP_QUERY, type ViewportForm as ForgeForm } from './viewport.ts'
 import { buildActivity, type ActivityItem } from './forgeActivity.ts'
-import { diffStat, parseUnifiedDiff, patchBody, type DiffStat, type ParsedDiff } from './forgeDiff.ts'
-import { filterRepos } from './forgeSearch.ts'
+import {
+    EMPTY_DIFF,
+    diffStat,
+    parseUnifiedDiff,
+    patchBody,
+    type DiffStat,
+    type ParsedDiff,
+} from './forgeDiff.ts'
+// Rein und ohne Netz: WOHER der Diff eines Pull Requests käme, und wann gar
+// nicht. Das Holen selbst steht im lazy geladenen `gitBrowser.ts`.
+import { baueDiff, prDiffQuelle, type PrDiffQuelle } from './forgePrDiff.ts'
+import type { PrDiffFehler } from './gitBrowser.ts'
+import { filterRepos, sucheVorgaenge } from './forgeSearch.ts'
+import {
+    FORGE_LIST_LIMIT,
+    FORGE_ROOT_LIMIT,
+    TOMBSTONE_CHUNK,
+    contentFilters,
+    overviewFilters,
+    repoContentFilters,
+    tombstoneFilters,
+} from './forgeAbfragen.ts'
 // NUR die REINEN Helfer statisch — `gitBrowser.ts` wird dynamisch geladen,
 // sonst läge `isomorphic-git` (84 kB gzip) im Chunk, den jede Seite zieht.
 import {
@@ -124,13 +144,18 @@ import {
     buildRepos,
     foldRepoState,
     gruppiereNachRepo,
+    kurzeCommits,
     isPubkey,
     maintainerLookupFor,
+    repoAddressOf,
+    shortCommitId,
     reviewerRows,
     truncatedLists,
     unclaimedRepos,
+    verwandteRepos,
     type ForgeEvent,
     type Issue,
+    type MergeInfo,
     type Patch,
     type Project,
     type PullRequest,
@@ -168,12 +193,12 @@ import {
 
 // ── Grenzen ─────────────────────────────────────────────────────────────────
 
-/** Obergrenze der Bestandslisten. Buzz deckelt selbst auf `max_limit: 1000`. */
-export const FORGE_LIST_LIMIT = 500
-/** Obergrenze für Issues und PRs je Repo (wie im Referenzclient). */
-export const FORGE_ROOT_LIMIT = 200
-/** Höchstzahl `#a`-Werte je Grabstein-Anfrage. */
-export const TOMBSTONE_CHUNK = 100
+/**
+ * Die Deckel und die Relay-Filter liegen seit P7 in `forgeAbfragen.ts` — rein
+ * und damit prüfbar. Hier bleiben sie als Re-Export stehen, weil sie zur
+ * Aussenseite dieser Datei gehören; die Definition steht genau einmal.
+ */
+export { FORGE_LIST_LIMIT, FORGE_ROOT_LIMIT, TOMBSTONE_CHUNK } from './forgeAbfragen.ts'
 /** Wie viele Zeilen die Zeitleiste höchstens zeigt (wie im Referenzclient: 30). */
 export const ACTIVITY_LIMIT = 50
 
@@ -204,45 +229,13 @@ export const decodeRepoNaddr = (naddr: string): { owner: string; dtag: string } 
 }
 
 // ── Filter ──────────────────────────────────────────────────────────────────
-
-/** Repos, Projekte und Branch-Zustände — der Bestand der Übersichtsseite. */
-const overviewFilters = (relaySelf: string): Filter[] => [
-    { kinds: [REPO_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
-    { kinds: [PROJECT_ANNOUNCEMENT], limit: FORGE_LIST_LIMIT },
-    // Der `authors`-Filter ist hier die eigentliche Aussage: siehe Eigenheit 1
-    // im Modulkopf. Ohne bekanntes `self` bleibt er weg — dann liefert der Relay
-    // alle 30618 und `foldRepoState` sortiert die unberechtigten selbst aus.
-    relaySelf
-        ? { kinds: [REPO_STATE], authors: [relaySelf], limit: FORGE_LIST_LIMIT }
-        : { kinds: [REPO_STATE], limit: FORGE_LIST_LIMIT },
-]
-
-/** Issues, PRs, PR-Updates, Statuswechsel und Kommentare zu gegebenen Repos. */
-const contentFilters = (addresses: string[]): Filter[] =>
-    addresses.length === 0
-        ? []
-        : [
-              { kinds: [GIT_ISSUE], '#a': addresses, limit: FORGE_ROOT_LIMIT },
-              // 1617 seit dem 2026-08-23 (P5). Eigener Filter statt eines
-              // gemeinsamen mit 1621/1618: `limit` gilt je Filter, und ein
-              // geteiltes Budget liesse die eine Art die andere verdraengen.
-              { kinds: [GIT_PATCH], '#a': addresses, limit: FORGE_ROOT_LIMIT },
-              { kinds: [GIT_PULL_REQUEST], '#a': addresses, limit: FORGE_ROOT_LIMIT },
-              { kinds: [GIT_PR_UPDATE], '#a': addresses, limit: FORGE_LIST_LIMIT },
-              { kinds: [...GIT_STATUS_KINDS], '#a': addresses, limit: FORGE_LIST_LIMIT },
-              // Eigenheit 2: kind 1, nicht 1111.
-              { kinds: [FORGE_COMMENT], '#a': addresses, limit: FORGE_LIST_LIMIT },
-          ]
-
-/** Grabsteine, gescopet über `#a` (Eigenheit 3). */
-const tombstoneFilters = (addresses: string[]): Filter[] => {
-    const filters: Filter[] = []
-    for (let i = 0; i < addresses.length; i += TOMBSTONE_CHUNK) {
-        filters.push({ kinds: [DELETION], '#a': addresses.slice(i, i + TOMBSTONE_CHUNK) })
-    }
-
-    return filters
-}
+//
+// Die Relay-Filter selbst stehen seit P7 in `forgeAbfragen.ts` — rein, ohne
+// welshman und damit unter `node --test` prüfbar. Hier stand bis dahin nur EIN
+// Zuschnitt (`contentFilters` über alle Repo-Adressen), und die Detailseite
+// benutzte ihn mit: ein Repo konnte auf seiner eigenen Seite Issues fehlen
+// sehen, weil ein anderes das gemeinsame `limit` aufgebraucht hatte. Der
+// repo-gescopte Gegenzuschnitt ist `repoContentFilters`.
 
 /**
  * Der lokale Filter über den geteilten `repository`.
@@ -1156,7 +1149,21 @@ export type IssueRow = Omit<Issue, 'comments'> & {
     comments: CommentRow[]
 }
 
-export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & {
+/**
+ * Die gekürzten Formen der 1631-Commits — anzeigefertig (P7/2).
+ *
+ * Dieselbe Begründung wie bei `shortCommit`: die Fläche zeigt überall sieben
+ * Stellen, und `commit.slice(0, 7)` im Markup wäre eine achte Kopie derselben
+ * Regel — dort ohne die Formprüfung, die aus `["merge-commit","master"]`
+ * sonst eine Pille namens „master" machte. Die vollen Ids stehen daneben
+ * (`merge.mergeCommit`, `merge.appliedAsCommits`); wer verlinkt, nimmt die.
+ */
+export type MergeRow = {
+    shortMergeCommit: string
+    shortAppliedAsCommits: string[]
+}
+
+export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & MergeRow & {
     authorName: string
     timeLabel: string
     html: string
@@ -1181,7 +1188,7 @@ export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & {
  * kann jemand `git am` fuettern. Ein Modell, das nur das Geparste behielte,
  * naehme die einzige Handlung weg, fuer die es ein 1617 ueberhaupt gibt.
  */
-export type PatchRow = Omit<Patch, 'comments'> & {
+export type PatchRow = Omit<Patch, 'comments'> & MergeRow & {
     authorName: string
     timeLabel: string
     shortCommit: string
@@ -1201,11 +1208,33 @@ export type PatchRow = Omit<Patch, 'comments'> & {
     comments: CommentRow[]
 }
 
+/**
+ * Ein Repo mit derselben Historie (`euc`) — anzeigefertig (P7/3).
+ *
+ * **Bewusst „verwandt" und nicht „Fork":** siehe {@link verwandteRepos}. Aus
+ * dem `euc` folgt, dass zwei Repos dieselbe Wurzel haben, **nicht**, welches
+ * von welchem abstammt. Eine Fläche, die hier „Fork von X" schreibt, behauptet
+ * eine Richtung, die im Protokoll nicht steht.
+ */
+export type VerwandtesRepo = {
+    address: string
+    /** Ziel der Zeile: die Detailseite dieses Repos. */
+    naddr: string
+    name: string
+    ownerName: string
+}
+
 export type RepoView = {
     repo: RepoRow
     issues: IssueRow[]
     patches: PatchRow[]
     pullRequests: PullRequestRow[]
+    /**
+     * Repos mit demselben `euc`, ohne dieses selbst. Leer ist der Normalfall —
+     * und heißt „keins bekannt", nicht „keins vorhanden": gesehen wird nur, was
+     * dieser Workspace kennt.
+     */
+    verwandte: VerwandtesRepo[]
     /**
      * Dieselbe Tages-Gruppierung wie auf der Übersicht — aber OHNE Repo-Namen in
      * den Zeilen: hier ist er für alle derselbe und steht als Seitentitel über
@@ -1298,9 +1327,19 @@ const toCommentRow = (comment: { id: string; author: string; content: string; cr
     timeLabel: timeLabel(comment.createdAt),
 })
 
-const SHORT_HASH = 7
-const shortCommit = (commit: string): string =>
-    /^[0-9a-f]{7,64}$/i.test(commit) ? commit.slice(0, SHORT_HASH) : ''
+/**
+ * Kürzung UND Formprüfung kommen seit P7 aus `forgeModels.ts` — dieselbe Regel,
+ * die dort über `merge-commit` und `merge-base` entscheidet, und dort geprüft.
+ * Zwei Kopien wären zwei Gelegenheiten, sie auseinanderlaufen zu lassen
+ * (F1, 2026-08-24, `isPubkey`).
+ */
+const shortCommit = shortCommitId
+
+/** Die gekürzten 1631-Commits einer Wurzel — leer, solange kein 1631 vorliegt. */
+const mergeRow = (merge: MergeInfo): MergeRow => ({
+    shortMergeCommit: shortCommit(merge.mergeCommit),
+    shortAppliedAsCommits: kurzeCommits(merge.appliedAsCommits),
+})
 
 /** Ein einzelnes Repository mit seinen Issues, PRs und seiner Zeitleiste. */
 export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
@@ -1375,6 +1414,18 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
 
             return {
                 repo: row,
+                // `alleRepos` lag ohnehin vor (es beantwortet `dtagGeteilt`) —
+                // die Verwandtschaft kostet keine zusätzliche Abfrage, nur einen
+                // Durchlauf über eine Liste, die schon im Speicher steht.
+                verwandte: verwandteRepos(repo, alleRepos).map((andere) => ({
+                    address: andere.address,
+                    // Mit Relay-Hinweis wie an den beiden anderen Fundstellen:
+                    // ein `naddr`, den jemand aus der App kopiert, soll auch in
+                    // einem fremden Client sagen, wo das Repo liegt (NIP-19).
+                    naddr: naddrForRepo(andere.owner, andere.dtag, WORKSPACE_URL ? [WORKSPACE_URL] : []),
+                    name: andere.name,
+                    ownerName: nameOf(andere.owner),
+                })),
                 issues: issues.map((issue) => ({
                     ...issue,
                     authorName: nameOf(issue.author),
@@ -1388,6 +1439,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     authorName: nameOf(patch.author),
                     timeLabel: timeLabel(patch.createdAt),
                     shortCommit: shortCommit(patch.commit),
+                    ...mergeRow(patch.merge),
                     diff: parseDiffMemo(patch.id, patch.content),
                     stat: diffStat(parseDiffMemo(patch.id, patch.content)),
                     // KLARTEXT, nicht gerendert — siehe `patchBody` in `forgeDiff.ts`.
@@ -1400,6 +1452,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     timeLabel: timeLabel(pr.createdAt),
                     html: renderMarkdown(pr.id, pr.content),
                     shortCommit: shortCommit(pr.commit),
+                    ...mergeRow(pr.merge),
                     // Erst die reine Zuordnung (Reviewer → Entscheidung), dann
                     // die Namen darauf. Zwei Schritte, weil der erste ohne
                     // Browser prüfbar ist und der zweite nicht.
@@ -1513,6 +1566,71 @@ export const loadForge = async (relaySelf: string, signal?: AbortSignal): Promis
     const rest = await load({
         relays: [WORKSPACE_URL],
         filters: [...content, ...tombstoneFilters(addresses), ...tombstoneFiltersForCached(content)],
+        signal,
+    })
+    warm(rest)
+
+    return { complete, count: base.length + local.length + rest.length }
+}
+
+/**
+ * Bestand für **eine** Repo-Seite laden — der Ladeweg der Detailfläche (P7/1).
+ *
+ * Unterschied zu {@link loadForge} in genau einem Punkt, und der ist der ganze
+ * Zweck: die **zweite** Runde fragt nur nach diesem einen Repo
+ * ({@link repoContentFilters}). `FORGE_ROOT_LIMIT` ist damit dieses Repos
+ * eigenes Budget; kein Nachbar kann es aufbrauchen. Vorher lief hier
+ * `loadForge`, also derselbe workspace-weite Zuschnitt wie auf der Übersicht —
+ * bei einem aktiven Nachbarn zeigte die Seite still eine gekürzte Liste.
+ *
+ * **Die erste Runde bleibt global, und das ist kein Versehen.** Diese Fläche
+ * braucht den Repo-BESTAND, nicht nur ihr eigenes Announcement: `deriveRepoView`
+ * entscheidet daran, ob ein zweites sichtbares Repo denselben `d`-Tag trägt (N1,
+ * dann ist ein relay-signierter Branch-Zustand nicht zuzuordnen), und seit P7/3
+ * findet sie darüber die Repos mit gleichem `euc`. Runde 1 kostet drei Filter
+ * mit `limit: 500` und trägt keinen `#a`-Deckel — sie war nie das Problem.
+ *
+ * **Die Adresse kommt aus dem `naddr`, nicht aus Runde 1.** Sie ist darin
+ * vollständig enthalten (`kind:pubkey:d`), und das schliesst nebenbei die Lücke,
+ * an der {@link loadForge} bei leerem Rückgabewert die zweite Runde ganz
+ * ausliess (siehe {@link localForgeEvents}): hier gibt es nichts abzuleiten.
+ */
+export const loadRepoDetail = async (
+    naddr: string,
+    relaySelf: string,
+    signal?: AbortSignal,
+): Promise<ForgeLoadOutcome> => {
+    const ziel = decodeRepoNaddr(naddr)
+    if (!WORKSPACE_URL || !ziel) {
+        return NOT_ASKED
+    }
+    await ensureRenderer().catch(() => {
+        // Ohne Renderer bleibt der Text roh — die Liste selbst trägt trotzdem.
+    })
+    await forgeCacheReady()
+
+    let complete = false
+    const overview = overviewFilters(relaySelf)
+    const base = await load({
+        relays: [WORKSPACE_URL],
+        filters: overview,
+        signal,
+        onEose: () => {
+            complete = true
+        },
+    })
+    warm(base)
+
+    const local = localForgeEvents(overview)
+    if (signal?.aborted) {
+        return { complete, count: base.length + local.length }
+    }
+
+    const address = repoAddressOf(ziel.owner, ziel.dtag)
+    const content = repoContentFilters(address)
+    const rest = await load({
+        relays: [WORKSPACE_URL],
+        filters: [...content, ...tombstoneFilters([address]), ...tombstoneFiltersForCached(content)],
         signal,
     })
     warm(rest)
@@ -1700,8 +1818,15 @@ type ForgeState = {
      *
      * Das ist NICHT dasselbe wie „breiter als xl": im App-Host gibt es kein
      * Desktop-Chassis, dort bleiben die Tabs auf jeder Breite stehen (ein iPad Pro
-     * quer misst 1366 CSS-px). Gemessen wird deshalb der GERENDERTE Zustand der
-     * Tab-Leiste, nicht die Fensterbreite — siehe `_messeSpalten`.
+     * quer misst 1366 CSS-px).
+     *
+     * **Bis P2 (2026-08-26) las diese Insel den gerenderten `display` der
+     * Tab-Leiste zurück** (`getComputedStyle(leiste).display === 'none'`) und
+     * begründete das damit, der Store kenne „nur die BREITE". Die Beobachtung war
+     * richtig, die Behebung falsch: statt die Quelle zu reparieren, fragte die
+     * Insel ihre eigene Ausgabe. Seit P2 hat der Store drei Werte
+     * (`$store.viewport.form`), und `web-breit` ist genau diese Frage —
+     * Host UND Breite, an einer Stelle abgeleitet.
      */
     zweispaltig: boolean
     overview: ForgeOverview
@@ -1714,8 +1839,6 @@ type ForgeState = {
     /** Meldet den `matchMedia`-Listener der xl-Schwelle wieder ab. */
     _unsubBreite: (() => void) | null
     _relaySelf: string
-    /** Liest am DOM ab, ob die Tab-Leiste ausgeblendet ist, und setzt `zweispaltig`. */
-    _messeSpalten(): void
     /**
      * Eine der drei Listen anfordern — aus einer Bestandskachel oder aus dem
      * Segment-Umschalter. Setzt den Tab UND den Fokus.
@@ -1742,6 +1865,14 @@ type ForgeState = {
     sichtbareRepos(): RepoRow[]
     /** Steht eine Suche an, die nichts gefunden hat? */
     ohneTreffer(): boolean
+    /**
+     * Wie viele Zeilen die aktive Liste NACH der Suche zeigt — ohne Scope.
+     *
+     * Getrennt von {@link sichtbareAnzahl}, weil {@link ohneTreffer} eine
+     * Aussage ÜBER DIE SUCHE macht. Zählte sie den Scope mit, stünde
+     * „Suche zurücksetzen" unter einer Liste, die der Scope geleert hat.
+     */
+    _sucheTreffer(): number
     /** Der angemeldete Pubkey — `''` heisst: nicht angemeldet. */
     viewer: string
     _unsubViewer: (() => void) | null
@@ -1760,10 +1891,18 @@ type ForgeState = {
     sichtbareAnzahl(): number
     /** Wie viele es ohne Suche und Scope wären — die Bezugsgrösse daneben. */
     gesamtAnzahl(): number
-    /** Scope und Sortierung innerhalb der Repo-Gruppen anwenden. */
+    /** Suche, Scope und Sortierung innerhalb der Repo-Gruppen anwenden. */
     _gefilterteGruppen(gruppen: VorgangGruppe[]): VorgangGruppe[]
     /** Suchfeld leeren. */
     sucheLoeschen(): void
+    /**
+     * Die fünf Texte der Suche für die AKTIVE Liste (P7b).
+     *
+     * Ein Bündel und nicht fünf Methoden: sie gehören zusammen und würden sonst
+     * fünfmal dieselbe Weiche stellen — fünf Gelegenheiten, dass eine davon
+     * hängen bleibt und „Repositories durchsuchen" über einer Issue-Liste steht.
+     */
+    sucheHilfe(): { name: string; platzhalter: string; zahl: string; leer: string; felder: string }
     settled(): boolean
     counts(): ForgeCounts
     repoHref(row: { naddr: string }): string
@@ -1842,6 +1981,47 @@ export type CodeLage = {
     laedt: boolean
     fehler: string
 }
+
+/**
+ * Die Lage des PR-Diffs EINES Vorschlags (P7b).
+ *
+ * `quelle` ist die Antwort auf „woher käme er" und steht **ohne ein Byte Netz**
+ * fest ({@link prDiffQuelle}); erst `lage: 'laedt'` fasst das Netz an. Die
+ * Trennung ist der Grund, warum die Kostenansage VOR dem Download stehen kann
+ * und nicht danach: die Fläche weiß beim ersten Rendern schon, ob es überhaupt
+ * etwas zu holen gibt.
+ */
+export type PrDiffLage = {
+    /**
+     * `quelle` = die Ansage steht (oder die Auskunft, dass es nichts zu holen
+     * gibt) · `laedt` · `da` · `fehler`. Eine Maschine, kein Bündel Flags:
+     * „lädt UND Fehler" ist ein Zustand, den die Fläche nicht darstellen kann.
+     */
+    lage: 'quelle' | 'laedt' | 'da' | 'fehler'
+    quelle: PrDiffQuelle
+    diff: ParsedDiff
+    stat: DiffStat
+    fehler: PrDiffFehler | ''
+    fortschritt: Fortschritt | null
+    /**
+     * Die Spitze, für die dieser Diff gilt.
+     *
+     * Ein 1619 verschiebt `c` UND `merge-base` — ein danach noch angezeigter
+     * Diff gehörte zu einem Stand, den es nicht mehr gibt. Beim Neubau der Karte
+     * entscheidet dieses Feld, ob das geladene Ergebnis mit hinüberdarf.
+     */
+    _spitze: string
+}
+
+const leerePrDiffLage = (quelle: PrDiffQuelle): PrDiffLage => ({
+    lage: 'quelle',
+    quelle,
+    diff: EMPTY_DIFF,
+    stat: { files: 0, additions: 0, deletions: 0 },
+    fehler: '',
+    fortschritt: null,
+    _spitze: quelle.art === 'ladbar' ? quelle.spitze : '',
+})
 
 type ForgeRepoState = {
     loading: boolean
@@ -1928,6 +2108,45 @@ type ForgeRepoState = {
     _readmeLesen(): Promise<void>
     /** „12,3 MB" o. ä. — Zahl und Einheit getrennt gebildet. */
     groessenText(bytes: number): string
+    /**
+     * Der PR-Diff je Wurzel-Id (P7b) — **eine Zustandsmaschine je Vorschlag.**
+     *
+     * Nicht EIN Zustand für die Seite: zwei aufgeklappte Pull Requests sind der
+     * Normalfall, und ein geteilter Zustand zeigte dem einen den Diff des
+     * anderen. Die Karte wird bei jedem `view`-Emit neu gebildet und trägt
+     * geladene Diffs mit hinüber — außer die Spitze hat sich bewegt.
+     */
+    prDiff: Record<string, PrDiffLage>
+    /** Läuft gerade ein Download, dann seine Abbruchleine. Je Wurzel-Id eine. */
+    _prDiffAbbruch: Record<string, AbortController>
+    /** Startet den Download. Nur auf ausdrücklichen Klick — die Ansage steht davor. */
+    prDiffLaden(pr: { id: string }): Promise<void>
+    prDiffAbbrechen(pr: { id: string }): void
+    /** Der übersetzte Satz zum Fehlercode dieses Vorschlags. */
+    prDiffFehlerText(pr: { id: string }): string
+    /** Die Lage dieses Vorschlags — nie `undefined`, damit das Markup nichts abfangen muss. */
+    prDiffVon(pr: { id: string }): PrDiffLage
+    /** Baut {@link prDiff} aus dem neuen `view` — geladene Diffs überleben, veraltete nicht. */
+    _prDiffKarteNeu(view: RepoView | null): void
+    /**
+     * Der Text im Suchfeld der Detailseite (P7b). EIN Zustand für alle drei
+     * Vorgangsreiter: es tippt immer nur einer, und drei Felder mit drei
+     * Zuständen wären drei Wahrheiten über dieselbe Frage.
+     */
+    suche: string
+    sichtbareIssues(): RepoView['issues']
+    sichtbarePulls(): RepoView['pullRequests']
+    sichtbarePatches(): RepoView['patches']
+    /** Wie viele Vorgänge der aktive Reiter OHNE Suche hätte. */
+    vorgaengeGesamt(): number
+    /** Wie viele nach der Suche übrig sind. */
+    vorgaengeSichtbar(): number
+    /** Der zugängliche Name des Suchfelds — folgt dem Reiter. */
+    detailSucheName(): string
+    /** Die Zählzeile („:count von :total …") — folgt dem Reiter. */
+    detailSucheZahl(): string
+    /** Der Satz über null Treffern — folgt dem Reiter. */
+    detailSucheLeer(): string
     _naddr: string
     _dead: boolean
     _controller: AbortController | null
@@ -2125,25 +2344,6 @@ export function wireForge(Alpine: {
             _tabAusAdresse: new URLSearchParams(window.location.search).has(FORGE_TAB_PARAM),
             _relaySelf: '',
             /**
-             * Zweispaltig ist die Bühne genau dann, wenn die Tab-Leiste nicht
-             * gerendert wird — das ist die EINE Wahrheit, und sie steht im
-             * ausgelieferten CSS (`xl:hidden`, gesetzt nur im Web-Host).
-             *
-             * Warum nicht `$store.viewport.desktop`: der Store kennt nur die BREITE.
-             * Im App-Host ab 1280 px stünde er auf `true`, obwohl es dort weder Rail
-             * noch zweispaltige Bühne gibt — die Kanäle wären dann von keiner Fläche
-             * mehr erreichbar. Und warum nicht ein eigenes `matchMedia` mit eigener
-             * Schwelle: das wäre das dritte Literal derselben Zahl.
-             */
-            _messeSpalten() {
-                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
-                const leiste = wurzel?.querySelector('[data-forge-tabs]')
-                this.zweispaltig =
-                    !!leiste &&
-                    typeof window.getComputedStyle === 'function' &&
-                    window.getComputedStyle(leiste).display === 'none'
-            },
-            /**
              * `?tab=` ohne Tabs: in der zweispaltigen Form steht schon alles im Bild,
              * ein Umschalten gäbe es also nicht mehr zu tun. Ein geteilter Link darf
              * deshalb trotzdem nicht ins Leere zeigen — er wird zum SPRUNG.
@@ -2265,19 +2465,28 @@ export function wireForge(Alpine: {
                 })
 
                 // ── Ein- oder zweispaltig? ───────────────────────────────────────
-                // Einmal sofort (das CSS steht im `<head>`, also vor dem Alpine-Boot
-                // — `getComputedStyle` liefert hier schon den endgültigen Wert), und
-                // danach bei jedem Überschreiten der xl-Schwelle. `matchMedia` und
-                // nicht `resize`: der Browser meldet nur den Wechsel, kein Debounce
-                // nötig. Dieselbe Bauform wie `viewport.ts`.
-                this._messeSpalten()
+                // Gelesen, nicht zurückgemessen (P2, 2026-08-26). Hier stand ein
+                // `getComputedStyle` auf die Tab-Leiste: die Insel fragte ihre eigene
+                // Ausgabe, weil der Store die Frage nicht beantworten konnte. Er kann
+                // es jetzt — `form` trägt HOST und BREITE.
+                //
+                // Der `matchMedia`-Listener bleibt, aber er liest nur noch: das
+                // Alpine-`$store` ist von hier aus nicht reaktiv beobachtbar (diese
+                // Insel ist ein `Alpine.data`-Objekt, kein `x-effect`), also wird der
+                // abgeleitete Wert beim Schwellenwechsel nachgezogen. Die SCHWELLE
+                // steht dabei weiterhin nur an einer Stelle (`DESKTOP_QUERY`).
+                const formLesen = (): ForgeForm =>
+                    ((window as unknown as { Alpine?: { store: (n: string) => { form?: ForgeForm } } }).Alpine?.store(
+                        'viewport',
+                    )?.form ?? 'web-schmal')
+                const uebernehmen = (): void => {
+                    this.zweispaltig = formLesen() === 'web-breit'
+                }
+                uebernehmen()
                 const mql =
                     typeof window.matchMedia === 'function' ? window.matchMedia(DESKTOP_QUERY) : null
-                const beiWechsel = (): void => {
-                    this._messeSpalten()
-                }
-                mql?.addEventListener('change', beiWechsel)
-                this._unsubBreite = () => mql?.removeEventListener('change', beiWechsel)
+                mql?.addEventListener('change', uebernehmen)
+                this._unsubBreite = () => mql?.removeEventListener('change', uebernehmen)
 
                 // Der Sprung erst NACH dem ersten Alpine-Durchlauf: vorher trägt die
                 // Region noch `x-cloak` und hat weder Höhe noch Position, ein
@@ -2418,15 +2627,64 @@ export function wireForge(Alpine: {
 
                 return roh.reduce((n, gruppe) => n + gruppe.items.length, 0)
             },
+            _sucheTreffer() {
+                if (this.listeAktiv() === 'repos') {
+                    return filterRepos(this.overview.repos, this.suche).length
+                }
+                const roh =
+                    this.listeAktiv() === 'issues' ? this.overview.issueGroups : this.overview.pullGroups
+
+                return roh.reduce((n, gruppe) => n + sucheVorgaenge(gruppe.items, this.suche).length, 0)
+            },
+            /**
+             * Seit P7/4 gilt die Frage für die AKTIVE Liste, nicht mehr nur für
+             * die Repos: die Suche wirkt jetzt auf allen dreien. Vorher hätte
+             * eine leere Issue-Liste unter einer Suche kommentarlos dagestanden.
+             */
             ohneTreffer() {
-                return (
-                    this.suche.trim() !== '' &&
-                    this.overview.repos.length > 0 &&
-                    this.sichtbareRepos().length === 0
-                )
+                return this.suche.trim() !== '' && this.gesamtAnzahl() > 0 && this._sucheTreffer() === 0
             },
             sucheLoeschen() {
                 this.suche = ''
+            },
+            /**
+             * **Die Texte folgen der Liste, weil die Suche es seit P7a tut.**
+             *
+             * `sucheVorgaenge` filtert Issues und Pull Requests genauso wie
+             * `filterRepos` die Repositories — nur hiess das Feld weiterhin
+             * „Repositories durchsuchen" und die Zählzeile „:count von :total
+             * Repositories". Über einer Issue-Liste war beides schlicht falsch.
+             *
+             * Die durchsuchten FELDER sind ebenfalls verschiedene: bei einem
+             * Repo Name, Kennung, Beschreibung, Themen, Adressen und Maintainer
+             * (`repoHaystack`), bei einem Vorgang Titel, Rumpf, Labels, Autor
+             * und die, auf die gewartet wird (`vorgangHaystack`). Ein
+             * gemeinsamer Satz nennte für jede der beiden Listen Felder, die es
+             * dort nicht gibt.
+             */
+            sucheHilfe() {
+                if (this.listeAktiv() === 'repos') {
+                    return {
+                        name: t('Repositories durchsuchen'),
+                        platzhalter: t('Name, Thema, Clone-URL, Maintainer …'),
+                        zahl: t(':count von :total Repositories'),
+                        leer: t('Kein Repository passt dazu.'),
+                        felder: t(
+                            'Gesucht wird über Name, Kennung, Beschreibung, Themen, Clone- und Web-Adressen, Relays und Maintainer — als npub oder als Hex.',
+                        ),
+                    }
+                }
+                const issues = this.listeAktiv() === 'issues'
+
+                return {
+                    name: issues ? t('Issues durchsuchen') : t('Pull Requests durchsuchen'),
+                    platzhalter: t('Titel, Text, Label, Autor …'),
+                    zahl: issues ? t(':count von :total Issues') : t(':count von :total Pull Requests'),
+                    leer: issues ? t('Kein Issue passt dazu.') : t('Kein Pull Request passt dazu.'),
+                    felder: t(
+                        'Gesucht wird über Titel, Rumpftext, Labels, Verfasser und die Beteiligten, auf die gewartet wird — als npub oder als Hex.',
+                    ),
+                }
             },
             repoHref(row: { naddr: string }) {
                 return row.naddr ? `${this._base}/${row.naddr}` : ''
@@ -2466,13 +2724,27 @@ export function wireForge(Alpine: {
             pullGroups() {
                 return this._gefilterteGruppen(this.overview.pullGroups)
             },
+            /**
+             * Drei Stufen, und die Reihenfolge ist keine Geschmacksfrage:
+             * **Suche → Scope → Sortierung.** Erst was gemeint ist (Text), dann
+             * wessen es ist (Scope), dann in welcher Reihenfolge. Umgekehrt
+             * sortierte man Zeilen, die gleich wieder wegfallen.
+             *
+             * Die Suche ist seit P7/4 dabei. Vorher filterte das Feld
+             * ausschliesslich Repositories — auf den Reitern „Issues" und „Pull
+             * Requests" tat es sichtbar nichts, obwohl der Bestand im Speicher
+             * lag.
+             */
             _gefilterteGruppen(gruppen: VorgangGruppe[]) {
                 return gruppen
                     .map((gruppe) => ({
                         ...gruppe,
                         items: sortiereVorgaenge(
                             filtereVorgaenge(
-                                gruppe.items.map((row) => ({ ...row, assignees: row.wartetAuf })),
+                                sucheVorgaenge(gruppe.items, this.suche).map((row) => ({
+                                    ...row,
+                                    assignees: row.wartetAuf,
+                                })),
                                 this.scope,
                                 this.viewer,
                             ),
@@ -2491,6 +2763,9 @@ export function wireForge(Alpine: {
             klon: { lage: 'pruefe', name: '', html: '', text: '', fehler: '', fortschritt: null, commit: '', fremdUrl: '' },
             code: { pfad: '', eintraege: [], datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0, laedt: false, fehler: '' },
             speicher: { offen: false, klone: [], belegt: 0, kontingent: 0 },
+            prDiff: {},
+            _prDiffAbbruch: {},
+            suche: '',
             _klonAbbruch: null,
             loading: true,
             error: '',
@@ -2541,7 +2816,15 @@ export function wireForge(Alpine: {
              * eine Breite. Die Schwelle steht damit an genau einer Stelle
              * (`@container repo (min-width: 65rem)` in `theme.css`); eine Zahl hier
              * wäre ihr zweites Literal und liefe beim nächsten Umbau still
-             * auseinander. Dieselbe Bauform wie `_messeSpalten()` auf der Übersicht.
+             * auseinander.
+             *
+             * **Diese Rückmessung bleibt, und der Unterschied ist der Punkt:** sie
+             * fragt eine CONTAINER-Schwelle ab (`@container repo (min-width: 65rem)`),
+             * und die kennt das Fenster nicht — `matchMedia` kann sie prinzipiell
+             * nicht beantworten. Gefallen ist in P2 die Rückmessung der FENSTER-Breite
+             * der Übersicht, für die es eine Quelle gibt. „Geometrie bleibt bei
+             * Container-Queries, Chassis bei der einen Schwelle" ist die Hausregel
+             * dazu (`theme.css`).
              *
              * Warum überhaupt JavaScript: es gibt keine portable CSS-Regel, die ein
              * geschlossenes `<details>` aufzieht (`::details-content` ist jünger als
@@ -2697,6 +2980,12 @@ export function wireForge(Alpine: {
                 // das niemand mehr sehen wird.
                 this._klonAbbruch?.abort()
                 this._klonAbbruch = null
+                // Dasselbe für laufende PR-Diffs: sie holen Git-Objekte, und
+                // der Download läuft weiter, auch wenn die Seite weg ist.
+                for (const abbruch of Object.values(this._prDiffAbbruch)) {
+                    abbruch.abort()
+                }
+                this._prDiffAbbruch = {}
             },
             async _boot() {
                 if (!WORKSPACE_URL) {
@@ -2706,6 +2995,7 @@ export function wireForge(Alpine: {
                 }
                 this._unsub = deriveRepoView(this._naddr).subscribe((view: RepoView | null) => {
                     this.view = view
+                    this._prDiffKarteNeu(view)
                     // Der `buzz-channel` des Repos ist der Kanal, gegen den die
                     // Eignung geprüft wird — er kommt mit dem Repo herein, nicht
                     // mit dem Verzeichnis.
@@ -2744,7 +3034,14 @@ export function wireForge(Alpine: {
             },
             async _load() {
                 try {
-                    const outcome = await loadForge(this._relaySelf, this._controller?.signal)
+                    // Repo-gescopt (P7/1): `loadForge` stand hier bis zum
+                    // 2026-08-26 und teilte `FORGE_ROOT_LIMIT` mit jedem anderen
+                    // Repo des Workspace.
+                    const outcome = await loadRepoDetail(
+                        this._naddr,
+                        this._relaySelf,
+                        this._controller?.signal,
+                    )
                     if (this._dead) {
                         return
                     }
@@ -2951,6 +3248,205 @@ export function wireForge(Alpine: {
                 }
                 this.klon = { ...this.klon, lage: 'bereit', name: '', html: '', text: '', commit: '' }
                 await this.klonLaden()
+            },
+
+            // ── Der PR-Diff (P7b) ────────────────────────────────────────────
+            //
+            // Ein kind 1618 trägt seinen Diff NICHT bei sich — anders als ein
+            // 1617, dessen Unified Diff im `content` steht. Es nennt zwei
+            // Commit-Ids und eine clone-URL; was dazwischen liegt, weiß nur Git.
+            // Deshalb ist das hier ein zweiter, ANGESAGTER Ladeweg und keine
+            // Anzeige über vorhandene Daten.
+
+            _prDiffKarteNeu(view) {
+                if (!view) {
+                    return
+                }
+                const neu: Record<string, PrDiffLage> = {}
+                for (const pr of view.pullRequests) {
+                    const quelle = prDiffQuelle({
+                        cloneUrls: pr.cloneUrls,
+                        // Der Link im Fremdfall kommt aus den `web`-Tags des
+                        // REPOS: ein 1618 trägt keine.
+                        webUrls: view.repo.webUrls,
+                        commit: pr.commit,
+                        mergeBase: pr.mergeBase,
+                        workspaceUrl: WORKSPACE_URL,
+                    })
+                    const alt = this.prDiff[pr.id]
+                    const spitze = quelle.art === 'ladbar' ? quelle.spitze : ''
+                    // Ein geladener Diff darf mit hinüber — aber nur, wenn er
+                    // noch zu dieser Spitze gehört. Ein 1619 verschiebt `c` und
+                    // `merge-base`; der alte Diff zeigte dann einen Stand, den
+                    // es nicht mehr gibt.
+                    neu[pr.id] =
+                        alt && alt._spitze === spitze ? { ...alt, quelle } : leerePrDiffLage(quelle)
+                }
+                this.prDiff = neu
+            },
+
+            // ── Die Vorgangssuche der Detailseite (P7b) ──────────────────────
+            //
+            // Dieselben Regeln wie auf der Übersicht (`forgeSearch.ts`) und
+            // derselbe Grund: der Bestand dieses Repositories liegt seit P7a
+            // ohnehin vollständig und repo-gescopt im Speicher. Eine Relay-Suche
+            // wäre ein Roundtrip für Daten, die schon da sind — und sie könnte
+            // weniger (NIP-50 durchsucht Text, keine Pubkeys).
+
+            sichtbareIssues() {
+                return sucheVorgaenge(this.view?.issues ?? [], this.suche)
+            },
+            sichtbarePulls() {
+                return sucheVorgaenge(this.view?.pullRequests ?? [], this.suche)
+            },
+            sichtbarePatches() {
+                return sucheVorgaenge(this.view?.patches ?? [], this.suche)
+            },
+            vorgaengeGesamt() {
+                if (this.tab === 'issues') {
+                    return this.view?.issues.length ?? 0
+                }
+                if (this.tab === 'pulls') {
+                    return this.view?.pullRequests.length ?? 0
+                }
+
+                return this.tab === 'patches' ? (this.view?.patches.length ?? 0) : 0
+            },
+            vorgaengeSichtbar() {
+                if (this.tab === 'issues') {
+                    return this.sichtbareIssues().length
+                }
+                if (this.tab === 'pulls') {
+                    return this.sichtbarePulls().length
+                }
+
+                return this.tab === 'patches' ? this.sichtbarePatches().length : 0
+            },
+            detailSucheName() {
+                if (this.tab === 'pulls') {
+                    return t('Pull Requests durchsuchen')
+                }
+
+                return this.tab === 'patches' ? t('Patches durchsuchen') : t('Issues durchsuchen')
+            },
+            detailSucheZahl() {
+                if (this.tab === 'pulls') {
+                    return t(':count von :total Pull Requests')
+                }
+
+                return this.tab === 'patches'
+                    ? t(':count von :total Patches')
+                    : t(':count von :total Issues')
+            },
+            detailSucheLeer() {
+                if (this.tab === 'pulls') {
+                    return t('Kein Pull Request passt dazu.')
+                }
+
+                return this.tab === 'patches' ? t('Kein Patch passt dazu.') : t('Kein Issue passt dazu.')
+            },
+
+            prDiffVon(pr) {
+                return (
+                    this.prDiff[pr.id] ??
+                    leerePrDiffLage({ art: 'unvollstaendig', fehlt: 'beides' })
+                )
+            },
+
+            /**
+             * **Zwei der sechs Codes sind gar keine Fehler.** `spitze-fehlt`
+             * heißt: der Endpunkt kennt diesen Commit nicht — der Vorschlag
+             * kommt aus einem Fork, den NIP-34 ausdrücklich zulässt.
+             * `basis-fehlt` heißt: der Vergleichspunkt liegt tiefer, als dieser
+             * Client geholt hat, und tiefer zu holen kostet Datenvolumen. Beide
+             * bekommen deshalb einen Satz, der SAGT was ist, statt zu behaupten,
+             * etwas sei kaputt.
+             */
+            prDiffFehlerText(pr) {
+                const codes: Record<string, string> = {
+                    'nicht-angemeldet': 'Zum Laden musst du angemeldet sein — der Git-Zugang wird signiert (NIP-98).',
+                    'kein-zugriff': 'Der Relay hat den Zugriff abgelehnt. Entweder bist du kein Mitglied des Kanals, zu dem dieses Repository gehört, oder die Signatur ist abgelaufen.',
+                    netz: 'Der Git-Endpunkt war nicht erreichbar.',
+                    abgebrochen: 'Abgebrochen.',
+                    'spitze-fehlt': 'Dieser Git-Endpunkt kennt den vorgeschlagenen Stand nicht — er liegt in einer Kopie des Repositories, die hier nicht abrufbar ist.',
+                    'basis-fehlt': 'Der Vergleichspunkt liegt weiter zurück, als hier geholt wurde. Die Dateiliste lässt sich daraus nicht bilden.',
+                    unbekannt: 'Die Dateiliste liess sich nicht bilden.',
+                }
+                const fehler = this.prDiffVon(pr).fehler
+
+                return fehler ? t(codes[fehler] ?? codes.unbekannt) : ''
+            },
+
+            prDiffAbbrechen(pr) {
+                this._prDiffAbbruch[pr.id]?.abort()
+                delete this._prDiffAbbruch[pr.id]
+                const lage = this.prDiffVon(pr)
+                this.prDiff = {
+                    ...this.prDiff,
+                    [pr.id]: { ...lage, lage: 'quelle', fehler: '', fortschritt: null },
+                }
+            },
+
+            async prDiffLaden(pr) {
+                const repo = this.view?.repo
+                const lage = this.prDiffVon(pr)
+                if (!repo || lage.quelle.art !== 'ladbar' || lage.lage === 'laedt') {
+                    return
+                }
+                const quelle = lage.quelle
+                const abbruch = new AbortController()
+                this._prDiffAbbruch[pr.id] = abbruch
+                const setze = (teil: Partial<PrDiffLage>): void => {
+                    // Nur schreiben, solange DIESER Vorgang läuft: ein
+                    // abgebrochener Fetch feuert noch Fortschritte nach, und die
+                    // schrieben sonst über eine neue Lage.
+                    if (this._prDiffAbbruch[pr.id] === abbruch && !this._dead) {
+                        this.prDiff = { ...this.prDiff, [pr.id]: { ...this.prDiffVon(pr), ...teil } }
+                    }
+                }
+                setze({ lage: 'laedt', fehler: '', fortschritt: null })
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    const paare = await g.holePrDateipaare({
+                        url: quelle.url,
+                        owner: repo.owner,
+                        dtag: repo.dtag,
+                        basis: quelle.basis,
+                        spitze: quelle.spitze,
+                        signal: abbruch.signal,
+                        aufFortschritt: (f) => setze({ fortschritt: f }),
+                    })
+                    if (this._prDiffAbbruch[pr.id] !== abbruch || this._dead) {
+                        return
+                    }
+                    const diff = baueDiff(paare)
+                    setze({ lage: 'da', diff, stat: diffStat(diff), fortschritt: null })
+                } catch (error) {
+                    if (this._prDiffAbbruch[pr.id] !== abbruch || this._dead) {
+                        return
+                    }
+                    // Der eigene Code gewinnt gegen die Einordnung nach
+                    // Wortlaut: `spitze-fehlt` ist eine AUSKUNFT (der Tip liegt
+                    // in einem Fork), kein Netzfehler, und `ordneFehlerEin`
+                    // kennt ihn nicht.
+                    const eigen = (error as { code?: string } | null)?.code ?? ''
+                    const code: PrDiffFehler =
+                        eigen === 'spitze-fehlt' || eigen === 'basis-fehlt'
+                            ? eigen
+                            : ordneFehlerEin(error)
+                    // Den ORIGINALFEHLER protokollieren, nicht nur den Code —
+                    // dieselbe Begründung wie beim Klon.
+                    console.warn('[forge] PR-Diff fehlgeschlagen', code, error)
+                    setze(
+                        code === 'abgebrochen'
+                            ? { lage: 'quelle', fehler: '', fortschritt: null }
+                            : { lage: 'fehler', fehler: code, fortschritt: null },
+                    )
+                } finally {
+                    if (this._prDiffAbbruch[pr.id] === abbruch) {
+                        delete this._prDiffAbbruch[pr.id]
+                    }
+                }
             },
 
             // ── Code-Browser (P6) ────────────────────────────────────────────

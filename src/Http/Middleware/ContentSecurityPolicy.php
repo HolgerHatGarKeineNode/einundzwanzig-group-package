@@ -3,6 +3,7 @@
 namespace Einundzwanzig\Group\Http\Middleware;
 
 use Closure;
+use Einundzwanzig\Group\Chassis;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -31,7 +32,7 @@ class ContentSecurityPolicy
         //   fremder Angriffsvektor), und die CSP kollidiert mit dem Vite-HMR-Origin
         //   (separater Port, wechselnde public/hot). Die CSP ist Prod-Härtung;
         //   dort greift sie voll.
-        if (config('nativephp-internal.running') || app()->environment('local')) {
+        if (Chassis::istApp() || app()->environment('local')) {
             return $response;
         }
 

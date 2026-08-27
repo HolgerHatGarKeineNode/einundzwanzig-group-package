@@ -45,6 +45,62 @@
      Workspace mit Repos, aber ohne sichtbare Kanäle hatte `total === 0` und
      verschwand samt Baum. Eine Zahl, eine Bedingung, keine zwei Wahrheiten
      darüber, ob diese Sektion etwas enthält. --}}
+{{-- ══ WARUM HIER KEIN `flux:navlist.group` STEHT — drei Messungen ══════════════
+     Der Plan nannte diese Stelle die riskanteste des Umbaus, und zwar wegen des
+     ZUSTANDS: `ui-disclosure` hält Auf/Zu selbst, `nostrRail` hält es in `isOpen()`
+     und persistiert es. **Diese Sorge hat sich als unbegründet erwiesen.** Am
+     gebooteten Custom Element gemessen (`p6b-sonde-disclosure.log`):
+
+       · `el.value = true` klappt auf, setzt `data-open` und `aria-expanded="true"`
+         und feuert **ein** `input`-Ereignis — genau der Weg, den `x-model` nimmt.
+       · Ein Nutzerklick liefert dasselbe Ereignis; `lofi-disclosable-change` steigt
+         zusätzlich auf. Beobachtbar UND schreibbar, also **eine** Wahrheit möglich.
+
+     Die Zustandsfrage ist damit GELÖST, nicht blockiert. Abgelehnt wird aus einem
+     Grund, den der Plan nicht auf dem Zettel hatte — der KOPF:
+
+     1. **`heading` ist ein escapetes Skalar-Prop** (`{{ $heading }}`). Der Kopf der
+        Komponente ist ein `<button>` mit Chevron und Text, sonst nichts. Unser Kopf
+        trägt FÜNF Dinge: Klappknopf, den Namen als Link (`$headingHref`), den
+        Zähler, den Repo-Einstieg und „in dieser Gruppe suchen". Vier davon hätten
+        keinen Ort. Ein `<a>` im `<button>` wäre ungültiges HTML — die Begründung
+        steht unten an Ort und Stelle und gilt unverändert.
+     2. **`button()` ist `querySelector('button,ui-button')` — der ERSTE im Baum.**
+        Gemessen mit einem Kopf aus Link + Suchknopf + Klappknopf: `aria-controls`
+        und `aria-expanded` landeten am **Suchknopf**, und ein Klick darauf klappte
+        die Gruppe auf. Der Klappknopf bekam nichts. Bei UNSERER Reihenfolge träfe
+        es zufällig den richtigen — eine Zusage, die an der Reihenfolge im Markup
+        hängt und beim nächsten Umbau lautlos kippt.
+     3. **`details()` ist `lastElementChild`.** Steht nach dem Panel noch etwas, wird
+        DAS zum Panel: gemessen blieb der Inhalt sichtbar und das Fusselement
+        verschwand. Auch das lautlos.
+
+     Und eine tote Bindung als Nebenbefund, fürs Hausgedächtnis: **`hasAttribute('open')`
+     liest `ui-disclosure` genau einmal, im `boot()`.** Ein nachträgliches
+     `setAttribute('open','')` bewirkte gemessen **nichts** (Wert `false`, Panel
+     versteckt, 0 Ereignisse). `x-bind:open` bzw. `:expanded` wäre also dieselbe
+     Fehlerform wie `flux:icon ::variant` — sieht richtig aus, wirkt nie. Wer die
+     Komponente je einsetzt, bindet über `x-model`, nicht über das Attribut.
+
+     ── Ebenfalls geprüft und abgelehnt ──────────────────────────────────────────
+     · **`flux:navlist.item` für die Zeilen.** Unsere Zeilen tragen Pin, Stumm,
+       Ungelesen, Tiefe und den Repo-Bezug; die Komponente kennt Icon, Text und ein
+       Badge. Der Tausch verlöre Zustand, den die Zeile heute zeigt.
+     · **`flux:navlist.badge` für die Zähler.** Sie rendert eine gefüllte Fläche
+       (`bg-zinc-400/15`). In einer dichten Spalte wäre das je Gruppe und Sektion ein
+       zusätzliches Plättchen — MEHR Chrom, nicht weniger. Und P3 hat die Pille an
+       eine Rolle vergeben (Label); ein zweiter Träger derselben Form nähme ihr die
+       Unterscheidbarkeit. Die Zähler bleiben schlichte Ziffern.
+     · **`flux:separator` für die Haarlinien.** Gerechnet mit Negativkontrolle
+       (`p6b-trenner-kontrast.log`): Haus-Ton **1,26:1**, Flux **1,34:1**, beide weit
+       unter 3:1 — es ist eine Konsistenz-, keine Barrierefreiheitsfrage. Flux malt
+       mit ALPHA (`zinc-800/15`) statt mit dem einen Haus-Kantenton, den P4 gerade
+       erst durchgesetzt hat (genau ein Wert je Modus). Der Tausch brächte den
+       fünften Ton zurück und 0,08 Kontrastpunkte auf einer Zierlinie.
+
+     ÜBERNOMMEN wurde `flux:navlist` an der einen Stelle, an der sie einen
+     Mechanismus mitbringt: als `<nav>`-Landmark um die Gruppenliste
+     (`desktop-rail.blade.php`). --}}
 @php($present = 'groupTotal('.json_encode($group).') > 0')
 
 <template x-if="{{ $present }} || @js($group) === 'rooms'">
@@ -114,7 +170,7 @@
                                              x-bind:class="isOpen(@js($group)) ? 'rotate-90' : ''" />
                 </span>
                 @unless ($headingHref)
-                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider">{{ $label }}</span>
+                    <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-wider">{{ $label }}</span>
                 @endunless
             </button>
 
@@ -139,13 +195,13 @@
                         bei 19,7 px Höhe — SC 2.5.8 verlangt 24, und die
                         Abstands-Ausnahme greift nicht, das Chevron liegt 4 px daneben. --}}
                    class="pressable flex min-h-6 min-w-0 flex-1 items-center rounded text-start text-muted transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">
-                    <span class="min-w-0 truncate text-[0.7rem] font-semibold uppercase tracking-wider">{{ $label }}</span>
+                    <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-wider">{{ $label }}</span>
                 </a>
             @endif
 
             {{-- Bestand grau, immer. Bei ZUGEKLAPPTER Gruppe zusätzlich die
                  Ungelesen-Summe — der einzige Ort, an dem sie erscheint. --}}
-            <span class="shrink-0 font-mono text-[0.7rem] tabular-nums text-muted"
+            <span class="shrink-0 text-xs tabular-nums text-muted"
                   x-text="groupTotal(@js($group))"></span>
             <template x-if="!isOpen(@js($group))">
                 <x-group::unread-badge :count="'groupUnread(\''.$group.'\')'" size="sm" :sr="false" />
@@ -181,12 +237,12 @@
                             <button type="button" x-on:click="toggleCountry(c.country)"
                                     x-bind:aria-label="c.name + ' (' + c.count + ')'"
                                     x-bind:aria-pressed="scope.country === c.country ? 'true' : 'false'"
-                                    class="pressable inline-flex items-center gap-1 rounded-pill px-1.5 py-0.5 text-[0.7rem] transition-colors"
+                                    class="pressable inline-flex items-center gap-1 rounded-pill px-1.5 py-0.5 text-xs transition-colors"
                                     x-bind:class="scope.country === c.country
                                         ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
                                         : 'bg-zinc-100 text-muted hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700'">
                                 <span aria-hidden="true" x-text="c.flag"></span>
-                                <span class="font-mono tabular-nums" x-text="c.count"></span>
+                                <span class="tabular-nums" x-text="c.count"></span>
                             </button>
                         </template>
                     </div>
@@ -210,7 +266,7 @@
             </template>
 
             <template x-if="groupFor(@js($group)).pinned.length && (groupFor(@js($group)).sections.length || groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
-                <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
             </template>
 
             @if ($tree)
@@ -235,7 +291,7 @@
                 </template>
 
                 <template x-if="forgeRows.length && (groupFor(@js($group)).sections.length || groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
-                    <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                    <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
                 </template>
             @endif
 
@@ -264,10 +320,10 @@
                  trägt der Name. --}}
             <template x-for="sec in groupFor(@js($group)).sections" :key="sec.id">
                 <div class="mt-1">
-                    <p class="flex items-baseline gap-1 px-2 pb-0.5 text-[0.7rem] font-semibold text-muted">
+                    <p class="flex items-baseline gap-1 px-2 pb-0.5 text-xs font-semibold text-muted">
                         <span x-show="sec.icon" x-cloak aria-hidden="true" class="shrink-0" x-text="sec.icon"></span>
                         <span class="min-w-0 truncate" x-text="sec.name"></span>
-                        <span class="shrink-0 font-mono font-normal tabular-nums" x-text="sec.rooms.length"></span>
+                        <span class="shrink-0 font-normal tabular-nums" x-text="sec.rooms.length"></span>
                     </p>
                     <div class="space-y-px">
                         <template x-for="room in sec.rooms" :key="room.h">
@@ -282,7 +338,7 @@
                  Gruppe „Channels", `AppSidebar.tsx:731`) und brauchen dieselbe
                  Grenze, die auch die Angehefteten vom Rest trennt. --}}
             <template x-if="groupFor(@js($group)).sections.length && (groupFor(@js($group)).joined.length || groupFor(@js($group)).others.length)">
-                <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
             </template>
 
             <template x-for="room in groupFor(@js($group)).joined" :key="room.h">
@@ -293,7 +349,7 @@
                  bereits „nicht beigetreten". Ein zweites Sektionslabel brächte die
                  Achse zurück, die der Gruppenschnitt gerade entfernt hat. --}}
             <template x-if="groupFor(@js($group)).joined.length && groupFor(@js($group)).others.length">
-                <div class="my-1 border-t border-zinc-200/60 dark:border-zinc-800/60"></div>
+                <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
             </template>
 
             <template x-for="room in groupFor(@js($group)).others" :key="room.h">
@@ -304,13 +360,13 @@
                  Eine stille Kappung liest sich wie „mehr gibt es nicht". --}}
             <template x-if="groupFor(@js($group)).hiddenCount > 0">
                 <button type="button" x-on:click="scopeToGroup(@js($group))"
-                        class="pressable flex min-h-7 w-full items-center gap-1 rounded-tile px-2 text-start text-[0.7rem] text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+                        class="pressable flex min-h-7 w-full items-center gap-1 rounded-tile px-2 text-start text-xs text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
                     <span x-text="@js(__('Noch :count — tippen zum Filtern')).replace(':count', groupFor(@js($group)).hiddenCount)"></span>
                 </button>
             </template>
 
             <template x-if="!({{ $present }})">
-                <p class="px-2 py-1.5 text-[0.7rem] text-muted">{{ __('Kein Treffer in dieser Gruppe.') }}</p>
+                <p class="px-2 py-1.5 text-xs text-muted">{{ __('Kein Treffer in dieser Gruppe.') }}</p>
             </template>
         </div>
     </section>

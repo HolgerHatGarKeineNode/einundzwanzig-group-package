@@ -64,9 +64,30 @@
 
          Alle drei Literale (`pb-28`, `xl:pb-8`, `pb-8`) stehen weiterhin
          vollständig im Quelltext — Tailwind scannt Quelltext, ein
-         zusammengesetzter Klassenname entstünde im JIT nie. --}}
-    @php($nativeShell = config('nativephp-internal.running'))
-    <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-8 xl:pt-6 2xl:px-12 '.($chrome ? ($nativeShell ? 'pb-28' : 'pb-28 xl:pb-8') : 'pb-8')) }}>
+         zusammengesetzter Klassenname entstünde im JIT nie.
+
+         ── Das Seitenpolster wächst STETIG statt in Stufen (P2, 2026-08-26) ──
+         Hier standen zwei Stufen: `xl:px-8` und `2xl:px-12`. Die zweite machte
+         den Inhaltsdeckel NICHT-MONOTON — er FIEL um 31 px, wenn das Fenster
+         wuchs. Gemessen am gerenderten Element über 641 Breiten: 1535 px → 1151 px
+         Deckel, 1536 px → **1120 px**. Ursache ist arithmetisch und nicht subtil:
+         an der 2xl-Schwelle springt das Polster von 32 auf 48 px, die Spalte
+         wächst aber nur um 1 px mit.
+
+         `clamp(2rem, 2.5vw, 3rem)` trifft BEIDE bisherigen Endpunkte exakt
+         (bei 1280 px sind 2,5 vw genau 32 px, bei 1920 px genau 48 px) und
+         verbindet sie stetig. Die Ableitung des Deckels ist damit
+         `0,95 · Breite − Rail`, also überall positiv — Monotonie per
+         Konstruktion, nicht per Nachmessen. Bewacht in
+         `tests/e2e/desktop-schwelle.spec.ts` (Host-Repo), über alle 641 Breiten.
+
+         Unterhalb `xl` bleibt `px-4` als feste Zahl stehen, und das ist Absicht:
+         dort ist die Bühne durch `max-w-*` gedeckelt, ein mitwachsendes Polster
+         würde den Inhalt SCHRUMPFEN lassen, während das Fenster wächst — genau
+         der Fehler, der hier gerade repariert wird, nur eine Stufe tiefer
+         (gerechnet: 1024 px → 621 px, 1279 px → 608 px). --}}
+    @php($nativeShell = \Einundzwanzig\Group\Chassis::istApp())
+    <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-[clamp(2rem,2.5vw,3rem)] xl:pt-6 '.($chrome ? ($nativeShell ? 'pb-28' : 'pb-28 xl:pb-8') : 'pb-8')) }}>
         {{-- Ab xl bekommt der Seiteninhalt einen eigenen Deckel, statt die ganze
              Spaltenbreite zu füllen — eine Bühne ohne Deckel ist Slacks
              Lesbarkeitsfehler.

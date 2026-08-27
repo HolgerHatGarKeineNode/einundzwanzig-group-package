@@ -31,12 +31,17 @@ import assert from 'node:assert/strict'
 import { nip19 } from 'nostr-tools'
 import {
     filterRepos,
+    sucheVorgaenge,
     npubZuHex,
     repoHaystack,
     repoTrifft,
     repoTrifftBegriffe,
+    vorgangHaystack,
+    vorgangTrifft,
+    vorgangTrifftBegriffe,
     zerlegeAnfrage,
     type SearchableRepo,
+    type SearchableVorgang,
 } from './forgeSearch.ts'
 
 const OWNER = '0adf67475ccc5ca456fd3022e46f5d526eb0af6284bf85494c0dd7847f3e5033'
@@ -236,4 +241,103 @@ test('zerlegeAnfrage bereitet den Begriff EINMAL vor', () => {
     assert.equal(praefix?.alsNpub, true)
     assert.equal(wort?.hex, '')
     assert.equal(wort?.alsNpub, false, 'Ein gewöhnliches Wort darf den teuren Weg nicht auslösen.')
+})
+
+// ── P7/4 — Vorgänge (Issues, PRs, Patches) ─────────────────────────────────
+
+/**
+ * Bis zum 2026-08-26 durchsuchte das Suchfeld ausschliesslich Repositories. Auf
+ * den Reitern „Issues" und „Pull Requests" tat es sichtbar **nichts** — obwohl
+ * der Bestand längst im Speicher lag.
+ *
+ * Geprüft wird hier dasselbe wie oben und zusätzlich das, was nur bei Vorgängen
+ * auftritt: die workspace-weite Liste kennt **keinen Rumpf und keine Labels**
+ * (`renderMarkdown` über alle Vorgänge aller Repos wäre zu teuer), die
+ * Detailseite kennt beides. Was fehlt, darf nicht als leerer Text mitlaufen.
+ */
+const vorgang = (partial: Partial<SearchableVorgang> & { title: string }): SearchableVorgang => ({
+    id: partial.id ?? '9'.repeat(64),
+    title: partial.title,
+    author: partial.author ?? OWNER,
+    authorName: partial.authorName,
+    content: partial.content,
+    labels: partial.labels,
+    wartetAuf: partial.wartetAuf,
+})
+
+const VORGAENGE: SearchableVorgang[] = [
+    vorgang({ id: 'a'.repeat(64), title: 'Satzung als PDF exportieren', labels: ['verein', 'export'] }),
+    vorgang({ id: 'b'.repeat(64), title: 'Login bricht auf dem Telefon', content: 'Der Knopf reagiert nicht.' }),
+    vorgang({ id: 'c'.repeat(64), title: 'Mitgliedsbeitrag', author: MAINTAINER, authorName: 'Bob' }),
+    vorgang({ id: 'd'.repeat(64), title: 'Review erbeten', wartetAuf: [MAINTAINER] }),
+]
+
+test('Vorgangssuche: Titel, Label, Rumpf und Autorname sind Heuhaufen', () => {
+    const titel = (liste: SearchableVorgang[]) => liste.map((v) => v.title)
+
+    assert.deepEqual(titel(sucheVorgaenge(VORGAENGE, 'satzung')), ['Satzung als PDF exportieren'])
+    // `verein` steht NUR im Label — `export` stünde auch im Titel und bewiese
+    // damit nichts über die Labels. Eine Mutationsprobe hat genau das gezeigt:
+    // ohne Labels im Heuhaufen blieb der Test grün (M9, 2026-08-26).
+    assert.deepEqual(titel(sucheVorgaenge(VORGAENGE, 'verein')), ['Satzung als PDF exportieren'])
+    assert.deepEqual(titel(sucheVorgaenge(VORGAENGE, 'knopf')), ['Login bricht auf dem Telefon'])
+    assert.deepEqual(titel(sucheVorgaenge(VORGAENGE, 'bob')), ['Mitgliedsbeitrag'])
+})
+
+test('Vorgangssuche: mehrere Wörter sind ein UND, über Felder hinweg', () => {
+    assert.equal(vorgangTrifft(VORGAENGE[0], 'satzung verein'), true, 'Titel UND Label')
+    assert.equal(vorgangTrifft(VORGAENGE[0], 'satzung login'), false)
+})
+
+test('Vorgangssuche: über die Event-Id — der Anker der Zeile ist ihre gekürzte Form', () => {
+    assert.deepEqual(
+        sucheVorgaenge(VORGAENGE, 'bbbbbbbb').map((v) => v.title),
+        ['Login bricht auf dem Telefon'],
+    )
+})
+
+test('Vorgangssuche: der npub des Verfassers UND der des angefragten Reviewers treffen', () => {
+    // Beide Wege wie bei den Repos: eingefügter npub (Weg 1, dekodiert) und
+    // angetippter Präfix (Weg 2, kodiert). Beide müssen dasselbe finden.
+    for (const begriff of [MAINTAINER_NPUB, MAINTAINER_NPUB.slice(0, 14), MAINTAINER]) {
+        assert.deepEqual(
+            sucheVorgaenge(VORGAENGE, begriff).map((v) => v.title).sort(),
+            ['Mitgliedsbeitrag', 'Review erbeten'],
+            `Begriff: ${begriff}`,
+        )
+    }
+})
+
+test('Vorgangssuche: fehlende Felder laufen NICHT als leerer Text mit', () => {
+    // Der Fall der workspace-weiten Liste: kein Rumpf, keine Labels.
+    const schmal = vorgang({ title: 'Ohne Rumpf' })
+    assert.deepEqual(vorgangHaystack(schmal).includes(''), false)
+    // Und ein Begriff, der nur im Rumpf der ANDEREN Zeile steht, trifft sie nicht.
+    assert.equal(vorgangTrifft(schmal, 'knopf'), false)
+})
+
+test('Vorgangssuche: leere Anfrage — Filter gibt alles, Prüfung gibt nichts', () => {
+    // Dieselbe bewusste Asymmetrie wie bei den Repos: „nichts eingegeben" heisst
+    // beim Filtern „kein Filter" und beim Prüfen „keine Bedingung erfüllt".
+    assert.equal(sucheVorgaenge(VORGAENGE, '   ').length, 4)
+    assert.equal(vorgangTrifft(VORGAENGE[0], '   '), false)
+    assert.equal(vorgangTrifftBegriffe(VORGAENGE[0], []), false)
+})
+
+test('Vorgangssuche: die Reihenfolge bleibt, wie sie hereinkam', () => {
+    // Sortiert wird in `forgeFilter.ts`, und zwar NACH dieser Auswahl. Würde
+    // hier nach Güte umsortiert (Titel vor Rumpf, Volltreffer vor Teilstück),
+    // spränge die Liste beim Tippen.
+    //
+    // Die erwartete Reihenfolge steht LITERAL da und ist die der Eingabe —
+    // gegen `VORGAENGE.filter(...)` geprüft wäre es dieselbe Rechnung zweimal.
+    const rueckwaerts = [...VORGAENGE].reverse()
+    assert.deepEqual(
+        sucheVorgaenge(rueckwaerts, 'e').map((v) => v.id[0]),
+        ['d', 'c', 'b', 'a'],
+    )
+    assert.deepEqual(
+        sucheVorgaenge(VORGAENGE, 'e').map((v) => v.id[0]),
+        ['a', 'b', 'c', 'd'],
+    )
 })

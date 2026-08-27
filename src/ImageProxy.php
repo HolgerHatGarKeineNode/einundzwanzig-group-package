@@ -17,7 +17,7 @@ class ImageProxy
         if (! preg_match('#^https?://#i', $src)) {
             return $src;
         }
-        $base = config('nativephp-internal.running') ? self::HOST : '';
+        $base = Chassis::istApp() ? self::HOST : '';
 
         return $base.'/img/'.$preset.'?src='.rawurlencode($src);
     }

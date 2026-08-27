@@ -47,13 +47,13 @@
                      class="size-8 rounded-tile object-cover" />
             </template>
             <template x-if="!room.picture || imgBroken">
-                <span class="flex size-8 items-center justify-center rounded-tile bg-brand-500/10 font-mono text-base font-semibold text-brand-800 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
+                <span class="flex size-8 items-center justify-center rounded-tile bg-brand-500/10 text-base font-semibold text-brand-800 transition-colors group-hover:bg-brand-500/20 dark:text-brand-400">#</span>
             </template>
             {{-- Meetup-Marker: kleines Flaggen-Badge (aria-hidden — der Raumname trägt
                  die Info; Join lädt async → null-tolerant, Badge erscheint dann). --}}
             <template x-if="room.isMeetup && meetup(room.meetupSlug)?.flag">
                 <span aria-hidden="true"
-                      class="absolute -bottom-0.5 -end-0.5 rounded-full bg-white text-[0.7rem] leading-none ring-2 ring-white dark:bg-zinc-900 dark:ring-zinc-900"
+                      class="absolute -bottom-0.5 -end-0.5 rounded-full bg-white text-xs leading-none ring-2 ring-white dark:bg-zinc-900 dark:ring-zinc-900"
                       x-text="meetup(room.meetupSlug).flag"></span>
             </template>
         </span>

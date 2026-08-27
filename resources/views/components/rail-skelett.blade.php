@@ -42,15 +42,21 @@
      nicht bewegt.
 
      KEIN Text, kein einziges Zeichen. Der `#`-Prompt des echten Suchfelds fehlt hier
-     bewusst — er trägt dort `font-mono`, und `--font-mono` ist im Haus-Theme nicht
-     gesetzt (`theme.css` überschreibt nur `--font-sans`), Tailwind liefert seinen
-     eigenen Default. Das Zeichen käme also in einer ZWEITEN Schriftfamilie und
-     wechselte beim Austausch sichtbar die Form. Ein Befund am Bestand, kein Grund,
-     ihn zu vervielfältigen.
+     bewusst — ein Zeichen im Platzhalter behauptet Inhalt, den es noch nicht gibt.
+
+     KORRIGIERT (P6b, 2026-08-27): hier stand als Begründung, der Prompt trage
+     `font-mono` und `--font-mono` sei „im Haus-Theme nicht gesetzt". BEIDE Hälften
+     stimmen nicht mehr. Die Variable IST gesetzt — Tailwind v4 liefert sie selbst
+     mit, das Haus überschreibt nur `--font-sans` (in P4 am gebauten Stylesheet
+     nachgemessen, sieben Kommentare mit derselben Behauptung korrigiert). Und der
+     Prompt trägt seit P6b kein `font-mono` mehr: am gerenderten Baum stand er in
+     `ui-monospace`, während der Rest der Rail in `Inconsolata` läuft — eine zweite
+     Schriftfamilie für ein `#`. Der Grund, ihn hier NICHT zu vervielfältigen, bleibt
+     unverändert; nur trägt ihn jetzt die Platzhalter-Regel und kein Schriftbefund.
 
      ── Höhen kommen aus der TYPO, nicht aus Pixeln ─────────────────────────────────
      Die beiden Kopfzeilen reservieren ihre Höhe über die echten Textklassen
-     (`text-sm` → 20 px Zeilenbox, `text-[0.7rem]` → 16,8 px): der Balken liegt als
+     (`text-sm` → 20 px Zeilenbox, `text-xs` → 16,8 px): der Balken liegt als
      `inline-block` IN der Zeile und ändert sie nicht. Ändert jemand die Typo der
      Rail, folgt der Platzhalter — eine hart notierte `h-[16.8px]` täte das nicht.
 
@@ -58,18 +64,25 @@
      Am gerenderten Element abgeglichen (1440×900), Blockhöhen Kopf · Suchfeld · Liste
      · Fußzeile. Sie sind KONFIGURATIONSABHÄNGIG, und die erste Fassung dieses
      Docblocks hat genau das verschwiegen — sie schrieb „64,8 / 36 / 527,2 / 264"
+     (die Zahlen von damals, vor der Typo-Leiter)
      unbedingt hin, obwohl das nur für eine von drei Lagen stimmt:
 
        | Lage | Kopf | Suchfeld | Liste | Fußzeile |
        |---|---|---|---|---|
        | mit `workspace_url`, Space ungeladen | 60 | 36 | 532 | 264 |
        | ohne `workspace_url`, Space ungeladen | 60 | 36 | 570 | **226** |
-       | mit `workspace_url`, Space MIT Beschreibung | **64,8** | 36 | 527,2 | 264 |
+       | mit `workspace_url`, Space MIT Beschreibung | **64** | 36 | **528** | 264 |
 
      Die ersten beiden Lagen trifft der Platzhalter zahlengleich — er trägt dieselben
      Config-Bedingungen wie `desktop-rail.blade.php`. Die dritte kann er nicht
-     treffen: die Beschreibung ist ein Relay-Datum. Dort wächst der Kopf um 4,8 px,
-     die Liste gibt dieselben 4,8 px ab, Suchfeld und Fußzeile stehen still.
+     treffen: die Beschreibung ist ein Relay-Datum. Dort wächst der Kopf um 4 px,
+     die Liste gibt dieselben 4 px ab, Suchfeld und Fußzeile stehen still.
+
+     NACHGEZOGEN 2026-08-26 (P4, Typo-Leiter): der Betrag war 4,8 px, solange die
+     Beschreibungszeile `text-[0.7rem]` trug (Zeilenbox 16,8 px). Seit der
+     Zusammenlegung auf vier Schriftstufen trägt sie `text-xs` (16 px) — alle Höhen
+     dieser Fläche sind damit ganzzahlig, und die Grenze, ab der die Liste vollständig
+     federt, liegt bei glatt 380 px statt bei 380,8.
 
      **Quelle aller drei Zeilen:** `tests/e2e/desktop-boot-geometrie.spec.ts` misst sie
      bei jedem Lauf und hält jede als Literal fest — die zweite Lage über einen eigenen
@@ -129,7 +142,7 @@
          Titelzeile. Die Kopfhöhe wird damit vom Avatar bestimmt (32 px) und nicht vom
          Textblock, und das ist **die Untergrenze, die in jedem Fall gilt** — am
          gerenderten Element gemessen (1440×900): ohne Beschreibung 60 px, mit
-         Beschreibung 64,8 px.
+         Beschreibung 64 px (bis 2026-08-26: 64,8 px, siehe oben).
 
          Die Richtung ist gewählt, nicht übrig geblieben: der Platzhalter darf WACHSEN,
          wenn die Beschreibung eintrifft, aber nie SCHRUMPFEN. Ein Schrumpfen zöge den
@@ -137,7 +150,7 @@
          wie „da war etwas und ist weg". Die vorige Fassung reservierte beide Zeilen und
          hatte damit genau diesen Fehler in der häufigeren Richtung.
 
-         Was bleibt, sind 4,8 px Wachstum, sobald eine Beschreibung ankommt. Das ist
+         Was bleibt, sind 4 px Wachstum, sobald eine Beschreibung ankommt. Das ist
          Client-Datum und von keinem server-gerenderten Platzhalter einzufangen; es
          steht als Zahl im Test, damit es nicht stillschweigend wächst. --}}
     <div class="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-3">
@@ -192,7 +205,7 @@
                     <span class="inline-flex size-6 shrink-0 items-center justify-center">
                         <span class="skeleton size-3 rounded"></span>
                     </span>
-                    <div class="text-[0.7rem]"><span class="skeleton inline-block h-2 w-16 rounded-pill align-middle"></span></div>
+                    <div class="text-xs"><span class="skeleton inline-block h-2 w-16 rounded-pill align-middle"></span></div>
                 </div>
 
                 @foreach ($gruppe as $breite)

@@ -183,7 +183,7 @@
             <span x-data="{ imgOrig: false, imgBroken: false }"
                   class="relative inline-flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md">
                 <template x-if="!node.room.picture || imgBroken">
-                    <span aria-hidden="true" class="font-mono text-sm text-muted">#</span>
+                    <span aria-hidden="true" class="text-sm text-muted">#</span>
                 </template>
                 <template x-if="node.room.picture && !imgBroken">
                     <img alt="" class="size-full object-cover"
@@ -248,7 +248,7 @@
         <span class="flex min-w-0 flex-1 items-baseline gap-1">
             <span class="min-w-0 truncate"
                   x-bind:class="node.kind === 'project' || node.kind === 'forums'
-                      ? 'text-[0.7rem] uppercase tracking-wide'
+                      ? 'text-xs uppercase tracking-wide'
                       : 'text-sm'"
                   x-text="node.kind === 'issues' ? @js(__('Issues'))
                         : (node.kind === 'pulls' ? @js(__('Pull Requests'))
@@ -260,7 +260,7 @@
                  `aria-hidden`, weil der `aria-label` des Knopfes die Zahl schon
                  im ganzen Satz trägt — zweimal vorgelesen wäre sie Lärm. --}}
             <template x-if="node.count > 0">
-                <span aria-hidden="true" class="shrink-0 whitespace-nowrap font-mono text-[0.7rem] tabular-nums text-muted">·&nbsp;<span x-text="node.count"></span></span>
+                <span aria-hidden="true" class="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted">·&nbsp;<span x-text="node.count"></span></span>
             </template>
         </span>
 

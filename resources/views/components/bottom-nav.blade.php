@@ -38,11 +38,32 @@
      scrollendem Inhalt ist der klassische Mobile-WebView-Scroll-Killer (Blur wird
      pro Frame neu berechnet → Ruckeln/schwarze Flächen). Auf Native daher opaker
      Hintergrund ohne Blur. --}}
-@php($native = config('nativephp-internal.running'))
+@php($native = \Einundzwanzig\Group\Chassis::istApp())
 <nav
     aria-label="Hauptnavigation"
     @class([
-        'fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-zinc-200 px-2 pb-safe md:max-w-lg lg:max-w-2xl dark:border-zinc-800',
+        {{-- ── EINE stetige Breite statt dreier Schwellen (P5, aus P2/6) ─────────
+             Hier stand `max-w-md md:max-w-lg lg:max-w-2xl`: drei Viewport-Schwellen
+             an EINEM Bauteil, neben der einen Chassis-Schwelle `xl`. Am gebauten
+             Stand nachgemessen sprang die Bar dadurch zweimal — bei 768 px um
+             64 px (448 → 512) und bei 1024 px um **160 px** (512 → 672). Ein
+             Sprung dieser Größe in der Hauptnavigation ist keine Anpassung, den
+             sieht man.
+
+             `min(100%, clamp(28rem, 66vw, 42rem))` trifft beide alten Endwerte und
+             füllt den Weg dazwischen stetig: unter 678 px liegt die alte 28-rem-
+             Decke (und `min(100%,…)` gibt auf schmalen Geräten die volle Breite
+             frei), ab 1018 px die alte 42-rem-Decke. Die 66 vw sind aus den alten
+             Sprungpunkten gerechnet: 32rem/48rem = 66,7 %, 42rem/64rem = 65,6 %.
+
+             Eine Container-Query wäre hier FALSCH und nicht bloß unnötig: die Bar
+             ist `position: fixed`, ihr Bezugsrahmen IST das Ansichtsfenster —
+             und ein Vorfahre mit `container-type` würde sie sogar aus ihm
+             herausreissen. Die Hausregel „Geometrie über Container-Queries"
+             meint Flächen im Fluss; für ein fixiertes Element ist die
+             viewport-relative Einheit die richtige Antwort. Was hier fiel, sind
+             die SCHWELLEN, nicht die Bezugsgröße. --}}
+        'fixed inset-x-0 bottom-0 z-40 mx-auto w-[min(100%,clamp(28rem,66vw,42rem))] border-t border-zinc-200 px-2 pb-safe dark:border-zinc-800',
         'bg-zinc-50 dark:bg-zinc-950' => $native,
         'bg-zinc-50/90 backdrop-blur-md dark:bg-zinc-950/90' => ! $native,
         // Ab xl trägt der Navigator dieselben Ziele senkrecht — zwei Navigationen
