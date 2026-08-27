@@ -70,6 +70,7 @@ import {
     sortiereVorgaenge,
 } from './forgeFilter.ts'
 import { readVorgang, tabForVorgang, withVorgang, type VorgangArt, type VorgangZiel } from './forgeVorgang.ts'
+import { anlegeForm, type AnlegeForm } from './forgeAnlegen.ts'
 // Die xl-Schwelle kommt aus `viewport.ts` und wird hier NICHT als drittes Literal
 // wiederholt. Der Modulkopf dort führt aus, warum sie schon zweimal steht (CSS und
 // Store) und dass ein auseinanderlaufendes Paar ein stiller Fehler wäre — ein
@@ -2211,6 +2212,13 @@ type ForgeRepoState = {
     writeGate(): WriteGate
     writeHint(): string
     canWrite(): boolean
+    /**
+     * Welche der ZWEI Anlege-Bauformen steht (2026-08-27). Die Breite wird aus
+     * der Blade-Zeile hereingereicht (`$store.viewport.desktop`), damit die
+     * Lesung innerhalb des Alpine-Effekts stattfindet und beim Schwellenwechsel
+     * verfolgt wird — die Herleitung steht in `forgeAnlegen.ts`.
+     */
+    anlegeZiel(desktop: boolean): AnlegeForm
     toggleIssueDraft(): void
     submitIssue(): Promise<void>
     commentBusy(rootId: string): boolean
@@ -3745,15 +3753,40 @@ export function wireForge(Alpine: {
             canWrite() {
                 return this.writeGate().allowed
             },
+            anlegeZiel(desktop) {
+                return anlegeForm(desktop, this.tab, !!this.view)
+            },
             toggleIssueDraft() {
-                // Beim ÖFFNEN auf die Issue-Liste wechseln (P4). Der Knopf steht
-                // seither am Bildrand und ist auf jedem Reiter erreichbar — ohne
-                // diesen Wechsel legte ein Klick auf dem Code-Reiter ein Issue an,
-                // von dem danach nichts zu sehen wäre: die neue Zeile, ein
-                // abgelehnter Schreibversuch und die Weckmeldung stehen alle drei
-                // in dieser Liste. Nur beim Öffnen, nie beim Schließen — sonst
-                // risse ein Abbruch den Leser von seinem Reiter weg.
+                // ── Der Riegel im PFAD, nicht nur am Knopf ───────────────────
+                // Seit dem 2026-08-27 steht der Anlege-Knopf auch dann da, wenn
+                // dieser Mensch nicht schreiben darf — inert, mit dem Grund
+                // daneben (`writeHint()`), statt ersatzlos zu fehlen. Ein
+                // `aria-disabled` ist aber nur eine ANSAGE: das Element bleibt
+                // klickbar und mit der Tastatur auslösbar. Der Riegel muss
+                // deshalb hier liegen.
+                //
+                // Nur der ÖFFNEN-Weg ist verriegelt. Fiele `canWrite()` bei
+                // offenem Blatt um (Abmelden), verschlösse ein Riegel über der
+                // ganzen Funktion das Blatt für immer — die drei Schließwege
+                // (Kreuz, Abbrechen, Escape) laufen alle hier hindurch.
                 if (!this.issueDraft.open) {
+                    if (!this.canWrite()) {
+                        return
+                    }
+                    // Beim ÖFFNEN auf die Issue-Liste wechseln (P4). Das gilt
+                    // weiterhin, und zwar wegen der MOBILEN Form: der FAB steht
+                    // am Bildrand und ist auf jedem Reiter erreichbar — ohne
+                    // diesen Wechsel legte ein Klick auf dem Code-Reiter ein
+                    // Issue an, von dem danach nichts zu sehen wäre (die neue
+                    // Zeile, ein abgelehnter Schreibversuch und die Weckmeldung
+                    // stehen alle drei in dieser Liste).
+                    //
+                    // Für die DESKTOP-Form (`anlegeForm` → `kopf`) ist die Zeile
+                    // ein No-op: dieser Knopf steht ausschliesslich in der
+                    // Leiste über der Issue-Liste, `tab` ist dort bereits
+                    // `'issues'`. Sie bleibt trotzdem stehen — sie deckt die
+                    // andere Form, und eine Zuweisung des Wertes, der schon
+                    // dasteht, kostet nichts.
                     this.tab = 'issues'
                 }
                 this.issueDraft = { ...this.issueDraft, open: !this.issueDraft.open, error: '' }
@@ -4127,6 +4160,25 @@ export function wireForge(Alpine: {
                     this.pickMention(this.mention.items[this.mention.index]!)
                 } else if (event.key === 'Escape') {
                     event.preventDefault()
+                    // ── EIN Escape trägt GENAU EINE Schicht ab ──────────────
+                    // `stopPropagation` und nicht nur `preventDefault`: das
+                    // Issue-Blatt hört seit P4 selbst auf Escape
+                    // (`⚡forge-repo.blade.php`, `x-on:keydown.escape.prevent.stop`
+                    // am Blatt-Div). Ohne diese Zeile stieg dasselbe Ereignis
+                    // vom Textfeld dorthin auf und schloss das Blatt MIT — der
+                    // Entwurf war weg, weil jemand einen Vorschlag wegklicken
+                    // wollte.
+                    //
+                    // Der Frühausstieg oben trägt die andere Hälfte: steht kein
+                    // Vorschlag offen, läuft Escape durch und schliesst das
+                    // Blatt. Zwei Schichten, zwei Tastendrücke.
+                    //
+                    // **Regress aus P4 (`d0b88a2`, 2026-08-24).** Diese Funktion
+                    // ist vom 2026-08-23 und war bis dahin richtig: da gab es
+                    // den Escape-Horcher am Blatt noch nicht. Gefunden hat es
+                    // `buzz-agent-mention-form.spec.ts:377`, das seit P4 rot
+                    // stand — im buzz-Arm, der beim Merge nicht mitlief.
+                    event.stopPropagation()
                     this.closeMentions()
                 }
             },
