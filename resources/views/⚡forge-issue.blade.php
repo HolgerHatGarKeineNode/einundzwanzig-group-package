@@ -39,7 +39,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
     <div x-data="nostrForgeVorgang(@js($naddr), 'issue', @js($id))" data-forge-einzel="issue">
     <div class="page-enter">
 
-        @php($titelExpr = 'vorgang() ? (vorgang().title || '.json_encode(__('Ohne Titel')).') : '.json_encode(__('Issue')))
+        @php($titelExpr = 'vorgang() ? (\'#\' + shortId() + \' \' + (vorgang().title || '.json_encode(__('Ohne Titel')).')) : '.json_encode(__('Issue')))
 
         {{-- Zurück auf DIESE Repo-Seite — nicht auf die Forge-Übersicht: die
              Einzelansicht ist eine Ebene UNTER dem Repo (GitHub: issue → repo).

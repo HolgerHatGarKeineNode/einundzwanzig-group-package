@@ -32,7 +32,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
     <div x-data="nostrForgeVorgang(@js($naddr), 'pr', @js($id))" data-forge-einzel="pull">
     <div class="page-enter">
 
-        @php($titelExpr = 'vorgang() ? (vorgang().title || '.json_encode(__('Ohne Titel')).') : '.json_encode(__('Pull Request')))
+        @php($titelExpr = 'vorgang() ? (\'#\' + shortId() + \' \' + (vorgang().title || '.json_encode(__('Ohne Titel')).')) : '.json_encode(__('Pull Request')))
 
         <x-group::app-header :title="__('Pull Request')" :title-expr="$titelExpr"
                              :back="route('group.forge.repo', ['naddr' => $naddr])">
