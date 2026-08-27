@@ -37,6 +37,7 @@ import {
     addPending,
     approveGate,
     assignGate,
+    canAssignOthers,
     awaitValue,
     buildAssignmentTags,
     buildCommentTags,
@@ -495,6 +496,60 @@ test('assignGate: zu viele oder unbrauchbare Namen sind ein EIGENER Grund, nicht
     // KONTROLLE: die Selbstbedienungs-Regel bleibt unberührt — `[selbst, müll]`
     // ist weiterhin KEINE Selbstbedienung, sondern `not-actor`.
     assert.equal(assignGate(STRANGER, ISSUE, [STRANGER, 'kein-schluessel']).reason, 'not-actor')
+})
+
+// ── P10: die Auskunft VOR der ersten Wahl ───────────────────────────────────
+
+/**
+ * `canAssignOthers` beantwortet, was `assignGate` bei leerer Zielliste nicht
+ * kann — und muss dabei dieselbe Menge meinen.
+ *
+ * ── Warum diese Deckungsgleichheit der tragende Riegel dieser Phase ist ─────
+ *
+ * Die Fläche stellt die Frage ZWEIMAL an zwei Funktionen: bei leerer Auswahl
+ * fragt sie `canAssignOthers` („darf ich hier überhaupt jemanden eintragen?"),
+ * ab der ersten gewählten Person `assignGate` („darf ich DIESE eintragen?").
+ * Liefen die zwei auseinander, entstünde genau die Klasse Fehler, gegen die P5
+ * gebaut wurde — nur andersherum: die Fläche lädt jemanden ein, dessen Ereignis
+ * der Gate später verweigert (Sackgasse), oder sie schweigt gegenüber jemandem,
+ * dem sie gleich einen Knopf öffnet.
+ *
+ * Geprüft wird deshalb nicht der Wortlaut, sondern die IDENTITÄT der beiden
+ * Antworten über alle Betrachterrollen — mit einem Fremden als Ziel, denn genau
+ * das ist die Frage, die `canAssignOthers` stellt. Ein Selbstziel wäre die
+ * falsche Sonde: dort sagt `assignGate` auch dem Fremden ja.
+ */
+test('canAssignOthers deckt sich mit assignGate — für jede Rolle, bei einem FREMDEN Ziel', () => {
+    const rollen: [string, { author: string; repoAddress: string; maintainers?: string[] }][] = [
+        [AUTHOR, ISSUE],
+        [OWNER, ISSUE],
+        [MAINTAINER, { ...ISSUE, maintainers: [MAINTAINER] }],
+        [MAINTAINER, ISSUE],
+        [STRANGER, ISSUE],
+        ['', ISSUE],
+        ['kein-schluessel', ISSUE],
+    ]
+    for (const [viewer, root] of rollen) {
+        assert.equal(
+            canAssignOthers(viewer, root),
+            assignGate(viewer, root, [REVIEWER]).allowed,
+            `Auskunft und Riegel widersprechen sich für „${viewer.slice(0, 8) || '(leer)'}"`,
+        )
+    }
+    // POSITIV-/NEGATIVKONTROLLE: die Schleife oben wäre auch dann grün, wenn
+    // beide Seiten immer dasselbe sagten. Hier steht, WAS sie sagen sollen —
+    // sonst hielte eine Funktion, die stets `false` liefert, den Test.
+    assert.equal(canAssignOthers(OWNER, ISSUE), true)
+    assert.equal(canAssignOthers(STRANGER, ISSUE), false)
+})
+
+/**
+ * Der Grossbuchstaben-Fall, weil er auf dieser Fläche entstehen KANN: `viewer`
+ * kommt aus dem Signer, die Maintainer-Liste aus einem fremden 30617-Tag.
+ */
+test('canAssignOthers vergleicht schreibungsunabhängig', () => {
+    assert.equal(canAssignOthers(OWNER.toUpperCase(), ISSUE), true)
+    assert.equal(canAssignOthers(MAINTAINER, { ...ISSUE, maintainers: [MAINTAINER.toUpperCase()] }), true)
 })
 
 /**

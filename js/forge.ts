@@ -171,6 +171,7 @@ import {
     issueDraftProblem,
     approveGate,
     assignGate,
+    canAssignOthers,
     memberGate,
     orphanedPending,
     pendingState,
@@ -2058,6 +2059,27 @@ type ForgeRepoState = {
     commentDraft: Record<string, string>
     /** Fehler des Kommentarentwurfs je Wurzel-Id. */
     commentError: Record<string, string>
+    /**
+     * Der Suchtext der Personenauswahl je Wurzel-Id (P10).
+     *
+     * Getrennt von {@link mention}, obwohl beide dasselbe Popover speisen: der
+     * `mention`-Zustand ist FLÜCHTIG (ein Escape schliesst ihn), die getroffene
+     * Auswahl darf das nicht sein. Wer drei Personen gewählt hat und dann den
+     * Vorschlag wegtippt, hätte sonst die drei mit verloren.
+     */
+    assignQuery: Record<string, string>
+    /**
+     * Die gewählten Personen je Wurzel-Id — als ganze Vorschläge, nicht als
+     * Schlüssel.
+     *
+     * Der Chip zeigt Name, Bild und bei einem Agenten die Marke; alles drei
+     * steht im {@link MentionItemLike} und kommt damit aus DERSELBEN Quelle wie
+     * die Vorschlagszeile, aus der er gewählt wurde. Nur den Pubkey zu halten
+     * hiesse, den Namen ein zweites Mal aufzulösen — und ein Chip, der anders
+     * heisst als die Zeile, aus der er stammt, ist genau die Sorte Widerspruch,
+     * die niemand meldet.
+     */
+    assignPicks: Record<string, MentionItemLike[]>
     /** Neu gezeichnet, wenn sich ein Riegel ändert — `isBusy` ist kein Store. */
     busyTick: number
     /**
@@ -2240,6 +2262,15 @@ type ForgeRepoState = {
     assignHint(row: IssueRow): string
     assignBusy(rootId: string): boolean
     toggleAssignSelf(row: IssueRow): Promise<void>
+    // ── P10: Fremde zuweisen ────────────────────────────────────────────────
+    assignPicksFor(rootId: string): MentionItemLike[]
+    darfFremdeZuweisen(row: IssueRow): boolean
+    assignOthersGateFor(row: IssueRow): WriteGate
+    canAssignPicked(row: IssueRow): boolean
+    assignOthersHint(row: IssueRow): string
+    onAssignInput(el: HTMLInputElement, rootId: string): void
+    removeAssignPick(rootId: string, pubkey: string): void
+    submitAssignOthers(row: IssueRow, label: 'assignment' | 'unassignment'): Promise<void>
     approveGateFor(row: PullRequestRow): WriteGate
     canApprove(row: PullRequestRow): boolean
     approveHint(row: PullRequestRow): string
@@ -2256,7 +2287,7 @@ type ForgeRepoState = {
     mentionKey(event: KeyboardEvent): void
     pickMention(item: MentionItemLike): void
     closeMentions(): void
-    _mentionItemsFor(query: string): MentionItemLike[]
+    _mentionItemsFor(query: string, target?: string): MentionItemLike[]
     _recomputeAgentItems(): void
     _wake(target: string, content: string, vorgang: WakeTargetInput): Promise<void>
     dismissWake(target: string): void
@@ -2794,6 +2825,8 @@ export function wireForge(Alpine: {
             issueDraft: { open: false, title: '', body: '', error: '', busy: false },
             commentDraft: {},
             commentError: {},
+            assignQuery: {},
+            assignPicks: {},
             busyTick: 0,
             mention: { open: false, items: [], index: 0, query: '', target: '' },
             wakeNotice: {},
@@ -3969,6 +4002,159 @@ export function wireForge(Alpine: {
                     toast(outcome.error)
                 }
             },
+
+            // ── P10: Fremde zuweisen ────────────────────────────────────────
+            //
+            // Die Personenauswahl ist KEINE zweite Quelle: sie speist sich aus
+            // `_mentionItemsFor`, also aus genau der Liste, die das
+            // @-Erwähnungs-Popover zeigt (Menschen aus dem Mitglieder-
+            // Verzeichnis, Agenten aus den 10100 dieses Kanals). Sie benutzt
+            // sogar dasselbe Popover-Partial und denselben `mention`-Zustand;
+            // unterschieden wird allein über `mention.target`, das hier
+            // `assign:<wurzel-id>` heisst. Damit trägt der Vorschlag im
+            // Zuweisen-Feld die Agentenmarke und den npub aus demselben Markup —
+            // ein Agent ist hier so erkennbar wie in der Erwähnung, weil es
+            // buchstäblich dieselbe Zeile ist.
+            assignPicksFor(rootId: string) {
+                return this.assignPicks[rootId] ?? []
+            },
+            /**
+             * Darf der Betrachter hier überhaupt Fremde eintragen?
+             *
+             * Nur für den LEEREN Zustand der Auswahl gedacht — sobald jemand
+             * gewählt ist, antwortet {@link assignOthersGateFor} genauer.
+             */
+            darfFremdeZuweisen(row: IssueRow) {
+                return canAssignOthers(this.viewer, {
+                    author: row.author,
+                    repoAddress: row.repoAddress,
+                    maintainers: this.view?.repo.maintainers ?? [],
+                })
+            },
+            /**
+             * Der Riegel gegen die TATSÄCHLICH gewählten Personen.
+             *
+             * Er wird bei jeder Änderung der Auswahl neu gestellt — das ist der
+             * ganze Punkt: die Fläche beantwortet „wen darfst du" beim Wählen
+             * und nicht erst beim Absenden. Wer nicht autoritativ ist, sieht den
+             * Knopf offen, solange er nur sich selbst wählt, und geschlossen in
+             * dem Augenblick, in dem eine zweite Person dazukommt.
+             */
+            assignOthersGateFor(row: IssueRow) {
+                return assignGate(
+                    this.viewer,
+                    { author: row.author, repoAddress: row.repoAddress, maintainers: this.view?.repo.maintainers ?? [] },
+                    this.assignPicksFor(row.id).map((item) => item.pubkey),
+                )
+            },
+            canAssignPicked(row: IssueRow) {
+                return this.assignPicksFor(row.id).length > 0 && this.assignOthersGateFor(row).allowed
+            },
+            /**
+             * Der Satz unter dem Knopf — auch dann, wenn noch niemand gewählt ist.
+             *
+             * **Der leere Fall bekommt bewusst NICHT den Gate-Satz.** Ohne Ziel
+             * liefert `assignGate` den Grund `targets` („nennt niemanden
+             * Gültigen"), und der spräche einen Nutzer an, der gerade erst
+             * hinsieht, über etwas, das er noch gar nicht getan hat — während
+             * die einzige Auskunft fehlte, die er jetzt braucht. Deshalb
+             * entscheidet hier {@link canAssignOthers}: darf er Fremde
+             * überhaupt, steht nichts da; darf er nicht, steht der
+             * `not-actor`-Satz da, BEVOR er jemanden sucht. Es ist derselbe
+             * Satz, den der Gate später liefert — eine Fassung, zwei Anlässe.
+             */
+            assignOthersHint(row: IssueRow) {
+                if (this.assignPicksFor(row.id).length === 0) {
+                    return this.darfFremdeZuweisen(row) ? '' : t(ASSIGN_GATE_TEXTS['not-actor'])
+                }
+
+                return gateTextFrom(ASSIGN_GATE_TEXTS, this.assignOthersGateFor(row))
+            },
+            /**
+             * Tippen im Suchfeld — dasselbe Popover, anderer Auslöser.
+             *
+             * Im Composer beginnt ein Vorschlag mit `@` (`mentionQueryAt`); hier
+             * IST das Feld die Suche, ein Präfix wäre ein erfundenes Ritual.
+             * `_mentionStart = 0` ist kein Textversatz, sondern der Merker, an
+             * dem `_recomputeAgentItems` erkennt, dass eine offene Suche läuft
+             * und ein spät eintreffendes 10100 noch nachgereicht werden muss.
+             * Ohne ihn sähe niemand einen Agenten, dessen Profil eine
+             * Zehntelsekunde nach dem Tippen ankommt.
+             */
+            onAssignInput(el: HTMLInputElement, rootId: string) {
+                const query = el.value.trim()
+                this.assignQuery = { ...this.assignQuery, [rootId]: el.value }
+                const target = `assign:${rootId}`
+                this._mentionStart = 0
+                const items = this._mentionItemsFor(query, target)
+                this.mention = { open: items.length > 0, items, index: 0, query, target }
+            },
+            removeAssignPick(rootId: string, pubkey: string) {
+                this.assignPicks = {
+                    ...this.assignPicks,
+                    [rootId]: this.assignPicksFor(rootId).filter((item) => item.pubkey !== pubkey),
+                }
+            },
+            /**
+             * Die gewählten Personen eintragen — oder ihre Zuweisung entziehen.
+             *
+             * **Zwei Verben, ein Gegenstand.** `foldAssignments` addiert je
+             * genanntem Schlüssel und subtrahiert je genanntem Schlüssel; eine
+             * Zuweisung ersetzt also NICHT die bestehende Menge. Damit sind
+             * beide Richtungen auf derselben Auswahl sinnvoll, und ein
+             * versehentlich eingetragener Agent ist mit denselben zwei Klicks
+             * wieder draussen. Ein Weg ohne Rückweg wäre hier besonders teuer:
+             * am Relay steht das Ereignis dauerhaft.
+             *
+             * `prior` nur im Selbstbedienungsfall — bei einem autoritativen
+             * Signierer liest `foldAssignments` es gar nicht
+             * (`projectIssues.mjs:149-153`), ein Tag dort wäre eine Behauptung
+             * ohne Leser.
+             */
+            async submitAssignOthers(row: IssueRow, label: 'assignment' | 'unassignment') {
+                if (!this.canAssignPicked(row) || isBusy(`assign:${row.id}`)) {
+                    return
+                }
+                const targets = this.assignPicksFor(row.id).map((item) => item.pubkey.toLowerCase())
+                const self = this.viewer.toLowerCase()
+                const nurSelbst = targets.length === 1 && targets[0] === self
+                this.busyTick += 1
+                const outcome = await publishAssignment(
+                    {
+                        repoAddress: row.repoAddress,
+                        rootId: row.id,
+                        targets,
+                        prior: nurSelbst ? (row.assignmentHeads[self] ?? '') : '',
+                    },
+                    label,
+                    // Dieselbe Nachprüfung wie bei der Selbstbedienung, nur über
+                    // mehrere Namen. Die zwei Prädikate sind nicht symmetrisch
+                    // und dürfen es nicht sein: eine Zuweisung gilt erst, wenn
+                    // ALLE Genannten stehen; eine Entziehung erst, wenn KEINER
+                    // mehr steht. Mit `every` in beide Richtungen hiesse eine
+                    // halb durchgesetzte Entziehung „erledigt".
+                    () => {
+                        const frisch = this.view?.issues.find((issue) => issue.id === row.id)
+                        if (!frisch) {
+                            return false
+                        }
+
+                        return label === 'assignment'
+                            ? targets.every((pk) => frisch.assignees.includes(pk))
+                            : targets.some((pk) => frisch.assignees.includes(pk))
+                    },
+                )
+                this.busyTick += 1
+                if (outcome.error) {
+                    toast(outcome.error)
+
+                    return
+                }
+                // Erst nach dem Erfolg leeren: schlägt es fehl, steht die Auswahl
+                // noch da und der zweite Versuch kostet keinen zweiten Suchlauf.
+                this.assignPicks = { ...this.assignPicks, [row.id]: [] }
+                this.assignQuery = { ...this.assignQuery, [row.id]: '' }
+            },
             approveGateFor(row: PullRequestRow) {
                 return approveGate(this.viewer, {
                     author: row.author,
@@ -4127,17 +4313,28 @@ export function wireForge(Alpine: {
              * Identität genau einmal — die Regel steht in `mergeMentionItems`
              * (rein, getestet), nicht hier.
              */
-            _mentionItemsFor(query: string) {
+            _mentionItemsFor(query: string, target = '') {
                 const q = query.toLowerCase()
+                // **Schon Gewähltes fällt heraus — aber nur im Zuweisen-Feld.**
+                // Im Composer darf man dieselbe Person zweimal erwähnen; in
+                // einer Auswahl wäre der zweite Klick ein Vorschlag, der
+                // sichtbar nichts tut (der Chip steht ja schon da). `target`
+                // wird ÜBERGEBEN und nicht aus `this.mention` gelesen: beim
+                // Tippen ist dort noch das Ziel des vorigen Feldes eingetragen,
+                // und ein Kommentarfeld verlöre dann stumm die Vorschläge, die
+                // eine ganz andere Zuweisung schon gewählt hat.
+                const gewaehlt =
+                    target.startsWith('assign:')
+                        ? new Set(this.assignPicksFor(target.slice('assign:'.length)).map((item) => item.pubkey))
+                        : new Set<string>()
+                const offen = (item: MentionItemLike): boolean =>
+                    (!q || item.search.includes(q)) && !gewaehlt.has(item.pubkey)
 
                 // Der Deckel liegt in `mergeMentionItems` und ist ZWEIGETEILT
                 // (Agenten/Menschen getrennt) — ein gemeinsamer Schnitt auf der
                 // fertigen Liste ließ Agenten die Menschen verdrängen und
                 // einander dazu. Begründung dort.
-                return mergeMentionItems(
-                    this._members.filter((item) => !q || item.search.includes(q)),
-                    this._agentItems.filter((item) => !q || item.search.includes(q)),
-                )
+                return mergeMentionItems(this._members.filter(offen), this._agentItems.filter(offen))
             },
             /**
              * Tastatur am Composer. Gibt der Vorschlag nichts her, passiert
@@ -4195,6 +4392,27 @@ export function wireForge(Alpine: {
                     return
                 }
                 const ziel = this.mention.target
+                // **Der Zuweisen-Zweig steht VOR dem Textersatz.** Dort gibt es
+                // keinen Entwurf, in den etwas gespliced würde: der Vorschlag
+                // wird zum Chip, das Feld wird geleert, und die Suche bleibt
+                // offen für den nächsten Namen (bis zu 50 dürfen es sein).
+                if (ziel.startsWith('assign:')) {
+                    const rootId = ziel.slice('assign:'.length)
+                    this.assignPicks = {
+                        ...this.assignPicks,
+                        [rootId]: [...this.assignPicksFor(rootId).filter((p) => p.pubkey !== item.pubkey), item],
+                    }
+                    this.assignQuery = { ...this.assignQuery, [rootId]: '' }
+                    this.closeMentions()
+                    const zurueck = this as unknown as { $nextTick: (cb: () => void) => void }
+                    zurueck.$nextTick(() => {
+                        document
+                            .querySelector<HTMLInputElement>(`[data-forge-composer="${CSS.escape(ziel)}"]`)
+                            ?.focus()
+                    })
+
+                    return
+                }
                 const insert = mentionInsert(item)
                 const istIssue = ziel === 'issue'
                 const rootId = istIssue ? '' : ziel.slice('comment:'.length)
@@ -4257,7 +4475,7 @@ export function wireForge(Alpine: {
                     // 10100 noch unterwegs ist, hat null Treffer — und mit einer
                     // Bedingung auf `open` käme der Vorschlag nie mehr, auch wenn
                     // das Profil eine Sekunde später eintrifft.
-                    const items = this._mentionItemsFor(this.mention.query)
+                    const items = this._mentionItemsFor(this.mention.query, this.mention.target)
                     this.mention = {
                         ...this.mention,
                         items,

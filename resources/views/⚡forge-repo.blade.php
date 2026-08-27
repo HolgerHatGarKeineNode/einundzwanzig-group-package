@@ -1274,11 +1274,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      verworfen. Ohne sichtbaren Riegel sähe der
                                                      Nutzer Erfolg und hätte nichts erreicht.
 
-                                                     Angeboten wird genau die SELBSTBEDIENUNG. Fremde
-                                                     zuzuweisen bräuchte eine Personenauswahl; die
-                                                     Regel dafür steht in `assignGate` schon, die
-                                                     Fläche dazu nicht — und ein Knopf ohne Auswahl,
-                                                     der das behauptet, wäre eine Attrappe. --}}
+                                                     Dieser Knopf ist die SELBSTBEDIENUNG — ein Ziel,
+                                                     bekannter Zustand, deshalb ein Umschalter mit
+                                                     wechselndem Wort. Die Fremdzuweisung darunter
+                                                     (P10) kann das nicht sein: sie trägt bis zu 50
+                                                     Ziele mit gemischtem Zustand, und ein Wort, das
+                                                     sich aus einer gemischten Menge ableitet, wäre
+                                                     geraten. Dort stehen deshalb zwei ausgesprochene
+                                                     Verben. --}}
                                                 <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800"
                                                      data-forge-assign-block>
                                                     <div class="flex flex-wrap items-center gap-2">
@@ -1297,6 +1300,133 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                         <p class="mt-1 text-xs text-muted" data-forge-assign-hint
                                                            x-text="assignHint(issue)"></p>
                                                     </template>
+
+                                                    {{-- ── Andere zuweisen, Agenten eingeschlossen (P10) ──
+                                                         **Eine Eingabefläche und keine Klickliste.** Die
+                                                         Personen dieses Raums sind Menschen UND headless
+                                                         Agenten (kind 10100); eine ausgeschriebene Liste
+                                                         wäre schon bei einem mittleren Kanal zu lang, und
+                                                         ein Menü verlangt, den Namen vorher zu kennen.
+                                                         Getippt wird, gefiltert wird, gewählt wird.
+
+                                                         **Und es ist buchstäblich dasselbe Popover wie bei
+                                                         der @-Erwähnung** — nicht eine zweite Liste mit
+                                                         derselben Absicht, sondern derselbe Partial, gespeist
+                                                         aus derselben `_mentionItemsFor`. Damit kommt alles
+                                                         mit, was dort schon gemessen und geprüft ist: die
+                                                         Agentenmarke, der npub unter dem Namen (zwei Profile
+                                                         dürfen „ceo" heissen), die Ansage der Live-Region,
+                                                         der getrennte Deckel für Agenten und Menschen, das
+                                                         Nachziehen spät eintreffender 10100. Ein zweiter Weg
+                                                         zu denselben Personen wäre die doppelte Wahrheit,
+                                                         gegen die dieses Repo seit P9 arbeitet.
+
+                                                         **Der Riegel steht beim WÄHLEN, nicht beim Senden.**
+                                                         `assignOthersHint` antwortet schon bei leerer
+                                                         Auswahl, ob dieser Betrachter Fremde überhaupt
+                                                         eintragen darf, und danach bei jeder gewählten
+                                                         Person neu. Das ist bei dieser Aktion keine
+                                                         Höflichkeit, sondern die ganze Sicherung: Buzz'
+                                                         Relay prüft an einem `kind 1` gar nichts und
+                                                         quittiert mit `OK true`. Ohne sichtbaren Riegel
+                                                         sähe der Nutzer Erfolg und hätte nichts erreicht.
+
+                                                         Mobil und Desktop getrennt: das Feld nimmt auf dem
+                                                         Telefon die volle Bahn und ist ab `sm` auf 20rem
+                                                         gedeckelt — genau die Breite, auf die der Partial
+                                                         seine Vorschlagsliste deckelt (`max-w-xs`). Sonst
+                                                         schwebte die Liste unter einem viel breiteren Feld
+                                                         statt darunter zu fluchten. --}}
+                                                    <div class="mt-4" data-forge-assign-others>
+                                                        <span class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Personen zuweisen') }}</span>
+                                                        <div class="relative mt-2 w-full sm:max-w-xs">
+                                                            {{-- `::data-forge-composer` (zwei Doppelpunkte):
+                                                                 `flux:input` ist eine Komponente, dort ist das
+                                                                 die Bindungsform. Der Wert ist zugleich der
+                                                                 Haken, über den `pickMention` den Fokus
+                                                                 zurückgibt — dieselbe Mechanik wie beim
+                                                                 Kommentarfeld, ein `x-ref` zeigte im `x-for`
+                                                                 nur auf das zuletzt gerenderte Feld. --}}
+                                                            <flux:input type="search" size="sm" icon="magnifying-glass"
+                                                                        class:input="[&::-webkit-search-cancel-button]:hidden"
+                                                                        autocomplete="off" autocorrect="off" spellcheck="false"
+                                                                        aria-label="{{ __('Person oder Agent suchen') }}"
+                                                                        placeholder="{{ __('Name oder Agent …') }}"
+                                                                        data-forge-assign-suche
+                                                                        ::data-forge-composer="'assign:' + issue.id"
+                                                                        ::value="assignQuery[issue.id] ?? ''"
+                                                                        x-on:input="onAssignInput($event.target, issue.id)"
+                                                                        x-on:keydown="mentionKey($event)" />
+                                                            @include('group::partials.forge-mention-popover', [
+                                                                'targetExpr' => "'assign:' + issue.id",
+                                                                'targetLabel' => 'assign',
+                                                            ])
+                                                        </div>
+
+                                                        <template x-if="assignPicksFor(issue.id).length > 0">
+                                                            <div class="mt-2">
+                                                                {{-- Die Chips tragen KEINEN Akzent: eine Auswahl
+                                                                     ist ein Zwischenstand, kein Ergebnis. Die
+                                                                     Farbe für „ist zugewiesen" gehört dem Band
+                                                                     aus P1 und darf hier nicht vorweggenommen
+                                                                     werden — sonst sähe die Absicht aus wie die
+                                                                     Tatsache. --}}
+                                                                <ul class="flex flex-wrap gap-2" data-forge-assign-auswahl>
+                                                                    <template x-for="pick in assignPicksFor(issue.id)" :key="pick.pubkey">
+                                                                        <li class="flex items-center gap-1.5 rounded-full bg-zinc-100 py-1 pl-2 pr-1 dark:bg-zinc-800"
+                                                                            data-forge-assign-chip :data-agent="pick.isAgent ? 'true' : null">
+                                                                            <span class="max-w-40 truncate text-sm" x-text="pick.name"></span>
+                                                                            <template x-if="pick.isAgent">
+                                                                                <span aria-hidden="true" data-forge-assign-chip-marke
+                                                                                      class="rounded-full bg-brand-500/15 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-800 dark:text-brand-300">{{ __('Agent') }}</span>
+                                                                            </template>
+                                                                            {{-- 28×28 px: WCAG 2.2 (2.5.8) verlangt 24×24
+                                                                                 als Mindestziel, die Chips stehen 8 px
+                                                                                 auseinander. Der zugängliche Name nennt die
+                                                                                 Person — „Entfernen" allein wäre in einer
+                                                                                 Reihe aus fünf Chips fünfmal derselbe. --}}
+                                                                            <button type="button" data-forge-assign-chip-weg
+                                                                                    class="pressable flex size-7 shrink-0 items-center justify-center rounded-full text-zinc-500 dark:text-zinc-400"
+                                                                                    x-on:click="removeAssignPick(issue.id, pick.pubkey)"
+                                                                                    :aria-label="@js(__(':name aus der Auswahl entfernen')).replace(':name', pick.name)">
+                                                                                <flux:icon.x-mark variant="micro" class="size-4" />
+                                                                            </button>
+                                                                        </li>
+                                                                    </template>
+                                                                </ul>
+                                                                {{-- Zwei ausgesprochene Verben statt eines Umschalters:
+                                                                     die Auswahl kann Zugewiesene und Nichtzugewiesene
+                                                                     mischen, ein abgeleitetes Wort wäre dann geraten.
+                                                                     Beide Richtungen sind auf derselben Auswahl gültig —
+                                                                     `foldAssignments` addiert und subtrahiert je
+                                                                     genanntem Schlüssel, eine Zuweisung ersetzt die
+                                                                     Menge nicht. Damit ist ein versehentlich
+                                                                     eingetragener Agent mit zwei Klicks wieder
+                                                                     draussen; am Relay bliebe er sonst für immer. --}}
+                                                                <div class="mt-2 flex flex-wrap items-center gap-2">
+                                                                    <flux:button size="xs" variant="ghost"
+                                                                                 data-forge-assign-senden="assignment"
+                                                                                 x-on:click="submitAssignOthers(issue, 'assignment')"
+                                                                                 ::aria-disabled="canAssignPicked(issue) ? null : 'true'"
+                                                                                 ::class="canAssignPicked(issue) ? '' : 'opacity-60'">
+                                                                        {{ __('Zuweisen') }}
+                                                                    </flux:button>
+                                                                    <flux:button size="xs" variant="ghost"
+                                                                                 data-forge-assign-senden="unassignment"
+                                                                                 x-on:click="submitAssignOthers(issue, 'unassignment')"
+                                                                                 ::aria-disabled="canAssignPicked(issue) ? null : 'true'"
+                                                                                 ::class="canAssignPicked(issue) ? '' : 'opacity-60'">
+                                                                        {{ __('Zuweisung entfernen') }}
+                                                                    </flux:button>
+                                                                </div>
+                                                            </div>
+                                                        </template>
+
+                                                        <template x-if="assignOthersHint(issue) !== ''">
+                                                            <p class="mt-1 text-xs text-muted" data-forge-assign-others-hint
+                                                               x-text="assignOthersHint(issue)"></p>
+                                                        </template>
+                                                    </div>
                                                 </div>
 
                                                 {{-- ── Kommentieren (P8) ───────────────────────── --}}
