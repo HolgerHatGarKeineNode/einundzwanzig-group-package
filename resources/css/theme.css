@@ -1724,6 +1724,89 @@ select:focus[data-flux-control] {
    Abstand auf ihrer Seite liegen — sie ist eine ENTSCHEIDUNG mit zwei belegten
    Randpunkten, keine Messung. */
 
+/* ── DER KNOTEN DER ZEITLEISTE (P7b-N, 2026-08-27) ───────────────────────────
+
+   Avatar auf breiter Spur, 8-px-Marke auf schmaler. Bis zum 2026-08-27 hing das
+   an einem Insel-Feld — `<template x-if="zweispaltig">` —, und das war aus zwei
+   Gründen falsch:
+
+   1. **Es zeigte auf der halben Fläche ins Leere.** `zweispaltig` lebt in
+      `Alpine.data('nostrForge')`, die Detailseite bindet aber `nostrForgeRepo`.
+      Dort warfen BEIDE Zweige `zweispaltig is not defined`, KEINER rendete, und
+      der Knoten blieb leer. Achtmal je Seitenaufruf in die Konsole — und von
+      619 grünen E2E-Fällen unbemerkt. Ein Insel-Feld kann ins Leere zeigen,
+      eine CSS-Regel nicht.
+   2. **Die Frage ist wirklich eine der BREITE.** Dieselbe Zeitleiste steht auf
+      zwei Flächen: in der 26-rem-Spur der Übersicht und im Werkbank-Feld der
+      Detailseite. 28-px-Avatar plus 12-px-Rinne kosten 40 px Textbreite; ob die
+      zu verkraften sind, hängt an der Spur, nicht daran, welche Insel gerade
+      bindet. Hausregel: Chassis = die eine Schwelle, Geometrie = Container.
+
+   ── Die Schwelle: 22 rem (352 px) ───────────────────────────────────────────
+   **Eine ENTSCHEIDUNG mit drei GEMESSENEN Randpunkten, keine Messung** — dieselbe
+   Redlichkeit wie bei `@container vorgang`. Gemessen am gerenderten Baum
+   (`forge-zeitleiste-knoten.spec.ts` protokolliert die Werte bei jedem Lauf mit):
+
+     Übersicht    @390 px Viewport   →  324 px  → Marke
+     Detailseite  @390 px Viewport   →  324 px  → Marke
+     Übersicht    @1440 px Viewport  →  382 px  → Avatar
+     Detailseite  @1440 px Viewport  →  606 px  → Avatar
+
+   22 rem liegt mit 28 px Abstand über dem schmalen und 30 px unter dem engsten
+   breiten Fall — ungefähr mittig, und das ist hier die ganze Begründung.
+
+   **Der erste Entwurf hatte 24 rem und wäre falsch gewesen.** Er las die
+   Rasterspalte (26 rem = 416 px) aus dem Stylesheet ab, statt das Element zu
+   messen: die Spur trägt eigenes Polster, gemessen sind es **382 px**. Bei 384 px
+   Schwelle hätte die Übersicht auf JEDEM gewöhnlichen Desktop die Marke gezeigt —
+   um zwei Pixel. Eine aus dem Stylesheet gerechnete Breite ist keine gemessene.
+
+   **Was daraus folgt und hier stehen soll:** ein Gerät mit mehr als rund 418 px
+   Viewport-Breite bekommt den Avatar — ein grosses Foldable also auch. Das ist die
+   harmlose Richtung: dort sind 40 px von rund 360 px noch zu verkraften, und die
+   Alternative (Schwelle näher an 382) nähme der Übersicht auf jedem gewöhnlichen
+   Desktop den Avatar weg.
+
+   Die Hülle trägt den Container und nicht `flux:timeline` selbst: ein Element kann
+   seinen eigenen Container nicht abfragen. `container-type: inline-size` macht sie
+   zugleich zum Bezugsrahmen für `position: fixed` darin — geprüft, es gibt darin
+   keins (nur `absolute` im Avatar, und das hängt am nächsten positionierten
+   Vorfahren, nicht am Container). */
+
+.forge-zeitleiste {
+    container-type: inline-size;
+    container-name: zeitleiste;
+}
+
+/* Die schmale Fassung ist der DEFAULT — die Ausfallrichtung ohne
+   Container-Query-Unterstützung ist damit die sparsame: eine Marke ohne Bild. */
+.forge-knoten-marke {
+    display: block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background-color: var(--color-zinc-300);
+}
+
+.dark .forge-knoten-marke {
+    background-color: var(--color-zinc-600);
+}
+
+.forge-knoten-gesicht {
+    display: none;
+    border-radius: 9999px;
+}
+
+@container zeitleiste (min-width: 22rem) {
+    .forge-knoten-marke {
+        display: none;
+    }
+
+    .forge-knoten-gesicht {
+        display: block;
+    }
+}
+
 .forge-vorgangskopf {
     container-type: inline-size;
     container-name: vorgang;

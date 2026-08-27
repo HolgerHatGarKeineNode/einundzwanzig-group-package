@@ -26,7 +26,21 @@
       würde eine Plakette an seiner Kante mit abschneiden. Die Größe wandert deshalb
       nach außen, das Runde bleibt innen. Für Aufrufer ändert sich nichts: das äußere
       Element ist wie zuvor ein `inline-flex shrink-0` mit exakt den Maßen aus `$size`. --}}
-@props(['picture', 'name', 'size' => '2rem', 'emoji' => null])
+{{-- ── `lazy` (P7b-N, 2026-08-27): additiv, Default aus ──
+     Seit der Knoten der Zeitleiste über `@container` entschieden wird, stehen
+     BEIDE Formen im DOM und eine davon ist `display: none`. Ein `<img>` in einem
+     `display:none`-Elternteil wird trotzdem geladen — auf einer schmalen Spur
+     wären das Avatare, die niemand sieht, und in diesem Plan ist „lädt still
+     Daten nach" der Fehler, gegen den die halbe Phase geschrieben ist.
+
+     `loading="lazy"` löst genau das: ein Bild ohne Box schneidet den Viewport
+     nie und bleibt deshalb ungeladen. Die Spezifikation sagt „may defer", nicht
+     „must" — die Ausfallrichtung ist also die harmlose: im schlimmsten Fall
+     lädt es wie bisher.
+
+     Default `false`, damit die zwei Dutzend Bestands-Aufrufer BYTE-gleich
+     bleiben: ein Avatar über der Falz soll sofort laden. --}}
+@props(['picture', 'name', 'size' => '2rem', 'emoji' => null, 'lazy' => false])
 <span class="relative inline-flex shrink-0" style="width: {{ $size }}; height: {{ $size }};">
     <span x-data="{ imgOrig: false, imgBroken: false, needsAuth: false, authSrc: '' }"
           x-effect="$blossomBind($data, {{ $picture }})"
@@ -34,6 +48,7 @@
         <span x-text="((({{ $name }}) || '?').trim()[0]) || '?'"></span>
         <template x-if="({{ $picture }}) && !imgBroken && (!needsAuth || authSrc)">
             <img alt="" class="absolute inset-0 size-full object-cover"
+                 @if ($lazy) loading="lazy" @endif
                  :src="needsAuth ? authSrc : (imgOrig ? ({{ $picture }}) : $img({{ $picture }}))"
                  x-on:error="needsAuth ? (imgBroken = true) : (imgOrig ? (imgBroken = true) : ($imgFallback({{ $picture }}) ? (imgOrig = true) : (imgBroken = true)))" />
         </template>

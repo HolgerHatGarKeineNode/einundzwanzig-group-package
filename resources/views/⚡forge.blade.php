@@ -1047,6 +1047,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                          Beleg: `p5-bindungsformen.log`. Die E2E-Anker dieser
                                          Zeile (`data-forge-activity`, `data-type`) wären
                                          lautlos verschwunden. --}}
+                                    {{-- Der BEZUGSRAHMEN des Knotens (P7b-N). Ein Element kann seinen
+                                         eigenen Container nicht abfragen, deshalb die Hülle. --}}
+                                    <div class="forge-zeitleiste">
                                     <flux:timeline align="start" class="pb-2">
                                         <template x-for="row in bucket.items" :key="row.id">
                                             {{-- Nebenbefund für den nächsten, der hier bindet:
@@ -1063,28 +1066,37 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      bleibt der Knoten; mobil trägt der Name im Satz
                                                      dieselbe Auskunft, und der Platz gehört dem Text.
 
-                                                     `zweispaltig` ist die CHASSIS-Schwelle, nicht die
-                                                     Geometrie: hier wechselt nicht ein Maß, sondern
-                                                     das gezeigte DING. Die Hausregel („Geometrie über
-                                                     Container-Queries") ist damit nicht verletzt,
-                                                     sondern nicht berührt. --}}
+                                                     ── KORRIGIERT 2026-08-27, und die alte Begründung
+                                                        hier war falsch ────────────────────────────────
+                                                     Hier stand: „`zweispaltig` ist die CHASSIS-Schwelle,
+                                                     nicht die Geometrie; die Hausregel ist nicht
+                                                     verletzt, sondern nicht berührt." Das trug nicht.
+                                                     DIESELBE Zeitleiste steht auf ZWEI Flächen, und die
+                                                     zweite (`⚡forge-repo.blade.php`) bindet eine andere
+                                                     Insel — dort gab es `zweispaltig` nie. Beide Zweige
+                                                     warfen, KEINER rendete, und der Knoten blieb leer;
+                                                     619 grüne E2E-Fälle haben es nicht bemerkt.
+
+                                                     Ein Insel-Feld kann ins Leere zeigen, eine
+                                                     CSS-Regel nicht. Die Frage ist ausserdem wirklich
+                                                     eine der SPURBREITE und nicht der Insel: welcher
+                                                     Knoten passt, hängt daran, wie viel Textbreite
+                                                     danebensteht. → `@container zeitleiste`,
+                                                     hergeleitet in `theme.css`. --}}
                                                 <flux:timeline.indicator variant="bare">
-                                                    <template x-if="zweispaltig">
-                                                        {{-- Der Ring markiert Ereignisse, die ein echtes
-                                                             Git-Objekt erzeugt haben; dieselbe Aussage
-                                                             trägt der Kurzhash als TEXT in der Metazeile.
-                                                             Die deckende Unterlage von früher entfällt:
-                                                             die Linie hört jetzt am Knoten auf, statt
-                                                             hinter ihm durchzulaufen. --}}
-                                                        <span class="block rounded-full"
-                                                              x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
-                                                            <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
-                                                        </span>
-                                                    </template>
-                                                    <template x-if="!zweispaltig">
-                                                        <span class="block size-2 rounded-full bg-zinc-300 dark:bg-zinc-600"
-                                                              x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''"></span>
-                                                    </template>
+                                                    {{-- BEIDE Knoten stehen im DOM; welcher SICHTBAR ist,
+                                                         entscheidet `@container zeitleiste` in
+                                                         `theme.css`. Kein `x-if` mehr — die Herleitung
+                                                         steht dort und an der Klasse. --}}
+                                                    <span class="forge-knoten-marke"
+                                                          x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''"></span>
+                                                    {{-- Der Ring markiert Ereignisse, die ein echtes
+                                                         Git-Objekt erzeugt haben; dieselbe Aussage trägt
+                                                         der Kurzhash als TEXT in der Metazeile. --}}
+                                                    <span class="forge-knoten-gesicht"
+                                                          x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
+                                                        <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" lazy />
+                                                    </span>
                                                 </flux:timeline.indicator>
                                                 <flux:timeline.content class="min-w-0 py-3">
                                                 <p class="text-sm leading-snug">
@@ -1219,6 +1231,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             </flux:timeline.item>
                                         </template>
                                     </flux:timeline>
+                                    </div>
                                 </section>
                             </template>
                         </div>

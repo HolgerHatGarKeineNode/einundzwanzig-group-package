@@ -2192,23 +2192,35 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              der Faltungs-Pfad wandelt `::attr` in `:attr`. Auf einer
                                              ungefalteten Komponente bleibt `::` wörtlich im HTML
                                              stehen und ist ein totes Attribut. --}}
+                                        {{-- Der BEZUGSRAHMEN des Knotens (P7b-N). Ein Element kann seinen
+                                             eigenen Container nicht abfragen, deshalb die Hülle. --}}
+                                        <div class="forge-zeitleiste">
                                         <flux:timeline align="start" class="pb-2">
                                             <template x-for="row in bucket.items" :key="row.id">
                                                 <flux:timeline.item data-forge-activity x-bind:data-type="row.type">
-                                                    {{-- Avatar auf Desktop, Punkt mobil: 28 px Knoten
-                                                         plus 12 px Rinne kosten mobil 40 px Textbreite.
-                                                         Der Name steht ohnehin im Satz. --}}
+                                                    {{-- Avatar auf breiter Spur, Marke auf schmaler:
+                                                         28 px Knoten plus 12 px Rinne kosten schmal
+                                                         40 px Textbreite; der Name steht ohnehin im
+                                                         Satz. Entschieden wird das über
+                                                         `@container zeitleiste` — bis zum 2026-08-27
+                                                         stand hier `x-if="zweispaltig"`, und das Feld
+                                                         gibt es in `nostrForgeRepo` NICHT. Beide Zweige
+                                                         warfen, KEINER rendete. Herleitung in
+                                                         `theme.css` an `.forge-zeitleiste`. --}}
                                                     <flux:timeline.indicator variant="bare">
-                                                        <template x-if="zweispaltig">
-                                                            <span class="block rounded-full"
-                                                                  x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
-                                                                <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" />
-                                                            </span>
-                                                        </template>
-                                                        <template x-if="!zweispaltig">
-                                                            <span class="block size-2 rounded-full bg-zinc-300 dark:bg-zinc-600"
-                                                                  x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''"></span>
-                                                        </template>
+                                                        {{-- BEIDE Knoten stehen im DOM; welcher SICHTBAR ist,
+                                                             entscheidet `@container zeitleiste` in
+                                                             `theme.css`. Kein `x-if` mehr — die Herleitung
+                                                             steht dort und an der Klasse. --}}
+                                                        <span class="forge-knoten-marke"
+                                                              x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''"></span>
+                                                        {{-- Der Ring markiert Ereignisse, die ein echtes
+                                                             Git-Objekt erzeugt haben; dieselbe Aussage trägt
+                                                             der Kurzhash als TEXT in der Metazeile. --}}
+                                                        <span class="forge-knoten-gesicht"
+                                                              x-bind:class="row.badge ? 'ring-2 ring-brand-700 dark:ring-brand-500' : ''">
+                                                            <x-group::nostr-avatar picture="row.actorPicture" name="row.actorName" size="1.75rem" lazy />
+                                                        </span>
                                                     </flux:timeline.indicator>
                                                     <flux:timeline.content class="min-w-0 py-3">
                                                     <p class="text-sm leading-snug">
@@ -2245,6 +2257,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </flux:timeline.item>
                                             </template>
                                         </flux:timeline>
+                                        </div>
                                     </section>
                                 </template>
                             </div>
