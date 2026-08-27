@@ -2035,6 +2035,36 @@ select:focus[data-flux-control] {
     background: var(--color-brand-400);
 }
 
+/* ── Der gesperrte FAB (2026-08-27) ────────────────────────────────────────
+   Ohne Schreibrecht verschwand der Knopf bis dahin ganz. Er bleibt jetzt
+   stehen, damit die Fläche überhaupt auskunftsfähig ist, dass hier etwas
+   anzulegen wäre — der Grund steht als Satz in der Issue-Liste, auf den
+   `aria-describedby` zeigt.
+
+   Er darf dabei nicht mehr wie ein Angebot aussehen: Markenfarbe raus, Schatten
+   raus (eine erhobene Fläche behauptet Drückbarkeit), Zeiger neutral. Der
+   Hover-Wechsel entfällt mit — beide `:hover`-Regeln oben sind unspezifischer
+   als diese hier und verlieren an der Attributs-Spezifität.
+
+   **Der Kontrast bleibt trotzdem gerechnet, nicht geschätzt.** WCAG 1.4.11
+   nimmt inaktive Bedienelemente ausdrücklich aus; ein 2,56:1-Grau (zinc-400)
+   wäre also zulässig gewesen. Es ist trotzdem zinc-500 (4,83:1 gegen das weisse
+   Plus) bzw. zinc-600 im Dunkeln (7,73:1) — ein Knopf, den man erst suchen
+   muss, war der Anlass dieses ganzen Umbaus. `--color-brand-950` als Glyphe
+   wäre auf zinc-600 bei 2,57:1 gelandet; deshalb liegt das Weiss hier in BEIDEN
+   Schemata und wird nicht aus dem aktiven Zustand geerbt. */
+.forge-fab[aria-disabled='true'],
+.dark .forge-fab[aria-disabled='true'] {
+    background: var(--color-zinc-500);
+    color: #fff;
+    box-shadow: none;
+    cursor: default;
+}
+
+.dark .forge-fab[aria-disabled='true'] {
+    background: var(--color-zinc-600);
+}
+
 
 /* ═══ Aktivitätsbalken und Maintainer-Stapel (P6, 2026-08-24) ═══════════════
 

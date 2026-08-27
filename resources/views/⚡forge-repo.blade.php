@@ -891,9 +891,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  oder es steht der Grund da, warum nicht.
 
                                  **Der Knopf selbst steht seit P4 nicht mehr hier.**
-                                 Er ist der Handlungsknopf am unteren Bildrand — die
-                                 einzige schöpferische Handlung dieser Fläche, und
-                                 damit erreichbar, ohne an einer Liste vorbeizurollen.
+                                 Seit dem 2026-08-27 steht er in ZWEI Formen: am
+                                 Desktop beschriftet in der Filterleiste direkt
+                                 darüber, im Mobil-Chassis als rundes Plus am
+                                 unteren Bildrand. Welche gilt, sagt
+                                 `js/forgeAnlegen.ts`.
                                  Was HIER bleibt, ist alles, was nach dem Schließen
                                  des Blattes noch etwas zu sagen hat: der Grund einer
                                  Verweigerung, die Weckmeldung und ein
@@ -902,8 +904,20 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  nicht zu unterscheiden. --}}
                             <div class="mb-4 space-y-2">
 
+                                {{-- `id` seit dem 2026-08-27: beide Anlege-Formen
+                                     verweisen im gesperrten Zustand per
+                                     `aria-describedby` hierher. Der Satz steht
+                                     genau EINMAL — ein zweiter, versteckter
+                                     Träger für die Sprachausgabe wäre eine
+                                     zweite Wahrheit über denselben Grund.
+
+                                     Er lebt im `x-if`, also existiert die `id`
+                                     genau dann, wenn ein Knopf sie nennt. Ein
+                                     `aria-describedby` ins Leere wäre still
+                                     wirkungslos — hier kann es das nicht sein,
+                                     weil beide Bedingungen `canWrite()` sind. --}}
                                 <template x-if="!canWrite()">
-                                    <p class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
+                                    <p id="forge-schreibhinweis" class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
                                 </template>
 
                                 @include('group::partials.forge-wake-notice', [
@@ -2270,10 +2284,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
         @endif
     </div>{{-- /page-enter --}}
 
-    {{-- ══ DER HANDLUNGSKNOPF ═══════════════════════════════════════════════════
+    {{-- ══ DER HANDLUNGSKNOPF — DIE MOBILE BAUFORM ══════════════════════════════
          Die EINE schöpferische Handlung dieser Fläche. Bis P4 war sie eine
          Geisterzeile über der Issue-Liste: unsichtbar, solange man auf einem der
          vier anderen Reiter stand, und auf dem Telefon erst nach dem Rollen.
+
+         ── Seit dem 2026-08-27 ist das die MOBILE von ZWEI Formen ──────────────
+         P4 hat den Knopf hierher geholt und dabei EINE Bauform für ZWEI Flächen
+         gebaut — genau die Fehlerklasse, die P2 und P3 anderswo behoben haben.
+         Ein FAB ist mobile Sprache: er liegt im Daumenbereich, direkt über der
+         Bottom-Nav. Am Desktop gibt es diese Nav nicht (`xl:hidden`), und der
+         Knopf schwebte dort über nichts, weit unterhalb der Zeile, in der jemand
+         eine Liste liest. Der Nutzer hat ihn auf der Live-Seite gesucht und nicht
+         gefunden.
+
+         Die Desktop-Form steht jetzt in der Filterleiste über der Issue-Liste
+         (`partials/forge-detail-suche.blade.php`), beschriftet, wie bei Gitea
+         und GitHub. WELCHE Form gilt, entscheidet EINE Funktion mit EINEM
+         Rückgabewert (`js/forgeAnlegen.ts`) — zwei Knöpfe zugleich sind damit
+         nicht ausdrückbar. Beide tragen `data-forge-anlegen`; darauf misst der
+         Riegel in `tests/e2e/desktop-forge-anlegen.spec.ts`.
 
          **Nur hier, nicht auf `/forge`.** Die Übersicht bleibt auf ihrer Ebene
          lesend — aus diesem Client geht kein `kind 30617` und kein `kind 30621`
@@ -2287,11 +2317,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
          beim Seitenaufbau springt oder am Rand der Bühne statt am Rand des
          Fensters klebt, ist kein fester Bezugspunkt mehr.
 
-         `x-if` und nicht `x-show`: wer nicht schreiben darf, bekommt hier gar
-         nichts — den Grund sagt die Issue-Liste im Satz (`writeHint()`), nicht
-         ein toter Knopf. Und `canWrite()` wechselt nicht, während das Blatt
-         offen ist, der Auslöser bleibt für die Fokusrückgabe also stehen. --}}
-    <template x-if="!!view && canWrite()">
+         ── Gesperrt heisst inert, nicht abwesend (2026-08-27) ─────────────────
+         Hier stand `x-if="!!view && canWrite()"` mit der Begründung, ein toter
+         Knopf sei schlechter als keiner; den Grund sage ja die Issue-Liste im
+         Satz. Das war für einen Knopf ohne Wort schlüssig und ist trotzdem die
+         falsche Ausfallrichtung: der Satz erklärt eine Verweigerung, von der man
+         gar nicht weiss, dass sie eine ist — wer den Knopf nie gesehen hat,
+         erfährt nicht, dass hier überhaupt etwas anzulegen ist (Nielsen #6:
+         erkennen statt erinnern). Jetzt steht er in BEIDEN Formen, inert und mit
+         Verweis auf denselben Satz.
+
+         `x-if` und nicht `x-show` bleibt: die Form wechselt nur an der
+         Chassis-Schwelle, und ein `x-show`-verstecktes Duplikat wäre in
+         `getByRole` ein Strict-Mode-Treffer auf zwei Elemente. Der Auslöser
+         bleibt bei offenem Blatt stehen, `anlegeZiel` hängt nicht an
+         `issueDraft`. --}}
+    <template x-if="anlegeZiel($store.viewport.desktop) === 'fab'">
         {{-- Die Breitenklammer steht ZEICHENGLEICH an drei Stellen: hier, an
              `main` (`components/app-shell.blade.php`) und an der Bottom-Nav
              (`components/bottom-nav.blade.php`). Ausgeschrieben und nicht
@@ -2314,10 +2355,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
              `aria-expanded` ist auf `role="button"` zulässig — anders als
              `aria-pressed` auf einem Link, siehe die Herleitung im
              Listen-Umschalter. --}}
-        <button type="button" class="forge-fab pressable" data-forge-fab
+        <button type="button" class="forge-fab pressable" data-forge-fab data-forge-anlegen
                 x-on:click="toggleIssueDraft()"
                 aria-haspopup="dialog"
                 x-bind:aria-expanded="issueDraft.open ? 'true' : 'false'"
+                x-bind:aria-disabled="canWrite() ? null : 'true'"
+                x-bind:aria-describedby="canWrite() ? null : 'forge-schreibhinweis'"
                 aria-label="{{ __('Neues Issue') }}">
             {{-- Die Glyphe ist Zierrat, das `aria-label` trägt. Ein Knopf ohne
                  sichtbares Wort braucht einen zugänglichen Namen, und der ist hier
