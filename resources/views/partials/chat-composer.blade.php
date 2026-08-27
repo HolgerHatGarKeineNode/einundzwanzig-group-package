@@ -61,7 +61,53 @@
 
 <div class="relative flex items-end gap-2">
     {{-- @-Mention-Autocomplete (C4, geteilt): Pfeile wählen, Enter/Tab übernimmt, Escape schließt.
-         pickMention splict in den richtigen Draft (onComposerInput merkt sich den Kontext). --}}
+         pickMention splict in den richtigen Draft (onComposerInput merkt sich den Kontext).
+
+         ── EIN Escape trägt GENAU EINE Schicht ab (2026-08-27) ──────────────────
+         Die Escape-Zeile unten trägt `stopPropagation()`, und das ist keine
+         Vorsorge: der Schaden war am gebauten Stand gemessen. Über diesem
+         Composer liegt ein Fenster-Horcher (`⚡room.blade.php`,
+         `x-on:keydown.escape.window="threadRootId && … && backFromThread()"`).
+         Ohne die Zeile stieg dasselbe Ereignis dorthin auf, und `closeThread()`
+         setzt `threadDraft = ''` und verwirft `threadAttachment` — ein
+         Tastendruck, der die Vorschlagsliste wegklicken sollte, löschte den
+         getippten Entwurf.
+
+         Gemessen (Sonde 2026-08-27, zooid, Raum `welcome`, 1279 px UND 1440 px,
+         beide gleich):
+             vorher   threadRootId=283508…, threadDraft="Mein langer Entwurf @ali"
+             nachher  threadRootId=null,     threadDraft=""
+
+         Der `if (mentionOpen)`-Rahmen trägt die andere Hälfte: steht KEIN
+         Vorschlag offen, läuft Escape durch und verlässt den Thread, wie es soll.
+         Zwei Schichten, zwei Tastendrücke (Nielsen #3).
+
+         **Der Cropper (`⚡room.blade.php:1150`) ist NICHT betroffen, und das
+         gehört hierher, damit niemand ihn ohne Not „mitrepariert".**
+
+         Die naheliegende Begründung wäre „die Zustände schliessen einander aus,
+         das Overlay ist `aria-modal` und zieht den Fokus auf `cropConfirm`".
+         **Sie ist gemessen FALSCH** — meine erste Sonde legte sie nahe, drei
+         Wiederholungen haben sie widerlegt: bei gesetztem `_cropSrc` steht das
+         Overlay sichtbar, `activeElement` bleibt aber über vier Sekunden das
+         Textfeld hier, und ein Escape trifft nachweislich diesen Handler
+         (Ereignis-Mitschnitt: `["textarea"]`, kein `window`).
+
+         Der wahre Grund ist ein härterer: **der Thread-Horcher ist gegen genau
+         diese Überlagerung gebaut.** Er trägt `!_cropSrc` in seiner eigenen
+         Bedingung, und der Cropper ruft zusätzlich `stopImmediatePropagation`.
+         Bei offenem Zuschnitt kann `backFromThread()` also gar nicht feuern.
+         Nachgemessen im Thread, mit Entwurf und offenem Cropper:
+
+             Escape 1  crop → null,  Thread bleibt, Entwurf bleibt
+             Escape 2  Thread → null (keine Liste offen — so soll es sein)
+
+         Auch das ist „eine Schicht pro Tastendruck", nur schon vorher richtig.
+
+         Der Schwesterfall in der Forge (`js/forge.ts mentionKey`) ist am
+         2026-08-27 aus demselben Grund gefixt worden; dort war es ein Regress
+         aus P4. Der Riegel für BEIDE Hälften hier steht in
+         `tests/e2e/chat-escape-schichtung.spec.ts`. --}}
     {{-- **Die Ansage, weil die kanonische Form hier verschlossen ist.**
 
          Das Muster für eine Vorschlagsliste an einem Eingabefeld ist die
@@ -286,7 +332,7 @@
                            if ($event.key === 'ArrowDown') { $event.preventDefault(); mentionIndex = (mentionIndex + 1) % mentionItems.length; return }
                            if ($event.key === 'ArrowUp') { $event.preventDefault(); mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length; return }
                            if ($event.key === 'Enter' || $event.key === 'Tab') { $event.preventDefault(); pickMention(mentionItems[mentionIndex]); return }
-                           if ($event.key === 'Escape') { $event.preventDefault(); closeMentions(); return }
+                           if ($event.key === 'Escape') { $event.preventDefault(); $event.stopPropagation(); closeMentions(); return }
                        }
                        if ($event.key === 'Enter' && !$event.shiftKey && !isMobile) { $event.preventDefault(); {{ $sendAction }} }" />
 
