@@ -40,7 +40,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     {{-- Der Basis-Pfad kommt aus `route()`, nicht als Literal: die Route heißt an
          genau einer Stelle `/forge`, und das ist `routes/group.php`. --}}
-    <div x-data="nostrForge(@js(route('group.forge')))" class="page-enter">
+    <div x-data="nostrForge(@js(route('group.forge')))" class="page-enter"
+         x-on:forge-kanalbestand="kanalbestand = $event.detail">
 
         <x-group::app-header :title="__('Forge')" :back="route('group.spaces')" />
 
@@ -351,11 +352,32 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          das Icon ist sein direktes Kind. KEIN `::variant` am Icon: das
                          löst zur Compile-Zeit auf und wäre eine tote Bindung.
 
-                         Nur „Repositories" trägt eine Zahl. „Aktivität" hat keine
-                         Bestandsgrösse, die etwas beantwortet, und die Kanalzahl lebt in
-                         einer ANDEREN Alpine-Insel (`nostrWorkspaceRooms`, unten in
-                         dieser Datei) — sie hier zu zeigen hiesse, einen zweiten Datenweg
-                         für dieselbe Zahl zu bauen. Das ist P6, Schritt 3. --}}
+                         „Aktivität" trägt keine Zahl: die Fläche hat keine
+                         Bestandsgrösse, die etwas beantwortet.
+
+                         „Kanäle" trägt seit dem 2026-08-27 eine — der Restposten aus
+                         P6b. Hier stand, die Kanalzahl lebe „in einer ANDEREN
+                         Alpine-Insel" und sie zu zeigen hiesse, einen zweiten Datenweg
+                         zu bauen. Der erste Teil stimmt weiterhin und ist nachgemessen:
+                         `channelCount` sitzt auf `WorkspaceRoomsState`
+                         (`js/bridge.ts:643`, Insel `nostrWorkspaceRooms`), also in einem
+                         NACHFAHREN dieses Reiterstreifens — Alpine-Scope fliesst nur
+                         abwärts, der Reiter kann sie nicht lesen.
+
+                         Der zweite Teil hat sich mit P6 erledigt: die Zahl wird seither
+                         an EINER Stelle gerechnet (`workspaceModel.ts`
+                         `buildWorkspaceModel`) und an EINER gehalten. Was hier ankommt,
+                         ist dieselbe Zahl, weitergereicht — kein zweiter Datenweg,
+                         sondern der einzige, um eine Ecke. Die Weitergabe steht an der
+                         Kanal-Sektion (`x-effect`) und an der Insel-Wurzel
+                         (`x-on:forge-kanalbestand`); warum nicht stattdessen die Insel
+                         hochgezogen wurde, steht mit der Messung am Feld
+                         `kanalbestand` in `js/forge.ts`.
+
+                         Beide Zahlen haben dieselbe Bauform — `flux:badge size="sm"` mit
+                         `ms-1.5`, und beide schweigen, solange der Bestand nicht steht.
+                         Beim Repo-Reiter macht das `settled()`, beim Kanal-Reiter das
+                         `null` der Sendeseite; die Zurückhaltung ist dieselbe. --}}
                     <div data-forge-tabs data-forge-reiter @class(['mb-4', 'xl:hidden' => ! $native])>
                         <flux:tabs scrollable scrollable:fade x-model="tab">
                             <flux:tab name="activity" icon="clock" class="max-lg:[&>svg]:hidden">{{ __('Aktivität') }}</flux:tab>
@@ -371,7 +393,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <flux:badge size="sm" class="ms-1.5" x-text="$num(counts().repos)" />
                                 </template>
                             </flux:tab>
-                            <flux:tab name="workspaces" icon="hashtag" class="max-lg:[&>svg]:hidden">{{ __('Kanäle') }}</flux:tab>
+                            <flux:tab name="workspaces" icon="hashtag" class="max-lg:[&>svg]:hidden">
+                                {{ __('Kanäle') }}
+                                {{-- `kanalbestand > 0` deckt beide Fälle in einem
+                                     Ausdruck ab: `null > 0` ist in JS `false`, also
+                                     schweigt der Reiter sowohl beim Laden als auch bei
+                                     einem Workspace ohne Kanäle. Eine „0" wäre hier
+                                     keine Aussage — die Kanalliste sagt es im
+                                     Leerzustand besser. --}}
+                                <template x-if="kanalbestand > 0">
+                                    <flux:badge size="sm" class="ms-1.5" x-text="$num(kanalbestand)" />
+                                </template>
+                            </flux:tab>
                         </flux:tabs>
                     </div>
 
@@ -1264,7 +1297,42 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          die ein `x-if` bei jedem Tab-Wechsel neu aufbaut) gilt unverändert.
                          `zweispaltig` wechselt nur beim Überschreiten der xl-Schwelle, also
                          genau dann nicht. --}}
-                    <section x-show="!zweispaltig && tab === 'workspaces'" x-cloak x-data="nostrWorkspaceRooms" data-forge-workspaces>
+                    {{-- `x-effect` meldet den Bestand nach OBEN an den Reiterstreifen
+                         (`kanalbestand` auf `nostrForge`, Begründung im Feld-Kommentar
+                         in `js/forge.ts`). Das Ereignis blubbert — diese Sektion IST
+                         ein Nachfahre der Forge-Insel, es braucht deshalb kein
+                         `.window` und erreicht keine zweite Seite.
+
+                         `loading ? null : channelCount` und nicht zwei Felder: „noch
+                         unbekannt" ist ein Zustand des Bestands, kein zweiter Wert
+                         daneben. Zwei Felder könnten auseinanderlaufen, dieses eine
+                         nicht.
+
+                         ── Die Kette ist BEOBACHTET, nicht angenommen ──────────────
+                         Am 2026-08-27 an einem Chromium mit dem echten Alpine aus
+                         `vendor/livewire/livewire/dist/livewire.min.js` gefahren, an
+                         einem Nachbau genau dieser Verschachtelung:
+
+                         | Schritt                          | Reiter | Ziffer |
+                         |----------------------------------|--------|--------|
+                         | Boot, Insel lädt noch            | `null` | keine  |
+                         | Insel meldet 7 Kanäle            | 7      | „7"    |
+                         | Bestand fällt auf 0              | 0      | keine  |
+                         | Insel lädt neu                   | `null` | keine  |
+
+                         Vier Dinge stehen damit als Messung da: die Insel bootet auch
+                         unter `x-show="false"` (`checkVisibility()` war in jedem
+                         Schritt `false`, der Zustand kam trotzdem an); das Ereignis
+                         erreicht den Vorfahren ohne `.window`; `x-effect` feuert bei
+                         jeder Änderung nach; und `null > 0` hält den Reiter still.
+
+                         Der fünfte Befund ist der über den NICHT gebauten Weg: die
+                         Bühne zwischen Streifen und Sektion las im selben Lauf
+                         durchgehend das `loading` der ÄUSSEREN Insel weiter, obwohl
+                         das der inneren längst auf `false` stand. Genau diese
+                         Trennung ginge verloren, wenn man die Insel hochzöge. --}}
+                    <section x-show="!zweispaltig && tab === 'workspaces'" x-cloak x-data="nostrWorkspaceRooms"
+                             x-effect="$dispatch('forge-kanalbestand', loading ? null : channelCount)" data-forge-workspaces>
                         {{-- `surface-card` statt einer nachgebauten Kante: hier stand
                              `rounded-card border border-zinc-200 dark:border-zinc-800` —
                              Zeichen für Zeichen die Hälfte dessen, was `surface-card`

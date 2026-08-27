@@ -1815,6 +1815,35 @@ type ForgeState = {
     kind: SpaceKind
     tab: string
     /**
+     * Der Kanalbestand für den Reiter „Kanäle" — `null`, solange er unbekannt ist.
+     *
+     * **Ein Spiegel, keine zweite Quelle.** Gerechnet wird die Zahl an genau einer
+     * Stelle (`workspaceModel.ts buildWorkspaceModel`, Feld `channelCount`) und
+     * gehalten an genau einer (`WorkspaceRoomsState.channelCount`, Insel
+     * `nostrWorkspaceRooms`). Diese Insel hier rechnet nichts nach und abonniert
+     * nichts zusätzlich; sie bekommt den fertigen Wert per Ereignis aus ihrem
+     * eigenen Nachfahren gereicht (`⚡forge.blade.php`, `x-effect`/`x-on:
+     * forge-kanalbestand`). Genau das war die Auflage aus P6a — „beides zusammen
+     * oder keines" richtete sich gegen einen zweiten DATENWEG, nicht gegen eine
+     * Weitergabe.
+     *
+     * **Warum nicht einfach die Insel höher mounten**, damit der Reiter sie direkt
+     * liest: gemessen am 2026-08-27 stehen zwischen Reiterstreifen und Kanal-Sektion
+     * **fünf** Markup-Stellen, die ein blankes `loading` lesen (Skelett-Weiche und
+     * die vier Listen-Sektionen). Beide Inseln führen ein Feld dieses Namens
+     * (Schnittmenge insgesamt: `loading`, `_controller`, `_unsub`, `init`,
+     * `destroy`). Ein Hochziehen des `x-data` bände alle fünf still an die falsche
+     * Insel — das Skelett hinge dann am Ladezustand der Kanalliste. Der Spiegel ist
+     * das kleinere Übel und das einzige, das sich prüfen lässt.
+     *
+     * `null` und nicht `0`: „noch nicht bekannt" und „keine Kanäle" sind zwei
+     * Aussagen, und nur eine davon rechtfertigt eine Ziffer. Die Sendeseite legt
+     * `null` an, solange sie lädt — dieselbe Zurückhaltung, die der Repo-Reiter
+     * über `settled()` ausübt (eine Zahl, die während des Ladens wächst, liest sich
+     * als Bestand und ist keiner).
+     */
+    kanalbestand: number | null
+    /**
      * Steht die Bühne zweispaltig? Dann schaltet `tab` NICHTS mehr um — Werkbank
      * und Spur sind beide sichtbar, und `?tab=` wird vom Schalter zum Sprungziel.
      *
@@ -2343,6 +2372,11 @@ export function wireForge(Alpine: {
             // behauptet einen Tab, der Bildschirm zeigt einen anderen. Seit P5 ist das
             // hier nicht mehr theoretisch — `/spaces?tab=workspaces` LEITET hierher.
             tab: readForgeTab(window.location.search),
+            // Unbekannt, bis die Kanal-Insel darunter ihren Bestand meldet. Meldet
+            // sie nie (Relay stumm, Nutzer ohne Zugang), bleibt es `null` und der
+            // Reiter trägt schlicht keine Zahl — dieselbe Ausfallrichtung wie beim
+            // Repo-Reiter.
+            kanalbestand: null,
             // Startwert FALSCH, nicht `true`: das ist die harmlose Ausfallrichtung.
             // Ohne Messung (kein `getComputedStyle`, kein DOM) bleibt die Fläche in
             // der Tab-Form — die funktioniert auf jeder Breite, die zweispaltige

@@ -80,10 +80,14 @@
              wird. Eine Klasse, die nichts kostet und eine Absicht festhält, ist kein
              toter Vorrat.
 
-             NICHT angefasst: `unread-badge.blade.php`. Die Komponente rendert auch in
-             `⚡forge-repo.blade.php` und `⚡spaces.blade.php`, also ausserhalb dieser
-             Fläche — und ihre Ziffer sitzt in einer FESTEN Geometrie, wo ein
-             Familienwechsel die Glyphenbreite ändert. Gemeldet, nicht mitgenommen. --}}
+             NACHGEZOGEN am 2026-08-27 (der Restposten, den diese Stelle gemeldet
+             hat): `unread-badge.blade.php` und `nostr-avatar.blade.php`. Beide
+             rendern auch ausserhalb dieser Fläche, deshalb bekamen sie eine eigene
+             Messung statt eines Nachzugs — die Zahlen stehen in den Bauteilen.
+             Das hier notierte Risiko („FESTE Geometrie, wo ein Familienwechsel die
+             Glyphenbreite ändert") hat sich NICHT bestätigt: `min-w-*` ist ein
+             Boden, kein Deckel, und der Wechsel geht ohnehin in die schmalere
+             Richtung (md „99+" 33,61 → 30,02 px, einstellig 0 px Änderung). --}}
         {{-- Ein Feld, ein Scope. Zehn Suchfelder (vier Gruppen + sieben Länder)
              wären 340px in einer Spalte mit ~600px Scrollfläche — die Rail wäre
              zur Hälfte Formular, und man müsste zum Suchen erst scrollen.
