@@ -34,17 +34,39 @@
          es die Rail gibt. Gibt es sie nicht (Telefon, App), hört niemand zu,
          und es passiert nichts. Das ist der richtige Ausgang, kein Fehler.
 
-         Nur vorhandene öffentliche Insel-API: `isOpen`/`toggleGroup`. Ein
-         `openGroup` gibt es nicht, deshalb die Bedingung davor — `toggleGroup`
-         unbedingt aufzurufen schlösse eine bereits offene Gruppe. --}}
+         Nur vorhandene öffentliche Insel-API: `zeigeKanaele`/`kanalSprungErledigt`.
+
+         ── Warum ZWEI Attribute und nicht ein `$nextTick` im Zuhörer ──────────
+         Bis 2026-08-27 stand der Fokus hier direkt im `$nextTick`. Das war
+         wirkungslos, seit es ihn gibt: das Ereignis trifft ein, BEVOR die
+         Workspace-Sektion existiert. Gemessen mit einer Sonde am Zuhörer —
+         `document.querySelectorAll('[data-rail-gruppenkopf]').length` war im
+         Moment des Ereignisses **0**, und nach zwei `requestAnimationFrame`
+         immer noch 0. Der Kopf hängt an `<template x-if="hasWorkspaceSection">`,
+         und die Bedingung wird erst wahr, wenn die Workspace-Daten eingetroffen
+         sind. `focus()` und `scrollIntoView()` liefen auf `undefined`.
+
+         Unsichtbar blieb das, weil die Gruppe trotzdem aufging: `toggleGroup`
+         setzt nur einen Zustand und braucht kein DOM. Der Sprung SAH also
+         funktionierend aus und löste seine Hauptzusage nie ein.
+
+         Ein `x-effect` auf `hasWorkspaceSection` wäre der naheliegende Bau und
+         ist GEMESSEN gescheitert: Alpine wertet ihn nicht neu aus, wenn dieser
+         Getter wahr wird. Er liest `hasWorkspace()`, eine Funktion ausserhalb
+         des Alpine-Datenobjekts — also ausserhalb jeder Abhängigkeitsverfolgung.
+         Der Effect stand korrekt im DOM (`x-effect`-Attribut nachgewiesen),
+         `kanalSprungOffen` und `hasWorkspaceSection` waren beide `true`, der Kopf
+         war da (`koepfe: 1`) — und er lief trotzdem nicht.
+
+         Deshalb zwei Auslöser auf EINE Methode (`vollzieheKanalSprung`):
+         hier für die warme Lage (Sektion steht schon), und ein `x-init` am Kopf
+         selbst (`rail-group.blade.php`) für die kalte — dort meldet sich der Kopf,
+         sobald es ihn gibt. Der Merker sorgt dafür, dass nur einer von beiden
+         zieht. --}}
     <div x-data="nostrRail" data-rail
          x-on:forge-zeige-kanaele.window="
-             if (! isOpen('workspace')) { toggleGroup('workspace') }
-             $nextTick(() => {
-                 const gruppe = $el.querySelector('#rail-group-workspace')
-                 gruppe?.scrollIntoView({ block: 'nearest' })
-                 $el.querySelector('[data-rail-gruppenkopf=&quot;workspace&quot;]')?.focus({ preventScroll: true })
-             })
+             zeigeKanaele()
+             $nextTick(() => vollzieheKanalSprung($el.querySelector('[data-rail-gruppenkopf=&quot;workspace&quot;]')))
          "
          class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 

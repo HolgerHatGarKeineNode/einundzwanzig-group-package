@@ -187,7 +187,16 @@
                      Zuhörer steht in `desktop-rail.blade.php`). Generisch über den
                      Gruppenschlüssel statt als Sonderfall für „workspace" — eine
                      künftige Gruppe bekommt dasselbe, ohne zweite Regel. --}}
+                {{-- `x-init`: die KALTE Lage des Kanäle-Sprungs. Entsteht dieser Kopf
+                     erst, nachdem `forge-zeige-kanaele` schon eingetroffen war, holt er
+                     den ausstehenden Sprung hier selbst nach — genau der Fall, in dem
+                     der Zuhörer in `desktop-rail.blade.php` auf `undefined` lief
+                     (gemessen 2026-08-27: 0 Köpfe im DOM, als das Ereignis kam).
+                     `vollzieheKanalSprung` prüft den Merker selbst und tut nichts,
+                     wenn kein Sprung aussteht — deshalb steht hier keine zweite
+                     Bedingung, die auseinanderlaufen könnte. --}}
                 <a href="{{ $headingHref }}" wire:navigate data-rail-gruppenkopf="{{ $group }}"
+                   x-init="$nextTick(() => vollzieheKanalSprung($el))"
                    @if ($headingTitle && $headingTitleValue)
                        x-bind:title="@js($headingTitle).split(':wert').join({{ $headingTitleValue }})"
                    @endif

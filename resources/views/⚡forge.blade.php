@@ -1386,7 +1386,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  müsste; die Zahl im Kopf ist der Bestand, und stumme Räume
                                  bleiben in der Liste stehen. --}}
                             <template x-for="room in rooms" :key="room.h">
-                                <div class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                                {{-- `data-forge-kanalzeile`: Zählanker für den Reiter-Zähler.
+                                     Die Zeile ist ein `button` ohne eigene Kennung, und ein
+                                     Locator über Klassen (`min-h-[2.75rem]`) bräche beim ersten
+                                     Layout-Feinschliff. Der E2E misst die Zahl am Reiter gegen
+                                     die Zahl DIESER Zeilen — zwei Inseln, dieselbe Wahrheit. --}}
+                                <div data-forge-kanalzeile
+                                     class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
                                     <button type="button"
                                             class="flex min-h-[2.75rem] flex-1 items-center gap-3 rounded-tile px-2 py-2 text-start"
                                             x-on:click="openRoom(room); Livewire.navigate(roomHref(room))"
