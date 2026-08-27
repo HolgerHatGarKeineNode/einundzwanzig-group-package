@@ -20,6 +20,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     public function mount(string $naddr): void
     {
+        // ── Alt-Link-Kompat (P1, GitHub-Parität) ─────────────────────────
+        // `/forge/{naddr}?issue=<hex>` ist seit P1 eine Adresse der EINZEL-
+        // route. Der Server kennt dafür alles Nötige — naddr im Pfad, Id im
+        // Query; ein Relay-Zugang ist nicht erforderlich („Existenz prüfen"
+        // ist eine andere Frage als „URL umbiegen"). Nur eine GÜLTIGE
+        // Hex64-Id leitet um, und nur bei genau EINEM Ziel (`?issue=` UND
+        // `?pr=` ist keine Adresse — Regel 2 aus P2, unverändert).
+        $issue = strtolower((string) request()->query('issue', ''));
+        $pull = strtolower((string) request()->query('pr', ''));
+        $istIssue = preg_match('/^[0-9a-f]{64}$/', $issue) === 1;
+        $istPull = preg_match('/^[0-9a-f]{64}$/', $pull) === 1;
+
+        if ($istIssue xor $istPull) {
+            redirect()->to(
+                '/forge/'.rawurlencode($naddr).'/'.($istIssue ? 'issues' : 'pulls').'/'.($istIssue ? $issue : $pull),
+                302,
+            );
+        }
+
         $this->naddr = $naddr;
     }
 
@@ -996,67 +1015,38 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                                 <ul>
                                 <template x-for="issue in sichtbareIssues()" :key="issue.id">
-                                    {{-- `data-forge-vorgang` + `tabindex="-1"`: das Sprungziel eines
-                                         geteilten `?issue=`-Links (P2). Fokussiert wird die ZEILE
-                                         und nicht ihr Knopf — der Knopf ist der Umschalter, und ein
-                                         Enter darauf klappte den gerade geöffneten Vorgang sofort
-                                         wieder zu. Dasselbe Muster wie beim Regionssprung auf der
-                                         Übersicht (`forge.ts _springZuRegion`). --}}
+                                    {{-- `data-forge-issue` + `data-id`/`data-status`: die E2E-Anker
+                                         der Zeile. Das Sprungziel eines geteilten Links ist seit P1
+                                         die EIGENE ROUTE (`/forge/{naddr}/issues/{id}`) — kein
+                                         Zeilen-Fokus und kein `tabindex` mehr nötig. --}}
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
-                                        data-forge-issue data-forge-vorgang tabindex="-1"
+                                        data-forge-issue tabindex="-1"
                                         :data-status="issue.status" :data-id="issue.id">
-                                        {{-- Die ganze Zeile schaltet den Rumpf auf. Ein
-                                             `button` und kein `div` mit Klick-Handler:
-                                             sie ist mit der Tastatur erreichbar und
-                                             meldet ihren Zustand.
-
-                                             GENAU EIN `button` je Zeile — die aufgeklappte
-                                             Fläche darunter ist für P8 („Kommentieren",
-                                             „Status setzen") vorgesehen, und deren Knöpfe
-                                             gehören in den Rumpf, nicht in die Kopfzeile.
-                                             Ein zweiter Knopf HIER machte aus dem
-                                             `getByRole('button')` der E2E-Spec einen
-                                             Strict-Mode-Treffer auf zwei Elemente. --}}
-                                        {{-- ── Zeilenknöpfe bleiben roh, und das gilt für alle
-                                             sechs in dieser Datei ───────────────────────────
-                                             `flux:button` ist ein KNOPF im Sinne eines
-                                             Bedienelements mit fester Höhe: `h-10` / `h-8` /
-                                             `h-6` je nach `size`, dazu `inline-flex`,
-                                             `justify-center` und eigenes Polster
-                                             (`flux/button/index.blade.php:73-98`). Eine
-                                             Listenzeile ist das Gegenteil davon — sie ist
-                                             mehrzeilig, linksbündig, so hoch wie ihr Inhalt
-                                             und trägt Marken, Avatare und eine Statusspalte.
-                                             Jede der drei Zwangsgrößen müsste überschrieben
-                                             werden; übrig bliebe von Flux das `<button>`, das
-                                             hier ohnehin steht.
-
-                                             Dasselbe gilt für den Baum-Eintrag, den
-                                             Handlungsknopf (`forge-fab`, ein rundes
-                                             56-px-Ziel) und die Vorschlagszeile im
-                                             Erwähnungs-Popover, die zusätzlich
-                                             `role="option"` trägt. --}}
+                                        {{-- Die ganze Zeile ist der LINK auf die Einzelansicht —
+                                             seit P1 (GitHub-Parität): kein Akkordeon mehr, kein
+                                             `button`, sondern `wire:navigate` auf die Route. Ein
+                                             `a` trägt Tastatur und Fokus von selbst. --}}
                                         {{-- ── ZWEI RÄNGE, ZWEI AUSGEZEICHNETE FASSUNGEN (P3) ──────
-                                             Rang 1: Typ-Glyphe · Titel · Labels.
-                                             Rang 2: EINE graue Metazeile.
-                                             Rechts: die Zustandspille aus P1.
+                                              Rang 1: Typ-Glyphe · Titel · Labels.
+                                              Rang 2: EINE graue Metazeile.
+                                              Rechts: die Zustandspille aus P1.
 
-                                             Bis P3 standen hier vier Blockzeilen —
-                                             Titel, Autorsatz, Labelband,
-                                             Zuweisungsband — und keine davon war als
-                                             Rang ausgezeichnet: alle vier trugen
-                                             dasselbe `text-muted` bzw. dieselbe
-                                             Chip-Form.
+                                              Bis P3 standen hier vier Blockzeilen —
+                                              Titel, Autorsatz, Labelband,
+                                              Zuweisungsband — und keine davon war als
+                                              Rang ausgezeichnet: alle vier trugen
+                                              dasselbe `text-muted` bzw. dieselbe
+                                              Chip-Form.
 
-                                             Die schmale und die breite Fassung stehen
-                                             als je EIGENES `grid-template-areas` in
-                                             `theme.css` (`.forge-vorgangszeile`). Der
-                                             DOM ist derselbe: ein zweites Markup für
-                                             mobil hiesse ein zweites
-                                             `[data-forge-assignees]`, und das wäre ein
-                                             Strict-Mode-Treffer auf zwei Elemente. --}}
-                                        <button type="button" class="forge-vorgangskopf pressable block w-full p-4 text-start"
-                                                x-on:click="toggle(issue.id, 'issue')" :aria-expanded="open[issue.id] ? 'true' : 'false'">
+                                              Die schmale und die breite Fassung stehen
+                                              als je EIGENES `grid-template-areas` in
+                                              `theme.css` (`.forge-vorgangszeile`). Der
+                                              DOM ist derselbe: ein zweites Markup für
+                                              mobil hiesse ein zweites
+                                              `[data-forge-assignees]`, und das wäre ein
+                                              Strict-Mode-Treffer auf zwei Elemente. --}}
+                                        <a :href="vorgangHrefFuer(issue, 'issue')" wire:navigate data-forge-vorgang-link
+                                           class="forge-vorgangskopf pressable block w-full p-4 text-start">
                                             <span class="forge-vorgangszeile">
                                                 {{-- ── Die Typ-Glyphe (P3/2) ──────────────────
                                                      `ticket` und NICHT `exclamation-circle`:
@@ -1146,334 +1136,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <x-group::forge-status-badge klasse="forge-vz-zustand"
                                                                              status="issue.status" label="statusText(issue.status)" />
                                             </span>
-                                        </button>
+                                        </a>
 
-                                        <template x-if="open[issue.id]">
-                                            <div class="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
-                                                {{-- ── Link auf DIESEN Vorgang (P2) ──────────────
-                                                     Steht im RUMPF und nicht in der Kopfzeile:
-                                                     dort gilt „genau ein `button` je Zeile" als
-                                                     stehende Zusage — ein zweiter machte aus dem
-                                                     `getByRole('button')` der E2E-Spec einen
-                                                     Strict-Mode-Treffer auf zwei Elemente.
-
-                                                     Wie beim Clone-Knopf entscheidet die Frage
-                                                     über das RENDERN: `navigator.clipboard` gibt
-                                                     es nur in sicheren Kontexten (HTTPS oder
-                                                     localhost). Über eine nackte HTTP-Adresse im
-                                                     LAN — der Fall bei einer selbst betriebenen
-                                                     Instanz — ist die Eigenschaft schlicht
-                                                     `undefined`, und ein Knopf, der dann nichts
-                                                     tut, wäre schlechter als keiner. --}}
-                                                <template x-if="canCopyClone()">
-                                                    <div class="mb-2 flex justify-end">
-                                                        <flux:button size="xs" variant="ghost" icon="link"
-                                                                     data-forge-vorgang-copy
-                                                                     x-on:click="copyVorgang(issue.id, 'issue')">{{ __('Link kopieren') }}</flux:button>
-                                                    </div>
-                                                </template>
-                                                {{-- `x-html` ist hier bewusst gesetzt. Der
-                                                     Wert kommt AUSSCHLIESSLICH aus
-                                                     `renderArticleHtml` (`js/longform.ts`),
-                                                     also aus markdown-it mit `html: false`:
-                                                     roher HTML-Text des Autors ist dort
-                                                     bereits zu Entities geworden,
-                                                     `javascript:`-Links sind gar nicht erst
-                                                     zu Ankern geworden. Solange der
-                                                     Renderer-Chunk noch lädt, ist `html`
-                                                     leer und der Rohtext steht daneben —
-                                                     als TEXT, nie als HTML. --}}
-                                                <div x-show="issue.html" class="article-content forge-mass" x-html="issue.html"></div>
-                                                <p x-show="!issue.html" class="whitespace-pre-wrap text-sm" x-text="issue.content"></p>
-
-                                                <template x-if="issue.comments.length > 0">
-                                                    <ul class="mt-4 space-y-2">
-                                                        <template x-for="comment in issue.comments" :key="comment.id">
-                                                            <li class="rounded-tile bg-zinc-100 p-3 dark:bg-zinc-800"
-                                                                :class="rowState(comment.id) === 'sending' ? 'opacity-60' : ''">
-                                                                <p class="text-xs text-muted">
-                                                                    <span class="font-medium" x-text="comment.authorName"></span>
-                                                                    <span x-text="' · ' + comment.timeLabel"></span>
-                                                                    <template x-if="rowState(comment.id) === 'sending'">
-                                                                        <span data-forge-row-state="sending"
-                                                                              class="ms-1 font-semibold uppercase tracking-wider">{{ __('Wird gesendet …') }}</span>
-                                                                    </template>
-                                                                </p>
-                                                                <div x-show="comment.html" class="article-content forge-mass mt-1" x-html="comment.html"></div>
-                                                            </li>
-                                                        </template>
-                                                    </ul>
-                                                </template>
-
-                                                {{-- ── Gescheiterte Schreibversuche an DIESEM Issue ──
-                                                     Kommentar wie Statuswechsel. Der Statuswechsel
-                                                     hat nie eine eigene Zeile in der Liste — er
-                                                     wirkt auf die vorhandene —, deshalb ist das
-                                                     hier der einzige Ort, an dem sein Scheitern
-                                                     überhaupt sichtbar werden kann. --}}
-                                                <template x-for="row in failedFor(issue.id)" :key="row.id">
-                                                    {{-- Derselbe Tausch wie beim Schwesterkasten über
-                                                         der Liste (Herleitung dort) — dieselbe
-                                                         Aussage, dieselbe Bauform. --}}
-                                                    <flux:callout variant="danger" icon="exclamation-triangle" inline
-                                                                  class="mt-4" role="alert" data-forge-write-failed="root">
-                                                        <flux:callout.text class="text-xs!">
-                                                            <span class="font-semibold" x-text="row.label"></span>
-                                                            <span x-text="(row.label ? ' — ' : '') + row.error"></span>
-                                                        </flux:callout.text>
-                                                        <x-slot name="actions">
-                                                            <flux:button size="xs" variant="ghost" class="icon-btn-touch shrink-0" x-on:click="dismiss(row.id)">{{ __('Verwerfen') }}</flux:button>
-                                                        </x-slot>
-                                                    </flux:callout>
-                                                </template>
-
-                                                {{-- ── Status setzen (P8) ────────────────────────
-                                                     Der Riegel ist NICHT kosmetisch: der Relay
-                                                     nimmt ein 1630–1633 von jedem an (am Teststack
-                                                     gemessen), angezeigt wird aber nur, was
-                                                     `foldStatus` durchlässt — der Autor der Wurzel
-                                                     und der Eigentümer des Repos. Ein Knopf für
-                                                     alle anderen schriebe ein Ereignis, das kein
-                                                     Client je zeigt: ein stiller Leerlauf. --}}
-                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                                                    <template x-if="canSetStatus(issue)">
-                                                        <div class="flex flex-wrap items-center gap-2" data-forge-status-actions>
-                                                            <span class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Status setzen') }}</span>
-                                                            <template x-for="opt in statusOptions()" :key="opt.code">
-                                                                <flux:button size="xs" variant="ghost"
-                                                                             x-on:click="setStatus(issue, opt.code)"
-                                                                             ::disabled="statusBusy(issue.id) || issue.status === opt.code"
-                                                                             ::data-forge-status-option="opt.code">
-                                                                    <span x-text="opt.label"></span>
-                                                                </flux:button>
-                                                            </template>
-                                                            <span x-show="statusBusy(issue.id)" x-cloak role="status"
-                                                                  class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="!canSetStatus(issue)">
-                                                        <p class="text-xs text-muted" data-forge-status-hint x-text="statusHint(issue)"></p>
-                                                    </template>
-                                                </div>
-
-                                                {{-- ── Zuweisung (P5) ────────────────────────────
-                                                     **Der Knopf bleibt stehen, auch wenn er nicht
-                                                     darf** — das Haus-Muster für inerte Knöpfe
-                                                     (`⚡article.blade.php:119-126`): `aria-disabled`
-                                                     statt `disabled`, damit er den Fokus behält und
-                                                     eine Tastatur überhaupt an die Begründung kommt.
-                                                     Ein versteckter Knopf liesse den Nutzer suchen,
-                                                     ein ausgegrauter zweimal tippen.
-
-                                                     **Und die Begründung steht VOR dem Klick da,
-                                                     nicht danach.** Das ist bei dieser Aktion keine
-                                                     Höflichkeit: Buzz' Relay prüft an einem `kind 1`
-                                                     gar nichts und quittiert mit `OK true`. Eine
-                                                     unberechtigte Zuweisung ginge also raus, würde
-                                                     angenommen — und von jedem Client beim Lesen
-                                                     verworfen. Ohne sichtbaren Riegel sähe der
-                                                     Nutzer Erfolg und hätte nichts erreicht.
-
-                                                     Dieser Knopf ist die SELBSTBEDIENUNG — ein Ziel,
-                                                     bekannter Zustand, deshalb ein Umschalter mit
-                                                     wechselndem Wort. Die Fremdzuweisung darunter
-                                                     (P10) kann das nicht sein: sie trägt bis zu 50
-                                                     Ziele mit gemischtem Zustand, und ein Wort, das
-                                                     sich aus einer gemischten Menge ableitet, wäre
-                                                     geraten. Dort stehen deshalb zwei ausgesprochene
-                                                     Verben. --}}
-                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800"
-                                                     data-forge-assign-block>
-                                                    <div class="flex flex-wrap items-center gap-2">
-                                                        <flux:button size="xs" variant="ghost"
-                                                                     data-forge-assign-self
-                                                                     x-on:click="toggleAssignSelf(issue)"
-                                                                     ::aria-disabled="canAssignSelf(issue) ? null : 'true'"
-                                                                     ::data-forge-assign-art="istZugewiesen(issue) ? 'unassignment' : 'assignment'"
-                                                                     ::class="canAssignSelf(issue) ? '' : 'opacity-60'">
-                                                            <span x-text="istZugewiesen(issue) ? @js(__('Zuweisung entfernen')) : @js(__('Mir zuweisen'))"></span>
-                                                        </flux:button>
-                                                        <span x-show="assignBusy(issue.id)" x-cloak role="status"
-                                                              class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
-                                                    </div>
-                                                    <template x-if="!canAssignSelf(issue)">
-                                                        <p class="mt-1 text-xs text-muted" data-forge-assign-hint
-                                                           x-text="assignHint(issue)"></p>
-                                                    </template>
-
-                                                    {{-- ── Andere zuweisen, Agenten eingeschlossen (P10) ──
-                                                         **Eine Eingabefläche und keine Klickliste.** Die
-                                                         Personen dieses Raums sind Menschen UND headless
-                                                         Agenten (kind 10100); eine ausgeschriebene Liste
-                                                         wäre schon bei einem mittleren Kanal zu lang, und
-                                                         ein Menü verlangt, den Namen vorher zu kennen.
-                                                         Getippt wird, gefiltert wird, gewählt wird.
-
-                                                         **Und es ist buchstäblich dasselbe Popover wie bei
-                                                         der @-Erwähnung** — nicht eine zweite Liste mit
-                                                         derselben Absicht, sondern derselbe Partial, gespeist
-                                                         aus derselben `_mentionItemsFor`. Damit kommt alles
-                                                         mit, was dort schon gemessen und geprüft ist: die
-                                                         Agentenmarke, der npub unter dem Namen (zwei Profile
-                                                         dürfen „ceo" heissen), die Ansage der Live-Region,
-                                                         der getrennte Deckel für Agenten und Menschen, das
-                                                         Nachziehen spät eintreffender 10100. Ein zweiter Weg
-                                                         zu denselben Personen wäre die doppelte Wahrheit,
-                                                         gegen die dieses Repo seit P9 arbeitet.
-
-                                                         **Der Riegel steht beim WÄHLEN, nicht beim Senden.**
-                                                         `assignOthersHint` antwortet schon bei leerer
-                                                         Auswahl, ob dieser Betrachter Fremde überhaupt
-                                                         eintragen darf, und danach bei jeder gewählten
-                                                         Person neu. Das ist bei dieser Aktion keine
-                                                         Höflichkeit, sondern die ganze Sicherung: Buzz'
-                                                         Relay prüft an einem `kind 1` gar nichts und
-                                                         quittiert mit `OK true`. Ohne sichtbaren Riegel
-                                                         sähe der Nutzer Erfolg und hätte nichts erreicht.
-
-                                                         Mobil und Desktop getrennt: das Feld nimmt auf dem
-                                                         Telefon die volle Bahn und ist ab `sm` auf 20rem
-                                                         gedeckelt — genau die Breite, auf die der Partial
-                                                         seine Vorschlagsliste deckelt (`max-w-xs`). Sonst
-                                                         schwebte die Liste unter einem viel breiteren Feld
-                                                         statt darunter zu fluchten. --}}
-                                                    <div class="mt-4" data-forge-assign-others>
-                                                        <span class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Personen zuweisen') }}</span>
-                                                        <div class="relative mt-2 w-full sm:max-w-xs">
-                                                            {{-- `::data-forge-composer` (zwei Doppelpunkte):
-                                                                 `flux:input` ist eine Komponente, dort ist das
-                                                                 die Bindungsform. Der Wert ist zugleich der
-                                                                 Haken, über den `pickMention` den Fokus
-                                                                 zurückgibt — dieselbe Mechanik wie beim
-                                                                 Kommentarfeld, ein `x-ref` zeigte im `x-for`
-                                                                 nur auf das zuletzt gerenderte Feld. --}}
-                                                            <flux:input type="search" size="sm" icon="magnifying-glass"
-                                                                        class:input="[&::-webkit-search-cancel-button]:hidden"
-                                                                        autocomplete="off" autocorrect="off" spellcheck="false"
-                                                                        aria-label="{{ __('Person oder Agent suchen') }}"
-                                                                        placeholder="{{ __('Name oder Agent …') }}"
-                                                                        data-forge-assign-suche
-                                                                        ::data-forge-composer="'assign:' + issue.id"
-                                                                        ::value="assignQuery[issue.id] ?? ''"
-                                                                        x-on:input="onAssignInput($event.target, issue.id)"
-                                                                        x-on:keydown="mentionKey($event)" />
-                                                            @include('group::partials.forge-mention-popover', [
-                                                                'targetExpr' => "'assign:' + issue.id",
-                                                                'targetLabel' => 'assign',
-                                                            ])
-                                                        </div>
-
-                                                        <template x-if="assignPicksFor(issue.id).length > 0">
-                                                            <div class="mt-2">
-                                                                {{-- Die Chips tragen KEINEN Akzent: eine Auswahl
-                                                                     ist ein Zwischenstand, kein Ergebnis. Die
-                                                                     Farbe für „ist zugewiesen" gehört dem Band
-                                                                     aus P1 und darf hier nicht vorweggenommen
-                                                                     werden — sonst sähe die Absicht aus wie die
-                                                                     Tatsache. --}}
-                                                                <ul class="flex flex-wrap gap-2" data-forge-assign-auswahl>
-                                                                    <template x-for="pick in assignPicksFor(issue.id)" :key="pick.pubkey">
-                                                                        <li class="flex items-center gap-1.5 rounded-full bg-zinc-100 py-1 pl-2 pr-1 dark:bg-zinc-800"
-                                                                            data-forge-assign-chip :data-agent="pick.isAgent ? 'true' : null">
-                                                                            <span class="max-w-40 truncate text-sm" x-text="pick.name"></span>
-                                                                            <template x-if="pick.isAgent">
-                                                                                <span aria-hidden="true" data-forge-assign-chip-marke
-                                                                                      class="rounded-full bg-brand-500/15 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-800 dark:text-brand-300">{{ __('Agent') }}</span>
-                                                                            </template>
-                                                                            {{-- 28×28 px: WCAG 2.2 (2.5.8) verlangt 24×24
-                                                                                 als Mindestziel, die Chips stehen 8 px
-                                                                                 auseinander. Der zugängliche Name nennt die
-                                                                                 Person — „Entfernen" allein wäre in einer
-                                                                                 Reihe aus fünf Chips fünfmal derselbe. --}}
-                                                                            <button type="button" data-forge-assign-chip-weg
-                                                                                    class="pressable flex size-7 shrink-0 items-center justify-center rounded-full text-zinc-500 dark:text-zinc-400"
-                                                                                    x-on:click="removeAssignPick(issue.id, pick.pubkey)"
-                                                                                    :aria-label="@js(__(':name aus der Auswahl entfernen')).replace(':name', pick.name)">
-                                                                                <flux:icon.x-mark variant="micro" class="size-4" />
-                                                                            </button>
-                                                                        </li>
-                                                                    </template>
-                                                                </ul>
-                                                                {{-- Zwei ausgesprochene Verben statt eines Umschalters:
-                                                                     die Auswahl kann Zugewiesene und Nichtzugewiesene
-                                                                     mischen, ein abgeleitetes Wort wäre dann geraten.
-                                                                     Beide Richtungen sind auf derselben Auswahl gültig —
-                                                                     `foldAssignments` addiert und subtrahiert je
-                                                                     genanntem Schlüssel, eine Zuweisung ersetzt die
-                                                                     Menge nicht. Damit ist ein versehentlich
-                                                                     eingetragener Agent mit zwei Klicks wieder
-                                                                     draussen; am Relay bliebe er sonst für immer. --}}
-                                                                <div class="mt-2 flex flex-wrap items-center gap-2">
-                                                                    <flux:button size="xs" variant="ghost"
-                                                                                 data-forge-assign-senden="assignment"
-                                                                                 x-on:click="submitAssignOthers(issue, 'assignment')"
-                                                                                 ::aria-disabled="canAssignPicked(issue) ? null : 'true'"
-                                                                                 ::class="canAssignPicked(issue) ? '' : 'opacity-60'">
-                                                                        {{ __('Zuweisen') }}
-                                                                    </flux:button>
-                                                                    <flux:button size="xs" variant="ghost"
-                                                                                 data-forge-assign-senden="unassignment"
-                                                                                 x-on:click="submitAssignOthers(issue, 'unassignment')"
-                                                                                 ::aria-disabled="canAssignPicked(issue) ? null : 'true'"
-                                                                                 ::class="canAssignPicked(issue) ? '' : 'opacity-60'">
-                                                                        {{ __('Zuweisung entfernen') }}
-                                                                    </flux:button>
-                                                                </div>
-                                                            </div>
-                                                        </template>
-
-                                                        <template x-if="assignOthersHint(issue) !== ''">
-                                                            <p class="mt-1 text-xs text-muted" data-forge-assign-others-hint
-                                                               x-text="assignOthersHint(issue)"></p>
-                                                        </template>
-                                                    </div>
-                                                </div>
-
-                                                {{-- ── Kommentieren (P8) ───────────────────────── --}}
-                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                                                    <template x-if="canWrite()">
-                                                        <div class="space-y-2" data-forge-comment-form>
-                                                            {{-- @-Erwähnung (P9). Das Ziel des Vorschlags heißt
-                                                                 `comment:<wurzel-id>` und steht erst zur Laufzeit
-                                                                 fest — deshalb ein Ausdruck und kein fester Wert. --}}
-                                                            <div class="relative">
-                                                                <flux:textarea label="{{ __('Kommentar') }}" rows="2"
-                                                                               x-model="commentDraft[issue.id]"
-                                                                               ::data-forge-composer="'comment:' + issue.id"
-                                                                               x-on:input="onComposerInput($event.target, 'comment:' + issue.id)"
-                                                                               x-on:keydown="mentionKey($event)"
-                                                                               placeholder="{{ __('Antwort schreiben … @ erwähnt jemanden.') }}" />
-                                                                @include('group::partials.forge-mention-popover', [
-                                                                    'targetExpr' => "'comment:' + issue.id",
-                                                                    'targetLabel' => 'comment',
-                                                                ])
-                                                            </div>
-                                                            {{-- Fehlermeldung als `flux:callout variant="danger"` statt als
-                                                                 nachgebauter roter Kasten — Herleitung an der ersten Fundstelle
-                                                                 dieser Datei (Suchwort `Vom Handkasten`). --}}
-                                                            <flux:callout variant="danger" icon="exclamation-triangle" inline
-                                                                          x-show="commentError[issue.id]" x-cloak role="alert" data-forge-comment-error>
-                                                                <flux:callout.text class="text-xs!" x-text="commentError[issue.id]"></flux:callout.text>
-                                                            </flux:callout>
-                                                            <div class="flex flex-wrap items-center gap-2">
-                                                                <flux:button size="xs" variant="primary"
-                                                                             x-on:click="submitComment(issue, 'issue')"
-                                                                             ::disabled="commentBusy(issue.id)">{{ __('Kommentieren') }}</flux:button>
-                                                                <span x-show="commentBusy(issue.id)" x-cloak role="status"
-                                                                      class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
-                                                            </div>
-                                                            @include('group::partials.forge-wake-notice', [
-                                                                'target' => "'comment:' + issue.id",
-                                                                'label' => 'comment',
-                                                            ])
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="!canWrite()">
-                                                        <p class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
-                                                    </template>
-                                                </div>
-                                            </div>
-                                        </template>
                                     </li>
                                 </template>
                             </ul>
@@ -1949,18 +1613,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </div>
                                 <ul>
                                 <template x-for="pr in sichtbarePulls()" :key="pr.id">
-                                    {{-- Sprungziel eines geteilten `?pr=`-Links — siehe die
+                                     {{-- `data-forge-pr` + `data-id`/`data-status`: die E2E-Anker der Zeile.
+                                          Das Sprungziel eines geteilten Links ist seit P1 die EIGENE
+                                          ROUTE (`/forge/{naddr}/pulls/{id}`) — siehe die Issue-Zeile. --}}
                                          Begründung an der Issue-Zeile. --}}
                                     <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800"
-                                        data-forge-pr data-forge-vorgang tabindex="-1"
-                                        :data-status="pr.status" :data-id="pr.id">
-                                        {{-- Zwei Ränge wie an der Issue-Zeile — die Begründung
-                                             steht dort ausgeschrieben. Hier fielen dabei DREI
-                                             Blockzeilen weg: Labelband gab es nie, dafür
-                                             standen Autorsatz, Reviewer-Chips und Statusband
-                                             untereinander. --}}
-                                        <button type="button" class="forge-vorgangskopf pressable block w-full p-4 text-start"
-                                                x-on:click="toggle(pr.id, 'pr')" :aria-expanded="open[pr.id] ? 'true' : 'false'">
+                                        data-forge-pr tabindex="-1"
                                             <span class="forge-vorgangszeile">
                                                 {{-- Typ-Glyphe: dasselbe Zeichen wie am Reiter
                                                      „Pull Requests". Zwei Pfeile gegeneinander —
@@ -2055,241 +1713,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 <x-group::forge-status-badge klasse="forge-vz-zustand"
                                                                              status="pr.status" label="statusText(pr.status)" />
                                             </span>
-                                        </button>
-
-                                        <template x-if="open[pr.id]">
-                                            <div class="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
-                                                {{-- ── Link auf DIESEN Vorgang (P2) ──────────────
-                                                     Steht im RUMPF und nicht in der Kopfzeile:
-                                                     dort gilt „genau ein `button` je Zeile" als
-                                                     stehende Zusage — ein zweiter machte aus dem
-                                                     `getByRole('button')` der E2E-Spec einen
-                                                     Strict-Mode-Treffer auf zwei Elemente.
-
-                                                     Wie beim Clone-Knopf entscheidet die Frage
-                                                     über das RENDERN: `navigator.clipboard` gibt
-                                                     es nur in sicheren Kontexten (HTTPS oder
-                                                     localhost). Über eine nackte HTTP-Adresse im
-                                                     LAN — der Fall bei einer selbst betriebenen
-                                                     Instanz — ist die Eigenschaft schlicht
-                                                     `undefined`, und ein Knopf, der dann nichts
-                                                     tut, wäre schlechter als keiner. --}}
-                                                <template x-if="canCopyClone()">
-                                                    <div class="mb-2 flex justify-end">
-                                                        <flux:button size="xs" variant="ghost" icon="link"
-                                                                     data-forge-vorgang-copy
-                                                                     x-on:click="copyVorgang(pr.id, 'pr')">{{ __('Link kopieren') }}</flux:button>
-                                                    </div>
-                                                </template>
-                                                <div x-show="pr.html" class="article-content forge-mass" x-html="pr.html"></div>
-                                                <p x-show="!pr.html" class="whitespace-pre-wrap text-sm" x-text="pr.content"></p>
-
-                                                {{-- ── Wo dieser Vorschlag gelandet ist (P7b) ────
-                                                     `merge-commit` und `applied-as-commits`
-                                                     stehen am 1631 und sind seit P7a am Modell.
-                                                     Sie gehören NICHT in die Zeilenübersicht —
-                                                     dort steht genau EIN Anker, und
-                                                     `applied-as-commits` ist eine Liste.
-
-                                                     Für die Pillen die `short…`-Felder, für
-                                                     nichts anderes: die Kürzung trägt die
-                                                     Formprüfung aus `forgeModels.ts` mit. Im
-                                                     Markup zu slicen machte aus
-                                                     `["merge-commit","master"]` eine Pille namens
-                                                     „master". --}}
-                                                <template x-if="pr.shortMergeCommit || pr.shortAppliedAsCommits.length > 0">
-                                                    <p class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted"
-                                                       data-forge-landung>
-                                                        <template x-if="pr.shortMergeCommit">
-                                                            <span class="inline-flex items-center gap-1.5">
-                                                                <span>{{ __('Zusammengeführt als') }}</span>
-                                                                <flux:badge size="sm" class="forge-anker tracking-tight"
-                                                                            data-forge-merge-commit
-                                                                            x-text="pr.shortMergeCommit" />
-                                                            </span>
-                                                        </template>
-                                                        <template x-if="pr.shortAppliedAsCommits.length > 0">
-                                                            <span class="inline-flex flex-wrap items-center gap-1.5">
-                                                                <span>{{ __('Angewandt als') }}</span>
-                                                                <template x-for="c in pr.shortAppliedAsCommits" :key="c">
-                                                                    <flux:badge size="sm" class="forge-anker tracking-tight"
-                                                                                data-forge-applied-as
-                                                                                x-text="c" />
-                                                                </template>
-                                                            </span>
-                                                        </template>
-                                                    </p>
-                                                </template>
-
-                                                {{-- ── Die Dateiliste (P7b) ──────────────────────
-                                                     Eigene Komponente, weil sie einen zweiten,
-                                                     ANGESAGTEN Ladeweg mitbringt: ein kind 1618
-                                                     trägt seinen Diff nicht bei sich. Die
-                                                     Herleitung samt Messzahlen steht dort. --}}
-                                                <x-group::forge-pr-diff vorgang="pr" />
-
-                                                <template x-if="pr.updates.length > 0">
-                                                    <ul class="mt-4 space-y-1">
-                                                        <template x-for="update in pr.updates" :key="update.id">
-                                                            {{-- Kein `font-mono`: die App IST durchgehend
-                                                                 Inconsolata (`--font-sans` in `theme.css`),
-                                                                 aber `--font-mono` überschreibt das Theme
-                                                                 NICHT — die Klasse landet auf Tailwinds
-                                                                 Default-Stack und setzte den Hash damit in
-                                                                 eine zweite, fremde Schrift. --}}
-                                                            <li class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                                                                <flux:icon.arrow-path variant="micro" class="size-3.5 shrink-0" />
-                                                                <span x-text="update.authorName"></span>
-                                                                <span x-text="update.timeLabel"></span>
-                                                                <template x-if="update.shortCommit">
-                                                                    <span class="rounded-pill bg-brand-500/10 px-1.5 py-0.5 font-semibold tracking-tight text-brand-800 dark:text-brand-300"
-                                                                          x-text="update.shortCommit"></span>
-                                                                </template>
-                                                            </li>
-                                                        </template>
-                                                    </ul>
-                                                </template>
-
-                                                <template x-if="pr.comments.length > 0">
-                                                    <ul class="mt-4 space-y-2">
-                                                        <template x-for="comment in pr.comments" :key="comment.id">
-                                                            <li class="rounded-tile bg-zinc-100 p-3 dark:bg-zinc-800"
-                                                                :class="rowState(comment.id) === 'sending' ? 'opacity-60' : ''">
-                                                                <p class="text-xs text-muted">
-                                                                    <span class="font-medium" x-text="comment.authorName"></span>
-                                                                    <span x-text="' · ' + comment.timeLabel"></span>
-                                                                    <template x-if="rowState(comment.id) === 'sending'">
-                                                                        <span data-forge-row-state="sending"
-                                                                              class="ms-1 font-semibold uppercase tracking-wider">{{ __('Wird gesendet …') }}</span>
-                                                                    </template>
-                                                                </p>
-                                                                <div x-show="comment.html" class="article-content forge-mass mt-1" x-html="comment.html"></div>
-                                                            </li>
-                                                        </template>
-                                                    </ul>
-                                                </template>
-
-                                                <template x-for="row in failedFor(pr.id)" :key="row.id">
-                                                    {{-- Derselbe Tausch wie beim Schwesterkasten in der Issue-Spalte
-                                                         (Herleitung dort) — dieselbe Aussage, dieselbe Bauform. --}}
-                                                    <flux:callout variant="danger" icon="exclamation-triangle" inline
-                                                                  class="mt-4" role="alert" data-forge-write-failed="root">
-                                                        <flux:callout.text class="text-xs!">
-                                                            <span class="font-semibold" x-text="row.label"></span>
-                                                            <span x-text="(row.label ? ' — ' : '') + row.error"></span>
-                                                        </flux:callout.text>
-                                                        <x-slot name="actions">
-                                                            <flux:button size="xs" variant="ghost" class="icon-btn-touch shrink-0" x-on:click="dismiss(row.id)">{{ __('Verwerfen') }}</flux:button>
-                                                        </x-slot>
-                                                    </flux:callout>
-                                                </template>
-
-                                                {{-- ── Freigeben / Änderungen erbitten (P5) ─────
-                                                     Zwei Knöpfe, EIN Riegel. Beide bleiben stehen,
-                                                     wenn er zu ist (`aria-disabled`, Haus-Muster),
-                                                     und die Begründung steht daneben — vor dem
-                                                     Klick, nicht danach.
-
-                                                     **Warum die Begründung hier drei verschiedene
-                                                     Sätze kennt.** „Du darfst nicht", „dieser Pull
-                                                     Request nennt keinen Commit" und „er ist
-                                                     abgeschlossen" sind drei verschiedene Lagen,
-                                                     und nur die erste ist eine Berechtigungsfrage.
-                                                     Ein gemeinsamer Satz wäre die Sorte Begründung,
-                                                     nach der man erst recht fragt.
-
-                                                     Der Commit-Bezug ist kein Detail: `foldReviews`
-                                                     verwirft jede Entscheidung, deren Commit nicht
-                                                     der aktuelle ist. Ein Push nach der Freigabe
-                                                     entwertet sie — deshalb sagt der Knopf
-                                                     „freigegeben", solange die eigene Entscheidung
-                                                     für DIESEN Stand steht, und wird wieder
-                                                     anklickbar, sobald sie es nicht mehr tut. --}}
-                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800"
-                                                     data-forge-review-block>
-                                                    <div class="flex flex-wrap items-center gap-2">
-                                                        <flux:button size="xs" variant="ghost" icon="check"
-                                                                     data-forge-approve
-                                                                     x-on:click="submitReview(pr, 'approval')"
-                                                                     ::aria-disabled="canApprove(pr) && eigeneEntscheidung(pr) !== 'approval' ? null : 'true'"
-                                                                     ::class="canApprove(pr) && eigeneEntscheidung(pr) !== 'approval' ? '' : 'opacity-60'">
-                                                            <span x-text="eigeneEntscheidung(pr) === 'approval' ? @js(__('Freigegeben')) : @js(__('Freigeben'))"></span>
-                                                        </flux:button>
-                                                        {{-- Dasselbe Zeichen wie die Plakette am Reviewer-Gesicht
-                                                             (`arrow-uturn-left`): eine Handlung behält ihr Zeichen
-                                                             über den ganzen Weg. `exclamation-circle` stand hier bis
-                                                             P3 und bedeutet seit P1 in jeder Vorgangszeile
-                                                             „Zustand: offen" — ein Zeichen mit zwei Bedeutungen im
-                                                             selben Bild. --}}
-                                                        <flux:button size="xs" variant="ghost" icon="arrow-uturn-left"
-                                                                     data-forge-request-changes
-                                                                     x-on:click="submitReview(pr, 'changes-requested')"
-                                                                     ::aria-disabled="canApprove(pr) && eigeneEntscheidung(pr) !== 'changes-requested' ? null : 'true'"
-                                                                     ::class="canApprove(pr) && eigeneEntscheidung(pr) !== 'changes-requested' ? '' : 'opacity-60'">
-                                                            <span x-text="eigeneEntscheidung(pr) === 'changes-requested' ? @js(__('Änderungen erbeten')) : @js(__('Änderungen erbitten'))"></span>
-                                                        </flux:button>
-                                                        <span x-show="reviewBusy(pr.id)" x-cloak role="status"
-                                                              class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
-                                                    </div>
-                                                    <template x-if="!canApprove(pr)">
-                                                        <p class="mt-1 text-xs text-muted" data-forge-review-hint
-                                                           x-text="approveHint(pr)"></p>
-                                                    </template>
-                                                </div>
-
-                                                {{-- ── Kommentieren (P8) ─────────────────────────
-                                                     **Nur kommentieren, nicht anlegen.** Ein Pull
-                                                     Request setzt einen gepushten Branch voraus;
-                                                     ein Browser-Client hat kein Git und könnte
-                                                     dessen `c`-Commit nur erfinden. Ein „Neuer
-                                                     Pull Request"-Knopf wäre hier also eine
-                                                     Attrappe — den Statuswechsel eines PR
-                                                     verantwortet aus demselben Grund, wer ihn
-                                                     gepusht hat, nicht diese Fläche. --}}
-                                                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                                                    <template x-if="canWrite()">
-                                                        <div class="space-y-2" data-forge-comment-form>
-                                                            {{-- @-Erwähnung (P9). Das Ziel des Vorschlags heißt
-                                                                 `comment:<wurzel-id>` und steht erst zur Laufzeit
-                                                                 fest — deshalb ein Ausdruck und kein fester Wert. --}}
-                                                            <div class="relative">
-                                                                <flux:textarea label="{{ __('Kommentar') }}" rows="2"
-                                                                               x-model="commentDraft[pr.id]"
-                                                                               ::data-forge-composer="'comment:' + pr.id"
-                                                                               x-on:input="onComposerInput($event.target, 'comment:' + pr.id)"
-                                                                               x-on:keydown="mentionKey($event)"
-                                                                               placeholder="{{ __('Antwort schreiben … @ erwähnt jemanden.') }}" />
-                                                                @include('group::partials.forge-mention-popover', [
-                                                                    'targetExpr' => "'comment:' + pr.id",
-                                                                    'targetLabel' => 'comment',
-                                                                ])
-                                                            </div>
-                                                            {{-- Fehlermeldung als `flux:callout variant="danger"` statt als
-                                                                 nachgebauter roter Kasten — Herleitung an der ersten Fundstelle
-                                                                 dieser Datei (Suchwort `Vom Handkasten`). --}}
-                                                            <flux:callout variant="danger" icon="exclamation-triangle" inline
-                                                                          x-show="commentError[pr.id]" x-cloak role="alert" data-forge-comment-error>
-                                                                <flux:callout.text class="text-xs!" x-text="commentError[pr.id]"></flux:callout.text>
-                                                            </flux:callout>
-                                                            <div class="flex flex-wrap items-center gap-2">
-                                                                <flux:button size="xs" variant="primary"
-                                                                             x-on:click="submitComment(pr, 'pr')"
-                                                                             ::disabled="commentBusy(pr.id)">{{ __('Kommentieren') }}</flux:button>
-                                                                <span x-show="commentBusy(pr.id)" x-cloak role="status"
-                                                                      class="text-xs text-muted">{{ __('Wird gesendet …') }}</span>
-                                                            </div>
-                                                            @include('group::partials.forge-wake-notice', [
-                                                                'target' => "'comment:' + pr.id",
-                                                                'label' => 'comment',
-                                                            ])
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="!canWrite()">
-                                                        <p class="text-xs text-muted" data-forge-write-hint x-text="writeHint()"></p>
-                                                    </template>
-                                                </div>
-                                            </div>
-                                        </template>
+                                        </a>
                                     </li>
                                 </template>
                             </ul>

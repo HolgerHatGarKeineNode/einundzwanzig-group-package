@@ -89,6 +89,25 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
          * einem fremden Client. Gleiche Begründung wie beim Artikel.
          */
         Route::livewire('/forge/{naddr}', 'group::forge-repo')->name('forge.repo');
+        /*
+         * Die Einzelansicht eines Vorgangs (GitHub-Parität P1, 2026-08-27).
+         *
+         * Das `{id}`-Segment ist die ROHE Event-Id (64 Stellen Hex) — dieselbe
+         * Form, die bis hierher im Query-Parameter lief (`?issue=`/`?pr=`,
+         * P2-Entscheid 2026-08-24). Diese Entscheidung traf eine Aussage über
+         * die ID-FORM (rohe Hex-Id statt `nevent` mit Relay-Hints) — die bleibt
+         * gültig; die Hex-Id wandert nur vom Query-Parameter ins Pfadsegment.
+         * Was sich geändert hat, ist die Prämisse: eine Einzelansicht ist eine
+         * SEITE (eigener Titel, eigene Historie, Zurück-Pfeil), kein Aufklapp-
+         * Zustand auf einer Liste. Vorbild ist GitHub (`/{owner}/{repo}/issues/{n}`).
+         *
+         * Keine Kollision mit `/forge/{naddr}`: drei Segmente gegen zwei.
+         * Der Server deutet die Id NICHT — ob der Vorgang existiert, weiss nur
+         * das Workspace-Relay hinter NIP-42; ungültige Formen fängt der Mount
+         * der Repo-Seite (Alt-Link-Redirect) bzw. die Insel (Leerfläche).
+         */
+        Route::livewire('/forge/{naddr}/issues/{id}', 'group::forge-issue')->name('forge.issue');
+        Route::livewire('/forge/{naddr}/pulls/{id}', 'group::forge-pull')->name('forge.pull');
         Route::livewire('/rooms/{h}', 'group::room')->name('room');
         // Direkt verlinkbarer Thread (C6b): dieselbe Room-SFC, öffnet den Thread als
         // Vollansicht. `{nevent}` = bech32-Referenz auf die Wurzel-Nachricht (portabel/teilbar).

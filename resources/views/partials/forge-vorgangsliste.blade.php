@@ -50,10 +50,11 @@
         <ul>
             <template x-for="row in gruppe.items" :key="row.id">
                 <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800">
-                    {{-- Die ganze Zeile ist der Link — Ziel ist die P2-Adresse
-                         (`?issue=`/`?pr=`), also derselbe Verweis, den der
-                         Kopier-Knopf auf der Repo-Seite liefert. Er wird nicht
-                         neu zusammengesetzt, sondern kommt aus `withVorgang`. --}}
+                    {{-- Die ganze Zeile ist der Link — Ziel ist seit P1 (GitHub-
+                         Parität) die EIGENE ROUTE des Vorgangs
+                         (`/forge/{naddr}/issues|pulls/{id}`). Er wird nicht neu
+                         zusammengesetzt, sondern kommt aus `vorgangPath` über
+                         `zuGruppen` — dieselbe Quelle wie die Repo-Liste. --}}
                     {{-- Zwei Ränge, dieselbe Bauform wie auf der Repo-Seite (P3):
                          Typ-Glyphe · Titel oben, EINE graue Metazeile darunter,
                          Zustand rechts. Die schmale und die breite Fassung stehen
