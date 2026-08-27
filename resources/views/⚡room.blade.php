@@ -542,10 +542,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 @endfor
             </div>
 
-            {{-- Leeres Forum. Kein „Schreib das erste Thema"-Knopf: Themen anlegen
-                 ist eine Schreibrichtung und in dieser Phase bewusst nicht gebaut —
-                 ein Knopf, der nichts tut, wäre schlimmer als keiner. Der Satz sagt
-                 deshalb genau das, was gilt. --}}
+            {{-- Der Weg zum eigenen Thema — DESKTOP-Bauform, am Kopf der Liste,
+                 wie Buzz Desktop (`ForumView.tsx:184-197`). Die mobile Form steht
+                 unten in der Composer-Zone; welche gilt, sagt
+                 `topicComposerZiel($store.viewport.desktop)`, und weil das EINE
+                 Funktion mit EINEM Rückgabewert ist, können nie beide stehen.
+
+                 `x-if` und nicht `x-show`: das Feld darin trägt `x-ref` und
+                 `data-`-Haken, ein per CSS verstecktes Duplikat wäre ein
+                 Strict-Mode-Treffer auf zwei Elemente. --}}
+            <template x-if="membershipReady && topicComposerZiel($store.viewport.desktop) === 'kopf'">
+                <div><x-group::forum-topic-inline /></div>
+            </template>
+
+            {{-- Leeres Forum. Der Satz bleibt eine AUSKUNFT und trägt bewusst
+                 keinen zweiten „Schreib das erste Thema"-Knopf: der Weg dorthin
+                 steht seit 2026-08-27 direkt darüber (Desktop) bzw. in der
+                 unteren Zone (Mobil), und ein dritter Auslöser für dieselbe
+                 Handlung wäre genau die Doppelung, gegen die
+                 `topicComposerZiel()` gebaut ist. --}}
             <template x-if="!topicsLoading && topics.length === 0 && $store.authGate?.authed && !gatedOut">
                 <div class="surface-card empty-state mt-8 p-6 text-center">
                     <flux:icon.chat-bubble-oval-left class="mx-auto size-8 text-zinc-400" />
@@ -589,6 +604,31 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <span x-text="$plural(topic.replyCount, '1 Antwort', ':count Antworten')"></span>
                                 <span aria-hidden="true">·</span>
                                 <span x-bind:title="topic.lastFullLabel" x-text="topic.lastLabel"></span>
+                                {{-- Der OPTIMISTISCHE Merker. `publishThunk` legt das
+                                     Ereignis synchron in den `repository` und trägt die
+                                     Ziel-URL im `tracker` ein — die Zeile steht also
+                                     schon, bevor der Relay etwas gesagt hat. Ohne diesen
+                                     Zusatz sähe sie aus wie jede andere, und beim
+                                     Fehlschlag verschwände sie wieder, ohne dass jemand
+                                     wüsste, dass sie je vorläufig war.
+
+                                     KEIN eigener `·`-Trenner davor: die zwei vorhandenen
+                                     tragen `aria-hidden="true"` und stehen damit in der
+                                     kalibrierten Trägerzählung (`EmptyStatesAndA11yTest`,
+                                     `'room' => 37`). Ein dritter hätte sie ohne
+                                     inhaltlichen Grund bewegt.
+
+                                     `text-brand-800`, NICHT `text-brand-600`. Hier stand
+                                     zuerst brand-600, und das war ein echter Fehler:
+                                     #e87706 auf der weissen `surface-card` hält
+                                     **2,97:1**, WCAG 1.4.3 verlangt 4,5:1 für normalen
+                                     Text. brand-800 (#98480f) hält 6,42:1. Das ist die
+                                     Rollenregel dieses Hauses („brand-700 = Linie/Grafik,
+                                     brand-800 = Text", `theme.css`), und der Dunkelzweig
+                                     war nie betroffen (brand-400 auf zinc-900: 8,95:1). --}}
+                                <span x-show="topicSending.includes(topic.id)" x-cloak
+                                      class="font-semibold text-brand-800 dark:text-brand-400"
+                                      data-forum-topic-pending>{{ __('Wird gesendet …') }}</span>
                             </span>
                         </button>
                     </li>
@@ -840,7 +880,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Anhang-Vorschau + Eingabezeile (@-Mentions, Bild, Umfrage/Zap-Ziel): geteilter Composer.
              Sanftes Opacity-Einblenden statt hartem Aufploppen, sobald die Mitgliedschaft (39002)
              geladen ist (membershipReady). --}}
-        {{-- Im FORUM steht hier KEIN Composer (P3).
+        {{-- Im FORUM steht hier KEIN Chat-Composer.
 
              Nicht aus Bequemlichkeit, sondern weil er das Falsche täte: Er
              schickte eine kind-9-Wurzel in den Kanal, und ein Forum-Thema ist ein
@@ -852,16 +892,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
              ein kind 9 mit `["e",<root>,"","reply"]`, und genau diese Form nimmt
              der Relay im Forumkanal an und liest Buzz Desktop als Forum-Antwort
              (`get_forum_thread` fragt `kinds:[9,45003]`) — beides am Teststack
-             gemessen. Themen ANLEGEN (45001) ist eine Schreibrichtung und
-             ausdrücklich nicht Teil dieser Phase. --}}
+             gemessen.
+
+             **Themen ANLEGEN steht seit 2026-08-27 hier** — aber in der MOBILEN
+             Bauform, und nur in ihr. Hier stand bis dahin der Satz „Neue Themen
+             werden hier noch nicht verfasst"; er ist ersatzlos gefallen, weil
+             der Weg jetzt existiert. Welche der zwei Bauformen erscheint,
+             entscheidet `topicComposerZiel($store.viewport.desktop)` — EINE
+             Funktion mit EINEM Rückgabewert, damit zwei sichtbare Auslöser für
+             dieselbe Handlung nicht ausdrückbar sind (Herleitung in
+             `js/forumWriteModels.ts`). Die Desktop-Form steht am KOPF DER LISTE,
+             nicht hier. --}}
         <div x-show="membershipReady && joined && !isForum" x-cloak x-transition.opacity.duration.200ms>
             @include('group::partials.chat-composer', ['context' => 'room'])
         </div>
-        <div x-show="membershipReady && joined && isForum" x-cloak
-             class="surface-card flex items-center gap-2 px-3 py-2 text-xs text-muted">
-            <flux:icon.information-circle variant="micro" aria-hidden="true" class="size-4 shrink-0" />
-            <span>{{ __('Neue Themen werden hier noch nicht verfasst — Antworten in einem Thema schon.') }}</span>
-        </div>
+        <template x-if="membershipReady && topicComposerZiel($store.viewport.desktop) === 'leiste'">
+            <div><x-group::forum-topic-blatt /></div>
+        </template>
 
         {{-- Fehlgeschlagen: aktionable Hinweiszeile statt flüchtigem Toast (Draft ist gefüllt). --}}
         <div x-show="membershipReady && joined && sendError" x-cloak

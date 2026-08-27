@@ -176,25 +176,86 @@ export const waitForPublishError = (thunk: ThunkLike): Promise<string> =>
  * fahren kann: `feeds.ts` ist unter node nicht ladbar (endungslose Importe, danach
  * `localStorage` beim Import von `session.ts`).
  */
+/**
+ * Der HANDLUNGSLEITENDE Satz zu einer Relay-Begründung — oder `''`, wenn der
+ * Wortlaut keinen trägt.
+ *
+ * **Warum das seit dem 2026-08-27 eine eigene Funktion ist und nicht mehr nur eine
+ * lokale Konstante in {@link mapRelayError}:** weil es einen zweiten Aufrufer gibt,
+ * und zwar genau für den Fall, wegen dem dieses Modul überhaupt existiert.
+ *
+ * `mapRelayError` setzt eine ABLEHNUNG voraus („Vom Relay abgelehnt: …"). Beim
+ * Ratenbegrenzer von Buzz gibt es aber gar keine Ablehnung, sondern eine nackte
+ * `NOTICE` und **kein `OK`** — {@link waitForPublishError} macht daraus
+ * {@link NO_VERDICT_ERROR} plus den NOTICE-Wortlaut. Dieses Gebilde durch
+ * `mapRelayError` zu schicken, ergäbe „Vom Relay abgelehnt: Das Relay hat den
+ * Vorgang nicht bestätigt." — ein Satz, der sich selbst widerspricht und obendrein
+ * eine Ablehnung behauptet, die nicht stattgefunden hat.
+ *
+ * Der Hinweis ist trotzdem derselbe und wird dort genauso gebraucht: „kurz warten
+ * und erneut senden" ist bei einem Ratenbegrenzer die einzige richtige Handlung,
+ * ob er nun mit `OK false` oder mit einer NOTICE antwortet. Deshalb ist die
+ * Zuordnung Wortlaut → Handlung hier herausgezogen und die Rahmung dem Aufrufer
+ * überlassen.
+ *
+ * Reihenfolge = Spezifität. `auth` steht ZULETZT, weil das Wort als
+ * Teilzeichenkette in vielen Ablehnungen vorkommt (`unauthorized`,
+ * `authentication`) und sonst spezifischere Gründe verschluckte.
+ */
+export const relayHinweis = (raw: string): string => {
+    const s = raw.trim().toLowerCase()
+    if (s.includes('rate') && s.includes('limit')) {
+        return t('Zu viele Nachrichten in kurzer Zeit — kurz warten und erneut senden.')
+    }
+    if (s.includes('nip-05') || s.includes('nip05')) {
+        return t('Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.')
+    }
+    if (s.includes('member')) {
+        return t('Du bist kein Mitglied dieses Relays.')
+    }
+    if (s.includes('auth')) {
+        return t('Am Relay nicht angemeldet — bitte erneut senden.')
+    }
+
+    return ''
+}
+
 export const mapRelayError = (raw: string): string => {
     const grund = raw.trim()
     if (!grund) {
         return t('Konnte nicht gesendet werden.')
     }
-    const s = grund.toLowerCase()
-    // Reihenfolge = Spezifität. `auth` steht ZULETZT, weil das Wort als Teilzeichenkette
-    // in vielen Ablehnungen vorkommt (`unauthorized`, `authentication`) und sonst
-    // spezifischere Gründe verschluckte.
-    const hinweis =
-        s.includes('rate') && s.includes('limit')
-            ? t('Zu viele Nachrichten in kurzer Zeit — kurz warten und erneut senden.')
-            : s.includes('nip-05') || s.includes('nip05')
-              ? t('Dieses Relay nimmt nur Beiträge von Konten mit verifizierter NIP-05-Adresse an.')
-              : s.includes('member')
-                ? t('Du bist kein Mitglied dieses Relays.')
-                : s.includes('auth')
-                  ? t('Am Relay nicht angemeldet — bitte erneut senden.')
-                  : ''
+    const hinweis = relayHinweis(grund)
 
     return hinweis ? `${hinweis} (${grund})` : t('Vom Relay abgelehnt: :grund', { grund })
+}
+
+/**
+ * Die Meldung, die ein Nutzer nach einem gescheiterten Publish zu sehen bekommt —
+ * **mit** dem handlungsleitenden Satz und **ohne** eine erfundene Ablehnung.
+ *
+ * Sie unterscheidet die zwei Ausgänge, die {@link waitForPublishError} liefern
+ * kann, weil sie sachlich verschieden sind:
+ *
+ * - **Der Relay hat abgelehnt** (`OK false`, ein `detail` liegt vor) → das ist
+ *   `mapRelayError`: Hinweis plus wörtlicher Grund, sonst „Vom Relay abgelehnt: …".
+ * - **Der Relay hat NICHTS gesagt** (Buzz' Ratenbegrenzer antwortet mit einer
+ *   `NOTICE` statt mit dem von NIP-01 verlangten `OK`; welshman ordnet ohne `OK`
+ *   nichts zu und bliebe für immer `pending`) → hier steht `NO_VERDICT_ERROR`
+ *   vorn, gefolgt vom NOTICE-Wortlaut, sofern einer kam. Der Satz bleibt stehen,
+ *   wie er ist — und bekommt den handlungsleitenden Hinweis VORANGESTELLT, wenn
+ *   der Wortlaut einen trägt.
+ *
+ * `''` bleibt `''`: Erfolg ist kein Sonderfall.
+ */
+export const publishFehlermeldung = (raw: string): string => {
+    if (!raw) {
+        return ''
+    }
+    if (!raw.startsWith(NO_VERDICT_ERROR)) {
+        return mapRelayError(raw)
+    }
+    const hinweis = relayHinweis(raw)
+
+    return hinweis ? `${hinweis} (${raw})` : raw
 }

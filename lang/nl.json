@@ -490,7 +490,6 @@
     "Neue Rechnung": "Nieuwe factuur",
     "Neue Rechnung erzeugen": "Nieuwe factuur aanmaken",
     "Neue Rolle": "Nieuwe rol",
-    "Neue Themen werden hier noch nicht verfasst — Antworten in einem Thema schon.": "Nieuwe onderwerpen kun je hier nog niet schrijven — reageren in een onderwerp wel.",
     "Neuen Raum anlegen": "Nieuwe kamer aanmaken",
     "Neuer Raum": "Nieuwe kamer",
     "Nicht angemeldet — die Moderations-Abfrage braucht eine Signatur (NIP-98).": "Niet aangemeld — de moderatie-opvraag heeft een handtekening nodig (NIP-98).",
@@ -1092,5 +1091,14 @@
     "Titel, Text, Label, Autor …": "Titel, tekst, label, auteur …",
     "Dieser Git-Endpunkt kennt den vorgeschlagenen Stand nicht — er liegt in einer Kopie des Repositories, die hier nicht abrufbar ist.": "Dit Git-endpoint kent de voorgestelde stand niet — die staat in een kopie van de repository die hiervandaan niet bereikbaar is.",
     "Der Vergleichspunkt liegt weiter zurück, als hier geholt wurde. Die Dateiliste lässt sich daraus nicht bilden.": "Het vergelijkingspunt ligt verder terug dan wat hier is opgehaald. Daaruit is geen bestandslijst te maken.",
-    "Die Dateiliste liess sich nicht bilden.": "De bestandslijst kon niet worden opgebouwd."
+    "Die Dateiliste liess sich nicht bilden.": "De bestandslijst kon niet worden opgebouwd.",
+    "Das Thema ist zu lang — Buzz nimmt höchstens 64 KB an.": "Het onderwerp is te lang — Buzz accepteert maximaal 64 KB.",
+    "Dieser Client kennt kein Relay, auf dem dieses Forum liegt.": "Deze client kent geen relay met dit forum.",
+    "Ein Thema braucht einen Text.": "Een onderwerp heeft tekst nodig.",
+    "Erste Zeile: der Titel. Danach dein Text.": "Eerste regel: de titel. Daarna je tekst.",
+    "Neues Thema": "Nieuw onderwerp",
+    "Neues Thema verfassen …": "Nieuw onderwerp schrijven …",
+    "Thema": "Onderwerp",
+    "Thema anlegen": "Onderwerp aanmaken",
+    "Titel in der Liste:": "Titel in de lijst:"
 }

@@ -133,6 +133,9 @@ import { KOMMENTAR_MAX_ZEICHEN, kommentarSperre } from './articleWrite.ts'
 import { DEFAULT_ARTICLE_SORT, type ArticleSort } from './articleSorts.ts'
 import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseForumTag, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories.ts'
 import { deriveForumTopics, listenForum, loadForumTopics, type ForumTopic } from './forumFeed.ts'
+import { forumTopicTitle } from './forumModels.ts'
+import { topicComposerZiel, type TopicComposerZiel } from './forumWriteModels.ts'
+import { clearPendingTopics, forumPending, publishForumTopic, type PendingTopic } from './forumWrite.ts'
 import { splitMine, type WorkspacePrefs } from './railGroups.ts'
 // P6 — die EINE Ableitung der Workspace-Frage, geteilt mit der Desktop-Rail
 // (`rail.ts`). `buildWorkspaceList` steht bewusst NICHT mehr hier: die mobile
@@ -1275,6 +1278,20 @@ type RoomChatState = {
     topicsLoading: boolean
     _unsubTopics: null | (() => void) // deriveForumTopics-Subscription
     _forumStarted: boolean // Load + Live-Sub des Forums schon aufgezogen? (einmal je setup)
+    // ── Ein Thema VERFASSEN (45001) ──────────────────────────────────────────
+    // Der Entwurf ist EIN Feld, weil ein 45001 EIN Feld hat: es gibt kein
+    // Titel-Tag (belegt am Buzz-Quellcode in `forumWriteModels.ts`). Der Titel
+    // der Liste ist die erste Zeile — deshalb steht neben dem Feld, was daraus
+    // wird, statt ein zweites Eingabefeld eine Struktur zu versprechen, die das
+    // Ereignis nicht trägt.
+    topicDraft: string
+    topicOpen: boolean
+    topicBusy: boolean
+    /** Relay-Begründung des letzten Fehlversuchs. Bleibt stehen, bis neu getippt wird. */
+    topicError: string
+    /** Ids der Themen, die gerade unterwegs sind — die Zeile steht schon (optimistisch). */
+    topicSending: string[]
+    _unsubTopicPending: null | (() => void)
     _unsubRoomMeta: null | (() => void)
     _unsubRelay: null | (() => void) // deriveRelay-Subscription: korrigiert spaceHint nach, wenn NIP-11 nach dem Mount eintrifft (P13)
     _url: string | null
@@ -1331,6 +1348,20 @@ type RoomChatState = {
     openTopic(topic: ForumTopic): void
     /** Zieht die Forum-Fläche auf (Bestand, Live-Sub, Themenliste). Idempotent. */
     startForum(url: string): void
+    /**
+     * Welche der zwei Bauformen den Weg zum neuen Thema öffnet — `'kopf'` am
+     * Desktop (Knopf über der Liste, wie Buzz Desktop), `'leiste'` auf dem
+     * Telefon (Knopf in der unteren Zone, Blatt statt Aufklapper), `'keins'`
+     * sonst. Die Breite kommt aus dem Aufruf, damit Alpine sie als Abhängigkeit
+     * verfolgt (Begründung in `forumWriteModels.ts`).
+     */
+    topicComposerZiel(desktop: boolean): TopicComposerZiel
+    /** Entwurfsblatt/-aufklapper öffnen bzw. schließen. Verriegelt beim Öffnen. */
+    toggleTopicDraft(): void
+    /** Der Titel, der aus dem Entwurf in der Liste stünde — dieselbe Regel wie die Liste. */
+    topicTitlePreview(): string
+    /** Thema absenden (kind 45001). */
+    submitTopic(): Promise<void>
     threadHref(m: ChatMessage): string
     closeThread(): void
     /** Kopf-Pfeil im RAUM: history.back() bei App-internem Vorgänger, sonst `upTarget`. */
@@ -5474,6 +5505,12 @@ export function registerNostrComponents(Alpine: {
         topicsLoading: true,
         _unsubTopics: null,
         _forumStarted: false,
+        topicDraft: '',
+        topicOpen: false,
+        topicBusy: false,
+        topicError: '',
+        topicSending: [],
+        _unsubTopicPending: null,
         pendingAdminDelete: null,
         banAuthorFor: null,
         moderating: false,
@@ -6158,6 +6195,24 @@ export function registerNostrComponents(Alpine: {
                     this.topicsLoading = false
                 }
             })
+            // Der Merker der laufenden/gescheiterten Themen. Er hängt am MODUL und
+            // nicht an der Insel (ein Thunk überlebt einen Raumwechsel, die Insel
+            // nicht) — hier wird er nur auf DIESEN Kanal gefiltert gespiegelt.
+            this._unsubTopicPending?.()
+            this._unsubTopicPending = forumPending.subscribe((list: PendingTopic[]) => {
+                const mine = list.filter((entry) => entry.h === this.h)
+                this.topicSending = mine.filter((entry) => entry.state === 'sending').map((entry) => entry.id)
+                // Ein gescheiterter Vorgang bringt seinen Grund an die Fläche
+                // zurück, auch wenn der Nutzer das Blatt inzwischen geschlossen
+                // hat: `waitForPublishError` kann bis zu 20 s brauchen (der
+                // NOTICE-Fall des Ratenbegrenzers), und in dieser Zeit verschwindet
+                // die optimistische Zeile wieder. Ohne diese Zuweisung wäre der
+                // Ausgang unsichtbar — genau der Dauer-Spinner ohne Spinner.
+                const failed = mine.find((entry) => entry.state === 'failed')
+                if (failed) {
+                    this.topicError = failed.error
+                }
+            })
             this._unsubTopics?.()
             this._unsubTopics = deriveForumTopics(url, this.h).subscribe((rows: ForumTopic[]) => {
                 this.topics = rows
@@ -6169,6 +6224,64 @@ export function registerNostrComponents(Alpine: {
             // `neventFor` selbst aus dem Repository — dort steht 45001, und genau das
             // gehört in den geteilten Link.
             this.openThread({ id: topic.id, pubkey: topic.pubkey } as ChatMessage)
+        },
+        topicComposerZiel(desktop: boolean) {
+            return topicComposerZiel(desktop, this.isForum, this.joined)
+        },
+        toggleTopicDraft() {
+            // ── Der Riegel im PFAD, nicht nur am Knopf ───────────────────────
+            // Nur der ÖFFNEN-Weg ist verriegelt. Fiele die Mitgliedschaft bei
+            // offenem Blatt um, verschlösse ein Riegel über der ganzen Funktion
+            // es für immer — die drei Schließwege (Kreuz, Abbrechen, Escape)
+            // laufen alle hier hindurch. Dieselbe Bauform wie `toggleIssueDraft`
+            // in `forge.ts`.
+            if (!this.topicOpen) {
+                if (this.topicComposerZiel(true) === 'keins') {
+                    return
+                }
+                this.topicError = ''
+                this.topicOpen = true
+
+                return
+            }
+            if (this.topicBusy) {
+                return
+            }
+            this.topicOpen = false
+        },
+        topicTitlePreview() {
+            // DIESELBE Funktion, aus der die Liste ihren Titel baut. Ein
+            // nachgebautes `split('\n')[0]` hier wäre eine zweite Regel für
+            // dieselbe Frage — und die zweite altert unbemerkt, sobald jemand
+            // an der Kürzung oder am Umgang mit führenden Leerzeilen etwas
+            // ändert. Der Vorschau-Satz ist damit prüfbar identisch mit dem,
+            // was danach in der Zeile steht.
+            return forumTopicTitle(this.topicDraft)
+        },
+        async submitTopic() {
+            if (this.topicBusy || !this._url) {
+                return
+            }
+            this.topicBusy = true
+            this.topicError = ''
+            try {
+                const outcome = await publishForumTopic(this._url, this.h, this.topicDraft)
+                if (outcome.error) {
+                    // Das Blatt bleibt OFFEN und der Entwurf stehen: der einzige
+                    // Ort, an dem ein erneuter Versuch möglich ist, ist der, an
+                    // dem der Text noch liegt. Eine Fläche, die nach dem
+                    // Fehlschlag schließt und den Text verwirft, verlangt vom
+                    // Nutzer, alles noch einmal zu tippen — für einen
+                    // Ratenbegrenzer, der in zwei Sekunden vorbei ist.
+                    this.topicError = outcome.error
+
+                    return
+                }
+                this.topicDraft = ''
+                this.topicOpen = false
+            } finally {
+                this.topicBusy = false
+            }
         },
         teardown() {
             this._controller?.abort()
@@ -6199,10 +6312,23 @@ export function registerNostrComponents(Alpine: {
             // `startForum` sich für „schon gestartet" hielte.
             this._unsubTopics?.()
             this._unsubTopics = null
+            this._unsubTopicPending?.()
+            this._unsubTopicPending = null
+            // Die Merker verwerfen und nicht nur das Abo lösen: sie hängen am
+            // Modul und trügen sonst den Fehlschlag des VERLASSENEN Kanals in den
+            // nächsten hinein. Ein Thema, das beim Verlassen noch flog, ist damit
+            // ohne Fläche — es kommt trotzdem durch, und die Zeile steht beim
+            // nächsten Betreten aus der normalen Ableitung da.
+            clearPendingTopics()
             this._forumStarted = false
             this.isForum = false
             this.topics = []
             this.topicsLoading = true
+            this.topicDraft = ''
+            this.topicOpen = false
+            this.topicBusy = false
+            this.topicError = ''
+            this.topicSending = []
             this._zapSub?.abort()
             this._zapSub = null
             this._zapLoadedIds.clear()

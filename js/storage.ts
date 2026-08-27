@@ -317,11 +317,25 @@ export function partitionForCache(events: Iterable<TrustedEvent>): {
  * enthält nur relay-akzeptierte Events (der Relay hat das 9005 bereits auf `can_manage`
  * gegatet) → keine h-/Autor-Prüfung nötig. Reine Funktion, node-testbar (kein welshman).
  *
- * **Das deckt seit P10 auch die Forum-Inhalte ab, und zwar als einziger Weg:** ein
- * `kind 5` auf ein 45001/45003 wird von Buzz mit `OK true` quittiert und **löscht
- * nichts** (am Teststack gemessen, 2026-08-17) — wirksam ist allein das 9005, und das
- * trägt seine Ziele wie hier gelesen als `e`-Tags. Für 45001/45003 war deshalb keine
- * Zeile zu ergänzen; die Funktion filtert nach Ziel-Id, nicht nach Ziel-Kind.
+ * **Das deckt seit P10 auch die Forum-Inhalte ab** — die Funktion filtert nach Ziel-Id
+ * und nicht nach Ziel-Kind, für 45001/45003 war deshalb keine Zeile zu ergänzen.
+ *
+ * **KORREKTUR (2026-08-27).** Hier stand, ein `kind 5` auf ein 45001/45003 werde von
+ * Buzz mit `OK true` quittiert und lösche **nichts**, das 9005 sei „der einzige Weg".
+ * Diese Aussage stammte aus einer EINZELMESSUNG vom 2026-08-17 und ist am 2026-08-24 an
+ * einem frischen, isolierten Stack (Image `ghcr.io/block/buzz:main`, rev `f956e6fe`)
+ * zweimal unabhängig **widerlegt**: der `kind 5` des Autors löscht 45001 **und** 45003
+ * hart, der Readback per `#h` ist danach leer. Der Buzz-Quelltext gibt dem recht —
+ * `handlers/side_effects.rs handle_standard_deletion_event` kennt genau EINE
+ * Kind-Ausnahme (Push-Lease) und ruft sonst `soft_delete_event_and_update_thread` für
+ * jedes Ziel; jeder Lesepfad filtert `deleted_at IS NULL`.
+ *
+ * **Was daraus für DIESE Funktion folgt: nichts.** Das 9005 wirkt weiterhin und wird
+ * weiterhin nur hier ausgewertet; den `kind 5` behandelt welshman selbst (Absatz
+ * darunter). Der Satz war trotzdem zu korrigieren, weil er als Begründung für
+ * Löschwege an anderen Flächen zitiert werden könnte — und dort in die Irre führte.
+ * Die Grenzen des `kind 5` bei Buzz: EIN Ziel je Grabstein, nie fremd, keine Kaskade
+ * auf die Antworten eines Themas.
  *
  * **Nicht hier, sondern in welshman: `kind 5`.** Der NIP-09-Grabstein der Forge braucht
  * keine eigene Behandlung — `repository.load()` sammelt beim Einspielen alle kind-5 in
