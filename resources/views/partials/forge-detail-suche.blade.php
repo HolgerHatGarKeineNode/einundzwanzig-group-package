@@ -29,7 +29,19 @@
                     x-ref="detailSucheFeld" x-model="suche"
                     autocomplete="off" autocorrect="off" spellcheck="false"
                     data-forge-detail-suche-feld
-                    ::placeholder="@js(__('Titel, Text, Label, Autor …'))"
+                    {{-- **`@js()` gehoert NICHT in ein Komponenten-Attribut.** Hier
+                         stand `::placeholder="@js(__('Titel, Text, Label, Autor …'))"`,
+                         und die Direktive wurde nie kompiliert: Blade wertet
+                         Direktiven im Vorlagentext aus, die Attributwerte eines
+                         Komponenten-Tags dagegen als Zeichenketten. Alpine bekam
+                         woertlich `@js(...)` zu sehen und warf „Invalid or
+                         unexpected token" — im Browser sichtbar, im Build und im
+                         Typecheck lautlos.
+
+                         Der Platzhalter ist ohnehin ueber alle drei Reiter derselbe,
+                         also ein schlichtes Blade-Echo. Der NAME wechselt und bleibt
+                         eine Alpine-Bindung — ein Ausdruck, keine Direktive. --}}
+                    placeholder="{{ __('Titel, Text, Label, Autor …') }}"
                     ::aria-label="detailSucheName()" />
     </div>
     <flux:button size="sm" variant="ghost" icon="backspace" square class="icon-btn-touch shrink-0"

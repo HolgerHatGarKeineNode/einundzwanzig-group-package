@@ -528,6 +528,25 @@ export const holePrDateipaare = async ({
     } catch {
         await git.init({ fs: fs as never, dir })
     }
+    // ── Und es braucht eine REFSPEC, nicht nur eine URL ──────────────────────
+    //
+    // **Ohne diese Zeile bricht jeder Fetch ab**, und zwar mit
+    // `NoRefspecError: Could not find a fetch refspec for remote "origin"` —
+    // am 2026-08-27 im echten Chromium gegen ein echtes `git upload-pack`
+    // gemessen. `git.init()` legt keinen Remote an; `fetch({url})` ordnet die
+    // gelieferten Refs trotzdem über `remote.<name>.fetch` in
+    // `refs/remotes/origin/*` ein und findet den Eintrag dann nicht.
+    // `clone()` fällt nicht darauf herein, weil es intern selbst `addRemote`
+    // ruft — deshalb ist der README-Pfad davon nie betroffen gewesen.
+    //
+    // `force: true`: ein vorhandener Remote (nach einem früheren Klon desselben
+    // Repositories) wird überschrieben statt abgelehnt. Die URL kann sich
+    // geändert haben — das 30617 ist ersetzbar.
+    //
+    // **Das ist der Befund, den erst der Prüfstand mit echter Git-Gegenstelle
+    // gefunden hat.** Bis dahin war dieser Pfad nie gelaufen: ein Build, ein
+    // Typecheck und dreizehn Unit-Tests sagen darüber nichts.
+    await git.addRemote({ fs: fs as never, dir, remote: 'origin', url, force: true })
 
     const liegtVor = async (oid: string): Promise<boolean> => {
         try {
