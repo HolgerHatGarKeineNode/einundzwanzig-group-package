@@ -2058,23 +2058,6 @@ type ForgeRepoState = {
     missing: boolean
     kind: SpaceKind
     tab: string
-    /**
-     * Steht der Steckbrief in einer eigenen SPUR (statt hinter einem
-     * Aufklapper)? Dann ist er offen, und zwar unverhandelbar: seine
-     * Zusammenfassung ist in dieser Form `display: none`, es gäbe also keinen
-     * Weg mehr, ihn wieder aufzuziehen.
-     *
-     * Startwert `false` — die harmlose Ausfallrichtung, dieselbe wie bei
-     * `zweispaltig` auf der Übersicht: ohne Messung bleibt es beim Aufklapper,
-     * und der funktioniert auf jeder Breite.
-     */
-    steckbriefSpur: boolean
-    /** Liest am DOM ab, welche Form der Steckbrief gerade hat. */
-    _messeSteckbrief(): void
-    /** Hängt den Breitenbeobachter an die Bühne — genau einmal. */
-    _beobachteBreite(): void
-    /** Beobachtet die Bühne, weil eine Container-Schwelle kein `matchMedia` hat. */
-    _breiteBeobachter: ResizeObserver | null
     view: RepoView | null
     open: Record<string, boolean>
     /** Der angemeldete Pubkey — `''` heißt: nicht angemeldet. */
@@ -2242,13 +2225,16 @@ const tabFromLocation = (): string => {
         const tab = new URLSearchParams(window.location.search).get('tab')
 
         // `patches` seit P5 (2026-08-23). Die Rail und die Werkbank verlinken
-        // gezielt auf eine Liste; ein `?tab=`, das still auf „Issues" fiele,
-        // zeigte etwas anderes als die Zeile, die dorthin geführt hat.
+        // gezielt auf eine Liste; ein `?tab=`, das still auf den Startwert
+        // fiele, zeigte etwas anderes als die Zeile, die dorthin geführt hat.
+        // Startwert ist seit der GitHub-Parität (2026-08-27) `code` — der
+        // erste Reiter ist bei GitHub die Code-Ansicht, und der Download
+        // startet dort ohnehin erst auf Klick (Ansage davor).
         return tab === 'issues' || tab === 'pulls' || tab === 'patches' || tab === 'activity' || tab === 'code'
             ? tab
-            : 'issues'
+            : 'code'
     } catch {
-        return 'issues'
+        return 'code'
     }
 }
 /**
@@ -3668,8 +3654,6 @@ export function wireForge(Alpine: {
             // schlimmer als keine. Ohne Parameter bleibt es beim bisherigen
             // Startwert.
             tab: tabFromLocation(),
-            steckbriefSpur: false,
-            _breiteBeobachter: null,
             view: null,
             open: {},
             viewer: '',
@@ -3696,66 +3680,6 @@ export function wireForge(Alpine: {
             _unsubRooms: null,
             _mentionStart: -1,
             _loadedProfiles: new Set<string>(),
-            /**
-             * Welche Form hat der Steckbrief gerade — Aufklapper oder Spur?
-             *
-             * Gemessen wird die `display`-Berechnung SEINER ZUSAMMENFASSUNG, nicht
-             * eine Breite. Die Schwelle steht damit an genau einer Stelle
-             * (`@container repo (min-width: 65rem)` in `theme.css`); eine Zahl hier
-             * wäre ihr zweites Literal und liefe beim nächsten Umbau still
-             * auseinander.
-             *
-             * **Diese Rückmessung bleibt, und der Unterschied ist der Punkt:** sie
-             * fragt eine CONTAINER-Schwelle ab (`@container repo (min-width: 65rem)`),
-             * und die kennt das Fenster nicht — `matchMedia` kann sie prinzipiell
-             * nicht beantworten. Gefallen ist in P2 die Rückmessung der FENSTER-Breite
-             * der Übersicht, für die es eine Quelle gibt. „Geometrie bleibt bei
-             * Container-Queries, Chassis bei der einen Schwelle" ist die Hausregel
-             * dazu (`theme.css`).
-             *
-             * Warum überhaupt JavaScript: es gibt keine portable CSS-Regel, die ein
-             * geschlossenes `<details>` aufzieht (`::details-content` ist jünger als
-             * der Browser-Boden dieses Hauses). Und es gibt keinen Ausfallpfad, der
-             * dadurch schlechter würde — die ganze Repo-Fläche steht in
-             * `<template x-if="view">` und existiert ohne diese Insel gar nicht.
-             */
-            _messeSteckbrief() {
-                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
-                const schalter = wurzel?.querySelector('[data-forge-steckbrief-schalter]')
-                this.steckbriefSpur =
-                    !!schalter &&
-                    typeof window.getComputedStyle === 'function' &&
-                    window.getComputedStyle(schalter).display === 'none'
-            },
-            /**
-             * Hängt den Beobachter an die Bühne — genau einmal.
-             *
-             * Ein `matchMedia` gibt es hier nicht: die Schwelle ist eine
-             * CONTAINER-Schwelle, und die kennt das Fenster nicht. Der
-             * `ResizeObserver` liefert nur das WANN; das WAS liest weiterhin
-             * `_messeSteckbrief()` aus dem Stylesheet.
-             *
-             * Ohne `ResizeObserver` (alte Umgebung, Testdouble) bleibt es beim
-             * einmaligen Messwert. Das ist die harmlose Richtung: der Aufklapper
-             * steht dann auch auf einem breiten Schirm — und er funktioniert dort.
-             */
-            _beobachteBreite() {
-                this._messeSteckbrief()
-                if (this._breiteBeobachter || typeof ResizeObserver === 'undefined') {
-                    return
-                }
-                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
-                const buehne = wurzel?.querySelector('.forge-repo-buehne')
-                if (!buehne) {
-                    // Kein Container = App-Host (die Klasse steht dort nicht). Die
-                    // Spur gibt es da nicht, also gibt es auch nichts zu beobachten.
-                    return
-                }
-                this._breiteBeobachter = new ResizeObserver(() => {
-                    this._messeSteckbrief()
-                })
-                this._breiteBeobachter.observe(buehne)
-            },
             init() {
                 this._controller = new AbortController()
                 this._unsubKind = deriveSpaceKind(WORKSPACE_URL).subscribe((kind: SpaceKind) => {
@@ -3770,16 +3694,10 @@ export function wireForge(Alpine: {
                 // eintreffen kann (localStorage-Rehydrierung) und sich im
                 // Betrieb ändern kann (Abmelden).
                 this._abonniereSchreibQuellen(this._controller?.signal)
-                // Erstwert für den Fall, dass die Fläche schon steht
-                // (Kaltstart-Cache). Die Bühne selbst gibt es erst mit `view`;
-                // der Beobachter hängt sich deshalb unten in `_boot` nach.
-                this._messeSteckbrief()
                 void this._boot()
             },
             destroy() {
                 this._dead = true
-                this._breiteBeobachter?.disconnect()
-                this._breiteBeobachter = null
                 this._unsub?.()
                 this._unsubKind?.()
                 this._unsubSelf?.()
@@ -3815,13 +3733,6 @@ export function wireForge(Alpine: {
                         if (this.klon.lage === 'pruefe') {
                             void this.klonPruefen()
                         }
-                        // Die Bühne existiert erst mit `view`. `$nextTick`, weil
-                        // Alpine das `x-if` im selben Durchlauf noch nicht
-                        // ausgerollt hat — eine Wartezeit wäre geraten, dieser
-                        // Haken ist die Zusage.
-                        ;(this as unknown as { $nextTick(cb: () => void): void }).$nextTick(() => {
-                            this._beobachteBreite()
-                        })
                     }
                 })
                 await this._load()

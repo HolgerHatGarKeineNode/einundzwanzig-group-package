@@ -1512,65 +1512,6 @@ select:focus[data-flux-control] {
    es seither eine Quelle (`$store.viewport.form` kennt Host UND Breite). Diese
    hier fragt eine CONTAINER-Schwelle, und die kennt das Fenster prinzipiell
    nicht. */
-.forge-steckbrief > summary {
-    cursor: pointer;
-    list-style: none;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    /* WCAG 2.5.8 verlangt 24 × 24 px; Apples HIG 44 × 44. Die Zeile ist über
-       die volle Breite anfassbar und misst mit 0,75 rem Polsterung plus
-       1,25 rem Zeilenhöhe 44 px. */
-    min-height: 2.75rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    line-height: 1.25rem;
-}
-
-/* Der Marker verschwindet in BEIDEN Engines: WebKit braucht das
-   Pseudo-Element, Blink/Gecko nehmen `list-style: none` oben. */
-.forge-steckbrief > summary::-webkit-details-marker {
-    display: none;
-}
-
-/* Der Winkel zeigt den Zustand — zusätzlich zu `aria-expanded`, das die
-   Zusammenfassung von sich aus trägt. Farbe ist hier NICHT der Träger
-   (WCAG 1.4.1): es dreht sich eine Form. */
-.forge-steckbrief > summary > .forge-steckbrief-winkel {
-    margin-inline-start: auto;
-    flex-shrink: 0;
-    transition: transform var(--duration-tap) ease-out;
-}
-
-.forge-steckbrief[open] > summary > .forge-steckbrief-winkel {
-    transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .forge-steckbrief > summary > .forge-steckbrief-winkel {
-        transition: none;
-    }
-}
-
-/* Der Abstand zwischen Zusammenfassung und Rumpf — in der Spur gibt es keine
-   Zusammenfassung mehr, also auch nichts abzusetzen. */
-.forge-steckbrief-rumpf {
-    margin-top: 0.75rem;
-}
-
-@container repo (min-width: 65rem) {
-    /* In der Spur sagt die Spur schon, was man sieht. Die Zusammenfassung
-       bleibt im DOM — sie ist die Sonde, an der die Insel die Form abliest —
-       und ist als `display: none` weder sichtbar noch tabbierbar. */
-    .forge-steckbrief > summary {
-        display: none;
-    }
-
-    .forge-steckbrief-rumpf {
-        margin-top: 0;
-    }
-}
 
 /* ── Die Reiterleiste klebt ────────────────────────────────────────────────
    Deckender Hintergrund, KEIN `backdrop-blur`: ein `backdrop-filter` über
