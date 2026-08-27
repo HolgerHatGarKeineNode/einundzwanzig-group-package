@@ -313,6 +313,39 @@ export const assignGate = (
 }
 
 /**
+ * Darf dieser Betrachter ÜBERHAUPT Fremde benennen — noch ohne zu wissen, wen?
+ *
+ * ── Warum das eine eigene Frage ist und kein Sonderfall von {@link assignGate} ─
+ *
+ * `assignGate` beantwortet „darf ich DIESE Namen zuweisen". Solange noch niemand
+ * gewählt ist, hat es keinen Gegenstand und liefert deshalb `targets` — ein
+ * Grund, der von der Berechtigung gar nicht spricht. Stünde dieser Satz unter
+ * einer leeren Personenauswahl, sagte die Fläche „nennt niemanden Gültigen" zu
+ * jemandem, der noch gar nichts getan hat, und verschwiege die einzige Auskunft,
+ * die er in diesem Moment braucht: ob er hier überhaupt jemanden eintragen darf.
+ *
+ * Die Alternative wäre gewesen, den Gate mit einem erfundenen Fremdschlüssel zu
+ * befragen („darf ich hypothetisch 0xff… zuweisen?"). Das ist eine Sonde mit
+ * ausgedachter Eingabe — sie misst dann eine Antwort auf eine Frage, die nie
+ * gestellt wurde, und altert unbemerkt, sobald der Gate den Schlüssel ansieht.
+ * Hier steht stattdessen die Frage selbst.
+ *
+ * **Keine zweite Wahrheit.** Der Rumpf ist wörtlich der autoritative Zweig von
+ * {@link assignGate} und ruft dieselbe {@link allowedActorsFor}, die auch
+ * `foldAssignments` beim LESEN benutzt. Wer die Menge ändert, ändert beide.
+ */
+export const canAssignOthers = (
+    viewer: string,
+    root: { author: string; repoAddress: string; maintainers?: string[] },
+): boolean =>
+    HEX64.test(viewer) &&
+    allowedActorsFor({
+        author: root.author,
+        repoAddress: root.repoAddress,
+        maintainers: root.maintainers ?? [],
+    }).has(viewer.toLowerCase())
+
+/**
  * Darf dieser Betrachter diesen Pull Request freigeben oder Änderungen erbitten?
  *
  * ── Dieselbe Menge wie beim Lesen, und sie kommt fertig herein ──────────────
