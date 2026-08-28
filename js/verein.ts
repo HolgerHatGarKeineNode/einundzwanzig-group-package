@@ -32,7 +32,7 @@
  *    neu — es gibt keine Ausnahme.
  */
 import { get } from 'svelte/store'
-import { signer, pubkey } from '@welshman/app'
+import { signer, pubkey } from './welshmanSession.ts'
 import { Pool } from '@welshman/net'
 import { activeSpace } from './groups.ts'
 import { deriveVereinAccess, watchSpaceDirectory, type VereinAccess } from './members.ts'

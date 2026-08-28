@@ -20,7 +20,7 @@
  * implementiert dieselben zwei Routen server-seitig. Läuft nur in der nativen
  * App (`isMobile`); im Web ohne Portal-Host ein No-op.
  */
-import { signer } from '@welshman/app'
+import { signer } from './welshmanSession.ts'
 import { isMobile } from './core.ts'
 import { portalAuthEventTemplate } from './portal-auth-event.ts'
 

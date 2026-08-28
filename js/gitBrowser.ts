@@ -27,7 +27,7 @@
  * Blobs, keine zweite Codebahn — aber auch keine Möglichkeit, den Download
  * kleiner zu machen als das Repository ist.
  */
-import { signer } from '@welshman/app'
+import { signer } from './welshmanSession.ts'
 import { nip98AuthHeader, type SignedLike } from './nip98.ts'
 import {
     istBinaer,

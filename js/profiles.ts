@@ -5,9 +5,24 @@
  * überschreibt. Web = relativer Endpunkt; Mobile = gehosteter Host (Hybrid wie $img).
  */
 import { get } from 'svelte/store'
-import { getProfile, loadProfile, publishThunk, repository, userProfile, waitForThunkCompletion } from '@welshman/app'
+import {
+    getProfile,
+    loadProfile,
+    publishThunk,
+    repository,
+    userProfile,
+    waitForThunkCompletion,
+} from './welshmanApp.ts'
 import { PublishStatus } from '@welshman/net'
-import { createProfile, editProfile, isPublishedProfile, makeEvent, makeProfile, profileHasName, verifyEvent, verifiedSymbol, type Profile, type TrustedEvent } from '@welshman/util'
+import { makeEvent, verifyEvent, verifiedSymbol, type TrustedEvent } from '@welshman/util'
+import {
+    createProfile,
+    editProfile,
+    isPublishedProfile,
+    makeProfile,
+    profileHasName,
+    type Profile,
+} from './welshmanProfile.ts'
 import { Router } from '@welshman/router'
 import { isMobile } from './core.ts'
 import { WORKSPACE_URL } from './spaceCaps.ts'

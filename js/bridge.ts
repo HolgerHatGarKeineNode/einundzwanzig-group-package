@@ -6,8 +6,26 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { derived, get, type Readable } from 'svelte/store'
-import { repository, pubkey, relaysByUrl, forceLoadRelay, deriveHandleForPubkey, displayNip05, tracker, userProfile, loadUserProfile, getProfile, getRelay, getZapper, deriveRelay } from '@welshman/app'
-import { displayProfile, toNostrURI, getTagValue, getLnUrl, normalizeRelayUrl, MESSAGE, RELAYS, type RelayProfile } from '@welshman/util'
+import {
+    repository,
+    relaysByUrl,
+    forceLoadRelay,
+    deriveHandleForPubkey,
+    displayNip05,
+    tracker,
+    userProfile,
+    loadUserProfile,
+    getProfile,
+    getRelay,
+    getZapper,
+    deriveRelay,
+} from './welshmanApp.ts'
+import { pubkey } from './welshmanSession.ts'
+import { toNostrURI, getLnUrl, normalizeRelayUrl } from '@welshman/util'
+import { displayProfile } from './welshmanProfile.ts'
+import { getTagValue } from './welshmanTags.ts'
+import { MESSAGE, RELAYS } from './welshmanKinds.ts'
+import { type RelayProfile } from './welshmanRelay.ts'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps.ts'
 import { classifyRoomClosedReason } from './roomGate.ts'
@@ -309,7 +327,8 @@ import {
     fromMsats,
     type NWCInfo,
 } from './wallet.ts'
-import { getWalletAddress, WalletType, type Wallet, type Zapper } from '@welshman/util'
+import { getWalletAddress, WalletType, type Wallet } from '@welshman/util'
+import { type Zapper } from './welshmanZap.ts'
 import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader.ts'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps.ts'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles.ts'

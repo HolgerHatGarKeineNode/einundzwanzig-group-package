@@ -43,7 +43,7 @@
  * lädt der Node-Test-Runner das Modul nicht.
  */
 import { readable, type Readable } from 'svelte/store'
-import { deriveRelay, forceLoadRelay } from '@welshman/app'
+import { deriveRelay, forceLoadRelay } from './welshmanApp.ts'
 import { normalizeRelayUrl } from '@welshman/util'
 import { isBuzzRelay } from './relayCaps.ts'
 

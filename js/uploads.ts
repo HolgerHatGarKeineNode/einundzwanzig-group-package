@@ -31,7 +31,7 @@
  * wird nicht auf Verdacht umgebaut.
  */
 import { makeBlossomAuthEvent, uploadBlob } from '@welshman/util'
-import { signer } from '@welshman/app'
+import { signer } from './welshmanSession.ts'
 import { parseJson, sha256 } from '@welshman/lib'
 import { spaceIsBuzzAsync } from './buzzAdmin.ts'
 import { t } from './i18n.ts'

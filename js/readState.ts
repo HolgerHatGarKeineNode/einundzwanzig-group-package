@@ -20,7 +20,7 @@
  * ein Speicherfehler darf nie einen Chat-Flow brechen, er kostet höchstens Lesestand.
  */
 import { get, writable, type Readable } from 'svelte/store'
-import { pubkey } from '@welshman/app'
+import { pubkey } from './welshmanSession.ts'
 
 /**
  * NIP-78-`d`-Tag des publizierten kind-30078.

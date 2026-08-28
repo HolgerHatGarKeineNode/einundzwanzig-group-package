@@ -22,7 +22,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { displayPubkey } from '@welshman/util'
+import { displayPubkey } from './welshmanProfile.ts'
 import { buildActivity } from './forgeActivity.ts'
 import { nameOf } from './forgeNameGuardHost.ts'
 import {

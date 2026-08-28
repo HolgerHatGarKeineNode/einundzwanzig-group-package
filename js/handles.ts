@@ -7,7 +7,7 @@
  * hinterlegte pubkey mit unserer übereinstimmt — sonst kein Häkchen (nie fälschlich
  * „verifiziert"). Netz-I/O bleibt lazy/fire-and-forget wie [[warmProfiles]].
  */
-import { loadHandleForPubkey, displayNip05 } from '@welshman/app'
+import { loadHandleForPubkey, displayNip05 } from './welshmanApp.ts'
 
 /** Bereits angestoßene Handle-Loads (pro Insel-Leben) — kein Doppel-Fetch. */
 const requested = new Set<string>()

@@ -27,8 +27,10 @@
  */
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
-import { pubkey } from '@welshman/app'
-import { MESSAGE, COMMENT, POLL, ZAP_GOAL, getTagValue, type TrustedEvent } from '@welshman/util'
+import { pubkey } from './welshmanSession.ts'
+import { type TrustedEvent } from '@welshman/util'
+import { MESSAGE, COMMENT, POLL, ZAP_GOAL } from './welshmanKinds.ts'
+import { getTagValue } from './welshmanTags.ts'
 // Die beiden relativen Importe tragen ABSICHTLICH ihre `.ts`-Endung (anders als sonst
 // im Modul-Bestand): Nodes ESM-Auflösung kennt keine extensionslosen Pfade, und ohne
 // Endung liefe `node --test unread.test.ts` in ERR_MODULE_NOT_FOUND — die Ableitung wäre

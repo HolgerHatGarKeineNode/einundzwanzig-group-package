@@ -9,10 +9,25 @@
  */
 import { derived, get, writable, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { publishThunk, pubkey, repository, handlesByNip05, zappersByLnurl } from '@welshman/app'
+import { publishThunk, repository, handlesByNip05, zappersByLnurl } from './welshmanApp.ts'
+import { pubkey } from './welshmanSession.ts'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
-import { MESSAGE, COMMENT, DELETE, REACTION, POLL, POLL_RESPONSE, ZAP_RESPONSE, ZAP_GOAL, ROOM_DELETE_EVENT, makeEvent, sortEventsAsc, getTag, getTagValue, getLnUrl, fromMsats, zapFromEvent, profileHasName, type TrustedEvent, type Zap, type Zapper } from '@welshman/util'
+import { makeEvent, sortEventsAsc, getLnUrl, fromMsats, type TrustedEvent } from '@welshman/util'
+import {
+    MESSAGE,
+    COMMENT,
+    DELETE,
+    REACTION,
+    POLL,
+    POLL_RESPONSE,
+    ZAP_RESPONSE,
+    ZAP_GOAL,
+    ROOM_DELETE_EVENT,
+} from './welshmanKinds.ts'
+import { getTag, getTagValue } from './welshmanTags.ts'
+import { zapFromEvent, type Zap, type Zapper } from './welshmanZap.ts'
+import { profileHasName } from './welshmanProfile.ts'
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository.ts'

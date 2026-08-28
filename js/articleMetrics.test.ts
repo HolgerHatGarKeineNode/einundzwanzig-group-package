@@ -16,7 +16,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { COMMENT, REACTION, ZAP_RESPONSE, type TrustedEvent, type Zapper } from '@welshman/util'
+import { type TrustedEvent } from '@welshman/util'
+import { COMMENT, REACTION, ZAP_RESPONSE } from './welshmanKinds.ts'
+import { type Zapper } from './welshmanZap.ts'
 import {
     KEINE_METRIKEN,
     METRIK_LOAD_LIMIT,

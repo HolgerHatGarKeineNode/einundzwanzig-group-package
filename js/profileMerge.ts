@@ -20,7 +20,8 @@
  * Namen, weil kind 0 ersetzbar ist (NIP-01) und pro Pubkey nur EINE Fassung überlebt.
  * Deshalb wird nicht im Repository gemischt, sondern hier — beim Anzeigen.
  */
-import type { Profile, TrustedEvent } from '@welshman/util'
+import type { TrustedEvent } from '@welshman/util'
+import type { Profile } from './welshmanProfile.ts'
 import { mediaOriginOf } from './blossomAuth.ts'
 
 /**

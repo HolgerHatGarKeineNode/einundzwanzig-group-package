@@ -20,7 +20,7 @@
  * Also: eine kleine Datei, die beide importieren. Sie zieht nur `@welshman/app` (das im
  * Boot-Pfad ohnehin liegt) und `publishResult.ts` (kein welshman).
  */
-import { publishThunk, repository } from '@welshman/app'
+import { publishThunk, repository } from './welshmanApp.ts'
 import { mapRelayError, waitForPublishError } from './publishResult.ts'
 
 /**

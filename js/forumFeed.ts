@@ -29,8 +29,9 @@
  */
 import { derived, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { pubkey } from '@welshman/app'
-import { MESSAGE, type TrustedEvent } from '@welshman/util'
+import { pubkey } from './welshmanSession.ts'
+import { type TrustedEvent } from '@welshman/util'
+import { MESSAGE } from './welshmanKinds.ts'
 import { throttled } from '@welshman/store'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { deriveEventsForUrl } from './repository.ts'

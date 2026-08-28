@@ -16,7 +16,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { MESSAGE, COMMENT, POLL } from '@welshman/util'
+import { MESSAGE, COMMENT, POLL } from './welshmanKinds.ts'
 import {
     BADGE_CAP,
     BELL_CAP,

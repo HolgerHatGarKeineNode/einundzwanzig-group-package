@@ -4,8 +4,10 @@
  * Reaction/Delete/Poll). Die konkreten `make*`-Event-Builder aus dem Referenz-
  * Client kommen mit ihrer Phase; C0 legt nur `roomTags` an.
  */
-import { COMMENT, DELETE, MESSAGE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL, getTag, makeEvent, type TrustedEvent } from '@welshman/util'
-import { getRelay, tagEvent, tagEventForComment, tagEventForReaction } from '@welshman/app'
+import { makeEvent, type TrustedEvent } from '@welshman/util'
+import { COMMENT, DELETE, MESSAGE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL } from './welshmanKinds.ts'
+import { getTag } from './welshmanTags.ts'
+import { getRelay, tagEvent, tagEventForComment, tagEventForReaction } from './welshmanApp.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps.ts'
 import { threadTags } from './threading.ts'

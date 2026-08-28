@@ -12,7 +12,7 @@
  */
 import { derived, type Readable } from 'svelte/store'
 import { deriveArray, deriveEventsByIdByUrl, deriveEventsByIdForUrl } from '@welshman/store'
-import { deriveRelay, repository, tracker } from '@welshman/app'
+import { deriveRelay, repository, tracker } from './welshmanApp.ts'
 import { filter, spec } from '@welshman/lib'
 import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
 

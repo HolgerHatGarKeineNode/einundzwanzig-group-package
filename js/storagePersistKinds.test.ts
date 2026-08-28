@@ -28,7 +28,7 @@ import {
     PROFILE,
     REACTION,
     ZAP_RESPONSE,
-} from '@welshman/util'
+} from './welshmanKinds.ts'
 import {
     eventsToPrune,
     forgetRepos,

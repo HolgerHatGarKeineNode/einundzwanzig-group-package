@@ -35,7 +35,8 @@
  *    ankamen ({@link ForgeOverview.truncated}) — eine stillschweigend gekürzte
  *    Liste ist eine falsche Aussage über den Bestand.
  */
-import { deriveRelay, pubkey, repository, tracker } from '@welshman/app'
+import { deriveRelay, repository, tracker } from './welshmanApp.ts'
+import { pubkey } from './welshmanSession.ts'
 import { load, request } from '@welshman/net'
 import { throttled } from '@welshman/store'
 import type { Filter, TrustedEvent } from '@welshman/util'

@@ -15,7 +15,7 @@ import {
     loginWithNip07,
     loginWithNip46,
     dropSession,
-} from '@welshman/app'
+} from './welshmanSession.ts'
 import { getNip07, Nip46Broker } from '@welshman/signer'
 import { makeSecret, makeHttpAuth } from '@welshman/util'
 import { sync, localStorageProvider } from '@welshman/store'

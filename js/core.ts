@@ -7,11 +7,14 @@
  * Genau wie der globale App-Init des Referenz-Clients (src/routes/+layout.svelte), nur ohne
  * SvelteKit. Persistenz (IndexedDB) folgt später (Fix A, M3).
  */
-import { appContext, pubkey, sign, loadBlockedRelayList } from '@welshman/app'
+import { appContext } from '@welshman/app'
+import { pubkey, sign } from './welshmanSession.ts'
+import { loadBlockedRelayList } from './welshmanApp.ts'
 import { netContext, defaultSocketPolicies, makeSocketPolicyAuth } from '@welshman/net'
 import { routerContext } from '@welshman/router'
 import { always } from '@welshman/lib'
-import { verifyEvent, normalizeRelayUrl, PROFILE, type TrustedEvent } from '@welshman/util'
+import { verifyEvent, normalizeRelayUrl, type TrustedEvent } from '@welshman/util'
+import { PROFILE } from './welshmanKinds.ts'
 import { guardRelayQuality } from './deadRelays.ts'
 import { mayProxifyMedia } from './mediaGuard.ts'
 import { mayFallbackToRaw as rawFallbackAllowed } from './imageFallback.ts'

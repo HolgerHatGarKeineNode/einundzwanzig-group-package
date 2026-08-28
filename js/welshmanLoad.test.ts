@@ -30,7 +30,7 @@
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { repository, tracker } from '@welshman/app'
+import { repository, tracker } from './welshmanApp.ts'
 import {
     load,
     netContext,

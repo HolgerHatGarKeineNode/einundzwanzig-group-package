@@ -51,7 +51,8 @@
  * wäre auf dem heutigen Stand zufällig richtig und beim ersten zweiten Space
  * lautlos falsch.
  */
-import { publishThunk, pubkey, signer } from '@welshman/app'
+import { publishThunk } from './welshmanApp.ts'
+import { pubkey, signer } from './welshmanSession.ts'
 import { makeEvent } from '@welshman/util'
 import { writable, type Readable } from 'svelte/store'
 import { t } from './i18n.ts'

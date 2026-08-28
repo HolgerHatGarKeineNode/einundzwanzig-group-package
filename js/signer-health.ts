@@ -9,7 +9,7 @@
  * Reconnect (gibt es dort auch nicht) — die UI rät zum Neu-Anmelden.
  */
 import { readable, type Readable } from 'svelte/store'
-import { signerLog, type SignerLogEntry } from '@welshman/app'
+import { signerLog, type SignerLogEntry } from './welshmanSession.ts'
 import { t } from './i18n.ts'
 
 export type SignerHealth = 'ok' | 'slow' | 'disconnected'

@@ -31,10 +31,13 @@
  * grow-only.
  */
 import { get } from 'svelte/store'
-import { pubkey, publishThunk, waitForThunkCompletion, nip44EncryptToSelf, ensurePlaintext } from '@welshman/app'
+import { pubkey, nip44EncryptToSelf, ensurePlaintext } from './welshmanSession.ts'
+import { publishThunk, waitForThunkCompletion } from './welshmanApp.ts'
 import { load, PublishStatus } from '@welshman/net'
 import { Router } from '@welshman/router'
-import { APP_DATA, getTagValue, isRelayUrl, makeEvent, normalizeRelayUrl, type TrustedEvent } from '@welshman/util'
+import { isRelayUrl, makeEvent, normalizeRelayUrl, type TrustedEvent } from '@welshman/util'
+import { APP_DATA } from './welshmanKinds.ts'
+import { getTagValue } from './welshmanTags.ts'
 // Die relativen Importe tragen ABSICHTLICH ihre `.ts`-Endung (siehe `unread.ts`): Nodes
 // ESM-Auflösung kennt keine extensionslosen Pfade — ohne sie liefe `node --test
 // readStateSync.test.ts` in ERR_MODULE_NOT_FOUND.

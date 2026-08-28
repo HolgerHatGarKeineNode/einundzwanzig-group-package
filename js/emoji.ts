@@ -7,7 +7,8 @@
  * Reiner Client-Layer; keine Svelte-/Alpine-Abhängigkeit.
  */
 import { load } from '@welshman/net'
-import { repository, pubkey } from '@welshman/app'
+import { repository } from './welshmanApp.ts'
+import { pubkey } from './welshmanSession.ts'
 import type { Filter, TrustedEvent } from '@welshman/util'
 import { DEFAULT_RELAYS, proxifyImage } from './core.ts'
 import { emojiTagsForContent } from './emojiTags.ts'

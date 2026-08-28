@@ -54,7 +54,8 @@
  * Tags, nicht im `content`, und eine Trefferzeile ohne Text wäre eine leere Zeile.
  */
 
-import { MESSAGE, type TrustedEvent } from '@welshman/util'
+import { type TrustedEvent } from '@welshman/util'
+import { MESSAGE } from './welshmanKinds.ts'
 import { displayProfileByPubkey } from './spaceProfiles.ts'
 import { activeSpace } from './groups.ts'
 import { bodyWithoutQuote, deriveRoomMessages, fullTimeLabel } from './feeds.ts'

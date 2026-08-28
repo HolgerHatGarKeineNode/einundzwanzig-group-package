@@ -30,7 +30,8 @@
  *    unterwegs ist; ein Doppelklick erzeugt kein zweites Ereignis. Der Riegel
  *    sitzt HIER und nicht nur am Knopf — die Tastatur löst denselben Pfad aus.
  */
-import { publishThunk, pubkey, signer } from '@welshman/app'
+import { publishThunk } from './welshmanApp.ts'
+import { pubkey, signer } from './welshmanSession.ts'
 import { makeEvent } from '@welshman/util'
 import { writable, type Readable } from 'svelte/store'
 import { t } from './i18n.ts'

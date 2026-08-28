@@ -12,7 +12,7 @@
  * Scheme-Callback zurück. Danach signiert Amber still per ContentResolver.
  * Fallback bleibt der Relay-NIP-46-Weg (nostrconnect), wenn kein lokaler Signer da ist.
  */
-import { pubkey } from '@welshman/app'
+import { pubkey } from './welshmanSession.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { nativeCall, isMobile } from './core.ts'
 import { NIP46_PERMS, permsToNip55Json } from './nip46-perms.ts'

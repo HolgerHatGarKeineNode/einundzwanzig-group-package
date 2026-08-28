@@ -13,17 +13,11 @@
 import { derived, writable, get, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
-import { loadProfile } from '@welshman/app'
-import {
-    REPORT,
-    ROOM_JOIN,
-    ROOM_LEAVE,
-    MESSAGE,
-    getTag,
-    getTagValue,
-    displayProfile,
-    type TrustedEvent,
-} from '@welshman/util'
+import { loadProfile } from './welshmanApp.ts'
+import { type TrustedEvent } from '@welshman/util'
+import { REPORT, ROOM_JOIN, ROOM_LEAVE, MESSAGE } from './welshmanKinds.ts'
+import { getTag, getTagValue } from './welshmanTags.ts'
+import { displayProfile } from './welshmanProfile.ts'
 import { sortBy } from '@welshman/lib'
 import { profilesByPubkey } from './spaceProfiles.ts'
 import * as nip19 from 'nostr-tools/nip19'

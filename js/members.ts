@@ -11,15 +11,12 @@
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
-import { loadProfile, manageRelay, pubkey, handlesByNip05, deriveRelay } from '@welshman/app'
-import {
-    RELAY_MEMBERS,
-    ManagementMethod,
-    getTags,
-    getTagValue,
-    getTagValues,
-    displayProfile,
-} from '@welshman/util'
+import { loadProfile, manageRelay, handlesByNip05, deriveRelay } from './welshmanApp.ts'
+import { pubkey } from './welshmanSession.ts'
+import { RELAY_MEMBERS } from './welshmanKinds.ts'
+import { ManagementMethod } from './welshmanRelay.ts'
+import { getTags, getTagValue, getTagValues } from './welshmanTags.ts'
+import { displayProfile } from './welshmanProfile.ts'
 import { first, randomId, sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveRelaySignedEvents, deriveRelaySelfReady } from './repository.ts'

@@ -22,7 +22,8 @@
  * und keiner aus `feeds.ts`/`session.ts` (nicht ladbar unter node, siehe `articleMetrics.ts`).
  * Was hier steht, läuft mit einem Ereignis-Array und einem Rückgabewert.
  */
-import { COMMENT, REACTION, type TrustedEvent } from '@welshman/util'
+import { type TrustedEvent } from '@welshman/util'
+import { COMMENT, REACTION } from './welshmanKinds.ts'
 import { artikelVonEreignis } from './articleMetrics.ts'
 
 /**

@@ -16,17 +16,31 @@ import { derived, writable, get, type Readable, type Writable } from 'svelte/sto
 import {
     repository,
     tracker,
-    pubkey,
     makeUserData,
     makeOutboxLoader,
     publishThunk,
-    nip44EncryptToSelf,
     relaysByUrl,
     loadRelay,
-} from '@welshman/app'
+} from './welshmanApp.ts'
+import { pubkey, nip44EncryptToSelf } from './welshmanSession.ts'
 import { deriveItemsByKey, deriveEventsByIdByUrl, sync, throttled, localStorageProvider } from '@welshman/store'
 import { Router } from '@welshman/router'
 import { AuthStatus, Pool, load, request } from '@welshman/net'
+import {
+    readList,
+    readRoomMeta,
+    makeRoomEditEvent,
+    asDecryptedEvent,
+    makeEvent,
+    makeList,
+    addToListPublicly,
+    removeFromListByPredicate,
+    normalizeRelayUrl,
+    isRelayUrl,
+    type Filter,
+    type PublishedList,
+    type TrustedEvent,
+} from '@welshman/util'
 import {
     ROOMS,
     MESSAGE,
@@ -43,25 +57,8 @@ import {
     RELAY_JOIN,
     RELAY_LEAVE,
     RELAY_INVITE,
-    readList,
-    readRoomMeta,
-    makeRoomEditEvent,
-    asDecryptedEvent,
-    makeEvent,
-    makeList,
-    addToListPublicly,
-    removeFromListByPredicate,
-    getListTags,
-    getRelayTagValues,
-    getGroupTags,
-    getTagValue,
-    getTagValues,
-    normalizeRelayUrl,
-    isRelayUrl,
-    type Filter,
-    type PublishedList,
-    type TrustedEvent,
-} from '@welshman/util'
+} from './welshmanKinds.ts'
+import { getListTags, getRelayTagValues, getGroupTags, getTagValue, getTagValues } from './welshmanTags.ts'
 import { uniq, sortBy, partition } from '@welshman/lib'
 import {
     createRoomMembershipRevocations,
@@ -86,7 +83,7 @@ import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps.
 import { spaceIsBuzzAsync } from './buzzAdmin.ts'
 import { parseMeetupTags } from './meetupPresentation.ts'
 import { parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories.ts'
-import type { RelayProfile } from '@welshman/util'
+import type { RelayProfile } from './welshmanRelay.ts'
 import { waitForPublishError } from './publishResult.ts'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }

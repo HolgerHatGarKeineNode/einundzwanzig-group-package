@@ -8,7 +8,7 @@
  * gehärtet in `js/secure-storage.ts` unter einem pubkey-gebundenen Key. Ein
  * In-Memory-Cache vermeidet Entschlüsselung pro Aufruf.
  */
-import { pubkey } from '@welshman/app'
+import { pubkey } from './welshmanSession.ts'
 import { fromMsats, getLnUrl, type NWCInfo, type Wallet } from '@welshman/util'
 import { bech32ToHex, fetchJson } from '@welshman/lib'
 import { secureGet, secureRemove, secureSet } from './secure-storage.ts'

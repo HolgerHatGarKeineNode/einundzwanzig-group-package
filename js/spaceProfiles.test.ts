@@ -21,9 +21,10 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { get } from 'svelte/store'
-import { repository } from '@welshman/app'
+import { repository } from './welshmanApp.ts'
 import { netContext, MockAdapter, type AbstractAdapter, type ClientMessage } from '@welshman/net'
-import { PROFILE, normalizeRelayUrl, verifyEvent, type TrustedEvent } from '@welshman/util'
+import { normalizeRelayUrl, verifyEvent, type TrustedEvent } from '@welshman/util'
+import { PROFILE } from './welshmanKinds.ts'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { loadSpaceProfiles, profilesByPubkey, displayProfileByPubkey, getSpaceProfile } from './spaceProfiles.ts'
 

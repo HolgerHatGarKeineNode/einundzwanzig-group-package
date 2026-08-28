@@ -43,11 +43,12 @@
  * gezielt per `ids`-Filter und nur für Pins, die im Repository fehlen.
  */
 
-import { deriveRelay, pubkey, repository } from '@welshman/app'
+import { deriveRelay, repository } from './welshmanApp.ts'
+import { pubkey } from './welshmanSession.ts'
 import { load, request } from '@welshman/net'
 import { throttled } from '@welshman/store'
 import { makeEvent, type Filter, type TrustedEvent } from '@welshman/util'
-import { publishThunk } from '@welshman/app'
+import { publishThunk } from './welshmanApp.ts'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { derived, get, type Readable } from 'svelte/store'
 import { activeSpace, deriveUserInRoom } from './groups.ts'

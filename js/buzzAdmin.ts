@@ -37,7 +37,8 @@
  * dieselbe Konvention wie bei den NIP-86-Wrappern in `members.ts`, damit die
  * Aufrufer in `bridge.ts` unveraendert bleiben.
  */
-import { publishThunk, signer, getRelaysByUrl, loadRelay, forceLoadRelay } from '@welshman/app'
+import { publishThunk, getRelaysByUrl, loadRelay, forceLoadRelay } from './welshmanApp.ts'
+import { signer } from './welshmanSession.ts'
 import { makeEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
 import { isBuzzRelay } from './relayCaps.ts'

@@ -35,9 +35,11 @@
  * angenommen: die beiden Seiten leiten denselben Conversation-Key ab.
  */
 import { derived, get, writable, type Readable, type Writable } from 'svelte/store'
-import { ensurePlaintext, pubkey } from '@welshman/app'
+import { ensurePlaintext, pubkey } from './welshmanSession.ts'
 import { load, request } from '@welshman/net'
-import { APP_DATA, getTagValue, type TrustedEvent } from '@welshman/util'
+import { type TrustedEvent } from '@welshman/util'
+import { APP_DATA } from './welshmanKinds.ts'
+import { getTagValue } from './welshmanTags.ts'
 import { WORKSPACE_URL, deriveSpaceKind, hasWorkspace } from './spaceCaps.ts'
 import { deriveEventsForUrl } from './repository.ts'
 import {

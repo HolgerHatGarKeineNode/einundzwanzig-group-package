@@ -66,7 +66,9 @@
  * Union über die drei Relays verlor dabei **44 Ereignisse** gegenüber den getrennten
  * Abfragen. Der Deckel gilt je REQ — getrennte Kind-Filter sind deshalb kein Luxus.
  */
-import { COMMENT, REACTION, ZAP_RESPONSE, normalizeRelayUrl, zapFromEvent, type Filter, type TrustedEvent, type Zapper } from '@welshman/util'
+import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
+import { COMMENT, REACTION, ZAP_RESPONSE } from './welshmanKinds.ts'
+import { zapFromEvent, type Zapper } from './welshmanZap.ts'
 import { fromPairs } from '@welshman/lib'
 // **`import type` und ein eigenes Kind-Modul — beides gegen dieselbe Bundle-Grenze.**
 // `longform.ts` hängt an markdown-it, und diese Datei liegt über `core.ts` im Boot-Pfad

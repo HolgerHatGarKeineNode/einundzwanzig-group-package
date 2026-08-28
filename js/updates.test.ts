@@ -17,7 +17,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { COMMENT, MESSAGE, POLL, ZAP_GOAL } from '@welshman/util'
+import { COMMENT, MESSAGE, POLL, ZAP_GOAL } from './welshmanKinds.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import {
     CLOCK_SKEW_SEC,

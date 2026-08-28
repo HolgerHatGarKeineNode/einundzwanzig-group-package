@@ -15,10 +15,11 @@
  * Scope von M3 ist Web + Android. Upgrade-Pfad für iOS-Durability: NativePHP-Flag
  * für `WKWebsiteDataStore.default()` ODER nativer On-Device-SQLite-Bridge-Cache.
  */
-import { pubkey, repository, tracker } from '@welshman/app'
+import { pubkey } from './welshmanSession.ts'
+import { repository, tracker } from './welshmanApp.ts'
 import { on, batch } from '@welshman/lib'
+import { verifiedSymbol, type TrustedEvent } from '@welshman/util'
 import {
-    verifiedSymbol,
     PROFILE,
     FOLLOWS,
     DELETE,
@@ -35,8 +36,7 @@ import {
     ROOM_META,
     ROOM_ADMINS,
     ROOM_MEMBERS,
-    type TrustedEvent,
-} from '@welshman/util'
+} from './welshmanKinds.ts'
 import type { RepositoryUpdate } from '@welshman/net'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 import { BUZZ_PIN, ZOOID_PIN_LIST, isZooidPinList } from './pins.ts'

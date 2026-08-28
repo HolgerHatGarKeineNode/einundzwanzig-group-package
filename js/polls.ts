@@ -5,7 +5,8 @@
  * Die publish-nahen Builder (`makePoll`/`makePollResponse`) liegen in `interactions.ts`.
  */
 import { now, removeUndefined, uniq } from '@welshman/lib'
-import { getTag, getTagValue, getTags, getTagValues, type TrustedEvent } from '@welshman/util'
+import { type TrustedEvent } from '@welshman/util'
+import { getTag, getTagValue, getTags, getTagValues } from './welshmanTags.ts'
 
 export type PollType = 'singlechoice' | 'multiplechoice'
 

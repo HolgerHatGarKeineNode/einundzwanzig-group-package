@@ -9,7 +9,7 @@
  * Geschützt ist genau das, was der **Workspace**-Relay selbst ausliefert. Für alles
  * andere ist `needsAuth` falsch und die bestehende Proxy-Kette bleibt unangetastet.
  */
-import { pubkey, sign } from '@welshman/app'
+import { pubkey, sign } from './welshmanSession.ts'
 import { makeBlossomLoader, type BlossomResponse } from './blossomMedia.ts'
 import { isSpaceHostedMedia } from './profileMerge.ts'
 import { WORKSPACE_URL } from './spaceCaps.ts'

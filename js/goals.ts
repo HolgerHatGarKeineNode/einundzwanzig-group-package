@@ -11,7 +11,8 @@
  * msats; Upgrade-Pfad wäre eine `toMsats`-Zeile hier + im Vergleich, falls Interop
  * mit msats-Goals nötig wird.
  */
-import { getTagValue, type TrustedEvent } from '@welshman/util'
+import { type TrustedEvent } from '@welshman/util'
+import { getTagValue } from './welshmanTags.ts'
 
 /** Titel des Goals = `content` (NIP-75: Titel steht im Content, nicht in einem Tag). */
 export const getGoalTitle = (event: TrustedEvent): string => event.content

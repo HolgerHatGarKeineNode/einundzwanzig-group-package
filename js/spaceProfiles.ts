@@ -23,10 +23,19 @@
  * weiter mit `userProfile` aus `@welshman/app` (siehe `profiles.ts`).
  */
 import { get, derived, writable, type Readable } from 'svelte/store'
-import { profilesByPubkey as nativeProfilesByPubkey, deriveProfile, getProfile, repository, tracker, loadProfile } from '@welshman/app'
+import {
+    profilesByPubkey as nativeProfilesByPubkey,
+    deriveProfile,
+    getProfile,
+    repository,
+    tracker,
+    loadProfile,
+} from './welshmanApp.ts'
 import { throttled } from '@welshman/store'
 import { request } from '@welshman/net'
-import { PROFILE, displayProfile, displayPubkey, profileHasName, readProfile, verifyEvent, type Profile, type TrustedEvent } from '@welshman/util'
+import { verifyEvent, type TrustedEvent } from '@welshman/util'
+import { PROFILE } from './welshmanKinds.ts'
+import { displayProfile, displayPubkey, profileHasName, readProfile, type Profile } from './welshmanProfile.ts'
 import { mergeProfileForDisplay, newestByPubkey, sanitizeSpaceProfile, isSpaceLocalOnly } from './profileMerge.ts'
 
 /**

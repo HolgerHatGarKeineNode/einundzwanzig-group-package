@@ -37,19 +37,12 @@
  */
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
-import { pubkey } from '@welshman/app'
+import { pubkey } from './welshmanSession.ts'
 import { profilesByPubkey } from './spaceProfiles.ts'
-import {
-    COMMENT,
-    MESSAGE,
-    POLL,
-    ZAP_GOAL,
-    displayProfile,
-    displayPubkey,
-    getTagValue,
-    type Profile,
-    type TrustedEvent,
-} from '@welshman/util'
+import { type TrustedEvent } from '@welshman/util'
+import { COMMENT, MESSAGE, POLL, ZAP_GOAL } from './welshmanKinds.ts'
+import { displayProfile, displayPubkey, type Profile } from './welshmanProfile.ts'
+import { getTagValue } from './welshmanTags.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository.ts'
 import { QUOTE_PREFIX } from './polls.ts'
