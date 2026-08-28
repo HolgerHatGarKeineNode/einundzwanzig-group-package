@@ -1221,7 +1221,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 </span>
 
                                                 <span class="forge-vz-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                                                    <span class="font-semibold tracking-tight" x-text="'#' + pr.id.slice(0, 7)"></span>
+                                                    <span class="font-semibold tracking-tight" x-text="'#' + patch.id.slice(0, 7)"></span>
                                                     <span class="min-w-0 truncate"
                                                           x-text="@js(__(':name hat ihn eingereicht.')).split(':name').join(patch.authorName) + ' · ' + patch.timeLabel"></span>
                                                     {{-- Serien-Marker. Ein `git format-patch` über
