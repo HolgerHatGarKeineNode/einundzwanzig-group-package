@@ -45,7 +45,6 @@ import {
     repository as repository0816,
     tracker as tracker0816,
     profilesByPubkey,
-    getProfilesByPubkey,
     getProfile,
     deriveProfile,
     loadProfile,
@@ -56,12 +55,10 @@ import {
     loadRelay,
     forceLoadRelay,
     handlesByNip05,
-    getHandlesByNip05,
     displayNip05,
     deriveHandleForPubkey,
     loadHandleForPubkey,
     zappersByLnurl,
-    getZappersByLnurl,
     getZapper,
     publishThunk,
     manageRelay,
@@ -87,7 +84,21 @@ export type Projection<T> = {
     $: Readable<T>
 }
 
+/**
+ * Nur der Store-Teil einer `Projection`.
+ *
+ * 0.9.5 gibt an JEDER Sammlung beides heraus. Wir führen `get` nur dort, wo ein
+ * Schnappschuss tatsächlich gelesen wird (heute: `Relays`, zweimal in
+ * `js/buzzAdmin.ts`). Für die übrigen wäre es Symmetrie ohne Aufrufstelle — und jede
+ * Zeile hier ist eine Verpflichtung, die P3 einlösen muss. Kommt eine Aufrufstelle,
+ * kommt `get` mit ihr; die Form an den Aufrufstellen (`.index.$`) ist in beiden
+ * Fällen dieselbe wie in 0.9.5.
+ */
+export type ProjectionStore<T> = Pick<Projection<T>, '$'>
+
 const projection = <T>($: Readable<T>, read: () => T): Projection<T> => ({ get: read, $ })
+
+const projectionStore = <T>($: Readable<T>): ProjectionStore<T> => ({ $ })
 
 /**
  * `new (app) => T` — die 0.9.5-Signatur eines Plugins.
@@ -116,7 +127,7 @@ export class Profiles {
         this.app = app
     }
 
-    index = projection(profilesByPubkey, getProfilesByPubkey)
+    index = projectionStore(profilesByPubkey)
     get = getProfile
     one = deriveProfile
     load = loadProfile
@@ -145,7 +156,7 @@ export class Handles {
         this.app = app
     }
 
-    index = projection(handlesByNip05, getHandlesByNip05)
+    index = projectionStore(handlesByNip05)
     forPubkey = deriveHandleForPubkey
     loadForPubkey = loadHandleForPubkey
     display = displayNip05
@@ -159,7 +170,7 @@ export class Zappers {
         this.app = app
     }
 
-    index = projection(zappersByLnurl, getZappersByLnurl)
+    index = projectionStore(zappersByLnurl)
     get = getZapper
 }
 
@@ -182,11 +193,26 @@ export type ManagementResponse = { result?: unknown; error?: string }
 
 /**
  * NIP-86-Client für EINEN Relay. Nachbildung von `ManagementApi` aus 0.9.5-util:
- * `send` für beliebige (auch relay-eigene) Methoden, benannte Methoden für die
- * standardisierten. **In 0.9.5 ist `method` ein schlichter String** — das
- * `ManagementMethod`-Enum von 0.8.16 gibt es dort nicht mehr, und die
- * `as ManagementMethod`-Casts, mit denen `js/members.ts` seine relay-eigenen Methoden
- * (`createrole`, …) am Enum vorbeischmuggeln musste, entfallen damit ersatzlos.
+ * `send` für beliebige Methoden, benannte Methoden für die, die 0.9.5 benennt.
+ *
+ * **In 0.9.5 ist `method` ein schlichter String** — das `ManagementMethod`-Enum von
+ * 0.8.16 gibt es dort nicht mehr, und die `as ManagementMethod`-Casts, die
+ * `js/members.ts` dafür brauchte, entfallen ersatzlos.
+ *
+ * **Die fünf Rollen-Methoden sind KEIN Relay-Eigenbau.** Hier stand bis zum
+ * P1-Review-Gate das Gegenteil. Gemessen in `@welshman/util@0.9.5`
+ * (`dist/util/src/Nip86.js:34-53`, `Nip86.d.ts:62-66`): `makeCreateRole`,
+ * `makeEditRole`, `makeDeleteRole`, `makeAssignRole` und `makeUnassignRole` existieren
+ * dort, stehen als benannte Methoden an `ManagementApi`, und **unsere
+ * Parameterreihenfolge ist bereits die von 0.9.5**. Sie stehen deshalb unten als
+ * benannte Methoden und nicht als `send`-Aufrufe — sonst müsste P3 fünf Aufrufstellen
+ * ein zweites Mal umbauen, also genau das tun, was P1 verhindern soll.
+ *
+ * **P3 muss hier nachziehen:** 0.9.5 typisiert `color: number` und `order: number`.
+ * Wir übergeben ein HSL-Tripel (`roleColorParams` in `js/members.ts`, als String
+ * gecastet) und `order.toString()` — die zooid-Wire-Form. Die echte `ManagementApi`
+ * wird das nicht mehr annehmen; entweder wandert die Umformung dorthin oder die
+ * betroffenen Aufrufe gehen über `send`.
  */
 export class ManagementApi {
     readonly url: string
@@ -216,6 +242,22 @@ export class ManagementApi {
     changeRelayDescription = (description: string) =>
         this.send({ method: 'changerelaydescription', params: [description] })
     changeRelayIcon = (iconUrl: string) => this.send({ method: 'changerelayicon', params: [iconUrl] })
+
+    // Rollen. Die Rümpfe bauen denselben Request-Body wie vorher — `color`/`order`
+    // kommen als String herein, weil das die zooid-Wire-Form ist (siehe Modulkopf).
+    createRole = (id: string, label: string, description: string, color: string, order: string) =>
+        this.send({ method: 'createrole', params: [id, label, description, color, order] })
+
+    editRole = (id: string, label: string, description: string, color: string, order: string) =>
+        this.send({ method: 'editrole', params: [id, label, description, color, order] })
+
+    deleteRole = (id: string) => this.send({ method: 'deleterole', params: [id] })
+
+    assignRole = (pubkey: string, roleId: string) =>
+        this.send({ method: 'assignrole', params: [pubkey, roleId] })
+
+    unassignRole = (pubkey: string, roleId: string) =>
+        this.send({ method: 'unassignrole', params: [pubkey, roleId] })
 }
 
 /** NIP-86-Relay-Management. In 0.9.5: `app.use(RelayManagement).forUrl(url)`. */

@@ -402,10 +402,17 @@ export const deriveUserIsSpaceAdmin = (url: string): Readable<boolean> => {
 type ManageResult = { error?: string }
 const manageError = (res: ManageResult): string => res.error ?? ''
 
-// Rollen (kind 33534). `createrole`/… sind relay-spezifische Erweiterungen des
-// NIP-86-Methodensatzes — der Referenz-Client kennt sie ebenfalls nicht. Über
-// `ManagementApi.send` gehen sie unverändert durch: `method` ist dort ein schlichter
-// String. Die `as ManagementMethod`-Casts, die 0.8.16 hier verlangte, sind damit weg.
+// Rollen (kind 33534). Hier stand bis zum P1-Review-Gate, das seien relay-spezifische
+// Erweiterungen, die der Referenz-Client nicht kenne. **Das war falsch:**
+// `@welshman/util@0.9.5` bringt `makeCreateRole`/`makeEditRole`/`makeDeleteRole`/
+// `makeAssignRole`/`makeUnassignRole` mit, alle fünf als benannte `ManagementApi`-
+// Methoden und mit genau unserer Parameterreihenfolge. Die Aufrufe unten stehen
+// deshalb in der Zielform. Die `as ManagementMethod`-Casts, die 0.8.16 verlangte,
+// sind ersatzlos weg — in 0.9.5 ist `method` ein schlichter String.
+//
+// Offen für P3: 0.9.5 typisiert `color` und `order` als `number`. `roleColorParams`
+// baut ein HSL-Tripel und `order` geht als String über die Leitung — das ist die
+// zooid-Wire-Form, die die echte `ManagementApi` so nicht mehr annimmt.
 const roleColorParams = (color: SpaceRoleColor): string =>
     [color.hue, color.saturation, color.lightness] as unknown as string
 
@@ -417,10 +424,10 @@ export const createRole = async (
     order: number,
 ): Promise<string> =>
     manageError(
-        await app.use(RelayManagement).forUrl(url).send({
-            method: 'createrole',
-            params: [randomId(), label, description, roleColorParams(color), order.toString()],
-        }),
+        await app
+            .use(RelayManagement)
+            .forUrl(url)
+            .createRole(randomId(), label, description, roleColorParams(color), order.toString()),
     )
 
 export const editRole = async (
@@ -432,20 +439,20 @@ export const editRole = async (
     order: number,
 ): Promise<string> =>
     manageError(
-        await app.use(RelayManagement).forUrl(url).send({
-            method: 'editrole',
-            params: [id, label, description, roleColorParams(color), order.toString()],
-        }),
+        await app
+            .use(RelayManagement)
+            .forUrl(url)
+            .editRole(id, label, description, roleColorParams(color), order.toString()),
     )
 
 export const deleteRole = async (url: string, id: string): Promise<string> =>
-    manageError(await app.use(RelayManagement).forUrl(url).send({ method: 'deleterole', params: [id] }))
+    manageError(await app.use(RelayManagement).forUrl(url).deleteRole(id))
 
 export const assignRole = async (url: string, pubkey: string, roleId: string): Promise<string> =>
-    manageError(await app.use(RelayManagement).forUrl(url).send({ method: 'assignrole', params: [pubkey, roleId] }))
+    manageError(await app.use(RelayManagement).forUrl(url).assignRole(pubkey, roleId))
 
 export const unassignRole = async (url: string, pubkey: string, roleId: string): Promise<string> =>
-    manageError(await app.use(RelayManagement).forUrl(url).send({ method: 'unassignrole', params: [pubkey, roleId] }))
+    manageError(await app.use(RelayManagement).forUrl(url).unassignRole(pubkey, roleId))
 
 // ── Mutationen: die Weiche ist ÜBERALL asynchron ─────────────────────────────
 //
