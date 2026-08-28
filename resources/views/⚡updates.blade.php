@@ -77,6 +77,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Filter. `flux:tabs` OHNE `flux:tab.group`: ohne Panels wirft Flux beim
              Auflösen des Panels („Could not find panel…"), sobald eine Tab-Gruppe da
              ist — hier filtert der Tab nur eine Alpine-Liste, es gibt keine Panels.
+             Am 2026-08-28 nachgemessen und BESTÄTIGT: mit `flux:tab.group` und ohne
+             Panels wirft Flux beim Laden 3× `Could not find panel...`, einen je Reiter
+             (Messprotokoll im Kommentar an der Reiterreihe in `⚡forge.blade.php`).
+             Diese Bar teilt mit `/forge` auch den zweiten, bis dahin unbemerkten
+             Defekt derselben Bauform: Flux' MutationObserver in `UITabs.mount()` ruft
+             `closest("ui-tab-group").showPanel(…)` ohne Null-Check. Auf `/updates`
+             gemessen identisch reproduzierbar (`prepend` in `<ui-tabs>` ⇒
+             `Cannot read properties of null (reading 'showPanel')`) — nur fasst hier
+             kein Test die Leiste von aussen an, deshalb war die Fläche nie rot.
+             Abgesichert von `js/fluxTabsPanellos.ts` (Herleitung in dessen Kopf).
              Kein `@if`/`@js()` in der Attributliste eines flux-Tags (P5-Fund: `@js()`
              wird dort nicht ausgeführt und landet wörtlich im Alpine-Ausdruck). --}}
         <flux:tabs variant="segmented" x-model="feed" class="mb-3">

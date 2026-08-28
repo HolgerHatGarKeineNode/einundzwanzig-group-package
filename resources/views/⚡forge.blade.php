@@ -232,10 +232,38 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         </span>
                     </div>
 
-                    {{-- `flux:tabs` OHNE `flux:tab.group`: ohne Panels wirft Flux beim
-                         Auflösen des Panels, sobald eine Tab-Gruppe da ist — hier
-                         schaltet der Tab nur eine Alpine-Liste um. Gleiche Bauart wie
-                         auf `/updates`. --}}
+                    {{-- ── `flux:tabs` OHNE `flux:tab.group` — jetzt GEMESSEN ─────────
+                         Hier schaltet der Reiter nur eine Alpine-Liste um; es gibt keine
+                         Panels. Die Behauptung, eine Tab-Gruppe würde dann werfen, stand
+                         hier seit 2026 ungemessen. Am 2026-08-28 am realen Baum
+                         nachgeholt (`/forge` @320 px, chromium, flux-pro 2.17.0),
+                         BESTÄTIGT — und schärfer als gedacht:
+
+                           - `flux:tab.group` OHNE Panels ⇒ **3× `pageerror: Could not
+                             find panel...`** schon beim Laden, einer je Reiter (der
+                             `queueMicrotask` in `initializeTab`, `flux.js:16198-16205`);
+                             `aria-controls` bleibt an allen drei Reitern leer.
+                           - `flux:tab.group` MIT Panels ⇒ kein Wurf, `aria-controls`
+                             korrekt — aber `walkPanels()` überspringt nur `ui-tabs`/
+                             `ui-tab-group`, und mit `scrollable` ist das direkte Kind der
+                             Gruppe der Scroll-WRAPPER des Stubs. Der gilt Flux damit als
+                             Panel: `role="tabpanel"` über der Tablist beim Laden, `hidden`
+                             bei der ersten Mutation — gemessen `areaSichtbar: false`, die
+                             Reiterbank verschwindet. `scrollable` + `tab.group` sind in
+                             dieser Flux-Version unverträglich, und `scrollable` ist hier
+                             die 1.4.10-Reparatur (s. u.), nicht Zierat.
+
+                         Dazu kommt der fachliche Grund: ab `xl` zeigt diese Seite MEHRERE
+                         Sektionen gleichzeitig (`zweispaltig || tab === '…'`) und blendet
+                         die Reiterreihe ganz aus. Ein Panel-Modell kann „alle gleichzeitig"
+                         nicht. Die Bauform bleibt also — Gleiche Bauart wie auf `/updates`.
+
+                         Was Flux daran WIRKLICH nicht verträgt, ist eine andere Stelle:
+                         der MutationObserver in `UITabs.mount()` (`flux.js:16137-16138`)
+                         ruft `closest("ui-tab-group").showPanel(…)` OHNE Null-Check, bei
+                         jeder `childList`-Mutation an `<ui-tabs>` selbst. Dagegen zieht
+                         `js/fluxTabsPanellos.ts` nach dem Boot eine leere, Layout-neutrale
+                         `<ui-tab-group>`-Hülle ein; die Herleitung steht in deren Kopf. --}}
                     {{-- Vierter Tab „Workspaces" (P5): die KANÄLE des Workspace-Relays.
                          Er stand bis P5 als dritter Tab auf `/spaces`, neben „Räume" und
                          „Threads" — also neben den Räumen eines ANDEREN Relays. Das war
