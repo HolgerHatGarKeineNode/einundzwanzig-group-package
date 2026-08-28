@@ -40,11 +40,30 @@
 
      Default `false`, damit die zwei Dutzend Bestands-Aufrufer BYTE-gleich
      bleiben: ein Avatar über der Falz soll sofort laden. --}}
+{{-- ── KEIN `font-mono` an der Initiale (Restposten aus P6b, 2026-08-27) ──────
+     Die Klasse stand hier für EIN Zeichen. Gemessen mit
+     `CSS.getPlatformFontsForNode` gegen das gebaute Bundle rendert dieses
+     Zeichen damit in **Liberation Mono**, während der Name direkt daneben in
+     **Inconsolata** läuft — eine zweite Schriftfamilie für eine einzelne
+     Versalie.
+
+     Die Geometrie ist davon per Konstruktion unberührt, und das ist gemessen,
+     nicht angenommen: die äussere Hülle trägt `width`/`height` als Inline-Stil
+     aus `$size`, die innere `size-full`. Beide bleiben bei 32,00 px (Default);
+     nur die Glyphe selbst wird von 7,20 auf 6,02 px schmaler und ihre Zeilenbox
+     von 14 auf 12 px. Sie ist flex-zentriert, wird also KLEINER in einem
+     gleich grossen Kreis — die Richtung, in der nichts anstossen kann.
+
+     Der kleinste Aufrufer im Paket ist `size="1.15rem"`; seine Hülle misst
+     gemessen 18,39 px und bleibt es. Auch dort schrumpft die 12-px-Glyphe. Von
+     den 27 Aufrufstellen liegen 13 ausserhalb der Rahmenflächen (Chat, Artikel,
+     `⚡directory`, `⚡updates`, `⚡room`, `profile-card`) — sie erben denselben
+     Effekt, und er ist an jeder von ihnen monoton in dieselbe Richtung. --}}
 @props(['picture', 'name', 'size' => '2rem', 'emoji' => null, 'lazy' => false])
 <span class="relative inline-flex shrink-0" style="width: {{ $size }}; height: {{ $size }};">
     <span x-data="{ imgOrig: false, imgBroken: false, needsAuth: false, authSrc: '' }"
           x-effect="$blossomBind($data, {{ $picture }})"
-          class="relative inline-flex size-full items-center justify-center overflow-hidden rounded-full bg-brand-500/10 font-mono text-xs font-semibold uppercase text-brand-900 dark:text-brand-300">
+          class="relative inline-flex size-full items-center justify-center overflow-hidden rounded-full bg-brand-500/10 text-xs font-semibold uppercase text-brand-900 dark:text-brand-300">
         <span x-text="((({{ $name }}) || '?').trim()[0]) || '?'"></span>
         <template x-if="({{ $picture }}) && !imgBroken && (!needsAuth || authSrc)">
             <img alt="" class="absolute inset-0 size-full object-cover"

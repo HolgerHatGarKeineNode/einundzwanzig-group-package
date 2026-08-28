@@ -1415,31 +1415,42 @@ select:focus[data-flux-control] {
      `padding-inline-end` des Textes: 12 px  →  92 px Vorspann.
 
    Git selbst setzt die Grenze einer Commit-/Codezeile bei 80 Zeichen. 80 ×
-   6,50 = 520 px, plus Vorspann = **612 px Boden für die Werkbank**. Mit einer
-   24-rem-Spur (384 px) und 1,5 rem Lücke (24 px) ergibt das
+   6,50 = 520 px, plus Vorspann = **612 px Boden für die Werkbank**.
 
-     612 + 24 + 384 = 1020 px  →  aufgerundet auf die Achterskala: **65 rem**.
+   ── Die Spur ist 17 rem, und die Zahl ist GEMESSEN, nicht gerechnet (P8) ────
+   Hier standen 24 rem, hergeleitet aus der Zeichenzahl des Fließtextes, und
+   eine zweite Stufe auf 28 rem ab 88 rem Container. Beides ist mit der
+   GitHub-Parität gefallen.
 
-   Bei 65 rem Container bleiben der Werkbank 1040 − 408 = 632 px, also 83
-   Codespalten — über den 80. Die Schwelle ist damit die erste Breite, auf der
-   die zweite Spur den Diff NICHT beschneidet, und nicht die erste, auf der sie
-   hineinpasst. Erreicht wird sie im Web-Host ab 1440 px Fenster
-   (1440 − 320 Rail − 64 Innenabstand = 1056 px, abzüglich Bildlaufleiste
-   ≈ 1041 px) — genau die Breite, auf der der `desktop`-Arm der E2E-Suite misst.
+   GitHubs „About"-Spalte ist **absolut und wächst nie**: am 2026-08-28 an
+   `github.com/laravel/laravel` gemessen, 272 px Inhaltsbreite bei Fenster 1440
+   UND bei 1279, Zwischenraum zur Werkbank beide Male 40 px (die Spalten-Hülle
+   misst 320 px mit 24 px Innenabstand, dazu 16 px Marge). 272 px = **17 rem**,
+   40 px = **2,5 rem**. Das ist der Grund für die zwei Zahlen unten — nicht
+   eine Rechnung des Hauses, sondern die Vorlage.
 
-   ── 88 rem: die Spur darf wachsen, die Werkbank ist dann satt ───────────────
-   Dieselbe zweite Stufe wie bei `.forge-raster`, aus demselben Grund. Bei
-   24 rem misst der Fließtext im Steckbrief 384 − 32 (Innenabstand) = 352 px =
-   50 Zeichen bei 14 px — im Kanon (45–75), aber an dessen unterem Rand. Ab
-   88 rem trägt die Werkbank 1408 − 480 = 928 px (**128** Codespalten) und kann
-   die Spur auf 28 rem lassen: 416 px = 59 Zeichen.
-   (Hier stand bis zum 2026-08-24 „142". Das war nach einer ANDEREN Methode
-   gerechnet als die 83 Spalten der 65-rem-Herleitung darüber — dort wird der
-   Vorspann von 92 px abgezogen, hier war er vergessen: (928 − 92) / 6,50 = 128.
-   Reine Prosa, kein getesteter Wert; aber eine falsche Zahl neben einer
-   hergeleiteten entwertet die Herleitung. Am gebauten Stand gegengemessen: bei
-   Container 1408 meldet die Sonde 128.) Weiter wächst sie nicht, der
-   Textdeckel `.forge-mass` (62 ch) bindet dann ohnehin.
+     Neue Schwelle: 612 (Werkbank-Boden) + 40 (Rinne) + 272 (Spur) = 924 px
+     → aufgerundet auf die Viererskala: **60 rem** (960 px).
+
+   Bei 60 rem Container trägt die Werkbank 960 − 312 = 648 px, also
+   (648 − 92) / 6,50 = **85** Codespalten — über den 80. Die Schwelle ist damit
+   weiterhin die erste Breite, auf der die zweite Spur den Diff NICHT
+   beschneidet, und nicht die erste, auf der sie hineinpasst. Sie liegt 5 rem
+   TIEFER als vorher, und zwar genau um die 112 px, die die Spur schmaler
+   geworden ist: die zweispaltige Form beginnt jetzt früher.
+
+   Im Web-Host wird sie ab 1440 px Fenster erreicht (1440 − 320 Rail − 64
+   Innenabstand ≈ 1048 px gemessen) — dieselbe Breite, auf der der
+   `desktop`-Arm der E2E-Suite misst. Die Werkbank hat dort 1048 − 312 = 736 px.
+
+   ── Was das kostet, und warum es trotzdem so steht ──────────────────────────
+   Der Fließtext der Spur misst bei 272 px und 16 px Inconsolata (8,00 px je
+   Glyphe) **34 Zeichen** — unter dem Kanon-Boden von 45. GitHub selbst liegt an
+   derselben Stelle bei denselben 34 Zeichen; die Vorlage bringt diese Eigenschaft
+   mit. Getragen wird sie, weil der Text dort eine 1–3-Satz-Beschriftung ist und
+   kein Lesetext: der lange Fließtext dieser Fläche steht im README, und der hat
+   die volle Werkbank plus `.forge-mass` (62 ch). Wer die Spur wieder breiter
+   will, ändert genau zwei Zahlen — `17rem` unten und die `60rem`-Schwelle.
 
    ── ZWEI Elemente, nicht eines ──────────────────────────────────────────────
    Container und Raster stehen an VERSCHIEDENEN Knoten. Ein Element ist sein
@@ -1459,23 +1470,31 @@ select:focus[data-flux-control] {
     gap: 1.5rem;
 }
 
-@container repo (min-width: 65rem) {
+@container repo (min-width: 60rem) {
     .forge-repo-raster {
         /* `align-items: start` ist PFLICHT: der Default `stretch` zöge den
            Steckbrief auf die Höhe der Werkbank und gäbe ihm eine leere Fläche,
            die wie ein Ladefehler aussieht — und `position: sticky` fände darin
            nichts zum Kleben. Dieselbe Falle wie bei `.forge-raster` und beim
            Autoren-Nachspann in `⚡article.blade.php`. */
-        grid-template-columns: minmax(0, 1fr) 24rem;
+        grid-template-columns: minmax(0, 1fr) 17rem;
+        gap: 2.5rem;
         align-items: start;
     }
 
-    /* AUSDRÜCKLICH platziert, nicht dem Auto-Placement überlassen: im DOM steht
-       der Steckbrief VOR der Werkbank (Begründung im Blade — schmal gehört der
-       Aufklapper zwischen Überschrift und Reiter, nicht unter 800 Zeilen
-       Vorgangsliste). Ohne diese zwei Regeln landete er links und die Werkbank
-       rechts, also genau falschherum. Und Auto-Placement neben expliziten
-       Angaben ist im Haus schon einmal schiefgegangen (`.forge-zeile`). */
+    /* AUSDRÜCKLICH platziert, nicht dem Auto-Placement überlassen — Auto-Placement
+       neben expliziten Angaben ist im Haus schon einmal schiefgegangen
+       (`.forge-zeile`).
+
+       (Hier stand bis zum 2026-08-28 „im DOM steht der Steckbrief VOR der
+       Werkbank" samt der Folgerung, ohne diese Regeln stünde alles falschherum.
+       Am Quelltext nachgesehen ist es umgekehrt: `.forge-repo-werkbank` steht
+       zuerst, `.forge-repo-spur` danach — Auto-Placement ergäbe also schon die
+       richtige Reihenfolge. Der Grund für die zwei Regeln bleibt trotzdem
+       bestehen, er ist nur ein anderer; und eine falsche Begründung neben einer
+       richtigen Regel entwertet beide. Die einspaltige Form ist damit auch das,
+       was sie sein soll: Werkbank oben, Über-Spur darunter — GitHubs mobile
+       Anordnung.) */
     .forge-repo-werkbank {
         grid-column: 1;
         grid-row: 1;
@@ -1487,11 +1506,523 @@ select:focus[data-flux-control] {
     }
 }
 
-@container repo (min-width: 88rem) {
-    .forge-repo-raster {
-        grid-template-columns: minmax(0, 1fr) 28rem;
-        gap: 2rem;
+/* ═══ DIE CODE-FLÄCHE — GITHUBS ANORDNUNG, DIE TOKEN DES HAUSES (P8) ═══════════
+   Alle Zahlen hier sind am 2026-08-28 an `github.com/laravel/laravel` gemessen
+   (Chromium, 1440×900 und 1279×900, `getBoundingClientRect` +
+   `getComputedStyle`) und nicht erinnert. Wo eine Zahl von GitHub abweicht,
+   steht daneben, warum.
+
+   Was NICHT übernommen wird, und zwar bewusst:
+   · **Die Schrift.** Das Haus setzt Inconsolata, GitHub eine System-Sans. Eine
+     zweite Familie für einen Reiter wäre ein Bruch der Hausidentität, kein
+     Layout.
+   · **Die Farbwerte.** GitHubs #f6f8fa / #d1d9e0 / #0969da sind Token EINES
+     Systems mit EINEM Modus. Dieses Haus hat Hell und Dunkel; eingesetzt werden
+     deshalb die Rollen des Hauses (`zinc-50`/`zinc-800` als getönte Fläche,
+     `zinc-200`/`zinc-800` als Haarlinie, `--color-muted` als Sekundärtext,
+     `brand-800`/`brand-300` als Akzent).
+   · **Der Radius 6 px.** Das Haus führt `--radius-card` (16 px) an JEDER Karte
+     dieser Seite — Issue-Liste, PR-Liste, Patch-Karte. Eine zweite Radiusskala
+     für einen Reiter stellte zwei Kartenformen nebeneinander (Nielsen #4). Was
+     GitHubs Form trägt, ist die VERSCHWEISSUNG (ein Kasten, geteilte Ecken,
+     grauer Kopf), nicht die Zahl. */
+
+/* ── Die Navigationszeile ──────────────────────────────────────────────────
+   GitHub: Block 56 px hoch (Polster 8 oben / 16 unten), Bedienelemente 32 px,
+   links der Ort, rechts die Handlungen — rechtsbündig auf der Fluchtlinie der
+   Werkbank. `flex-wrap` an beiden Gruppen: bei 320 px müssen fünf Marken
+   umbrechen können, statt die Zeile aufzureissen. */
+.forge-code-navzeile {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-block: 0.5rem 1rem;
+}
+
+.forge-code-navzeile-links,
+.forge-code-navzeile-rechts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+/* `margin-inline-start: auto` und nicht `justify-content` an der Zeile: bricht
+   die linke Gruppe um, soll die rechte trotzdem rechts stehen bleiben. */
+.forge-code-navzeile-rechts {
+    margin-inline-start: auto;
+}
+
+/* Der Branchname. KEINE Kante aus `--color-control-edge`: das Token gehört
+   Bedienelementen (WCAG 1.4.11, ≥ 3:1), und dies ist eine Beschriftung ohne
+   Funktion. Eine Haarlinie in Kontrollfarbe behauptete Bedienbarkeit. */
+.forge-code-branch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 2rem;
+    padding-inline: 0.75rem;
+    border: 1px solid var(--color-zinc-200);
+    border-radius: var(--radius-tile);
+    background: var(--color-zinc-50);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.dark .forge-code-branch {
+    border-color: var(--color-zinc-800);
+    background: var(--color-zinc-800);
+}
+
+/* „23 Branches" — die Zahl trägt, das Wort ordnet ein. Genau GitHubs Rang. */
+.forge-code-zaehler {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 2rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--color-muted);
+}
+
+.forge-code-zaehler > .font-semibold {
+    color: var(--color-zinc-900);
+}
+
+.dark .forge-code-zaehler > .font-semibold {
+    color: var(--color-zinc-100);
+}
+
+.forge-code-krumel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.forge-code-krumel-stufe {
+    border-radius: var(--radius-tile);
+    padding-inline: 0.375rem;
+    padding-block: 0.125rem;
+}
+
+.forge-code-krumel-stufe:hover {
+    background: var(--color-zinc-100);
+}
+
+.dark .forge-code-krumel-stufe:hover {
+    background: var(--color-zinc-800);
+}
+
+/* ── DER KASTEN: Commit-Kopf und Dateiliste, VERSCHWEISST ──────────────────
+   Das Signaturbauteil dieser Fläche. EIN Rahmen, EINE Rundung, zwei Materialien:
+   der getönte Streifen oben und die Tabelle darunter. Zwei Karten übereinander
+   wären zwei Kästen — genau der Unterschied, an dem man GitHub erkennt.
+
+   **`position: relative` ist Pflicht, kein Beiwerk.** Der Tabellenkopf ist
+   `sr-only`, und Tailwinds `sr-only` ist `position: absolute`. Ohne
+   positionierten Vorfahren suchte er seinen Bezug beim initialen enthaltenden
+   Block, hinge damit am Dokument und zählte zu dessen Bildlauf — exakt der
+   Fehler, den `xl:relative` an `main#buehne` am 2026-08-28 behoben hat (dort
+   wuchs `document.scrollHeight` durch 42 solcher Spannen von 900 auf 2041).
+   Jede neue Fläche bringt ihren Bezugsrahmen selbst mit.
+
+   **`container-type` am Kasten, `@container`-Regeln an seinen NACHFAHREN.** Ein
+   Element ist sein eigener Container und wird von der eigenen Regel nicht
+   getroffen (am 2026-08-23 an `.forge-raster` gemessen). Hier fragt niemand nach
+   dem Kasten selbst, nur nach seinen Zellen — deshalb ist EIN Knoten richtig.
+   Der eigene Container statt `repo`: die Liste steht auch im Native-Host, wo es
+   `.forge-repo-buehne` nicht gibt. */
+.forge-code-kasten {
+    position: relative;
+    container-type: inline-size;
+    container-name: codeliste;
+    border: 1px solid var(--color-zinc-200);
+    border-radius: var(--radius-card);
+    background: #fff;
+    overflow: hidden;
+}
+
+.dark .forge-code-kasten {
+    border-color: var(--color-zinc-800);
+    background: var(--color-zinc-900);
+}
+
+/* Der Commit-Kopf. GitHub: 53 px hoch, Polster 16, Inhaltszeile 21 px.
+   Hier 16 + 20 (Zeilenbox 0.875 rem/1.25 rem) + 16 = 52 px.
+   KEINE Unterkante: die trägt die erste Tabellenzeile mit ihrem `border-top`.
+   Zwei Linien an derselben Fuge wären zwei Haarlinien — GitHub macht es
+   genauso. */
+.forge-code-kopf {
+    background: var(--color-zinc-50);
+    padding: 1rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.dark .forge-code-kopf {
+    background: var(--color-zinc-800);
+}
+
+.forge-code-kopf-zeile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 1.25rem;
+}
+
+.forge-code-kopf-autor {
+    flex-shrink: 0;
+    font-weight: 600;
+}
+
+/* Der Betreff nimmt den Rest und wird gekappt — eine Commit-Nachricht ist
+   Fremdtext und kann beliebig lang sein. */
+.forge-code-kopf-nachricht {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-muted);
+}
+
+.forge-code-kopf-rechts {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.5rem;
+    margin-inline-start: auto;
+    font-size: 0.75rem;
+    color: var(--color-muted);
+}
+
+/* Der Kurzhash trägt die Markenfarbe — dieselbe Rollenregel wie an den
+   Branch-Marken der Spur: das Git-Objekt ist der eine Akzent dieser Seite.
+   Alle Werte mit `p2-kontrast.mjs` gerechnet, Negativkontrolle im selben Lauf
+   (1,00 / 21,00), WCAG 1.4.3 verlangt 4,5:1 für Text:
+
+     brand-800 (#98480f) auf zinc-50 (#fafafa)   →  6,15:1
+     brand-300 (#ffc170) auf zinc-800 (#262626)  →  9,45:1
+
+   Und der Sekundärtext desselben Streifens, weil er auf einer GETÖNTEN Fläche
+   steht und nicht auf Weiß: zinc-600 auf zinc-50 → 7,49:1 · zinc-400 auf
+   zinc-800 → 6,00:1. */
+.forge-code-hash {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-brand-800);
+}
+
+.dark .forge-code-hash {
+    color: var(--color-brand-300);
+}
+
+.forge-code-kopf-zeit {
+    white-space: nowrap;
+}
+
+/* ── Die Dateitabelle ──────────────────────────────────────────────────────
+   GitHub, gemessen: Zeile 41 px · Zellenpolster links 16 · Spalten 40 % /
+   Rest / 136 px · Icon 16 px, Abstand zum Namen 10 px · Name in Textfarbe,
+   Nachricht und Zeit in Sekundärfarbe, Zeit rechtsbündig.
+
+   `table-layout: fixed`: nur damit sind die Spaltenanteile deterministisch UND
+   die Kappung mit Ellipse überhaupt möglich — bei `auto` bestimmte der längste
+   Dateiname die Spalte und die Nachricht bekäme, was übrig bleibt. */
+.forge-code-tabelle {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+/* 10 + 20 + 10 + 1 (Kante) = 41 px, GitHubs Zeilenhöhe auf den Pixel. */
+.forge-code-zeile > td {
+    border-top: 1px solid var(--color-zinc-200);
+    padding-block: 0.625rem;
+    padding-inline-start: 1rem;
+    vertical-align: middle;
+}
+
+.dark .forge-code-zeile > td {
+    border-color: var(--color-zinc-800);
+}
+
+/* Auf dem Daumen 44 px statt 41 — Apples HIG, und dieselbe Bauform wie
+   `.icon-btn-touch` weiter oben: nur auf grobem Pointer, die Maus bleibt
+   kompakt. `height` an einer Zelle ist eine MINDESThöhe, kein Deckel; eine
+   zweizeilige Zelle wächst weiter. */
+@media (pointer: coarse) {
+    .forge-code-zeile > td {
+        height: 2.75rem;
     }
+}
+
+/* Die Breiten hängen an den `<col>`, nicht an den Zellen — Begründung im Blade:
+   mit `table-layout: fixed` definiert die erste ZEILE die Spalten, und das ist
+   die absolut positionierte `sr-only`-Kopfzeile. */
+.forge-code-col-name {
+    width: 40%;
+}
+
+.forge-code-col-zeit {
+    width: 8.5rem;
+}
+
+.forge-code-td-zeit {
+    padding-inline-end: 1rem;
+    text-align: end;
+}
+
+/* Der Eintrag ist ein KNOPF, keine Zeile: dieser Weg hat keine Adressen
+   (`codeOeffnen` öffnet ein Verzeichnis im lokalen Klon). Die Trefferfläche ist
+   trotzdem die ganze Namensspalte — `width: 100%`. */
+.forge-code-eintrag {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    min-width: 0;
+    text-align: start;
+}
+
+.forge-code-nachricht,
+.forge-code-zeit {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-muted);
+}
+
+/* Schmal fallen die zwei rechten Spalten weg — GitHub macht dasselbe. Die
+   Schwelle ist am KASTEN gemessen (`cqi`), nicht am Fenster: in einer fluiden
+   Bahn ist die Elementbreite nicht monoton zur Fensterbreite.
+   33 rem = 528 px: darunter blieben der Nachricht 528 × 0,6 − 136 = 180 px,
+   also 25 Zeichen — eine Commit-Nachricht, von der man nichts mehr liest. */
+@container codeliste (max-width: 33rem) {
+    .forge-code-td-nachricht,
+    .forge-code-td-zeit,
+    .forge-code-th-nachricht,
+    .forge-code-th-zeit {
+        display: none;
+    }
+
+    /* Die `<col>` MÜSSEN mit — ein `<col>` nimmt kein `display: none` an (CSS
+       2.1: auf `table-column` wirken nur Breite, Rahmen, Hintergrund,
+       `visibility: collapse`). Ohne diese drei Zeilen behielten die zwei
+       ausgeblendeten Spalten ihre Breite: am 2026-08-28 bei Fenster 390
+       gemessen, Kasten 358 px, Namensspalte **142** px (= 40 % davon) und
+       216 px leere Fläche daneben. */
+    .forge-code-col-name {
+        width: 100%;
+    }
+
+    .forge-code-col-nachricht,
+    .forge-code-col-zeit {
+        width: 0;
+    }
+}
+
+/* ── Die README-Karte ──────────────────────────────────────────────────────
+   GitHub: eigene Karte unter der Liste, 16 px Abstand, 1 px Rahmen, Kopfzeile
+   48 px mit Unterkante, Rumpf 32 px Innenabstand, Schrift 16 px/24 px. */
+.forge-readme-karte {
+    position: relative;
+    margin-top: 1rem;
+    border: 1px solid var(--color-zinc-200);
+    border-radius: var(--radius-card);
+    background: #fff;
+}
+
+.dark .forge-readme-karte {
+    border-color: var(--color-zinc-800);
+    background: var(--color-zinc-900);
+}
+
+.forge-readme-kopf {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 3rem;
+    padding-inline: 1rem;
+    padding-block: 0.5rem;
+    border-bottom: 1px solid var(--color-zinc-200);
+}
+
+.dark .forge-readme-kopf {
+    border-color: var(--color-zinc-800);
+}
+
+.forge-readme-titel {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+}
+
+.forge-readme-kopf-rechts {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-inline-start: auto;
+    min-width: 0;
+}
+
+/* 16 px als Boden, 32 px erst, wenn die Bühne breit genug ist. Ausfallrichtung
+   nach UNTEN: ohne `.forge-repo-buehne` (Native-Host) bleibt es bei 16 px, und
+   das ist auf einem Telefon das richtige Mass. */
+.forge-readme-rumpf {
+    padding: 1rem;
+}
+
+@container repo (min-width: 40rem) {
+    .forge-readme-rumpf {
+        padding: 2rem;
+    }
+}
+
+/* ═══ DIE ÜBER-SPUR — GitHubs „About"-Spalte ═══════════════════════════════
+   Randlos: kein Kasten, keine Beschriftungsspalte, keine Grossbuchstaben. Die
+   Abschnitte trennt eine Haarlinie. Gemessen: `padding: 16px 0` je Abschnitt,
+   `border-top: 1px`, Überschrift 16 px/600, Beschreibung 16 px/24 px.
+
+   `position: relative` aus demselben Grund wie am Kasten: `sr-only` ist
+   `position: absolute` und braucht einen Bezugsrahmen in der Spur. */
+.forge-repo-spur {
+    position: relative;
+}
+
+.forge-spur-abschnitt {
+    padding-block: 1rem;
+    border-top: 1px solid var(--color-zinc-200);
+}
+
+.dark .forge-spur-abschnitt {
+    border-color: var(--color-zinc-800);
+}
+
+/* Der erste Abschnitt hat weder Kante noch Polster oben — sonst begänne die
+   Spur 16 px tiefer als die Werkbank daneben. `:first-child` ist hier
+   deterministisch: die ersten zwei Abschnitte sind rohe `<div>`, erst danach
+   kommen `<template x-if>`. (Stünde ein Template davor, wäre `first:` die
+   falsche Wahl — Alpine lässt es als Kind im DOM stehen.) */
+.forge-spur-abschnitt:first-child {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.forge-spur-titel {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+}
+
+/* GitHubs Beschreibung: 16 px/24 px, 12 px unter der Überschrift.
+
+   KEIN eigener `max-width` — den Deckel trägt `.forge-mass` am Element selbst
+   (Begründung im Blade). Hier stand er kurz als zweite Quelle desselben Wertes;
+   in der zweispaltigen Form ist er wirkungslos (272 px sind 34 Zeichen), in der
+   einspaltigen die ganze Miete (Spur 640 px = 80 Zeichen, gemessen bei Fenster
+   1279). Ein Wert, ein Ort. */
+.forge-spur-text {
+    margin-top: 0.75rem;
+    font-size: 1rem;
+    line-height: 1.5rem;
+}
+
+/* Ein Link, keine Marke. Die getönte Fläche gehört `.forge-anker` und damit dem
+   Git-Objekt; eine Adresse ist keins. */
+.forge-spur-link {
+    color: var(--color-brand-800);
+}
+
+.dark .forge-spur-link {
+    color: var(--color-brand-300);
+}
+
+.forge-spur-zeile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.forge-spur-pillen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.forge-spur-avatare {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.75rem;
+}
+
+/* Der Clone-Befehl EINZEILIG mit eigenem Bildlauf statt umbrechend.
+   Gemessen bei 272 px Spurbreite: die Adresse des Testrepos brach auf VIER
+   Zeilen (96 px hoch) und machte aus einem Befehl einen Absatz. Eine
+   Kommandozeile scrollt, sie bricht nicht um — und WCAG 1.4.10 nimmt genau
+   solche Inhalte („content which requires two-dimensional layout for usage or
+   meaning") von der Reflow-Auflage aus.
+
+   ZWEI Kästen, nicht einer: der Bildlauf sitzt am TEXT, der Kopierknopf steht
+   daneben und ausserhalb. Lag er als klebendes Kind IM Bildlauf, schob sich das
+   Kopierzeichen auf die Adresse — und ein Deckgrund darunter hätte nur den
+   letzten Buchstaben verdeckt statt das Problem gelöst. */
+.forge-spur-befehl {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    border-radius: var(--radius-tile);
+    background: var(--color-zinc-100);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+}
+
+/* `min-width: 0` ist Pflicht: ohne ihn schrumpft ein Flex-Kind nicht unter
+   seine Inhaltsbreite, die Zeile risse die 272-px-Spur auf, statt zu scrollen. */
+.forge-spur-befehl-text {
+    display: flex;
+    flex: 1;
+    align-items: baseline;
+    gap: 0.5rem;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+/* Der Knopf steht ausserhalb des Bildlaufs (siehe oben) und schrumpft nie —
+   sonst zöge die lange Adresse ihn auf null. */
+.forge-spur-befehl [data-forge-clone-copy] {
+    flex-shrink: 0;
+}
+
+.dark .forge-spur-befehl {
+    background: var(--color-zinc-800);
+}
+
+.forge-spur-hinweis {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    color: var(--color-muted);
 }
 
 /* ── Der Steckbrief ─────────────────────────────────────────────────────────
@@ -1512,65 +2043,6 @@ select:focus[data-flux-control] {
    es seither eine Quelle (`$store.viewport.form` kennt Host UND Breite). Diese
    hier fragt eine CONTAINER-Schwelle, und die kennt das Fenster prinzipiell
    nicht. */
-.forge-steckbrief > summary {
-    cursor: pointer;
-    list-style: none;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    /* WCAG 2.5.8 verlangt 24 × 24 px; Apples HIG 44 × 44. Die Zeile ist über
-       die volle Breite anfassbar und misst mit 0,75 rem Polsterung plus
-       1,25 rem Zeilenhöhe 44 px. */
-    min-height: 2.75rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    line-height: 1.25rem;
-}
-
-/* Der Marker verschwindet in BEIDEN Engines: WebKit braucht das
-   Pseudo-Element, Blink/Gecko nehmen `list-style: none` oben. */
-.forge-steckbrief > summary::-webkit-details-marker {
-    display: none;
-}
-
-/* Der Winkel zeigt den Zustand — zusätzlich zu `aria-expanded`, das die
-   Zusammenfassung von sich aus trägt. Farbe ist hier NICHT der Träger
-   (WCAG 1.4.1): es dreht sich eine Form. */
-.forge-steckbrief > summary > .forge-steckbrief-winkel {
-    margin-inline-start: auto;
-    flex-shrink: 0;
-    transition: transform var(--duration-tap) ease-out;
-}
-
-.forge-steckbrief[open] > summary > .forge-steckbrief-winkel {
-    transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .forge-steckbrief > summary > .forge-steckbrief-winkel {
-        transition: none;
-    }
-}
-
-/* Der Abstand zwischen Zusammenfassung und Rumpf — in der Spur gibt es keine
-   Zusammenfassung mehr, also auch nichts abzusetzen. */
-.forge-steckbrief-rumpf {
-    margin-top: 0.75rem;
-}
-
-@container repo (min-width: 65rem) {
-    /* In der Spur sagt die Spur schon, was man sieht. Die Zusammenfassung
-       bleibt im DOM — sie ist die Sonde, an der die Insel die Form abliest —
-       und ist als `display: none` weder sichtbar noch tabbierbar. */
-    .forge-steckbrief > summary {
-        display: none;
-    }
-
-    .forge-steckbrief-rumpf {
-        margin-top: 0;
-    }
-}
 
 /* ── Die Reiterleiste klebt ────────────────────────────────────────────────
    Deckender Hintergrund, KEIN `backdrop-blur`: ein `backdrop-filter` über

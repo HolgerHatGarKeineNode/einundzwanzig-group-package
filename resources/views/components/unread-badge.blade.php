@@ -17,6 +17,37 @@
      Pille selbst ist Anzeige. Sie bleibt bewusst unter den 20 px, die §9 Nr. 6 für
      frei stehende Zeilen-Pillen verlangt — 20 px neben einem 20-px-Icon in einer
      44-px-Fläche wäre kein Zähler mehr, sondern ein zweites Icon. --}}
+{{-- ── KEIN `font-mono` (Restposten aus P6b, 2026-08-27) ───────────────────────
+     P6b hat elf Träger in der Rail fallen lassen und diesen einen ausdrücklich
+     stehen gelassen: die Ziffer sitze „in einer FESTEN Geometrie, wo ein
+     Familienwechsel die Glyphenbreite ändert". Das GEFÜRCHTETE Risiko ist jetzt
+     gemessen (Chromium, `--font-sans`/`--font-mono` aus dem gebauten Bundle,
+     Animation ausgelaufen — `chip-in` skaliert sonst noch auf 0,8 und alle Werte
+     sind 20 % zu klein):
+
+     | Pille          | mit `font-mono` | ohne  | Δ Box   |
+     |----------------|-----------------|-------|---------|
+     | md „1"         | 20,00 px        | 20,00 | 0       |
+     | md „42"        | 26,41 px        | 24,02 | −2,39   |
+     | md „99+"       | 33,61 px        | 30,02 | −3,59   |
+     | sm „1"         | 16,00 px        | 16,00 | 0       |
+     | sm „9+"        | 22,41 px        | 20,02 | −2,39   |
+
+     Die Geometrie ist gar nicht fest: `min-w-*` ist ein BODEN, `px-*` lässt die
+     Pille mitwachsen. Bei einstelliger Ziffer greift der Boden und die Box
+     ändert sich um 0 px; mehrstellig wird sie SCHMALER. Überlaufen kann in
+     dieser Richtung nichts. Die Höhe bleibt 20/16 px, die Zeilenbox der Ziffer
+     fällt von 14 auf 12 px und sitzt damit lockerer statt enger.
+
+     Der Grund für den Wechsel ist derselbe wie in der Rail: `font-mono` ist hier
+     keine Zusage auf gleichbreite Ziffern, sondern ein Familienwechsel. Gemessen
+     mit `CSS.getPlatformFontsForNode` rendert die Ziffer heute in **Liberation
+     Mono**, der Raumname daneben in **Inconsolata** — zwei Zellenschriften in
+     einer Zeile, 6,000 gegen 7,201 px Dickte je Zeichen bei 12 px (an 200
+     Ziffern gemessen), also +20,0 %. Das Haus hat sich auf eine
+     festgelegt (Nutzerentscheid 2026-08-26: „Inconsolata bleibt überall").
+
+     `tabular-nums` BLEIBT: es schaltet eine Zifferngestalt, keine Familie. --}}
 @php($geometry = match ($size) {
     'sm' => 'h-4 min-w-4 px-1 text-xs',
     default => 'h-5 min-w-5 px-1.5 text-xs',
@@ -66,7 +97,7 @@
 <template x-if="{{ $count }}">
     <span class="inline-flex shrink-0 items-center">
         <span aria-hidden="true"
-              class="chip-in inline-flex shrink-0 items-center justify-center rounded-pill bg-brand-500 font-mono font-bold leading-none text-zinc-950 tabular-nums {{ $geometry }} {{ $badgeClass }}"
+              class="chip-in inline-flex shrink-0 items-center justify-center rounded-pill bg-brand-500 font-bold leading-none text-zinc-950 tabular-nums {{ $geometry }} {{ $badgeClass }}"
               x-text="$store.unread.capped({{ $count }}, {{ $cap }})"></span>
         @if ($sr)
             <span class="sr-only"

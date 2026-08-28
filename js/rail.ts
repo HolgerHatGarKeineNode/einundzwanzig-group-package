@@ -132,6 +132,19 @@ export type RailState = {
     url: string
     query: string
     scope: RailScope
+    /**
+     * Der Sprung aus `/forge?tab=workspaces` in die Rail steht noch aus.
+     *
+     * Er braucht einen Merker, weil das Ereignis `forge-zeige-kanaele` FRÜHER
+     * eintrifft, als die Workspace-Sektion existiert: gemessen am 2026-08-27
+     * standen im Moment des Ereignisses **0** `[data-rail-gruppenkopf]` im DOM,
+     * auch zwei `requestAnimationFrame` später noch. Der Kopf hängt an
+     * `<template x-if="hasWorkspaceSection">`, und die Bedingung wird erst wahr,
+     * wenn die Workspace-Daten da sind. Ein `$nextTick` im Zuhörer lief deshalb
+     * auf `undefined` und verpuffte still — sichtbar wurde das nie, weil
+     * `toggleGroup` kein DOM braucht und die Gruppe trotzdem aufging.
+     */
+    kanalSprungOffen: boolean
     focused: boolean
     activeRoomH: string
     /** `naddr` des offenen Repositories (`/forge/{naddr}`), `''` sonst. */
@@ -193,6 +206,9 @@ export type RailState = {
     openNode(node: ForgeNavNode): void
     /** Der gekürzte Zeilentext; der volle Name steht im `title`. */
     nodeName(node: ForgeNavNode): string
+    zeigeKanaele(): void
+    vollzieheKanalSprung(kopf: HTMLElement | null | undefined): boolean
+    kanalSprungErledigt(): void
     scopeToGroup(key: RailGroupKey): void
     toggleCountry(iso: string): void
     clearScope(): void
@@ -327,6 +343,7 @@ export const createRail = (): RailState => ({
     url: '',
     query: '',
     scope: { ...EMPTY_SCOPE },
+    kanalSprungOffen: false,
     focused: false,
     activeRoomH: '',
     activeRepoNaddr: '',
@@ -582,6 +599,55 @@ export const createRail = (): RailState => ({
         const el = (this as unknown as { $refs?: { prompt?: HTMLInputElement } }).$refs?.prompt
         el?.focus()
         el?.select()
+    },
+
+    /**
+     * Aus `/forge?tab=workspaces` in die Rail springen.
+     *
+     * Zwei Hälften, und nur die erste darf sofort laufen: die Gruppe aufzuklappen
+     * ist reiner Zustand, der Fokus braucht den gerenderten Kopf. Deshalb setzt
+     * diese Methode nur den Merker; ausgeführt wird der Sprung vom `x-effect` in
+     * `desktop-rail.blade.php`, sobald `hasWorkspaceSection` wahr ist.
+     */
+    zeigeKanaele(): void {
+        if (!this.isOpen('workspace')) {
+            this.toggleGroup('workspace')
+        }
+        this.kanalSprungOffen = true
+    },
+
+    /**
+     * Den ausstehenden Sprung vollziehen, falls dieser Kopf der richtige ist.
+     *
+     * **Eine Wahrheit, zwei Auslöser** — weil es zwei Lagen gibt und keine davon
+     * die andere abdeckt:
+     *   - *warm*: die Workspace-Sektion steht schon, wenn das Ereignis eintrifft.
+     *     Dann greift der Aufruf aus dem Zuhörer (`desktop-rail.blade.php`).
+     *   - *kalt*: sie entsteht erst danach. Dann greift das `x-init` am Kopf selbst
+     *     (`rail-group.blade.php`) — der Kopf meldet sich, sobald es ihn gibt.
+     *
+     * Warum nicht ein `x-effect` auf `hasWorkspaceSection`: gemessen am 2026-08-27
+     * wertet Alpine ihn NICHT neu aus, wenn dieser Getter wahr wird. Er liest
+     * `hasWorkspace()` — eine Funktion ausserhalb des Alpine-Datenobjekts, also
+     * ausserhalb jeder Abhängigkeitsverfolgung. Der Effect stand korrekt im DOM,
+     * beide Bedingungen waren wahr, der Kopf war da — und er lief trotzdem nicht.
+     */
+    vollzieheKanalSprung(kopf: HTMLElement | null | undefined): boolean {
+        if (!this.kanalSprungOffen || !kopf) {
+            return false
+        }
+        kopf.closest('[data-rail]')
+            ?.querySelector('#rail-group-workspace')
+            ?.scrollIntoView({ block: 'nearest' })
+        kopf.focus({ preventScroll: true })
+        this.kanalSprungOffen = false
+
+        return true
+    },
+
+    /** Der Sprung ist ausgeführt — den Merker fallen lassen. */
+    kanalSprungErledigt(): void {
+        this.kanalSprungOffen = false
     },
 
     activeGroup(): RailGroupKey | null {

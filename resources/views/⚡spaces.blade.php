@@ -67,6 +67,44 @@ new #[Layout('group::einundzwanzig')] class extends Component
     {{-- Genau EIN fixierter Space + seine Räume (kein Multi-Space-Layout, §12).
          Der `nostrSpaces`-Scope umschließt auch den Header, damit dessen Titel den
          echten Space-Namen (NIP-11) zeigen kann (B1). --}}
+    {{-- ══ KEIN `font-mono` — nachgezogen am 2026-08-27 ═══════════════════════════
+         P6b hat die Rail auf EINE Schriftfamilie gebracht (`desktop-rail.blade.php`
+         trägt die Begründung); diese Datei war in jener Phase nicht im Dateisatz und
+         hielt als einzige Rahmenfläche noch acht Träger. Der Plan schrieb an dieser
+         Stelle „`grep` = 0 in den rahmen-eigenen Dateien" — das galt für `⚡forge` und
+         `⚡forge-repo` (dort steht `font-mono` nur in Begründungs-Prosa), für diese
+         Datei nicht.
+
+         Gemessen an einem Chromium gegen das gebaute Bundle
+         (`CSS.getPlatformFontsForNode`): jeder Träger rendert mit der Klasse in
+         **Liberation Mono**, ohne sie in **Inconsolata** — 6,000 gegen 7,201 px
+         Dickte je Zeichen bei 12 px (an 200 Ziffern in einer Zeile gemessen, damit
+         die Rundung der Einzelmessung nicht mitspricht), also **+20,0 % je
+         Glyphe**. Der Rumpf der Seite
+         lief die ganze Zeit in Inconsolata; die Klasse hat also nicht „mono"
+         hergestellt, sondern eine ZWEITE Zellenschrift eingezogen. Nutzerentscheid
+         2026-08-26: „Inconsolata bleibt überall".
+
+         Die acht Träger und die Breite ihres gesetzten TEXTES mit → ohne (Zeilen im
+         Stand dieses Commits; sie wandern, der `x-text`-Ausdruck daneben nicht).
+         Für sieben von ihnen ist das zugleich ihre Boxbreite; der npub bei :234 ist
+         `flex-1` und behält seine Box, nur der Satz darin wird schmaler:
+           :234  `npub` (60 Zeichen)      409,53 → 341,23 px   (−68,30)
+           :452  `c.count` „12"            14,41 →  12,02 px   (−2,39)
+           :471  `visibleCount()` „23 Räume" 57,61 → 48,02 px  (−9,59)
+           :615  `sec.rooms.length` „7"     9,61 →   8,02 px   (−1,59)
+           :632  `filteredOther().length`   9,61 →   8,02 px   (−1,59)
+           :974  `threads.length` „n Threads"  wie :471
+           :1086 `#`-Platzhalter (text-lg) 10,81 →   9,00 px   (−1,81)
+           :1150 `m.short` (12 Zeichen)    86,42 →  72,02 px   (−14,40)
+         Alle acht stehen in fliessenden Zeilen (`flex`/`truncate`/`break-all`) und
+         werden SCHMALER — keine hat einen Deckel, an den sie stossen könnte.
+
+         Die Zielform ist nicht neu erfunden, sondern die, die dieselben Träger in
+         der Rail seit P6b tragen: `rail-group.blade.php:205` (Bestandszahl),
+         `:245` (Länderzahl), `:326` (Abschnittszahl), `desktop-rail.blade.php:430`
+         (npub), `room-tile.blade.php:50` (`#`). Die Zähler bekommen dabei
+         `tabular-nums` — es schaltet eine Zifferngestalt, keine Familie. --}}
     <div x-data="nostrSpaces" class="page-enter">
 
         {{-- Kopfbereich neu (B1/B6): zwei getrennte Identitäts-Zonen statt einer
@@ -198,7 +236,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 {{-- npub: 1-Klick-Kopieren (copy() im nostrAuth-Island, „Kopiert"-Toast). --}}
                                 <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
                                         class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                                    <span class="min-w-0 flex-1 break-all font-mono text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
+                                    <span class="min-w-0 flex-1 break-all text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
                                     <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
                                 </button>
                                 <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
@@ -416,7 +454,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                 :class="roomCountry === c.country ? 'font-semibold text-brand-800 dark:text-brand-400' : ''">
                                             <span class="shrink-0 text-base leading-none" x-text="c.flag" aria-hidden="true"></span>
                                             <span class="min-w-0 flex-1 truncate" x-text="c.name"></span>
-                                            <span class="shrink-0 font-mono text-xs text-muted" x-text="c.count"></span>
+                                            <span class="shrink-0 text-xs tabular-nums text-muted" x-text="c.count"></span>
                                         </button>
                                     </template>
                                 </div>
@@ -435,7 +473,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  zehn weiteren Stellen): ein Treffer ist im Fokus der häufigste
                                  Fall, „1 Räume" stand also ausgerechnet dort, wo man am
                                  genauesten hinsieht. --}}
-                            <span x-show="visibleCount() > 0" x-cloak class="ms-auto shrink-0 font-mono text-xs text-muted"
+                            <span x-show="visibleCount() > 0" x-cloak class="ms-auto shrink-0 text-xs tabular-nums text-muted"
                                   x-text="$plural(visibleCount(), '1 Raum', ':count Räume')"></span>
                         </div>
 
@@ -579,7 +617,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                              Zeilenende. --}}
                                         <p class="flex items-baseline gap-1.5 px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
                                             <span x-text="secLabels[sec.key]"></span>
-                                            <span class="font-mono font-normal normal-case tracking-normal" x-text="sec.rooms.length"></span>
+                                            <span class="font-normal normal-case tabular-nums tracking-normal" x-text="sec.rooms.length"></span>
                                         </p>
                                         <div class="space-y-0.5">
                                             <template x-for="room in sec.rooms" :key="room.h">
@@ -596,7 +634,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <div class="xl:hidden" x-bind:class="filteredMine().length > 0 ? 'mt-2' : ''">
                                 <p class="flex items-baseline gap-1.5 px-2 pb-1 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
                                     {{ __('Andere Räume') }}
-                                    <span class="font-mono font-normal normal-case tracking-normal" x-text="filteredOther().length"></span>
+                                    <span class="font-normal normal-case tabular-nums tracking-normal" x-text="filteredOther().length"></span>
                                 </p>
                                 <div class="space-y-0.5">
                                     <template x-for="room in filteredOther()" :key="room.h">
@@ -937,7 +975,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          verlässt die Pille, sonst hätte der eine Tab eine Regel und der
                          andere eine Ausnahme. --}}
                     <div x-show="threads.length > 0" x-cloak class="mb-1 flex justify-end px-2">
-                        <span class="shrink-0 font-mono text-xs text-muted"
+                        <span class="shrink-0 text-xs tabular-nums text-muted"
                               x-text="$plural(threads.length, '1 Thread', ':count Threads')"></span>
                     </div>
 
@@ -1050,7 +1088,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="flex items-center gap-3">
                     <div class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-tile bg-zinc-100 dark:bg-zinc-800">
                         <img x-show="roomForm.picture" :src="$img(roomForm.picture)" alt="" class="size-full object-cover" />
-                        <span x-show="!roomForm.picture" class="font-mono text-lg font-semibold text-zinc-400">#</span>
+                        <span x-show="!roomForm.picture" class="text-lg font-semibold text-zinc-400">#</span>
                     </div>
                     <flux:button size="sm" variant="ghost" icon="photo" x-on:click="$refs.roomPic.click()">{{ __('Bild wählen') }}</flux:button>
                     <input type="file" accept="image/*" class="hidden" x-ref="roomPic" x-on:change="pickRoomPicture($event.target)" />
@@ -1114,7 +1152,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             </button>
                             <div class="min-w-0 flex-1">
                                 <div class="truncate text-sm font-medium" x-text="m.name"></div>
-                                <div class="truncate font-mono text-xs text-muted" x-text="m.short"></div>
+                                <div class="truncate text-xs text-muted" x-text="m.short"></div>
                             </div>
                             <flux:button size="xs" variant="ghost" icon="user-minus" class="icon-btn-touch shrink-0" x-on:click="kickRoomMember(m.pubkey)" ::disabled="memberBusy" aria-label="{{ __('Entfernen') }}" />
                         </div>

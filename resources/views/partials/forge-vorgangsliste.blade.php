@@ -50,10 +50,11 @@
         <ul>
             <template x-for="row in gruppe.items" :key="row.id">
                 <li class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-800">
-                    {{-- Die ganze Zeile ist der Link — Ziel ist die P2-Adresse
-                         (`?issue=`/`?pr=`), also derselbe Verweis, den der
-                         Kopier-Knopf auf der Repo-Seite liefert. Er wird nicht
-                         neu zusammengesetzt, sondern kommt aus `withVorgang`. --}}
+                    {{-- Die ganze Zeile ist der Link — Ziel ist seit P1 (GitHub-
+                         Parität) die EIGENE ROUTE des Vorgangs
+                         (`/forge/{naddr}/issues|pulls/{id}`). Er wird nicht neu
+                         zusammengesetzt, sondern kommt aus `vorgangPath` über
+                         `zuGruppen` — dieselbe Quelle wie die Repo-Liste. --}}
                     {{-- Zwei Ränge, dieselbe Bauform wie auf der Repo-Seite (P3):
                          Typ-Glyphe · Titel oben, EINE graue Metazeile darunter,
                          Zustand rechts. Die schmale und die breite Fassung stehen
@@ -71,9 +72,11 @@
                        class="forge-vorgangskopf pressable block w-full p-3 text-start">
                         <span class="forge-vorgangszeile">
                             @if ($art === 'issues')
-                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                                <flux:icon.ticket variant="micro" class="forge-vz-glyphe size-4 shrink-0"
+                                                             ::class="row.status === 'open' ? 'text-emerald-600 dark:text-emerald-400' : (row.status === 'closed' ? 'text-red-600 dark:text-red-400' : 'text-purple-600 dark:text-purple-400')" />
                             @else
-                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0" />
+                                <flux:icon.arrows-right-left variant="micro" class="forge-vz-glyphe size-4 shrink-0"
+                                                             ::class="row.status === 'open' || row.status === 'draft' ? 'text-emerald-600 dark:text-emerald-400' : (row.status === 'closed' ? 'text-red-600 dark:text-red-400' : 'text-purple-600 dark:text-purple-400')" />
                             @endif
 
                             <span class="forge-vz-titel text-sm">
@@ -81,6 +84,7 @@
                             </span>
 
                             <span class="forge-vz-meta block text-xs text-muted">
+                                <span class="font-semibold tracking-tight" x-text="'#' + row.id.slice(0, 7)"></span>
                                 <span x-text="row.authorName"></span>
                                 <span x-text="' · ' + row.timeLabel"></span>
                             </span>

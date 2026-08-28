@@ -64,12 +64,13 @@ import {
     aktivitaetJeRepo,
     balkenLohnt,
     filtereVorgaenge,
+    istZustandOffen,
     leseScope,
     leseSortierung,
     sortiereRepos,
     sortiereVorgaenge,
 } from './forgeFilter.ts'
-import { readVorgang, tabForVorgang, withVorgang, type VorgangArt, type VorgangZiel } from './forgeVorgang.ts'
+import { HEX64, vorgangPath, type VorgangArt } from './forgeVorgang.ts'
 import { anlegeForm, type AnlegeForm } from './forgeAnlegen.ts'
 // Die xl-Schwelle kommt aus `viewport.ts` und wird hier NICHT als drittes Literal
 // wiederholt. Der Modulkopf dort führt aus, warum sie schon zweimal steht (CSS und
@@ -88,7 +89,7 @@ import {
 // Rein und ohne Netz: WOHER der Diff eines Pull Requests käme, und wann gar
 // nicht. Das Holen selbst steht im lazy geladenen `gitBrowser.ts`.
 import { baueDiff, prDiffQuelle, type PrDiffQuelle } from './forgePrDiff.ts'
-import type { PrDiffFehler } from './gitBrowser.ts'
+import type { EintragCommit, KopfStand, PrDiffFehler } from './gitBrowser.ts'
 import { filterRepos, sucheVorgaenge } from './forgeSearch.ts'
 import {
     FORGE_LIST_LIMIT,
@@ -610,17 +611,15 @@ const toActivityGroups = (
 ): ActivityGroup[] => groupTimeline(toActivityRows(items, profiles, now), now, { repoNames })
 
 /**
- * Vorgänge → anzeigefertige Gruppen mit Sprungzielen (P3).
+ * Vorgänge → anzeigefertige Gruppen mit Sprungzielen (P3, Route seit P1).
  *
- * Der `href` einer Zeile ist die P2-Adresse auf der Repo-Seite: dieselbe Form,
+ * Der `href` einer Zeile ist die Einzelroute auf der Repo-Seite: dieselbe Form,
  * die der Kopier-Knopf dort liefert. Sie wird hier nicht neu erfunden, sondern
- * mit `withVorgang` aus derselben Quelle gebaut — sonst gäbe es zwei
+ * mit `vorgangPath` aus derselben Quelle gebaut — sonst gäbe es zwei
  * Schreibweisen desselben Links, und die zweite altert.
  *
- * `withVorgang` verlangt eine absolute Adresse; `naddr` liefert nur den Pfad.
- * Die Basis kommt deshalb aus `window.location.origin`, und was herauskommt,
- * wird wieder auf Pfad+Query gekürzt — ein absoluter Link im `href` wäre für
- * `wire:navigate` ein Fremdziel.
+ * Die Basis ist der SITE-RELATIVE Pfad (`/forge/{naddr}`) — ein absoluter
+ * `href` wäre für `wire:navigate` ein Fremdziel.
  */
 /**
  * Auf wen wartet dieser Vorgang?
@@ -664,28 +663,13 @@ const zuGruppen = (
                 authorName: nameOf(item.author),
                 timeLabel: dateLabel(item.updatedAt),
                 commentCount: item.commentCount,
-                href: basis === '' ? '' : pfadUndQuery(withVorgang(absolut(basis), { art, id: item.id })),
+                href: basis === '' ? '' : vorgangPath(basis, { art, id: item.id }),
                 author: String(item.author ?? '').toLowerCase(),
                 wartetAuf: wartetAufVon(item),
                 updatedAt: item.updatedAt,
             })),
         }
     })
-
-/** Pfad einer Repo-Seite → absolute Adresse, damit `withVorgang` sie annimmt. */
-const absolut = (pfad: string): string =>
-    typeof window === 'undefined' ? `http://localhost${pfad}` : new URL(pfad, window.location.origin).toString()
-
-/** …und wieder zurück: ein absoluter `href` wäre für `wire:navigate` ein Fremdziel. */
-const pfadUndQuery = (href: string): string => {
-    try {
-        const url = new URL(href)
-
-        return `${url.pathname}${url.search}`
-    } catch {
-        return href
-    }
-}
 
 /** Alle Forge-Ereignisse des Workspace, gedrosselt. */
 const forgeEvents = (): Readable<ForgeEvent[]> =>
@@ -1117,6 +1101,7 @@ export type CommentRow = {
     id: string
     author: string
     authorName: string
+    authorPicture: string
     html: string
     timeLabel: string
 }
@@ -1133,6 +1118,7 @@ export type ForgePerson = { pubkey: string; name: string; picture: string }
 
 export type IssueRow = Omit<Issue, 'comments'> & {
     authorName: string
+    authorPicture: string
     timeLabel: string
     html: string
     /**
@@ -1167,6 +1153,7 @@ export type MergeRow = {
 
 export type PullRequestRow = Omit<PullRequest, 'comments' | 'updates'> & MergeRow & {
     authorName: string
+    authorPicture: string
     timeLabel: string
     html: string
     shortCommit: string
@@ -1321,10 +1308,20 @@ const renderMarkdown = (id: string, content: string): string => {
     return html
 }
 
-const toCommentRow = (comment: { id: string; author: string; content: string; createdAt: number }): CommentRow => ({
+/**
+ * Ein Kommentar, anzeigefertig — mit Gesicht, denn die Einzelansicht zeigt
+ * Karten mit Autoren-Kopfzeile (P1). Das Profil kommt als zweites Argument,
+ * weil nur der Aufrufer weiss, welche Profil-Map dieser Emit gesehen hat;
+ * `nameOf` allein arbeitet auf dem (drosseligen) Zwischenstand.
+ */
+const toCommentRow = (
+    comment: { id: string; author: string; content: string; createdAt: number },
+    profiles: Map<string, { picture?: string }>,
+): CommentRow => ({
     id: comment.id,
     author: comment.author,
     authorName: nameOf(comment.author),
+    authorPicture: profiles.get(comment.author)?.picture ?? '',
     html: renderMarkdown(comment.id, comment.content),
     timeLabel: timeLabel(comment.createdAt),
 })
@@ -1431,10 +1428,11 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                 issues: issues.map((issue) => ({
                     ...issue,
                     authorName: nameOf(issue.author),
+                    authorPicture: (profiles as Map<string, { picture?: string }>).get(issue.author)?.picture ?? '',
                     timeLabel: timeLabel(issue.createdAt),
                     html: renderMarkdown(issue.id, issue.content),
                     assigneePeople: peopleOf(issue.assignees, profiles as Map<string, { picture?: string }>),
-                    comments: issue.comments.map(toCommentRow),
+                    comments: issue.comments.map((comment) => toCommentRow(comment, profiles as Map<string, { picture?: string }>)),
                 })),
                 patches: patches.map((patch) => ({
                     ...patch,
@@ -1446,11 +1444,12 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                     stat: diffStat(parseDiffMemo(patch.id, patch.content)),
                     // KLARTEXT, nicht gerendert — siehe `patchBody` in `forgeDiff.ts`.
                     body: patchBody(patch.content),
-                    comments: patch.comments.map(toCommentRow),
+                    comments: patch.comments.map((comment) => toCommentRow(comment, profiles as Map<string, { picture?: string }>)),
                 })),
                 pullRequests: pulls.map((pr) => ({
                     ...pr,
                     authorName: nameOf(pr.author),
+                    authorPicture: (profiles as Map<string, { picture?: string }>).get(pr.author)?.picture ?? '',
                     timeLabel: timeLabel(pr.createdAt),
                     html: renderMarkdown(pr.id, pr.content),
                     shortCommit: shortCommit(pr.commit),
@@ -1462,7 +1461,7 @@ export const deriveRepoView = (naddr: string): Readable<RepoView | null> => {
                         ...peopleOf([row.pubkey], profiles as Map<string, { picture?: string }>)[0],
                         decision: row.decision,
                     })),
-                    comments: pr.comments.map(toCommentRow),
+                    comments: pr.comments.map((comment) => toCommentRow(comment, profiles as Map<string, { picture?: string }>)),
                     updates: pr.updates.map((update) => ({
                         id: update.id,
                         authorName: nameOf(update.author),
@@ -1815,6 +1814,35 @@ type ForgeState = {
     kind: SpaceKind
     tab: string
     /**
+     * Der Kanalbestand für den Reiter „Kanäle" — `null`, solange er unbekannt ist.
+     *
+     * **Ein Spiegel, keine zweite Quelle.** Gerechnet wird die Zahl an genau einer
+     * Stelle (`workspaceModel.ts buildWorkspaceModel`, Feld `channelCount`) und
+     * gehalten an genau einer (`WorkspaceRoomsState.channelCount`, Insel
+     * `nostrWorkspaceRooms`). Diese Insel hier rechnet nichts nach und abonniert
+     * nichts zusätzlich; sie bekommt den fertigen Wert per Ereignis aus ihrem
+     * eigenen Nachfahren gereicht (`⚡forge.blade.php`, `x-effect`/`x-on:
+     * forge-kanalbestand`). Genau das war die Auflage aus P6a — „beides zusammen
+     * oder keines" richtete sich gegen einen zweiten DATENWEG, nicht gegen eine
+     * Weitergabe.
+     *
+     * **Warum nicht einfach die Insel höher mounten**, damit der Reiter sie direkt
+     * liest: gemessen am 2026-08-27 stehen zwischen Reiterstreifen und Kanal-Sektion
+     * **fünf** Markup-Stellen, die ein blankes `loading` lesen (Skelett-Weiche und
+     * die vier Listen-Sektionen). Beide Inseln führen ein Feld dieses Namens
+     * (Schnittmenge insgesamt: `loading`, `_controller`, `_unsub`, `init`,
+     * `destroy`). Ein Hochziehen des `x-data` bände alle fünf still an die falsche
+     * Insel — das Skelett hinge dann am Ladezustand der Kanalliste. Der Spiegel ist
+     * das kleinere Übel und das einzige, das sich prüfen lässt.
+     *
+     * `null` und nicht `0`: „noch nicht bekannt" und „keine Kanäle" sind zwei
+     * Aussagen, und nur eine davon rechtfertigt eine Ziffer. Die Sendeseite legt
+     * `null` an, solange sie lädt — dieselbe Zurückhaltung, die der Repo-Reiter
+     * über `settled()` ausübt (eine Zahl, die während des Ladens wächst, liest sich
+     * als Bestand und ist keiner).
+     */
+    kanalbestand: number | null
+    /**
      * Steht die Bühne zweispaltig? Dann schaltet `tab` NICHTS mehr um — Werkbank
      * und Spur sind beide sichtbar, und `?tab=` wird vom Schalter zum Sprungziel.
      *
@@ -1982,6 +2010,24 @@ export type CodeLage = {
     zeilen: number
     laedt: boolean
     fehler: string
+    /**
+     * Die zweite und dritte Spalte der Dateiliste — Eintragsname → letzter
+     * Commit. Wird NACH der Liste gefüllt (siehe `_commitSpaltenLaden`); ein
+     * fehlender Schlüssel heisst „noch nicht gelesen ODER nicht gefunden", und
+     * beide Male bleibt die Zelle leer statt zu raten.
+     */
+    commits: Record<string, EintragCommit>
+    /** Läuft der Historienlauf gerade? Trägt den Ladezustand der zwei Spalten. */
+    commitsLaden: boolean
+    /** Der Commit, auf dem der Baum steht — der Commit-Kopf über der Liste. */
+    kopf: KopfStand | null
+    /**
+     * Die Uhr, gegen die JEDE Zeitangabe dieser Liste gerechnet wird — EINMAL
+     * je Lauf gelesen, wie in `toActivityGroups`. Zwei getrennte `Date.now()`
+     * ergäben an der Mitternachtsgrenze zwei verschiedene Antworten auf dieselbe
+     * Frage. `0` heisst „noch nichts gelesen".
+     */
+    zeitJetzt: number
 }
 
 /**
@@ -2031,23 +2077,6 @@ type ForgeRepoState = {
     missing: boolean
     kind: SpaceKind
     tab: string
-    /**
-     * Steht der Steckbrief in einer eigenen SPUR (statt hinter einem
-     * Aufklapper)? Dann ist er offen, und zwar unverhandelbar: seine
-     * Zusammenfassung ist in dieser Form `display: none`, es gäbe also keinen
-     * Weg mehr, ihn wieder aufzuziehen.
-     *
-     * Startwert `false` — die harmlose Ausfallrichtung, dieselbe wie bei
-     * `zweispaltig` auf der Übersicht: ohne Messung bleibt es beim Aufklapper,
-     * und der funktioniert auf jeder Breite.
-     */
-    steckbriefSpur: boolean
-    /** Liest am DOM ab, welche Form der Steckbrief gerade hat. */
-    _messeSteckbrief(): void
-    /** Hängt den Breitenbeobachter an die Bühne — genau einmal. */
-    _beobachteBreite(): void
-    /** Beobachtet die Bühne, weil eine Container-Schwelle kein `matchMedia` hat. */
-    _breiteBeobachter: ResizeObserver | null
     view: RepoView | null
     open: Record<string, boolean>
     /** Der angemeldete Pubkey — `''` heißt: nicht angemeldet. */
@@ -2055,38 +2084,12 @@ type ForgeRepoState = {
     /** Laufende und gescheiterte Schreibvorgänge (aus `forgeWrite.ts`). */
     pending: PendingWrite[]
     issueDraft: IssueDraft
-    /** Kommentarentwurf je Wurzel-Id. */
-    commentDraft: Record<string, string>
-    /** Fehler des Kommentarentwurfs je Wurzel-Id. */
-    commentError: Record<string, string>
-    /**
-     * Der Suchtext der Personenauswahl je Wurzel-Id (P10).
-     *
-     * Getrennt von {@link mention}, obwohl beide dasselbe Popover speisen: der
-     * `mention`-Zustand ist FLÜCHTIG (ein Escape schliesst ihn), die getroffene
-     * Auswahl darf das nicht sein. Wer drei Personen gewählt hat und dann den
-     * Vorschlag wegtippt, hätte sonst die drei mit verloren.
-     */
-    assignQuery: Record<string, string>
-    /**
-     * Die gewählten Personen je Wurzel-Id — als ganze Vorschläge, nicht als
-     * Schlüssel.
-     *
-     * Der Chip zeigt Name, Bild und bei einem Agenten die Marke; alles drei
-     * steht im {@link MentionItemLike} und kommt damit aus DERSELBEN Quelle wie
-     * die Vorschlagszeile, aus der er gewählt wurde. Nur den Pubkey zu halten
-     * hiesse, den Namen ein zweites Mal aufzulösen — und ein Chip, der anders
-     * heisst als die Zeile, aus der er stammt, ist genau die Sorte Widerspruch,
-     * die niemand meldet.
-     */
-    assignPicks: Record<string, MentionItemLike[]>
     /** Neu gezeichnet, wenn sich ein Riegel ändert — `isBusy` ist kein Store. */
     busyTick: number
     /**
-     * Der @-Vorschlag. EIN Zustand für alle Composer dieser Seite (ein Issue-
-     * Formular plus je ein Kommentarfeld pro Vorgang) — `target` sagt, welcher
-     * gerade tippt. Zwei offene Vorschläge kann es nicht geben: es tippt immer
-     * nur ein Feld.
+     * Der @-Vorschlag. EIN Zustand für alle Composer dieser Seite (das Issue-
+     * Anlege-Formular) — `target` sagt, welches Feld gerade tippt. Zwei offene
+     * Vorschläge kann es nicht geben: es tippt immer nur ein Feld.
      */
     mention: { open: boolean; items: MentionItemLike[]; index: number; query: string; target: string }
     /**
@@ -2113,6 +2116,11 @@ type ForgeRepoState = {
     dateiOeffnen(pfad: string): Promise<void>
     dateiSchliessen(): void
     codeHoch(): Promise<void>
+    /** Füllt die zwei Commit-Spalten NACH der Liste (P8, GitHub-Parität). */
+    _commitSpaltenLaden(pfad: string, namen: readonly string[]): Promise<void>
+    commitFuer(name: string): EintragCommit | null
+    commitZeitText(zeit: number): string
+    commitZeitVoll(zeit: number): string
     krumel(): { name: string; pfad: string }[]
     speicherUmschalten(): Promise<void>
     klonEntfernen(owner: string, dtag: string): Promise<void>
@@ -2132,31 +2140,17 @@ type ForgeRepoState = {
     /** „12,3 MB" o. ä. — Zahl und Einheit getrennt gebildet. */
     groessenText(bytes: number): string
     /**
-     * Der PR-Diff je Wurzel-Id (P7b) — **eine Zustandsmaschine je Vorschlag.**
-     *
-     * Nicht EIN Zustand für die Seite: zwei aufgeklappte Pull Requests sind der
-     * Normalfall, und ein geteilter Zustand zeigte dem einen den Diff des
-     * anderen. Die Karte wird bei jedem `view`-Emit neu gebildet und trägt
-     * geladene Diffs mit hinüber — außer die Spitze hat sich bewegt.
-     */
-    prDiff: Record<string, PrDiffLage>
-    /** Läuft gerade ein Download, dann seine Abbruchleine. Je Wurzel-Id eine. */
-    _prDiffAbbruch: Record<string, AbortController>
-    /** Startet den Download. Nur auf ausdrücklichen Klick — die Ansage steht davor. */
-    prDiffLaden(pr: { id: string }): Promise<void>
-    prDiffAbbrechen(pr: { id: string }): void
-    /** Der übersetzte Satz zum Fehlercode dieses Vorschlags. */
-    prDiffFehlerText(pr: { id: string }): string
-    /** Die Lage dieses Vorschlags — nie `undefined`, damit das Markup nichts abfangen muss. */
-    prDiffVon(pr: { id: string }): PrDiffLage
-    /** Baut {@link prDiff} aus dem neuen `view` — geladene Diffs überleben, veraltete nicht. */
-    _prDiffKarteNeu(view: RepoView | null): void
-    /**
      * Der Text im Suchfeld der Detailseite (P7b). EIN Zustand für alle drei
      * Vorgangsreiter: es tippt immer nur einer, und drei Felder mit drei
      * Zuständen wären drei Wahrheiten über dieselbe Frage.
      */
     suche: string
+    /** Zustands-Ausschnitt der Listen: 'offen' | 'geschlossen' (GH-Form, P4). */
+    zustand: 'offen' | 'geschlossen'
+    /** Wie viele UNGESUCHT offen sind (GH-Zahlangabe am Umschalter). */
+    offenZahl(): number
+    /** …und geschlossen. */
+    geschlossenZahl(): number
     sichtbareIssues(): RepoView['issues']
     sichtbarePulls(): RepoView['pullRequests']
     sichtbarePatches(): RepoView['patches']
@@ -2221,76 +2215,27 @@ type ForgeRepoState = {
      */
     canCopyClone(): boolean
     copyClone(): void
-    // ── Adressierbarkeit eines einzelnen Vorgangs (P2) ──────────────────────
-    /** Das Ziel aus `?issue=`/`?pr=`, einmal beim Mount gelesen. */
-    _ziel: VorgangZiel | null
-    /** Der Sprung ist erledigt — er bleibt bei EINEM, wie `_springZuRegion`. */
-    _gesprungen: boolean
-    _springZuVorgang(): void
-    /** Die teilbare Adresse eines Vorgangs. */
-    vorgangHref(id: string, art: VorgangArt): string
-    copyVorgang(id: string, art: VorgangArt): void
-    // ── Schreiben ───────────────────────────────────────────────────────────
-    writeGate(): WriteGate
-    writeHint(): string
-    canWrite(): boolean
-    /**
-     * Welche der ZWEI Anlege-Bauformen steht (2026-08-27). Die Breite wird aus
-     * der Blade-Zeile hereingereicht (`$store.viewport.desktop`), damit die
-     * Lesung innerhalb des Alpine-Effekts stattfindet und beim Schwellenwechsel
-     * verfolgt wird — die Herleitung steht in `forgeAnlegen.ts`.
-     */
+    // ── Schreiben: die Werkzeuge EINES Vorgangs kommen aus dem Mixin ────────
+    // (Kommentar, Status, Zuweisen, Review, Diff, Erwähnung, Weckruf — seit P1
+    // an `forgeVorgangWerkzeuge` geteilt mit der Einzel-Insel). Diese Insel
+    // behält eigenständig, was nur sie hat: das Issue-ANLEGEN.
     anlegeZiel(desktop: boolean): AnlegeForm
     toggleIssueDraft(): void
     submitIssue(): Promise<void>
-    commentBusy(rootId: string): boolean
-    submitComment(
-        root: { id: string; title?: string; author: string; repoAddress: string; comments: { createdAt: number }[] },
-        art?: 'issue' | 'pr',
-    ): Promise<void>
-    statusOptions(): { code: WritableIssueStatus; label: string }[]
-    statusGateFor(row: { author: string; repoAddress: string }): WriteGate
-    canSetStatus(row: { author: string; repoAddress: string }): boolean
-    statusHint(row: { author: string; repoAddress: string }): string
-    statusBusy(rootId: string): boolean
-    setStatus(row: IssueRow, code: WritableIssueStatus): Promise<void>
-    // ── P5: Zuweisen und Freigeben ──────────────────────────────────────────
-    /** Ist der Betrachter bereits zugewiesen? Entscheidet über Wort und Wirkung. */
-    istZugewiesen(row: IssueRow): boolean
-    assignGateFor(row: IssueRow): WriteGate
-    canAssignSelf(row: IssueRow): boolean
-    assignHint(row: IssueRow): string
-    assignBusy(rootId: string): boolean
-    toggleAssignSelf(row: IssueRow): Promise<void>
-    // ── P10: Fremde zuweisen ────────────────────────────────────────────────
-    assignPicksFor(rootId: string): MentionItemLike[]
-    darfFremdeZuweisen(row: IssueRow): boolean
-    assignOthersGateFor(row: IssueRow): WriteGate
-    canAssignPicked(row: IssueRow): boolean
-    assignOthersHint(row: IssueRow): string
-    onAssignInput(el: HTMLInputElement, rootId: string): void
-    removeAssignPick(rootId: string, pubkey: string): void
-    submitAssignOthers(row: IssueRow, label: 'assignment' | 'unassignment'): Promise<void>
-    approveGateFor(row: PullRequestRow): WriteGate
-    canApprove(row: PullRequestRow): boolean
-    approveHint(row: PullRequestRow): string
-    reviewBusy(rootId: string): boolean
-    eigeneEntscheidung(row: PullRequestRow): string
-    submitReview(row: PullRequestRow, label: 'approval' | 'changes-requested'): Promise<void>
-    _statusCreatedAt(rootId: string): number
-    rowState(id: string): string
     failedIssues(): FailedWriteRow[]
-    failedFor(rootId: string): FailedWriteRow[]
-    dismiss(id: string): void
-    // ── @-Erwähnung + Weckmeldung ───────────────────────────────────────────
-    onComposerInput(el: HTMLTextAreaElement, target: string): void
-    mentionKey(event: KeyboardEvent): void
+    /**
+     * Überschreibt die Werkzeug-Form: das Ziel `issue` gehört dem Anlege-
+     * Formular dieser Fläche, alle anderen Ziele (`comment:*`, `assign:*`)
+     * trägt das Werkzeug.
+     */
     pickMention(item: MentionItemLike): void
-    closeMentions(): void
-    _mentionItemsFor(query: string, target?: string): MentionItemLike[]
-    _recomputeAgentItems(): void
-    _wake(target: string, content: string, vorgang: WakeTargetInput): Promise<void>
-    dismissWake(target: string): void
+} & VorgangWerkzeugeAmOrt
+
+/** Die Werkzeuge aus Sicht einer rufenden Insel: gleiche Signaturen, `this`
+ *  bewusst offen — die Repo-Insel trägt nicht jedes Feld der Einzel-Insel
+ *  (etwa `_id`), und Alpine evaluateht zur Laufzeit gegen das gemergte Objekt. */
+type VorgangWerkzeugeAmOrt = {
+    [K in keyof VorgangWerkzeuge]: (this: any, ...args: Parameters<VorgangWerkzeuge[K]>) => ReturnType<VorgangWerkzeuge[K]>
 }
 
 /** Was `_wake` über den Vorgang wissen muss, den es meldet. */
@@ -2317,21 +2262,1055 @@ const tabFromLocation = (): string => {
         const tab = new URLSearchParams(window.location.search).get('tab')
 
         // `patches` seit P5 (2026-08-23). Die Rail und die Werkbank verlinken
-        // gezielt auf eine Liste; ein `?tab=`, das still auf „Issues" fiele,
-        // zeigte etwas anderes als die Zeile, die dorthin geführt hat.
+        // gezielt auf eine Liste; ein `?tab=`, das still auf den Startwert
+        // fiele, zeigte etwas anderes als die Zeile, die dorthin geführt hat.
+        // Startwert ist seit der GitHub-Parität (2026-08-27) `code` — der
+        // erste Reiter ist bei GitHub die Code-Ansicht, und der Download
+        // startet dort ohnehin erst auf Klick (Ansage davor).
         return tab === 'issues' || tab === 'pulls' || tab === 'patches' || tab === 'activity' || tab === 'code'
             ? tab
-            : 'issues'
+            : 'code'
     } catch {
-        return 'issues'
+        return 'code'
     }
 }
+/**
+ * Die Schreib- und Anzeigewerkzeuge EINES Vorgangs (P1, GitHub-Parität).
+ *
+ * **Warum ein plain object und keine Basisklasse:** Zwei Inseln mit grund-
+ * verschiedenem Boot teilen sich die HANDHABE an einem Vorgang — Kommentar,
+ * Status, Zuweisung, Review, Diff, Erwähnung, Weckruf. Die Repo-Insel
+ * (`nostrForgeRepo`) braucht davon nach dem Akkordeon-Rückbau nur Riegel,
+ * Erwähnung und Weckruf (Issue-Anlegen); die Einzel-Insel
+ * (`nostrForgeVorgang`) braucht alles. Ein Mixin über Objekt-Spread hält die
+ * Werkzeuge an EINER Stelle, ohne einer der beiden einen Boot aufzuzwingen,
+ * den die andere nicht braucht. Alpine wertet das gemergte Objekt aus;
+ * `this` ist das jeweilige State-Objekt.
+ *
+ * **Der Issue-Entwurf (`issueDraft`) gehört NICHT hierher:** Er ist eine
+ * Eigenschaft der Repo-Fläche (FAB + Kopfleiste), nicht des Vorgangs.
+ * `pickMention` trägt deshalb keinen `issue`-Zweig — die Repo-Insel
+ * überschreibt ihn für ihr Anlege-Formular und reicht alle anderen Ziele
+ * an {@link forgeVorgangWerkzeuge.pickMention} weiter.
+ */
+/**
+ * Der gemeinsame ZUSTAND beider Inseln — die Felder, auf die die Werkzeuge
+ * zugreifen. Steht als eigener Typ, weil die Werkzeuge als plain object
+ * geteilt sind: Ohne ihn wäre `this` in jeder Methode das Objekt-Literal
+ * selbst, und jeder Griff auf `view` & Co. wäre ein Typfehler (274 Stück
+ * beim ersten Schnitt, gemessen über `npm run typecheck`).
+ */
+type VorgangInselstaat = {
+    view: RepoView | null
+    viewer: string
+    pending: PendingWrite[]
+    busyTick: number
+    commentDraft: Record<string, string>
+    commentError: Record<string, string>
+    assignQuery: Record<string, string>
+    assignPicks: Record<string, MentionItemLike[]>
+    mention: { open: boolean; items: MentionItemLike[]; index: number; query: string; target: string }
+    wakeNotice: Record<string, { tone: string; text: string }>
+    prDiff: Record<string, PrDiffLage>
+    _prDiffAbbruch: Record<string, AbortController>
+    _members: MentionItemLike[]
+    _agentItems: MentionItemLike[]
+    _agentView: AgentDirectoryView | null
+    _channelIds: Set<string>
+    _loadedProfiles: Set<string>
+    _mentionStart: number
+    _dead: boolean
+    _naddr: string
+    _id: string
+    _relaySelf: string
+    art: VorgangArt
+    tab: string
+    _unsubViewer: (() => void) | null
+    _unsubPending: (() => void) | null
+    _unsubMembers: (() => void) | null
+    _unsubAgents: (() => void) | null
+    _unsubRooms: (() => void) | null
+}
+
+/** Eine Wurzel, zu der kommentiert/gesetzt/gereviewt wird — die Zeilenform. */
+type VorgangWurzel = {
+    id: string
+    author: string
+    repoAddress: string
+    status: string
+    comments: { createdAt: number }[]
+} & Record<string, unknown>
+
+
+/**
+ * Die Werkzeuge EINES Vorgangs, typisiert — dieselben Signaturen, die bis P1
+ * an `ForgeRepoState` standen; sie wandern mit den Körpern ins Mixin. `this`
+ * ist der gemeinsame Inselstaat, damit `view` & Co. gegriffen werden können.
+ */
+type VorgangWerkzeuge = {
+    writeGate(this: VorgangInselstaat & VorgangWerkzeuge): WriteGate
+    writeHint(this: VorgangInselstaat & VorgangWerkzeuge): string
+    canWrite(this: VorgangInselstaat & VorgangWerkzeuge): boolean
+    commentBusy(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): boolean
+    submitComment(this: VorgangInselstaat & VorgangWerkzeuge, root: VorgangWurzel, art?: 'issue' | 'pr'): Promise<void>
+    statusOptions(this: VorgangInselstaat & VorgangWerkzeuge): { code: WritableIssueStatus; label: string }[]
+    statusGateFor(this: VorgangInselstaat & VorgangWerkzeuge, row: { author: string; repoAddress: string }): WriteGate
+    canSetStatus(this: VorgangInselstaat & VorgangWerkzeuge, row: { author: string; repoAddress: string }): boolean
+    statusHint(this: VorgangInselstaat & VorgangWerkzeuge, row: { author: string; repoAddress: string }): string
+    statusBusy(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): boolean
+    setStatus(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow, code: WritableIssueStatus): Promise<void>
+    _statusCreatedAt(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): number
+    istZugewiesen(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): boolean
+    assignGateFor(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): WriteGate
+    canAssignSelf(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): boolean
+    assignHint(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): string
+    assignBusy(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): boolean
+    toggleAssignSelf(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): Promise<void>
+    assignPicksFor(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): MentionItemLike[]
+    darfFremdeZuweisen(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): boolean
+    assignOthersGateFor(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): WriteGate
+    canAssignPicked(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): boolean
+    assignOthersHint(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow): string
+    onAssignInput(this: VorgangInselstaat & VorgangWerkzeuge, el: HTMLInputElement, rootId: string): void
+    removeAssignPick(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string, pubkey: string): void
+    submitAssignOthers(this: VorgangInselstaat & VorgangWerkzeuge, row: IssueRow, label: 'assignment' | 'unassignment'): Promise<void>
+    approveGateFor(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow): WriteGate
+    canApprove(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow): boolean
+    approveHint(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow): string
+    reviewBusy(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): boolean
+    eigeneEntscheidung(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow): string
+    submitReview(this: VorgangInselstaat & VorgangWerkzeuge, row: PullRequestRow, label: 'approval' | 'changes-requested'): Promise<void>
+    _prDiffKarteNeu(this: VorgangInselstaat & VorgangWerkzeuge, view: RepoView | null): void
+    prDiffVon(this: VorgangInselstaat & VorgangWerkzeuge, pr: { id: string }): PrDiffLage
+    prDiffFehlerText(this: VorgangInselstaat & VorgangWerkzeuge, pr: { id: string }): string
+    prDiffAbbrechen(this: VorgangInselstaat & VorgangWerkzeuge, pr: { id: string }): void
+    prDiffLaden(this: VorgangInselstaat & VorgangWerkzeuge, pr: { id: string }): Promise<void>
+    vorgangHrefFuer(this: VorgangInselstaat & VorgangWerkzeuge, row: { id: string }, art: VorgangArt): string
+    vorgangHref(this: VorgangInselstaat & VorgangWerkzeuge): string
+    repoHref(this: VorgangInselstaat & VorgangWerkzeuge): string
+    copyVorgang(this: VorgangInselstaat & VorgangWerkzeuge): void
+    canCopyClone(this: VorgangInselstaat & VorgangWerkzeuge): boolean
+    rowState(this: VorgangInselstaat & VorgangWerkzeuge, id: string): string
+    failedFor(this: VorgangInselstaat & VorgangWerkzeuge, rootId: string): FailedWriteRow[]
+    dismiss(this: VorgangInselstaat & VorgangWerkzeuge, id: string): void
+    onComposerInput(this: VorgangInselstaat & VorgangWerkzeuge, el: HTMLTextAreaElement, target: string): void
+    _mentionItemsFor(this: VorgangInselstaat & VorgangWerkzeuge, query: string, target?: string): MentionItemLike[]
+    mentionKey(this: VorgangInselstaat & VorgangWerkzeuge, event: KeyboardEvent): void
+    pickMention(this: VorgangInselstaat & VorgangWerkzeuge, item: MentionItemLike): void
+    closeMentions(this: VorgangInselstaat & VorgangWerkzeuge): void
+    _recomputeAgentItems(this: VorgangInselstaat & VorgangWerkzeuge): void
+    _wake(this: VorgangInselstaat & VorgangWerkzeuge, target: string, content: string, vorgang: WakeTargetInput): Promise<void>
+    dismissWake(this: VorgangInselstaat & VorgangWerkzeuge, target: string): void
+    _abonniereSchreibQuellen(this: VorgangInselstaat & VorgangWerkzeuge, signal: AbortSignal | undefined): void
+    _trenneSchreibQuellen(this: VorgangInselstaat & VorgangWerkzeuge): void
+}
+
+const forgeVorgangWerkzeuge: VorgangWerkzeuge = {
+    // ── Riegel ─────────────────────────────────────────────────────────────
+    // **Wer nicht darf, sieht das VOR dem Absenden.** Zwei Ebenen, und sie
+    // sind nicht dasselbe: `writeGate` fragt nur, ob überhaupt jemand
+    // angemeldet ist (der Relay lässt kein Nicht-Mitglied bis zum Lesen
+    // kommen, siehe `memberGate`), `statusGateFor` fragt zusätzlich, ob
+    // dieser Mensch für DIESES Issue zuständig ist. Der zweite Riegel ist
+    // der wichtige: der Relay nimmt einen Statuswechsel von jedem an und
+    // zeigt ihn dann nirgends an — ein stiller Leerlauf.
+    writeGate() {
+        return memberGate(this.viewer)
+    },
+    writeHint() {
+        return gateText(this.writeGate())
+    },
+    canWrite() {
+        return this.writeGate().allowed
+    },
+
+    // ── Kommentar ──────────────────────────────────────────────────────────
+    commentBusy(rootId: string) {
+        // `busyTick` steht hier, damit Alpine die Bindung überhaupt neu
+        // auswertet: `isBusy` liest ein Modul-`Set`, das kein Store ist.
+        return this.busyTick >= 0 && isBusy(`comment:${rootId}`)
+    },
+    async submitComment(root, art = 'issue') {
+        const draft = this.commentDraft[root.id] ?? ''
+        const problem = commentDraftProblem(draft, {
+            rootId: root.id,
+            repoAddress: root.repoAddress,
+        })
+        if (problem) {
+            this.commentError = { ...this.commentError, [root.id]: problemText(problem) }
+
+            return
+        }
+        if (isBusy(`comment:${root.id}`)) {
+            return
+        }
+        this.commentError = { ...this.commentError, [root.id]: '' }
+        this.dismissWake(`comment:${root.id}`)
+        this.busyTick += 1
+        const outcome = await publishForgeComment(
+            {
+                repoAddress: root.repoAddress,
+                rootId: root.id,
+                rootAuthor: root.author,
+                lastCreatedAt: root.comments.reduce(
+                    (latest, comment) => Math.max(latest, comment.createdAt),
+                    0,
+                ),
+            },
+            draft,
+        )
+        if (this._dead) {
+            return
+        }
+        this.busyTick += 1
+        this.commentError = { ...this.commentError, [root.id]: outcome.error }
+        if (!outcome.error) {
+            this.commentDraft = { ...this.commentDraft, [root.id]: '' }
+        }
+        if (!outcome.error && outcome.id) {
+            // Der Verweis zeigt auf die WURZEL: für einen Kommentar gibt
+            // es keinen `buzz://`-Link, und der Agent soll ohnehin den
+            // ganzen Vorgang sehen, nicht nur die letzte Zeile.
+            await this._wake(`comment:${root.id}`, draft, {
+                art,
+                eventId: root.id,
+                what: 'comment',
+            })
+        }
+    },
+
+    // ── Status ─────────────────────────────────────────────────────────────
+    statusOptions() {
+        return WRITABLE_ISSUE_STATUSES.map((code) => ({ code, label: statusLabel(code) }))
+    },
+    statusGateFor(row) {
+        return statusGate(this.viewer, row)
+    },
+    canSetStatus(row) {
+        return this.statusGateFor(row).allowed
+    },
+    statusHint(row) {
+        return gateText(this.statusGateFor(row))
+    },
+    statusBusy(rootId: string) {
+        return this.busyTick >= 0 && isBusy(`status:${rootId}`)
+    },
+    async setStatus(row, code) {
+        if (!this.canSetStatus(row) || row.status === code || isBusy(`status:${row.id}`)) {
+            return
+        }
+        this.busyTick += 1
+        const outcome = await publishIssueStatus(
+            {
+                repoAddress: row.repoAddress,
+                rootId: row.id,
+                rootAuthor: row.author,
+                // Der Stempel des GELTENDEN Status: ein neues Ereignis in
+                // derselben Sekunde entschiede sonst per Id-Tiebreak, und
+                // der alte Zustand könnte gewinnen.
+                statusCreatedAt: this._statusCreatedAt(row.id),
+            },
+            code,
+            // Die Nachprüfung liest, was die FLÄCHE zeigt — nicht, was der
+            // Relay quittiert hat. Genau das ist der Unterschied, den
+            // `OK true` verschweigt.
+            () => this.view?.issues.find((issue) => issue.id === row.id)?.status ?? '',
+        )
+        if (this._dead) {
+            return
+        }
+        this.busyTick += 1
+        // **Nur wenn es gar nicht erst losgeflogen ist.** Ein Fehler MIT
+        // Id steht bereits als rote Zeile da (`failedFor`) — ihn hier
+        // zusätzlich ins Kommentarfeld zu schreiben, zeigte dieselbe
+        // Meldung zweimal untereinander. Ohne Id (kein Signer, Riegel
+        // greift, unbekannter Zustand) gibt es dagegen keinen Merker,
+        // und ohne diese Zeile bliebe der Klick stumm.
+        if (outcome.error && !outcome.id) {
+            this.commentError = { ...this.commentError, [row.id]: outcome.error }
+        }
+    },
+    /**
+     * `created_at` des derzeit geltenden Statuswechsels dieses Issues.
+     *
+     * Aus dem Merker der Anzeige abgeleitet: `updatedAt` ist die jüngste
+     * Regung überhaupt (Status ODER Kommentar). Das überschätzt den Wert
+     * nie nach unten — und genau das ist gefragt, denn zu klein hieße,
+     * den Gleichstand nicht zu vermeiden.
+     */
+    _statusCreatedAt(rootId: string) {
+        const issue = this.view?.issues.find((row) => row.id === rootId)
+
+        return issue ? issue.updatedAt : 0
+    },
+
+    // ── Zuweisen (P5/P10 — Körper unverändert, neuer Ort) ──────────────────
+    istZugewiesen(row) {
+        return this.viewer !== '' && row.assignees.includes(this.viewer.toLowerCase())
+    },
+    /**
+     * Der Riegel vor dem Zuweisen — **mit sich selbst als Ziel**.
+     *
+     * Die Fläche bietet genau die Selbstbedienung an („Mir zuweisen" /
+     * „Zuweisung entfernen"). Fremde zuzuweisen bräuchte eine Personenauswahl;
+     * die Regel dafür steht in `assignGate` bereits, die Fläche dazu in der
+     * Einzelansicht.
+     */
+    assignGateFor(row) {
+        return assignGate(this.viewer, { author: row.author, repoAddress: row.repoAddress, maintainers: this.view?.repo.maintainers ?? [] }, [this.viewer])
+    },
+    canAssignSelf(row) {
+        return this.assignGateFor(row).allowed
+    },
+    assignHint(row) {
+        return gateTextFrom(ASSIGN_GATE_TEXTS, this.assignGateFor(row))
+    },
+    assignBusy(rootId: string) {
+        return this.busyTick >= 0 && isBusy(`assign:${rootId}`)
+    },
+    /**
+     * Sich selbst eintragen oder wieder austragen.
+     *
+     * EIN Knopf für zwei Operationen, weil es aus Sicht des Nutzers eine
+     * Handlung mit zwei Richtungen ist. Der Unterschied steckt im Label
+     * — und im `prior`: eine Entziehung ohne Bezug verlöre gegen eine
+     * autoritative Zuweisung (`foldAssignments`, Phase 1 vor Phase 2).
+     * Der Kopf kommt aus `assignmentHeads` (P1) und ist genau dieser
+     * Bezug.
+     */
+    async toggleAssignSelf(row) {
+        if (!this.canAssignSelf(row) || isBusy(`assign:${row.id}`)) {
+            return
+        }
+        const label = this.istZugewiesen(row) ? 'unassignment' : 'assignment'
+        this.busyTick += 1
+        const outcome = await publishAssignment(
+            {
+                repoAddress: row.repoAddress,
+                rootId: row.id,
+                targets: [this.viewer],
+                prior: row.assignmentHeads[this.viewer.toLowerCase()] ?? '',
+            },
+            label,
+            // Die Nachprüfung liest den GEFALTETEN Ist-Zustand, nicht die
+            // Zeile aus dem Klick-Augenblick: `row` ist eine Momentaufnahme,
+            // `this.view` zieht mit jeder Ableitung nach. Genau darum geht es
+            // — der `prior` kann zwischen Rendern und Faltung veraltet sein (F2).
+            () => {
+                const frisch = this.view?.issues.find((issue) => issue.id === row.id)
+
+                return frisch?.assignees.includes(this.viewer.toLowerCase()) ?? false
+            },
+        )
+        this.busyTick += 1
+        if (outcome.error) {
+            toast(outcome.error)
+        }
+    },
+    assignPicksFor(rootId: string) {
+        return this.assignPicks[rootId] ?? []
+    },
+    /**
+     * Darf der Betrachter hier überhaupt Fremde eintragen?
+     *
+     * Nur für den LEEREN Zustand der Auswahl gedacht — sobald jemand
+     * gewählt ist, antwortet {@link assignOthersGateFor} genauer.
+     */
+    darfFremdeZuweisen(row) {
+        return canAssignOthers(this.viewer, {
+            author: row.author,
+            repoAddress: row.repoAddress,
+            maintainers: this.view?.repo.maintainers ?? [],
+        })
+    },
+    /**
+     * Der Riegel gegen die TATSÄCHLICH gewählten Personen.
+     *
+     * Er wird bei jeder Änderung der Auswahl neu gestellt — das ist der
+     * ganze Punkt: die Fläche beantwortet „wen darfst du" beim Wählen
+     * und nicht erst beim Absenden.
+     */
+    assignOthersGateFor(row) {
+        return assignGate(
+            this.viewer,
+            { author: row.author, repoAddress: row.repoAddress, maintainers: this.view?.repo.maintainers ?? [] },
+            this.assignPicksFor(row.id).map((item) => item.pubkey),
+        )
+    },
+    canAssignPicked(row) {
+        return this.assignPicksFor(row.id).length > 0 && this.assignOthersGateFor(row).allowed
+    },
+    /**
+     * Der Satz unter dem Knopf — auch dann, wenn noch niemand gewählt ist.
+     *
+     * **Der leere Fall bekommt bewusst NICHT den Gate-Satz.** Ohne Ziel
+     * liefert `assignGate` den Grund `targets`, und der spräche einen
+     * Nutzer an, der gerade erst hinsieht, über etwas, das er noch gar
+     * nicht getan hat.
+     */
+    assignOthersHint(row) {
+        if (this.assignPicksFor(row.id).length === 0) {
+            return this.darfFremdeZuweisen(row) ? '' : t(ASSIGN_GATE_TEXTS['not-actor'])
+        }
+
+        return gateTextFrom(ASSIGN_GATE_TEXTS, this.assignOthersGateFor(row))
+    },
+    /**
+     * Tippen im Suchfeld — dasselbe Popover, anderer Auslöser.
+     *
+     * Im Composer beginnt ein Vorschlag mit `@` (`mentionQueryAt`); hier
+     * IST das Feld die Suche, ein Präfix wäre ein erfundenes Ritual.
+     * `_mentionStart = 0` ist kein Textversatz, sondern der Merker, an
+     * dem `_recomputeAgentItems` erkennt, dass eine offene Suche läuft
+     * und ein spät eintreffendes 10100 noch nachgereicht werden muss.
+     */
+    onAssignInput(el: HTMLInputElement, rootId: string) {
+        const query = el.value.trim()
+        this.assignQuery = { ...this.assignQuery, [rootId]: el.value }
+        const target = `assign:${rootId}`
+        this._mentionStart = 0
+        const items = this._mentionItemsFor(query, target)
+        this.mention = { open: items.length > 0, items, index: 0, query, target }
+    },
+    removeAssignPick(rootId: string, pubkey: string) {
+        this.assignPicks = {
+            ...this.assignPicks,
+            [rootId]: this.assignPicksFor(rootId).filter((item) => item.pubkey !== pubkey),
+        }
+    },
+    /**
+     * Die gewählten Personen eintragen — oder ihre Zuweisung entziehen.
+     *
+     * **Zwei Verben, ein Gegenstand.** `foldAssignments` addiert je
+     * genanntem Schlüssel und subtrahiert je genanntem Schlüssel; eine
+     * Zuweisung ersetzt also NICHT die bestehende Menge. Damit sind
+     * beide Richtungen auf derselben Auswahl sinnvoll, und ein
+     * versehentlich eingetragener Agent ist mit denselben zwei Klicks
+     * wieder draussen. Ein Weg ohne Rückweg wäre hier besonders teuer:
+     * am Relay steht das Ereignis dauerhaft.
+     */
+    async submitAssignOthers(row, label) {
+        if (!this.canAssignPicked(row) || isBusy(`assign:${row.id}`)) {
+            return
+        }
+        const targets = this.assignPicksFor(row.id).map((item) => item.pubkey.toLowerCase())
+        const self = this.viewer.toLowerCase()
+        const nurSelbst = targets.length === 1 && targets[0] === self
+        this.busyTick += 1
+        const outcome = await publishAssignment(
+            {
+                repoAddress: row.repoAddress,
+                rootId: row.id,
+                targets,
+                prior: nurSelbst ? (row.assignmentHeads[self] ?? '') : '',
+            },
+            label,
+            // Dieselbe Nachprüfung wie bei der Selbstbedienung, nur über
+            // mehrere Namen. Die zwei Prädikate sind nicht symmetrisch
+            // und dürfen es nicht sein: eine Zuweisung gilt erst, wenn
+            // ALLE Genannten stehen; eine Entziehung erst, wenn KEINER
+            // mehr steht.
+            () => {
+                const frisch = this.view?.issues.find((issue) => issue.id === row.id)
+                if (!frisch) {
+                    return false
+                }
+
+                return label === 'assignment'
+                    ? targets.every((pk) => frisch.assignees.includes(pk))
+                    : targets.some((pk) => frisch.assignees.includes(pk))
+            },
+        )
+        this.busyTick += 1
+        if (outcome.error) {
+            toast(outcome.error)
+
+            return
+        }
+        // Erst nach dem Erfolg leeren: schlägt es fehl, steht die Auswahl
+        // noch da und der zweite Versuch kostet keinen zweiten Suchlauf.
+        this.assignPicks = { ...this.assignPicks, [row.id]: [] }
+        this.assignQuery = { ...this.assignQuery, [row.id]: '' }
+    },
+
+    // ── Review (P5) ────────────────────────────────────────────────────────
+    approveGateFor(row) {
+        return approveGate(this.viewer, {
+            author: row.author,
+            repoAddress: row.repoAddress,
+            maintainers: this.view?.repo.maintainers ?? [],
+            reviewers: row.reviewers,
+            commit: row.commit,
+            status: row.status,
+        })
+    },
+    canApprove(row) {
+        return this.approveGateFor(row).allowed
+    },
+    approveHint(row) {
+        return gateTextFrom(REVIEW_GATE_TEXTS, this.approveGateFor(row))
+    },
+    reviewBusy(rootId: string) {
+        return this.busyTick >= 0 && isBusy(`review:${rootId}`)
+    },
+    /**
+     * Die eigene, aktuell gültige Entscheidung — `''`, wenn keine steht.
+     *
+     * Aus derselben gefalteten Liste, die die Reviewer-Zeile zeigt. Der
+     * Knopf sagt damit „freigegeben" statt „freigeben", wenn es schon
+     * getan ist; ein Klick darauf ist dann kein zweites Ereignis wert.
+     */
+    eigeneEntscheidung(row) {
+        const self = this.viewer.toLowerCase()
+        if (row.approvals.some((d) => d.author === self)) {
+            return 'approval'
+        }
+
+        return row.changeRequests.some((d) => d.author === self) ? 'changes-requested' : ''
+    },
+    async submitReview(row, label) {
+        if (!this.canApprove(row) || isBusy(`review:${row.id}`) || this.eigeneEntscheidung(row) === label) {
+            return
+        }
+        this.busyTick += 1
+        const outcome = await publishReview(
+            { repoAddress: row.repoAddress, rootId: row.id, commit: row.commit },
+            label,
+        )
+        this.busyTick += 1
+        if (outcome.error) {
+            toast(outcome.error)
+        }
+    },
+
+    // ── PR-Diff (P7b) ──────────────────────────────────────────────────────
+    //
+    // Ein kind 1618 trägt seinen Diff NICHT bei sich — anders als ein
+    // 1617, dessen Unified Diff im `content` steht. Es nennt zwei
+    // Commit-Ids und eine clone-URL; was dazwischen liegt, weiß nur Git.
+    // Deshalb ist das hier ein zweiter, ANGESAGTER Ladeweg und keine
+    // Anzeige über vorhandene Daten.
+    _prDiffKarteNeu(view) {
+        if (!view) {
+            return
+        }
+        const neu: Record<string, PrDiffLage> = {}
+        for (const pr of view.pullRequests) {
+            const quelle = prDiffQuelle({
+                cloneUrls: pr.cloneUrls,
+                // Der Link im Fremdfall kommt aus den `web`-Tags des
+                // REPOS: ein 1618 trägt keine.
+                webUrls: view.repo.webUrls,
+                commit: pr.commit,
+                mergeBase: pr.mergeBase,
+                workspaceUrl: WORKSPACE_URL,
+            })
+            const alt = this.prDiff[pr.id]
+            const spitze = quelle.art === 'ladbar' ? quelle.spitze : ''
+            // Ein geladener Diff darf mit hinüber — aber nur, wenn er
+            // noch zu dieser Spitze gehört. Ein 1619 verschiebt `c` und
+            // `merge-base`; der alte Diff zeigte dann einen Stand, den
+            // es nicht mehr gibt.
+            neu[pr.id] =
+                alt && alt._spitze === spitze ? { ...alt, quelle } : leerePrDiffLage(quelle)
+        }
+        this.prDiff = neu
+    },
+    prDiffVon(pr) {
+        return (
+            this.prDiff[pr.id] ??
+            leerePrDiffLage({ art: 'unvollstaendig', fehlt: 'beides' })
+        )
+    },
+    /**
+     * **Zwei der Codes sind gar keine Fehler.** `spitze-fehlt` heißt: der
+     * Endpunkt kennt diesen Commit nicht — der Vorschlag kommt aus einem
+     * Fork, den NIP-34 ausdrücklich zulässt. `basis-fehlt` heißt: der
+     * Vergleichspunkt liegt tiefer, als dieser Client geholt hat. Beide
+     * bekommen einen Satz, der SAGT was ist, statt zu behaupten, etwas
+     * sei kaputt.
+     */
+    prDiffFehlerText(pr) {
+        const codes: Record<string, string> = {
+            'nicht-angemeldet': 'Zum Laden musst du angemeldet sein — der Git-Zugang wird signiert (NIP-98).',
+            'kein-zugriff': 'Der Relay hat den Zugriff abgelehnt. Entweder bist du kein Mitglied des Kanals, zu dem dieses Repository gehört, oder die Signatur ist abgelaufen.',
+            netz: 'Der Git-Endpunkt war nicht erreichbar.',
+            abgebrochen: 'Abgebrochen.',
+            'spitze-fehlt': 'Dieser Git-Endpunkt kennt den vorgeschlagenen Stand nicht — er liegt in einer Kopie des Repositories, die hier nicht abrufbar ist.',
+            'basis-fehlt': 'Der Vergleichspunkt liegt weiter zurück, als hier geholt wurde. Die Dateiliste lässt sich daraus nicht bilden.',
+            unbekannt: 'Die Dateiliste liess sich nicht bilden.',
+        }
+        const fehler = this.prDiffVon(pr).fehler
+
+        return fehler ? t(codes[fehler] ?? codes.unbekannt) : ''
+    },
+    prDiffAbbrechen(pr) {
+        this._prDiffAbbruch[pr.id]?.abort()
+        delete this._prDiffAbbruch[pr.id]
+        const lage = this.prDiffVon(pr)
+        this.prDiff = {
+            ...this.prDiff,
+            [pr.id]: { ...lage, lage: 'quelle', fehler: '', fortschritt: null },
+        }
+    },
+    async prDiffLaden(pr) {
+        const repo = this.view?.repo
+        const lage = this.prDiffVon(pr)
+        if (!repo || lage.quelle.art !== 'ladbar' || lage.lage === 'laedt') {
+            return
+        }
+        const quelle = lage.quelle
+        const abbruch = new AbortController()
+        this._prDiffAbbruch[pr.id] = abbruch
+        const setze = (teil: Partial<PrDiffLage>): void => {
+            // Nur schreiben, solange DIESER Vorgang läuft: ein abgebrochener
+            // Fetch feuert noch Fortschritte nach, und die schrieben sonst
+            // über eine neue Lage.
+            if (this._prDiffAbbruch[pr.id] === abbruch && !this._dead) {
+                this.prDiff = { ...this.prDiff, [pr.id]: { ...this.prDiffVon(pr), ...teil } }
+            }
+        }
+        setze({ lage: 'laedt', fehler: '', fortschritt: null })
+        try {
+            const g = await import('./gitBrowser.ts')
+            const paare = await g.holePrDateipaare({
+                url: quelle.url,
+                owner: repo.owner,
+                dtag: repo.dtag,
+                basis: quelle.basis,
+                spitze: quelle.spitze,
+                signal: abbruch.signal,
+                aufFortschritt: (f) => setze({ fortschritt: f }),
+            })
+            if (this._prDiffAbbruch[pr.id] !== abbruch || this._dead) {
+                return
+            }
+            const diff = baueDiff(paare)
+            setze({ lage: 'da', diff, stat: diffStat(diff), fortschritt: null })
+        } catch (error) {
+            if (this._prDiffAbbruch[pr.id] !== abbruch || this._dead) {
+                return
+            }
+            // Der eigene Code gewinnt gegen die Einordnung nach Wortlaut:
+            // `spitze-fehlt` ist eine AUSKUNFT (der Tip liegt in einem
+            // Fork), kein Netzfehler, und `ordneFehlerEin` kennt ihn nicht.
+            const eigen = (error as { code?: string } | null | undefined)?.code ?? ''
+            const code =
+                eigen === 'spitze-fehlt' || eigen === 'basis-fehlt'
+                    ? eigen
+                    : ordneFehlerEin(error)
+            // Den ORIGINALFEHLER protokollieren, nicht nur den Code —
+            // dieselbe Begründung wie beim Klon.
+            console.warn('[forge] PR-Diff fehlgeschlagen', code, error)
+            setze(
+                code === 'abgebrochen'
+                    ? { lage: 'quelle', fehler: '', fortschritt: null }
+                    : { lage: 'fehler', fehler: code, fortschritt: null },
+            )
+        } finally {
+            if (this._prDiffAbbruch[pr.id] === abbruch) {
+                delete this._prDiffAbbruch[pr.id]
+            }
+        }
+    },
+
+    // ── Adresse & Zwischenablage (P1: Route statt Query) ───────────────────
+    /**
+     * Die teilbare Adresse eines Vorgangs — je Zeile (Listen) oder die
+     * eigene (Einzelansicht). Site-relativ, denn ein absoluter `href`
+     * wäre für `wire:navigate` ein Fremdziel.
+     */
+    vorgangHrefFuer(row, art) {
+        return vorgangPath(`/forge/${encodeURIComponent(this._naddr)}`, { art, id: row.id })
+    },
+    /** Die Adresse DIESES Vorgangs — die Einzelinsel kennt ihre Id. */
+    vorgangHref() {
+        return this.vorgangHrefFuer({ id: this._id }, this.art)
+    },
+    /** Der Pfad der Repo-Seite — Breadcrumbs, Zurück-Pfeil, Leerflächen. */
+    repoHref() {
+        return `/forge/${encodeURIComponent(this._naddr)}`
+    },
+    copyVorgang() {
+        const href = this.vorgangHref()
+        if (!href) {
+            return
+        }
+        void navigator.clipboard.writeText(href).then(
+            () => toast(t('Link zum Vorgang kopiert.'), 'success'),
+            () => toast(t('Der Link liess sich nicht kopieren.')),
+        )
+    },
+    canCopyClone() {
+        return typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function'
+    },
+
+    // ── Schreib-Fehlerfläche ───────────────────────────────────────────────
+    rowState(id: string) {
+        return pendingState(this.pending, id)
+    },
+    failedFor(rootId: string) {
+        const known = [
+            ...(this.view?.issues.find((row) => row.id === rootId)?.comments ?? []),
+            ...(this.view?.pullRequests.find((row) => row.id === rootId)?.comments ?? []),
+        ]
+
+        return [
+            ...orphanedPending(this.pending, known, {
+                what: 'comment',
+                repoAddress: this.view?.repo.address ?? '',
+                rootId,
+            }).filter((entry) => entry.state === 'failed'),
+            // Ein gescheiterter Statuswechsel hat NIE eine eigene Zeile in
+            // der Liste — er wirkt auf die vorhandene. Er ist deshalb
+            // immer „verwaist" und wird immer gezeigt.
+            ...orphanedPending(this.pending, [], {
+                what: 'status',
+                repoAddress: this.view?.repo.address ?? '',
+                rootId,
+            }).filter((entry) => entry.state === 'failed'),
+        ].map(toFailedRow)
+    },
+    dismiss(id: string) {
+        dismissPending(id)
+    },
+
+    // ── @-Erwähnung (P9) ───────────────────────────────────────────────────
+    //
+    // Dieselbe Bedienung wie im Chat: Pfeile wählen, Enter/Tab übernimmt,
+    // Escape schließt. Die Mechanik (Suchform, Ersetzen) liegt in
+    // `mentionCompose.ts` und ist dort geprüft; hier steht nur, WELCHER
+    // Entwurf betroffen ist.
+    onComposerInput(el: HTMLTextAreaElement, target: string) {
+        const treffer = mentionQueryAt(el.value, el.selectionStart ?? el.value.length)
+        if (!treffer) {
+            this.closeMentions()
+
+            return
+        }
+        this._mentionStart = treffer.start
+        const items = this._mentionItemsFor(treffer.query, target)
+        this.mention = { open: items.length > 0, items, index: 0, query: treffer.query, target }
+    },
+    /**
+     * Die gefilterte Vorschlagsliste zu einer Suche.
+     *
+     * Agenten vor Mitgliedern und jede Identität genau einmal — die Regel
+     * steht in `mergeMentionItems` (rein, getestet), nicht hier.
+     */
+    _mentionItemsFor(query: string, target = ''): MentionItemLike[] {
+        const q = query.toLowerCase()
+        // **Schon Gewähltes fällt heraus — aber nur im Zuweisen-Feld.**
+        // Im Composer darf man dieselbe Person zweimal erwähnen; in
+        // einer Auswahl wäre der zweite Klick ein Vorschlag, der
+        // sichtbar nichts tut. `target` wird ÜBERGEBEN und nicht aus
+        // `this.mention` gelesen: beim Tippen ist dort noch das Ziel des
+        // vorigen Feldes eingetragen.
+        const gewaehlt =
+            target.startsWith('assign:')
+                ? new Set(this.assignPicksFor(target.slice('assign:'.length)).map((item) => item.pubkey))
+                : new Set()
+        const offen = (item: MentionItemLike): boolean =>
+            (!q || item.search.includes(q)) && !gewaehlt.has(item.pubkey)
+
+        // Der Deckel liegt in `mergeMentionItems` und ist ZWEIGETEILT
+        // (Agenten/Menschen getrennt) — ein gemeinsamer Schnitt auf der
+        // fertigen Liste ließ Agenten die Menschen verdrängen und
+        // einander dazu. Begründung dort.
+        return mergeMentionItems(this._members.filter(offen), this._agentItems.filter(offen))
+    },
+    /**
+     * Tastatur am Composer. Gibt der Vorschlag nichts her, passiert
+     * nichts — insbesondere wird dann NICHT `preventDefault` gerufen, und
+     * Zeilenumbruch/Tabulator verhalten sich wie immer.
+     */
+    mentionKey(event: KeyboardEvent) {
+        if (!this.mention.open || this.mention.items.length === 0) {
+            return
+        }
+        const anzahl = this.mention.items.length
+        if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            this.mention = { ...this.mention, index: (this.mention.index + 1) % anzahl }
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            this.mention = { ...this.mention, index: (this.mention.index - 1 + anzahl) % anzahl }
+        } else if (event.key === 'Enter' || event.key === 'Tab') {
+            event.preventDefault()
+            this.pickMention(this.mention.items[this.mention.index])
+        } else if (event.key === 'Escape') {
+            event.preventDefault()
+            // `stopPropagation`: ein Escape trägt genau EINE Schicht ab —
+            // der Vorschlag weg, das darunterliegende Blatt (falls eines
+            // offen ist) bleibt. Zwei Schichten, zwei Tastendrücke.
+            event.stopPropagation()
+            this.closeMentions()
+        }
+    },
+    /**
+     * Vorschlag übernehmen: `@query` durch `nostr:npub… ` ersetzen.
+     *
+     * Der Fokus geht über ein **Datenattribut** zurück ins Feld und nicht
+     * über `x-ref`: die Felder stehen in Schleifen, und ein `x-ref` im
+     * Schleifenrumpf zeigt dort nur auf den zuletzt gerenderten.
+     */
+    pickMention(item) {
+        if (!item) {
+            return
+        }
+        const ziel = this.mention.target
+        // **Der Zuweisen-Zweig steht VOR dem Textersatz.** Dort gibt es
+        // keinen Entwurf, in den etwas gespliced würde: der Vorschlag
+        // wird zum Chip, das Feld wird geleert, und die Suche bleibt
+        // offen für den nächsten Namen.
+        if (ziel.startsWith('assign:')) {
+            const rootId = ziel.slice('assign:'.length)
+            this.assignPicks = {
+                ...this.assignPicks,
+                [rootId]: [...this.assignPicksFor(rootId).filter((p) => p.pubkey !== item.pubkey), item],
+            }
+            this.assignQuery = { ...this.assignQuery, [rootId]: '' }
+            this.closeMentions()
+            const zurueck = this as unknown as { $nextTick: (cb: () => void) => void }
+            zurueck.$nextTick(() => {
+                document
+                    .querySelector<HTMLInputElement>(`[data-forge-composer="${CSS.escape(ziel)}"]`)
+                    ?.focus()
+            })
+
+            return
+        }
+        const insert = mentionInsert(item)
+        const rootId = ziel.slice('comment:'.length)
+        const entwurf = this.commentDraft[rootId] ?? ''
+        const ergebnis = spliceMention(entwurf, this._mentionStart, this.mention.query.length, insert)
+        this.commentDraft = { ...this.commentDraft, [rootId]: ergebnis.text }
+        this.closeMentions()
+        const magics = this as unknown as { $nextTick: (cb: () => void) => void }
+        magics.$nextTick(() => {
+            const feld = document.querySelector<HTMLTextAreaElement>(`[data-forge-composer="${CSS.escape(ziel)}"]`)
+            if (feld) {
+                feld.focus()
+                feld.setSelectionRange(ergebnis.caret, ergebnis.caret)
+            }
+        })
+    },
+    closeMentions() {
+        this.mention = { open: false, items: [], index: 0, query: '', target: '' }
+        this._mentionStart = -1
+    },
+    /**
+     * Die Agenten-Vorschläge dieser Seite neu falten.
+     *
+     * Kanalfilter, Betrachterfilter und der zooid-Riegel liegen vollständig
+     * in `agentMentionItems` — hier steht keine Regel, nur die Übergabe.
+     * Maßgeblich ist der `buzz-channel` des REPOS: trägt das Announcement
+     * keinen, ist `h` leer. Kein Kanal, kein Vorschlag.
+     */
+    _recomputeAgentItems() {
+        const view = this._agentView
+        this._agentItems = view
+            ? agentMentionItems({
+                  agents: view.agents,
+                  h: this.view?.repo.channelId ?? '',
+                  viewerPubkey: view.viewerPubkey,
+                  spaceKind: view.spaceKind,
+                  encodeNpub: nip19.npubEncode,
+                  memberItems: this._members,
+                  knownChannelIds: this._channelIds,
+              })
+            : []
+        // **Ein offener Vorschlag zieht nach.** Beide Quellen tröpfeln
+        // asynchron herein: das Verzeichnis (10100) wartet auf die
+        // NIP-11-Runde, der Kanal kommt erst mit dem Repo. Wer eine
+        // Zehntelsekunde vorher `@` getippt hat, sähe sonst dauerhaft eine
+        // Liste ohne Agenten.
+        if (this._mentionStart >= 0) {
+            // **Die Bedingung ist der offene SUCHBEGRIFF, nicht das offene
+            // Fenster.** Wer den Namen eines Agenten tippt, dessen 10100
+            // noch unterwegs ist, hat null Treffer — und mit einer
+            // Bedingung auf `open` käme der Vorschlag nie mehr.
+            const items = this._mentionItemsFor(this.mention.query, this.mention.target)
+            this.mention = {
+                ...this.mention,
+                items,
+                // Die Auswahl NICHT auf 0 zurücksetzen: wer gerade mit den
+                // Pfeilen wählt, spränge sonst bei jedem eintreffenden
+                // Profil zurück an den Anfang.
+                index: Math.min(this.mention.index, Math.max(0, items.length - 1)),
+                open: items.length > 0,
+            }
+        }
+    },
+
+    // ── Weckruf (P9) ───────────────────────────────────────────────────────
+    /**
+     * Die Weckmeldung — **nach** einem erfolgreich veröffentlichten
+     * Beitrag, ausgelöst durch nichts als diese eine Nutzerhandlung.
+     *
+     * Ihr Ausgang ist ein EIGENES Ergebnis: scheitert sie, bleibt der
+     * Beitrag gültig und wird als gelungen dargestellt. Der Hinweis
+     * daneben sagt, was mit dem Weckruf ist — auch dann, wenn gar keiner
+     * nötig oder möglich war.
+     */
+    async _wake(target: string, content: string, vorgang) {
+        const repo = this.view?.repo
+        if (!repo) {
+            return
+        }
+        const ergebnis = await wakeMentionedAgents({
+            url: WORKSPACE_URL,
+            channelId: repo.channelId,
+            agents: this._agentView?.agents ?? [],
+            viewerPubkey: this.viewer,
+            content,
+            knownChannelIds: this._channelIds,
+            target: {
+                art: vorgang.art,
+                eventId: vorgang.eventId,
+                repoAddress: repo.address,
+                what: vorgang.what,
+            },
+        })
+        if (this._dead || ergebnis.code === 'none') {
+            return
+        }
+        const namen = ergebnis.names.join(', ')
+        // Jede Meldung beginnt mit dem AUSGANG („Geweckt:" / „Niemand
+        // geweckt:") — die Frage des Nutzers in diesem Moment ist eine
+        // einzige: „antwortet da jetzt jemand?". `:namen` kommt aus
+        // `agentLabels` und ist bereits „Name (npub…)".
+        const hinweis =
+            ergebnis.code === 'sent'
+                ? {
+                      tone: 'ok',
+                      text: t('Geweckt: :namen. Die Antwort erscheint im Projektkanal.', { namen }),
+                  }
+                : ergebnis.code === 'channel-foreign'
+                  ? {
+                        tone: 'warn',
+                        text: t(
+                            'Niemand geweckt: dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört. :namen erfährt nichts von deinem Beitrag.',
+                            { namen },
+                        ),
+                    }
+                  : ergebnis.code === 'no-channel'
+                    ? {
+                          tone: 'warn',
+                          text: t(
+                              'Niemand geweckt: dieses Repository gehört zu keinem Kanal. :namen erfährt nichts von deinem Beitrag.',
+                              { namen },
+                          ),
+                      }
+                    : ergebnis.code === 'not-wakeable'
+                        ? {
+                              tone: 'warn',
+                              text: t(
+                                  'Niemand geweckt: :namen antwortet in diesem Kanal nicht auf dich. Dein Beitrag steht trotzdem.',
+                                  { namen },
+                              ),
+                          }
+                        : {
+                              tone: 'warn',
+                              text: t(
+                                  'Niemand geweckt: die Meldung an :namen ging nicht raus — :fehler. Dein Beitrag steht trotzdem.',
+                                  { namen, fehler: ergebnis.error },
+                              ),
+                          }
+        this.wakeNotice = { ...this.wakeNotice, [target]: hinweis }
+    },
+    dismissWake(target: string) {
+        const rest = { ...this.wakeNotice }
+        delete rest[target]
+        this.wakeNotice = rest
+    },
+
+    // ── Die Quellen dieser Werkzeuge ───────────────────────────────────────
+    /**
+     * Viewer, Schreib-Verlauf, Mitglieder, Agenten, Räume — einmal je
+     * Insel, aus dem `init`. Faktoriert, weil beide Inseln dieselben fünf
+     * Abos brauchen; wer die Liste hier ergänzt, ergänzt sie für beide
+     * Flächen.
+     */
+    _abonniereSchreibQuellen(signal: AbortSignal | undefined) {
+        this._unsubViewer = pubkey.subscribe((pk: string | undefined) => {
+            this.viewer = pk ?? ''
+        })
+        this._unsubPending = forgePending.subscribe((list: PendingWrite[]) => {
+            this.pending = list
+        })
+        if (WORKSPACE_URL && signal) {
+            void loadSpaceDirectory(WORKSPACE_URL)
+            watchSpaceDirectory(WORKSPACE_URL, signal)
+            this._unsubMembers = deriveSpaceDirectory(WORKSPACE_URL).subscribe((dir: DirectoryView) => {
+                this._members = dir.members.map((m) => ({
+                    pubkey: m.pubkey,
+                    npub: m.npub,
+                    name: m.name,
+                    picture: m.picture,
+                    search: m.search,
+                }))
+                const fehlend = dir.members
+                    .map((m) => m.pubkey)
+                    .filter((pk) => !this._loadedProfiles.has(pk))
+                if (fehlend.length) {
+                    fehlend.forEach((pk) => this._loadedProfiles.add(pk))
+                    loadMemberProfiles(WORKSPACE_URL, fehlend)
+                }
+                this._recomputeAgentItems()
+            })
+            // Die Raumliste des Nutzers — Grundlage des Kanal-Riegels.
+            // Sie liegt in der Insel ohnehin vor; ein eigener REQ entsteht
+            // dafür nicht.
+            this._unsubRooms = roomsByUrl.subscribe((byUrl: Map<string, { h: string }[]>) => {
+                this._channelIds = new Set(
+                    (byUrl.get(normalizeRelayUrl(WORKSPACE_URL)) ?? []).map((room) => room.h),
+                )
+            })
+            void listenAgentDirectory(WORKSPACE_URL, signal)
+            this._unsubAgents = deriveAgentDirectory(WORKSPACE_URL).subscribe((view: AgentDirectoryView) => {
+                this._agentView = view
+                this._recomputeAgentItems()
+            })
+        }
+    },
+    _trenneSchreibQuellen() {
+        this._unsubViewer?.()
+        this._unsubPending?.()
+        this._unsubMembers?.()
+        this._unsubAgents?.()
+        this._unsubRooms?.()
+        // Die Fehlermeldung eines Schreibversuchs gehört zu DIESEM
+        // Bildschirm. Wer die Seite verlässt, hat sie zur Kenntnis
+        // genommen.
+        clearPending()
+        // Laufende PR-Diff-Downloads mitnehmen: sie holen Git-Objekte, und
+        // der Download läuft weiter, auch wenn die Seite weg ist.
+        for (const abbruch of Object.values(this._prDiffAbbruch ?? {}) as AbortController[]) {
+            abbruch.abort()
+        }
+        this._prDiffAbbruch = {}
+    },
+}
+
+/** Der Tab der PR-Einzelansicht: Diskussion oder Dateien (`?tab=`, P3). */
+const vorgangTabFromLocation = (): string => {
+    try {
+        const tab = new URLSearchParams(window.location.search).get('tab')
+
+        return tab === 'dateien' ? 'dateien' : 'diskussion'
+    } catch {
+        return 'diskussion'
+    }
+}
+
 export function wireForge(Alpine: {
     data: (name: string, factory: (...args: unknown[]) => unknown) => void
 }): void {
     Alpine.data('nostrForge', (base: unknown): ForgeState => {
         return {
             loading: true,
+            _gesprungen: false,
             error: '',
             // `'unknown'` ist ein eigener Zustand: Skeleton zeigen, NICHTS
             // entscheiden (siehe `spaceCaps.ts`). Wer hier zweiwertig anfängt,
@@ -2343,6 +3322,11 @@ export function wireForge(Alpine: {
             // behauptet einen Tab, der Bildschirm zeigt einen anderen. Seit P5 ist das
             // hier nicht mehr theoretisch — `/spaces?tab=workspaces` LEITET hierher.
             tab: readForgeTab(window.location.search),
+            // Unbekannt, bis die Kanal-Insel darunter ihren Bestand meldet. Meldet
+            // sie nie (Relay stumm, Nutzer ohne Zugang), bleibt es `null` und der
+            // Reiter trägt schlicht keine Zahl — dieselbe Ausfallrichtung wie beim
+            // Repo-Reiter.
+            kanalbestand: null,
             // Startwert FALSCH, nicht `true`: das ist die harmlose Ausfallrichtung.
             // Ohne Messung (kein `getComputedStyle`, kein DOM) bleibt die Fläche in
             // der Tab-Form — die funktioniert auf jeder Breite, die zweispaltige
@@ -2366,7 +3350,6 @@ export function wireForge(Alpine: {
             _unsubKind: null,
             _unsubSelf: null,
             _unsubBreite: null,
-            _gesprungen: false,
             /**
              * Stand `?tab=` WIRKLICH in der Adresse?
              *
@@ -2797,14 +3780,20 @@ export function wireForge(Alpine: {
 
     Alpine.data('nostrForgeRepo', (naddr: unknown): ForgeRepoState => {
         return {
+            // Die Werkzeuge EINES Vorgangs (Kommentar, Status, Zuweisen, Review,
+            // Diff, Erwähnung, Weckruf) kommen aus dem Mixin — diese Fläche
+            // braucht davon nach dem Akkordeon-Rückbau (P1) Riegel, Erwähnung
+            // und Weckruf fürs Issue-Anlegen; die Einzelansichten tragen
+            // denselben Bestand.
+            ...forgeVorgangWerkzeuge,
             // `pruefe`, nicht `bereit`: ob das Repository schon lokal liegt,
             // weiss erst ein Blick in IndexedDB (siehe `ReadmeLage`).
             klon: { lage: 'pruefe', name: '', html: '', text: '', fehler: '', fortschritt: null, commit: '', fremdUrl: '' },
-            code: { pfad: '', eintraege: [], datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0, laedt: false, fehler: '' },
+            code: { pfad: '', eintraege: [], datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0, laedt: false, fehler: '', commits: {}, commitsLaden: false, kopf: null, zeitJetzt: 0 },
             speicher: { offen: false, klone: [], belegt: 0, kontingent: 0 },
-            prDiff: {},
-            _prDiffAbbruch: {},
             suche: '',
+            // GH-Form: welcher Zustands-Ausschnitt der Listen steht da (P4).
+            zustand: 'offen',
             _klonAbbruch: null,
             loading: true,
             error: '',
@@ -2816,17 +3805,11 @@ export function wireForge(Alpine: {
             // schlimmer als keine. Ohne Parameter bleibt es beim bisherigen
             // Startwert.
             tab: tabFromLocation(),
-            steckbriefSpur: false,
-            _breiteBeobachter: null,
             view: null,
             open: {},
             viewer: '',
             pending: [],
             issueDraft: { open: false, title: '', body: '', error: '', busy: false },
-            commentDraft: {},
-            commentError: {},
-            assignQuery: {},
-            assignPicks: {},
             busyTick: 0,
             mention: { open: false, items: [], index: 0, query: '', target: '' },
             wakeNotice: {},
@@ -2848,84 +3831,7 @@ export function wireForge(Alpine: {
             _unsubRooms: null,
             _mentionStart: -1,
             _loadedProfiles: new Set<string>(),
-            _ziel: readVorgang(typeof window === 'undefined' ? '' : window.location.search),
-            _gesprungen: false,
-            /**
-             * Welche Form hat der Steckbrief gerade — Aufklapper oder Spur?
-             *
-             * Gemessen wird die `display`-Berechnung SEINER ZUSAMMENFASSUNG, nicht
-             * eine Breite. Die Schwelle steht damit an genau einer Stelle
-             * (`@container repo (min-width: 65rem)` in `theme.css`); eine Zahl hier
-             * wäre ihr zweites Literal und liefe beim nächsten Umbau still
-             * auseinander.
-             *
-             * **Diese Rückmessung bleibt, und der Unterschied ist der Punkt:** sie
-             * fragt eine CONTAINER-Schwelle ab (`@container repo (min-width: 65rem)`),
-             * und die kennt das Fenster nicht — `matchMedia` kann sie prinzipiell
-             * nicht beantworten. Gefallen ist in P2 die Rückmessung der FENSTER-Breite
-             * der Übersicht, für die es eine Quelle gibt. „Geometrie bleibt bei
-             * Container-Queries, Chassis bei der einen Schwelle" ist die Hausregel
-             * dazu (`theme.css`).
-             *
-             * Warum überhaupt JavaScript: es gibt keine portable CSS-Regel, die ein
-             * geschlossenes `<details>` aufzieht (`::details-content` ist jünger als
-             * der Browser-Boden dieses Hauses). Und es gibt keinen Ausfallpfad, der
-             * dadurch schlechter würde — die ganze Repo-Fläche steht in
-             * `<template x-if="view">` und existiert ohne diese Insel gar nicht.
-             */
-            _messeSteckbrief() {
-                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
-                const schalter = wurzel?.querySelector('[data-forge-steckbrief-schalter]')
-                this.steckbriefSpur =
-                    !!schalter &&
-                    typeof window.getComputedStyle === 'function' &&
-                    window.getComputedStyle(schalter).display === 'none'
-            },
-            /**
-             * Hängt den Beobachter an die Bühne — genau einmal.
-             *
-             * Ein `matchMedia` gibt es hier nicht: die Schwelle ist eine
-             * CONTAINER-Schwelle, und die kennt das Fenster nicht. Der
-             * `ResizeObserver` liefert nur das WANN; das WAS liest weiterhin
-             * `_messeSteckbrief()` aus dem Stylesheet.
-             *
-             * Ohne `ResizeObserver` (alte Umgebung, Testdouble) bleibt es beim
-             * einmaligen Messwert. Das ist die harmlose Richtung: der Aufklapper
-             * steht dann auch auf einem breiten Schirm — und er funktioniert dort.
-             */
-            _beobachteBreite() {
-                this._messeSteckbrief()
-                if (this._breiteBeobachter || typeof ResizeObserver === 'undefined') {
-                    return
-                }
-                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
-                const buehne = wurzel?.querySelector('.forge-repo-buehne')
-                if (!buehne) {
-                    // Kein Container = App-Host (die Klasse steht dort nicht). Die
-                    // Spur gibt es da nicht, also gibt es auch nichts zu beobachten.
-                    return
-                }
-                this._breiteBeobachter = new ResizeObserver(() => {
-                    this._messeSteckbrief()
-                })
-                this._breiteBeobachter.observe(buehne)
-            },
             init() {
-                // ── Ein kalt geöffneter Vorgangs-Link (P2) ──────────────────
-                //
-                // Der Tab folgt der ART des Ziels und nicht einem zweiten
-                // Parameter: `?issue=…&tab=code` wäre eine Adresse, die sich
-                // selbst widerspricht. `?tab=` behält dabei seine Bedeutung für
-                // alle Adressen OHNE Vorgang — die Rail verlinkt weiterhin so.
-                //
-                // Das Akkordeon wird hier schon geöffnet, obwohl `view` noch
-                // `null` ist: `open` ist eine reine Id-Karte, sie braucht die
-                // Zeile nicht. Wäre es umgekehrt, müsste dieser Zustand auf die
-                // Daten warten und zweimal gesetzt werden.
-                if (this._ziel) {
-                    this.tab = tabForVorgang(this._ziel.art)
-                    this.open = { ...this.open, [this._ziel.id]: true }
-                }
                 this._controller = new AbortController()
                 this._unsubKind = deriveSpaceKind(WORKSPACE_URL).subscribe((kind: SpaceKind) => {
                     this.kind = kind
@@ -2933,100 +3839,26 @@ export function wireForge(Alpine: {
                 this._unsubSelf = deriveRelaySelf(WORKSPACE_URL).subscribe((self: string) => {
                     this._relaySelf = self
                 })
-                // Der angemeldete Schlüssel ist eine Quelle wie jede andere: er
-                // kann NACH dem Mount eintreffen (localStorage-Rehydrierung) und
-                // sich im Betrieb ändern (Abmelden). Ein einmaliges `pubkey.get()`
-                // im `init` wäre genau die Schnappschuss-Falle, an der schon die
-                // Relay-Erkennung hing.
-                this._unsubViewer = pubkey.subscribe((pk: string | undefined) => {
-                    this.viewer = pk ?? ''
-                })
-                this._unsubPending = forgePending.subscribe((list: PendingWrite[]) => {
-                    this.pending = list
-                })
-                // ── Zwei Quellen für den @-Vorschlag ────────────────────────
-                //
-                // Dieselben wie im Chat (`bridge.ts`), und aus demselben Grund
-                // hier noch einmal statt geteilt: der Chat hängt an einem RAUM,
-                // diese Fläche am Workspace. Was sie teilen, sind die reinen
-                // Regeln (`agentMentionItems`, `mergeMentionItems`,
-                // `mentionCompose.ts`) — nicht die Anbindung.
-                //
-                // Der Kanal für die Eignungsprüfung ist der `buzz-channel` des
-                // REPOS und steht erst mit `view` fest; deshalb faltet
-                // `_recomputeAgentItems` auch dort noch einmal.
-                const signal = this._controller?.signal
-                if (WORKSPACE_URL && signal) {
-                    void loadSpaceDirectory(WORKSPACE_URL)
-                    watchSpaceDirectory(WORKSPACE_URL, signal)
-                    this._unsubMembers = deriveSpaceDirectory(WORKSPACE_URL).subscribe((dir: DirectoryView) => {
-                        this._members = dir.members.map((m) => ({
-                            pubkey: m.pubkey,
-                            npub: m.npub,
-                            name: m.name,
-                            picture: m.picture,
-                            search: m.search,
-                        }))
-                        const fehlend = dir.members
-                            .map((m) => m.pubkey)
-                            .filter((pk) => !this._loadedProfiles.has(pk))
-                        if (fehlend.length) {
-                            fehlend.forEach((pk) => this._loadedProfiles.add(pk))
-                            loadMemberProfiles(WORKSPACE_URL, fehlend)
-                        }
-                        // Der Agentenvorschlag borgt sich Avatar und Profilnamen
-                        // aus dieser Liste (ein 10100 trägt kein Bild).
-                        this._recomputeAgentItems()
-                    })
-                    // Die Raumliste des Nutzers — Grundlage des Kanal-Riegels.
-                    // Sie liegt in der Insel ohnehin vor (Rail/Palette lesen
-                    // dieselbe Quelle); ein eigener REQ entsteht dafür nicht.
-                    this._unsubRooms = roomsByUrl.subscribe((byUrl: Map<string, { h: string }[]>) => {
-                        this._channelIds = new Set(
-                            (byUrl.get(normalizeRelayUrl(WORKSPACE_URL)) ?? []).map((room) => room.h),
-                        )
-                    })
-                    void listenAgentDirectory(WORKSPACE_URL, signal)
-                    this._unsubAgents = deriveAgentDirectory(WORKSPACE_URL).subscribe((view: AgentDirectoryView) => {
-                        this._agentView = view
-                        this._recomputeAgentItems()
-                    })
-                }
-                // Erstwert für den Fall, dass die Fläche schon steht
-                // (Kaltstart-Cache). Die Bühne selbst gibt es erst mit `view`;
-                // der Beobachter hängt sich deshalb unten in `_boot` nach.
-                this._messeSteckbrief()
+                // Viewer, Schreib-Verlauf, Mitglieder, Agenten, Räume — die
+                // geteilten Quellen der Vorgangs-Werkzeuge (dort begründet),
+                // inklusive des angemeldeten Schlüssels, der NACH dem Mount
+                // eintreffen kann (localStorage-Rehydrierung) und sich im
+                // Betrieb ändern kann (Abmelden).
+                this._abonniereSchreibQuellen(this._controller?.signal)
                 void this._boot()
             },
             destroy() {
                 this._dead = true
-                this._breiteBeobachter?.disconnect()
-                this._breiteBeobachter = null
                 this._unsub?.()
                 this._unsubKind?.()
                 this._unsubSelf?.()
-                this._unsubViewer?.()
-                this._unsubPending?.()
-                this._unsubMembers?.()
-                this._unsubAgents?.()
-                this._unsubRooms?.()
+                this._trenneSchreibQuellen()
                 this._controller?.abort()
-                // Die Fehlermeldung eines Schreibversuchs gehört zu DIESEM
-                // Bildschirm. Wer die Seite verlässt, hat sie zur Kenntnis
-                // genommen; sie auf der nächsten Seite wieder aufzuschlagen wäre
-                // eine Nachricht ohne Zusammenhang.
-                clearPending()
                 // Einen laufenden Klon abbrechen: die Seite ist weg, der
                 // Download nicht. Auf einem Telefon wäre das ein Datenvolumen,
                 // das niemand mehr sehen wird.
                 this._klonAbbruch?.abort()
                 this._klonAbbruch = null
-                // Dasselbe für laufende PR-Diffs: sie holen Git-Objekte, und
-                // der Download läuft weiter, auch wenn die Seite weg ist.
-                for (const abbruch of Object.values(this._prDiffAbbruch)) {
-                    abbruch.abort()
-                }
-                this._prDiffAbbruch = {}
             },
             async _boot() {
                 if (!WORKSPACE_URL) {
@@ -3036,7 +3868,6 @@ export function wireForge(Alpine: {
                 }
                 this._unsub = deriveRepoView(this._naddr).subscribe((view: RepoView | null) => {
                     this.view = view
-                    this._prDiffKarteNeu(view)
                     // Der `buzz-channel` des Repos ist der Kanal, gegen den die
                     // Eignung geprüft wird — er kommt mit dem Repo herein, nicht
                     // mit dem Verzeichnis.
@@ -3053,22 +3884,6 @@ export function wireForge(Alpine: {
                         if (this.klon.lage === 'pruefe') {
                             void this.klonPruefen()
                         }
-                        // Die Bühne existiert erst mit `view`. `$nextTick`, weil
-                        // Alpine das `x-if` im selben Durchlauf noch nicht
-                        // ausgerollt hat — eine Wartezeit wäre geraten, dieser
-                        // Haken ist die Zusage.
-                        ;(this as unknown as { $nextTick(cb: () => void): void }).$nextTick(() => {
-                            this._beobachteBreite()
-                        })
-                        // Der Sprung zum adressierten Vorgang (P2): erst JETZT
-                        // gibt es die Zeile. `$nextTick`, weil Alpine die Liste
-                        // im selben Durchlauf noch nicht gerendert hat — eine
-                        // Wartezeit wäre geraten, dieser Haken ist die Zusage.
-                        // `_gesprungen` hält es bei EINEM Sprung, obwohl diese
-                        // Ableitung bei jedem eintreffenden Ereignis neu feuert.
-                        ;(this as unknown as { $nextTick(cb: () => void): void }).$nextTick(() => {
-                            this._springZuVorgang()
-                        })
                     }
                 })
                 await this._load()
@@ -3109,49 +3924,13 @@ export function wireForge(Alpine: {
                 void this._load()
             },
             /**
-             * Ein Akkordeon auf- oder zuklappen — und die Adresse mitführen (P2).
-             *
-             * `art` ist optional und fehlt bei den Patches mit Absicht: die
-             * Adressform kennt `?issue=` und `?pr=`, ein Patch (1617) hat keine.
-             * Ein Vorgang ohne `art` schaltet also um, ohne die Adresse
-             * anzufassen — statt einen Parameter zu erfinden, den niemand liest.
-             *
-             * **Die Adresse nennt höchstens EINEN Vorgang**, auch wenn mehrere
-             * Akkordeons offen sind: sie beantwortet „worauf zeigt dieser Link",
-             * nicht „was ist gerade alles aufgeklappt". Geöffnet wird sie auf den
-             * zuletzt geöffneten gesetzt; geschlossen nur dann geräumt, wenn sie
-             * genau diesen nennt — sonst risse das Schliessen eines zweiten
-             * Vorgangs den Link auf den ersten weg.
+             * Ein Patch-Akkordeon auf- oder zuklappen — das EINZIGE, das nach
+             * P1 noch auf dieser Fläche wohnt: Issues und Pull Requests sind
+             * eigene Seiten (Route statt Aufklapp-Zustand), ein Patch (1617)
+             * hat keine Adresse und keine Schreibwege, nur diese Anzeige.
              */
-            toggle(id: string, art?: VorgangArt) {
-                const next = !this.open[id]
-                this.open = { ...this.open, [id]: next }
-                // Den Kommentarentwurf ANLEGEN, bevor das Feld ihn bindet: ein
-                // `x-model` auf einen noch nicht existierenden Schlüssel schreibt
-                // beim ersten Rendern `undefined` ins Textfeld — sichtbar als das
-                // Wort „undefined" im leeren Formular.
-                if (next && this.commentDraft[id] === undefined) {
-                    this.commentDraft = { ...this.commentDraft, [id]: '' }
-                }
-                if (!art || typeof window === 'undefined') {
-                    return
-                }
-                if (next) {
-                    this._ziel = { art, id }
-                } else if (this._ziel?.id !== id) {
-                    return
-                } else {
-                    this._ziel = null
-                }
-                // `replaceState`, keine Navigation — dieselbe Bauform und
-                // dieselbe Begründung wie beim `?tab=`-Abgleich der Übersicht:
-                // ein Eintrag in der Verlaufsliste je Klick auf ein Akkordeon
-                // machte die Zurück-Taste unbenutzbar.
-                window.history.replaceState(
-                    window.history.state,
-                    '',
-                    withVorgang(window.location.href, this._ziel),
-                )
+            toggle(id: string) {
+                this.open = { ...this.open, [id]: !this.open[id] }
             },
             statusText(code: string) {
                 return statusLabel(code)
@@ -3299,33 +4078,6 @@ export function wireForge(Alpine: {
             // Deshalb ist das hier ein zweiter, ANGESAGTER Ladeweg und keine
             // Anzeige über vorhandene Daten.
 
-            _prDiffKarteNeu(view) {
-                if (!view) {
-                    return
-                }
-                const neu: Record<string, PrDiffLage> = {}
-                for (const pr of view.pullRequests) {
-                    const quelle = prDiffQuelle({
-                        cloneUrls: pr.cloneUrls,
-                        // Der Link im Fremdfall kommt aus den `web`-Tags des
-                        // REPOS: ein 1618 trägt keine.
-                        webUrls: view.repo.webUrls,
-                        commit: pr.commit,
-                        mergeBase: pr.mergeBase,
-                        workspaceUrl: WORKSPACE_URL,
-                    })
-                    const alt = this.prDiff[pr.id]
-                    const spitze = quelle.art === 'ladbar' ? quelle.spitze : ''
-                    // Ein geladener Diff darf mit hinüber — aber nur, wenn er
-                    // noch zu dieser Spitze gehört. Ein 1619 verschiebt `c` und
-                    // `merge-base`; der alte Diff zeigte dann einen Stand, den
-                    // es nicht mehr gibt.
-                    neu[pr.id] =
-                        alt && alt._spitze === spitze ? { ...alt, quelle } : leerePrDiffLage(quelle)
-                }
-                this.prDiff = neu
-            },
-
             // ── Die Vorgangssuche der Detailseite (P7b) ──────────────────────
             //
             // Dieselben Regeln wie auf der Übersicht (`forgeSearch.ts`) und
@@ -3335,13 +4087,31 @@ export function wireForge(Alpine: {
             // weniger (NIP-50 durchsucht Text, keine Pubkeys).
 
             sichtbareIssues() {
-                return sucheVorgaenge(this.view?.issues ?? [], this.suche)
+                return sucheVorgaenge<IssueRow>(this.view?.issues ?? [], this.suche).filter(
+                    (row) => (this.zustand === 'offen') === istZustandOffen(row.status, 'issue'),
+                )
             },
             sichtbarePulls() {
-                return sucheVorgaenge(this.view?.pullRequests ?? [], this.suche)
+                return sucheVorgaenge<PullRequestRow>(this.view?.pullRequests ?? [], this.suche).filter(
+                    (row) => (this.zustand === 'offen') === istZustandOffen(row.status, 'pr'),
+                )
             },
             sichtbarePatches() {
                 return sucheVorgaenge(this.view?.patches ?? [], this.suche)
+            },
+            /** GH-Form: „N offen / M geschlossen" — UNGESUCHT, sonst zählte die
+             *  Suche Bestand weg, den der Umschalter zurückbringen soll. */
+            offenZahl() {
+                const reihe = this.tab === 'pulls' ? (this.view?.pullRequests ?? []) : (this.view?.issues ?? [])
+                const art = this.tab === 'pulls' ? 'pr' : 'issue'
+
+                return reihe.filter((row) => istZustandOffen(row.status, art)).length
+            },
+            geschlossenZahl() {
+                const reihe = this.tab === 'pulls' ? (this.view?.pullRequests ?? []) : (this.view?.issues ?? [])
+                const art = this.tab === 'pulls' ? 'pr' : 'issue'
+
+                return reihe.filter((row) => !istZustandOffen(row.status, art)).length
             },
             vorgaengeGesamt() {
                 if (this.tab === 'issues') {
@@ -3387,108 +4157,6 @@ export function wireForge(Alpine: {
                 return this.tab === 'patches' ? t('Kein Patch passt dazu.') : t('Kein Issue passt dazu.')
             },
 
-            prDiffVon(pr) {
-                return (
-                    this.prDiff[pr.id] ??
-                    leerePrDiffLage({ art: 'unvollstaendig', fehlt: 'beides' })
-                )
-            },
-
-            /**
-             * **Zwei der sechs Codes sind gar keine Fehler.** `spitze-fehlt`
-             * heißt: der Endpunkt kennt diesen Commit nicht — der Vorschlag
-             * kommt aus einem Fork, den NIP-34 ausdrücklich zulässt.
-             * `basis-fehlt` heißt: der Vergleichspunkt liegt tiefer, als dieser
-             * Client geholt hat, und tiefer zu holen kostet Datenvolumen. Beide
-             * bekommen deshalb einen Satz, der SAGT was ist, statt zu behaupten,
-             * etwas sei kaputt.
-             */
-            prDiffFehlerText(pr) {
-                const codes: Record<string, string> = {
-                    'nicht-angemeldet': 'Zum Laden musst du angemeldet sein — der Git-Zugang wird signiert (NIP-98).',
-                    'kein-zugriff': 'Der Relay hat den Zugriff abgelehnt. Entweder bist du kein Mitglied des Kanals, zu dem dieses Repository gehört, oder die Signatur ist abgelaufen.',
-                    netz: 'Der Git-Endpunkt war nicht erreichbar.',
-                    abgebrochen: 'Abgebrochen.',
-                    'spitze-fehlt': 'Dieser Git-Endpunkt kennt den vorgeschlagenen Stand nicht — er liegt in einer Kopie des Repositories, die hier nicht abrufbar ist.',
-                    'basis-fehlt': 'Der Vergleichspunkt liegt weiter zurück, als hier geholt wurde. Die Dateiliste lässt sich daraus nicht bilden.',
-                    unbekannt: 'Die Dateiliste liess sich nicht bilden.',
-                }
-                const fehler = this.prDiffVon(pr).fehler
-
-                return fehler ? t(codes[fehler] ?? codes.unbekannt) : ''
-            },
-
-            prDiffAbbrechen(pr) {
-                this._prDiffAbbruch[pr.id]?.abort()
-                delete this._prDiffAbbruch[pr.id]
-                const lage = this.prDiffVon(pr)
-                this.prDiff = {
-                    ...this.prDiff,
-                    [pr.id]: { ...lage, lage: 'quelle', fehler: '', fortschritt: null },
-                }
-            },
-
-            async prDiffLaden(pr) {
-                const repo = this.view?.repo
-                const lage = this.prDiffVon(pr)
-                if (!repo || lage.quelle.art !== 'ladbar' || lage.lage === 'laedt') {
-                    return
-                }
-                const quelle = lage.quelle
-                const abbruch = new AbortController()
-                this._prDiffAbbruch[pr.id] = abbruch
-                const setze = (teil: Partial<PrDiffLage>): void => {
-                    // Nur schreiben, solange DIESER Vorgang läuft: ein
-                    // abgebrochener Fetch feuert noch Fortschritte nach, und die
-                    // schrieben sonst über eine neue Lage.
-                    if (this._prDiffAbbruch[pr.id] === abbruch && !this._dead) {
-                        this.prDiff = { ...this.prDiff, [pr.id]: { ...this.prDiffVon(pr), ...teil } }
-                    }
-                }
-                setze({ lage: 'laedt', fehler: '', fortschritt: null })
-                try {
-                    const g = await import('./gitBrowser.ts')
-                    const paare = await g.holePrDateipaare({
-                        url: quelle.url,
-                        owner: repo.owner,
-                        dtag: repo.dtag,
-                        basis: quelle.basis,
-                        spitze: quelle.spitze,
-                        signal: abbruch.signal,
-                        aufFortschritt: (f) => setze({ fortschritt: f }),
-                    })
-                    if (this._prDiffAbbruch[pr.id] !== abbruch || this._dead) {
-                        return
-                    }
-                    const diff = baueDiff(paare)
-                    setze({ lage: 'da', diff, stat: diffStat(diff), fortschritt: null })
-                } catch (error) {
-                    if (this._prDiffAbbruch[pr.id] !== abbruch || this._dead) {
-                        return
-                    }
-                    // Der eigene Code gewinnt gegen die Einordnung nach
-                    // Wortlaut: `spitze-fehlt` ist eine AUSKUNFT (der Tip liegt
-                    // in einem Fork), kein Netzfehler, und `ordneFehlerEin`
-                    // kennt ihn nicht.
-                    const eigen = (error as { code?: string } | null)?.code ?? ''
-                    const code: PrDiffFehler =
-                        eigen === 'spitze-fehlt' || eigen === 'basis-fehlt'
-                            ? eigen
-                            : ordneFehlerEin(error)
-                    // Den ORIGINALFEHLER protokollieren, nicht nur den Code —
-                    // dieselbe Begründung wie beim Klon.
-                    console.warn('[forge] PR-Diff fehlgeschlagen', code, error)
-                    setze(
-                        code === 'abgebrochen'
-                            ? { lage: 'quelle', fehler: '', fortschritt: null }
-                            : { lage: 'fehler', fehler: code, fortschritt: null },
-                    )
-                } finally {
-                    if (this._prDiffAbbruch[pr.id] === abbruch) {
-                        delete this._prDiffAbbruch[pr.id]
-                    }
-                }
-            },
 
             // ── Code-Browser (P6) ────────────────────────────────────────────
             // Alles hier liest aus DEMSELBEN Klon wie das README. Kein zweiter
@@ -3510,11 +4178,101 @@ export function wireForge(Alpine: {
                 try {
                     const g = await import('./gitBrowser.ts')
                     const eintraege = await g.baumEintraege(repo.owner, repo.dtag, pfad)
-                    this.code = { ...this.code, pfad, eintraege: sortiereEintraege(eintraege), laedt: false }
+                    const sortiert = sortiereEintraege(eintraege)
+                    // Die LISTE steht sofort. Die zwei Commit-Spalten kommen
+                    // danach — Begründung an `_commitSpaltenLaden`.
+                    this.code = { ...this.code, pfad, eintraege: sortiert, laedt: false, commits: {}, kopf: null }
+                    void this._commitSpaltenLaden(pfad, sortiert.map((e) => e.name))
                 } catch (error) {
                     console.warn('[forge] Baum konnte nicht gelesen werden', error)
                     this.code = { ...this.code, laedt: false, fehler: t('Dieses Verzeichnis liess sich nicht lesen.') }
                 }
+            },
+
+            /**
+             * Die zwei rechten Spalten der Dateiliste NACHLADEN — die Zeile
+             * steht, die Spalten füllen sich.
+             *
+             * **Warum nachgeladen und nicht mitgeliefert.** Die Einträge selbst
+             * kosten EINEN `readTree`; die Commit-Angabe je Eintrag kostet einen
+             * Gang durch die Historie (gemessen und im Bericht genannt). Die
+             * Liste dafür zurückzuhalten hiesse, den PRIMÄREN Inhalt auf den
+             * sekundären warten zu lassen. Weggelassen wird sie deshalb nicht:
+             * Name │ letzte Änderung │ Zeit ist GitHubs prägendste Eigenschaft
+             * dieser Liste.
+             *
+             * **Der Pfad-Vergleich ist die ganze Absicherung gegen das Rennen.**
+             * Wer während des Laufs weiterblättert, hat `code.pfad` schon
+             * geändert; das Ergebnis des alten Verzeichnisses wird dann
+             * verworfen, statt fremde Zeiten in die neue Liste zu schreiben.
+             */
+            async _commitSpaltenLaden(pfad: string, namen: readonly string[]) {
+                const repo = this.view?.repo
+                if (!repo) {
+                    return
+                }
+                this.code = { ...this.code, commitsLaden: true }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    // Der Kopf-Commit liegt IMMER im Klon (`depth: 1` holt genau
+                    // ihn) und steht deshalb sofort — unabhängig davon, ob die
+                    // Historie darunter je eintrifft.
+                    const kopf = await g.kopfCommit(repo.owner, repo.dtag)
+                    if (this.code.pfad !== pfad) {
+                        return
+                    }
+                    this.code = { ...this.code, kopf, zeitJetzt: Math.floor(Date.now() / 1000) }
+
+                    let erg = await g.baumCommits(repo.owner, repo.dtag, pfad, namen)
+                    // ── Die Historie ist NICHT im Klon ──────────────────────
+                    // `klone()` holt `depth: 1`. Für jeden Eintrag, den der
+                    // Kopf-Commit nicht angefasst hat, steht die Antwort damit
+                    // gar nicht im lokalen Repository. `baumCommits` meldet das
+                    // (`vollstaendig: false`) statt zu raten — hier wird EINMAL
+                    // vertieft und danach neu gerechnet. Schlägt die Vertiefung
+                    // fehl, bleiben die Zellen leer; eine leere Zelle ist eine
+                    // fehlende Angabe, eine geratene eine Falschaussage.
+                    if (!erg.vollstaendig) {
+                        const url = waehleCloneUrl(repo.cloneUrls)
+                        if (url && (await g.vertiefe(repo.owner, repo.dtag, url))) {
+                            if (this.code.pfad !== pfad) {
+                                return
+                            }
+                            erg = await g.baumCommits(repo.owner, repo.dtag, pfad, namen)
+                        }
+                    }
+                    if (this.code.pfad !== pfad) {
+                        return
+                    }
+                    this.code = { ...this.code, commits: erg.je, commitsLaden: false }
+                } catch (error) {
+                    console.warn('[forge] Commit-Spalten liessen sich nicht lesen', error)
+                    if (this.code.pfad === pfad) {
+                        this.code = { ...this.code, commitsLaden: false }
+                    }
+                }
+            },
+
+            /** Der letzte Commit eines Eintrags — `null`, solange (oder falls) es keinen gibt. */
+            commitFuer(name: string): EintragCommit | null {
+                return this.code.commits[name] ?? null
+            },
+
+            /**
+             * Die Zeitspalte, in der Sprache des Hauses.
+             *
+             * Bewusst `timelineTimeLabel` und keine zweite Zeitsprache: dieselben
+             * Wörter stehen in der Aktivitätsspur und in jeder Vorgangszeile
+             * (Nielsen #4). GitHub schreibt „last month", das Haus „vor 30 Tg" —
+             * das ist eine Wortwahl, keine Layoutfrage.
+             */
+            commitZeitText(zeit: number): string {
+                return zeit > 0 && this.code.zeitJetzt > 0 ? timelineTimeLabel(zeit, this.code.zeitJetzt) : ''
+            },
+
+            /** Die volle Angabe für `title` — der relative Text allein nennt kein Datum. */
+            commitZeitVoll(zeit: number): string {
+                return zeit > 0 ? timelineFullLabel(zeit) : ''
             },
 
             async codeHoch() {
@@ -3635,7 +4393,7 @@ export function wireForge(Alpine: {
                 const repo = this.view?.repo
                 if (repo && repo.owner === owner && repo.dtag === dtag) {
                     this.dateiSchliessen()
-                    this.code = { ...this.code, pfad: '', eintraege: [] }
+                    this.code = { ...this.code, pfad: '', eintraege: [], commits: {}, kopf: null, commitsLaden: false }
                     this.klon = { ...this.klon, lage: 'bereit', name: '', html: '', text: '', commit: '' }
                 }
             },
@@ -3675,7 +4433,9 @@ export function wireForge(Alpine: {
                     // Der Wurzelbaum kommt gleich mit: er liegt im selben Klon,
                     // kostet kein Netz, und der Code-Tab soll nicht erst beim
                     // Anklicken zu laden anfangen.
-                    this.code = { ...this.code, eintraege: sortiereEintraege(eintraege), pfad: '', datei: '' }
+                    const sortiert = sortiereEintraege(eintraege)
+                    this.code = { ...this.code, eintraege: sortiert, pfad: '', datei: '', commits: {}, kopf: null }
+                    void this._commitSpaltenLaden('', sortiert.map((e) => e.name))
                 } catch (error) {
                     this.klon = { ...this.klon, lage: 'fehler', fehler: ordneFehlerEin(error), fortschritt: null }
                 }
@@ -3686,59 +4446,6 @@ export function wireForge(Alpine: {
                     : t('Die Liste ist gekürzt — es liegen mehr Einträge auf dem Relay, als hier geladen wurden.')
             },
 
-            // Begründung am Typ. Bewusst eine Frage an `navigator`, nicht ein
-            // gemerkter Wert: der Kontext einer Seite ändert sich nicht, und ein
-            // Schnappschuss im `init` wäre eine Kopie ohne Gewinn.
-            /**
-             * Zum adressierten Vorgang springen — scrollen, fokussieren (P2).
-             *
-             * **Dasselbe Muster wie `_springZuRegion` auf der Übersicht, samt
-             * der Falle, die dort teuer gelernt wurde:** beim Mount ist `view`
-             * noch `null`, die Liste existiert nicht, und `focus()` auf ein
-             * `display:none`-Element tut still NICHTS. Der Versuch ist deshalb
-             * wiederholbar und meldet sich erst als erledigt, wenn der Fokus
-             * wirklich angekommen ist; `init` ruft ihn erneut, sobald `view`
-             * eintrifft.
-             *
-             * Fokussiert wird die ZEILE (`tabindex="-1"`), nicht ihr Knopf: der
-             * Knopf ist der Umschalter, und ein Enter auf dem gerade geöffneten
-             * Vorgang klappte ihn sofort wieder zu.
-             */
-            _springZuVorgang() {
-                const ziel = this._ziel
-                if (this._gesprungen || !ziel || typeof document === 'undefined') {
-                    return
-                }
-                const wurzel = (this as unknown as { $root?: HTMLElement }).$root
-                // Der Attributselektor ist sicher, weil `readVorgang` nur eine
-                // 64-stellige Hex-Id durchlässt — sonst stünde hier Fremdtext in
-                // einer Selektor-Zeichenkette.
-                const zeile = wurzel?.querySelector<HTMLElement>(`[data-forge-vorgang][data-id="${ziel.id}"]`)
-                if (!zeile || zeile.checkVisibility?.() === false) {
-                    return
-                }
-                zeile.scrollIntoView({ block: 'start', behavior: 'auto' })
-                zeile.focus({ preventScroll: true })
-                this._gesprungen = document.activeElement === zeile
-            },
-            /** Die teilbare Adresse dieses Vorgangs (P2). */
-            vorgangHref(id: string, art: VorgangArt) {
-                if (typeof window === 'undefined') {
-                    return ''
-                }
-
-                return withVorgang(window.location.href, { art, id })
-            },
-            copyVorgang(id: string, art: VorgangArt) {
-                const href = this.vorgangHref(id, art)
-                if (!href) {
-                    return
-                }
-                void navigator.clipboard.writeText(href).then(
-                    () => toast(t('Link zum Vorgang kopiert.'), 'success'),
-                    () => toast(t('Der Link liess sich nicht kopieren.')),
-                )
-            },
             canCopyClone() {
                 return typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function'
             },
@@ -3766,26 +4473,6 @@ export function wireForge(Alpine: {
                 )
             },
 
-            // ── Schreiben ───────────────────────────────────────────────────
-            //
-            // **Wer nicht darf, sieht das VOR dem Absenden.** Die Fläche rendert
-            // deshalb nirgends ein Formular, dessen Absenden absehbar scheitert —
-            // sie zeigt stattdessen den Grund. Zwei Ebenen, und sie sind nicht
-            // dasselbe: `writeGate` fragt nur, ob überhaupt jemand angemeldet ist
-            // (der Relay lässt kein Nicht-Mitglied bis zum Lesen kommen, siehe
-            // `memberGate`), `statusGateFor` fragt zusätzlich, ob dieser Mensch
-            // für DIESES Issue zuständig ist. Der zweite Riegel ist der wichtige:
-            // der Relay nimmt einen Statuswechsel von jedem an und zeigt ihn
-            // dann nirgends an — ein stiller Leerlauf.
-            writeGate() {
-                return memberGate(this.viewer)
-            },
-            writeHint() {
-                return gateText(this.writeGate())
-            },
-            canWrite() {
-                return this.writeGate().allowed
-            },
             anlegeZiel(desktop) {
                 return anlegeForm(desktop, this.tab, !!this.view)
             },
@@ -3869,391 +4556,6 @@ export function wireForge(Alpine: {
                     })
                 }
             },
-            commentBusy(rootId: string) {
-                // `busyTick` steht hier, damit Alpine die Bindung überhaupt neu
-                // auswertet: `isBusy` liest ein Modul-`Set`, das kein Store ist.
-                return this.busyTick >= 0 && isBusy(`comment:${rootId}`)
-            },
-            async submitComment(root, art = 'issue') {
-                const draft = this.commentDraft[root.id] ?? ''
-                const problem = commentDraftProblem(draft, {
-                    rootId: root.id,
-                    repoAddress: root.repoAddress,
-                })
-                if (problem) {
-                    this.commentError = { ...this.commentError, [root.id]: problemText(problem) }
-
-                    return
-                }
-                if (isBusy(`comment:${root.id}`)) {
-                    return
-                }
-                this.commentError = { ...this.commentError, [root.id]: '' }
-                this.dismissWake(`comment:${root.id}`)
-                this.busyTick += 1
-                const outcome = await publishForgeComment(
-                    {
-                        repoAddress: root.repoAddress,
-                        rootId: root.id,
-                        rootAuthor: root.author,
-                        lastCreatedAt: root.comments.reduce(
-                            (latest, comment) => Math.max(latest, comment.createdAt),
-                            0,
-                        ),
-                    },
-                    draft,
-                )
-                if (this._dead) {
-                    return
-                }
-                this.busyTick += 1
-                this.commentError = { ...this.commentError, [root.id]: outcome.error }
-                if (!outcome.error) {
-                    this.commentDraft = { ...this.commentDraft, [root.id]: '' }
-                }
-                if (!outcome.error && outcome.id) {
-                    // Der Verweis zeigt auf die WURZEL: für einen Kommentar gibt
-                    // es keinen `buzz://`-Link, und der Agent soll ohnehin den
-                    // ganzen Vorgang sehen, nicht nur die letzte Zeile.
-                    await this._wake(`comment:${root.id}`, draft, {
-                        art,
-                        eventId: root.id,
-                        what: 'comment',
-                    })
-                }
-            },
-            statusOptions() {
-                return WRITABLE_ISSUE_STATUSES.map((code) => ({ code, label: statusLabel(code) }))
-            },
-            statusGateFor(row) {
-                return statusGate(this.viewer, row)
-            },
-            canSetStatus(row) {
-                return this.statusGateFor(row).allowed
-            },
-            statusHint(row) {
-                return gateText(this.statusGateFor(row))
-            },
-            statusBusy(rootId: string) {
-                return this.busyTick >= 0 && isBusy(`status:${rootId}`)
-            },
-            // ── P5: Zuweisen und Freigeben ──────────────────────────────────
-            istZugewiesen(row: IssueRow) {
-                return this.viewer !== '' && row.assignees.includes(this.viewer.toLowerCase())
-            },
-            /**
-             * Der Riegel vor dem Zuweisen — **mit sich selbst als Ziel**.
-             *
-             * Die Fläche bietet in P5 genau die Selbstbedienung an („Mir
-             * zuweisen" / „Zuweisung entfernen"). Fremde zuzuweisen bräuchte
-             * eine Personenauswahl; die Regel dafür steht in `assignGate`
-             * bereits, die Fläche dazu nicht. Ein Knopf ohne Auswahl, der
-             * behauptet, jemand anderen zuzuweisen, wäre eine Attrappe.
-             */
-            assignGateFor(row: IssueRow) {
-                return assignGate(this.viewer, { author: row.author, repoAddress: row.repoAddress, maintainers: this.view?.repo.maintainers ?? [] }, [this.viewer])
-            },
-            canAssignSelf(row: IssueRow) {
-                return this.assignGateFor(row).allowed
-            },
-            assignHint(row: IssueRow) {
-                return gateTextFrom(ASSIGN_GATE_TEXTS, this.assignGateFor(row))
-            },
-            assignBusy(rootId: string) {
-                return this.busyTick >= 0 && isBusy(`assign:${rootId}`)
-            },
-            /**
-             * Sich selbst eintragen oder wieder austragen.
-             *
-             * EIN Knopf für zwei Operationen, weil es aus Sicht des Nutzers eine
-             * Handlung mit zwei Richtungen ist. Der Unterschied steckt im Label
-             * — und im `prior`: eine Entziehung ohne Bezug verlöre gegen eine
-             * autoritative Zuweisung (`foldAssignments`, Phase 1 vor Phase 2).
-             * Der Kopf kommt aus `assignmentHeads` (P1) und ist genau dieser
-             * Bezug.
-             */
-            async toggleAssignSelf(row: IssueRow) {
-                if (!this.canAssignSelf(row) || isBusy(`assign:${row.id}`)) {
-                    return
-                }
-                const label = this.istZugewiesen(row) ? 'unassignment' : 'assignment'
-                this.busyTick += 1
-                const outcome = await publishAssignment(
-                    {
-                        repoAddress: row.repoAddress,
-                        rootId: row.id,
-                        targets: [this.viewer],
-                        prior: row.assignmentHeads[this.viewer.toLowerCase()] ?? '',
-                    },
-                    label,
-                    // Die Nachprüfung liest den GEFALTETEN Ist-Zustand, nicht die
-                    // Zeile aus dem Klick-Augenblick: `row` ist eine
-                    // Momentaufnahme, `this.view` zieht mit jeder Ableitung nach.
-                    // Genau darum geht es — der `prior` kann zwischen Rendern und
-                    // Faltung veraltet sein (F2).
-                    () => {
-                        const frisch = this.view?.issues.find((issue) => issue.id === row.id)
-
-                        return frisch?.assignees.includes(this.viewer.toLowerCase()) ?? false
-                    },
-                )
-                this.busyTick += 1
-                if (outcome.error) {
-                    toast(outcome.error)
-                }
-            },
-
-            // ── P10: Fremde zuweisen ────────────────────────────────────────
-            //
-            // Die Personenauswahl ist KEINE zweite Quelle: sie speist sich aus
-            // `_mentionItemsFor`, also aus genau der Liste, die das
-            // @-Erwähnungs-Popover zeigt (Menschen aus dem Mitglieder-
-            // Verzeichnis, Agenten aus den 10100 dieses Kanals). Sie benutzt
-            // sogar dasselbe Popover-Partial und denselben `mention`-Zustand;
-            // unterschieden wird allein über `mention.target`, das hier
-            // `assign:<wurzel-id>` heisst. Damit trägt der Vorschlag im
-            // Zuweisen-Feld die Agentenmarke und den npub aus demselben Markup —
-            // ein Agent ist hier so erkennbar wie in der Erwähnung, weil es
-            // buchstäblich dieselbe Zeile ist.
-            assignPicksFor(rootId: string) {
-                return this.assignPicks[rootId] ?? []
-            },
-            /**
-             * Darf der Betrachter hier überhaupt Fremde eintragen?
-             *
-             * Nur für den LEEREN Zustand der Auswahl gedacht — sobald jemand
-             * gewählt ist, antwortet {@link assignOthersGateFor} genauer.
-             */
-            darfFremdeZuweisen(row: IssueRow) {
-                return canAssignOthers(this.viewer, {
-                    author: row.author,
-                    repoAddress: row.repoAddress,
-                    maintainers: this.view?.repo.maintainers ?? [],
-                })
-            },
-            /**
-             * Der Riegel gegen die TATSÄCHLICH gewählten Personen.
-             *
-             * Er wird bei jeder Änderung der Auswahl neu gestellt — das ist der
-             * ganze Punkt: die Fläche beantwortet „wen darfst du" beim Wählen
-             * und nicht erst beim Absenden. Wer nicht autoritativ ist, sieht den
-             * Knopf offen, solange er nur sich selbst wählt, und geschlossen in
-             * dem Augenblick, in dem eine zweite Person dazukommt.
-             */
-            assignOthersGateFor(row: IssueRow) {
-                return assignGate(
-                    this.viewer,
-                    { author: row.author, repoAddress: row.repoAddress, maintainers: this.view?.repo.maintainers ?? [] },
-                    this.assignPicksFor(row.id).map((item) => item.pubkey),
-                )
-            },
-            canAssignPicked(row: IssueRow) {
-                return this.assignPicksFor(row.id).length > 0 && this.assignOthersGateFor(row).allowed
-            },
-            /**
-             * Der Satz unter dem Knopf — auch dann, wenn noch niemand gewählt ist.
-             *
-             * **Der leere Fall bekommt bewusst NICHT den Gate-Satz.** Ohne Ziel
-             * liefert `assignGate` den Grund `targets` („nennt niemanden
-             * Gültigen"), und der spräche einen Nutzer an, der gerade erst
-             * hinsieht, über etwas, das er noch gar nicht getan hat — während
-             * die einzige Auskunft fehlte, die er jetzt braucht. Deshalb
-             * entscheidet hier {@link canAssignOthers}: darf er Fremde
-             * überhaupt, steht nichts da; darf er nicht, steht der
-             * `not-actor`-Satz da, BEVOR er jemanden sucht. Es ist derselbe
-             * Satz, den der Gate später liefert — eine Fassung, zwei Anlässe.
-             */
-            assignOthersHint(row: IssueRow) {
-                if (this.assignPicksFor(row.id).length === 0) {
-                    return this.darfFremdeZuweisen(row) ? '' : t(ASSIGN_GATE_TEXTS['not-actor'])
-                }
-
-                return gateTextFrom(ASSIGN_GATE_TEXTS, this.assignOthersGateFor(row))
-            },
-            /**
-             * Tippen im Suchfeld — dasselbe Popover, anderer Auslöser.
-             *
-             * Im Composer beginnt ein Vorschlag mit `@` (`mentionQueryAt`); hier
-             * IST das Feld die Suche, ein Präfix wäre ein erfundenes Ritual.
-             * `_mentionStart = 0` ist kein Textversatz, sondern der Merker, an
-             * dem `_recomputeAgentItems` erkennt, dass eine offene Suche läuft
-             * und ein spät eintreffendes 10100 noch nachgereicht werden muss.
-             * Ohne ihn sähe niemand einen Agenten, dessen Profil eine
-             * Zehntelsekunde nach dem Tippen ankommt.
-             */
-            onAssignInput(el: HTMLInputElement, rootId: string) {
-                const query = el.value.trim()
-                this.assignQuery = { ...this.assignQuery, [rootId]: el.value }
-                const target = `assign:${rootId}`
-                this._mentionStart = 0
-                const items = this._mentionItemsFor(query, target)
-                this.mention = { open: items.length > 0, items, index: 0, query, target }
-            },
-            removeAssignPick(rootId: string, pubkey: string) {
-                this.assignPicks = {
-                    ...this.assignPicks,
-                    [rootId]: this.assignPicksFor(rootId).filter((item) => item.pubkey !== pubkey),
-                }
-            },
-            /**
-             * Die gewählten Personen eintragen — oder ihre Zuweisung entziehen.
-             *
-             * **Zwei Verben, ein Gegenstand.** `foldAssignments` addiert je
-             * genanntem Schlüssel und subtrahiert je genanntem Schlüssel; eine
-             * Zuweisung ersetzt also NICHT die bestehende Menge. Damit sind
-             * beide Richtungen auf derselben Auswahl sinnvoll, und ein
-             * versehentlich eingetragener Agent ist mit denselben zwei Klicks
-             * wieder draussen. Ein Weg ohne Rückweg wäre hier besonders teuer:
-             * am Relay steht das Ereignis dauerhaft.
-             *
-             * `prior` nur im Selbstbedienungsfall — bei einem autoritativen
-             * Signierer liest `foldAssignments` es gar nicht
-             * (`projectIssues.mjs:149-153`), ein Tag dort wäre eine Behauptung
-             * ohne Leser.
-             */
-            async submitAssignOthers(row: IssueRow, label: 'assignment' | 'unassignment') {
-                if (!this.canAssignPicked(row) || isBusy(`assign:${row.id}`)) {
-                    return
-                }
-                const targets = this.assignPicksFor(row.id).map((item) => item.pubkey.toLowerCase())
-                const self = this.viewer.toLowerCase()
-                const nurSelbst = targets.length === 1 && targets[0] === self
-                this.busyTick += 1
-                const outcome = await publishAssignment(
-                    {
-                        repoAddress: row.repoAddress,
-                        rootId: row.id,
-                        targets,
-                        prior: nurSelbst ? (row.assignmentHeads[self] ?? '') : '',
-                    },
-                    label,
-                    // Dieselbe Nachprüfung wie bei der Selbstbedienung, nur über
-                    // mehrere Namen. Die zwei Prädikate sind nicht symmetrisch
-                    // und dürfen es nicht sein: eine Zuweisung gilt erst, wenn
-                    // ALLE Genannten stehen; eine Entziehung erst, wenn KEINER
-                    // mehr steht. Mit `every` in beide Richtungen hiesse eine
-                    // halb durchgesetzte Entziehung „erledigt".
-                    () => {
-                        const frisch = this.view?.issues.find((issue) => issue.id === row.id)
-                        if (!frisch) {
-                            return false
-                        }
-
-                        return label === 'assignment'
-                            ? targets.every((pk) => frisch.assignees.includes(pk))
-                            : targets.some((pk) => frisch.assignees.includes(pk))
-                    },
-                )
-                this.busyTick += 1
-                if (outcome.error) {
-                    toast(outcome.error)
-
-                    return
-                }
-                // Erst nach dem Erfolg leeren: schlägt es fehl, steht die Auswahl
-                // noch da und der zweite Versuch kostet keinen zweiten Suchlauf.
-                this.assignPicks = { ...this.assignPicks, [row.id]: [] }
-                this.assignQuery = { ...this.assignQuery, [row.id]: '' }
-            },
-            approveGateFor(row: PullRequestRow) {
-                return approveGate(this.viewer, {
-                    author: row.author,
-                    repoAddress: row.repoAddress,
-                    maintainers: this.view?.repo.maintainers ?? [],
-                    reviewers: row.reviewers,
-                    commit: row.commit,
-                    status: row.status,
-                })
-            },
-            canApprove(row: PullRequestRow) {
-                return this.approveGateFor(row).allowed
-            },
-            approveHint(row: PullRequestRow) {
-                return gateTextFrom(REVIEW_GATE_TEXTS, this.approveGateFor(row))
-            },
-            reviewBusy(rootId: string) {
-                return this.busyTick >= 0 && isBusy(`review:${rootId}`)
-            },
-            /**
-             * Die eigene, aktuell gültige Entscheidung — `''`, wenn keine steht.
-             *
-             * Aus derselben gefalteten Liste, die die Reviewer-Zeile zeigt. Der
-             * Knopf sagt damit „freigegeben" statt „freigeben", wenn es schon
-             * getan ist; ein Klick darauf ist dann kein zweites Ereignis wert.
-             */
-            eigeneEntscheidung(row: PullRequestRow) {
-                const self = this.viewer.toLowerCase()
-                if (row.approvals.some((d) => d.author === self)) {
-                    return 'approval'
-                }
-
-                return row.changeRequests.some((d) => d.author === self) ? 'changes-requested' : ''
-            },
-            async submitReview(row: PullRequestRow, label: 'approval' | 'changes-requested') {
-                if (!this.canApprove(row) || isBusy(`review:${row.id}`) || this.eigeneEntscheidung(row) === label) {
-                    return
-                }
-                this.busyTick += 1
-                const outcome = await publishReview(
-                    { repoAddress: row.repoAddress, rootId: row.id, commit: row.commit },
-                    label,
-                )
-                this.busyTick += 1
-                if (outcome.error) {
-                    toast(outcome.error)
-                }
-            },
-            async setStatus(row: IssueRow, code: WritableIssueStatus) {
-                if (!this.canSetStatus(row) || row.status === code || isBusy(`status:${row.id}`)) {
-                    return
-                }
-                this.busyTick += 1
-                const outcome = await publishIssueStatus(
-                    {
-                        repoAddress: row.repoAddress,
-                        rootId: row.id,
-                        rootAuthor: row.author,
-                        // Der Stempel des GELTENDEN Status: ein neues Ereignis in
-                        // derselben Sekunde entschiede sonst per Id-Tiebreak, und
-                        // der alte Zustand könnte gewinnen.
-                        statusCreatedAt: this._statusCreatedAt(row.id),
-                    },
-                    code,
-                    // Die Nachprüfung liest, was die FLÄCHE zeigt — nicht, was der
-                    // Relay quittiert hat. Genau das ist der Unterschied, den
-                    // `OK true` verschweigt.
-                    () => this.view?.issues.find((issue) => issue.id === row.id)?.status ?? '',
-                )
-                if (this._dead) {
-                    return
-                }
-                this.busyTick += 1
-                // **Nur wenn es gar nicht erst losgeflogen ist.** Ein Fehler MIT
-                // Id steht bereits als rote Zeile da (`failedFor`) — ihn hier
-                // zusätzlich ins Kommentarfeld zu schreiben, zeigte dieselbe
-                // Meldung zweimal untereinander. Ohne Id (kein Signer, Riegel
-                // greift, unbekannter Zustand) gibt es dagegen keinen Merker,
-                // und ohne diese Zeile bliebe der Klick stumm.
-                if (outcome.error && !outcome.id) {
-                    this.commentError = { ...this.commentError, [row.id]: outcome.error }
-                }
-            },
-            /**
-             * `created_at` des derzeit geltenden Statuswechsels dieses Issues.
-             *
-             * Aus dem Merker der Anzeige abgeleitet: `updatedAt` ist die jüngste
-             * Regung überhaupt (Status ODER Kommentar). Das überschätzt den Wert
-             * nie nach unten — und genau das ist gefragt, denn zu klein hieße,
-             * den Gleichstand nicht zu vermeiden.
-             */
-            _statusCreatedAt(rootId: string) {
-                const issue = this.view?.issues.find((row) => row.id === rootId)
-
-                return issue ? issue.updatedAt : 0
-            },
-            rowState(id: string) {
-                return pendingState(this.pending, id)
-            },
             failedIssues() {
                 return orphanedPending(this.pending, this.view?.issues ?? [], {
                     what: 'issue',
@@ -4262,327 +4564,282 @@ export function wireForge(Alpine: {
                     .filter((entry) => entry.state === 'failed')
                     .map(toFailedRow)
             },
-            failedFor(rootId: string) {
-                const known = [
-                    ...(this.view?.issues.find((row) => row.id === rootId)?.comments ?? []),
-                    ...(this.view?.pullRequests.find((row) => row.id === rootId)?.comments ?? []),
-                ]
-
-                return [
-                    ...orphanedPending(this.pending, known, {
-                        what: 'comment',
-                        repoAddress: this.view?.repo.address ?? '',
-                        rootId,
-                    }).filter((entry) => entry.state === 'failed'),
-                    // Ein gescheiterter Statuswechsel hat NIE eine eigene Zeile in
-                    // der Liste — er wirkt auf die vorhandene. Er ist deshalb
-                    // immer „verwaist" und wird immer gezeigt.
-                    ...orphanedPending(this.pending, [], {
-                        what: 'status',
-                        repoAddress: this.view?.repo.address ?? '',
-                        rootId,
-                    }).filter((entry) => entry.state === 'failed'),
-                ].map(toFailedRow)
-            },
-            dismiss(id: string) {
-                dismissPending(id)
-            },
-
-            // ── @-Erwähnung im Forge-Composer ───────────────────────────────
-            //
-            // Dieselbe Bedienung wie im Chat: Pfeile wählen, Enter/Tab übernimmt,
-            // Escape schließt. Die Mechanik (Suchform, Ersetzen) liegt in
-            // `mentionCompose.ts` und ist dort geprüft; hier steht nur, WELCHER
-            // Entwurf betroffen ist.
-            onComposerInput(el: HTMLTextAreaElement, target: string) {
-                const treffer = mentionQueryAt(el.value, el.selectionStart ?? el.value.length)
-                if (!treffer) {
-                    this.closeMentions()
-
-                    return
-                }
-                this._mentionStart = treffer.start
-                const items = this._mentionItemsFor(treffer.query)
-                this.mention = { open: items.length > 0, items, index: 0, query: treffer.query, target }
-            },
             /**
-             * Die gefilterte Vorschlagsliste zu einer Suche.
-             *
-             * Eigene Funktion, weil sie an ZWEI Stellen gebraucht wird: beim Tippen
-             * und beim Nachziehen einer Quelle. Agenten vor Mitgliedern und jede
-             * Identität genau einmal — die Regel steht in `mergeMentionItems`
-             * (rein, getestet), nicht hier.
-             */
-            _mentionItemsFor(query: string, target = '') {
-                const q = query.toLowerCase()
-                // **Schon Gewähltes fällt heraus — aber nur im Zuweisen-Feld.**
-                // Im Composer darf man dieselbe Person zweimal erwähnen; in
-                // einer Auswahl wäre der zweite Klick ein Vorschlag, der
-                // sichtbar nichts tut (der Chip steht ja schon da). `target`
-                // wird ÜBERGEBEN und nicht aus `this.mention` gelesen: beim
-                // Tippen ist dort noch das Ziel des vorigen Feldes eingetragen,
-                // und ein Kommentarfeld verlöre dann stumm die Vorschläge, die
-                // eine ganz andere Zuweisung schon gewählt hat.
-                const gewaehlt =
-                    target.startsWith('assign:')
-                        ? new Set(this.assignPicksFor(target.slice('assign:'.length)).map((item) => item.pubkey))
-                        : new Set<string>()
-                const offen = (item: MentionItemLike): boolean =>
-                    (!q || item.search.includes(q)) && !gewaehlt.has(item.pubkey)
-
-                // Der Deckel liegt in `mergeMentionItems` und ist ZWEIGETEILT
-                // (Agenten/Menschen getrennt) — ein gemeinsamer Schnitt auf der
-                // fertigen Liste ließ Agenten die Menschen verdrängen und
-                // einander dazu. Begründung dort.
-                return mergeMentionItems(this._members.filter(offen), this._agentItems.filter(offen))
-            },
-            /**
-             * Tastatur am Composer. Gibt der Vorschlag nichts her, passiert
-             * nichts — insbesondere wird dann NICHT `preventDefault` gerufen, und
-             * Zeilenumbruch/Tabulator verhalten sich wie immer.
-             */
-            mentionKey(event: KeyboardEvent) {
-                if (!this.mention.open || this.mention.items.length === 0) {
-                    return
-                }
-                const anzahl = this.mention.items.length
-                if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    this.mention = { ...this.mention, index: (this.mention.index + 1) % anzahl }
-                } else if (event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    this.mention = { ...this.mention, index: (this.mention.index - 1 + anzahl) % anzahl }
-                } else if (event.key === 'Enter' || event.key === 'Tab') {
-                    event.preventDefault()
-                    this.pickMention(this.mention.items[this.mention.index]!)
-                } else if (event.key === 'Escape') {
-                    event.preventDefault()
-                    // ── EIN Escape trägt GENAU EINE Schicht ab ──────────────
-                    // `stopPropagation` und nicht nur `preventDefault`: das
-                    // Issue-Blatt hört seit P4 selbst auf Escape
-                    // (`⚡forge-repo.blade.php`, `x-on:keydown.escape.prevent.stop`
-                    // am Blatt-Div). Ohne diese Zeile stieg dasselbe Ereignis
-                    // vom Textfeld dorthin auf und schloss das Blatt MIT — der
-                    // Entwurf war weg, weil jemand einen Vorschlag wegklicken
-                    // wollte.
-                    //
-                    // Der Frühausstieg oben trägt die andere Hälfte: steht kein
-                    // Vorschlag offen, läuft Escape durch und schliesst das
-                    // Blatt. Zwei Schichten, zwei Tastendrücke.
-                    //
-                    // **Regress aus P4 (`d0b88a2`, 2026-08-24).** Diese Funktion
-                    // ist vom 2026-08-23 und war bis dahin richtig: da gab es
-                    // den Escape-Horcher am Blatt noch nicht. Gefunden hat es
-                    // `buzz-agent-mention-form.spec.ts:377`, das seit P4 rot
-                    // stand — im buzz-Arm, der beim Merge nicht mitlief.
-                    event.stopPropagation()
-                    this.closeMentions()
-                }
-            },
-            /**
-             * Vorschlag übernehmen: `@query` durch `nostr:npub… ` ersetzen.
-             *
-             * Der Fokus geht über ein **Datenattribut** zurück ins Feld und nicht
-             * über `x-ref`: die Kommentarfelder stehen in einem `x-for`, und ein
-             * `x-ref` im Schleifenrumpf zeigt dort nur auf den zuletzt
-             * gerenderten. Der Haken ist eindeutig, die Referenz wäre es nicht.
+             * Überschreibt die Werkzeug-Form: das Ziel `issue` gehört dem
+             * Anlege-Formular dieser Fläche — sein Entwurf heisst
+             * `issueDraft.body`, nicht `commentDraft[<id>]`. Alle anderen Ziele
+             * (`comment:*`, `assign:*`) trägt das Werkzeug; diese Fläche ruft
+             * sie nicht mehr auf, aber geteilt ist geteilt.
              */
             pickMention(item: MentionItemLike) {
-                if (!item) {
-                    return
-                }
-                const ziel = this.mention.target
-                // **Der Zuweisen-Zweig steht VOR dem Textersatz.** Dort gibt es
-                // keinen Entwurf, in den etwas gespliced würde: der Vorschlag
-                // wird zum Chip, das Feld wird geleert, und die Suche bleibt
-                // offen für den nächsten Namen (bis zu 50 dürfen es sein).
-                if (ziel.startsWith('assign:')) {
-                    const rootId = ziel.slice('assign:'.length)
-                    this.assignPicks = {
-                        ...this.assignPicks,
-                        [rootId]: [...this.assignPicksFor(rootId).filter((p) => p.pubkey !== item.pubkey), item],
-                    }
-                    this.assignQuery = { ...this.assignQuery, [rootId]: '' }
+                if (item && this.mention.target === 'issue') {
+                    const ergebnis = spliceMention(
+                        this.issueDraft.body,
+                        this._mentionStart,
+                        this.mention.query.length,
+                        mentionInsert(item),
+                    )
+                    this.issueDraft = { ...this.issueDraft, body: ergebnis.text }
                     this.closeMentions()
-                    const zurueck = this as unknown as { $nextTick: (cb: () => void) => void }
-                    zurueck.$nextTick(() => {
-                        document
-                            .querySelector<HTMLInputElement>(`[data-forge-composer="${CSS.escape(ziel)}"]`)
-                            ?.focus()
+                    const magics = this as unknown as { $nextTick: (cb: () => void) => void }
+                    magics.$nextTick(() => {
+                        const feld = document.querySelector<HTMLTextAreaElement>(
+                            `[data-forge-composer="issue"]`,
+                        )
+                        if (feld) {
+                            feld.focus()
+                            feld.setSelectionRange(ergebnis.caret, ergebnis.caret)
+                        }
                     })
 
                     return
                 }
-                const insert = mentionInsert(item)
-                const istIssue = ziel === 'issue'
-                const rootId = istIssue ? '' : ziel.slice('comment:'.length)
-                const entwurf = istIssue ? this.issueDraft.body : (this.commentDraft[rootId] ?? '')
-                const { text, caret } = spliceMention(entwurf, this._mentionStart, this.mention.query.length, insert)
-                if (istIssue) {
-                    this.issueDraft = { ...this.issueDraft, body: text }
-                } else {
-                    this.commentDraft = { ...this.commentDraft, [rootId]: text }
+
+                forgeVorgangWerkzeuge.pickMention.call(this as unknown as VorgangInselstaat & VorgangWerkzeuge, item)
+            },
+
+        }
+    })
+
+/**
+ * Der Leer-Zwilling eines Vorgangs (P1).
+ *
+ * **Warum ein Stub und kein `null`:** Die Blatt-Markups binden Dutzende
+ * Ausdrücke der Form `vorgang().title`. Mit `null` WERFEN diese, solange der
+ * Relay-Bestand unterwegs ist — und ein Alpine-Ausdruck, der geworfen hat,
+ * erholt sich nicht mehr: der Effekt verliert seine Abhängigkeiten, und selbst
+ * nach dem Eintreffen der Daten bleibt die Fläche leer. Gemessen am Buzz-Stack
+ * (Plan 2026-08-27T1950, P2): Kommentarform und Statusknöpfe blieben inert.
+ * Der Stub macht jeden Ausdruck wohlgeformt (`''`, `[]`), und wenn der echte
+ * Vorgang eintrifft, zieht dieselbe Bindung nach.
+ */
+const LEERER_VORGANG: Readonly<Record<string, unknown>> = Object.freeze({
+    id: '',
+    title: '',
+    status: '',
+    author: '',
+    authorName: '',
+    authorPicture: '',
+    timeLabel: '',
+    html: '',
+    content: '',
+    branch: '',
+    repoAddress: '',
+    labels: [],
+    assignees: [],
+    assignmentHeads: {},
+    assigneePeople: [],
+    commentCount: 0,
+    comments: [],
+    updates: [],
+    reviewers: [],
+    approvals: [],
+    changeRequests: [],
+    reviewerPeople: [],
+    shortCommit: '',
+    shortMergeCommit: '',
+    shortAppliedAsCommits: [],
+})
+
+
+/** Die EIGENEN Felder und Wege der Einzel-Insel (über die Werkzeuge hinaus). */
+type ForgeVorgangStaaten = VorgangInselstaat & VorgangWerkzeuge & {
+    loading: boolean
+    error: string
+    missing: boolean
+    ungueltig: boolean
+    _eose: boolean
+    _controller: AbortController | null
+    _unsub: (() => void) | null
+    _unsubSelf: (() => void) | null
+    vorgang(): IssueRow | PullRequestRow | Readonly<Record<string, unknown>>
+    vorgangRoh(): IssueRow | PullRequestRow | null
+    vorgangDa(): boolean
+    shortId(): string
+    statusText(code: string): string
+    init(): void
+    destroy(): void
+    _boot(): Promise<void>
+    retry(): void
+    _messeMissing(): void
+}
+
+    Alpine.data('nostrForgeVorgang', (naddr: unknown, art: unknown, id: unknown): ForgeVorgangStaaten => {
+        return {
+            ...forgeVorgangWerkzeuge,
+            commentDraft: {},
+            commentError: {},
+            assignQuery: {},
+            assignPicks: {},
+            prDiff: {},
+            _prDiffAbbruch: {},
+            mention: { open: false, items: [], index: 0, query: '', target: '' },
+            wakeNotice: {},
+            busyTick: 0,
+            pending: [],
+            viewer: '',
+            _members: [],
+            _agentItems: [],
+            _agentView: null,
+            _channelIds: new Set<string>(),
+            _loadedProfiles: new Set<string>(),
+            _mentionStart: -1,
+            _unsubViewer: null,
+            _unsubPending: null,
+            _unsubMembers: null,
+            _unsubAgents: null,
+            _unsubRooms: null,
+            loading: true,
+            error: '',
+            missing: false,
+            /** Ungültige Id-Form — Leerfläche OHNE Relay-Kontakt (Whitelist). */
+            ungueltig: false,
+            view: null,
+            /** `issue` oder `pr` — aus der Route, nie aus dem Inhalt geraten. */
+            art: (art === 'pr' ? 'pr' : 'issue') as VorgangArt,
+            /** Nur PRs: `diskussion` | `dateien` (`?tab=`, teilbar). */
+            tab: vorgangTabFromLocation(),
+            _unsubSelf: null,
+            _naddr: String(naddr ?? ''),
+            _id: String(id ?? '').toLowerCase(),
+            _relaySelf: '',
+            _dead: false,
+            _controller: null,
+            _unsub: null,
+            /** Kam das EOSE der Laderunde? Erst dann ist „nicht gefunden" gedeckt. */
+            _eose: false,
+
+            /**
+             * Der EINE Vorgang aus dem View — oder sein LEER-Zwilling (nie
+             * `null`, Begründung am Stub). Wer die WAHRHEIT braucht (Leer-
+             * flächen, Missing-Logik), fragt {@link vorgangDa}.
+             */
+            vorgang() {
+                return this.vorgangRoh() ?? LEERER_VORGANG
+            },
+            /** Der rohe Befund: Zeile oder `null` — Grundlage aller Weichen. */
+            vorgangRoh() {
+                if (!this.view) {
+                    return null
                 }
-                this.closeMentions()
-                const magics = this as unknown as { $nextTick: (cb: () => void) => void }
-                magics.$nextTick(() => {
-                    const feld = document.querySelector<HTMLTextAreaElement>(
-                        `[data-forge-composer="${CSS.escape(ziel)}"]`,
+
+                return (
+                    (this.art === 'issue' ? this.view.issues : this.view.pullRequests).find(
+                        (row) => row.id === this._id,
+                    ) ?? null
+                )
+            },
+            /** Steht der EINZIG echte Vorgang? (`x-show`-Wächter des Blatts.) */
+            vorgangDa() {
+                return this.vorgangRoh() !== null
+            },
+            /**
+             * `#a1b2c3d` — sieben Stellen, wie `shortCommitId`. GitHub zählt
+             * Issues fortlaufend; NIP-34 kennt keine Nummern, und einen Zähler
+             * zu erfinden hiesse, eine Zahl zu behaupten, die der Relay jederzeit
+             * ändert. Die Kurzform der Event-Id sagt dasselbe ohne zu lügen.
+             */
+            shortId() {
+                return this._id.slice(0, 7)
+            },
+            statusText(code: string) {
+                return statusLabel(code)
+            },
+
+            init() {
+                // Regel 1 aus P2, unverändert: nur eine 64-stellige Hex-Id
+                // gilt. Eine ungültige Form kostet KEINEN Relay-Kontakt —
+                // dieselbe Reihenfolge wie bei jeder Weiche dieser Fläche:
+                // erst die Form fragen, dann das Netz.
+                if (!HEX64.test(this._id)) {
+                    this.ungueltig = true
+                    this.loading = false
+
+                    return
+                }
+                this._controller = new AbortController()
+                this._unsubSelf = deriveRelaySelf(WORKSPACE_URL).subscribe((self: string) => {
+                    this._relaySelf = self
+                })
+                this._abonniereSchreibQuellen(this._controller?.signal)
+                // Den Kommentarentwurf ANLEGEN, bevor das Feld ihn bindet —
+                // sonst steht beim ersten Rendern „undefined" im Textfeld.
+                this.commentDraft = { [this._id]: '' }
+                void this._boot()
+            },
+            destroy() {
+                this._dead = true
+                this._unsub?.()
+                this._unsubSelf?.()
+                this._trenneSchreibQuellen()
+                this._controller?.abort()
+            },
+            async _boot() {
+                if (!WORKSPACE_URL) {
+                    this.loading = false
+
+                    return
+                }
+                this._unsub = deriveRepoView(this._naddr).subscribe((view: RepoView | null) => {
+                    this.view = view
+                    if (view) {
+                        // Der `buzz-channel` des Repos entscheidet die Agenten-
+                        // Eignung; der Diff des EINEN Vorschlags wird hier (und
+                        // nur hier) vorgehalten.
+                        this._recomputeAgentItems()
+                        this._prDiffKarteNeu(view)
+                    }
+                    this._messeMissing()
+                })
+                try {
+                    const outcome = await loadRepoDetail(
+                        this._naddr,
+                        this._relaySelf,
+                        this._controller?.signal,
                     )
-                    if (feld) {
-                        feld.focus()
-                        feld.setSelectionRange(caret, caret)
+                    if (this._dead) {
+                        return
                     }
-                })
-            },
-            closeMentions() {
-                this.mention = { open: false, items: [], index: 0, query: '', target: '' }
-                this._mentionStart = -1
-            },
-            /**
-             * Die Agenten-Vorschläge dieser Seite neu falten.
-             *
-             * Kanalfilter, Betrachterfilter und der zooid-Riegel liegen
-             * vollständig in `agentMentionItems` — hier steht keine Regel, nur
-             * die Übergabe. Maßgeblich ist der `buzz-channel` des REPOS: trägt
-             * das Announcement keinen, ist `h` leer, und `agentServesChannel`
-             * liefert für jeden Agenten `false`. Kein Kanal, kein Vorschlag.
-             */
-            _recomputeAgentItems() {
-                const view = this._agentView
-                this._agentItems = view
-                    ? agentMentionItems({
-                          agents: view.agents,
-                          h: this.view?.repo.channelId ?? '',
-                          viewerPubkey: view.viewerPubkey,
-                          spaceKind: view.spaceKind,
-                          encodeNpub: nip19.npubEncode,
-                          memberItems: this._members,
-                          knownChannelIds: this._channelIds,
-                      })
-                    : []
-                // **Ein offener Vorschlag zieht nach.** Beide Quellen tröpfeln
-                // asynchron herein: das Verzeichnis (10100) wartet auf die
-                // NIP-11-Runde, der Kanal kommt erst mit dem Repo. Wer eine
-                // Zehntelsekunde vorher `@` getippt hat, sähe sonst dauerhaft eine
-                // Liste ohne Agenten — die Vorschläge werden je Tastendruck
-                // berechnet und nie wieder angefasst. Im E2E genau so
-                // aufgeschlagen: derselbe Test, einmal grün, einmal rot.
-                if (this._mentionStart >= 0) {
-                    // **Die Bedingung ist der offene SUCHBEGRIFF, nicht das offene
-                    // Fenster.** Der schlimmste Fall ist gerade der, in dem das
-                    // Fenster ZU ist: wer den Namen eines Agenten tippt, dessen
-                    // 10100 noch unterwegs ist, hat null Treffer — und mit einer
-                    // Bedingung auf `open` käme der Vorschlag nie mehr, auch wenn
-                    // das Profil eine Sekunde später eintrifft.
-                    const items = this._mentionItemsFor(this.mention.query, this.mention.target)
-                    this.mention = {
-                        ...this.mention,
-                        items,
-                        // Die Auswahl NICHT auf 0 zurücksetzen: wer gerade mit den
-                        // Pfeilen wählt, spränge sonst bei jedem eintreffenden
-                        // Profil zurück an den Anfang.
-                        index: Math.min(this.mention.index, Math.max(0, items.length - 1)),
-                        open: items.length > 0,
+                    this._eose = outcome.complete
+                    // Der Repo-Bestand selbst fehlt → dieselbe Aussage wie auf
+                    // der Repo-Seite; der Vorgang allein kann nicht „fehlen"
+                    // behauptet werden, wenn das Relay das Repo nicht kennt.
+                    this.error = !outcome.complete && !this.view ? t('Die Forge ist gerade nicht erreichbar.') : ''
+                    this._messeMissing()
+                    if (this.view && this._controller) {
+                        watchForge([this.view.repo.address], this._controller.signal)
                     }
+                } catch {
+                    if (!this._dead && !this.view) {
+                        this.error = t('Die Forge ist gerade nicht erreichbar.')
+                    }
+                } finally {
+                    this.loading = false
                 }
             },
             /**
-             * Die Weckmeldung — **nach** einem erfolgreich veröffentlichten
-             * Beitrag, ausgelöst durch nichts als diese eine Nutzerhandlung.
-             *
-             * Ihr Ausgang ist ein EIGENES Ergebnis: scheitert sie, bleibt der
-             * Beitrag gültig und wird als gelungen dargestellt. Der Hinweis
-             * daneben sagt, was mit dem Weckruf ist — auch dann, wenn gar keiner
-             * nötig oder möglich war.
+             * „Nicht gefunden" — erst eine Aussage, wenn das Relay geantwortet
+             * HAT (EOSE). Zwei Gestalten mit zwei Sätzen: kennt der Relay das
+             * REPO nicht, fehlt der ganze Rahmen; kennt er das Repo, nicht aber
+             * den Vorgang, fehlt nur dieser. Ein gemeinsamer Satz für beide
+             * wäre die Sorte Begründung, nach der man erst recht fragt.
              */
-            async _wake(target: string, content: string, vorgang: WakeTargetInput) {
-                const repo = this.view?.repo
-                if (!repo) {
+            _messeMissing() {
+                if (!this._eose) {
+                    this.missing = false
+
                     return
                 }
-                const ergebnis: WakeResult = await wakeMentionedAgents({
-                    url: WORKSPACE_URL,
-                    channelId: repo.channelId,
-                    agents: this._agentView?.agents ?? [],
-                    viewerPubkey: this.viewer,
-                    content,
-                    knownChannelIds: this._channelIds,
-                    target: {
-                        art: vorgang.art,
-                        eventId: vorgang.eventId,
-                        repoAddress: repo.address,
-                        what: vorgang.what,
-                    },
-                })
-                if (this._dead || ergebnis.code === 'none') {
-                    return
-                }
-                const namen = ergebnis.names.join(', ')
-                // ── Warum jede dieser Zeilen mit dem AUSGANG beginnt ──────────
-                //
-                // Die Frage des Nutzers in diesem Moment ist eine einzige:
-                // „antwortet da jetzt jemand?". Bis 2026-08-23 stand die Antwort
-                // in drei von vier Nullfällen hinter einem Gedankenstrich am
-                // Satzende — davor die Begründung, die er erst braucht, wenn er
-                // die Antwort schon kennt. Jetzt trägt jede Meldung sie in den
-                // ersten beiden Wörtern („Geweckt:" / „Niemand geweckt:"), und
-                // der Grund folgt.
-                //
-                // Und sie tun es mit EINEM Verb. Vorher hießen derselbe Vorgang
-                // „Weckmeldung", „benachrichtigt", „Benachrichtigung", „ging
-                // nicht raus" und „reagiert niemand auf dich" — fünf Wörter für
-                // eine Sache, während die Fläche daneben „Agent" und „antwortet
-                // auf Erwähnung" sagt. Ein Nutzer, der eine Oberfläche lernt,
-                // lernt ihre Wörter; wechseln sie, lernt er nichts.
-                //
-                // `:namen` kommt aus `agentLabels` und ist bereits „Name (npub…)".
-                // Die alten Fassungen setzten das noch einmal in Klammern —
-                // „(ceo (npub1abc…wxyz))" — und die doppelte Klammer las sich wie
-                // ein Tippfehler. Der Name steht jetzt im Satz.
-                const hinweis =
-                    ergebnis.code === 'sent'
-                        ? {
-                              tone: 'ok' as const,
-                              text: t('Geweckt: :namen. Die Antwort erscheint im Projektkanal.', { namen }),
-                          }
-                        : ergebnis.code === 'channel-foreign'
-                          ? {
-                                tone: 'warn' as const,
-                                text: t(
-                                    'Niemand geweckt: dieses Repository verweist auf einen Kanal, der nicht zu deinen Räumen gehört. :namen erfährt nichts von deinem Beitrag.',
-                                    { namen },
-                                ),
-                            }
-                          : ergebnis.code === 'no-channel'
-                          ? {
-                                tone: 'warn' as const,
-                                text: t(
-                                    'Niemand geweckt: dieses Repository gehört zu keinem Kanal. :namen erfährt nichts von deinem Beitrag.',
-                                    { namen },
-                                ),
-                            }
-                          : ergebnis.code === 'not-wakeable'
-                            ? {
-                                  tone: 'warn' as const,
-                                  text: t(
-                                      'Niemand geweckt: :namen antwortet in diesem Kanal nicht auf dich. Dein Beitrag steht trotzdem.',
-                                      { namen },
-                                  ),
-                              }
-                            : {
-                                  tone: 'warn' as const,
-                                  text: t(
-                                      'Niemand geweckt: die Meldung an :namen ging nicht raus — :fehler. Dein Beitrag steht trotzdem.',
-                                      { namen, fehler: ergebnis.error },
-                                  ),
-                              }
-                this.wakeNotice = { ...this.wakeNotice, [target]: hinweis }
+                this.missing = !this.view || this.vorgangRoh() === null
             },
-            dismissWake(target: string) {
-                const rest = { ...this.wakeNotice }
-                delete rest[target]
-                this.wakeNotice = rest
+            retry() {
+                this.error = ''
+                this.missing = false
+                this._eose = false
+                this._controller?.abort()
+                this._controller = new AbortController()
+                this.loading = true
+                void this._boot()
             },
         }
     })

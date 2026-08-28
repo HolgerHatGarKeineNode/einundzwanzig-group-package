@@ -61,6 +61,43 @@
                  data-forge-detail-suche-leeren
                  aria-label="{{ __('Eingabe leeren') }}" />
 
+    {{-- ══ DER ZUSTANDS-UMSCHALTER (GitHub-Parität P4) ════════════════════════
+         GitHubs Segment „N Open / M Closed" über der Liste. Nur auf den
+         Issue- und PR-Reitern — Patches kennen keinen Zustands-Ausschnitt,
+         und ein Umschalter über einer Liste, die ihn nicht filtert, wäre
+         eine Attrappe.
+
+         Die Zahlen sind UNGESUCHT (Begründung in `offenZahl()`): die Suche
+         sagt „was von den Treffern ist offen", der Umschalter „was von
+         allem" — zwei Fragen, zwei Zahlenquellen.
+
+         `aria-pressed` statt einer Tab-Gruppe: es sind Knöpfe, die einen
+         Ausschnitt WÄHLEN, keine Ansichten, die man besucht — dieselbe
+         Bauform wie der Schema-Umschalter im Haus. Die Glyphe trägt die
+         Farbe als ZUSATZ (grün/rot), nicht als Träger — das Wort steht
+         daneben (WCAG 1.4.1). --}}
+    <div class="flex shrink-0 items-center gap-1" x-show="tab === 'issues' || tab === 'pulls'" x-cloak
+         role="group" aria-label="{{ __('Zustand der Liste' ) }}" data-forge-zustand-wahl>
+        <flux:button size="sm" variant="ghost" class="text-btn-touch"
+                     x-on:click="zustand = 'offen'"
+                     ::aria-pressed="zustand === 'offen' ? 'true' : 'false'"
+                     ::class="zustand === 'offen' ? 'font-semibold' : ''"
+                     data-forge-zustand="offen">
+            <flux:icon.check-circle variant="micro" class="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span x-text="$num(offenZahl())"></span>
+            <span class="hidden sm:inline">{{ __('offen') }}</span>
+        </flux:button>
+        <flux:button size="sm" variant="ghost" class="text-btn-touch"
+                     x-on:click="zustand = 'geschlossen'"
+                     ::aria-pressed="zustand === 'geschlossen' ? 'true' : 'false'"
+                     ::class="zustand === 'geschlossen' ? 'font-semibold' : ''"
+                     data-forge-zustand="geschlossen">
+            <flux:icon.check-circle variant="micro" class="size-4 shrink-0 text-purple-600 dark:text-purple-400" />
+            <span x-text="$num(geschlossenZahl())"></span>
+            <span class="hidden sm:inline">{{ __('geschlossen') }}</span>
+        </flux:button>
+    </div>
+
     {{-- ══ DIE DESKTOP-FORM DES ANLEGE-KNOPFES ═══════════════════════════════
          `ms-auto`: ohne Suchfeld (leeres Repository) fällt die `flex-1`-Spur
          weg, und der Knopf stünde links. Mit Suchfeld ist die Klasse ein No-op.

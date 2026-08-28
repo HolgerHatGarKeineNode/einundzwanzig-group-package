@@ -86,8 +86,56 @@
          würde den Inhalt SCHRUMPFEN lassen, während das Fenster wächst — genau
          der Fehler, der hier gerade repariert wird, nur eine Stufe tiefer
          (gerechnet: 1024 px → 621 px, 1279 px → 608 px). --}}
+    {{-- ── Warum die Bühne ab `xl` `relative` ist ────────────────────────────────
+         **Ein Scrollport, der kein enthaltender Block ist, klippt seine absolut
+         positionierten Nachfahren nicht — sie hängen dann am DOKUMENT.**
+
+         `xl:overflow-y-auto` macht diese `main` zum Scrollport. Ein `absolute`
+         darin sucht sich seinen enthaltenden Block aber beim nächsten
+         POSITIONIERTEN Vorfahren, und den gab es bis hierher nicht: er landete
+         beim initialen enthaltenden Block. Ein Kasten, dessen enthaltender Block
+         ausserhalb eines Scrollports liegt, wird von dessen `overflow` NICHT
+         geklippt und zählt zum Scroll-Überlauf des Dokuments.
+
+         Gemessen am 2026-08-28 im Code-Reiter eines Repositories (1440×900,
+         42 Dateizeilen): jede Zeile trägt ein `<span class="sr-only">` für die
+         Art (Verzeichnis/Datei), und `sr-only` ist in Tailwind
+         `position: absolute` (`.sr-only{…;position:absolute;overflow:hidden}` im
+         gebauten Stylesheet). Die 42 Spannen meldeten `offsetParent === BODY`;
+         die unterste stand bei y = 2041 — und exakt das war
+         `document.scrollingElement.scrollHeight`: **2041 statt 900.** Folge: ein
+         ZWEITER, dokumentweiter Bildlauf neben dem der Bühne, und das ganze
+         `xl:h-dvh`-Chassis (samt Rail) schob sich beim Scrollen nach oben aus dem
+         Bild — die gemeldete „aufbrechende" Rail. Im selben Lauf: Datei geöffnet
+         (Baum weg) → 900, Reiter Issues/Pull Requests/Aktivität/Patches → 900.
+
+         **Warum hier und nicht an der Baumzeile:** `sr-only` ist das
+         Haus-Muster für Textalternativen und steht in jeder längeren Liste
+         (`/forge` 2, `/updates` 1, `/spaces` 2 …). Sichtbar wird der Fehler nur,
+         wenn eine Liste über die Falzkante hinausreicht — die nächste tut es
+         wieder. Ein `relative` an den zwei Baumzeilen hätte diesen Baum geheilt
+         und die Regel offen gelassen; hier steht sie einmal, für jede Fläche, die
+         in dieser Bühne scrollt.
+
+         **Kein Symptomdeckel:** `overflow: hidden` weiter oben würde den Überlauf
+         nur verstecken (und die Bühne mit klippen). `relative` beseitigt ihn,
+         indem es den Bezug richtigstellt — der `sr-only`-Kasten gehört in den
+         Scrollport, in dem sein Text steht.
+
+         **Blast-Radius, gemessen statt geschätzt:** betroffen sind
+         ausschliesslich `absolute`-Kästen, deren Bezug bisher der initiale
+         enthaltende Block war (`fixed` bleibt unberührt, `relative` mit `z-index:
+         auto` eröffnet keinen Stapelkontext, `sticky` klebt weiter am Scrollport).
+         Die Geometrie ALLER sichtbaren absolut/fest positionierten Elemente wurde
+         auf sieben Flächen vorher/nachher verglichen (Repo-Code-Reiter 46, /forge 5,
+         /articles 9, /directory 5, /spaces 11, /updates 3, /settings 5) —
+         **jede einzelne Position unverändert**, die 42 `sr-only`-Spannen
+         eingeschlossen: sie haben keine eigenen Versätze, stehen also weiter an
+         ihrer statischen Position und wechseln nur den Bezug.
+         Unterhalb `xl` ändert sich nichts: dort scrollt das
+         Dokument absichtlich, und die Klasse trägt den `xl:`-Riegel. --}}
     @php($nativeShell = \Einundzwanzig\Group\Chassis::istApp())
-    <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-[clamp(2rem,2.5vw,3rem)] xl:pt-6 '.($chrome ? ($nativeShell ? 'pb-28' : 'pb-28 xl:pb-8') : 'pb-8')) }}>
+    <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:relative xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-[clamp(2rem,2.5vw,3rem)] xl:pt-6 '.($chrome ? ($nativeShell ? 'pb-28' : 'pb-28 xl:pb-8') : 'pb-8')) }}>
         {{-- Ab xl bekommt der Seiteninhalt einen eigenen Deckel, statt die ganze
              Spaltenbreite zu füllen — eine Bühne ohne Deckel ist Slacks
              Lesbarkeitsfehler.
