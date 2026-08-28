@@ -1482,12 +1482,19 @@ select:focus[data-flux-control] {
         align-items: start;
     }
 
-    /* AUSDRÜCKLICH platziert, nicht dem Auto-Placement überlassen: im DOM steht
-       der Steckbrief VOR der Werkbank (Begründung im Blade — schmal gehört der
-       Aufklapper zwischen Überschrift und Reiter, nicht unter 800 Zeilen
-       Vorgangsliste). Ohne diese zwei Regeln landete er links und die Werkbank
-       rechts, also genau falschherum. Und Auto-Placement neben expliziten
-       Angaben ist im Haus schon einmal schiefgegangen (`.forge-zeile`). */
+    /* AUSDRÜCKLICH platziert, nicht dem Auto-Placement überlassen — Auto-Placement
+       neben expliziten Angaben ist im Haus schon einmal schiefgegangen
+       (`.forge-zeile`).
+
+       (Hier stand bis zum 2026-08-28 „im DOM steht der Steckbrief VOR der
+       Werkbank" samt der Folgerung, ohne diese Regeln stünde alles falschherum.
+       Am Quelltext nachgesehen ist es umgekehrt: `.forge-repo-werkbank` steht
+       zuerst, `.forge-repo-spur` danach — Auto-Placement ergäbe also schon die
+       richtige Reihenfolge. Der Grund für die zwei Regeln bleibt trotzdem
+       bestehen, er ist nur ein anderer; und eine falsche Begründung neben einer
+       richtigen Regel entwertet beide. Die einspaltige Form ist damit auch das,
+       was sie sein soll: Werkbank oben, Über-Spur darunter — GitHubs mobile
+       Anordnung.) */
     .forge-repo-werkbank {
         grid-column: 1;
         grid-row: 1;
@@ -1921,13 +1928,13 @@ select:focus[data-flux-control] {
 
 /* GitHubs Beschreibung: 16 px/24 px, 12 px unter der Überschrift.
 
-   `max-width: 62ch` ist in der ZWEISPALTIGEN Form wirkungslos (272 px sind
-   34 Zeichen) und in der EINSPALTIGEN die ganze Miete: dort ist die Spur so
-   breit wie die Werkbank — gemessen 640 px bei Fenster 1279, also 80 Zeichen und
-   damit über dem Kanon-Deckel von 75. Derselbe Wert wie `.forge-mass`. */
+   KEIN eigener `max-width` — den Deckel trägt `.forge-mass` am Element selbst
+   (Begründung im Blade). Hier stand er kurz als zweite Quelle desselben Wertes;
+   in der zweispaltigen Form ist er wirkungslos (272 px sind 34 Zeichen), in der
+   einspaltigen die ganze Miete (Spur 640 px = 80 Zeichen, gemessen bei Fenster
+   1279). Ein Wert, ein Ort. */
 .forge-spur-text {
     margin-top: 0.75rem;
-    max-width: 62ch;
     font-size: 1rem;
     line-height: 1.5rem;
 }

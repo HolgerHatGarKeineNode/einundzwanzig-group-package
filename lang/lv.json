@@ -1201,5 +1201,6 @@
     "Zeitpunkt": "Laiks",
     "Neu laden": "Pārlādēt",
     "Tag": "Tags",
-    "Über": "Par"
+    "Über": "Par",
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "Failu saraksts un README nav Nostr notikumā. Lai tos parādītu, šis klients lejupielādē visu repozitoriju — relejs neprot daļēju pārsūtīšanu."
 }

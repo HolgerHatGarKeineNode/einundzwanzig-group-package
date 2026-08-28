@@ -1169,5 +1169,6 @@
     "Zeitpunkt": "Czas",
     "Neu laden": "Wczytaj ponownie",
     "Tag": "Tag",
-    "Über": "O repozytorium"
+    "Über": "O repozytorium",
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "Lista plików i README nie znajdują się w zdarzeniu Nostr. Aby je pokazać, ten klient pobiera całe repozytorium — przekaźnik nie obsługuje transferu częściowego."
 }

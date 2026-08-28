@@ -1169,5 +1169,6 @@
     "Zeitpunkt": "Momento",
     "Neu laden": "Recarregar",
     "Tag": "Tag",
-    "Über": "Sobre"
+    "Über": "Sobre",
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "A lista de ficheiros e o README não estão no evento Nostr. Para os mostrar, este cliente descarrega o repositório inteiro — o relay não suporta transferência parcial."
 }

@@ -1137,5 +1137,6 @@
     "Zeitpunkt": "Tijdstip",
     "Neu laden": "Opnieuw laden",
     "Tag": "Tag",
-    "Über": "Over"
+    "Über": "Over",
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "De bestandslijst en de README staan niet in het Nostr-event. Om ze te tonen downloadt deze client de hele repository — de relay kan geen gedeeltelijke overdracht."
 }

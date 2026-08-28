@@ -1712,7 +1712,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <div class="forge-spur-abschnitt" data-forge-spur="ueber">
                             <h2 class="forge-spur-titel">{{ __('Über') }}</h2>
 
-                            <p x-show="view.repo.description" class="forge-spur-text" x-text="view.repo.description"></p>
+                            {{-- `.forge-mass` und nicht ein eigener Deckel: das Textmaß dieser
+                                 Fläche steht an EINER Stelle (`theme.css`, `max-width: 62ch`)
+                                 und trägt alles Fließende — auch die Callouts. Hier stand kurz
+                                 ein `max-width: 62ch` in `.forge-spur-text`, also derselbe Wert
+                                 unter zweitem Namen; ein Wächter, der auf `p.forge-mass` misst
+                                 (`desktop-forge.spec.ts`, „dieselbe Textmaß bei 1920 px"), sah
+                                 den Absatz dadurch nicht mehr. In der 272-px-Spur bindet der
+                                 Deckel ohnehin nie — erst in der einspaltigen Form, wo die Spur
+                                 640 px breit ist (gemessen bei Fenster 1279: 80 Zeichen ohne
+                                 Deckel, 62 mit). --}}
+                            <p x-show="view.repo.description" class="forge-spur-text forge-mass" x-text="view.repo.description"></p>
 
                             {{-- Die Website aus dem `web`-Tag des 30617. Sie wurde seit
                                  jeher geparst (`forgeModels.ts`, `webUrls`) und war
