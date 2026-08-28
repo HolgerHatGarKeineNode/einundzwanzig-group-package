@@ -1706,7 +1706,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Weggelassen und NICHT attrappiert: Stars, Forks, Watch,
                          Releases, Packages, Sponsor. Ein NIP-34-Repository führt keine
                          dieser Zahlen, und eine erfundene wäre schlimmer als keine. --}}
-                    <aside class="forge-repo-spur min-w-0" aria-label="{{ __('Über dieses Repository') }}">
+                    {{-- `mt-6` NUR nativ: der Abstand zwischen Werkbank und Über-Spur
+                         kommt im Web aus `gap: 1.5rem` an `.forge-repo-raster`. In der
+                         App fehlt diese Klasse (siehe `@class` oben — „Die Klassen stehen
+                         NUR im Web-Host"), und damit fiel auch der Abstand weg: „Über"
+                         klebte direkt am Ende des Reiters, in JEDEM Tab. 1.5rem = mt-6,
+                         also derselbe Wert wie das Web-gap. --}}
+                    <aside @class(['forge-repo-spur min-w-0', 'mt-6' => $native]) aria-label="{{ __('Über dieses Repository') }}">
 
                         {{-- ── 1. Über ────────────────────────────────────────────────── --}}
                         <div class="forge-spur-abschnitt" data-forge-spur="ueber">
