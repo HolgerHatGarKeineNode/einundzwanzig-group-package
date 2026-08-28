@@ -89,7 +89,7 @@ import {
 // Rein und ohne Netz: WOHER der Diff eines Pull Requests käme, und wann gar
 // nicht. Das Holen selbst steht im lazy geladenen `gitBrowser.ts`.
 import { baueDiff, prDiffQuelle, type PrDiffQuelle } from './forgePrDiff.ts'
-import type { PrDiffFehler } from './gitBrowser.ts'
+import type { EintragCommit, KopfStand, PrDiffFehler } from './gitBrowser.ts'
 import { filterRepos, sucheVorgaenge } from './forgeSearch.ts'
 import {
     FORGE_LIST_LIMIT,
@@ -2010,6 +2010,24 @@ export type CodeLage = {
     zeilen: number
     laedt: boolean
     fehler: string
+    /**
+     * Die zweite und dritte Spalte der Dateiliste — Eintragsname → letzter
+     * Commit. Wird NACH der Liste gefüllt (siehe `_commitSpaltenLaden`); ein
+     * fehlender Schlüssel heisst „noch nicht gelesen ODER nicht gefunden", und
+     * beide Male bleibt die Zelle leer statt zu raten.
+     */
+    commits: Record<string, EintragCommit>
+    /** Läuft der Historienlauf gerade? Trägt den Ladezustand der zwei Spalten. */
+    commitsLaden: boolean
+    /** Der Commit, auf dem der Baum steht — der Commit-Kopf über der Liste. */
+    kopf: KopfStand | null
+    /**
+     * Die Uhr, gegen die JEDE Zeitangabe dieser Liste gerechnet wird — EINMAL
+     * je Lauf gelesen, wie in `toActivityGroups`. Zwei getrennte `Date.now()`
+     * ergäben an der Mitternachtsgrenze zwei verschiedene Antworten auf dieselbe
+     * Frage. `0` heisst „noch nichts gelesen".
+     */
+    zeitJetzt: number
 }
 
 /**
@@ -2098,6 +2116,11 @@ type ForgeRepoState = {
     dateiOeffnen(pfad: string): Promise<void>
     dateiSchliessen(): void
     codeHoch(): Promise<void>
+    /** Füllt die zwei Commit-Spalten NACH der Liste (P8, GitHub-Parität). */
+    _commitSpaltenLaden(pfad: string, namen: readonly string[]): Promise<void>
+    commitFuer(name: string): EintragCommit | null
+    commitZeitText(zeit: number): string
+    commitZeitVoll(zeit: number): string
     krumel(): { name: string; pfad: string }[]
     speicherUmschalten(): Promise<void>
     klonEntfernen(owner: string, dtag: string): Promise<void>
@@ -3766,7 +3789,7 @@ export function wireForge(Alpine: {
             // `pruefe`, nicht `bereit`: ob das Repository schon lokal liegt,
             // weiss erst ein Blick in IndexedDB (siehe `ReadmeLage`).
             klon: { lage: 'pruefe', name: '', html: '', text: '', fehler: '', fortschritt: null, commit: '', fremdUrl: '' },
-            code: { pfad: '', eintraege: [], datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0, laedt: false, fehler: '' },
+            code: { pfad: '', eintraege: [], datei: '', art: '', html: '', text: '', bildUrl: '', groesse: 0, gekuerzt: false, zeilen: 0, laedt: false, fehler: '', commits: {}, commitsLaden: false, kopf: null, zeitJetzt: 0 },
             speicher: { offen: false, klone: [], belegt: 0, kontingent: 0 },
             suche: '',
             // GH-Form: welcher Zustands-Ausschnitt der Listen steht da (P4).
@@ -4155,11 +4178,101 @@ export function wireForge(Alpine: {
                 try {
                     const g = await import('./gitBrowser.ts')
                     const eintraege = await g.baumEintraege(repo.owner, repo.dtag, pfad)
-                    this.code = { ...this.code, pfad, eintraege: sortiereEintraege(eintraege), laedt: false }
+                    const sortiert = sortiereEintraege(eintraege)
+                    // Die LISTE steht sofort. Die zwei Commit-Spalten kommen
+                    // danach — Begründung an `_commitSpaltenLaden`.
+                    this.code = { ...this.code, pfad, eintraege: sortiert, laedt: false, commits: {}, kopf: null }
+                    void this._commitSpaltenLaden(pfad, sortiert.map((e) => e.name))
                 } catch (error) {
                     console.warn('[forge] Baum konnte nicht gelesen werden', error)
                     this.code = { ...this.code, laedt: false, fehler: t('Dieses Verzeichnis liess sich nicht lesen.') }
                 }
+            },
+
+            /**
+             * Die zwei rechten Spalten der Dateiliste NACHLADEN — die Zeile
+             * steht, die Spalten füllen sich.
+             *
+             * **Warum nachgeladen und nicht mitgeliefert.** Die Einträge selbst
+             * kosten EINEN `readTree`; die Commit-Angabe je Eintrag kostet einen
+             * Gang durch die Historie (gemessen und im Bericht genannt). Die
+             * Liste dafür zurückzuhalten hiesse, den PRIMÄREN Inhalt auf den
+             * sekundären warten zu lassen. Weggelassen wird sie deshalb nicht:
+             * Name │ letzte Änderung │ Zeit ist GitHubs prägendste Eigenschaft
+             * dieser Liste.
+             *
+             * **Der Pfad-Vergleich ist die ganze Absicherung gegen das Rennen.**
+             * Wer während des Laufs weiterblättert, hat `code.pfad` schon
+             * geändert; das Ergebnis des alten Verzeichnisses wird dann
+             * verworfen, statt fremde Zeiten in die neue Liste zu schreiben.
+             */
+            async _commitSpaltenLaden(pfad: string, namen: readonly string[]) {
+                const repo = this.view?.repo
+                if (!repo) {
+                    return
+                }
+                this.code = { ...this.code, commitsLaden: true }
+                try {
+                    const g = await import('./gitBrowser.ts')
+                    // Der Kopf-Commit liegt IMMER im Klon (`depth: 1` holt genau
+                    // ihn) und steht deshalb sofort — unabhängig davon, ob die
+                    // Historie darunter je eintrifft.
+                    const kopf = await g.kopfCommit(repo.owner, repo.dtag)
+                    if (this.code.pfad !== pfad) {
+                        return
+                    }
+                    this.code = { ...this.code, kopf, zeitJetzt: Math.floor(Date.now() / 1000) }
+
+                    let erg = await g.baumCommits(repo.owner, repo.dtag, pfad, namen)
+                    // ── Die Historie ist NICHT im Klon ──────────────────────
+                    // `klone()` holt `depth: 1`. Für jeden Eintrag, den der
+                    // Kopf-Commit nicht angefasst hat, steht die Antwort damit
+                    // gar nicht im lokalen Repository. `baumCommits` meldet das
+                    // (`vollstaendig: false`) statt zu raten — hier wird EINMAL
+                    // vertieft und danach neu gerechnet. Schlägt die Vertiefung
+                    // fehl, bleiben die Zellen leer; eine leere Zelle ist eine
+                    // fehlende Angabe, eine geratene eine Falschaussage.
+                    if (!erg.vollstaendig) {
+                        const url = waehleCloneUrl(repo.cloneUrls)
+                        if (url && (await g.vertiefe(repo.owner, repo.dtag, url))) {
+                            if (this.code.pfad !== pfad) {
+                                return
+                            }
+                            erg = await g.baumCommits(repo.owner, repo.dtag, pfad, namen)
+                        }
+                    }
+                    if (this.code.pfad !== pfad) {
+                        return
+                    }
+                    this.code = { ...this.code, commits: erg.je, commitsLaden: false }
+                } catch (error) {
+                    console.warn('[forge] Commit-Spalten liessen sich nicht lesen', error)
+                    if (this.code.pfad === pfad) {
+                        this.code = { ...this.code, commitsLaden: false }
+                    }
+                }
+            },
+
+            /** Der letzte Commit eines Eintrags — `null`, solange (oder falls) es keinen gibt. */
+            commitFuer(name: string): EintragCommit | null {
+                return this.code.commits[name] ?? null
+            },
+
+            /**
+             * Die Zeitspalte, in der Sprache des Hauses.
+             *
+             * Bewusst `timelineTimeLabel` und keine zweite Zeitsprache: dieselben
+             * Wörter stehen in der Aktivitätsspur und in jeder Vorgangszeile
+             * (Nielsen #4). GitHub schreibt „last month", das Haus „vor 30 Tg" —
+             * das ist eine Wortwahl, keine Layoutfrage.
+             */
+            commitZeitText(zeit: number): string {
+                return zeit > 0 && this.code.zeitJetzt > 0 ? timelineTimeLabel(zeit, this.code.zeitJetzt) : ''
+            },
+
+            /** Die volle Angabe für `title` — der relative Text allein nennt kein Datum. */
+            commitZeitVoll(zeit: number): string {
+                return zeit > 0 ? timelineFullLabel(zeit) : ''
             },
 
             async codeHoch() {
@@ -4280,7 +4393,7 @@ export function wireForge(Alpine: {
                 const repo = this.view?.repo
                 if (repo && repo.owner === owner && repo.dtag === dtag) {
                     this.dateiSchliessen()
-                    this.code = { ...this.code, pfad: '', eintraege: [] }
+                    this.code = { ...this.code, pfad: '', eintraege: [], commits: {}, kopf: null, commitsLaden: false }
                     this.klon = { ...this.klon, lage: 'bereit', name: '', html: '', text: '', commit: '' }
                 }
             },
@@ -4320,7 +4433,9 @@ export function wireForge(Alpine: {
                     // Der Wurzelbaum kommt gleich mit: er liegt im selben Klon,
                     // kostet kein Netz, und der Code-Tab soll nicht erst beim
                     // Anklicken zu laden anfangen.
-                    this.code = { ...this.code, eintraege: sortiereEintraege(eintraege), pfad: '', datei: '' }
+                    const sortiert = sortiereEintraege(eintraege)
+                    this.code = { ...this.code, eintraege: sortiert, pfad: '', datei: '', commits: {}, kopf: null }
+                    void this._commitSpaltenLaden('', sortiert.map((e) => e.name))
                 } catch (error) {
                     this.klon = { ...this.klon, lage: 'fehler', fehler: ordneFehlerEin(error), fortschritt: null }
                 }

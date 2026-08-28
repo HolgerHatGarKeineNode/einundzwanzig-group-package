@@ -1164,5 +1164,10 @@
     "freigegeben": "zatwierdzone",
     "Von :name": "Od :name",
     "Von :name aus :branch": "Od :name z :branch",
-    "Zum Repository": "Przejdź do repozytorium"
+    "Zum Repository": "Przejdź do repozytorium",
+    "Letzte Änderung": "Ostatnia zmiana",
+    "Zeitpunkt": "Czas",
+    "Neu laden": "Wczytaj ponownie",
+    "Tag": "Tag",
+    "Über": "O repozytorium"
 }

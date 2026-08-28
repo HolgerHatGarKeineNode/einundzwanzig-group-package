@@ -1132,5 +1132,10 @@
     "freigegeben": "aprobado",
     "Von :name": "Por :name",
     "Von :name aus :branch": "Por :name desde :branch",
-    "Zum Repository": "Ir al repositorio"
+    "Zum Repository": "Ir al repositorio",
+    "Letzte Änderung": "Último cambio",
+    "Zeitpunkt": "Momento",
+    "Neu laden": "Recargar",
+    "Tag": "Etiqueta",
+    "Über": "Acerca de"
 }

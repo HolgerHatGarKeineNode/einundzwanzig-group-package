@@ -259,15 +259,34 @@ export const leseDatei = async (owner: string, dtag: string, pfad: string): Prom
     return new TextDecoder('utf-8', { fatal: false }).decode(blob)
 }
 
-/** Den Kopf-Commit — für die Angabe „Stand vom …". */
-export const kopfCommit = async (owner: string, dtag: string): Promise<{ oid: string; zeit: number } | null> => {
+/**
+ * Der Kopf-Commit — für die Angabe „Stand vom …" UND für den Commit-Kopf über
+ * der Dateiliste.
+ *
+ * `nachricht` ist die ERSTE Zeile der Commit-Nachricht (Git-Konvention: der
+ * Betreff). Der Rumpf gehört in eine Commit-Ansicht, nicht in eine Kopfzeile.
+ * `autor` ist der Name aus dem Commit-Objekt — echte Daten aus dem Klon, keine
+ * Nostr-Identität: wer ein Repository signiert, ist nicht zwingend, wer es
+ * committet hat, und diese Zeile behauptet nur Letzteres.
+ */
+export type KopfStand = { oid: string; zeit: number; nachricht: string; autor: string }
+
+/** Die erste Zeile einer Commit-Nachricht, ohne Rand-Leerraum. */
+const betreff = (nachricht: string): string => (nachricht ?? '').split('\n', 1)[0]?.trim() ?? ''
+
+export const kopfCommit = async (owner: string, dtag: string): Promise<KopfStand | null> => {
     const { git, fs } = await ladeGit()
     const dir = klonPfad(owner, dtag)
     try {
         const oid = await git.resolveRef({ fs: fs as never, dir, ref: 'HEAD' })
         const { commit } = await git.readCommit({ fs: fs as never, dir, oid })
 
-        return { oid, zeit: commit.author?.timestamp ?? 0 }
+        return {
+            oid,
+            zeit: commit.author?.timestamp ?? 0,
+            nachricht: betreff(commit.message ?? ''),
+            autor: commit.author?.name ?? '',
+        }
     } catch {
         return null
     }
@@ -293,6 +312,229 @@ export const baumEintraege = async (owner: string, dtag: string, pfad = ''): Pro
     const { tree } = await git.readTree({ fs: fs as never, dir, oid, filepath: pfad })
 
     return tree.map((e) => ({ name: e.path, art: e.type as WurzelEintrag['art'] }))
+}
+
+// ── Die Commit-Spalten der Dateiliste ───────────────────────────────────────
+
+/** Was ein Eintrag der Dateiliste über seinen letzten Commit sagt. */
+export type EintragCommit = { oid: string; nachricht: string; zeit: number }
+
+/**
+ * Wie weit die Historie für die Commit-Spalten rückwärts gelesen wird.
+ *
+ * Kein Sicherheitsnetz, sondern ein Deckel gegen eine unbegrenzte Schleife über
+ * fremde Daten: ein Repository mit 200 000 Commits würde den Tab sonst binden.
+ * Wird der Deckel erreicht, meldet das Ergebnis `vollstaendig: false` — die
+ * betroffenen Einträge bleiben LEER statt geraten. Eine Zeit, die man nicht
+ * gemessen hat, ist keine Angabe.
+ */
+export const BAUM_COMMIT_TIEFE = 500
+
+export type BaumCommits = {
+    /** Eintragsname → sein letzter Commit. Einträge ohne Fund fehlen. */
+    je: Record<string, EintragCommit>
+    /** Wie viele Commits gelesen wurden. */
+    gelesen: number
+    /** Wurde die Historie bis zur Wurzel gelesen? */
+    vollstaendig: boolean
+}
+
+/**
+ * Der letzte Commit JE EINTRAG eines Verzeichnisses — GitHubs zweite und dritte
+ * Spalte der Dateiliste.
+ *
+ * ── Warum EIN Lauf über die Historie und nicht N Aufrufe von `git.log` ──────
+ *
+ * Der naheliegende Weg ist `git.log({ filepath })` je Eintrag. Das ist bei 42
+ * Einträgen 42-mal derselbe Gang durch dieselbe Historie — die Arbeit wächst
+ * mit `Einträge × Commits`. Dieser Weg geht die Historie **einmal** und
+ * vergleicht auf jeder Stufe die Objekt-IDs des GANZEN Verzeichnisses gegen die
+ * seines Elternteils: die Arbeit wächst mit `Commits`, unabhängig von der Zahl
+ * der Einträge. Ein Verzeichnis mit 42 Einträgen kostet damit dasselbe wie eines
+ * mit dreien.
+ *
+ * ── Warum das richtig ist ───────────────────────────────────────────────────
+ *
+ * Ein Eintrag bleibt genau so lange „offen", wie seine Objekt-ID von HEAD bis
+ * zum aktuellen Commit unverändert ist. Unterscheidet sie sich dann zum Eltern-
+ * Commit, ist genau dieser Commit der letzte, der den Eintrag angefasst hat.
+ * Fehlt der Eintrag beim Elternteil ganz, gilt dasselbe — dort wurde er
+ * angelegt.
+ *
+ * ── Die bewusste Vereinfachung: ERSTER Elternteil ───────────────────────────
+ *
+ * Bei einem Merge wird nur `parent[0]` verfolgt, also `git log --first-parent`.
+ * Die volle Vereinigung aller Elternlinien wäre `git log`s eigene
+ * History-Simplification und braucht einen Prioritätsheap über Commit-Zeiten.
+ * Auf einer Merge-Linie kann die Angabe dadurch den MERGE nennen statt den
+ * Commit im Seitenzweig — sie ist dann gröber, nie falsch: der Merge hat den
+ * Eintrag im ersten Elternteil tatsächlich verändert.
+ *
+ * ── Kein Netz ───────────────────────────────────────────────────────────────
+ *
+ * Wie {@link baumEintraege}: alles liegt nach dem Clone lokal. Diese Funktion
+ * berührt kein Byte Netz.
+ *
+ * @param namen Die Einträge, für die gesucht wird. Leer ⇒ leeres Ergebnis.
+ */
+export const baumCommits = async (
+    owner: string,
+    dtag: string,
+    pfad: string,
+    namen: readonly string[],
+    signal?: AbortSignal,
+): Promise<BaumCommits> => {
+    const je: Record<string, EintragCommit> = {}
+    if (namen.length === 0) {
+        return { je, gelesen: 0, vollstaendig: true }
+    }
+
+    const { git, fs } = await ladeGit()
+    const dir = klonPfad(owner, dtag)
+
+    /**
+     * Die Objekt-IDs eines Verzeichnisses in EINEM Commit.
+     *
+     * `null` heisst „konnte ich nicht lesen", die leere Karte heisst „gibt es
+     * dort nicht". **Diese Unterscheidung ist die ganze Richtigkeit dieser
+     * Funktion.** Fielen beide auf die leere Karte zusammen, sähe die
+     * SHALLOW-Grenze (ein Elternteil, dessen Objekt nicht im Klon liegt) aus wie
+     * die Wurzel der Historie — und jeder noch offene Eintrag bekäme den
+     * Commit zugeschrieben, an dem der Lauf gerade steht. Genau das ist am
+     * 2026-08-28 passiert: der Klon ist `depth: 1`, und in der Dateiliste stand
+     * an ALLEN 43 Zeilen die Nachricht des Kopf-Commits.
+     */
+    const oidsVon = async (commitOid: string): Promise<Map<string, string> | null> => {
+        try {
+            const { tree } = await git.readTree({ fs: fs as never, dir, oid: commitOid, filepath: pfad })
+
+            return new Map(tree.map((e) => [e.path, e.oid]))
+        } catch {
+            return null
+        }
+    }
+
+    let commitOid: string
+    try {
+        commitOid = await git.resolveRef({ fs: fs as never, dir, ref: 'HEAD' })
+    } catch {
+        return { je, gelesen: 0, vollstaendig: false }
+    }
+
+    const offen = new Set(namen)
+    let hier = await oidsVon(commitOid)
+    if (!hier) {
+        return { je, gelesen: 0, vollstaendig: false }
+    }
+    let gelesen = 0
+
+    while (offen.size > 0 && gelesen < BAUM_COMMIT_TIEFE) {
+        if (signal?.aborted) {
+            return { je, gelesen, vollstaendig: false }
+        }
+        let commit
+        try {
+            ;({ commit } = await git.readCommit({ fs: fs as never, dir, oid: commitOid }))
+        } catch {
+            // Der Commit selbst fehlt — ab hier ist nichts mehr beweisbar.
+            return { je, gelesen, vollstaendig: false }
+        }
+        gelesen++
+        const elternOid = commit.parent?.[0]
+
+        // `null` = die SHALLOW-Grenze. NICHT wie die Wurzel behandeln: was hier
+        // noch offen ist, bleibt offen und damit LEER. Eine leere Zelle ist eine
+        // fehlende Angabe, eine falsch gefüllte eine Falschaussage.
+        const dort = elternOid ? await oidsVon(elternOid) : new Map<string, string>()
+        if (!dort) {
+            return { je, gelesen, vollstaendig: false }
+        }
+
+        for (const name of [...offen]) {
+            if (hier.get(name) !== dort.get(name)) {
+                je[name] = {
+                    oid: commitOid,
+                    nachricht: betreff(commit.message ?? ''),
+                    zeit: commit.author?.timestamp ?? 0,
+                }
+                offen.delete(name)
+            }
+        }
+
+        if (!elternOid) {
+            // Wurzel der Historie erreicht — alles Offene hat es dort nie gegeben.
+            return { je, gelesen, vollstaendig: true }
+        }
+        commitOid = elternOid
+        hier = dort
+    }
+
+    return { je, gelesen, vollstaendig: offen.size === 0 }
+}
+
+/**
+ * Die Historie NACHHOLEN — ohne sie sind die Commit-Spalten per Konstruktion leer.
+ *
+ * ── Warum es diese Funktion überhaupt gibt ─────────────────────────────────
+ *
+ * {@link klone} holt `depth: 1`. Der lokale Klon enthält damit GENAU EINEN
+ * Commit: den Kopf. „Welcher Commit hat diese Datei zuletzt angefasst" ist darin
+ * für jede Datei, die der Kopf nicht angefasst hat, schlicht nicht enthalten —
+ * kein Algorithmus holt das aus Daten, die nicht da sind. Am 2026-08-28
+ * gemessen: 43 Einträge, 43-mal die Nachricht des Kopf-Commits, weil die
+ * Sonde die fehlenden Objekte für „gibt es nicht" hielt.
+ *
+ * ── Warum NICHT einfach tiefer klonen ──────────────────────────────────────
+ *
+ * `depth: 1` ist eine Zusage an den Nutzer, keine Nachlässigkeit: die Fläche
+ * kündigt den Download vorher an und nennt seine Größenordnung. Ein `depth: 50`
+ * im Klon vergrößerte JEDEN Download — auch den, der nur das README sehen will.
+ * Die Vertiefung läuft deshalb SEPARAT und NACH der Liste: wer die Liste
+ * bekommt, hat sie sofort; wer die zwei Spalten will, zahlt dafür getrennt.
+ *
+ * ── Fail-closed ────────────────────────────────────────────────────────────
+ *
+ * Wirft der Server (kein `deepen`, Auth abgelaufen, Netz weg), gibt diese
+ * Funktion `false` zurück und die Spalten bleiben leer. Sie wirft nie: eine
+ * misslungene Vertiefung ist kein Fehler der Fläche, sondern eine Angabe, die
+ * es nicht gibt.
+ */
+export const vertiefe = async (
+    owner: string,
+    dtag: string,
+    url: string,
+    tiefe = BAUM_COMMIT_TIEFE,
+    signal?: AbortSignal,
+): Promise<boolean> => {
+    try {
+        const { git, webHttp, fs } = await ladeGit()
+        const dir = klonPfad(owner, dtag)
+        const headers = { Authorization: await gitAuthHeader(url) }
+        const http = {
+            request: (req: Record<string, unknown>) => webHttp.request({ ...req, fetchOptions: { signal } }),
+        }
+        await git.fetch({
+            fs: fs as never,
+            http: http as never,
+            dir,
+            url,
+            headers,
+            singleBranch: true,
+            tags: false,
+            // `relative: true`: um `tiefe` Commits TIEFER als der aktuelle Stand,
+            // nicht „ab HEAD". Ein zweiter Aufruf vertieft damit weiter, statt
+            // dieselben Objekte noch einmal zu holen.
+            relative: true,
+            depth: tiefe,
+        })
+        await flush(fs)
+
+        return true
+    } catch (error) {
+        console.warn('[forge] Historie liess sich nicht vertiefen', error)
+
+        return false
+    }
 }
 
 /**

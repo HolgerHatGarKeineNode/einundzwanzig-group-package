@@ -1132,5 +1132,10 @@
     "freigegeben": "jóváhagyva",
     "Von :name": ":name-től",
     "Von :name aus :branch": ":name-től, :branch ágból",
-    "Zum Repository": "Ugrás a tárolóhoz"
+    "Zum Repository": "Ugrás a tárolóhoz",
+    "Letzte Änderung": "Utolsó módosítás",
+    "Zeitpunkt": "Időpont",
+    "Neu laden": "Újratöltés",
+    "Tag": "Címke",
+    "Über": "Névjegy"
 }

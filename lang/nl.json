@@ -1132,5 +1132,10 @@
     "freigegeben": "goedgekeurd",
     "Von :name": "Door :name",
     "Von :name aus :branch": "Door :name vanuit :branch",
-    "Zum Repository": "Naar de repository"
+    "Zum Repository": "Naar de repository",
+    "Letzte Änderung": "Laatste wijziging",
+    "Zeitpunkt": "Tijdstip",
+    "Neu laden": "Opnieuw laden",
+    "Tag": "Tag",
+    "Über": "Over"
 }

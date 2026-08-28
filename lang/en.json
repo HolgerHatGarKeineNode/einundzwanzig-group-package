@@ -1132,5 +1132,10 @@
     "freigegeben": "approved",
     "Von :name": "By :name",
     "Von :name aus :branch": "By :name from :branch",
-    "Zum Repository": "Go to the repository"
+    "Zum Repository": "Go to the repository",
+    "Letzte Änderung": "Last change",
+    "Zeitpunkt": "Time",
+    "Neu laden": "Reload",
+    "Tag": "Tag",
+    "Über": "About"
 }

@@ -1196,5 +1196,10 @@
     "freigegeben": "apstiprināts",
     "Von :name": "No :name",
     "Von :name aus :branch": "No :name no :branch",
-    "Zum Repository": "Uz repozitoriju"
+    "Zum Repository": "Uz repozitoriju",
+    "Letzte Änderung": "Pēdējās izmaiņas",
+    "Zeitpunkt": "Laiks",
+    "Neu laden": "Pārlādēt",
+    "Tag": "Tags",
+    "Über": "Par"
 }
