@@ -34,7 +34,7 @@ import { get } from 'svelte/store'
 import { pubkey, nip44EncryptToSelf, ensurePlaintext } from './welshmanSession.ts'
 import { app, Thunks, waitForThunkCompletion } from './welshmanApp.ts'
 import { load, PublishStatus } from '@welshman/net'
-import { Router } from '@welshman/router'
+import { eigeneOutboxUrls } from './welshmanRouter.ts'
 import { isRelayUrl, makeEvent, normalizeRelayUrl, type TrustedEvent } from '@welshman/util'
 import { APP_DATA } from './welshmanKinds.ts'
 import { tagSpec, tagValue } from './welshmanTags.ts'
@@ -230,7 +230,7 @@ const warnOnce = (error: unknown): void => {
 }
 
 /** Outbox = die Schreib-Relays des Users (NIP-65). Ohne kind-10002 leer, siehe {@link syncRelays}. */
-const outboxRelays = (): string[] => Router.get().FromUser().getUrls()
+const outboxRelays = (): string[] => eigeneOutboxUrls()
 
 /**
  * Die aktive Space-URL — **dynamisch** importiert: `js/groups.ts` bootet beim Import den

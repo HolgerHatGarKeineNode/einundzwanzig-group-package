@@ -9,11 +9,22 @@
  * 9735-Receipt publiziert der LNURL-Server des Empfängers — nicht der EINUNDZWANZIG-
  * Server, der an diesem Pfad gar nicht beteiligt ist.
  */
-import { getZapper, loadProfile, loadZapperForPubkey, notifyZapper, signer, zappersByLnurl } from '@welshman/app'
-import { getTagValue, getZapResponseFilter, makeZapRequest, toMsats, type SignedEvent, type Zapper } from '@welshman/util'
+import {
+    getTagValue,
+    getZapResponseFilter,
+    getZapper,
+    loadProfile,
+    loadZapperForPubkey,
+    makeZapRequest,
+    notifyZapper,
+    Router,
+    signer,
+    zappersByLnurl,
+    type Zapper,
+} from './welshmanZapApi.ts'
+import { toMsats, type SignedEvent } from '@welshman/util'
 import { request } from '@welshman/net'
 import { bech32ToHex, uniq } from '@welshman/lib'
-import { Router } from '@welshman/router'
 import { payInvoice as walletPayInvoice } from './wallet.ts'
 import { t } from './i18n.ts'
 

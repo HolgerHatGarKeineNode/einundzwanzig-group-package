@@ -33,7 +33,6 @@
  */
 import { get } from 'svelte/store'
 import { signer, pubkey } from './welshmanSession.ts'
-import { Pool } from '@welshman/net'
 import { activeSpace } from './groups.ts'
 import { deriveVereinAccess, watchSpaceDirectory, type VereinAccess } from './members.ts'
 import { spaceIsBuzzAsync } from './buzzAdmin.ts'
@@ -41,6 +40,7 @@ import { reconnectDue } from './reconnectGap.ts'
 import { loadWallet, payInvoice } from './wallet.ts'
 import { nip98AuthHeader, type SignedLike } from './nip98.ts'
 import { isMobile, nativeBrowserInApp } from './core.ts'
+import { app } from './welshmanInstance.ts'
 import { t } from './i18n.ts'
 import {
     applicationBody,
@@ -1534,7 +1534,7 @@ const createVerein = (startInWaiting = false): VereinState => ({
         if (abrissFaellig && (await spaceIsBuzzAsync(url))) {
             this._lastReconnectAt = Date.now()
             this._controller?.abort()
-            Pool.get().remove(url)
+            app.pool.remove(url)
         }
 
         this._watchDirectory(url)

@@ -15,8 +15,9 @@ import {
     makeProfile,
     profileHasName,
     type Profile,
+    ausReader,
 } from './welshmanProfile.ts'
-import { Router } from '@welshman/router'
+import { indexers, relays, resolveRelays, userOutbox } from './welshmanRouter.ts'
 import { isMobile } from './core.ts'
 import { WORKSPACE_URL } from './spaceCaps.ts'
 import { clearNativePending, loadSpaceProfiles, markNativePending } from './spaceProfiles.ts'
@@ -188,13 +189,13 @@ export const summarizePublishResults = (
  * Modul `@welshman/util`-nah bleibt (kein `./groups`-Import → JS-Unit-fähig).
  */
 export const publishReceivingAddress = async (lud16: string, spaceUrls: string[] = []): Promise<RelayPublishResult[]> => {
-    const event = buildReceivingAddressEvent(get(userProfile), lud16)
-    const router = Router.get()
-    const relays = router
-        .merge([router.FromUser(), router.FromRelays(spaceUrls), router.Index()])
-        .getUrls()
-        .filter(acceptsProfiles)
-    const thunk = app.use(Thunks).publish({ event, relays })
+    const event = buildReceivingAddressEvent(ausReader(get(userProfile)), lud16)
+    // 0.9.5: die deklarative RelaySelection-DSL statt `router.merge([...])`. Diese
+    // Funktion ist ohnehin `async`, also geht hier der volle Weg — inklusive des
+    // Nachladens fehlender Relay-Listen, das die synchronen Helfer nicht können.
+    const szenario = await resolveRelays([userOutbox(), ...relays(spaceUrls), indexers()])
+    const zielRelays = szenario.getUrls().filter(acceptsProfiles)
+    const thunk = app.use(Thunks).publish({ event, relays: zielRelays })
     await waitForThunkCompletion(thunk)
     return summarizePublishResults(thunk.results)
 }

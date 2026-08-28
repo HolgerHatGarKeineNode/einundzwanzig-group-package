@@ -1,47 +1,129 @@
 /**
  * Adapter: Profil-Helfer (kind 0, NIP-01/NIP-05).
  *
- * ── Welche 0.9.5-API diese Datei vorwegnimmt — und warum nur eine ────────────────
+ * ── Was 0.9.5 hier weggenommen hat ───────────────────────────────────────────────
  * Genau **ein** Name überlebt den Sprung unverändert: `displayPubkey` (von
- * `@welshman/util` nach `@welshman/domain`). Für den ist diese Datei eine reine
- * Weiterleitung, und P3 ändert nur den Importpfad.
+ * `@welshman/util` nach `@welshman/domain`). Er ist unten eine reine Weiterleitung.
  *
- * Alles andere ist in 0.9.5 kein Funktionspaar mehr, sondern ein **Reader/Writer-Paar**:
- * `Profile` ist dort eine `KindFactory<ProfileReader, ProfileWriter>`, und aus
+ * Alles andere ist dort kein Funktionspaar mehr, sondern ein **Reader/Writer-Paar**:
+ * `Profile` ist eine `KindFactory<ProfileReader, ProfileWriter>`, und aus
  * `displayProfile(profile, fallback)` wird `reader.display(fallback)`, aus
  * `profile.name` wird `reader.name()`, aus `createProfile`/`editProfile` werden
  * `ProfileWriter.update(...)`/`.setName(...)`.
  *
- * **Diese Datei bildet dafür weiterhin 0.8.16 ab — bewusst.** Eine hier
- * handgeschriebene `ProfileReader`-Klasse wäre eine Erfindung: unsere Profile kommen
- * aus `app.use(Profiles)` als schlichte Datenobjekte, ein Reader wird in 0.9.5 dagegen
- * aus dem Ereignis gebaut und trägt seinen `KindContext` mit. Wir würden also die
- * Aufrufstellen zweimal umschreiben — einmal auf unsere Nachbildung, in P3 noch einmal
- * auf die echte, sobald deren Semantik abweicht. Und `reader.name()` statt
- * `profile.name` an jeder Anzeigestelle ist genau die Art Änderung, die unter „kein
- * Verhaltenswechsel" nicht mehr abgesichert wäre.
+ * ── Warum hier trotzdem ein DATENTYP steht und kein Reader ───────────────────────
+ * Weil unser Profilbild aus **zwei Quellen zusammengesetzt** wird. `js/profileMerge.ts`
+ * führt das native Nostr-Profil und das space-lokale zu EINEM Anzeigeobjekt zusammen
+ * (`mergeProfileForDisplay`), und `js/spaceProfiles.ts` hält eine eigene Map davon. Ein
+ * `ProfileReader` ist an genau ein Ereignis gebunden — er kann ein Merge-Ergebnis gar
+ * nicht darstellen. Für diesen Fall hat 0.9.5 kein Gegenstück, also bleibt der Datentyp.
  *
- * ── Was P3 hier tun muss ─────────────────────────────────────────────────────────
- * `displayPubkey` auf `@welshman/domain` umhängen (fertig vorbereitet); für den Rest
- * die Aufrufstellen auf `ProfileReader`/`ProfileWriter` ziehen. Sie sind bekannt: alle
- * Importeure dieser Datei, plus die Feld-Lesungen an `app.use(Profiles)` (siehe
- * `js/welshmanApp.ts`).
+ * Er ist damit **unser** Typ, nicht mehr welshmans: das rohe kind-0-Wertebild plus das
+ * Ereignis, aus dem es stammt. {@link ausReader} baut ihn aus dem, was
+ * `app.use(Profiles)` liefert.
  *
- * **Diese Datei importiert ausschließlich `@welshman/util`** — siehe Begründung in
- * `js/welshmanKinds.ts`.
+ * ── Die eine Verhaltensdifferenz, die dabei sichtbar wurde ───────────────────────
+ * **`ProfileReader.display()` ist NICHT `displayProfile()`.** Gemessen an den Rümpfen
+ * (0.8.16 `util/src/Profile.js:39-48` gegen 0.9.5 `domain/src/kinds/Profile.js:52-57`):
+ * - 0.8.16 fällt bei fehlendem `name` auf **`display_name`** zurück, 0.9.5 nicht mehr.
+ * - 0.8.16 nimmt den übergebenen `fallback`, wenn gar kein Ereignis da ist; in 0.9.5
+ *   steht `displayPubkey(...)` **vor** dem Fallback, der Parameter ist praktisch tot.
+ *
+ * Welcher Name in der Oberfläche steht, ist eine Produktentscheidung und kein
+ * Framework-Detail — deshalb behält {@link displayProfile} die 0.8.16-Regel. Wer sie
+ * ändern will, ändert sie hier und sieht dabei, was er tut.
+ *
+ * **Diese Datei importiert `@welshman/domain` und `@welshman/util`** — kein
+ * `@welshman/app`; `js/polls.ts` und `js/articleMetrics.ts` halten diese Reinheit
+ * ausdrücklich fest.
  */
+import { ellipsize, parseJson } from '@welshman/lib'
+import { PROFILE, type EventTemplate, type TrustedEvent } from '@welshman/util'
+import { displayPubkey, parseLnUrl, type ProfileReader } from '@welshman/domain'
 
-// Namensgleich in 0.9.5 (dort in `@welshman/domain`).
-export { displayPubkey } from '@welshman/util'
+export { displayPubkey } from '@welshman/domain'
 
-// In 0.9.5 Methoden von `ProfileReader`/`ProfileWriter` — hier weiter 0.8.16, Grund oben.
-export type { Profile, PublishedProfile } from '@welshman/util'
-export {
-    readProfile,
-    makeProfile,
-    createProfile,
-    editProfile,
-    isPublishedProfile,
-    profileHasName,
-    displayProfile,
-} from '@welshman/util'
+/**
+ * Das kind-0-Wertebild als Datenobjekt — siehe Modulkopf. `lnurl` ist abgeleitet
+ * (`lud06`/`lud16` → bech32), `event` fehlt bei einem noch nicht publizierten Profil.
+ */
+export type Profile = {
+    name?: string
+    display_name?: string
+    about?: string
+    picture?: string
+    banner?: string
+    website?: string
+    nip05?: string
+    lud06?: string
+    lud16?: string
+    lnurl?: string
+    event?: TrustedEvent
+    [key: string]: unknown
+}
+
+/** Ein Profil mit Ereignis — also eines, das wirklich publiziert wurde. */
+export type PublishedProfile = Profile & { event: TrustedEvent }
+
+export const isPublishedProfile = (profile: Profile): profile is PublishedProfile => Boolean(profile.event)
+
+/** Leitet `lnurl` aus `lud06`/`lud16` ab. Die Ableitung selbst kommt aus `domain`. */
+export const makeProfile = (profile: Profile = {}): Profile => {
+    const lnurl = parseLnUrl(profile)
+
+    return lnurl ? { ...profile, lnurl } : profile
+}
+
+/** kind-0-Ereignis → Datenobjekt. */
+export const readProfile = (event: TrustedEvent): Profile => ({
+    ...makeProfile((parseJson(event.content) as Profile) || {}),
+    event,
+})
+
+/**
+ * Das, was `app.use(Profiles)` liefert, in unser Wertebild überführen.
+ *
+ * `reader.values` ist das geparste kind-0-JSON (`domain/src/kinds/Profile.js:23-30`),
+ * also genau der Inhalt, den `readProfile` aus dem Ereignis holt — nur ohne den zweiten
+ * `JSON.parse`. Der Weg über `values` und nicht über die Methoden ist Absicht: er trägt
+ * auch die Felder, für die der Reader keinen Getter hat (`display_name`, `lud06`,
+ * `lud16` und alles Projekteigene).
+ */
+export const ausReader = (reader: ProfileReader | undefined): Profile | undefined =>
+    reader ? { ...makeProfile(reader.values as Profile), event: reader.event } : undefined
+
+/** Neues kind-0 aus einem Datenobjekt (ohne `event`/`lnurl`, beide sind abgeleitet). */
+export const createProfile = ({ event, lnurl, ...profile }: Profile): EventTemplate => ({
+    kind: PROFILE,
+    content: JSON.stringify(profile),
+    tags: [],
+})
+
+/** Ersetzendes kind-0: übernimmt die Tags des bisherigen Ereignisses. */
+export const editProfile = ({ event, lnurl, ...profile }: PublishedProfile): EventTemplate => ({
+    kind: PROFILE,
+    content: JSON.stringify(profile),
+    tags: event.tags,
+})
+
+/**
+ * Anzeigename. **Die 0.8.16-Regel, bewusst behalten** — Begründung im Modulkopf:
+ * `name`, sonst `display_name`, sonst der gekürzte npub, sonst der Fallback.
+ */
+export const displayProfile = (profile: Profile | undefined, fallback = ''): string => {
+    const { display_name, name, event } = profile || {}
+    if (name) {
+        return ellipsize(name, 60).trim()
+    }
+    if (display_name) {
+        return ellipsize(display_name, 60).trim()
+    }
+    if (event) {
+        return displayPubkey(event.pubkey).trim()
+    }
+
+    return fallback.trim()
+}
+
+export const profileHasName = (profile: Profile | undefined): boolean =>
+    Boolean(profile?.name || profile?.display_name)

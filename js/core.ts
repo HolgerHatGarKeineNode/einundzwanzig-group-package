@@ -1,40 +1,40 @@
 /**
- * welshman-Kern: konfiguriert die globalen Singletons EINMAL app-weit.
+ * welshman-Kern: die Boot-Seiteneffekte der Insel, GENAU EINMAL.
  *
- * welshman erzeugt keine eigenen Instanzen — `repository`, `tracker`, `pubkey`,
- * `sessions` sind globale Singletons aus `@welshman/app`; konfiguriert wird über
- * die mutierbaren Kontext-Objekte (`appContext`/`netContext`/`routerContext`).
- * Genau wie der globale App-Init des Referenz-Clients (src/routes/+layout.svelte), nur ohne
- * SvelteKit. Persistenz (IndexedDB) folgt später (Fix A, M3).
+ * ── Was der 0.9.5-Sprung aus dieser Datei herausgenommen hat ─────────────────────
+ * Bis 0.8.16 war das hier auch der Ort der KONFIGURATION: `repository`, `tracker`,
+ * `pubkey` waren globale Singletons, eingestellt über drei mutierbare Kontextobjekte
+ * (`appContext`/`netContext`/`routerContext`). Alle drei gibt es in 0.9.5 nicht mehr —
+ * eine App-Instanz bekommt ihre Konfiguration bei der Konstruktion übergeben.
+ *
+ * Deshalb liegt die Verdrahtung jetzt eine Schicht tiefer:
+ * - **`js/relayConfig.ts`** — die Relay-Listen, der Workspace und die AUTH-Regel, alle
+ *   aus `globalThis` gelesen (dieselbe Quelle wie vorher).
+ * - **`js/welshmanInstance.ts`** — die App-Instanz samt Policies: der kind-0-Riegel
+ *   gegen den Workspace-Relay, NIP-42-AUTH, die Sperrliste toter Relay-Domains, und
+ *   der Identitätswechsel.
+ *
+ * Hier bleibt, was echte Seiteneffekte sind: Speicher, Lesestand, Mitschnitte. Die drei
+ * Relay-Listen werden weiter von hier re-exportiert, damit ihre sechs Importeure
+ * unverändert bleiben.
  */
-import { appContext } from '@welshman/app'
-import { pubkey, sign } from './welshmanSession.ts'
+import { pubkey } from './welshmanSession.ts'
 import { app, BlockedRelayLists } from './welshmanApp.ts'
-import { netContext, defaultSocketPolicies, makeSocketPolicyAuth } from '@welshman/net'
-import { routerContext } from '@welshman/router'
-import { always } from '@welshman/lib'
-import { verifyEvent, normalizeRelayUrl, type TrustedEvent } from '@welshman/util'
-import { PROFILE } from './welshmanKinds.ts'
-import { guardRelayQuality } from './deadRelays.ts'
+import { WORKSPACE } from './relayConfig.ts'
 import { mayProxifyMedia } from './mediaGuard.ts'
 import { mayFallbackToRaw as rawFallbackAllowed } from './imageFallback.ts'
 import { initStorage } from './storage.ts'
 import { watchRelayNotices } from './relayNotices.ts'
 import { watchRequests } from './reqWatch.ts'
-import { socketPolicyAuthHold } from './authHold.ts'
-import { darfAuthBekommen as authErlaubt, leseRelayListeNachsichtig } from './articleMetrics.ts'
 import { initReadState } from './readState.ts'
+
+// Die Relay-Listen liegen seit dem 0.9.5-Sprung in `relayConfig.ts` (die App-Instanz
+// braucht sie, bevor diese Datei lädt — Begründung im Modulkopf). Re-Export, damit
+// `emoji.ts`, `feeds.ts`, `session.ts` und `bridge.ts` unverändert bleiben.
+export { INDEXER_RELAYS, DEFAULT_RELAYS, SIGNER_RELAYS } from './relayConfig.ts'
 
 // M3 P1: `storageReady` für die Insel re-exportieren (bridge.ts gated den Warm-Peek darauf).
 export { storageReady } from './storage.ts'
-
-/**
- * Relay-Override für Tests/Self-Hosting: setzt `window.__nostrRelays` VOR dem
- * Laden (E2E via addInitScript) auf einen lokalen zooid. Ohne Override die
- * öffentlichen Defaults (aus dem Referenz-Client übernommen). NativePHP/Web identisch.
- */
-type RelayOverride = { indexer?: string[]; default?: string[]; signer?: string[] }
-const relayOverride = (globalThis as { __nostrRelays?: RelayOverride }).__nostrRelays
 
 /**
  * Plattform-Flag der Insel: der Host setzt `window.__nostrMobile` im <head>
@@ -180,214 +180,20 @@ export const nativeBrowserOpen = (url: string): Promise<unknown> => nativeCall('
 /** URL eingebettet öffnen (Android Custom Tab / iOS SFSafariViewController) — für Webseiten. */
 export const nativeBrowserInApp = (url: string): Promise<unknown> => nativeCall('Browser.OpenInApp', { url })
 
-export const INDEXER_RELAYS = relayOverride?.indexer ?? [
-    'wss://purplepag.es/',
-    'wss://relay.damus.io/',
-    'wss://indexer.coracle.social/',
-]
 
-export const DEFAULT_RELAYS = relayOverride?.default ?? [
-    'wss://relay.primal.net/',
-    'wss://theforest.nostr1.com/',
-    'wss://nostr.oxtr.dev/',
-    'wss://nos.lol/',
-]
-
-// relay.nsec.app ist tot — dauerhaft ausgeschlossen (Anweisung).
-export const SIGNER_RELAYS = relayOverride?.signer ?? [
-    'wss://bucket.coracle.social/',
-    'wss://relay.primal.net/',
-    'wss://nos.lol/',
-]
-
-// ZAPS.md Z1 — kein dufflepud-Proxy (Auftraggeber-Entscheidung 2026-07-10): leer
-// ⇒ welshman holt LNURL-Zapper- (NIP-57) und NIP-05-Handle-Infos DIREKT aus dem
-// Browser (Fallback-Zweig in `zappers.js`/`handles.js`). Trade-off: die Empfänger-
-// lud16-Domain sieht die IP des Zappers; bewusst akzeptiert (keine eigene Proxy-
-// Infra). Proxy nachrüsten = diese eine Zeile auf eine URL setzen.
-appContext.dufflepudUrl = ''
-routerContext.getIndexerRelays = always(INDEXER_RELAYS)
-routerContext.getDefaultRelays = always(DEFAULT_RELAYS)
-// Geparkte Ex-Relay-Domains aus dem Routing nehmen — Begründung, Wartungsregel und
-// die Grenzen der Liste stehen in `deadRelays.ts`. Muss NACH `@welshman/app` laufen,
-// das `routerContext.getRelayQuality` selbst setzt (Import oben erledigt das).
-routerContext.getRelayQuality = guardRelayQuality(routerContext.getRelayQuality!)
-/**
- * Die Workspace-URL, normalisiert — oder `''`, wenn kein zweiter Space konfiguriert
- * ist. Bewusst direkt aus `globalThis` statt aus `groups.ts` importiert: `core.ts`
- * ist das Fundament, `groups.ts` baut darauf auf; ein Import zurück wäre ein Zyklus.
- */
-const WORKSPACE = (() => {
-    const raw = (globalThis as { __nostrWorkspace?: string }).__nostrWorkspace
-    return raw ? normalizeRelayUrl(raw) : ''
-})()
-
-/**
- * **Kein kind-0 vom Workspace-Relay ins Repository.**
- *
- * Buzz legt beim Onboarding eigene Profile an (am Prod-Relay nachgesehen: generierte
- * Namen, eigene Bilder, Zeitstempel von heute). kind 0 ist ersetzbar, im Repository
- * gewinnt pro Pubkey der jüngste Zeitstempel — das Buzz-Profil verdrängt damit
- * app-weit das echte, denn `profilesByPubkey` hat EINE Quelle pro Pubkey.
- *
- * **Warum die Abwehr hier steht und nicht bei den Ladeaufrufen:** genau das war der
- * erste Versuch, und er reichte nicht. Es genügt nicht, kind 0 nicht mehr aktiv beim
- * Space-Relay anzufragen — welshmans `loadProfile` routet Profil-Abfragen auch zu
- * Relays, auf denen der Autor schon gesehen wurde. Wer im Workspace schreibt, WIRD
- * dort gesehen; die Anfrage geht also weiterhin an Buzz, nur über einen anderen Weg.
- * Messbar: der Test `das Buzz-Profil verdrängt das echte Nostr-Profil nicht` blieb
- * mit der Lade-Weiche allein rot, sobald er im Dateiverbund lief.
- *
- * `isEventValid` ist der EINE Punkt, durch den jedes eingehende Event geht — hier
- * greift die Regel unabhängig davon, wer die Abfrage gestellt hat. Alle anderen Kinds
- * des Workspace-Relays (Nachrichten, Räume, Mitgliederlisten) bleiben unangetastet.
- */
-netContext.isEventValid = (event: TrustedEvent, url: string) => {
-    if (WORKSPACE && event.kind === PROFILE && normalizeRelayUrl(url) === WORKSPACE) {
-        return false
-    }
-    return verifyEvent(event)
-}
-
-/**
- * Die Relays der ARTIKEL-SOZIALSIGNALE (P6) — **die einzigen, die nie ein AUTH
- * bekommen.**
- *
- * Gelesen direkt aus `globalThis`, wie {@link WORKSPACE} darüber: `core.ts` ist das
- * Fundament, `longformFeed.ts` baut darauf auf, ein Import zurück wäre ein Zyklus.
- * Zerlegt wird über dieselbe Funktion, die auch die Artikelfläche benutzt — eine zweite
- * Parser-Regel wäre eine zweite Wahrheit über dieselbe Zeichenkette.
- *
- * ── `…Nachsichtig` und NICHT `leseRelayListe`, und das ist hier kein Detail ──────
- *
- * `normalizeRelayUrl` **wirft** bei Müll, und dieser Ausdruck steht im **Modul-Toplevel**.
- * Am Baum nachgemessen (2026-08-21): `core.ts` wird von **elf Modulen STATISCH**
- * importiert — darunter `bridge.ts`, der Einstiegspunkt — und von **keinem einzigen
- * dynamisch. Es gibt hier also nichts, was einen Wurf auffangen könnte.** Ein Tippfehler
- * in `NOSTR_ARTICLE_METRIC_RELAYS` risse damit nicht die Artikelfläche ab, sondern die
- * **gesamte Client-Insel, beim Boot, stumm.**
- *
- * **Das war eine Eindämmungs-Regression:** dieselbe Konstante lag vor dem AUTH-Riegel nur
- * in `longformFeed.ts`, und das wird ausschließlich DYNAMISCH geladen — alle vier
- * Importstellen fangen, drei davon mit sichtbarer Fehlerzeile. Dort ist der Wurf die
- * bessere Rückmeldung und bleibt deshalb; hier wäre er ein toter Client für einen
- * Konfigurationsfehler. Die Asymmetrie folgt der Eindämmung, nicht dem Geschmack —
- * ausführlich bei {@link leseRelayListeNachsichtig}.
- *
- * Der Nebeneffekt ist zugleich eine Zusage: das Set enthält **per Konstruktion nur
- * wohlgeformte Adressen**, und genau darauf stützt sich {@link darfAuthBekommen}, wenn es
- * einen unlesbaren Eintrag als abwesend behandelt.
- */
-const METRIK_RELAYS = new Set(
-    leseRelayListeNachsichtig((globalThis as { __nostrArticleRelays?: string }).__nostrArticleRelays),
-)
-
-/**
- * Darf dieser Relay eine AUTH-Challenge von uns beantwortet bekommen?
- *
- * ── Der Befund, gegen den das steht ────────────────────────────────────────────────
- *
- * `shouldAuth` bekommt den Socket übergeben und hat ihn bis P6 ignoriert: **jeder**
- * Relay, der eine Challenge schickt, bekam ein signiertes kind 22242 — also den Pubkey
- * des Lesers, verknüpfbar mit IP, Zeitpunkt und den angefragten Filtern. Solange der
- * Radius das Vereins-Relay war, war das der dokumentierte Handel („ponytail: aggressiv").
- * **P6 macht daraus zwei fremde Betreiber, und zwar ohne jede Nutzerhandlung:**
- * `loadArticleMetrics` hängt an `loadArticles`/`loadArticle`, beide laufen beim Mount,
- * und die Vollansicht fragt mit genau EINER Artikeladresse. Das ist die Verknüpfung von
- * Identität und Lesehistorie, frei Haus.
- *
- * ── Warum eine AUSSCHLUSSliste und keine Whitelist ────────────────────────────────
- *
- * Die naheliegende Form wäre „nur unsere eigenen Relays" — und sie ist hier **nicht
- * sicher baubar**, aus einem Grund, der im Code steht und nicht in einer Meinung: die
- * Menge der eigenen Relays ist **nicht statisch**. `userSpaceUrls` (`groups.ts`) wird aus
- * der 10009-Gruppenliste des Nutzers ABGELEITET, wächst also zur Laufzeit aus dem Netz,
- * und `setActiveSpace(url)` nimmt aus den Einstellungen jede beliebige Adresse. Eine
- * Whitelist aus den drei Config-Werten wäre für genau diese Relays unvollständig — und
- * ausgerechnet dort ist AUTH zwingend: ein zooid mit `public_read=false` liefert ohne
- * AUTH **nichts**, und der Ausfall wäre **stumm** (eine hängende AUTH-Runde verschluckt
- * das EOSE, ein Mitschnitt an `Receive` sieht es nicht).
- *
- * Die Ausschlussform ist dagegen **exakt und vollständig**: sie schließt genau den
- * Radius, den P6 geöffnet hat, und lässt jeden Bestandspfad Zeichen für Zeichen, wie er
- * war — Space, Workspace/Buzz, Board, Indexer, Signer-Relays.
- *
- * ── Und sie kostet nichts, das ist gemessen ───────────────────────────────────────
- *
- * Ein Metrik-Relay liefert öffentliche Reaktionen; für ein REQ darauf braucht niemand
- * eine Identität. Am 2026-08-21 per NIP-11 nachgesehen: `nos.lol` und `relay.damus.io`
- * (die empfohlenen Werte) führen in ihrer `limitation` **gar kein `auth_required`** —
- * sie verlangen also keins. „Meldet `false`" wäre die falsche Wiedergabe eines
- * fehlenden Felds. Fiele ein künftiges
- * Metrik-Relay unter AUTH-Zwang, lieferte es hier nichts mehr — die Zähler würden
- * kleiner, nichts bräche, und das ist die richtige Richtung für einen Zähler.
- *
- * **Und sie ist die ZWISCHENLÖSUNG, nicht das Ziel.** Ihr Preis ist, dass sie fail-OPEN
- * ist für alles, was künftig dazukommt: ein neuer Fremdrelay-Pfad bekommt AUTH, ohne dass
- * jemand etwas tut und ohne dass etwas rot wird. Tragbar, weil sie exakt den Radius
- * schließt, den P6 geöffnet hat — **die Richtung bleibt die Einschlussform über
- * `userSpaceUrls`**, siehe den `ponytail`-Vermerk unten. Dieser Punkt ist damit nicht
- * erledigt, sondern zwischengelöst.
- *
- * **Was hiermit ebenfalls NICHT behoben ist, ausdrücklich:** `INDEXER_RELAYS`,
- * `DEFAULT_RELAYS` und `SIGNER_RELAYS` sind fremd und bekommen weiterhin AUTH. Bestand
- * von vor P6, Teil desselben offenen Auftrags. Wer ihn angeht, fängt bei `userSpaceUrls`
- * an — nicht bei einer Literalliste.
- */
-/**
- * Die zum Boot bekannten EIGENEN Relays — sie stechen die Metrik-Sperre.
- *
- * Aus `globalThis` und nicht aus `groups.ts`: `core.ts` ist das Fundament, `groups.ts`
- * baut darauf auf, und ein Import zurück wäre ein Zyklus mitten in den Boot-
- * Seiteneffekten dieser Datei. Dieselbe Quelle, aus der das Head-Partial sie schreibt.
- *
- * Leere Einträge fallen in `darfAuthBekommen` durch (`if (eintrag && …)`), eine fehlende
- * Konfiguration erzeugt hier also keine leere Rückausnahme.
- */
-const EIGENE_RELAYS = [
-    (globalThis as { __nostrSpace?: string }).__nostrSpace ?? '',
-    (globalThis as { __nostrWorkspace?: string }).__nostrWorkspace ?? '',
-    (globalThis as { __nostrBoard?: string }).__nostrBoard ?? '',
-]
-
-const darfAuthBekommen = (url: string): boolean => authErlaubt(url, METRIK_RELAYS, EIGENE_RELAYS)
-
-/**
- * NIP-42-AUTH: sobald ein Signer aktiv ist, signiert welshman AUTH-Challenges
- * (kind 22242) automatisch — nötig für zooid-Spaces mit `public_read=false`.
- * Buffer/Reconnect bringt welshman über `defaultSocketPolicies` selbst mit.
- * ponytail: aggressiv (jeder AUTH-fragende Relay AUSSER den Metrik-Relais, siehe
- * {@link darfAuthBekommen}) — bei Bedarf auf eine Whitelist der Space-URLs
- * (userSpaceUrls) einschränken (Privacy, M6).
- */
 // Boot-Seiteneffekte GENAU EINMAL — über einen globalThis-Guard, der auch ein
 // HMR-Re-Eval dieses Moduls überlebt (ein modulweites `let` würde bei HMR neu
-// erzeugt → der AUTH-Policy-Push liefe doppelt, und `initStorage` startete einen
-// zweiten repository-'update'-Listener). Die Kontext-Zuweisungen oben sind reine,
-// idempotente Sets → die dürfen ruhig re-laufen; nur diese zwei nicht.
+// erzeugt → `initStorage` startete einen zweiten repository-'update'-Listener).
 //
-// EINE Ausnahme, die hier falsch beschrieben stand: `getRelayQuality` wird nicht
-// GESETZT, sondern UMHÜLLT (`guardRelayQuality(routerContext.getRelayQuality!)`).
-// Ein HMR-Re-Eval wickelt den Wrapper in sich selbst. Die Wirkung ist harmlos —
-// jede Schicht prüft dasselbe `Set` und reicht Unbekanntes durch, das Ergebnis
-// bleibt gleich —, aber „idempotent" ist es nicht, und der Satz darüber hätte
-// den nächsten Leser vom Nachsehen abgehalten.
+// **Was hier seit dem 0.9.5-Sprung NICHT mehr steht: die Socket-Policies.** NIP-42-AUTH
+// und der AUTH-Hold gingen bis 0.8.16 über den globalen `defaultSocketPolicies`-Array
+// und mussten deshalb ein Boot-Seiteneffekt sein. In 0.9.5 hat jede App ihren eigenen
+// Pool mit eigenen `socketPolicies`; die beiden gehören damit in die KONSTRUKTION der
+// App (`js/welshmanInstance.ts`) und nicht hierher — sonst fehlten sie der App nach dem
+// ersten Identitätswechsel, und zwar stumm.
 const bootGuard = globalThis as { __ezGroupBooted?: boolean }
 if (!bootGuard.__ezGroupBooted) {
     bootGuard.__ezGroupBooted = true
-    defaultSocketPolicies.push(
-        makeSocketPolicyAuth({
-            sign,
-            // `socket` wird ausgewertet, nicht ignoriert — die Begründung steht bei
-            // {@link darfAuthBekommen}. Ohne diese Prüfung bekäme jedes konfigurierte
-            // Metrik-Relay beim bloßen Öffnen einer Artikelfläche den Pubkey des Lesers.
-            shouldAuth: (socket) => Boolean(pubkey.get()) && darfAuthBekommen(socket.url),
-        }),
-        // Doppelte REQs während der AUTH-Runde streichen — siehe `authHold.ts`. Steht
-        // NEBEN welshmans `socketPolicyAuthBuffer`, nicht an dessen Stelle: der bleibt
-        // der Zustellweg, diese Policy löscht nur den ersten, ohnehin abgelehnten Versuch.
-        socketPolicyAuthHold,
-    )
     // M3 P1: Kaltstart-Cache aus IndexedDB in die welshman-repository spiegeln,
     // BEVOR der erste Raum öffnet (Room-init gated auf `storageReady`). Idempotent.
     initStorage()

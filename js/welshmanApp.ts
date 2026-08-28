@@ -1,338 +1,191 @@
 /**
- * Fassade: der App-Kontext — **in der 0.9.5-Gestalt** (`app.use(Plugin)`).
+ * Fassade: der App-Kontext — jetzt die **echten** 0.9.5-Plugins.
  *
- * ── Welche 0.9.5-API diese Datei vorwegnimmt ─────────────────────────────────────
- * In 0.8.16 sind Repository, Tracker, Relay-Infos, Profile, Handles, Zapper und das
- * Publizieren freistehende Module-Globals. In 0.9.5 hängt all das an **einer
- * App-Instanz** (`createApp`), und die Sammlungen sind Plugins, die über eine
- * memoisierte Registry aufgelöst werden:
+ * ── Was diese Datei nach dem Sprung noch ist ─────────────────────────────────────
+ * Bis P1 bildete sie die 0.9.5-Zugriffspfade (`app.use(Profiles)`, `app.use(Thunks)`)
+ * über den 0.8.16-Globals nach, damit der Sprung hier ein Entkernen wird und nicht ein
+ * zweiter Umbau an 29 Aufrufstellen. **Das ist eingelöst:** die Plugin-Klassen unten
+ * sind Re-Exporte aus `@welshman/app`, die Aufrufstellen blieben unverändert.
  *
- *     app.use(Profiles).get(pubkey)          // statt getProfile(pubkey)
- *     app.use(Relays).forceLoad(url)         // statt forceLoadRelay(url)
- *     app.use(Thunks).publish({event, …})    // statt publishThunk({event, …})
- *     app.use(RelayManagement).forUrl(url)   // statt manageRelay(url, request)
- *     app.repository / app.tracker           // statt der Globals
+ * Übrig bleiben die Symbole, für die 0.9.5 **kein** Gegenstück in dieser Form hat. Sie
+ * stehen am Ende der Datei, jedes mit dem Grund, warum es hier und nicht dort liegt.
  *
- * Genau diese Zugriffspfade stehen ab jetzt an den Aufrufstellen. `app` ist hier ein
- * Singleton; in P3 wird daraus ein `createApp({user, config})`.
+ * ── Die App-Instanz liegt NICHT hier ─────────────────────────────────────────────
+ * Sie liegt in `js/welshmanInstance.ts`, zusammen mit dem Identitätswechsel und den
+ * Policies. Der Grund ist die Konstruktionsreihenfolge: eine 0.9.5-App bekommt ihre
+ * Konfiguration bei `createApp` übergeben, nicht danach zugewiesen — die Instanz muss
+ * also unterhalb von `core.ts` liegen, das sie benutzt. Diese Datei reicht `app` nur
+ * durch, damit die 27 Importstellen unverändert bleiben.
  *
- * Auch die 0.9.5-Rückgabeform ist übernommen, wo sie an unseren Aufrufstellen ankommt:
- * eine Sammlung liefert ihren Index als **`Projection<T>`** — `.get()` für den
- * Schnappschuss, `.$` für den Store. Ein `derived([...])` bekommt also `.index.$`.
- *
- * ── Was in P3 daraus entfällt ────────────────────────────────────────────────────
- * Die Innereien. Jede Plugin-Klasse hier wird durch die gleichnamige aus
- * `@welshman/app` ersetzt, `app` durch `createApp(…)`. Die Aufrufstellen bleiben, wie
- * sie sind — das ist der Zweck dieser Datei.
- *
- * ── Wo bewusst 0.8.16 durchschlägt (P3 MUSS das wissen) ──────────────────────────
- * **Die Werte sind noch die von 0.8.16, nur der Weg dorthin ist der von 0.9.5.**
- * 0.9.5 gibt aus diesen Sammlungen `Reader`-Objekte zurück (`ProfileReader` mit
- * `.name()`, `Relay` mit `.hasNip()`), 0.8.16 gibt schlichte Datenobjekte
- * (`profile.name`, `relay.profile`). Diese Fassade dreht das NICHT — eine hier
- * handgeschriebene Reader-Klasse wäre eine Erfindung, die P3 gegen die echte Klasse
- * erst wieder prüfen müsste, und sie würde das beobachtbare Verhalten unter 0.8.16
- * ändern. P3 tauscht also die Zugriffs-Rümpfe (fertig) und die Feld-Lesungen (offen).
- *
- * Am Ende der Datei stehen die Symbole, für die 0.9.5 **kein** Gegenstück in dieser
- * Form hat; sie behalten ihre 0.8.16-Gestalt, jeweils mit Begründung.
- *
- * **Diese Datei importiert ausschließlich `@welshman/app`** (plus einen reinen
- * Typ-Import aus `svelte/store`, der beim Bauen verschwindet).
+ * ── Was hier bewusst NICHT nachgebildet wird ─────────────────────────────────────
+ * Die Reader-Klassen. `Profiles.get()` liefert in 0.9.5 einen `ProfileReader`
+ * (`reader.name()` statt `profile.name`), `Relays` einen `Relay`. Die Aufrufstellen
+ * lesen jetzt so — das ist die 0.9.5-Form und keine Hülle davor.
  */
-import type { Readable } from 'svelte/store'
-import {
-    repository as repository0816,
-    tracker as tracker0816,
-    profilesByPubkey,
-    getProfile,
-    deriveProfile,
-    loadProfile,
-    relaysByUrl,
-    getRelaysByUrl,
-    getRelay,
-    deriveRelay,
-    loadRelay,
-    forceLoadRelay,
-    handlesByNip05,
-    displayNip05,
-    deriveHandleForPubkey,
-    loadHandleForPubkey,
-    zappersByLnurl,
-    getZapper,
-    publishThunk,
-    manageRelay,
-    loadBlockedRelayList as loadBlockedRelayList0816,
-    userProfile as userProfile0816,
-    loadUserProfile as loadUserProfile0816,
-    waitForThunkCompletion as waitForThunkCompletion0816,
-    tagEvent as tagEvent0816,
-    tagEventForComment as tagEventForComment0816,
-    tagEventForReaction as tagEventForReaction0816,
-    makeUserData as makeUserData0816,
-    makeOutboxLoader as makeOutboxLoader0816,
-    type Thunk,
-    type ThunkOptions,
+import { derived, get, type Readable } from 'svelte/store'
+import { Network, Profiles, RelayLists } from '@welshman/app'
+import type { Thunk } from '@welshman/app'
+import { getAddress, isReplaceable, isReplaceableKind, type TrustedEvent } from '@welshman/util'
+import type { ProfileReader } from '@welshman/domain'
+import { app, appStore } from './welshmanInstance.ts'
+import { pubkey } from './welshmanSession.ts'
+
+export {
+    Profiles,
+    Relays,
+    Handles,
+    Zappers,
+    Thunks,
+    RelayManagement,
+    BlockedRelayLists,
+    RelayLists,
 } from '@welshman/app'
+export type { Thunk, ThunkOptions, IApp, Plugin } from '@welshman/app'
+export type { ManagementResponse } from '@welshman/util'
+export { app } from './welshmanInstance.ts'
+
+// ── Ohne Gegenstück in dieser Form: Grund je Symbol ──────────────────────────────
 
 /**
- * Ein Wert, der sowohl heiß gelesen (`get()`) als auch abonniert (`$`) werden kann —
- * die 0.9.5-Form für alles, was eine Plugin-Sammlung als Ganzes herausgibt.
- */
-export type Projection<T> = {
-    get: () => T
-    $: Readable<T>
-}
-
-/**
- * Nur der Store-Teil einer `Projection`.
+ * Das Profil des EINGELOGGTEN Nutzers, reaktiv.
  *
- * 0.9.5 gibt an JEDER Sammlung beides heraus. Wir führen `get` nur dort, wo ein
- * Schnappschuss tatsächlich gelesen wird (heute: `Relays`, zweimal in
- * `js/buzzAdmin.ts`). Für die übrigen wäre es Symmetrie ohne Aufrufstelle — und jede
- * Zeile hier ist eine Verpflichtung, die P3 einlösen muss. Kommt eine Aufrufstelle,
- * kommt `get` mit ihr; die Form an den Aufrufstellen (`.index.$`) ist in beiden
- * Fällen dieselbe wie in 0.9.5.
- */
-export type ProjectionStore<T> = Pick<Projection<T>, '$'>
-
-const projection = <T>($: Readable<T>, read: () => T): Projection<T> => ({ get: read, $ })
-
-const projectionStore = <T>($: Readable<T>): ProjectionStore<T> => ({ $ })
-
-/**
- * `new (app) => T` — die 0.9.5-Signatur eines Plugins.
+ * 0.9.5 kennt dafür `app.use(Profiles).one(app.user.pubkey)` — aber `app.user` ist eine
+ * Property und kein Store, eine App ist an EINE Identität gebunden. Unsere Identität
+ * wechselt zur Laufzeit und wird reaktiv gelesen (`welshmanSession.ts`), deshalb steht
+ * hier eine Ableitung über beides.
  *
- * **Konstruktor-Parameter-Properties (`constructor(readonly app: IApp) {}`) sind hier
- * verboten**, so knapp sie wären: die Testtore fahren `node --experimental-strip-types`,
- * und der Strip-Only-Modus lehnt sie mit `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` ab. `tsc`
- * sieht das nicht — der Typecheck bleibt grün, während 18 Testdateien nicht mehr laden.
+ * `appStore`, nicht `derived([…])` direkt: der Profil-Index gehört der App-Instanz, und
+ * ein im Modul-Toplevel festgehaltener Index bliebe nach einem Identitätswechsel am
+ * alten hängen (Risiko R4 des Sprung-Plans).
  */
-export type Plugin<T> = new (app: IApp) => T
+export const userProfile: Readable<ProfileReader | undefined> = appStore<ProfileReader | undefined>(
+    (a) =>
+        derived([a.use(Profiles).index.$, pubkey], ([$index, $pubkey]) =>
+            $pubkey ? $index.get($pubkey) : undefined,
+        ),
+    undefined,
+)
 
-export interface IApp {
-    repository: typeof repository0816
-    tracker: typeof tracker0816
-    use: <T>(Ctor: Plugin<T>) => T
+/** Das eigene Profil nachladen. 0.9.5: `Profiles.load(pubkey)` — nur der Pubkey fehlt dort. */
+export const loadUserProfile = (): Promise<ProfileReader | undefined> => {
+    const pk = get(pubkey)
+
+    return pk ? app.use(Profiles).load(pk) : Promise.resolve(undefined)
 }
 
 /**
- * Kind-0-Profile, nach Pubkey. In 0.9.5 `DerivedPlugin<ProfileReader>`; hier liefern
- * `get`/`one` weiterhin das schlichte 0.8.16-Profilobjekt (siehe Modulkopf).
+ * In 0.9.5 eine Methode am Thunk selbst. Hier weiter eine freie Funktion, damit die
+ * beiden Aufrufstellen (`js/profiles.ts:198`, `js/readStateSync.ts:371`) unverändert
+ * bleiben; der Rumpf ist die 0.9.5-Form.
  */
-export class Profiles {
-    readonly app: IApp
-
-    constructor(app: IApp) {
-        this.app = app
-    }
-
-    index = projectionStore(profilesByPubkey)
-    get = getProfile
-    one = deriveProfile
-    load = loadProfile
-}
-
-/** NIP-11-Relay-Profile, nach URL. In 0.9.5 `LoadableMapPlugin<Relay>`. */
-export class Relays {
-    readonly app: IApp
-
-    constructor(app: IApp) {
-        this.app = app
-    }
-
-    index = projection(relaysByUrl, getRelaysByUrl)
-    get = getRelay
-    one = deriveRelay
-    load = loadRelay
-    forceLoad = forceLoadRelay
-}
-
-/** NIP-05-Handles, nach Kennung. In 0.9.5 `LoadableMapPlugin<Handle>`. */
-export class Handles {
-    readonly app: IApp
-
-    constructor(app: IApp) {
-        this.app = app
-    }
-
-    index = projectionStore(handlesByNip05)
-    forPubkey = deriveHandleForPubkey
-    loadForPubkey = loadHandleForPubkey
-    display = displayNip05
-}
-
-/** Lightning-Zapper, nach lnurl. In 0.9.5 `LoadableMapPlugin<Zapper>`. */
-export class Zappers {
-    readonly app: IApp
-
-    constructor(app: IApp) {
-        this.app = app
-    }
-
-    index = projectionStore(zappersByLnurl)
-    get = getZapper
-}
-
-/** Optimistisches Publizieren. In 0.9.5 der Thunk-Manager der App-Instanz. */
-export class Thunks {
-    readonly app: IApp
-
-    constructor(app: IApp) {
-        this.app = app
-    }
-
-    publish = (options: ThunkOptions): Thunk => publishThunk(options)
-}
-
-/** Hängt einen optionalen Grund an — die `withReason`-Regel von 0.9.5, Zeichen für Zeichen. */
-const mitGrund = (wert: string, grund?: string): string[] => (grund === undefined ? [wert] : [wert, grund])
-
-/** Antwort einer NIP-86-Anfrage — namens- und formgleich in 0.8.16 und 0.9.5. */
-export type ManagementResponse = { result?: unknown; error?: string }
+export const waitForThunkCompletion = (thunk: Thunk): Promise<void> => thunk.waitForCompletion()
 
 /**
- * NIP-86-Client für EINEN Relay. Nachbildung von `ManagementApi` aus 0.9.5-util:
- * `send` für beliebige Methoden, benannte Methoden für die, die 0.9.5 benennt.
+ * ── Die drei Tag-Bauer: warum sie hier nachgebaut stehen ─────────────────────────
  *
- * **In 0.9.5 ist `method` ein schlichter String** — das `ManagementMethod`-Enum von
- * 0.8.16 gibt es dort nicht mehr, und die `as ManagementMethod`-Casts, die
- * `js/members.ts` dafür brauchte, entfallen ersatzlos.
+ * In 0.9.5 sind sie kein freies Funktionstrio mehr, sondern gehen in den Writern aus
+ * `@welshman/domain` auf: `CommentWriter.setParentFromEvent(event)` und
+ * `ReactionWriter.setEvent(event)` bauen dieselben Tags. **Der Umstieg darauf ist aber
+ * kein Import-Tausch, sondern eine Signaturänderung:** `EventWriter.renderTags()` ist
+ * `Promise<string[][]>`, weil der Relay-Hint über den jetzt **asynchronen** Router
+ * aufgelöst wird. Unsere drei Aufrufer stehen in synchronen Objektliteralen
+ * (`js/interactions.ts:59,71,162`), und deren Aufrufer wiederum in
+ * `publishOptimistic(url, makeX(...))` an sechs Stellen. Der Umstieg ist also ein
+ * async-Umbau der Reaktions-, Kommentar- und Löschpfade — eine eigene Arbeit mit
+ * eigenem Verhaltensrisiko am optimistischen Publizieren, nicht ein Nebenprodukt des
+ * Versionssprungs. Er gehört in dieselbe Phase, die `js/interactions.ts` ohnehin
+ * anfasst.
  *
- * **Die fünf Rollen-Methoden sind KEIN Relay-Eigenbau.** Hier stand bis zum
- * P1-Review-Gate das Gegenteil. Gemessen in `@welshman/util@0.9.5`
- * (`dist/util/src/Nip86.js:34-53`, `Nip86.d.ts:62-66`): `makeCreateRole`,
- * `makeEditRole`, `makeDeleteRole`, `makeAssignRole` und `makeUnassignRole` existieren
- * dort, stehen als benannte Methoden an `ManagementApi`, und **unsere
- * Parameterreihenfolge ist bereits die von 0.9.5**. Sie stehen deshalb unten als
- * benannte Methoden und nicht als `send`-Aufrufe — sonst müsste P3 fünf Aufrufstellen
- * ein zweites Mal umbauen, also genau das tun, was P1 verhindern soll.
- *
- * **P3 muss hier nachziehen:** 0.9.5 typisiert `color: number` und `order: number`.
- * Wir übergeben ein HSL-Tripel (`roleColorParams` in `js/members.ts`, als String
- * gecastet) und `order.toString()` — die zooid-Wire-Form. Die echte `ManagementApi`
- * wird das nicht mehr annehmen; entweder wandert die Umformung dorthin oder die
- * betroffenen Aufrufe gehen über `send`.
+ * Die Rümpfe sind die von 0.8.16, Zeile für Zeile, mit **einer** bewussten Abweichung:
+ * der Relay-Hint kommt aus `RelayLists.writeUrls(pubkey).get()` statt aus
+ * `Router.get().Event(event).getUrl()`. Das ist dieselbe Quelle — 0.8.16 löste
+ * `Router.Event(event)` gemessen als `FromRelays(getRelaysForPubkey(event.pubkey, Write))`
+ * auf (`router@0.8.16 dist/index.js:55`), also die Outbox des Autors —, nur synchron aus
+ * der Sammlung gelesen statt über den Resolver. Genau das tat 0.8.16 intern auch: sein
+ * `getPubkeyRelays` las aus einem Store, nicht aus dem Netz.
  */
-export class ManagementApi {
-    readonly url: string
+const schreibHint = (autor: string): string => app.use(RelayLists).writeUrls(autor).get()[0] ?? ''
 
-    constructor(url: string) {
-        this.url = url
+/** `["p", pubkey, hint, anzeigename]` — die 0.8.16-Form von `tagPubkey`. */
+const tagPubkey = (pk: string): string[] => ['p', pk, schreibHint(pk), app.use(Profiles).display(pk).get()]
+
+/** `["e", id, hint, mark, autor]`, bei ersetzbaren Kinds zusätzlich `["a", …]`. */
+export const tagEvent = (event: TrustedEvent, url = '', mark = ''): string[][] => {
+    const hint = url || schreibHint(event.pubkey)
+    const tags = [['e', event.id, hint, mark, event.pubkey]]
+    if (isReplaceable(event)) {
+        tags.push(['a', getAddress(event), hint, mark, event.pubkey])
     }
 
-    send = (request: { method: string; params: unknown[] }): Promise<ManagementResponse> =>
-        manageRelay(this.url, request as unknown as Parameters<typeof manageRelay>[1]) as Promise<ManagementResponse>
-
-    supportedMethods = (): Promise<ManagementResponse> => this.send({ method: 'supportedmethods', params: [] })
-
-    // Die benannten Methoden bauen ihre Anfrage genau wie die 0.9.5-Builder: ein
-    // optionaler Grund wird angehängt, sonst bleibt die Parameterliste einelementig
-    // (`["<wert>"]` bzw. `["<wert>", "<grund>"]`, NIP-86).
-    banPubkey = (pubkey: string, reason?: string) => this.send({ method: 'banpubkey', params: mitGrund(pubkey, reason) })
-    unbanPubkey = (pubkey: string, reason?: string) =>
-        this.send({ method: 'unbanpubkey', params: mitGrund(pubkey, reason) })
-    allowPubkey = (pubkey: string, reason?: string) =>
-        this.send({ method: 'allowpubkey', params: mitGrund(pubkey, reason) })
-    unallowPubkey = (pubkey: string, reason?: string) =>
-        this.send({ method: 'unallowpubkey', params: mitGrund(pubkey, reason) })
-    listBannedPubkeys = () => this.send({ method: 'listbannedpubkeys', params: [] })
-    banEvent = (id: string, reason?: string) => this.send({ method: 'banevent', params: mitGrund(id, reason) })
-    changeRelayName = (name: string) => this.send({ method: 'changerelayname', params: [name] })
-    changeRelayDescription = (description: string) =>
-        this.send({ method: 'changerelaydescription', params: [description] })
-    changeRelayIcon = (iconUrl: string) => this.send({ method: 'changerelayicon', params: [iconUrl] })
-
-    // Rollen. Die Rümpfe bauen denselben Request-Body wie vorher — `color`/`order`
-    // kommen als String herein, weil das die zooid-Wire-Form ist (siehe Modulkopf).
-    createRole = (id: string, label: string, description: string, color: string, order: string) =>
-        this.send({ method: 'createrole', params: [id, label, description, color, order] })
-
-    editRole = (id: string, label: string, description: string, color: string, order: string) =>
-        this.send({ method: 'editrole', params: [id, label, description, color, order] })
-
-    deleteRole = (id: string) => this.send({ method: 'deleterole', params: [id] })
-
-    assignRole = (pubkey: string, roleId: string) =>
-        this.send({ method: 'assignrole', params: [pubkey, roleId] })
-
-    unassignRole = (pubkey: string, roleId: string) =>
-        this.send({ method: 'unassignrole', params: [pubkey, roleId] })
-}
-
-/** NIP-86-Relay-Management. In 0.9.5: `app.use(RelayManagement).forUrl(url)`. */
-export class RelayManagement {
-    readonly app: IApp
-
-    constructor(app: IApp) {
-        this.app = app
-    }
-
-    forUrl = (url: string): ManagementApi => new ManagementApi(url)
-}
-
-/** Kind-10006-Blockierlisten. In 0.9.5 `DerivedPlugin<BlockedRelayListReader>`. */
-export class BlockedRelayLists {
-    readonly app: IApp
-
-    constructor(app: IApp) {
-        this.app = app
-    }
-
-    load = loadBlockedRelayList0816
+    return tags
 }
 
 /**
- * Die App-Instanz. In 0.9.5 entsteht sie über `createApp({user, config})` und besitzt
- * Repository, Pool, Tracker und WrapManager pro Identität; hier zeigt sie auf die
- * 0.8.16-Globals. `use` ist wie dort memoisiert — ein Plugin wird je App genau einmal
- * gebaut.
+ * NIP-22: `K/E/A/P` (Thread-Wurzel, gross) + `k/e/a/p` (direktes Elternteil, klein).
+ * Trägt das Elternteil bereits Wurzel-Tags, werden die übernommen statt neu gesetzt —
+ * dadurch teilen alle Kommentare eines Threads dasselbe `["E", rootId]`.
  */
-class App implements IApp {
-    repository = repository0816
-    tracker = tracker0816
-
-    private singletons = new Map<Plugin<unknown>, unknown>()
-
-    use = <T>(Ctor: Plugin<T>): T => {
-        let instanz = this.singletons.get(Ctor as unknown as Plugin<unknown>) as T | undefined
-        if (!instanz) {
-            instanz = new Ctor(this)
-            this.singletons.set(Ctor as unknown as Plugin<unknown>, instanz)
+export const tagEventForComment = (event: TrustedEvent, relay?: string): string[][] => {
+    const pubkeyHint = schreibHint(event.pubkey)
+    const eventHint = relay || schreibHint(event.pubkey)
+    const address = getAddress(event)
+    const seenRoots = new Set<string>()
+    const tags: string[][] = []
+    for (const [t, ...tag] of event.tags) {
+        if (['K', 'E', 'A', 'I', 'P'].includes(t as string)) {
+            tags.push([t as string, ...tag])
+            seenRoots.add(t as string)
         }
-
-        return instanz
     }
+    if (seenRoots.size === 0) {
+        tags.push(['K', String(event.kind)])
+        tags.push(['P', event.pubkey, pubkeyHint])
+        tags.push(['E', event.id, eventHint, event.pubkey])
+        if (isReplaceableKind(event.kind)) {
+            tags.push(['A', address, eventHint, event.pubkey])
+        }
+    }
+    tags.push(['k', String(event.kind)])
+    tags.push(['p', event.pubkey, pubkeyHint])
+    tags.push(['e', event.id, eventHint, event.pubkey])
+    if (isReplaceableKind(event.kind)) {
+        tags.push(['a', address, eventHint, event.pubkey])
+    }
+
+    return tags
 }
 
-export const app: IApp = new App()
+/** NIP-25: `["p", autor]` (ausser bei sich selbst) + `["k", kind]` + `["e", id, hint]`. */
+export const tagEventForReaction = (event: TrustedEvent, relay?: string): string[][] => {
+    const hint = relay || schreibHint(event.pubkey)
+    const tags: string[][] = []
+    if (event.pubkey !== get(pubkey)) {
+        tags.push(tagPubkey(event.pubkey))
+    }
+    tags.push(['k', String(event.kind)])
+    tags.push(['e', event.id, hint])
+    if (isReplaceable(event)) {
+        tags.push(['a', getAddress(event), hint])
+    }
 
-// ── Ohne Gegenstück in dieser Form: bewusst in der 0.8.16-Gestalt ───────────────
-//
-// `userProfile`/`loadUserProfile` hängen am eingeloggten Nutzer. In 0.9.5 ist eine App
-// an EINE Identität gebunden (`app.user` ist eine Property, kein Store), das Gegenstück
-// wäre `app.use(Profiles).one(app.user.pubkey)`. Unsere Identität wechselt zur Laufzeit
-// und wird reaktiv gelesen — dieselbe Wurzel wie bei `js/welshmanSession.ts`, dort
-// ausführlich begründet.
-export const userProfile = userProfile0816
-export const loadUserProfile = loadUserProfile0816
+    return tags
+}
 
-// In 0.9.5 eine Methode am Thunk selbst (`thunk.waitForCompletion()`), in 0.8.16 eine
-// freie Funktion. Der Thunk von 0.8.16 hat die Methode nicht; sie ihm hier anzuhängen
-// hieße, ein fremdes Objekt zu verändern.
-export const waitForThunkCompletion = waitForThunkCompletion0816
+/**
+ * Nutzerdaten- und Outbox-Lader. In 0.9.5 ersatzlos aufgegangen in den Plugins selbst
+ * (jedes `DerivedPlugin` bringt `load`/`forceLoad` über das Outbox-Modell mit) bzw. in
+ * `Rooms`. Beide Aufrufstellen liegen in `js/groups.ts`, das die Rooms-Phase ohnehin
+ * ersetzt — deshalb hier nachgebaut statt die Aufrufstellen zweimal umzuschreiben.
+ */
+export const makeUserData = <T>(index: Readable<Map<string, T>>): Readable<T | undefined> =>
+    derived([index, pubkey], ([$index, $pubkey]) => ($pubkey ? $index.get($pubkey) : undefined))
 
-// Tag-Bau mit App-Wissen (Relay-Hints aus dem Tracker). In 0.9.5 erledigen das die
-// Writer aus `@welshman/domain` (`Comment`/`Reaction` mit `.setParent(event)`), die
-// zugleich den Inhalt bauen — ein anderer Zuschnitt, keine Umbenennung.
-export const tagEvent = tagEvent0816
-export const tagEventForComment = tagEventForComment0816
-export const tagEventForReaction = tagEventForReaction0816
-
-// Nutzerdaten- und Outbox-Lader. In 0.9.5 ersatzlos aufgegangen in den Plugins selbst
-// (jedes `DerivedPlugin` bringt `load`/`forceLoad` über das Outbox-Modell mit) bzw. in
-// `Rooms`. Beide Aufrufstellen liegen in `js/groups.ts`, das P5 ohnehin ersetzt.
-export const makeUserData = makeUserData0816
-export const makeOutboxLoader = makeOutboxLoader0816
-
-export type { Thunk, ThunkOptions }
+/**
+ * Ein Lader für ein ersetzbares Event über das Outbox-Modell des Autors. 0.9.5-Form:
+ * `app.use(Network).loadUsingOutbox(pubkey, filter, hints)` — dieselbe Semantik, nur
+ * ohne die Kind-Vorbindung, die die eine Aufrufstelle (`js/groups.ts:767`) braucht.
+ */
+export const makeOutboxLoader =
+    (kind: number) =>
+    (pubkey: string, hints: string[] = []): Promise<TrustedEvent | undefined> =>
+        app.use(Network).loadUsingOutbox(pubkey, { kinds: [kind] }, hints)

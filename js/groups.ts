@@ -16,8 +16,8 @@ import { derived, writable, get, type Readable, type Writable } from 'svelte/sto
 import { app, makeOutboxLoader, makeUserData, Relays, Thunks } from './welshmanApp.ts'
 import { pubkey, nip44EncryptToSelf } from './welshmanSession.ts'
 import { deriveItemsByKey, deriveEventsByIdByUrl, sync, throttled, localStorageProvider } from '@welshman/store'
-import { Router } from '@welshman/router'
-import { AuthStatus, Pool, load, request } from '@welshman/net'
+import { eigeneOutboxUrls } from './welshmanRouter.ts'
+import { AuthStatus, load, request } from '@welshman/net'
 import {
     readList,
     readRoomMeta,
@@ -932,7 +932,7 @@ const requestRooms = async (url: string, filter: Filter): Promise<RoomReqResult>
  * (`@welshman/net auth.js`), und beim Verbindungsverlust wieder auf `None`.
  */
 const relayHasAuthenticatedUs = (url: string): boolean => {
-    const pool = Pool.get()
+    const pool = app.pool
     return pool.has(url) && pool.get(url).auth.status === AuthStatus.Ok
 }
 
@@ -1429,7 +1429,7 @@ export const removeRoomMember = (url: string, h: string, pubkey: string): Promis
 const addSpaceToList = async (url: string): Promise<void> => {
     const list = get(userGroupList) ?? makeList({ kind: ROOMS })
     const event = await addToListPublicly(list, ['r', url]).reconcile(nip44EncryptToSelf)
-    const relays = uniq([...Router.get().FromUser().getUrls(), ...tagValues(relayTags(['r', 'relay']), event.tags)])
+    const relays = uniq([...eigeneOutboxUrls(), ...tagValues(relayTags(['r', 'relay']), event.tags)])
     await waitForPublishError(app.use(Thunks).publish({ event, relays }))
 }
 
@@ -1441,7 +1441,7 @@ const removeSpaceFromList = async (url: string): Promise<void> => {
     }
     const pred = (t: string[]) => normalizeRelayUrl(t[t[0] === 'r' ? 1 : 2] ?? '') === url
     const event = await removeFromListByPredicate(list, pred).reconcile(nip44EncryptToSelf)
-    const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...tagValues(relayTags(['r', 'relay']), event.tags)])
+    const relays = uniq([url, ...eigeneOutboxUrls(), ...tagValues(relayTags(['r', 'relay']), event.tags)])
     await waitForPublishError(app.use(Thunks).publish({ event, relays }))
 }
 

@@ -26,7 +26,8 @@
  * ist als der Publish selbst, wird dabei verworfen ({@link noticeSince}) — sonst erbte ein
  * späterer, ganz anderer Fehlschlag eine fremde Begründung.
  */
-import { Pool, SocketEvent, isRelayNotice } from '@welshman/net'
+import { SocketEvent, isRelayNotice } from '@welshman/net'
+import { app } from './welshmanInstance.ts'
 import { setRelayNoticeReader } from './publishResult.ts'
 
 /** Letzte NOTICE je Relay-URL, mit Empfangszeit (`Date.now()`). */
@@ -50,7 +51,7 @@ export const watchRelayNotices = (): void => {
         return
     }
     listening = true
-    const pool = Pool.get()
+    const pool = app.pool
     const attach = (socket: { on: (e: typeof SocketEvent.Receive, cb: (m: unknown, url: string) => void) => unknown }) => {
         socket.on(SocketEvent.Receive, (message, url) => {
             if (isRelayNotice(message as Parameters<typeof isRelayNotice>[0])) {

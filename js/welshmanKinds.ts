@@ -3,16 +3,15 @@
  *
  * ── Welche 0.9.5-API diese Datei vorwegnimmt ─────────────────────────────────────
  * Die Kind-Konstanten von `@welshman/util`. Bis auf einen sind die Namen zwischen
- * 0.8.16 und 0.9.5 identisch; das Paket bleibt dasselbe. Der eine, der sich ändert,
- * ist der teure: **`ZAP_RESPONSE` heißt in 0.9.5 `ZAP_RECEIPT`** (die Zahl 9735 bleibt).
- * Diese Datei exportiert deshalb schon `ZAP_RECEIPT` und bildet es intern auf das
- * 0.8.16-`ZAP_RESPONSE` ab. Das Paket kennt den alten Namen ab jetzt nicht mehr.
+ * 0.8.16 und 0.9.5 identisch; das Paket bleibt dasselbe. Der eine, der sich geändert
+ * hat, war der teure: **`ZAP_RESPONSE` heisst seit 0.9.5 `ZAP_RECEIPT`** (die Zahl 9735
+ * bleibt). Die Umbenennung ist mit dem Sprung vollzogen — die Aufrufstellen standen
+ * schon vorher auf dem neuen Namen und mussten nicht angefasst werden.
  *
- * ── Was in P3 daraus entfällt ────────────────────────────────────────────────────
- * Die Zeile `export { ZAP_RESPONSE as ZAP_RECEIPT }` wird zu einem gewöhnlichen
- * `export { ZAP_RECEIPT }`; danach ist die ganze Datei eine reine Weiterleitung und
- * kann ersatzlos gelöscht werden, indem die Importe wieder auf `@welshman/util`
- * zeigen. **Keine Aufrufstelle muss angefasst werden.**
+ * ── Warum die Datei bleibt, obwohl sie jetzt eine reine Weiterleitung ist ────────
+ * Sie hält die Kind-Namen an EINEM Ort. Der nächste Sprung benennt wieder eine
+ * Konstante um, und dann ist das hier eine Zeile statt einer Suche über 30 Dateien —
+ * genau das, was der `ZAP_RESPONSE`-Fall gezeigt hat.
  *
  * Hier stehen **alle** Kind-Konstanten, die das Paket benutzt — auch die, die den
  * Sprung heil überstehen. Ein Adapter, der nur die gerade brechenden Namen führt, ist
@@ -26,7 +25,7 @@
  */
 
 // Der eine Name, der sich in 0.9.5 ändert. Aufrufstellen benutzen bereits ZAP_RECEIPT.
-export { ZAP_RESPONSE as ZAP_RECEIPT } from '@welshman/util'
+export { ZAP_RECEIPT } from '@welshman/util'
 
 // Namensgleich in 0.8.16 und 0.9.5 — gegen die 0.9.5-Exportmenge geprüft, nicht geraten.
 export {

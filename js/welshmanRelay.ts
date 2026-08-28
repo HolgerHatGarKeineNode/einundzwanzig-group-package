@@ -29,12 +29,16 @@
  * niemanden auf; dieser `Omit` schon. Zur Laufzeit ändert sich nichts — die Objekte
  * tragen ihr `url` weiter, es ist nur nicht mehr zugesagt.
  *
- * ── Was P3 hier tun muss ─────────────────────────────────────────────────────────
- * Den Import auf `@welshman/domain` umhängen und den `Omit` durch den echten
- * `RelayInfo` ersetzen. **Und aufpassen:** in 0.9.5 ist `Relays` ein
+ * ── Was der Sprung hier getan hat ────────────────────────────────────────────────
+ * Der `Omit` ist durch den echten `RelayInfo` aus `@welshman/domain` ersetzt. Der
+ * Typecheck hat dabei bestätigt, was der `Omit` behauptet hatte: **kein Aufrufer liest
+ * `.url` an einem Relay-Profil** — sonst wäre er beim Tausch rot geworden.
+ *
+ * **Und der zweite Teil, der dabei zu beachten war:** in 0.9.5 ist `Relays` ein
  * `LoadableMapPlugin<Relay>` — die Sammlung liefert die **Klasse** `Relay`
  * (URL + Info + `hasNip()`/`display()`), nicht `RelayInfo`. Die drei
- * `Map<string, RelayInfo>`-Signaturen treffen dort also `Relay`.
+ * `Map<string, RelayInfo>`-Signaturen (`js/groups.ts`, `js/bridge.ts`, `js/palette.ts`)
+ * treffen dort also `Relay`.
  *
  * Die `Relay`-Klasse ist hier NICHT nachgebildet: `js/relayCaps.ts` löst dieselben
  * Fragen absichtlich welshman-frei, damit es ohne Runtime unter `node --test` läuft
@@ -44,9 +48,7 @@
  * eine NIP-86-Methode ein schlichter String hinter `ManagementApi` — siehe
  * `js/welshmanApp.ts`.
  *
- * **Diese Datei importiert ausschließlich `@welshman/util`.**
+ * **Diese Datei importiert ausschliesslich `@welshman/domain`.**
  */
-import type { RelayProfile } from '@welshman/util'
-
-/** Das NIP-11-Info-Dokument ohne `url` — die Feldmenge, die 0.9.5 `RelayInfo` nennt. */
-export type RelayInfo = Omit<RelayProfile, 'url'>
+/** Das NIP-11-Info-Dokument. Seit dem Sprung der echte Typ aus `@welshman/domain`. */
+export type { RelayInfo } from '@welshman/domain'

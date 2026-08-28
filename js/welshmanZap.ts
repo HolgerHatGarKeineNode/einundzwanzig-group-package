@@ -1,32 +1,72 @@
 /**
  * Adapter: Zap-Typen und -Umrechner (NIP-57).
  *
- * ── Welche 0.9.5-API diese Datei vorwegnimmt ─────────────────────────────────────
- * Beide Typen wandern in 0.9.5 nach `@welshman/domain` und behalten ihren Namen:
+ * ── Wo die Typen jetzt liegen ────────────────────────────────────────────────────
+ * Beide sind nach `@welshman/domain` gewandert und behalten ihren Namen:
  * - **`Zap`** ist dort Feld für Feld derselbe Typ (`request`, `response`,
- *   `invoiceAmount`) — reine Weiterleitung, P3 ändert nur den Importpfad.
- * - **`Zapper`** ist dort eine Klasse statt eines Objekttyps, mit `pubkey` und
+ *   `invoiceAmount`) — reine Weiterleitung.
+ * - **`Zapper`** ist dort eine **Klasse** statt eines Objekttyps, mit `pubkey` und
  *   `nostrPubkey` als PFLICHTfeldern (in 0.8.16 optional) und den Methoden
- *   `validate(receipt)` / `getResponseFilter(pubkey, eventId?)`. Unsere vier
- *   Verwendungen sind reine Typ-Verwendungen, deshalb bleibt der Name hier stehen; die
- *   verschärfte Pflichtfeld-Menge ist die Stelle, an der P3 nachziehen muss.
+ *   `validate(receipt)` / `getResponseFilter(pubkey, eventId?)`.
  *
- * `zapFromEvent(response, zapper)` hat in 0.9.5 kein freistehendes Gegenstück mehr: die
- * Prüfung liegt als `zapper.validate(zapReceiptReader)` an der Klasse, und der
- * app-seitige Weg ist `app.use(Zappers).validateZapReceipt(receipt, parent)` — der
- * zusätzlich den richtigen Empfänger aus den Zap-Splits auflöst, statt immer den ersten
- * `p`-Tag zu nehmen. Das ist ein anderer Zuschnitt mit anderem Ergebnis, keine
- * Umbenennung; hier bleibt deshalb die 0.8.16-Funktion stehen.
+ * ── `zapFromEvent`: umgezogen, nicht kaputt — und dabei STRENGER geworden ────────
+ * Ein freistehendes `zapFromEvent` gibt es in 0.9.5 nicht mehr; die Prüfung liegt als
+ * `zapper.validate(zapReceiptReader)` an der Klasse. Die Funktion unten setzt genau das
+ * zusammen. **Die Rümpfe gegeneinander gelesen (0.8.16 `util/src/Zaps.js` gegen 0.9.5
+ * `domain/src/other/Zapper.js:32-51`) — ein Unterschied, und er ist ein Sicherheitsfix:**
  *
- * ── Das ist NICHT die Zap-Fläche ─────────────────────────────────────────────────
- * `js/zaps.ts` ist durch einen Upstream-Bug in 0.9.5 blockiert (das Zapper-Gate in
- * `app/src/plugins/zappers.ts` prüft `info?.pubkey`, ein Feld, das eine
- * NIP-57-lnurl-pay-Antwort gar nicht hat) und bleibt bis 0.9.6 unangetastet. Diese
- * Datei kapselt nur die geteilten Typen und den reinen Umrechner, damit der Rest des
- * Pakets nicht am selben Nagel hängt.
+ * 0.8.16 hatte einen Kurzschluss, der die Signaturprüfung übersprang:
  *
- * **Diese Datei importiert ausschließlich `@welshman/util`** — `js/articleMetrics.ts`
- * hält seine Freiheit von `@welshman/app` ausdrücklich im Kopf fest.
+ *     // If the recipient and the zapper are the same person, it's legit
+ *     if (responseMeta.p === response.pubkey) { return zap }
+ *
+ * Wer eine Quittung signierte und sich selbst in ihren `p`-Tag schrieb, bekam damit ein
+ * gültiges Zap — ohne dass der `nostrPubkey` des echten Zappers je geprüft wurde. Genau
+ * dagegen steht der handgeschriebene Riegel in `js/articleMetrics.ts:612`, der
+ * ausdrücklich VOR `zapFromEvent` läuft.
+ *
+ * **In 0.9.5 ist der Kurzschluss weg**: `validate` prüft `receipt.event.pubkey !==
+ * this.nostrPubkey` unbedingt. Unser Riegel bleibt trotzdem stehen — er kostet nichts,
+ * und eine Zusage, die an zwei Stellen gilt, überlebt den nächsten Upstream-Umbau.
+ *
+ * ── Warum diese Datei `@welshman/app`-frei bleibt ────────────────────────────────
+ * `js/articleMetrics.ts` hält im Kopf fest, dass es „rein bis auf `@welshman/util`" ist,
+ * und sein Test läuft unter `node --test` ohne Browser-Runtime. Ein Import von
+ * `@welshman/app` würde hier eine App-Instanz samt Socket-Pool in den Testlauf ziehen.
+ *
+ * Der Reader braucht einen `KindContext` — aber nur die **Writer** benutzen dessen
+ * Resolver (für Relay-Hints beim Rendern). Für das Lesen genügt deshalb ein Kontext mit
+ * einem Resolver, der nichts auflöst; er wird nie befragt. Das ist keine Attrappe für
+ * einen Test, sondern die kleinste gültige Konfiguration für einen reinen Leser.
  */
-export type { Zap, Zapper } from '@welshman/util'
-export { zapFromEvent } from '@welshman/util'
+import { Resolver, ZAP_RECEIPT, type TrustedEvent } from '@welshman/util'
+import { Zapper, ZapReceiptReader } from '@welshman/domain'
+
+export type { Zap } from '@welshman/domain'
+export { Zapper } from '@welshman/domain'
+
+/** Siehe Modulkopf: gültig, aber nie befragt — Leser brauchen keinen Routen-Auflöser. */
+const leseKontext = { resolver: new Resolver(() => []) }
+
+/**
+ * Eine kind-9735-Quittung gegen einen Zapper prüfen und, wenn sie standhält, das
+ * rekonstruierte Zap zurückgeben. `undefined` heisst „zählt nicht".
+ *
+ * `zapper` ist bewusst locker typisiert: unser heisser Ladepfad
+ * (`js/zaps.ts loadZapperNow`) holt das lnurl-Dokument selbst und legt ein schlichtes
+ * Objekt ab — die Felder, auf die `validate` schaut, sind `pubkey`, `nostrPubkey` und
+ * `lnurl`. Aus dem wird hier eine echte `Zapper`-Instanz gebaut; deren Konstruktor ist
+ * ein `Object.assign` und wirft nie (am Paket gemessen, nicht aus der Signatur gelesen).
+ */
+export const zapFromEvent = (
+    response: TrustedEvent,
+    zapper: { lnurl?: string; pubkey?: string; nostrPubkey?: string } | undefined,
+) => {
+    if (!zapper) {
+        return undefined
+    }
+
+    return new Zapper(zapper as ConstructorParameters<typeof Zapper>[0]).validate(
+        new ZapReceiptReader(ZAP_RECEIPT, leseKontext, response).parse(),
+    )
+}

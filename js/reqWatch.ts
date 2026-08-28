@@ -23,7 +23,6 @@
  * Netzlast. Erst der Abruf über `window.__reqWatch()` erzeugt Ausgabe.
  */
 import {
-    Pool,
     SocketEvent,
     AuthStateEvent,
     isClientReq,
@@ -36,6 +35,7 @@ import {
     isRelayOk,
 } from '@welshman/net'
 import { on } from '@welshman/lib'
+import { app } from './welshmanInstance.ts'
 import {
     anwenden,
     befunde,
@@ -152,7 +152,7 @@ export const watchRequests = (): void => {
         return
     }
     listening = true
-    const pool = Pool.get()
+    const pool = app.pool
     for (const socket of pool._data.values()) {
         anhaengen(socket)
     }
