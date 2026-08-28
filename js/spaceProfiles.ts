@@ -23,14 +23,7 @@
  * weiter mit `userProfile` aus `@welshman/app` (siehe `profiles.ts`).
  */
 import { get, derived, writable, type Readable } from 'svelte/store'
-import {
-    profilesByPubkey as nativeProfilesByPubkey,
-    deriveProfile,
-    getProfile,
-    repository,
-    tracker,
-    loadProfile,
-} from './welshmanApp.ts'
+import { app, Profiles } from './welshmanApp.ts'
 import { throttled } from '@welshman/store'
 import { request } from '@welshman/net'
 import { verifyEvent, type TrustedEvent } from '@welshman/util'
@@ -56,10 +49,10 @@ import { mergeProfileForDisplay, newestByPubkey, sanitizeSpaceProfile, isSpaceLo
  */
 export const purgeSpaceLocalProfiles = (spaceUrl: string): number => {
     let removed = 0
-    for (const event of repository.query([{ kinds: [PROFILE] }]) as TrustedEvent[]) {
-        if (isSpaceLocalOnly(tracker.getRelays(event.id), spaceUrl)) {
-            repository.removeEvent(event.id)
-            void loadProfile(event.pubkey)
+    for (const event of app.repository.query([{ kinds: [PROFILE] }]) as TrustedEvent[]) {
+        if (isSpaceLocalOnly(app.tracker.getRelays(event.id), spaceUrl)) {
+            app.repository.removeEvent(event.id)
+            void app.use(Profiles).load(event.pubkey)
             removed++
         }
     }
@@ -261,7 +254,7 @@ const mergeForDisplayGated = (pubkey: string, native: Profile | undefined, local
  * Kopieren, keine neue Identität, exakt das bisherige Verhalten.
  */
 export const profilesByPubkey: Readable<Map<string, Profile>> = derived(
-    [throttled(200, nativeProfilesByPubkey), spaceProfiles],
+    [throttled(200, app.use(Profiles).index.$), spaceProfiles],
     ([$native, $local]: [Map<string, Profile>, Map<string, Profile>]) => {
         if ($local.size === 0) {
             return $native
@@ -289,7 +282,7 @@ export const displayProfileByPubkey = (pubkey: string): string => {
     if (!pubkey) {
         return ''
     }
-    const native = getProfile(pubkey)
+    const native = app.use(Profiles).get(pubkey)
     if (profileHasName(native)) {
         return displayProfile(native, displayPubkey(pubkey))
     }
@@ -307,7 +300,7 @@ export const displayProfileByPubkey = (pubkey: string): string => {
 
 /** Natives + Space-Profil eines Pubkeys als EIN Anzeige-Objekt (Momentaufnahme). */
 export const getMergedProfile = (pubkey: string): Profile | undefined =>
-    mergeForDisplayGated(pubkey, getProfile(pubkey), getSpaceProfile(pubkey))
+    mergeForDisplayGated(pubkey, app.use(Profiles).get(pubkey), getSpaceProfile(pubkey))
 
 /**
  * Wie `deriveProfile` aus `@welshman/app`, nur gemergt — für Flächen, die EIN Profil
@@ -318,6 +311,6 @@ export const getMergedProfile = (pubkey: string): Profile | undefined =>
  * ohnehin schon geladen wurde — dieser Store fragt von sich aus **nichts** an.
  */
 export const deriveMergedProfile = (pubkey: string): Readable<Profile | undefined> =>
-    derived([deriveProfile(pubkey), spaceProfiles], ([$native, $local]: [Profile | undefined, Map<string, Profile>]) =>
+    derived([app.use(Profiles).one(pubkey), spaceProfiles], ([$native, $local]: [Profile | undefined, Map<string, Profile>]) =>
         mergeForDisplayGated(pubkey, $native, $local.get(pubkey)),
     )

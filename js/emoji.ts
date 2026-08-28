@@ -7,7 +7,7 @@
  * Reiner Client-Layer; keine Svelte-/Alpine-Abhängigkeit.
  */
 import { load } from '@welshman/net'
-import { repository } from './welshmanApp.ts'
+import { app } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import type { Filter, TrustedEvent } from '@welshman/util'
 import { DEFAULT_RELAYS, proxifyImage } from './core.ts'
@@ -130,7 +130,7 @@ const emojisFromTags = (tags: string[][]): CustomEmoji[] =>
         .map((t) => ({ shortcode: t[1], url: t[2], src: proxifyImage(t[2], 'avatar') }))
 
 const firstEvent = (filter: Filter): TrustedEvent | undefined =>
-    repository.query([filter])[0]
+    app.repository.query([filter])[0]
 
 const customEmojiCache = new Map<string, Promise<CustomEmoji[]>>()
 

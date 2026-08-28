@@ -6,8 +6,8 @@
  */
 import { makeEvent, type TrustedEvent } from '@welshman/util'
 import { COMMENT, DELETE, MESSAGE, POLL, POLL_RESPONSE, REACTION, REPORT, ZAP_GOAL } from './welshmanKinds.ts'
-import { getTag } from './welshmanTags.ts'
-import { getRelay, tagEvent, tagEventForComment, tagEventForReaction } from './welshmanApp.ts'
+import { matchTag, tagSpec } from './welshmanTags.ts'
+import { app, Relays, tagEvent, tagEventForComment, tagEventForReaction } from './welshmanApp.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { hasNip70 } from './relayCaps.ts'
 import { threadTags } from './threading.ts'
@@ -20,7 +20,7 @@ export const PROTECTED = ['-']
  * Setzt das aktive Space-Relay NIP-70 durch? Aus dem NIP-11-Cache (`getRelay`);
  * ist das Profil noch nicht geladen → false (kein PROTECTED, wie beim Referenz-Client).
  */
-export const canEnforceNip70 = (url: string): boolean => hasNip70(getRelay(url))
+export const canEnforceNip70 = (url: string): boolean => hasNip70(app.use(Relays).get(url))
 
 /**
  * Basis-Tags JEDER schreibenden Room-Aktion: `["h", h]` (NIP-29-Group) plus
@@ -37,7 +37,7 @@ export const roomTags = (h: string, url: string): string[][] =>
  */
 const parentRoomTags = (parent: TrustedEvent, url: string): string[][] => {
     const tags: string[][] = []
-    const h = getTag('h', parent.tags)
+    const h = matchTag(tagSpec('h'), parent.tags)
     if (h) {
         tags.push(h)
     }

@@ -13,10 +13,10 @@
 import { derived, writable, get, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
-import { loadProfile } from './welshmanApp.ts'
+import { app, Profiles } from './welshmanApp.ts'
 import { type TrustedEvent } from '@welshman/util'
-import { REPORT, ROOM_JOIN, ROOM_LEAVE, MESSAGE } from './welshmanKinds.ts'
-import { getTag, getTagValue } from './welshmanTags.ts'
+import { MESSAGE, REPORT, ROOM_JOIN, ROOM_LEAVE } from './welshmanKinds.ts'
+import { matchTag, tagSpec, tagValue } from './welshmanTags.ts'
 import { displayProfile } from './welshmanProfile.ts'
 import { sortBy } from '@welshman/lib'
 import { profilesByPubkey } from './spaceProfiles.ts'
@@ -153,7 +153,7 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
             const byId = new Map((reportable as TrustedEvent[]).map((e) => [e.id, e]))
             const nameOf = (pk: string): string => {
                 if (!$profiles.has(pk)) {
-                    loadProfile(pk)
+                    app.use(Profiles).load(pk)
                 }
                 return displayProfile($profiles.get(pk), shortNpub(nip19.npubEncode(pk)))
             }
@@ -162,16 +162,16 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
             )
             const sorted = sortBy((e: TrustedEvent) => -e.created_at, events)
             return buzzViews.concat(sorted.map((e): ReportView => {
-                const eTag = getTag('e', e.tags) ?? []
+                const eTag = matchTag(tagSpec('e'), e.tags) ?? []
                 // `p` ist UNGEPRÜFTER Relay-Input (Reports sind nicht relay-signiert, jedes
                 // Mitglied publiziert sie): ein kaputter Pubkey (odd-length/non-hex) ließe
                 // nip19.npubEncode im derived-map() werfen → die GANZE Queue bräche dauerhaft.
                 // Darum strikt auf 64-hex validieren; ungültig → als „unbekannt" behandeln.
-                const rawPubkey = getTagValue('p', e.tags) ?? ''
+                const rawPubkey = tagValue(tagSpec('p'), e.tags) ?? ''
                 const reportedPubkey = /^[0-9a-f]{64}$/.test(rawPubkey) ? rawPubkey : ''
                 // Autor-Profil nachwärmen (einmal je pubkey, solange nicht bekannt).
                 if (reportedPubkey && !$profiles.has(reportedPubkey)) {
-                    loadProfile(reportedPubkey)
+                    app.use(Profiles).load(reportedPubkey)
                 }
                 const npub = reportedPubkey ? nip19.npubEncode(reportedPubkey) : ''
                 const profile = reportedPubkey ? $profiles.get(reportedPubkey) : undefined
@@ -186,7 +186,7 @@ export const deriveSpaceReports = (url: string): Readable<ReportView[]> =>
                     reason,
                     reasonLabel: REASON_LABELS[reason] ?? (reason || t('Meldung')),
                     text: e.content,
-                    roomH: reported ? (getTagValue('h', reported.tags) ?? '') : '',
+                    roomH: reported ? (tagValue(tagSpec('h'), reported.tags) ?? '') : '',
                 }
             }))
         },
@@ -285,7 +285,7 @@ export const deriveSpaceJoinRequests = (url: string): Readable<JoinRequestView[]
             const joins = new Map<string, TrustedEvent>()
             const leaves = new Map<string, number>()
             for (const e of events) {
-                const h = getTagValue('h', e.tags)
+                const h = tagValue(tagSpec('h'), e.tags)
                 if (!h) {
                     continue
                 }
@@ -301,7 +301,7 @@ export const deriveSpaceJoinRequests = (url: string): Readable<JoinRequestView[]
             }
             const views: JoinRequestView[] = []
             for (const [key, join] of joins) {
-                const h = getTagValue('h', join.tags) ?? ''
+                const h = tagValue(tagSpec('h'), join.tags) ?? ''
                 const room = ($rooms.get(url) ?? []).find((r) => r.h === h)
                 // NUR closed-Räume erzeugen offene Anfragen (offene genehmigt zooid
                 // automatisch → nie pending). Fehlt der Raum noch (39000 nicht geladen),
@@ -316,7 +316,7 @@ export const deriveSpaceJoinRequests = (url: string): Readable<JoinRequestView[]
                     continue // Anfrage zurückgezogen
                 }
                 if (!$profiles.has(join.pubkey)) {
-                    loadProfile(join.pubkey)
+                    app.use(Profiles).load(join.pubkey)
                 }
                 const npub = nip19.npubEncode(join.pubkey)
                 const profile = $profiles.get(join.pubkey)

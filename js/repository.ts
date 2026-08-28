@@ -12,13 +12,13 @@
  */
 import { derived, type Readable } from 'svelte/store'
 import { deriveArray, deriveEventsByIdByUrl, deriveEventsByIdForUrl } from '@welshman/store'
-import { deriveRelay, repository, tracker } from './welshmanApp.ts'
+import { app, Relays } from './welshmanApp.ts'
 import { filter, spec } from '@welshman/lib'
 import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
 
 /** Alle Events eines Space-Relays (nach Herkunft via tracker) zu einem Filter. */
 export const deriveEventsForUrl = (url: string, filters: Filter[] = [{}]): Readable<TrustedEvent[]> =>
-    deriveArray(deriveEventsByIdForUrl({ url, tracker, repository, filters }))
+    deriveArray(deriveEventsByIdForUrl({ url, tracker: app.tracker, repository: app.repository, filters }))
 
 /**
  * Wie {@link deriveEventsForUrl}, aber über MEHRERE Herkunfts-Relays — dedupliziert über
@@ -56,7 +56,7 @@ export const deriveEventsForUrl = (url: string, filters: Filter[] = [{}]): Reada
 export const deriveEventsForUrls = (urls: string[], filters: Filter[] = [{}]): Readable<TrustedEvent[]> => {
     const gesucht = urls.map(normalizeRelayUrl)
 
-    return derived(deriveEventsByIdByUrl({ tracker, repository, filters }), ($byUrl) => {
+    return derived(deriveEventsByIdByUrl({ tracker: app.tracker, repository: app.repository, filters }), ($byUrl) => {
         const nachId = new Map<string, TrustedEvent>()
         for (const url of gesucht) {
             const byId = $byUrl.get(url)
@@ -73,7 +73,7 @@ export const deriveEventsForUrls = (urls: string[], filters: Filter[] = [{}]): R
 
 /** Nur die relay-signierten Events (`pubkey === relay.self`) eines Space. */
 export const deriveRelaySignedEvents = (url: string, filters: Filter[] = [{}]): Readable<TrustedEvent[]> =>
-    derived([deriveRelay(url), deriveEventsForUrl(url, filters)], ([relay, events]) =>
+    derived([app.use(Relays).one(url), deriveEventsForUrl(url, filters)], ([relay, events]) =>
         filter(spec({ pubkey: relay?.self }), events),
     )
 
@@ -83,4 +83,4 @@ export const deriveRelaySignedEvents = (url: string, filters: Filter[] = [{}]): 
  * damit die UI bis dahin einen Skeleton statt „keine Mitglieder" zeigt.
  */
 export const deriveRelaySelfReady = (url: string): Readable<boolean> =>
-    derived(deriveRelay(url), (relay) => Boolean(relay?.self))
+    derived(app.use(Relays).one(url), (relay) => Boolean(relay?.self))

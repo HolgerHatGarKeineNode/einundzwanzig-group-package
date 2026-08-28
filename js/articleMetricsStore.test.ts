@@ -38,7 +38,7 @@
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { repository, tracker } from './welshmanApp.ts'
+import { app } from './welshmanApp.ts'
 import { normalizeRelayUrl, type TrustedEvent } from '@welshman/util'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { get } from 'svelte/store'
@@ -64,9 +64,9 @@ const signiert = (kind: number, tags: string[][], content = '', secret = generat
 /** Ein Ereignis in den Store legen und ihm eine Herkunft geben — der echte Netz-Pfad. */
 const einspielen = (event: TrustedEvent, urls: string[]): void => {
     for (const url of urls) {
-        tracker.track(event.id, url)
+        app.tracker.track(event.id, url)
     }
-    repository.publish(event)
+    app.repository.publish(event)
 }
 
 describe('P6: die Multi-Relay-Ableitung der Artikel-Sozialsignale', () => {
@@ -80,10 +80,10 @@ describe('P6: die Multi-Relay-Ableitung der Artikel-Sozialsignale', () => {
      * nichts erbt.
      */
     after(() => {
-        for (const event of repository.dump()) {
-            repository.removeEvent(event.id)
+        for (const event of app.repository.dump()) {
+            app.repository.removeEvent(event.id)
         }
-        tracker.clear()
+        app.tracker.clear()
     })
 
     test('KERNBEWEIS 1 — dasselbe Ereignis von DREI Relays zaehlt EINMAL', () => {
@@ -116,9 +116,9 @@ describe('P6: die Multi-Relay-Ableitung der Artikel-Sozialsignale', () => {
         // tatsaechlich fuehrt. Faellt DIESE Zeile, ist Kernbeweis 1 trivial gruen
         // geworden und sagt nichts mehr.
         const adresse = artikelAdresse(AUTOR, 'dedup')
-        const [reaktion] = repository.query([{ kinds: [7], '#a': [adresse] }])
+        const [reaktion] = app.repository.query([{ kinds: [7], '#a': [adresse] }])
 
-        assert.equal(tracker.getRelays(reaktion!.id).size, 3, 'der tracker muss alle drei Herkuenfte kennen')
+        assert.equal(app.tracker.getRelays(reaktion!.id).size, 3, 'der tracker muss alle drei Herkuenfte kennen')
     })
 
     test('ein Ereignis von einem NICHT gefragten Relay bleibt draussen', () => {

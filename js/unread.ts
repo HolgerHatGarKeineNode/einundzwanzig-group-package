@@ -29,8 +29,8 @@ import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { pubkey } from './welshmanSession.ts'
 import { type TrustedEvent } from '@welshman/util'
-import { MESSAGE, COMMENT, POLL, ZAP_GOAL } from './welshmanKinds.ts'
-import { getTagValue } from './welshmanTags.ts'
+import { COMMENT, MESSAGE, POLL, ZAP_GOAL } from './welshmanKinds.ts'
+import { tagSpec, tagValue } from './welshmanTags.ts'
 // Die beiden relativen Importe tragen ABSICHTLICH ihre `.ts`-Endung (anders als sonst
 // im Modul-Bestand): Nodes ESM-Auflösung kennt keine extensionslosen Pfade, und ohne
 // Endung liefe `node --test unread.test.ts` in ERR_MODULE_NOT_FOUND — die Ableitung wäre
@@ -145,7 +145,7 @@ export function formatUnreadCount(count: number | null | undefined, cap: number 
  * `feeds.ts commentRootId` — hier eigenständig, siehe {@link CHAT_THREAD}.
  */
 export const unreadCommentRootId = (event: TrustedEvent): string =>
-    getTagValue('E', event.tags) ?? threadRootId(event)
+    tagValue(tagSpec('E'), event.tags) ?? threadRootId(event)
 
 export type UnreadInput = {
     /** Normalisierte Space-Relay-URL — Teil des Raum-Schlüssels im Wasserzeichen. */
@@ -217,7 +217,7 @@ export function computeUnread(input: UnreadInput): UnreadView {
         if (event.pubkey === input.me || isThreadReply(event)) {
             continue
         }
-        const h = getTagValue('h', event.tags)
+        const h = tagValue(tagSpec('h'), event.tags)
         if (!h) {
             continue
         }

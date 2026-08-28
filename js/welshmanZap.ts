@@ -1,14 +1,27 @@
 /**
- * Adapter: Zap-Helfer aus `@welshman/util` (NIP-57).
+ * Adapter: Zap-Typen und -Umrechner (NIP-57).
  *
- * **Warum diese Datei existiert.** `Zapper`, `Zap` und `zapFromEvent` verschwinden in
- * 0.9.5 aus `@welshman/util`. Sie stehen heute in vier Dateien, die mit der eigentlichen
- * Zap-Fläche nichts zu tun haben — sie zeigen bloß Summen an (`js/feeds.ts`,
- * `js/longformFeed.ts`, `js/articleMetrics.ts`, `js/bridge.ts`).
+ * ── Welche 0.9.5-API diese Datei vorwegnimmt ─────────────────────────────────────
+ * Beide Typen wandern in 0.9.5 nach `@welshman/domain` und behalten ihren Namen:
+ * - **`Zap`** ist dort Feld für Feld derselbe Typ (`request`, `response`,
+ *   `invoiceAmount`) — reine Weiterleitung, P3 ändert nur den Importpfad.
+ * - **`Zapper`** ist dort eine Klasse statt eines Objekttyps, mit `pubkey` und
+ *   `nostrPubkey` als PFLICHTfeldern (in 0.8.16 optional) und den Methoden
+ *   `validate(receipt)` / `getResponseFilter(pubkey, eventId?)`. Unsere vier
+ *   Verwendungen sind reine Typ-Verwendungen, deshalb bleibt der Name hier stehen; die
+ *   verschärfte Pflichtfeld-Menge ist die Stelle, an der P3 nachziehen muss.
  *
- * **Das ist NICHT die Zap-Fläche.** `js/zaps.ts` ist durch einen Upstream-Bug in
- * 0.9.5 blockiert (das Zapper-Gate in `app/src/plugins/zappers.ts` prüft ein Feld, das
- * eine NIP-57-lnurl-pay-Antwort gar nicht hat) und bleibt bis 0.9.6 unangetastet. Diese
+ * `zapFromEvent(response, zapper)` hat in 0.9.5 kein freistehendes Gegenstück mehr: die
+ * Prüfung liegt als `zapper.validate(zapReceiptReader)` an der Klasse, und der
+ * app-seitige Weg ist `app.use(Zappers).validateZapReceipt(receipt, parent)` — der
+ * zusätzlich den richtigen Empfänger aus den Zap-Splits auflöst, statt immer den ersten
+ * `p`-Tag zu nehmen. Das ist ein anderer Zuschnitt mit anderem Ergebnis, keine
+ * Umbenennung; hier bleibt deshalb die 0.8.16-Funktion stehen.
+ *
+ * ── Das ist NICHT die Zap-Fläche ─────────────────────────────────────────────────
+ * `js/zaps.ts` ist durch einen Upstream-Bug in 0.9.5 blockiert (das Zapper-Gate in
+ * `app/src/plugins/zappers.ts` prüft `info?.pubkey`, ein Feld, das eine
+ * NIP-57-lnurl-pay-Antwort gar nicht hat) und bleibt bis 0.9.6 unangetastet. Diese
  * Datei kapselt nur die geteilten Typen und den reinen Umrechner, damit der Rest des
  * Pakets nicht am selben Nagel hängt.
  *

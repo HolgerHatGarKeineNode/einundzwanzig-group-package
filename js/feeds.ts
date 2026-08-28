@@ -9,23 +9,23 @@
  */
 import { derived, get, writable, type Readable } from 'svelte/store'
 import { load, request } from '@welshman/net'
-import { publishThunk, repository, handlesByNip05, zappersByLnurl } from './welshmanApp.ts'
+import { app, Handles, Thunks, Zappers } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { makeEvent, sortEventsAsc, getLnUrl, fromMsats, type TrustedEvent } from '@welshman/util'
 import {
-    MESSAGE,
     COMMENT,
     DELETE,
-    REACTION,
+    MESSAGE,
     POLL,
     POLL_RESPONSE,
-    ZAP_RESPONSE,
-    ZAP_GOAL,
+    REACTION,
     ROOM_DELETE_EVENT,
+    ZAP_GOAL,
+    ZAP_RECEIPT,
 } from './welshmanKinds.ts'
-import { getTag, getTagValue } from './welshmanTags.ts'
+import { matchTag, tagSpec, tagValue } from './welshmanTags.ts'
 import { zapFromEvent, type Zap, type Zapper } from './welshmanZap.ts'
 import { profileHasName } from './welshmanProfile.ts'
 import { groupBy, uniq, uniqBy } from '@welshman/lib'
@@ -138,7 +138,7 @@ const CHAT_THREAD = 10
  * verknüpft. Ohne den Fallback fiele genau die häufigste Antwort in den ''-Bucket.
  */
 const commentRootId = (event: TrustedEvent): string =>
-    getTagValue('E', event.tags) ?? threadRootId(event)
+    tagValue(tagSpec('E'), event.tags) ?? threadRootId(event)
 
 /**
  * Direkter Eltern-Kommentar: Lotus' kind-10 markiert ihn `["e", parentId, relay, "reply"]`;
@@ -146,7 +146,7 @@ const commentRootId = (event: TrustedEvent): string =>
  * Reply-Marker hat Vorrang → bei kind-10 wird nicht fälschlich der Root-`e` als Parent gelesen.
  */
 const commentParentId = (event: TrustedEvent): string =>
-    event.tags.find((t) => t[0] === 'e' && t[3] === 'reply')?.[1] ?? getTagValue('e', event.tags) ?? ''
+    event.tags.find((t) => t[0] === 'e' && t[3] === 'reply')?.[1] ?? tagValue(tagSpec('e'), event.tags) ?? ''
 
 /**
  * kind-1111-Kommentare (NIP-22, C6b) — flotilla-kompatibel OHNE `#h` (Kommentare sind
@@ -180,7 +180,7 @@ const threadReplyFilter = (rootId: string) => [{ kinds: [MESSAGE, BUZZ_MESSAGE_V
  * `p`/`e`/`bolt11`/`description` ins Receipt. Deshalb hier ungefiltert je Space-Relay;
  * die Zuordnung zur Nachricht + Validierung läuft in `aggregateZaps` über `#e`.
  */
-const roomZapReceiptFilter = () => [{ kinds: [ZAP_RESPONSE] }]
+const roomZapReceiptFilter = () => [{ kinds: [ZAP_RECEIPT] }]
 
 /**
  * Aufsteigend sortierter Chat-Verlauf eines Rooms (Nachrichten + Polls, reaktiv).
@@ -218,7 +218,7 @@ export const deriveRoomThreadReplies = (url: string, h: string): Readable<Truste
 
 /** Rohtext einer Nachricht ohne den vorangestellten Reply-Quote (für Snippets + Edit-Prefill). */
 export const bodyWithoutQuote = (event: TrustedEvent): string =>
-    getTagValue('q', event.tags) ? event.content.replace(QUOTE_PREFIX, '') : event.content
+    tagValue(tagSpec('q'), event.tags) ? event.content.replace(QUOTE_PREFIX, '') : event.content
 
 /**
  * Rendert den Nachrichtentext zu sicherer HTML (Text escaped, URLs sanitized).
@@ -499,7 +499,7 @@ const aggregateReactions = (
     const byKey = groupBy((r) => r.content, uniqBy((e) => `${e.pubkey}${e.content}`, reactions))
     return [...byKey.entries()].map(([content, events]): ReactionChip => {
         const custom = CUSTOM_EMOJI.exec(content)
-        const emojiTag = custom ? getTag('emoji', events[0].tags) : undefined
+        const emojiTag = custom ? matchTag(tagSpec('emoji'), events[0].tags) : undefined
         const emojiSrc = custom && emojiTag?.[2] && /^https:\/\//i.test(emojiTag[2]) ? emojiTag[2] : ''
         const mineEvent = me ? events.find((e) => e.pubkey === me) : undefined
         return {
@@ -794,7 +794,7 @@ const refRequested = new Set<string>()
  * Entscheidung hier auf — an einer Stelle, mit dieser Begründung davor.
  */
 const warmRefEvents = (url: string, ids: string[]): void => {
-    const missing = ids.filter((id) => !refRequested.has(id) && !repository.getEvent(id))
+    const missing = ids.filter((id) => !refRequested.has(id) && !app.repository.getEvent(id))
     if (missing.length === 0) {
         return
     }
@@ -834,7 +834,7 @@ const collectRefEvents = (url: string, events: TrustedEvent[], loaded: Map<strin
         if (ref?.kind !== 'event') {
             continue
         }
-        const found = repository.getEvent(ref.id) ?? loaded.get(ref.id)
+        const found = app.repository.getEvent(ref.id) ?? loaded.get(ref.id)
         if (found) {
             resolved.set(ref.id, found)
         } else {
@@ -914,7 +914,7 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
     // Der Deep-Link steht auch ohne aufgelöstes Ereignis: die Ziel-ID steckt in der Kennung
     // selbst, `openThread` lädt daraus per id. So bleibt kein Klickfall ohne Wirkung. Der
     // Zielraum ist nur bei aufgelöstem Ereignis bekannt; sonst leer (→ Rückfall auf `ctx.h`).
-    const quotedRoom = quoted ? (getTagValue('h', quoted.tags) ?? '') : ''
+    const quotedRoom = quoted ? (tagValue(tagSpec('h'), quoted.tags) ?? '') : ''
     const base = refThreadPath(ref.entity, quotedRoom, ctx.h)
     return {
         kind: 'event',
@@ -941,7 +941,7 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
 const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage, 'divider' | 'unreadDivider' | 'showAuthor'> => {
     const nameOf = displayProfileByPubkey
     const mine = event.pubkey === ctx.me
-    const quotedId = getTagValue('q', event.tags)
+    const quotedId = tagValue(tagSpec('q'), event.tags)
     const quoted = quotedId ? ctx.byId.get(quotedId) : undefined
     const reply: ReplyPreview | null = quoted
         ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(bodyWithoutQuote(quoted)) }
@@ -1117,7 +1117,7 @@ const bucketFp = (evs?: TrustedEvent[]): string => {
 }
 
 export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): ChatMsgFields => {
-    const quotedId = getTagValue('q', event.tags)
+    const quotedId = tagValue(tagSpec('q'), event.tags)
     const quoted = quotedId ? ctx.byId.get(quotedId) : undefined
     // Das aufgelöste Ereignis der ZITATKARTE (P5) — undefined, solange es fehlt. Genau dieser
     // Wechsel undefined→Event ist der Moment, in dem die Karte aus dem Leerzustand in die
@@ -1206,11 +1206,11 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             // und Anker-Scans (Muster: members.ts deriveSpaceDirectory). Reihenfolge = Destructuring.
             throttled(200, profilesByPubkey),
             pubkey,
-            throttled(200, handlesByNip05),
+            throttled(200, app.use(Handles).index.$),
             throttled(200, deriveEventsForUrl(url, roomReactionFilter(h))),
             throttled(200, deriveEventsForUrl(url, roomPollResponseFilter(h))),
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
-            throttled(200, zappersByLnurl),
+            throttled(200, app.use(Zappers).index.$),
             throttled(200, deriveEventsForUrl(url, roomCommentFilter())),
             // Buzz-Antworten (kind 9 mit `reply`-Marker) — auf zooid immer leer.
             throttled(200, deriveRoomThreadReplies(url, h)),
@@ -1236,12 +1236,12 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         const $comments = $threadReplies.length > 0 ? [...$nip22Comments, ...$threadReplies] : $nip22Comments
         // Reactions nach Ziel-Nachricht (`#e`) bündeln — je Nachricht einmal aggregiert.
         // Reactions ohne `e`-Tag landen im ''-Bucket und werden nie abgerufen (event.id ≠ '').
-        const reactionsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions)
+        const reactionsByTarget = groupBy((r) => tagValue(tagSpec('e'), r.tags) ?? '', $reactions)
         // Poll-Responses nach Ziel-Poll (`["e", pollId]`) bündeln — je Poll einmal getallyt.
         const pollResponsesByTarget = groupBy((r) => pollResponseTarget(r), $pollResponses)
         // Zap-Receipts (9735) nach Ziel-Nachricht (`#e`) bündeln — je Nachricht validiert
         // getallyt. 9735 trägt kein `#h`, `#e` ist der einzige verlässliche Raumbezug.
-        const zapsByTarget = groupBy((r) => getTagValue('e', r.tags) ?? '', $zaps)
+        const zapsByTarget = groupBy((r) => tagValue(tagSpec('e'), r.tags) ?? '', $zaps)
         // NIP-22-Kommentare (kind 1111, C6b) nach Thread-Root (`["E", rootId]`) bündeln —
         // ALLE Kommentare eines Threads (auch verschachtelte) teilen dieses Root-`E`, also
         // ist die Bucket-Größe die Gesamt-Thread-Zahl der zitierten Nachricht.
@@ -1326,7 +1326,7 @@ const honorDeleteEvent = (event: TrustedEvent): void => {
     }
     for (const tag of event.tags) {
         if (tag[0] === 'e' && tag[1]) {
-            repository.removeEvent(tag[1])
+            app.repository.removeEvent(tag[1])
         }
     }
 }
@@ -1410,7 +1410,7 @@ export const listenRoomScoped = (
  * Re-Publish desselben Events). '' = Erfolg.
  */
 export const moderateDeleteMessage = (url: string, h: string, id: string): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE_EVENT, { tags: [['h', h], ['e', id]] }) }))
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(ROOM_DELETE_EVENT, { tags: [['h', h], ['e', id]] }) }))
 
 /**
  * Lädt NUR die Poll-Responses (kind 1018) eines Raums fürs Tally — NICHT die Poll-Events
@@ -1511,7 +1511,7 @@ const loadSpaceThreadReplies = async (url: string): Promise<TrustedEvent[]> => {
  */
 export const loadRoomZaps = (url: string, eventIds: string[]): Promise<TrustedEvent[]> =>
     eventIds.length
-        ? load({ relays: uniq([url, ...DEFAULT_RELAYS]), filters: [{ kinds: [ZAP_RESPONSE], '#e': eventIds }] })
+        ? load({ relays: uniq([url, ...DEFAULT_RELAYS]), filters: [{ kinds: [ZAP_RECEIPT], '#e': eventIds }] })
         : Promise.resolve([])
 
 /**
@@ -1701,7 +1701,7 @@ export const sendRoomMessage = async (
  */
 export const deleteRoomMessage = (url: string, h: string, id: string, createdAt: number): Promise<string> =>
     waitForPublishError(
-        publishThunk({
+        app.use(Thunks).publish({
             relays: [url],
             event: makeEvent(DELETE, {
                 created_at: Math.max(Math.floor(Date.now() / 1000), createdAt + 1),
@@ -1726,12 +1726,12 @@ export const editRoomMessage = async (
 ): Promise<string> => {
     // Reply-/Zitat-Kontext des Originals bewahren: q/p-Tags + vorangestelltes nevent.
     const preserved = original.tags.filter((t) => t[0] === 'q' || t[0] === 'p')
-    const prefix = getTagValue('q', original.tags) ? (QUOTE_PREFIX.exec(original.content)?.[0] ?? '') : ''
+    const prefix = tagValue(tagSpec('q'), original.tags) ? (QUOTE_PREFIX.exec(original.content)?.[0] ?? '') : ''
     // Original löschen (kind 5, `h` vom Original + PROTECTED); fire-and-forget, der
     // Tombstone landet optimistisch sofort im Repository. ponytail: schlägt der
     // Re-Publish unten fehl, ist das Alte bereits weg (wie beim Referenz-Client) —
     // der Nutzer bekommt den Text zum erneuten Senden zurück (bridge).
-    void publishThunk({ relays: [url], event: makeEventDelete(original, url) })
+    void app.use(Thunks).publish({ relays: [url], event: makeEventDelete(original, url) })
     return publishOptimistic(
         url,
         makeEvent(MESSAGE, {
@@ -1862,10 +1862,10 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
             ]),
             throttled(200, profilesByPubkey),
             pubkey,
-            throttled(200, handlesByNip05),
+            throttled(200, app.use(Handles).index.$),
             throttled(200, deriveEventsForUrl(url, roomReactionFilter(h))),
             throttled(200, deriveEventsForUrl(url, roomZapReceiptFilter())),
-            throttled(200, zappersByLnurl),
+            throttled(200, app.use(Zappers).index.$),
             // P5: dieselbe Zeile (`chat-row`) rendert Raum UND Thread — also trägt der Thread
             // dieselben Karten und braucht dieselben zwei Quellen. Ohne sie zeigte ein
             // Kommentar mit Zitat eine Karte, die nie auflöst.
@@ -1904,9 +1904,9 @@ export const deriveThread = (url: string, rootId: string, h: string): Readable<T
                 search: window.location.search,
                 cards: $cards,
                 commentsByRoot: new Map(), // Kommentare wurzeln keinen Sub-Thread → thread bleibt null
-                reactionsByTarget: groupBy((r) => getTagValue('e', r.tags) ?? '', $reactions),
+                reactionsByTarget: groupBy((r) => tagValue(tagSpec('e'), r.tags) ?? '', $reactions),
                 pollResponsesByTarget: new Map(),
-                zapsByTarget: groupBy((r) => getTagValue('e', r.tags) ?? '', $zaps),
+                zapsByTarget: groupBy((r) => tagValue(tagSpec('e'), r.tags) ?? '', $zaps),
             }
             return { rootId, root, comments: buildCommentList(commentEvents, rootId, ctx), count: commentEvents.length }
         },
@@ -2000,7 +2000,7 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
                 out.push({
                     rootId: root.id,
                     nevent: nip19.neventEncode({ id: root.id, relays: [url], author: root.pubkey }),
-                    roomH: getTagValue('h', root.tags) ?? '',
+                    roomH: tagValue(tagSpec('h'), root.tags) ?? '',
                     authorName: displayProfileByPubkey(root.pubkey),
                     // `withShortRefTokens` wie bei der Zitatkarte (`text:` weiter
                     // oben): eine Nachricht, die mit `nostr:npub1…` beginnt, füllte
@@ -2068,7 +2068,7 @@ export const sendComment = async (url: string, target: TrustedEvent, content: st
  * (das Relay hat den Tombstone nie erhalten — wie beim Nachricht-Löschen).
  */
 export const removeReaction = (url: string, reaction: TrustedEvent): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeEventDelete(reaction, url) })).then((err) =>
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEventDelete(reaction, url) })).then((err) =>
         err ? mapRelayError(err) : '',
     )
 
@@ -2083,7 +2083,7 @@ export const sendReport = (
     reason: string,
     content: string,
 ): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
         err ? mapRelayError(err) : '',
     )
 
@@ -2098,7 +2098,7 @@ export const sendReport = (
 const publishPollShareQuote = (url: string, h: string, poll: TrustedEvent): void => {
     const nevent = nip19.neventEncode({ id: poll.id, relays: [url], author: poll.pubkey, kind: POLL })
     const tags = [['q', poll.id, url, poll.pubkey], ['p', poll.pubkey, url], ...roomTags(h, url)]
-    void publishThunk({ relays: [url], event: makeEvent(MESSAGE, { content: `nostr:${nevent}\n\n`, tags }) })
+    void app.use(Thunks).publish({ relays: [url], event: makeEvent(MESSAGE, { content: `nostr:${nevent}\n\n`, tags }) })
 }
 
 /**
@@ -2114,10 +2114,10 @@ export const sendPoll = async (
     // Die Poll wird optimistisch aus dem Repository gerendert (roomStreamFilter zieht
     // kind-1068). welshman entfernt sie bei Relay-Reject NICHT selbst → sonst bliebe die
     // Karte sichtbar, obwohl sie das Relay nie erreicht hat (wie sendRoomMessage).
-    const thunk = publishThunk({ relays: [url], event: makePoll(params, h, url) })
+    const thunk = app.use(Thunks).publish({ relays: [url], event: makePoll(params, h, url) })
     const err = await waitForPublishError(thunk)
     if (err) {
-        repository.removeEvent(thunk.event.id)
+        app.repository.removeEvent(thunk.event.id)
         return mapRelayError(err)
     }
     publishPollShareQuote(url, h, thunk.event)
@@ -2148,7 +2148,7 @@ export const sendPollResponse = async (url: string, poll: TrustedEvent, selected
     // in derselben Sekunde das Tally sicher überschreibt (latest-per-pubkey = strikt größer).
     const me = get(pubkey)
     const prev = me
-        ? repository
+        ? app.repository
               .query([{ kinds: [POLL_RESPONSE], '#e': [poll.id], authors: [me] }])
               .reduce((max, e) => Math.max(max, e.created_at), 0)
         : 0

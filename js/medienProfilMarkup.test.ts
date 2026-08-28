@@ -177,18 +177,21 @@ test('Die Basis kommt aus __nostrMedia — dem Wert, den beide head-Partials sch
 // ── 2. Die Sicherheitsregel an der Aufrufstelle ─────────────────────────────────
 
 test('Die Profilkarte reicht den VERIFIZIERTEN Handle weiter, kein Profil-Rohfeld', () => {
-    // `this.nip05` wird in `open()` ausschließlich aus `deriveHandleForPubkey` gefüllt,
-    // und die liefert den Handle nur bei Übereinstimmung mit dieser Pubkey (welshman
-    // `handles.js:82`). Ein Profil-`nip05` ist dagegen eine Selbstauskunft: jeder kann
-    // `satoshi@einundzwanzig.space` in sein kind 0 schreiben.
+    // `this.nip05` wird in `open()` ausschließlich aus der Handle-Sammlung gefüllt
+    // (`app.use(Handles).forPubkey`), und die liefert den Handle nur bei Übereinstimmung
+    // mit dieser Pubkey (welshman `handles.js:82`). Ein Profil-`nip05` ist dagegen eine
+    // Selbstauskunft: jeder kann `satoshi@einundzwanzig.space` in sein kind 0 schreiben.
+    //
+    // Das Muster nennt den 0.9.5-Zugriffspfad, seit die welshman-Fassade steht; die
+    // Zusage selbst ist unverändert.
     const rumpf = inselMethode('nostrProfileCard', 'medienUrl', 8)
     assert.match(rumpf, /this\.pubkey, this\.nip05/, 'Die Karte reicht ein anderes Feld als this.nip05 in die Adresse.')
 
     const open = inselMethode('nostrProfileCard', 'open', 8)
     assert.match(
         open,
-        /deriveHandleForPubkey\(pk\)\.subscribe\(\(handle\) => \{\s*this\.nip05 = handle \? displayNip05\(handle\.nip05\) : ''/,
-        'this.nip05 kommt nicht mehr aus deriveHandleForPubkey — die Verifikation hängt daran.',
+        /app\.use\(Handles\)\.forPubkey\(pk\)\.subscribe\(\(handle\) => \{\s*this\.nip05 = handle \? app\.use\(Handles\)\.display\(handle\.nip05\) : ''/,
+        'this.nip05 kommt nicht mehr aus der verifizierten Handle-Sammlung — die Verifikation hängt daran.',
     )
     // Und NICHT aus dem Profil-Store daneben: `deriveMergedProfile` füllt in derselben
     // Methode name/picture/banner/about/website/lud16 — `nip05` darf dort nie auftauchen.

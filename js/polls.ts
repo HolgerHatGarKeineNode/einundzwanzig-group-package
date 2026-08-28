@@ -6,7 +6,7 @@
  */
 import { now, removeUndefined, uniq } from '@welshman/lib'
 import { type TrustedEvent } from '@welshman/util'
-import { getTag, getTagValue, getTags, getTagValues } from './welshmanTags.ts'
+import { matchTag, matchTags, tagSpec, tagValue, tagValues } from './welshmanTags.ts'
 
 export type PollType = 'singlechoice' | 'multiplechoice'
 
@@ -15,12 +15,12 @@ export type PollOption = { id: string; label: string }
 
 /** `["polltype", …]` → Einfach-/Mehrfachwahl (Default Einfachwahl). */
 export const getPollType = (event: TrustedEvent): PollType =>
-    getTagValue('polltype', event.tags) === 'multiplechoice' ? 'multiplechoice' : 'singlechoice'
+    tagValue(tagSpec('polltype'), event.tags) === 'multiplechoice' ? 'multiplechoice' : 'singlechoice'
 
 /** Optionen aus den `["option", id, label]`-Tags (ohne id verworfen; label defaultet auf id). */
 export const getPollOptions = (event: TrustedEvent): PollOption[] =>
     removeUndefined(
-        getTags('option', event.tags).map((tag) => {
+        matchTags(tagSpec('option'), event.tags).map((tag) => {
             const [, id, label = id] = tag
             return id ? { id, label } : undefined
         }),
@@ -28,7 +28,7 @@ export const getPollOptions = (event: TrustedEvent): PollOption[] =>
 
 /** `["endsAt", unix]` → Timestamp oder undefined (auch bei kaputtem Wert). */
 export const getPollEndsAt = (event: TrustedEvent): number | undefined => {
-    const endsAt = getTagValue('endsAt', event.tags)
+    const endsAt = tagValue(tagSpec('endsAt'), event.tags)
     if (!endsAt) {
         return undefined
     }
@@ -47,7 +47,7 @@ export const isPollClosed = (event: TrustedEvent): boolean => {
  * zählt nur die erste, Mehrfachwahl dedupliziert. Reine Regel — der Kern der JS-Unit.
  */
 export const getPollResponseSelections = (event: TrustedEvent, pollType: PollType): string[] => {
-    const selections = getTagValues('response', event.tags)
+    const selections = tagValues(tagSpec('response'), event.tags)
     return pollType === 'singlechoice' ? selections.slice(0, 1) : uniq(selections)
 }
 
@@ -103,7 +103,7 @@ export const ownPollSelection = (
 }
 
 /** `["e", pollId]` einer Response → zugehörige Poll (fürs Gruppieren nach Ziel). */
-export const pollResponseTarget = (event: TrustedEvent): string => getTag('e', event.tags)?.[1] ?? ''
+export const pollResponseTarget = (event: TrustedEvent): string => matchTag(tagSpec('e'), event.tags)?.[1] ?? ''
 
 /** Vorangestelltes `nostr:nevent…`/`note…`-Zitat (unser Quote-Prefix). */
 export const QUOTE_PREFIX = /^nostr:(?:nevent1|note1)[0-9a-z]+\n\n/
@@ -117,6 +117,6 @@ export const QUOTE_PREFIX = /^nostr:(?:nevent1|note1)[0-9a-z]+\n\n/
  * Poll doppelt. Ein echtes Textzitat auf eine Poll (nicht leer) bleibt sichtbar.
  */
 export const isPollShareQuote = (event: TrustedEvent, pollIds: Set<string>): boolean => {
-    const q = getTagValue('q', event.tags)
+    const q = tagValue(tagSpec('q'), event.tags)
     return q !== undefined && pollIds.has(q) && event.content.replace(QUOTE_PREFIX, '').trim() === ''
 }

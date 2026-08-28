@@ -9,7 +9,7 @@
  */
 import { appContext } from '@welshman/app'
 import { pubkey, sign } from './welshmanSession.ts'
-import { loadBlockedRelayList } from './welshmanApp.ts'
+import { app, BlockedRelayLists } from './welshmanApp.ts'
 import { netContext, defaultSocketPolicies, makeSocketPolicyAuth } from '@welshman/net'
 import { routerContext } from '@welshman/router'
 import { always } from '@welshman/lib'
@@ -417,7 +417,7 @@ if (!bootGuard.__ezGroupBooted) {
     // Boot noch nicht steht (localStorage-Sync in `session.ts`) und ein Login folgen kann.
     pubkey.subscribe((pk) => {
         if (pk) {
-            void loadBlockedRelayList(pk)
+            void app.use(BlockedRelayLists).load(pk)
         }
         // Bewusst NICHT hier: die Mute-Liste (kind 10000). Sie zu laden hätte für
         // sich genommen null Wirkung — welshman filtert damit nichts, einziger

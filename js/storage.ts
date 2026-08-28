@@ -16,26 +16,26 @@
  * für `WKWebsiteDataStore.default()` ODER nativer On-Device-SQLite-Bridge-Cache.
  */
 import { pubkey } from './welshmanSession.ts'
-import { repository, tracker } from './welshmanApp.ts'
+import { app } from './welshmanApp.ts'
 import { on, batch } from '@welshman/lib'
 import { verifiedSymbol, type TrustedEvent } from '@welshman/util'
 import {
-    PROFILE,
-    FOLLOWS,
+    APP_DATA,
+    COMMENT,
     DELETE,
+    FOLLOWS,
+    MESSAGE,
+    MUTES,
+    POLL,
+    PROFILE,
+    RELAY_MEMBERS,
+    RELAYS,
+    ROOM_ADMINS,
     ROOM_DELETE,
     ROOM_DELETE_EVENT,
-    MESSAGE,
-    COMMENT,
-    POLL,
-    ZAP_GOAL,
-    MUTES,
-    RELAYS,
-    RELAY_MEMBERS,
-    APP_DATA,
-    ROOM_META,
-    ROOM_ADMINS,
     ROOM_MEMBERS,
+    ROOM_META,
+    ZAP_GOAL,
 } from './welshmanKinds.ts'
 import type { RepositoryUpdate } from '@welshman/net'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
@@ -717,7 +717,7 @@ async function loadCachedEvents(): Promise<void> {
     const prune = new Set(eventsToPrune(keep, nowSec()))
     const tombstoned = tombstonedIds(keep)
     const excluded = new Set<string>([...prune, ...tombstoned])
-    repository.load(keep.filter((event) => !excluded.has(event.id)))
+    app.repository.load(keep.filter((event) => !excluded.has(event.id)))
     const remove = [...drop, ...excluded]
     if (remove.length > 0) {
         void bulkDelete('events', remove)
@@ -742,20 +742,20 @@ async function loadCachedTracker(): Promise<void> {
     const relaysById = new Map<string, Set<string>>()
     const stale: string[] = []
     for (const { id, relays } of await getAll<TrackerItem>('tracker')) {
-        if (!repository.getEvent(id)) {
+        if (!app.repository.getEvent(id)) {
             stale.push(id)
             continue
         }
         relaysById.set(id, new Set(relays))
     }
-    for (const [id, relays] of tracker.relaysById.entries()) {
+    for (const [id, relays] of app.tracker.relaysById.entries()) {
         const merged = relaysById.get(id) ?? new Set<string>()
         for (const relay of relays) {
             merged.add(relay)
         }
         relaysById.set(id, merged)
     }
-    tracker.load(relaysById)
+    app.tracker.load(relaysById)
     if (stale.length > 0) {
         void bulkDelete('tracker', stale)
     }
@@ -784,11 +784,11 @@ async function loadCachedTracker(): Promise<void> {
 const persistTrackerRows = async (ids: Iterable<string>): Promise<void> => {
     const items: TrackerItem[] = []
     for (const id of ids) {
-        const event = repository.getEvent(id)
+        const event = app.repository.getEvent(id)
         if (!event || !shouldPersistEvent(event)) {
             continue
         }
-        const relays = Array.from(tracker.getRelays(id))
+        const relays = Array.from(app.tracker.getRelays(id))
         if (relays.length > 0) {
             items.push({ id, relays })
         }
@@ -799,7 +799,7 @@ const persistTrackerRows = async (ids: Iterable<string>): Promise<void> => {
 /** Inkrementelle Event-Persistenz: `added`→bulkPut (whitelisted), `removed`→bulkDelete. */
 function syncEvents(): () => void {
     return on(
-        repository,
+        app.repository,
         'update',
         batch(3000, async (updates: RepositoryUpdate[]) => {
             // Ein Schwung, eine Entscheidung (Weg 3 bei {@link knownRepos}): sonst
@@ -845,19 +845,19 @@ function syncTracker(): () => void {
 
     const onAdd = batch(3000, (ids: string[]) => void persistIds(ids))
     const onRemove = batch(3000, (ids: string[]) => void deleteIds(ids))
-    const onLoad = () => void persistIds(tracker.relaysById.keys())
-    const onClear = () => void deleteIds(Array.from(tracker.relaysById.keys()))
+    const onLoad = () => void persistIds(app.tracker.relaysById.keys())
+    const onClear = () => void deleteIds(Array.from(app.tracker.relaysById.keys()))
 
-    tracker.on('add', onAdd)
-    tracker.on('remove', onRemove)
-    tracker.on('load', onLoad)
-    tracker.on('clear', onClear)
+    app.tracker.on('add', onAdd)
+    app.tracker.on('remove', onRemove)
+    app.tracker.on('load', onLoad)
+    app.tracker.on('clear', onClear)
 
     return () => {
-        tracker.off('add', onAdd)
-        tracker.off('remove', onRemove)
-        tracker.off('load', onLoad)
-        tracker.off('clear', onClear)
+        app.tracker.off('add', onAdd)
+        app.tracker.off('remove', onRemove)
+        app.tracker.off('load', onLoad)
+        app.tracker.off('clear', onClear)
     }
 }
 

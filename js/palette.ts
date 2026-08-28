@@ -34,9 +34,9 @@
  */
 
 import { get } from 'svelte/store'
-import { relaysByUrl } from './welshmanApp.ts'
+import { app, Relays } from './welshmanApp.ts'
 import { type TrustedEvent } from '@welshman/util'
-import { type RelayProfile } from './welshmanRelay.ts'
+import type { RelayInfo } from './welshmanRelay.ts'
 import { displayProfileByPubkey } from './spaceProfiles.ts'
 import {
     DEFAULT_SPACE_URL,
@@ -197,7 +197,7 @@ export type PaletteState = {
     _space: SpaceView | null
     _workspace: SpaceView | null
     _spaceUrls: string[]
-    _relays: Map<string, RelayProfile>
+    _relays: Map<string, RelayInfo>
     _directory: DirectoryView
     _url: string
     _wired: boolean
@@ -894,7 +894,7 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         this._unsubSpaces = groupSpaceChoices.subscribe((urls: string[]) => {
             this._spaceUrls = urls
         })
-        this._unsubRelays = relaysByUrl.subscribe((byUrl: Map<string, RelayProfile>) => {
+        this._unsubRelays = app.use(Relays).index.$.subscribe((byUrl: Map<string, RelayInfo>) => {
             this._relays = byUrl
         })
 

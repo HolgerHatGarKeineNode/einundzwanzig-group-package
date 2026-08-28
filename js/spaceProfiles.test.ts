@@ -21,7 +21,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { get } from 'svelte/store'
-import { repository } from './welshmanApp.ts'
+import { app } from './welshmanApp.ts'
 import { netContext, MockAdapter, type AbstractAdapter, type ClientMessage } from '@welshman/net'
 import { normalizeRelayUrl, verifyEvent, type TrustedEvent } from '@welshman/util'
 import { PROFILE } from './welshmanKinds.ts'
@@ -113,7 +113,7 @@ describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
         // „gewinnt" das Space-Profil scheinbar zu Recht). Die App hat dieses Abo über
         // ihre Feeds ohnehin; hier muss es ausdrücklich stehen.
         unsubscribe = profilesByPubkey.subscribe(() => {})
-        repository.publish(nativesProfil)
+        app.repository.publish(nativesProfil)
         await tick(50)
         await loadSpaceProfiles(SPACE, [beidePubkey, nurSpacePubkey])
         await tick(250)
@@ -131,14 +131,14 @@ describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
     })
 
     test('… und NICHT ins gemeinsame Repository', () => {
-        const gespeichert = repository.query([{ kinds: [PROFILE], authors: [beidePubkey] }]) as TrustedEvent[]
+        const gespeichert = app.repository.query([{ kinds: [PROFILE], authors: [beidePubkey] }]) as TrustedEvent[]
 
         assert.deepEqual(
             gespeichert.map((event) => event.id),
             [nativesProfil.id],
             'das jüngere Space-Profil hätte das native verdrängt — kind 0 ist ersetzbar',
         )
-        assert.equal(repository.query([{ kinds: [PROFILE], authors: [nurSpacePubkey] }]).length, 0)
+        assert.equal(app.repository.query([{ kinds: [PROFILE], authors: [nurSpacePubkey] }]).length, 0)
     })
 
     test('DIE ALTE GEFAHR: der echte Name überlebt das jüngere Space-Profil', () => {

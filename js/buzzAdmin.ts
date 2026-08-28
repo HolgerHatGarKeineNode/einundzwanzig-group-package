@@ -37,7 +37,7 @@
  * dieselbe Konvention wie bei den NIP-86-Wrappern in `members.ts`, damit die
  * Aufrufer in `bridge.ts` unveraendert bleiben.
  */
-import { publishThunk, getRelaysByUrl, loadRelay, forceLoadRelay } from './welshmanApp.ts'
+import { app, Relays, Thunks } from './welshmanApp.ts'
 import { signer } from './welshmanSession.ts'
 import { makeEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
@@ -84,9 +84,9 @@ export type BuzzRelayRole = 'owner' | 'admin' | 'member'
  * (`actionItems.ts`) die Weiche braucht — EINE Erkennung, nicht zwei.
  */
 export const spaceIsBuzz = (url: string): boolean => {
-    const profile = getRelaysByUrl().get(url)
+    const profile = app.use(Relays).index.get().get(url)
     if (!profile) {
-        void loadRelay(url)
+        void app.use(Relays).load(url)
         return false
     }
     return isBuzzRelay(profile)
@@ -102,7 +102,7 @@ export const spaceIsBuzz = (url: string): boolean => {
  * bleibt die synchrone Fassung richtig: da ist das Profil laengst da.
  */
 export const spaceIsBuzzAsync = async (url: string): Promise<boolean> => {
-    const cached = getRelaysByUrl().get(url)
+    const cached = app.use(Relays).index.get().get(url)
     if (cached) {
         return isBuzzRelay(cached)
     }
@@ -118,7 +118,7 @@ export const spaceIsBuzzAsync = async (url: string): Promise<boolean> => {
     // `report resolved` ohne vorangehendes `DELETE_EVENT processed`). Derselbe Pfad,
     // direkt per `Alpine.$data(el).removeReportedContent(r)` aufgerufen, sendet das 9005
     // und setzt `deleted_at` — gemessen. Der Unterschied liegt also nicht hier.
-    return isBuzzRelay((await forceLoadRelay(url)) ?? undefined)
+    return isBuzzRelay((await app.use(Relays).forceLoad(url)) ?? undefined)
 }
 
 /**
@@ -126,7 +126,7 @@ export const spaceIsBuzzAsync = async (url: string): Promise<boolean> => {
  * (`''` = OK). Das Event entsteht hier drin — siehe Fallstrick 1 im Modulkopf.
  */
 const publishAdminEvent = (url: string, kind: number, tags: string[][]): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(kind, { tags }) }))
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(kind, { tags }) }))
 
 // ── Mitglieder ──────────────────────────────────────────────────────────────
 

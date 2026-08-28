@@ -12,17 +12,17 @@
  * mit msats-Goals nötig wird.
  */
 import { type TrustedEvent } from '@welshman/util'
-import { getTagValue } from './welshmanTags.ts'
+import { tagSpec, tagValue } from './welshmanTags.ts'
 
 /** Titel des Goals = `content` (NIP-75: Titel steht im Content, nicht in einem Tag). */
 export const getGoalTitle = (event: TrustedEvent): string => event.content
 
 /** Optionale Beschreibung aus `["summary", …]` (leer, wenn nicht gesetzt). */
-export const getGoalSummary = (event: TrustedEvent): string => getTagValue('summary', event.tags) ?? ''
+export const getGoalSummary = (event: TrustedEvent): string => tagValue(tagSpec('summary'), event.tags) ?? ''
 
 /** Ziel-Betrag in **Sats** aus `["amount", …]`; 0 bei fehlendem/kaputtem Wert. */
 export const getGoalTargetSats = (event: TrustedEvent): number => {
-    const raw = getTagValue('amount', event.tags)
+    const raw = tagValue(tagSpec('amount'), event.tags)
     if (!raw) {
         return 0
     }

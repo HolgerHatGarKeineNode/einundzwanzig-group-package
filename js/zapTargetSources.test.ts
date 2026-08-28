@@ -30,7 +30,7 @@
  * 2. **Herkunft mechanisch gegengeprüft (statisch).** Die Deklaration darf nicht
  *    bloß behaupten, woher ein Leser sein Profil hat: der Test sucht die BINDUNG
  *    des Empfängers im Quelltext und vergleicht sie mit der Deklaration. Wer
- *    `getProfile()` gegen `getSpaceProfile()` tauscht, wird rot, ohne dass ihn
+ *    `app.use(Profiles).get()` gegen `getSpaceProfile()` tauscht, wird rot, ohne dass ihn
  *    jemand daran erinnert. Die Klasse (repository/gemergt/…) wird aus dem
  *    gefundenen Produzenten ABGELEITET, nicht deklariert.
  * 3. **Die Fremdquelle trägt die Felder gar nicht (verhaltensbasiert).** Ein
@@ -60,7 +60,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { get } from 'svelte/store'
-import { repository } from './welshmanApp.ts'
+import { app } from './welshmanApp.ts'
 import { netContext, MockAdapter, type AbstractAdapter, type ClientMessage } from '@welshman/net'
 import { normalizeRelayUrl, verifyEvent, type TrustedEvent } from '@welshman/util'
 import { PROFILE } from './welshmanKinds.ts'
@@ -99,7 +99,14 @@ const HOST_DIR = join(PAKET_DIR, '..', '..')
  * nur, weil Ebene 3 misst, dass dort keine Zahlungs-/Identitätsfelder ankommen.
  */
 const PRODUZENTEN: { schluessel: string; muster: RegExp; klasse: string }[] = [
-    { schluessel: 'getProfile', muster: /\bgetProfile\s*\(/, klasse: 'repository' },
+    // Die Namen sind die 0.9.5-Zugriffspfade aus `js/welshmanApp.ts` — `getProfile(pk)`
+    // heißt seit der welshman-Kapselung `app.use(Profiles).get(pk)`. Die Klassifikation
+    // ist unverändert: dieselbe Quelle, anderer Weg dorthin.
+    { schluessel: 'Profiles.get', muster: /\bapp\.use\(Profiles\)\.get\s*\(/, klasse: 'repository' },
+    { schluessel: 'Profiles.load', muster: /\bapp\.use\(Profiles\)\.load\s*\(/, klasse: 'repository' },
+    // `js/zaps.ts` ist bis welshman 0.9.6 eingefroren (Upstream-Bug im Zapper-Gate) und
+    // ruft deshalb als einzige Datei weiterhin das nackte `loadProfile`. Der Eintrag
+    // verschwindet mit dem Auftauen dieser Fläche.
     { schluessel: 'loadProfile', muster: /\bloadProfile\s*\(/, klasse: 'repository' },
     { schluessel: 'userProfile', muster: /\buserProfile\b/, klasse: 'repository' },
     { schluessel: 'deriveMergedProfile', muster: /\bderiveMergedProfile\s*\(/, klasse: 'gemergt' },
@@ -111,7 +118,7 @@ const PRODUZENTEN: { schluessel: string; muster: RegExp; klasse: string }[] = [
     // Typ gar nicht erst (`ArticleAuthorDeps` traegt `hatLightning: boolean`, nicht
     // `lud16`), und der Aufrufer-Hop unten nagelt fest, woher der Wert kommt.
     { schluessel: 'autor-deps-parameter', muster: /\bdeps\s*:\s*ArticleAuthorDeps\b/, klasse: 'parameter' },
-    { schluessel: 'deriveHandleForPubkey', muster: /\bderiveHandleForPubkey\s*\(/, klasse: 'handle' },
+    { schluessel: 'Handles.forPubkey', muster: /\bapp\.use\(Handles\)\.forPubkey\s*\(/, klasse: 'handle' },
     // Das FERTIGE Autorenmodell aus `deriveAuthorPage` — dieselbe Herkunft, die die vier
     // Markup-Zugriffe auf `autor.nip05` in `⚡article-author.blade.php` per `modell`
     // deklarieren, nur einmal in TypeScript statt in Blade. `AuthorView['autor']` ist
@@ -240,7 +247,13 @@ const DESTRUKTUR = /\{[^{}]*\b(lud16|lud06|lnurl|nip05)\b[^{}]*\}\s*=(?!>)/g
  * Empfangsadresse AUF". Ein künftiger Leser könnte einen fremden Wert weiterreichen,
  * ohne selbst je `.lud16` zu schreiben — an dieser Liste kommt er trotzdem nicht vorbei.
  */
-const AUFLOESER = /\b(getLnUrl|lnurlInvoice|loadZapperNow|resolveZapper|getZapper|loadZapperForPubkey)\s*\(/g
+// `app.use(Zappers).get` steht hier ausgeschrieben neben `getZapper`: seit der
+// welshman-Kapselung ist der Cache-Blick ein Methodenaufruf an der App-Instanz, und ein
+// Muster auf den nackten Bezeichner würde ihn übersehen — die Auflösung fiele lautlos
+// aus dem Inventar. `getZapper` bleibt daneben stehen, weil `js/zaps.ts` bis welshman
+// 0.9.6 eingefroren ist und die alte Form dort noch steht.
+const AUFLOESER =
+    /\b(getLnUrl|lnurlInvoice|loadZapperNow|resolveZapper|getZapper|loadZapperForPubkey|app\.use\(Zappers\)\.get)\s*\(/g
 
 const scanne = (): Fund[] => {
     const quellen: string[] = [
@@ -324,8 +337,8 @@ const AUFLOESER_INVENTAR: { datei: string; fn: string; argumente: string[]; waru
     },
     {
         datei: 'js/bridge.ts',
-        fn: 'getZapper',
-        argumente: ['getZapper(lnurl)'],
+        fn: 'app.use(Zappers).get',
+        argumente: ['app.use(Zappers).get(lnurl)'],
         warum: 'Zapper-Cache zu der eine Zeile darüber aufgelösten lnurl.',
     },
     {
@@ -405,7 +418,7 @@ const INVENTAR: Deklaration[] = [
     {
         datei: 'js/bridge.ts',
         ausdruck: 'handle.nip05',
-        quellen: ['deriveHandleForPubkey', 'deriveHandleForPubkey'],
+        quellen: ['Handles.forPubkey', 'Handles.forPubkey'],
         warum: 'welshman-Handle: nur bei bestätigtem nostr.json↔pubkey-Match gesetzt (Profilkarte 1754, eigene Kopfzeile 6561).',
     },
     {
@@ -417,13 +430,13 @@ const INVENTAR: Deklaration[] = [
     {
         datei: 'js/bridge.ts',
         ausdruck: 'profile.lud16',
-        quellen: ['getProfile'],
+        quellen: ['Profiles.get'],
         warum: 'Zap-Sheet (5978): das Zahlungsziel kommt aus dem Repository, nicht aus dem gemergten Objekt.',
     },
     {
         datei: 'js/bridge.ts',
         ausdruck: 'profile.lud06',
-        quellen: ['getProfile'],
+        quellen: ['Profiles.get'],
         warum: 'Zweite Hälfte desselben Ausdrucks (5978).',
     },
     {
@@ -871,7 +884,7 @@ describe('Ebene 3 — kein Ausgang der Fremdquelle trägt Zahlungs- oder Identit
             event.kind === PROFILE && normalizeRelayUrl(url) === SPACE ? false : verifyEvent(event)
 
         unsubscribe = profilesByPubkey.subscribe(() => {})
-        repository.publish(nativesProfil)
+        app.repository.publish(nativesProfil)
         await tick(50)
         await loadSpaceProfiles(SPACE, PUBKEYS)
         await tick(250)
@@ -898,7 +911,7 @@ describe('Ebene 3 — kein Ausgang der Fremdquelle trägt Zahlungs- oder Identit
         // Zweig A: natives Profil vorhanden (Merge). Zweig B: keins (Kurzschluss) —
         // der im Workspace gemessene NORMALFALL, an dem der Fehler durchrutschte.
         assert.equal(get(profilesByPubkey).get(opferPubkey)?.name, 'Echte Person', 'natives Profil muss geladen sein')
-        assert.equal(repository.query([{ kinds: [PROFILE], authors: [nurSpacePubkey] }]).length, 0, 'für diesen Pubkey darf es KEIN natives Profil geben')
+        assert.equal(app.repository.query([{ kinds: [PROFILE], authors: [nurSpacePubkey] }]).length, 0, 'für diesen Pubkey darf es KEIN natives Profil geben')
         assert.equal(get(spaceProfilesByPubkey).size, 2, 'beide Space-Profile müssen angekommen sein')
         assert.equal(get(profilesByPubkey).get(nurSpacePubkey)?.display_name, 'nostr-specialist', 'der Kurzschluss-Zweig muss etwas liefern')
     })

@@ -34,7 +34,7 @@
 import { load } from '@welshman/net'
 import { throttled } from '@welshman/store'
 import { getLnUrl, normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
-import { COMMENT, REACTION, ZAP_RESPONSE } from './welshmanKinds.ts'
+import { COMMENT, REACTION, ZAP_RECEIPT } from './welshmanKinds.ts'
 import { type Zapper } from './welshmanZap.ts'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { derived, readable, type Readable } from 'svelte/store'
@@ -76,7 +76,7 @@ import { makeComment, makeEventDelete, makeReaction } from './interactions.ts'
 import { publishOptimistic } from './publishOptimistic.ts'
 import { warmProfiles } from './profiles.ts'
 import { deriveEventsForUrl, deriveEventsForUrls } from './repository.ts'
-import { handlesByNip05, repository, zappersByLnurl } from './welshmanApp.ts'
+import { app, Handles, Zappers } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { verifiedNip05, warmHandles } from './handles.ts'
@@ -319,7 +319,7 @@ const addressFilters = (address: ArticleAddress): Filter[] => [
  * Anlegen der Ableitung. Ein Filter, der beim Mount festgeschrieben wird und danach nie
  * nachzieht, ist genau der Fehler, den diese Fläche schon einmal gemacht hat.
  */
-const metrikStoreFilters = (): Filter[] => [{ kinds: [REACTION, ZAP_RESPONSE, COMMENT] }]
+const metrikStoreFilters = (): Filter[] => [{ kinds: [REACTION, ZAP_RECEIPT, COMMENT] }]
 
 /**
  * Aus einem Artikelbestand die drei Tabellen bauen, die {@link berechneArtikelMetriken}
@@ -479,7 +479,7 @@ export const deriveArticles = (): Readable<ArticleRowMitMetriken[]> =>
             // NACH den 9735 — der Zap-Zähler bliebe sonst dauerhaft auf null stehen,
             // obwohl die Quittungen da sind. Derselbe Eingang steht aus derselben
             // Begründung in `feeds.ts` (`deriveRoomChat`).
-            throttled(300, zappersByLnurl),
+            throttled(300, app.use(Zappers).index.$),
         ],
         ([events, $profiles, $sekundaer, $zappers]) => {
             const index = artikelIndex(events as TrustedEvent[])
@@ -524,13 +524,13 @@ export const deriveArticle = (naddr: string): Readable<ArticleView | null> => {
             // bekannt ist). Ohne diesen Eingang rechnete die Ableitung dabei nicht neu, und
             // das Häkchen erschiene nie — genau die Reaktivitäts-Falle, die diese Fläche
             // schon einmal eine Phase gekostet hat (`deriveRoomChat`, siehe Modulkopf).
-            throttled(300, handlesByNip05),
+            throttled(300, app.use(Handles).index.$),
             // **Vierter und fünfter Eingang (P6)** — dieselbe Begründung wie in
             // {@link deriveArticles}: die Sozialsignale und die Zapper treffen NACH dem
             // Artikel ein. Fehlten sie hier, zeigte die Vollansicht dauerhaft keine
             // Zähler, während die Liste sie hat.
             throttled(300, deriveEventsForUrls(metrikRelays(), metrikStoreFilters())),
-            throttled(300, zappersByLnurl),
+            throttled(300, app.use(Zappers).index.$),
         ],
         ([events, $profiles, $handles, $sekundaer, $zappers]) => {
             // Ersetzbares Event: bei mehreren Fassungen im Store gewinnt die jüngste
@@ -689,12 +689,12 @@ export const deriveAuthorPage = (pubkey: string): Readable<AuthorView> =>
         [
             throttled(300, deriveEventsForUrl(BOARD_URL, listFilters(ARTICLE_LOAD_LIMIT))),
             throttled(300, profilesByPubkey),
-            throttled(300, handlesByNip05),
+            throttled(300, app.use(Handles).index.$),
             // **Vierter und fünfter Eingang (P6).** Die Autorenseite rendert dieselbe
             // Karte wie die Liste — ohne diese beiden trüge dieselbe Karte auf zwei
             // Flächen zwei verschiedene Zahlen, und auf dieser hier dauerhaft keine.
             throttled(300, deriveEventsForUrls(metrikRelays(), metrikStoreFilters())),
-            throttled(300, zappersByLnurl),
+            throttled(300, app.use(Zappers).index.$),
         ],
         ([events, $profiles, $handles, $sekundaer, $zappers]) => {
             // **Der Kernbeweis von P4, an seiner produktiven Stelle:** gefiltert
@@ -986,7 +986,7 @@ export const ARTIKEL_SCHREIB_RELAY = (): string => BOARD_URL
  * `null`, wenn das Ereignis nicht (mehr) im Store liegt — der Aufrufer tut dann nichts,
  * statt auf einem geratenen Ziel zu schreiben.
  */
-const artikelEreignis = (id: string): TrustedEvent | null => repository.getEvent(id) ?? null
+const artikelEreignis = (id: string): TrustedEvent | null => app.repository.getEvent(id) ?? null
 
 /**
  * Auf einen Artikel reagieren (kind 7, NIP-25) — mit {@link ARTIKEL_REAKTION}.
@@ -1025,7 +1025,7 @@ export const reagiereAufArtikel = async (artikelId: string): Promise<string> => 
  */
 export const nimmArtikelReaktionZurueck = async (reaktionsId: string): Promise<string> => {
     const url = ARTIKEL_SCHREIB_RELAY()
-    const reaktion = repository.getEvent(reaktionsId)
+    const reaktion = app.repository.getEvent(reaktionsId)
     if (!url || !reaktion) {
         return ''
     }

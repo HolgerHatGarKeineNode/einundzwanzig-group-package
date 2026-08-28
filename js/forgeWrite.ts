@@ -30,7 +30,7 @@
  *    unterwegs ist; ein Doppelklick erzeugt kein zweites Ereignis. Der Riegel
  *    sitzt HIER und nicht nur am Knopf — die Tastatur löst denselben Pfad aus.
  */
-import { publishThunk } from './welshmanApp.ts'
+import { app, Thunks } from './welshmanApp.ts'
 import { pubkey, signer } from './welshmanSession.ts'
 import { makeEvent } from '@welshman/util'
 import { writable, type Readable } from 'svelte/store'
@@ -133,7 +133,7 @@ const send = async (
 
     let thunk
     try {
-        thunk = publishThunk({ relays: [WORKSPACE_URL], event })
+        thunk = app.use(Thunks).publish({ relays: [WORKSPACE_URL], event })
     } catch {
         // `new Thunk` wirft ohne pubkey/signer — die Sitzung kann zwischen Gate
         // und Klick abgelaufen sein.

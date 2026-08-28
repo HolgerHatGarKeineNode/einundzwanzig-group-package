@@ -13,15 +13,7 @@
  * — sie ist persistent und die Quelle für „bin ich Mitglied dieses Raums".
  */
 import { derived, writable, get, type Readable, type Writable } from 'svelte/store'
-import {
-    repository,
-    tracker,
-    makeUserData,
-    makeOutboxLoader,
-    publishThunk,
-    relaysByUrl,
-    loadRelay,
-} from './welshmanApp.ts'
+import { app, makeOutboxLoader, makeUserData, Relays, Thunks } from './welshmanApp.ts'
 import { pubkey, nip44EncryptToSelf } from './welshmanSession.ts'
 import { deriveItemsByKey, deriveEventsByIdByUrl, sync, throttled, localStorageProvider } from '@welshman/store'
 import { Router } from '@welshman/router'
@@ -42,23 +34,23 @@ import {
     type TrustedEvent,
 } from '@welshman/util'
 import {
-    ROOMS,
     MESSAGE,
     POLL,
-    ZAP_GOAL,
-    ROOM_META,
-    ROOM_CREATE,
-    ROOM_DELETE,
-    ROOM_MEMBERS,
-    ROOM_ADD_MEMBER,
-    ROOM_REMOVE_MEMBER,
-    ROOM_JOIN,
-    ROOM_LEAVE,
+    RELAY_INVITE,
     RELAY_JOIN,
     RELAY_LEAVE,
-    RELAY_INVITE,
+    ROOM_ADD_MEMBER,
+    ROOM_CREATE,
+    ROOM_DELETE,
+    ROOM_JOIN,
+    ROOM_LEAVE,
+    ROOM_MEMBERS,
+    ROOM_META,
+    ROOM_REMOVE_MEMBER,
+    ROOMS,
+    ZAP_GOAL,
 } from './welshmanKinds.ts'
-import { getListTags, getRelayTagValues, getGroupTags, getTagValue, getTagValues } from './welshmanTags.ts'
+import { getGroupTags, getListTags, relayTags, tagSpec, tagValue, tagValues } from './welshmanTags.ts'
 import { uniq, sortBy, partition } from '@welshman/lib'
 import {
     createRoomMembershipRevocations,
@@ -83,7 +75,7 @@ import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps.
 import { spaceIsBuzzAsync } from './buzzAdmin.ts'
 import { parseMeetupTags } from './meetupPresentation.ts'
 import { parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories.ts'
-import type { RelayProfile } from './welshmanRelay.ts'
+import type { RelayInfo } from './welshmanRelay.ts'
 import { waitForPublishError } from './publishResult.ts'
 
 export type Room = ReturnType<typeof readRoomMeta> & { id: string; url: string }
@@ -95,7 +87,7 @@ export const makeRoomId = (url: string, h: string): string => `${url}'${h}`
 
 /** Die 10009-Liste je pubkey (nur public Tags — private Entschlüsselung: später). */
 export const groupListsByPubkey = deriveItemsByKey<PublishedList>({
-    repository,
+    repository: app.repository,
     filters: [{ kinds: [ROOMS] }],
     eventToItem: (event) => readList(asDecryptedEvent(event)),
     getKey: (list) => list.event.pubkey,
@@ -110,7 +102,7 @@ export const getSpaceUrlsFromGroupList = (groupList?: PublishedList): string[] =
         return []
     }
     const tags = getListTags(groupList)
-    const urls = getRelayTagValues(tags)
+    const urls = tagValues(relayTags(['r', 'relay']), tags)
     for (const tag of getGroupTags(tags)) {
         const url = tag[2] || ''
         if (isRelayUrl(url)) {
@@ -131,8 +123,8 @@ export const userSpaceUrls = derived(userGroupList, getSpaceUrlsFromGroupList)
 
 /** Room-Meta-Events, nach Herkunfts-Relay gruppiert (via tracker). */
 export const roomMetaEventsByIdByUrl = deriveEventsByIdByUrl({
-    tracker,
-    repository,
+    tracker: app.tracker,
+    repository: app.repository,
     filters: [{ kinds: [ROOM_META, ROOM_DELETE] }],
 })
 
@@ -145,7 +137,7 @@ export const roomsByUrl = derived(roomMetaEventsByIdByUrl, ($byUrl) => {
 
         const deletedByH = new Map<string, number>()
         for (const del of deletes) {
-            for (const h of getTagValues('h', del.tags)) {
+            for (const h of tagValues(tagSpec('h'), del.tags)) {
                 deletedByH.set(h, Math.max(deletedByH.get(h) ?? 0, del.created_at))
             }
         }
@@ -182,8 +174,8 @@ export const roomsById = derived(roomsByUrl, ($byUrl) => {
  * eine Poll oder ein Spendenziel einen Raum genauso „aktiv" macht wie eine Nachricht.
  */
 const timelineEventsByIdByUrl = deriveEventsByIdByUrl({
-    tracker,
-    repository,
+    tracker: app.tracker,
+    repository: app.repository,
     filters: [{ kinds: [MESSAGE, BUZZ_MESSAGE_V2, POLL, ZAP_GOAL] }],
 })
 
@@ -206,7 +198,7 @@ export const lastMessageAtByUrl: Readable<Map<string, Map<string, number>>> = de
         for (const [url, eventsById] of $byUrl) {
             const byH = new Map<string, number>()
             for (const event of eventsById.values() as Iterable<TrustedEvent>) {
-                const h = getTagValue('h', event.tags)
+                const h = tagValue(tagSpec('h'), event.tags)
                 if (h && event.created_at > (byH.get(h) ?? 0)) {
                     byH.set(h, event.created_at)
                 }
@@ -230,8 +222,8 @@ const roomMembershipRevocations = createRoomMembershipRevocations()
 
 /** Members-Listen (39002) je Space-URL, nach Herkunfts-Relay (tracker). */
 export const roomMembersEventsByIdByUrl = deriveEventsByIdByUrl({
-    tracker,
-    repository,
+    tracker: app.tracker,
+    repository: app.repository,
     filters: [{ kinds: [ROOM_MEMBERS] }],
 })
 
@@ -255,7 +247,7 @@ const roomMembersEventByUrl: Readable<Map<string, Map<string, TrustedEvent>>> = 
             const byH = new Map<string, TrustedEvent>()
             for (const event of byId.values()) {
                 const trusted = event as TrustedEvent
-                const h = getTagValue('d', trusted.tags)
+                const h = tagValue(tagSpec('d'), trusted.tags)
                 if (!h) {
                     continue
                 }
@@ -297,7 +289,7 @@ export const roomMembersByUrl: Readable<Map<string, Map<string, Set<string>>>> =
         for (const [url, byEvent] of $byUrl) {
             const byH = new Map<string, Set<string>>()
             for (const [h, event] of byEvent) {
-                const members = new Set(getTagValues('p', event.tags))
+                const members = new Set(tagValues(tagSpec('p'), event.tags))
                 if ($pk && members.has($pk) && $revocations.has(roomMembershipKey(url, h))) {
                     members.delete($pk)
                 }
@@ -397,7 +389,7 @@ const buildSpaceView = (
     byId: Map<string, Room>,
     membersByH: Map<string, Set<string>>,
     pk: string | undefined,
-    profile: RelayProfile | undefined,
+    profile: RelayInfo | undefined,
     lastByH: Map<string, number>,
 ): SpaceView => {
     const nameOf = (h: string) => displayRoom(byId.get(makeRoomId(url, h)), h)
@@ -449,11 +441,11 @@ const buildSpaceView = (
  * dedupliziert) → gefahrlos aus reaktiven Derives/Rebuilds aufrufbar.
  */
 export const ensureRelayProfile = (
-    relays: Map<string, RelayProfile>,
+    relays: Map<string, RelayInfo>,
     url: string,
-): RelayProfile | undefined => {
+): RelayInfo | undefined => {
     if (!relays.has(url)) {
-        void loadRelay(url)
+        void app.use(Relays).load(url)
     }
     return relays.get(url)
 }
@@ -463,7 +455,7 @@ export const ensureRelayProfile = (
  * und entdeckbaren Räumen — die Grundlage der Space-Auswahl in den Einstellungen.
  */
 export const userSpacesView: Readable<SpaceView[]> = derived(
-    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+    [userSpaceUrls, roomsByUrl, roomsById, roomMembersByUrl, pubkey, app.use(Relays).index.$, lastMessageAtByUrl],
     ([$urls, $byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
         $urls.map((url) =>
             buildSpaceView(
@@ -651,7 +643,7 @@ export const activeSpace: Readable<string> = derived(
  * Space (noch) nicht beigetreten ist. Rooms streamen nach dem 39000-Load ein.
  */
 export const activeSpaceView: Readable<SpaceView> = derived(
-    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+    [activeSpace, roomsByUrl, roomsById, roomMembersByUrl, pubkey, app.use(Relays).index.$, lastMessageAtByUrl],
     ([$active, $byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
         // NIP-11 auch für den aktiven Space anstoßen — inkl. Vereins-Relays, die
         // sonst nie geladen würden (nur `groupSpaceChoices` lädt non-verein).
@@ -681,7 +673,7 @@ export const activeSpaceView: Readable<SpaceView> = derived(
 export const deriveSpaceViewFor = (url: string): Readable<SpaceView> => {
     const normalized = normalizeRelayUrl(url)
     return derived(
-        [roomsByUrl, roomsById, roomMembersByUrl, pubkey, relaysByUrl, lastMessageAtByUrl],
+        [roomsByUrl, roomsById, roomMembersByUrl, pubkey, app.use(Relays).index.$, lastMessageAtByUrl],
         ([$byUrl, $byId, $members, $pk, $relays, $lastAt]) =>
             buildSpaceView(
                 normalized,
@@ -757,11 +749,11 @@ export const spaceChoices: Readable<string[]> = derived(userSpaceUrls, ($urls) =
  * ändert oder ein Profil eintrifft. Die Filter-Entscheidung selbst liegt rein
  * in `spaceSupportsRooms` (welshman-frei, testbar).
  */
-export const groupSpaceChoices: Readable<string[]> = derived([spaceChoices, relaysByUrl], ([$urls, $byUrl]) =>
+export const groupSpaceChoices: Readable<string[]> = derived([spaceChoices, app.use(Relays).index.$], ([$urls, $byUrl]) =>
     $urls.filter((url) => {
         const isVerein = isVereinRelay(url)
         if (!isVerein && !$byUrl.has(url)) {
-            void loadRelay(url)
+            void app.use(Relays).load(url)
         }
         return spaceSupportsRooms(isVerein, $byUrl.get(url))
     }),
@@ -996,9 +988,9 @@ const runRoomReconcile = async (url: string): Promise<RoomAnswerVerdict | 'skipp
     // Auswertung neu eintrifft (fremdes 9007+9002 über die Live-Sub), stünde im
     // Bestand, aber nicht in der Antwort — und wäre sofort wieder gelöscht, ohne
     // dass ihn je wieder etwas nachliefert.
-    const knownBefore = repository
+    const knownBefore = app.repository
         .query([{ kinds: [ROOM_META] }])
-        .map((event: TrustedEvent) => ({ id: event.id, h: getTagValue('d', event.tags) || '' }))
+        .map((event: TrustedEvent) => ({ id: event.id, h: tagValue(tagSpec('d'), event.tags) || '' }))
 
     // ── Stufe 1: breite Abfrage ─────────────────────────────────────────────────
     // NUR 39000. Die 9008 der Live-Sub interessieren hier nicht — sie bedienen den
@@ -1010,7 +1002,7 @@ const runRoomReconcile = async (url: string): Promise<RoomAnswerVerdict | 'skipp
 
     const presentHs = new Set<string>()
     for (const event of scan.rooms) {
-        const h = getTagValue('d', event.tags)
+        const h = tagValue(tagSpec('d'), event.tags)
         if (h) {
             presentHs.add(h)
         }
@@ -1021,7 +1013,7 @@ const runRoomReconcile = async (url: string): Promise<RoomAnswerVerdict | 'skipp
     // Ereignis bekannt sind, desto eher schützt der Herkunfts-Riegel es.
     const known: KnownRoomEvent[] = knownBefore.map((room) => ({
         ...room,
-        relays: Array.from(tracker.getRelays(room.id)),
+        relays: Array.from(app.tracker.getRelays(room.id)),
     }))
     const candidates = selectReconcileCandidates(url, known, presentHs, verdict)
     const credible = candidatesAreCredible(candidates)
@@ -1066,7 +1058,7 @@ const runRoomReconcile = async (url: string): Promise<RoomAnswerVerdict | 'skipp
         )
         candidates.forEach((room, i) => {
             if (confirmsRoomGone(probes[i])) {
-                repository.removeEvent(room.id)
+                app.repository.removeEvent(room.id)
             }
         })
     }
@@ -1167,7 +1159,7 @@ export const reloadRoomMembership = async (
 const readMembership = (events: TrustedEvent[], h: string, pk: string): RoomMembershipRead | null => {
     let newest: TrustedEvent | undefined
     for (const event of events) {
-        if (event.kind !== ROOM_MEMBERS || getTagValue('d', event.tags) !== h) {
+        if (event.kind !== ROOM_MEMBERS || tagValue(tagSpec('d'), event.tags) !== h) {
             continue
         }
         if (!newest || newest.created_at < event.created_at) {
@@ -1182,7 +1174,7 @@ const readMembership = (events: TrustedEvent[], h: string, pk: string): RoomMemb
     // andere Id allein beweist nicht, dass die Liste auch die neuere ist.
     return {
         listEventId: newest.id,
-        listsMe: getTagValues('p', newest.tags).includes(pk),
+        listsMe: tagValues(tagSpec('p'), newest.tags).includes(pk),
         createdAt: newest.created_at,
     }
 }
@@ -1217,7 +1209,7 @@ const confirmRoomMembershipFromSpaceRead = (url: string, events: TrustedEvent[])
         if (event.kind !== ROOM_MEMBERS) {
             continue
         }
-        const h = getTagValue('d', event.tags)
+        const h = tagValue(tagSpec('d'), event.tags)
         if (h) {
             confirmRoomMembership(url, h, events, me)
         }
@@ -1271,11 +1263,11 @@ export const revokeRoomMembership = async (url: string, h: string): Promise<void
  * sobald die aktualisierte 39002 (via Live-Sub) eintrifft. '' = Erfolg.
  */
 export const joinRoom = (url: string, h: string): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_JOIN, { tags: [['h', h]] }) }))
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(ROOM_JOIN, { tags: [['h', h]] }) }))
 
 /** Verlässt einen Raum: Leave-Request (kind 9022) → Relay entfernt aus der 39002. */
 export const leaveRoom = (url: string, h: string): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_LEAVE, { tags: [['h', h]] }) }))
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(ROOM_LEAVE, { tags: [['h', h]] }) }))
 
 // ── Raum-Verwaltung (Admin, NIP-29 9007/9002/9008 → relay-signierte 39000) ───
 // Nur `can_manage`-Admins dürfen diese Moderations-Events schreiben; der Relay
@@ -1375,11 +1367,11 @@ export const createRoom = async (url: string, input: RoomInput): Promise<string>
     const h = input.h || newRoomId()
     const isBuzz = await spaceIsBuzzAsync(url)
     const createTags = isBuzz ? buzzCreateTags(h, input) : [['h', h]]
-    const createErr = await waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_CREATE, { tags: createTags }) }))
+    const createErr = await waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(ROOM_CREATE, { tags: createTags }) }))
     if (createErr && !isAlreadyError(createErr)) {
         return createErr
     }
-    const metaErr = await waitForPublishError(publishThunk({ relays: [url], event: roomMetaEvent(url, { ...input, h }) }))
+    const metaErr = await waitForPublishError(app.use(Thunks).publish({ relays: [url], event: roomMetaEvent(url, { ...input, h }) }))
     if (metaErr) {
         return metaErr
     }
@@ -1406,7 +1398,7 @@ export const createRoom = async (url: string, input: RoomInput): Promise<string>
  * Kachel (Mitglieder/Löschen sind gegatet) — ohne das Nachladen wirkte er wirkungslos.
  */
 export const editRoomMeta = async (url: string, input: RoomInput): Promise<string> => {
-    const err = await waitForPublishError(publishThunk({ relays: [url], event: roomMetaEvent(url, input) }))
+    const err = await waitForPublishError(app.use(Thunks).publish({ relays: [url], event: roomMetaEvent(url, input) }))
     if (err) {
         return err
     }
@@ -1418,18 +1410,18 @@ export const editRoomMeta = async (url: string, input: RoomInput): Promise<strin
 
 /** Löscht einen Raum (kind 9008 → 39000-Tombstone, roomsByUrl blendet ihn aus). */
 export const deleteRoom = (url: string, h: string): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_DELETE, { tags: [['h', h]] }) }))
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(ROOM_DELETE, { tags: [['h', h]] }) }))
 
 // ── Raum-Mitglieder (Admin, NIP-29 9000/9001 → relay-signierte 39002) ────────
 
 /** Fügt einen Pubkey der Raum-Mitgliederliste hinzu (kind 9000 put-user → 39002).
  *  Setzt Space-Mitgliedschaft (allowpubkey) voraus — der Aufrufer stellt das sicher. */
 export const addRoomMember = (url: string, h: string, pubkey: string): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_ADD_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(ROOM_ADD_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
 
 /** Entfernt einen Pubkey aus der Raum-Mitgliederliste (kind 9001 remove-user → 39002). */
 export const removeRoomMember = (url: string, h: string, pubkey: string): Promise<string> =>
-    waitForPublishError(publishThunk({ relays: [url], event: makeEvent(ROOM_REMOVE_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
+    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(ROOM_REMOVE_MEMBER, { tags: [['h', h], ['p', pubkey]] }) }))
 
 // ── Space beitreten/verlassen (Space-Ebene, NIP-29 kind 28934/28936) ─────────
 
@@ -1437,8 +1429,8 @@ export const removeRoomMember = (url: string, h: string, pubkey: string): Promis
 const addSpaceToList = async (url: string): Promise<void> => {
     const list = get(userGroupList) ?? makeList({ kind: ROOMS })
     const event = await addToListPublicly(list, ['r', url]).reconcile(nip44EncryptToSelf)
-    const relays = uniq([...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
-    await waitForPublishError(publishThunk({ event, relays }))
+    const relays = uniq([...Router.get().FromUser().getUrls(), ...tagValues(relayTags(['r', 'relay']), event.tags)])
+    await waitForPublishError(app.use(Thunks).publish({ event, relays }))
 }
 
 /** Entfernt den Space aus der 10009-Liste (`r`- oder `group`-Tag). */
@@ -1449,8 +1441,8 @@ const removeSpaceFromList = async (url: string): Promise<void> => {
     }
     const pred = (t: string[]) => normalizeRelayUrl(t[t[0] === 'r' ? 1 : 2] ?? '') === url
     const event = await removeFromListByPredicate(list, pred).reconcile(nip44EncryptToSelf)
-    const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
-    await waitForPublishError(publishThunk({ event, relays }))
+    const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...tagValues(relayTags(['r', 'relay']), event.tags)])
+    await waitForPublishError(app.use(Thunks).publish({ event, relays }))
 }
 
 /**
@@ -1460,7 +1452,7 @@ const removeSpaceFromList = async (url: string): Promise<void> => {
  */
 export const joinSpace = async (url: string, claim = ''): Promise<string> => {
     const tags = claim ? [['claim', claim]] : []
-    const err = await waitForPublishError(publishThunk({ relays: [url], event: makeEvent(RELAY_JOIN, { tags }) }))
+    const err = await waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(RELAY_JOIN, { tags }) }))
     if (err) {
         return err
     }
@@ -1471,7 +1463,7 @@ export const joinSpace = async (url: string, claim = ''): Promise<string> => {
 /** Verlässt einen Space: aus der 10009 entfernen + Leave-Request (kind 28936). */
 export const leaveSpace = async (url: string): Promise<string> => {
     await removeSpaceFromList(url)
-    return waitForPublishError(publishThunk({ relays: [url], event: makeEvent(RELAY_LEAVE) }))
+    return waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(RELAY_LEAVE) }))
 }
 
 /** Ist der Space in der persönlichen 10009-Liste (reaktiv)? */
@@ -1500,5 +1492,5 @@ export const parseInviteLink = (invite: string): InviteData | undefined => {
 /** Holt den Invite-Claim (kind 28935 `["claim", …]`) vom Space-Relay ('' = keiner). */
 export const loadSpaceInviteClaim = async (url: string): Promise<string> => {
     const events = (await load({ relays: [url], filters: [{ kinds: [RELAY_INVITE] }] })) as TrustedEvent[]
-    return getTagValue('claim', events[0]?.tags ?? []) ?? ''
+    return tagValue(tagSpec('claim'), events[0]?.tags ?? []) ?? ''
 }

@@ -43,7 +43,7 @@
  * lädt der Node-Test-Runner das Modul nicht.
  */
 import { readable, type Readable } from 'svelte/store'
-import { deriveRelay, forceLoadRelay } from './welshmanApp.ts'
+import { app, Relays } from './welshmanApp.ts'
 import { normalizeRelayUrl } from '@welshman/util'
 import { isBuzzRelay } from './relayCaps.ts'
 
@@ -111,8 +111,8 @@ export type SpaceKindDeps = {
 }
 
 const defaultDeps: SpaceKindDeps = {
-    relayInfo: (url) => deriveRelay(url),
-    forceLoad: async (url) => (await forceLoadRelay(url)) ?? undefined,
+    relayInfo: (url) => app.use(Relays).one(url),
+    forceLoad: async (url) => (await app.use(Relays).forceLoad(url)) ?? undefined,
     delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }
 

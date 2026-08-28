@@ -39,7 +39,7 @@ import { ensurePlaintext, pubkey } from './welshmanSession.ts'
 import { load, request } from '@welshman/net'
 import { type TrustedEvent } from '@welshman/util'
 import { APP_DATA } from './welshmanKinds.ts'
-import { getTagValue } from './welshmanTags.ts'
+import { tagSpec, tagValue } from './welshmanTags.ts'
 import { WORKSPACE_URL, deriveSpaceKind, hasWorkspace } from './spaceCaps.ts'
 import { deriveEventsForUrl } from './repository.ts'
 import {
@@ -180,7 +180,7 @@ const applyEvent = async (pk: string, event: TrustedEvent): Promise<void> => {
     if (event.kind !== APP_DATA || event.pubkey !== pk) {
         return
     }
-    const dTag = getTagValue('d', event.tags)
+    const dTag = tagValue(tagSpec('d'), event.tags)
     if (!dTag || !CHANNEL_PREFS_D.includes(dTag)) {
         return
     }

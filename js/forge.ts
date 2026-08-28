@@ -35,7 +35,7 @@
  *    ankamen ({@link ForgeOverview.truncated}) — eine stillschweigend gekürzte
  *    Liste ist eine falsche Aussage über den Bestand.
  */
-import { deriveRelay, repository, tracker } from './welshmanApp.ts'
+import { app, Relays } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { load, request } from '@welshman/net'
 import { throttled } from '@welshman/store'
@@ -268,7 +268,7 @@ const ALL_FORGE_KINDS = [
 
 /** Der relay-eigene Pubkey aus NIP-11 (`self`), `''` solange unbekannt. */
 export const deriveRelaySelf = (url: string): Readable<string> =>
-    derived(deriveRelay(url), (relay) => (relay as { self?: string } | undefined)?.self ?? '')
+    derived(app.use(Relays).one(url), (relay) => (relay as { self?: string } | undefined)?.self ?? '')
 
 /** Eine Zeile der Repo-Liste, anzeigefertig. */
 export type RepoRow = Repo & {
@@ -950,9 +950,9 @@ const forgeCacheReady = (): Promise<void> => storageReady
  * Grabstein entferntes Repo taucht hier also nicht wieder auf.
  */
 const localForgeEvents = (filters: Filter[]): TrustedEvent[] =>
-    repository
+    app.repository
         .query(filters.map(({ limit, ...rest }) => rest))
-        .filter((event: TrustedEvent) => tracker.hasRelay(event.id, WORKSPACE_URL))
+        .filter((event: TrustedEvent) => app.tracker.hasRelay(event.id, WORKSPACE_URL))
 
 /**
  * Ids, deren Grabstein schon einmal angefragt wurde. Modulweit und damit einmal je

@@ -18,16 +18,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-    MESSAGE,
     COMMENT,
     DELETE,
-    ROOM_DELETE,
-    ROOM_DELETE_EVENT,
-    ROOM_META,
-    ROOM_MEMBERS,
+    MESSAGE,
     PROFILE,
     REACTION,
-    ZAP_RESPONSE,
+    ROOM_DELETE,
+    ROOM_DELETE_EVENT,
+    ROOM_MEMBERS,
+    ROOM_META,
+    ZAP_RECEIPT,
 } from './welshmanKinds.ts'
 import {
     eventsToPrune,
@@ -76,7 +76,7 @@ test('Was lazy nachlaedt, wird NICHT gespeichert', () => {
     // Gegenprobe: Der Test darf nicht einfach „alles true“ sagen. Reaktionen und
     // Zap-Quittungen haengen an keinem `#h` und kommen nach dem Paint.
     assert.equal(shouldPersistEvent(ev(REACTION)), false, 'kind 7 (Reaktion)')
-    assert.equal(shouldPersistEvent(ev(ZAP_RESPONSE)), false, 'kind 9735 (Zap-Quittung)')
+    assert.equal(shouldPersistEvent(ev(ZAP_RECEIPT)), false, 'kind 9735 (Zap-Quittung)')
 })
 
 test('Thread-Kommentare ueberleben den Kaltstart — Lotus-kind-10 bewusst nicht', () => {

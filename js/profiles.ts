@@ -5,14 +5,7 @@
  * überschreibt. Web = relativer Endpunkt; Mobile = gehosteter Host (Hybrid wie $img).
  */
 import { get } from 'svelte/store'
-import {
-    getProfile,
-    loadProfile,
-    publishThunk,
-    repository,
-    userProfile,
-    waitForThunkCompletion,
-} from './welshmanApp.ts'
+import { app, Profiles, Thunks, userProfile, waitForThunkCompletion } from './welshmanApp.ts'
 import { PublishStatus } from '@welshman/net'
 import { makeEvent, verifyEvent, verifiedSymbol, type TrustedEvent } from '@welshman/util'
 import {
@@ -83,14 +76,14 @@ const REPAIR_MAX_ROUNDS = 5
  */
 function repairMissingProfiles(pubkeys: string[]): void {
     for (const pk of pubkeys) {
-        if (!profileHasName(getProfile(pk))) {
+        if (!profileHasName(app.use(Profiles).get(pk))) {
             watching.add(pk)
             // Riegel gegen die Space-Race (spaceProfiles.ts markNativePending): auf,
             // solange die Anfrage läuft, zu — sobald sie sich entscheidet (gefunden
             // oder endgültig leer). `loadProfile` wirft laut welshman nie (siehe
             // `@welshman/store` `makeLoadItem`), `.finally` genügt.
             markNativePending(pk)
-            void loadProfile(pk).finally(() => clearNativePending(pk))
+            void app.use(Profiles).load(pk).finally(() => clearNativePending(pk))
         }
     }
     startRepairTimer()
@@ -109,7 +102,7 @@ function startRepairTimer(): void {
     const tick = () => {
         repairTimer = null
         for (const pk of watching) {
-            if (profileHasName(getProfile(pk))) {
+            if (profileHasName(app.use(Profiles).get(pk))) {
                 watching.delete(pk)
             }
         }
@@ -118,7 +111,7 @@ function startRepairTimer(): void {
             return
         }
         for (const pk of watching) {
-            void loadProfile(pk)
+            void app.use(Profiles).load(pk)
         }
         repairTimer = setTimeout(tick, REPAIR_INTERVAL_MS)
     }
@@ -141,7 +134,7 @@ async function seedChunk(base: string, pubkeys: string[]): Promise<void> {
             try {
                 if (verifyEvent(event)) {
                     ;(event as unknown as Record<symbol, boolean>)[verifiedSymbol] = true
-                    repository.publish(event)
+                    app.repository.publish(event)
                 }
             } catch {
                 // ungültige Signatur → überspringen (nie ungeprüfte Relay-Daten laden).
@@ -201,7 +194,7 @@ export const publishReceivingAddress = async (lud16: string, spaceUrls: string[]
         .merge([router.FromUser(), router.FromRelays(spaceUrls), router.Index()])
         .getUrls()
         .filter(acceptsProfiles)
-    const thunk = publishThunk({ event, relays })
+    const thunk = app.use(Thunks).publish({ event, relays })
     await waitForThunkCompletion(thunk)
     return summarizePublishResults(thunk.results)
 }

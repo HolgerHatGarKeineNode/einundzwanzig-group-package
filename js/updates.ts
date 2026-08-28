@@ -42,7 +42,7 @@ import { profilesByPubkey } from './spaceProfiles.ts'
 import { type TrustedEvent } from '@welshman/util'
 import { COMMENT, MESSAGE, POLL, ZAP_GOAL } from './welshmanKinds.ts'
 import { displayProfile, displayPubkey, type Profile } from './welshmanProfile.ts'
-import { getTagValue } from './welshmanTags.ts'
+import { tagSpec, tagValue } from './welshmanTags.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository.ts'
 import { QUOTE_PREFIX } from './polls.ts'
@@ -171,7 +171,7 @@ const HEX64 = /^[0-9a-f]{64}$/
  * eine Zeile „irgendein Thread, kein Link" wäre für niemanden brauchbar.
  */
 export const updatesCommentRootId = (event: TrustedEvent): string => {
-    const raw = getTagValue('E', event.tags) ?? threadRootId(event)
+    const raw = tagValue(tagSpec('E'), event.tags) ?? threadRootId(event)
     const id = raw.toLowerCase()
     return HEX64.test(id) ? id : ''
 }
@@ -282,7 +282,7 @@ export const updatesMentionsPubkey = (content: string, pk: string): boolean => {
 
 /** Rohtext ohne vorangestellten Reply-Quote (Snippet-Basis). Gleiche Regel wie `feeds.ts bodyWithoutQuote`. */
 const bodyWithoutQuote = (event: TrustedEvent): string =>
-    getTagValue('q', event.tags) ? event.content.replace(QUOTE_PREFIX, '') : event.content
+    tagValue(tagSpec('q'), event.tags) ? event.content.replace(QUOTE_PREFIX, '') : event.content
 
 const startOfLocalDay = (ts: number): number => {
     const d = new Date(ts * 1000)
@@ -665,7 +665,7 @@ export function computeUpdates(input: UpdateInput): UpdateItem[] {
         if (event.pubkey === input.me) {
             continue
         }
-        const h = getTagValue('h', event.tags) ?? ''
+        const h = tagValue(tagSpec('h'), event.tags) ?? ''
         if (!h || !joined.has(h)) {
             continue // Regel 5
         }
@@ -713,7 +713,7 @@ export function computeUpdates(input: UpdateInput): UpdateItem[] {
         // `h` bevorzugt aus der WURZEL (autoritativ, wie `feeds.ts deriveSpaceThreads`);
         // ersatzweise aus dem Kommentar selbst — unsere kind-1111 tragen das `h` des Roots
         // additiv (Thread-Interop), flotilla-kompatible tragen keines.
-        const h = (root ? getTagValue('h', root.tags) : undefined) ?? getTagValue('h', comment.tags) ?? ''
+        const h = (root ? tagValue(tagSpec('h'), root.tags) : undefined) ?? tagValue(tagSpec('h'), comment.tags) ?? ''
         if (!h || !joined.has(h)) {
             continue // Regel 5
         }

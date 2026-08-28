@@ -1,6 +1,6 @@
 /**
  * Space-Directory: Mitglieder + Rollen — portiert aus dem Referenz-Client
- * `src/app/members.ts`. Lese-Teil (M3) + Admin-Mutationen via `manageRelay`/
+ * `src/app/members.ts`. Lese-Teil (M3) + Admin-Mutationen via NIP-86 (`ManagementApi`)/
  * NIP-86 (M6): Rollen, Member-Zuweisung, Ban/Entfernen, Admin-Erkennung.
  *
  * Autoritativ ist die **relay-signierte** Mitgliederliste (13534) und die
@@ -11,11 +11,10 @@
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { load, request } from '@welshman/net'
-import { loadProfile, manageRelay, handlesByNip05, deriveRelay } from './welshmanApp.ts'
+import { app, Handles, Profiles, RelayManagement, Relays } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { RELAY_MEMBERS } from './welshmanKinds.ts'
-import { ManagementMethod } from './welshmanRelay.ts'
-import { getTags, getTagValue, getTagValues } from './welshmanTags.ts'
+import { matchTags, tagSpec, tagValue, tagValues } from './welshmanTags.ts'
 import { displayProfile } from './welshmanProfile.ts'
 import { first, randomId, sortBy, uniq } from '@welshman/lib'
 import * as nip19 from 'nostr-tools/nip19'
@@ -57,7 +56,7 @@ const roleColorValue = (value: string, fallback: number): number => {
 }
 
 export const parseRoleColor = (tags: string[][]): SpaceRoleColor => {
-    const tag = first(getTags('color', tags)) ?? []
+    const tag = first(matchTags(tagSpec('color'), tags)) ?? []
     return { hue: tag[1] ?? '', saturation: tag[2] ?? '', lightness: tag[3] ?? '' }
 }
 
@@ -90,14 +89,14 @@ export const deriveSpaceRoles = (url: string): Readable<SpaceRole[]> =>
     derived(deriveRelaySignedEvents(url, [{ kinds: [RELAY_ROLE] }]), ($events) => {
         const roles: SpaceRole[] = []
         for (const event of $events) {
-            const id = getTagValue('d', event.tags)
+            const id = tagValue(tagSpec('d'), event.tags)
             if (id) {
                 roles.push({
                     id,
-                    label: getTagValue('label', event.tags) ?? '',
-                    description: getTagValue('description', event.tags) ?? '',
+                    label: tagValue(tagSpec('label'), event.tags) ?? '',
+                    description: tagValue(tagSpec('description'), event.tags) ?? '',
                     color: parseRoleColor(event.tags),
-                    order: parseInt(getTagValue('order', event.tags) ?? '0', 10) || 0,
+                    order: parseInt(tagValue(tagSpec('order'), event.tags) ?? '0', 10) || 0,
                 })
             }
         }
@@ -107,7 +106,7 @@ export const deriveSpaceRoles = (url: string): Readable<SpaceRole[]> =>
 /** Mitglieder-Pubkeys aus der relay-signierten 13534-Liste. */
 export const deriveSpaceMembers = (url: string): Readable<string[]> =>
     derived(deriveRelaySignedEvents(url, [{ kinds: [RELAY_MEMBERS] }]), ([event]) =>
-        uniq(getTagValues('member', event?.tags ?? [])),
+        uniq(tagValues(tagSpec('member'), event?.tags ?? [])),
     )
 
 /** Map<pubkey, roleId[]> aus den Extra-Werten der `member`-Tags (13534). */
@@ -115,7 +114,7 @@ export const deriveSpaceMemberRoles = (url: string): Readable<Map<string, string
     derived(deriveRelaySignedEvents(url, [{ kinds: [RELAY_MEMBERS] }]), ([event]) => {
         const memberRoles = new Map<string, string[]>()
         if (event) {
-            for (const tag of getTags('member', event.tags)) {
+            for (const tag of matchTags(tagSpec('member'), event.tags)) {
                 const pubkey = tag[1]
                 if (pubkey) {
                     memberRoles.set(pubkey, tag.slice(2))
@@ -164,7 +163,7 @@ export const deriveSpaceDirectory = (url: string): Readable<DirectoryView> =>
             deriveSpaceMemberRoles(url),
             deriveSpaceRoles(url),
             throttled(300, profilesByPubkey),
-            throttled(300, handlesByNip05),
+            throttled(300, app.use(Handles).index.$),
         ],
         ([ready, members, memberRoles, roles, $profiles, $handles]) => {
             const roleById = new Map(roles.map((r) => [r.id, r]))
@@ -221,7 +220,7 @@ export const deriveRoomMemberViews = (url: string, h: string): Readable<RoomMemb
         const pubkeys = [...($byUrl.get(url)?.get(h) ?? new Set<string>())].filter((pk) => /^[0-9a-f]{64}$/.test(pk))
         const views = pubkeys.map((pk): RoomMemberView => {
             if (!$profiles.has(pk)) {
-                loadProfile(pk)
+                app.use(Profiles).load(pk)
             }
             const npub = nip19.npubEncode(pk)
             const profile = $profiles.get(pk)
@@ -317,7 +316,7 @@ export const isVereinGatedOut = (a: VereinAccess): boolean => a.gated && a.ready
  */
 export const isVereinGuestGated = (a: VereinAccess): boolean => a.gated && a.isGuest
 
-// ── Admin (NIP-86 manageRelay) ───────────────────────────────────────────────
+// ── Admin (NIP-86, `app.use(RelayManagement).forUrl(url)`) ──────────────────
 
 /**
  * Admin-Erkennung + Cache-Invalidierung (Fix C). Der Relay beantwortet
@@ -354,8 +353,10 @@ export const refreshSpaceAdmin = (url: string): void => {
         if (isBuzz) {
             return
         }
-        manageRelay(url, { method: ManagementMethod.SupportedMethods, params: [] })
-            .then((res) => store.set(Boolean(res.result?.length)))
+        app.use(RelayManagement)
+            .forUrl(url)
+            .supportedMethods()
+            .then((res) => store.set(Boolean((res.result as unknown[] | undefined)?.length)))
             .catch(() => store.set(false))
     })
 }
@@ -384,7 +385,7 @@ export const deriveUserIsSpaceAdmin = (url: string): Readable<boolean> => {
     // 405-Aufrufs — sie sagt beim ersten Rendern immer „kein Buzz".
     refreshSpaceAdmin(url)
     return derived(
-        [deriveRelay(url), deriveSpaceMemberRoles(url), pubkey, nip86],
+        [app.use(Relays).one(url), deriveSpaceMemberRoles(url), pubkey, nip86],
         ([relay, memberRoles, pk, isNip86Admin]) => {
             if (!isBuzzRelay(relay)) {
                 return isNip86Admin
@@ -397,12 +398,14 @@ export const deriveUserIsSpaceAdmin = (url: string): Readable<boolean> => {
     )
 }
 
-/** Extrahiert die Fehlermeldung aus einer manageRelay-Antwort ('' = Erfolg). */
+/** Extrahiert die Fehlermeldung aus einer NIP-86-Antwort ('' = Erfolg). */
 type ManageResult = { error?: string }
 const manageError = (res: ManageResult): string => res.error ?? ''
 
-// Rollen (kind 33534). `createrole`/… sind relay-spezifische Erweiterungen
-// (nicht im ManagementMethod-Enum) — der Referenz-Client castet ebenso.
+// Rollen (kind 33534). `createrole`/… sind relay-spezifische Erweiterungen des
+// NIP-86-Methodensatzes — der Referenz-Client kennt sie ebenfalls nicht. Über
+// `ManagementApi.send` gehen sie unverändert durch: `method` ist dort ein schlichter
+// String. Die `as ManagementMethod`-Casts, die 0.8.16 hier verlangte, sind damit weg.
 const roleColorParams = (color: SpaceRoleColor): string =>
     [color.hue, color.saturation, color.lightness] as unknown as string
 
@@ -414,8 +417,8 @@ export const createRole = async (
     order: number,
 ): Promise<string> =>
     manageError(
-        await manageRelay(url, {
-            method: 'createrole' as ManagementMethod,
+        await app.use(RelayManagement).forUrl(url).send({
+            method: 'createrole',
             params: [randomId(), label, description, roleColorParams(color), order.toString()],
         }),
     )
@@ -429,20 +432,20 @@ export const editRole = async (
     order: number,
 ): Promise<string> =>
     manageError(
-        await manageRelay(url, {
-            method: 'editrole' as ManagementMethod,
+        await app.use(RelayManagement).forUrl(url).send({
+            method: 'editrole',
             params: [id, label, description, roleColorParams(color), order.toString()],
         }),
     )
 
 export const deleteRole = async (url: string, id: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: 'deleterole' as ManagementMethod, params: [id] }))
+    manageError(await app.use(RelayManagement).forUrl(url).send({ method: 'deleterole', params: [id] }))
 
 export const assignRole = async (url: string, pubkey: string, roleId: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: 'assignrole' as ManagementMethod, params: [pubkey, roleId] }))
+    manageError(await app.use(RelayManagement).forUrl(url).send({ method: 'assignrole', params: [pubkey, roleId] }))
 
 export const unassignRole = async (url: string, pubkey: string, roleId: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: 'unassignrole' as ManagementMethod, params: [pubkey, roleId] }))
+    manageError(await app.use(RelayManagement).forUrl(url).send({ method: 'unassignrole', params: [pubkey, roleId] }))
 
 // ── Mutationen: die Weiche ist ÜBERALL asynchron ─────────────────────────────
 //
@@ -464,27 +467,22 @@ export const unassignRole = async (url: string, pubkey: string, roleId: string):
 export const addSpaceMember = async (url: string, pubkey: string): Promise<string> =>
     (await spaceIsBuzzAsync(url))
         ? await buzzAddMember(url, pubkey)
-        : manageError(await manageRelay(url, { method: ManagementMethod.AllowPubkey, params: [pubkey] }))
+        : manageError(await app.use(RelayManagement).forUrl(url).allowPubkey(pubkey))
 
 export const removeSpaceMember = async (url: string, pubkey: string): Promise<string> =>
     (await spaceIsBuzzAsync(url))
         ? await buzzRemoveMember(url, pubkey)
-        : manageError(await manageRelay(url, { method: ManagementMethod.UnallowPubkey, params: [pubkey] }))
+        : manageError(await app.use(RelayManagement).forUrl(url).unallowPubkey(pubkey))
 
 export const banSpaceMember = async (url: string, pubkey: string, reason = ''): Promise<string> =>
     (await spaceIsBuzzAsync(url))
         ? await buzzBanPubkey(url, pubkey, reason)
-        : manageError(
-              await manageRelay(url, {
-                  method: ManagementMethod.BanPubkey,
-                  params: reason ? [pubkey, reason] : [pubkey],
-              }),
-          )
+        : manageError(await app.use(RelayManagement).forUrl(url).banPubkey(pubkey, reason || undefined))
 
 export const unbanSpaceMember = async (url: string, pubkey: string): Promise<string> =>
     (await spaceIsBuzzAsync(url))
         ? await buzzUnbanPubkey(url, pubkey)
-        : manageError(await manageRelay(url, { method: ManagementMethod.UnbanPubkey, params: [pubkey] }))
+        : manageError(await app.use(RelayManagement).forUrl(url).unbanPubkey(pubkey))
 
 /**
  * Rolle eines bestehenden Mitglieds setzen (Buzz kind 9032, **nur Owner**). Auf
@@ -531,9 +529,7 @@ export const resolveReport = async (
     reason = '',
 ): Promise<string> => {
     if (!(await spaceIsBuzzAsync(url))) {
-        return manageError(
-            await manageRelay(url, { method: ManagementMethod.BanEvent, params: [id, 'dismissed by admin'] }),
-        )
+        return manageError(await app.use(RelayManagement).forUrl(url).banEvent(id, 'dismissed by admin'))
     }
     return resolution === 'dismiss'
         ? await buzzResolveReport(url, id, 'dismissed', 'dismiss', reason)
@@ -548,31 +544,26 @@ export const resolveReport = async (
 export const banEvent = async (url: string, id: string, reason = '', h = ''): Promise<string> =>
     (await spaceIsBuzzAsync(url))
         ? await buzzDeleteEvent(url, id, h)
-        : manageError(
-              await manageRelay(url, {
-                  method: ManagementMethod.BanEvent,
-                  params: reason ? [id, reason] : [id],
-              }),
-          )
+        : manageError(await app.use(RelayManagement).forUrl(url).banEvent(id, reason || undefined))
 
 // Space-Metadaten (NIP-86 changerelay*): editiert Name/Beschreibung/Icon des
 // Relay-NIP-11-Info-Docs. Der Aufrufer sendet nur die GEÄNDERTEN Felder (wie der
-// Referenz-Client SpaceEdit) — jede Methode ist ein eigener manageRelay-Call. Der
+// Referenz-Client SpaceEdit) — jede Methode ist ein eigener NIP-86-Call. Der
 // Icon-Wert ist eine bereits hochgeladene URL. '' = Erfolg.
 export const setRelayName = async (url: string, name: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: ManagementMethod.ChangeRelayName, params: [name] }))
+    manageError(await app.use(RelayManagement).forUrl(url).changeRelayName(name))
 
 export const setRelayDescription = async (url: string, description: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: ManagementMethod.ChangeRelayDescription, params: [description] }))
+    manageError(await app.use(RelayManagement).forUrl(url).changeRelayDescription(description))
 
 export const setRelayIcon = async (url: string, icon: string): Promise<string> =>
-    manageError(await manageRelay(url, { method: ManagementMethod.ChangeRelayIcon, params: [icon] }))
+    manageError(await app.use(RelayManagement).forUrl(url).changeRelayIcon(icon))
 
 export type BannedMember = { pubkey: string; npub: string; short: string; reason: string }
 
 /** Lädt die Ban-Liste (`listbannedpubkeys`) frisch als Promise (kein Store-Cache). */
 export const loadBannedMembers = async (url: string): Promise<BannedMember[]> => {
-    const res = (await manageRelay(url, { method: ManagementMethod.ListBannedPubkeys, params: [] })) as {
+    const res = (await app.use(RelayManagement).forUrl(url).listBannedPubkeys()) as {
         result?: { pubkey: string; reason?: string }[]
     }
     return (res.result ?? []).map(({ pubkey, reason }) => {
@@ -626,7 +617,7 @@ export const loadMemberProfiles = (url: string, pubkeys: string[]): void => {
     }
     void loadProfilesFromSpace(url, pubkeys)
     for (const pubkey of pubkeys) {
-        loadProfile(pubkey)
+        app.use(Profiles).load(pubkey)
     }
 }
 
@@ -644,6 +635,6 @@ export const settleMemberProfiles = async (url: string, pubkeys: string[]): Prom
         return
     }
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, 8000))
-    const loads = Promise.all([loadProfilesFromSpace(url, pubkeys), ...pubkeys.map((pubkey) => loadProfile(pubkey))])
+    const loads = Promise.all([loadProfilesFromSpace(url, pubkeys), ...pubkeys.map((pubkey) => app.use(Profiles).load(pubkey))])
     await Promise.race([loads, timeout])
 }

@@ -51,7 +51,7 @@
  * wäre auf dem heutigen Stand zufällig richtig und beim ersten zweiten Space
  * lautlos falsch.
  */
-import { publishThunk } from './welshmanApp.ts'
+import { app, Thunks } from './welshmanApp.ts'
 import { pubkey, signer } from './welshmanSession.ts'
 import { makeEvent } from '@welshman/util'
 import { writable, type Readable } from 'svelte/store'
@@ -161,7 +161,7 @@ export const publishForumTopic = async (url: string, h: string, raw: string): Pr
 
     let thunk
     try {
-        thunk = publishThunk({ relays: [url], event })
+        thunk = app.use(Thunks).publish({ relays: [url], event })
     } catch {
         // `new Thunk` wirft ohne pubkey/signer — die Sitzung kann zwischen Gate
         // und Klick abgelaufen sein.

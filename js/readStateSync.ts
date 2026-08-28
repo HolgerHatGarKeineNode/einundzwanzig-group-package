@@ -32,12 +32,12 @@
  */
 import { get } from 'svelte/store'
 import { pubkey, nip44EncryptToSelf, ensurePlaintext } from './welshmanSession.ts'
-import { publishThunk, waitForThunkCompletion } from './welshmanApp.ts'
+import { app, Thunks, waitForThunkCompletion } from './welshmanApp.ts'
 import { load, PublishStatus } from '@welshman/net'
 import { Router } from '@welshman/router'
 import { isRelayUrl, makeEvent, normalizeRelayUrl, type TrustedEvent } from '@welshman/util'
 import { APP_DATA } from './welshmanKinds.ts'
-import { getTagValue } from './welshmanTags.ts'
+import { tagSpec, tagValue } from './welshmanTags.ts'
 // Die relativen Importe tragen ABSICHTLICH ihre `.ts`-Endung (siehe `unread.ts`): Nodes
 // ESM-Auflösung kennt keine extensionslosen Pfade — ohne sie liefe `node --test
 // readStateSync.test.ts` in ERR_MODULE_NOT_FOUND.
@@ -287,7 +287,7 @@ export const loadRemoteReadState = async (): Promise<ReadState> => {
     })
     let out: ReadState = {}
     for (const event of events) {
-        if (event.pubkey !== pk || event.kind !== APP_DATA || getTagValue('d', event.tags) !== READ_STATE_D) {
+        if (event.pubkey !== pk || event.kind !== APP_DATA || tagValue(tagSpec('d'), event.tags) !== READ_STATE_D) {
             continue
         }
         let plaintext: string | undefined
@@ -367,7 +367,7 @@ export const publishReadState = async (): Promise<RelayPublishResult[]> => {
                 return []
             }
             const content = await nip44EncryptToSelf(json)
-            const thunk = publishThunk({ event: makeEvent(APP_DATA, { content, tags: [['d', READ_STATE_D]] }), relays })
+            const thunk = app.use(Thunks).publish({ event: makeEvent(APP_DATA, { content, tags: [['d', READ_STATE_D]] }), relays })
             await waitForThunkCompletion(thunk)
             const results = summarizeReadStatePublish(thunk.results)
             if (results.some((r) => r.ok)) {

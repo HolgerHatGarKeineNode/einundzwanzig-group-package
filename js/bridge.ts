@@ -6,26 +6,13 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { derived, get, type Readable } from 'svelte/store'
-import {
-    repository,
-    relaysByUrl,
-    forceLoadRelay,
-    deriveHandleForPubkey,
-    displayNip05,
-    tracker,
-    userProfile,
-    loadUserProfile,
-    getProfile,
-    getRelay,
-    getZapper,
-    deriveRelay,
-} from './welshmanApp.ts'
+import { app, Handles, loadUserProfile, Profiles, Relays, userProfile, Zappers } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { toNostrURI, getLnUrl, normalizeRelayUrl } from '@welshman/util'
 import { displayProfile } from './welshmanProfile.ts'
-import { getTagValue } from './welshmanTags.ts'
+import { tagSpec, tagValue } from './welshmanTags.ts'
 import { MESSAGE, RELAYS } from './welshmanKinds.ts'
-import { type RelayProfile } from './welshmanRelay.ts'
+import type { RelayInfo } from './welshmanRelay.ts'
 import { sanitizeUrl } from '@braintree/sanitize-url'
 import { spaceBranding, isBuzzRelay } from './relayCaps.ts'
 import { classifyRoomClosedReason } from './roomGate.ts'
@@ -459,11 +446,11 @@ let cropperInstance: CropperLike | null = null
  * das übergebene Fallback-Relay (Space-Relay). Teilbar/auflösbar in jedem Client.
  */
 const neventFor = (m: ChatMessage, fallbackRelay: string | null): string => {
-    const seen = [...tracker.getRelays(m.id)]
+    const seen = [...app.tracker.getRelays(m.id)]
     const relays = seen.length ? seen : fallbackRelay ? [fallbackRelay] : []
     // Echten Kind aus dem Repository (Thread-Kommentar = 1111, Nachricht = 9, Poll = 1068 …);
     // die geteilte Row ruft copyNevent/openInfo auch auf Kommentaren → nicht hart MESSAGE annehmen.
-    const kind = repository.getEvent(m.id)?.kind ?? MESSAGE
+    const kind = app.repository.getEvent(m.id)?.kind ?? MESSAGE
     return toNostrURI(nip19.neventEncode({ id: m.id, relays, author: m.pubkey, kind }))
 }
 
@@ -1164,7 +1151,7 @@ type DirectoryState = {
     acceptJoin(j: JoinRequestView): Promise<void>
     rejectJoin(j: JoinRequestView): Promise<void>
     openSpaceEdit(): void
-    _prefillSpace(profile?: RelayProfile): void
+    _prefillSpace(profile?: RelayInfo): void
     pickSpaceIcon(input: HTMLInputElement): void
     saveSpace(): Promise<void>
 }
@@ -1462,7 +1449,7 @@ type SpaceSettingsState = {
     busy: boolean
     _joined: string[]
     _choices: string[]
-    _relays: Map<string, RelayProfile>
+    _relays: Map<string, RelayInfo>
     _unsubChoices: null | (() => void)
     _unsubActive: null | (() => void)
     _unsubJoined: null | (() => void)
@@ -2170,8 +2157,8 @@ export function registerNostrComponents(Alpine: {
             })
             // NIP-05: welshman verifiziert den Handle (nostr.json ↔ pubkey); der Store
             // liefert nur bei bestätigtem Match einen Wert → Häkchen erst dann.
-            this._unsubHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
-                this.nip05 = handle ? displayNip05(handle.nip05) : ''
+            this._unsubHandle = app.use(Handles).forPubkey(pk).subscribe((handle) => {
+                this.nip05 = handle ? app.use(Handles).display(handle.nip05) : ''
             })
             this._unsub = deriveMergedProfile(pk).subscribe((p) => {
                 this.name = displayProfile(p, fallback)
@@ -2313,7 +2300,7 @@ export function registerNostrComponents(Alpine: {
             // Sonst blitzte „unverifiziert" bei EINEM gültigen NIP-05-Nutzer auf (Review-Fund).
             const pk = get(pubkey)
             if (pk) {
-                this._unsubHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
+                this._unsubHandle = app.use(Handles).forPubkey(pk).subscribe((handle) => {
                     this.nip05Verified = Boolean(handle)
                     if (handle) {
                         this.nip05Settled = true
@@ -3272,7 +3259,7 @@ export function registerNostrComponents(Alpine: {
                 // beim ersten Rendern ist das Profil noch unterwegs, ein synchroner
                 // Blick meldete verlässlich „kein Buzz" und die Einträge blitzten auf.
                 this._unsubIsBuzz?.()
-                this._unsubIsBuzz = deriveRelay(url).subscribe((relay) => {
+                this._unsubIsBuzz = app.use(Relays).one(url).subscribe((relay) => {
                     this.isBuzz = isBuzzRelay(relay)
                     // Sobald FESTSTEHT, dass der aktive Space ein Buzz-Relay ist: dessen
                     // relay-eigene kind-0 aus Repository und Cache werfen (siehe
@@ -5216,7 +5203,7 @@ export function registerNostrComponents(Alpine: {
             if (!url) {
                 return
             }
-            repository.removeEvent(r.id)
+            app.repository.removeEvent(r.id)
             forgetBuzzReport(url, r.id)
             void loadSpaceReports(url)
         },
@@ -5255,7 +5242,7 @@ export function registerNostrComponents(Alpine: {
                 if (err) {
                     toast(err)
                 } else {
-                    repository.removeEvent(r.reportedId)
+                    app.repository.removeEvent(r.reportedId)
                     this._reportDone(r)
                 }
             } finally {
@@ -5304,7 +5291,7 @@ export function registerNostrComponents(Alpine: {
                     // 9022 erzeugt) erneut als „offen" auf, weil der Pubkey dann wieder aus
                     // der 39002 fällt. Best-effort: die Mitgliedschaft steht bereits.
                     void banEvent(this._url, j.id)
-                    repository.removeEvent(j.id)
+                    app.repository.removeEvent(j.id)
                 }
             } finally {
                 this.busy = false
@@ -5321,7 +5308,7 @@ export function registerNostrComponents(Alpine: {
                 if (err) {
                     toast(err)
                 } else {
-                    repository.removeEvent(j.id)
+                    app.repository.removeEvent(j.id)
                 }
             } finally {
                 this.busy = false
@@ -5341,20 +5328,20 @@ export function registerNostrComponents(Alpine: {
             if (!url) {
                 return
             }
-            this._prefillSpace(get(relaysByUrl).get(url))
+            this._prefillSpace(get(app.use(Relays).index.$).get(url))
             this._spaceIconFile = null
             dispatchModal('space-edit')
-            void forceLoadRelay(url).then(() => {
+            void app.use(Relays).forceLoad(url).then(() => {
                 const pristine =
                     !this._spaceIconFile &&
                     this.spaceForm.name === this._spaceInitial.name &&
                     this.spaceForm.description === this._spaceInitial.description
                 if (this._url === url && pristine) {
-                    this._prefillSpace(get(relaysByUrl).get(url))
+                    this._prefillSpace(get(app.use(Relays).index.$).get(url))
                 }
             })
         },
-        _prefillSpace(profile?: RelayProfile) {
+        _prefillSpace(profile?: RelayInfo) {
             this.spaceForm = { name: profile?.name ?? '', description: profile?.description ?? '' }
             this._spaceInitial = { name: this.spaceForm.name, description: this.spaceForm.description }
             this.spaceIconPreview = profile?.icon ?? ''
@@ -5410,7 +5397,7 @@ export function registerNostrComponents(Alpine: {
                 }
                 // Gespeichert (Relay hat quittiert); das lokale NIP-11 frisch nachziehen,
                 // damit das Branding vor dem Toast steht.
-                await forceLoadRelay(url)
+                await app.use(Relays).forceLoad(url)
                 dispatchModal('space-edit', false)
                 toast(t('Space gespeichert.'), 'success')
             } catch {
@@ -5656,7 +5643,7 @@ export function registerNostrComponents(Alpine: {
             // letzteres IST im Workspace-Raum der Workspace, der Vergleich wäre immer wahr
             // und der Hinweis nie sichtbar.
             const heimat = normalizeRelayUrl(get(activeSpaceUrl) ?? DEFAULT_SPACE_URL)
-            this.spaceHint = url === heimat ? '' : spaceBranding(displayRelayUrl(url), getRelay(url)).label
+            this.spaceHint = url === heimat ? '' : spaceBranding(displayRelayUrl(url), app.use(Relays).get(url)).label
             // P13: Der Read oben ist ein Schnappschuss — bei KALTEM Raum-Lauf (F5/Bookmark/
             // geteilter Link mit ?space=workspace) liest er den leeren Cache und friert den
             // Hinweis auf der URL-Form ein; das NIP-11-Doc trifft erst NACH dem Mount ein
@@ -5666,7 +5653,7 @@ export function registerNostrComponents(Alpine: {
             // den Fetch anstößt — kein zweiter synchroner Read, kein Poll. Dasselbe Muster
             // wie das isBuzz-Abo der Spaces-Insel. Warm (Cache gefüllt) feuert die Sub sofort
             // mit demselben Wert → No-op.
-            this._unsubRelay = deriveRelay(url).subscribe((relay) => {
+            this._unsubRelay = app.use(Relays).one(url).subscribe((relay) => {
                 this.spaceHint = url === heimat ? '' : spaceBranding(displayRelayUrl(url), relay).label
             })
             this._initialLoadDone = false // Resync erst nach diesem Load wieder erlauben (Prewarm-Race)
@@ -6574,7 +6561,7 @@ export function registerNostrComponents(Alpine: {
                 toast(t('Diese Nachricht ist zu alt zum Bearbeiten.'))
                 return
             }
-            const ev = repository.getEvent(m.id)
+            const ev = app.repository.getEvent(m.id)
             if (!ev) {
                 return
             }
@@ -6604,7 +6591,7 @@ export function registerNostrComponents(Alpine: {
             if (!id || !this._url || this.sending) {
                 return
             }
-            const original = repository.getEvent(id)
+            const original = app.repository.getEvent(id)
             if (!original) {
                 this.cancelEdit()
                 return
@@ -6679,7 +6666,7 @@ export function registerNostrComponents(Alpine: {
         copyJson(m: ChatMessage) {
             this.activeId = null
             this.closeMessageMenu()
-            const ev = repository.getEvent(m.id)
+            const ev = app.repository.getEvent(m.id)
             if (ev) {
                 this.copy(JSON.stringify(ev, null, 2), 'JSON')
             }
@@ -6688,11 +6675,11 @@ export function registerNostrComponents(Alpine: {
         openInfo(m: ChatMessage) {
             this.activeId = null
             this.closeMessageMenu()
-            const ev = repository.getEvent(m.id)
+            const ev = app.repository.getEvent(m.id)
             if (!ev) {
                 return
             }
-            const seen = [...tracker.getRelays(m.id)]
+            const seen = [...app.tracker.getRelays(m.id)]
             this.infoFor = {
                 nevent: neventFor(m, this._url),
                 npub: nip19.npubEncode(m.pubkey),
@@ -6901,8 +6888,8 @@ export function registerNostrComponents(Alpine: {
             if (!content && !this.threadAttachment) {
                 return
             }
-            const root = repository.getEvent(this.threadRootId)
-            let target = repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
+            const root = app.repository.getEvent(this.threadRootId)
+            let target = app.repository.getEvent(this.threadReplyTo?.id ?? this.threadRootId)
             if (!target) {
                 toast(t('Bezugs-Nachricht noch nicht geladen — kurz warten.'))
                 return
@@ -6921,7 +6908,7 @@ export function registerNostrComponents(Alpine: {
             // Lotus/#h-scopende Relays den Kommentar sehen. Vom Root, NICHT vom target — ein
             // verschachtelter Reply-target ist ein h-loses kind-1111. Fehlt der Root (Race),
             // bleibt rootH undefined → kein leeres `["h",""]` (makeComment lässt h dann weg).
-            const rootH = root ? getTagValue('h', root.tags) : undefined
+            const rootH = root ? tagValue(tagSpec('h'), root.tags) : undefined
             const url = this._url
             // Rohe (NICHT-reaktive) Kopie des Anhangs fürs Event — `imetaTag` ist sonst ein
             // Alpine-Proxy und bricht beim Signieren (DataCloneError), siehe C6a-Message-Send.
@@ -7109,7 +7096,7 @@ export function registerNostrComponents(Alpine: {
         async react(m: ChatMessage, content: string, emojiTag?: string[], label?: string) {
             this.activeId = null
             this.closeMessageMenu()
-            const target = m ? repository.getEvent(m.id) : undefined
+            const target = m ? app.repository.getEvent(m.id) : undefined
             if (!target || !this._url) {
                 return
             }
@@ -7132,7 +7119,7 @@ export function registerNostrComponents(Alpine: {
                 return
             }
             if (r.mine) {
-                const reaction = repository.getEvent(r.mineId)
+                const reaction = app.repository.getEvent(r.mineId)
                 if (!reaction) {
                     return
                 }
@@ -7409,7 +7396,7 @@ export function registerNostrComponents(Alpine: {
                 if (err) {
                     toast(err)
                 } else {
-                    repository.removeEvent(m.id)
+                    app.repository.removeEvent(m.id)
                     dispatchModal('admin-delete-message', false)
                     this.pendingAdminDelete = null
                 }
@@ -7446,7 +7433,7 @@ export function registerNostrComponents(Alpine: {
                     // Gebannten im offenen Overlay stehen (wie confirmAdminDelete am Ziel).
                     for (const msg of [...this.messages, ...this.threadComments]) {
                         if (msg.pubkey === m.pubkey) {
-                            repository.removeEvent(msg.id)
+                            app.repository.removeEvent(msg.id)
                         }
                     }
                     dispatchModal('ban-author', false)
@@ -7518,9 +7505,9 @@ export function registerNostrComponents(Alpine: {
                 //    `withTimeout` unten rettete die UI) und die Rejection ist eine Waise, die
                 //    kein Aufrufer abfangen kann — Herleitung in `js/zaps.ts` bei `warmZappers`.
                 //    `loadZapperNow` drosselt ebenfalls nicht, settlet aber immer und wirft nie.
-                const profile = getProfile(m.pubkey)
+                const profile = app.use(Profiles).get(m.pubkey)
                 const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
-                let zapper = lnurl ? getZapper(lnurl) : undefined
+                let zapper = lnurl ? app.use(Zappers).get(lnurl) : undefined
                 // Timeout/Netzwerkfehler von UNSERER Seite streng trennen von „Empfänger kann
                 // nichts empfangen". Beides in `zapUnavailable` zu werfen, log dem Nutzer eine
                 // Aussage über den EMPFÄNGER auf, obwohl nur unser Fetch nicht durchkam — genau
@@ -7678,7 +7665,7 @@ export function registerNostrComponents(Alpine: {
             if (!this._url || !fresh.poll || fresh.poll.closed) {
                 return
             }
-            const poll = repository.getEvent(m.id)
+            const poll = app.repository.getEvent(m.id)
             if (!poll) {
                 return
             }
@@ -7947,7 +7934,7 @@ export function registerNostrComponents(Alpine: {
                 this.active = url
                 rebuild()
             })
-            this._unsubRelays = relaysByUrl.subscribe((byUrl: Map<string, RelayProfile>) => {
+            this._unsubRelays = app.use(Relays).index.$.subscribe((byUrl: Map<string, RelayInfo>) => {
                 this._relays = byUrl
                 rebuild()
             })
@@ -8101,8 +8088,8 @@ export function registerNostrComponents(Alpine: {
                     this.myPicture = ''
                     this.myAbout = ''
                     this.myNip05 = ''
-                    this._unsubMyHandle = deriveHandleForPubkey(pk).subscribe((handle) => {
-                        this.myNip05 = handle ? displayNip05(handle.nip05) : ''
+                    this._unsubMyHandle = app.use(Handles).forPubkey(pk).subscribe((handle) => {
+                        this.myNip05 = handle ? app.use(Handles).display(handle.nip05) : ''
                     })
                     this._unsubMyProfile = deriveMergedProfile(pk).subscribe((p) => {
                         this.myName = displayProfile(p, fallback)
@@ -8361,7 +8348,7 @@ export function registerNostrComponents(Alpine: {
                     return
                 }
                 this.loading = true
-                const store = deriveEvents({ repository, filters: [{ kinds: [RELAYS], authors: [pk] }] })
+                const store = deriveEvents({ repository: app.repository, filters: [{ kinds: [RELAYS], authors: [pk] }] })
                 this._unsubEvents = store.subscribe((evs: TrustedEvent[]) => {
                     const ev = evs[0]
                     if (!ev) {
@@ -8392,7 +8379,7 @@ export function registerNostrComponents(Alpine: {
         error: '',
         _unsub: null,
         init() {
-            const store = deriveEvents({ repository, filters: [{ kinds: [1] }] })
+            const store = deriveEvents({ repository: app.repository, filters: [{ kinds: [1] }] })
             this._unsub = store.subscribe((evs: TrustedEvent[]) => {
                 this.events = evs.slice(0, 30)
             })

@@ -30,7 +30,7 @@
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { repository, tracker } from './welshmanApp.ts'
+import { app } from './welshmanApp.ts'
 import {
     load,
     netContext,
@@ -91,8 +91,8 @@ describe('welshman load(): der Rückgabewert verschweigt keinen Cache-Bestand', 
         netContext.getAdapter = (): AbstractAdapter => makeAdapter()
         // Exakt der Boot-Pfad aus `storage.ts`: Ereignisse in die repository,
         // Herkunft in den tracker. Danach ist der Cache warm.
-        repository.load([membersEvent])
-        tracker.load(new Map([[membersEvent.id, new Set([URL_])]]))
+        app.repository.load([membersEvent])
+        app.tracker.load(new Map([[membersEvent.id, new Set([URL_])]]))
     })
 
     after(() => {
@@ -100,8 +100,8 @@ describe('welshman load(): der Rückgabewert verschweigt keinen Cache-Bestand', 
     })
 
     test('bei warmem Cache liefert load() die Liste trotzdem zurück', async () => {
-        assert.ok(repository.getEvent(membersEvent.id), 'Vorbedingung: das Ereignis liegt im Cache')
-        assert.equal(tracker.hasRelay(membersEvent.id, URL_), true, 'Vorbedingung: der tracker kennt die Herkunft')
+        assert.ok(app.repository.getEvent(membersEvent.id), 'Vorbedingung: das Ereignis liegt im Cache')
+        assert.equal(app.tracker.hasRelay(membersEvent.id, URL_), true, 'Vorbedingung: der tracker kennt die Herkunft')
 
         const events = await load({ relays: [URL_], filters })
 
@@ -111,7 +111,7 @@ describe('welshman load(): der Rückgabewert verschweigt keinen Cache-Bestand', 
             'load() muss die gecachte 39002 liefern — sonst lesen loadUserGroupList/reconcileSpaceRooms in groups.ts ins Leere',
         )
         // Und die Fläche: sie liest ohnehin aus dem Repository, nicht aus dem Rückgabewert.
-        assert.equal(repository.query(filters).length, 1)
+        assert.equal(app.repository.query(filters).length, 1)
     })
 
     test('GEGENPROBE: mit geteiltem Tracker käme nichts an', async () => {
@@ -124,7 +124,7 @@ describe('welshman load(): der Rückgabewert verschweigt keinen Cache-Bestand', 
         const events = await requestOne({
             relay: URL_,
             filters,
-            tracker,
+            tracker: app.tracker,
             autoClose: true,
             signal: controller.signal,
             context: { getAdapter: (): AbstractAdapter => makeAdapter() },

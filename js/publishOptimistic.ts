@@ -20,7 +20,7 @@
  * Also: eine kleine Datei, die beide importieren. Sie zieht nur `@welshman/app` (das im
  * Boot-Pfad ohnehin liegt) und `publishResult.ts` (kein welshman).
  */
-import { publishThunk, repository } from './welshmanApp.ts'
+import { app, Thunks, type ThunkOptions } from './welshmanApp.ts'
 import { mapRelayError, waitForPublishError } from './publishResult.ts'
 
 /**
@@ -41,12 +41,12 @@ import { mapRelayError, waitForPublishError } from './publishResult.ts'
  */
 export const publishOptimistic = async (
     url: string,
-    event: Parameters<typeof publishThunk>[0]['event'],
+    event: ThunkOptions['event'],
 ): Promise<string> => {
-    const thunk = publishThunk({ relays: [url], event })
+    const thunk = app.use(Thunks).publish({ relays: [url], event })
     const err = await waitForPublishError(thunk)
     if (err) {
-        repository.removeEvent(thunk.event.id)
+        app.repository.removeEvent(thunk.event.id)
     }
 
     return err ? mapRelayError(err) : ''

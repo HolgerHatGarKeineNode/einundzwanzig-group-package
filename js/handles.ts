@@ -7,7 +7,7 @@
  * hinterlegte pubkey mit unserer übereinstimmt — sonst kein Häkchen (nie fälschlich
  * „verifiziert"). Netz-I/O bleibt lazy/fire-and-forget wie [[warmProfiles]].
  */
-import { loadHandleForPubkey, displayNip05 } from './welshmanApp.ts'
+import { app, Handles } from './welshmanApp.ts'
 
 /** Bereits angestoßene Handle-Loads (pro Insel-Leben) — kein Doppel-Fetch. */
 const requested = new Set<string>()
@@ -26,7 +26,7 @@ export const warmHandles = (pubkeys: Iterable<string>): void => {
     for (const pubkey of pubkeys) {
         if (pubkey && !requested.has(pubkey)) {
             requested.add(pubkey)
-            void loadHandleForPubkey(pubkey).catch(() => {
+            void app.use(Handles).loadForPubkey(pubkey).catch(() => {
                 // Kein Handle ⇒ kein NIP-05-Häkchen. Vorgesehener Zustand, kein Fehler.
             })
         }
@@ -48,5 +48,5 @@ export const verifiedNip05 = (
         return ''
     }
     const handle = handles.get(nip05)
-    return handle?.pubkey === pubkey ? displayNip05(nip05) : ''
+    return handle?.pubkey === pubkey ? app.use(Handles).display(nip05) : ''
 }

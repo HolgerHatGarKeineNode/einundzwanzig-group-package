@@ -67,7 +67,7 @@
  * Abfragen. Der Deckel gilt je REQ — getrennte Kind-Filter sind deshalb kein Luxus.
  */
 import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
-import { COMMENT, REACTION, ZAP_RESPONSE } from './welshmanKinds.ts'
+import { COMMENT, REACTION, ZAP_RECEIPT } from './welshmanKinds.ts'
 import { zapFromEvent, type Zapper } from './welshmanZap.ts'
 import { fromPairs } from '@welshman/lib'
 // **`import type` und ein eigenes Kind-Modul — beides gegen dieselbe Bundle-Grenze.**
@@ -394,7 +394,7 @@ export const artikelMetrikFilters = ({
     if (adressen.length > 0) {
         filters.push(
             { kinds: [REACTION], '#a': adressen, limit },
-            { kinds: [ZAP_RESPONSE], '#a': adressen, limit },
+            { kinds: [ZAP_RECEIPT], '#a': adressen, limit },
             { kinds: [COMMENT], '#a': adressen, limit },
             // Die Wurzelform. Sie ist keine Dublette des `#a`-Filters darüber: eine
             // Antwort auf einen Kommentar trägt im `a` den ELTERNKOMMENTAR und nur im `A`
@@ -403,7 +403,7 @@ export const artikelMetrikFilters = ({
         )
     }
     if (ids.length > 0) {
-        filters.push({ kinds: [REACTION], '#e': ids, limit }, { kinds: [ZAP_RESPONSE], '#e': ids, limit })
+        filters.push({ kinds: [REACTION], '#e': ids, limit }, { kinds: [ZAP_RECEIPT], '#e': ids, limit })
     }
 
     return filters
@@ -701,7 +701,7 @@ export const autorenMitQuittungen = ({
     const bekannt = new Set(adressen)
     const autoren = new Set<string>()
     for (const event of ereignisse) {
-        if (event.kind !== ZAP_RESPONSE) {
+        if (event.kind !== ZAP_RECEIPT) {
             continue
         }
         const adresse = artikelVonEreignis(event, adresseVonId, bekannt)
@@ -760,7 +760,7 @@ export const berechneArtikelMetriken = ({
         if (event.kind === REACTION) {
             const eimer = reaktionen.get(adresse)
             eimer ? eimer.push(event) : reaktionen.set(adresse, [event])
-        } else if (event.kind === ZAP_RESPONSE) {
+        } else if (event.kind === ZAP_RECEIPT) {
             const eimer = quittungen.get(adresse)
             eimer ? eimer.push(event) : quittungen.set(adresse, [event])
         } else if (event.kind === COMMENT) {

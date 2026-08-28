@@ -43,12 +43,11 @@
  * gezielt per `ids`-Filter und nur für Pins, die im Repository fehlen.
  */
 
-import { deriveRelay, repository } from './welshmanApp.ts'
+import { app, Relays, Thunks } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { load, request } from '@welshman/net'
 import { throttled } from '@welshman/store'
 import { makeEvent, type Filter, type TrustedEvent } from '@welshman/util'
-import { publishThunk } from './welshmanApp.ts'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { derived, get, type Readable } from 'svelte/store'
 import { activeSpace, deriveUserInRoom } from './groups.ts'
@@ -174,7 +173,7 @@ const pinFilters = (h: string, isBuzz: boolean): Filter[] =>
  */
 const deriveCanWriteHere = (url: string, h: string): Readable<boolean> =>
     derived(
-        [deriveRelay(url), deriveUserInRoom(url, h), deriveSpaceMembers(url), pubkey],
+        [app.use(Relays).one(url), deriveUserInRoom(url, h), deriveSpaceMembers(url), pubkey],
         ([relay, inRoom, members, pk]) =>
             isBuzzRelay((relay as { software?: string } | undefined) ?? undefined)
                 ? Boolean(pk && (members as string[]).includes(pk as string))
@@ -337,7 +336,7 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
                     }
                 })
                 unsubBuzz()
-                unsubBuzz = deriveRelay(url).subscribe((relay) => {
+                unsubBuzz = app.use(Relays).one(url).subscribe((relay) => {
                     const isBuzz = isBuzzRelay(relay ?? undefined)
                     self.isBuzz = isBuzz
                     recomputePermissions()
@@ -519,10 +518,10 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
         }
 
         self.entries = ids.map((id) =>
-            toEntry(id, pinnedByById.get(id) ?? '', repository.getEvent(id) as TrustedEvent | undefined),
+            toEntry(id, pinnedByById.get(id) ?? '', app.repository.getEvent(id) as TrustedEvent | undefined),
         )
 
-        const missing = ids.filter((id) => !repository.getEvent(id) && !requested.has(id))
+        const missing = ids.filter((id) => !app.repository.getEvent(id) && !requested.has(id))
         if (missing.length > 0 && self.url) {
             missing.forEach((id) => requested.add(id))
             // Gezielt und einmalig: eine gepinnte Nachricht kann älter sein als das
@@ -597,7 +596,7 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
      * Der Rückgabewert ist die wörtliche Relay-Begründung, '' = angenommen.
      */
     const publishPin = (kind: number, tags: string[][]): Promise<string> =>
-        waitForPublishError(publishThunk({ relays: [self.url], event: makeEvent(kind, { tags }) }))
+        waitForPublishError(app.use(Thunks).publish({ relays: [self.url], event: makeEvent(kind, { tags }) }))
 
     /**
      * Auf die **Wirkung** warten statt auf die Quittung.

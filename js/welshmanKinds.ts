@@ -1,24 +1,34 @@
 /**
- * Adapter: Event-Kind-Konstanten aus `@welshman/util` (NIP-01, Kind-Nummern).
+ * Adapter: Event-Kind-Konstanten (NIP-01, Kind-Nummern) — **unter ihren 0.9.5-Namen**.
  *
- * **Warum diese Datei existiert.** Kind-Konstanten sind die Namen, die upstream am
- * billigsten umbenannt werden — und deren Umbenennung bei uns am teuersten ist, weil
- * sie quer durch das Paket stehen. In 0.9.5 ist genau das passiert: `ZAP_RESPONSE`
- * (9735) heißt dort `ZAP_RECEIPT`, und `ZAP_REQUEST` (9734) ist neu dazugekommen. Die
- * Zahl ändert sich nicht, der Name schon. Mit diesem Adapter ist das eine Zeile hier
- * statt fünf Dateien.
+ * ── Welche 0.9.5-API diese Datei vorwegnimmt ─────────────────────────────────────
+ * Die Kind-Konstanten von `@welshman/util`. Bis auf einen sind die Namen zwischen
+ * 0.8.16 und 0.9.5 identisch; das Paket bleibt dasselbe. Der eine, der sich ändert,
+ * ist der teure: **`ZAP_RESPONSE` heißt in 0.9.5 `ZAP_RECEIPT`** (die Zahl 9735 bleibt).
+ * Diese Datei exportiert deshalb schon `ZAP_RECEIPT` und bildet es intern auf das
+ * 0.8.16-`ZAP_RESPONSE` ab. Das Paket kennt den alten Namen ab jetzt nicht mehr.
  *
- * Deshalb stehen hier **alle** Kind-Konstanten, die das Paket benutzt — auch die, die
- * den Sprung heil überstehen. Ein Adapter, der nur die gerade brechenden Namen führt,
- * ist beim nächsten Mal wieder ein halber.
+ * ── Was in P3 daraus entfällt ────────────────────────────────────────────────────
+ * Die Zeile `export { ZAP_RESPONSE as ZAP_RECEIPT }` wird zu einem gewöhnlichen
+ * `export { ZAP_RECEIPT }`; danach ist die ganze Datei eine reine Weiterleitung und
+ * kann ersatzlos gelöscht werden, indem die Importe wieder auf `@welshman/util`
+ * zeigen. **Keine Aufrufstelle muss angefasst werden.**
  *
- * **Reine Durchreiche.** Die Namen und Werte sind unverändert die von welshman; hier
- * wird nichts umbenannt und nichts ergänzt. Eigene Kind-Nummern des Projekts gehören
- * NICHT hierher, sondern dorthin, wo sie fachlich hingehören (z. B. `js/forgeModels.ts`).
+ * Hier stehen **alle** Kind-Konstanten, die das Paket benutzt — auch die, die den
+ * Sprung heil überstehen. Ein Adapter, der nur die gerade brechenden Namen führt, ist
+ * beim nächsten Mal wieder ein halber. Eigene Kind-Nummern des Projekts gehören NICHT
+ * hierher, sondern dorthin, wo sie fachlich hingehören (z. B. `js/forgeModels.ts`).
  *
- * **Diese Datei importiert ausschließlich `@welshman/util`** — siehe die Begründung in
- * `js/welshmanTags.ts`.
+ * **Diese Datei importiert ausschließlich `@welshman/util`** — `js/polls.ts` („bewusst
+ * welshman-app-frei") und `js/articleMetrics.ts` („rein bis auf `@welshman/util`") halten
+ * diese Reinheit ausdrücklich fest; ein Adapter, der nebenbei `@welshman/app`
+ * hereinzieht, würde sie still aufheben.
  */
+
+// Der eine Name, der sich in 0.9.5 ändert. Aufrufstellen benutzen bereits ZAP_RECEIPT.
+export { ZAP_RESPONSE as ZAP_RECEIPT } from '@welshman/util'
+
+// Namensgleich in 0.8.16 und 0.9.5 — gegen die 0.9.5-Exportmenge geprüft, nicht geraten.
 export {
     // NIP-01 / Grundbestand
     PROFILE, // 0
@@ -38,7 +48,6 @@ export {
 
     // Zaps (NIP-57)
     ZAP_GOAL, // 9041
-    ZAP_RESPONSE, // 9735 — heißt ab 0.9.5 upstream ZAP_RECEIPT
 
     // Räume/Gruppen (NIP-29)
     ROOMS, // 10009

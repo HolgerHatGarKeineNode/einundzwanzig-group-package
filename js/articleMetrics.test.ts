@@ -17,7 +17,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { type TrustedEvent } from '@welshman/util'
-import { COMMENT, REACTION, ZAP_RESPONSE } from './welshmanKinds.ts'
+import { COMMENT, REACTION, ZAP_RECEIPT } from './welshmanKinds.ts'
 import { type Zapper } from './welshmanZap.ts'
 import {
     KEINE_METRIKEN,
@@ -368,7 +368,7 @@ const quittung = (msats: number, p: string | string[], signer: string, requestTa
     const request = { pubkey: ANDERER, tags: [...pListe.map((wert) => ['p', wert]), ['amount', String(msats)], ...requestTags] }
 
     return ereignis(
-        ZAP_RESPONSE,
+        ZAP_RECEIPT,
         [
             ['bolt11', bolt11Fuer(msats)],
             ['description', JSON.stringify(request)],
@@ -477,7 +477,7 @@ test('eine Quittung an einen FREMDEN Empfaenger zaehlt beim Autor nicht mit', ()
 
 test('eine Quittung, deren bolt11 dem amount-Tag WIDERSPRICHT, zaehlt nicht — Anti-Spoof', () => {
     const gefaelscht = ereignis(
-        ZAP_RESPONSE,
+        ZAP_RECEIPT,
         [
             // behauptet 1 000 000 msats, die Rechnung lautet über 21 000
             ['bolt11', bolt11Fuer(21_000)],
@@ -691,7 +691,7 @@ test('autorenMitQuittungen liefert NUR Autoren mit Zap-Quittung — jeder weiter
                 // Reaktion und Kommentar duerfen KEINE LNURL-Anfrage ausloesen.
                 ereignis(REACTION, [['a', ohneZap]], { content: '+' }),
                 ereignis(COMMENT, [['A', ohneZap]]),
-            ].map((event) => (event.kind === ZAP_RESPONSE ? { ...event, tags: [...event.tags, ['a', mitZap]] } : event)),
+            ].map((event) => (event.kind === ZAP_RECEIPT ? { ...event, tags: [...event.tags, ['a', mitZap]] } : event)),
         }),
         [AUTOR],
     )
