@@ -15,11 +15,12 @@
  *    `commentsForRoot(id, [], index)` liefert die Notizen aus dem Eimer, obwohl
  *    die Ereignisliste LEER ist. Wer die Durchreichung entfernt, bekommt hier
  *    `[]` — ohne Uhr, ohne Toleranz, ohne Flatterrisiko.
- * 2. **Zeitlich, mit weiter Schranke:** wächst die Arbeit noch quadratisch?
- *    Bei achtfacher Eingabe wäre quadratisch ~64×, linear ~8×. Die Schranke
- *    liegt bei 16× — weit genug für eine belastete Maschine, eng genug, um eine
- *    Rückkehr zum Quadrat zu fangen. **Das ist eine Aussage über die GESTALT
- *    der Kurve, keine Laufzeit-Zusage.**
+ * 2. **Die Gestalt der Kurve, ebenfalls deterministisch:** wächst die Arbeit
+ *    noch quadratisch? Gemessen wird nicht mehr die Zeit, sondern die **Zahl der
+ *    Notiz-Zugriffe** — bei achtfacher Eingabe ist linear exakt 8×, quadratisch
+ *    ~64×. Warum das seit dem 2026-08-28 so und nicht mehr mit der Uhr gemessen
+ *    wird, steht bei {@link ZULAESSIGER_FAKTOR}. **Das ist eine Aussage über die
+ *    GESTALT der Kurve, keine Laufzeit-Zusage.**
  *
  * ── Der Statusindex kam nach (Restposten P1, 2026-08-25) ───────────────────
  *
@@ -29,7 +30,7 @@
  * eingelöst: **2,1 / 3,3 / 8,2 ms**, und der Pfad wächst linear (vierfache
  * Eingabe, 3,9-facher Aufwand).
  *
- * Die Zeitmessung unten bleibt trotzdem auf dem Notizen-Pfad (`statusEvents`
+ * Die Kurvenmessung unten bleibt trotzdem auf dem Notizen-Pfad (`statusEvents`
  * leer). Ein Gate, das beide Achsen zugleich misst, wird rot, wenn jemand
  * irgendeine davon anfasst, und sagt dann nicht, welche — die Trennung ist der
  * Grund, warum es überhaupt etwas festhält. Für den Statusindex steht darunter
@@ -69,6 +70,7 @@ import {
     indexStatus,
     indexUpdates,
     repoAddressOf,
+    toIssue,
     toPullRequest,
     type ForgeEvent,
 } from './forgeModels.ts'
@@ -267,51 +269,140 @@ test('indexStatus: dieselben zwei Eigenschaften — entdoppelt und aufsteigend s
 // ── Gate 2: die Gestalt der Kurve ───────────────────────────────────────────
 
 /**
- * Beide Grössen **verschränkt** messen, dann je das Minimum.
+ * **Gezählte Arbeit statt Wanduhr** (2026-08-28, P2 des welshman-Sprungs).
  *
- * Hier stand zuerst „erst fünfmal klein, dann fünfmal gross". Das ist unter Last
- * die falsche Bauform, und der Vollauf hat es prompt gezeigt (rot bei Faktor
- * > 16, während der Einzellauf 5 lieferte): trifft eine langsame Phase — GC,
- * ein paralleler Prozess — nur die zweite Hälfte, geht sie ungedämpft in den
- * Quotienten. Verschränkt trifft dieselbe Phase beide Grössen, und das Minimum
- * über mehrere Runden nimmt heraus, was nur einmal störte.
+ * Hier stand bis heute eine Zeitmessung: zwei Grössen verschränkt, je das
+ * Minimum aus fünf Runden, Schranke 20. Sie war schon zweimal repariert worden
+ * und flatterte weiter — im Vollauf 3 von 6 Läufen rot, auf einem unangetasteten
+ * Vorgängerstand 1 von 6. Der Fehler liegt nicht in der Schranke: **Wanduhrzeit
+ * in einem parallelen Test-Runner ist kein Messinstrument.** Ein Nachbarprozess,
+ * eine GC-Pause oder ein Frequenzwechsel geht ungedämpft in den Quotienten, und
+ * kein Minimum über fünf Runden nimmt das heraus, wenn die Last die ganze Datei
+ * überdeckt.
  *
- * Das ist keine Toleranzaufweichung: die Schranke bleibt weit unter dem
- * Quadrat. Es ist die Messung, die repariert wurde, nicht die Zusage.
+ * Die **Zusage bleibt Wort für Wort dieselbe** — wächst die Arbeit noch
+ * quadratisch? —, nur wird sie jetzt an der Arbeit selbst gemessen: jede Notiz
+ * zählt, wie oft der Konstruktor ihre `tags` liest. Das ist genau die Operation,
+ * die der Index einspart (`referencesRoot` je Wurzel × je Notiz gegen einmal
+ * `indexByRoot`), und sie hängt an keiner Uhr.
+ *
+ * Gemessen am 2026-08-28, exakt reproduzierbar:
+ *
+ * | Notizen | mit Index | ohne Index |
+ * |---|---|---|
+ * | 400 | 1 200 | 480 800 |
+ * | 800 | 2 400 | 1 921 600 |
+ * | 1 600 | 4 800 | 7 683 200 |
+ * | 3 200 | 9 600 | 30 726 400 |
+ *
+ * Mit Index exakt `3n`; achtfache Eingabe kostet damit **exakt** das Achtfache.
+ * Ohne Index: Faktor 63,8 — die Signatur des Quadrats.
+ *
+ * **Warum die Schranke trotzdem nicht bei 9 liegt:** der Quotient `f(8n)/f(n)`
+ * ist für JEDE lineare Funktion exakt 8, unabhängig von ihrer Konstanten — ein
+ * zusätzlicher linearer Durchlauf bewegt ihn also nicht. Was ihn bewegt, ist ein
+ * überlinearer Anteil: ein globales Sortieren (`n·log n`) landet bei
+ * 8 · log(3200)/log(400) ≈ 11,1. Die Schranke **16** lässt das durch und hat zum
+ * Quadrat immer noch Faktor 4 Luft. Sie ist ein Urteil über die GESTALT der
+ * Kurve, keine Laufzeit-Zusage — und sie ist deterministisch, braucht also
+ * keinen Zuschlag für eine belastete Maschine.
  */
-const messeVerschraenkt = (klein: number, gross: number, runden = 5): { klein: number; gross: number } => {
-    const a = bestand(klein)
-    const b = bestand(gross)
-    const best = { klein: Infinity, gross: Infinity }
-    for (let i = 0; i < runden; i++) {
-        let t = performance.now()
-        const kleineIssues = buildIssues(a.roots, [], a.notes)
-        best.klein = Math.min(best.klein, performance.now() - t)
+const ZULAESSIGER_FAKTOR = 16
 
-        t = performance.now()
-        const grosseIssues = buildIssues(b.roots, [], b.notes)
-        best.gross = Math.min(best.gross, performance.now() - t)
+/**
+ * Wie {@link bestand}, aber jede Notiz zählt die Lesezugriffe auf ihr `tags`.
+ *
+ * Der Zähler sitzt am Datum, nicht am Code — es ist deshalb egal, über welchen
+ * Weg der Konstruktor an die Notiz kommt. Wer den Index entfernt, liest jede
+ * Notiz je Wurzel; wer ihn behält, einmal.
+ */
+const zaehlbestand = (n: number): { roots: ForgeEvent[]; notes: ForgeEvent[]; zugriffe: () => number } => {
+    let zugriffe = 0
+    const roots: ForgeEvent[] = []
+    const notes: ForgeEvent[] = []
+    for (let i = 0; i < n; i++) {
+        roots.push({ id: hex(i), pubkey: OWNER, kind: GIT_ISSUE, created_at: 2_000 + i, content: 'x', tags: [['a', ADDR], ['subject', `I${i}`]] })
+        const tags = [['e', hex(i), '', 'root'], ['a', ADDR]]
+        notes.push({
+            id: hex(500_000 + i),
+            pubkey: OWNER,
+            kind: FORGE_COMMENT,
+            created_at: 3_000 + i,
+            content: 'c',
+            get tags(): string[][] {
+                zugriffe++
 
-        // Kalibrierung IN der Messung: eine Runde, die nichts baut, misst nichts.
-        assert.equal(kleineIssues.length, klein)
-        assert.equal(grosseIssues.length, gross)
+                return tags
+            },
+        })
     }
 
-    return best
+    return { roots, notes, zugriffe: () => zugriffe }
 }
 
-test('KOMPLEXITÄT (zeitlich): achtfache Eingabe kostet nicht das Vielfache eines Quadrats', () => {
-    const { klein, gross } = messeVerschraenkt(400, 3_200)
+/** Gelesene `tags` für einen vollständigen `buildIssues`-Lauf über `n` Wurzeln und `n` Notizen. */
+const arbeitMitIndex = (n: number): number => {
+    const { roots, notes, zugriffe } = zaehlbestand(n)
+    const issues = buildIssues(roots, [], notes)
+    // Kalibrierung IN der Messung: ein Lauf, der nichts baut, misst nichts.
+    assert.equal(issues.length, n)
+    assert.ok(zugriffe() > 0, 'kein einziger tags-Zugriff gezählt — der Zähler sitzt an der falschen Stelle')
 
-    // Untergrenze als Kalibrierung: ist die kleine Messung 0, ist der Quotient
-    // bedeutungslos und der Test grün, ohne etwas zu prüfen.
-    assert.ok(klein > 0, 'die Basismessung war nicht messbar — der Quotient sagt dann nichts')
+    return zugriffe()
+}
+
+/**
+ * Dieselbe Arbeit, aber index-frei — der Zustand VOR P7, aus denselben
+ * Produktionsfunktionen gebaut, ohne eine Zeile zu mutieren. `toIssue` nimmt den
+ * Index als optionalen Parameter; lässt man ihn weg, fällt `notesForRoot` auf den
+ * Scan über die ganze Notizliste zurück (`forgeModels.ts:1401`).
+ */
+const arbeitOhneIndex = (n: number): number => {
+    const { roots, notes, zugriffe } = zaehlbestand(n)
+    const issues = roots.map((root) => toIssue(root, [], notes))
+    assert.equal(issues.length, n)
+
+    return zugriffe()
+}
+
+test('KOMPLEXITÄT (gezählt): achtfache Eingabe kostet nicht das Vielfache eines Quadrats', () => {
+    const klein = arbeitMitIndex(400)
+    const gross = arbeitMitIndex(3_200)
 
     const faktor = gross / klein
-    // linear ≈ 8, quadratisch ≈ 64. 20 ist weit genug für eine belastete
-    // Maschine und eng genug, um die Rückkehr zum Quadrat zu fangen — die
-    // Mutationsprobe „Index entfernt" landete bei weit darüber.
-    assert.ok(faktor < 20, `achtfache Eingabe kostete das ${faktor.toFixed(1)}-fache — das riecht nach O(m·n)`)
+    assert.ok(
+        faktor < ZULAESSIGER_FAKTOR,
+        `achtfache Eingabe kostete das ${faktor.toFixed(1)}-fache an Notiz-Zugriffen (${klein} → ${gross}) — das riecht nach O(m·n). ` +
+            'linear = exakt 8, n·log n ≈ 11,1, quadratisch ≈ 64.',
+    )
+})
+
+/**
+ * **Die Positivkontrolle, dauerhaft in der Suite.**
+ *
+ * Ein Prüfstand für „nicht quadratisch" ist wertlos, solange niemand gezeigt hat,
+ * dass er ein Quadrat auch sieht. Der Fall oben liefe grün, wenn der Zähler
+ * hinge, wenn `buildIssues` nichts mehr baute oder wenn die Fixture keine
+ * Notizen mehr trüge. Dieser Fall schliesst das aus — und zwar mit demselben
+ * Ausdruck, an dem der Fall oben hängt.
+ *
+ * Kleinere Grössen als oben (200 → 1 600, ebenfalls achtfach): der Quotient
+ * hängt nicht an der absoluten Grösse, 1 600² gezählte Zugriffe kosten aber
+ * schon 0,2 s.
+ */
+test('KALIBRIERUNG: derselbe Massstab schlägt bei der index-freien Variante an', () => {
+    const klein = arbeitOhneIndex(200)
+    const gross = arbeitOhneIndex(1_600)
+    const faktor = gross / klein
+
+    assert.ok(
+        faktor >= ZULAESSIGER_FAKTOR,
+        `Die index-freie Variante kam auf Faktor ${faktor.toFixed(1)} (${klein} → ${gross}) und wäre damit durch die ` +
+            `Schranke ${ZULAESSIGER_FAKTOR} gerutscht. Dann misst der Prüfstand oben nichts mehr — gemessen waren es 63,8.`,
+    )
+    // Und die Gegenprobe zur Behauptung „derselbe Massstab": die index-freie
+    // Variante muss auch absolut sehr viel mehr Arbeit leisten als die indizierte.
+    assert.ok(gross > arbeitMitIndex(1_600) * 100, 'ohne Index wird kaum mehr gearbeitet als mit — dann misst der Zähler nicht die Ersparnis')
 })
 
 // ── Gate 1c: derselbe Schutz für den Update-Index ───────────────────────────
