@@ -164,6 +164,12 @@ export const planWake = ({
      * Die Kanäle, die dieser Nutzer in diesem Space wirklich hat (39000 aus
      * `roomsByUrl`, relay-signiert und channel-scoped ausgeliefert).
      *
+     * **„Relay-signiert" stimmt erst seit P5 des 0.9.5-Sprungs.** Bis dahin las
+     * `roomsByUrl` alle 39000 eines Relays ohne Prüfung des Signierers — diese Zusage
+     * war also eine Behauptung über etwas, das die Quelle nicht leistete, und ein
+     * fremder Signierer konnte einen Kanal in diese Menge schreiben. Seit die Quelle
+     * `app.use(Rooms)` ist, trägt der Satz.
+     *
      * **Ohne diese Menge gibt es keine Weckmeldung** — der Parameter ist Pflicht
      * und hat bewusst keinen Vorgabewert. Ein `= new Set()` wäre bequem und
      * genau die Zeile, die den Riegel beim nächsten Aufrufer still ausschaltet.

@@ -15,12 +15,27 @@
  *   Feldern (`meta.name` → `reader.name()`), aus `makeRoomEditEvent(room)` ein
  *   `RoomMetaWriter` mit `renderTemplate(): Promise<EventTemplate>`.
  *
- * **Beides ist Arbeit der Rooms-Phase, nicht des Versionssprungs.** Dort wird
- * `js/groups.ts` ohnehin gegen `app.use(Rooms)` getauscht — die Reader dann einzuführen,
- * heisst diese Aufrufstellen einmal anzufassen statt zweimal. Bis dahin stehen hier die
- * 0.8.16-Rümpfe, Zeile für Zeile aus `@welshman/util@0.8.16` übernommen
- * (`dist/util/src/List.js`, `Room.js`, `Encryptable.js`), damit das Verhalten sich beim
- * Sprung nicht ändert.
+ * **Stand nach P5, Etappe 2 — die Datei fällt NICHT weg, anders als geplant.** Der Plan
+ * sah vor, sie mit dem `Rooms`-Umbau abzuräumen. Nachgezählt sind 10 ihrer 12 Exporte
+ * weiter in Gebrauch: `makeRoomEditEvent` an 15 Stellen, die Listen-Hälfte
+ * (`readList`/`makeList`/`addToListPublicly`/`removeFromListByPredicate`/
+ * `asDecryptedEvent`) an je zwei. `app.use(Rooms)` ersetzt das LESEN der Raum-Metadaten,
+ * nicht das Schreiben und nicht die NIP-51-Listen.
+ *
+ * Erledigt ist die Lese-Hälfte der Räume: `readRoomMeta` wird nirgends mehr als Funktion
+ * aufgerufen — `js/groups.ts roomsByUrl` liest jetzt `RoomMetaReader` aus dem Plugin.
+ * Der Export bleibt trotzdem, weil der `Room`-Typ als `ReturnType<typeof readRoomMeta>`
+ * daran hängt und damit erzwingt, dass beide Formen dieselben Felder tragen.
+ *
+ * Offen und ausdrücklich nicht in dieser Etappe: `makeRoomEditEvent` → `RoomMetaWriter`
+ * (dessen `renderTemplate()` ist `Promise`-wertig, das berührt jede Schreibstelle) und
+ * die Listen-Hälfte (`ListReader` ist ein `AsyncEventReader`, `js/groups.ts` liest Listen
+ * aber in einem synchronen `eventToItem`). Zwei tote Exporte fielen dabei auf und sind
+ * gemeldet, nicht entfernt: `DecryptedEvent` und `removeFromList` haben null Nutzer.
+ *
+ * Bis dahin stehen hier die 0.8.16-Rümpfe, Zeile für Zeile aus `@welshman/util@0.8.16`
+ * übernommen (`dist/util/src/List.js`, `Room.js`, `Encryptable.js`), damit das Verhalten
+ * sich beim Sprung nicht ändert.
  *
  * **Diese Datei importiert ausschliesslich `@welshman/util` und `@welshman/lib`.**
  */

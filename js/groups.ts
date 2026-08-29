@@ -49,7 +49,7 @@ import {
     ZAP_GOAL,
 } from './welshmanKinds.ts'
 import { getGroupTags, getListTags, relayTags, tagSpec, tagValue, tagValues } from './welshmanTags.ts'
-import { uniq, sortBy, partition } from '@welshman/lib'
+import { uniq, sortBy } from '@welshman/lib'
 import {
     createRoomMembershipRevocations,
     roomMembershipKey,
@@ -119,6 +119,28 @@ export const userSpaceUrls = derived(userGroupList, getSpaceUrlsFromGroupList)
 
 // ── Rooms (kind 39000 / 9008) ────────────────────────────────────────────────
 
+/**
+ * Ein Eintrag aus `app.use(Rooms).byUrl` — so viel davon, wie {@link roomsByUrl} liest.
+ * Bewusst lokal und schmal statt eines Imports: welshman exportiert den Typ nicht, und
+ * eine strukturelle Beschreibung bricht sichtbar, wenn sich die Reader-Fläche ändert.
+ */
+type RoomsEintrag = {
+    h: string
+    meta?: {
+        event: TrustedEvent
+        createdAt: () => number
+        name: () => string | undefined
+        about: () => string | undefined
+        picture: () => string | undefined
+        pictureMeta: () => string[] | undefined
+        isClosed: () => boolean
+        isHidden: () => boolean
+        isPrivate: () => boolean
+        isRestricted: () => boolean
+        hasLivekit: () => boolean
+    }
+}
+
 /** Room-Meta-Events, nach Herkunfts-Relay gruppiert (via tracker). */
 export const roomMetaEventsByIdByUrl = deriveEventsByIdByUrl({
     tracker: app.tracker,
@@ -126,32 +148,92 @@ export const roomMetaEventsByIdByUrl = deriveEventsByIdByUrl({
     filters: [{ kinds: [ROOM_META, ROOM_DELETE] }],
 })
 
-/** Rooms je Space-URL — 39000 zu `Room` geparst, 9008-Tombstones berücksichtigt. */
-export const roomsByUrl = derived(roomMetaEventsByIdByUrl, ($byUrl) => {
-    const result = new Map<string, Room[]>()
-    for (const [url, eventsById] of $byUrl) {
-        const events = Array.from(eventsById.values()) as TrustedEvent[]
-        const [metas, deletes] = partition((e: TrustedEvent) => e.kind === ROOM_META, events)
+/**
+ * Rooms je Space-URL — seit P5 des 0.9.5-Sprungs aus `app.use(Rooms)`, mit einer Hülle
+ * für die Tombstone-Regel.
+ *
+ * ── Warum der Umstieg: dieselbe Signaturlücke wie bei den Mitgliedern, nur grösser ──
+ *
+ * Bis hierher las diese Ableitung alle 39000 eines Relays und prüfte **nicht**, ob der
+ * Relay sie signiert hat. Gemessen mit einer 39000 von fremdem Schlüssel:
+ *
+ *   eigener Weg → drei Räume: der echte, ein frei erfundener („fake", sogar mit
+ *                 `closed`), und der echte ein ZWEITES Mal — mit untergeschobenem
+ *                 Namen und `private`-Flag, weil derselbe `d`-Wert neuer datiert war
+ *   `Rooms`     → ein Raum: der echte
+ *
+ * Der zweite Fall ist der gefährlichere: ein bestehender Raum liess sich **entführen**.
+ * `isClosed` steuert, ob Beitrittsanfragen als offen gelten (`actionItems.ts`),
+ * `isPrivate`/`isHidden` steuern Sichtbarkeit, und `roomsById` trägt die Existenzprüfung
+ * beim Anlegen ({@link createRoom}).
+ *
+ * ── Was `Rooms` anders macht und deshalb hier eingerahmt wird ──────────────────
+ *
+ * Es blendet gelöschte Räume selbst aus, vergleicht den 9008 dabei aber gegen das
+ * **Maximum** aus 39000/39001/39002. Kommt nach der Löschung eine neue Mitgliederliste,
+ * ist der Raum dort wieder da. Gemessen:
+ *
+ *   39000 → 9008 → neue 39002   ·   unsere Regel: ausgeblendet   ·   `Rooms`: sichtbar
+ *
+ * Ein Relay, der nach dem Löschen noch eine 39002 für denselben `h` schickt, liesse den
+ * Raum also wiederauferstehen. Die Regel „der 9008 gilt gegen die 39000" bleibt deshalb
+ * hier — `roomMetaEventsByIdByUrl` liefert die Tombstones weiterhin. Eine neue 39000
+ * (echte Wiederanlage) macht den Raum nach wie vor sichtbar.
+ *
+ * Räume ohne 39000 überspringt diese Liste: `Rooms` nimmt einen Eintrag schon auf, wenn
+ * nur Mitglieder oder Admins bekannt sind — ohne Metadaten gibt es hier nichts zu zeigen
+ * und kein Quell-Event für die haus-eigenen Tags.
+ *
+ * Die sechs Lagen stehen als Regressionsträger in `js/roomMetaQuelle.test.ts`.
+ */
+export const roomsByUrl = derived(
+    [app.use(Rooms).byUrl.$, roomMetaEventsByIdByUrl],
+    ([$byUrl, $eventsByUrl]: [Map<string, RoomsEintrag[]>, Map<string, Map<string, unknown>>]) => {
+        const result = new Map<string, Room[]>()
 
-        const deletedByH = new Map<string, number>()
-        for (const del of deletes) {
-            for (const h of tagValues(tagSpec('h'), del.tags)) {
-                deletedByH.set(h, Math.max(deletedByH.get(h) ?? 0, del.created_at))
+        for (const [url, eintraege] of $byUrl) {
+            // Tombstones je `h` aus den 9008 dieses Relays.
+            const deletedByH = new Map<string, number>()
+            for (const roh of ($eventsByUrl.get(url)?.values() ?? []) as Iterable<TrustedEvent>) {
+                if (roh.kind !== ROOM_DELETE) {
+                    continue
+                }
+                for (const h of tagValues(tagSpec('h'), roh.tags)) {
+                    deletedByH.set(h, Math.max(deletedByH.get(h) ?? 0, roh.created_at))
+                }
             }
+
+            const rooms: Room[] = []
+            for (const eintrag of eintraege) {
+                const meta = eintrag.meta
+                if (!meta) {
+                    continue
+                }
+                if ((deletedByH.get(eintrag.h) ?? 0) >= meta.createdAt()) {
+                    continue
+                }
+                rooms.push({
+                    h: eintrag.h,
+                    event: meta.event,
+                    name: meta.name(),
+                    about: meta.about(),
+                    picture: meta.picture(),
+                    pictureMeta: meta.pictureMeta(),
+                    isClosed: meta.isClosed(),
+                    isHidden: meta.isHidden(),
+                    isPrivate: meta.isPrivate(),
+                    isRestricted: meta.isRestricted(),
+                    livekit: meta.hasLivekit(),
+                    url,
+                    id: makeRoomId(url, eintrag.h),
+                })
+            }
+            result.set(url, rooms)
         }
 
-        const rooms: Room[] = []
-        for (const event of metas) {
-            const meta = readRoomMeta(event)
-            if ((deletedByH.get(meta.h) ?? 0) >= event.created_at) {
-                continue
-            }
-            rooms.push({ ...meta, url, id: makeRoomId(url, meta.h) })
-        }
-        result.set(url, rooms)
-    }
-    return result
-})
+        return result
+    },
+)
 
 /** Flacher Index aller Rooms nach `id`. */
 export const roomsById = derived(roomsByUrl, ($byUrl) => {
