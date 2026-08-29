@@ -242,7 +242,15 @@ describe('R2 · die sichtbare Folge: was der Leser im Chat sieht', () => {
         assert.match(html(`schau mal nostr:${NOTE} an`), /<a href="https:\/\/njump\.me\//)
     })
 
-    test('KERNBEWEIS: ein nacktes npub1 erzeugt heute KEINEN Link', () => {
+    /**
+     * **Der Name nennt beide Ausgänge, weil der Fall beide prüft.**
+     *
+     * Er hiess bis zum Sprung „ein nacktes npub1 erzeugt heute KEINEN Link" — richtig,
+     * solange `STAND` auf `vor-dem-sprung` stand, und danach das GEGENTEIL dessen, was
+     * die Zeilen unten messen. Ein Fallname, den man beim Lesen des Berichts für die
+     * Zusage hält, ist schlimmer als gar keiner.
+     */
+    test('KERNBEWEIS: ein nacktes npub1 — vor dem Sprung kein Link, danach einer', () => {
         const gerendert = html(`hallo @${NPUB} magst du`)
         if (STAND === 'vor-dem-sprung') {
             assert.ok(!gerendert.includes('<a '), `nackte Kennung ist verlinkt worden: ${gerendert}`)
