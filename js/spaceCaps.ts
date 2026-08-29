@@ -44,7 +44,7 @@
  */
 import { readable, type Readable } from 'svelte/store'
 import { app, Relays } from './welshmanApp.ts'
-import { normalizeRelayUrl } from '@welshman/util'
+import { normalisiereWorkspaceUrl } from './relayConfig.ts'
 import { isBuzzRelay } from './relayCaps.ts'
 
 // ── Ebene 1: gibt es die Fläche? Konfiguration, kein Netz ───────────────────
@@ -66,7 +66,21 @@ import { isBuzzRelay } from './relayCaps.ts'
  * eines localStorage-Zugriffs beim Laden aus `node --test` gar nicht ladbar — gilt
  * seit P1/P2 des Plans `js-insel-testbar-machen` nicht mehr.)
  */
-export const workspaceUrlFrom = (override?: string): string => (override ? normalizeRelayUrl(override) : '')
+/**
+ * **Nachsichtig, seit dem 0.9.5-Sprung:** die Normalisierung liegt in
+ * `js/relayConfig.ts` ({@link normalisiereWorkspaceUrl}) und wirft nicht mehr.
+ *
+ * Der Grund gehört hierher, weil diese Zeile die zweite Hälfte des Problems war:
+ * `relayConfig.ts` und diese Datei leiteten BEIDE aus `window.__nostrWorkspace` ab, jede
+ * mit eigenem `normalizeRelayUrl`-Aufruf auf Modul-Toplevel. Nur eine davon nachsichtig zu
+ * machen hätte nichts geheilt — mit `__nostrWorkspace = 'wss:// kaputt/'` gemessen, warf
+ * auch dieses Modul „Invalid URL" und nahm die Insel über `welshmanApp.ts` mit. Eine
+ * gemeinsame Funktion ist deshalb kein Aufräumen, sondern die Bedingung dafür, dass der
+ * Riegel überhaupt wirkt: zwei Ableitungen desselben Rohwerts können sonst auseinander
+ * laufen, und dann greift der kind-0-Riegel in `js/welshmanInstance.ts` gegen einen
+ * anderen Relay als den, gegen den die Fläche spricht.
+ */
+export const workspaceUrlFrom = (override?: string): string => normalisiereWorkspaceUrl(override)
 
 /** Siehe {@link workspaceUrlFrom}. Einmal beim Laden aus `window.__nostrWorkspace`. */
 export const WORKSPACE_URL = workspaceUrlFrom((globalThis as { __nostrWorkspace?: string }).__nostrWorkspace)

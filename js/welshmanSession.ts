@@ -11,10 +11,20 @@
  *
  * ── Warum die Stores hier trotzdem weiterleben ───────────────────────────────────
  * Weil **29 Dateien** sie reaktiv lesen — `pubkey` steht in `derived([...])`-Listen quer
- * durch das Paket. 0.9.5 bietet für den Wechsel kein reaktives Primitiv an; sein Weg ist,
- * die App zu ERSETZEN. Genau das passiert hier: die Stores sind die Wahrheit über „wer
- * ist angemeldet", und jede Änderung an ihnen tauscht die App-Instanz aus
+ * durch das Paket. 0.9.5 bietet für den Wechsel kein reaktives Primitiv an; der Weg, den
+ * der Sprung-Plan dafür vorsah, war, die App zu ERSETZEN.
+ *
+ * **Ersetzt wird sie nicht** — hier stand bis zum 2026-08-29 das Gegenteil, und das war
+ * nicht bloß ungenau, sondern die Beschreibung eines Wegs, der gemessen nicht trägt: der
+ * Austausch fällt schon beim Boot an (localStorage-Hydrierung), und jede Ableitung, die
+ * ein Modul im Toplevel gebaut hat, hinge danach an der alten, leeren Instanz. In der
+ * E2E-Suite waren das 172 fehlgeschlagene Fälle.
+ *
+ * Was wirklich passiert: die Stores bleiben die Wahrheit über „wer ist angemeldet", und
+ * jede Änderung an ihnen setzt `app.user` auf der BESTEHENDEN Instanz
  * ({@link setzeIdentitaet} in `js/welshmanInstance.ts`, Risiko R4 des Sprung-Plans).
+ * Repository, Pool und Tracker bleiben stehen; es gibt nichts, was mitwandern müsste.
+ * Die ausführliche Messung steht bei `setzeIdentitaet` selbst.
  *
  * Die Kopplung läuft über ein Abo und nicht über die `loginWith*`-Funktionen, und das
  * ist wichtig: `js/session.ts` bindet `pubkey` und `sessions` per `sync()` an den
@@ -213,7 +223,10 @@ export const loginWithNip46 = (
 
 /**
  * Sitzung beenden. Räumt den Signer ab, falls er etwas hält (der NIP-46-Broker hält eine
- * Relay-Verbindung), und leert die Stores — der App-Austausch folgt über das Abo oben.
+ * Relay-Verbindung), und leert die Stores — die Identität an der App-Instanz wird über
+ * das Abo oben zurückgesetzt (`app.user = undefined`), die Instanz selbst bleibt stehen.
+ * (Hier stand „der App-Austausch folgt": den gibt es nicht, siehe Modulkopf und
+ * `setzeIdentitaet` in `js/welshmanInstance.ts`.)
  */
 export const dropSession = (pk: string): void => {
     const aktiv = get(signer) as (ISigner & { cleanup?: () => void }) | undefined

@@ -80,13 +80,62 @@ export const SIGNER_RELAYS = relayOverride?.signer ?? (imBrowser ? [
 ] : [])
 
 /**
- * Die Workspace-URL, normalisiert — oder `''`, wenn kein zweiter Space konfiguriert ist.
+ * Der ROHWERT aus `window.__nostrWorkspace`, ungeprüft und ungetrimmt-vergleichbar.
+ *
+ * Existiert nur, damit `js/welshmanInstance.ts` „konfiguriert, aber unbrauchbar" von
+ * „gar nicht konfiguriert" unterscheiden kann — {@link WORKSPACE} kann beides nicht,
+ * weil beides `''` ergibt.
+ */
+export const WORKSPACE_ROH = ((globalThis as { __nostrWorkspace?: string }).__nostrWorkspace ?? '').trim()
+
+/**
+ * Normalisiert eine konfigurierte Workspace-URL — **nachsichtig: eine unbrauchbare
+ * Eingabe wird zu `''` („Feature aus"), nicht zu einem Wurf.**
+ *
+ * ── Warum nachsichtig, obwohl ein Wurf ehrlicher aussieht ──────────────────────
+ *
+ * Der Wert kommt aus der Server-Konfiguration: `config('group.workspace_url')` →
+ * `partials/head.blade.php` → `window.__nostrWorkspace`. Er wird auf MODUL-TOPLEVEL
+ * gelesen, und dieses Modul liegt unter `js/core.ts` (dort statisch importiert, Zeile 23).
+ *
+ * `normalizeRelayUrl` wirft bei kaputter Eingabe. Am Paket gemessen:
+ *
+ *   'buzz.example'  → 'wss://buzz.example/'      (nachgezogen, gut)
+ *   'http://x'      → 'wss://x/'                 (nachgezogen, gut)
+ *   'wss:// x/'     → TypeError: Invalid URL     ← ein Leerzeichen genügt
+ *   'wss://'        → TypeError: Invalid URL
+ *
+ * Und gemessen, was der Wurf anrichtet: mit `__nostrWorkspace = 'wss:// buzz…/'` ist
+ * `js/relayConfig.ts` nicht mehr importierbar — damit `js/core.ts` nicht, damit die
+ * gesamte Nostr-Insel nicht. Ein Tippfehler in EINER ENV-Zeile nimmt also nicht den
+ * Workspace-Tab weg, sondern die ganze Anwendung, und die Konsole nennt als Ursache
+ * „Invalid URL" ohne zu sagen, welche. Das ist der teuerste denkbare Umgang mit dem
+ * billigsten denkbaren Fehler.
+ *
+ * Nachsichtig heißt NICHT still: `js/welshmanInstance.ts` meldet den Fall einmalig und
+ * benannt in die Konsole, samt Rohwert. Das Feature fällt aus, die Anwendung läuft, und
+ * es steht dran, warum.
+ */
+export const normalisiereWorkspaceUrl = (roh?: string): string => {
+    const wert = (roh ?? '').trim()
+
+    if (!wert) {
+        return ''
+    }
+
+    try {
+        return normalizeRelayUrl(wert)
+    } catch {
+        return ''
+    }
+}
+
+/**
+ * Die Workspace-URL, normalisiert — oder `''`, wenn kein zweiter Space konfiguriert ist
+ * ODER der konfigurierte unbrauchbar war (siehe {@link normalisiereWorkspaceUrl}).
  * Direkt aus `globalThis` und nicht aus `groups.ts`: das wäre ein Zyklus (siehe Modulkopf).
  */
-export const WORKSPACE = (() => {
-    const raw = (globalThis as { __nostrWorkspace?: string }).__nostrWorkspace
-    return raw ? normalizeRelayUrl(raw) : ''
-})()
+export const WORKSPACE = normalisiereWorkspaceUrl(WORKSPACE_ROH)
 
 /**
  * Die Relays der ARTIKEL-SOZIALSIGNALE (P6) — **die einzigen, die nie ein AUTH bekommen.**

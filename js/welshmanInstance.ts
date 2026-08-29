@@ -34,11 +34,25 @@
  * Stattdessen wird `app.user` gesetzt. Die Instanz bleibt, Repository, Pool und Tracker
  * bleiben — es gibt also nichts, was „mitwandern" müsste.
  *
- * {@link beiAppWechsel} bleibt trotzdem: es ist der Ort, an dem sich Module anmelden,
- * die ein Primitiv FESTHALTEN (`app.tracker.on(…)`, `pool.subscribe(…)`). Heute feuert
- * es genau einmal, beim Start. Sollte je ein echter Instanzwechsel nötig werden, ist die
- * Liste da, statt dass jemand sie unter Zeitdruck rekonstruieren muss. Angemeldet sind
- * `js/storage.ts` (Tracker-Listener), `js/relayNotices.ts` und `js/reqWatch.ts`.
+ * {@link beiAppWechsel} bleibt trotzdem — aber als das, was es ist, und nicht als das,
+ * was hier bis zum 2026-08-29 stand. Der alte Text nannte `js/storage.ts` (Tracker-
+ * Listener), `js/relayNotices.ts` und `js/reqWatch.ts` als angemeldet. **Nachgezählt: 0,
+ * 0 und 0.** Keine dieser Dateien nennt `beiAppWechsel` oder `appStore` auch nur einmal;
+ * sie greifen direkt auf `app` zu. Die Liste war nie richtig, und weil sie konkret klang,
+ * hätte sie einen späteren Instanzwechsel gerade dort in Sicherheit gewiegt, wo er
+ * gefährlich ist.
+ *
+ * Der gemessene Stand: `beiAppWechsel` hat **keinen** direkten Aufrufer außerhalb dieser
+ * Datei. Sein einziger Nutzer ist {@link appStore} hier im Modul, und das wiederum nutzen
+ * genau zwei Dateien — `js/welshmanApp.ts` (`userProfile`) und `js/welshmanSession.ts`
+ * (der Signer-Log-Store). Beide halten einen App-EIGENEN Index fest, und für die ist die
+ * Umleitung richtig.
+ *
+ * Was daraus folgt: Der Mechanismus feuert heute genau einmal, beim Start, und niemand
+ * hängt an ihm, der es nötig hätte. Er bleibt, weil `appStore` ihn braucht — nicht, weil
+ * eine Liste festgehaltener Primitive dranhinge. Wer je einen echten Instanzwechsel baut,
+ * muss die Aufrufer von `app.tracker.on(…)` und `pool.subscribe(…)` selbst suchen; dieser
+ * Docblock nimmt ihm das ausdrücklich nicht ab.
  *
  */
 import type { Readable, Unsubscriber } from 'svelte/store'
@@ -48,7 +62,6 @@ import {
     Router as Router095,
     RelayStats,
     appPolicyRelayStats,
-    appPolicyWraps,
     appPolicyCacheDecrypt,
     appPolicyLogSignerMethods,
     User,
@@ -68,7 +81,7 @@ import {
 import { SocketEvent, isRelayEvent, makeSocketPolicyAuth } from '@welshman/net'
 import { guardRelayQuality } from './deadRelays.ts'
 import { socketPolicyAuthHold } from './authHold.ts'
-import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, darfAuthBekommen } from './relayConfig.ts'
+import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, WORKSPACE_ROH, darfAuthBekommen } from './relayConfig.ts'
 
 /**
  * **Kein kind-0 vom Workspace-Relay ins Repository** (Risiko R3 des Sprung-Plans).
@@ -106,8 +119,89 @@ import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, darfAuthBekommen } from './r
  * keine Profile) und war unter `isEventValid` genauso offen — der Wrap selbst wird
  * geprüft, sein Inhalt nicht. Festgehalten, damit es niemand für neu hält.
  */
-const ingestMitWorkspaceRiegel: AppPolicy = (app) =>
-    app.pool.subscribe((socket) => {
+/**
+ * ── Die Konsolenwarnung, die den Riegel oben vor stillem Ausfall bewahrt ────────
+ *
+ * `WORKSPACE` ist `''` in ZWEI Lagen, die nichts miteinander zu tun haben: „kein
+ * Workspace konfiguriert" (Normalfall, alles richtig) und „konfiguriert, aber die URL war
+ * unbrauchbar" (Betriebsfehler). Seit die Normalisierung nachsichtig ist
+ * (`js/relayConfig.ts normalisiereWorkspaceUrl`), sieht der zweite Fall aus wie der erste:
+ * der Workspace-Tab fehlt, der kind-0-Riegel unten greift nie, und niemand erfährt es.
+ *
+ * Genau das ist der stille Ausfall, den der Wurf vorher verhindert hat — um den Preis,
+ * die ganze Insel mitzunehmen. Die Warnung kauft die Diagnose zurück, ohne den Preis.
+ *
+ * Zwei gemeldete Lagen:
+ *
+ *   (A) Rohwert gesetzt, `WORKSPACE` leer  → die URL ist unbrauchbar. Einmalig beim
+ *       Aufbau der Policy, weil dieser Fall keinen Socket braucht, um wahr zu sein.
+ *   (B) Rohwert gesetzt, `WORKSPACE` steht, aber ein OFFENER Socket trägt denselben Host
+ *       und eine andere normalisierte URL. Dann spricht die Fläche mit dem Workspace,
+ *       während der Riegel auf eine andere Schreibweise vergleicht und durchlässt.
+ *       Nur mit Socket entscheidbar, deshalb im Empfangspfad.
+ *
+ * Beide je einmal pro Seitenaufruf: eine Warnung, die pro Event feuert, ist keine.
+ */
+let workspaceWarnungA = false
+let workspaceWarnungB = false
+
+const hostVon = (url: string): string => {
+    try {
+        return new URL(url).host
+    } catch {
+        return ''
+    }
+}
+
+const meldeWorkspaceUnbrauchbar = (): void => {
+    if (workspaceWarnungA || !WORKSPACE_ROH || WORKSPACE) {
+        return
+    }
+
+    workspaceWarnungA = true
+    console.warn(
+        '[nostr] Workspace konfiguriert, aber unbrauchbar: window.__nostrWorkspace = ' +
+            JSON.stringify(WORKSPACE_ROH) +
+            ' ergibt keine gültige Relay-URL. Der Workspace-Tab bleibt aus, und der ' +
+            'kind-0-Riegel gegen den Workspace-Relay greift nicht. Zu prüfen: ' +
+            "config('group.workspace_url') bzw. NOSTR_WORKSPACE_URL.",
+    )
+}
+
+const meldeWorkspaceAbweichung = (socketUrl: string): void => {
+    if (workspaceWarnungB || !WORKSPACE) {
+        return
+    }
+
+    const normalisiert = normalizeRelayUrl(socketUrl)
+
+    if (normalisiert === WORKSPACE) {
+        return
+    }
+
+    const host = hostVon(normalisiert)
+
+    if (!host || host !== hostVon(WORKSPACE)) {
+        return
+    }
+
+    workspaceWarnungB = true
+    console.warn(
+        '[nostr] Workspace-Relay unter abweichender Schreibweise in Benutzung: Socket ' +
+            JSON.stringify(normalisiert) +
+            ' vs. konfiguriert ' +
+            JSON.stringify(WORKSPACE) +
+            ' (Rohwert ' +
+            JSON.stringify(WORKSPACE_ROH) +
+            '). Gleicher Host, andere URL — der kind-0-Riegel vergleicht auf Gleichheit ' +
+            'und lässt Profile von diesem Socket durch.',
+    )
+}
+
+const ingestMitWorkspaceRiegel: AppPolicy = (app) => {
+    meldeWorkspaceUnbrauchbar()
+
+    return app.pool.subscribe((socket) => {
         const onReceive = (message: unknown) => {
             if (!isRelayEvent(message as never)) {
                 return
@@ -117,8 +211,12 @@ const ingestMitWorkspaceRiegel: AppPolicy = (app) =>
                 return
             }
             // Die eine Regel, um derentwillen diese Policy existiert.
-            if (WORKSPACE && event.kind === PROFILE && normalizeRelayUrl(socket.url) === WORKSPACE) {
-                return
+            if (event.kind === PROFILE) {
+                meldeWorkspaceAbweichung(socket.url)
+
+                if (WORKSPACE && normalizeRelayUrl(socket.url) === WORKSPACE) {
+                    return
+                }
             }
             if (!verifyEvent(event as never)) {
                 return
@@ -131,6 +229,7 @@ const ingestMitWorkspaceRiegel: AppPolicy = (app) =>
 
         return () => socket.off(SocketEvent.Receive, onReceive)
     })
+}
 
 /**
  * Der Relay-Auflöser der App — **mit unserer Sperrliste UND einer Rückfallebene.**
@@ -237,9 +336,30 @@ const authHoldPolicy: AppPolicy = (app) => {
 /**
  * Unsere Policy-Liste. Bewusst NICHT `createApp` (das nimmt `defaultAppPolicies`):
  * zwei der sechs Voreinstellungen ersetzen wir — `appPolicyIngest` durch den
- * Workspace-Riegel (R3) und `appPolicyAuthUnlessBlocked` durch unsere engere
- * AUTH-Regel. Die übrigen vier bleiben in ihrer Reihenfolge, damit wir nicht nebenbei
- * etwas abschalten, das das Framework voraussetzt.
+ * Workspace-Riegel (R3) und `appPolicyAuthUnlessBlocked` durch unsere engere AUTH-Regel.
+ *
+ * ── `appPolicyWraps` fehlt hier ABSICHTLICH, und das ist kein Versehen ───────────
+ * Sie stand kurzzeitig mit in der Liste, aus der Überlegung, „nicht nebenbei etwas
+ * abzuschalten, das das Framework voraussetzt". **Diese Überlegung deckt das
+ * Abschalten, nicht das Einschalten** — und hier wäre es ein Einschalten gewesen:
+ * unter 0.8.16 gab es bei uns keine NIP-59-Entpackung, `core.ts` des Vorstands kennt
+ * weder `Wraps` noch `Nip59`. Paketweit gibt es **null** Treffer für `1059`, `WRAP`,
+ * `Nip59` oder `Wraps` ausserhalb dieser Datei; wir haben schlicht kein Gift-Wrap-Feature.
+ *
+ * **Was sie gekostet hätte, an der echten App-Instanz gemessen:** `isRelayEvent` prüft
+ * nur `m[0] === "EVENT"`, nicht die Subscription-ID — jeder verbundene Relay kann also
+ * ein korrekt signiertes kind 1059 mit unserem `p`-Tag schieben, ohne dass wir gefragt
+ * haben. Der Ingest publiziert es, `appPolicyWraps` reicht es an `Wraps.enqueue`, und
+ * das entschlüsselt **am Signer des Nutzers**. Gemessen: 25 unaufgeforderte Wraps →
+ * **25 erzwungene `nip44.decrypt`-Aufrufe**. Bei NIP-46 ist das je ein Bunker-Roundtrip,
+ * bei NIP-55 potenziell eine Aufforderung auf dem Signiergerät. Die zweite Hälfte ist
+ * genauso unangenehm: ein entpackter Rumor ist **unsigniert** und landet trotzdem im
+ * Repository — und `MESSAGE` steht in `PERSIST_KINDS` (`js/storage.ts:133`), wandert
+ * also auf die Platte.
+ *
+ * Wer diese Liste das nächste Mal gegen `defaultAppPolicies` abgleicht: sie gehört hier
+ * erst wieder hinein, wenn es eine Fläche gibt, die NIP-59 tatsächlich liest — und dann
+ * mit einer Herkunftsprüfung davor, nicht als Voreinstellung.
  *
  * ZAPS.md Z1 — kein dufflepud-Proxy (Auftraggeber-Entscheidung 2026-07-10): leer
  * ⇒ welshman holt LNURL-Zapper- (NIP-57) und NIP-05-Handle-Infos DIREKT aus dem Browser
@@ -253,7 +373,6 @@ const policies: AppPolicy[] = [
     resolverPolicy,
     ingestMitWorkspaceRiegel,
     appPolicyRelayStats,
-    appPolicyWraps,
     authPolicy,
     authHoldPolicy,
 ]

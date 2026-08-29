@@ -40,6 +40,7 @@ import { Profiles, Zappers, RelayLists, Router as RouterPlugin } from '@welshman
 import {
     RelayScenario,
     ZAP_REQUEST,
+    addNoFallbacks,
     makeEvent,
     makeSelection,
     tagSpec,
@@ -71,12 +72,44 @@ export const getZapper = (lnurl: string): Zapper | undefined =>
  * 0.9.5 hat dafür `app.use(Zappers).set(lnurl, zapper)`. Der Umweg über eine
  * `update(map => …)`-Fassade existiert nur, damit `js/zaps.ts` unangetastet bleibt; wer
  * neu schreibt, nimmt `set`.
+ *
+ * ── Die Fassade kann NICHT löschen, und sie sagt das laut ────────────────────────
+ *
+ * Sie arbeitet auf einer KOPIE und spielt danach nur die Unterschiede per `set` zurück.
+ * Ein Schlüssel, den der Aufrufer aus der Kopie entfernt, verschwindet damit aus der
+ * Kopie und aus nichts sonst — `MapPlugin` hat kein `delete` in dieser Richtung.
+ *
+ * Heute ist das folgenlos: die einzige Aufrufstelle (`js/zaps.ts`, `loadZapperNow`) setzt
+ * genau einen Schlüssel und entfernt nie einen. Folgenlos ist aber nicht harmlos — die
+ * Fassade SIEHT aus wie ein Svelte-Store, und der Vertrag eines Stores schließt Löschen
+ * ein. Wer `$zappers.delete(lnurl); return $zappers` schreibt, bekäme heute grünes
+ * TypeScript, einen grünen Test und einen Zapper, der weiterlebt: ein zurückgezogenes
+ * oder als falsch erkanntes lnurl-pay-Dokument bliebe in der Sammlung und speiste
+ * weiterhin den ⚡-Tally.
+ *
+ * Deshalb wirft die Fassade bei einer versuchten Löschung, statt sie zu schlucken. Das
+ * ist ein Programmierfehler und kein Betriebszustand, also ist der Wurf die richtige
+ * Lautstärke — und er kann keinen Bestandspfad treffen, weil heute niemand löscht.
  */
 export const zappersByLnurl = {
     subscribe: app.use(Zappers).index.$.subscribe,
     update: (fn: (map: Map<string, unknown>) => Map<string, unknown>) => {
-        const kopie = new Map(app.use(Zappers).index.get())
-        for (const [k, v] of fn(kopie)) {
+        const vorher = new Map(app.use(Zappers).index.get())
+        const nachher = fn(new Map(vorher))
+        const entfernt = [...vorher.keys()].filter((k) => !nachher.has(k))
+
+        if (entfernt.length > 0) {
+            throw new Error(
+                'zappersByLnurl.update kann nicht löschen: ' +
+                    entfernt.length +
+                    ' Schlüssel wurde(n) aus der Kopie entfernt (' +
+                    entfernt.slice(0, 3).join(', ') +
+                    '), die Sammlung von @welshman/app@0.9.5 kennt dafür keinen Weg. ' +
+                    'Die Entfernung wäre still verpufft — siehe Docblock.',
+            )
+        }
+
+        for (const [k, v] of nachher) {
             if (app.use(Zappers).get(k) !== v) {
                 app.use(Zappers).set(k, v as ZapperKlasse)
             }
@@ -135,6 +168,19 @@ export const getTagValue = (key: string, tags: string[][]): string | undefined =
  * In 0.9.5 eine Methode an der `Zapper`-Klasse. Unser Zapper kommt als schlichtes Objekt
  * aus `loadZapperNow`, deshalb wird er hier in eine Instanz gehoben — deren Konstruktor
  * ist ein `Object.assign` und wirft nie (am Paket gemessen).
+ *
+ * Der `nostrPubkey`-Riegel davor ist NICHT Zierrat, sondern der Rumpf von 0.8.16
+ * (`util@0.8.16 dist/util/src/Zaps.js`), den 0.9.5 fallen gelassen hat. Gemessen an
+ * beiden installierten Paketen mit einem Zapper ohne `nostrPubkey`:
+ *
+ *   0.8.16 → Wurf `Zapper did not have a nostr pubkey`
+ *   0.9.5  → kein Wurf, Filter `{"kinds":[9735],"authors":[null],…}`
+ *
+ * `authors:[null]` ist kein leerer Filter, sondern ein REQ, der rausgeht, leer
+ * zurückkommt und niemandem sagt, warum: die Zap-Quittung wird ewig erwartet und nie
+ * erkannt. Der Aufrufer in der eingefrorenen `js/zaps.ts` verlässt sich ausdrücklich auf
+ * den Wurf (Kommentar dort: „wirft ohne `nostrPubkey`"), also gehört der Riegel hierher —
+ * wortgleich, damit eine Fehlersuche denselben Text findet wie vor dem Sprung.
  */
 export const getZapResponseFilter = ({
     zapper,
@@ -144,8 +190,13 @@ export const getZapResponseFilter = ({
     zapper: { nostrPubkey?: string; lnurl?: string; pubkey?: string }
     pubkey: string
     eventId?: string
-}): Filter =>
-    new ZapperKlasse(zapper as ConstructorParameters<typeof ZapperKlasse>[0]).getResponseFilter(pubkey, eventId)
+}): Filter => {
+    if (!zapper.nostrPubkey) {
+        throw new Error('Zapper did not have a nostr pubkey')
+    }
+
+    return new ZapperKlasse(zapper as ConstructorParameters<typeof ZapperKlasse>[0]).getResponseFilter(pubkey, eventId)
+}
 
 /**
  * Die unsignierte kind-9734-Zap-Request. In 0.9.5 baut das der `ZapRequestWriter` —
@@ -155,6 +206,28 @@ export const getZapResponseFilter = ({
  *
  * Der Rumpf ist deshalb der von 0.8.16 (`util@0.8.16 dist/util/src/Zaps.js:100-116`),
  * Tag für Tag: `relays`, `amount` in Millisats, `lnurl`, `p`, optional `e`.
+ *
+ * ── Zwei bewusste Abweichungen vom 0.8.16-Rumpf, beide gemessen ──────────────────
+ *
+ * **(1) Kein `anonymous`.** 0.8.16 nahm ein `anonymous`-Flag und hängte dafür ein
+ * `["anon"]`-Tag an (NIP-57, anonymer Zap). Diese Fläche kennt das nicht: die einzige
+ * Aufrufstelle ist `js/zaps.ts` (`zapRequestEvent`), sie übergibt es nie, und ihr
+ * Eingabetyp `ZapRequestInput` hat kein solches Feld.
+ *
+ * Der Parameter fehlt hier deshalb GANZ und steht nicht als ignoriertes Feld im Typ. Das
+ * ist der Unterschied zwischen „unterstützen wir nicht" und einem stillen Ausfall: wer
+ * anonyme Zaps ergänzt und `anonymous: true` übergibt, bekommt einen Typfehler. Stünde
+ * das Feld im Typ und würde nur nicht ausgewertet, ginge der Zap nicht-anonym hinaus und
+ * legte den Absender offen — ein Datenschutzfehler, den niemand bemerkt. Wer die Fläche
+ * erweitert, ergänzt hier den `["anon"]`-Zweig aus 0.8.16 mit.
+ *
+ * **(2) `lnurl` ist Pflicht statt optional.** 0.8.16 schrieb `zapper.lnurl` ungeprüft ins
+ * Tag; fehlte es, entstand `["lnurl", undefined]`. Unser Wertetyp `Zapper`
+ * (`js/welshmanZap.ts`) hat `lnurl: string` als Pflichtfeld, weil `loadZapperNow` es
+ * immer setzt (`{...info, lnurl}`). Der Parametertyp bildet das jetzt ab, statt die
+ * Lücke mit einem `?? ''` zu füllen — ein leeres `["lnurl", ""]`-Tag wäre gegenüber dem
+ * LNURL-Server dieselbe Art von stiller Falschaussage wie das `authors:[null]` weiter
+ * unten.
  */
 export const makeZapRequest = ({
     msats,
@@ -165,7 +238,7 @@ export const makeZapRequest = ({
     eventId,
 }: {
     msats: number
-    zapper: { lnurl?: string }
+    zapper: { lnurl: string }
     pubkey: string
     relays: string[]
     content?: string
@@ -174,7 +247,7 @@ export const makeZapRequest = ({
     const tags = [
         ['relays', ...relays],
         ['amount', String(msats)],
-        ['lnurl', zapper.lnurl ?? ''],
+        ['lnurl', zapper.lnurl],
         ['p', pubkey],
     ]
     if (eventId) {
@@ -191,6 +264,23 @@ export const makeZapRequest = ({
  * Warum das synchron geht, obwohl `resolve()` in 0.9.5 asynchron ist, steht ausführlich
  * in `js/welshmanRouter.ts`: asynchron ist nur das BESCHAFFEN der Relay-Listen, und die
  * liegen für diesen Aufruf bereits im Repository.
+ *
+ * `.policy(addNoFallbacks)` überschreibt hier bewusst die Instanz-Politik. Die
+ * `resolver.options` tragen seit `js/welshmanInstance.ts` `addMinimalFallbacks` — richtig
+ * für LESENDE Auswahl (ohne sie lädt kein Profil eines Autors ohne kind 10002, das war der
+ * Befund, der 17 E2E-Fälle rot machte). Für DIESE Auswahl ist es falsch: Ihr Ergebnis wird
+ * nicht abgefragt, sondern in das `["relays",…]`-Tag der kind-9734-Zap-Request geschrieben
+ * (`js/zaps.ts`) und damit dem fremden LNURL-Server als Zustellanweisung übergeben.
+ *
+ * Gemessen mit leerer Relay-Liste des Empfängers:
+ *
+ *   addNoFallbacks (0.8.16-Form) → []
+ *   addMinimalFallbacks          → ["wss://nos.lol/"]
+ *
+ * Die zweite Zeile nennt dem Zahlungsdienst einen öffentlichen Relay, den der Empfänger nie
+ * angegeben hat, und legt die Quittung dort ab, wo er sie nicht sucht. Ein leeres Tag ist
+ * ehrlicher als ein geratenes. `js/welshmanRouter.ts` erzwingt an der Schwesterstelle
+ * (`eigeneOutboxUrls`) aus demselben Grund dieselbe Politik.
  */
 export const Router = {
     get: () => ({
@@ -198,6 +288,6 @@ export const Router = {
             new RelayScenario(
                 [makeSelection(app.use(RelayLists).readUrls(pubkey).get())],
                 app.use(RouterPlugin).resolver.options,
-            ),
+            ).policy(addNoFallbacks),
     }),
 }
