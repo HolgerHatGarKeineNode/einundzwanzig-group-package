@@ -56,7 +56,15 @@ import {
     type IApp,
     type Plugin,
 } from '@welshman/app'
-import { Resolver, isDVMKind, isEphemeralKind, normalizeRelayUrl, verifyEvent, PROFILE } from '@welshman/util'
+import {
+    Resolver,
+    addMinimalFallbacks,
+    isDVMKind,
+    isEphemeralKind,
+    normalizeRelayUrl,
+    verifyEvent,
+    PROFILE,
+} from '@welshman/util'
 import { SocketEvent, isRelayEvent, makeSocketPolicyAuth } from '@welshman/net'
 import { guardRelayQuality } from './deadRelays.ts'
 import { socketPolicyAuthHold } from './authHold.ts'
@@ -125,26 +133,53 @@ const ingestMitWorkspaceRiegel: AppPolicy = (app) =>
     })
 
 /**
- * Der Relay-Router mit unserer Sperrliste für geparkte Ex-Relay-Domains.
+ * Der Relay-Auflöser der App — **mit unserer Sperrliste UND einer Rückfallebene.**
  *
- * 0.9.5 baut den `Resolver` im Konstruktor von `Router` und speist ihn mit
- * `RelayStats.getQuality` (`app/plugins/router.js:20-23`). Genau diese Funktion hat
- * `core.ts` bis 0.8.16 über `routerContext.getRelayQuality` umhüllt. Der Platz dafür ist
- * jetzt hier: die Unterklasse ersetzt den Resolver durch einen mit demselben
- * Routen-Auflöser und umhüllter Güte-Funktion. Alles Ungelistete geht unverändert an
- * welshmans eigene Bewertung — **inklusive der Blocked-Relay-Liste des Nutzers**
- * (kind 10006), die dort einfließt.
+ * Eine Policy und keine `Router`-Unterklasse, und der Grund ist der halbe Nutzen:
+ * `app.use(X)` memoisiert nach Konstruktor-Identität. Eine Unterklasse bekäme nur, wer
+ * sie ausdrücklich anfordert — welshman selbst löst intern `app.use(Router)` auf
+ * (`plugins/network.js loadUsingOutbox`, `plugins/profiles.js`, jeder Writer). Unsere
+ * Sperre hätte für genau die Pfade nicht gegolten, für die sie gebaut ist.
  *
- * Kein Umhüllen des `getQuality` am `RelayStats`-Plugin selbst: das ist welshmans
- * Zustand, und ein Monkey-Patch daran gälte auch für jeden anderen Leser.
+ * ── Zwei Dinge werden hier gesetzt ───────────────────────────────────────────────
+ *
+ * **1. `getRelayQuality` mit der Sperrliste geparkter Ex-Relay-Domains.** Das ist der
+ * Ersatz für `routerContext.getRelayQuality`, den `core.ts` bis 0.8.16 umhüllte.
+ * Begründung, Wartungsregel und Grenzen stehen in `deadRelays.ts`. Alles Ungelistete
+ * geht unverändert an welshmans eigene Bewertung — inklusive der Blocked-Relay-Liste
+ * des Nutzers (kind 10006).
+ *
+ * **2. `policy: addMinimalFallbacks` — und das ist ein REGRESSIONSFIX, kein Geschmack.**
+ * Die Rümpfe gegeneinander gelesen:
+ *
+ *     0.8.16  `relayLists.js loadUsingOutbox`:
+ *             Router.FromRelays(writeRelays).policy(addMinimalFallbacks).limit(8).getUrls()
+ *     0.9.5   `network.js loadUsingOutbox`:
+ *             (await Router.resolve([...relays(hints), outbox(pubkey)])).getUrls()
+ *
+ * 0.9.5 verlässt sich auf die Voreinstellung von `RelayScenario`, und die ist
+ * `addNoFallbacks` (`util/src/RelaySelection.js:42`). **Ein Autor ohne kind-10002-Liste
+ * hat damit gar keine Relays, und sein Profil wird nie geladen.** Gemessen in der
+ * E2E-Suite: die NIP-05-Häkchen blieben aus, weil `Handles.loadForPubkey` auf
+ * `Profiles.load` wartet und das leer zurückkam; ebenso die Zap- und
+ * Lightning-Einstiege, die am `lud16` aus demselben Profil hängen.
+ *
+ * `addMinimalFallbacks` fügt **genau einen** Default-Relay hinzu, und nur wenn sonst
+ * nichts übrig bliebe — es weitet also keine Auswahl, die ohnehin trägt. Das Limit
+ * bleibt bei der 0.9.5-Voreinstellung (3); die 8 von 0.8.16 galten nur für diesen einen
+ * Lader, nicht für jede Auswahl.
  */
-export class Router extends Router095 {
-    constructor(app: IApp) {
-        super(app)
-        this.resolver = new Resolver(this.resolveRoute, {
-            getRelayQuality: guardRelayQuality((url: string) => app.use(RelayStats).getQuality(url)),
-            getDefaultRelays: app.config.getDefaultRelays,
-        })
+const resolverPolicy: AppPolicy = (app) => {
+    const router = app.use(Router095)
+    const original = router.resolver
+    router.resolver = new Resolver(router.resolveRoute, {
+        getRelayQuality: guardRelayQuality((url: string) => app.use(RelayStats).getQuality(url)),
+        getDefaultRelays: app.config.getDefaultRelays,
+        policy: addMinimalFallbacks,
+    })
+
+    return () => {
+        router.resolver = original
     }
 }
 
@@ -213,6 +248,9 @@ const authHoldPolicy: AppPolicy = (app) => {
  * nachrüsten = diese eine Zeile auf eine URL setzen.
  */
 const policies: AppPolicy[] = [
+    // ZUERST: die anderen Policies lösen `app.use(Router)` mit auf, und der soll seinen
+    // fertigen Auflöser vorfinden.
+    resolverPolicy,
     ingestMitWorkspaceRiegel,
     appPolicyRelayStats,
     appPolicyWraps,

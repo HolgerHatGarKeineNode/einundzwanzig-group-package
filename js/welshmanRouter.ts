@@ -44,7 +44,12 @@ export type { RelaySelection, RelayScenario } from '@welshman/util'
 /** Der volle, asynchrone Weg — für alles, was neu gebaut wird. */
 export const resolveRelays = (selections: RelaySelection[]) => app.use(Router).resolve(selections)
 
-/** Die Optionen des echten Routers: Güte-Sperre (`deadRelays.ts`) und Default-Relays. */
+/**
+ * Die Optionen des Auflösers der App — Güte-Sperre (`deadRelays.ts`), Default-Relays und
+ * Rückfallebene. Gesetzt von `resolverPolicy` in `js/welshmanInstance.ts`; hier wird
+ * gelesen, damit die synchronen Helfer unten dieselbe Auswahl treffen wie der
+ * asynchrone Weg.
+ */
 const routerOptionen = (): RelayScenarioOptions => app.use(Router).resolver.options
 
 /** Ein Szenario aus fertigen URLs — die 0.9.5-Form von `Router.FromRelays(urls)`. */
