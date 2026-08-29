@@ -159,6 +159,15 @@ test('die ROH-Tags des 39000 bleiben erreichbar (Meetup/Forum/Projekt hängen da
 // through our derivation our own rule dominates the outcome, so an upstream fix would
 // land silently. Neither carries an instruction to delete itself when it turns red — a
 // guard whose documented answer to red is "remove me" is fail-open.
+//
+// **The two window cases are coupled to upstream's healing behaviour, by construction.**
+// The window only exists because the plugin compares the tombstone against
+// `max(39000, 39001, 39002)`; narrow that comparison upstream and the window closes. Then
+// these two and the `UPSTREAM:` healing case go red together — four assertions moving at
+// once, with one cause that is not visible from any single failure. If that happens, do
+// not repair them one by one: check first whether the plugin still heals, and if it does
+// not, our rule has become redundant in that window and these cases document history
+// rather than behaviour.
 
 test('THE WINDOW: a forged 9008 older than the newest room state does not remove the room', async () => {
     const url = naechsteUrl()

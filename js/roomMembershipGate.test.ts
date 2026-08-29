@@ -133,6 +133,21 @@ test('a stranger-signed list does not lift the mark', async () => {
 
 test('control: a relay-signed list lifts the mark', async () => {
     pubkey.set(mePk)
+    // Brings its own preconditions instead of inheriting them. Without this the case is
+    // red when run alone with `--test-name-pattern` — against correct code, which is the
+    // most expensive kind of red there is: it costs a calibration round before anyone
+    // notices the test, not the code, was wrong.
+    //
+    // Two are needed, and only having both makes the assertion mean anything: the relay's
+    // own list must be in the repository (otherwise we are not a member for lack of a
+    // list, and "not a member" would hold for the wrong reason), and a mark must be in
+    // force (otherwise there is nothing for the list below to lift).
+    const basis = memberList(relaySk, 1_700_000_450)
+    app.repository.publish(basis as never)
+    app.tracker.track(basis.id, URL_)
+    await markeSetzen()
+    assert.equal(binMitglied(), false, 'precondition: listed by the relay, but revoked')
+
     antwort = memberList(relaySk, 1_700_000_500)
     await reloadRoomMembership(URL_, H, mePk, true)
 

@@ -38,6 +38,7 @@ import {
     RELAY_JOIN,
     RELAY_LEAVE,
     ROOM_ADD_MEMBER,
+    ROOM_ADMINS,
     ROOM_CREATE,
     ROOM_DELETE,
     ROOM_JOIN,
@@ -973,7 +974,17 @@ export const loadUserGroupList = (): Promise<void> | undefined => {
  * aber der nächste Raumwechsel oder Vordergrund-Resync liest die Liste neu.
  */
 export const loadSpaceRooms = (url: string): Promise<unknown> =>
-    load({ relays: [url], filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS] }] }).then((events) => {
+    // `ROOM_ADMINS` (39001) is fetched although nothing renders it directly: it is the
+    // second authority source of the tombstone gate in `roomsByUrl`, and the admin branch
+    // of `Rooms.foldMembership`, which prunes a join request once an admin has answered
+    // it. Without the fetch both were dormant — `eintrag.admins` was always `undefined` in
+    // production, so the gate fell through to the `self` branch alone, and an accepting
+    // room admin never pruned the request (the behaviour measured for F4).
+    //
+    // Cost, measured against the seeded zooid: 14 events / 7.2 kB for a 15-room space,
+    // against 25 events / 10.8 kB for the two kinds already fetched — one event per room,
+    // the same growth as the rest. It is in the persist list, so it also lands on disk.
+    load({ relays: [url], filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS, ROOM_ADMINS] }] }).then((events) => {
         confirmRoomMembershipFromSpaceRead(url, events as TrustedEvent[])
         return events
     })
@@ -984,7 +995,7 @@ export const loadSpaceRooms = (url: string): Promise<unknown> =>
  * Relays (welshman replayt den gepufferten REQ nach AUTH). Ein One-Shot-`load`
  * läuft dagegen ins Timeout, sendet CLOSE und die Räume erscheinen nie. */
 export const watchSpaceRooms = (url: string, signal: AbortSignal): void => {
-    void request({ relays: [url], signal, filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS] }] })
+    void request({ relays: [url], signal, filters: [{ kinds: [ROOM_META, ROOM_DELETE, ROOM_MEMBERS, ROOM_ADMINS] }] })
     // Die Live-Sub ist rein ADDITIV — sie kann einen Raum nur hinzufügen, nie
     // entfernen. Der zweite, abgleichende REQ steht hier und nicht beim Aufrufer,
     // weil das die einzige Engstelle ist, durch die JEDE Raumliste geht
