@@ -24,43 +24,22 @@
  * Identitätswechsel. Kein `Proxy`: die Oberfläche von `IApp` ist klein und bekannt,
  * und ein handgeschriebenes Getter-Objekt ist im Debugger lesbar.
  *
- * ── Die Auflage aus Risiko R4: Halter müssen mitwandern ──────────────────────────
- * Der Stellvertreter löst nur die Zugriffe, die JEDES MAL neu lesen. Er löst NICHT die
- * Module, die sich beim Boot einmal an ein konkretes Primitiv **hängen** — ein
- * `app.tracker.on('add', …)` bleibt am alten Tracker kleben, ein `pool.subscribe(…)`
- * am alten Pool. Für die gibt es {@link beiAppWechsel}: sie registrieren ihre
- * Verdrahtung einmal, und diese Datei fährt sie nach jedem Austausch erneut, nachdem
- * die alte App abgeräumt ist.
+ * ── Die Auflage aus Risiko R4, und was die Messung daraus gemacht hat ───────────
+ * Der Plan sah vor, die App bei Login/Logout zu ERSETZEN — der von 0.9.5 vorgesehene
+ * Weg. **Gemessen ist das für uns falsch, siehe {@link setzeIdentitaet}:** der Wechsel
+ * fällt schon beim Boot an (localStorage-Hydrierung), und jede Ableitung, die ein Modul
+ * im Toplevel gebaut hat, hinge danach an der alten, leeren Instanz. In der E2E-Suite
+ * waren das 172 fehlgeschlagene Fälle.
  *
- * Angeschlossen sind darüber (Stand des Sprungs, am Baum gesucht statt geschätzt):
- * `js/storage.ts` (Tracker-Listener + Repository-Spiegelung), `js/relayNotices.ts` und
- * `js/reqWatch.ts` (beide `pool.subscribe`). Wer künftig ein weiteres Modul an
- * `repository`/`tracker`/`pool` hängt, meldet es hier an — sonst hängt es nach dem
- * ersten Login an einer toten App und **meldet nichts**.
+ * Stattdessen wird `app.user` gesetzt. Die Instanz bleibt, Repository, Pool und Tracker
+ * bleiben — es gibt also nichts, was „mitwandern" müsste.
  *
- * ── Was der Austausch kostet, und warum das vertretbar ist ───────────────────────
- * Eine neue App hat ein leeres Repository. Beim **Logout** ist das verhaltensgleich zu
- * heute: `js/session.ts:302` leert den Cache ohnehin ausdrücklich (`clearCache()`),
- * damit der nächste Boot keine member-only-Räume des alten Pubkeys re-hydratisiert.
- * Beim **Login** ist es ein Zugewinn: der Gast-Zustand bleibt nicht im Repository des
- * angemeldeten Nutzers stehen. `initStorage()` füllt aus IndexedDB nach, wie bisher.
+ * {@link beiAppWechsel} bleibt trotzdem: es ist der Ort, an dem sich Module anmelden,
+ * die ein Primitiv FESTHALTEN (`app.tracker.on(…)`, `pool.subscribe(…)`). Heute feuert
+ * es genau einmal, beim Start. Sollte je ein echter Instanzwechsel nötig werden, ist die
+ * Liste da, statt dass jemand sie unter Zeitdruck rekonstruieren muss. Angemeldet sind
+ * `js/storage.ts` (Tracker-Listener), `js/relayNotices.ts` und `js/reqWatch.ts`.
  *
- * ── Wie oft das überhaupt passiert: gemessen, nicht geschätzt ────────────────────
- * **Fast nie im laufenden Dokument.** Am Baum nachgesehen: jeder erfolgreiche Login
- * endet in `window.location.assign(await postLoginRedirect())`
- * (`js/bridge.ts:8116,8136,8206`), jeder Logout in `window.location.assign('/nostr-login')`
- * (`js/bridge.ts:8266`, im `finally`, ausdrücklich damit „nicht der ganze Modulzustand
- * stehen bleibt"). Der Regelfall ist also ein **harter Seiten-Neustart**, bei dem diese
- * Datei ohnehin frisch lädt und die Identität aus dem localStorage rekonstruiert wird.
- *
- * Der Austausch deckt die Restfälle: den Rollback eines gescheiterten Logins
- * (`bridge.ts:8140,8213` rufen `logout()` OHNE anschließende Navigation) und alles, was
- * künftig ohne Navigation umschaltet.
- *
- * **Warum das hier steht:** wer R4 ohne diese Messung liest, hält jeden der ~40
- * `app.use(...)`-Zugriffe im Modul-Toplevel für eine tickende Bombe und baut sie
- * vorsorglich um. Sie sind es nicht — der Stellvertreter deckt die Zugriffe, und die
- * wenigen echten Halter stehen unten in der Registry.
  */
 import type { Readable, Unsubscriber } from 'svelte/store'
 import { readable } from 'svelte/store'
@@ -72,14 +51,13 @@ import {
     appPolicyWraps,
     appPolicyCacheDecrypt,
     appPolicyLogSignerMethods,
-    makeAppPolicyAuth,
+    User,
     type AppPolicy,
     type IApp,
     type Plugin,
-    type User,
 } from '@welshman/app'
 import { Resolver, isDVMKind, isEphemeralKind, normalizeRelayUrl, verifyEvent, PROFILE } from '@welshman/util'
-import { SocketEvent, isRelayEvent } from '@welshman/net'
+import { SocketEvent, isRelayEvent, makeSocketPolicyAuth } from '@welshman/net'
 import { guardRelayQuality } from './deadRelays.ts'
 import { socketPolicyAuthHold } from './authHold.ts'
 import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, darfAuthBekommen } from './relayConfig.ts'
@@ -174,12 +152,31 @@ export class Router extends Router095 {
  * NIP-42-AUTH: sobald ein Signer aktiv ist, signiert welshman AUTH-Challenges
  * (kind 22242) automatisch — nötig für zooid-Spaces mit `public_read=false`.
  *
- * `makeAppPolicyAuth` ist ein No-op ohne `app.user` (`app/src/policy.js:20-22`), die
- * Prüfung auf einen aktiven Pubkey erledigt es also selbst; unser Prädikat entscheidet
- * nur noch über den Relay. Ersetzt das voreingestellte `appPolicyAuthUnlessBlocked` —
- * unsere Regel ist strenger und begründet in {@link darfAuthBekommen}.
+ * **Bewusst NICHT `makeAppPolicyAuth`**, so nah es läge: das prüft `app.user` EINMAL bei
+ * der Konstruktion und gibt ohne Nutzer ein `noop` zurück (`app/src/policy.js:20-22`).
+ * Unsere App entsteht beim Modul-Eval, und da ist noch niemand angemeldet — der
+ * Pubkey kommt erst einen Microtask später aus dem localStorage. Die Policy wäre also
+ * für die ganze Sitzung tot, und zwar **stumm**: ein zooid mit `public_read=false`
+ * lieferte einfach nichts.
+ *
+ * Diese Fassung liest den Nutzer bei JEDER Challenge neu. Ersetzt zugleich das
+ * voreingestellte `appPolicyAuthUnlessBlocked` — unsere Relay-Regel ist strenger und
+ * begründet in {@link darfAuthBekommen}.
  */
-const authPolicy = makeAppPolicyAuth((socket) => darfAuthBekommen(socket.url))
+const authPolicy: AppPolicy = (app) => {
+    const policy = makeSocketPolicyAuth({
+        sign: (event) => User.require(app).sign(event),
+        shouldAuth: (socket) => Boolean(app.user) && darfAuthBekommen(socket.url),
+    })
+    app.pool.socketPolicies.push(policy)
+
+    return () => {
+        const index = app.pool.socketPolicies.indexOf(policy)
+        if (index !== -1) {
+            app.pool.socketPolicies.splice(index, 1)
+        }
+    }
+}
 
 /**
  * Doppelte REQs während der AUTH-Runde streichen — siehe `authHold.ts`. Steht NEBEN
@@ -219,11 +216,20 @@ const policies: AppPolicy[] = [
     ingestMitWorkspaceRiegel,
     appPolicyRelayStats,
     appPolicyWraps,
-    appPolicyCacheDecrypt,
-    appPolicyLogSignerMethods,
     authPolicy,
     authHoldPolicy,
 ]
+
+/**
+ * Die zwei Policies, die den **Signer umhüllen** statt am Pool zu hängen.
+ *
+ * `appPolicyCacheDecrypt` (Klartext-Cache vor jeder Entschlüsselung) und
+ * `appPolicyLogSignerMethods` (Signer-Protokoll für `js/signer-health.ts`) rufen beide
+ * `user.wrapSigner(...)`. Ohne Nutzer sind sie ein `noop` — sie können deshalb nicht in
+ * der Liste oben stehen, wo sie einmal bei der Konstruktion liefen. Sie laufen bei jedem
+ * Identitätswechsel neu, gegen den dann aktuellen Signer.
+ */
+const signerPolicies: AppPolicy[] = [appPolicyCacheDecrypt, appPolicyLogSignerMethods]
 
 const baueApp = (user?: User): App =>
     new App({
@@ -241,6 +247,9 @@ let aktuelleApp = baueApp()
 /** Verdrahtungen, die an einem konkreten Primitiv hängen — siehe Modulkopf, R4. */
 type Verdrahtung = { anschliessen: () => void; abbau?: Unsubscriber }
 const verdrahtungen: Verdrahtung[] = []
+
+/** Die Abräumer der signer-gebundenen Policies der aktuellen Identität. */
+const signerAbbau: Unsubscriber[] = []
 
 /**
  * Ein Modul an die jeweils AKTUELLE App anschließen.
@@ -274,27 +283,48 @@ export const beiAppWechsel = (anschliessen: () => Unsubscriber | void): Unsubscr
 }
 
 /**
- * Die Identität wechseln — der 0.9.5-Weg (R4): eine App gehört genau einem Nutzer, also
- * wird sie ersetzt statt umgestellt.
+ * Die Identität wechseln.
  *
- * Reihenfolge, und sie ist nicht beliebig: erst die Halter abräumen (sie hängen noch an
- * den alten Primitiven), dann die alte App abräumen (`cleanup()` löst ihre Policies), dann
- * die neue setzen, dann die Halter neu anschließen. Andersherum liefe eine Verdrahtung
- * kurz doppelt oder gegen einen bereits geschlossenen Pool.
+ * ── Warum die App dabei NICHT ersetzt wird, obwohl 0.9.5 das vorsieht ────────────
+ * Der erste Entwurf tat genau das — eine App gehört einem Nutzer, also tausch sie aus.
+ * **Gemessen ist das falsch, und der Fehler ist verheerend und still:**
+ *
+ * Der Wechsel passiert nicht erst beim Login, sondern schon beim **Boot**. `js/session.ts`
+ * hydriert `pubkey`/`sessions` aus dem localStorage in einem Microtask nach dem
+ * Modul-Eval — die Identität springt also einmal von „niemand" auf „der gespeicherte
+ * Nutzer", noch bevor die Oberfläche steht. Zu diesem Zeitpunkt haben aber schon Dutzende
+ * Module ihre Ableitungen im Toplevel gebaut (`derived([app.use(Profiles).index.$, …])`
+ * in `js/spaceProfiles.ts`, `js/groups.ts`, `js/feeds.ts` …). Die hängen danach alle an
+ * der ALTEN, leeren Instanz.
+ *
+ * An der Sonde nachgestellt: **1 Instanzwechsel beim Boot**, und die Toplevel-Ableitung
+ * zeigte danach nachweislich auf die alte App. In der E2E-Suite waren das **172
+ * fehlgeschlagene Fälle** — die Insel bootete, lud auch, nur las niemand mehr mit.
+ *
+ * ── Was stattdessen passiert ─────────────────────────────────────────────────────
+ * `App.user` ist eine schreibbare Property (nur `User.pubkey` ist `readonly`). Die
+ * Instanz bleibt also, und mit ihr Repository, Pool, Tracker und jede Ableitung darauf.
+ * Neu angewendet werden nur die Policies, die am SIGNER hängen — die AUTH-Policy liest
+ * ihren Nutzer ohnehin zur Laufzeit.
+ *
+ * **Der Preis, benannt:** die 0.9.5-Zusage „data never bleeds across sessions" gilt damit
+ * nicht mehr über die Instanz. Sie gilt bei uns über den Logout: `js/session.ts:302` leert
+ * Event-Cache und Lesestand ausdrücklich, bevor die Sitzung fällt, und danach navigiert
+ * `js/bridge.ts:8266` hart auf `/nostr-login` — der Modulzustand ist dann ohnehin weg.
+ * Genau so verhielt sich 0.8.16 auch.
  */
 export const setzeIdentitaet = (user?: User): void => {
-    if (aktuelleApp.user?.pubkey === user?.pubkey && aktuelleApp.user === user) {
+    if (aktuelleApp.user === user) {
         return
     }
-    for (const eintrag of verdrahtungen) {
-        eintrag.abbau?.()
-        eintrag.abbau = undefined
+    for (const abbau of signerAbbau.splice(0)) {
+        abbau()
     }
-    const alt = aktuelleApp
-    aktuelleApp = baueApp(user)
-    alt.cleanup()
-    for (const eintrag of verdrahtungen) {
-        eintrag.anschliessen()
+    aktuelleApp.user = user
+    if (user) {
+        for (const policy of signerPolicies) {
+            signerAbbau.push(policy(aktuelleApp))
+        }
     }
 }
 

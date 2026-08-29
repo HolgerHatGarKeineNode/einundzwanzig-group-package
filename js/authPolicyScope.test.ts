@@ -193,10 +193,15 @@ describe('P6/F2: der AUTH-Riegel wirkt, nicht nur die Regel', () => {
  * (`js/welshmanInstance.ts`), und die Konfiguration, die sie braucht, muss noch tiefer
  * liegen (`js/relayConfig.ts`), sonst entsteht ein Importzyklus.
  *
- * Auch die welshman-Form ist eine andere: statt `makeSocketPolicyAuth({sign, shouldAuth})`
- * jetzt `makeAppPolicyAuth((socket) => …)` — die Policy holt sich den Signer selbst aus
- * `app.user` und ist ohne Nutzer ein No-op. Das Fehlerbild, gegen das dieser Test steht,
- * ist unverändert: ein Prädikat, das den Socket ignoriert.
+ * **Die welshman-Kurzform `makeAppPolicyAuth` wäre naheliegend und ist falsch:** sie
+ * prüft `app.user` EINMAL bei der Konstruktion und liefert ohne Nutzer ein `noop`. Unsere
+ * App entsteht beim Modul-Eval, der Pubkey kommt einen Microtask später aus dem
+ * localStorage — die Policy wäre für die ganze Sitzung tot. Deshalb weiter
+ * `makeSocketPolicyAuth`, mit einem Prädikat, das den Nutzer zur LAUFZEIT liest. Beides
+ * prüft der Fall unten.
+ *
+ * Das Fehlerbild, gegen das dieser Test seit jeher steht, ist unverändert: ein Prädikat,
+ * das den Socket ignoriert.
  *
  * **Was er NICHT leistet:** er liest Text, keine Semantik. Wer `darfAuthBekommen`
  * umbenennt und die Bedeutung dreht, kommt daran vorbei. Er fängt den Fall, der
@@ -232,8 +237,9 @@ describe('P6/F2: die Insel hängt den Riegel auch wirklich ein', () => {
         const quelle = coreGefaltet()
 
         // Das Fehlerbild aus dem Bestand war `shouldAuth: () => Boolean(pubkey.get())` —
-        // ein leeres Parameterpaar. In der 0.9.5-Form hiesse es
-        // `makeAppPolicyAuth(() => …)`; beide Schreibweisen sind hier gesperrt.
+        // ein leeres Parameterpaar. Gesperrt sind beide Schreibweisen: unsere eigene
+        // Policy und welshmans `makeAppPolicyAuth`-Kurzform, falls jemand darauf
+        // zurückgeht.
         assert.equal(
             /shouldAuth:\s*\(\s*\)\s*=>/.test(quelle),
             false,
@@ -242,10 +248,21 @@ describe('P6/F2: die Insel hängt den Riegel auch wirklich ein', () => {
         assert.equal(
             /makeAppPolicyAuth\(\s*\(\s*\)\s*=>/.test(quelle),
             false,
-            'makeAppPolicyAuth ohne Socket-Parameter — dasselbe Loch in der 0.9.5-Form',
+            'makeAppPolicyAuth ohne Socket-Parameter — dasselbe Loch in welshmans Kurzform',
         )
-        assert.match(quelle, /makeAppPolicyAuth\(\(socket\)\s*=>/)
+        assert.match(quelle, /shouldAuth:\s*\(socket\)\s*=>/)
         assert.match(quelle, /darfAuthBekommen\(socket\.url\)/)
+
+        // **Und der Nutzer wird zur LAUFZEIT gelesen, nicht bei der Konstruktion.**
+        // welshmans `makeAppPolicyAuth` prüft `app.user` einmal und liefert ohne Nutzer
+        // ein `noop` — unsere App entsteht beim Modul-Eval, da ist niemand angemeldet.
+        // Die Policy wäre für die ganze Sitzung tot, und zwar stumm: ein zooid mit
+        // `public_read=false` lieferte einfach nichts.
+        assert.match(
+            quelle,
+            /shouldAuth:\s*\(socket\)\s*=>\s*Boolean\(app\.user\)/,
+            'die Nutzer-Prüfung steht nicht mehr im Prädikat — dann entscheidet sie wieder die Konstruktionszeit',
+        )
     })
 
     test('die Metrik-Relais werden aus der KONFIGURATION gelesen, nicht aus einer Literalliste', () => {
@@ -309,7 +326,7 @@ describe('P6/F2: die Insel hängt den Riegel auch wirklich ein', () => {
             quelle.length > 5_000,
             `welshmanInstance.ts wirkt zu kurz (${quelle.length} Zeichen) — liest der Test die richtige Datei?`,
         )
-        assert.match(quelle, /makeAppPolicyAuth\(/)
+        assert.match(quelle, /makeSocketPolicyAuth\(/)
         // Und die zweite Datei ebenso: sie trägt die Relay-Mengen des Riegels.
         const konfig = konfigQuelle()
         assert.ok(
