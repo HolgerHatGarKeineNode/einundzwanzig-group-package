@@ -509,7 +509,6 @@ const INVENTAR: Deklaration[] = [
         datei: 'js/welshmanZapApi.ts',
         ausdruck: 'zapper.lnurl',
         quellen: ['zapper'],
-        treffer: 1,
         warum:
             'Der Adapter, auf den `js/zaps.ts` seit dem welshman-0.9.5-Sprung zeigt. Die Zeile ' +
             'baut das `["lnurl", …]`-Tag der kind-9734-Zap-Request — genau das, was der ' +

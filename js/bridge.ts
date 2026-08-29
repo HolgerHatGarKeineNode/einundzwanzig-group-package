@@ -10,6 +10,7 @@ import { app, Handles, loadUserProfile, Profiles, Relays, userProfile, Zappers }
 import { pubkey } from './welshmanSession.ts'
 import { toNostrURI, getLnUrl, normalizeRelayUrl } from '@welshman/util'
 import { ausReader, displayProfile } from './welshmanProfile.ts'
+import type { Zapper as ZapperWert } from './welshmanZap.ts'
 import { tagSpec, tagValue } from './welshmanTags.ts'
 import { MESSAGE, RELAYS } from './welshmanKinds.ts'
 import type { RelayInfo } from './welshmanRelay.ts'
@@ -7518,7 +7519,12 @@ export function registerNostrComponents(Alpine: {
                 //    `loadZapperNow` drosselt ebenfalls nicht, settlet aber immer und wirft nie.
                 const profile = ausReader(app.use(Profiles).get(m.pubkey))
                 const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
-                let zapper = lnurl ? app.use(Zappers).get(lnurl) : undefined
+                // Der Typ ist der Wertetyp aus `js/welshmanZap.ts`, nicht die
+                // `Zapper`-KLASSE aus `@welshman/domain`: die Sammlung ist zwar als Klasse
+                // typisiert, enthält an dieser Stelle aber das schlichte Objekt, das
+                // `loadZapperNow` hineingelegt hat — und genau das wird unten auch wieder
+                // zugewiesen.
+                let zapper: ZapperWert | undefined = lnurl ? (app.use(Zappers).get(lnurl) as ZapperWert | undefined) : undefined
                 // Timeout/Netzwerkfehler von UNSERER Seite streng trennen von „Empfänger kann
                 // nichts empfangen". Beides in `zapUnavailable` zu werfen, log dem Nutzer eine
                 // Aussage über den EMPFÄNGER auf, obwohl nur unser Fetch nicht durchkam — genau

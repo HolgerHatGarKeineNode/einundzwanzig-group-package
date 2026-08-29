@@ -219,10 +219,18 @@ export type SpaceSearchDeps = {
 export const relaySearchEventValid = (event: TrustedEvent): boolean => verifyEvent(event)
 
 const defaultDeps: SpaceSearchDeps = {
+    // **Der App-gebundene `request`, nicht der freistehende aus `@welshman/net`.**
+    // Seit 0.9.5 braucht der einen `context` mit `pool` und `repository`; ohne ihn wirft
+    // er `Unable to connect to relays without context.pool`, sobald eine echte
+    // Relay-URL im Spiel ist. `context` ist dort optional typisiert — der Typecheck
+    // hätte das nie gemeldet, und die Suche wäre stumm gescheitert.
+    //
+    // Der Import bleibt dynamisch: er hält den Netz-Pfad aus den reinen Tests dieses
+    // Moduls heraus, die ihren eigenen `request` einsetzen (siehe Dateikopf).
     request: async (options) => {
-        const net = await import('@welshman/net')
+        const netz = await import('./welshmanNet.ts')
 
-        return net.request(options as never)
+        return netz.request(options as never)
     },
 }
 
