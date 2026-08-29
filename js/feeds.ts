@@ -1705,21 +1705,39 @@ export const sendRoomMessage = async (
  * überlebt nur für ADRESSIERBARE Ziele (`isDeletedByAddress`, strikt `>`); hier ist das
  * Ziel eine kind 9 und wird über ihre id referenziert.
  *
- * **Das `+1` unten steht trotzdem noch — bewusst, nicht übersehen.** Es ist seit dem
- * Sprung überflüssig, aber nicht falsch, und sein Ausbau ist eine Verhaltensänderung an
- * einem Publizierpfad, die nicht in die Docblock-Korrektur gehörte. Wer ihn angeht,
- * bedenke: `Math.max(jetzt, createdAt + 1)` datiert den Tombstone in die ZUKUNFT, wenn
- * die Nachricht gerade eben entstand — Relays mit einer Zukunftsgrenze dürfen ihn dafür
- * ablehnen. Die Begründung dafür ist mit dieser Korrektur jedenfalls entfallen.
- * Vergleiche {@link makeEventDelete} in `js/interactions.ts`, wo derselbe Trick in P4
- * gemessen entfernt wurde.
+ * **Das `+1` ist mit dem Ausbau in P4 verschwunden — und es war nicht nur überflüssig.**
+ * `Math.max(jetzt, createdAt + 1)` datierte den Tombstone in die ZUKUNFT, sobald die
+ * Nachricht in derselben Sekunde entstand, in der sie gelöscht wurde: der häufigste Fall
+ * überhaupt, „vertippt, sofort weg". Ein Relay mit Zukunftsgrenze darf ihn dafür
+ * ablehnen, und eine abgelehnte Löschung **verpufft still** — lokal blendet das
+ * Repository die Nachricht trotzdem aus, der Nutzer hält sie für gelöscht, und beim
+ * nächsten Laden ist sie wieder da.
+ *
+ * Gemessen, in dieser Reihenfolge:
+ *
+ *   1. Zielkind ist `MESSAGE` (9) — **nicht** adressierbar, und der Tombstone trägt ein
+ *      `["e", id]`. Es greift also `isDeletedById`, und das vergleicht kein `created_at`
+ *      (gleiche Sekunde und sogar eine Sekunde früher: `isDeleted true`). Nur für
+ *      adressierbare Ziele gälte `isDeletedByAddress` mit striktem `>`.
+ *   2. Am Testrelay (zooid) ist der Ablehnungspfad **nicht** real: kind 5 mit
+ *      `created_at` bis +1 h wird angenommen und die Löschung wirkt. Es bleibt ein
+ *      latentes Risiko gegenüber fremden Relays — kein NIP-11 der beteiligten Relays
+ *      kündigt ein `created_at_upper_limit` an, was eine Grenze nicht ausschliesst,
+ *      sondern nur unsichtbar macht.
+ *
+ * Der Regressionsträger dazu ist `room.spec.ts` „M5: der Tombstone einer soeben
+ * gesendeten Nachricht liegt nicht in der Zukunft" — er ruft `remove()` auf der Insel
+ * direkt auf, weil der Weg über Menü und Modal Sekunden kostet und die kritische Lage
+ * gar nicht erreicht. Mit dem `+1` war er rot.
+ *
+ * Vergleiche {@link makeEventDelete} in `js/interactions.ts`, wo derselbe Trick zuerst
+ * entfernt wurde.
  */
-export const deleteRoomMessage = (url: string, h: string, id: string, createdAt: number): Promise<string> =>
+export const deleteRoomMessage = (url: string, h: string, id: string): Promise<string> =>
     waitForPublishError(
         app.use(Thunks).publish({
             relays: [url],
             event: makeEvent(DELETE, {
-                created_at: Math.max(Math.floor(Date.now() / 1000), createdAt + 1),
                 tags: [['k', String(MESSAGE)], ['e', id], ...roomTags(h, url)],
             }),
         }),

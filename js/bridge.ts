@@ -1204,7 +1204,7 @@ type RoomChatState = {
     flashId: string | null // kurz hervorgehobene Nachricht (Sprung zum Zitat)
     lightboxSrc: string | null // Vollbild eines angeklickten Inline-Bilds (Proxy `full`)
     deleting: boolean
-    pendingDelete: { id: string; createdAt: number } | null
+    pendingDelete: { id: string } | null
     reportFor: ChatMessage | null // Zielnachricht des offenen Melde-Modals
     reportReason: string // gewählter NIP-56-Grund (spam/profanity/impersonation/other)
     reportText: string // optionaler Freitext fürs „Fork off!"
@@ -1398,7 +1398,7 @@ type RoomChatState = {
     removeAttachment(): void
     askDelete(m: ChatMessage): void
     confirmDelete(): Promise<void>
-    remove(id: string, createdAt: number): Promise<void>
+    remove(id: string): Promise<void>
     askReport(m: ChatMessage): void
     confirmReport(): Promise<void>
     askAdminDelete(m: ChatMessage): void
@@ -7322,7 +7322,7 @@ export function registerNostrComponents(Alpine: {
         // Löschen anfragen: Aktionsleiste zu, Merker setzen, Bestätigungs-Modal öffnen.
         askDelete(m: ChatMessage) {
             this.activeId = null
-            this.pendingDelete = { id: m.id, createdAt: m.created_at }
+            this.pendingDelete = { id: m.id }
             dispatchModal('delete-message')
         },
         // Bestätigt löschen: Modal zu, dann publishen (Busy verhindert Doppel-Klick).
@@ -7333,16 +7333,23 @@ export function registerNostrComponents(Alpine: {
             }
             dispatchModal('delete-message', false)
             this.pendingDelete = null
-            await this.remove(target.id, target.createdAt)
+            await this.remove(target.id)
         },
         // Eigene Nachricht löschen (kind 5). Repository blendet sie sofort aus.
-        async remove(id: string, createdAt: number) {
+        //
+        // **Ohne `createdAt`, und das ist der Punkt:** bis P4 wurde der Zeitstempel der
+        // Zielnachricht bis in `deleteRoomMessage` durchgereicht, nur um dort
+        // `max(jetzt, ziel + 1)` zu rechnen. Der Summand ist gemessen entfallen (der
+        // Grund steht bei `deleteRoomMessage`), und mit ihm der einzige Verwendungszweck
+        // des Werts. Ein Parameter, der nirgends mehr ankommt, lädt dazu ein, die alte
+        // Rechnung wieder anzuhängen.
+        async remove(id: string) {
             if (!this._url || this.deleting) {
                 return
             }
             this.deleting = true
             try {
-                const err = await deleteRoomMessage(this._url, this.h, id, createdAt)
+                const err = await deleteRoomMessage(this._url, this.h, id)
                 if (err) {
                     toast(err)
                 }
