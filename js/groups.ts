@@ -126,6 +126,7 @@ export const userSpaceUrls = derived(userGroupList, getSpaceUrlsFromGroupList)
  */
 type RoomsEintrag = {
     h: string
+    admins?: { pubkeys: () => string[] }
     meta?: {
         event: TrustedEvent
         createdAt: () => number
@@ -199,39 +200,37 @@ export const roomMetaEventsByIdByUrl = deriveEventsByIdByUrl({
  * buys is that nobody has to guess whether it is load-bearing — it is a second line, and
  * that is written down instead of implied.
  *
- * ── The tombstone is NOT signature-gated, and a gate does not belong here ───────
+ * ── The tombstone IS signature-gated here, deliberately unlike upstream ────────
  *
  * `plugins/rooms.js:120-122` leaves 9008 ungated on purpose (*"Deletes are moderation ops
  * rather than relay-signed room state"*). A 9008 signed by any key and merely attributed
- * to the space relay therefore removes a real relay-signed room, and one event with
- * several `h` tags removes several at once.
+ * to the space relay therefore counts, and one event with several `h` tags counts for
+ * several rooms at once. Here it is accepted only from the relay's NIP-11 `self` or from a
+ * pubkey in that room's relay-signed 39001.
  *
- * **A gate was built here and reverted, because it cannot work at this layer.** Measured:
- * with a forged 9008 in the repository, `Rooms.byUrl` already returns zero rooms — the
- * plugin applies its own ungated rule *before* this derivation sees anything. Filtering
- * the tombstones by author downstream changes nothing; the room is gone by then. Undoing
- * it would mean rebuilding the room list from raw events again and giving up exactly the
- * relay-signature check on the 39000 that this stage bought. That trade is clearly worse.
+ * **Why this gate is not inert, although it looks it in almost every state.** The plugin
+ * drops a room at `deletedAt >= max(39000, 39001, 39002)`, our rule at
+ * `deletedAt >= 39000`. The two therefore differ in exactly one window: the tombstone is
+ * newer than the 39000 but OLDER than the newest room-state event. Measured, same
+ * repository, both stores side by side:
  *
- * What our extra rule does and does not amplify:
+ *     39000 @ T · forged 9008 @ T+20                 Rooms.byUrl []     ours []
+ *     39000 @ T · forged 9008 @ T+5 · 39002 @ T+10   Rooms.byUrl ['a']  ours []
  *
- *   - a FORGED delete is effective either way — the plugin drops the room by itself, and
- *     our rule adds nothing to that case;
- *   - what our rule removes is the plugin's self-healing, i.e. the room coming back once
- *     a 39002 newer than the tombstone arrives. On zooid that never happens (measured
- *     above), so the practical delta is nil, and semantically a deleted room SHOULD stay
- *     deleted.
+ * In the first line the plugin has already removed the room and nothing downstream can
+ * matter. In the second the plugin hands the room through and **our rule is the only thing
+ * removing it** — which is precisely where an ungated tombstone would be ours to answer
+ * for. An earlier round reverted this gate after measuring only states of the first kind
+ * and concluding it could not take effect; that conclusion was wrong, and the case in the
+ * window is now in `roomMetaQuelle.test.ts` so nobody repeats it.
  *
- * Not exploitable today either way — both relays gate 9008 on manager/owner
- * (`CheckWrite`, and Buzz's kind allowlist). Fixing it properly is upstream work: 9008
- * needs the same authority test as the state it deletes, applied where the state is
- * assembled. Recorded rather than silently inherited.
- *
- * Räume ohne 39000 überspringt diese Liste: `Rooms` nimmt einen Eintrag schon auf, wenn
- * nur Mitglieder oder Admins bekannt sind — ohne Metadaten gibt es hier nichts zu zeigen
- * und kein Quell-Event für die haus-eigenen Tags.
- *
- * Die sechs Lagen stehen als Regressionsträger in `js/roomMetaQuelle.test.ts`.
+ * Not exploitable against zooid today — **and the reason is not the one first written
+ * here.** The measured "relay withdraws the member list with the room and never
+ * regenerates it" describes a LEGITIMATE delete. For a forged 9008 the relay stores
+ * nothing at all (`CheckWrite`: room metadata cannot be set directly; Buzz answers with a
+ * closed kind allowlist), so the divergence window never opens there. Were the relay to
+ * accept it, the window would be the normal state, because it keeps regenerating the 39002
+ * on every member op. Defence in depth, with the right reason attached.
  */
 export const roomsByUrl = derived(
     [app.use(Rooms).byUrl.$, roomMetaEventsByIdByUrl],
@@ -239,26 +238,33 @@ export const roomsByUrl = derived(
         const result = new Map<string, Room[]>()
 
         for (const [url, eintraege] of $byUrl) {
-            // Tombstones per `h`. NOT signature-gated — see the docblock: a gate cannot
-            // work at this layer, because the plugin has already applied its own ungated
-            // rule before this derivation sees the room.
-            const deletedByH = new Map<string, number>()
+            // Tombstones per `h`, WITH their author — the authority test happens below,
+            // once the room's own admin list is at hand.
+            const deletesByH = new Map<string, { pubkey: string; created_at: number }[]>()
             for (const roh of ($eventsByUrl.get(url)?.values() ?? []) as Iterable<TrustedEvent>) {
                 if (roh.kind !== ROOM_DELETE) {
                     continue
                 }
                 for (const h of tagValues(tagSpec('h'), roh.tags)) {
-                    deletedByH.set(h, Math.max(deletedByH.get(h) ?? 0, roh.created_at))
+                    deletesByH.set(h, [...(deletesByH.get(h) ?? []), { pubkey: roh.pubkey, created_at: roh.created_at }])
                 }
             }
 
+            const self = app.use(Relays).get(url)?.self
             const rooms: Room[] = []
             for (const eintrag of eintraege) {
                 const meta = eintrag.meta
                 if (!meta) {
                     continue
                 }
-                if ((deletedByH.get(eintrag.h) ?? 0) >= meta.createdAt()) {
+                // Only the relay itself or a pubkey in THIS room's relay-signed 39001 may
+                // tombstone it — see the docblock for the window in which this is the only
+                // check standing between a forged 9008 and a removed room.
+                const roomAdmins = new Set(eintrag.admins?.pubkeys() ?? [])
+                const deletedAt = (deletesByH.get(eintrag.h) ?? [])
+                    .filter((d) => (self !== undefined && d.pubkey === self) || roomAdmins.has(d.pubkey))
+                    .reduce((max, d) => Math.max(max, d.created_at), 0)
+                if (deletedAt >= meta.createdAt()) {
                     continue
                 }
                 rooms.push({
@@ -387,13 +393,30 @@ export const roomMembersEventsByIdByUrl = deriveEventsByIdByUrl({
  * Schlüsselliste mit `current`-Flag).
  */
 const roomMembersEventByUrl: Readable<Map<string, Map<string, TrustedEvent>>> = derived(
-    roomMembersEventsByIdByUrl,
-    ($byUrl) => {
+    [roomMembersEventsByIdByUrl, app.use(Relays).index.$],
+    ([$byUrl, $relays]: [Map<string, Map<string, unknown>>, Map<string, { self?: string }>]) => {
         const result = new Map<string, Map<string, TrustedEvent>>()
         for (const [url, byId] of $byUrl) {
+            // **The selection itself is signature-gated, not just its result.** Checking
+            // the signer only on the already-chosen winner leaves a hole without any
+            // attacker: a foreign list with a newer `created_at` wins the selection, fails
+            // the check afterwards, and the caller sees `undefined` — which it cannot tell
+            // apart from "no list known". Probed: a revocation mark recorded from that
+            // `undefined` carries `staleListEventId=''` and `staleCreatedAt=0`, and
+            // `confirmsMembership` then lifts it for ANY list that names us, including a
+            // stale one straight out of the cache. Selecting only relay-signed lists here
+            // removes the ambiguity at the source.
+            //
+            // `Relays.index.$` is the second dependency for the same reason `Rooms` uses
+            // `revalidateOn`: NIP-11 can arrive after the events, and this must recompute
+            // when it does.
+            const self = $relays.get(url)?.self
             const byH = new Map<string, TrustedEvent>()
             for (const event of byId.values()) {
                 const trusted = event as TrustedEvent
+                if (!self || trusted.pubkey !== self) {
+                    continue
+                }
                 const h = tagValue(tagSpec('d'), trusted.tags)
                 if (!h) {
                     continue
@@ -1442,15 +1465,24 @@ const confirmRoomMembershipFromSpaceRead = (url: string, events: TrustedEvent[])
  */
 export const revokeRoomMembership = async (url: string, h: string): Promise<void> => {
     const normalized = normalizeRelayUrl(url)
-    // Same gate as in `readMembership`: the mark records WHICH list was in force at the
-    // moment of the revocation, and only a relay-signed one can be that. An unchecked list
-    // here is the jamming half of the same hole — a 39002 with a far-future `created_at`
-    // would pin `staleCreatedAt` so high that no genuine list could ever lift the mark
-    // again, and the composer would stay gone for good.
-    const rohStale = get(roomMembersEventByUrl).get(normalized)?.get(h)
-    const self = app.use(Relays).get(normalized)?.self
-    const stale = rohStale && self && rohStale.pubkey === self ? rohStale : undefined
-    roomMembershipRevocations.revoke(roomMembershipKey(normalized, h), stale?.id ?? '', stale?.created_at ?? 0)
+    // The mark records WHICH list was in force at the moment of the revocation. The
+    // selection above already yields only relay-signed lists, so no post-check is needed
+    // here — a foreign list can no longer win and then be discarded, which used to leave
+    // the two values below empty.
+    //
+    // **The fallback is the revocation moment, not zero**, and that matters whenever no
+    // relay-signed list is known yet — the likeliest case being a cold start where the
+    // CLOSED arrives before the NIP-11 response. With `0` the mark is vacuous:
+    // `confirmsMembership` compares `read.createdAt >= staleCreatedAt`, so any list that
+    // names us lifts it, including the stale one already in the cache (probed). With the
+    // current second as the floor, only a list newer than the kick can lift it — which is
+    // exactly the claim a re-join has to make.
+    const stale = get(roomMembersEventByUrl).get(normalized)?.get(h)
+    roomMembershipRevocations.revoke(
+        roomMembershipKey(normalized, h),
+        stale?.id ?? '',
+        stale?.created_at ?? Math.floor(Date.now() / 1000),
+    )
     const pk = pubkey.get()
     if (!pk) {
         return

@@ -30,7 +30,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { get } from 'svelte/store'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { Relays } from '@welshman/app'
+import { Relays, Rooms } from '@welshman/app'
 import { app } from './welshmanInstance.ts'
 import { ROOM_META, ROOM_MEMBERS, ROOM_ADMINS, ROOM_DELETE } from './welshmanKinds.ts'
 
@@ -144,43 +144,64 @@ test('die ROH-Tags des 39000 bleiben erreichbar (Meetup/Forum/Projekt hängen da
     )
 })
 
-// ── The tombstone is not signature-gated (security finding F1) ─────────────────
+// ── The tombstone authority gate (security finding F1) ────────────────────────
 //
-// These three cases pin what the stack ACTUALLY does, not what one would want. Upstream
-// leaves 9008 ungated on purpose (`plugins/rooms.js:120-122`), and the check runs inside
-// the plugin — measured, `Rooms.byUrl` already returns zero rooms once a forged tombstone
-// is in the repository, so no downstream filter can undo it. A gate was built here and
-// reverted for that reason; the reasoning is in the `roomsByUrl` docblock.
+// Upstream leaves 9008 ungated on purpose (`plugins/rooms.js:120-122`); we do not, and
+// the gate is NOT inert although almost every state makes it look so. The plugin drops a
+// room at `deletedAt >= max(39000, 39001, 39002)`, our rule at `deletedAt >= 39000`, so
+// the two differ in exactly one window: the tombstone newer than the 39000 but OLDER than
+// the newest room-state event. The first case below is that window — every other case in
+// this file places the 9008 after all room state, where our rule is a no-op and any test
+// would pass with or without the gate.
 //
-// They are written as assertions, not as comments, so that an upstream fix shows up as a
-// red test instead of going unnoticed.
+// Two of the cases assert against `app.use(Rooms).byUrl` directly rather than through
+// `roomsByUrl`. That is deliberate: they document an UPSTREAM property, and asserted
+// through our derivation our own rule dominates the outcome, so an upstream fix would
+// land silently. Neither carries an instruction to delete itself when it turns red — a
+// guard whose documented answer to red is "remove me" is fail-open.
 
-test('DOCUMENTED WEAKNESS: a 9008 from a foreign signer removes the room', async () => {
+test('THE WINDOW: a forged 9008 older than the newest room state does not remove the room', async () => {
     const url = naechsteUrl()
     const t = T()
     const { buche, vomRelay } = stelle(url)
 
     buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
-    buche(vonFremd(ROOM_DELETE, [['h', 'a']], t + 10))
+    buche(vonFremd(ROOM_DELETE, [['h', 'a']], t + 5))
+    // The later member list keeps the plugin from dropping the room, so from here on our
+    // rule is the only thing that could — and without the gate it would.
+    buche(vomRelay(ROOM_MEMBERS, [['d', 'a'], ['p', 'b'.repeat(64)]], t + 10))
+
+    assert.deepEqual((await raeume(url)).map((r) => r.h), ['a'])
+})
+
+test('THE WINDOW, control: a RELAY-SIGNED 9008 in the same position does remove it', async () => {
+    const url = naechsteUrl()
+    const t = T()
+    const { buche, vomRelay } = stelle(url)
+
+    buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
+    buche(vomRelay(ROOM_DELETE, [['h', 'a']], t + 5))
+    buche(vomRelay(ROOM_MEMBERS, [['d', 'a'], ['p', 'b'.repeat(64)]], t + 10))
 
     assert.deepEqual(
         (await raeume(url)).map((r) => r.h),
         [],
-        'if this turns red, upstream started gating 9008 — drop this test and say so',
+        'the wrapper must keep removing rooms the relay really deleted',
     )
 })
 
-test('DOCUMENTED WEAKNESS: one forged 9008 sweeps several rooms at once', async () => {
+test('a forged 9008 with several `h` tags removes none of the rooms', async () => {
     const url = naechsteUrl()
     const t = T()
     const { buche, vomRelay } = stelle(url)
 
     buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
     buche(vomRelay(ROOM_META, [['d', 'b'], ['name', 'B']], t))
-    // A 9008 may carry several `h` tags — one event, several rooms.
-    buche(vonFremd(ROOM_DELETE, [['h', 'a'], ['h', 'b']], t + 10))
+    buche(vonFremd(ROOM_DELETE, [['h', 'a'], ['h', 'b']], t + 5))
+    buche(vomRelay(ROOM_MEMBERS, [['d', 'a'], ['p', 'c'.repeat(64)]], t + 10))
+    buche(vomRelay(ROOM_MEMBERS, [['d', 'b'], ['p', 'c'.repeat(64)]], t + 10))
 
-    assert.deepEqual((await raeume(url)).map((r) => r.h), [])
+    assert.deepEqual((await raeume(url)).map((r) => r.h).sort(), ['a', 'b'])
 })
 
 test('a 9008 from a room admin removes it — moderation keeps working', async () => {
@@ -191,7 +212,39 @@ test('a 9008 from a room admin removes it — moderation keeps working', async (
 
     buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
     buche(vomRelay(ROOM_ADMINS, [['d', 'a'], ['p', getPublicKey(adminSk)]], t))
-    buche(finalizeEvent({ kind: ROOM_DELETE, created_at: t + 10, tags: [['h', 'a']], content: '' }, adminSk))
+    buche(finalizeEvent({ kind: ROOM_DELETE, created_at: t + 5, tags: [['h', 'a']], content: '' }, adminSk))
+    buche(vomRelay(ROOM_MEMBERS, [['d', 'a'], ['p', 'c'.repeat(64)]], t + 10))
 
     assert.deepEqual((await raeume(url)).map((r) => r.h), [])
+})
+
+// ── Upstream properties, asserted where they live ──────────────────────────────
+//
+// These two say what `@welshman/app` does, not what we do. If upstream starts gating
+// 9008, they turn red and must be rewritten to the new behaviour — the finding is then
+// resolved upstream and our gate becomes a second line rather than the only one.
+
+test('UPSTREAM: the plugin accepts a forged 9008 (ungated by design)', async () => {
+    const url = naechsteUrl()
+    const t = T()
+    const { buche, vomRelay } = stelle(url)
+
+    buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
+    buche(vonFremd(ROOM_DELETE, [['h', 'a']], t + 20))
+
+    const imPlugin = (app.use(Rooms).byUrl.get().get(url) ?? []) as { h: string }[]
+    assert.deepEqual(imPlugin.map((r) => r.h), [], 'plugins/rooms.js:120-122 — deletes are not self-checked')
+})
+
+test('UPSTREAM: the plugin heals a delete once newer room state arrives', async () => {
+    const url = naechsteUrl()
+    const t = T()
+    const { buche, vomRelay } = stelle(url)
+
+    buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
+    buche(vomRelay(ROOM_DELETE, [['h', 'a']], t + 5))
+    buche(vomRelay(ROOM_MEMBERS, [['d', 'a'], ['p', 'b'.repeat(64)]], t + 10))
+
+    const imPlugin = (app.use(Rooms).byUrl.get().get(url) ?? []) as { h: string }[]
+    assert.deepEqual(imPlugin.map((r) => r.h), ['a'], 'deletedAt is compared against max(39000, 39001, 39002)')
 })
