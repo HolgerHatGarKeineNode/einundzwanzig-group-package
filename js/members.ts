@@ -215,8 +215,17 @@ export type RoomMemberView = { pubkey: string; npub: string; short: string; name
 export const deriveRoomMemberViews = (url: string, h: string): Readable<RoomMemberView[]> =>
     derived([roomMembersByUrl, throttled(300, profilesByPubkey)], ([$byUrl, $profiles]) => {
         // 64-hex filtern: ein kaputter p-Wert ließe npubEncode im derived-map werfen und
-        // bräche die GANZE Liste (wie im Report-Pfad). 39002 ist zwar relay-kuratiert,
-        // roomMembersByUrl aber nicht self-gefiltert → defensiv.
+        // bräche die GANZE Liste (wie im Report-Pfad).
+        //
+        // **Die Begründung von früher gilt nicht mehr:** hier stand, `roomMembersByUrl`
+        // sei „nicht self-gefiltert". Seit P5 des 0.9.5-Sprungs ist es das — die Quelle
+        // ist `app.use(Rooms).membership`, und das verlangt `pubkey === relay.self`.
+        // Gemessen ist auch, dass `Rooms` kaputte `p`-Werte selbst verwirft (`hexTags`):
+        // eine 39002 mit `["p","KAPUTT"]` kommt hier gar nicht mehr an.
+        //
+        // Der Filter bleibt trotzdem stehen — er kostet nichts und ist die letzte Wache
+        // vor einem Wurf, der die ganze Liste nimmt. Wer ihn entfernt, verlässt sich
+        // darauf, dass jede künftige Quelle dieser Ableitung ebenso filtert.
         const pubkeys = [...($byUrl.get(url)?.get(h) ?? new Set<string>())].filter((pk) => /^[0-9a-f]{64}$/.test(pk))
         const views = pubkeys.map((pk): RoomMemberView => {
             if (!$profiles.has(pk)) {

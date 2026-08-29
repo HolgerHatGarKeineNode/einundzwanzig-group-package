@@ -14,6 +14,7 @@
  */
 import { derived, writable, get, type Readable, type Writable } from 'svelte/store'
 import { app, makeOutboxLoader, makeUserData, Relays, Thunks } from './welshmanApp.ts'
+import { Rooms, splitRoomKey } from '@welshman/app'
 import { pubkey, nip44EncryptToSelf } from './welshmanSession.ts'
 import { deriveItemsByKey, deriveEventsByIdByUrl, sync, throttled, localStorageProvider } from '@welshman/store'
 import { eigeneOutboxUrls } from './welshmanRouter.ts'
@@ -260,38 +261,62 @@ const roomMembersEventByUrl: Readable<Map<string, Map<string, TrustedEvent>>> = 
 )
 
 /**
- * Mitglieder-Pubkeys je Room-`h` und Space-URL, aus der relay-signierten
- * 39002-Liste (`d`=h, `p`=Mitglieder). Das ist die **autoritative** Quelle: der
- * Relay pflegt sie bei Join (9021) / Leave (9022) und sie übersteht Reloads.
+ * Mitglieder-Pubkeys je Room-`h` und Space-URL.
  *
- * **P9 — eine Korrektur um den vom Relay selbst gemeldeten Entzug.** Der eigene
- * Pubkey fällt aus der Menge, solange für diesen Raum eine Entzugs-Marke steht
- * ({@link revokeRoomMembership}). Grund und Messung stehen in `roomMembership.ts`;
- * kurz: bei einem Fremd-Rauswurf aus einem PRIVATEN Raum liefert der Relay auf
- * kein REQ mehr eine 39002 — die alte Liste (auch aus der IndexedDB) behauptet
- * die Mitgliedschaft dann bis in alle Ewigkeit weiter. Die Korrektur sitzt hier
- * und nicht an einer einzelnen Fläche, damit sie für JEDEN Konsumenten gilt:
- * Composer, „Meine Räume" in Rail und Palette, Pin-Recht, Mitgliederliste.
+ * ── Seit P5 des 0.9.5-Sprungs: `app.use(Rooms).membership` statt eigenem 39002-Lesen ──
+ *
+ * Die Quelle ist weiterhin die relay-signierte 39002 (`d`=h, `p`=Mitglieder), nur wird
+ * sie nicht mehr hier ausgewertet. Der Umstieg ist gemessen, nicht kosmetisch — beide
+ * Wege wurden mit denselben Eingaben gefahren, und der Eigenbau verlor zweimal:
+ *
+ * **(1) Er prüfte die Relay-Selbstsignatur NICHT.** `roomMembersEventsByIdByUrl` las alle
+ * 39002 eines Relays, ohne `pubkey === relay.self` zu verlangen. Eine von einem FREMDEN
+ * Schlüssel signierte 39002 begründete damit eine Mitgliedschaft — gemessen: der
+ * Eigenbau meldete den fremden Pubkey als Mitglied, `Rooms` verwarf ihn. Der Kommentar in
+ * `js/members.ts` („roomMembersByUrl aber nicht self-gefiltert → defensiv") kannte die
+ * Lücke und fing sie an genau EINER Fläche ab; Composer-Sichtbarkeit, „Meine Räume",
+ * Pin-Recht und Palette hingen ungeschützt daran.
+ *
+ * **(2) Er sah nur den Schnappschuss, nicht die Ops darauf.** `Rooms.foldMembership`
+ * wendet 9000/9001 an, die NEUER sind als die 39002 — eine Aufnahme durch einen Admin ist
+ * damit sichtbar, bevor der Relay die Liste neu erzeugt hat. Gemessen: Eigenbau
+ * `[admin]`, `Rooms` `[admin, neu]`. Ops von Nicht-Admins ignoriert das Plugin dabei
+ * (geprüft), die Autorität bleibt also beim Relay und seinen Admins.
+ *
+ * ── Und was `Rooms` NICHT kann: die Entzugs-Marke (P9) ──────────────────────────
+ *
+ * Deshalb ist das hier eine Hülle und kein Ersatz. Der eigene Pubkey fällt aus der Menge,
+ * solange für diesen Raum eine Entzugs-Marke steht ({@link revokeRoomMembership}). Grund
+ * und Messung stehen in `roomMembership.ts`; kurz: bei einem Fremd-Rauswurf aus einem
+ * PRIVATEN Raum liefert der Relay auf kein REQ mehr eine 39002 — die alte Liste (auch aus
+ * der IndexedDB) behauptet die Mitgliedschaft dann bis in alle Ewigkeit weiter, und es
+ * kommt auch kein 9001 nach, das `Rooms` folden könnte. Gemessen: `Rooms.membershipStatus`
+ * meldet in dieser Lage `granted`. Die Korrektur sitzt hier und nicht an einer einzelnen
+ * Fläche, damit sie für JEDEN Konsumenten gilt: Composer, „Meine Räume" in Rail und
+ * Palette, Pin-Recht, Mitgliederliste.
  *
  * Fremde Pubkeys bleiben unangetastet — der Entzug ist eine Aussage über UNS.
+ *
+ * Die vier Lagen stehen als Regressionsträger in `js/roomMembersQuelle.test.ts`; der
+ * Entzugs-Fall ist die Kalibrierung der Hülle.
+ *
  */
 export const roomMembersByUrl: Readable<Map<string, Map<string, Set<string>>>> = derived(
-    [roomMembersEventByUrl, roomMembershipRevocations, pubkey],
-    ([$byUrl, $revocations, $pk]: [
-        Map<string, Map<string, TrustedEvent>>,
+    [app.use(Rooms).membership.$, roomMembershipRevocations, pubkey],
+    ([$membership, $revocations, $pk]: [
+        Map<string, { members: Set<string> }>,
         ReadonlyMap<string, RoomMembershipRevocation>,
         string | undefined,
     ]) => {
         const result = new Map<string, Map<string, Set<string>>>()
-        for (const [url, byEvent] of $byUrl) {
-            const byH = new Map<string, Set<string>>()
-            for (const [h, event] of byEvent) {
-                const members = new Set(tagValues(tagSpec('p'), event.tags))
-                if ($pk && members.has($pk) && $revocations.has(roomMembershipKey(url, h))) {
-                    members.delete($pk)
-                }
-                byH.set(h, members)
+        for (const [key, { members }] of $membership) {
+            const [url, h] = splitRoomKey(key)
+            const menge = new Set(members)
+            if ($pk && menge.has($pk) && $revocations.has(roomMembershipKey(url, h))) {
+                menge.delete($pk)
             }
+            const byH = result.get(url) ?? new Map<string, Set<string>>()
+            byH.set(h, menge)
             result.set(url, byH)
         }
         return result
