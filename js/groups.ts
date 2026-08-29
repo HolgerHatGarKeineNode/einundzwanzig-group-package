@@ -180,6 +180,53 @@ export const roomMetaEventsByIdByUrl = deriveEventsByIdByUrl({
  * hier — `roomMetaEventsByIdByUrl` liefert die Tombstones weiterhin. Eine neue 39000
  * (echte Wiederanlage) macht den Raum nach wie vor sichtbar.
  *
+ * **Measured against a real zooid, because an unreachable guard gets deleted on suspicion
+ * later.** Create room → 9000 (add member) → 9008 (delete), then query
+ * `{kinds:[39002],'#d':[h]}`:
+ *
+ *     after the 9000   39002.created_at = 1788030525   (the relay DOES regenerate)
+ *     after the 9008   39002 gone, 9008.created_at = 1788030527
+ *     a 9001 after the delete brings no 39002 back
+ *
+ * So on zooid the divergence is **not reachable**: the relay withdraws the member list
+ * together with the room and never regenerates it afterwards, which makes every 39002
+ * older than the tombstone. Buzz was not measured (its nak positive control failed twice
+ * in that session — an unverified "no" would be worth nothing).
+ *
+ * The rule stays anyway, and not out of caution: with the authority gate below it is the
+ * semantically correct direction. A deleted room SHOULD stay deleted; self-healing via a
+ * later member list would be wrong even where a relay produced one. What the measurement
+ * buys is that nobody has to guess whether it is load-bearing — it is a second line, and
+ * that is written down instead of implied.
+ *
+ * ── The tombstone is NOT signature-gated, and a gate does not belong here ───────
+ *
+ * `plugins/rooms.js:120-122` leaves 9008 ungated on purpose (*"Deletes are moderation ops
+ * rather than relay-signed room state"*). A 9008 signed by any key and merely attributed
+ * to the space relay therefore removes a real relay-signed room, and one event with
+ * several `h` tags removes several at once.
+ *
+ * **A gate was built here and reverted, because it cannot work at this layer.** Measured:
+ * with a forged 9008 in the repository, `Rooms.byUrl` already returns zero rooms — the
+ * plugin applies its own ungated rule *before* this derivation sees anything. Filtering
+ * the tombstones by author downstream changes nothing; the room is gone by then. Undoing
+ * it would mean rebuilding the room list from raw events again and giving up exactly the
+ * relay-signature check on the 39000 that this stage bought. That trade is clearly worse.
+ *
+ * What our extra rule does and does not amplify:
+ *
+ *   - a FORGED delete is effective either way — the plugin drops the room by itself, and
+ *     our rule adds nothing to that case;
+ *   - what our rule removes is the plugin's self-healing, i.e. the room coming back once
+ *     a 39002 newer than the tombstone arrives. On zooid that never happens (measured
+ *     above), so the practical delta is nil, and semantically a deleted room SHOULD stay
+ *     deleted.
+ *
+ * Not exploitable today either way — both relays gate 9008 on manager/owner
+ * (`CheckWrite`, and Buzz's kind allowlist). Fixing it properly is upstream work: 9008
+ * needs the same authority test as the state it deletes, applied where the state is
+ * assembled. Recorded rather than silently inherited.
+ *
  * Räume ohne 39000 überspringt diese Liste: `Rooms` nimmt einen Eintrag schon auf, wenn
  * nur Mitglieder oder Admins bekannt sind — ohne Metadaten gibt es hier nichts zu zeigen
  * und kein Quell-Event für die haus-eigenen Tags.
@@ -192,7 +239,9 @@ export const roomsByUrl = derived(
         const result = new Map<string, Room[]>()
 
         for (const [url, eintraege] of $byUrl) {
-            // Tombstones je `h` aus den 9008 dieses Relays.
+            // Tombstones per `h`. NOT signature-gated — see the docblock: a gate cannot
+            // work at this layer, because the plugin has already applied its own ungated
+            // rule before this derivation sees the room.
             const deletedByH = new Map<string, number>()
             for (const roh of ($eventsByUrl.get(url)?.values() ?? []) as Iterable<TrustedEvent>) {
                 if (roh.kind !== ROOM_DELETE) {
@@ -294,9 +343,27 @@ export const lastMessageAtByUrl: Readable<Map<string, Map<string, number>>> = de
 /**
  * P9 — die Entzüge, die der Relay von sich aus meldet. Modul-weit und nur im
  * Speicher: eine Marke ist eine Aussage über die LAUFENDE Sitzung („der Relay hat
- * uns gerade hinausgeworfen"), keine Konfiguration. Nach einem Reload beantwortet
- * der Relay dieselbe Frage in einer halben Sekunde neu — bis dahin gilt der
- * Cache-Stand, wie bei jeder anderen Fläche auch.
+ * uns gerade hinausgeworfen"), keine Konfiguration.
+ *
+ * **The rest of this docblock used to read: after a reload the relay answers the same
+ * question again within half a second, so the cached state applies until then. That is
+ * wrong in the one case the mark exists for, and this file's own sibling proves it.**
+ * The measured table in `js/roomMembership.ts` says that in a PRIVATE room a REQ for the
+ * 39002 returns nothing at all — `EOSE`, zero events, six attempts over 13.7 s. Silence
+ * is precisely what a reload gets there.
+ *
+ * What actually happens after a reload: `ROOM_MEMBERS` is persisted, **and so is the
+ * tracker**, so the stale genuine 39002 comes back from IndexedDB with its relay
+ * attribution intact, `Rooms` accepts it as authoritative, and the mark — which lived
+ * only in memory — is gone. In a private room nothing ever contradicts it again, so the
+ * composer returns permanently and its sends are rejected by the relay.
+ *
+ * **So the protection is session-scoped, and that is a limitation, not a design.** It has
+ * been that way since P9 and is not a consequence of the `Rooms` migration; what changed
+ * is that this docblock no longer claims otherwise. Fixing it means persisting the marks
+ * alongside the events they contradict — a storage change with its own migration and its
+ * own regression carrier, which is why it is written down here as an open item instead of
+ * being bolted onto the end of P5.
  */
 const roomMembershipRevocations = createRoomMembershipRevocations()
 
@@ -1241,10 +1308,21 @@ export const reloadRoomMembership = async (
 ): Promise<boolean> => {
     for (let attempt = 0; attempt < MEMBERSHIP_RELOAD_ATTEMPTS; attempt++) {
         const events = await load({ relays: [url], filters: [{ kinds: [ROOM_MEMBERS], '#d': [h] }] })
-        const listed = events.some((e) => e.tags.some((t) => t[0] === 'p' && t[1] === pubkey))
-        // Frisch vom Relay gelesen — also die einzige Sorte Liste, die eine
-        // Entzugs-Marke aufheben darf (P9, siehe `roomMembership.ts`). Ohne diesen
-        // Aufruf käme nach einem Wiederbeitritt kein Composer zurück.
+        // Third instance of the same class as in `readMembership`/`revokeRoomMembership`:
+        // only the relay's own list decides membership. Without this, a self-made 39002
+        // would let a re-join report success that the relay never granted.
+        const self = app.use(Relays).get(normalizeRelayUrl(url))?.self
+        const listed = events.some(
+            (e) => e.pubkey === self && e.tags.some((t) => t[0] === 'p' && t[1] === pubkey),
+        )
+        // Fresh from the relay — the only kind of list that may lift a revocation mark
+        // (P9, see `roomMembership.ts`). Without this call no composer would come back
+        // after a re-join.
+        //
+        // Freshness alone stopped being the criterion with the F2 hardening: the list
+        // must ALSO be signed by the relay's NIP-11 `self`. `readMembership` enforces
+        // that; a self-made 39002 delivered over this REQ would otherwise be accepted as
+        // evidence against the very membership it claims to prove.
         confirmRoomMembership(url, h, events as TrustedEvent[], pubkey)
         if (listed === expectMember) {
             return true
@@ -1262,10 +1340,24 @@ export const reloadRoomMembership = async (
  * und stehe ich drin?". `null` = für diesen Raum kam nichts — und genau das ist
  * die Antwort des Relays nach einem Rauswurf aus einem privaten Raum.
  */
-const readMembership = (events: TrustedEvent[], h: string, pk: string): RoomMembershipRead | null => {
+const readMembership = (
+    events: TrustedEvent[],
+    h: string,
+    pk: string,
+    self: string | undefined,
+): RoomMembershipRead | null => {
+    // **Only the relay's own list is evidence.** The lock guards a membership that the
+    // relay-signed 39002 decides, so it must not accept a list the guarded thing would
+    // reject — otherwise anyone could lift the mark with a self-made 39002, or jam it
+    // forever with one dated far in the future (`staleCreatedAt` would then sit above
+    // every genuine list). Without a NIP-11 `self` there is nothing to verify against,
+    // and no evidence is the safe answer for a lock: the mark stays.
+    if (!self) {
+        return null
+    }
     let newest: TrustedEvent | undefined
     for (const event of events) {
-        if (event.kind !== ROOM_MEMBERS || tagValue(tagSpec('d'), event.tags) !== h) {
+        if (event.kind !== ROOM_MEMBERS || event.pubkey !== self || tagValue(tagSpec('d'), event.tags) !== h) {
             continue
         }
         if (!newest || newest.created_at < event.created_at) {
@@ -1288,7 +1380,8 @@ const readMembership = (events: TrustedEvent[], h: string, pk: string): RoomMemb
 /**
  * Legt eine frisch vom Relay gelesene Liste vor. Bestätigt sie die Mitgliedschaft,
  * fällt die Entzugs-Marke; sonst bleibt sie stehen. Fasst nichts an, wo keine
- * Marke steht.
+ * Marke steht. Which list counts is decided by {@link readMembership} — since F2 that
+ * means relay-signed, not merely freshly delivered.
  */
 const confirmRoomMembership = (url: string, h: string, events: TrustedEvent[], pk?: string): void => {
     const me = pk ?? pubkey.get()
@@ -1297,7 +1390,7 @@ const confirmRoomMembership = (url: string, h: string, events: TrustedEvent[], p
     }
     roomMembershipRevocations.confirm(
         roomMembershipKey(normalizeRelayUrl(url), h),
-        readMembership(events, h, me),
+        readMembership(events, h, me, app.use(Relays).get(normalizeRelayUrl(url))?.self),
     )
 }
 
@@ -1349,7 +1442,14 @@ const confirmRoomMembershipFromSpaceRead = (url: string, events: TrustedEvent[])
  */
 export const revokeRoomMembership = async (url: string, h: string): Promise<void> => {
     const normalized = normalizeRelayUrl(url)
-    const stale = get(roomMembersEventByUrl).get(normalized)?.get(h)
+    // Same gate as in `readMembership`: the mark records WHICH list was in force at the
+    // moment of the revocation, and only a relay-signed one can be that. An unchecked list
+    // here is the jamming half of the same hole — a 39002 with a far-future `created_at`
+    // would pin `staleCreatedAt` so high that no genuine list could ever lift the mark
+    // again, and the composer would stay gone for good.
+    const rohStale = get(roomMembersEventByUrl).get(normalized)?.get(h)
+    const self = app.use(Relays).get(normalized)?.self
+    const stale = rohStale && self && rohStale.pubkey === self ? rohStale : undefined
     roomMembershipRevocations.revoke(roomMembershipKey(normalized, h), stale?.id ?? '', stale?.created_at ?? 0)
     const pk = pubkey.get()
     if (!pk) {

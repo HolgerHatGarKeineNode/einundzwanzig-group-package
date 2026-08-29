@@ -6,9 +6,19 @@
  * über die vorhandenen NIP-86-Wrapper `banEvent`/`banSpaceMember` in bridge.ts).
  *
  * Pending Join-Requests (Flotillas zweite Action-Item-Art) sind seit P4b hier mit
- * abgeleitet (`deriveSpaceJoinRequests`): zooid genehmigt Beitritte offener Räume
- * automatisch → „offene" Anfragen entstehen nur bei `closed`-Räumen (kind 9021 ohne
- * folgendes 39002-Mitglied bzw. jüngeres 9022-Leave). Annehmen/Ablehnen in bridge.ts.
+ * abgeleitet (`deriveSpaceJoinRequests`). Accept/reject live in bridge.ts.
+ *
+ * **The rule changed in P5 stage 3; this header stated the superseded one.** It used to
+ * read: an open request is a 9021 without a following 39002 membership or a newer 9022
+ * leave. That fold missed the 9001 — a kick or a refusal emits no 9022 and drops the
+ * pubkey out of the member list, so the request came back as open. It is now
+ * `Rooms.pendingJoins` that decides, and there a request is answered by the **latest
+ * moderation op on that pubkey**.
+ *
+ * What stays local, right below at {@link deriveSpaceJoinRequests}: the room must exist
+ * AND be closed. Open rooms never have a pending request because the relay approves those
+ * itself, and `h` is chosen by whoever signs the 9021 — without the existence rule a
+ * stranger could invent a room and land in every admin's queue.
  */
 import { derived, writable, get, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'

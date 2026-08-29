@@ -32,7 +32,7 @@ import { get } from 'svelte/store'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Relays } from '@welshman/app'
 import { app } from './welshmanInstance.ts'
-import { ROOM_META, ROOM_MEMBERS, ROOM_DELETE } from './welshmanKinds.ts'
+import { ROOM_META, ROOM_MEMBERS, ROOM_ADMINS, ROOM_DELETE } from './welshmanKinds.ts'
 
 let laufNr = 0
 const naechsteUrl = (): string => `wss://p5meta-${++laufNr}.example/`
@@ -142,4 +142,56 @@ test('die ROH-Tags des 39000 bleiben erreichbar (Meetup/Forum/Projekt hängen da
         raum.event.tags.some((tag) => tag[0] === 'einundzwanzig_meetup'),
         'haus-eigene Tags kennt kein welshman-Reader — sie kommen nur über das Event',
     )
+})
+
+// ── The tombstone is not signature-gated (security finding F1) ─────────────────
+//
+// These three cases pin what the stack ACTUALLY does, not what one would want. Upstream
+// leaves 9008 ungated on purpose (`plugins/rooms.js:120-122`), and the check runs inside
+// the plugin — measured, `Rooms.byUrl` already returns zero rooms once a forged tombstone
+// is in the repository, so no downstream filter can undo it. A gate was built here and
+// reverted for that reason; the reasoning is in the `roomsByUrl` docblock.
+//
+// They are written as assertions, not as comments, so that an upstream fix shows up as a
+// red test instead of going unnoticed.
+
+test('DOCUMENTED WEAKNESS: a 9008 from a foreign signer removes the room', async () => {
+    const url = naechsteUrl()
+    const t = T()
+    const { buche, vomRelay } = stelle(url)
+
+    buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
+    buche(vonFremd(ROOM_DELETE, [['h', 'a']], t + 10))
+
+    assert.deepEqual(
+        (await raeume(url)).map((r) => r.h),
+        [],
+        'if this turns red, upstream started gating 9008 — drop this test and say so',
+    )
+})
+
+test('DOCUMENTED WEAKNESS: one forged 9008 sweeps several rooms at once', async () => {
+    const url = naechsteUrl()
+    const t = T()
+    const { buche, vomRelay } = stelle(url)
+
+    buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
+    buche(vomRelay(ROOM_META, [['d', 'b'], ['name', 'B']], t))
+    // A 9008 may carry several `h` tags — one event, several rooms.
+    buche(vonFremd(ROOM_DELETE, [['h', 'a'], ['h', 'b']], t + 10))
+
+    assert.deepEqual((await raeume(url)).map((r) => r.h), [])
+})
+
+test('a 9008 from a room admin removes it — moderation keeps working', async () => {
+    const url = naechsteUrl()
+    const t = T()
+    const adminSk = generateSecretKey()
+    const { buche, vomRelay } = stelle(url)
+
+    buche(vomRelay(ROOM_META, [['d', 'a'], ['name', 'A']], t))
+    buche(vomRelay(ROOM_ADMINS, [['d', 'a'], ['p', getPublicKey(adminSk)]], t))
+    buche(finalizeEvent({ kind: ROOM_DELETE, created_at: t + 10, tags: [['h', 'a']], content: '' }, adminSk))
+
+    assert.deepEqual((await raeume(url)).map((r) => r.h), [])
 })

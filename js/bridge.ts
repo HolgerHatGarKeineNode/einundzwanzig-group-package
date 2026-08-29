@@ -5284,8 +5284,14 @@ export function registerNostrComponents(Alpine: {
             }
         },
         // ── P4b: Beitritts-Queue (offene 9021 für closed-Räume) ────────────────
-        // Annehmen: kind 9000 (put-user) → Relay trägt den Pubkey in die 39002 ein;
-        // der Live-Sub reflektiert das → die Anfrage fällt aus der Queue (jetzt Mitglied).
+        // Accept: kind 9000 (put-user) — the relay writes the pubkey into the 39002 and
+        // the request leaves the queue.
+        //
+        // It leaves because the 9000 is a **later moderation op on that pubkey**, not
+        // because of the resulting membership; the previous wording named the mechanism
+        // that P5 stage 3 replaced. The distinction is not academic — see the note inside
+        // `acceptJoin` on the 39001 precondition, which is why `removeEvent` below is
+        // still doing work.
         // Der Anfragende ist bereits Space-Member (sonst wäre sein 9021 abgelehnt worden),
         // also genügt der Raum-Beitritt (kein zusätzliches allowpubkey nötig).
         async acceptJoin(j: JoinRequestView) {
@@ -5310,11 +5316,17 @@ export function registerNostrComponents(Alpine: {
                     // case is covered by `joinQueueQuelle.test.ts` ("a kick after approval
                     // does NOT reopen the request").
                     //
-                    // The `banEvent` call is NOT obsolete: it asks the relay to drop the
-                    // 9021, which no client-side derivation can do. `removeEvent` is kept
-                    // as the optimistic local counterpart so the row disappears before the
-                    // relay answers — removing it would be a behaviour change on a publish
-                    // path, not a comment fix.
+                    // **Narrower than first written, after measuring:** the pruning only
+                    // happens when the 9000 is authored by a pubkey in THAT room's
+                    // relay-signed 39001, or by the relay itself — that is the condition
+                    // `Rooms.foldMembership` applies to moderation ops. On Buzz, where
+                    // room roles are per-channel, an accepting manager outside that 39001
+                    // does NOT prune the request (measured: queue entry stays). So
+                    // `removeEvent` is still doing work, and not only as an optimistic
+                    // counterpart.
+                    //
+                    // `banEvent` is obsolete in no reading: it asks the relay to drop the
+                    // 9021, which no client-side derivation can do.
                     void banEvent(this._url, j.id)
                     app.repository.removeEvent(j.id)
                 }
