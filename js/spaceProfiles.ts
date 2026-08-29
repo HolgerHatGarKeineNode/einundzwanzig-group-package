@@ -25,10 +25,11 @@
 import { get, derived, writable, type Readable } from 'svelte/store'
 import { app, Profiles } from './welshmanApp.ts'
 import { throttled } from '@welshman/store'
-import { request } from '@welshman/net'
+import { request } from './welshmanNet.ts'
 import { verifyEvent, type TrustedEvent } from '@welshman/util'
 import { PROFILE } from './welshmanKinds.ts'
-import { displayProfile, displayPubkey, profileHasName, readProfile, type Profile } from './welshmanProfile.ts'
+import { ausReader, ausReaderMap, displayProfile, displayPubkey, profileHasName, readProfile, type Profile } from './welshmanProfile.ts'
+import type { ProfileReader } from '@welshman/domain'
 import { mergeProfileForDisplay, newestByPubkey, sanitizeSpaceProfile, isSpaceLocalOnly } from './profileMerge.ts'
 
 /**
@@ -255,7 +256,8 @@ const mergeForDisplayGated = (pubkey: string, native: Profile | undefined, local
  */
 export const profilesByPubkey: Readable<Map<string, Profile>> = derived(
     [throttled(200, app.use(Profiles).index.$), spaceProfiles],
-    ([$native, $local]: [Map<string, Profile>, Map<string, Profile>]) => {
+    ([$nativeReader, $local]: [Map<string, ProfileReader>, Map<string, Profile>]) => {
+        const $native = ausReaderMap($nativeReader)
         if ($local.size === 0) {
             return $native
         }
@@ -282,7 +284,7 @@ export const displayProfileByPubkey = (pubkey: string): string => {
     if (!pubkey) {
         return ''
     }
-    const native = app.use(Profiles).get(pubkey)
+    const native = ausReader(app.use(Profiles).get(pubkey))
     if (profileHasName(native)) {
         return displayProfile(native, displayPubkey(pubkey))
     }
@@ -300,7 +302,7 @@ export const displayProfileByPubkey = (pubkey: string): string => {
 
 /** Natives + Space-Profil eines Pubkeys als EIN Anzeige-Objekt (Momentaufnahme). */
 export const getMergedProfile = (pubkey: string): Profile | undefined =>
-    mergeForDisplayGated(pubkey, app.use(Profiles).get(pubkey), getSpaceProfile(pubkey))
+    mergeForDisplayGated(pubkey, ausReader(app.use(Profiles).get(pubkey)), getSpaceProfile(pubkey))
 
 /**
  * Wie `deriveProfile` aus `@welshman/app`, nur gemergt — für Flächen, die EIN Profil
@@ -311,6 +313,8 @@ export const getMergedProfile = (pubkey: string): Profile | undefined =>
  * ohnehin schon geladen wurde — dieser Store fragt von sich aus **nichts** an.
  */
 export const deriveMergedProfile = (pubkey: string): Readable<Profile | undefined> =>
-    derived([app.use(Profiles).one(pubkey), spaceProfiles], ([$native, $local]: [Profile | undefined, Map<string, Profile>]) =>
-        mergeForDisplayGated(pubkey, $native, $local.get(pubkey)),
+    derived(
+        [app.use(Profiles).one(pubkey), spaceProfiles],
+        ([$native, $local]: [ProfileReader | undefined, Map<string, Profile>]) =>
+            mergeForDisplayGated(pubkey, ausReader($native), $local.get(pubkey)),
     )

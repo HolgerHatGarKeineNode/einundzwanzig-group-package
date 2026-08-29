@@ -933,6 +933,13 @@ export function initStorage(): void {
             // so bleibt die reine Cache-Logik (shouldPersistEvent) node-/testbar und
             // der (in P1) von `core.ts` gezogene Import zirkelfrei. `ensureAuthReady()`
             // startet die localStorage-Bindung von pubkey/sessions beim ersten Gebrauch.
+            //
+            // **`[INEFFECTIVE_DYNAMIC_IMPORT]` beim Bauen ist hier KEIN Mangel.** Rolldown
+            // meldet, dass dieser Import keine Chunk-Trennung bewirkt — `js/bridge.ts`
+            // zieht `session.ts` ohnehin statisch. Das stimmt, ist aber nicht sein Zweck:
+            // er bricht den ZYKLUS (`session.ts` → `core.ts` → diese Datei) und hält die
+            // reinen Funktionen oben unter `node --test` ladbar. Ihn statisch zu machen
+            // brächte kein Byte und kostete beides. Geprüft beim welshman-0.9.5-Sprung.
             const { ensureAuthReady } = await import('./session.ts')
             await ensureAuthReady()
             const pk = pubkey.get()

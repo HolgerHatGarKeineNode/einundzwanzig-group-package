@@ -12,7 +12,7 @@
  */
 import { derived, writable, get, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
-import { load, request } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
 import { app, Profiles } from './welshmanApp.ts'
 import { type TrustedEvent } from '@welshman/util'
 import { MESSAGE, REPORT, ROOM_JOIN, ROOM_LEAVE } from './welshmanKinds.ts'

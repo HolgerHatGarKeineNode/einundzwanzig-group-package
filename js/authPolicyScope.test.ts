@@ -54,6 +54,17 @@ const METRIK = 'wss://nos.lol/'
  * Rahmen → `AuthState` setzt Challenge und Status → Policy hört → `doAuth` → `sign`.
  * Ein direkt emittierter Status hätte `doAuth` sofort werfen lassen („no challenge") und
  * den Test aus einem Grund grün gemacht, der mit dem Riegel nichts zu tun hat.
+ *
+ * ── Warum BEIDE Empfangs-Ereignisse gefeuert werden ──────────────────────────────
+ * Ein echter Socket meldet einen eingehenden Rahmen zweimal: `Receiving` sofort und
+ * `Receive`, nachdem die Empfangs-Queue ihn verarbeitet hat (`net/src/socket.js:88-89`
+ * gegen `:50`). **Woran `AuthState` hängt, hat sich mit welshman 0.9.5 geändert** — von
+ * `Receive` auf `Receiving`, damit die AUTH-Runde nicht auf eine Queue wartet, die der
+ * AuthBuffer gerade blockiert. Die Attrappe feuerte nur `Receive` und ließ die AUTH-Kette
+ * damit gar nicht erst anlaufen: alle Fälle, die eine Signatur ERWARTEN, meldeten 0.
+ *
+ * Sie feuert deshalb beides, in der Reihenfolge des echten Sockets. Wer hier künftig
+ * eines wegnimmt, misst wieder die Attrappe statt den Vertrag.
  */
 const machSocket = (url: string): { socket: Socket; auth: AuthState; fordereAuth: () => void } => {
     const emitter = new Emitter()
@@ -64,7 +75,11 @@ const machSocket = (url: string): { socket: Socket; auth: AuthState; fordereAuth
     return {
         socket,
         auth,
-        fordereAuth: () => emitter.emit(SocketEvent.Receive, ['AUTH', `challenge-${url}`]),
+        fordereAuth: () => {
+            const rahmen = ['AUTH', `challenge-${url}`]
+            emitter.emit(SocketEvent.Receiving, rahmen, url)
+            emitter.emit(SocketEvent.Receive, rahmen, url)
+        },
     }
 }
 
@@ -158,24 +173,44 @@ describe('P6/F2: der AUTH-Riegel wirkt, nicht nur die Regel', () => {
 })
 
 /**
- * ── Die VERDRAHTUNG in `core.ts`, strukturell geprüft ─────────────────────────────
+ * ── Die VERDRAHTUNG, strukturell geprüft ──────────────────────────────────────────
  *
  * Die Fälle oben messen die Policy mit UNSERER Verdrahtung — aber sie können nicht
- * sehen, ob `js/core.ts` sie auch so einhängt. Die Datei ist unter `node --test` nicht
- * ladbar (Boot-Seiteneffekte, `localStorage`), und genau dort saß der Befund: eine
- * `shouldAuth`-Zeile ohne Socket-Parameter, die `tsc` anstandslos durchwinkt.
+ * sehen, ob die Insel sie auch so einhängt. Die betroffenen Dateien sind unter
+ * `node --test` nicht ladbar (Boot-Seiteneffekte, `localStorage`), und genau dort saß
+ * der Befund: eine `shouldAuth`-Zeile ohne Socket-Parameter, die `tsc` anstandslos
+ * durchwinkt.
  *
  * Deshalb hier ein Strukturtest über den Quelltext — dieselbe Bauform, die
  * `zapTargetSources.test.ts` (Ebene 2) für die Herkunft von Profilfeldern fährt: die
  * Deklaration darf nicht bloß behauptet sein, sie muss im Code stehen.
  *
- * **Was er NICHT leistet:** er liest Text, keine Semantik. Wer `darfAuthBekommen` in
- * `core.ts` umbenennt und die Bedeutung dreht, kommt daran vorbei. Er fängt den Fall, der
+ * ── Was der welshman-0.9.5-Sprung daran geändert hat ─────────────────────────────
+ * **Den Ort, nicht die Zusage.** Bis 0.8.16 stand beides in `js/core.ts`: der
+ * AUTH-Policy-Push in den globalen `defaultSocketPolicies` und die
+ * `METRIK_RELAYS`-Deklaration. In 0.9.5 gibt es keine globalen Socket-Policies mehr —
+ * jede App-Instanz hat eigene. Die Policy gehört damit in die KONSTRUKTION der App
+ * (`js/welshmanInstance.ts`), und die Konfiguration, die sie braucht, muss noch tiefer
+ * liegen (`js/relayConfig.ts`), sonst entsteht ein Importzyklus.
+ *
+ * Auch die welshman-Form ist eine andere: statt `makeSocketPolicyAuth({sign, shouldAuth})`
+ * jetzt `makeAppPolicyAuth((socket) => …)` — die Policy holt sich den Signer selbst aus
+ * `app.user` und ist ohne Nutzer ein No-op. Das Fehlerbild, gegen das dieser Test steht,
+ * ist unverändert: ein Prädikat, das den Socket ignoriert.
+ *
+ * **Was er NICHT leistet:** er liest Text, keine Semantik. Wer `darfAuthBekommen`
+ * umbenennt und die Bedeutung dreht, kommt daran vorbei. Er fängt den Fall, der
  * eingetreten ist — den stillen Rückbau auf einen ignorierten Parameter.
  */
-describe('P6/F2: core.ts hängt den Riegel auch wirklich ein', () => {
-    const coreQuelle = (): string =>
-        readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'core.ts'), 'utf8')
+describe('P6/F2: die Insel hängt den Riegel auch wirklich ein', () => {
+    const lies = (datei: string): string =>
+        readFileSync(join(dirname(fileURLToPath(import.meta.url)), datei), 'utf8')
+
+    /** Die Policy-Verdrahtung — seit dem 0.9.5-Sprung in der App-Konstruktion. */
+    const coreQuelle = (): string => lies('welshmanInstance.ts')
+
+    /** Die Konfiguration, aus der der Riegel seine Relay-Mengen zieht. */
+    const konfigQuelle = (): string => lies('relayConfig.ts')
 
     /**
      * Derselbe Quelltext mit **zusammengefaltetem Weissraum** — Zeilenumbrueche und
@@ -193,22 +228,28 @@ describe('P6/F2: core.ts hängt den Riegel auch wirklich ein', () => {
      */
     const coreGefaltet = (): string => coreQuelle().replace(/\s+/g, ' ')
 
-    test('shouldAuth wertet den SOCKET aus, nicht nur den Pubkey', () => {
+    test('das AUTH-Prädikat wertet den SOCKET aus, nicht nur den Pubkey', () => {
         const quelle = coreGefaltet()
 
-        // Der Bestandscode war `shouldAuth: () => Boolean(pubkey.get())` — ein leeres
-        // Parameterpaar ist damit das Fehlerbild, gegen das dieser Fall steht.
+        // Das Fehlerbild aus dem Bestand war `shouldAuth: () => Boolean(pubkey.get())` —
+        // ein leeres Parameterpaar. In der 0.9.5-Form hiesse es
+        // `makeAppPolicyAuth(() => …)`; beide Schreibweisen sind hier gesperrt.
         assert.equal(
             /shouldAuth:\s*\(\s*\)\s*=>/.test(quelle),
             false,
-            'shouldAuth ignoriert den Socket wieder — jeder fremde Relay bekäme den Pubkey des Lesers',
+            'das Prädikat ignoriert den Socket wieder — jeder fremde Relay bekäme den Pubkey des Lesers',
         )
-        assert.match(quelle, /shouldAuth:\s*\(socket\)\s*=>/)
+        assert.equal(
+            /makeAppPolicyAuth\(\s*\(\s*\)\s*=>/.test(quelle),
+            false,
+            'makeAppPolicyAuth ohne Socket-Parameter — dasselbe Loch in der 0.9.5-Form',
+        )
+        assert.match(quelle, /makeAppPolicyAuth\(\(socket\)\s*=>/)
         assert.match(quelle, /darfAuthBekommen\(socket\.url\)/)
     })
 
     test('die Metrik-Relais werden aus der KONFIGURATION gelesen, nicht aus einer Literalliste', () => {
-        const quelle = coreQuelle()
+        const quelle = konfigQuelle()
 
         // **Nur die DEKLARATION, nicht die ganze Datei.** Ein `includes('nos.lol')` über
         // den gesamten Quelltext war der erste Entwurf und schlug fehl — `nos.lol` steht
@@ -264,8 +305,17 @@ describe('P6/F2: core.ts hängt den Riegel auch wirklich ein', () => {
         // Datei nicht oder liest er Leeres, meldet er ebenfalls nichts Auffaelliges.
         const quelle = coreGefaltet()
 
-        assert.ok(quelle.length > 5_000, `core.ts wirkt zu kurz (${quelle.length} Zeichen) — liest der Test die richtige Datei?`)
-        assert.match(quelle, /makeSocketPolicyAuth\(/)
-        assert.match(quelle, /const METRIK_RELAYS/)
+        assert.ok(
+            quelle.length > 5_000,
+            `welshmanInstance.ts wirkt zu kurz (${quelle.length} Zeichen) — liest der Test die richtige Datei?`,
+        )
+        assert.match(quelle, /makeAppPolicyAuth\(/)
+        // Und die zweite Datei ebenso: sie trägt die Relay-Mengen des Riegels.
+        const konfig = konfigQuelle()
+        assert.ok(
+            konfig.length > 2_000,
+            `relayConfig.ts wirkt zu kurz (${konfig.length} Zeichen) — liest der Test die richtige Datei?`,
+        )
+        assert.match(konfig, /const METRIK_RELAYS/)
     })
 })

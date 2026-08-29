@@ -36,7 +36,7 @@
  */
 import { derived, get, writable, type Readable, type Writable } from 'svelte/store'
 import { ensurePlaintext, pubkey } from './welshmanSession.ts'
-import { load, request } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
 import { type TrustedEvent } from '@welshman/util'
 import { APP_DATA } from './welshmanKinds.ts'
 import { tagSpec, tagValue } from './welshmanTags.ts'

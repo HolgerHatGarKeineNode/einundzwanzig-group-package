@@ -40,21 +40,30 @@ import { Profiles, Zappers, RelayLists, Router as RouterPlugin } from '@welshman
 import {
     RelayScenario,
     ZAP_REQUEST,
+    makeEvent,
     makeSelection,
     tagSpec,
     tagValue,
-    type EventTemplate,
+    type StampedEvent,
     type Filter,
 } from '@welshman/util'
-import { Zapper } from '@welshman/domain'
+import { Zapper as ZapperKlasse } from '@welshman/domain'
 import { app } from './welshmanInstance.ts'
 import { ausReader, type Profile } from './welshmanProfile.ts'
 
 export { signer } from './welshmanSession.ts'
-export type { Zapper } from '@welshman/domain'
+import type { Zapper } from './welshmanZap.ts'
+export type { Zapper } from './welshmanZap.ts'
 
-/** Zapper aus der Sammlung. 0.9.5: `app.use(Zappers).get(lnurl)`. */
-export const getZapper = (lnurl: string) => app.use(Zappers).get(lnurl)
+/**
+ * Zapper aus der Sammlung. 0.9.5: `app.use(Zappers).get(lnurl)`.
+ *
+ * Der Cast auf unseren Wertetyp ist der ehrliche Weg: die Sammlung ist als
+ * `Zapper`-KLASSE typisiert, enthält aber das schlichte Objekt, das `loadZapperNow`
+ * hineingelegt hat (am Paket gemessen — `MapPlugin.set` erzwingt kein `instanceof`).
+ */
+export const getZapper = (lnurl: string): Zapper | undefined =>
+    app.use(Zappers).get(lnurl) as Zapper | undefined
 
 /**
  * Die Zapper-Sammlung als Store mit `update` — die Form, die `loadZapperNow` benutzt.
@@ -69,7 +78,7 @@ export const zappersByLnurl = {
         const kopie = new Map(app.use(Zappers).index.get())
         for (const [k, v] of fn(kopie)) {
             if (app.use(Zappers).get(k) !== v) {
-                app.use(Zappers).set(k, v as Zapper)
+                app.use(Zappers).set(k, v as ZapperKlasse)
             }
         }
     },
@@ -136,7 +145,7 @@ export const getZapResponseFilter = ({
     pubkey: string
     eventId?: string
 }): Filter =>
-    new Zapper(zapper as ConstructorParameters<typeof Zapper>[0]).getResponseFilter(pubkey, eventId)
+    new ZapperKlasse(zapper as ConstructorParameters<typeof ZapperKlasse>[0]).getResponseFilter(pubkey, eventId)
 
 /**
  * Die unsignierte kind-9734-Zap-Request. In 0.9.5 baut das der `ZapRequestWriter` —
@@ -161,7 +170,7 @@ export const makeZapRequest = ({
     relays: string[]
     content?: string
     eventId?: string
-}): EventTemplate => {
+}): StampedEvent => {
     const tags = [
         ['relays', ...relays],
         ['amount', String(msats)],
@@ -172,7 +181,7 @@ export const makeZapRequest = ({
         tags.push(['e', eventId])
     }
 
-    return { kind: ZAP_REQUEST, content, tags }
+    return makeEvent(ZAP_REQUEST, { content, tags })
 }
 
 /**

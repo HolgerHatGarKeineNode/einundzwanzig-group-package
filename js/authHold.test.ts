@@ -107,7 +107,10 @@ test('`Socket.cleanup()` wirft nicht — welshman ruft die Policy-Rückgaben als
 test('`Pool.remove(url)` wirft nicht UND löscht die Socket aus der Registry', () => {
     // Der Wurf lag VOR `this._data.delete(url)` (`pool.js:44-50`): die tote Socket blieb
     // danach stehen, und der Reconnect in `verein.ts` brach ab, bevor er neu beobachtete.
-    const pool = new Pool({ makeSocket: (url) => new Socket(url, [socketPolicyAuthHold]) })
+    // 0.9.5: `Pool` nimmt keine Socket-Fabrik mehr im Konstruktor; die Policies hängen
+    // am Feld `socketPolicies` und gelten für jeden Socket, den der Pool anlegt.
+    const pool = new Pool()
+    pool.socketPolicies = [socketPolicyAuthHold]
     pool.get(URL)
     assert.equal(pool.has(URL), true)
 

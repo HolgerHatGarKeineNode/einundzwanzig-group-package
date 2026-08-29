@@ -23,7 +23,7 @@ import {
     type Zapper,
 } from './welshmanZapApi.ts'
 import { toMsats, type SignedEvent } from '@welshman/util'
-import { request } from '@welshman/net'
+import { request } from './welshmanNet.ts'
 import { bech32ToHex, uniq } from '@welshman/lib'
 import { payInvoice as walletPayInvoice } from './wallet.ts'
 import { t } from './i18n.ts'

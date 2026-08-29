@@ -45,7 +45,7 @@
 
 import { app, Relays, Thunks } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
-import { load, request } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
 import { throttled } from '@welshman/store'
 import { makeEvent, type Filter, type TrustedEvent } from '@welshman/util'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'

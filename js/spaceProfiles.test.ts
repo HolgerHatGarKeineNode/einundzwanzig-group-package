@@ -7,23 +7,31 @@
  *   node --experimental-strip-types --test packages/einundzwanzig-group/js/spaceProfiles.test.ts
  *
  * **Warum das ein eigener Test ist.** Die Regeln selbst stehen pur in
- * `profileMerge.test.ts`. Hier hängt alles an einer welshman-Eigenheit, die keine
- * Spec garantiert: `netContext.isEventValid` hat ZWEI Aufrufer. Der socket-weite in
- * `@welshman/app` schreibt ins Repository und ist nicht überschreibbar; `requestOne`
- * nimmt daneben ein request-lokales `isEventValid` (`@welshman/net` `request.js:15`:
- * `options.isEventValid || netContext.isEventValid`). Genau diese Trennung trägt die
- * ganze Konstruktion. Fällt sie in einer künftigen welshman-Fassung weg, fällt dieser
- * Test um — und nicht erst die Fläche.
+ * `profileMerge.test.ts`. Hier hängt alles an einer welshman-Eigenheit, die keine Spec
+ * garantiert: dass ein `request()` seine Ereignisse an den Aufrufer gibt, OHNE sie ins
+ * gemeinsame Repository zu schreiben. Genau diese Trennung trägt die Konstruktion.
+ * Fällt sie in einer künftigen welshman-Fassung weg, fällt dieser Test um — und nicht
+ * erst die Fläche.
  *
- * Der Kontext-Riegel wird hier nachgebaut wie in `core.ts:225` (kind 0 vom
- * Workspace-Relay ist ungültig). Ohne ihn wäre der Test grün aus dem falschen Grund.
+ * ── Was der 0.9.5-Sprung an diesem Test geändert hat ────────────────────────────
+ * Bis 0.8.16 hing der kind-0-Riegel gegen den Workspace-Relay am globalen
+ * `netContext.isEventValid`, und der hatte ZWEI Aufrufer: den socket-weiten (schreibt
+ * ins Repository) und den request-lokalen (überschreibbar). Der Test baute den Riegel
+ * deshalb nach, sonst wäre er grün aus dem falschen Grund gewesen.
+ *
+ * **Den globalen Slot gibt es in 0.9.5 nicht mehr.** Der Riegel liegt jetzt in der
+ * Ingest-Policy der App (`js/welshmanInstance.ts`), also auf dem Weg vom Socket ins
+ * Repository — und ein `request()` geht da per Konstruktion nicht durch. Die Zusage
+ * unten ist damit nicht schwächer, sondern stärker: sie hängt nicht mehr daran, dass
+ * jemand den richtigen der zwei Aufrufer überschreibt, sondern daran, dass `request()`
+ * nicht ins Repository schreibt. Genau das misst der zweite Fall.
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { get } from 'svelte/store'
 import { app } from './welshmanApp.ts'
-import { netContext, MockAdapter, type AbstractAdapter, type ClientMessage } from '@welshman/net'
-import { normalizeRelayUrl, verifyEvent, type TrustedEvent } from '@welshman/util'
+import { MockAdapter, type AbstractAdapter, type ClientMessage } from '@welshman/net'
+import { normalizeRelayUrl, type TrustedEvent } from '@welshman/util'
 import { PROFILE } from './welshmanKinds.ts'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { loadSpaceProfiles, profilesByPubkey, displayProfileByPubkey, getSpaceProfile } from './spaceProfiles.ts'
@@ -96,15 +104,11 @@ const makeAdapter = (): MockAdapter => {
 const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
-    const originalGetAdapter = netContext.getAdapter
-    const originalIsEventValid = netContext.isEventValid
+    const originalGetAdapter = app.netContext.getAdapter
     let unsubscribe: () => void
 
     before(async () => {
-        netContext.getAdapter = (): AbstractAdapter => makeAdapter()
-        // Der Riegel aus `core.ts`: kind 0 vom Workspace-Relay ist kontextweit ungültig.
-        netContext.isEventValid = (event: TrustedEvent, url: string) =>
-            event.kind === PROFILE && normalizeRelayUrl(url) === SPACE ? false : verifyEvent(event)
+        app.netContext.getAdapter = (): AbstractAdapter => makeAdapter()
 
         // **Ohne laufendes Abo bleibt `profilesByPubkey` LEER** — nachgemessen an der
         // installierten Fassung: `deriveItemsByKey` füllt seine Map erst beim ersten
@@ -121,11 +125,10 @@ describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
 
     after(() => {
         unsubscribe()
-        netContext.getAdapter = originalGetAdapter
-        netContext.isEventValid = originalIsEventValid
+        app.netContext.getAdapter = originalGetAdapter
     })
 
-    test('die Space-Profile kommen an — trotz Kontext-Riegel', () => {
+    test('die Space-Profile kommen an', () => {
         assert.equal(getSpaceProfile(beidePubkey)?.display_name, 'ElPresidentoBenito')
         assert.equal(getSpaceProfile(nurSpacePubkey)?.display_name, 'nostr-specialist')
     })
@@ -184,7 +187,7 @@ describe('Space-Profile: zweite Quelle statt Verdrängung', () => {
  * und loest leer auf. Nur das ausbleibende EOSE unterscheidet ihn von „kennt sie nicht".
  */
 describe('Fehlgeschlagene Runde gibt die Pubkeys wieder frei', () => {
-    const originalGetAdapter = netContext.getAdapter
+    const originalGetAdapter = app.netContext.getAdapter
     let modus: 'abgewiesen' | 'antwortet' = 'abgewiesen'
 
     const makeSchaltbarenAdapter = (): MockAdapter => {
@@ -207,11 +210,11 @@ describe('Fehlgeschlagene Runde gibt die Pubkeys wieder frei', () => {
     }
 
     before(() => {
-        netContext.getAdapter = (): AbstractAdapter => makeSchaltbarenAdapter()
+        app.netContext.getAdapter = (): AbstractAdapter => makeSchaltbarenAdapter()
     })
 
     after(() => {
-        netContext.getAdapter = originalGetAdapter
+        app.netContext.getAdapter = originalGetAdapter
     })
 
     test('abgewiesene Runde bringt nichts', async () => {

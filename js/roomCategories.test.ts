@@ -11,7 +11,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeRoomEditEvent } from '@welshman/util'
+import { makeRoomEditEvent } from './welshmanList.ts'
 import {
     DEFAULT_ROOM_TYPE,
     FORUM_CHANNEL_TYPE,

@@ -10,7 +10,7 @@
  */
 import { derived, writable, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
-import { load, request } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
 import { app, Handles, Profiles, RelayManagement, Relays } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { RELAY_MEMBERS } from './welshmanKinds.ts'
@@ -410,11 +410,29 @@ const manageError = (res: ManageResult): string => res.error ?? ''
 // deshalb in der Zielform. Die `as ManagementMethod`-Casts, die 0.8.16 verlangte,
 // sind ersatzlos weg — in 0.9.5 ist `method` ein schlichter String.
 //
-// Offen für P3: 0.9.5 typisiert `color` und `order` als `number`. `roleColorParams`
-// baut ein HSL-Tripel und `order` geht als String über die Leitung — das ist die
-// zooid-Wire-Form, die die echte `ManagementApi` so nicht mehr annimmt.
-const roleColorParams = (color: SpaceRoleColor): string =>
-    [color.hue, color.saturation, color.lightness] as unknown as string
+/**
+ * ── Warum diese zwei Aufrufe über `send` gehen und nicht über `createRole`/`editRole` ──
+ *
+ * 0.9.5 hat die fünf Rollen-Methoden als benannte Methoden an `ManagementApi` — aber es
+ * typisiert **`color: number` und `order: number`** (`util/src/Nip86.ts`). Wir schicken
+ * ein **HSL-Tripel als Array** und `order` als **String**. Das ist keine Nachlässigkeit,
+ * sondern die Wire-Form, die unser Relay erwartet; sie darf sich nicht ändern.
+ *
+ * Der andere Weg wäre gewesen, die Umformung in den Adapter zu legen und `number` zu
+ * versprechen, während ein Array über die Leitung geht. Das wäre eine Lüge im Typsystem
+ * — und zwar an der Stelle, an der der nächste Leser sie am wenigsten vermutet.
+ * `send` sagt stattdessen wörtlich, was gesendet wird.
+ *
+ * **`deleteRole`, `assignRole` und `unassignRole` bleiben benannt** — bei ihnen stimmen
+ * unsere Werte mit der 0.9.5-Signatur überein.
+ */
+const roleParams = (id: string, label: string, description: string, color: SpaceRoleColor, order: number): unknown[] => [
+    id,
+    label,
+    description,
+    [color.hue, color.saturation, color.lightness],
+    order.toString(),
+]
 
 export const createRole = async (
     url: string,
@@ -427,7 +445,7 @@ export const createRole = async (
         await app
             .use(RelayManagement)
             .forUrl(url)
-            .createRole(randomId(), label, description, roleColorParams(color), order.toString()),
+            .send({ method: 'createrole', params: roleParams(randomId(), label, description, color, order) }),
     )
 
 export const editRole = async (
@@ -442,7 +460,7 @@ export const editRole = async (
         await app
             .use(RelayManagement)
             .forUrl(url)
-            .editRole(id, label, description, roleColorParams(color), order.toString()),
+            .send({ method: 'editrole', params: roleParams(id, label, description, color, order) }),
     )
 
 export const deleteRole = async (url: string, id: string): Promise<string> =>

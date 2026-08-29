@@ -28,7 +28,7 @@
  * ist im Projektgedächtnis als `derive-feed-recompute-luecke` dokumentiert.
  */
 import { derived, type Readable } from 'svelte/store'
-import { load, request } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
 import { pubkey } from './welshmanSession.ts'
 import { type TrustedEvent } from '@welshman/util'
 import { MESSAGE } from './welshmanKinds.ts'

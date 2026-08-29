@@ -9,7 +9,7 @@ import { derived, get, type Readable } from 'svelte/store'
 import { app, Handles, loadUserProfile, Profiles, Relays, userProfile, Zappers } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { toNostrURI, getLnUrl, normalizeRelayUrl } from '@welshman/util'
-import { displayProfile } from './welshmanProfile.ts'
+import { ausReader, displayProfile } from './welshmanProfile.ts'
 import { tagSpec, tagValue } from './welshmanTags.ts'
 import { MESSAGE, RELAYS } from './welshmanKinds.ts'
 import type { RelayInfo } from './welshmanRelay.ts'
@@ -20,7 +20,7 @@ import { deriveMergedProfile, purgeSpaceLocalProfiles } from './spaceProfiles.ts
 import { blossomMedia } from './blossomInstance.ts'
 import { bindAvatarState, type AvatarState } from './blossomMedia.ts'
 import { startBlossomHydration } from './blossomHydrate.ts'
-import { load } from '@welshman/net'
+import { load } from './welshmanNet.ts'
 import { deriveEvents, throttled } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
@@ -2157,7 +2157,7 @@ export function registerNostrComponents(Alpine: {
             })
             // NIP-05: welshman verifiziert den Handle (nostr.json ↔ pubkey); der Store
             // liefert nur bei bestätigtem Match einen Wert → Häkchen erst dann.
-            this._unsubHandle = app.use(Handles).forPubkey(pk).subscribe((handle) => {
+            this._unsubHandle = app.use(Handles).forPubkey(pk).$.subscribe((handle) => {
                 this.nip05 = handle ? app.use(Handles).display(handle.nip05) : ''
             })
             this._unsub = deriveMergedProfile(pk).subscribe((p) => {
@@ -2265,7 +2265,18 @@ export function registerNostrComponents(Alpine: {
             // angelegte Sub würde leaken. Das Feld folgt dem Profil, bis der User
             // selbst tippt (`addressTouched`) — so überschreibt ein spätes Update
             // keine Eingabe und ein bewusst geleertes Feld (Adresse entfernen) bleibt leer.
-            this._unsubProfile = userProfile.subscribe((p) => {
+            this._unsubProfile = userProfile.subscribe(($userProfile) => {
+                // `userProfile` liefert seit 0.9.5 einen `ProfileReader`; `lud16`/`nip05`
+                // sind dort Methoden, kein Feld. `ausReader` gibt das Wertbild zurück —
+                // ohne das wäre `p?.lud16` eine FUNKTION und damit truthy, und die
+                // Adresszeile bekäme stumm Unsinn statt der Lightning-Adresse.
+                //
+                // Der Parameter heisst `$userProfile` und nicht `$reader`: die
+                // Herkunftsprüfung in `zapTargetSources.test.ts` liest die Quelle eines
+                // Zahlungsfeldes aus der Bindungszeile. Steht dort nur `ausReader(...)`,
+                // meldet sie „Quelle unbekannt" — zu Recht, denn dann sagt der Code
+                // nicht mehr, woher das Profil kommt.
+                const p = ausReader($userProfile)
                 this.profileLud16 = p?.lud16 ?? ''
                 this.profileNip05 = p?.nip05 ?? ''
                 if (!this.addressTouched) {
@@ -2300,7 +2311,7 @@ export function registerNostrComponents(Alpine: {
             // Sonst blitzte „unverifiziert" bei EINEM gültigen NIP-05-Nutzer auf (Review-Fund).
             const pk = get(pubkey)
             if (pk) {
-                this._unsubHandle = app.use(Handles).forPubkey(pk).subscribe((handle) => {
+                this._unsubHandle = app.use(Handles).forPubkey(pk).$.subscribe((handle) => {
                     this.nip05Verified = Boolean(handle)
                     if (handle) {
                         this.nip05Settled = true
@@ -7505,7 +7516,7 @@ export function registerNostrComponents(Alpine: {
                 //    `withTimeout` unten rettete die UI) und die Rejection ist eine Waise, die
                 //    kein Aufrufer abfangen kann — Herleitung in `js/zaps.ts` bei `warmZappers`.
                 //    `loadZapperNow` drosselt ebenfalls nicht, settlet aber immer und wirft nie.
-                const profile = app.use(Profiles).get(m.pubkey)
+                const profile = ausReader(app.use(Profiles).get(m.pubkey))
                 const lnurl = getLnUrl(profile?.lud16 || profile?.lud06 || '')
                 let zapper = lnurl ? app.use(Zappers).get(lnurl) : undefined
                 // Timeout/Netzwerkfehler von UNSERER Seite streng trennen von „Empfänger kann
@@ -8088,7 +8099,7 @@ export function registerNostrComponents(Alpine: {
                     this.myPicture = ''
                     this.myAbout = ''
                     this.myNip05 = ''
-                    this._unsubMyHandle = app.use(Handles).forPubkey(pk).subscribe((handle) => {
+                    this._unsubMyHandle = app.use(Handles).forPubkey(pk).$.subscribe((handle) => {
                         this.myNip05 = handle ? app.use(Handles).display(handle.nip05) : ''
                     })
                     this._unsubMyProfile = deriveMergedProfile(pk).subscribe((p) => {

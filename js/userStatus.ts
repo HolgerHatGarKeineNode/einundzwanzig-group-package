@@ -31,7 +31,7 @@
  * `derived` und läuft nur, solange jemand die Tabelle abonniert hat.
  */
 import { derived, readable, type Readable } from 'svelte/store'
-import { load, request } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
 import { throttled } from '@welshman/store'
 import type { Filter } from '@welshman/util'
 import { deriveEventsForUrl } from './repository.ts'

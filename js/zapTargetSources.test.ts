@@ -61,7 +61,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { get } from 'svelte/store'
 import { app } from './welshmanApp.ts'
-import { netContext, MockAdapter, type AbstractAdapter, type ClientMessage } from '@welshman/net'
+import { MockAdapter, type AbstractAdapter, type ClientMessage } from '@welshman/net'
 import { normalizeRelayUrl, verifyEvent, type TrustedEvent } from '@welshman/util'
 import { PROFILE } from './welshmanKinds.ts'
 import { readProfile } from './welshmanProfile.ts'
@@ -378,6 +378,18 @@ const AUFLOESER_INVENTAR: { datei: string; fn: string; argumente: string[]; waru
         warum: 'Cache-Blick auf die übergebene lnurl.',
     },
     {
+        datei: 'js/welshmanZapApi.ts',
+        fn: 'app.use(Zappers).get',
+        argumente: ['app.use(Zappers).get(lnurl)', 'app.use(Zappers).get(k)'],
+        warum:
+            'Zwei Cache-Blicke, beide ohne eigene Auflösung. Der erste ist der Rumpf hinter ' +
+            '`getZapper(lnurl)` aus `js/zaps.ts`, seit der Sprung dessen Importzeile hierher ' +
+            'umgehängt hat. Der zweite steht in der `zappersByLnurl.update`-Fassade und ' +
+            'vergleicht nur, ob ein Eintrag sich überhaupt geändert hat, bevor er geschrieben ' +
+            'wird (`k` ist der Map-Schlüssel, also eine bereits klassifizierte lnurl). Kein ' +
+            'Profil-Leser, keine Auflösung aus einer Adresse.',
+    },
+    {
         datei: 'js/zaps.ts',
         fn: 'loadZapperNow',
         argumente: ['loadZapperNow(profile.lnurl)'],
@@ -492,6 +504,18 @@ const INVENTAR: Deklaration[] = [
         ausdruck: 'zapper.lnurl',
         quellen: ['zapper'],
         warum: 'Rückgabe des LNURL-Dokuments, das aus einer bereits klassifizierten Adresse aufgelöst wurde.',
+    },
+    {
+        datei: 'js/welshmanZapApi.ts',
+        ausdruck: 'zapper.lnurl',
+        quellen: ['zapper'],
+        treffer: 1,
+        warum:
+            'Der Adapter, auf den `js/zaps.ts` seit dem welshman-0.9.5-Sprung zeigt. Die Zeile ' +
+            'baut das `["lnurl", …]`-Tag der kind-9734-Zap-Request — genau das, was der ' +
+            'gleichnamige Eintrag für `js/zaps.ts` daneben abdeckt: der Zapper kommt als ' +
+            'Parameter herein und ist beim Aufrufer bereits klassifiziert. Der Adapter löst ' +
+            'selbst KEINE Adresse auf und liest kein Profil.',
     },
 
     // ── Markup ──────────────────────────────────────────────────────────────
@@ -860,12 +884,11 @@ const ernte = (wert: unknown, ziel: Ernte = { objekte: [], strings: [], events: 
 }
 
 describe('Ebene 3 — kein Ausgang der Fremdquelle trägt Zahlungs- oder Identitätsdaten', () => {
-    const originalGetAdapter = netContext.getAdapter
-    const originalIsEventValid = netContext.isEventValid
+    const originalGetAdapter = app.netContext.getAdapter
     let unsubscribe: () => void
 
     before(async () => {
-        netContext.getAdapter = (): AbstractAdapter => {
+        app.netContext.getAdapter = (): AbstractAdapter => {
             const adapter: MockAdapter = new MockAdapter(SPACE, (message: ClientMessage) => {
                 if (message[0] !== 'REQ') {
                     return
@@ -879,9 +902,15 @@ describe('Ebene 3 — kein Ausgang der Fremdquelle trägt Zahlungs- oder Identit
             })
             return adapter
         }
-        // Der Riegel aus `core.ts` — ohne ihn wäre der Test grün aus dem falschen Grund.
-        netContext.isEventValid = (event: TrustedEvent, url: string) =>
-            event.kind === PROFILE && normalizeRelayUrl(url) === SPACE ? false : verifyEvent(event)
+        // **Der Riegel wird hier seit dem 0.9.5-Sprung NICHT mehr nachgebaut.** Bis
+        // 0.8.16 stand er im globalen `netContext.isEventValid`, und ohne ihn wäre der
+        // Test grün aus dem falschen Grund gewesen (kein natives Profil im Repository →
+        // das Space-Profil „gewinnt" scheinbar zu Recht). In 0.9.5 gibt es den globalen
+        // Slot nicht mehr; der Riegel liegt in der Ingest-Policy der App und damit auf
+        // dem Weg vom SOCKET ins Repository. Ein `request()` über den MockAdapter geht
+        // da per Konstruktion nicht durch — das native Profil unten kommt über
+        // `repository.publish` herein und bleibt liegen. Die Vorbedingung, die der
+        // Riegel herstellen sollte, gilt also weiterhin, nur ohne Nachbau.
 
         unsubscribe = profilesByPubkey.subscribe(() => {})
         app.repository.publish(nativesProfil)
@@ -892,8 +921,7 @@ describe('Ebene 3 — kein Ausgang der Fremdquelle trägt Zahlungs- oder Identit
 
     after(() => {
         unsubscribe()
-        netContext.getAdapter = originalGetAdapter
-        netContext.isEventValid = originalIsEventValid
+        app.netContext.getAdapter = originalGetAdapter
     })
 
     test('KALIBRIERUNG: das Fixture IST feindlich — roh trägt es alle vier Felder', () => {

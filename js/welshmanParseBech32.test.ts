@@ -58,13 +58,23 @@ import { readFileSync } from 'node:fs'
 import { parse, renderAsHtml } from '@welshman/content'
 import * as nip19 from 'nostr-tools/nip19'
 
+type Stand = 'vor-dem-sprung' | 'nach-dem-sprung'
+
 /**
  * **Der eine Schalter.** `'vor-dem-sprung'` = 0.8.16, `'nach-dem-sprung'` = 0.9.5.
  *
  * Er wird von {@link VERSIONS_RIEGEL} gegen die tatsächlich installierte Fassung
  * geprüft — der Schalter lässt sich also nicht vergessen und nicht vorauseilend drehen.
+ *
+ * **`as Stand` und nicht bloss eine Typannotation, und das ist beim Sprung aufgefallen:**
+ * bei `const STAND: Stand = 'nach-dem-sprung'` verengt TypeScript den Typ trotz der
+ * Annotation auf das Literal und meldet jeden `STAND === 'vor-dem-sprung'`-Vergleich als
+ * TS2367 („no overlap"). Vor dem Drehen war das unsichtbar — da war der WAHRE Zweig der
+ * erreichbare. Der Schalter hätte also `npm run typecheck` rot gemacht, obwohl die 21
+ * Fälle grün laufen. Der Cast hält beide Zweige typseitig am Leben; an Logik, Fällen und
+ * Erwartungen ändert er nichts.
  */
-const STAND: 'vor-dem-sprung' | 'nach-dem-sprung' = 'vor-dem-sprung'
+const STAND = 'nach-dem-sprung' as Stand
 
 const hex = (c: string): string => c.repeat(64)
 

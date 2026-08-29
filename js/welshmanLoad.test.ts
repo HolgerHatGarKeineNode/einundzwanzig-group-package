@@ -31,14 +31,8 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { app } from './welshmanApp.ts'
-import {
-    load,
-    netContext,
-    requestOne,
-    MockAdapter,
-    type AbstractAdapter,
-    type ClientMessage,
-} from '@welshman/net'
+import { requestOne, MockAdapter, type AbstractAdapter, type ClientMessage } from '@welshman/net'
+import { load } from './welshmanNet.ts'
 import { normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 
@@ -85,10 +79,11 @@ const makeAdapter = (): MockAdapter => {
 }
 
 describe('welshman load(): der Rückgabewert verschweigt keinen Cache-Bestand', () => {
-    const originalGetAdapter = netContext.getAdapter
+    const originalGetAdapter = app.netContext.getAdapter
 
     before(() => {
-        netContext.getAdapter = (): AbstractAdapter => makeAdapter()
+        // 0.9.5: den Netz-Kontext besitzt die App-Instanz, es gibt keinen globalen mehr.
+        app.netContext.getAdapter = (): AbstractAdapter => makeAdapter()
         // Exakt der Boot-Pfad aus `storage.ts`: Ereignisse in die repository,
         // Herkunft in den tracker. Danach ist der Cache warm.
         app.repository.load([membersEvent])
@@ -96,7 +91,7 @@ describe('welshman load(): der Rückgabewert verschweigt keinen Cache-Bestand', 
     })
 
     after(() => {
-        netContext.getAdapter = originalGetAdapter
+        app.netContext.getAdapter = originalGetAdapter
     })
 
     test('bei warmem Cache liefert load() die Liste trotzdem zurück', async () => {
@@ -127,6 +122,14 @@ describe('welshman load(): der Rückgabewert verschweigt keinen Cache-Bestand', 
             tracker: app.tracker,
             autoClose: true,
             signal: controller.signal,
+            // Bewusst der DIREKTE `requestOne` aus `@welshman/net` mit eigenem Kontext,
+            // nicht der App-gebundene aus `js/welshmanNet.ts`: dieser Fall braucht den
+            // GETEILTEN Tracker (`app.tracker`), und genau die Konstruktion soll er als
+            // die schlechtere vorführen.
+            // Bewusst der DIREKTE `requestOne` aus `@welshman/net` mit eigenem Kontext,
+            // nicht der App-gebundene aus `js/welshmanNet.ts`: dieser Fall braucht den
+            // GETEILTEN Tracker (`app.tracker`), und genau die Konstruktion soll er als
+            // die schlechtere vorführen.
             context: { getAdapter: (): AbstractAdapter => makeAdapter() },
         })
 

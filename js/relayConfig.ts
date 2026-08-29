@@ -34,25 +34,50 @@ import { darfAuthBekommen as authErlaubt, leseRelayListeNachsichtig } from './ar
 type RelayOverride = { indexer?: string[]; default?: string[]; signer?: string[] }
 const relayOverride = (globalThis as { __nostrRelays?: RelayOverride }).__nostrRelays
 
-export const INDEXER_RELAYS = relayOverride?.indexer ?? [
+/**
+ * **Ohne Fenster keine Default-Relays.** Eine Weiche mit einem gemessenen Grund.
+ *
+ * Bis 0.8.16 standen die Relay-Listen in `core.ts` und wurden von dort in die globalen
+ * welshman-Kontexte geschrieben. Eine Testdatei, die `core.ts` nicht importierte, sah
+ * deshalb schlicht keine Relays — und ging nie ins Netz.
+ *
+ * Mit 0.9.5 kehrt sich das um: die Konfiguration gehört zur App-INSTANZ, und die entsteht
+ * in `js/welshmanInstance.ts`, das jede Datei mit `app`-Zugriff mitzieht. Ohne diese
+ * Weiche telefonieren damit die Unit-Tests. **Gemessen, nicht befürchtet:** ein Lauf von
+ * `js/zapTargetSources.test.ts` baute TLS-Verbindungen zu `purplepag.es`,
+ * `relay.damus.io` und `indexer.coracle.social` auf — die Profil-Sammlung lädt über das
+ * Outbox-Modell nach, sobald jemand `one(pubkey)` abonniert. Der Prozess beendete sich
+ * danach nicht mehr, `npm run test:unit` lief in die Zeitgrenze.
+ *
+ * Das ist nicht nur langsam und flakig: ein Testlauf, der fremde Relays anspricht,
+ * verrät dabei Abfragemuster an Dritte und hängt von deren Erreichbarkeit ab.
+ *
+ * `window` ist die Weiche und nicht `process`: im Browser und im WebView der
+ * Companion-App gibt es es immer, unter `node --test` nie. Die E2E-Läufe sind nicht
+ * betroffen — dort setzt der Host `__nostrRelays` per `addInitScript`, und ein
+ * ausdrücklicher Override sticht diese Weiche.
+ */
+const imBrowser = typeof window !== 'undefined'
+
+export const INDEXER_RELAYS = relayOverride?.indexer ?? (imBrowser ? [
     'wss://purplepag.es/',
     'wss://relay.damus.io/',
     'wss://indexer.coracle.social/',
-]
+] : [])
 
-export const DEFAULT_RELAYS = relayOverride?.default ?? [
+export const DEFAULT_RELAYS = relayOverride?.default ?? (imBrowser ? [
     'wss://relay.primal.net/',
     'wss://theforest.nostr1.com/',
     'wss://nostr.oxtr.dev/',
     'wss://nos.lol/',
-]
+] : [])
 
 // relay.nsec.app ist tot — dauerhaft ausgeschlossen (Anweisung).
-export const SIGNER_RELAYS = relayOverride?.signer ?? [
+export const SIGNER_RELAYS = relayOverride?.signer ?? (imBrowser ? [
     'wss://bucket.coracle.social/',
     'wss://relay.primal.net/',
     'wss://nos.lol/',
-]
+] : [])
 
 /**
  * Die Workspace-URL, normalisiert — oder `''`, wenn kein zweiter Space konfiguriert ist.

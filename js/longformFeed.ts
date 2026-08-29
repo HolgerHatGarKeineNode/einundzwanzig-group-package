@@ -31,7 +31,7 @@
  * `d`-Muster: 67 der 99 heißen `draft-<ts>` und sind trotzdem publiziert (Begründung bei
  * `LONGFORM_DRAFT` in `longform.ts`).
  */
-import { load } from '@welshman/net'
+import { load } from './welshmanNet.ts'
 import { throttled } from '@welshman/store'
 import { getLnUrl, normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
 import { COMMENT, REACTION, ZAP_RECEIPT } from './welshmanKinds.ts'

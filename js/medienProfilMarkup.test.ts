@@ -184,13 +184,17 @@ test('Die Profilkarte reicht den VERIFIZIERTEN Handle weiter, kein Profil-Rohfel
     //
     // Das Muster nennt den 0.9.5-Zugriffspfad, seit die welshman-Fassade steht; die
     // Zusage selbst ist unverändert.
+    //
+    // **`.forPubkey(pk).$` und nicht mehr `.forPubkey(pk)`:** mit dem Sprung auf 0.9.5
+    // gibt `Handles.forPubkey` eine `Projection` zurück (`{get, $}`) statt eines nackten
+    // Stores — der Store ist ihr `$`. Reine Formänderung an derselben Quelle.
     const rumpf = inselMethode('nostrProfileCard', 'medienUrl', 8)
     assert.match(rumpf, /this\.pubkey, this\.nip05/, 'Die Karte reicht ein anderes Feld als this.nip05 in die Adresse.')
 
     const open = inselMethode('nostrProfileCard', 'open', 8)
     assert.match(
         open,
-        /app\.use\(Handles\)\.forPubkey\(pk\)\.subscribe\(\(handle\) => \{\s*this\.nip05 = handle \? app\.use\(Handles\)\.display\(handle\.nip05\) : ''/,
+        /app\.use\(Handles\)\.forPubkey\(pk\)\.\$\.subscribe\(\(handle\) => \{\s*this\.nip05 = handle \? app\.use\(Handles\)\.display\(handle\.nip05\) : ''/,
         'this.nip05 kommt nicht mehr aus der verifizierten Handle-Sammlung — die Verifikation hängt daran.',
     )
     // Und NICHT aus dem Profil-Store daneben: `deriveMergedProfile` füllt in derselben

@@ -127,3 +127,23 @@ export const displayProfile = (profile: Profile | undefined, fallback = ''): str
 
 export const profileHasName = (profile: Profile | undefined): boolean =>
     Boolean(profile?.name || profile?.display_name)
+
+/**
+ * Eine ganze Reader-Sammlung in unser Wertebild überführen.
+ *
+ * Für die Stellen, die den Index von `app.use(Profiles)` als `Map<string, Profile>`
+ * weiterreichen (`js/spaceProfiles.ts`, `js/updates.ts`). Der Aufwand ist linear in der
+ * Zahl der Profile und fällt nur an, wenn der Index sich ändert — die Aufrufstelle in
+ * `spaceProfiles.ts` ist ohnehin auf 200 ms gedrosselt.
+ */
+export const ausReaderMap = (index: Map<string, ProfileReader>): Map<string, Profile> => {
+    const map = new Map<string, Profile>()
+    for (const [pubkey, reader] of index) {
+        const profil = ausReader(reader)
+        if (profil) {
+            map.set(pubkey, profil)
+        }
+    }
+
+    return map
+}

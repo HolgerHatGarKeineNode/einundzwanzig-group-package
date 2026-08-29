@@ -77,7 +77,7 @@ const REPAIR_MAX_ROUNDS = 5
  */
 function repairMissingProfiles(pubkeys: string[]): void {
     for (const pk of pubkeys) {
-        if (!profileHasName(app.use(Profiles).get(pk))) {
+        if (!profileHasName(ausReader(app.use(Profiles).get(pk)))) {
             watching.add(pk)
             // Riegel gegen die Space-Race (spaceProfiles.ts markNativePending): auf,
             // solange die Anfrage läuft, zu — sobald sie sich entscheidet (gefunden
@@ -103,7 +103,7 @@ function startRepairTimer(): void {
     const tick = () => {
         repairTimer = null
         for (const pk of watching) {
-            if (profileHasName(app.use(Profiles).get(pk))) {
+            if (profileHasName(ausReader(app.use(Profiles).get(pk)))) {
                 watching.delete(pk)
             }
         }

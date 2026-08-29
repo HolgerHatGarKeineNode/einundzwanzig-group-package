@@ -50,7 +50,7 @@ import {
     Logger,
     Plaintext,
 } from '@welshman/app'
-import type { ISigner } from '@welshman/signer'
+import { decrypt, type ISigner } from '@welshman/signer'
 import { getPubkey, type StampedEvent } from '@welshman/util'
 import { app, appStore, setzeIdentitaet } from './welshmanInstance.ts'
 
@@ -164,9 +164,32 @@ export const nip44EncryptToSelf = async (payload: string): Promise<string> => {
     return user.nip44EncryptToSelf(payload)
 }
 
-/** Klartext-Cache um eine Entschlüsselung. 0.9.5: `app.use(Plaintext).ensure(…)`. */
-export const ensurePlaintext = (ciphertext: string, decrypt: () => Promise<string>): Promise<string> =>
-    app.use(Plaintext).ensure(ciphertext, decrypt)
+/**
+ * Ein verschlüsseltes Ereignis entschlüsseln, mit Cache — die 0.8.16-Signatur.
+ *
+ * **Der Zuschnitt hat sich geändert, nicht nur der Name.** 0.8.16 nahm das EREIGNIS,
+ * suchte selbst den passenden Signer und cachte nach `event.id`. 0.9.5 dreht das um:
+ * `app.use(Plaintext).ensure(ciphertext, decrypt)` cacht nach dem CHIFFRAT, und die
+ * Entschlüsselung liefert der Aufrufer — damit der Cache unabhängig davon bleibt,
+ * welcher Signer den Klartext erzeugt hat.
+ *
+ * Diese Funktion setzt beides zusammen: der Cache ist der von 0.9.5, der Signer ist
+ * unserer. `decrypt` aus `@welshman/signer` wählt NIP-04 oder NIP-44 selbst.
+ *
+ * Zwei Eigenschaften aus 0.8.16 bleiben erhalten, weil beide Aufrufstellen
+ * (`js/channelPrefs.ts:193`, `js/readStateSync.ts:295`) darauf bauen:
+ * - **Leerer Inhalt ergibt `undefined`**, nicht einen Entschlüsselungsversuch.
+ * - **Ohne aktiven Signer ergibt es `undefined`**, keinen Wurf. Ein Gast läuft an
+ *   diesen Stellen sonst in einen Fehler statt in „nichts zu tun".
+ */
+export const ensurePlaintext = async (event: { id: string; pubkey: string; content: string }): Promise<string | undefined> => {
+    const aktiv = get(signer)
+    if (!event.content || !aktiv) {
+        return undefined
+    }
+
+    return app.use(Plaintext).ensure(event.content, () => decrypt(aktiv, event.pubkey, event.content))
+}
 
 const login = (session: Session): void => {
     sessions.update(($sessions) => ({ ...$sessions, [session.pubkey]: session }))

@@ -8,7 +8,7 @@
  * Space-Relay. AUTH (NIP-42) läuft automatisch über die Socket-Policy.
  */
 import { derived, get, writable, type Readable } from 'svelte/store'
-import { load, request } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
 import { app, Handles, Thunks, Zappers } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'

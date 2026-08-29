@@ -25,7 +25,7 @@
  */
 import { derived, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
-import { load, request } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
 import { pubkey } from './welshmanSession.ts'
 import type { TrustedEvent } from '@welshman/util'
 import { deriveEventsForUrl } from './repository.ts'

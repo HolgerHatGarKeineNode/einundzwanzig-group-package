@@ -6,7 +6,7 @@
  *     referenzierten kind-30030-Sets → als eigener Picker-Tab.
  * Reiner Client-Layer; keine Svelte-/Alpine-Abhängigkeit.
  */
-import { load } from '@welshman/net'
+import { load } from './welshmanNet.ts'
 import { app } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import type { Filter, TrustedEvent } from '@welshman/util'

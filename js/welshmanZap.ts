@@ -40,10 +40,34 @@
  * einen Test, sondern die kleinste gültige Konfiguration für einen reinen Leser.
  */
 import { Resolver, ZAP_RECEIPT, type TrustedEvent } from '@welshman/util'
-import { Zapper, ZapReceiptReader } from '@welshman/domain'
+import { Zapper as ZapperKlasse, ZapReceiptReader } from '@welshman/domain'
 
 export type { Zap } from '@welshman/domain'
-export { Zapper } from '@welshman/domain'
+
+/**
+ * **Unser** Zapper: das lnurl-pay-Wertbild, wie es wirklich im Store liegt.
+ *
+ * In 0.9.5 ist `Zapper` eine KLASSE mit `validate()`/`getResponseFilter()` und
+ * PFLICHTfeld `pubkey`. Beides passt nicht auf das, was bei uns entsteht:
+ * `loadZapperNow` (`js/zaps.ts:249`) holt das lnurl-pay-Dokument selbst und legt ein
+ * schlichtes Objekt ab — und ein NIP-57-Dokument führt kein `pubkey` (genau der Punkt,
+ * an dem sich das 0.9.5-Zapper-Gate blamiert, siehe `js/welshmanZapperGate.test.ts`).
+ *
+ * Am laufenden Paket gemessen: `MapPlugin.set` nimmt dieses Objekt an (kein
+ * `instanceof`-Zwang) und `get` gibt es unverändert zurück. Der Datentyp bildet die
+ * Laufzeit also korrekt ab — die Klasse täte es nicht. Wo eine Klassenmethode gebraucht
+ * wird, hebt {@link zapFromEvent} den Wert in eine echte Instanz.
+ */
+export type Zapper = {
+    /** Pflicht, weil unser Ladepfad ihn immer setzt (`{...info, lnurl}`). */
+    lnurl: string
+    pubkey?: string
+    nostrPubkey?: string
+    callback?: string
+    minSendable?: number
+    maxSendable?: number
+    allowsNostr?: boolean
+}
 
 /** Siehe Modulkopf: gültig, aber nie befragt — Leser brauchen keinen Routen-Auflöser. */
 const leseKontext = { resolver: new Resolver(() => []) }
@@ -58,15 +82,12 @@ const leseKontext = { resolver: new Resolver(() => []) }
  * `lnurl`. Aus dem wird hier eine echte `Zapper`-Instanz gebaut; deren Konstruktor ist
  * ein `Object.assign` und wirft nie (am Paket gemessen, nicht aus der Signatur gelesen).
  */
-export const zapFromEvent = (
-    response: TrustedEvent,
-    zapper: { lnurl?: string; pubkey?: string; nostrPubkey?: string } | undefined,
-) => {
+export const zapFromEvent = (response: TrustedEvent, zapper: Zapper | undefined) => {
     if (!zapper) {
         return undefined
     }
 
-    return new Zapper(zapper as ConstructorParameters<typeof Zapper>[0]).validate(
+    return new ZapperKlasse(zapper as ConstructorParameters<typeof ZapperKlasse>[0]).validate(
         new ZapReceiptReader(ZAP_RECEIPT, leseKontext, response).parse(),
     )
 }

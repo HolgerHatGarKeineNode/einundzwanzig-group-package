@@ -1,6 +1,8 @@
 /**
  * Die **Verdrahtung** der REQ-Erfassung — an einer echten welshman-Socket aus dem
- * echten Pool, mit welshmans echten `defaultSocketPolicies`.
+ * echten Pool der App-Instanz (`app.pool`), mit den Socket-Policies, die
+ * `welshmanInstance.ts` ihr mitgibt. Seit 0.9.5 gibt es keinen globalen `Pool.get()`
+ * mehr — jede App hat ihren eigenen.
  *
  * `reqWatchLog.test.ts` prüft die Buchführung; sie ist rein und könnte tadellos sein,
  * während dieses Modul an den falschen Ereignissen hängt. Genau das wäre der teure
@@ -16,7 +18,8 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { AuthStatus, Pool, SocketEvent } from '@welshman/net'
+import { AuthStatus, SocketEvent } from '@welshman/net'
+import { app } from './welshmanInstance.ts'
 import { watchRequests, reqWatchBefunde } from './reqWatch.ts'
 
 const URL_ = 'wss://relay.wiring.invalid/'
@@ -27,14 +30,26 @@ describe('REQ-Erfassung: die Verdrahtung am echten Pool', () => {
     test('ein von welshman verschlucktes CLOSED landet als Befund — mit Grund und AUTH-Zustand', async () => {
         watchRequests()
 
-        const socket = Pool.get().get(URL_)
+        const socket = app.pool.get(URL_)
         socket._sendQueue.start() // sonst feuert `Send` nie (ohne offene Verbindung)
         socket.emit(SocketEvent.Status, 'open', URL_)
-        socket.auth.setStatus(AuthStatus.PendingSignature)
 
+        // **Reihenfolge: erst SENDEN, dann die AUTH-Anforderung.** Bis zum
+        // welshman-0.9.5-Sprung stand `setStatus(PendingSignature)` davor und der Fall
+        // war trotzdem grün — weil der GLOBALE Pool von damals unsere eigene Policy
+        // `socketPolicyAuthHold` gar nicht trug (die pushte `core.ts`, das dieser Test
+        // nicht importiert). Seit 0.9.5 gehören die Socket-Policies zur App-Instanz, und
+        // `app.pool` trägt sie immer — der Hold streicht eine REQ, die während
+        // `PendingSignature` abgeht, und der Befund war folgerichtig `nie-gesendet`
+        // statt `verschluckt`.
+        //
+        // Diese Reihenfolge ist zugleich die realistischere: produktiv geht die REQ
+        // hinaus, der Relay fordert daraufhin AUTH, und erst dann kommt das CLOSED, das
+        // welshmans AuthBuffer verschluckt. Genau diesen Ablauf soll die Erfassung sehen.
         const sub = 'REQ-verdraht1'
         socket.send(['REQ', sub, { kinds: [30617], '#h': ['raum-abcdefgh'] }])
         await warten(250)
+        socket.auth.setStatus(AuthStatus.PendingSignature)
 
         // Der Relay antwortet — und `socketPolicyAuthBuffer` nimmt die Antwort aus
         // `_recvQueue`, bevor sie zugestellt wird.
@@ -57,14 +72,14 @@ describe('REQ-Erfassung: die Verdrahtung am echten Pool', () => {
         assert.equal(b.filter, 'kinds=30617 #h=raum-abc')
         assert.ok(b.alterMs >= 250, 'das Alter zählt ab dem Sendewunsch')
 
-        Pool.get().remove(URL_)
+        app.pool.remove(URL_)
     })
 
     test('eine sauber quittierte Anfrage hinterlässt KEINEN Befund', async () => {
         // Die Kalibrierung: eine Erfassung, die jede Anfrage meldet, meldet nichts.
         watchRequests()
 
-        const socket = Pool.get().get(URL_)
+        const socket = app.pool.get(URL_)
         socket._sendQueue.start()
         socket.auth.setStatus(AuthStatus.Ok)
 
@@ -86,7 +101,7 @@ describe('REQ-Erfassung: die Verdrahtung am echten Pool', () => {
             'auch bei Schwelle 0 kein Befund',
         )
 
-        Pool.get().remove(URL_)
+        app.pool.remove(URL_)
     })
 
     test('`window.__reqWatch()` steht bereit und liefert dieselbe Liste', () => {

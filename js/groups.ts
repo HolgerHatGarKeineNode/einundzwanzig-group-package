@@ -17,22 +17,19 @@ import { app, makeOutboxLoader, makeUserData, Relays, Thunks } from './welshmanA
 import { pubkey, nip44EncryptToSelf } from './welshmanSession.ts'
 import { deriveItemsByKey, deriveEventsByIdByUrl, sync, throttled, localStorageProvider } from '@welshman/store'
 import { eigeneOutboxUrls } from './welshmanRouter.ts'
-import { AuthStatus, load, request } from '@welshman/net'
+import { AuthStatus } from '@welshman/net'
+import { load, request } from './welshmanNet.ts'
+import { makeEvent, normalizeRelayUrl, isRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
 import {
+    addToListPublicly,
+    asDecryptedEvent,
+    makeList,
+    makeRoomEditEvent,
     readList,
     readRoomMeta,
-    makeRoomEditEvent,
-    asDecryptedEvent,
-    makeEvent,
-    makeList,
-    addToListPublicly,
     removeFromListByPredicate,
-    normalizeRelayUrl,
-    isRelayUrl,
-    type Filter,
     type PublishedList,
-    type TrustedEvent,
-} from '@welshman/util'
+} from './welshmanList.ts'
 import {
     MESSAGE,
     POLL,
@@ -764,7 +761,9 @@ export const groupSpaceChoices: Readable<string[]> = derived([spaceChoices, app.
 /** Lädt die 10009-Liste des Users über dessen Outbox-Relays. */
 export const loadUserGroupList = (): Promise<void> | undefined => {
     const pk = pubkey.get()
-    return pk ? makeOutboxLoader(ROOMS)(pk) : undefined
+    // `.then(() => undefined)`: der 0.9.5-Outbox-Lader gibt das geladene Ereignis
+    // zurück, unsere Signatur sagt `Promise<void>`. Der Wert hat hier keinen Abnehmer.
+    return pk ? makeOutboxLoader(ROOMS)(pk).then(() => undefined) : undefined
 }
 
 /**
