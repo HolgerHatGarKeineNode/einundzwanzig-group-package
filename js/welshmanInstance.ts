@@ -162,10 +162,25 @@ let workspaceWarnungB = false
  *
  * Der Port bleibt Teil des Werts (`host`, nicht `hostname`): ein anderer Port ist ein
  * anderer Dienst und soll nicht mitgerissen werden.
+ *
+ * ── `/\.(?=:|$)/` und nicht `/\.$/` (2026-08-29) ─────────────────────────────────
+ *
+ * Der erste Entwurf schnitt nur einen Punkt am ZEICHENKETTENENDE weg. Steht ein Port
+ * dahinter, überlebt der Punkt — und das ist dieselbe Umgehung eine Ebene tiefer,
+ * ausgerechnet in der Dimension, über die der Absatz darüber nachdenkt. Gemessen:
+ *
+ *   Workspace `wss://buzz.example:7777/`  → `buzz.example:7777`
+ *   Socket    `wss://buzz.example.:7777/` → `buzz.example.:7777`  → Riegel greift NICHT
+ *
+ * Der Lookahead schneidet den Punkt vor dem Doppelpunkt genauso weg. Beide Richtungen
+ * (Punkt in der Socket-URL, Punkt in der Konfiguration), mit und ohne Port, stehen als
+ * Fälle in `js/welshmanWorkspaceRiegel.test.ts`; der Fix ist gegen deren Rot geschrieben.
+ * Heute ohne erreichbare Wirkung — der Produktions-Workspace trägt keinen Port —, aber
+ * der Riegel soll nicht davon abhängen, dass das so bleibt.
  */
-const hostVon = (url: string): string => {
+export const hostVon = (url: string): string => {
     try {
-        return new URL(url).host.replace(/\.$/, '')
+        return new URL(url).host.replace(/\.(?=:|$)/, '')
     } catch {
         return ''
     }
@@ -189,14 +204,28 @@ const hostVon = (url: string): string => {
  * teilt seinen Host mit einem anderen, der Fall tritt heute also nicht ein.
  *
  * Verglichen wird `host` und nicht `hostname`: ein anderer Port ist ein anderer Dienst und
- * soll nicht mitgerissen werden. Ein leerer Host (kaputte URL) trifft nie.
+ * soll nicht mitgerissen werden.
+ *
+ * **`workspace` ist ein Parameter mit Vorgabe, seit 2026-08-29.** Vorher las die Funktion
+ * die Modulkonstante `WORKSPACE` direkt — und genau diese Kopplung war der Grund, warum
+ * dieser Riegel bis dahin **keinen einzigen** automatisierten Test hatte: eine
+ * Toplevel-Konstante aus `globalThis` lässt sich je Fall nicht setzen. Die Vorgabe hält
+ * jede Aufrufstelle Zeichen für Zeichen unverändert; die Funktion wird dadurch rein und
+ * prüfbar (`js/welshmanWorkspaceRiegel.test.ts`, 16 gemessene Lagen).
+ *
+ * **Bekannter Befund, nicht behoben:** eine unbrauchbare `socketUrl` lässt
+ * `normalizeRelayUrl` WERFEN, bevor `hostVon` sie fangen könnte — hier stand deshalb bis
+ * heute die falsche Zusage „Ein leerer Host (kaputte URL) trifft nie". Sie gilt für
+ * `hostVon`, nicht für diese Funktion. Heute nicht erreichbar (`socket.url` kommt
+ * normalisiert aus dem Pool); als IST-Zustand in der Testdatei festgehalten, damit der
+ * Befund nicht mit seinem Bericht verschwindet.
  */
-const istWorkspaceSocket = (socketUrl: string): boolean => {
-    if (!WORKSPACE) {
+export const istWorkspaceSocket = (socketUrl: string, workspace: string = WORKSPACE): boolean => {
+    if (!workspace) {
         return false
     }
 
-    const ziel = hostVon(WORKSPACE)
+    const ziel = hostVon(workspace)
 
     return ziel !== '' && hostVon(normalizeRelayUrl(socketUrl)) === ziel
 }
