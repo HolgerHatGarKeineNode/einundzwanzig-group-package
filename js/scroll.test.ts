@@ -79,6 +79,14 @@ test('ein nicht scrollbarer Log lädt nach — er KANN sich nicht bewegen', asyn
     assert.equal(await einDurchlauf(container(400, 578, 0)), true, 'Inhalt kürzer als der Viewport')
 })
 
+test('ein Sub-Pixel-scrollTop ist keine Nutzerbewegung', async () => {
+    // Zoom und devicePixelRatio erzeugen Bruchteile; ein halber Pixel ist Rundung.
+    // Ohne Toleranz hätte das in einem kurzen Log den Prefetch ausgelöst.
+    assert.equal(await einDurchlauf(container(3317, 578, 0.5)), false)
+    assert.equal(await einDurchlauf(container(3317, 578, 1)), false, 'genau 1 px zählt noch nicht')
+    assert.equal(await einDurchlauf(container(3317, 578, 2)), true, 'zwei Pixel sind eine Bewegung')
+})
+
 test('ein Überschuss von einem Pixel gilt noch nicht als scrollbar', async () => {
     assert.equal(await einDurchlauf(container(579, 578, 0)), true, 'ein Pixel ist Rundung, nicht Scrollbarkeit')
     assert.equal(await einDurchlauf(container(580, 578, 0)), false, 'zwei Pixel: scrollbar, also unbewegt kein Prefetch')

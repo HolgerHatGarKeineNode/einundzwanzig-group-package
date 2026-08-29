@@ -14,9 +14,23 @@
 export type Scroller = { stop: () => void }
 
 /**
- * Ab wie vielen Pixeln Überschuss gilt ein Container als scrollbar. Klein, weil die Frage
- * binär ist — sie trennt „der Nutzer KANN scrollen" von „er kann es nicht"; Sub-Pixel-
- * Rundung soll dabei nicht als Scrollbarkeit durchgehen.
+ * Die Pixel-Toleranz des Riegels — **für beide Fragen dieselbe**, und das ist eine
+ * Entscheidung, keine Sparsamkeit.
+ *
+ * Der Riegel stellt zwei Fragen, die im Kern dieselbe sind: „ist dieser Container wirklich
+ * scrollbar?" (`scrollHeight − clientHeight`) und „hat sich der Nutzer wirklich bewegt?"
+ * (`|scrollTop|`). Beide Male geht es darum, eine echte Größe von Layout-Rundung zu
+ * trennen — Sub-Pixel-Werte entstehen aus Zoom, `devicePixelRatio` und
+ * Fractional-Layout, nicht aus einer Bedienhandlung.
+ *
+ * Bis zur Gate-Rückfrage stand die Toleranz nur an der ersten Frage; `offset > 0` nahm
+ * jeden Wert. Ein `scrollTop` von 0,5 px hätte damit als Nutzerbewegung gegolten und in
+ * einem kurzen Log den Prefetch ausgelöst — genau die Wette, die der Riegel verhindern
+ * soll, nur mit einem Umweg. Zwei verschiedene Antworten auf dieselbe Frage sind der
+ * Fehler, nicht die eine fehlende Zeile.
+ *
+ * Der Preis ist gerechnet und klein: eine echte Bewegung überschreitet 1 px sofort; im
+ * Grenzfall verzögert sich der Prefetch um einen Poll-Zyklus (`delay`, 300 ms).
  */
 const SCROLLBAR_SCHWELLE = 1
 
@@ -49,7 +63,9 @@ const SCROLLBAR_SCHWELLE = 1
  *
  * Geladen wird nur, wenn zusätzlich EINES gilt:
  *
- *   • `offset > 0` — der Nutzer hat den Log verlassen, das Nachladen ist eine Reaktion.
+ *   • `offset > SCROLLBAR_SCHWELLE` — der Nutzer hat den Log verlassen, das Nachladen ist
+ *     eine Reaktion. Die Toleranz ist dieselbe wie bei der Scrollbarkeit; warum, steht
+ *     bei der Konstante.
  *   • der Log ist gar nicht scrollbar — dann KANN er sich nicht bewegen, und Nachladen ist
  *     die einzige Möglichkeit, den Viewport überhaupt zu füllen. Diese Hälfte ist der
  *     Grund, warum der Riegel nicht bloss `offset > 0` prüft: sonst bliebe ein Raum, dessen
@@ -61,8 +77,9 @@ const SCROLLBAR_SCHWELLE = 1
  */
 const darfNachladen = (element: HTMLElement, offset: number): boolean => {
     const scrollbar = element.scrollHeight > element.clientHeight + SCROLLBAR_SCHWELLE
+    const bewegt = offset > SCROLLBAR_SCHWELLE
 
-    return offset > 0 || !scrollbar
+    return bewegt || !scrollbar
 }
 
 export const createScroller = (

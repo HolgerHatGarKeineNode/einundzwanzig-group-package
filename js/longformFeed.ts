@@ -1012,11 +1012,23 @@ export const reagiereAufArtikel = async (artikelId: string): Promise<string> => 
 /**
  * Die eigene Reaktion zurücknehmen (kind 5 auf die eigene kind 7, NIP-09).
  *
- * `makeEventDelete` setzt `created_at` auf `max(jetzt, ziel+1)` — der Grund steht dort
- * und gilt hier genauso: das Repository verwirft einen Tombstone, dessen Zeitstempel
- * nicht **echt größer** ist als der des Ziels. Reagieren und sofort zurücknehmen fällt
- * bei Sekundengranularität sonst in dieselbe Sekunde, und der Chip bliebe stehen,
- * obwohl der Relay hart gelöscht hat.
+ * **Hier stand bis P4 des 0.9.5-Sprungs:** `makeEventDelete` setze `created_at` auf
+ * `max(jetzt, ziel+1)`, weil das Repository einen Tombstone verwerfe, dessen Zeitstempel
+ * nicht echt größer ist als der des Ziels — reagieren und sofort zurücknehmen falle bei
+ * Sekundengranularität sonst in dieselbe Sekunde und der Chip bliebe stehen. Das war
+ * unter 0.8.16 richtig; **beide Hälften des Satzes sind es nicht mehr.**
+ *
+ * `makeEventDelete` setzt gar kein `created_at` mehr, und es braucht auch keines:
+ * `Repository.isDeletedById` vergleicht in 0.9.5 kein `created_at` — eine Löschung wirkt
+ * in derselben Sekunde und sogar eine Sekunde früher datiert (am Paket gemessen, der
+ * Implementierungskommentar nennt den Grund: eine id benennt genau ein unveränderliches
+ * Event, zu dem es keine neuere Fassung gibt).
+ *
+ * Die alte Regel überlebt nur für **adressierbare** Ziele (`isDeletedByAddress`, strikt
+ * `>`). Diese Stelle kann sie nicht treffen: gelöscht wird eine kind 7, die ist nicht
+ * ersetzbar, und `tagEvent` setzt für sie ausschließlich ein `e`-Tag. Die ausführliche
+ * Messung steht bei {@link makeEventDelete} in `js/interactions.ts` — dorthin zeigte
+ * dieser Absatz schon vorher, nur sagt sie inzwischen das Gegenteil.
  *
  * **Der Relay muss dabei nicht mitspielen, und das steht in der Meldung.** kind 5 ist
  * nach NIP-09 eine Bitte; ob `wss://nostr.einundzwanzig.space` (nostr-rs-relay 0.10.0)

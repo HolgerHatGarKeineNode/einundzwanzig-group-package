@@ -145,9 +145,27 @@ import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, WORKSPACE_ROH, darfAuthBekom
 let workspaceWarnungA = false
 let workspaceWarnungB = false
 
+/**
+ * Der Host einer URL — inklusive Port, **ohne** abschließenden Wurzelpunkt.
+ *
+ * `wss://buzz.example./` ist im DNS derselbe Name wie `wss://buzz.example/` (der Punkt
+ * benennt die Wurzel und ist die kanonische Form), `new URL(...).host` liefert aber
+ * `"buzz.example."` — mit Punkt. Ohne die Normalisierung schlägt der Vergleich in
+ * {@link istWorkspaceSocket} fehl, während die Verbindung tatsächlich auf dem Workspace
+ * landet: kind 0 käme durch. Symmetrisch gilt es für die Konfiguration — steht der Punkt
+ * in `__nostrWorkspace`, kommen alle gewöhnlichen Schreibweisen durch.
+ *
+ * **Und es fällt nicht auf**, weil der Melder mit dem Riegel ausfällt:
+ * {@link meldeWorkspaceAbweichung} setzt für seine Warnung genau die Host-Gleichheit
+ * voraus, die hier scheitert. Kein Riegel, keine Warnung. Deshalb wird hier normalisiert
+ * und nicht an der Vergleichsstelle — beide Seiten laufen durch diese eine Funktion.
+ *
+ * Der Port bleibt Teil des Werts (`host`, nicht `hostname`): ein anderer Port ist ein
+ * anderer Dienst und soll nicht mitgerissen werden.
+ */
 const hostVon = (url: string): string => {
     try {
-        return new URL(url).host
+        return new URL(url).host.replace(/\.$/, '')
     } catch {
         return ''
     }

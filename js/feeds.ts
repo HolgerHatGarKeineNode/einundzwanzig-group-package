@@ -1696,8 +1696,23 @@ export const sendRoomMessage = async (
 /**
  * Löscht eine eigene Nachricht (kind 5, NIP-09). Das `h`-Tag routet den Tombstone
  * in den Raum; das Repository blendet die referenzierte Nachricht sofort aus.
- * Der Tombstone braucht `created_at > Nachricht` (Repository-Regel) — sonst greift
- * das Löschen direkt nach dem Senden (gleiche Unix-Sekunde) nicht.
+ *
+ * **Hier stand bis P4 des 0.9.5-Sprungs:** der Tombstone brauche `created_at >
+ * Nachricht` (Repository-Regel), sonst greife das Löschen direkt nach dem Senden
+ * (gleiche Unix-Sekunde) nicht. Das galt unter 0.8.16 und gilt nicht mehr:
+ * `Repository.isDeletedById` vergleicht kein `created_at` — am Paket gemessen wirkt eine
+ * Löschung in derselben Sekunde und sogar eine Sekunde früher datiert. Die alte Regel
+ * überlebt nur für ADRESSIERBARE Ziele (`isDeletedByAddress`, strikt `>`); hier ist das
+ * Ziel eine kind 9 und wird über ihre id referenziert.
+ *
+ * **Das `+1` unten steht trotzdem noch — bewusst, nicht übersehen.** Es ist seit dem
+ * Sprung überflüssig, aber nicht falsch, und sein Ausbau ist eine Verhaltensänderung an
+ * einem Publizierpfad, die nicht in die Docblock-Korrektur gehörte. Wer ihn angeht,
+ * bedenke: `Math.max(jetzt, createdAt + 1)` datiert den Tombstone in die ZUKUNFT, wenn
+ * die Nachricht gerade eben entstand — Relays mit einer Zukunftsgrenze dürfen ihn dafür
+ * ablehnen. Die Begründung dafür ist mit dieser Korrektur jedenfalls entfallen.
+ * Vergleiche {@link makeEventDelete} in `js/interactions.ts`, wo derselbe Trick in P4
+ * gemessen entfernt wurde.
  */
 export const deleteRoomMessage = (url: string, h: string, id: string, createdAt: number): Promise<string> =>
     waitForPublishError(
