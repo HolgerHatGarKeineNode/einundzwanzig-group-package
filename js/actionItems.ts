@@ -22,7 +22,8 @@ import { sortBy } from '@welshman/lib'
 import { profilesByPubkey } from './spaceProfiles.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository.ts'
-import { roomsByUrl, roomMembersByUrl } from './groups.ts'
+import { roomsByUrl } from './groups.ts'
+import { Rooms } from '@welshman/app'
 import { spaceIsBuzz, spaceIsBuzzAsync, buzzLoadReports, type BuzzReport } from './buzzAdmin.ts'
 import { toast } from './toast.ts'
 import { t } from './i18n.ts'
@@ -263,11 +264,16 @@ export const watchSpaceReports = async (url: string, signal: AbortSignal): Promi
  */
 export const getBuzzReports = (url: string): BuzzReport[] => get(buzzReportsByUrl).get(url) ?? []
 
-// ── Beitritts-Queue (P4b/P3b: offene Join-Requests, nur bei `closed`-Räumen) ──
-// zooid trägt Beitritte offener Räume automatisch in die 39002 ein → keine offene
-// Anfrage. Bei `closed`-Räumen bleibt der 9021 pending, bis ein Admin per kind 9000
-// freigibt. „offen" = jüngster 9021 je (Raum, pubkey), pubkey NICHT in der 39002 und
-// kein jüngeres 9022 (zurückgezogen).
+// ── Join queue (P4b/P3b: open join requests, closed rooms only) ──────────────
+// zooid writes joins to open rooms straight into the 39002, so nothing is ever pending
+// there. In a closed room the 9021 stays pending until an admin releases it with a 9000.
+//
+// The definition of "open" moved to the plugin in P5 stage 3 and is stricter than what
+// stood here. It used to read: newest 9021 per (room, pubkey), pubkey NOT in the 39002,
+// and no newer 9022. That missed the 9001 — a kick or a refusal produces no 9022 and
+// drops the pubkey out of the member list, so the request came back as open.
+// `Rooms.pendingJoins` answers a request by the latest moderation op on that pubkey,
+// which covers it. What stays local is the room rule below: exists AND closed.
 
 export type JoinRequestView = {
     id: string // 9021-Event (Ziel von „Ablehnen" = banEvent)
@@ -277,43 +283,54 @@ export type JoinRequestView = {
     name: string
 }
 
+/**
+ * Open join requests of a space — since P5 stage 3 a wrapper around
+ * `app.use(Rooms).pendingJoins`, which pulls in both directions.
+ *
+ * ── What the plugin does better than the fold that stood here ───────────────────
+ *
+ * A request is answered by the latest moderation op on that pubkey, not by the current
+ * member list. The old fold only pruned on "is a member now" or "a newer 9022 exists" —
+ * and a 9001 produces no 9022, so a kicked or refused member's request came back as open.
+ * Measured against the plugin with identical input:
+ *
+ *     9021, approved via 9000, later kicked via 9001   ours: OPEN AGAIN   Rooms: pruned
+ *     9021, refused directly via 9001                  ours: OPEN AGAIN   Rooms: pruned
+ *
+ * Half of this was known: `bridge.ts acceptJoin` deletes the 9021 from the repository by
+ * hand and names exactly this resurrection in its comment. That workaround only covered
+ * the accept path; a refusal by 9001 kept coming back forever.
+ *
+ * ── What stays here, because `pendingJoins` returns raw events ──────────────────
+ *
+ *     open (non-closed) room                           ours: none   Rooms: pending
+ *     9021 naming a room that does not exist           ours: none   Rooms: pending
+ *
+ * The first is protocol truth on this relay — zooid auto-approves joins to open rooms and
+ * writes the pubkey into the 39002, so nothing is ever pending there. The second is the
+ * one that matters: `h` is chosen by whoever signs the 9021, so a stranger can invent a
+ * room and appear in every admin's queue — and `acceptJoin` would answer with a 9000 for
+ * a room nobody created. Requiring the room to exist AND be closed keeps both out.
+ *
+ * `isClosed` comes from `roomsByUrl`, converted in stage 2; without the relay-signature
+ * check introduced there, `closed` itself was forgeable. This wrapper sits on top of it.
+ *
+ * The eight cases are in `js/joinQueueQuelle.test.ts`; two of them were red against the
+ * old fold.
+ */
 export const deriveSpaceJoinRequests = (url: string): Readable<JoinRequestView[]> =>
     derived(
-        [deriveEventsForUrl(url, [{ kinds: [ROOM_JOIN, ROOM_LEAVE] }]), roomMembersByUrl, roomsByUrl, throttled(300, profilesByPubkey)],
-        ([events, $members, $rooms, $profiles]) => {
-            // Jüngsten Join je (h,pubkey) + jüngsten Leave-Zeitpunkt sammeln.
-            const joins = new Map<string, TrustedEvent>()
-            const leaves = new Map<string, number>()
-            for (const e of events) {
-                const h = tagValue(tagSpec('h'), e.tags)
-                if (!h) {
-                    continue
-                }
-                const key = `${h}'${e.pubkey}`
-                if (e.kind === ROOM_JOIN) {
-                    const prev = joins.get(key)
-                    if (!prev || e.created_at > prev.created_at) {
-                        joins.set(key, e)
-                    }
-                } else {
-                    leaves.set(key, Math.max(leaves.get(key) ?? 0, e.created_at))
-                }
-            }
+        [app.use(Rooms).pendingJoins(url).$, roomsByUrl, throttled(300, profilesByPubkey)],
+        ([$pending, $rooms, $profiles]) => {
             const views: JoinRequestView[] = []
-            for (const [key, join] of joins) {
+            for (const join of $pending) {
                 const h = tagValue(tagSpec('h'), join.tags) ?? ''
                 const room = ($rooms.get(url) ?? []).find((r) => r.h === h)
-                // NUR closed-Räume erzeugen offene Anfragen (offene genehmigt zooid
-                // automatisch → nie pending). Fehlt der Raum noch (39000 nicht geladen),
-                // ebenfalls überspringen → kein „pending"-Flash vor dem 39002/39000-Load.
+                // Only closed rooms produce open requests, and only rooms that exist.
+                // A missing room also covers the load race: no "pending" flash before the
+                // 39000 has arrived.
                 if (!room?.isClosed) {
                     continue
-                }
-                if ($members.get(url)?.get(h)?.has(join.pubkey)) {
-                    continue // schon Mitglied (angenommen)
-                }
-                if ((leaves.get(key) ?? 0) > join.created_at) {
-                    continue // Anfrage zurückgezogen
                 }
                 if (!$profiles.has(join.pubkey)) {
                     app.use(Profiles).load(join.pubkey)

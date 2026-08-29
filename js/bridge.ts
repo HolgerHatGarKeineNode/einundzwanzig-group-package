@@ -5298,10 +5298,23 @@ export function registerNostrComponents(Alpine: {
                 if (err) {
                     toast(err)
                 } else {
-                    // Den 9021-Request zurückziehen (wie beim Ablehnen). Sonst bliebe er
-                    // im Repository und tauchte nach einem späteren Kick (9001, das kein
-                    // 9022 erzeugt) erneut als „offen" auf, weil der Pubkey dann wieder aus
-                    // der 39002 fällt. Best-effort: die Mitgliedschaft steht bereits.
+                    // Withdraw the 9021 (same as on reject). Best-effort — the
+                    // membership already stands.
+                    //
+                    // The local half of this is obsolete since P5 stage 3. The old
+                    // comment read: without removing it, the request would reappear as
+                    // "open" after a later kick (a 9001 produces no 9022 and drops the
+                    // pubkey out of the 39002). That resurrection is fixed at the source
+                    // now — `deriveSpaceJoinRequests` sits on `Rooms.pendingJoins`, which
+                    // answers a request by the latest moderation op on that pubkey. The
+                    // case is covered by `joinQueueQuelle.test.ts` ("a kick after approval
+                    // does NOT reopen the request").
+                    //
+                    // The `banEvent` call is NOT obsolete: it asks the relay to drop the
+                    // 9021, which no client-side derivation can do. `removeEvent` is kept
+                    // as the optimistic local counterpart so the row disappears before the
+                    // relay answers — removing it would be a behaviour change on a publish
+                    // path, not a comment fix.
                     void banEvent(this._url, j.id)
                     app.repository.removeEvent(j.id)
                 }
