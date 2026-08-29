@@ -153,6 +153,36 @@ const hostVon = (url: string): string => {
     }
 }
 
+/**
+ * Ist dieser Socket der Workspace-Relay? **Verglichen wird der HOST, nicht die ganze URL.**
+ *
+ * Bis P4 stand hier `normalizeRelayUrl(socket.url) === WORKSPACE`, und das ließ eine Lage
+ * offen, die gemessen wurde: gleicher Host, andere Schreibweise — etwa der Workspace als
+ * `wss://buzz.example/` konfiguriert, die Verbindung aber gegen `wss://buzz.example/nostr`.
+ * Dann verglich der Riegel zwei verschiedene Zeichenketten, ließ das kind 0 durch, und der
+ * Workspace-Relay konnte app-weit Profile verdrängen — genau das, was diese Policy
+ * verhindern soll. Gemeldet wurde es nur in der Konsole, und eine Konsolenwarnung ist per
+ * Konstruktion kein Gate.
+ *
+ * **Der Preis ist bekannt und gewollt:** ein FREMDER Relay, der zufällig auf demselben Host
+ * unter einem anderen Pfad läuft, verliert damit ebenfalls seine kind-0-Zustellung. Das ist
+ * die richtige Richtung — derselbe Host heißt derselbe Betreiber, und die Vertrauensfrage
+ * ist dieselbe. Nachgezählt an der geltenden Konfiguration: **kein** eingetragener Relay
+ * teilt seinen Host mit einem anderen, der Fall tritt heute also nicht ein.
+ *
+ * Verglichen wird `host` und nicht `hostname`: ein anderer Port ist ein anderer Dienst und
+ * soll nicht mitgerissen werden. Ein leerer Host (kaputte URL) trifft nie.
+ */
+const istWorkspaceSocket = (socketUrl: string): boolean => {
+    if (!WORKSPACE) {
+        return false
+    }
+
+    const ziel = hostVon(WORKSPACE)
+
+    return ziel !== '' && hostVon(normalizeRelayUrl(socketUrl)) === ziel
+}
+
 const meldeWorkspaceUnbrauchbar = (): void => {
     if (workspaceWarnungA || !WORKSPACE_ROH || WORKSPACE) {
         return
@@ -193,8 +223,9 @@ const meldeWorkspaceAbweichung = (socketUrl: string): void => {
             JSON.stringify(WORKSPACE) +
             ' (Rohwert ' +
             JSON.stringify(WORKSPACE_ROH) +
-            '). Gleicher Host, andere URL — der kind-0-Riegel vergleicht auf Gleichheit ' +
-            'und lässt Profile von diesem Socket durch.',
+            '). Der kind-0-Riegel greift trotzdem — er vergleicht den Host. Die ' +
+            'Konfiguration sollte auf die tatsächlich verwendete URL nachgezogen werden, ' +
+            'sonst zeigen Relay-Auswahl und Riegel auf verschiedene Adressen.',
     )
 }
 
@@ -214,7 +245,7 @@ const ingestMitWorkspaceRiegel: AppPolicy = (app) => {
             if (event.kind === PROFILE) {
                 meldeWorkspaceAbweichung(socket.url)
 
-                if (WORKSPACE && normalizeRelayUrl(socket.url) === WORKSPACE) {
+                if (istWorkspaceSocket(socket.url)) {
                     return
                 }
             }

@@ -62,12 +62,43 @@ export const makeReaction = (event: TrustedEvent, content: string, url: string, 
 /**
  * NIP-09-Löschung (kind 5) eines eigenen Events — für den Reaction-Toggle die
  * eigene kind-7 zurücknehmen. `["k", kind]`+`["e", id]` (via `tagEvent`), dazu `h`
- * (vom Parent) + PROTECTED. `created_at` muss echt größer als das Ziel sein
- * (Repository-Regel), sonst greift ein Toggle in derselben Sekunde nicht.
+ * (vom Parent) + PROTECTED.
+ *
+ * ── Der `created_at`-Trick ist weg, und warum er es sein darf ────────────────────
+ *
+ * Hier stand bis zum 0.9.5-Sprung
+ * `created_at: Math.max(now, event.created_at + 1)` mit der Begründung, `created_at`
+ * müsse echt größer als das Ziel sein, sonst greife ein Toggle in derselben Sekunde
+ * nicht. Das war unter 0.8.16 richtig und ist es nicht mehr: `Repository.isDeletedById`
+ * vergleicht **kein** `created_at` — der Kommentar der Implementierung sagt warum
+ * (`net/src/repository.js:197`: *„an id names one immutable event, so there is no newer
+ * version for it"*).
+ *
+ * Gemessen am installierten 0.9.5, kind 7 per `e`-Tag gelöscht:
+ *
+ *   Löschung eine Sekunde später   → isDeleted true
+ *   Löschung in derselben Sekunde  → isDeleted true
+ *   Löschung eine Sekunde FRÜHER   → isDeleted true
+ *
+ * Und am Relay gegengeprüft, weil der Toggle nicht nur lokal wirken muss: zooid nimmt
+ * eine kind 5 mit demselben `created_at` wie das Ziel an, und eine Requery findet die
+ * kind 7 danach nicht mehr. Der Trick löste also ein Problem, das an beiden Enden
+ * nicht mehr besteht.
+ *
+ * **Eine Abhängigkeit bleibt und ist der Grund, warum das hier steht:** Für
+ * ADRESSIERBARE Events (30023 & Co.) gilt die alte Regel weiter —
+ * `isDeletedByAddress` verlangt strikt `created_at > ziel.created_at`. Gemessen:
+ *
+ *   Löschung mit nur `["a", …]`, gleiche Sekunde        → isDeleted **false**
+ *   Löschung mit `["e", …]` + `["a", …]`, gleiche Sek.  → isDeleted true
+ *
+ * Wir sind auf der guten Seite, weil {@link tagEvent} bei replaceable Events **beide**
+ * Tags setzt und das `e`-Tag den ID-Pfad öffnet. Wer dort je das `e`-Tag entfernt oder
+ * hier adressbasiert löscht, holt sich das Problem zurück — dann gehört der
+ * `+1` wieder her, aber nur für diesen Fall.
  */
 export const makeEventDelete = (event: TrustedEvent, url: string) =>
     makeEvent(DELETE, {
-        created_at: Math.max(Math.floor(Date.now() / 1000), event.created_at + 1),
         tags: [['k', String(event.kind)], ...tagEvent(event), ...parentRoomTags(event, url)],
     })
 

@@ -103,6 +103,46 @@ export const waitForThunkCompletion = (thunk: Thunk): Promise<void> => thunk.wai
  * auf (`router@0.8.16 dist/index.js:55`), also die Outbox des Autors —, nur synchron aus
  * der Sammlung gelesen statt über den Resolver. Genau das tat 0.8.16 intern auch: sein
  * `getPubkeyRelays` las aus einem Store, nicht aus dem Netz.
+ *
+ * ── P4: Umstieg auf die 0.9.5-Writer geprüft und BEGRÜNDET VERWORFEN ────────────
+ *
+ * 0.9.5 hat für diese drei Funktionen einen eigenen Weg: `ReactionWriter.setEvent`,
+ * `CommentWriter.setParentFromEvent` und dazu `renderTags()`. Der Umstieg wurde in P4
+ * bewertet — nicht abgelehnt, weil der Nachbau schon dasteht, sondern weil er zweimal
+ * messbar schlechter ist.
+ *
+ * **Der Umfang war NICHT das Hindernis.** Betroffen sind genau drei Aufrufstellen (alle
+ * in `js/interactions.ts`: `makeReaction`, `makeEventDelete`, `makeComment`) und sieben
+ * Publikationsstellen darüber — und alle sieben liegen bereits in `async`-Funktionen
+ * (`publishOptimistic` ist selbst `async`, `editRoomMessage` und `removeReaction`
+ * ebenso). Der „async-Umbau" wäre ein `await` je Stelle gewesen.
+ *
+ * **Hindernis 1 — der Hint zeigt auf den falschen Relay.** `setEvent` bindet den Hint
+ * fest an `this.hint(outbox(event.pubkey))` (`domain/kinds/Reaction.js:31`); eine
+ * Relay-URL lässt sich nicht übergeben. Unsere Aufrufer kennen den Raum-Relay dagegen
+ * ausdrücklich und reichen ihn durch (`tagEventForReaction(event, url)`). Gemessen mit
+ * einem Autor ohne kind 10002 — in einer NIP-29-Gruppe der Normalfall, denn Mitglieder
+ * sind über den Gruppenrelay erreichbar und nicht über ihre Outbox:
+ *
+ *   0.9.5-Writer  → `["e", id, "wss://nos.lol/"]`      (Fallback-Relay des Resolvers)
+ *   unser Nachbau → `["e", id, "wss://raum.example/"]` (der Relay, auf dem es liegt)
+ *
+ * Der erste Hint ist nicht bloss ungenauer, er ist falsch: ein Fremdclient, der ihm
+ * folgt, sucht das Gruppen-Event auf einem öffentlichen Relay, der es nie gesehen hat.
+ * Das ist derselbe Fehlertyp, der in P3 an `Router.ForPubkey` behoben wurde.
+ *
+ * **Hindernis 2 — `renderTags()` schiebt einen Netz-Roundtrip vor das optimistische
+ * Rendern.** Es wartet auf `this.pendingResolves` (`domain/core/EventWriter.js:184`),
+ * und der Resolver versucht dabei, die fehlende kind-10002 des Autors zu laden. Gemessen
+ * am installierten Paket mit echten Relay-Listen: **3059 ms** für einen einzigen
+ * `renderTags()`-Aufruf (mit gefülltem Cache 0 ms). Im Pfad einer Reaktion, deren
+ * ganzer Zweck es ist, SOFORT lokal zu erscheinen, sind drei Sekunden kein Detail.
+ *
+ * **Also bleibt der Nachbau** — nach der Leitlinie des Plans die zulässige Ausnahme
+ * („solange die 0.9.5-Form nicht nachweislich schlechter ist"), und hier ist sie
+ * nachweislich schlechter. Was den Umstieg lohnend machen würde: eine Möglichkeit, dem
+ * Writer den bekannten Relay als Hint mitzugeben, und ein `renderTags()`, das nicht auf
+ * Netz wartet. Beides ist Upstream-Arbeit, keine hiesige.
  */
 const schreibHint = (autor: string): string => app.use(RelayLists).writeUrls(autor).get()[0] ?? ''
 

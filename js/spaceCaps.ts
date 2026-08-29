@@ -9,7 +9,9 @@
  * bestehende zooid/NIP-86-Strecke unverändert bleibt. Beim Mount ist das Doc aber
  * IMMER noch unterwegs: wer den Wert in `x-init` einmal liest, hält für den Rest
  * der Sitzung „kein Buzz" fest, und die Fläche tut stumm nichts. Zwei bereits
- * behobene Fälle derselben Ursache stehen in `bridge.ts` → `nostrSpaces._unsubIsBuzz` (`deriveRelay(url).subscribe`) („ein synchroner
+ * behobene Fälle derselben Ursache stehen in `bridge.ts` → `nostrSpaces._unsubIsBuzz`
+ * (heute `app.use(Relays).one(url).subscribe`, bis 0.9.5 `deriveRelay(url).subscribe` —
+ * die freie Funktion gibt es nicht mehr) („ein synchroner
  * Blick meldete verlässlich ‚kein Buzz' und die Einträge blitzten auf") und
  * `roomPins.ts:315` („hier stand vorher `spaceIsBuzz(url)` — synchron und genau
  * einmal") — beide mussten von synchron auf reaktiv umgebaut werden.
@@ -21,17 +23,44 @@
  *
  * ── Aktiver Anstoß statt Warten ──
  *
- * `deriveRelay(url)` stößt beim Ableiten nur `loadRelay` an, und das ist ein
- * `makeLoadItem`-Wrapper (`@welshman/app/dist/app/src/relays.js:46`): er merkt
- * sich URL + Zeitstempel und drosselt Wiederholungen exponentiell
- * (`@welshman/store/dist/store/src/repository.js:294-298`), liefert danach also
- * ohne erneuten Fetch. `fetchRelay` schreibt zudem **nur bei Erfolg** in
- * `relaysByUrl` (`relays.js:33-38`). Ein früher Fehlversuch nagelt die Weiche
- * damit dauerhaft auf `'unknown'`. Deshalb beim ersten Abonnenten
- * `forceLoadRelay(url)` — es umgeht den Merker
- * (`makeForceLoadItem`, `repository.js:272-274`) — und, solange `'unknown'`, drei
- * Wiederholungen mit Backoff 1 s / 4 s / 15 s. Danach `'other'`: ein Aufrufer
- * kann einen sichtbaren Hinweis zeigen statt ewig ein Skeleton zu drehen.
+ * **Die Zitate hier sind auf 0.9.5 nachgezogen (P4), die Prämisse selbst hat den
+ * Sprung überlebt — nachgemessen am installierten Paket, nicht übernommen.** Die alten
+ * Pfade (`app/src/relays.js:46`, `store/src/repository.js:294-298`, `relays.js:33-38`,
+ * `repository.js:272-274`) gibt es nicht mehr; die Namen `loadRelay`/`forceLoadRelay`/
+ * `fetchRelay` ebenso wenig — aus den freien Funktionen sind Methoden des
+ * `Relays`-Plugins geworden (`app.use(Relays).one/forceLoad`, so ruft es `defaultDeps`
+ * weiter unten auch).
+ *
+ * `app.use(Relays).one(url)` stößt beim Ableiten nur `load` an, und das ist ein
+ * `makeLoadItem`-Wrapper (`@welshman/app/dist/app/src/plugins/base.js:116`): er merkt
+ * sich Quelle + Zeitstempel und drosselt Wiederholungen exponentiell — `if
+ * (gt(sourceFetched.get(source), now() - Math.pow(2, attempt))) return stale`
+ * (`@welshman/app/dist/store/src/repository.js:479-481`), und `attempts` wird nur bei
+ * ERFOLG zurückgesetzt (`:494-496`). Ein Fehlversuch verlängert die Sperre also, statt
+ * sie zu lösen.
+ *
+ * `Relays.fetch` schreibt zudem **nur bei Erfolg** in die Sammlung
+ * (`plugins/relays.js:35-39`, `this.set(url, relay)` im `if (json)`-Zweig) und **fängt
+ * jeden Fehler selbst ab** — der `catch`-Block ist leer, mit dem Kommentar `// pass`
+ * (`plugins/relays.js:41-43`). Kein Wurf, kein Eintrag, kein Signal.
+ *
+ * **Daraus folgt, dass die Wiederholungsschleife weiter nötig ist**, und das ist der
+ * Grund, warum dieser Absatz so ausführlich ist: Ein früher Fehlversuch nagelt die
+ * Weiche sonst dauerhaft auf `'unknown'` — die Fläche dreht ewig ein Skeleton, ohne dass
+ * irgendwo ein Fehler auftaucht. Deshalb beim ersten Abonnenten
+ * `app.use(Relays).forceLoad(url)`: `makeForceLoadItem` ruft `loadItem` direkt und kennt
+ * weder Drosselung noch Merker (`@welshman/app/dist/store/src/repository.js:449-454`,
+ * vier Zeilen ohne jede Bedingung) — und, solange `'unknown'`, drei Wiederholungen mit
+ * Backoff 1 s / 4 s / 15 s. Danach `'other'`: ein Aufrufer kann einen sichtbaren Hinweis
+ * zeigen statt ewig ein Skeleton zu drehen.
+ *
+ * Wer diese Schleife für Altlast hält und sie entfernen will, muss vorher zeigen, dass
+ * `Relays.fetch` einen Fehlschlag inzwischen meldet. Solange dort `// pass` steht, tut
+ * es das nicht.
+ *
+ * **Der Paketname im Pfad ist nicht willkürlich:** dieselbe Datei liegt auch unter
+ * `@welshman/store/dist/store/src/repository.js` — welshman bündelt seine Store-Schicht
+ * in mehrere Pakete ein. Zitiert ist die Kopie, die `@welshman/app` tatsächlich lädt.
  *
  * Warum diese Schleife Rückgabewerte prüft statt zu fangen, steht bei ihr selbst
  * (siehe `loadUntilKnown` weiter unten) — es ist eine gemessene Abweichung von
@@ -184,14 +213,19 @@ export const makeSpaceKindStore = (
          * Lädt, bis das Doc da ist oder die Backoff-Leiter verbraucht ist.
          *
          * **Geprüft wird der Rückgabewert, nicht der Wurf — und das ist kein
-         * Versehen.** `forceLoadRelay` lehnt nie ab: `fetchRelay` fängt jeden
-         * Fehler in einem leeren `catch` (`@welshman/app/dist/app/src/relays.js:41-43`),
-         * und `makeForceLoadItem` hängt nur ein `.then(() => getItem(key))` an.
-         * Ein Fehlversuch ist deshalb ein **aufgelöstes `undefined`**, keine
-         * Ablehnung — ein `try/catch` um den Aufruf feuerte nie und die
-         * Wiederholung liefe gar nicht erst an. Das `.catch()` bleibt trotzdem
-         * stehen, damit ein eingesetzter Loader (Test) oder ein künftiges
-         * welshman, das doch wirft, die Schleife nicht abreißt.
+         * Versehen.** `Relays.forceLoad` lehnt nie ab: `Relays.fetch` fängt jeden
+         * Fehler in einem leeren `catch` mit dem Kommentar `// pass`
+         * (`@welshman/app/dist/app/src/plugins/relays.js:41-43`), und
+         * `makeForceLoadItem` ist nichts weiter als `await loadItem(key, …); return
+         * getItem(key)` (`dist/store/src/repository.js:449-454`). Ein Fehlversuch ist
+         * deshalb ein **aufgelöstes `undefined`**, keine Ablehnung — ein `try/catch` um
+         * den Aufruf feuerte nie und die Wiederholung liefe gar nicht erst an. Das
+         * `.catch()` bleibt trotzdem stehen, damit ein eingesetzter Loader (Test) oder
+         * ein künftiges welshman, das doch wirft, die Schleife nicht abreißt.
+         *
+         * Auf 0.9.5 nachgemessen (P4): unverändert gültig. Der alte Pfad
+         * `app/src/relays.js` und die Namen `forceLoadRelay`/`fetchRelay` sind weg, das
+         * Verhalten ist dasselbe.
          */
         const loadUntilKnown = async (): Promise<void> => {
             for (let attempt = 0; ; attempt++) {
@@ -235,7 +269,8 @@ const storesByUrl = new Map<string, Readable<SpaceKind>>()
 
 /**
  * Die Relay-Art eines Space, dreiwertig und nachziehend — die einzige Stelle, an
- * der neuer Code `deriveRelay(url)` + `isBuzzRelay` verdrahtet.
+ * der neuer Code das NIP-11-Doc (`app.use(Relays).one(url)`, bis 0.9.5 `deriveRelay(url)`)
+ * mit `isBuzzRelay` verdrahtet.
  *
  * Pro URL genau **ein** Store: sonst führte jeder Abonnent seine eigene
  * Wiederholungsschleife und ein Bildschirm mit fünf Flächen schickte fünf
