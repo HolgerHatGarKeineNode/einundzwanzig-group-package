@@ -42,6 +42,7 @@ import {
     shouldPersistEvent,
 } from './storage.ts'
 import { EVENT_REMINDER } from './reminderModels.ts'
+import { PRESENCE_UPDATE } from './presenceData.ts'
 
 const ev = (kind: number, tags: string[][] = []) => ({ kind, tags }) as never
 
@@ -441,12 +442,23 @@ test('REGEL: jeder persistierte Kind ist selbst-begrenzt, gekappt oder begruende
     assert.equal(PERSIST_KINDS.has(EVENT_REMINDER), true, '30300 (NIP-ER) muss den Kaltstart ueberleben')
 })
 
+test('KALIBRIERUNG: die Ephemer-Regel trifft ihren Zahlenraum genau', () => {
+    // P6, 2026-09-04, in English because it is new: without this case "nothing ephemeral
+    // is cached" is also true when `istEphemer` answers `false` for everything — the same
+    // blindness the P5 calibration above was written against. The boundaries are the
+    // NIP-01 ones and both of them are asserted, not just the middle of the range.
+    assert.deepEqual([19_999, 20_000, PRESENCE_UPDATE, 29_999, 30_000].filter(istEphemer), [20_000, PRESENCE_UPDATE, 29_999])
+})
+
 test('REGEL: nichts EPHEMERES steht in PERSIST_KINDS', () => {
     // Ein ephemeres Ereignis haelt nicht einmal der Relay; ein Cache davon waere ein
     // Stand, den niemand je korrigiert. Gilt vorab fuer P6 (Praesenz, 20001) — die
     // Phase darf ihn dann gar nicht erst eintragen, ohne dass hier etwas rot wird.
     const ephemer = [...PERSIST_KINDS].filter(istEphemer)
     assert.deepEqual(ephemer, [], `ephemere Kinds im Cache: ${ephemer.join(', ')}`)
+    // P6 shipped that kind, so the promise is nailed to the constant the surface actually
+    // uses rather than to a number written here: a rename cannot quietly detach the two.
+    assert.equal(PERSIST_KINDS.has(PRESENCE_UPDATE), false, '20001 (Praesenz) ist ephemer und gehoert in keinen Cache')
 })
 
 test('REGEL: nichts SELBST-BEGRENZTES laeuft in die Kappung', () => {

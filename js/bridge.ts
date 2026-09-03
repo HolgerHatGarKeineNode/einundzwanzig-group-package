@@ -55,6 +55,7 @@ import { wireRoomSearch } from './roomSearch.ts'
 import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
 import { wireReminders } from './reminders.ts'
+import { wirePresence } from './presence.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -1958,6 +1959,17 @@ export function registerNostrComponents(Alpine: {
     // Erinnerungs-Fläche auf `/updates`). Begründung im Kopf von `reminders.ts`; in
     // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
     wireReminders(Alpine)
+    // P6 — Präsenz (Buzz kind 20001). Vierter Store nach demselben Muster: der Zustand
+    // wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (der Punkt am
+    // Avatar jeder Chat-Zeile und der eigene Punkt in der Desktop-Rail). In
+    // `nostrRoomChat` entsteht dadurch KEIN neues Feld — das Markup liest
+    // `$store.presence.byPubkey[…]`.
+    //
+    // Er ist der einzige Store dieser Reihe, der von sich aus SCHREIBT (Herzschlag alle
+    // 45 s, solange ein Raum offen ist). Deshalb steht der Riegel in `presenceData.ts`
+    // und nicht hier: `planPresence` liefert auf zooid und bei noch unbekannter Relay-Art
+    // gar keinen Ereigniskörper. Begründung im Kopf von `presence.ts`.
+    wirePresence(Alpine)
     // P5 (Onboarding) — Vereins-Beitritt (`/verein/beitritt`). Wieder eine eigene Insel:
     // der Flow hat seinen eigenen Screen und seinen eigenen Geltungsbereich, und die REINE
     // Logik (Schritt-Entscheid, Fehler→Ausweg, Nachfass-Plan) liegt nochmals daneben in

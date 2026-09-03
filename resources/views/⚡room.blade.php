@@ -310,6 +310,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  destroy() { $store.reminders?.unmount() },
              }" hidden></div>
 
+        {{-- P6 — Präsenz (Buzz kind 20001). Eigenes Lebenszyklus-Paar wie darüber, mit einem
+             Unterschied, der hier hingehört: dieser Store SCHREIBT, solange er angemeldet ist
+             (Herzschlag alle 45 s). Die Anmeldung an den offenen RAUM zu binden ist deshalb
+             die Aussage selbst — „online" heißt in dieser Oberfläche „hat einen Raum offen",
+             nicht „hat irgendwo einen Tab offen". Wer die Fläche verlässt, meldet sich
+             ab: der Relay räumt die Präsenz sonst erst, wenn die LETZTE Verbindung des
+             Pubkeys fällt (`buzz-relay/src/connection.rs`), und die hält dieser Client für
+             jede andere Fläche offen.
+
+             Ohne `h`-Argument wie beim Lesezeichen: Präsenz gehört dem NUTZER und nicht dem
+             Raum. Der Zähler in `mount`/`unmount` deckt trotzdem den `wire:navigate`-Fall ab
+             (neuer Body VOR dem Abräumen des alten). --}}
+        <div x-data="{
+                 init() { $store.presence?.mount() },
+                 destroy() { $store.presence?.unmount() },
+             }" hidden></div>
+
         {{-- ── Angepinnte Nachrichten (P6b) ───────────────────────────────────────────
              Der Zustand liegt in `$store.roomPins` (js/roomPins.ts), NICHT in
              `nostrRoomChat` — er wird an zwei Stellen gebraucht, die einander im DOM nicht

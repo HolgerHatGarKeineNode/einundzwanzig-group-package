@@ -443,7 +443,13 @@
                     <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
                             :aria-label="@js(__('Angemeldet als :name')).split(':name').join(myName)"
                             class="pressable flex w-full min-w-0 items-center gap-2 rounded-tile px-1.5 py-1 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5">
-                        <x-group::nostr-avatar picture="myPicture" name="myName" size="1.75rem" />
+                        {{-- Der eigene Präsenzpunkt (P6). Er liest `mine` und NICHT
+                             `byPubkey[<eigener pubkey>]`: der Relay fanoutet das eigene 20001 nicht
+                             zuverlässig an die eigene Verbindung zurück, und was hier stehen soll, ist
+                             ohnehin die andere Auskunft — „das sendest du gerade über dich". Ist der
+                             Store nicht angemeldet (kein Raum offen), steht dort nichts. --}}
+                        <x-group::nostr-avatar picture="myPicture" name="myName" size="1.75rem"
+                                               presence="$store.presence?.mine" />
                         <span class="min-w-0 flex-1 truncate text-start text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
                         <x-group::nostr-nip05 nip05="myNip05" />
                         <flux:icon.chevron-up variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />

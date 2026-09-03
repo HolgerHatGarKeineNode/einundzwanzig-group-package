@@ -59,7 +59,28 @@
      den 27 Aufrufstellen liegen 13 ausserhalb der Rahmenflächen (Chat, Artikel,
      `⚡directory`, `⚡updates`, `⚡room`, `profile-card`) — sie erben denselben
      Effekt, und er ist an jeder von ihnen monoton in dieselbe Richtung. --}}
-@props(['picture', 'name', 'size' => '2rem', 'emoji' => null, 'lazy' => false])
+{{-- ── `presence` (optional, P6/Buzz kind 20001) ─────────────────────────────
+     Alpine-Ausdruck, der `'online'`, `'away'` oder nichts liefert (siehe
+     `js/presenceData.ts`). Trägt einen Punkt an die OBERE rechte Ecke — die untere
+     gehört seit P2 der Status-Plakette, und beide gleichzeitig sind der Normalfall.
+     Ohne diesen Prop entsteht KEIN zusätzliches Markup; die knapp dreißig
+     Bestands-Aufrufer bleiben unberührt.
+
+     **Es gibt bewusst KEINEN grauen „offline"-Punkt.** Präsenz ist ephemer und hat
+     keinen Bestand: ein REQ liefert EOSE mit null Ereignissen, und wer nichts gesendet
+     hat, ist deshalb nicht abwesend — er hat nur nichts gesagt. Ein Punkt für diesen
+     Zustand behauptete etwas, das dieser Client nicht wissen kann. Kein Punkt heißt:
+     keine Aussage.
+
+     **Farbe ist nicht das einzige Unterscheidungsmerkmal** (WCAG 1.4.1): online ist eine
+     GEFÜLLTE Scheibe, abwesend ein RING mit freier Mitte. Wer die beiden Grüntöne nicht
+     auseinanderhält, sieht immer noch zwei verschiedene Formen. Der Ring in Kartenfarbe
+     stanzt den Punkt vom Avatar frei, wie bei der Status-Plakette.
+
+     `aria-hidden` aus demselben Grund wie dort: der Avatar steckt an jeder Aufrufstelle
+     in einem Knopf mit eigenem `aria-label`, das den Kindtext ohnehin überschreibt. Der
+     `title` ist für die Maus, nicht für die Sprachausgabe. --}}
+@props(['picture', 'name', 'size' => '2rem', 'emoji' => null, 'presence' => null, 'lazy' => false])
 <span class="relative inline-flex shrink-0" style="width: {{ $size }}; height: {{ $size }};">
     <span x-data="{ imgOrig: false, imgBroken: false, needsAuth: false, authSrc: '' }"
           x-effect="$blossomBind($data, {{ $picture }})"
@@ -86,6 +107,21 @@
                        (Profilkarte) wäre ein reines Verhältnis eine Briefmarke. --}}
                   style="min-width: 0.95em; height: 0.95em; font-size: clamp(0.6rem, calc({{ $size }} * 0.42), 1.1rem);"
                   x-text="{{ $emoji }}"></span>
+        </template>
+    @endif
+    @if ($presence !== null)
+        <template x-if="({{ $presence }}) === 'online' || ({{ $presence }}) === 'away'">
+            <span data-presence-dot aria-hidden="true"
+                  x-bind:data-presence="{{ $presence }}"
+                  x-bind:title="({{ $presence }}) === 'away' ? @js(__('Abwesend')) : @js(__('Online'))"
+                  class="pointer-events-none absolute -right-0.5 -top-0.5 rounded-full ring-2"
+                  x-bind:class="({{ $presence }}) === 'away'
+                      ? 'bg-white ring-amber-500 dark:bg-zinc-900'
+                      : 'bg-emerald-500 ring-white dark:ring-zinc-900'"
+                  {{-- Punkt skaliert mit dem Avatar, aber gedeckelt: an einem 5rem-Avatar
+                       wäre ein reines Verhältnis ein Fleck, an einem 1,15rem-Avatar
+                       (kleinster Aufrufer im Paket) ein unsichtbarer Krümel. --}}
+                  style="width: clamp(0.5rem, calc({{ $size }} * 0.3), 0.85rem); height: clamp(0.5rem, calc({{ $size }} * 0.3), 0.85rem);"></span>
         </template>
     @endif
 </span>

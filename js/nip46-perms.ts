@@ -58,6 +58,15 @@
  *   eigenen Schlüssel, und ohne diese beiden Methoden könnte ein Bunker-Nutzer die
  *   Erinnerung zwar signieren, aber weder schreiben noch je wieder lesen. Sie kamen mit
  *   der 10009-Space-Liste herein, nicht mit dieser Phase — geprüft, nicht angenommen.
+ * - 20001 PRESENCE_UPDATE — **Buzz**: Präsenz (presence.ts, geplant in `presenceData.ts`).
+ *   Der EINZIGE Eintrag dieser Liste, der wiederkehrend signiert wird: die Fläche schlägt
+ *   alle 45 s Herzschlag, solange ein Raum offen ist. Ohne diesen Eintrag fragte ein
+ *   Bunker bei JEDEM Schlag nach — und weil bestehende NIP-46-Verbindungen nie
+ *   nachverhandelt werden, wäre die Präsenz für einen früher gekoppelten Nutzer entweder
+ *   tot oder eine Prompt-Lawine. **20002 (Tipp-Indikator) steht bewusst NICHT hier:**
+ *   dieser Client schreibt ihn nirgends (Entscheidung 2026-09-03, P6), und ein Recht für
+ *   eine Art, die wir nie signieren, wäre eine falsche Angabe in einer Liste, deren Beleg
+ *   ausdrücklich die Aufrufstelle ist.
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
  * - 27235 HTTP_AUTH — KRITISCH: Server-Login-Handoff (session.ts) UND NIP-86-Relay-Admin (members.ts)
  * - 28934/28936 RELAY_JOIN/RELAY_LEAVE — NIP-29 Space beitreten/verlassen (groups.ts)
@@ -97,6 +106,7 @@ export const NIP46_PERMS = [
     'sign_event:9734',
     'sign_event:10003',
     'sign_event:10009',
+    'sign_event:20001',
     'sign_event:22242',
     'sign_event:27235',
     'sign_event:28934',

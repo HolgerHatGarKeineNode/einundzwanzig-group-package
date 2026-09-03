@@ -59,8 +59,16 @@
                                     {{-- Status-Emoji (NIP-38) als Plakette am Avatar; der Statustext steht
                                          hinter dem Namen (unten). Beide sind im Workspace-Arm gefüllt und
                                          auf zooid immer leer — `m.status` ist dort null. --}}
+                                    {{-- Präsenzpunkt (P6, Buzz kind 20001) an der OBEREN Ecke, die
+                                         Status-Plakette an der unteren — sie schließen einander nicht aus.
+                                         Fehlt der Pubkey in der Tabelle, rendert die Komponente nichts:
+                                         Präsenz hat keinen Bestand, „nichts gehört" ist deshalb keine
+                                         Aussage über den Nutzer (Begründung in `js/presenceData.ts`).
+                                         Kein Skeleton wie beim Status: dort ist die Leere die AUSNAHME
+                                         und ein Platzhalter sagt „gleich", hier ist sie der Normalfall. --}}
                                     <x-group::nostr-avatar picture="m.picture" name="m.profileReady ? m.name : ''"
-                                                           emoji="m.status?.emoji" />
+                                                           emoji="m.status?.emoji"
+                                                           presence="$store.presence?.byPubkey?.[m.pubkey]" />
                                 </button>
                             </template>
                             {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
