@@ -279,6 +279,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </div>
 
+        {{-- ── Lesezeichen (P2) ───────────────────────────────────────────────────────
+             Der Raum RENDERT keine Lesezeichen-Fläche, aber sein Nachrichtenmenü liest
+             `$store.bookmarks.isBookmarked(…)` — und ein Store, den niemand mountet,
+             hat nie eine Liste gelesen: der Eintrag hieße dann in jedem Raum „Merken",
+             auch für längst Gemerktes.
+
+             Ein eigenes, leeres Element und kein zweites Lebenszyklus-Paar am Pin-Balken
+             darüber: der ist an `x-show` gebunden und trägt seine eigene Begründung; zwei
+             Aufgaben an einem `x-data` wären beim nächsten Umbau des Balkens still mit
+             verschoben. `hidden` statt `x-cloak` — es gibt hier nichts anzuzeigen, auch
+             nicht kurz.
+
+             Ohne `h`-Argument, anders als beim Pin: die Lesezeichenliste gehört dem
+             NUTZER und nicht dem Raum, sie wird beim Raumwechsel also nicht neu
+             aufgezogen. Der Zähler in `mount`/`unmount` deckt trotzdem denselben
+             `wire:navigate`-Fall ab (neuer Body VOR dem Abräumen des alten). --}}
+        <div x-data="{
+                 init() { $store.bookmarks?.mount() },
+                 destroy() { $store.bookmarks?.unmount() },
+             }" hidden></div>
+
         {{-- ── Angepinnte Nachrichten (P6b) ───────────────────────────────────────────
              Der Zustand liegt in `$store.roomPins` (js/roomPins.ts), NICHT in
              `nostrRoomChat` — er wird an zwei Stellen gebraucht, die einander im DOM nicht
@@ -1291,6 +1312,18 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-show="!_menuInThread && menuFor && $store.roomPins?.canUnpin(menuFor.id)" x-cloak
                          ::disabled="$store.roomPins.busy"
                          x-on:click="if (menuFor) { $store.roomPins.toggle(menuFor.id); closeMessageMenu() }">{{ __('Loslösen') }}</flux:button>
+            {{-- Merken (P2, NIP-51) — dieselben Bedingungen wie im Web-Popover
+                 (`partials/chat-row.blade.php`), Begründung dort. Ohne `!_menuInThread`:
+                 ein `["e", <id>]` ist kind-agnostisch, an einem Thread-Kommentar
+                 entsteht dieselbe gültige Liste wie an einer Nachricht. --}}
+            <flux:button variant="ghost" icon="bookmark" class="w-full justify-start"
+                         x-show="menuFor && $store.bookmarks?.canBookmark && !$store.bookmarks?.isBookmarked(menuFor.id)" x-cloak
+                         ::disabled="$store.bookmarks.busy"
+                         x-on:click="if (menuFor) { $store.bookmarks.toggle(menuFor.id); closeMessageMenu() }">{{ __('Merken') }}</flux:button>
+            <flux:button variant="ghost" icon="bookmark-slash" class="w-full justify-start"
+                         x-show="menuFor && $store.bookmarks?.canBookmark && $store.bookmarks?.isBookmarked(menuFor.id)" x-cloak
+                         ::disabled="$store.bookmarks.busy"
+                         x-on:click="if (menuFor) { $store.bookmarks.toggle(menuFor.id); closeMessageMenu() }">{{ __('Nicht mehr merken') }}</flux:button>
             {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
                  dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}
             <flux:button variant="ghost" icon="flag" class="w-full justify-start" x-show="!menuFor?.mine" x-cloak

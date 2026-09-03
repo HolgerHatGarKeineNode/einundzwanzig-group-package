@@ -401,6 +401,25 @@
                         <span>{{ __('Forge') }}</span>
                     </a>
                 @endif
+
+                {{-- Lesezeichen (P2) — dieselbe leise Form wie die beiden Zeilen darüber.
+                     Ohne Bedingung, anders als die Forge: die Liste hängt am NUTZER
+                     (NIP-51 kind 10003) und nicht an einer Konfiguration, ein Leerzustand
+                     hier ist also eine Aussage und keine Sackgasse. Eigener
+                     `data-rail-fuss`-Anker, weil „Lesezeichen" auch in der
+                     Befehlspalette steht — ein Test auf den Text träfe irgendeine der
+                     beiden Stellen. --}}
+                @php($bookmarksActive = request()->routeIs('group.bookmarks'))
+                <a href="{{ route('group.bookmarks') }}" wire:navigate data-rail-fuss="lesezeichen"
+                   @if ($bookmarksActive) aria-current="page" @endif
+                   @class([
+                       'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
+                       'font-semibold text-zinc-900 dark:text-zinc-100' => $bookmarksActive,
+                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $bookmarksActive,
+                   ])>
+                    <flux:icon.bookmark variant="micro" class="size-4 shrink-0" />
+                    <span>{{ __('Lesezeichen') }}</span>
+                </a>
             </div>
 
             <x-group::bottom-nav orientation="rail" />

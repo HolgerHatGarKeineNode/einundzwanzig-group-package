@@ -1170,5 +1170,14 @@
     "Neu laden": "Wczytaj ponownie",
     "Tag": "Tag",
     "Über": "O repozytorium",
-    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "Lista plików i README nie znajdują się w zdarzeniu Nostr. Aby je pokazać, ten klient pobiera całe repozytorium — przekaźnik nie obsługuje transferu częściowego."
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "Lista plików i README nie znajdują się w zdarzeniu Nostr. Aby je pokazać, ten klient pobiera całe repozytorium — przekaźnik nie obsługuje transferu częściowego.",
+    "Lesezeichen": "Zakładki",
+    "Merken": "Zapisz",
+    "Nicht mehr merken": "Usuń zakładkę",
+    "Noch nichts gemerkt.": "Nic jeszcze nie zapisano.",
+    "Über „Merken“ im Nachrichtenmenü landet eine Nachricht hier.": "Opcja „Zapisz” w menu wiadomości umieszcza wiadomość tutaj.",
+    "Weitere Lesezeichen": "Pozostałe zakładki",
+    "Lesezeichen werden geladen…": "Ładowanie zakładek…",
+    "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Ta lista ma prywatną część, której ten klient nie pokazuje. Pozostaje nienaruszona.",
+    "Der Space hat das Lesezeichen nicht übernommen.": "Space nie przyjął zakładki."
 }

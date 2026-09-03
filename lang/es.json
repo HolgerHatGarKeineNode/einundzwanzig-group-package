@@ -1138,5 +1138,14 @@
     "Neu laden": "Recargar",
     "Tag": "Etiqueta",
     "Über": "Acerca de",
-    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "La lista de archivos y el README no están en el evento Nostr. Para mostrarlos, este cliente descarga el repositorio completo — el relay no admite transferencias parciales."
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "La lista de archivos y el README no están en el evento Nostr. Para mostrarlos, este cliente descarga el repositorio completo — el relay no admite transferencias parciales.",
+    "Lesezeichen": "Marcadores",
+    "Merken": "Guardar",
+    "Nicht mehr merken": "Quitar marcador",
+    "Noch nichts gemerkt.": "Aún no has guardado nada.",
+    "Über „Merken“ im Nachrichtenmenü landet eine Nachricht hier.": "Con «Guardar» en el menú del mensaje, un mensaje aparece aquí.",
+    "Weitere Lesezeichen": "Otros marcadores",
+    "Lesezeichen werden geladen…": "Cargando marcadores…",
+    "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Esta lista tiene una parte privada que este cliente no muestra. Permanece intacta.",
+    "Der Space hat das Lesezeichen nicht übernommen.": "El Space no aceptó el marcador."
 }

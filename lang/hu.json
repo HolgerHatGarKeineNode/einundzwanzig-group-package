@@ -1138,5 +1138,14 @@
     "Neu laden": "Újratöltés",
     "Tag": "Címke",
     "Über": "Névjegy",
-    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "A fájllista és a README nincs benne a Nostr-eseményben. A megjelenítésükhöz ez a kliens letölti az egész repositoryt — a relay nem tud részleges átvitelt."
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "A fájllista és a README nincs benne a Nostr-eseményben. A megjelenítésükhöz ez a kliens letölti az egész repositoryt — a relay nem tud részleges átvitelt.",
+    "Lesezeichen": "Könyvjelzők",
+    "Merken": "Mentés",
+    "Nicht mehr merken": "Könyvjelző eltávolítása",
+    "Noch nichts gemerkt.": "Még nincs elmentve semmi.",
+    "Über „Merken“ im Nachrichtenmenü landet eine Nachricht hier.": "Az üzenet menüjében a „Mentés” gombbal kerül ide egy üzenet.",
+    "Weitere Lesezeichen": "További könyvjelzők",
+    "Lesezeichen werden geladen…": "Könyvjelzők betöltése…",
+    "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Ennek a listának van egy privát része, amelyet ez a kliens nem jelenít meg. Érintetlen marad.",
+    "Der Space hat das Lesezeichen nicht übernommen.": "A Space nem vette át a könyvjelzőt."
 }

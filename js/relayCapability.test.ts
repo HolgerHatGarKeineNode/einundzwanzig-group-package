@@ -89,8 +89,15 @@ test('the extension condition does not turn a non-Buzz relay into a Buzz one', (
     assert.equal(mayWriteKind(EXTENSION_KIND, 'other', { supported_extensions: [NIP_ER_EXTENSION] }), false)
 })
 
-test('the extension identifier is the one Buzz advertises', () => {
-    assert.equal(NIP_ER_EXTENSION, 'nip-er')
+test('the extension identifier is the one Buzz actually advertises', () => {
+    // Asserting the constant against its own literal would only restate the source.
+    // Bind it to the measured answer instead: `buzzProfile` is what production returned
+    // on 2026-09-03, so a typo in the constant makes this test red rather than silently
+    // switching 30300 off everywhere.
+    assert.ok(
+        buzzProfile.supported_extensions.includes(NIP_ER_EXTENSION),
+        `the gate looks for "${NIP_ER_EXTENSION}", which Buzz does not advertise`,
+    )
 })
 
 // ── Fail-closed on everything not in the table ──────────────────────────────

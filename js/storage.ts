@@ -21,11 +21,13 @@ import { on, batch } from '@welshman/lib'
 import { verifiedSymbol, type TrustedEvent } from '@welshman/util'
 import {
     APP_DATA,
+    BOOKMARKS,
     COMMENT,
     DELETE,
     FOLLOWS,
     MESSAGE,
     MUTES,
+    NAMED_BOOKMARKS,
     POLL,
     PROFILE,
     RELAY_MEMBERS,
@@ -40,6 +42,7 @@ import {
 import type { RepositoryUpdate } from '@welshman/net'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 import { BUZZ_PIN, ZOOID_PIN_LIST, isZooidPinList } from './pins.ts'
+import { isBuzzMeshStatus } from './bookmarkModels.ts'
 import {
     FORGE_COMMENT,
     GIT_ISSUE,
@@ -161,6 +164,19 @@ const PERSIST_KINDS = new Set<number>([
     // beim Lesen zusätzlich Abgelaufenes und alles älter als MAX_STATUS_AGE_SEC —
     // ein veralteter Cache-Stand kann die Zeile also nie falsch beschriften).
     USER_STATUS,
+    // P2 — NIP-51-Lesezeichen. Beide sind ersetzbar (10003 je `pubkey`, 30003 je
+    // `(pubkey, d)`) und damit selbst-begrenzt: sie brauchen keine Kappung, und ein
+    // veralteter Cache-Stand wird vom nächsten Relay-Load überschrieben statt zu
+    // wachsen. Ohne sie stünde die Lesezeichen-Fläche bei jedem Kaltstart leer, bis
+    // das Netz antwortet — derselbe 9008-Fehler, der oben schon dokumentiert ist.
+    //
+    // **Der Grabstein-Grundsatz ist hier erfüllt, ohne dass eine zweite Art nötig
+    // wäre:** ein Lesezeichen wird gelöst, indem die Liste OHNE es neu geschrieben
+    // wird. Die Löschung IST also die Ersetzung, und die kommt über dieselbe Art.
+    BOOKMARKS,
+    // 30003 steht hier, wird aber zusätzlich an der STRUKTUR gefiltert — siehe
+    // {@link shouldPersistEvent}. Dieselbe Bauart wie bei `39005`.
+    NAMED_BOOKMARKS,
 ])
 
 /**
@@ -271,6 +287,14 @@ export function forgetRepos(): void {
 export function shouldPersistEvent(event: TrustedEvent, known: ReadonlySet<string> = knownRepos): boolean {
     if (event.kind === ZOOID_PIN_LIST) {
         return isZooidPinList(event)
+    }
+    // P2 — dieselbe Zahl, zwei Bedeutungen, zweiter Fall: `30003` ist NIP-51
+    // `NAMED_BOOKMARKS` **und** Buzz' Mesh-Mitgliedsstatus. Letzterer ist Telemetrie
+    // eines Desktop-Clients, unter DEMSELBEN Pubkey signiert wie die Lesezeichen —
+    // `authors:[self]` trennt ihn also nicht (Begründung in `bookmarkModels.ts`).
+    // Ohne diese Zeile zöge jede Mesh-Meldung des Nutzers in den Kaltstart-Cache.
+    if (event.kind === NAMED_BOOKMARKS) {
+        return !isBuzzMeshStatus(event)
     }
     if (FORGE_LEAF_KINDS.has(event.kind)) {
         // Erst die Form (bei kind 1 die einzige Unterscheidung zu einer beliebigen

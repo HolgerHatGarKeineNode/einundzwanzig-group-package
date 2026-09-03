@@ -41,6 +41,12 @@ export {
     REPORT, // 1984 — NIP-56
     COMMENT, // 1111 — NIP-22
 
+    // Lesezeichen (NIP-51) — P2. Zwei Listen, eine Nummer mit Zweitbedeutung:
+    // 30003 ist bei Buzz zugleich der Träger des Mesh-Mitgliedsstatus, siehe
+    // `js/bookmarkModels.ts`.
+    BOOKMARKS, // 10003
+    NAMED_BOOKMARKS, // 30003
+
     // Polls (NIP-88)
     POLL, // 1068
     POLL_RESPONSE, // 1018

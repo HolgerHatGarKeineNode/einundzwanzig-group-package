@@ -36,6 +36,10 @@
     // führt, ist schlechter als kein Befehl.
     config('group.workspace_url') ? ['id' => 'forge', 'label' => __('Forge'), 'href' => route('group.forge')] : null,
     ['id' => 'updates', 'label' => __('Neu'), 'href' => route('group.updates')],
+    // P2 — Lesezeichen. Ohne Bedingung: die Liste gehört dem Nutzer, nicht dem Space,
+    // und ist auf jedem Relay lesbar (NIP-51 10003). Ein leerer Screen ist hier eine
+    // Aussage („noch nichts gemerkt") und kein Sackgassen-Zustand wie bei der Forge.
+    ['id' => 'bookmarks', 'label' => __('Lesezeichen'), 'href' => route('group.bookmarks')],
     ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.wallet')],
     ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route('group.settings')],
 ])

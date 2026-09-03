@@ -53,6 +53,7 @@ import { wirePalette } from './palette.ts'
 import { wireDisplayPrefs } from './displayPrefs.ts'
 import { wireRoomSearch } from './roomSearch.ts'
 import { wireRoomPins } from './roomPins.ts'
+import { wireBookmarks } from './bookmarks.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -1897,6 +1898,12 @@ export function registerNostrComponents(Alpine: {
     // In `nostrRoomChat` entsteht dadurch KEIN neues Feld — das Markup liest
     // `$store.roomPins.*` und reicht `menuFor`/`isAdmin`/`joined` lesend hinein.
     wireRoomPins(Alpine)
+    // P2 — NIP-51-Lesezeichen. Wieder ein STORE und keine Insel, aus demselben Grund
+    // wie beim Pin: der Zustand wird an zwei Stellen gebraucht, die einander im DOM
+    // nicht sehen (der `/bookmarks`-Screen und der Eintrag im Nachrichten-Menü
+    // innerhalb von `nostrRoomChat`). Begründung im Kopf von `bookmarks.ts`; in
+    // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
+    wireBookmarks(Alpine)
     // P5 (Onboarding) — Vereins-Beitritt (`/verein/beitritt`). Wieder eine eigene Insel:
     // der Flow hat seinen eigenen Screen und seinen eigenen Geltungsbereich, und die REINE
     // Logik (Schritt-Entscheid, Fehler→Ausweg, Nachfass-Plan) liegt nochmals daneben in

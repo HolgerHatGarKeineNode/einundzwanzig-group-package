@@ -32,6 +32,12 @@
  *   Kind bleibt jede Meldung in der Relay-Datenbank offen stehen.
  * - 9041 ZAP_GOAL — NIP-75-Spendenziel (interactions.ts) UND Buzz-Entbannen (s.o.)
  * - 9734 ZAP_REQUEST — NIP-57 (zaps.ts)
+ * - 10003 BOOKMARKS — NIP-51-Lesezeichenliste (bookmarks.ts `toggleBookmark`). Ohne
+ *   diesen Eintrag verweigert ein Amber/Bunker-Nutzer beim ersten Merken die Signatur,
+ *   und die Fläche ist für ihn tot. **30003 steht bewusst NICHT hier:** Lesezeichen-Sets
+ *   werden nur GELESEN (fremde Clients legen sie an), dieser Client schreibt sie nie —
+ *   ein Recht für eine Art, die wir nicht signieren, wäre eine falsche Angabe in einer
+ *   Liste, deren Beleg ausdrücklich die Aufrufstelle ist.
  * - 10009 ROOMS-Liste — NIP-51 (groups.ts)
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
  * - 27235 HTTP_AUTH — KRITISCH: Server-Login-Handoff (session.ts) UND NIP-86-Relay-Admin (members.ts)
@@ -68,6 +74,7 @@ export const NIP46_PERMS = [
     'sign_event:9041',
     'sign_event:9044',
     'sign_event:9734',
+    'sign_event:10003',
     'sign_event:10009',
     'sign_event:22242',
     'sign_event:27235',

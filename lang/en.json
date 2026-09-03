@@ -1138,5 +1138,14 @@
     "Neu laden": "Reload",
     "Tag": "Tag",
     "Über": "About",
-    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "File list and README are not part of the Nostr event. To show them, this client downloads the whole repository — the relay cannot do a partial transfer."
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "File list and README are not part of the Nostr event. To show them, this client downloads the whole repository — the relay cannot do a partial transfer.",
+    "Lesezeichen": "Bookmarks",
+    "Merken": "Bookmark",
+    "Nicht mehr merken": "Remove bookmark",
+    "Noch nichts gemerkt.": "Nothing bookmarked yet.",
+    "Über „Merken“ im Nachrichtenmenü landet eine Nachricht hier.": "Use “Bookmark” in the message menu to put a message here.",
+    "Weitere Lesezeichen": "Other bookmarks",
+    "Lesezeichen werden geladen…": "Loading bookmarks…",
+    "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "This list has a private part that this client does not show. It stays untouched.",
+    "Der Space hat das Lesezeichen nicht übernommen.": "The Space did not take the bookmark."
 }

@@ -1138,5 +1138,14 @@
     "Neu laden": "Opnieuw laden",
     "Tag": "Tag",
     "Über": "Over",
-    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "De bestandslijst en de README staan niet in het Nostr-event. Om ze te tonen downloadt deze client de hele repository — de relay kan geen gedeeltelijke overdracht."
+    "Dateiliste und README stehen nicht im Nostr-Ereignis. Um sie zu zeigen, lädt dieser Client das ganze Repository herunter — der Relay kann keine Teilübertragung.": "De bestandslijst en de README staan niet in het Nostr-event. Om ze te tonen downloadt deze client de hele repository — de relay kan geen gedeeltelijke overdracht.",
+    "Lesezeichen": "Bladwijzers",
+    "Merken": "Bewaren",
+    "Nicht mehr merken": "Bladwijzer verwijderen",
+    "Noch nichts gemerkt.": "Nog niets bewaard.",
+    "Über „Merken“ im Nachrichtenmenü landet eine Nachricht hier.": "Via „Bewaren” in het berichtmenu komt een bericht hier terecht.",
+    "Weitere Lesezeichen": "Overige bladwijzers",
+    "Lesezeichen werden geladen…": "Bladwijzers worden geladen…",
+    "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Deze lijst heeft een privégedeelte dat deze client niet toont. Het blijft ongewijzigd.",
+    "Der Space hat das Lesezeichen nicht übernommen.": "De Space heeft de bladwijzer niet overgenomen."
 }

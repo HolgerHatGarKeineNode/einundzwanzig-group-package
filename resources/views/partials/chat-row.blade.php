@@ -484,6 +484,32 @@
                                                                 x-on:click="$store.roomPins.toggle(m.id)">{{ __('Loslösen') }}</flux:menu.item>
                                             </template>
                                             @endif
+                                            {{-- Merken (P2, NIP-51 kind 10003). Zustand und Rechte liegen in
+                                                 `$store.bookmarks` (js/bookmarks.ts), hier wird nur gelesen —
+                                                 `nostrRoomChat` bekommt dafür kein eigenes Feld.
+
+                                                 KEIN `@if ($context === 'room')` um diesen Block, anders als beim
+                                                 Pin: ein Lesezeichen ist ein `["e", <id>]` und damit
+                                                 kind-agnostisch — an einem Thread-Kommentar (kind 1111) entsteht
+                                                 dieselbe gültige Liste wie an einer Nachricht. Dieselbe Regel wie
+                                                 bei „Fork off!" darunter.
+
+                                                 `canBookmark` ist fail-closed: es ist falsch, solange
+                                                 `deriveSpaceKind` noch `'unknown'` meldet (NIP-11 unterwegs) und
+                                                 für einen Gast ohne Signer. Ein Eintrag, der dann nichts täte,
+                                                 erscheint gar nicht erst.
+
+                                                 `disabled` an `busy` aus demselben Grund wie beim Pin: `toggle()`
+                                                 verwirft einen Klick, solange ein Schreibvorgang läuft, und dieses
+                                                 Fenster endet erst mit dem Verdikt des Relays. --}}
+                                            <template x-if="$store.bookmarks?.canBookmark && !$store.bookmarks?.isBookmarked(m.id)">
+                                                <flux:menu.item icon="bookmark" x-bind:disabled="$store.bookmarks.busy"
+                                                                x-on:click="$store.bookmarks.toggle(m.id)">{{ __('Merken') }}</flux:menu.item>
+                                            </template>
+                                            <template x-if="$store.bookmarks?.canBookmark && $store.bookmarks?.isBookmarked(m.id)">
+                                                <flux:menu.item icon="bookmark-slash" x-bind:disabled="$store.bookmarks.busy"
+                                                                x-on:click="$store.bookmarks.toggle(m.id)">{{ __('Nicht mehr merken') }}</flux:menu.item>
+                                            </template>
                                             {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984) — generisch, auch im Thread. --}}
                                             <template x-if="!m.mine">
                                                 <flux:menu.item icon="flag" x-on:click="askReport(m)">Fork off!</flux:menu.item>

@@ -261,6 +261,25 @@ test('die Forge-Kinds ueberleben den Kaltstart', () => {
     }
 })
 
+test('P2: die Lesezeichen-Listen ueberleben den Kaltstart — die Mesh-Telemetrie nicht', () => {
+    // 10003 und 30003 sind ersetzbar und damit selbst-begrenzt; ohne sie stuende die
+    // Lesezeichen-Flaeche bei jedem Kaltstart leer, bis das Netz antwortet.
+    assert.equal(shouldPersistEvent(ev(10003)), true, '10003 (NIP-51-Lesezeichenliste)')
+    assert.equal(shouldPersistEvent(ev(30003, [['d', 'lesen']])), true, '30003 (Lesezeichen-Set)')
+
+    // Dieselbe Zahl, zwei Bedeutungen — zweiter Fall nach `39005`: 30003 ist bei Buzz
+    // auch der Mesh-Mitgliedsstatus des Desktop-Clients, signiert mit DEMSELBEN
+    // Pubkey wie die Lesezeichen. `authors:[self]` trennt ihn also nicht; der Cache
+    // zoege sonst jede Mesh-Meldung des Nutzers mit.
+    const mesh = ev(30003, [['d', 'buzz-mesh-member-status:owner-7'], ['k', 'buzz-mesh-status']])
+    assert.equal(shouldPersistEvent(mesh), false, '30003 als Buzz-Mesh-Status')
+
+    // Beide sind ersetzbar → sie duerfen NICHT in die Kappung (ein gekapptes 10003
+    // hiesse, die Lesezeichen des Nutzers aus dem Cache zu werfen, waehrend es sie noch gibt).
+    assert.equal(isCappedEvent(ev(10003)), false, '10003 ist ersetzbar und bleibt ungekappt')
+    assert.equal(isCappedEvent(ev(30003, [['d', 'lesen']])), false, '30003 ist ersetzbar und bleibt ungekappt')
+})
+
 test('Forum-Thema, Forum-Antwort und NIP-38-Status ueberleben den Kaltstart', () => {
     assert.equal(shouldPersistEvent(ev(45001)), true, '45001 (Forum-Thema)')
     assert.equal(shouldPersistEvent(ev(45003)), true, '45003 (Forum-Antwort)')
