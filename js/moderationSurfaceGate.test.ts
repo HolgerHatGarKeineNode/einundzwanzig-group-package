@@ -20,9 +20,12 @@
  *     files. Without that, every assertion below would also hold on a scanner that reads
  *     empty strings.
  *
- * Deliberately made red once during construction: with the four disabled blocks
- * un-commented the CORE case reported all six handlers, and re-commenting them (byte for
- * byte, md5-checked) turned it green again.
+ * Deliberately made red twice, both times reverted byte for byte under md5:
+ *
+ *  - with the disabled blocks un-commented the CORE case reported all six handlers;
+ *  - with the bracket-less line the review found — `x-on:click="removeMember"`, outside
+ *    every comment block — the CORE case reported `removeMember`. **Before the fix that
+ *    same line left all six cases green**; the case below pins the rule that closed it.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -123,12 +126,41 @@ test('CALIBRATION: the actions that must STAY operable are found by this scanner
     assert.ok(callsHandler(find('⚡spaces.blade.php'), 'addRoomMemberByNpub'), 'the room member list is gone')
 })
 
+test('CORE: a handler WITHOUT brackets counts as a call — Alpine calls it anyway', () => {
+    // The hole the review measured. Alpine auto-calls an expression that evaluates to a
+    // function: `x-on:click="removeMember"` runs `removeMember(clickEvent)` (the four lines
+    // in our own build are cited in the module header). A scanner that insists on `(`
+    // reports a clean tree while the button works.
+    //
+    // Synthetic sources here and not the real file, so this case keeps its meaning after
+    // the next edit of the markup — the real tree is what the CORE case below reads.
+    const source = (active: string) => ({ file: 'synthetic.blade.php', active })
+
+    assert.ok(
+        callsHandler(source('<flux:menu.item icon="user-minus" x-on:click="removeMember">X</flux:menu.item>'), 'removeMember'),
+        'the bracket-less shorthand is not seen — this is exactly the line that slipped through',
+    )
+    // Its relatives: a modifier on the attribute, the `@` short form, single quotes, and an
+    // expression whose RESULT is the function (Alpine calls that too).
+    assert.ok(callsHandler(source('<button @click.prevent="banMember">X</button>'), 'banMember'))
+    assert.ok(callsHandler(source("<button x-on:click='kickRoomMember'>X</button>"), 'kickRoomMember'))
+    assert.ok(callsHandler(source('<button x-on:click="m.mine ? noop : banReportedUser">X</button>'), 'banReportedUser'))
+
+    // And it stays word-bounded: lifting a restriction must not be reported as banning.
+    assert.equal(callsHandler(source('<button x-on:click="unbanMember">X</button>'), 'banMember'), false)
+    // A name outside an event attribute is not a call — `x-text` renders, it does not run.
+    assert.equal(callsHandler(source('<span x-text="removeMemberLabel"></span>'), 'removeMember'), false)
+    assert.equal(callsHandler(source('<span x-text="removeMember"></span>'), 'removeMember'), false)
+})
+
 test('CORE: no active markup removes or bans a member — anywhere in the tree', () => {
     const offenders: string[] = []
     for (const source of blades()) {
         for (const handler of PERSON_HANDLERS) {
             if (callsHandler(source, handler)) {
-                offenders.push(`${source.file}: ${handler}(`)
+                // No trailing `(` in the message: since the bracket-less form counts too,
+                // printing one would name a shape the file may not contain.
+                offenders.push(`${source.file}: ${handler}`)
             }
         }
         for (const label of PERSON_LABELS) {

@@ -13,7 +13,8 @@
  * und bannen keine Mitglieder, sondern machen höchstens Timeout, welchen man einstellen
  * kann."* The timed suspension is therefore the strongest measure the client offers —
  * there is no escalation step above it, and the removal/ban entries that used to sit
- * next to it are commented out at their four markup sites with that same reason.
+ * next to it are commented out with that same reason — six comment blocks holding seven
+ * elements, across four files (`moderationSurfaceGate.ts` names them and guards them).
  *
  * ══ The event shape, read off the producer ══════════════════════════════════════
  *

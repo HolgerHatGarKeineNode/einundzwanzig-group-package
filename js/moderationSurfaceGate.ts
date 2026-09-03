@@ -35,6 +35,40 @@
  * very button the phase keeps. Every needle is matched as a regular expression with `\b`
  * in front of it.
  *
+ * ── A call needs no parentheses, and that hole was measured ─────────────────
+ *
+ * The first version of this scanner asked for `\bNAME\s*\(` — a name **followed by a
+ * bracket**. The review put one line back into the member menu, outside every comment
+ * block:
+ *
+ *     <flux:menu.item icon="user-minus" x-on:click="removeMember">{{ __('Entfernen') }}</flux:menu.item>
+ *
+ * and all six cases of `moderationSurfaceGate.test.ts` stayed green. The button works:
+ * Alpine calls an expression that evaluates to a function, brackets or not. Read in the
+ * build this project actually ships — Alpine 3.15.12, bundled inside Livewire at
+ * `vendor/livewire/livewire/dist/livewire.esm.js`, **not** in a `node_modules/alpinejs`
+ * (there is none: Alpine comes with Livewire here):
+ *
+ *   - `:3993` — the `x-on` directive evaluates with `{ scope: { "$event": e }, params: [e] }`
+ *   - `:1871` — the evaluator hands its result to `runIfTypeOfFunction`
+ *   - `:1881` — `if (shouldAutoEvaluateFunctions && typeof value === "function")`
+ *     → `value.apply(scope2, params)`
+ *   - `:1791` — `var shouldAutoEvaluateFunctions = true`, the default
+ *
+ * So `x-on:click="removeMember"` calls `removeMember(clickEvent)`.
+ *
+ * **Why exactly the two removal handlers slipped through and the ban handlers would not:**
+ * `banMember` and `askBanAuthor` are covered a second time by {@link showsLabel}
+ * (`__('Bannen')`, `__('Autor bannen')`). `removeMember` and `kickRoomMember` carry
+ * `__('Entfernen')`, and that label rightly is **not** on the forbidden list — it also
+ * belongs to the message-removal button, which stays operable. Both safeguards together
+ * therefore let those two names pass in an ordinary Alpine shorthand.
+ *
+ * {@link callsHandler} now asks two questions: the bracketed call anywhere in the active
+ * markup, **or** the bare name inside the value of an `x-on:…` / `@…` attribute. The
+ * second one also covers the shorthand's relatives (`@click.prevent`, a ternary, a `&&`),
+ * because Alpine auto-calls whatever the whole expression evaluates to.
+ *
  * ── What the scanner cannot do ──────────────────────────────────────────────
  *
  * It reads text, not a tree — Blade is not JavaScript and the AST scanner of
@@ -42,8 +76,10 @@
  * (`this[action](m)`) would pass. That is a deliberate circumvention, not the quiet
  * repetition of a pattern, and this latch is built against the second.
  *
- * The one construct it does understand is the Blade comment `{{-- … --}}`, because that
- * is what the four disabled sites are wrapped in. Blade itself does not nest those
+ * The one construct it does understand is the Blade comment `{{-- … --}}`, because that is
+ * what the disabled sites are wrapped in — **six comment blocks holding seven elements,
+ * across four files** (member menu: two entries · report queue · room member list ·
+ * ban-author modal · room action sheet · chat-row menu). Blade itself does not nest those
  * comments (its compiler uses the same non-greedy match), so neither does this.
  */
 import { readFileSync, readdirSync } from 'node:fs'
@@ -109,9 +145,43 @@ export const collectBlades = (root: string): string[] => {
     return files
 }
 
-/** Does the active markup call `name(`? Word-bounded — `unbanMember(` is not `banMember(`. */
-export const callsHandler = (source: BladeSource, name: string): boolean =>
-    new RegExp(`\\b${name}\\s*\\(`).test(source.active)
+/**
+ * The value of every `x-on:…` / `@…` attribute in the active markup.
+ *
+ * Both quote styles: only double quotes occur in this tree today (318 `x-on:click` against
+ * 0 single-quoted event attributes, counted 2026-09-03), but the rule has to survive the
+ * next hand, not describe the current one. Modifiers ride along in the attribute name
+ * (`@click.prevent`, `x-on:keydown.escape.window`).
+ */
+const eventExpressions = (source: BladeSource): string[] => {
+    const pattern = /(?:x-on:|@)[A-Za-z][\w:.-]*\s*=\s*(?:"([^"]*)"|'([^']*)')/g
+    const values: string[] = []
+    for (const match of source.active.matchAll(pattern)) {
+        values.push(match[1] ?? match[2] ?? '')
+    }
+
+    return values
+}
+
+/**
+ * Does the active markup run `name` on an event?
+ *
+ * Two questions, because **a call needs no parentheses** (see the module header, with the
+ * lines in our own Alpine build):
+ *
+ *  1. `NAME(` anywhere in the active markup — the ordinary call.
+ *  2. `NAME` as a bare identifier inside an `x-on:…` / `@…` expression — the shorthand
+ *     Alpine auto-calls with the click event.
+ *
+ * Word-bounded in both: `unbanMember` is not `banMember`, and lifting a restriction has to
+ * stay reachable.
+ */
+export const callsHandler = (source: BladeSource, name: string): boolean => {
+    const bounded = new RegExp(`\\b${name}\\b`)
+
+    return new RegExp(`\\b${name}\\s*\\(`).test(source.active)
+        || eventExpressions(source).some((expression) => bounded.test(expression))
+}
 
 /**
  * All runs of whitespace collapsed to one space.
