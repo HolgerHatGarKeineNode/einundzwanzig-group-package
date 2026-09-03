@@ -132,6 +132,42 @@ export const hasRelayExtension = (
     return advertised.some((entry) => typeof entry === 'string' && entry.trim().toLowerCase() === wanted)
 }
 
+/**
+ * How far into the future this relay accepts a NIP-ER `not_before`, in seconds —
+ * `limitation.max_not_before_delta` out of the NIP-11 doc. `null` = the relay does not
+ * state one.
+ *
+ * **Read, never assumed.** The value is an env override on the relay
+ * (`SPROUT_MAX_NOT_BEFORE_DELTA`, read in *two* places that must agree:
+ * `buzz-relay/src/nip11.rs:102` for the advertisement and
+ * `handlers/ingest.rs:1816` for the enforcement). Hard-coding the default would mean
+ * building an event the relay refuses the moment an operator lowers the bound — and a
+ * refused reminder is the worst kind of failure this surface has: the user believes
+ * they will be reminded. Measured against production 2026-09-03: `31536000`, exactly
+ * the one-year default.
+ *
+ * **`null` denies, it does not fall back.** The same fail-closed direction as
+ * {@link hasRelayExtension} and `mayWriteKind`: without a stated horizon we cannot know
+ * whether a write will be accepted, and guessing here spends a signature prompt on an
+ * event that may be dropped. NIP-ER only *SHOULDs* the field, so this branch is
+ * reachable in principle — against Buzz it is not: `relay_limitation()` always fills it
+ * (`Some(max_not_before_delta)`, never `None`).
+ *
+ * **Numbers only, no numeric strings.** NIP-11 `limitation` values are JSON numbers, and
+ * welshman hands the field through raw (see {@link hasRelayExtension} for why). A relay
+ * that sends `"31536000"` is guessing about the shape of its own limitation document;
+ * accepting the guess would put a `parseInt` between us and a bound that decides whether
+ * an event is accepted. `0` and negatives are refused too — a horizon of zero would mean
+ * "no reminder may be scheduled", which is what `null` already says.
+ *
+ * Rein & welshman-frei → testbar.
+ */
+export const maxNotBeforeDelta = (profile?: { limitation?: { max_not_before_delta?: number } }): number | null => {
+    const raw = profile?.limitation?.max_not_before_delta
+
+    return typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0 ? raw : null
+}
+
 /** Space-Branding aus dem NIP-11-Info-Doc (Anzeigename, Avatar, Untertitel, Kopfbild). */
 export type SpaceBranding = { label: string; icon: string; description: string; banner: string }
 

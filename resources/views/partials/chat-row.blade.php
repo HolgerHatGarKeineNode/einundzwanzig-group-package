@@ -510,6 +510,29 @@
                                                 <flux:menu.item icon="bookmark-slash" x-bind:disabled="$store.bookmarks.busy"
                                                                 x-on:click="$store.bookmarks.toggle(m.id)">{{ __('Nicht mehr merken') }}</flux:menu.item>
                                             </template>
+                                            {{-- Erinnere mich (P5, NIP-ER kind 30300). Zustand und Rechte liegen in
+                                                 `$store.reminders` (js/reminders.ts), hier wird nur gelesen —
+                                                 `nostrRoomChat` bekommt dafür kein eigenes Feld.
+
+                                                 KEIN `@if ($context === 'room')`, dieselbe Regel wie beim Lesezeichen:
+                                                 das Ziel einer Erinnerung ist eine Event-Id und damit kind-agnostisch;
+                                                 an einem Thread-Kommentar (kind 1111) entsteht dieselbe gültige
+                                                 Erinnerung wie an einer Nachricht.
+
+                                                 `canRemind` ist fail-closed und STRENGER als beim Lesezeichen: es ist
+                                                 falsch, solange `deriveSpaceKind` noch `'unknown'` meldet, für einen
+                                                 Gast ohne Signer, auf jedem Nicht-Buzz-Space UND auf einem Buzz-Space,
+                                                 dessen NIP-11 kein `nip-er` annonciert — dort liefe der Relay-Scheduler
+                                                 nicht, die Erinnerung würde angenommen und nie fällig.
+
+                                                 Übergeben wird NUR die Id: den Vorschautext holt sich der Store aus dem
+                                                 Repository (`bodyWithoutQuote`). `m.html` wäre gerendertes Markup, und
+                                                 das landete verschlüsselt in der Erinnerung und danach als Text in der
+                                                 Erinnerungszeile. --}}
+                                            <template x-if="$store.reminders?.canRemind">
+                                                <flux:menu.item icon="clock" x-bind:disabled="$store.reminders.busy"
+                                                                x-on:click="$store.reminders.openFor(m.id)">{{ __('Erinnere mich') }}</flux:menu.item>
+                                            </template>
                                             {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984) — generisch, auch im Thread. --}}
                                             <template x-if="!m.mine">
                                                 <flux:menu.item icon="flag" x-on:click="askReport(m)">Fork off!</flux:menu.item>

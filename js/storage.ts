@@ -57,6 +57,7 @@ import {
     repoAddressOf,
 } from './forgeModels.ts'
 import { FORUM_COMMENT, FORUM_POST, FORUM_VOTE } from './forumModels.ts'
+import { EVENT_REMINDER } from './reminderModels.ts'
 import { USER_STATUS } from './userStatusData.ts'
 
 // §4.4 Multi-Account: EINE DB PRO pubkey (`…-<hex>`). Damit teilen zwei Accounts NIE
@@ -132,7 +133,7 @@ type TrackerItem = { id: string; relays: string[] }
  * sondern es ist das allgemeinste Kind überhaupt. `PERSIST_KINDS.add(1)` würde jede
  * Notiz jedes Relays in den Cache ziehen.
  */
-const PERSIST_KINDS = new Set<number>([
+export const PERSIST_KINDS: ReadonlySet<number> = new Set<number>([
     MESSAGE,
     BUZZ_MESSAGE_V2, // Buzz' zweite Chat-Fassung — sonst fehlten fremde Nachrichten beim Kaltstart
     COMMENT,
@@ -193,6 +194,24 @@ const PERSIST_KINDS = new Set<number>([
     // 30003 steht hier, wird aber zusätzlich an der STRUKTUR gefiltert — siehe
     // {@link shouldPersistEvent}. Dieselbe Bauart wie bei `39005`.
     NAMED_BOOKMARKS,
+    // P5 — NIP-ER-Erinnerungen (30300). Adressierbar je `(pubkey, d)` und damit
+    // selbst-begrenzt: keine Kappung nötig, ein alter Stand wird ersetzt statt ergänzt.
+    //
+    // Die drei Fragen von oben, für diesen Kind beantwortet:
+    // 1. *Speichert der Relay ihn?* Ja, und er materialisiert sogar `not_before` in eine
+    //    eigene Spalte (`buzz-db/src/event.rs:185-203`), weil sein Scheduler danach
+    //    sucht. Auf zooid landet er nie — der Riegel (`relayCapability.ts`) verbietet
+    //    das Schreiben dort, und gelesen wird nur `authors:[self]`.
+    // 2. *Ersetzbar oder append-only?* Adressierbar. Snooze und „erledigt" sind
+    //    Ersetzungen derselben Adresse, keine neuen Zeilen.
+    // 3. *Welcher Grabstein wirkt?* Der der Ersetzung selbst: ein `done` verdrängt das
+    //    `pending` unter demselben `d`. Für das harte Löschen kennt NIP-ER den
+    //    NIP-09-Weg über ein `a`-Tag; den behandelt welshman im `repository`.
+    //
+    // **Der Inhalt bleibt im Cache verschlüsselt.** Was hier liegt, ist der Ciphertext
+    // des Events — entschlüsselt wird erst beim Rendern, im Speicher. Ein IndexedDB, das
+    // jemand später ausliest, enthält keine Klartext-Notiz.
+    EVENT_REMINDER,
 ])
 
 /**
@@ -484,6 +503,20 @@ const LONGLIVED_MAX_AGE_SEC = 180 * 24 * 60 * 60
 const CAPPED_KINDS = new Set<number>([
     MESSAGE,
     BUZZ_MESSAGE_V2,
+    // P5 — **nachgetragener Bestandsfehler, gefunden von der umgebauten Regel in
+    // `storagePersistKinds.test.ts`.** Umfrage (1068) und Spendenziel (9041) standen seit
+    // jeher in `PERSIST_KINDS`, aber in keinem Deckel: `eventsToPrune` überspringt alles,
+    // was `isCappedEvent` verneint, **noch vor dem Alters-Backstop**. Gemessen am
+    // 2026-09-03 mit 401 Ereignissen je Kind, eines davon 400 Tage alt: kind 9 verwarf
+    // 101, kind 1068 und kind 9041 verwarfen **null**. Sie wuchsen also unbegrenzt, und
+    // die alte, aufzählende Fassung des Wächters blieb dabei grün.
+    //
+    // Sie gehören in den CHAT-Topf und nicht in einen eigenen: sie kommen über denselben
+    // `#h`-gescopten Raumfilter herein wie kind 9 (`feeds.ts` `roomFilter`), werden als
+    // Zeile in derselben Zeitleiste gerendert und altern genauso. Ein eigener Deckel
+    // hieße, einer Umfrage mehr Platz zu geben als der Nachricht daneben.
+    POLL,
+    ZAP_GOAL,
     COMMENT,
     FORUM_POST,
     FORUM_COMMENT,
@@ -537,7 +570,7 @@ const nowSec = (): number => Math.floor(Date.now() / 1000)
  *
  * | Familie                         | Deckel        | Alters-Backstop |
  * |---------------------------------|---------------|-----------------|
- * | kind 9 / Buzz-V2 (Chat)         | pro Raum      | 30 Tage         |
+ * | kind 9 / Buzz-V2 / 1068 / 9041  | pro Raum      | 30 Tage         |
  * | kind 1111 (Thread-Kommentar)    | global        | 30 Tage         |
  * | 45001 (Forum-Thema)             | pro Kanal     | 180 Tage        |
  * | 45003 (Forum-Antwort)           | global        | 180 Tage        |
@@ -589,7 +622,14 @@ export function eventsToPrune(events: TrustedEvent[], now: number, caps: Partial
         if (!isCappedEvent(event)) {
             continue
         }
-        const chat = event.kind === MESSAGE || event.kind === BUZZ_MESSAGE_V2 || event.kind === COMMENT
+        // Umfrage und Spendenziel zählen als Chat: gleicher Raumfilter, gleiche
+        // Zeitleiste, gleiches Altersfenster (Begründung bei {@link CAPPED_KINDS}).
+        const chat =
+            event.kind === MESSAGE ||
+            event.kind === BUZZ_MESSAGE_V2 ||
+            event.kind === COMMENT ||
+            event.kind === POLL ||
+            event.kind === ZAP_GOAL
         if (event.created_at < (chat ? chatCutoff : longCutoff)) {
             drop.push(event.id)
             continue

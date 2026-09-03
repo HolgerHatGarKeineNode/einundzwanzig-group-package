@@ -54,6 +54,7 @@ import { wireDisplayPrefs } from './displayPrefs.ts'
 import { wireRoomSearch } from './roomSearch.ts'
 import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
+import { wireReminders } from './reminders.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -1951,6 +1952,12 @@ export function registerNostrComponents(Alpine: {
     // innerhalb von `nostrRoomChat`). Begründung im Kopf von `bookmarks.ts`; in
     // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
     wireBookmarks(Alpine)
+    // P5 — NIP-ER-Erinnerungen (30300). Dritter Store nach demselben Muster und aus
+    // demselben Grund: der Zustand wird an zwei Stellen gebraucht, die einander im DOM
+    // nicht sehen (der Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat` und die
+    // Erinnerungs-Fläche auf `/updates`). Begründung im Kopf von `reminders.ts`; in
+    // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
+    wireReminders(Alpine)
     // P5 (Onboarding) — Vereins-Beitritt (`/verein/beitritt`). Wieder eine eigene Insel:
     // der Flow hat seinen eigenen Screen und seinen eigenen Geltungsbereich, und die REINE
     // Logik (Schritt-Entscheid, Fehler→Ausweg, Nachfass-Plan) liegt nochmals daneben in

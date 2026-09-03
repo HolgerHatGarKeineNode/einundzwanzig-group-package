@@ -50,6 +50,14 @@
  *   Chat-Antwortpfad (kind 9, schon gelistet) — was dieser Client nie signiert, gehört
  *   nicht in eine Liste, deren Beleg ausdrücklich die Aufrufstelle ist.
  * - 10009 ROOMS-Liste — NIP-51 (groups.ts)
+ * - 30300 EVENT_REMINDER — **Buzz/NIP-ER**: private Erinnerung (reminders.ts `create`
+ *   und `finish`, geplant in `reminderModels.ts`). Buzz-only, aber die Perm-Liste wird
+ *   beim KOPPELN einmal ausgehandelt, lange bevor feststeht, welchen Space der Nutzer
+ *   öffnet — wie bei 9042/9043 und 45002. **`nip44_encrypt`/`nip44_decrypt` stehen oben
+ *   bereits und gelten mit:** der `content` einer Erinnerung ist NIP-44-Chiffrat an den
+ *   eigenen Schlüssel, und ohne diese beiden Methoden könnte ein Bunker-Nutzer die
+ *   Erinnerung zwar signieren, aber weder schreiben noch je wieder lesen. Sie kamen mit
+ *   der 10009-Space-Liste herein, nicht mit dieser Phase — geprüft, nicht angenommen.
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
  * - 27235 HTTP_AUTH — KRITISCH: Server-Login-Handoff (session.ts) UND NIP-86-Relay-Admin (members.ts)
  * - 28934/28936 RELAY_JOIN/RELAY_LEAVE — NIP-29 Space beitreten/verlassen (groups.ts)
@@ -94,6 +102,7 @@ export const NIP46_PERMS = [
     'sign_event:28934',
     'sign_event:28936',
     'sign_event:30078',
+    'sign_event:30300',
     'sign_event:45002',
 ].join(',')
 

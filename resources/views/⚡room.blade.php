@@ -300,6 +300,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  destroy() { $store.bookmarks?.unmount() },
              }" hidden></div>
 
+        {{-- P5 — Erinnerungen (NIP-ER). Eigenes Lebenszyklus-Paar aus demselben Grund wie
+             beim Lesezeichen darüber: der Store gehört dem NUTZER, nicht dem Raum, und der
+             Zähler in `mount`/`unmount` deckt den `wire:navigate`-Fall ab (neuer Body VOR
+             dem Abräumen des alten). Der Raum braucht ihn für den Menü-Eintrag; angezeigt
+             werden die fälligen Erinnerungen auf `/updates`. --}}
+        <div x-data="{
+                 init() { $store.reminders?.mount() },
+                 destroy() { $store.reminders?.unmount() },
+             }" hidden></div>
+
         {{-- ── Angepinnte Nachrichten (P6b) ───────────────────────────────────────────
              Der Zustand liegt in `$store.roomPins` (js/roomPins.ts), NICHT in
              `nostrRoomChat` — er wird an zwei Stellen gebraucht, die einander im DOM nicht
@@ -1349,6 +1359,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-show="menuFor && $store.bookmarks?.canBookmark && $store.bookmarks?.isBookmarked(menuFor.id)" x-cloak
                          ::disabled="$store.bookmarks.busy"
                          x-on:click="if (menuFor) { $store.bookmarks.toggle(menuFor.id); closeMessageMenu() }">{{ __('Nicht mehr merken') }}</flux:button>
+            {{-- Erinnere mich (P5, NIP-ER kind 30300) — dieselben Bedingungen wie im
+                 Web-Popover (`partials/chat-row.blade.php`), Begründung dort. Ohne
+                 `!_menuInThread`: das Ziel ist eine Event-Id und damit kind-agnostisch.
+                 `closeMessageMenu()` VOR `openFor()`, nicht danach: sonst schlösse das
+                 Aktionsblatt den soeben geöffneten Erinnerungs-Dialog gleich wieder mit. --}}
+            <flux:button variant="ghost" icon="clock" class="w-full justify-start"
+                         x-show="menuFor && $store.reminders?.canRemind" x-cloak
+                         ::disabled="$store.reminders.busy"
+                         x-on:click="if (menuFor) { const id = menuFor.id; closeMessageMenu(); $store.reminders.openFor(id) }">{{ __('Erinnere mich') }}</flux:button>
             {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
                  dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}
             <flux:button variant="ghost" icon="flag" class="w-full justify-start" x-show="!menuFor?.mine" x-cloak
@@ -1424,6 +1443,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </template>
     </flux:modal>
+
+    {{-- P5 — Erinnerungs-Dialog (NIP-ER). In einer Komponente und nicht hier, aus
+         demselben Grund wie die Lightbox darunter: diese Datei hat eine kalibrierte
+         ARIA-Trägerzahl, und `flux:modal` bringt seine Träger selbst mit. Der ganze
+         Zustand liegt in `$store.reminders`. --}}
+    <x-group::reminder-modal />
 
     {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds. Sie liegt seit P3 in
          `components/lightbox-overlay.blade.php`, weil die Artikel-Vollansicht dieselbe

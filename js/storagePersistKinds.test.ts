@@ -21,15 +21,19 @@ import {
     COMMENT,
     DELETE,
     MESSAGE,
+    POLL as POLL_KIND,
     PROFILE,
     REACTION,
     ROOM_DELETE,
     ROOM_DELETE_EVENT,
     ROOM_MEMBERS,
     ROOM_META,
+    ZAP_GOAL as ZAP_GOAL_KIND,
     ZAP_RECEIPT,
 } from './welshmanKinds.ts'
+import { BUZZ_PIN } from './pins.ts'
 import {
+    PERSIST_KINDS,
     eventsToPrune,
     forgetRepos,
     isCappedEvent,
@@ -37,6 +41,7 @@ import {
     rememberRepos,
     shouldPersistEvent,
 } from './storage.ts'
+import { EVENT_REMINDER } from './reminderModels.ts'
 
 const ev = (kind: number, tags: string[][] = []) => ({ kind, tags }) as never
 
@@ -312,20 +317,190 @@ test('Buzz’ Thread-Summary (39005) bleibt drausssen, zooids Pin-Liste nicht', 
     assert.equal(shouldPersistEvent(pinList), true, '39005 als zooid-Pin-Liste')
 })
 
+// ── P5: aus der Aufzaehlung wird eine REGEL ────────────────────────────────
+//
+// **Was hier bis zum 2026-09-03 stand, war eine Liste und kein Waechter.** Sie fing
+// nur, was jemand von Hand eintrug — gemessen in P3: ein FORUM_VOTE in
+// PERSIST_KINDS, aber NICHT in CAPPED_KINDS, liess diesen Test gruen. Der Kind, der
+// vergessen wird, ist per Konstruktion genau der, den auch niemand hier eintraegt.
+//
+// **Und die Liste hat tatsaechlich etwas durchgelassen, seit Langem.** Umfrage
+// (kind 1068) und Spendenziel (kind 9041) stehen seit jeher in PERSIST_KINDS und in
+// keinem Deckel. `eventsToPrune` ueberspringt alles, was `isCappedEvent` verneint —
+// **noch vor dem Alters-Backstop**, es greift also auch kein Notausgang. Gemessen am
+// 2026-09-03 mit 401 Ereignissen je Kind, eines davon 400 Tage alt:
+//
+// | Kind        | persistiert | gekappt | von 401 verworfen |
+// |-------------|------------:|--------:|------------------:|
+// | 9  MESSAGE  |         ja  |     ja  |               101 |
+// | 1068 POLL   |         ja  |   NEIN  |             **0** |
+// | 9041 GOAL   |         ja  |   NEIN  |             **0** |
+//
+// Beide sind mit P5 in den Chat-Topf aufgenommen (Begruendung an `CAPPED_KINDS`).
+//
+// ── Die Regel ──────────────────────────────────────────────────────────────
+//
+// Ein Kind im Cache ist genau dann unbedenklich, wenn er sich SELBST begrenzt. Das
+// tun nach NIP-01 nur zwei Klassen: ersetzbare (`0`, `3`, `10000–19999`, je `pubkey`)
+// und adressierbare (`30000–39999`, je `(pubkey, d)`). Alles andere ist append-only
+// und waechst — es muss also durch die Kappung, oder es braucht eine **ausdrueckliche
+// Ausnahme mit Begruendung**.
+//
+// Das dreht die Beweislast um: vorher musste jemand daran denken, einen wachsenden
+// Kind einzutragen; jetzt muss jemand daran denken, eine Ausnahme zu begruenden. Ein
+// vergessener Eintrag ist danach rot statt still.
+
+/** NIP-01: ersetzbar — genau ein Stand je `pubkey`. */
+const istErsetzbar = (kind: number): boolean => kind === 0 || kind === 3 || (kind >= 10000 && kind < 20000)
+
+/** NIP-01: adressierbar — genau ein Stand je `(pubkey, d)`. */
+const istAdressierbar = (kind: number): boolean => kind >= 30000 && kind < 40000
+
+/** NIP-01: ephemer — gehoert nie in einen Cache, weil der Relay ihn selbst nicht haelt. */
+const istEphemer = (kind: number): boolean => kind >= 20000 && kind < 30000
+
+/**
+ * Begrenzt sich dieser Kind selbst?
+ *
+ * **Die Zahlenraeume ueber 40000 stehen bewusst NICHT drin.** NIP-01 definiert sie
+ * nicht, und Buzz belegt sie mit append-only Kinds (40002 Nachricht, 45001 Thema,
+ * 45002 Stimme, 45003 Antwort). Wer dort etwas aufnimmt, faellt in die Regel und muss
+ * kappen oder begruenden — richtig so: ausserhalb der Spec gibt es keine
+ * Ersetzungssemantik, auf die man sich verlassen koennte.
+ */
+const begrenztSichSelbst = (kind: number): boolean => istErsetzbar(kind) || istAdressierbar(kind)
+
+/**
+ * Die Ausnahmen — wachsend, aber bewusst ungekappt. **Jede mit ihrem Grund**, und der
+ * Grund ist bei allen derselbe: eine Kappung wuerde hier nicht einen kaelteren Cache
+ * erzeugen, sondern einen FALSCHEN Bildschirm.
+ */
+const UNGEKAPPT_MIT_GRUND = new Map<number, string>([
+    [
+        DELETE,
+        'Grabstein (NIP-09). Ein gekappter Grabstein laesst das Begrabene wieder auferstehen — ' +
+            'genau der 9008-Vorfall, um den herum diese Datei gebaut ist. Waechst nur mit der Zahl ' +
+            'der Loeschungen, und die ist durch den geloeschten (gekappten) Inhalt selbst begrenzt.',
+    ],
+    [
+        ROOM_DELETE_EVENT,
+        'Grabstein (NIP-29, 9005) — dieselbe Begruendung, und `tombstonedIds` liest ihn beim Kaltstart aus.',
+    ],
+    [ROOM_DELETE, 'Grabstein eines RAUMS (9008) — dieselbe Begruendung.'],
+    [
+        BUZZ_PIN,
+        'Angepinnte Nachricht (Buzz 40004). Der gespeicherte Bestand IST, was die Pin-Leiste zeigt: ' +
+            'geloest wird ein Pin durch Loeschen seines Ereignisses, nicht durch ein zweites. Ein Deckel ' +
+            'liesse also einen Pin verschwinden, den es noch gibt. Begrenzt durch Handauswahl — nicht ' +
+            'durch Code, und das ist hier ausdruecklich gesagt statt weggerechnet.',
+    ],
+])
+
+/**
+ * Die Regel als Funktion, damit sie gegen SYNTHETISCHE Eingaben kalibriert werden kann.
+ * Liefert die Kinds, die persistiert werden, wachsen und weder gekappt noch begruendet
+ * sind — leer heisst: in Ordnung.
+ */
+const kappungsLuecken = (
+    persistiert: Iterable<number>,
+    istGekappt: (kind: number) => boolean,
+    ausnahmen: ReadonlySet<number>,
+): number[] =>
+    [...persistiert].filter((kind) => !begrenztSichSelbst(kind) && !istGekappt(kind) && !ausnahmen.has(kind))
+
+test('KALIBRIERUNG: die Regel schlaegt bei einem vergessenen Deckel wirklich an', () => {
+    // Ohne diesen Fall waere „keine Luecken" auch dann wahr, wenn die Regel gar nichts
+    // prueft. Genau das war der Zustand der alten, aufzaehlenden Fassung.
+    assert.deepEqual(kappungsLuecken([45009], () => false, new Set()), [45009], 'append-only ohne Deckel → Luecke')
+    assert.deepEqual(kappungsLuecken([45009], () => true, new Set()), [], '… mit Deckel → keine')
+    assert.deepEqual(kappungsLuecken([45009], () => false, new Set([45009])), [], '… oder mit begruendeter Ausnahme')
+    // Und die zwei selbst-begrenzten Klassen kommen gar nicht erst in die Frage.
+    assert.deepEqual(kappungsLuecken([10003, 30300, 0, 3], () => false, new Set()), [])
+    // Der historische Fall, an dem die alte Fassung gemessen VERSAGT hat: 45002 in
+    // PERSIST_KINDS, nicht in CAPPED_KINDS. Die Regel sieht ihn ohne Zutun.
+    assert.deepEqual(kappungsLuecken([45002], () => false, new Set()), [45002])
+})
+
+test('REGEL: jeder persistierte Kind ist selbst-begrenzt, gekappt oder begruendet', () => {
+    const luecken = kappungsLuecken(
+        PERSIST_KINDS,
+        (kind) => isCappedEvent(ev(kind)),
+        new Set(UNGEKAPPT_MIT_GRUND.keys()),
+    )
+    assert.deepEqual(
+        luecken,
+        [],
+        `Diese Kinds wachsen unbegrenzt im Kaltstart-Cache: ${luecken.join(', ')}. ` +
+            'Entweder in CAPPED_KINDS aufnehmen (und einem Topf in eventsToPrune zuordnen) ' +
+            'oder in UNGEKAPPT_MIT_GRUND begruenden.',
+    )
+    // Gegenprobe gegen einen leeren Durchlauf: die Regel muss ueberhaupt etwas gesehen
+    // haben. `PERSIST_KINDS` ist ein Set aus einer anderen Datei — ein Umbau dort koennte
+    // es unbeabsichtigt leeren, und dann waere die Zusage oben wertlos.
+    assert.ok(PERSIST_KINDS.size >= 20, `nur ${PERSIST_KINDS.size} persistierte Kinds gesehen`)
+    assert.equal(PERSIST_KINDS.has(EVENT_REMINDER), true, '30300 (NIP-ER) muss den Kaltstart ueberleben')
+})
+
+test('REGEL: nichts EPHEMERES steht in PERSIST_KINDS', () => {
+    // Ein ephemeres Ereignis haelt nicht einmal der Relay; ein Cache davon waere ein
+    // Stand, den niemand je korrigiert. Gilt vorab fuer P6 (Praesenz, 20001) — die
+    // Phase darf ihn dann gar nicht erst eintragen, ohne dass hier etwas rot wird.
+    const ephemer = [...PERSIST_KINDS].filter(istEphemer)
+    assert.deepEqual(ephemer, [], `ephemere Kinds im Cache: ${ephemer.join(', ')}`)
+})
+
+test('REGEL: nichts SELBST-BEGRENZTES laeuft in die Kappung', () => {
+    // Die Gegenrichtung, und sie ist die gefaehrlichere: ein gekapptes 30617 hiesse, ein
+    // Repo aus dem Cache zu werfen, das es noch gibt — die Flaeche zeigte dann WENIGER,
+    // als der Nutzer hat, statt nur langsamer zu laden.
+    const falschGekappt = [...PERSIST_KINDS].filter((kind) => begrenztSichSelbst(kind) && isCappedEvent(ev(kind)))
+    assert.deepEqual(falschGekappt, [], `ersetzbar/adressierbar und trotzdem gekappt: ${falschGekappt.join(', ')}`)
+})
+
+test('REGEL: die Ausnahmeliste hat keine Karteileichen', () => {
+    // Eine Ausnahme, deren Kind nicht mehr persistiert wird oder inzwischen gekappt ist,
+    // ist eine Begruendung fuer nichts — und beim naechsten Lesen ein falscher Hinweis.
+    for (const [kind, grund] of UNGEKAPPT_MIT_GRUND) {
+        assert.equal(PERSIST_KINDS.has(kind), true, `kind ${kind} steht in der Ausnahmeliste, wird aber nicht persistiert`)
+        assert.equal(isCappedEvent(ev(kind)), false, `kind ${kind} ist inzwischen gekappt — Ausnahme entfernen`)
+        assert.ok(grund.length > 40, `kind ${kind}: die Begruendung ist zu duenn, um eine zu sein`)
+    }
+})
+
+test('P5-BEFUND: Umfrage und Spendenziel laufen jetzt in die Kappung', () => {
+    // Der Bestandsfehler, den die Regel gefunden hat, festgenagelt — nicht nur behoben.
+    // Beide kommen ueber denselben `#h`-Raumfilter herein wie kind 9 und gehoeren
+    // deshalb in DESSEN Topf, nicht in einen eigenen.
+    const raumEreignis = (id: string, kind: number, alter: number) =>
+        ({ id, kind, created_at: NOW - alter, tags: [['h', 'raum']] }) as never
+    for (const kind of [POLL_KIND, ZAP_GOAL_KIND]) {
+        assert.equal(isCappedEvent(ev(kind, [['h', 'raum']])), true, `kind ${kind} muss gekappt werden`)
+        const drop = new Set(
+            eventsToPrune(
+                [
+                    msg('m1', NOW - 1, 'raum'),
+                    raumEreignis('neu', kind, 2),
+                    raumEreignis('alt', kind, 3),
+                    raumEreignis('uralt', kind, 400 * DAY),
+                ],
+                NOW,
+                { msgPerRoom: 2 },
+            ),
+        )
+        assert.equal(drop.has('uralt'), true, `kind ${kind}: der Alters-Backstop greift jetzt`)
+        assert.equal(drop.has('alt'), true, `kind ${kind}: teilt sich den Raum-Deckel mit kind 9`)
+        assert.equal(drop.has('neu'), false)
+        assert.equal(drop.has('m1'), false, 'die juengste Zeile des Raums bleibt, egal welchen Kinds')
+    }
+})
+
 test('ALLES, was gespeichert wird UND waechst, laeuft in die Kappung', () => {
-    // Der Wächter gegen den unbegrenzten Store: wer ein append-only-Kind zu
-    // PERSIST_KINDS hinzufuegt und die Kappung vergisst, faellt hier.
+    // Die konkreten Faelle bleiben neben der Regel stehen: sie sagen, in WELCHEN Topf ein
+    // Kind faellt, und das prueft keine Zahlenraum-Regel.
     const wachsend = [
         ev(9, [['h', 'raum']]),
         ev(1111, [['E', 'wurzel']]),
         ev(45001, [['h', 'kanal']]),
-        // 45002 (Forum-Bewertung, P3) ist der Fall, für den dieser Waechter gebaut
-        // ist: append-only, ohne jede Relay-Dedup, und damit unbegrenzt wachsend.
-        // **Die Liste ist eine AUFZAEHLUNG und keine abgeleitete Regel** — sie faengt
-        // nur, was jemand hier eintraegt. Gemessen (P3, Mutationsprobe): ein
-        // FORUM_VOTE in PERSIST_KINDS, aber NICHT in CAPPED_KINDS, liess diesen Test
-        // gruen. Wer den naechsten wachsenden Kind aufnimmt, muss ihn hier ergaenzen;
-        // der Waechter warnt ihn nicht von selbst.
         ev(45002, [['h', 'kanal']]),
         ev(45003, [['h', 'kanal']]),
         ev(1621, [['a', REPO_A]]),
