@@ -319,6 +319,14 @@ test('ALLES, was gespeichert wird UND waechst, laeuft in die Kappung', () => {
         ev(9, [['h', 'raum']]),
         ev(1111, [['E', 'wurzel']]),
         ev(45001, [['h', 'kanal']]),
+        // 45002 (Forum-Bewertung, P3) ist der Fall, für den dieser Waechter gebaut
+        // ist: append-only, ohne jede Relay-Dedup, und damit unbegrenzt wachsend.
+        // **Die Liste ist eine AUFZAEHLUNG und keine abgeleitete Regel** — sie faengt
+        // nur, was jemand hier eintraegt. Gemessen (P3, Mutationsprobe): ein
+        // FORUM_VOTE in PERSIST_KINDS, aber NICHT in CAPPED_KINDS, liess diesen Test
+        // gruen. Wer den naechsten wachsenden Kind aufnimmt, muss ihn hier ergaenzen;
+        // der Waechter warnt ihn nicht von selbst.
+        ev(45002, [['h', 'kanal']]),
         ev(45003, [['h', 'kanal']]),
         ev(1621, [['a', REPO_A]]),
         ev(1618, [['a', REPO_A]]),

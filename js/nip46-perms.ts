@@ -38,6 +38,12 @@
  *   werden nur GELESEN (fremde Clients legen sie an), dieser Client schreibt sie nie —
  *   ein Recht für eine Art, die wir nicht signieren, wäre eine falsche Angabe in einer
  *   Liste, deren Beleg ausdrücklich die Aufrufstelle ist.
+ * - 45002 FORUM_VOTE — **Buzz**: Forum-Bewertung (forumVote.ts `voteOnForumTopic`).
+ *   Ohne diesen Eintrag verweigert ein Amber/Bunker-Nutzer den ersten Pfeilklick und die
+ *   Bewertungsfläche ist für ihn tot. **45001/45003 stehen bewusst NICHT hier:** ein
+ *   Thema wird über `forumWrite.ts` verfasst und eine Antwort läuft über den
+ *   Chat-Antwortpfad (kind 9, schon gelistet) — was dieser Client nie signiert, gehört
+ *   nicht in eine Liste, deren Beleg ausdrücklich die Aufrufstelle ist.
  * - 10009 ROOMS-Liste — NIP-51 (groups.ts)
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
  * - 27235 HTTP_AUTH — KRITISCH: Server-Login-Handoff (session.ts) UND NIP-86-Relay-Admin (members.ts)
@@ -81,6 +87,7 @@ export const NIP46_PERMS = [
     'sign_event:28934',
     'sign_event:28936',
     'sign_event:30078',
+    'sign_event:45002',
 ].join(',')
 
 /** localStorage-Key des zuletzt gewährten Perms-Strings (Reconnect-Nudge). */

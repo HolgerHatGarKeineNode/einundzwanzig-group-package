@@ -589,9 +589,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </template>
 
+            {{-- Der Ordnungs-Umschalter (P3). Er steht ÜBER der Liste und in einem
+                 eigenen Partial — die Werte darin hält `forumModels.test.ts` gegen
+                 `FORUM_SORTS`, Reihenfolge inklusive. --}}
+            @include('group::partials.forum-sortierung')
+
             <ul role="list" class="space-y-2 py-2" x-show="topics.length > 0" x-cloak>
-                <template x-for="topic in topics" :key="topic.id">
-                    <li>
+                {{-- `sortedTopics()` und nicht `topics`: die Ableitung liefert die
+                     Default-Ordnung (letzte Aktivität), die Wahl des Nutzers wird erst
+                     hier angewandt. Als Methode gelesen, damit Alpine BEIDE Quellen —
+                     die Zeilen und die gewählte Ordnung — als Abhängigkeit sieht. --}}
+                <template x-for="topic in sortedTopics()" :key="topic.id">
+                    {{-- Zeile = Bewertungsspalte + Karte, nebeneinander. Die Spalte
+                         steht NEBEN der Karte und nicht darin, weil die Karte selbst ein
+                         `<button>` ist und ein Knopf im Knopf kein gültiges HTML wäre —
+                         der Browser bräche ihn aus dem Elternteil heraus. --}}
+                    <li class="flex items-start gap-2">
+                        <x-group::forum-vote topic="topic" />
                         {{-- Die ganze Karte ist der Knopf: ein Thema hat genau ein Ziel
                              (seinen Thread), also gibt es auch nur eine Trefferfläche.
                              `aria-label` trägt den ganzen Satz inklusive Antwortzahl —
@@ -606,7 +620,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 x-bind:aria-label="@js(__('Thema :title öffnen'))
                                     .split(':title').join(topic.title || @js(__('Ohne Titel')))
                                     + ' — ' + $plural(topic.replyCount, '1 Antwort', ':count Antworten')"
-                                class="pressable surface-card flex w-full flex-col gap-1 p-3 text-start transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                                {{-- `min-w-0 flex-1` statt `w-full`: in der Flex-Zeile
+                                     neben der Bewertungsspalte rechnete `w-full` gegen
+                                     die volle Zeilenbreite und die Karte liefe über.
+                                     `min-w-0` ist die Bedingung dafür, dass `truncate`
+                                     und `line-clamp` darin überhaupt greifen — ein
+                                     Flex-Kind hat als Mindestbreite sonst seinen
+                                     Inhalt. --}}
+                                class="pressable surface-card flex min-w-0 flex-1 flex-col gap-1 p-3 text-start transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800">
                             <span class="flex min-w-0 items-start gap-2">
                                 <x-group::nostr-avatar picture="topic.picture" name="topic.authorName" size="1.5rem" />
                                 <span class="min-w-0 flex-1">
