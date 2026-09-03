@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isBuzzRelay, hasNip70, spaceSupportsRooms } from './relayCaps.ts'
+import { isBuzzRelay, hasNip70, hasRelayExtension, relayVersion, spaceSupportsRooms } from './relayCaps.ts'
 
 test('Buzz wird am software-Feld des NIP-11-Docs erkannt', () => {
     assert.equal(isBuzzRelay({ software: 'https://github.com/block/buzz' }), true)
@@ -43,4 +43,53 @@ test('Die uebrigen Faehigkeits-Pruefungen bleiben unberuehrt', () => {
     assert.equal(spaceSupportsRooms(false, { supported_nips: ['29'] }), true)
     assert.equal(spaceSupportsRooms(false, { supported_nips: ['1'] }), false)
     assert.equal(spaceSupportsRooms(true, undefined), true)
+})
+
+// ── NIP-11 `version` and `supported_extensions` (P1) ────────────────────────
+
+test('the relay version is read from the NIP-11 doc as the relay states it', () => {
+    // Measured against production on 2026-09-03, so the fixture is the real answer and
+    // not an invented one.
+    assert.equal(relayVersion({ version: '0.2.1' }), '0.2.1')
+    assert.equal(relayVersion({ version: '  0.2.1  ' }), '0.2.1')
+})
+
+test('a missing version is an empty string, never a guess', () => {
+    // Absent doc and absent field must be indistinguishable from each other and must
+    // never read as "some version" — this helper exists to catch the case where a
+    // deployed binary is older than its source, and inventing a value would hide it.
+    assert.equal(relayVersion(undefined), '')
+    assert.equal(relayVersion({}), '')
+    assert.equal(relayVersion({ version: '   ' }), '')
+})
+
+test('an advertised draft extension is recognised, case and spacing aside', () => {
+    // The identifiers are free-form draft names with no registry and no spelling rule.
+    const profile = { supported_extensions: ['nip-er', 'nip-pl'] }
+    assert.equal(hasRelayExtension('nip-er', profile), true)
+    assert.equal(hasRelayExtension('nip-pl', profile), true)
+    assert.equal(hasRelayExtension('NIP-ER', profile), true)
+    assert.equal(hasRelayExtension(' nip-er ', profile), true)
+    assert.equal(hasRelayExtension('nip-er', { supported_extensions: [' NIP-ER'] }), true)
+})
+
+test('a missing extension is false — no assumed capability', () => {
+    assert.equal(hasRelayExtension('nip-er', undefined), false)
+    assert.equal(hasRelayExtension('nip-er', {}), false)
+    assert.equal(hasRelayExtension('nip-er', { supported_extensions: [] }), false)
+    assert.equal(hasRelayExtension('nip-er', { supported_extensions: ['nip-pl'] }), false)
+    assert.equal(hasRelayExtension('', { supported_extensions: ['nip-er'] }), false)
+})
+
+test('a substring is not an extension, and neither is a non-array', () => {
+    // welshman copies non-standard NIP-11 fields through untouched (@welshman/domain
+    // `Relay.js:19-25`) and coerces only `supported_nips` — so this is raw foreign JSON.
+    // Without the guards, `String.prototype.includes` would answer yes to both of these.
+    const asString = { supported_extensions: 'nip-error' } as unknown as { supported_extensions?: string[] }
+    assert.equal(hasRelayExtension('nip-er', asString), false)
+    assert.equal(hasRelayExtension('nip-er', { supported_extensions: ['nip-error'] }), false)
+    const asObject = { supported_extensions: { 0: 'nip-er' } } as unknown as { supported_extensions?: string[] }
+    assert.equal(hasRelayExtension('nip-er', asObject), false)
+    const withNulls = { supported_extensions: [null, 42, 'nip-er'] } as unknown as { supported_extensions?: string[] }
+    assert.equal(hasRelayExtension('nip-er', withNulls), true)
 })
