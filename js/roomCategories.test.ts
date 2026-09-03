@@ -14,9 +14,11 @@ import assert from 'node:assert/strict'
 import { makeRoomEditEvent } from './welshmanList.ts'
 import {
     DEFAULT_ROOM_TYPE,
+    DM_CHANNEL_TYPE,
     FORUM_CHANNEL_TYPE,
     PROJECT_SUPPORT_MARKER,
     isFocusMode,
+    parseDmTag,
     parseForumTag,
     isStandardRoom,
     parseProjectSupportTags,
@@ -309,4 +311,49 @@ test('unsere zooid-Kategorien kollidieren NICHT mit dem Kanaltyp', () => {
     // `t` traegt auf zooid unsere Marker; keiner davon heisst `forum`.
     assert.equal(parseForumTag([['t', 'meetup']]), false)
     assert.equal(parseForumTag([['t', PROJECT_SUPPORT_MARKER]]), false)
+})
+
+// ── DM-Kanaele (Buzz, P7) ───────────────────────────────────────────────────
+
+test('parseDmTag liest den Buzz-Kanaltyp `dm` aus den ROH-Tags des 39000', () => {
+    // Genau die Tag-Folge, die `emit_group_discovery_events` fuer eine Unterhaltung
+    // schreibt (`side_effects.rs:1069-1096`): `hidden` und die `p`-Tags kommen nur bei
+    // `channel_type == "dm"` dazu, `closed` traegt jeder Buzz-Kanal.
+    const dm = [
+        ['d', '3f1c5b6a-9d2e-4c7b-8a10-6e5d4c3b2a19'],
+        ['name', 'DM'],
+        ['private'],
+        ['hidden'],
+        ['p', 'a'.repeat(64)],
+        ['p', 'b'.repeat(64)],
+        ['closed'],
+        ['t', 'dm'],
+    ]
+    assert.equal(parseDmTag(dm), true)
+    assert.equal(DM_CHANNEL_TYPE, 'dm')
+})
+
+test('die vier Kanaltypen schliessen einander aus — kein Marker faellt in zwei Toepfe', () => {
+    // `stream | forum | dm | workflow` ist Buzz' Enum; `meetup` und `project-support`
+    // sind UNSERE Marker auf zooid. Fuenf Werte, und keine der drei Fragen darf bei einem
+    // fremden Wert wahr werden — sonst stuende ein Forum in der DM-Gruppe oder umgekehrt.
+    for (const [wert, dm, forum] of [
+        ['stream', false, false],
+        ['forum', false, true],
+        ['dm', true, false],
+        ['workflow', false, false],
+        ['meetup', false, false],
+        [PROJECT_SUPPORT_MARKER, false, false],
+    ] as [string, boolean, boolean][]) {
+        assert.equal(parseDmTag([['t', wert]]), dm, `dm fuer ${wert}`)
+        assert.equal(parseForumTag([['t', wert]]), forum, `forum fuer ${wert}`)
+    }
+    assert.equal(parseDmTag([]), false, 'ein tagloses 39000 ist keine Unterhaltung')
+})
+
+test('ein `hidden`-Tag allein macht noch keine Unterhaltung', () => {
+    // Der `hidden`-Hinweis ist bei Buzz an `channel_type == "dm"` gebunden, auf zooid
+    // aber ein gewoehnliches Raum-Flag (`isHidden` in `groups.ts`). Wer darauf gatet,
+    // haelt jeden versteckten zooid-Raum fuer eine Unterhaltung.
+    assert.equal(parseDmTag([['hidden'], ['closed'], ['private']]), false)
 })

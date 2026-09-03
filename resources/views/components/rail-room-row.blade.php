@@ -78,6 +78,13 @@
      Gruppen-Summe am Kopf lässt denselben Raum aus (`rail.ts groupUnread`). --}}
 <div>
 <button type="button" x-on:click="openRoom(room)"
+        {{-- Anker fuer Tests (P7): der `h` der Zeile, sonst nirgends im Markup. Die
+             Zusage „genau DIESE Kanal-Id steht jetzt in der Rail" ist ohne ihn nicht
+             pruefbar — der sichtbare Name einer Unterhaltung ist der des Gegenuebers,
+             nicht ihre UUID, und ein `href` hat die Zeile nicht (sie navigiert ueber
+             `openRoom`, weil dabei der ephemere Space mitgesetzt wird). Kein `aria-*`,
+             also auch keine Aenderung an einer kalibrierten Traegerzahl. --}}
+        x-bind:data-room-h="room.h"
         x-bind:aria-current="room.h === activeRoomH ? 'page' : null"
         x-bind:aria-label="isPinned(room) && isMuted(room)
             ? @js(__(':name, angeheftet und stummgeschaltet')).split(':name').join(room.name || room.h)

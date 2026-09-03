@@ -67,6 +67,16 @@
  *   dieser Client schreibt ihn nirgends (Entscheidung 2026-09-03, P6), und ein Recht für
  *   eine Art, die wir nie signieren, wäre eine falsche Angabe in einer Liste, deren Beleg
  *   ausdrücklich die Aufrufstelle ist.
+ * - 41010/41011/41012 — **Buzz**: DM-Kanal eröffnen, erweitern, ausblenden (dms.ts
+ *   `submit`/`hide`, geplant in `dmModels.ts`). Buzz-only wie 45002 und 30300, und aus
+ *   demselben Grund trotzdem hier: die Perm-Liste wird beim KOPPELN einmal ausgehandelt,
+ *   lange bevor feststeht, welchen Space der Nutzer öffnet. **30622 DM_VISIBILITY steht
+ *   bewusst NICHT hier:** der Kind ist relay-only (`is_relay_only_kind`,
+ *   `buzz-core/src/kind.rs:830-838`), ein Client-Publish endet mit
+ *   `restricted: relay-only kind` — ein Recht für eine Art, die dieser Client nicht
+ *   einmal signieren DÜRFTE, wäre eine falsche Angabe in einer Liste, deren Beleg
+ *   ausdrücklich die Aufrufstelle ist. Ebenso **41001**: der Kind hat im Relay keinen
+ *   Erzeuger und fiele beim Ingest in `restricted: unknown event kind`.
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
  * - 27235 HTTP_AUTH — KRITISCH: Server-Login-Handoff (session.ts) UND NIP-86-Relay-Admin (members.ts)
  * - 28934/28936 RELAY_JOIN/RELAY_LEAVE — NIP-29 Space beitreten/verlassen (groups.ts)
@@ -113,6 +123,9 @@ export const NIP46_PERMS = [
     'sign_event:28936',
     'sign_event:30078',
     'sign_event:30300',
+    'sign_event:41010',
+    'sign_event:41011',
+    'sign_event:41012',
     'sign_event:45002',
 ].join(',')
 

@@ -58,6 +58,7 @@ import {
 } from './forgeModels.ts'
 import { FORUM_COMMENT, FORUM_POST, FORUM_VOTE } from './forumModels.ts'
 import { EVENT_REMINDER } from './reminderModels.ts'
+import { DM_VISIBILITY } from './dmModels.ts'
 import { USER_STATUS } from './userStatusData.ts'
 
 // §4.4 Multi-Account: EINE DB PRO pubkey (`…-<hex>`). Damit teilen zwei Accounts NIE
@@ -212,6 +213,29 @@ export const PERSIST_KINDS: ReadonlySet<number> = new Set<number>([
     // des Events — entschlüsselt wird erst beim Rendern, im Speicher. Ein IndexedDB, das
     // jemand später ausliest, enthält keine Klartext-Notiz.
     EVENT_REMINDER,
+    // P7 — die relay-signierte DM-Sichtbarkeit (30622). Sie ist das EINZIGE Signal, das
+    // sagt, welche Unterhaltungen der Nutzer aus seiner Spalte genommen hat: ein `41012`
+    // setzt `hidden_at` auf der Mitgliedschaftszeile und lässt den Kanal in Ruhe, das
+    // 39000 kommt also unverändert weiter herein. Fehlte sie im Kaltstart-Cache, stünde
+    // jede ausgeblendete Unterhaltung nach jedem Neustart wieder in der Rail, bis das
+    // Netz antwortet — derselbe 9008-Fehler wie oben, nur in die andere Richtung.
+    //
+    // Die drei Fragen von oben, für diesen Kind beantwortet:
+    // 1. *Speichert der Relay ihn?* Ja, adressiert je Betrachter
+    //    (`replace_parameterized_event` mit `d = <viewer>`, `side_effects.rs:3225-3232`).
+    //    Auf zooid entsteht er nie; geschrieben wird er ohnehin von niemandem hier —
+    //    der Kind ist relay-only (`kind.rs:830-838`).
+    // 2. *Ersetzbar oder append-only?* Adressierbar, und der Relay erzwingt zusätzlich
+    //    einen streng wachsenden `created_at`, damit ein Ausblenden und Wieder-Öffnen
+    //    innerhalb einer Sekunde nicht den alten Stand stehen lässt
+    //    (`side_effects.rs:3196-3221`). Also selbst-begrenzt, keine Kappung nötig.
+    // 3. *Welcher Grabstein wirkt?* Keiner: die Rücknahme IST die Ersetzung — nach einem
+    //    Wieder-Öffnen schreibt der Relay dieselbe Adresse ohne dieses `h`.
+    //
+    // Die Autorität wird beim LESEN geprüft und nicht hier: `foldHiddenDms` nimmt einen
+    // Schnappschuss nur vom NIP-11-`self` des Relays an. Dieselbe Arbeitsteilung wie beim
+    // 39000, das ebenfalls roh im Cache liegt und erst in `roomsByUrl` gegatet wird.
+    DM_VISIBILITY,
 ])
 
 /**

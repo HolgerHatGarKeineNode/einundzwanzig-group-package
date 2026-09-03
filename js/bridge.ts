@@ -56,6 +56,7 @@ import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
+import { wireDms } from './dms.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -1650,9 +1651,17 @@ const myCountryCode = (): string => {
 // Beides hängt bewusst NICHT an einer Seiten-Insel, sondern am Insel-Boot: der Punkt
 // sitzt in der Bottom-Nav und damit auf JEDER Seite, nicht nur auf der Raumliste.
 
-/** `h` der beigetretenen Räume des aktiven Space (relay-signierte 39002). */
+/**
+ * `h` der beigetretenen Räume des aktiven Space (relay-signierte 39002).
+ *
+ * **`dmRooms` steht seit P7 ausdrücklich mit dabei.** Die Unterhaltungen sind ein
+ * eigener Topf der `SpaceView`, damit sie nicht in „Meine Räume", der Befehlspalette
+ * und dem Forge-Baum auftauchen — der Ungelesen-Punkt und die Updates-Liste sind aber
+ * genau die zwei Stellen, an denen sie mitzählen MÜSSEN. Eine Unterhaltung, deren neue
+ * Nachricht niemand anzeigt, wäre ein halbes Feature.
+ */
 const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceView) =>
-    $view.userRooms.map((room) => room.h),
+    [...$view.userRooms, ...$view.dmRooms].map((room) => room.h),
 )
 
 /**
@@ -1661,7 +1670,13 @@ const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceV
  * Liste genau die Aussage, die sie treffen soll (der Raum ist weg/nicht mehr meiner).
  */
 const joinedRoomNames: Readable<Record<string, string>> = derived(activeSpaceView, ($view: SpaceView) =>
-    Object.fromEntries($view.userRooms.map((room) => [room.h, room.name])),
+    // `dmRooms` mit dabei, aus demselben Grund wie oben — ein fehlender Schlüssel hieße
+    // „verwaist", und eine Unterhaltung, für die es keinen Namen gibt, verschwände aus
+    // den Updates statt dort zu stehen. Der Name ist bei einer Unterhaltung allerdings
+    // der des RELAYS („DM" / „Group DM (N)", `buzz-db/src/dm.rs:157-162`): die Auflösung
+    // über die Teilnehmer hängt an Profilen und liegt in der Rail (`railName`), nicht in
+    // dieser rein textlichen Zuordnung.
+    Object.fromEntries([...$view.userRooms, ...$view.dmRooms].map((room) => [room.h, room.name])),
 )
 
 /**
@@ -1970,6 +1985,13 @@ export function registerNostrComponents(Alpine: {
     // und nicht hier: `planPresence` liefert auf zooid und bei noch unbekannter Relay-Art
     // gar keinen Ereigniskörper. Begründung im Kopf von `presence.ts`.
     wirePresence(Alpine)
+    // P7 — Buzz-DM-Kanäle (41010/41011/41012). Fünfter Store derselben Reihe: der
+    // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (die
+    // DM-Gruppe der Desktop-Rail und der Dialog darunter). Ein DM-Kanal ist bei Buzz ein
+    // Kanal mit einem `h` — die Chat-Fläche bleibt deshalb unberührt, dieser Store
+    // schreibt nur die drei Kommandos und liest die relay-signierte Sichtbarkeit (30622).
+    // Begründung im Kopf von `dms.ts`, die Regeln in `dmModels.ts`.
+    wireDms(Alpine)
     // P5 (Onboarding) — Vereins-Beitritt (`/verein/beitritt`). Wieder eine eigene Insel:
     // der Flow hat seinen eigenen Screen und seinen eigenen Geltungsbereich, und die REINE
     // Logik (Schritt-Entscheid, Fehler→Ausweg, Nachfass-Plan) liegt nochmals daneben in
@@ -2735,7 +2757,13 @@ export function registerNostrComponents(Alpine: {
         _controller: null,
         // Raumname zu einem h-Tag (aus den bereits geladenen Space-Räumen) — für die Thread-Liste.
         roomName(h: string): string {
-            const rooms = [...(this.space?.userRooms ?? []), ...(this.space?.otherRooms ?? [])]
+            // `dmRooms` mit dabei (P7): ohne sie fiele eine Unterhaltung in der
+            // Thread-Liste auf ihre rohe UUID zurück.
+            const rooms = [
+                ...(this.space?.userRooms ?? []),
+                ...(this.space?.otherRooms ?? []),
+                ...(this.space?.dmRooms ?? []),
+            ]
             return rooms.find((r) => r.h === h)?.name || h
         },
         // Praesentations-Join fuer die Kachel: room.meetupSlug → {flag, portalLink,

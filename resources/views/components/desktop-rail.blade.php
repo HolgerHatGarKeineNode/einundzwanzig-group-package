@@ -70,6 +70,23 @@
          "
          class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
+        {{-- ── Direktnachrichten (P7): Store anmelden ──────────────────────────────
+             Der Zustand liegt in `$store.dms` (js/dms.ts) und nicht in `nostrRail` — er
+             wird an zwei Stellen gebraucht, die einander im DOM nicht sehen: die Gruppe
+             in dieser Spalte und der Dialog am Ende dieser Datei. Dieselbe Bauart und
+             derselbe Grund wie bei Pin, Lesezeichen, Erinnerung und Präsenz.
+
+             Die Anmeldung hängt an der RAIL und nicht an einer Raumseite: die DM-Gruppe
+             steht auf jeder Desktop-Seite, und die ausgeblendeten Unterhaltungen (30622)
+             müssen bekannt sein, bevor die erste Zeile gerendert wird. Der Zähler in
+             `mount`/`unmount` deckt den `wire:navigate`-Fall ab (neuer Body VOR dem
+             Abräumen des alten). Auf dem Telefon existiert dieser Knoten nicht (das
+             `x-if` oben), der Store wird dort also nie angemeldet. --}}
+        <div x-data="{
+                 init() { $store.dms?.mount() },
+                 destroy() { $store.dms?.unmount() },
+             }" hidden></div>
+
         {{-- Space-Kopf: „wo bin ich" gehört an den Anfang der Ortsspalte. --}}
         <div class="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-3">
             <x-group::nostr-avatar picture="space?.icon" name="spaceLabel" size="2rem" />
@@ -262,6 +279,29 @@
                                          heading-title-value="workspaceLabel" />
                 </div>
             </template>
+
+            {{-- ── Direktnachrichten (P7, Buzz-Kommando-Kinds 41010/41011/41012) ──
+                 An DRITTER Stelle und damit vor den beiden Verzeichnissen: „mit wem
+                 spreche ich" ist der dritte Arbeitsort neben RÄUME und FORGE. Die
+                 Blockfolge hier MUSS `RAIL_GROUP_ORDER` entsprechen — dieselbe Regel und
+                 derselbe Grund wie oben (das Auge liest die Blockfolge, Alt+↑/↓ läuft
+                 `railTargets`).
+
+                 Ohne Bedingung, anders als der Workspace: der Riegel sitzt am Store
+                 (`$store.dms.canDm`, fail-closed über `mayWriteKind`), und die Gruppe ist
+                 auf einem zooid-Space schlicht leer — dort gibt es keine DM-Kanäle, also
+                 auch keine Zeilen. Was dort fehlt, ist der `+`-Knopf, und den blendet die
+                 Fläche selbst aus.
+
+                 Ein DM-Kanal ist bei Buzz ein Kanal mit einem `h`: die Zeile führt auf
+                 `/rooms/{h}` und damit auf dieselbe Chat-Fläche wie jeder andere Raum. --}}
+            <x-group::rail-group group="dms" :label="__('Direktnachrichten')"
+                                 :action-label="__('Neue Unterhaltung')"
+                                 action-icon="pencil-square"
+                                 action-click="$store.dms?.openNew()"
+                                 action-show="$store.dms?.canDm"
+                                 always-show="$store.dms?.canDm"
+                                 :empty-text="__('Noch keine Unterhaltung — der Stift oben eröffnet eine.')" />
 
             <x-group::rail-group group="meetups" :label="__('Meetups')" :countries="true" />
             <x-group::rail-group group="proposals" :label="__('Projektunterstützung')" />
@@ -497,5 +537,13 @@
                 </div>
             </div>
         </div>
+
+        {{-- ── Der Dialog für Direktnachrichten (P7) ───────────────────────────────
+             Innerhalb des `nostrRail`-Scopes, weil er die Liste der Unterhaltungen aus
+             `groupFor('dms')` liest — derselben Ableitung, aus der die Spalte darüber
+             gebaut wird. Eine zweite Liste wäre eine zweite Wahrheit über dieselbe Frage.
+             Er steht am ENDE der Spalte und nicht in der Gruppe: ein `flux:modal` in
+             einem `x-show`-Block würde mit der Gruppe auf- und zugeklappt. --}}
+        <x-group::dm-modal />
     </div>
 </template>

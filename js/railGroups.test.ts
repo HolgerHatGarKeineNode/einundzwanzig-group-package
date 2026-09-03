@@ -39,8 +39,54 @@ test('groupOf: Antrag schlägt Meetup — „Antrag" ist die speziellere Aussage
     assert.equal(groupOf(room({ h: 'd', isMeetup: true, isProjectSupport: true })), 'proposals')
 })
 
+test('groupOf: eine Unterhaltung schlägt ALLE unsere Marker (P7)', () => {
+    // `dm` ist der einzige Wert dieser Kette, der vom RELAY kommt (Buzz' `channel_type`);
+    // `meetup` und `project-support` haengen wir selbst an ein 39000. Der Relay-Typ sagt,
+    // was fuer ein ORT das ist — er kann nicht von einer Kategorie ueberstimmt werden.
+    assert.equal(groupOf(room({ h: 'a', isDm: true })), 'dms')
+    assert.equal(groupOf(room({ h: 'b', isDm: true, isMeetup: true })), 'dms')
+    assert.equal(groupOf(room({ h: 'c', isDm: true, isProjectSupport: true })), 'dms')
+    // Und die Gegenrichtung, damit „alles wird dms" nicht durchginge:
+    assert.equal(groupOf(room({ h: 'd', isDm: false })), 'rooms')
+})
+
+test('Unterhaltungen landen in ihrer eigenen Gruppe, nicht bei den Räumen (P7)', () => {
+    const groups = buildGroups([
+        room({ h: 'raum', joined: true }),
+        room({ h: 'dm-1', joined: true, isDm: true }),
+    ])
+
+    assert.deepEqual(group(groups, 'dms').joined.map((r) => r.h), ['dm-1'])
+    assert.deepEqual(group(groups, 'rooms').joined.map((r) => r.h), ['raum'])
+    assert.equal(group(groups, 'dms').total, 1)
+})
+
+test('Unterhaltungen werden nach AKTIVITÄT sortiert, nicht nach Namen (P7)', () => {
+    // Der Relay speichert als Kanalnamen fuer jede Zweier-Unterhaltung dieselbe
+    // Zeichenkette („DM", `buzz-db/src/dm.rs:157-162`). Eine Namenssortierung sortierte
+    // also ueber eine Konstante; der sichtbare Titel entsteht erst beim Rendern.
+    // Die Namen sind bewusst GEGENLAEUFIG zur Aktivitaet gewaehlt: A/B/C sortierte
+    // alt · mittel · neu, die Aktivitaet neu · mittel · alt. Waeren beide Ordnungen
+    // gleich, bewiese der Fall nichts.
+    const zeilen = [
+        { h: 'alt', name: 'A', lastMessageAt: 100 },
+        { h: 'neu', name: 'C', lastMessageAt: 300 },
+        { h: 'mittel', name: 'B', lastMessageAt: 200 },
+    ]
+    const groups = buildGroups(zeilen.map((z) => room({ ...z, joined: true, isDm: true })))
+
+    assert.deepEqual(group(groups, 'dms').joined.map((r) => r.h), ['neu', 'mittel', 'alt'])
+
+    // KALIBRIERUNG: dieselben Zeilen OHNE `isDm` gehen nach Namen. Ohne diesen
+    // Gegenfall waere die Zusage oben auch dann gruen, wenn ueberall nach Aktivitaet
+    // sortiert wuerde — die Regel unterscheidet sich nur in der DM-Gruppe.
+    const normal = buildGroups(zeilen.map((z) => room({ ...z, joined: true })))
+
+    assert.deepEqual(group(normal, 'rooms').joined.map((r) => r.h), ['alt', 'mittel', 'neu'])
+})
+
 test('Gruppenreihenfolge ist Vertrag, nicht Zufall', () => {
-    assert.deepEqual([...RAIL_GROUP_ORDER], ['rooms', 'workspace', 'meetups', 'proposals'])
+    assert.deepEqual([...RAIL_GROUP_ORDER], ['rooms', 'workspace', 'dms', 'meetups', 'proposals'])
     assert.deepEqual(buildGroups([]).map((g) => g.key), [...RAIL_GROUP_ORDER])
 })
 
@@ -116,7 +162,7 @@ test('scopeToken schreibt genau das Präfix, das parseScope wieder liest', () =>
     assert.equal(parseScope(scopeToken({ group: 'meetups', country: 'AT' })).scope.country, 'AT')
 })
 
-test('die vier Kürzel stehen WÖRTLICH da — inklusive des neuen f: (P5)', () => {
+test('die fünf Kürzel stehen WÖRTLICH da — f: seit P5, d: seit P7', () => {
     // Gegen Literale, nicht gegen `SCOPE_PREFIX` iteriert: eine Schleife über die
     // Konstante prüft sie gegen sich selbst und bliebe grün, wenn jemand ein Kürzel
     // vertauscht. Die Zeichen sind das, was der Nutzer TIPPT — sie sind Vertrag.
@@ -124,6 +170,10 @@ test('die vier Kürzel stehen WÖRTLICH da — inklusive des neuen f: (P5)', () 
     assert.equal(parseScope('m:').scope.group, 'meetups')
     assert.equal(parseScope('p:').scope.group, 'proposals')
     assert.equal(parseScope('f:').scope.group, 'workspace')
+    assert.equal(parseScope('d:').scope.group, 'dms')
+    // Und der Gegenbeweis, dass `d:` kein Nachbar-Kürzel gekapert hat: die vier alten
+    // stehen unverändert. Ohne diese Zeile wäre ein vertauschtes `d`/`p` grün.
+    assert.equal(scopeToken({ group: 'dms', country: '' }), 'd:')
 })
 
 test('f: und w: zeigen auf DIESELBE Gruppe — der alte Weg bleibt offen (P5)', () => {
@@ -148,12 +198,19 @@ test('die Lupe schreibt das NEUE Kürzel f:, nicht mehr w: (P5)', () => {
     assert.equal(scopeToken({ group: 'proposals', country: '' }), 'p:')
 })
 
-test('RAIL_GROUP_ORDER ist unverändert — der Gruppenschlüssel heißt weiter workspace (P5)', () => {
+test('RAIL_GROUP_ORDER: der Gruppenschlüssel heißt weiter workspace (P5), dms kam dazu (P7)', () => {
     // Umbenannt wurde der ANZEIGENAME der Sektion („Workspace" → „Forge"), nicht der
     // Schlüssel. Er steht in dieser Reihenfolge, in `railTargets` (Alt+↑/↓) und in
     // gespeicherten Faltungszuständen; ihn mitzuändern wäre eine Datenmigration für
     // eine Beschriftung. WÖRTLICH, damit ein Umbenennen hier rot wird.
-    assert.deepEqual([...RAIL_GROUP_ORDER], ['rooms', 'workspace', 'meetups', 'proposals'])
+    //
+    // **P7 hat die Liste erweitert, und die Zeile ist hier mitgezogen worden statt sie
+    // zu lockern.** Die Reihenfolge ist zweimal wirksam (Markup-Blockfolge in
+    // `desktop-rail.blade.php` UND Alt+↑/↓ über `railTargets`); ein Test, der nur die
+    // Länge oder die Enthaltensein-Beziehung prüfte, ließe genau die Verwechslung durch,
+    // gegen die er gebaut ist. `dms` steht an dritter Stelle: der dritte ARBEITSORT,
+    // vor den beiden Verzeichnissen — Begründung an der Konstante.
+    assert.deepEqual([...RAIL_GROUP_ORDER], ['rooms', 'workspace', 'dms', 'meetups', 'proposals'])
 })
 
 test('Workspace-Räume landen in ihrer eigenen Gruppe, nicht bei den Räumen', () => {

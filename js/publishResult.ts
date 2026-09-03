@@ -59,6 +59,38 @@ export const publishError = (results: Record<string, PublishResultRow> | undefin
     return bad.detail || bad.status || t('Publish fehlgeschlagen')
 }
 
+/**
+ * Die BESTÄTIGUNG des Relays, wörtlich — `''`, wenn es keine gibt.
+ *
+ * **Warum das eine zweite Auswertung neben {@link publishError} ist.** Diese liest die
+ * `detail`-Zeile des ERSTEN Relays, das `success` gemeldet hat; jene die des ersten, das
+ * es NICHT hat. Zwei Fragen, zwei Funktionen — ein gemeinsamer Rückgabewert müsste an
+ * jeder Aufrufstelle wieder auseinandergenommen werden.
+ *
+ * **Wofür es das überhaupt braucht.** NIP-01 lässt das `OK`-Frame auch bei `true` eine
+ * Nachricht tragen, und Buzz benutzt genau das als Antwortkanal seiner Kommando-Kinds:
+ * ein 41010 wird nicht mit einem Ereignis beantwortet, sondern mit
+ * `response:{"channel_id":"…","created":true}` im `OK` (`command_executor.rs:436-447`).
+ * welshman hebt den Text auf — `publishOne` setzt `result.detail = detail` auch im
+ * Erfolgszweig (`@welshman/net` `publish.js:56-59`) —, aber die vorhandenen Auswerter
+ * kommen nicht an ihn heran: `getUrlsWithStatus(PublishStatus.Success)` liefert URLs,
+ * und {@link publishError} sieht eine erfolgreiche Zeile gar nicht erst an.
+ *
+ * `undefined` heißt „noch nicht entschieden" — dieselbe Konvention wie oben, damit beide
+ * an derselben Stelle abgefragt werden können.
+ */
+export const publishDetail = (results: Record<string, PublishResultRow> | undefined): string | undefined => {
+    const rows = Object.values(results ?? {})
+    if (rows.length === 0) {
+        return undefined
+    }
+    if (rows.some((r) => r.status === 'sending' || r.status === 'pending')) {
+        return undefined
+    }
+
+    return rows.find((r) => r.status === 'success')?.detail ?? ''
+}
+
 type ThunkLike = {
     results?: Record<string, PublishResultRow>
     /** welshmans `Thunk` trägt hier seine Zielrelays — die Quelle für die NOTICE-Nachfrage. */
@@ -92,6 +124,52 @@ export const PUBLISH_VERDICT_TIMEOUT_MS = 20_000
 /** Die Meldung, wenn das Relay überhaupt nichts zum Event gesagt hat. */
 export const NO_VERDICT_ERROR = t('Das Relay hat den Vorgang nicht bestätigt.')
 
+/** Ausgang eines Publish MIT der Bestätigungszeile des Relays. */
+export type PublishOutcome = {
+    /** `''` = zugestellt, sonst die (bereits übersetzte) Begründung. */
+    error: string
+    /** `detail` des `OK`-Frames bei Erfolg, sonst `''`. */
+    detail: string
+}
+
+/**
+ * Wie {@link waitForPublishError}, liefert aber zusätzlich die Bestätigungszeile.
+ *
+ * Für Buzz' Kommando-Kinds (41010/41011/41012) ist diese Zeile das ganze Ergebnis: sie
+ * trägt die `channel_id` des Kanals, den der Relay gerade angelegt oder wiedergefunden
+ * hat. Ohne sie wüsste der Client nur, DASS das Kommando durchging — und müsste die
+ * frisch eröffnete Unterhaltung raten oder erst über einen zweiten REQ suchen.
+ *
+ * Die Zeitgrenze, der NOTICE-Rückgriff und die Regel „alles außer `success` ist ein
+ * Fehler" sind unverändert die von {@link waitForPublishError}; diese Funktion ist die
+ * ehrliche Verallgemeinerung, nicht ein zweiter Weg daneben. Deshalb ist auch die andere
+ * jetzt in ihr ausgedrückt statt daneben kopiert — zwei Fassungen derselben Wartezeit
+ * wären zwei Wahrheiten über den Abbruchfall.
+ */
+export const waitForPublishOutcome = (thunk: ThunkLike): Promise<PublishOutcome> =>
+    new Promise((resolve) => {
+        const started = Date.now()
+        let settled = false
+        const settle = (outcome: PublishOutcome) => {
+            if (settled) {
+                return
+            }
+            settled = true
+            clearTimeout(timer)
+            resolve(outcome)
+        }
+        const timer = setTimeout(() => {
+            const reason = (thunk.options?.relays ?? []).map((url) => readNotice(url, started)).find(Boolean) ?? ''
+            settle({ error: reason ? `${NO_VERDICT_ERROR} ${reason}` : NO_VERDICT_ERROR, detail: '' })
+        }, PUBLISH_VERDICT_TIMEOUT_MS)
+        thunk.subscribe(($thunk) => {
+            const err = publishError($thunk.results)
+            if (err !== undefined) {
+                settle({ error: err, detail: publishDetail($thunk.results) ?? '' })
+            }
+        })
+    })
+
 /**
  * Ersatz für `waitForThunkError`: wartet, bis jedes Relay einen Endstatus hat, und
  * meldet alles außer `success` als Fehler. `''` = Erfolg — dieselbe Konvention wie
@@ -111,28 +189,8 @@ export const NO_VERDICT_ERROR = t('Das Relay hat den Vorgang nicht bestätigt.')
  * Aufrufstellen gleichzeitig greift: betroffen ist nicht eine Aktion, sondern jede Mutation.
  */
 export const waitForPublishError = (thunk: ThunkLike): Promise<string> =>
-    new Promise((resolve) => {
-        const started = Date.now()
-        let settled = false
-        const settle = (err: string) => {
-            if (settled) {
-                return
-            }
-            settled = true
-            clearTimeout(timer)
-            resolve(err)
-        }
-        const timer = setTimeout(() => {
-            const reason = (thunk.options?.relays ?? []).map((url) => readNotice(url, started)).find(Boolean) ?? ''
-            settle(reason ? `${NO_VERDICT_ERROR} ${reason}` : NO_VERDICT_ERROR)
-        }, PUBLISH_VERDICT_TIMEOUT_MS)
-        thunk.subscribe(($thunk) => {
-            const err = publishError($thunk.results)
-            if (err !== undefined) {
-                settle(err)
-            }
-        })
-    })
+    waitForPublishOutcome(thunk).then((outcome) => outcome.error)
+
 
 /**
  * Rohe Relay-Ablehnung → deutscher Text, **der den Grund des Relays mitführt**.

@@ -42,6 +42,7 @@ import {
     shouldPersistEvent,
 } from './storage.ts'
 import { EVENT_REMINDER } from './reminderModels.ts'
+import { DM_VISIBILITY } from './dmModels.ts'
 import { PRESENCE_UPDATE } from './presenceData.ts'
 
 const ev = (kind: number, tags: string[][] = []) => ({ kind, tags }) as never
@@ -440,6 +441,12 @@ test('REGEL: jeder persistierte Kind ist selbst-begrenzt, gekappt oder begruende
     // es unbeabsichtigt leeren, und dann waere die Zusage oben wertlos.
     assert.ok(PERSIST_KINDS.size >= 20, `nur ${PERSIST_KINDS.size} persistierte Kinds gesehen`)
     assert.equal(PERSIST_KINDS.has(EVENT_REMINDER), true, '30300 (NIP-ER) muss den Kaltstart ueberleben')
+    // P7: dasselbe fuer die relay-signierte DM-Sichtbarkeit. Die REGEL oben kann einen
+    // FEHLENDEN Eintrag per Konstruktion nicht finden — sie prueft die Kinds, die in der
+    // Liste stehen. Ohne 30622 im Cache stuende jede ausgeblendete Unterhaltung nach
+    // jedem Kaltstart wieder in der Rail, bis das Netz antwortet; das faellt an keiner
+    // anderen Stelle auf, weil ein 41012 danach trotzdem funktioniert.
+    assert.equal(PERSIST_KINDS.has(DM_VISIBILITY), true, '30622 (DM-Sichtbarkeit) muss den Kaltstart ueberleben')
 })
 
 test('KALIBRIERUNG: die Ephemer-Regel trifft ihren Zahlenraum genau', () => {

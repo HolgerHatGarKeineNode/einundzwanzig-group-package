@@ -114,14 +114,22 @@ const DEFAULT_OPEN: Record<RailGroupKey, boolean> = {
     meetups: false,
     proposals: false,
     workspace: true,
+    // P7 — Direktnachrichten. Offen wie die beiden anderen Arbeitsorte und aus
+    // demselben Grund: die Gruppe ist klein (auf Buzz höchstens so viele Zeilen wie
+    // der Nutzer Unterhaltungen führt) und beantwortet „mit wem spreche ich". Sie
+    // zuzuklappen hieße, den neuen Bestand vor dem Nutzer zu verstecken, der ihn
+    // gerade angelegt hat. Bei null Unterhaltungen kostet der offene Zustand eine
+    // Kopfzeile und eine Leerzeile.
+    dms: true,
 }
 
-/** Beschriftungen der vier Gruppen — geteilt zwischen Chip und Gruppenkopf. */
+/** Beschriftungen der fünf Gruppen — geteilt zwischen Chip und Gruppenkopf. */
 const GROUP_LABEL: Record<RailGroupKey, string> = {
     rooms: t('Räume'),
     meetups: t('Meetups'),
     proposals: t('Projektunterstützung'),
     workspace: t('Workspace'),
+    dms: t('Direktnachrichten'),
 }
 
 type CountryOption = { country: string; flag: string; name: string; count: number }
@@ -293,6 +301,53 @@ const toRailRooms = (view: SpaceView | null): RailRoom[] => [
     ...(view?.otherRooms ?? []).map((r: RoomView) => ({ ...r, joined: false })),
 ]
 
+/**
+ * Der DM-Store, wenn er schon steht — sonst `undefined`.
+ *
+ * Über `window.Alpine.store` und nicht über einen Import: derselbe Weg, den
+ * {@link RailState.groupUnread} für `$store.unread` geht. Alpine-Stores sind reaktive
+ * Proxys, ein Lesen daraus innerhalb eines Getters wird also mitverfolgt — die Rail
+ * rechnet neu, sobald der Store seine ausgeblendeten Unterhaltungen oder seine
+ * Namenstabelle ändert.
+ */
+const dmStore = (): { hidden?: string[]; titleOf?: (p: string[] | undefined) => string } | undefined =>
+    (window as unknown as { Alpine?: { store(n: string): unknown } }).Alpine?.store('dms') as
+        | { hidden?: string[]; titleOf?: (p: string[] | undefined) => string }
+        | undefined
+
+/**
+ * Die Unterhaltungen BEIDER Sichten (Heim-Space und Workspace), nach `h` entdoppelt.
+ *
+ * Zwei Quellen, weil die Rail zwei Space-Sichten führt und ein DM-Kanal auf jeder
+ * von beiden liegen kann; entdoppelt, weil beide dieselbe URL haben können (der
+ * Heim-Space DARF der Workspace sein) und ein `x-for :key="room.h"` mit zwei gleichen
+ * Schlüsseln in Alpine eine Zeile verschluckt.
+ *
+ * `joined: true` ohne Prüfung: ein DM-Kanal steht nur dann in {@link SpaceView.dmRooms},
+ * wenn die relay-signierte 39002 den Nutzer als Mitglied führt — die Einordnung
+ * passiert in `buildSpaceView`, hier wird sie nicht wiederholt.
+ */
+const toRailDms = (home: SpaceView | null, workspace: SpaceView | null): RailRoom[] => {
+    const hidden = new Set(dmStore()?.hidden ?? [])
+    const seen = new Set<string>()
+    const out: RailRoom[] = []
+    for (const view of [home, workspace]) {
+        for (const room of view?.dmRooms ?? []) {
+            // Ausgeblendet heißt: der Nutzer hat diese Unterhaltung mit einem 41012 aus
+            // seiner Spalte genommen. Der Relay LÖSCHT dabei nichts — das 39000 kommt
+            // unverändert weiter herein, und nur die relay-signierte 30622 sagt, welche
+            // Unterhaltungen weg sollen. Ohne diesen Filter wäre der Knopf wirkungslos.
+            if (seen.has(room.h) || hidden.has(room.h)) {
+                continue
+            }
+            seen.add(room.h)
+            out.push({ ...room, joined: true, spaceUrl: view?.url ?? '' })
+        }
+    }
+
+    return out
+}
+
 const readOpen = (): Record<string, boolean> => {
     try {
         const raw = localStorage.getItem(OPEN_KEY)
@@ -385,7 +440,12 @@ export const createRail = (): RailState => ({
     get groups(): RailGroup[] {
         const self = this as RailState
 
-        return buildGroups(toRailRooms(self.space), {
+        // Die Unterhaltungen kommen als Teil der ERSTEN Liste herein und nicht als
+        // eigene Option: `groupOf` schickt sie am Marker `isDm` in die Gruppe `dms`,
+        // und damit gilt für sie automatisch dieselbe Such-, Scope- und Kappungsregel
+        // wie für jede andere Zeile. Eine dritte Option neben `workspaceRooms` wäre
+        // ein zweiter Weg durch dieselbe Funktion.
+        return buildGroups([...toRailRooms(self.space), ...toRailDms(self.space, self.workspace)], {
             presentations: self.presentations,
             query: self.query,
             scope: self.scope,
@@ -570,7 +630,14 @@ export const createRail = (): RailState => ({
     groupUnread(key: RailGroupKey): number {
         const store = (window as unknown as { Alpine?: { store(n: string): { rooms?: Record<string, number> } } })
             .Alpine?.store('unread')
-        const all = key === 'workspace' ? toRailRooms(this.workspace) : toRailRooms(this.space)
+        // Die Unterhaltungen stehen seit P7 in einem EIGENEN Topf der `SpaceView` und
+        // kommen aus beiden Sichten. Ohne diesen Zweig zählte der Kopf der DM-Gruppe
+        // immer null — die Zeilen trügen ihre Pillen, der zugeklappte Kopf nicht.
+        const all = key === 'workspace'
+            ? toRailRooms(this.workspace)
+            : key === 'dms'
+                ? toRailDms(this.space, this.workspace)
+                : toRailRooms(this.space)
         // `isChannelMuted` und kein eigenes Set (P6): das war die dritte Stelle,
         // die „ist dieser Kanal stumm?" selbst beantwortet hat.
         const hs = all
@@ -771,7 +838,24 @@ export const createRail = (): RailState => ({
         this.scope = { ...EMPTY_SCOPE }
     },
 
+    /**
+     * Der sichtbare Name einer Zeile.
+     *
+     * **Für eine Unterhaltung kommt er NICHT aus dem Raumnamen.** Buzz speichert als
+     * Kanalnamen für jede Zweier-Unterhaltung die Zeichenkette `"DM"` und für jede
+     * Gruppe `"Group DM (N)"` (`buzz-db/src/dm.rs:157-162`) — die Spalte zeigte sonst
+     * dieselbe Zeile mehrfach. Er entsteht aus den Teilnehmern des 39000, aufgelöst über
+     * die Profil-Namenstabelle des DM-Stores. Steht der Store noch nicht (Boot,
+     * Telefon), bleibt der Raumname als ehrlicher Rückfall.
+     */
     railName(room: RailRoom): string {
+        if (room.isDm) {
+            const title = dmStore()?.titleOf?.(room.dmParticipants)
+            if (title) {
+                return middleTruncate(title)
+            }
+        }
+
         return middleTruncate(room.name || room.h)
     },
 
@@ -808,8 +892,15 @@ export const createRail = (): RailState => ({
     },
 
     openRoom(room: RailRoom): void {
+        // `dmRooms` steht hier ausdrücklich mit dabei: seit P7 sind die Unterhaltungen
+        // ein eigener Topf der `SpaceView`, und ohne diese Zeile öffnete eine
+        // Unterhaltung des WORKSPACE-Relays `/rooms/{h}` ohne `?space=workspace` — also
+        // gegen den Heim-Relay, der den Kanal nicht kennt: leerer Verlauf, und ein
+        // Beitrittsversuch endete mit `invalid: group not found`.
         const isWorkspaceRoom = this.workspace !== null
-            && (this.workspace.userRooms.some((r) => r.h === room.h) || this.workspace.otherRooms.some((r) => r.h === room.h))
+            && (this.workspace.userRooms.some((r) => r.h === room.h)
+                || this.workspace.otherRooms.some((r) => r.h === room.h)
+                || this.workspace.dmRooms.some((r) => r.h === room.h))
 
         // ── Die einzigen zwei Mutationen der Rail, beide vom Nutzer angefordert ──
         if (isWorkspaceRoom) {
@@ -1024,7 +1115,7 @@ export const createRail = (): RailState => ({
 
 /** Typ eines Raums für die Ungelesen-Summe — spiegelt `groupOf` aus `railGroups`. */
 const groupKeyOf = (room: RailRoom): RailGroupKey =>
-    room.isProjectSupport ? 'proposals' : room.isMeetup ? 'meetups' : 'rooms'
+    room.isDm ? 'dms' : room.isProjectSupport ? 'proposals' : room.isMeetup ? 'meetups' : 'rooms'
 
 export function wireRail(Alpine: { data: (name: string, factory: () => unknown) => void }): void {
     Alpine.data('nostrRail', createRail)
