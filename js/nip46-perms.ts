@@ -28,6 +28,11 @@
  *   Buzz-Space keine einzige Admin-Aktion ausführen.
  * - 9040 — **Buzz**: Pubkey aus der Community bannen (buzzAdmin.ts). Das Entbannen ist
  *   9041, das schon wegen NIP-75 gelistet ist — bewusst nicht zweimal aufgeführt.
+ * - 9042/9043 — **Buzz**: befristet sperren und die Sperre aufheben (buzzAdmin.ts
+ *   `buzzTimeoutPubkey`/`buzzUntimeoutPubkey`, geplant in `moderationTimeoutModels.ts`).
+ *   Seit P4 die HÄRTESTE Maßnahme dieser Oberfläche — entfernt und gebannt wird nicht
+ *   mehr (Entscheidung 2026-09-03). Ohne diese beiden Einträge kann ein Amber-Nutzer die
+ *   Schaltfläche nicht bedienen: eine bestehende Bunker-Verbindung wird nie nachverhandelt.
  * - 9044 — **Buzz**: Meldung erledigen (buzzAdmin.ts `buzzResolveReport`). Ohne dieses
  *   Kind bleibt jede Meldung in der Relay-Datenbank offen stehen.
  * - 9041 ZAP_GOAL — NIP-75-Spendenziel (interactions.ts) UND Buzz-Entbannen (s.o.)
@@ -78,6 +83,8 @@ export const NIP46_PERMS = [
     'sign_event:9033',
     'sign_event:9040',
     'sign_event:9041',
+    'sign_event:9042',
+    'sign_event:9043',
     'sign_event:9044',
     'sign_event:9734',
     'sign_event:10003',

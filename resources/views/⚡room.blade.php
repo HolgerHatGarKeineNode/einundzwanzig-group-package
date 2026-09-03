@@ -1056,9 +1056,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </flux:modal>
 
-    {{-- Admin: Autor bannen (NIP-86 banpubkey) — vorerst NICHT angeboten (bewusst
-         deaktiviert). Zum Reaktivieren dieses Modal + die Menü-Trigger wieder
-         einkommentieren (JS confirmBanAuthor bleibt bestehen).
+    {{-- Admin: Autor bannen (NIP-86 banpubkey) — NICHT angeboten.
+         no removal or ban of members here — the association does not remove or ban its
+         members (decision 2026-09-03); the timed suspension on the member screen
+         (`⚡directory.blade.php`, Buzz kind 9042) is the strongest measure this surface
+         offers, and there is no escalation step above it. Removing a single MESSAGE
+         (`admin-delete-message` above) is deliberately untouched: it hits content, not a
+         person. The write path stays (JS `confirmBanAuthor`) — it carries the zooid arm.
     <flux:modal name="ban-author" class="max-w-sm">
         <div class="space-y-4">
             <flux:heading size="lg">{{ __('Autor bannen?') }}</flux:heading>
@@ -1356,8 +1360,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  das Menü-Modal (öffnet die Bestätigung). --}}
             <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="isAdmin && !menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askAdminDelete(menuFor); closeMessageMenu() }">{{ __('Nachricht entfernen') }}</flux:button>
-            {{-- „Autor bannen" (banpubkey) vorerst NICHT angeboten (bewusst deaktiviert). Zum
-                 Reaktivieren diesen Button wieder einkommentieren (JS confirmBanAuthor bleibt).
+            {{-- „Autor bannen" (banpubkey) NICHT angeboten.
+                 no removal or ban of members here — the association does not remove or ban
+                 its members (decision 2026-09-03); the timed suspension on the member screen
+                 (`⚡directory.blade.php`, Buzz kind 9042) is the strongest measure this
+                 surface offers. „Nachricht entfernen" above stays operable: it hits content,
+                 not a person. The write path stays (JS `confirmBanAuthor`).
             <flux:button variant="danger" icon="no-symbol" class="w-full justify-start" x-show="isAdmin && !menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askBanAuthor(menuFor); closeMessageMenu() }">{{ __('Autor bannen') }}</flux:button>
             --}}

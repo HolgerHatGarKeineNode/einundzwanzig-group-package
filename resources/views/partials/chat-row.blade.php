@@ -529,8 +529,12 @@
                                             <template x-if="isAdmin && !m.mine">
                                                 <flux:menu.item icon="trash" variant="danger" x-on:click="askAdminDelete(m)">{{ __('Nachricht entfernen') }}</flux:menu.item>
                                             </template>
-                                            {{-- „Autor bannen" (banpubkey) vorerst NICHT angeboten (bewusst deaktiviert). Zum
-                                                 Reaktivieren dieses template x-if wieder einkommentieren (JS confirmBanAuthor bleibt).
+                                            {{-- „Autor bannen" (banpubkey) NICHT angeboten.
+                                                 no removal or ban of members here — the association does not remove or ban its
+                                                 members (decision 2026-09-03); the timed suspension on the member screen
+                                                 (`⚡directory.blade.php`, Buzz kind 9042) is the strongest measure this surface
+                                                 offers. „Nachricht entfernen" above stays operable: it hits content, not a person.
+                                                 The write path stays (JS `confirmBanAuthor`).
                                             <template x-if="isAdmin && !m.mine">
                                                 <flux:menu.item icon="no-symbol" variant="danger" x-on:click="askBanAuthor(m)">{{ __('Autor bannen') }}</flux:menu.item>
                                             </template>

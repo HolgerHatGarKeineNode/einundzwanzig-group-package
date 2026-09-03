@@ -17,6 +17,8 @@
  * | Space-Icon setzen        | 9033 `icon`                    | `handlers/relay_admin.rs:232`   |
  * | Pubkey bannen            | 9040 `p` (+ `reason`)          | `core/kind.rs:298`              |
  * | Ban aufheben             | 9041 `p`                       | `core/kind.rs:300`              |
+ * | Befristet sperren        | 9042 `p` + `expiration`        | `moderation_commands.rs:263`    |
+ * | Sperre aufheben          | 9043 `p`                       | `moderation_commands.rs:330`    |
  * | Event loeschen (Admin)   | 9005 `e` + `h`                 | NIP-29 delete-event             |
  * | Ban-Liste lesen          | `GET /moderation/restricted`   | `router.rs:117`                 |
  * | Melde-Queue lesen        | `GET /moderation/reports`      | `router.rs:114`, `bridge:2112`  |
@@ -45,6 +47,12 @@ import { isBuzzRelay } from './relayCaps.ts'
 import { nip98Url, nip98AuthHeader, httpBase, type SignedLike } from './nip98.ts'
 import { waitForPublishError } from './publishResult.ts'
 import { t } from './i18n.ts'
+import {
+    parseRestrictionList,
+    type RestrictionListResult,
+    type TimeoutCommand,
+    type UntimeoutCommand,
+} from './moderationTimeoutModels.ts'
 
 // ── Buzz-Kind-Konstanten ────────────────────────────────────────────────────
 // Bewusst hier lokal statt in @welshman/util: das sind Buzz-Erweiterungen, kein
@@ -167,6 +175,29 @@ export const buzzUnbanPubkey = (url: string, pubkey: string): Promise<string> =>
     publishAdminEvent(url, BUZZ_UNBAN_PUBKEY, [['p', pubkey]])
 
 /**
+ * Buzz: suspend a pubkey for a while (kind 9042) — the strongest measure this client
+ * offers against a person.
+ *
+ * **Takes a planned command, not loose arguments.** That is the difference to
+ * `buzzBanPubkey` above, and it is the whole point: a 9040 without `expiration` is
+ * PERMANENT, while a 9042 without it does not exist at all (`handle_timeout`,
+ * `moderation_commands.rs`: `"timeout requires an expiration tag"`). The mandatory tag is
+ * therefore assembled — and refused — in exactly one place, `moderationTimeoutModels.ts`,
+ * where the capability gate has already decided whether this space takes the kind at all.
+ * A second assembly here could drift from the first, and the failure mode of that drift is
+ * a permanent ban where a timed suspension was meant.
+ *
+ * The kind sits in the command's TYPE (`TimeoutCommand`), not in a number at this call
+ * site: a 9043 cannot be handed in here.
+ */
+export const buzzTimeoutPubkey = (url: string, command: TimeoutCommand): Promise<string> =>
+    publishAdminEvent(url, command.kind, command.tags)
+
+/** Buzz: lift a timed suspension (kind 9043) — a planned command as well. */
+export const buzzUntimeoutPubkey = (url: string, command: UntimeoutCommand): Promise<string> =>
+    publishAdminEvent(url, command.kind, command.tags)
+
+/**
  * Loescht ein fremdes Event als Admin (NIP-29 kind 9005). Buzz verlangt fuer 9005
  * einen Raum-Bezug (`requires_h_channel_scope`, `handlers/ingest.rs:487`) — ohne
  * bekanntes `h` ist die Admin-Loeschung auf Buzz nicht adressierbar, dann bleibt
@@ -185,9 +216,12 @@ export const buzzDeleteEvent = (url: string, id: string, h = ''): Promise<string
 export const buzzSetIcon = (url: string, icon: string): Promise<string> =>
     publishAdminEvent(url, BUZZ_SET_WORKSPACE_PROFILE, [['icon', icon]])
 
-// ── Ban-Liste (HTTP, NIP-98) ────────────────────────────────────────────────
-
-export type BuzzRestrictedEntry = { pubkey: string; reason: string }
+// ── Sperr-Liste (HTTP, NIP-98) ──────────────────────────────────────────────
+//
+// The row shape (`RestrictionEntry`) and its parser live in
+// `moderationTimeoutModels.ts`: `/moderation/restricted` answers with bans AND running
+// timeouts in the same response, and the rule that tells one from the other belongs where
+// it is decidable without a network.
 
 /** `ws(s)://host/…` → `http(s)://host` — die Moderations-Routen liegen auf demselben Host. */
 export const buzzHttpBase = httpBase
@@ -214,6 +248,31 @@ const buzzModerationGet = async (
     path: string,
     query: Record<string, string | number | undefined> = {},
 ): Promise<unknown> => {
+    const { status, body } = await buzzModerationFetch(url, path, query)
+    if (status < 200 || status >= 300) {
+        // Buzz antwortet mit `{"error": "…"}`; den Originaltext fuehren statt eine
+        // eigene Ursache zu erfinden.
+        const detail = typeof body === 'string' ? body : ''
+        throw new Error(`${path}: HTTP ${status}${detail ? ` — ${detail}` : ''}`)
+    }
+    return body
+}
+
+/**
+ * The same call, but it reports the **status** instead of throwing.
+ *
+ * The difference is the point: "you may not ask this" (401/403) is an answer, not a
+ * malfunction — and a surface that carries a moderation decision has to tell it apart from
+ * "nobody is restricted". Whoever only wants a result and treats every failure alike keeps
+ * using [[buzzModerationGet]] above.
+ *
+ * `body` is the parsed JSON on 2xx, otherwise the relay's raw response text.
+ */
+const buzzModerationFetch = async (
+    url: string,
+    path: string,
+    query: Record<string, string | number | undefined> = {},
+): Promise<{ status: number; body: unknown }> => {
     const sign = signer.get()
     if (!sign) {
         throw new Error(t('Nicht angemeldet — die Moderations-Abfrage braucht eine Signatur (NIP-98).'))
@@ -222,33 +281,38 @@ const buzzModerationGet = async (
     const auth = await nip98AuthHeader((e) => sign.sign(e) as Promise<SignedLike>, target, 'GET')
     const res = await fetch(target, { headers: { Accept: 'application/json', Authorization: auth } })
     if (!res.ok) {
-        // Buzz antwortet mit `{"error": "…"}`; den Originaltext fuehren statt eine
-        // eigene Ursache zu erfinden.
-        const detail = await res.text().catch(() => '')
-        throw new Error(`${path}: HTTP ${res.status}${detail ? ` — ${detail}` : ''}`)
+        return { status: res.status, body: await res.text().catch(() => '') }
     }
-    return await res.json()
+    return { status: res.status, body: await res.json() }
 }
 
 /**
- * Liest die Liste der eingeschraenkten (gebannten/getimeouteten) Pubkeys ueber
- * `GET /moderation/restricted` (`router.rs:117`).
+ * Liest die Liste der eingeschraenkten (gebannten UND befristet gesperrten) Pubkeys
+ * ueber `GET /moderation/restricted` (`router.rs:117`).
  *
  * Seit P5 **mit** NIP-98-Header — die frueher dokumentierte Luecke („bewusst ohne
- * Header, Route liefert dann nichts") ist damit geschlossen. Am Verhalten nach
- * aussen aendert sich nur, dass die Liste jetzt tatsaechlich Inhalt hat: ein
- * Fehlschlag liefert weiterhin `[]`, weil Bannen/Entbannen (9040/9041) davon
- * unabhaengig funktionieren und ein Toast an dieser Stelle nur stoeren wuerde.
+ * Header, Route liefert dann nichts") ist damit geschlossen.
+ *
+ * ── What P4 changed here, and why ───────────────────────────────────────────
+ *
+ * Until now this function ended in `catch { return [] }`. "Nobody is restricted", "you may
+ * not ask this at all" and "the relay is down" were one and the same answer. For the old
+ * purpose that was defensible, and the comment said so: banning and unbanning (9040/9041)
+ * worked whether or not this list loaded, so a toast here would have been noise. For a
+ * surface that *carries* a moderation decision it is not enough — a 9042 is never readable
+ * (the relay neither stores nor fans out 9042–9044), so this list is the only proof the
+ * suspension took effect.
+ *
+ * The distinction itself lives in `parseRestrictionList` (pure, `node --test`); what stays
+ * here is the way onto the network. A throw (no signer, DNS, offline) becomes
+ * `unavailable` — that is not an empty list either.
  */
-export const buzzLoadRestricted = async (url: string): Promise<BuzzRestrictedEntry[]> => {
+export const buzzLoadRestricted = async (url: string): Promise<RestrictionListResult> => {
     try {
-        const body = (await buzzModerationGet(url, '/moderation/restricted')) as { restricted?: unknown }
-        const rows = Array.isArray(body) ? body : Array.isArray(body?.restricted) ? body.restricted : []
-        return (rows as { pubkey?: string; reason?: string }[])
-            .filter((r) => typeof r.pubkey === 'string' && r.pubkey.length === 64)
-            .map((r) => ({ pubkey: r.pubkey as string, reason: r.reason ?? '' }))
-    } catch {
-        return []
+        const { status, body } = await buzzModerationFetch(url, '/moderation/restricted')
+        return parseRestrictionList(status, body)
+    } catch (e) {
+        return { ok: false, reason: 'unavailable', status: 0, detail: e instanceof Error ? e.message : String(e) }
     }
 }
 

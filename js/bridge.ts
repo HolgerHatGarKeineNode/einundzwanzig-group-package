@@ -142,6 +142,7 @@ import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseForumTag, parseRoo
 import { deriveForumTopics, listenForum, loadForumTopics, type ForumTopic } from './forumFeed.ts'
 import { DEFAULT_FORUM_SORT, FORUM_VOTE, forumTopicTitle, sortForumTopics, type ForumSort } from './forumModels.ts'
 import { mayWriteKind } from './relayCapability.ts'
+import { BUZZ_TIMEOUT } from './moderationTimeoutModels.ts'
 import { voteOnForumTopic } from './forumVote.ts'
 import { type VoteDirection } from './forumVoteModels.ts'
 import { topicComposerZiel, type TopicComposerZiel } from './forumWriteModels.ts'
@@ -184,7 +185,7 @@ import {
     watchSpaceDirectory,
     loadMemberProfiles,
     settleMemberProfiles,
-    loadBannedMembers,
+    loadRestrictedMembers,
     createRole,
     editRole,
     deleteRole,
@@ -193,6 +194,8 @@ import {
     removeSpaceMember,
     banSpaceMember,
     unbanSpaceMember,
+    timeoutSpaceMember,
+    untimeoutSpaceMember,
     addSpaceMember,
     banEvent,
     resolveReport,
@@ -205,7 +208,7 @@ import {
     type MemberView,
     type RoleView,
     type SpaceRole,
-    type BannedMember,
+    type RestrictedMember,
     type VereinAccess,
 } from './members.ts'
 import {
@@ -1106,7 +1109,18 @@ type DirectoryState = {
     rolesFull: SpaceRole[]
     editingMember: MemberView | null
     roleForm: RoleForm
-    banned: BannedMember[]
+    banned: RestrictedMember[]
+    /** Warum die Sperrliste leer ist, wenn sie es nicht wirklich ist ('' = alles gut). */
+    bannedError: string
+    // Befristete Sperre (P4, Buzz kind 9042/9043). `canTimeout` ist der Riegel aus P1 in
+    // der Fläche: der Menü-Eintrag existiert nur, wo der Kind auch geschrieben werden darf.
+    _spaceKind: SpaceKind
+    _unsubSpaceKind: null | (() => void)
+    canTimeout: boolean
+    timeoutTarget: MemberView | null
+    /** Ausgewählte Dauer in SEKUNDEN — als String, weil ein <select> Strings liefert. */
+    timeoutDuration: string
+    timeoutReason: string
     inviteLink: string
     inviteBusy: boolean
     busy: boolean
@@ -1145,6 +1159,9 @@ type DirectoryState = {
     toggleMemberRole(roleId: string): Promise<void>
     removeMember(m: MemberView): Promise<void>
     banMember(m: MemberView): Promise<void>
+    openTimeout(m: MemberView): void
+    confirmTimeout(): Promise<void>
+    liftTimeout(pubkey: string): Promise<void>
     loadBanned(): Promise<void>
     unbanMember(pubkey: string): Promise<void>
     restoreMember(pubkey: string): Promise<void>
@@ -4927,6 +4944,16 @@ export function registerNostrComponents(Alpine: {
         editingMember: null,
         roleForm: { id: '', label: '', description: '', hue: 210, lightness: 0.5, order: 0 },
         banned: [],
+        bannedError: '',
+        _spaceKind: 'unknown',
+        _unsubSpaceKind: null,
+        canTimeout: false,
+        timeoutTarget: null,
+        // Vorauswahl 1 Tag — die Dauer ist im Dialog frei wählbar (Nutzerwunsch
+        // 2026-09-03: „Timeout, welchen man einstellen kann"), dies ist nur der
+        // Startwert des Auswahlfelds und keine im Code festgeschriebene Sperrdauer.
+        timeoutDuration: '86400',
+        timeoutReason: '',
         inviteLink: '',
         inviteBusy: false,
         busy: false,
@@ -4960,6 +4987,7 @@ export function registerNostrComponents(Alpine: {
                 this._unsubJoins?.()
                 this._unsubStatuses?.()
                 this._unsubStatusPending?.()
+                this._unsubSpaceKind?.()
                 this._controller?.abort()
                 this.ready = false
                 this.profilesReady = false
@@ -4971,6 +4999,13 @@ export function registerNostrComponents(Alpine: {
                 this.statuses = {}
                 this.gatedOut = false
                 this.editingMember = null
+                // Die Sperrliste gehört dem alten Space — sie beim Wechsel stehen zu
+                // lassen zeigte fremde Sperren unter neuem Namen.
+                this.banned = []
+                this.bannedError = ''
+                this.timeoutTarget = null
+                this._spaceKind = 'unknown'
+                this.canTimeout = false
                 this._url = url
                 this._controller = new AbortController()
                 // Sicherheitsnetz: bleibt das Directory-Loaded-Signal (EOSE/CLOSED)
@@ -5052,6 +5087,20 @@ export function registerNostrComponents(Alpine: {
                 })
                 this._unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
                     this.isAdmin = admin
+                })
+                // Die Relay-Art entscheidet, ob es die befristete Sperre hier überhaupt
+                // gibt (9042/9043 sind Buzz-Dialekt), und sie trifft SPÄT ein. Abonniert
+                // statt einmal gelesen — ein synchroner Blick beim Aufziehen meldet
+                // verlässlich `'unknown'`, der Menü-Eintrag bliebe für immer aus und
+                // niemand sähe, warum (dieselbe Klasse Fehler wie beim
+                // `spaceIsBuzz()`-Schnappschuss aus P6).
+                this._unsubSpaceKind = deriveSpaceKind(url).subscribe((kind: SpaceKind) => {
+                    this._spaceKind = kind
+                    // Der Riegel aus P1 beantwortet die Markup-Frage und die Schreibfrage
+                    // aus DERSELBEN Funktion. Eine zweite Regel hier („ist es Buzz?")
+                    // driftete von der ersten weg, und das Ergebnis wäre ein Knopf, der
+                    // garantiert nichts tut.
+                    this.canTimeout = mayWriteKind(BUZZ_TIMEOUT, kind)
                 })
                 // Melde-Queue (P3): Meldungen (kind 1984) laden + live halten. Die
                 // Ableitung ist billig; die UI zeigt sie nur Admins (x-show), also
@@ -5180,11 +5229,74 @@ export function registerNostrComponents(Alpine: {
                 this.busy = false
             }
         },
+        // ── P4: befristete Sperre (Buzz kind 9042/9043) ────────────────────────
+        // Die HÄRTESTE Maßnahme dieser Oberfläche. Entfernen und Bannen von Mitgliedern
+        // bietet sie nicht mehr an (fachliche Entscheidung des Vereins, 2026-09-03) —
+        // die Schreibpfade dafür stehen weiterhin darüber, ihre Bedienflächen sind an
+        // allen vier Markup-Stellen auskommentiert und tragen den Grund im Kommentar.
+        openTimeout(m: MemberView) {
+            this.timeoutTarget = m
+            this.timeoutReason = ''
+            dispatchModal('member-timeout')
+        },
+        async confirmTimeout() {
+            const target = this.timeoutTarget
+            if (!this._url || !target || this.busy) {
+                return
+            }
+            this.busy = true
+            try {
+                // `Number(...)` erst hier: das <select> liefert einen String, und die
+                // Umrechnung Dauer → `expiration` gehört in die reine Funktion
+                // (`planTimeout`), nicht in die Fläche. Ein unbrauchbarer Wert kommt von
+                // dort als Absage zurück, statt hier zu einem NaN zu werden.
+                const err = await timeoutSpaceMember(
+                    this._url,
+                    target.pubkey,
+                    Number(this.timeoutDuration),
+                    this._spaceKind,
+                    this.timeoutReason.trim(),
+                )
+                if (err) {
+                    toast(err)
+                } else {
+                    dispatchModal('member-timeout', false)
+                    toast(t('Mitglied befristet gesperrt.'), 'success')
+                    // 9042 ist nie lesbar (der Relay speichert und fanoutet 9042–9044
+                    // nicht) — die Sperrliste ist der einzige Erfolgsnachweis, also frisch
+                    // ziehen statt optimistisch etwas anzuzeigen.
+                    await this.loadBanned()
+                }
+            } finally {
+                this.busy = false
+            }
+        },
+        async liftTimeout(pubkey: string) {
+            if (!this._url || this.busy) {
+                return
+            }
+            this.busy = true
+            try {
+                const err = await untimeoutSpaceMember(this._url, pubkey, this._spaceKind)
+                if (err) {
+                    toast(err)
+                } else {
+                    await this.loadBanned()
+                }
+            } finally {
+                this.busy = false
+            }
+        },
         async loadBanned() {
             if (!this._url) {
                 return
             }
-            this.banned = await loadBannedMembers(this._url)
+            // Zwei Felder statt eines: „niemand ist gesperrt" und „du darfst diese
+            // Abfrage nicht" sind verschiedene Auskünfte, und die zweite als leere Liste
+            // zu zeigen sagte dem Moderator das Gegenteil der Wahrheit.
+            const { entries, error } = await loadRestrictedMembers(this._url)
+            this.banned = entries
+            this.bannedError = error
         },
         async unbanMember(pubkey: string) {
             if (!this._url || this.busy) {
@@ -5490,6 +5602,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubJoins?.()
             this._unsubStatuses?.()
             this._unsubStatusPending?.()
+            this._unsubSpaceKind?.()
             this._controller?.abort()
         },
     }))

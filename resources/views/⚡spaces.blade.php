@@ -1154,7 +1154,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <div class="truncate text-sm font-medium" x-text="m.name"></div>
                                 <div class="truncate text-xs text-muted" x-text="m.short"></div>
                             </div>
+                            {{-- no removal or ban of members here — the association does not remove or
+                                 ban its members (decision 2026-09-03); the timed suspension on the member
+                                 screen (`⚡directory.blade.php`, Buzz kind 9042) is the strongest measure
+                                 this surface offers. This is the same action one level down: leaving it
+                                 here would be a back door. The write path stays (`kickRoomMember` in
+                                 `js/bridge.ts`, kind 9001) — it carries the zooid arm.
                             <flux:button size="xs" variant="ghost" icon="user-minus" class="icon-btn-touch shrink-0" x-on:click="kickRoomMember(m.pubkey)" ::disabled="memberBusy" aria-label="{{ __('Entfernen') }}" />
+                            --}}
                         </div>
                     </template>
                 </div>
