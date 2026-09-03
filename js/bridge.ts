@@ -1391,9 +1391,13 @@ type RoomChatState = {
     /** Die Themenliste in der gewählten Ordnung — reine Umsortierung, kein Nachladen. */
     sortedTopics(): ForumTopic[]
     /**
-     * Ein Thema bewerten (kind 45002). `direction` ist `1` oder `-1`; ein zweiter Klick
-     * auf dieselbe Richtung schreibt NICHTS (der Riegel sitzt in `planForumVote`, nicht
-     * am Knopf — die Tastatur löst denselben Pfad aus).
+     * Ein Thema bewerten (kind 45002) — oder die eigene Stimme zurücknehmen.
+     *
+     * `direction` ist `1` oder `-1`. Ein Klick auf den bereits gedrückten Pfeil ist die
+     * RÜCKNAHME: sie schreibt je eigener Stimme auf diesem Ziel eine NIP-09-Löschung
+     * (Buzz nimmt genau ein Ziel je Grabstein). Welcher der drei Fälle vorliegt und ob
+     * er überhaupt stattfinden darf, entscheidet `planForumVote` — nicht der Knopf, denn
+     * die Tastatur löst denselben Pfad aus.
      */
     voteTopic(topic: ForumTopic, direction: VoteDirection): Promise<void>
     threadHref(m: ChatMessage): string
@@ -6323,11 +6327,16 @@ export function registerNostrComponents(Alpine: {
             if (!this._url) {
                 return
             }
+            // `myVoteIds` und nicht nur `myVote`: ein Klick auf den bereits gedrückten
+            // Pfeil NIMMT die Stimme zurück, und dafür braucht der Schreibpfad die
+            // Ereignis-Ids — eine Rücknahme ist eine NIP-09-Löschung je eigener Stimme
+            // auf diesem Ziel (Begründung bei `ForumVoteTally.mineIds`).
             const error = await voteOnForumTopic(
                 this._url,
                 this.h,
                 topic.id,
                 topic.myVote,
+                topic.myVoteIds,
                 direction,
                 this._spaceKind,
             )

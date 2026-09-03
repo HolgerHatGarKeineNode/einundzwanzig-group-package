@@ -27,16 +27,28 @@
      beides bleibt die Spalte eine Anzeige. Ein Knopf, der garantiert scheitert,
      ist schlimmer als keiner.
 
-     ── Es gibt keinen Weg zurück auf „keine Stimme", und das ist entschieden ──
-     Ein zweiter Klick auf den bereits gewählten Pfeil schreibt NICHTS
-     (`planForumVote` verweigert ihn) — er hebt die Stimme nicht auf. Die
-     Begründung steht bei `planForumVote` in `js/forumVoteModels.ts`: ein dritter
-     `content`-Wert wäre ein privater Dialekt in einem geteilten Kanal (der Relay
-     validiert `content` gar nicht), und ein kind-5-Grabstein scheitert genau im
-     wichtigen Fall — welshmans Repository wendet ihn nur bei STRIKT grösserem
-     `created_at` an, und die Rücknahme eines Fehlklicks trägt dieselbe Sekunde.
-     Deshalb trägt der aktive Pfeil `aria-pressed="true"` und bleibt bedienbar,
-     statt ein Aufheben anzudeuten, das nicht stattfindet.
+     ── Drei Zustände: `+`, `−` und KEINE Stimme ──────────────────────────────
+     Ein Klick auf den bereits gedrückten Pfeil NIMMT die Stimme zurück — die
+     Pfeile sind Umschalter, kein Einwegventil. Technisch ist das eine
+     NIP-09-Löschung (kind 5) je eigener Stimme auf diesem Thema; Buzz nimmt
+     genau ein Ziel je Grabstein, deshalb können es mehrere sein.
+
+     **Hier stand bis zur P3-Nacharbeit das Gegenteil, mit einer falschen
+     Begründung** — welshman wende einen Grabstein nur bei STRIKT grösserem
+     `created_at` an, eine Rücknahme in derselben Sekunde bliebe also wirkungslos.
+     Das gilt nur für ADRESSIERBARE Ereignisse (`isDeletedByAddress`,
+     `@welshman/net/dist/net/src/repository.js:202`). Ein 45002 ist keines: kein
+     `d`-Tag und keiner der Bereiche 10000–19999 / 30000–39999. Seine Löschung
+     läuft über die Ereignis-Id, und `isDeletedById` (`:199`) vergleicht **kein**
+     `created_at` — der Quelltext dort sagt selbst warum, wörtlich für diesen
+     Fall: *„comparing would strand anything taken back in the same second it was
+     made."* Dieselbe Messung steht seit dem 0.9.5-Sprung in diesem Repo, bei
+     `makeEventDelete` (`js/interactions.ts:70-97`).
+
+     Die Beschriftung des Pfeils WECHSELT dabei nicht mit dem Zustand — den trägt
+     `aria-pressed`. Das ist die Vorgabe der WAI-ARIA-Praxis für Umschaltknöpfe:
+     eine mitwandernde Beschriftung sagt der Sprachausgabe zweimal dasselbe und
+     einmal davon falsch, sobald sie nachzieht.
 
      ── Zählung ───────────────────────────────────────────────────────────────
      Eine Komponente, also bewusst nicht in der ARIA-Trägerzählung von

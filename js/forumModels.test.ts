@@ -29,6 +29,7 @@ import {
     type ForumReplyInput,
     type ForumRootInput,
     type ForumSort,
+    type ForumTombstoneInput,
     type ForumVoteInput,
 } from './forumModels.ts'
 
@@ -406,4 +407,156 @@ test('jeder Wert aus dem Blade ist eine gueltige ForumSort — kein Tippfehler r
             `„${wert}" steht im Umschalter, ist aber keine ForumSort — sortForumTopics faellt darauf still auf „${DEFAULT_FORUM_SORT satisfies ForumSort}" zurueck.`,
         )
     }
+})
+
+// ── Rücknahme (NIP-09-Grabstein auf die eigene Stimme) ──────────────────────
+//
+// Die Fläche bietet drei Zustände: `+`, `−` und KEINE Stimme. Der Weg zurück ist ein
+// kind 5 auf die Ereignis-Id der Stimme. Dass welshman das trägt, ist keine Annahme:
+// `Repository.isDeletedById` vergleicht **kein** `created_at` (der Kommentar der
+// Implementierung nennt genau diesen Fall), und `isDeletedByAddress` — die Fassung MIT
+// Vergleich — gilt nur für adressierbare Kinds, zu denen 45002 nicht gehört.
+
+const grabstein = (
+    over: Partial<ForumTombstoneInput> & { targetIds: readonly string[] },
+): ForumTombstoneInput => ({
+    pubkey: 'v'.repeat(64),
+    created_at: 4000,
+    ...over,
+})
+
+test('ein zurueckgenommener Vote zaehlt NICHT mehr', () => {
+    const tallies = foldForumVotes(
+        [vote({ id: 'v1', targetId: 'r1' })],
+        ZIELE,
+        '',
+        [grabstein({ targetIds: ['v1'] })],
+    )
+    assert.equal(tallies.has('r1'), false, 'ohne verbleibende Stimme gibt es gar keinen Eintrag')
+})
+
+test('die Ruecknahme wirkt auch dann, wenn das Repository die Stimme noch liefert', () => {
+    // Der Grund, warum diese Regel hier steht und nicht dem Repository ueberlassen ist:
+    // `deriveEventsByIdForUrl` fuegt im `tracker.add`-Zweig ein Ereignis per Id wieder
+    // ein, OHNE `isDeleted` zu fragen. Dann liegt die geloeschte Stimme in genau dieser
+    // Liste — und ohne diese Regel zaehlte sie wieder mit.
+    const tallies = foldForumVotes(
+        [vote({ id: 'v1', targetId: 'r1', pubkey: 'p1' }), vote({ id: 'v2', targetId: 'r1', pubkey: 'p2' })],
+        ZIELE,
+        '',
+        [grabstein({ pubkey: 'p1', targetIds: ['v1'] })],
+    )
+    assert.equal(tallies.get('r1')?.up, 1, 'nur die Stimme von p2 bleibt')
+    assert.equal(tallies.get('r1')?.score, 1)
+})
+
+test('ein FREMDER Grabstein loescht meine Stimme nicht', () => {
+    // Autorenpruefung wie in `Repository.isDeletedById` (`some(spec({pubkey: …}))`).
+    // Ohne sie koennte jeder jede Stimme dieser Flaeche mit einem kind 5 entfernen, das
+    // der Relay selbst nie ausgefuehrt haette.
+    const tallies = foldForumVotes(
+        [vote({ id: 'v1', targetId: 'r1', pubkey: 'p1' })],
+        ZIELE,
+        '',
+        [grabstein({ pubkey: 'angreifer', targetIds: ['v1'] })],
+    )
+    assert.equal(tallies.get('r1')?.score, 1)
+})
+
+test('die Ruecknahme in DERSELBEN Sekunde wirkt — kein `created_at`-Vergleich', () => {
+    // Genau der Fall, an dem die erste P3-Fassung vorbeigebaut hat. Ein Fehlklick wird
+    // Sekunden spaeter zurueckgenommen, und `created_at` ist ganzsekuendig.
+    const tallies = foldForumVotes(
+        [vote({ id: 'v1', targetId: 'r1', created_at: 500 })],
+        ZIELE,
+        '',
+        [grabstein({ targetIds: ['v1'], created_at: 500 })],
+    )
+    assert.equal(tallies.has('r1'), false)
+})
+
+test('eine Ruecknahme auf einem ANDEREN Ziel laesst meine Stimme hier in Ruhe', () => {
+    // Der Grabstein nennt eine Stimm-Id und traegt keinen Bezug zum Thema. Wer daraus
+    // eine Regel „alles Aeltere dieses Autors ist weg" machte, loeschte seine Stimmen
+    // auf FREMDEN Themen gleich mit — deshalb wirkt hier nur die Id.
+    const tallies = foldForumVotes(
+        [
+            vote({ id: 'v1', targetId: 'r1', created_at: 100 }),
+            vote({ id: 'v2', targetId: 'r2', created_at: 200 }),
+        ],
+        ZIELE,
+        '',
+        [grabstein({ targetIds: ['v2'], created_at: 300 })],
+    )
+    assert.equal(tallies.get('r1')?.score, 1, 'die aeltere Stimme auf dem anderen Thema bleibt')
+    assert.equal(tallies.has('r2'), false)
+})
+
+test('`mineIds` traegt ALLE eigenen Stimmen auf dem Ziel, neueste zuerst', () => {
+    // Das ist die Liste, die eine Ruecknahme abarbeiten muss. Nur die Gewinnerin zu
+    // loeschen liesse die davor wieder gewinnen — aus „zurueckgenommen" wuerde
+    // „Meinung geaendert".
+    const tallies = foldForumVotes(
+        [
+            vote({ id: 'alt', targetId: 'r1', pubkey: 'ich', content: VOTE_UP, created_at: 100 }),
+            vote({ id: 'neu', targetId: 'r1', pubkey: 'ich', content: VOTE_DOWN, created_at: 200 }),
+            vote({ id: 'fremd', targetId: 'r1', pubkey: 'andere' }),
+        ],
+        ZIELE,
+        'ich',
+    )
+    assert.deepEqual(tallies.get('r1')?.mineIds, ['neu', 'alt'])
+    assert.equal(tallies.get('r1')?.mine, -1, '`mineIds[0]` ist die Stimme, die der Pfeil zeigt')
+})
+
+test('nach der Ruecknahme ALLER eigenen Stimmen lebt die vorherige nicht wieder auf', () => {
+    // Der Fall, gegen den `mineIds` gebaut ist: `+`, dann `−`, dann zurueckgenommen.
+    // Beide Grabsteine zusammen ergeben „keine Stimme"; nur der auf `neu` ergaebe `+`.
+    const stimmen = [
+        vote({ id: 'alt', targetId: 'r1', pubkey: 'ich', content: VOTE_UP, created_at: 100 }),
+        vote({ id: 'neu', targetId: 'r1', pubkey: 'ich', content: VOTE_DOWN, created_at: 200 }),
+    ]
+    const nurNeu = foldForumVotes(stimmen, ZIELE, 'ich', [grabstein({ pubkey: 'ich', targetIds: ['neu'] })])
+    assert.equal(nurNeu.get('r1')?.mine, 1, 'Gegenprobe: EIN Grabstein laesst die alte Stimme gewinnen')
+
+    const beide = foldForumVotes(stimmen, ZIELE, 'ich', [
+        grabstein({ pubkey: 'ich', targetIds: ['neu'] }),
+        grabstein({ pubkey: 'ich', targetIds: ['alt'] }),
+    ])
+    assert.equal(beide.has('r1'), false)
+})
+
+test('`mineIds` enthaelt keine zurueckgenommene Stimme — sonst schriebe die Ruecknahme sie erneut', () => {
+    const tallies = foldForumVotes(
+        [
+            vote({ id: 'weg', targetId: 'r1', pubkey: 'ich', created_at: 100 }),
+            vote({ id: 'da', targetId: 'r1', pubkey: 'ich', created_at: 200 }),
+        ],
+        ZIELE,
+        'ich',
+        [grabstein({ pubkey: 'ich', targetIds: ['weg'] })],
+    )
+    assert.deepEqual(tallies.get('r1')?.mineIds, ['da'])
+})
+
+test('die Zeile reicht `myVoteIds` durch — der Schreibpfad liest nichts anderes', () => {
+    const rows = buildForumTopics(
+        [root({ id: 'r1' })],
+        [],
+        [vote({ id: 'v1', targetId: 'r1', pubkey: 'ich' })],
+        'ich',
+    )
+    assert.deepEqual(rows[0].myVoteIds, ['v1'])
+    assert.equal(rows[0].myVote, 1)
+
+    const zurueck = buildForumTopics(
+        [root({ id: 'r1' })],
+        [],
+        [vote({ id: 'v1', targetId: 'r1', pubkey: 'ich' })],
+        'ich',
+        [grabstein({ pubkey: 'ich', targetIds: ['v1'] })],
+    )
+    assert.deepEqual(zurueck[0].myVoteIds, [])
+    assert.equal(zurueck[0].myVote, 0)
+    assert.equal(zurueck[0].score, 0)
 })

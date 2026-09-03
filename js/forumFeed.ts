@@ -18,11 +18,11 @@
  * Antwort-Filter seit P3 auch 45003 kennt — es gibt genau EINE Thread-Maschine.
  * Dieses Modul liefert die Liste DAVOR.
  *
- * ── Ein Filter, vier Kinds ─────────────────────────────────────────────────
+ * ── Ein Filter, fünf Kinds ─────────────────────────────────────────────────
  *
  * Wurzeln (45001), Antworten (45003 **und** kind 9, beide am Teststack
- * gemessen) und seit P3 die Bewertungen (45002) tragen alle `#h` und liegen im
- * selben Filter. Das ist nicht Sparsamkeit,
+ * gemessen) und seit P3 die Bewertungen (45002) samt ihren Rücknahmen (kind 5)
+ * tragen alle `#h` und liegen im selben Filter. Das ist nicht Sparsamkeit,
  * sondern Reaktivität: `deriveEventsForUrl` emittiert nur, wenn ein Ereignis den
  * Filter TRIFFT — eine Antwort, die durch einen zweiten, getrennt abonnierten
  * Filter käme, ließe die Zeile mit ihrem alten Zähler stehen. Genau diese Lücke
@@ -32,7 +32,7 @@ import { derived, type Readable } from 'svelte/store'
 import { load, request } from './welshmanNet.ts'
 import { pubkey } from './welshmanSession.ts'
 import { type TrustedEvent } from '@welshman/util'
-import { MESSAGE } from './welshmanKinds.ts'
+import { DELETE, MESSAGE } from './welshmanKinds.ts'
 import { throttled } from '@welshman/store'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { deriveEventsForUrl } from './repository.ts'
@@ -46,6 +46,7 @@ import {
     buildForumTopics,
     type ForumReplyInput,
     type ForumRootInput,
+    type ForumTombstoneInput,
     type ForumTopicRow,
     type ForumVoteInput,
 } from './forumModels.ts'
@@ -57,7 +58,7 @@ import {
  * (gemessen: `invalid: channel-scoped events must include an h tag`). Der Filter
  * darf sich also darauf verlassen und muss keinen kanallosen Zweig tragen.
  */
-const forumFilter = (h: string) => [{ kinds: [FORUM_POST, FORUM_COMMENT, MESSAGE, FORUM_VOTE], '#h': [h] }]
+const forumFilter = (h: string) => [{ kinds: [FORUM_POST, FORUM_COMMENT, MESSAGE, FORUM_VOTE, DELETE], '#h': [h] }]
 
 /**
  * Der BESTANDS-Load — zwei Filter mit **getrennten Deckeln**, und das ist keine
@@ -77,7 +78,7 @@ const forumFilter = (h: string) => [{ kinds: [FORUM_POST, FORUM_COMMENT, MESSAGE
  * `@welshman/net` `request.js:99-103`), gegen ein Budget von 1024 bei Buzz.
  */
 const forumBacklogFilters = (h: string) => [
-    { kinds: [FORUM_POST, FORUM_COMMENT, MESSAGE], '#h': [h], limit: 500 },
+    { kinds: [FORUM_POST, FORUM_COMMENT, MESSAGE, DELETE], '#h': [h], limit: 500 },
     { kinds: [FORUM_VOTE], '#h': [h], limit: 1000 },
 ]
 
@@ -109,7 +110,20 @@ const splitForumEvents = (events: readonly TrustedEvent[]) => {
     const roots: ForumRootInput[] = []
     const replies: ForumReplyInput[] = []
     const votes: ForumVoteInput[] = []
+    const tombstones: ForumTombstoneInput[] = []
     for (const event of events) {
+        // NIP-09 tombstones. They are handed to the fold rather than trusted to the
+        // repository alone: `Repository.query` does skip deleted events, but
+        // `deriveEventsByIdForUrl`'s `tracker.add` branch re-adds an event by id WITHOUT
+        // asking `isDeleted` — so a retracted vote can reappear in this very list. The
+        // reasoning belongs to the fold and is written out there.
+        if (event.kind === DELETE) {
+            const targetIds = event.tags.filter((tag) => tag[0] === 'e' && tag[1]).map((tag) => tag[1] as string)
+            if (targetIds.length > 0) {
+                tombstones.push({ pubkey: event.pubkey, created_at: event.created_at, targetIds })
+            }
+            continue
+        }
         // Votes first, and by KIND: a 45002 carries a bare `["e", <target>]` without a
         // thread marker, so `isThreadReply` says no and it would fall out of the loop
         // unnoticed today — but a marker added to a vote by any future client would
@@ -142,7 +156,7 @@ const splitForumEvents = (events: readonly TrustedEvent[]) => {
         }
     }
 
-    return { roots, replies, votes }
+    return { roots, replies, votes, tombstones }
 }
 
 /**
@@ -157,11 +171,11 @@ export const deriveForumTopics = (url: string, h: string): Readable<ForumTopic[]
     derived(
         [deriveEventsForUrl(url, forumFilter(h)), throttled(200, profilesByPubkey), pubkey],
         ([$events, $profiles, $me]) => {
-            const { roots, replies, votes } = splitForumEvents($events)
+            const { roots, replies, votes, tombstones } = splitForumEvents($events)
             // `$me` decides `myVote` — the same store the row's `mine` already comes
             // from. A guest gets `''` and therefore no marked arrow, which is correct:
             // without a pubkey there is nothing that could be their vote.
-            const rows = buildForumTopics(roots, replies, votes, $me ?? '')
+            const rows = buildForumTopics(roots, replies, votes, $me ?? '', tombstones)
             const now = Math.floor(Date.now() / 1000)
             void warmProfiles([...roots.map((r) => r.pubkey), ...replies.map((r) => r.pubkey)])
 
