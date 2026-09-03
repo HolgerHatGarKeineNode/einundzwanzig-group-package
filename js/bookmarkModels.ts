@@ -233,6 +233,27 @@ export const withoutBookmarkValue = (tags: string[][], value: string): string[][
 /** The body of the event a write would produce — nothing more than that. */
 export type BookmarkWrite = { kind: number; content: string; tags: string[][] }
 
+/** Are these two tag lists the same list? Order counts — a reorder IS a change. */
+const sameTags = (a: string[][], b: string[][]): boolean =>
+    a.length === b.length && a.every((tag, i) => tag.length === b[i]?.length && tag.every((v, j) => v === b[i]?.[j]))
+
+/**
+ * Can **this client** take this bookmark back?
+ *
+ * Only entries of the plain 10003 can be removed, because that is the only list this
+ * client writes. An entry that reached the screen through somebody else's 30003 set
+ * (`set !== ''`) is displayable but not removable from here.
+ *
+ * **This is not cosmetic, it is the difference between a working button and a lie.**
+ * Rewriting our own 10003 does not touch a foreign set: the entry would stay on screen
+ * after the click, while a signed event went out over the wire that changed nothing.
+ * The screen asks this before it renders the remove button; {@link planBookmarkWrite}
+ * asks the same question a second time in its own currency, so a stale field in the
+ * markup cannot produce that write anyway.
+ */
+export const isRemovable = (refs: BookmarkRef[], value: string): boolean =>
+    refs.some((ref) => ref.value === value && ref.set === '')
+
 /**
  * **The gate and the event body in one decision.** `null` means: do not write.
  *
@@ -252,6 +273,15 @@ export type BookmarkWrite = { kind: number; content: string; tags: string[][] }
  * `content` is carried over from the existing list **unchanged**: that is the entire
  * handling of the NIP-51 private half. It is never decrypted and never re-encrypted, so
  * nothing here can lose it.
+ *
+ * **A write that changes nothing is refused, and that is a rule and not a nicety.** It
+ * closes a whole class at its narrowest point: a message that is bookmarked only in
+ * somebody else's 30003 set renders as an ordinary row, and a remove click on it would
+ * rewrite our own — possibly empty — 10003 without touching the set. The row stays, the
+ * user gets no feedback, and a signed, published event went out that did nothing. The
+ * same guard also catches a double click and a second device that got there first. The
+ * screen additionally hides the button ({@link isRemovable}), but the markup is the
+ * weaker of the two places: it can be stale, this cannot.
  */
 export const planBookmarkWrite = (
     list: BookmarkEventLike | null,
@@ -263,12 +293,12 @@ export const planBookmarkWrite = (
         return null
     }
     const current = list?.tags ?? []
-
-    return {
-        kind: BOOKMARKS,
-        content: list?.content ?? '',
-        tags: add ? withBookmarkTag(current, ['e', value]) : withoutBookmarkValue(current, value),
+    const tags = add ? withBookmarkTag(current, ['e', value]) : withoutBookmarkValue(current, value)
+    if (sameTags(current, tags)) {
+        return null
     }
+
+    return { kind: BOOKMARKS, content: list?.content ?? '', tags }
 }
 
 /** Is this value bookmarked in the given refs? */
@@ -289,6 +319,33 @@ export const isBookmarked = (refs: BookmarkRef[], value: string): boolean =>
  * ends in `CLOSED` returns an empty batch just as an unstored event would
  * (`@welshman/net`), and we will not turn "cannot tell" into a red error over a write
  * the relay acknowledged.
+ *
+ * ── This fails OPEN, and `roomPins.ts` fails CLOSED. Deliberate, and here is why ────
+ *
+ * `roomPins.ts` `waitForEffect` (`:600-625`) resolves `false` when the effect has not
+ * shown up within its window, and the surface then says "the relay did not take the
+ * pin". Same-sounding question, opposite error direction — so the difference has to be
+ * written down, or the next reader will align one to the other and silently flip it.
+ *
+ * The two differ in **what they are waiting on**, not in how careful they are:
+ *
+ *  - `roomPins` waits on a value it already holds: the pin list is an open live
+ *    subscription, and the effect arrives through it. Measured there, the effect
+ *    normally lands *before* the `OK`. Nothing has to travel for the check to succeed,
+ *    so a timeout genuinely means "it did not happen" — and pinning has a documented
+ *    way of being acknowledged and ignored (zooid drops the whole `UpdatePins` return
+ *    value). Fail-closed is the only honest answer there.
+ *  - This one asks a **new question over the wire** after the relay has already said
+ *    `OK`. Its silence has more causes than a failed write: an AUTH round that never
+ *    completes swallows the `EOSE` (documented in this repo), a relay may decline to
+ *    serve a list back, the socket may drop. Reading any of those as "your bookmark did
+ *    not stick" would contradict a verdict we already have, and would do it most often
+ *    to the people with the worst connection.
+ *
+ * The asymmetry is therefore the point: a *positive* answer that disagrees with us is
+ * trusted (that is the zooid `created_at` trap, and it is what this function is for),
+ * an *absent* answer is not evidence. Whoever changes this must change the reason, not
+ * just the boolean.
  */
 export const writeConfirmed = (
     relayTags: string[][] | null,

@@ -26,6 +26,7 @@ import {
     isBookmarkTag,
     isBookmarked,
     isBuzzMeshStatus,
+    isRemovable,
     otherBookmarkRefs,
     ownBookmarkList,
     ownBookmarkLists,
@@ -302,6 +303,61 @@ test('the plan removes by value, whatever kind of entry it was', () => {
 
 test('an empty value is no plan', () => {
     assert.equal(planBookmarkWrite(list([['e', MSG_A]]), '', true, 'buzz'), null)
+})
+
+// ── What this client can take back, and what it must not pretend to ────────
+
+test('BUG P2/1: a message that lives only in a foreign set produces NO write plan', () => {
+    // Found in review. `bookmarkRefs` shows an entry from somebody else's 30003 set as
+    // an ordinary row — correct, hiding it would be worse. But it is not removable from
+    // here: this client writes no sets, so rewriting our own (here: non-existent) 10003
+    // leaves the set untouched. Before the fix a remove click produced a complete write
+    // plan over an empty tag list, and with it a signed, published event that changed
+    // nothing at all — the row stayed and the user was told nothing.
+    const foreignSet = set('reading', [['e', MSG_A]])
+    const refs = bookmarkRefs([foreignSet], ME)
+
+    assert.deepEqual(refs, [{ type: 'e', value: MSG_A, set: 'reading' }], 'the row is shown …')
+    assert.equal(isRemovable(refs, MSG_A), false, '… and it is not removable from here')
+    assert.equal(
+        planBookmarkWrite(ownBookmarkList([foreignSet], ME), MSG_A, false, 'buzz'),
+        null,
+        'and no event body is produced for it',
+    )
+})
+
+test('… while the same message in the plain list is removable and does produce a plan', () => {
+    // The counter-proof. Without it the assertions above are equally green on a client
+    // that can no longer remove anything at all.
+    const own = list([['e', MSG_A]])
+    const refs = bookmarkRefs([own], ME)
+
+    assert.equal(isRemovable(refs, MSG_A), true)
+    assert.deepEqual(planBookmarkWrite(own, MSG_A, false, 'buzz'), {
+        kind: BOOKMARKS,
+        content: '',
+        tags: [],
+    })
+})
+
+test('an entry in BOTH the plain list and a foreign set stays removable', () => {
+    // `bookmarkRefs` lets the plain-list copy win the deduplication precisely so that
+    // the visible row is the one that can be acted on. This nails that down: were the
+    // order reversed, the button would vanish for an entry the user can in fact remove.
+    const refs = bookmarkRefs([set('reading', [['e', MSG_A]]), list([['e', MSG_A]])], ME)
+
+    assert.equal(isRemovable(refs, MSG_A), true)
+})
+
+test('a write that would change nothing is refused, in both directions', () => {
+    // The general rule behind the bug above, and it catches more than the one case: a
+    // double click, and a second device that got there first. A signed event that
+    // changes nothing is never worth sending.
+    const own = list([['e', MSG_A]])
+
+    assert.equal(planBookmarkWrite(own, MSG_A, true, 'buzz'), null, 'adding what is already there')
+    assert.equal(planBookmarkWrite(own, MSG_B, false, 'buzz'), null, 'removing what is not there')
+    assert.equal(planBookmarkWrite(null, MSG_A, false, 'buzz'), null, 'removing from a list that does not exist')
 })
 
 // ── Did the relay mean its OK? ──────────────────────────────────────────────

@@ -62,6 +62,7 @@ import {
     bookmarkRefs,
     bookmarkedEventIds,
     isBookmarked,
+    isRemovable,
     otherBookmarkRefs,
     ownBookmarkList,
     planBookmarkWrite,
@@ -107,6 +108,8 @@ type BookmarksStore = {
     mount(): void
     unmount(): void
     isBookmarked(value: string): boolean
+    /** May the remove button be shown for this entry? See {@link isRemovable}. */
+    canRemove(value: string): boolean
     /** Add or drop one bookmark. `value` is a message id, a topic, a url or an address. */
     toggle(value: string): Promise<void>
     dismissError(): void
@@ -249,6 +252,19 @@ const createStore = (): { store: BookmarksStore; bind: (reactive: BookmarksStore
 
         isBookmarked(value: string): boolean {
             return isBookmarked(refs(), value)
+        },
+
+        /**
+         * **One condition for both remove buttons on the screen.** An entry that only
+         * exists in a foreign 30003 set is shown but cannot be taken back from here —
+         * this client writes no sets, and rewriting our own 10003 would leave the set
+         * untouched while a signed event went out that changed nothing.
+         *
+         * The permission is folded in on purpose: a guest and an unresolved space kind
+         * both mean "no write", and two separate expressions in the markup would drift.
+         */
+        canRemove(value: string): boolean {
+            return self.canBookmark && isRemovable(refs(), value)
         },
 
         async toggle(value: string): Promise<void> {

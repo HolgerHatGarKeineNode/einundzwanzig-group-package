@@ -139,13 +139,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <div class="min-w-0 flex-1 px-2 py-3 text-sm text-muted">{{ __('(Nachricht wird geladen…)') }}</div>
                         </template>
 
-                        {{-- Lösen. `disabled` an `busy`, sonst ist der Knopf während
-                             eines laufenden Schreibvorgangs ein stiller Blindgänger —
+                        {{-- Lösen. **`canRemove` und nicht `canBookmark`** — der
+                             Unterschied ist der zwischen einem Knopf und einer Lüge:
+                             eine Nachricht, die nur in einem FREMDEN 30003-Set steht,
+                             erscheint hier als gewöhnliche Zeile, ist aber von hier aus
+                             nicht lösbar (dieser Client schreibt keine Sets). Der Klick
+                             hätte unser eigenes — womöglich leeres — 10003 neu
+                             geschrieben, das Set nicht angefasst, die Zeile stehen
+                             gelassen und trotzdem ein signiertes Ereignis abgesetzt.
+                             Dieselbe Bedingung trägt die Link-Zeile weiter unten; beide
+                             lesen dieselbe Methode, damit sie nicht auseinanderlaufen.
+
+                             `disabled` an `busy`, sonst ist der Knopf während eines
+                             laufenden Schreibvorgangs ein stiller Blindgänger —
                              `toggle()` verwirft den Klick dann, und das Fenster endet
                              erst mit dem Verdikt des Relays. Dieselbe Bindung wie an
                              der Pin-Leiste. --}}
                         <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch mt-3 shrink-0"
-                                     x-show="$store.bookmarks.canBookmark" x-cloak
+                                     data-bookmark-remove="entry"
+                                     x-show="$store.bookmarks?.canRemove(entry.id)" x-cloak
                                      x-bind:disabled="$store.bookmarks.busy"
                                      x-on:click="$store.bookmarks.toggle(entry.id)"
                                      aria-label="{{ __('Nicht mehr merken') }}" />
@@ -181,8 +193,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="min-w-0 flex-1 truncate text-sm text-zinc-900 dark:text-zinc-100" x-text="link.value"></span>
                                 </div>
                             </template>
+                            {{-- Dieselbe Bedingung wie an der Nachrichten-Zeile, und
+                                 dieselbe Begründung dort: nur was in der eigenen 10003
+                                 steht, ist von hier aus lösbar. --}}
                             <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch shrink-0"
-                                         x-show="$store.bookmarks.canBookmark && !link.set" x-cloak
+                                         data-bookmark-remove="link"
+                                         x-show="$store.bookmarks?.canRemove(link.value)" x-cloak
                                          x-bind:disabled="$store.bookmarks.busy"
                                          x-on:click="$store.bookmarks.toggle(link.value)"
                                          aria-label="{{ __('Nicht mehr merken') }}" />
