@@ -64,8 +64,11 @@ import type { DmsStore } from './dms.ts'
 /**
  * **The signer leaks a 30-second timer per signature, and it is not ours.**
  *
- * `signWithOptions` (`@welshman/signer@0.9.5`,
- * `dist/signer/src/util.js:56-60`) races the signature against
+ * `signWithOptions` (`@welshman/signer`, unchanged in 0.9.5 through **0.9.9** —
+ * `dist/signer/src/util.js` is byte-identical across all five, md5
+ * `841a092d1ec00748decf358be46d2922`, measured against the published tarballs on
+ * 2026-09-04; do NOT drop this wrapper on the assumption that an upgrade fixed it)
+ * `dist/signer/src/util.js:56-60` races the signature against
  * `setTimeout(() => reject("Signing timed out"), 30_000)` and never clears it — not on
  * success, not on failure. In a browser tab that is a stray timer; under `node --test` it
  * is a live handle, so a file that signs ONE event idles for 30 s after its last case.
