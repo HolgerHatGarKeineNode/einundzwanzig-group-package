@@ -25,7 +25,6 @@ import { load } from './welshmanNet.ts'
 import { deriveEvents, throttled } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
-import QRCode from 'qrcode'
 import { DEFAULT_RELAYS, isMobile, mayFallbackToRaw, nativeBrowserOpen, nativeBrowserInApp, proxifyImage, storageReady } from './core.ts'
 import { sanitizeReturnUrl, isAuthed } from './auth-gate.ts'
 import { createLightboxZoom } from './lightbox.ts'
@@ -436,6 +435,31 @@ const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
             },
         )
     })
+
+/**
+ * QR data URL for a payment request or a `nostrconnect://` URI.
+ *
+ * **The renderer arrives via `import()`, and that is a boot-path decision, not a
+ * style one.** `qrcode` is 22 182 B raw in the `app` chunk (measured 2026-09-04 by
+ * source-map attribution) — a chunk that EVERY page loads, for four surfaces that
+ * only a minority of sessions ever opens: the wallet receive sheet, the two zap
+ * QR fallbacks, and the desktop NIP-46 login.
+ *
+ * **When the surface first needs it:** never during render. All four callers are
+ * already `async` and already `await` a Lightning invoice or a connect URI before
+ * they have anything to encode; the module load overlaps that wait, and the
+ * surface sits in its own loading state meanwhile.
+ *
+ * **On a load failure** (chunk gone after a deploy, offline) this rejects, and
+ * every caller sits inside the `try/catch` that already handles "no invoice" —
+ * the surface shows its error text instead of a QR. It is never on the boot path,
+ * so it cannot take the island down.
+ */
+const qrDataUrl = async (text: string): Promise<string> => {
+    const { default: QRCode } = await import('qrcode')
+
+    return QRCode.toDataURL(text, { width: 256, margin: 1 })
+}
 
 /** Minimal-API des cropperjs-Instanz, die wir nutzen (C6a). */
 type CropperLike = {
@@ -2580,7 +2604,7 @@ export function registerNostrComponents(Alpine: {
                     description: this.recvMemo || t('Empfangen via Lightning'),
                 })
                 this.recvInvoice = pr
-                this.recvQr = await QRCode.toDataURL(pr.toUpperCase(), { width: 256, margin: 1 })
+                this.recvQr = await qrDataUrl(pr.toUpperCase())
                 toast(t('Rechnung erstellt'), 'success')
             } catch (e) {
                 this.error = e instanceof Error ? e.message : t('Rechnung fehlgeschlagen')
@@ -7890,7 +7914,7 @@ export function registerNostrComponents(Alpine: {
                             return
                         }
                         this.zapInvoice = invoice
-                        this.zapQr = await QRCode.toDataURL(invoice.toUpperCase(), { width: 256, margin: 1 })
+                        this.zapQr = await qrDataUrl(invoice.toUpperCase())
                         ;(this as unknown as AlpineMagics).$nextTick(() => (this as unknown as AlpineMagics).$refs.zapCopyBtn?.focus())
                     }
                     return
@@ -7920,7 +7944,7 @@ export function registerNostrComponents(Alpine: {
                         return
                     }
                     this.zapInvoice = invoice
-                    this.zapQr = await QRCode.toDataURL(invoice.toUpperCase(), { width: 256, margin: 1 })
+                    this.zapQr = await qrDataUrl(invoice.toUpperCase())
                     this._zapSub = new AbortController()
                     watchZapReceipt({
                         zapper,
@@ -8505,7 +8529,7 @@ export function registerNostrComponents(Alpine: {
                         this.openAmber()
                     } else {
                         // Desktop: QR zum Scannen mit Amber (kein zweites Gerät im Web).
-                        this.connectQr = await QRCode.toDataURL(url, { width: 256, margin: 1 })
+                        this.connectQr = await qrDataUrl(url)
                     }
                 }, abort.signal)
                 window.location.assign(await postLoginRedirect())
