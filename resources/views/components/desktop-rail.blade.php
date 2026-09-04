@@ -311,10 +311,18 @@
                  `railTargets`).
 
                  Ohne Bedingung, anders als der Workspace: der Riegel sitzt am Store
-                 (`$store.dms.canDm`, fail-closed über `mayWriteKind`), und die Gruppe ist
-                 auf einem zooid-Space schlicht leer — dort gibt es keine DM-Kanäle, also
-                 auch keine Zeilen. Was dort fehlt, ist der `+`-Knopf, und den blendet die
-                 Fläche selbst aus.
+                 (`$store.dms.canDm`, fail-closed über `mayWriteKind`), und kann kein
+                 erreichbarer Space Unterhaltungen führen, ist die Gruppe schlicht leer —
+                 dann gibt es keine DM-Kanäle, also auch keine Zeilen. Was dann fehlt, ist
+                 der `+`-Knopf, und den blendet die Fläche selbst aus.
+
+                 **„Erreichbar" ist mehr als der Heim-Space.** Hier stand „auf einem
+                 zooid-Space schlicht leer"; das beschrieb die Rail vor `chooseDmSpace`
+                 (`js/dmModels.ts`) richtig und ist es seitdem nicht mehr. Die Rail zeigt
+                 ohnehin die Unterhaltungen BEIDER Sichten (`toRailDms`, `rail.ts:319`) —
+                 dass der `+`-Knopf trotzdem am Heim-Relay hing, war der Bruch: mit zooid
+                 daheim und Buzz als Workspace standen Zeilen da, die man nicht ergänzen
+                 konnte. Jetzt hängen Zeilen und Knopf an derselben Menge Spaces.
 
                  Ein DM-Kanal ist bei Buzz ein Kanal mit einem `h`: die Zeile führt auf
                  `/rooms/{h}` und damit auf dieselbe Chat-Fläche wie jeder andere Raum. --}}
