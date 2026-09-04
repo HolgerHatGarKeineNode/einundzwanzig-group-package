@@ -321,25 +321,96 @@ const relevantUrls = (active: string): string[] => {
     return urls
 }
 
+/**
+ * **The dismissed conversations of this viewer — the one derivation, module level.**
+ *
+ * Same construction and the same reason as {@link dmNames}: the surfaces that need this
+ * set live in two reactivity systems. `DmsStore.hidden` mirrors it for Alpine (rail rows,
+ * the dialog), `bridge.ts` takes it as a svelte dependency for the counted room list.
+ * `bridge.ts` used to build a second, identical derivation of its own — same rule,
+ * different subscription — because this export did not exist yet.
+ *
+ * **Only 41012 and its relay-signed answer decide.** `hide_dm` sets `hidden_at` on the
+ * caller's membership row; the channel and its 39000 stay exactly as they were, so the
+ * kind **30622** snapshot is the only thing that says which conversations the viewer put
+ * away. It is relay-signed, addressable and p-gated — `deriveRelaySignedEvents` gates on
+ * `pubkey === relay.self` and {@link foldHiddenDms} takes the newest revision whose `d`
+ * is the viewer.
+ *
+ * **Both space views, because a conversation can live on either relay.** `relevantUrls`
+ * is the same list the store arms its `load()` for; the union is folded per URL, since
+ * `relay.self` differs per relay.
+ *
+ * **It requests nothing.** The historical read (`{kinds:[30622],"#p":[self]}`) is sent by
+ * `armVisibility` on mount; this reads what lands in the repository. Unmounted, the set
+ * is empty — nothing is hidden, which is the safe direction: a conversation shows one
+ * beat too long rather than vanishing without grounds.
+ *
+ * The identity change is handled by construction and not by a latch: `pubkey` is a
+ * dependency, so a new viewer rebuilds the inner subscriptions with their own `#p`
+ * filter instead of keeping the old ones alive.
+ */
+export const hiddenDms: Readable<string[]> = derived<[Readable<string>, Readable<string | undefined>], string[]>(
+    [activeSpace, pubkey],
+    ([$active, $me], set) => {
+        const viewer = $me ?? ''
+        const filters = dmVisibilityFilter(viewer)
+        if (filters.length === 0) {
+            set([])
+
+            return
+        }
+        const byUrl = new Map<string, string[]>()
+        let letzte: string[] = []
+        const publish = (): void => {
+            const all = new Set<string>()
+            for (const hs of byUrl.values()) {
+                for (const h of hs) {
+                    all.add(h)
+                }
+            }
+            const next = [...all].sort()
+            // Only pass on a real change: this fires on every 30622 AND on every relay
+            // document, and a fresh array each time would re-render every rail row and
+            // re-run the unread derivation below it for nothing.
+            if (next.length !== letzte.length || next.some((h, i) => h !== letzte[i])) {
+                letzte = next
+                set(next)
+            }
+        }
+        const stops = relevantUrls($active).map((url) =>
+            deriveRelaySignedEvents(url, filters).subscribe((events: TrustedEvent[]) => {
+                byUrl.set(url, [...foldHiddenDms(events, app.use(Relays).get(url)?.self ?? '', viewer)])
+                publish()
+            }),
+        )
+
+        return () => {
+            for (const stop of stops) {
+                stop()
+            }
+        }
+    },
+    [],
+)
+
 const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } => {
     let unsubSpace: () => void = noop
     let unsubPubkey: () => void = noop
     let unsubProfiles: () => void = noop
     let unsubDirectory: () => void = noop
     let unsubConversations: () => void = noop
+    let unsubHidden: () => void = noop
     let dirController: AbortController | null = null
     const unsubKind = new Map<string, () => void>()
-    const unsubVisibility = new Map<string, () => void>()
     /** url → three-valued relay kind; a missing key denies (there is no doc yet). */
     const spaceKinds = new Map<string, SpaceKind>()
-    /** url → that relay's own 30622, already gated on `pubkey === relay.self`. */
-    const visibilityEvents = new Map<string, TrustedEvent[]>()
+    /** `<url>|<viewer>` of every 30622 snapshot already asked for; see `armVisibility`. */
+    const requestedVisibility = new Set<string>()
     /** The space a NEW conversation is opened on. */
     let activeUrl = ''
     /** The last emit of the space views the dialog list is folded from; `[]` while disarmed. */
     let conversationViews: SpaceView[] = []
-    /** Whose hidden set the visibility subscriptions were armed for. */
-    let armedFor = ''
     /** How many island nodes hold the store; see `roomPins.ts` for the `wire:navigate` race. */
     let mounts = 0
     /**
@@ -360,24 +431,22 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
 
     const me = (): string => get(pubkey) ?? ''
 
-    const recomputeHidden = (): void => {
-        const viewer = me()
-        const all = new Set<string>()
-        for (const [url, events] of visibilityEvents) {
-            for (const h of foldHiddenDms(events, app.use(Relays).get(url)?.self ?? '', viewer)) {
-                all.add(h)
-            }
+    /**
+     * Hand the shared {@link hiddenDms} set over into Alpine.
+     *
+     * The fold itself used to sit here, over a per-URL `visibilityEvents` map. It is one
+     * level up now, because `bridge.ts` needs the same answer and cannot read a reactive
+     * Alpine proxy — the same split as with {@link dmNames}. What is left is the handover
+     * and the one thing that has to happen with it.
+     */
+    const takeHidden = (next: string[]): void => {
+        if (next.length === self.hidden.length && next.every((h, i) => h === self.hidden[i])) {
+            return
         }
-        const next = [...all].sort()
-        // Only assign when the visible set actually changed: this runs on every emit of
-        // the underlying derivation, and a fresh array each time would re-render every
-        // rail row for nothing.
-        if (next.length !== self.hidden.length || next.some((h, i) => h !== self.hidden[i])) {
-            self.hidden = next
-            // The dialog's list is folded against exactly this set — a hide has to take
-            // the row out of it, or the button looks broken while the dialog is open.
-            recomputeConversations()
-        }
+        self.hidden = next
+        // The dialog's list is folded against exactly this set — a hide has to take
+        // the row out of it, or the button looks broken while the list is open.
+        recomputeConversations()
     }
 
     const recomputePermission = (): void => {
@@ -404,27 +473,29 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
     /** Register pubkeys this surface shows; see {@link ensureDmNames}. */
     const ensureNames = (pubkeys: Iterable<string>): void => ensureDmNames(activeUrl, pubkeys)
 
+    /**
+     * Ask the relay for this viewer's 30622 snapshot — **the request, and nothing else.**
+     *
+     * The derivation that used to hang here moved to the module-level {@link hiddenDms};
+     * what is left is the one thing a derivation cannot do. It has to happen explicitly:
+     * 30622 is addressable and p-gated, nothing else in this client requests it, and
+     * `hiddenDms` would otherwise sit on an empty repository forever.
+     *
+     * `requestedVisibility` is keyed per `<url>|<viewer>`, so an identity change asks
+     * again with the new `#p` filter instead of being latched out by a per-URL flag.
+     */
     const armVisibility = (url: string): void => {
-        if (unsubVisibility.has(url)) {
-            return
-        }
         const viewer = me()
         const filters = dmVisibilityFilter(viewer)
         if (filters.length === 0) {
             return
         }
-        armedFor = viewer
-        // The historical read has to be asked for explicitly: 30622 is addressable and
-        // p-gated, nothing else in this client requests it, and the derivation below
-        // would otherwise sit on an empty repository forever.
+        const key = `${url}|${viewer}`
+        if (requestedVisibility.has(key)) {
+            return
+        }
+        requestedVisibility.add(key)
         void load({ relays: [url], filters })
-        unsubVisibility.set(
-            url,
-            deriveRelaySignedEvents(url, filters).subscribe((events: TrustedEvent[]) => {
-                visibilityEvents.set(url, events)
-                recomputeHidden()
-            }),
-        )
     }
 
     const armUrl = (url: string): void => {
@@ -511,22 +582,21 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         unsubSpace()
         unsubPubkey()
         unsubProfiles()
+        unsubHidden()
         unsubSpace = noop
         unsubPubkey = noop
         unsubProfiles = noop
+        unsubHidden = noop
         for (const stop of unsubKind.values()) {
             stop()
         }
-        for (const stop of unsubVisibility.values()) {
-            stop()
-        }
         unsubKind.clear()
-        unsubVisibility.clear()
         spaceKinds.clear()
-        visibilityEvents.clear()
-        // `knownNames` is deliberately NOT cleared: it is module level now, `bridge.ts`
-        // feeds it too, and it holds nothing but public display names.
-        armedFor = ''
+        // Cleared, unlike `knownNames`: this is a „already asked for" marker, and after a
+        // teardown the repository read has to happen again for the next mount. `hiddenDms`
+        // itself needs no cleanup here — it is module level and stops its own inner
+        // subscriptions as soon as the last subscriber lets go.
+        requestedVisibility.clear()
         activeUrl = ''
         listHolders = 0
         self.canDm = false
@@ -610,29 +680,24 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             // guest branch and the visibility subscription would never be built.
             unsubPubkey = pubkey.subscribe(() => {
                 recomputePermission()
-                // **An identity change tears the visibility subscriptions down.** Their
-                // filter carries `#p:[<the old viewer>]`, and `unsubVisibility.has(url)`
-                // would otherwise keep them alive forever: the new user would see the
-                // hidden set of nobody, and the relay would keep answering questions
-                // about a pubkey that has left. The fold is safe in that state (it checks
-                // `d === viewer`), so the failure would be silent — a conversation the
-                // new user hid stays in their column until a reload.
-                const viewer = me()
-                if (viewer !== armedFor) {
-                    for (const stop of unsubVisibility.values()) {
-                        stop()
-                    }
-                    unsubVisibility.clear()
-                    visibilityEvents.clear()
-                    armedFor = viewer
-                }
-                recomputeHidden()
+                // **An identity change has to ask again.** The filter carries
+                // `#p:[<the viewer>]`, so the answer the old user got says nothing about
+                // the new one. The re-read is no longer guarded by tearing subscriptions
+                // down — `hiddenDms` has `pubkey` as a dependency and rebuilds itself —
+                // but the REQUEST still has to be sent, and `requestedVisibility` is
+                // keyed per `<url>|<viewer>` so this loop is not latched out by the
+                // previous user's marker.
                 for (const url of unsubKind.keys()) {
                     if (kindOf(url) === 'buzz') {
                         armVisibility(url)
                     }
                 }
             })
+            // The dismissed conversations, out of the shared module-level derivation
+            // (see {@link hiddenDms}) — the mirror into Alpine, nothing more. The fold
+            // used to live in this closure; `bridge.ts` needed the same answer and could
+            // not read it from here, which is why it grew a second copy.
+            unsubHidden = hiddenDms.subscribe(takeHidden)
             // Names are the whole point of the DM group: the relay stores `"DM"` as the
             // channel name for EVERY conversation (`buzz-db/src/dm.rs:157-162`), so
             // without profiles the sidebar is a column of identical rows.

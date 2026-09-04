@@ -55,9 +55,8 @@ import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
-import { dmNames, dmRoomName, ensureDmNames, wireDms } from './dms.ts'
-import { dmVisibilityFilter, foldDmRooms, foldHiddenDms } from './dmModels.ts'
-import { deriveRelaySignedEvents } from './repository.ts'
+import { dmNames, dmRoomName, ensureDmNames, hiddenDms, wireDms } from './dms.ts'
+import { foldDmRooms } from './dmModels.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -1678,55 +1677,6 @@ const myCountryCode = (): string => {
 // sitzt in der Bottom-Nav und damit auf JEDER Seite, nicht nur auf der Raumliste.
 
 /**
- * Die `h`, die dieser Betrachter AUSGEBLENDET hat (relay-signierte kind 30622).
- *
- * ── Warum diese Ableitung hier steht und nicht aus `dms.ts` kommt ───────────────
- *
- * Der DM-Store hält dieselbe Menge in `$store.dms.hidden` — aber das ist ein
- * ALPINE-Store, und eine svelte-Ableitung kann einen reaktiven Alpine-Proxy nicht als
- * Abhängigkeit führen. Dieselbe Trennung wie bei den Namen (`dmNames`): die REGEL steht
- * einmal (`foldHiddenDms` in `dmModels.ts`), sie wird von zwei Reaktivitätssystemen
- * gebunden. Ein zweiter `foldHiddenDms`-Aufruf ist keine zweite Wahrheit; ein
- * nachgebauter `hidden.includes(h)`-Filter wäre einer.
- *
- * **Nichts wird hier angefordert.** Das historische REQ auf 30622 setzt
- * `dms.ts armVisibility` beim Mount ab (`{kinds:[30622],"#p":[self]}`, p-gated); diese
- * Ableitung liest nur, was dadurch im Repository liegt. Ist der Store nicht angemeldet,
- * bleibt die Menge leer — also exakt das Verhalten von vor diesem Fix, kein Rückschritt.
- * Seit die Anmeldung in `app-frame.blade.php` steht, ist das auf jeder Seite hinter dem
- * Gate der Fall.
- *
- * `relay.self` kommt aus NIP-11 und trifft später ein als die Ereignisse;
- * `deriveRelaySignedEvents` hängt selbst an der Relay-Sammlung und emittiert dann erneut
- * — die Menge zieht also nach, statt auf einem leeren Stand festzustehen.
- */
-const hiddenDmHs: Readable<string[]> = derived<[Readable<string>, Readable<string | undefined>], string[]>(
-    [activeSpace, pubkey],
-    ([$url, $me], set) => {
-        const viewer = $me ?? ''
-        const filters = dmVisibilityFilter(viewer)
-        if (!$url || filters.length === 0) {
-            set([])
-
-            return
-        }
-        let letzte: string[] = []
-
-        return deriveRelaySignedEvents($url, filters).subscribe((events: TrustedEvent[]) => {
-            const next = [...foldHiddenDms(events, app.use(Relays).get($url)?.self ?? '', viewer)].sort()
-            // Nur bei echter Änderung weitergeben: diese Quelle emittiert bei jedem
-            // Relay-Doc und jedem 30622, und ein frisches Array riebe sonst die
-            // Ungelesen-Ableitung und die Aktivitäts-Subscription darunter neu auf.
-            if (next.length !== letzte.length || next.some((h, i) => h !== letzte[i])) {
-                letzte = next
-                set(next)
-            }
-        })
-    },
-    [],
-)
-
-/**
  * Die `h` der Räume, die für diesen Betrachter ZÄHLEN — Ungelesen-Punkt, Updates-Liste
  * und die Aktivitäts-Subscription.
  *
@@ -1760,18 +1710,45 @@ const hiddenDmHs: Readable<string[]> = derived<[Readable<string>, Readable<strin
  * `computeUnread` verhält sich gleich: es sät `rooms[h] = 0` je Eintrag der Liste
  * (`unread.ts:205`) und zählt nur diese — ein fehlendes `h` trägt schlicht nichts bei.
  */
-export const countedRoomHsOf = (view: SpaceView, hiddenDms: readonly string[]): string[] => [
-    ...view.userRooms.map((room) => room.h),
-    // `foldDmRooms` ist die Faltung, die auch die Rail und der DM-Dialog benutzen — sie
-    // kennt den Ausgeblendet-Filter und die Entdopplung bereits. Ein eigenes
-    // `.filter(h => !hidden.includes(h))` hier wäre die zweite Wahrheit über dieselbe Frage.
-    ...foldDmRooms([view], hiddenDms).map((room) => room.h),
+export const countedRoomHsOf = (view: SpaceView, dismissed: readonly string[]): string[] => [
+    ...plainRoomHsOf(view),
+    ...countedDmHsOf(view, dismissed),
 ]
 
-const countedRoomHs: Readable<string[]> = derived(
-    [activeSpaceView, hiddenDmHs],
-    ([$view, $hidden]: [SpaceView, string[]]) => countedRoomHsOf($view, $hidden),
+/** Die `h` der eigenen RÄUME — die Nicht-DM-Hälfte von {@link countedRoomHsOf}. */
+export const plainRoomHsOf = (view: SpaceView): string[] => view.userRooms.map((room) => room.h)
+
+/**
+ * Die `h` der sichtbaren UNTERHALTUNGEN — die DM-Hälfte.
+ *
+ * `foldDmRooms` ist die Faltung, die auch die Rail und der DM-Dialog benutzen; sie kennt
+ * den Ausgeblendet-Filter und die Entdopplung bereits. Ein eigenes
+ * `.filter(h => !dismissed.includes(h))` hier wäre die zweite Wahrheit über dieselbe Frage.
+ */
+export const countedDmHsOf = (view: SpaceView, dismissed: readonly string[]): string[] =>
+    foldDmRooms([view], dismissed).map((room) => room.h)
+
+/**
+ * Die drei Listen in EINER Ableitung — `all` füttert die Zähl-Ableitungen, `rooms` und
+ * `dms` teilen deren Ergebnis danach auf.
+ *
+ * Zusammen und nicht als drei Ableitungen, damit die Aufteilung nie gegen eine andere
+ * Emission gerechnet wird als die Zählung: `deriveUnread` ist `throttled(300, …)`, ein
+ * `get()` auf eine Nachbarableitung im Abonnenten läge also regelmässig einen Takt vorn.
+ */
+type CountedHs = { all: string[]; rooms: string[]; dms: string[] }
+
+const countedHs: Readable<CountedHs> = derived(
+    [activeSpaceView, hiddenDms],
+    ([$view, $hidden]: [SpaceView, string[]]) => {
+        const rooms = plainRoomHsOf($view)
+        const dms = countedDmHsOf($view, $hidden)
+
+        return { all: [...rooms, ...dms], rooms, dms }
+    },
 )
+
+const countedRoomHs: Readable<string[]> = derived(countedHs, ($counted: CountedHs) => $counted.all)
 
 /**
  * `h` → Anzeigename der beigetretenen Räume. Nur die BEIGETRETENEN: ein fehlender
