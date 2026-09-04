@@ -1738,14 +1738,28 @@ export const countedDmHsOf = (view: SpaceView, dismissed: readonly string[]): st
  */
 export type CountedHs = { all: string[]; rooms: string[]; dms: string[] }
 
+/**
+ * Die Zuordnung selbst — rein, weil genau HIER die Lücke sass.
+ *
+ * Sie stand als Objektliteral in der Ableitung darunter, und `rooms` und `dms` dort zu
+ * VERTAUSCHEN liess jeden Fall grün: die Tests bauten ihr `counted` aus den beiden
+ * exportierten Faltungen selbst, prüften also „die richtigen Faltungen tun das Richtige"
+ * und „die Flächen lesen die richtigen Zahlen" — nicht die Verdrahtung dazwischen. Das
+ * ist dieselbe Form wie bei {@link unreadTotalsOf}: eine reine Funktion prüft ihren
+ * Rumpf, nicht ihre Zuweisung. Als Funktion ist die Zuordnung prüfbar, und in der
+ * Ableitung bleibt eine Delegation ohne Feldnamen, in der sich nichts mehr vertauschen
+ * lässt.
+ */
+export const countedHsOf = (view: SpaceView, dismissed: readonly string[]): CountedHs => {
+    const rooms = plainRoomHsOf(view)
+    const dms = countedDmHsOf(view, dismissed)
+
+    return { all: [...rooms, ...dms], rooms, dms }
+}
+
 const countedHs: Readable<CountedHs> = derived(
     [activeSpaceView, hiddenDms],
-    ([$view, $hidden]: [SpaceView, string[]]) => {
-        const rooms = plainRoomHsOf($view)
-        const dms = countedDmHsOf($view, $hidden)
-
-        return { all: [...rooms, ...dms], rooms, dms }
-    },
+    ([$view, $hidden]: [SpaceView, string[]]) => countedHsOf($view, $hidden),
 )
 
 const countedRoomHs: Readable<string[]> = derived(countedHs, ($counted: CountedHs) => $counted.all)

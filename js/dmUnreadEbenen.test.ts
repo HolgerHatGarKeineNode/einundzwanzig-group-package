@@ -37,7 +37,7 @@ const gespeichert = new Map<string, string>()
     removeItem: (k: string): void => void gespeichert.delete(k),
 }
 
-const { countedDmHsOf, countedRoomHsOf, plainRoomHsOf, unreadTotalsOf } = await import('./bridge.ts')
+const { countedDmHsOf, countedHsOf, countedRoomHsOf, plainRoomHsOf, unreadTotalsOf } = await import('./bridge.ts')
 const { computeUnread } = await import('./unread.ts')
 const { roomKey } = await import('./readState.ts')
 type SpaceView = import('./groups.ts').SpaceView
@@ -127,6 +127,35 @@ test('KALIBRIERUNG: die beiden Listen überschneiden sich nicht und decken alles
     assert.deepEqual([...rooms, ...dms].sort(), countedRoomHsOf(view, []).sort(), 'zusammen ergeben sie `all`')
 })
 
+test('VERDRAHTUNG: die Zuordnung in `countedHsOf` — vertauscht wäre jede Zahl an der falschen Ebene', () => {
+    // **Die Lücke, die dieser Fall schliesst** (vom Design-Kollegen beim Proben gefunden
+    // und gemeldet): `rooms` und `dms` in der Ableitung zu vertauschen liess ALLE Fälle
+    // grün. Jeder von ihnen baut sein `counted` aus den beiden exportierten Faltungen
+    // selbst, prüft also die Faltungen und die Verbraucher — nicht die Zuordnung
+    // dazwischen. Sie ist jetzt eine eigene Funktion, und dies ist ihr Fall.
+    const counted = countedHsOf(view, [])
+
+    assert.deepEqual(counted.rooms, [H_RAUM], '`rooms` muss die RÄUME tragen, nicht die Unterhaltungen')
+    assert.deepEqual(counted.dms, [H_DM], '`dms` muss die UNTERHALTUNGEN tragen')
+    assert.deepEqual(counted.all, [H_RAUM, H_DM])
+
+    // Und die Aussage, um die es geht, über die ganze Kette: welche Zahl hängt an welcher
+    // Ebene. Vertauscht landete die Raum-Nachricht in `dmsTotal` und umgekehrt — beide
+    // Summen blieben plausibel, beide wären falsch beschriftet.
+    const unread = computeUnread({
+        url: URL_,
+        joined: counted.all,
+        events: [nachricht('m2', H_RAUM)] as never[],
+        comments: [],
+        state,
+        me: ME,
+    })
+    const t = unreadTotalsOf(unread, counted)
+
+    assert.equal(t.roomsTotal, 1, 'eine Nachricht im RAUM gehört an die Tab-Pille „Räume"')
+    assert.equal(t.dmsTotal, 0, 'und nicht an die Unterhaltungs-Zahl')
+})
+
 test('VERDRAHTUNG: `wireUnread` rechnet die drei Zahlen wirklich über `unreadTotalsOf`', () => {
     // Ohne diesen Riegel wäre alles oben grün, während die Subscription weiter
     // `store.roomsTotal = $view.roomsTotal` zuwiese — die reine Funktion prüft ihren
@@ -135,6 +164,9 @@ test('VERDRAHTUNG: `wireUnread` rechnet die drei Zahlen wirklich über `unreadTo
     assert.equal(ruftAuf(quelle, 'unreadTotalsOf'), true, 'die Aufteilung ist definiert, aber nicht verdrahtet')
     assert.equal(ruftAuf(quelle, 'plainRoomHsOf'), true)
     assert.equal(ruftAuf(quelle, 'countedDmHsOf'), true)
+    // Und dass die Ableitung die Zuordnung wirklich delegiert, statt sie erneut selbst
+    // zu bauen — sonst prüfte der Fall darüber eine Funktion, die niemand ruft.
+    assert.equal(ruftAuf(quelle, 'countedHsOf'), true)
     // Kalibrierung: fail-closed, ein `false` gilt auch für eine Datei, die nie gelesen wurde.
     assert.ok(quelle.aufrufe.length > 100, 'der Scanner sieht bridge.ts überhaupt')
 })
