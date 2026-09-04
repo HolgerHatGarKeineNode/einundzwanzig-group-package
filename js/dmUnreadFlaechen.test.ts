@@ -45,16 +45,18 @@
  *   · im Blade `dmsTotal` durch `roomsTotal` ersetzen          → Riegel 1 rot
  *   · im Blade die Zeilen-Pille auf `threads` umhängen         → Riegel 1 rot
  *
- * **Eine Mutation hat ÜBERLEBT, und das gehört hierher statt in einen Bericht:**
- * `rooms` und `dms` in `countedHs` (`bridge.ts`) zu vertauschen lässt alle acht Fälle
- * grün. Der Grund ist eine Grenze dieser Datei, keine Nachlässigkeit: `countedHs` ist
- * eine nicht exportierte `derived`-Ableitung, dieses File baut sein `counted` deshalb
- * selbst aus `plainRoomHsOf`/`countedDmHsOf` — den beiden exportierten Faltungen, die
- * die Ableitung benutzt. Geprüft ist damit, dass die richtigen Faltungen das Richtige
- * tun und dass die Flächen die richtigen Zahlen lesen; NICHT geprüft ist die Verdrahtung
- * dazwischen. Wer sie schliessen will, braucht einen Fall in `bridge.ts`' eigener Suite —
- * die Datei gehört einem anderen Autor, und ein `export` nur für einen Test wäre der
- * falsche Preis.
+ * **Eine Mutation hat hier ÜBERLEBT, und sie ist inzwischen anderswo geschlossen:**
+ * `rooms` und `dms` in `countedHs` (`bridge.ts`) zu vertauschen liess alle acht Fälle
+ * dieser Datei grün — 18 von 19 beider DM-Suiten. Der Grund ist eine Grenze dieser
+ * Datei, keine Nachlässigkeit: sie baut ihr `counted` selbst aus `plainRoomHsOf`/
+ * `countedDmHsOf`, den beiden exportierten Faltungen. Geprüft ist damit, dass die
+ * richtigen Faltungen das Richtige tun und dass die Flächen die richtigen Zahlen
+ * lesen; NICHT die Verdrahtung dazwischen.
+ *
+ * Die trägt seit `94dc1ed` `js/dmUnreadEbenen.test.ts`: das Objektliteral ist als
+ * `countedHsOf(view, dismissed)` herausgezogen, in der Ableitung steht eine Delegation
+ * ohne Feldnamen, und ein Fall behauptet beide Hälften namentlich. **Diese Datei
+ * bewacht die Flächen, jene die Zuordnung — wer hier etwas ändert, prüft dort mit.**
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
