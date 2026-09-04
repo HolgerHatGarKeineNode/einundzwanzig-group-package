@@ -79,6 +79,9 @@ import {
 import { subscribeWorkspacePrefs } from './channelPrefs.ts'
 import { subscribeForgeNav } from './forge.ts'
 import { t } from './i18n.ts'
+import { foldDmRooms } from './dmModels.ts'
+import { dmRoomName, ensureDmNames } from './dms.ts'
+import { pubkey } from './welshmanSession.ts'
 
 /**
  * localStorage-Schlüssel des Auf/Zu-Zustands.
@@ -310,43 +313,27 @@ const toRailRooms = (view: SpaceView | null): RailRoom[] => [
  * rechnet neu, sobald der Store seine ausgeblendeten Unterhaltungen oder seine
  * Namenstabelle ändert.
  */
-const dmStore = (): { hidden?: string[]; titleOf?: (p: string[] | undefined) => string } | undefined =>
+type DmStoreLese = {
+    hidden?: string[]
+    names?: Record<string, string>
+}
+
+const dmStore = (): DmStoreLese | undefined =>
     (window as unknown as { Alpine?: { store(n: string): unknown } }).Alpine?.store('dms') as
-        | { hidden?: string[]; titleOf?: (p: string[] | undefined) => string }
+        | DmStoreLese
         | undefined
 
 /**
  * Die Unterhaltungen BEIDER Sichten (Heim-Space und Workspace), nach `h` entdoppelt.
  *
- * Zwei Quellen, weil die Rail zwei Space-Sichten führt und ein DM-Kanal auf jeder
- * von beiden liegen kann; entdoppelt, weil beide dieselbe URL haben können (der
- * Heim-Space DARF der Workspace sein) und ein `x-for :key="room.h"` mit zwei gleichen
- * Schlüsseln in Alpine eine Zeile verschluckt.
- *
- * `joined: true` ohne Prüfung: ein DM-Kanal steht nur dann in {@link SpaceView.dmRooms},
- * wenn die relay-signierte 39002 den Nutzer als Mitglied führt — die Einordnung
- * passiert in `buildSpaceView`, hier wird sie nicht wiederholt.
+ * Die Faltung selbst steht seit P7b als `foldDmRooms` in `dmModels.ts` — der Dialog
+ * (`dm-modal.blade.php`) baut seine Liste aus derselben Funktion, statt wie bisher aus
+ * `groupFor('dms')` und damit aus dem Alpine-Scope dieser Rail. Zwei Faltungen wären
+ * zwei Wahrheiten über dieselbe Frage; die Begründungen (Entdopplung, `spaceUrl`,
+ * `joined`, ausgeblendete Zeilen) stehen dort.
  */
-const toRailDms = (home: SpaceView | null, workspace: SpaceView | null): RailRoom[] => {
-    const hidden = new Set(dmStore()?.hidden ?? [])
-    const seen = new Set<string>()
-    const out: RailRoom[] = []
-    for (const view of [home, workspace]) {
-        for (const room of view?.dmRooms ?? []) {
-            // Ausgeblendet heißt: der Nutzer hat diese Unterhaltung mit einem 41012 aus
-            // seiner Spalte genommen. Der Relay LÖSCHT dabei nichts — das 39000 kommt
-            // unverändert weiter herein, und nur die relay-signierte 30622 sagt, welche
-            // Unterhaltungen weg sollen. Ohne diesen Filter wäre der Knopf wirkungslos.
-            if (seen.has(room.h) || hidden.has(room.h)) {
-                continue
-            }
-            seen.add(room.h)
-            out.push({ ...room, joined: true, spaceUrl: view?.url ?? '' })
-        }
-    }
-
-    return out
-}
+const toRailDms = (home: SpaceView | null, workspace: SpaceView | null): RailRoom[] =>
+    foldDmRooms([home, workspace], dmStore()?.hidden ?? [])
 
 const readOpen = (): Record<string, boolean> => {
     try {
@@ -844,19 +831,26 @@ export const createRail = (): RailState => ({
      * **Für eine Unterhaltung kommt er NICHT aus dem Raumnamen.** Buzz speichert als
      * Kanalnamen für jede Zweier-Unterhaltung die Zeichenkette `"DM"` und für jede
      * Gruppe `"Group DM (N)"` (`buzz-db/src/dm.rs:157-162`) — die Spalte zeigte sonst
-     * dieselbe Zeile mehrfach. Er entsteht aus den Teilnehmern des 39000, aufgelöst über
-     * die Profil-Namenstabelle des DM-Stores. Steht der Store noch nicht (Boot,
-     * Telefon), bleibt der Raumname als ehrlicher Rückfall.
+     * dieselbe Zeile mehrfach.
+     *
+     * **Die Auflösung ist seit P7b `dmRoomName` und steht genau einmal** (`dms.ts`,
+     * Regel in `dmModels.roomDisplayName`): dieselbe Funktion beantwortet die Frage für
+     * `/updates` in `bridge.ts joinedRoomNames`, wo bisher der rohe Relay-Name stand.
+     * Übergeben wird die Namenstabelle des DM-Stores und nicht in ihr gelesen — der
+     * Lesezugriff auf `$store.dms.names` HIER ist es, den Alpine mitverfolgt; die Zeile
+     * rechnet also neu, sobald ein Profil eintrifft. Fehlt der Store (Boot), bleibt der
+     * Raumname als ehrlicher Rückfall.
      */
     railName(room: RailRoom): string {
         if (room.isDm) {
-            const title = dmStore()?.titleOf?.(room.dmParticipants)
-            if (title) {
-                return middleTruncate(title)
-            }
+            // Der Anstoß, ohne den die Zeile für immer einen gekürzten Schlüssel zeigte.
+            // Er hing bis P7b in `titleOf` und lief damit gegen den AKTIVEN Space, auch
+            // für eine Unterhaltung des Workspace-Relays; `spaceUrl` fragt den Relay, von
+            // dem die Zeile stammt (`foldDmRooms` setzt ihn).
+            ensureDmNames(room.spaceUrl ?? '', room.dmParticipants ?? [])
         }
 
-        return middleTruncate(room.name || room.h)
+        return middleTruncate(dmRoomName(room, pubkey.get() ?? '', dmStore()?.names ?? {}) || room.h)
     },
 
     roomFlag(room: RailRoom): string {

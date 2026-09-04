@@ -55,7 +55,7 @@ import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
-import { wireDms } from './dms.ts'
+import { dmNames, dmRoomName, ensureDmNames, wireDms } from './dms.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -1692,15 +1692,40 @@ const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceV
  * `h` → Anzeigename derselben Räume. Nur die BEIGETRETENEN: ein fehlender Schlüssel
  * heißt in `computeUpdates` „verwaist" (§8) — nähme man `otherRooms` dazu, verlöre die
  * Liste genau die Aussage, die sie treffen soll (der Raum ist weg/nicht mehr meiner).
+ *
+ * ── P7b: eine Unterhaltung heißt nicht mehr „DM" ────────────────────────────────
+ *
+ * Hier stand `room.name` roh, mit der Begründung, die Auflösung über die Teilnehmer
+ * hänge an Profilen und liege in der Rail. Das stimmte und war trotzdem der Defekt: die
+ * Rail wird im NativePHP-Host serverseitig nie gerendert (`app-frame.blade.php:44`), und
+ * unterhalb `xl` steht sie auch im Web nicht. Über die Glocke → `/updates` sind die
+ * Unterhaltungen dort längst erreichbar (`joinedRoomHs` oben faltet `dmRooms` ein) — die
+ * Liste zeigte also N Zeilen namens „DM", weil der Relay für JEDE Zweier-Unterhaltung
+ * genau diese Zeichenkette speichert (`buzz-db/src/dm.rs:157-162`).
+ *
+ * `dmRoomName` ist dieselbe Auflösung, die `railName` benutzt — eine Regel
+ * (`dmModels.roomDisplayName`), eine Namenstabelle (`dmNames`), zwei Bindungen. Der
+ * **Rückfall bleibt `room.name`**, nie `''`: `buildItem` liest einen leeren Namen als
+ * „verwaist" und ersetzt die Zeile durch „Nachricht nicht mehr verfügbar". Eine
+ * Unterhaltung ohne auflösbare Teilnehmer soll unter dem Relay-Namen stehen bleiben,
+ * nicht verschwinden.
  */
-const joinedRoomNames: Readable<Record<string, string>> = derived(activeSpaceView, ($view: SpaceView) =>
-    // `dmRooms` mit dabei, aus demselben Grund wie oben — ein fehlender Schlüssel hieße
-    // „verwaist", und eine Unterhaltung, für die es keinen Namen gibt, verschwände aus
-    // den Updates statt dort zu stehen. Der Name ist bei einer Unterhaltung allerdings
-    // der des RELAYS („DM" / „Group DM (N)", `buzz-db/src/dm.rs:157-162`): die Auflösung
-    // über die Teilnehmer hängt an Profilen und liegt in der Rail (`railName`), nicht in
-    // dieser rein textlichen Zuordnung.
-    Object.fromEntries([...$view.userRooms, ...$view.dmRooms].map((room) => [room.h, room.name])),
+const joinedRoomNames: Readable<Record<string, string>> = derived(
+    [activeSpaceView, dmNames, pubkey],
+    ([$view, $names, $me]: [SpaceView, Record<string, string>, string | undefined]) => {
+        // Die Profile der Beteiligten anfordern — `ensureDmNames` dedupliziert selbst und
+        // schreibt vor seinem ersten `await` in keinen Store, ist aus einer Ableitung
+        // heraus also gefahrlos. Ohne diesen Anstoß bliebe es auf Mobil bei gekürzten
+        // Pubkeys: die Rail und der Dialog, die ihn sonst auslösen, existieren dort nicht.
+        ensureDmNames(
+            $view.url,
+            $view.dmRooms.flatMap((room) => room.dmParticipants ?? []),
+        )
+
+        return Object.fromEntries(
+            [...$view.userRooms, ...$view.dmRooms].map((room) => [room.h, dmRoomName(room, $me ?? '', $names)]),
+        )
+    },
 )
 
 /**

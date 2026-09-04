@@ -60,13 +60,13 @@
  * conversation at the top of an already-open rail group, and the existing row opens it.
  */
 import * as nip19 from 'nostr-tools/nip19'
-import { get } from 'svelte/store'
+import { derived, get, type Readable } from 'svelte/store'
 import { throttled } from '@welshman/store'
 import { makeEvent, type TrustedEvent } from '@welshman/util'
 import { app, Relays, Thunks } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { load } from './welshmanNet.ts'
-import { activeSpace } from './groups.ts'
+import { activeSpace, activeSpaceView, deriveSpaceViewFor, type SpaceView } from './groups.ts'
 import { deriveRelaySignedEvents } from './repository.ts'
 import { deriveSpaceDirectory, watchSpaceDirectory, type DirectoryView } from './members.ts'
 import { deriveSpaceKind, hasWorkspace, WORKSPACE_URL, type SpaceKind } from './spaceCaps.ts'
@@ -81,18 +81,112 @@ import {
     dmListFilter,
     dmTitle,
     dmVisibilityFilter,
+    foldDmRooms,
     foldHiddenDms,
     parseDmRecipient,
     parseDmResponse,
     planDmAddMember,
     planDmHide,
     planDmOpen,
+    roomDisplayName,
     type DmCommand,
+    type DmNameableRoom,
 } from './dmModels.ts'
 import { mayWriteKind } from './relayCapability.ts'
 
 /** Name of the Flux modal — shared between island and Blade, like `REMINDER_MODAL`. */
 export const DM_MODAL = 'dm'
+
+// ══ The participant resolution — module level, because two surfaces need it ═══════
+//
+// The rail and `/updates` ask the same question ("what is this conversation called")
+// and used to answer it in two places, one of which — `bridge.ts joinedRoomNames` —
+// answered `"DM"` for every row because that is literally what the relay stores
+// (`buzz-db/src/dm.rs:157-162`). The rule now lives once in `dmModels.roomDisplayName`,
+// and the profile table it resolves against lives once here.
+//
+// Why not inside the store's closure, where `known`/`recomputeNames` used to sit: the
+// store is an ALPINE store, and `bridge.ts` builds SVELTE derivations. A derivation
+// cannot read a reactive Alpine proxy and re-run on it. Both therefore read {@link
+// dmNames}: the store mirrors it into `DmsStore.names` for the markup, `bridge.ts`
+// takes it as a dependency. One table, one loader, two bindings.
+
+/** Pubkeys whose display name some DM surface is currently showing. */
+const knownNames = new Set<string>()
+
+/**
+ * `<url>|<pubkey>` of everyone already asked for — the request gate of
+ * {@link ensureDmNames}.
+ *
+ * Keyed per RELAY and not per pubkey alone, which the closure-local `known` it replaces
+ * was not: the rail shows the conversations of both space views, and a participant of a
+ * workspace conversation used to be requested from the HOME relay (`activeUrl`) or, once
+ * seen there, not at all. `loadSpaceProfiles` keys its own gate the same way; this one
+ * only exists so a render path does not build the request list on every frame.
+ */
+const requestedNames = new Set<string>()
+
+/**
+ * `pubkey → display name` for everyone in {@link knownNames}.
+ *
+ * Throttled like `deriveSpaceDirectory`, and for the same reason: profiles trickle in one
+ * by one, and a rebuild per arrival is quadratic over the loading window.
+ *
+ * **It does not emit when {@link ensureDmNames} adds a key**, and that is deliberate, not
+ * an oversight. `ensureDmNames` is called from inside a svelte derivation
+ * (`joinedRoomNames`); a store write from there would re-enter that derivation while it
+ * is still running and its own `set` would then overwrite the newer value. Nothing is
+ * lost by waiting: `loadSpaceProfiles` makes `profilesByPubkey` emit as soon as the
+ * profile arrives, and until then every consumer falls back to `displayProfileByPubkey`,
+ * which answers the same thing this table would have held.
+ */
+export const dmNames: Readable<Record<string, string>> = derived(
+    throttled(300, profilesByPubkey),
+    () => {
+        const table: Record<string, string> = {}
+        for (const pk of knownNames) {
+            table[pk] = displayProfileByPubkey(pk)
+        }
+
+        return table
+    },
+)
+
+/**
+ * Register pubkeys whose names a DM surface needs, and ask the space for the ones it has
+ * not seen.
+ *
+ * `loadSpaceProfiles` deduplicates per `(url, pubkey)` itself and does not touch a store
+ * before its first `await`, so this is safe to call from a render path or from a
+ * derivation — the same property `ensureRelayProfile` relies on in `groups.ts`.
+ */
+export const ensureDmNames = (url: string, pubkeys: Iterable<string>): void => {
+    const fresh: string[] = []
+    for (const pk of pubkeys) {
+        if (!pk) {
+            continue
+        }
+        knownNames.add(pk)
+        const key = `${url}|${pk}`
+        if (url && !requestedNames.has(key)) {
+            requestedNames.add(key)
+            fresh.push(pk)
+        }
+    }
+    if (fresh.length > 0) {
+        void loadSpaceProfiles(url, fresh)
+    }
+}
+
+/**
+ * The display name of a room row, resolved against a snapshot of {@link dmNames}.
+ *
+ * The snapshot is the argument rather than a read inside, because that is what makes the
+ * caller's reactivity work: Alpine tracks the read of `$store.dms.names`, svelte tracks
+ * the `dmNames` dependency. Both then hand the same table to the same rule.
+ */
+export const dmRoomName = (room: DmNameableRoom, self: string, names: Record<string, string>): string =>
+    roomDisplayName(room, self, (pk) => names[pk] ?? displayProfileByPubkey(pk))
 
 /** Which job the dialog is doing right now. */
 export type DmDialogMode = 'new' | 'add'
@@ -102,6 +196,21 @@ export type DmCandidate = {
     pubkey: string
     name: string
     picture: string
+}
+
+/**
+ * One conversation, as the dialog lists it.
+ *
+ * The three fields that are not decoration: `h` and `spaceUrl` are what
+ * {@link DmsStore.hide} and {@link DmsStore.openAdd} address the relay with, and
+ * `dmParticipants` is what its name is made of.
+ */
+export type DmConversation = {
+    h: string
+    name: string
+    isDm: boolean
+    dmParticipants: string[]
+    spaceUrl: string
 }
 
 export type DmsStore = {
@@ -127,6 +236,16 @@ export type DmsStore = {
     directory: DmCandidate[]
     /** `pubkey → display name`, the reactive half of {@link DmsStore.nameOf}. */
     names: Record<string, string>
+    /**
+     * The viewer's conversations of both space views, dismissed ones removed.
+     *
+     * **Armed only while the dialog is open** ({@link DmsStore.openNew}), like
+     * {@link DmsStore.directory} and for the same reason: it hangs off two `SpaceView`
+     * derivations, and every page load would pay for a list most visits never see.
+     * Outside the dialog it is `[]` — the rail builds its own rows from the same
+     * `foldDmRooms`, out of the views it already holds.
+     */
+    conversations: DmConversation[]
 
     mount(): void
     unmount(): void
@@ -135,6 +254,8 @@ export type DmsStore = {
     nameOf(pubkey: string): string
     /** Title of a conversation, from its participants. */
     titleOf(participants: string[] | undefined): string
+    /** The name a row shows — {@link dmRoomName}, bound to this store's name table. */
+    displayName(room: DmNameableRoom & { spaceUrl?: string }): string
     /** Is this conversation dismissed? (the rail leaves it out) */
     isHidden(h: string): boolean
     /** People matching {@link DmsStore.draft} who are not already picked or in the set. */
@@ -180,6 +301,7 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
     let unsubPubkey: () => void = noop
     let unsubProfiles: () => void = noop
     let unsubDirectory: () => void = noop
+    let unsubConversations: () => void = noop
     let dirController: AbortController | null = null
     const unsubKind = new Map<string, () => void>()
     const unsubVisibility = new Map<string, () => void>()
@@ -189,8 +311,8 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
     const visibilityEvents = new Map<string, TrustedEvent[]>()
     /** The space a NEW conversation is opened on. */
     let activeUrl = ''
-    /** Pubkeys whose name this surface shows — the set {@link DmsStore.names} covers. */
-    const known = new Set<string>()
+    /** The last emit of the space views the dialog list is folded from; `[]` while disarmed. */
+    let conversationViews: SpaceView[] = []
     /** Whose hidden set the visibility subscriptions were armed for. */
     let armedFor = ''
     /** How many island nodes hold the store; see `roomPins.ts` for the `wire:navigate` race. */
@@ -217,6 +339,9 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         // rail row for nothing.
         if (next.length !== self.hidden.length || next.some((h, i) => h !== self.hidden[i])) {
             self.hidden = next
+            // The dialog's list is folded against exactly this set — a hide has to take
+            // the row out of it, or the button looks broken while the dialog is open.
+            recomputeConversations()
         }
     }
 
@@ -224,40 +349,19 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         self.canDm = Boolean(me()) && mayWriteKind(DM_OPEN, kindOf(activeUrl))
     }
 
-    /** Rebuild the reactive name table for everyone this surface currently shows. */
-    const recomputeNames = (): void => {
-        let changed = false
-        const next: Record<string, string> = {}
-        for (const pk of known) {
-            next[pk] = displayProfileByPubkey(pk)
-            if (next[pk] !== self.names[pk]) {
-                changed = true
-            }
-        }
-        if (changed || Object.keys(next).length !== Object.keys(self.names).length) {
-            self.names = next
-        }
+    /** The dialog's list, out of the last space views and the current hidden set. */
+    const recomputeConversations = (): void => {
+        self.conversations = foldDmRooms(conversationViews, self.hidden).map((room) => ({
+            h: room.h,
+            name: room.name,
+            isDm: room.isDm,
+            dmParticipants: room.dmParticipants,
+            spaceUrl: room.spaceUrl,
+        }))
     }
 
-    /**
-     * Register pubkeys whose names this surface needs, and ask the relay for the ones it
-     * has not seen. `loadSpaceProfiles` deduplicates per `(url, pubkey)` itself, so this
-     * is safe to call from a render path — the same property `ensureRelayProfile` relies
-     * on in `groups.ts`.
-     */
-    const ensureNames = (pubkeys: Iterable<string>): void => {
-        const fresh = [...pubkeys].filter((pk) => pk && !known.has(pk))
-        if (fresh.length === 0) {
-            return
-        }
-        for (const pk of fresh) {
-            known.add(pk)
-        }
-        if (activeUrl) {
-            void loadSpaceProfiles(activeUrl, fresh)
-        }
-        recomputeNames()
-    }
+    /** Register pubkeys this surface shows; see {@link ensureDmNames}. */
+    const ensureNames = (pubkeys: Iterable<string>): void => ensureDmNames(activeUrl, pubkeys)
 
     const armVisibility = (url: string): void => {
         if (unsubVisibility.has(url)) {
@@ -327,8 +431,42 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         unsubDirectory = noop
     }
 
+    /**
+     * The dialog's conversation list, armed only while the dialog is open.
+     *
+     * Same frugality as {@link armDirectory}, for a different cost: `deriveSpaceViewFor`
+     * is a fresh derivation over the whole room set and rebuilds on every activity wave.
+     * The rail already holds both views and folds its own rows out of them with the same
+     * {@link foldDmRooms}; a second permanent subscriber would compute the same thing
+     * twice on every page.
+     *
+     * The workspace view only joins in when one is configured — `deriveSpaceViewFor('')`
+     * would normalise an empty URL.
+     */
+    const armConversations = (): void => {
+        if (unsubConversations !== noop) {
+            return
+        }
+        const views: Readable<SpaceView>[] = [activeSpaceView]
+        if (hasWorkspace()) {
+            views.push(deriveSpaceViewFor(WORKSPACE_URL))
+        }
+        unsubConversations = derived(views, ($views: SpaceView[]) => $views).subscribe((next: SpaceView[]) => {
+            conversationViews = next
+            recomputeConversations()
+        })
+    }
+
+    const disarmConversations = (): void => {
+        unsubConversations()
+        unsubConversations = noop
+        conversationViews = []
+        self.conversations = []
+    }
+
     const teardown = (): void => {
         disarmDirectory()
+        disarmConversations()
         unsubSpace()
         unsubPubkey()
         unsubProfiles()
@@ -345,7 +483,8 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         unsubVisibility.clear()
         spaceKinds.clear()
         visibilityEvents.clear()
-        known.clear()
+        // `knownNames` is deliberately NOT cleared: it is module level now, `bridge.ts`
+        // feeds it too, and it holds nothing but public display names.
         armedFor = ''
         activeUrl = ''
         self.canDm = false
@@ -408,6 +547,7 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         picked: [],
         directory: [],
         names: {},
+        conversations: [],
 
         mount(): void {
             mounts++
@@ -452,13 +592,18 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             // Names are the whole point of the DM group: the relay stores `"DM"` as the
             // channel name for EVERY conversation (`buzz-db/src/dm.rs:157-162`), so
             // without profiles the sidebar is a column of identical rows.
-            // `displayProfileByPubkey` is a function and not a store — it only catches up
-            // when something recomputes, which is exactly what this subscription is for
-            // (the note stands at its definition in `spaceProfiles.ts`). Throttled like
-            // `deriveSpaceDirectory`, and for the same reason: profiles trickle in one by
-            // one, and a rebuild per arrival is quadratic over the loading window.
-            unsubProfiles = throttled(300, profilesByPubkey).subscribe(() => {
-                recomputeNames()
+            //
+            // This mirrors the shared {@link dmNames} table into Alpine. The table itself
+            // is module level (see the section at the top of this file) because
+            // `bridge.ts` needs the same one and cannot read a reactive Alpine proxy;
+            // what happens here is only the handover into the other reactivity system.
+            unsubProfiles = dmNames.subscribe((next: Record<string, string>) => {
+                const keys = Object.keys(next)
+                const changed =
+                    keys.length !== Object.keys(self.names).length || keys.some((pk) => next[pk] !== self.names[pk])
+                if (changed) {
+                    self.names = next
+                }
             })
         },
 
@@ -483,6 +628,22 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             ensureNames(list)
 
             return dmTitle(list, me(), (pk) => self.nameOf(pk))
+        },
+
+        /**
+         * The name a row shows. Reads `self.names` through {@link dmRoomName}, so an
+         * Alpine effect that calls this re-runs when a profile arrives.
+         *
+         * The profiles are asked of the relay the ROW came from, not of the active space:
+         * a conversation of the workspace relay may well have participants the home relay
+         * has never heard of.
+         */
+        displayName(room: DmNameableRoom & { spaceUrl?: string }): string {
+            if (room.isDm) {
+                ensureDmNames(room.spaceUrl || activeUrl, room.dmParticipants ?? [])
+            }
+
+            return dmRoomName(room, me(), self.names)
         },
 
         isHidden(h: string): boolean {
@@ -531,6 +692,9 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             self.draft = ''
             self.error = ''
             armDirectory()
+            // Only the `'new'` dialog lists the existing conversations, so only it pays
+            // for them — `'add'` is one action on one conversation and shows no list.
+            armConversations()
             dispatchModal(DM_MODAL)
         },
 
@@ -547,7 +711,9 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             self.picked = []
             self.draft = ''
             self.error = ''
-            ensureNames(participants)
+            // Against `url` and not the active space: this conversation may be one of the
+            // workspace relay's, and its participants are then unknown at home.
+            ensureDmNames(url, participants)
             armDirectory()
             dispatchModal(DM_MODAL)
         },
@@ -556,6 +722,7 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             self.draft = ''
             self.picked = []
             disarmDirectory()
+            disarmConversations()
             dispatchModal(DM_MODAL, false)
         },
 

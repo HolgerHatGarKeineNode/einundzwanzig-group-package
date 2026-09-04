@@ -499,6 +499,92 @@ export const dmTitle = (
     return `${names.slice(0, limit).join(', ')} +${names.length - limit}`
 }
 
+/** What {@link roomDisplayName} needs of a row — a `RoomView` and a `RailRoom` both fit. */
+export type DmNameableRoom = {
+    /** The relay's own channel name. For a conversation that is `"DM"` for everyone. */
+    name: string
+    isDm?: boolean
+    dmParticipants?: readonly string[]
+}
+
+/**
+ * **The display name of a room row — the one answer, for every surface.**
+ *
+ * Until this function existed the question had two answers. `railName` (`rail.ts`)
+ * resolved a conversation through its participants; `joinedRoomNames` (`bridge.ts`) took
+ * `room.name` raw, and since the relay stores the literal `"DM"` as the channel name of
+ * every two-person conversation and `"Group DM (N)"` for every group
+ * (`buzz-db/src/dm.rs:157-162`), `/updates` showed N rows all called "DM". The rail was
+ * the only place that knew better, and the rail does not exist in the NativePHP host
+ * (`app-frame.blade.php:44`) — so on mobile *nothing* knew better.
+ *
+ * **The fallback is `room.name`, never `''`.** An empty string is not a neutral value on
+ * the `/updates` path: `buildItem` reads `roomName === ''` as **orphaned** (`updates.ts`,
+ * §8) and replaces the row with "message no longer available". A conversation whose
+ * participants cannot be resolved — a 39000 that carries no usable `p` tag — must keep
+ * standing in the list under the relay's own name, not disappear behind a wrong claim.
+ *
+ * Pure, and it stays that way: the caller passes the viewer and a name resolver, exactly
+ * like {@link dmTitle}. That is what lets the two reactivity systems in this package
+ * (svelte derivations in `bridge.ts`, Alpine getters in the rail) share one rule while
+ * each binds its own source.
+ */
+export const roomDisplayName = (
+    room: DmNameableRoom,
+    self: string,
+    nameOf: (pubkey: string) => string,
+    limit = 3,
+): string => {
+    if (!room.isDm) {
+        return room.name
+    }
+
+    return dmTitle(room.dmParticipants ?? [], self, nameOf, limit) || room.name
+}
+
+/** A space view, as far as {@link foldDmRooms} looks into it. */
+export type DmRoomSource<T> = { url?: string; dmRooms?: readonly T[] } | null | undefined
+
+/**
+ * The conversations of several space views as one list: deduplicated by `h`, dismissed
+ * ones removed, each row tagged with the relay it came from.
+ *
+ * **Why the rows carry `spaceUrl`.** The rail shows the conversations of BOTH views (home
+ * space and workspace), and a hide sent to the wrong relay is answered with
+ * `invalid: DM not found`. Every command therefore takes the URL from the row it acts on
+ * (see the module header of `dms.ts`), which only works if the row remembers it.
+ *
+ * **Why the deduplication is not cosmetic.** The home space MAY be the workspace, and an
+ * Alpine `x-for :key="room.h"` with two identical keys silently swallows a row.
+ *
+ * `joined: true` without a check: a DM only reaches `SpaceView.dmRooms` if the
+ * relay-signed 39002 lists the viewer as a member — `buildSpaceView` decides that, and it
+ * is not decided a second time here.
+ */
+export const foldDmRooms = <T extends { h: string }>(
+    views: readonly DmRoomSource<T>[],
+    hidden: Iterable<string>,
+): (T & { joined: true; spaceUrl: string })[] => {
+    const dismissed = new Set(hidden)
+    const seen = new Set<string>()
+    const out: (T & { joined: true; spaceUrl: string })[] = []
+    for (const view of views) {
+        for (const room of view?.dmRooms ?? []) {
+            // Dismissed means: the user took this conversation out of their column with a
+            // 41012. The relay DELETES nothing — the 39000 keeps arriving unchanged, and
+            // only the relay-signed 30622 says which conversations should go. Without this
+            // filter the button would have no effect.
+            if (seen.has(room.h) || dismissed.has(room.h)) {
+                continue
+            }
+            seen.add(room.h)
+            out.push({ ...room, joined: true, spaceUrl: view?.url ?? '' })
+        }
+    }
+
+    return out
+}
+
 /**
  * The filter that finds this viewer's conversations.
  *

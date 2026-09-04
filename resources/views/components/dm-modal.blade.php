@@ -5,10 +5,24 @@
      ARIA-Träger selbst mit, und neue Flächen gehören deshalb in eine eigene Datei.
 
      Der ganze Zustand liegt im Store `dms` (`js/dms.ts`), die Regeln in `dmModels.ts`;
-     hier wird nur gelesen. Die Komponente steht INNERHALB des `nostrRail`-Scopes, weil
-     die Liste der Unterhaltungen aus `groupFor('dms')` kommt — derselben Ableitung, aus
-     der auch die Spalte darüber gebaut wird. Zwei Listen wären zwei Wahrheiten über die
-     Frage „welche Unterhaltungen habe ich".
+     hier wird nur gelesen.
+
+     ── P7b: kein `nostrRail`-Scope mehr ─────────────────────────────────────────
+     Die Liste kam bis hierher aus `groupFor('dms')` — einer METHODE der Alpine-Komponente
+     `nostrRail` (`js/rail.ts`), nicht des Stores. Damit war diese Datei nur dort mountbar,
+     wo die Rail steht, und die Rail rendert der NativePHP-Host serverseitig nie
+     (`app-frame.blade.php:44`). Sie liest jetzt `$store.dms.conversations`; der Store
+     faltet sie mit derselben `foldDmRooms` aus `dmModels.ts`, aus der auch die Spalte
+     gebaut wird — eine Wahrheit über „welche Unterhaltungen habe ich", zwei Leser.
+
+     Nebeneffekt, der kein Verlust ist: die Liste hängt nicht mehr am FILTERTEXT der Rail.
+     Über `groupFor('dms')` schrumpfte sie mit, sobald oben in der Spalte etwas im
+     Suchfeld stand.
+
+     **Gemountet ist die Komponente weiterhin nur in `desktop-rail.blade.php`.** Der Umzug
+     an eine Stelle, die auf dem Telefon existiert (`einundzwanzig.blade.php` trägt dort
+     `login-sheet` und `command-palette`), ist eine Designentscheidung und ab jetzt eine
+     reine Blade-Zeile — dieser Datei ist der Ort gleichgültig.
 
      ── Was diese Fläche NICHT ist ───────────────────────────────────────────────
      Sie ist kein Chat. Ein Buzz-DM-Kanal ist ein Kanal mit einem `h`; gelesen und
@@ -139,28 +153,32 @@
 
         {{-- ── Die bestehenden Unterhaltungen ───────────────────────────────────
              Nur im Modus „neu": beim Erweitern einer Runde wäre eine Liste daneben eine
-             zweite Handlung im selben Dialog. Die Zeilen kommen aus `groupFor('dms')`,
-             also aus derselben Ableitung wie die Spalte darüber — ausgeblendete sind dort
-             bereits heraus (`toRailDms` gegen `$store.dms.hidden`).
+             zweite Handlung im selben Dialog. Die Zeilen kommen aus
+             `$store.dms.conversations` — derselben Faltung (`foldDmRooms`), aus der die
+             Spalte gebaut wird; ausgeblendete sind dort bereits heraus.
+
+             Die Liste ist NUR aufgezogen, solange dieser Dialog offen ist (`openNew`
+             armiert, `closeDialog` räumt ab) — dieselbe Sparsamkeit wie beim
+             Space-Verzeichnis eine Blockhöhe darüber.
 
              Hier und nicht an der Rail-Zeile selbst: die Zeile ist EIN Knopf (ein
              verschachtelter zweiter wäre ungültiges Markup), und ein Menü, das erst beim
              Überfahren erscheint, ist auf einer 290px-Spalte mit der Tastatur schwer
              erreichbar. Zwei Handlungen an zwei Unterhaltungen im Jahr rechtfertigen
              keine eigene Mechanik in der Spalte. --}}
-        <template x-if="$store.dms?.mode !== 'add' && groupFor('dms').joined.length">
+        <template x-if="$store.dms?.mode !== 'add' && ($store.dms?.conversations ?? []).length">
             <div class="flex flex-col gap-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                 <flux:text class="text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Meine Unterhaltungen') }}</flux:text>
-                <template x-for="room in groupFor('dms').joined" :key="room.h">
+                <template x-for="room in $store.dms.conversations" :key="room.h">
                     <div class="flex min-h-9 items-center gap-2">
-                        <span class="min-w-0 flex-1 truncate text-sm" x-text="$store.dms.titleOf(room.dmParticipants)"></span>
+                        <span class="min-w-0 flex-1 truncate text-sm" x-text="$store.dms.displayName(room)"></span>
                         <flux:button size="sm" variant="ghost" icon="user-plus"
                                      x-bind:disabled="$store.dms.busy"
-                                     x-bind:aria-label="@js(__('Person zu “:name” hinzufügen')).split(':name').join($store.dms.titleOf(room.dmParticipants))"
+                                     x-bind:aria-label="@js(__('Person zu “:name” hinzufügen')).split(':name').join($store.dms.displayName(room))"
                                      x-on:click="$store.dms.openAdd(room.h, room.spaceUrl, room.dmParticipants ?? [])" />
                         <flux:button size="sm" variant="ghost" icon="eye-slash"
                                      x-bind:disabled="$store.dms.busy"
-                                     x-bind:aria-label="@js(__('“:name” ausblenden')).split(':name').join($store.dms.titleOf(room.dmParticipants))"
+                                     x-bind:aria-label="@js(__('“:name” ausblenden')).split(':name').join($store.dms.displayName(room))"
                                      x-on:click="$store.dms.hide(room.h, room.spaceUrl)" />
                     </div>
                 </template>

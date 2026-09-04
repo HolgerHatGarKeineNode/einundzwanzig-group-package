@@ -576,11 +576,15 @@
                  unnoticed. --}}
 
             {{-- ── Der Dialog für Direktnachrichten (P7) ───────────────────────────
-                 Innerhalb des `nostrRail`-Scopes, weil er die Liste der Unterhaltungen aus
-                 `groupFor('dms')` liest — derselben Ableitung, aus der die Spalte darüber
-                 gebaut wird. Eine zweite Liste wäre eine zweite Wahrheit über dieselbe Frage.
                  Er steht am ENDE der Spalte und nicht in der Gruppe: ein `flux:modal` in
-                 einem `x-show`-Block würde mit der Gruppe auf- und zugeklappt. --}}
+                 einem `x-show`-Block würde mit der Gruppe auf- und zugeklappt.
+
+                 **Der Scope ist ihm seit P7b gleichgültig.** Bis dahin MUSSTE er hier
+                 stehen, weil er seine Liste aus `groupFor('dms')` las — einer Methode
+                 dieser Alpine-Komponente. Er liest sie jetzt aus `$store.dms`, gefaltet
+                 mit derselben `foldDmRooms`. Der Umzug an eine Stelle, die auch auf dem
+                 Telefon existiert, ist damit eine reine Blade-Zeile; die Entscheidung
+                 darüber steht aus. --}}
             <x-group::dm-modal />
         </div>
     </div>
