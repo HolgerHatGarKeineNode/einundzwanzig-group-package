@@ -130,6 +130,29 @@ test('WAHL: ein entschiedenes Ja schlägt ein offenes Doc — wahr ∨ unbestimm
     )
 })
 
+test('WAHL: Ziel und Auskunft können nicht auseinanderlaufen — über den ganzen Zustandsraum', () => {
+    // Die Zusage, an der die Fläche hängt: `support === "buzz"` genau dann, wenn es ein
+    // Ziel gibt. Wäre das eine Richtung verletzt, gäbe es entweder einen Knopf ohne
+    // Relay (die Zusage bricht beim Schreiben) oder ein Ziel ohne Knopf (tote Fläche).
+    // Deshalb ALLE 3×3 Kombinationen zweier Spaces, nicht drei Beispiele.
+    const arten: SpaceKind[] = ['unknown', 'buzz', 'other']
+    for (const a of arten) {
+        for (const b of arten) {
+            const choice = chooseDmSpace([{ url: HOME, spaceKind: a }, { url: WORK, spaceKind: b }])
+            assert.equal(
+                choice.support === 'buzz',
+                choice.url !== '',
+                `${a}/${b}: Ziel und Auskunft widersprechen sich`,
+            )
+            assert.equal(
+                planDmOpen([ALICE], ME, ctx(choice.support)) !== null,
+                choice.url !== '',
+                `${a}/${b}: der Riegel und die Wahl sind verschiedener Meinung`,
+            )
+        }
+    }
+})
+
 test('WAHL: ein Ziel kommt NUR heraus, wenn `mayWriteKind` es für 41010 durchlässt', () => {
     // Der Riegel steht nicht neben der Wahl, er IST sie: jedes zurückgegebene Ziel muss
     // dieselbe Prüfung bestehen, die `planDmOpen` gleich noch einmal stellt.
