@@ -44,6 +44,7 @@ import { contentEmojiTags } from './emoji.ts'
 import { linkDisplay, isPlausibleUrl } from './chatLinks.ts'
 import { applyInlineMarkup, stripInlineMarkup } from './chatMarkup.ts'
 import { firstNostrRef, refClickTarget, refThreadPath, shortenEntity, withShortRefTokens, type NostrRef } from './nostrEventLink.ts'
+import { previewBody } from './previewText.ts'
 import { quoteCardsEnabled } from './displayPrefs.ts'
 import { withSpace } from './spaceParam.ts'
 import { withOrigin } from './updatesView.ts'
@@ -933,6 +934,23 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
 }
 
 /**
+ * Die Antwort-Vorschau über einer Nachricht: EINE Zeile, die die zitierte Nachricht
+ * anreisst.
+ *
+ * **`previewBody` VOR `snippet` (2026-09-05).** Hier stand der Rohtext der zitierten
+ * Nachricht und damit jede NIP-19-Kennung darin; anders als bei der Zitatkarte
+ * ({@link buildRefCard}) steht neben dieser Zeile nichts, was die Kennung auflösen würde.
+ * Die Reihenfolge ist Teil der Zusage: bereinigen vor kürzen. Andersherum überlebt eine
+ * Kennung, die über die 120 Zeichen von {@link snippet} hinausragt, als verstümmelter
+ * Rest — kein Muster erkennt sie danach noch (nachgemessen, Kopf von `previewText.ts`).
+ *
+ * Eigene Funktion statt einer Zeile in {@link toChatMessage}, damit die Zusage ohne den
+ * vollen `ChatBuildCtx` prüfbar ist.
+ */
+export const replyPreview = (quoted: TrustedEvent | undefined, nameOf: (pubkey: string) => string): ReplyPreview | null =>
+    quoted ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(previewBody(quoted, nameOf)) } : null
+
+/**
  * Baut die positions-UNABHÄNGIGEN ChatMessage-Felder eines Events — der gemeinsame Kern von
  * Raum- und Thread-Feed (P3 4.1, „gleiches Model"). divider/showAuthor/unreadDivider hängen von
  * der Position in der Liste ab und kommen aus dem aufrufenden Fold. Leere Aggregations-Maps
@@ -943,9 +961,7 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
     const mine = event.pubkey === ctx.me
     const quotedId = tagValue(tagSpec('q'), event.tags)
     const quoted = quotedId ? ctx.byId.get(quotedId) : undefined
-    const reply: ReplyPreview | null = quoted
-        ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(bodyWithoutQuote(quoted)) }
-        : null
+    const reply: ReplyPreview | null = replyPreview(quoted, nameOf)
     // Threading (C6b, Slack-Modell): JEDE Nachricht ist thread-fähig — der Thread wurzelt an
     // ihr selbst (event.id), Kommentare (kind 1111) tragen ["E", event.id]. null = keine Antworten.
     const thread = buildThreadSummary(ctx.commentsByRoot.get(event.id) ?? [], ctx.$profiles, nameOf)

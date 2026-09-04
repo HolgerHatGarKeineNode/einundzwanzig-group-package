@@ -46,6 +46,7 @@ import { tagSpec, tagValue } from './welshmanTags.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import { deriveEventsForUrl } from './repository.ts'
 import { QUOTE_PREFIX } from './polls.ts'
+import { previewBody } from './previewText.ts'
 import { stripInlineMarkup } from './chatMarkup.ts'
 import {
     readState,
@@ -539,7 +540,20 @@ const buildItem = (input: UpdateInput, spec: RowSpec): UpdateItem => {
         // trägt ihn zusätzlich in ihr `aria-label` — ein `**fett**` stünde hier sichtbar
         // da und würde vorgelesen. Dieselbe Pflicht wie bei `feeds.ts snippet`, nur für
         // den anderen Vorschau-Pfad; beide hängen an `chatMarkup.ts`.
-        snippet: stripInlineMarkup(bodyWithoutQuote(newest)),
+        //
+        // `previewBody` statt `bodyWithoutQuote` (2026-09-05): hier stand der Rohtext und
+        // damit jede NIP-19-Kennung, die er trägt. Eine Erwähnungs-Zeile trug dadurch
+        // IMMER mindestens 69 rohe Zeichen — den npub des Lesers selbst, denn genau
+        // daran erkennt {@link updatesMentionsPubkey} sie. Begründung und Messwerte im
+        // Kopf von `previewText.ts`.
+        //
+        // Der Resolver liest ausschliesslich die schon gehaltene `profiles`-Map: diese
+        // Ableitung lädt nichts nach und wirft nicht (Vorfall vom 2026-07-23, oben).
+        // Auszeichnung ZULETZT, Bereinigung davor — sonst träfe das Fett-Muster auf
+        // einen bereits eingesetzten Namen.
+        snippet: stripInlineMarkup(
+            previewBody(newest, (pk) => displayProfile(input.profiles.get(pk), displayPubkey(pk))),
+        ),
         timeLabel: updateTimeLabel(newest.created_at, input.now),
         picture: input.profiles.get(newest.pubkey)?.picture ?? '',
         authorName,

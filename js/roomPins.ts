@@ -54,7 +54,8 @@ import { activeSpace, deriveUserInRoom } from './groups.ts'
 import { deriveSpaceMembers, deriveUserIsSpaceAdmin } from './members.ts'
 import { isBuzzRelay } from './relayCaps.ts'
 import { deriveEventsForUrl } from './repository.ts'
-import { bodyWithoutQuote, fullTimeLabel } from './feeds.ts'
+import { fullTimeLabel } from './feeds.ts'
+import { previewBody } from './previewText.ts'
 import { waitForPublishError } from './publishResult.ts'
 import { t } from './i18n.ts'
 import {
@@ -122,10 +123,21 @@ const EFFECT_TIMEOUT_MS = 6_000
 
 const noop = (): void => {}
 
-/** Ereignis → Zeile der Leiste. Fehlt die Nachricht noch, bleibt der Text leer. */
-const toEntry = (id: string, pinnedBy: string, event: TrustedEvent | undefined): PinnedEntry => ({
+/**
+ * Ereignis → Zeile der Leiste. Fehlt die Nachricht noch, bleibt der Text leer.
+ *
+ * `previewBody` statt `bodyWithoutQuote` (2026-09-05): die angepinnte Nachricht steht als
+ * EINE Zeile in der Leiste, ohne Zitatkarte daneben — eine rohe NIP-19-Kennung im Text
+ * hätte die Zeile gefüllt und den Satz verdrängt (Messung im Kopf von `previewText.ts`).
+ * Der Resolver ist derselbe, der eine Zeile weiter unten den Autornamen zieht: eine reine
+ * Momentaufnahme aus dem Profil-Cache, ohne Netz.
+ *
+ * Exportiert, damit die Zusage prüfbar ist, ohne die Alpine-Insel zu bauen — dieselbe
+ * Begründung wie bei `updates.ts updatesMentionCandidates`.
+ */
+export const pinnedEntry = (id: string, pinnedBy: string, event: TrustedEvent | undefined): PinnedEntry => ({
     id,
-    text: event ? bodyWithoutQuote(event) : '',
+    text: event ? previewBody(event, displayProfileByPubkey) : '',
     name: event ? displayProfileByPubkey(event.pubkey) : '',
     time: event ? fullTimeLabel(event.created_at) : '',
     pinnedBy,
@@ -518,7 +530,7 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
         }
 
         self.entries = ids.map((id) =>
-            toEntry(id, pinnedByById.get(id) ?? '', app.repository.getEvent(id) as TrustedEvent | undefined),
+            pinnedEntry(id, pinnedByById.get(id) ?? '', app.repository.getEvent(id) as TrustedEvent | undefined),
         )
 
         const missing = ids.filter((id) => !app.repository.getEvent(id) && !requested.has(id))
