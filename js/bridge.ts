@@ -1736,7 +1736,7 @@ export const countedDmHsOf = (view: SpaceView, dismissed: readonly string[]): st
  * Emission gerechnet wird als die Zählung: `deriveUnread` ist `throttled(300, …)`, ein
  * `get()` auf eine Nachbarableitung im Abonnenten läge also regelmässig einen Takt vorn.
  */
-type CountedHs = { all: string[]; rooms: string[]; dms: string[] }
+export type CountedHs = { all: string[]; rooms: string[]; dms: string[] }
 
 const countedHs: Readable<CountedHs> = derived(
     [activeSpaceView, hiddenDms],
@@ -1749,6 +1749,26 @@ const countedHs: Readable<CountedHs> = derived(
 )
 
 const countedRoomHs: Readable<string[]> = derived(countedHs, ($counted: CountedHs) => $counted.all)
+
+/**
+ * Die drei Zahlen des `unread`-Stores aus EINER `UnreadView` — rein, damit die Aufteilung
+ * prüfbar ist und nicht nur in einer Subscription steht.
+ *
+ * **Beide Hälften als PARTITION derselben `rooms`-Karte** (`sumUnreadRooms`, node-getestet
+ * und ausdrücklich dafür gebaut) statt als Subtraktion. Das ist der Unterschied, der
+ * zählt: eine Differenz kann keine der beiden Zahlen über die Summe heben, versteckt aber
+ * jedes `h`, das in KEINER der beiden Listen steht — mit zwei Faltungen fällt so ein
+ * Schlüssel auf, weil `roomsTotal + dmsTotal` dann unter `view.roomsTotal` liegt. Genau
+ * das prüft `dmUnreadEbenen.test.ts`.
+ */
+export const unreadTotalsOf = (
+    view: UnreadView,
+    counted: CountedHs,
+): { roomsTotal: number; dmsTotal: number; threadsTotal: number } => ({
+    roomsTotal: sumUnreadRooms(view.rooms, counted.rooms),
+    dmsTotal: sumUnreadRooms(view.rooms, counted.dms),
+    threadsTotal: view.threadsTotal,
+})
 
 /**
  * `h` → Anzeigename der beigetretenen Räume. Nur die BEIGETRETENEN: ein fehlender
@@ -1895,6 +1915,35 @@ const syncRoomActivity = (url: string, hs: string[]): void => {
  */
 type UnreadStore = UnreadView & {
     /**
+     * Ungelesene Ereignisse in UNTERHALTUNGEN — die DM-Hälfte von `UnreadView.roomsTotal`.
+     *
+     * **Warum es diese Zahl gibt (P7d).** `roomsTotal` kommt aus `computeUnread` und ist
+     * kategorieblind: es summiert über ALLE gezählten `h`, und seit P7 sind die
+     * Unterhaltungen darunter. Am Store hängt es aber an der Tab-Pille „Räume"
+     * (`⚡spaces.blade.php`), also an einer EBENE — und die Unterhaltungen sind seit dem
+     * Umbau des Kollegen eine eigene. Am Store werden die beiden Zahlen deshalb getrennt:
+     * `roomsTotal` = Räume, `dmsTotal` = Unterhaltungen, `threadsTotal` = Threads. Drei
+     * disjunkte Summen, und `roomsTotal + dmsTotal` ist exakt das, was `computeUnread`
+     * als `roomsTotal` liefert (mit `sumUnreadRooms` über dieselbe `rooms`-Karte
+     * gefaltet, also per Konstruktion eine Partition und keine zweite Zählung).
+     *
+     * **Wer welche liest** — die Antwort auf „zwei Zahlen mit ähnlichem Namen":
+     *
+     *   `roomsTotal`   → Tab-Pille „Räume" (`⚡spaces.blade.php`)
+     *   `dmsTotal`     → noch niemand; der Abschnitt „Direkt" auf `/spaces` ist der Ort
+     *                    (`dm-list.blade.php`, siehe Bericht zu P7d)
+     *   `threadsTotal` → Tab-Pille „Threads"
+     *   `any`          → der Punkt der Bottom-Nav; UNVERÄNDERT über alle drei Ebenen,
+     *                    denn eine ungelesene Nachricht ist eine ungelesene Nachricht
+     *   `updates`      → die Header-Glocke, eigene Ableitung (`deriveUpdates`), enthält
+     *                    die Unterhaltungen weiterhin
+     *
+     * Der Push-Zähler liest KEINE davon: der Android-Worker bekommt seine Raumliste über
+     * `pushSyncState` (`groups.ts`) und die trägt nur `userRooms` — Unterhaltungen sieht
+     * er gar nicht. Drei Verbraucher, drei Quellen; sie hängen nicht zusammen.
+     */
+    dmsTotal: number
+    /**
      * Ungelesene ZEILEN von `/updates` — die Zahl der Header-Glocke (§4.1 Nr. 6).
      *
      * Sie liegt hier und nicht in der `nostrUpdates`-Insel, weil die Glocke im Kopf von
@@ -1934,7 +1983,8 @@ type UnreadStore = UnreadView & {
  *         rooms: Record<h, number>,          // Schlüssel fehlt = nicht beigetreten, 0 = gelesen
  *         threads: Record<rootId, number>,   // Schlüssel nur bei > 0 (siehe UnreadView)
  *         any: boolean,                      // Punkt der Bottom-Nav, Ja/Nein der Glocke
- *         roomsTotal: number, threadsTotal: number,   // die beiden Tab-Pillen (§4.4)
+ *         roomsTotal: number, dmsTotal: number, threadsTotal: number,  // drei EBENEN,
+ *                                            // disjunkt; siehe UnreadStore.dmsTotal
  *         updates: number,                   // ungelesene /updates-Zeilen → Header-Glocke
  *         capped(n, cap = 99): string,       // fertiger Pillentext inkl. Cap (99 bzw. 9)
  *         liveText: string,                  // die EINE aria-live-Zählregion (§4.7)
@@ -1959,6 +2009,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         threads: {},
         any: false,
         roomsTotal: 0,
+        dmsTotal: 0,
         threadsTotal: 0,
         updates: 0,
         capped: (count, cap = BADGE_CAP) => formatUnreadCount(count, cap),
@@ -2029,6 +2080,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         store.threads = {}
         store.any = false
         store.roomsTotal = 0
+        store.dmsTotal = 0
         store.threadsTotal = 0
         store.updates = 0
         // Auch die Region auf Anfang: der Zählerstand des ALTEN Space darf im neuen
@@ -2040,12 +2092,22 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         livePending = null
         liveAnnounced = false
         store.liveText = ''
-        unsubUnread = deriveUnread(url, countedRoomHs).subscribe((view: UnreadView) => {
-            store.rooms = view.rooms
-            store.threads = view.threads
-            store.any = view.any
-            store.roomsTotal = view.roomsTotal
-            store.threadsTotal = view.threadsTotal
+        // `deriveUnread` UND die Aufteilung in EINER Ableitung, damit beide Hälften gegen
+        // dieselbe Emission gerechnet werden — `deriveUnread` ist `throttled(300, …)`.
+        unsubUnread = derived(
+            [deriveUnread(url, countedRoomHs), countedHs],
+            ([$view, $counted]: [UnreadView, CountedHs]) => ({ $view, $counted }),
+        ).subscribe(({ $view, $counted }: { $view: UnreadView; $counted: CountedHs }) => {
+            store.rooms = $view.rooms
+            store.threads = $view.threads
+            // `any` bleibt die VOLLE Sicht: der Punkt der Bottom-Nav beantwortet „liegt
+            // irgendwo etwas", und eine ungelesene Unterhaltung gehört dazu. Nur die
+            // Zahlen darunter sind nach Ebene getrennt.
+            store.any = $view.any
+            const totals = unreadTotalsOf($view, $counted)
+            store.roomsTotal = totals.roomsTotal
+            store.dmsTotal = totals.dmsTotal
+            store.threadsTotal = totals.threadsTotal
         })
         // Die Glocken-Zahl. Zweite Ableitung über DENSELBEN Bestand — bewusst nicht aus
         // `roomsTotal + threadsTotal` gerechnet: die Glocke führt zu einer LISTE, und
@@ -4112,9 +4174,14 @@ export function registerNostrComponents(Alpine: {
             // Räume UND Threads: die Karte führt an den Ort „Chat", und der hat beide
             // Ebenen. Bewusst nicht `$store.unread.updates` — das ist die Glocke, also
             // eine andere Menge (siehe die Begründung am Glocken-Marker).
-            const store = Alpine.store('unread') as { roomsTotal?: number; threadsTotal?: number } | undefined
+            // Alle DREI Ebenen: seit P7d ist `roomsTotal` auf Räume verengt, und eine
+            // ungelesene Unterhaltung ist für diese Karte genauso „Chat" wie ein Raum.
+            // Ohne `dmsTotal` hätte die Karte still angefangen, weniger zu zeigen.
+            const store = Alpine.store('unread') as
+                | { roomsTotal?: number; dmsTotal?: number; threadsTotal?: number }
+                | undefined
 
-            return (store?.roomsTotal ?? 0) + (store?.threadsTotal ?? 0)
+            return (store?.roomsTotal ?? 0) + (store?.dmsTotal ?? 0) + (store?.threadsTotal ?? 0)
         },
         zeigt(wert: number | null) {
             return zeigeLive(wert)
