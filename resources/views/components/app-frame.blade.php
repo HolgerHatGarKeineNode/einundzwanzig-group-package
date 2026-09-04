@@ -137,4 +137,30 @@
          ein zweites Mal auszuschreiben. Die Insel ist bis zum ersten
          `open-profile` untätig (keine Abos im `init`). --}}
     <x-group::profile-card />
+
+    {{-- ── Der Dialog für Direktnachrichten (P7) ─────────────────────────────────
+         Er stand bis hierher in `desktop-rail.blade.php`, weil er seine Liste aus
+         `groupFor('dms')` las — einer Methode der Rail-Alpine-Komponente. Seit P7b liest
+         er sie aus `$store.dms`, und der Ort war damit „eine reine Blade-Zeile, die
+         Entscheidung darüber steht aus" (seine eigene Notiz). Sie ist getroffen: hier.
+
+         **Nicht im Layout, sondern hier — und das ist derselbe Grund wie bei der
+         `profile-card` darüber.** `app-frame` ist die Wurzel genau der Seiten hinter dem
+         Gate; `einundzwanzig.blade.php` trägt zusätzlich Login und Beitritt, wo es weder
+         eine Sitzung noch einen Space gibt. Ausschlaggebend ist aber die Deckungsgleichheit
+         mit dem MOUNT: `$store.dms.mount()` läuft oben in derselben Datei. Ein Dialog auf
+         einer Seite, auf der der Store nicht angemeldet ist, hätte `canDm === false`, eine
+         leere Vorschlagsliste und einen Knopf, der nichts tut — Dialog und Store gehören
+         auf dieselbe Seitenmenge.
+
+         **Was das auf dem Telefon ändert:** ohne diesen Umzug zeigte `$store.dms.openNew()`
+         dort nichts. Der Dialog existierte nur in der Rail, und die rendert der
+         NativePHP-Host serverseitig nie (siehe `$desktop` oben).
+
+         Layout-neutral wie die Karte darüber: ein geschlossenes `flux:modal` ist ein
+         `<dialog>` im `display:none`-Zustand der UA, also kein Grid-Item mit Höhe. Die
+         implizite Zeile, in die es per Auto-Placement fiele, deckelt `grid-rows-1` — die
+         Herleitung steht ganz oben und gilt ausdrücklich für JEDES künftige Overlay am
+         Ende dieses Rahmens. --}}
+    <x-group::dm-modal />
 </div>

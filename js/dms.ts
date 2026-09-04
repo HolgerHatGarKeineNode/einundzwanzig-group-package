@@ -51,13 +51,20 @@
  *
  * ══ Why nothing navigates after a successful open ════════════════════════════════
  *
- * Landing in the fresh conversation would be nice and is deliberately not done here.
- * Opening a room is not one line: `nostrRail.openRoom` decides between `/rooms/{h}` and
- * `/rooms/{h}?space=workspace` and sets or clears the ephemeral space, and getting that
- * wrong loads the room against the wrong relay — empty history, and a join attempt
- * answered with `invalid: group not found`. A second copy of that decision in this store
- * would be a second truth about it. The dialog closes, the refreshed list puts the
- * conversation at the top of an already-open rail group, and the existing row opens it.
+ * Landing in the fresh conversation would be nice and is deliberately not done here. The
+ * dialog closes, the refreshed list puts the conversation at the top of the group that is
+ * already open, and the existing row opens it — one place where a conversation is
+ * entered, not two.
+ *
+ * **What DID change: the store can open a row, and does not own the rule for it.** This
+ * paragraph used to end with „a second copy of that decision in this store would be a
+ * second truth about it", and the decision lived inside `nostrRail.openRoom`. That was
+ * right while the rail was the only surface with room rows. It is not anymore — the
+ * conversation list on `/spaces` shows the same rows where the rail does not exist at all
+ * (never in the NativePHP host, and only from `xl` in the web client). The rule therefore
+ * MOVED to `roomNavModel.ts` (pure, node-tested) with its side effects in `navigate.ts`;
+ * {@link DmsStore.openConversation} and the rail both call it. Still one truth, now in a
+ * place two surfaces can reach.
  */
 import * as nip19 from 'nostr-tools/nip19'
 import { derived, get, type Readable } from 'svelte/store'
@@ -73,6 +80,7 @@ import { deriveSpaceKind, hasWorkspace, WORKSPACE_URL, type SpaceKind } from './
 import { displayProfileByPubkey, loadSpaceProfiles, profilesByPubkey } from './spaceProfiles.ts'
 import { mapRelayError, waitForPublishOutcome } from './publishResult.ts'
 import { dispatchModal } from './modal.ts'
+import { openRoomAt } from './navigate.ts'
 import { t } from './i18n.ts'
 import {
     DM_ADD_MEMBER,
@@ -216,6 +224,13 @@ export type DmConversation = {
 export type DmsStore = {
     /** May this client open a conversation on the ACTIVE space at all? */
     canDm: boolean
+    /**
+     * Whether the active space does DMs — three-valued, unlike {@link DmsStore.canDm}.
+     *
+     * `'unknown'` means the NIP-11 doc has not arrived; a surface that reads it as „no"
+     * states a fact about the relay that nobody has established yet.
+     */
+    dmSupport: SpaceKind
     /** Channel ids this viewer has dismissed (relay-signed 30622). */
     hidden: string[]
     /** A write is in flight; every control that could start a second one is disabled. */
@@ -249,6 +264,16 @@ export type DmsStore = {
 
     mount(): void
     unmount(): void
+    /**
+     * Hold {@link DmsStore.conversations} live, and release it again.
+     *
+     * Reference counted, because the dialog opens from the panel and both want the same
+     * derivation. See `listHolders` in the factory for what breaks without the count.
+     */
+    armList(): void
+    disarmList(): void
+    /** Open a conversation row — the one rule, shared with the desktop rail. */
+    openConversation(room: { h: string; spaceUrl?: string }): void
 
     /** Display name of one participant — profile name, else a shortened pubkey. */
     nameOf(pubkey: string): string
@@ -317,6 +342,16 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
     let armedFor = ''
     /** How many island nodes hold the store; see `roomPins.ts` for the `wire:navigate` race. */
     let mounts = 0
+    /**
+     * How many surfaces currently want {@link DmsStore.conversations} to be live.
+     *
+     * Two of them exist since the conversations became reachable on a phone: the dialog
+     * (while it is open) and the „Direkt"-panel on `/spaces` (while that tab is chosen).
+     * Without the count the first `closeDialog()` would tear the list out from under the
+     * panel — the dialog opens FROM the panel, so that sequence is the normal one, not an
+     * edge case.
+     */
+    let listHolders = 0
 
     /** Every write goes here: the raw object before {@link bind}, the reactive proxy after. */
     let self: DmsStore
@@ -346,7 +381,13 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
     }
 
     const recomputePermission = (): void => {
-        self.canDm = Boolean(me()) && mayWriteKind(DM_OPEN, kindOf(activeUrl))
+        // Two fields out of one question, and they are NOT the same question. `canDm`
+        // answers „may I open one" — it needs a signer and denies while the NIP-11 doc is
+        // missing. `dmSupport` answers „does this relay do DMs at all", and it keeps the
+        // third value: a surface that folds `'unknown'` into „no" tells someone on a slow
+        // relay that the space cannot do something it can.
+        self.dmSupport = kindOf(activeUrl)
+        self.canDm = Boolean(me()) && mayWriteKind(DM_OPEN, self.dmSupport)
     }
 
     /** The dialog's list, out of the last space views and the current hidden set. */
@@ -487,7 +528,9 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         // feeds it too, and it holds nothing but public display names.
         armedFor = ''
         activeUrl = ''
+        listHolders = 0
         self.canDm = false
+        self.dmSupport = 'unknown'
         self.hidden = []
         self.busy = false
         self.error = ''
@@ -536,6 +579,7 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
 
     const store: DmsStore = {
         canDm: false,
+        dmSupport: 'unknown',
         hidden: [],
         busy: false,
         error: '',
@@ -619,6 +663,36 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             teardown()
         },
 
+        armList(): void {
+            listHolders++
+            armConversations()
+        },
+
+        disarmList(): void {
+            listHolders = Math.max(0, listHolders - 1)
+            if (listHolders === 0) {
+                disarmConversations()
+            }
+        },
+
+        /**
+         * **Not a second copy of the rail's decision** — the same one, from
+         * `roomNavModel.ts`. The header of this module used to explain why nothing
+         * navigates from here; that held while the rail was the only surface with room
+         * rows. The conversation list on `/spaces` is the second, and it exists exactly
+         * where the rail does not (phone, and the web client below `xl`).
+         *
+         * A DM row knows its own relay (`spaceUrl`, set by `foldDmRooms`), so the
+         * question the rail answers by scanning its workspace view is answered here by
+         * reading the row.
+         */
+        openConversation(room: { h: string; spaceUrl?: string }): void {
+            if (!room?.h) {
+                return
+            }
+            openRoomAt(room.h, Boolean(room.spaceUrl) && room.spaceUrl === WORKSPACE_URL)
+        },
+
         nameOf(pk: string): string {
             return self.names[pk] ?? displayProfileByPubkey(pk)
         },
@@ -694,7 +768,7 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             armDirectory()
             // Only the `'new'` dialog lists the existing conversations, so only it pays
             // for them — `'add'` is one action on one conversation and shows no list.
-            armConversations()
+            self.armList()
             dispatchModal(DM_MODAL)
         },
 
@@ -722,7 +796,10 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             self.draft = ''
             self.picked = []
             disarmDirectory()
-            disarmConversations()
+            // Only the `'new'` dialog took a hold; `'add'` never armed the list.
+            if (self.mode !== 'add') {
+                self.disarmList()
+            }
             dispatchModal(DM_MODAL, false)
         },
 

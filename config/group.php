@@ -262,6 +262,24 @@ return [
     'exit' => null,
 
     /*
+     * Die Route, die „Einstellungen" in diesem Host bedeutet.
+     *
+     * Gelesen von der Befehlspalette und vom Profil-Chip auf `/spaces` — den beiden
+     * Stellen, über die ein Nutzer die Einstellungen überhaupt findet. Default ist der
+     * package-eigene Hub (`group::pages.settings`, iteriert `settings` weiter unten).
+     *
+     * Ein Host, der die Sektionen ANDERSWO einbindet, nennt hier seine eigene Route:
+     * `twenty-one-companion` hat sie in P6 mit den Portal-Prefs auf einem Screen
+     * verschmolzen (`pages/profile` bindet dieselben `partials/settings/*` inline ein).
+     * Ohne diese Zeile führten beide Einstiege dort auf eine zweite, dünnere Fassung
+     * derselben Sektionen — zwei Orte für eine Sache.
+     *
+     * Es ist bewusst eine ROUTE und kein Href: `route()` wirft bei einem Tippfehler,
+     * eine falsche URL fiele still ins Leere.
+     */
+    'settings_route' => 'group.settings',
+
+    /*
      * Nav-Registry der Shell (`<x-group::app-shell>` / `<x-group::bottom-nav>`).
      * Die eigentliche Vereinigung (§8.2): jeder Host publiziert seine Tabs als
      * Config, `bottom-nav` iteriert sie und rendert je Eintrag `<x-group::nav-tab>`.

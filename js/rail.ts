@@ -30,19 +30,16 @@ import {
     WORKSPACE_URL,
     activeSpaceUrl,
     activeSpaceView,
-    clearEphemeralSpace,
     deriveSpaceViewFor,
     displayRelayUrl,
-    ephemeralSpaceUrl,
     hasWorkspace,
-    setActiveSpaceEphemeral,
     watchSpaceRooms,
     type RoomView,
     type SpaceView,
 } from './groups.ts'
 import { loadMeetupPresentations, meetupPresentationBySlug } from './meetups.ts'
 import { type MeetupPresentation } from './meetupPresentation.ts'
-import { workspaceRoomHref } from './spaceParam.ts'
+import { navigateTo, openRoomAt } from './navigate.ts'
 import { regionName } from './countryNames.ts'
 import { sumUnreadRooms } from './unread.ts'
 import {
@@ -275,19 +272,6 @@ const repoFromPath = (pathname: string, search: string): { naddr: string; tab: s
     }
 
     return { naddr: decodeURIComponent(m[1]), tab }
-}
-
-/** Navigation über Livewire, mit hartem Fallback — an EINER Stelle statt an drei. */
-const navigateTo = (href: string): void => {
-    if (href === '') {
-        return
-    }
-    const w = window as unknown as { Livewire?: { navigate: (target: string) => void } }
-    if (w.Livewire) {
-        w.Livewire.navigate(href)
-    } else {
-        window.location.assign(href)
-    }
 }
 
 const persistOpen = (open: Record<string, boolean>): void => {
@@ -896,25 +880,16 @@ export const createRail = (): RailState => ({
                 || this.workspace.otherRooms.some((r) => r.h === room.h)
                 || this.workspace.dmRooms.some((r) => r.h === room.h))
 
-        // ── Die einzigen zwei Mutationen der Rail, beide vom Nutzer angefordert ──
-        if (isWorkspaceRoom) {
-            setActiveSpaceEphemeral(WORKSPACE_URL)
-        } else if (get(ephemeralSpaceUrl) !== null) {
-            // Aus einem Workspace-Raum zurück in einen Heim-Raum. NÖTIG: `/rooms/{h}`
-            // ohne `?space=` setzt beim Mount nichts, und `clearEphemeralSpace()` läuft
-            // sonst nur auf `/spaces`. Ohne diese Zeile lüde der Raum gegen das FALSCHE
-            // Relay — leerer Verlauf, Beitritt als `invalid: group not found`.
-            clearEphemeralSpace()
-        }
-
-        const href = isWorkspaceRoom ? workspaceRoomHref(room.h) : `/rooms/${encodeURIComponent(room.h)}`
         // `activeRoomH` sofort mitziehen: `wire:navigate` tauscht den Body erst nach
         // dem Netz-Roundtrip; ohne das bliebe die alte Zeile markiert. Aus demselben
         // Grund fällt die Repo-Markierung: gleich steht ein Raum im Pfad.
         this.activeRoomH = room.h
         this.activeRepoNaddr = ''
         this.activeRepoTab = ''
-        navigateTo(href)
+        // Adresse UND die beiden Space-Mutationen liegen seit der mobilen
+        // Unterhaltungsliste in `navigate.ts`/`roomNavModel.ts`: die Zeile, die es auf
+        // dem Telefon gibt und die Rail nicht, braucht dieselbe Entscheidung.
+        openRoomAt(room.h, isWorkspaceRoom)
     },
 
     jumpToFirst(): void {
