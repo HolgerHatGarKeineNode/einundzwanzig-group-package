@@ -30,19 +30,16 @@ import {
     WORKSPACE_URL,
     activeSpaceUrl,
     activeSpaceView,
-    clearEphemeralSpace,
     deriveSpaceViewFor,
     displayRelayUrl,
-    ephemeralSpaceUrl,
     hasWorkspace,
-    setActiveSpaceEphemeral,
     watchSpaceRooms,
     type RoomView,
     type SpaceView,
 } from './groups.ts'
 import { loadMeetupPresentations, meetupPresentationBySlug } from './meetups.ts'
 import { type MeetupPresentation } from './meetupPresentation.ts'
-import { workspaceRoomHref } from './spaceParam.ts'
+import { navigateTo, openRoomAt } from './navigate.ts'
 import { regionName } from './countryNames.ts'
 import { sumUnreadRooms } from './unread.ts'
 import {
@@ -79,6 +76,9 @@ import {
 import { subscribeWorkspacePrefs } from './channelPrefs.ts'
 import { subscribeForgeNav } from './forge.ts'
 import { t } from './i18n.ts'
+import { foldDmRooms } from './dmModels.ts'
+import { dmRoomName, ensureDmNames } from './dms.ts'
+import { pubkey } from './welshmanSession.ts'
 
 /**
  * localStorage-Schlüssel des Auf/Zu-Zustands.
@@ -274,19 +274,6 @@ const repoFromPath = (pathname: string, search: string): { naddr: string; tab: s
     return { naddr: decodeURIComponent(m[1]), tab }
 }
 
-/** Navigation über Livewire, mit hartem Fallback — an EINER Stelle statt an drei. */
-const navigateTo = (href: string): void => {
-    if (href === '') {
-        return
-    }
-    const w = window as unknown as { Livewire?: { navigate: (target: string) => void } }
-    if (w.Livewire) {
-        w.Livewire.navigate(href)
-    } else {
-        window.location.assign(href)
-    }
-}
-
 const persistOpen = (open: Record<string, boolean>): void => {
     try {
         localStorage.setItem(OPEN_KEY, JSON.stringify(open))
@@ -310,43 +297,27 @@ const toRailRooms = (view: SpaceView | null): RailRoom[] => [
  * rechnet neu, sobald der Store seine ausgeblendeten Unterhaltungen oder seine
  * Namenstabelle ändert.
  */
-const dmStore = (): { hidden?: string[]; titleOf?: (p: string[] | undefined) => string } | undefined =>
+type DmStoreLese = {
+    hidden?: string[]
+    names?: Record<string, string>
+}
+
+const dmStore = (): DmStoreLese | undefined =>
     (window as unknown as { Alpine?: { store(n: string): unknown } }).Alpine?.store('dms') as
-        | { hidden?: string[]; titleOf?: (p: string[] | undefined) => string }
+        | DmStoreLese
         | undefined
 
 /**
  * Die Unterhaltungen BEIDER Sichten (Heim-Space und Workspace), nach `h` entdoppelt.
  *
- * Zwei Quellen, weil die Rail zwei Space-Sichten führt und ein DM-Kanal auf jeder
- * von beiden liegen kann; entdoppelt, weil beide dieselbe URL haben können (der
- * Heim-Space DARF der Workspace sein) und ein `x-for :key="room.h"` mit zwei gleichen
- * Schlüsseln in Alpine eine Zeile verschluckt.
- *
- * `joined: true` ohne Prüfung: ein DM-Kanal steht nur dann in {@link SpaceView.dmRooms},
- * wenn die relay-signierte 39002 den Nutzer als Mitglied führt — die Einordnung
- * passiert in `buildSpaceView`, hier wird sie nicht wiederholt.
+ * Die Faltung selbst steht seit P7b als `foldDmRooms` in `dmModels.ts` — der Dialog
+ * (`dm-modal.blade.php`) baut seine Liste aus derselben Funktion, statt wie bisher aus
+ * `groupFor('dms')` und damit aus dem Alpine-Scope dieser Rail. Zwei Faltungen wären
+ * zwei Wahrheiten über dieselbe Frage; die Begründungen (Entdopplung, `spaceUrl`,
+ * `joined`, ausgeblendete Zeilen) stehen dort.
  */
-const toRailDms = (home: SpaceView | null, workspace: SpaceView | null): RailRoom[] => {
-    const hidden = new Set(dmStore()?.hidden ?? [])
-    const seen = new Set<string>()
-    const out: RailRoom[] = []
-    for (const view of [home, workspace]) {
-        for (const room of view?.dmRooms ?? []) {
-            // Ausgeblendet heißt: der Nutzer hat diese Unterhaltung mit einem 41012 aus
-            // seiner Spalte genommen. Der Relay LÖSCHT dabei nichts — das 39000 kommt
-            // unverändert weiter herein, und nur die relay-signierte 30622 sagt, welche
-            // Unterhaltungen weg sollen. Ohne diesen Filter wäre der Knopf wirkungslos.
-            if (seen.has(room.h) || hidden.has(room.h)) {
-                continue
-            }
-            seen.add(room.h)
-            out.push({ ...room, joined: true, spaceUrl: view?.url ?? '' })
-        }
-    }
-
-    return out
-}
+const toRailDms = (home: SpaceView | null, workspace: SpaceView | null): RailRoom[] =>
+    foldDmRooms([home, workspace], dmStore()?.hidden ?? [])
 
 const readOpen = (): Record<string, boolean> => {
     try {
@@ -844,19 +815,26 @@ export const createRail = (): RailState => ({
      * **Für eine Unterhaltung kommt er NICHT aus dem Raumnamen.** Buzz speichert als
      * Kanalnamen für jede Zweier-Unterhaltung die Zeichenkette `"DM"` und für jede
      * Gruppe `"Group DM (N)"` (`buzz-db/src/dm.rs:157-162`) — die Spalte zeigte sonst
-     * dieselbe Zeile mehrfach. Er entsteht aus den Teilnehmern des 39000, aufgelöst über
-     * die Profil-Namenstabelle des DM-Stores. Steht der Store noch nicht (Boot,
-     * Telefon), bleibt der Raumname als ehrlicher Rückfall.
+     * dieselbe Zeile mehrfach.
+     *
+     * **Die Auflösung ist seit P7b `dmRoomName` und steht genau einmal** (`dms.ts`,
+     * Regel in `dmModels.roomDisplayName`): dieselbe Funktion beantwortet die Frage für
+     * `/updates` in `bridge.ts joinedRoomNames`, wo bisher der rohe Relay-Name stand.
+     * Übergeben wird die Namenstabelle des DM-Stores und nicht in ihr gelesen — der
+     * Lesezugriff auf `$store.dms.names` HIER ist es, den Alpine mitverfolgt; die Zeile
+     * rechnet also neu, sobald ein Profil eintrifft. Fehlt der Store (Boot), bleibt der
+     * Raumname als ehrlicher Rückfall.
      */
     railName(room: RailRoom): string {
         if (room.isDm) {
-            const title = dmStore()?.titleOf?.(room.dmParticipants)
-            if (title) {
-                return middleTruncate(title)
-            }
+            // Der Anstoß, ohne den die Zeile für immer einen gekürzten Schlüssel zeigte.
+            // Er hing bis P7b in `titleOf` und lief damit gegen den AKTIVEN Space, auch
+            // für eine Unterhaltung des Workspace-Relays; `spaceUrl` fragt den Relay, von
+            // dem die Zeile stammt (`foldDmRooms` setzt ihn).
+            ensureDmNames(room.spaceUrl ?? '', room.dmParticipants ?? [])
         }
 
-        return middleTruncate(room.name || room.h)
+        return middleTruncate(dmRoomName(room, pubkey.get() ?? '', dmStore()?.names ?? {}) || room.h)
     },
 
     roomFlag(room: RailRoom): string {
@@ -902,25 +880,16 @@ export const createRail = (): RailState => ({
                 || this.workspace.otherRooms.some((r) => r.h === room.h)
                 || this.workspace.dmRooms.some((r) => r.h === room.h))
 
-        // ── Die einzigen zwei Mutationen der Rail, beide vom Nutzer angefordert ──
-        if (isWorkspaceRoom) {
-            setActiveSpaceEphemeral(WORKSPACE_URL)
-        } else if (get(ephemeralSpaceUrl) !== null) {
-            // Aus einem Workspace-Raum zurück in einen Heim-Raum. NÖTIG: `/rooms/{h}`
-            // ohne `?space=` setzt beim Mount nichts, und `clearEphemeralSpace()` läuft
-            // sonst nur auf `/spaces`. Ohne diese Zeile lüde der Raum gegen das FALSCHE
-            // Relay — leerer Verlauf, Beitritt als `invalid: group not found`.
-            clearEphemeralSpace()
-        }
-
-        const href = isWorkspaceRoom ? workspaceRoomHref(room.h) : `/rooms/${encodeURIComponent(room.h)}`
         // `activeRoomH` sofort mitziehen: `wire:navigate` tauscht den Body erst nach
         // dem Netz-Roundtrip; ohne das bliebe die alte Zeile markiert. Aus demselben
         // Grund fällt die Repo-Markierung: gleich steht ein Raum im Pfad.
         this.activeRoomH = room.h
         this.activeRepoNaddr = ''
         this.activeRepoTab = ''
-        navigateTo(href)
+        // Adresse UND die beiden Space-Mutationen liegen seit der mobilen
+        // Unterhaltungsliste in `navigate.ts`/`roomNavModel.ts`: die Zeile, die es auf
+        // dem Telefon gibt und die Rail nicht, braucht dieselbe Entscheidung.
+        openRoomAt(room.h, isWorkspaceRoom)
     },
 
     jumpToFirst(): void {

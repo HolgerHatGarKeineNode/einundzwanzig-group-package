@@ -206,17 +206,34 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     {{-- Profil-Chip → simples Alpine-Popover (kein flux:dropdown/-menu: das
                          verschluckt rohe Alpine-Kinder). Nur `open` lokal, Rest aus nostrAuth. --}}
                     <div x-data="{ open: false }" class="relative shrink-0">
-                        <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
+                        {{-- `data-profil-chip`/`data-profil-popover`: eindeutige Anker für die
+                             Messung. „Angemeldet als …" steht auf der Seite auch in der Rail,
+                             ein Test auf Text oder Klasse träfe irgendeine der beiden. Gleiche
+                             Bauform wie `data-rail-fuss` und `data-ortskarte`. --}}
+                        <button type="button" data-profil-chip x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
                                 :aria-label="@js(__('Angemeldet als :name')).split(':name').join(myName)"
                                 class="pressable flex min-h-[44px] items-center gap-2 rounded-full py-1 pe-2 ps-1 ring-1 ring-black/5 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:ring-white/10 dark:hover:bg-white/5">
-                            <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem" />
+                            {{-- Der EIGENE Präsenzpunkt (P6). Er stand bisher nur am
+                                 Rail-Avatar (`desktop-rail.blade.php`) und damit an genau der
+                                 Stelle, die es auf dem Telefon nie gibt: fremde Punkte sah man
+                                 dort in jeder Chat-Zeile, den eigenen nirgends. „Was sende ich
+                                 gerade über mich" ist aber die Frage, die nur der eigene
+                                 Avatar beantworten kann.
+
+                                 `$store.presence?.mine` und NICHT `byPubkey[<self>]`, aus dem
+                                 Grund, der in der Rail steht: der Relay fanoutet das eigene
+                                 20001 nicht verlässlich an die eigene Verbindung zurück.
+                                 Kein Store, kein Raum offen → kein Punkt, und das ist der
+                                 richtige Zustand (Präsenz hat keinen Bestand). --}}
+                            <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem"
+                                                   presence="$store.presence?.mine" />
                             <span class="min-w-0 max-w-[7rem] truncate text-sm font-semibold text-zinc-900 sm:max-w-[12rem] dark:text-zinc-100" x-text="myName"></span>
                             <x-group::nostr-nip05 nip05="myNip05" />
                             <flux:icon.chevron-down variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />
                         </button>
 
                         {{-- Popover: volles Profil + sekundäre Infos + Abmelden. --}}
-                        <div x-show="open" x-cloak x-transition
+                        <div x-show="open" x-cloak x-transition data-profil-popover
                              x-on:click.outside="open = false" x-on:keydown.escape.window="open = false"
                              class="surface-card absolute end-0 z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] origin-top-right p-4 shadow-lg">
                             <div class="flex items-start gap-3">
@@ -243,6 +260,49 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <flux:icon.key variant="micro" class="size-3 shrink-0" />
                                     <span x-text="@js(__('Angemeldet über :signer')).split(':signer').join(signerLabel)"></span>
                                 </div>
+                            </div>
+
+                            {{-- ── Die zwei Zeilen, die es auf dem Telefon sonst nicht gibt ──
+                                 `/settings` und `/bookmarks` hatten im Chat-Client zusammen
+                                 GENAU EINEN Einstieg unterhalb `xl`: die Befehlspalette
+                                 (`command-palette.blade.php:42`/`:44`). Lesezeichen stehen ab
+                                 `xl` zusätzlich in der Rail-Fußzeile; Einstellungen stehen
+                                 NIRGENDS sonst, auch nicht auf dem Desktop.
+
+                                 **Warum hier und nicht als weitere Fläche.** Das hier ist
+                                 bereits die Schublade „ich": Avatar, Name, npub, Signer,
+                                 Abmelden. Ein Lesezeichen ist meins, eine Einstellung ist
+                                 meine — sie gehören in dieselbe Schublade, nicht in eine
+                                 siebte Fläche auf einer Seite, die schon sechs trägt. Das
+                                 Mitgliederverzeichnis steht bewusst NICHT hier, sondern am
+                                 Space-Block darunter: es beantwortet „wer ist hier", nicht
+                                 „wer bin ich".
+
+                                 Der Trenner darüber ist derselbe wie zwischen Profil und
+                                 npub-Block — die Schublade hat jetzt drei Fächer (wer ·
+                                 womit · wohin) statt zwei, und die Reihenfolge ist die der
+                                 Häufigkeit, nicht die des Alphabets.
+
+                                 `min-h-11` = 44 px je Zeile: die Zeilen sind leise gesetzt
+                                 (`text-muted`, Micro-Icon), aber ein Ziel unter 44 px wäre
+                                 nicht leise, sondern schwer zu treffen. --}}
+                            <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                                {{-- `settings_route` statt `group.settings` fest: der Mobile-Host
+                                     hat seine Einstellungen in P6 mit den Portal-Prefs auf EINEM
+                                     Screen verschmolzen und `group.settings` rendert dort eine
+                                     zweite, dünnere Fassung derselben Sektionen. Dieselbe
+                                     Config-Zeile liest die Befehlspalette — eine Registry, zwei
+                                     Leser, statt zweier Wahrheiten über denselben Ort. --}}
+                                @foreach ([
+                                    ['route' => 'group.bookmarks', 'icon' => 'bookmark', 'label' => __('Lesezeichen')],
+                                    ['route' => config('group.settings_route', 'group.settings'), 'icon' => 'cog-6-tooth', 'label' => __('Einstellungen')],
+                                ] as $ziel)
+                                    <a href="{{ route($ziel['route']) }}" wire:navigate data-profil-ziel="{{ $ziel['route'] }}"
+                                       class="pressable flex min-h-11 items-center gap-2 rounded-tile px-1.5 text-sm font-medium text-muted transition-colors hover:bg-black/5 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5 dark:hover:text-zinc-100">
+                                        <flux:icon :name="$ziel['icon']" variant="micro" class="size-4 shrink-0" />
+                                        <span class="min-w-0 truncate">{{ $ziel['label'] }}</span>
+                                    </a>
+                                @endforeach
                             </div>
 
                             <flux:button variant="ghost" size="sm" icon="arrow-right-start-on-rectangle" class="mt-3 w-full" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
@@ -288,6 +348,38 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <span x-text="space?.label || @js($spaceName)">{{ $spaceName }}</span>
                     </flux:heading>
                     <p x-show="space?.description" x-cloak class="mt-0.5 line-clamp-2 text-sm leading-normal text-muted" x-text="space?.description"></p>
+
+                    {{-- ── „Mitglieder" — der einzige Weg dorthin, der keine Tastatur braucht ──
+                         `/directory` hatte im ganzen Bestand GENAU EINEN Einstieg:
+                         `command-palette.blade.php:32`. Auf dem Desktop ist das ⌘K, auf dem
+                         Telefon die Lupe neben dem Tab-Raster — und auf den Host-Screens der
+                         App fängt der Host dasselbe Ereignis ab und öffnet seine eigene
+                         Meetup-Suche (`layouts/mobile.blade.php`). Ein Verzeichnis, das man
+                         nur findet, wenn man weiß, dass es existiert.
+
+                         **Hier und nicht im Profil-Chip**, obwohl der zwei Zeilen weiter oben
+                         steht und Platz hätte: der Chip beantwortet „wer bin ich", das
+                         Verzeichnis „wer ist hier". Das ist die Frage DIESES Blocks — er
+                         trägt Icon, Name und Beschreibung des Space —, und eine Zeile über
+                         die Anwesenden gehört unter die Beschreibung des Ortes, nicht in die
+                         Schublade mit dem eigenen npub.
+
+                         **Ohne Zahl, und das ist eine Entscheidung.** „142 Mitglieder" wäre
+                         die bessere Zeile und kostete auf JEDEM Seitenaufbau ein REQ auf
+                         13534/33534 — die Verzeichnis-Ableitung ist genau deshalb überall
+                         sonst nur armiert, solange jemand hinsieht (`armDirectory`,
+                         `js/dms.ts`). Ein Zähler, für den man eine Abfrage bezahlt, die man
+                         sonst vermeidet, ist Dekoration mit Betriebskosten.
+
+                         Leise Form (`text-muted`, Micro-Icon), wie die Fußzeilen-Zeilen der
+                         Rail: das hier ist ein Nebenweg, keine Hauptnavigation. Das
+                         44-px-Ziel steht trotzdem (`min-h-11`), weil ein Daumen nicht weiß,
+                         dass eine Zeile leise gemeint ist. --}}
+                    <a href="{{ route('group.directory') }}" wire:navigate data-space-mitglieder
+                       class="pressable -ms-1.5 mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-tile px-1.5 text-sm font-medium text-muted transition-colors hover:bg-black/5 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5 dark:hover:text-zinc-100">
+                        <flux:icon.users variant="micro" class="size-4 shrink-0" />
+                        <span>{{ __('Mitglieder') }}</span>
+                    </a>
                 </div>
             </div>
         </div>
@@ -628,6 +720,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 </template>
                             </div>
                         </template>
+
+                        {{-- ── Direktnachrichten (mobile Erreichbarkeit) ─────────────────────
+                             Zwischen „Meine Räume" und „Andere Räume", weil eine Unterhaltung
+                             MEIN Ort ist und „Andere Räume" die Entdeckung beginnt. Dieselbe
+                             Reihenfolge wie in der Rail, wo die Unterhaltungen hinter den
+                             eigenen Räumen und vor den Verzeichnissen stehen.
+
+                             Die Bedingung steht HIER und nicht in der Komponente: `tab` und
+                             `focusMode()` gehören dem `nostrSpaces`-Scope dieser Seite, und
+                             der Abschnitt soll ihn nicht kennen müssen. Warum sie eine
+                             `x-if`-Bedingung ist und kein `xl:hidden` wie bei den Nachbarn,
+                             steht ausführlich in der Komponente — kurz: dieser Abschnitt
+                             meldet eine Ableitung an, und Alpine bootet auch in per CSS
+                             versteckten Knoten. --}}
+                        <x-group::dm-list show="tab === 'rooms' && !focusMode() && !$store.viewport?.desktop" />
 
                         {{-- Andere Räume (entdeckbar; ohne kategorisierte: kein Meetup, keine Projektunterstützung). --}}
                         <template x-if="!focusMode() && filteredOther().length > 0">

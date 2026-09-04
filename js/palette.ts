@@ -63,6 +63,7 @@ import { type MeetupPresentation } from './meetupPresentation.ts'
 import { workspaceRoomHref } from './spaceParam.ts'
 import { regionName } from './countryNames.ts'
 import { dispatchModal } from './modal.ts'
+import { navigateTo } from './navigate.ts'
 import { flashToast } from './toast.ts'
 import { t } from './i18n.ts'
 import { type RailGroupKey } from './railGroups.ts'
@@ -162,15 +163,6 @@ const toPaletteRooms = (view: SpaceView | null, workspace: boolean): PaletteRoom
     ...(view?.userRooms ?? []).map((r: RoomView) => ({ ...r, joined: true, workspace })),
     ...(view?.otherRooms ?? []).map((r: RoomView) => ({ ...r, joined: false, workspace })),
 ]
-
-const navigateTo = (href: string): void => {
-    const w = window as unknown as { Livewire?: { navigate: (h: string) => void } }
-    if (w.Livewire) {
-        w.Livewire.navigate(href)
-    } else {
-        window.location.assign(href)
-    }
-}
 
 /** `route()` liefert absolute URLs; der Auth-Gate will den reinen „/…"-Pfad. */
 const pathOf = (href: string): string => {

@@ -560,28 +560,30 @@
                 </div>
             </div>
 
-            {{-- ══ A NON-LAYOUT ATTACHMENT — INSIDE the footer, not next to it ═════
-                 The dialog below occupies no space: a closed `flux:modal` is a
-                 `<dialog>` in the UA's `display:none` state inside an empty
-                 `<ui-modal>` — no line box, no height. It still may not be a direct
-                 child of `[data-rail]`: that child set IS the measured column (four
-                 blocks, see the note at the top of this file), and a fifth entry breaks
-                 the block-for-block comparison against the placeholder.
+            {{-- ══ WO DER DM-DIALOG GEBLIEBEN IST ═══════════════════════════════════
+                 `<x-group::dm-modal />` stand hier, am Ende der Fußzeile, und steht
+                 jetzt in `app-frame.blade.php` neben der `profile-card`.
 
-                 The footer is the host because it is the one block that is never
-                 collapsed, never scrolled and always present (`shrink-0`) — the dialog
-                 keeps standing at the END of the column, as its own note below says,
-                 and its height (302 px, 264 px without a workspace) is asserted in
-                 `desktop-boot-geometrie.spec.ts`, so a box appearing here cannot pass
-                 unnoticed. --}}
+                 Bis P7b MUSSTE er hier stehen: er las seine Liste aus `groupFor('dms')`,
+                 einer Methode dieser Alpine-Komponente. Seit er sie aus `$store.dms`
+                 liest, ist ihm der Scope gleichgültig — und die Rail ist der falsche Ort,
+                 weil es sie im NativePHP-Host serverseitig nie und im Web erst ab `xl`
+                 gibt, während `$store.dms.openNew()` inzwischen von der „Direkt"-Fläche
+                 auf `/spaces` gerufen wird, also von jedem Telefon.
 
-            {{-- ── Der Dialog für Direktnachrichten (P7) ───────────────────────────
-                 Innerhalb des `nostrRail`-Scopes, weil er die Liste der Unterhaltungen aus
-                 `groupFor('dms')` liest — derselben Ableitung, aus der die Spalte darüber
-                 gebaut wird. Eine zweite Liste wäre eine zweite Wahrheit über dieselbe Frage.
-                 Er steht am ENDE der Spalte und nicht in der Gruppe: ein `flux:modal` in
-                 einem `x-show`-Block würde mit der Gruppe auf- und zugeklappt. --}}
-            <x-group::dm-modal />
+                 **Für die Geometrie dieser Spalte ändert sich nichts, und das ist der
+                 Grund, warum dieser Hinweis hier steht und nicht nur im Commit.** Ein
+                 geschlossenes `flux:modal` ist ein `<dialog>` im `display:none`-Zustand
+                 der UA — keine Zeilenbox, keine Höhe. Die Fußzeile misst mit und ohne ihn
+                 302 px (264 ohne Workspace), festgenagelt in
+                 `desktop-boot-geometrie.spec.ts`.
+
+                 Wer hier je wieder ein Overlay unterbringt: NICHT als direktes Kind von
+                 `[data-rail]`. Dieser Kindsatz IST die gemessene Spalte (vier Blöcke,
+                 siehe die Notiz am Anfang dieser Datei), ein fünfter Eintrag bricht den
+                 blockweisen Vergleich gegen den Platzhalter. Die Fußzeile war der
+                 Gastgeber, weil sie der eine Block ist, der nie zusammenklappt, nie
+                 scrollt und immer da ist (`shrink-0`). --}}
         </div>
     </div>
 </template>

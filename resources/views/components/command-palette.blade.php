@@ -41,7 +41,15 @@
     // Aussage („noch nichts gemerkt") und kein Sackgassen-Zustand wie bei der Forge.
     ['id' => 'bookmarks', 'label' => __('Lesezeichen'), 'href' => route('group.bookmarks')],
     ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.wallet')],
-    ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route('group.settings')],
+    // ── Der Einstellungen-Eintrag zeigt auf die Route, die der HOST dafür nennt ──
+    // Der Mobile-Host hat seine Einstellungen in P6 mit den Portal-Prefs auf EINEM
+    // Screen verschmolzen (`pages/profile`, dort inline dieselben
+    // `group::partials.settings.*`). `group.settings` existiert dort weiterhin und
+    // rendert eine ZWEITE, dünnere Fassung derselben Sektionen — zwei Orte für eine
+    // Sache, und der Palettenbefehl führte auf den falschen (Nielsen #4).
+    // `settings_route` ist die Config-Zeile je Host, wie `group.exit`; Default ist die
+    // package-eigene Route, der Web-Client bleibt damit zeichengleich.
+    ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route(config('group.settings_route', 'group.settings'))],
 ])
 @php($paletteActions = array_values(array_filter($paletteActions)))
 {{-- Ein Stil für alle Tastenkappen: derselbe wie am Rail-Prompt. --}}
