@@ -56,6 +56,8 @@ import { wireBookmarks } from './bookmarks.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
 import { dmNames, dmRoomName, ensureDmNames, wireDms } from './dms.ts'
+import { dmVisibilityFilter, foldDmRooms, foldHiddenDms } from './dmModels.ts'
+import { deriveRelaySignedEvents } from './repository.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -1676,22 +1678,112 @@ const myCountryCode = (): string => {
 // sitzt in der Bottom-Nav und damit auf JEDER Seite, nicht nur auf der Raumliste.
 
 /**
- * `h` der beigetretenen Räume des aktiven Space (relay-signierte 39002).
+ * Die `h`, die dieser Betrachter AUSGEBLENDET hat (relay-signierte kind 30622).
+ *
+ * ── Warum diese Ableitung hier steht und nicht aus `dms.ts` kommt ───────────────
+ *
+ * Der DM-Store hält dieselbe Menge in `$store.dms.hidden` — aber das ist ein
+ * ALPINE-Store, und eine svelte-Ableitung kann einen reaktiven Alpine-Proxy nicht als
+ * Abhängigkeit führen. Dieselbe Trennung wie bei den Namen (`dmNames`): die REGEL steht
+ * einmal (`foldHiddenDms` in `dmModels.ts`), sie wird von zwei Reaktivitätssystemen
+ * gebunden. Ein zweiter `foldHiddenDms`-Aufruf ist keine zweite Wahrheit; ein
+ * nachgebauter `hidden.includes(h)`-Filter wäre einer.
+ *
+ * **Nichts wird hier angefordert.** Das historische REQ auf 30622 setzt
+ * `dms.ts armVisibility` beim Mount ab (`{kinds:[30622],"#p":[self]}`, p-gated); diese
+ * Ableitung liest nur, was dadurch im Repository liegt. Ist der Store nicht angemeldet,
+ * bleibt die Menge leer — also exakt das Verhalten von vor diesem Fix, kein Rückschritt.
+ * Seit die Anmeldung in `app-frame.blade.php` steht, ist das auf jeder Seite hinter dem
+ * Gate der Fall.
+ *
+ * `relay.self` kommt aus NIP-11 und trifft später ein als die Ereignisse;
+ * `deriveRelaySignedEvents` hängt selbst an der Relay-Sammlung und emittiert dann erneut
+ * — die Menge zieht also nach, statt auf einem leeren Stand festzustehen.
+ */
+const hiddenDmHs: Readable<string[]> = derived<[Readable<string>, Readable<string | undefined>], string[]>(
+    [activeSpace, pubkey],
+    ([$url, $me], set) => {
+        const viewer = $me ?? ''
+        const filters = dmVisibilityFilter(viewer)
+        if (!$url || filters.length === 0) {
+            set([])
+
+            return
+        }
+        let letzte: string[] = []
+
+        return deriveRelaySignedEvents($url, filters).subscribe((events: TrustedEvent[]) => {
+            const next = [...foldHiddenDms(events, app.use(Relays).get($url)?.self ?? '', viewer)].sort()
+            // Nur bei echter Änderung weitergeben: diese Quelle emittiert bei jedem
+            // Relay-Doc und jedem 30622, und ein frisches Array riebe sonst die
+            // Ungelesen-Ableitung und die Aktivitäts-Subscription darunter neu auf.
+            if (next.length !== letzte.length || next.some((h, i) => h !== letzte[i])) {
+                letzte = next
+                set(next)
+            }
+        })
+    },
+    [],
+)
+
+/**
+ * Die `h` der Räume, die für diesen Betrachter ZÄHLEN — Ungelesen-Punkt, Updates-Liste
+ * und die Aktivitäts-Subscription.
  *
  * **`dmRooms` steht seit P7 ausdrücklich mit dabei.** Die Unterhaltungen sind ein
  * eigener Topf der `SpaceView`, damit sie nicht in „Meine Räume", der Befehlspalette
  * und dem Forge-Baum auftauchen — der Ungelesen-Punkt und die Updates-Liste sind aber
  * genau die zwei Stellen, an denen sie mitzählen MÜSSEN. Eine Unterhaltung, deren neue
  * Nachricht niemand anzeigt, wäre ein halbes Feature.
+ *
+ * ── P7c: „ausgeblendet" galt bis hierher nur für die Rail-Spalte ────────────────
+ *
+ * Die Liste hiess `joinedRoomHs` und war die reine Mitgliedschaft. Eine mit 41012
+ * ausgeblendete Unterhaltung fiel damit aus der Spalte, fütterte aber weiter den
+ * Ungelesen-Punkt und erzeugte `/updates`-Zeilen. Auf dem Telefon ist das teurer als am
+ * Desktop: dort ist die Glocke der einzige Weg zu den Unterhaltungen, es gibt keine
+ * Spalte, an der man sähe, dass sie weg ist — der Punkt leuchtete für etwas, das der
+ * Nutzer ausdrücklich weggeräumt hat.
+ *
+ * **Der Name ist mitgewandert.** „beigetreten" wäre jetzt falsch: der Nutzer IST weiter
+ * Mitglied (die 39002 sagt es), er hat die Unterhaltung nur weggelegt. Zwei verschiedene
+ * Aussagen, und die Liste trägt die zweite.
+ *
+ * **Was das für `computeUpdates` heisst — die Unterscheidung, auf die es ankommt:**
+ * ein `h`, das hier fehlt, wird dort ÜBERSPRUNGEN (Regel 5, `updates.ts:669`/`:717`),
+ * nicht als „verwaist" geführt. Verwaist (Regel 10) ist etwas anderes und bleibt es: das
+ * ist ein Raum OHNE NAMEN, dessen Zeile mit „Nachricht nicht mehr verfügbar" stehen
+ * bleibt. Ausgeblendet erzeugt gar keine Zeile. Genau deshalb bleibt {@link joinedRoomNames}
+ * unten die VOLLE Menge — nähme man dort dieselben Einträge heraus, wären die beiden
+ * Aussagen im selben sichtbaren Ergebnis vermischt, sobald die Listen je auseinanderlaufen.
+ *
+ * `computeUnread` verhält sich gleich: es sät `rooms[h] = 0` je Eintrag der Liste
+ * (`unread.ts:205`) und zählt nur diese — ein fehlendes `h` trägt schlicht nichts bei.
  */
-const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceView) =>
-    [...$view.userRooms, ...$view.dmRooms].map((room) => room.h),
+export const countedRoomHsOf = (view: SpaceView, hiddenDms: readonly string[]): string[] => [
+    ...view.userRooms.map((room) => room.h),
+    // `foldDmRooms` ist die Faltung, die auch die Rail und der DM-Dialog benutzen — sie
+    // kennt den Ausgeblendet-Filter und die Entdopplung bereits. Ein eigenes
+    // `.filter(h => !hidden.includes(h))` hier wäre die zweite Wahrheit über dieselbe Frage.
+    ...foldDmRooms([view], hiddenDms).map((room) => room.h),
+]
+
+const countedRoomHs: Readable<string[]> = derived(
+    [activeSpaceView, hiddenDmHs],
+    ([$view, $hidden]: [SpaceView, string[]]) => countedRoomHsOf($view, $hidden),
 )
 
 /**
- * `h` → Anzeigename derselben Räume. Nur die BEIGETRETENEN: ein fehlender Schlüssel
- * heißt in `computeUpdates` „verwaist" (§8) — nähme man `otherRooms` dazu, verlöre die
- * Liste genau die Aussage, die sie treffen soll (der Raum ist weg/nicht mehr meiner).
+ * `h` → Anzeigename der beigetretenen Räume. Nur die BEIGETRETENEN: ein fehlender
+ * Schlüssel heißt in `computeUpdates` „verwaist" (§8) — nähme man `otherRooms` dazu,
+ * verlöre die Liste genau die Aussage, die sie treffen soll (der Raum ist weg/nicht mehr
+ * meiner).
+ *
+ * **Und deshalb NICHT um die ausgeblendeten gekürzt** (P7c). Diese Karte muss eine
+ * Obermenge von {@link countedRoomHs} bleiben: „ausgeblendet" wird eine Ebene höher
+ * durchgesetzt (kein Eintrag in der zählenden Liste ⇒ übersprungen), „verwaist" hier
+ * (kein Name ⇒ Zeile bleibt stehen, aber tot). Beides über denselben fehlenden Schlüssel
+ * zu regeln hiesse, zwei verschiedene Aussagen im selben sichtbaren Ergebnis zu mischen.
  *
  * ── P7b: eine Unterhaltung heißt nicht mehr „DM" ────────────────────────────────
  *
@@ -1699,7 +1791,7 @@ const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceV
  * hänge an Profilen und liege in der Rail. Das stimmte und war trotzdem der Defekt: die
  * Rail wird im NativePHP-Host serverseitig nie gerendert (`app-frame.blade.php:44`), und
  * unterhalb `xl` steht sie auch im Web nicht. Über die Glocke → `/updates` sind die
- * Unterhaltungen dort längst erreichbar (`joinedRoomHs` oben faltet `dmRooms` ein) — die
+ * Unterhaltungen dort längst erreichbar (`countedRoomHs` oben faltet `dmRooms` ein) — die
  * Liste zeigte also N Zeilen namens „DM", weil der Relay für JEDE Zweier-Unterhaltung
  * genau diese Zeichenkette speichert (`buzz-db/src/dm.rs:157-162`).
  *
@@ -1710,6 +1802,22 @@ const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceV
  * Unterhaltung ohne auflösbare Teilnehmer soll unter dem Relay-Namen stehen bleiben,
  * nicht verschwinden.
  */
+/**
+ * Die Namenskarte als reine Funktion — ausgelagert, damit die Obermengen-Zusage
+ * PRÜFBAR ist und nicht nur behauptet.
+ *
+ * Sie war es zuerst nicht, und die Probe hat das gezeigt: eine Fassung, die hier
+ * zusätzlich die ausgeblendeten Räume herausfiltert (also „ausgeblendet" und „verwaist"
+ * über denselben fehlenden Schlüssel regelt), lief am 2026-09-04 durch **20 grüne Tests
+ * und einen grünen Typecheck**. Sichtbar wird der Unterschied heute nicht, weil
+ * `computeUpdates` zuerst an der zählenden Liste vorbeisortiert und den Namen dann gar
+ * nicht mehr nachschlägt — er wird es in dem Moment, in dem die beiden Listen
+ * auseinanderlaufen, und dann heisst eine lebende Unterhaltung „Nachricht nicht mehr
+ * verfügbar". `dmHiddenCounting.test.ts` hält die Zusage jetzt fest.
+ */
+export const roomNamesOf = (view: SpaceView, names: Record<string, string>, me: string): Record<string, string> =>
+    Object.fromEntries([...view.userRooms, ...view.dmRooms].map((room) => [room.h, dmRoomName(room, me, names)]))
+
 const joinedRoomNames: Readable<Record<string, string>> = derived(
     [activeSpaceView, dmNames, pubkey],
     ([$view, $names, $me]: [SpaceView, Record<string, string>, string | undefined]) => {
@@ -1722,9 +1830,7 @@ const joinedRoomNames: Readable<Record<string, string>> = derived(
             $view.dmRooms.flatMap((room) => room.dmParticipants ?? []),
         )
 
-        return Object.fromEntries(
-            [...$view.userRooms, ...$view.dmRooms].map((room) => [room.h, dmRoomName(room, $me ?? '', $names)]),
-        )
+        return roomNamesOf($view, $names, $me ?? '')
     },
 )
 
@@ -1758,7 +1864,7 @@ let activityController: AbortController | null = null
 
 /**
  * S1+S2 für die aktuelle Raum-Menge (neu senden, sobald sich Space ODER Mitgliedschaft
- * ändern). Der Schlüsselvergleich ist Pflicht, nicht Kosmetik: `joinedRoomHs` hängt an
+ * ändern). Der Schlüsselvergleich ist Pflicht, nicht Kosmetik: `countedRoomHs` hängt an
  * `activeSpaceView`, und das emittiert seit `lastMessageAt` bei jeder Aktivitätswelle —
  * ohne ihn risse jede eingehende Nachricht die Live-Subscription ab und baute sie neu auf.
  */
@@ -1957,7 +2063,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         livePending = null
         liveAnnounced = false
         store.liveText = ''
-        unsubUnread = deriveUnread(url, joinedRoomHs).subscribe((view: UnreadView) => {
+        unsubUnread = deriveUnread(url, countedRoomHs).subscribe((view: UnreadView) => {
             store.rooms = view.rooms
             store.threads = view.threads
             store.any = view.any
@@ -1971,14 +2077,14 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         // Kosten: `deriveUpdates` faltet dieselben zwei Event-Ströme wie `deriveUnread`
         // (throttled 300, kein Netz) plus die Profile — das ist der Preis dafür, dass die
         // Glocke auch auf Screens ohne `nostrUpdates`-Insel eine Zahl trägt.
-        unsubUpdateCount = deriveUpdates(url, joinedRoomHs, joinedRoomNames).subscribe((items: UpdateItem[]) => {
+        unsubUpdateCount = deriveUpdates(url, countedRoomHs, joinedRoomNames).subscribe((items: UpdateItem[]) => {
             store.updates = countUnreadUpdates(items)
             announceUnread(store.updates)
         })
     })
     // Ohne diese Subscription bewegte sich der Punkt NUR beim Kaltstart aus dem Cache:
     // `watchSpaceRooms` holt bloß Raum-Metadaten, `listenRoom` nur den EINEN offenen Raum.
-    joinedRoomHs.subscribe((hs: string[]) => syncRoomActivity(get(activeSpace), hs))
+    countedRoomHs.subscribe((hs: string[]) => syncRoomActivity(get(activeSpace), hs))
 }
 
 export function registerNostrComponents(Alpine: {
@@ -3691,7 +3797,7 @@ export function registerNostrComponents(Alpine: {
                     this._controller?.abort()
                     this._controller = new AbortController()
                     watchSpaceRooms(url, this._controller.signal)
-                    this._unsubItems = deriveUpdates(url, joinedRoomHs, joinedRoomNames).subscribe((items: UpdateItem[]) => {
+                    this._unsubItems = deriveUpdates(url, countedRoomHs, joinedRoomNames).subscribe((items: UpdateItem[]) => {
                         this.items = items
                         // Autoren-Profile (kind 0) wärmen — sonst steht in der häufigsten
                         // Zeile der npub statt des Namens (§3.2 ②). `warmProfiles`
@@ -3737,7 +3843,7 @@ export function registerNostrComponents(Alpine: {
                 try {
                     const threads = loadSpaceThreads(url)
                     await readStateReady
-                    const hs = await firstNonEmpty(joinedRoomHs)
+                    const hs = await firstNonEmpty(countedRoomHs)
                     await Promise.all([threads, loadRoomActivity(url, [...hs])])
                     this.error = ''
                 } catch {
