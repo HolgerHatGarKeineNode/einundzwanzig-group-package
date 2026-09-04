@@ -70,6 +70,20 @@
          "
          class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
+        {{-- ══ THE DIRECT CHILDREN OF `[data-rail]` ARE THE FOUR LAYOUT BLOCKS ══════
+             Header · search field · list · footer, and nothing else. The placeholder
+             (`rail-skelett.blade.php`) mirrors exactly these four, and
+             `tests/e2e/desktop-boot-geometrie.spec.ts` compares them block for block —
+             its `bloecke()` throws on any other count, because a pairwise comparison of
+             two differently long lists is not a comparison.
+
+             Non-layout attachments (store lifecycles, overlays) therefore go INSIDE one
+             of the four, not next to them — the DM store lifecycle at the top of the
+             scroller, the DM dialog at the end of the footer, each with its own note.
+             A visibility filter in the test would not be an alternative: an empty
+             `<ui-modal>` is not `display:none`, so it would pass such a filter and the
+             invariant would only look intact. --}}
+
         {{-- Space-Kopf: „wo bin ich" gehört an den Anfang der Ortsspalte. --}}
         <div class="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-3">
             <x-group::nostr-avatar picture="space?.icon" name="spaceLabel" size="2rem" />
@@ -165,6 +179,32 @@
              prüft damit, was von „Regel 1" bleibt — im SCROLLER steht kein flacher
              Forge-Eintrag; er ist eine Fläche des Clients, kein Raum. --}}
         <div data-rail-scroller class="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+
+            {{-- ── Direktnachrichten (P7): Store anmelden ──────────────────────────
+                 Der Zustand liegt in `$store.dms` (js/dms.ts) und nicht in `nostrRail` — er
+                 wird an zwei Stellen gebraucht, die einander im DOM nicht sehen: die Gruppe
+                 in dieser Spalte und der Dialog am Ende dieser Datei. Dieselbe Bauart und
+                 derselbe Grund wie bei Pin, Lesezeichen, Erinnerung und Präsenz.
+
+                 Die Anmeldung hängt an der RAIL und nicht an einer Raumseite: die DM-Gruppe
+                 steht auf jeder Desktop-Seite, und die ausgeblendeten Unterhaltungen (30622)
+                 müssen bekannt sein, bevor die erste Zeile gerendert wird. Der Zähler in
+                 `mount`/`unmount` deckt den `wire:navigate`-Fall ab (neuer Body VOR dem
+                 Abräumen des alten). Auf dem Telefon existiert dieser Knoten nicht (das
+                 `x-if` oben), der Store wird dort also nie angemeldet. --}}
+            {{-- It stands at the TOP of the scroller and no longer as the rail's first
+                 child: `[data-rail]` may carry exactly the four layout blocks (see the
+                 note at the top of this file). Here the sentence above still holds
+                 literally — the DM group is rendered by the very groups below, so the
+                 store is armed before their first row. Measured 2026-09-04 with a probe
+                 on `$store.dms.mount`: at the moment of the call the rail stood with its
+                 four blocks and `[data-rail-gruppenkopf]` was still **0**. `hidden` keeps
+                 the node out of the box tree entirely, so the scroller's height is
+                 untouched. --}}
+            <div x-data="{
+                     init() { $store.dms?.mount() },
+                     destroy() { $store.dms?.unmount() },
+                 }" hidden></div>
 
             {{-- Vier Gruppen, feste Reihenfolge. Die zweite Achse (Mitgliedschaft)
                  wird bewusst NICHT zur Überschrift — sie ist Reihenfolge, Textgewicht
@@ -262,6 +302,29 @@
                                          heading-title-value="workspaceLabel" />
                 </div>
             </template>
+
+            {{-- ── Direktnachrichten (P7, Buzz-Kommando-Kinds 41010/41011/41012) ──
+                 An DRITTER Stelle und damit vor den beiden Verzeichnissen: „mit wem
+                 spreche ich" ist der dritte Arbeitsort neben RÄUME und FORGE. Die
+                 Blockfolge hier MUSS `RAIL_GROUP_ORDER` entsprechen — dieselbe Regel und
+                 derselbe Grund wie oben (das Auge liest die Blockfolge, Alt+↑/↓ läuft
+                 `railTargets`).
+
+                 Ohne Bedingung, anders als der Workspace: der Riegel sitzt am Store
+                 (`$store.dms.canDm`, fail-closed über `mayWriteKind`), und die Gruppe ist
+                 auf einem zooid-Space schlicht leer — dort gibt es keine DM-Kanäle, also
+                 auch keine Zeilen. Was dort fehlt, ist der `+`-Knopf, und den blendet die
+                 Fläche selbst aus.
+
+                 Ein DM-Kanal ist bei Buzz ein Kanal mit einem `h`: die Zeile führt auf
+                 `/rooms/{h}` und damit auf dieselbe Chat-Fläche wie jeder andere Raum. --}}
+            <x-group::rail-group group="dms" :label="__('Direktnachrichten')"
+                                 :action-label="__('Neue Unterhaltung')"
+                                 action-icon="pencil-square"
+                                 action-click="$store.dms?.openNew()"
+                                 action-show="$store.dms?.canDm"
+                                 always-show="$store.dms?.canDm"
+                                 :empty-text="__('Noch keine Unterhaltung — der Stift oben eröffnet eine.')" />
 
             <x-group::rail-group group="meetups" :label="__('Meetups')" :countries="true" />
             <x-group::rail-group group="proposals" :label="__('Projektunterstützung')" />
@@ -401,6 +464,25 @@
                         <span>{{ __('Forge') }}</span>
                     </a>
                 @endif
+
+                {{-- Lesezeichen (P2) — dieselbe leise Form wie die beiden Zeilen darüber.
+                     Ohne Bedingung, anders als die Forge: die Liste hängt am NUTZER
+                     (NIP-51 kind 10003) und nicht an einer Konfiguration, ein Leerzustand
+                     hier ist also eine Aussage und keine Sackgasse. Eigener
+                     `data-rail-fuss`-Anker, weil „Lesezeichen" auch in der
+                     Befehlspalette steht — ein Test auf den Text träfe irgendeine der
+                     beiden Stellen. --}}
+                @php($bookmarksActive = request()->routeIs('group.bookmarks'))
+                <a href="{{ route('group.bookmarks') }}" wire:navigate data-rail-fuss="lesezeichen"
+                   @if ($bookmarksActive) aria-current="page" @endif
+                   @class([
+                       'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
+                       'font-semibold text-zinc-900 dark:text-zinc-100' => $bookmarksActive,
+                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $bookmarksActive,
+                   ])>
+                    <flux:icon.bookmark variant="micro" class="size-4 shrink-0" />
+                    <span>{{ __('Lesezeichen') }}</span>
+                </a>
             </div>
 
             <x-group::bottom-nav orientation="rail" />
@@ -424,7 +506,13 @@
                     <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
                             :aria-label="@js(__('Angemeldet als :name')).split(':name').join(myName)"
                             class="pressable flex w-full min-w-0 items-center gap-2 rounded-tile px-1.5 py-1 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5">
-                        <x-group::nostr-avatar picture="myPicture" name="myName" size="1.75rem" />
+                        {{-- Der eigene Präsenzpunkt (P6). Er liest `mine` und NICHT
+                             `byPubkey[<eigener pubkey>]`: der Relay fanoutet das eigene 20001 nicht
+                             zuverlässig an die eigene Verbindung zurück, und was hier stehen soll, ist
+                             ohnehin die andere Auskunft — „das sendest du gerade über dich". Ist der
+                             Store nicht angemeldet (kein Raum offen), steht dort nichts. --}}
+                        <x-group::nostr-avatar picture="myPicture" name="myName" size="1.75rem"
+                                               presence="$store.presence?.mine" />
                         <span class="min-w-0 flex-1 truncate text-start text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
                         <x-group::nostr-nip05 nip05="myNip05" />
                         <flux:icon.chevron-up variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />
@@ -471,6 +559,29 @@
                     </div>
                 </div>
             </div>
+
+            {{-- ══ A NON-LAYOUT ATTACHMENT — INSIDE the footer, not next to it ═════
+                 The dialog below occupies no space: a closed `flux:modal` is a
+                 `<dialog>` in the UA's `display:none` state inside an empty
+                 `<ui-modal>` — no line box, no height. It still may not be a direct
+                 child of `[data-rail]`: that child set IS the measured column (four
+                 blocks, see the note at the top of this file), and a fifth entry breaks
+                 the block-for-block comparison against the placeholder.
+
+                 The footer is the host because it is the one block that is never
+                 collapsed, never scrolled and always present (`shrink-0`) — the dialog
+                 keeps standing at the END of the column, as its own note below says,
+                 and its height (302 px, 264 px without a workspace) is asserted in
+                 `desktop-boot-geometrie.spec.ts`, so a box appearing here cannot pass
+                 unnoticed. --}}
+
+            {{-- ── Der Dialog für Direktnachrichten (P7) ───────────────────────────
+                 Innerhalb des `nostrRail`-Scopes, weil er die Liste der Unterhaltungen aus
+                 `groupFor('dms')` liest — derselben Ableitung, aus der die Spalte darüber
+                 gebaut wird. Eine zweite Liste wäre eine zweite Wahrheit über dieselbe Frage.
+                 Er steht am ENDE der Spalte und nicht in der Gruppe: ein `flux:modal` in
+                 einem `x-show`-Block würde mit der Gruppe auf- und zugeklappt. --}}
+            <x-group::dm-modal />
         </div>
     </div>
 </template>

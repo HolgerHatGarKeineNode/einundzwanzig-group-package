@@ -74,6 +74,96 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-on:click="undoMarkAll(); $nextTick(function () { ($refs.markAllBtn?.offsetParent ? $refs.markAllBtn : $refs.list).focus() })">{{ __('Rückgängig') }}</flux:button>
         </div>
 
+        {{-- ── Fällige Erinnerungen (P5, NIP-ER kind 30300) ──────────────────────────
+
+             **Warum hier und nicht in `computeUpdates`:** eine Erinnerung ist keine
+             Benachrichtigung über jemand anderen. `UpdateItem` trägt `unread`, `count`,
+             `bucket`, `orphan` und einen Autor — für eine selbst gestellte Erinnerung ist
+             davon nichts wahr, und `computeUpdates` entscheidet alles am Lesestand
+             (kind 30078), an dem eine Erinnerung nicht teilnimmt. Sie stünde also als
+             Sonderfall in einer Funktion, deren ganze Zusage die einheitliche Behandlung
+             ist. Deshalb ein eigener Abschnitt auf demselben SCHIRM — das ist es, was
+             „erscheint über die Updates-Fläche" heißt.
+
+             Der Abschnitt steht ÜBER den Reitern, weil die Reiter Fremd-Aktivität filtern
+             („Erwähnungen", „Threads") und eine eigene Erinnerung in keinen der beiden
+             fiele. Er erscheint nur, wenn etwas fällig ist; nichts Fälliges heißt keine
+             Fläche, kein Leerzustand, keine Zeile.
+
+             Der Zustand liegt in `$store.reminders` (js/reminders.ts) und nicht in
+             `nostrUpdates`: derselbe Store trägt den Menü-Eintrag im Raum, und zwei
+             Inseln wären zwei Wahrheiten über „ist die schon erledigt?". --}}
+        <div x-data="{
+                 init() { $store.reminders?.mount() },
+                 destroy() { $store.reminders?.unmount() },
+             }">
+            <template x-if="($store.reminders?.due ?? []).length > 0">
+                <section class="surface-card mb-3 overflow-hidden" aria-labelledby="reminders-heading">
+                    <h2 id="reminders-heading"
+                        class="flex items-center gap-2 px-4 pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+                        <flux:icon.clock variant="micro" class="size-4" />
+                        {{ __('Erinnerungen') }}
+                    </h2>
+
+                    {{-- Fehler des Relays, wörtlich — gleiche Bauart wie überall im Haus.
+                         Er steht HIER und nicht nur im Dialog: „Erledigt" wird von dieser
+                         Fläche aus geklickt, und eine abgelehnte Ersetzung ließe die Zeile
+                         sonst kommentarlos stehen. --}}
+                    <template x-if="$store.reminders?.error">
+                        <flux:callout variant="danger" icon="exclamation-triangle" class="mx-4 mb-3">
+                            <flux:callout.text x-text="$store.reminders.error"></flux:callout.text>
+                            <x-slot name="actions">
+                                <flux:button size="sm" variant="ghost" x-on:click="$store.reminders.dismissError()">{{ __('Verstanden') }}</flux:button>
+                            </x-slot>
+                        </flux:callout>
+                    </template>
+
+                    <div class="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
+                        <template x-for="row in $store.reminders.due" :key="row.d">
+                            <div class="flex items-start gap-2 px-2">
+                                {{-- Zwei Formen wie beim Lesezeichen: aufgelöst ein Link,
+                                     sonst ein inertes Feld. Eine Erinnerung kann älter
+                                     sein als jedes geladene Fenster, und ein Link ins
+                                     Nichts wäre die zweitfalsche Auskunft. --}}
+                                <template x-if="row.href">
+                                    <a :href="row.href" wire:navigate
+                                       class="pressable flex min-w-0 flex-1 items-start gap-3 rounded-tile px-2 py-3 text-left transition-colors hover:bg-brand-500/5">
+                                        <span class="min-w-0 flex-1">
+                                            <span class="block text-sm leading-normal text-zinc-900 line-clamp-2 dark:text-zinc-100"
+                                                  x-text="row.preview || row.note"></span>
+                                            <span class="mt-2 block text-xs text-muted" x-text="row.timeLabel"></span>
+                                        </span>
+                                        <flux:icon.chevron-right class="mt-1 size-4 shrink-0 text-muted" />
+                                    </a>
+                                </template>
+                                <template x-if="!row.href">
+                                    <div class="min-w-0 flex-1 px-2 py-3">
+                                        <p class="text-sm leading-normal text-zinc-900 line-clamp-2 dark:text-zinc-100"
+                                           x-text="row.preview || row.note || @js(__('(Nachricht wird geladen…)'))"></p>
+                                        <p class="mt-2 text-xs text-muted" x-text="row.timeLabel"></p>
+                                    </div>
+                                </template>
+
+                                {{-- `::disabled` an `busy`, sonst ist der Knopf während
+                                     eines laufenden Schreibvorgangs ein stiller
+                                     Blindgänger — `finish()` verwirft den Klick dann, und
+                                     das Fenster endet erst mit dem Verdikt des Relays.
+                                     Dieselbe Bindung wie an der Pin-Leiste. --}}
+                                <flux:button size="xs" variant="ghost" icon="check" class="icon-btn-touch mt-3 shrink-0"
+                                             ::disabled="$store.reminders.busy"
+                                             x-on:click="$store.reminders.finish(row.d, 'done')"
+                                             aria-label="{{ __('Erinnerung erledigt') }}" />
+                                <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch mt-3 shrink-0"
+                                             ::disabled="$store.reminders.busy"
+                                             x-on:click="$store.reminders.finish(row.d, 'cancelled')"
+                                             aria-label="{{ __('Erinnerung verwerfen') }}" />
+                            </div>
+                        </template>
+                    </div>
+                </section>
+            </template>
+        </div>
+
         {{-- Filter. `flux:tabs` OHNE `flux:tab.group`: ohne Panels wirft Flux beim
              Auflösen des Panels („Could not find panel…"), sobald eine Tab-Gruppe da
              ist — hier filtert der Tab nur eine Alpine-Liste, es gibt keine Panels.

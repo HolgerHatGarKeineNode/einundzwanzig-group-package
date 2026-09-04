@@ -34,10 +34,23 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         // wäre ein Drei-Repo-Release inkl. Play-Store. Statisches erstes Segment,
         // kollidiert also mit keinem `/rooms/{h}`.
         Route::livewire('/updates', 'group::updates')->name('updates');
+        /*
+         * Lesezeichen (P2, NIP-51 kind 10003/30003). Eigener Screen, KEIN
+         * Bottom-Nav-Tab: die Spaltenklasse der Bar hängt an `count($items)`
+         * (`bottom-nav.blade.php:77`), ein fünfter Eintrag fiele still auf drei
+         * Spalten zurück — und der Tab-Satz lebt in drei Repos (Package, Web-Host,
+         * Mobile-Host), ein neuer Tab wäre ein Drei-Repo-Release inkl. Play-Store.
+         * Einstiege sind deshalb Befehlspalette, Rail-Fußzeile und das
+         * Nachrichten-Menü. Statisches erstes Segment, kollidiert mit keinem
+         * `/rooms/{h}`.
+         */
+        Route::livewire('/bookmarks', 'group::bookmarks')->name('bookmarks');
         Route::livewire('/directory', 'group::directory')->name('directory');
         // Longform-Artikel (P7, NIP-23). Eigener Screen, KEIN Bottom-Nav-Tab und kein
         // Rail-Eintrag: die Spaltenklasse der Bottom-Nav hängt an `count($items)`
-        // (`bottom-nav.blade.php:56`) — ein vierter Tab wäre ein Drei-Repo-Release; und
+        // (`bottom-nav.blade.php:77` — der Verweis stand bis P2 auf `:56` und zeigte
+        // seit einem Blockverschub ins Leere) — ein vierter Tab wäre ein
+        // Drei-Repo-Release; und
         // die Rail ist eine Sprungliste für RÄUME (`RailRoom` verlangt ein `h`), ein
         // Artikel hat keins. Einstiege sind deshalb Befehlspalette, Rail-Fußzeile und
         // eine Zeile auf der Übersicht. Statisches erstes Segment, kollidiert mit keinem

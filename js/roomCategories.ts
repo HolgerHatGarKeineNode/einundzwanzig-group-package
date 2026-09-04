@@ -102,6 +102,30 @@ export const FORUM_CHANNEL_TYPE = 'forum'
 export const parseForumTag = (tags: string[][]): boolean =>
     tags.some((tag) => tag[0] === 't' && tag[1] === FORUM_CHANNEL_TYPE)
 
+// ── DM channels (Buzz, P7) ──────────────────────────────────────────────────
+
+/**
+ * The `t` value with which BUZZ marks a direct conversation.
+ *
+ * Fourth and last value of the same `channel_type` enum documented above — the relay
+ * writes it into `["t", …]` from the database row (`side_effects.rs:1096`), exactly as
+ * it does for `forum`. A DM's 39000 additionally carries `["hidden"]`, `["private"]` and
+ * one `["p", <hex>]` per participant (`side_effects.rs:1082-1095`); none of those is a
+ * type marker, which is why the type question is asked here and only here.
+ *
+ * On zooid the same tag name carries OUR categories (`meetup`, `project-support`) —
+ * collision-free, because neither is called `dm`. The DATA decides, never a relay
+ * branch: same rule and same reason as {@link FORUM_CHANNEL_TYPE}.
+ */
+export const DM_CHANNEL_TYPE = 'dm'
+
+/**
+ * Does this 39000 carry the DM channel type? Lifted from the RAW tags like
+ * {@link parseForumTag} — welshman's `readRoomMeta` does not read `t`.
+ */
+export const parseDmTag = (tags: string[][]): boolean =>
+    tags.some((tag) => tag[0] === 't' && tag[1] === DM_CHANNEL_TYPE)
+
 /** Das Minimum an Kategorie-Flags, ueber das die Raumlisten filtern. */
 export type RoomCategoryFlags = {
     isMeetup?: boolean

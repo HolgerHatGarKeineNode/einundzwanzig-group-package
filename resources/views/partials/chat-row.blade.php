@@ -59,8 +59,16 @@
                                     {{-- Status-Emoji (NIP-38) als Plakette am Avatar; der Statustext steht
                                          hinter dem Namen (unten). Beide sind im Workspace-Arm gefüllt und
                                          auf zooid immer leer — `m.status` ist dort null. --}}
+                                    {{-- Präsenzpunkt (P6, Buzz kind 20001) an der OBEREN Ecke, die
+                                         Status-Plakette an der unteren — sie schließen einander nicht aus.
+                                         Fehlt der Pubkey in der Tabelle, rendert die Komponente nichts:
+                                         Präsenz hat keinen Bestand, „nichts gehört" ist deshalb keine
+                                         Aussage über den Nutzer (Begründung in `js/presenceData.ts`).
+                                         Kein Skeleton wie beim Status: dort ist die Leere die AUSNAHME
+                                         und ein Platzhalter sagt „gleich", hier ist sie der Normalfall. --}}
                                     <x-group::nostr-avatar picture="m.picture" name="m.profileReady ? m.name : ''"
-                                                           emoji="m.status?.emoji" />
+                                                           emoji="m.status?.emoji"
+                                                           presence="$store.presence?.byPubkey?.[m.pubkey]" />
                                 </button>
                             </template>
                             {{-- Folgezeile ohne Autor-Kopf: HH:MM erscheint links bei Hover. --}}
@@ -484,6 +492,55 @@
                                                                 x-on:click="$store.roomPins.toggle(m.id)">{{ __('Loslösen') }}</flux:menu.item>
                                             </template>
                                             @endif
+                                            {{-- Merken (P2, NIP-51 kind 10003). Zustand und Rechte liegen in
+                                                 `$store.bookmarks` (js/bookmarks.ts), hier wird nur gelesen —
+                                                 `nostrRoomChat` bekommt dafür kein eigenes Feld.
+
+                                                 KEIN `@if ($context === 'room')` um diesen Block, anders als beim
+                                                 Pin: ein Lesezeichen ist ein `["e", <id>]` und damit
+                                                 kind-agnostisch — an einem Thread-Kommentar (kind 1111) entsteht
+                                                 dieselbe gültige Liste wie an einer Nachricht. Dieselbe Regel wie
+                                                 bei „Fork off!" darunter.
+
+                                                 `canBookmark` ist fail-closed: es ist falsch, solange
+                                                 `deriveSpaceKind` noch `'unknown'` meldet (NIP-11 unterwegs) und
+                                                 für einen Gast ohne Signer. Ein Eintrag, der dann nichts täte,
+                                                 erscheint gar nicht erst.
+
+                                                 `disabled` an `busy` aus demselben Grund wie beim Pin: `toggle()`
+                                                 verwirft einen Klick, solange ein Schreibvorgang läuft, und dieses
+                                                 Fenster endet erst mit dem Verdikt des Relays. --}}
+                                            <template x-if="$store.bookmarks?.canBookmark && !$store.bookmarks?.isBookmarked(m.id)">
+                                                <flux:menu.item icon="bookmark" x-bind:disabled="$store.bookmarks.busy"
+                                                                x-on:click="$store.bookmarks.toggle(m.id)">{{ __('Merken') }}</flux:menu.item>
+                                            </template>
+                                            <template x-if="$store.bookmarks?.canBookmark && $store.bookmarks?.isBookmarked(m.id)">
+                                                <flux:menu.item icon="bookmark-slash" x-bind:disabled="$store.bookmarks.busy"
+                                                                x-on:click="$store.bookmarks.toggle(m.id)">{{ __('Nicht mehr merken') }}</flux:menu.item>
+                                            </template>
+                                            {{-- Erinnere mich (P5, NIP-ER kind 30300). Zustand und Rechte liegen in
+                                                 `$store.reminders` (js/reminders.ts), hier wird nur gelesen —
+                                                 `nostrRoomChat` bekommt dafür kein eigenes Feld.
+
+                                                 KEIN `@if ($context === 'room')`, dieselbe Regel wie beim Lesezeichen:
+                                                 das Ziel einer Erinnerung ist eine Event-Id und damit kind-agnostisch;
+                                                 an einem Thread-Kommentar (kind 1111) entsteht dieselbe gültige
+                                                 Erinnerung wie an einer Nachricht.
+
+                                                 `canRemind` ist fail-closed und STRENGER als beim Lesezeichen: es ist
+                                                 falsch, solange `deriveSpaceKind` noch `'unknown'` meldet, für einen
+                                                 Gast ohne Signer, auf jedem Nicht-Buzz-Space UND auf einem Buzz-Space,
+                                                 dessen NIP-11 kein `nip-er` annonciert — dort liefe der Relay-Scheduler
+                                                 nicht, die Erinnerung würde angenommen und nie fällig.
+
+                                                 Übergeben wird NUR die Id: den Vorschautext holt sich der Store aus dem
+                                                 Repository (`bodyWithoutQuote`). `m.html` wäre gerendertes Markup, und
+                                                 das landete verschlüsselt in der Erinnerung und danach als Text in der
+                                                 Erinnerungszeile. --}}
+                                            <template x-if="$store.reminders?.canRemind">
+                                                <flux:menu.item icon="clock" x-bind:disabled="$store.reminders.busy"
+                                                                x-on:click="$store.reminders.openFor(m.id)">{{ __('Erinnere mich') }}</flux:menu.item>
+                                            </template>
                                             {{-- Fork off!: fremde Nachrichten anprangern (NIP-56 kind 1984) — generisch, auch im Thread. --}}
                                             <template x-if="!m.mine">
                                                 <flux:menu.item icon="flag" x-on:click="askReport(m)">Fork off!</flux:menu.item>
@@ -503,8 +560,12 @@
                                             <template x-if="isAdmin && !m.mine">
                                                 <flux:menu.item icon="trash" variant="danger" x-on:click="askAdminDelete(m)">{{ __('Nachricht entfernen') }}</flux:menu.item>
                                             </template>
-                                            {{-- „Autor bannen" (banpubkey) vorerst NICHT angeboten (bewusst deaktiviert). Zum
-                                                 Reaktivieren dieses template x-if wieder einkommentieren (JS confirmBanAuthor bleibt).
+                                            {{-- „Autor bannen" (banpubkey) NICHT angeboten.
+                                                 no removal or ban of members here — the association does not remove or ban its
+                                                 members (decision 2026-09-03); the timed suspension on the member screen
+                                                 (`⚡directory.blade.php`, Buzz kind 9042) is the strongest measure this surface
+                                                 offers. „Nachricht entfernen" above stays operable: it hits content, not a person.
+                                                 The write path stays (JS `confirmBanAuthor`).
                                             <template x-if="isAdmin && !m.mine">
                                                 <flux:menu.item icon="no-symbol" variant="danger" x-on:click="askBanAuthor(m)">{{ __('Autor bannen') }}</flux:menu.item>
                                             </template>

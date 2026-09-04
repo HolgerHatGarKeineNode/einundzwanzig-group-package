@@ -18,6 +18,23 @@
     'headingTitleValue' => null,
     // Rendert den Forge-Baum zwischen Angehefteten und Sektionen (nur 'workspace').
     'tree' => false,
+    // Eine HANDLUNG am Gruppenkopf: Beschriftung, Icon-Name und der Alpine-Ausdruck,
+    // der sie ausloest. `null` = kein Knopf, und dann ist dieser Kopf zeichengleich zu
+    // vorher. Gebaut wie `overviewLabel` darueber — nur dass jener ein LINK auf eine
+    // Uebersicht ist und dieser eine Aktion im Insel-Scope. Beides nebeneinander gibt es
+    // heute an keiner Gruppe; die zwei Bloecke stehen deshalb unabhaengig voneinander.
+    'actionLabel' => null,
+    'actionIcon' => 'plus',
+    'actionClick' => null,
+    // Alpine-Ausdruck, der entscheidet, OB der Knopf dasteht. `null` = immer.
+    'actionShow' => null,
+    // Alpine-Ausdruck, der die Sektion auch OHNE Zeilen stehen lässt. `null` = die
+    // Sektion erscheint erst mit dem ersten Eintrag (das bisherige Verhalten für alle
+    // ausser `rooms`).
+    'alwaysShow' => null,
+    // Der Satz im leeren Zustand. Der Default ist der bisherige Wortlaut, damit die
+    // vier bestehenden Gruppen zeichengleich bleiben.
+    'emptyText' => null,
 ])
 
 {{-- Ein Abschnitt des Desktop-Navigators. Steht im `nostrRail`-Scope und liest die
@@ -102,8 +119,18 @@
      Mechanismus mitbringt: als `<nav>`-Landmark um die Gruppenliste
      (`desktop-rail.blade.php`). --}}
 @php($present = 'groupTotal('.json_encode($group).') > 0')
+{{-- ── Wann die Sektion überhaupt existiert ────────────────────────────────────
+     Bisher: sobald sie einen Eintrag hat — plus die harte Ausnahme für `rooms`, damit
+     die Hauptliste auch leer einen Kopf trägt. `alwaysShow` verallgemeinert genau diese
+     Ausnahme, statt eine zweite daneben zu setzen.
 
-<template x-if="{{ $present }} || @js($group) === 'rooms'">
+     Für die Direktnachrichten ist das kein Schmuck, sondern die Voraussetzung: die
+     Handlung „Neue Unterhaltung" hängt am Gruppenkopf, und ohne diesen Ausdruck gäbe es
+     den Kopf erst, wenn die erste Unterhaltung existiert — die man ohne ihn nicht anlegen
+     kann. Ein Henne-Ei-Fehler, der sich als leere Spalte tarnt. --}}
+@php($sichtbar = $alwaysShow ? $present.' || ('.$alwaysShow.')' : $present)
+
+<template x-if="{{ $sichtbar }} || @js($group) === 'rooms'">
     <section class="pt-2">
         <div class="flex min-h-7 items-center gap-1 px-2">
             {{-- ── Zwei Trefferflächen, wenn der Name ein Ziel hat (P1) ────────
@@ -225,6 +252,20 @@
                    class="pressable inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
                     <flux:icon.code-bracket variant="micro" aria-hidden="true" class="size-3.5" />
                 </a>
+            @endif
+
+            @if ($actionLabel && $actionClick)
+                {{-- Die Handlung des Kopfes, in derselben Form wie die Lupe daneben:
+                     Icon-Knopf mit `aria-label` UND `title`. Ein nacktes Icon ohne Namen
+                     waere ein Raetsel — dieselbe Begruendung wie beim Uebersichts-Link
+                     darueber. Der Ausdruck laeuft im `nostrRail`-Scope, aus dem heraus
+                     `$store` erreichbar ist. --}}
+                <button type="button" x-on:click="{{ $actionClick }}"
+                        @if ($actionShow) x-show="{{ $actionShow }}" x-cloak @endif
+                        aria-label="{{ $actionLabel }}" title="{{ $actionLabel }}"
+                        class="pressable inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+                    <flux:icon :name="$actionIcon" variant="micro" aria-hidden="true" class="size-3.5" />
+                </button>
             @endif
 
             <button type="button" x-on:click="scopeToGroup(@js($group))"
@@ -375,7 +416,7 @@
             </template>
 
             <template x-if="!({{ $present }})">
-                <p class="px-2 py-1.5 text-xs text-muted">{{ __('Kein Treffer in dieser Gruppe.') }}</p>
+                <p class="px-2 py-1.5 text-xs text-muted">{{ $emptyText ?? __('Kein Treffer in dieser Gruppe.') }}</p>
             </template>
         </div>
     </section>

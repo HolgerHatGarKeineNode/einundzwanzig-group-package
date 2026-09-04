@@ -69,9 +69,14 @@
 
        | Lage | Kopf | Suchfeld | Liste | Fußzeile |
        |---|---|---|---|---|
-       | mit `workspace_url`, Space ungeladen | 60 | 36 | 532 | 264 |
-       | ohne `workspace_url`, Space ungeladen | 60 | 36 | 570 | **226** |
-       | mit `workspace_url`, Space MIT Beschreibung | **64** | 36 | **528** | 264 |
+       | mit `workspace_url`, Space ungeladen | 60 | 36 | 494 | 302 |
+       | ohne `workspace_url`, Space ungeladen | 60 | 36 | 532 | **264** |
+       | mit `workspace_url`, Space MIT Beschreibung | **64** | 36 | **490** | 302 |
+
+     RE-MEASURED 2026-09-04: all three rows moved by 38 px between list and footer. The
+     footer gained the „Lesezeichen" row that P2 had added to `desktop-rail.blade.php`
+     alone — see the note at `$flaechen` below, and the head of
+     `desktop-boot-geometrie.spec.ts`.
 
      Die ersten beiden Lagen trifft der Platzhalter zahlengleich — er trägt dieselben
      Config-Bedingungen wie `desktop-rail.blade.php`. Die dritte kann er nicht
@@ -178,13 +183,14 @@
          unten weitergeht. Für eine Raumliste ab 1280 px trägt diese Zusage.
 
          DREI Gruppen zu sieben Zeilen. Am gerenderten Element gemessen (1440×900,
-         Sonde 2026-08-21): Inhaltshöhe **788 px** bei einer Scrollfläche von 532 px,
-         also beschnitten — genau die Zusage. Hier stand zuerst eine GERECHNETE 756 px;
-         die Rechnung hatte das `pt-2` je Gruppe vergessen. Deshalb steht jetzt der
-         gemessene Wert da: 3 × 260 (Gruppe) + 8 (`pb-2` des Containers).
+         Sonde 2026-08-21): Inhaltshöhe **788 px** bei einer Scrollfläche von 494 px
+         (bis 2026-09-04: 532 px, siehe die Tabelle oben), also beschnitten — genau die
+         Zusage. Hier stand zuerst eine GERECHNETE 756 px; die Rechnung hatte das `pt-2`
+         je Gruppe vergessen. Deshalb steht jetzt der gemessene Wert da:
+         3 × 260 (Gruppe) + 8 (`pb-2` des Containers).
 
-         Die Zeilen füllen die Fläche damit bis zu einem Fenster von rund 1160 px
-         (900 + 788 − 532) und lassen darüber Luft. Eine Zahl, die JEDE Fensterhöhe
+         Die Zeilen füllen die Fläche damit bis zu einem Fenster von rund 1194 px
+         (900 + 788 − 494) und lassen darüber Luft. Eine Zahl, die JEDE Fensterhöhe
          füllt, gibt es nicht — der Platzhalter füllt die üblichen, statt hundert leere
          Zeilen zu rendern. --}}
     <div class="min-h-0 flex-1 overflow-hidden px-3 pb-2">
@@ -253,7 +259,12 @@
          misst beide Konfigurationen gegeneinander. --}}
     <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <div class="mb-2">
-            @php($flaechen = config('group.workspace_url') ? [0, 1] : [0])
+            {{-- Three area rows with a workspace, two without: Artikel · Forge · Lesezeichen
+                 in `desktop-rail.blade.php`, and only the Forge row hangs on the config.
+                 The bookmarks row arrived with P2 and this list did not follow — measured
+                 at 1440×900 the footer was 302 px in the rail and 264 px here, the very
+                 38 px boot jump the note above warns about. --}}
+            @php($flaechen = config('group.workspace_url') ? [0, 1, 2] : [0, 1])
             @foreach ($flaechen as $i)
                 <div @class(['flex min-h-9 items-center gap-2 rounded-tile px-2', 'mt-0.5' => $i > 0])>
                     <div class="skeleton size-4 shrink-0 rounded"></div>

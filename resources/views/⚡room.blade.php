@@ -279,6 +279,54 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </div>
 
+        {{-- ── Lesezeichen (P2) ───────────────────────────────────────────────────────
+             Der Raum RENDERT keine Lesezeichen-Fläche, aber sein Nachrichtenmenü liest
+             `$store.bookmarks.isBookmarked(…)` — und ein Store, den niemand mountet,
+             hat nie eine Liste gelesen: der Eintrag hieße dann in jedem Raum „Merken",
+             auch für längst Gemerktes.
+
+             Ein eigenes, leeres Element und kein zweites Lebenszyklus-Paar am Pin-Balken
+             darüber: der ist an `x-show` gebunden und trägt seine eigene Begründung; zwei
+             Aufgaben an einem `x-data` wären beim nächsten Umbau des Balkens still mit
+             verschoben. `hidden` statt `x-cloak` — es gibt hier nichts anzuzeigen, auch
+             nicht kurz.
+
+             Ohne `h`-Argument, anders als beim Pin: die Lesezeichenliste gehört dem
+             NUTZER und nicht dem Raum, sie wird beim Raumwechsel also nicht neu
+             aufgezogen. Der Zähler in `mount`/`unmount` deckt trotzdem denselben
+             `wire:navigate`-Fall ab (neuer Body VOR dem Abräumen des alten). --}}
+        <div x-data="{
+                 init() { $store.bookmarks?.mount() },
+                 destroy() { $store.bookmarks?.unmount() },
+             }" hidden></div>
+
+        {{-- P5 — Erinnerungen (NIP-ER). Eigenes Lebenszyklus-Paar aus demselben Grund wie
+             beim Lesezeichen darüber: der Store gehört dem NUTZER, nicht dem Raum, und der
+             Zähler in `mount`/`unmount` deckt den `wire:navigate`-Fall ab (neuer Body VOR
+             dem Abräumen des alten). Der Raum braucht ihn für den Menü-Eintrag; angezeigt
+             werden die fälligen Erinnerungen auf `/updates`. --}}
+        <div x-data="{
+                 init() { $store.reminders?.mount() },
+                 destroy() { $store.reminders?.unmount() },
+             }" hidden></div>
+
+        {{-- P6 — Präsenz (Buzz kind 20001). Eigenes Lebenszyklus-Paar wie darüber, mit einem
+             Unterschied, der hier hingehört: dieser Store SCHREIBT, solange er angemeldet ist
+             (Herzschlag alle 45 s). Die Anmeldung an den offenen RAUM zu binden ist deshalb
+             die Aussage selbst — „online" heißt in dieser Oberfläche „hat einen Raum offen",
+             nicht „hat irgendwo einen Tab offen". Wer die Fläche verlässt, meldet sich
+             ab: der Relay räumt die Präsenz sonst erst, wenn die LETZTE Verbindung des
+             Pubkeys fällt (`buzz-relay/src/connection.rs`), und die hält dieser Client für
+             jede andere Fläche offen.
+
+             Ohne `h`-Argument wie beim Lesezeichen: Präsenz gehört dem NUTZER und nicht dem
+             Raum. Der Zähler in `mount`/`unmount` deckt trotzdem den `wire:navigate`-Fall ab
+             (neuer Body VOR dem Abräumen des alten). --}}
+        <div x-data="{
+                 init() { $store.presence?.mount() },
+                 destroy() { $store.presence?.unmount() },
+             }" hidden></div>
+
         {{-- ── Angepinnte Nachrichten (P6b) ───────────────────────────────────────────
              Der Zustand liegt in `$store.roomPins` (js/roomPins.ts), NICHT in
              `nostrRoomChat` — er wird an zwei Stellen gebraucht, die einander im DOM nicht
@@ -568,9 +616,23 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </template>
 
+            {{-- Der Ordnungs-Umschalter (P3). Er steht ÜBER der Liste und in einem
+                 eigenen Partial — die Werte darin hält `forumModels.test.ts` gegen
+                 `FORUM_SORTS`, Reihenfolge inklusive. --}}
+            @include('group::partials.forum-sortierung')
+
             <ul role="list" class="space-y-2 py-2" x-show="topics.length > 0" x-cloak>
-                <template x-for="topic in topics" :key="topic.id">
-                    <li>
+                {{-- `sortedTopics()` und nicht `topics`: die Ableitung liefert die
+                     Default-Ordnung (letzte Aktivität), die Wahl des Nutzers wird erst
+                     hier angewandt. Als Methode gelesen, damit Alpine BEIDE Quellen —
+                     die Zeilen und die gewählte Ordnung — als Abhängigkeit sieht. --}}
+                <template x-for="topic in sortedTopics()" :key="topic.id">
+                    {{-- Zeile = Bewertungsspalte + Karte, nebeneinander. Die Spalte
+                         steht NEBEN der Karte und nicht darin, weil die Karte selbst ein
+                         `<button>` ist und ein Knopf im Knopf kein gültiges HTML wäre —
+                         der Browser bräche ihn aus dem Elternteil heraus. --}}
+                    <li class="flex items-start gap-2">
+                        <x-group::forum-vote topic="topic" />
                         {{-- Die ganze Karte ist der Knopf: ein Thema hat genau ein Ziel
                              (seinen Thread), also gibt es auch nur eine Trefferfläche.
                              `aria-label` trägt den ganzen Satz inklusive Antwortzahl —
@@ -585,7 +647,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 x-bind:aria-label="@js(__('Thema :title öffnen'))
                                     .split(':title').join(topic.title || @js(__('Ohne Titel')))
                                     + ' — ' + $plural(topic.replyCount, '1 Antwort', ':count Antworten')"
-                                class="pressable surface-card flex w-full flex-col gap-1 p-3 text-start transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                                {{-- `min-w-0 flex-1` statt `w-full`: in der Flex-Zeile
+                                     neben der Bewertungsspalte rechnete `w-full` gegen
+                                     die volle Zeilenbreite und die Karte liefe über.
+                                     `min-w-0` ist die Bedingung dafür, dass `truncate`
+                                     und `line-clamp` darin überhaupt greifen — ein
+                                     Flex-Kind hat als Mindestbreite sonst seinen
+                                     Inhalt. --}}
+                                class="pressable surface-card flex min-w-0 flex-1 flex-col gap-1 p-3 text-start transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800">
                             <span class="flex min-w-0 items-start gap-2">
                                 <x-group::nostr-avatar picture="topic.picture" name="topic.authorName" size="1.5rem" />
                                 <span class="min-w-0 flex-1">
@@ -1014,9 +1083,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
         </div>
     </flux:modal>
 
-    {{-- Admin: Autor bannen (NIP-86 banpubkey) — vorerst NICHT angeboten (bewusst
-         deaktiviert). Zum Reaktivieren dieses Modal + die Menü-Trigger wieder
-         einkommentieren (JS confirmBanAuthor bleibt bestehen).
+    {{-- Admin: Autor bannen (NIP-86 banpubkey) — NICHT angeboten.
+         no removal or ban of members here — the association does not remove or ban its
+         members (decision 2026-09-03); the timed suspension on the member screen
+         (`⚡directory.blade.php`, Buzz kind 9042) is the strongest measure this surface
+         offers, and there is no escalation step above it. Removing a single MESSAGE
+         (`admin-delete-message` above) is deliberately untouched: it hits content, not a
+         person. The write path stays (JS `confirmBanAuthor`) — it carries the zooid arm.
     <flux:modal name="ban-author" class="max-w-sm">
         <div class="space-y-4">
             <flux:heading size="lg">{{ __('Autor bannen?') }}</flux:heading>
@@ -1291,6 +1364,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          x-show="!_menuInThread && menuFor && $store.roomPins?.canUnpin(menuFor.id)" x-cloak
                          ::disabled="$store.roomPins.busy"
                          x-on:click="if (menuFor) { $store.roomPins.toggle(menuFor.id); closeMessageMenu() }">{{ __('Loslösen') }}</flux:button>
+            {{-- Merken (P2, NIP-51) — dieselben Bedingungen wie im Web-Popover
+                 (`partials/chat-row.blade.php`), Begründung dort. Ohne `!_menuInThread`:
+                 ein `["e", <id>]` ist kind-agnostisch, an einem Thread-Kommentar
+                 entsteht dieselbe gültige Liste wie an einer Nachricht. --}}
+            <flux:button variant="ghost" icon="bookmark" class="w-full justify-start"
+                         x-show="menuFor && $store.bookmarks?.canBookmark && !$store.bookmarks?.isBookmarked(menuFor.id)" x-cloak
+                         ::disabled="$store.bookmarks.busy"
+                         x-on:click="if (menuFor) { $store.bookmarks.toggle(menuFor.id); closeMessageMenu() }">{{ __('Merken') }}</flux:button>
+            <flux:button variant="ghost" icon="bookmark-slash" class="w-full justify-start"
+                         x-show="menuFor && $store.bookmarks?.canBookmark && $store.bookmarks?.isBookmarked(menuFor.id)" x-cloak
+                         ::disabled="$store.bookmarks.busy"
+                         x-on:click="if (menuFor) { $store.bookmarks.toggle(menuFor.id); closeMessageMenu() }">{{ __('Nicht mehr merken') }}</flux:button>
+            {{-- Erinnere mich (P5, NIP-ER kind 30300) — dieselben Bedingungen wie im
+                 Web-Popover (`partials/chat-row.blade.php`), Begründung dort. Ohne
+                 `!_menuInThread`: das Ziel ist eine Event-Id und damit kind-agnostisch.
+                 `closeMessageMenu()` VOR `openFor()`, nicht danach: sonst schlösse das
+                 Aktionsblatt den soeben geöffneten Erinnerungs-Dialog gleich wieder mit. --}}
+            <flux:button variant="ghost" icon="clock" class="w-full justify-start"
+                         x-show="menuFor && $store.reminders?.canRemind" x-cloak
+                         ::disabled="$store.reminders.busy"
+                         x-on:click="if (menuFor) { const id = menuFor.id; closeMessageMenu(); $store.reminders.openFor(id) }">{{ __('Erinnere mich') }}</flux:button>
             {{-- Fork off! (fremd) / Löschen (eigen): askReport/askDelete merken die Zielnachricht,
                  dann schließt das Menü-Modal (öffnet Fork-off!- bzw. Löschen-Bestätigung). --}}
             <flux:button variant="ghost" icon="flag" class="w-full justify-start" x-show="!menuFor?.mine" x-cloak
@@ -1302,8 +1396,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  das Menü-Modal (öffnet die Bestätigung). --}}
             <flux:button variant="danger" icon="trash" class="w-full justify-start" x-show="isAdmin && !menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askAdminDelete(menuFor); closeMessageMenu() }">{{ __('Nachricht entfernen') }}</flux:button>
-            {{-- „Autor bannen" (banpubkey) vorerst NICHT angeboten (bewusst deaktiviert). Zum
-                 Reaktivieren diesen Button wieder einkommentieren (JS confirmBanAuthor bleibt).
+            {{-- „Autor bannen" (banpubkey) NICHT angeboten.
+                 no removal or ban of members here — the association does not remove or ban
+                 its members (decision 2026-09-03); the timed suspension on the member screen
+                 (`⚡directory.blade.php`, Buzz kind 9042) is the strongest measure this
+                 surface offers. „Nachricht entfernen" above stays operable: it hits content,
+                 not a person. The write path stays (JS `confirmBanAuthor`).
             <flux:button variant="danger" icon="no-symbol" class="w-full justify-start" x-show="isAdmin && !menuFor?.mine" x-cloak
                          x-on:click="if (menuFor) { askBanAuthor(menuFor); closeMessageMenu() }">{{ __('Autor bannen') }}</flux:button>
             --}}
@@ -1362,6 +1460,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </template>
     </flux:modal>
+
+    {{-- P5 — Erinnerungs-Dialog (NIP-ER). In einer Komponente und nicht hier, aus
+         demselben Grund wie die Lightbox darunter: diese Datei hat eine kalibrierte
+         ARIA-Trägerzahl, und `flux:modal` bringt seine Träger selbst mit. Der ganze
+         Zustand liegt in `$store.reminders`. --}}
+    <x-group::reminder-modal />
 
     {{-- Lightbox: Vollbild eines angeklickten Inline-Bilds. Sie liegt seit P3 in
          `components/lightbox-overlay.blade.php`, weil die Artikel-Vollansicht dieselbe

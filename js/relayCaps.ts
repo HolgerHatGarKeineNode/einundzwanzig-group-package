@@ -75,6 +75,99 @@ export const isBuzzRelay = (profile?: { software?: string }): boolean =>
 export const hasNip70 = (profile?: { supported_nips?: string[] }): boolean =>
     profile?.supported_nips?.includes('70') ?? false
 
+/**
+ * The relay software version out of the NIP-11 doc (`version`), trimmed. Missing doc or
+ * missing field → `''`.
+ *
+ * **Why the field is worth reading.** A deployed relay is not its source, and this
+ * project has already paid for that once: a zooid binary weeks older than its source
+ * answered `OK true` to an unknown kind and did nothing. Buzz fills `version` from
+ * `CARGO_PKG_VERSION` (`buzz-relay/src/nip11.rs:48`), so the running binary states its
+ * own age instead of leaving it to be guessed. Measured against production on
+ * 2026-09-03: `"version": "0.2.1"`, identical to `crates/buzz-relay/Cargo.toml:7` at
+ * `fc0d2bc5` — this helper is built for the NEXT drift, not that one.
+ *
+ * Deliberately a plain string and no version comparison: NIP-11 puts no shape on the
+ * field, and a helper that assumed semver would be exactly the guess it exists to
+ * replace. Whoever needs ordering parses it at the call site and owns that assumption.
+ *
+ * Rein & welshman-frei → testbar.
+ */
+export const relayVersion = (profile?: { version?: string }): string => profile?.version?.trim() ?? ''
+
+/**
+ * Does the relay advertise a draft protocol extension in NIP-11 `supported_extensions`?
+ * That is the field Buzz uses for drafts without a NIP number: `nip-er` (event
+ * reminders, kind 30300) always, and `nip-pl` (push delivery) only when a push gateway
+ * is configured (`buzz-relay/src/nip11.rs:165` and `:265-267`). Measured against
+ * production on 2026-09-03: `["nip-er","nip-pl"]`.
+ *
+ * **The shape guard is load-bearing, not decoration.** welshman copies every
+ * non-standard NIP-11 field through untouched — `Object.assign(this, json, …)` in
+ * `@welshman/domain` `Relay.js:19-25`, with the comment "Copy every field, including
+ * any non-standard NIP-11 ones" — and coerces **only** `supported_nips` into a string
+ * array. What arrives here is therefore raw foreign JSON. Without the `Array.isArray`
+ * check a relay answering `"supported_extensions": "nip-error"` would pass a substring
+ * test, and a capability check that says yes because of `String.prototype.includes` is
+ * worse than no check. Missing doc or wrong shape → false.
+ *
+ * The comparison ignores case and surrounding space: these identifiers are free-form
+ * draft names with no registry and no spelling rule to lean on.
+ *
+ * `supported_extensions` is not part of welshman's `RelayInfo` type (it declares 15
+ * standard fields, this is not one of them) — which is why the field is read here,
+ * structurally, instead of at a call site that would not type-check.
+ *
+ * Rein & welshman-frei → testbar.
+ */
+export const hasRelayExtension = (
+    extension: string,
+    profile?: { supported_extensions?: string[] },
+): boolean => {
+    const wanted = extension.trim().toLowerCase()
+    const advertised = profile?.supported_extensions
+    if (!wanted || !Array.isArray(advertised)) {
+        return false
+    }
+    return advertised.some((entry) => typeof entry === 'string' && entry.trim().toLowerCase() === wanted)
+}
+
+/**
+ * How far into the future this relay accepts a NIP-ER `not_before`, in seconds —
+ * `limitation.max_not_before_delta` out of the NIP-11 doc. `null` = the relay does not
+ * state one.
+ *
+ * **Read, never assumed.** The value is an env override on the relay
+ * (`SPROUT_MAX_NOT_BEFORE_DELTA`, read in *two* places that must agree:
+ * `buzz-relay/src/nip11.rs:102` for the advertisement and
+ * `handlers/ingest.rs:1816` for the enforcement). Hard-coding the default would mean
+ * building an event the relay refuses the moment an operator lowers the bound — and a
+ * refused reminder is the worst kind of failure this surface has: the user believes
+ * they will be reminded. Measured against production 2026-09-03: `31536000`, exactly
+ * the one-year default.
+ *
+ * **`null` denies, it does not fall back.** The same fail-closed direction as
+ * {@link hasRelayExtension} and `mayWriteKind`: without a stated horizon we cannot know
+ * whether a write will be accepted, and guessing here spends a signature prompt on an
+ * event that may be dropped. NIP-ER only *SHOULDs* the field, so this branch is
+ * reachable in principle — against Buzz it is not: `relay_limitation()` always fills it
+ * (`Some(max_not_before_delta)`, never `None`).
+ *
+ * **Numbers only, no numeric strings.** NIP-11 `limitation` values are JSON numbers, and
+ * welshman hands the field through raw (see {@link hasRelayExtension} for why). A relay
+ * that sends `"31536000"` is guessing about the shape of its own limitation document;
+ * accepting the guess would put a `parseInt` between us and a bound that decides whether
+ * an event is accepted. `0` and negatives are refused too — a horizon of zero would mean
+ * "no reminder may be scheduled", which is what `null` already says.
+ *
+ * Rein & welshman-frei → testbar.
+ */
+export const maxNotBeforeDelta = (profile?: { limitation?: { max_not_before_delta?: number } }): number | null => {
+    const raw = profile?.limitation?.max_not_before_delta
+
+    return typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0 ? raw : null
+}
+
 /** Space-Branding aus dem NIP-11-Info-Doc (Anzeigename, Avatar, Untertitel, Kopfbild). */
 export type SpaceBranding = { label: string; icon: string; description: string; banner: string }
 

@@ -21,11 +21,13 @@ import { on, batch } from '@welshman/lib'
 import { verifiedSymbol, type TrustedEvent } from '@welshman/util'
 import {
     APP_DATA,
+    BOOKMARKS,
     COMMENT,
     DELETE,
     FOLLOWS,
     MESSAGE,
     MUTES,
+    NAMED_BOOKMARKS,
     POLL,
     PROFILE,
     RELAY_MEMBERS,
@@ -40,6 +42,7 @@ import {
 import type { RepositoryUpdate } from '@welshman/net'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 import { BUZZ_PIN, ZOOID_PIN_LIST, isZooidPinList } from './pins.ts'
+import { isBuzzMeshStatus } from './bookmarkModels.ts'
 import {
     FORGE_COMMENT,
     GIT_ISSUE,
@@ -53,7 +56,9 @@ import {
     isForgeComment,
     repoAddressOf,
 } from './forgeModels.ts'
-import { FORUM_COMMENT, FORUM_POST } from './forumModels.ts'
+import { FORUM_COMMENT, FORUM_POST, FORUM_VOTE } from './forumModels.ts'
+import { EVENT_REMINDER } from './reminderModels.ts'
+import { DM_VISIBILITY } from './dmModels.ts'
 import { USER_STATUS } from './userStatusData.ts'
 
 // §4.4 Multi-Account: EINE DB PRO pubkey (`…-<hex>`). Damit teilen zwei Accounts NIE
@@ -129,7 +134,7 @@ type TrackerItem = { id: string; relays: string[] }
  * sondern es ist das allgemeinste Kind überhaupt. `PERSIST_KINDS.add(1)` würde jede
  * Notiz jedes Relays in den Cache ziehen.
  */
-const PERSIST_KINDS = new Set<number>([
+export const PERSIST_KINDS: ReadonlySet<number> = new Set<number>([
     MESSAGE,
     BUZZ_MESSAGE_V2, // Buzz' zweite Chat-Fassung — sonst fehlten fremde Nachrichten beim Kaltstart
     COMMENT,
@@ -157,10 +162,80 @@ const PERSIST_KINDS = new Set<number>([
     // P10 — Forum (append-only, gekappt):
     FORUM_POST,
     FORUM_COMMENT,
+    // P3 — Forum-Bewertungen (45002). Ohne sie steht der Punktstand beim Kaltstart auf
+    // null und zieht erst nach, wenn das Netz antwortet — dieselbe Klasse Fehler wie bei
+    // 9008 und der Pin-Leiste, nur mit einer ZAHL statt einer Zeile: eine falsche Zahl
+    // sieht aus wie eine richtige, eine fehlende Zeile fällt auf.
+    //
+    // Die drei Fragen von oben, für diesen Kind beantwortet:
+    // 1. *Speichert der Relay ihn?* Ja — 45002 läuft durch den normalen Ingest-Pfad und
+    //    wird gespeichert und gefanoutet (`ingest.rs`); nur ZÄHLEN tut ihn dort niemand.
+    // 2. *Ersetzbar oder append-only?* Append-only, und ohne jede relay-seitige Dedup —
+    //    zwei Stimmen desselben Pubkeys sind zwei Zeilen. Also wächst er und wird
+    //    deshalb gekappt ({@link eventsToPrune}), mit eigenem Topf.
+    // 3. *Welcher Grabstein wirkt?* Keiner, den diese Fläche schreibt: eine Stimme wird
+    //    durch eine NEUE Stimme überstimmt, nicht gelöscht (die Begründung steht bei
+    //    `planForumVote`). Der Grabstein-Grundsatz ist damit erfüllt wie bei den
+    //    Lesezeichen — die Rücknahme IST die Ersetzung, hier über die Falt-Regel.
+    FORUM_VOTE,
     // P10 — NIP-38-Status (ersetzbar je `(pubkey, d)`; `userStatusData.ts` verwirft
     // beim Lesen zusätzlich Abgelaufenes und alles älter als MAX_STATUS_AGE_SEC —
     // ein veralteter Cache-Stand kann die Zeile also nie falsch beschriften).
     USER_STATUS,
+    // P2 — NIP-51-Lesezeichen. Beide sind ersetzbar (10003 je `pubkey`, 30003 je
+    // `(pubkey, d)`) und damit selbst-begrenzt: sie brauchen keine Kappung, und ein
+    // veralteter Cache-Stand wird vom nächsten Relay-Load überschrieben statt zu
+    // wachsen. Ohne sie stünde die Lesezeichen-Fläche bei jedem Kaltstart leer, bis
+    // das Netz antwortet — derselbe 9008-Fehler, der oben schon dokumentiert ist.
+    //
+    // **Der Grabstein-Grundsatz ist hier erfüllt, ohne dass eine zweite Art nötig
+    // wäre:** ein Lesezeichen wird gelöst, indem die Liste OHNE es neu geschrieben
+    // wird. Die Löschung IST also die Ersetzung, und die kommt über dieselbe Art.
+    BOOKMARKS,
+    // 30003 steht hier, wird aber zusätzlich an der STRUKTUR gefiltert — siehe
+    // {@link shouldPersistEvent}. Dieselbe Bauart wie bei `39005`.
+    NAMED_BOOKMARKS,
+    // P5 — NIP-ER-Erinnerungen (30300). Adressierbar je `(pubkey, d)` und damit
+    // selbst-begrenzt: keine Kappung nötig, ein alter Stand wird ersetzt statt ergänzt.
+    //
+    // Die drei Fragen von oben, für diesen Kind beantwortet:
+    // 1. *Speichert der Relay ihn?* Ja, und er materialisiert sogar `not_before` in eine
+    //    eigene Spalte (`buzz-db/src/event.rs:185-203`), weil sein Scheduler danach
+    //    sucht. Auf zooid landet er nie — der Riegel (`relayCapability.ts`) verbietet
+    //    das Schreiben dort, und gelesen wird nur `authors:[self]`.
+    // 2. *Ersetzbar oder append-only?* Adressierbar. Snooze und „erledigt" sind
+    //    Ersetzungen derselben Adresse, keine neuen Zeilen.
+    // 3. *Welcher Grabstein wirkt?* Der der Ersetzung selbst: ein `done` verdrängt das
+    //    `pending` unter demselben `d`. Für das harte Löschen kennt NIP-ER den
+    //    NIP-09-Weg über ein `a`-Tag; den behandelt welshman im `repository`.
+    //
+    // **Der Inhalt bleibt im Cache verschlüsselt.** Was hier liegt, ist der Ciphertext
+    // des Events — entschlüsselt wird erst beim Rendern, im Speicher. Ein IndexedDB, das
+    // jemand später ausliest, enthält keine Klartext-Notiz.
+    EVENT_REMINDER,
+    // P7 — die relay-signierte DM-Sichtbarkeit (30622). Sie ist das EINZIGE Signal, das
+    // sagt, welche Unterhaltungen der Nutzer aus seiner Spalte genommen hat: ein `41012`
+    // setzt `hidden_at` auf der Mitgliedschaftszeile und lässt den Kanal in Ruhe, das
+    // 39000 kommt also unverändert weiter herein. Fehlte sie im Kaltstart-Cache, stünde
+    // jede ausgeblendete Unterhaltung nach jedem Neustart wieder in der Rail, bis das
+    // Netz antwortet — derselbe 9008-Fehler wie oben, nur in die andere Richtung.
+    //
+    // Die drei Fragen von oben, für diesen Kind beantwortet:
+    // 1. *Speichert der Relay ihn?* Ja, adressiert je Betrachter
+    //    (`replace_parameterized_event` mit `d = <viewer>`, `side_effects.rs:3225-3232`).
+    //    Auf zooid entsteht er nie; geschrieben wird er ohnehin von niemandem hier —
+    //    der Kind ist relay-only (`kind.rs:830-838`).
+    // 2. *Ersetzbar oder append-only?* Adressierbar, und der Relay erzwingt zusätzlich
+    //    einen streng wachsenden `created_at`, damit ein Ausblenden und Wieder-Öffnen
+    //    innerhalb einer Sekunde nicht den alten Stand stehen lässt
+    //    (`side_effects.rs:3196-3221`). Also selbst-begrenzt, keine Kappung nötig.
+    // 3. *Welcher Grabstein wirkt?* Keiner: die Rücknahme IST die Ersetzung — nach einem
+    //    Wieder-Öffnen schreibt der Relay dieselbe Adresse ohne dieses `h`.
+    //
+    // Die Autorität wird beim LESEN geprüft und nicht hier: `foldHiddenDms` nimmt einen
+    // Schnappschuss nur vom NIP-11-`self` des Relays an. Dieselbe Arbeitsteilung wie beim
+    // 39000, das ebenfalls roh im Cache liegt und erst in `roomsByUrl` gegatet wird.
+    DM_VISIBILITY,
 ])
 
 /**
@@ -271,6 +346,14 @@ export function forgetRepos(): void {
 export function shouldPersistEvent(event: TrustedEvent, known: ReadonlySet<string> = knownRepos): boolean {
     if (event.kind === ZOOID_PIN_LIST) {
         return isZooidPinList(event)
+    }
+    // P2 — dieselbe Zahl, zwei Bedeutungen, zweiter Fall: `30003` ist NIP-51
+    // `NAMED_BOOKMARKS` **und** Buzz' Mesh-Mitgliedsstatus. Letzterer ist Telemetrie
+    // eines Desktop-Clients, unter DEMSELBEN Pubkey signiert wie die Lesezeichen —
+    // `authors:[self]` trennt ihn also nicht (Begründung in `bookmarkModels.ts`).
+    // Ohne diese Zeile zöge jede Mesh-Meldung des Nutzers in den Kaltstart-Cache.
+    if (event.kind === NAMED_BOOKMARKS) {
+        return !isBuzzMeshStatus(event)
     }
     if (FORGE_LEAF_KINDS.has(event.kind)) {
         // Erst die Form (bei kind 1 die einzige Unterscheidung zu einer beliebigen
@@ -414,6 +497,17 @@ const COMMENT_CAP_TOTAL = 500
  */
 const FORUM_POST_CAP_PER_ROOM = 200
 const FORUM_COMMENT_CAP_TOTAL = 500
+/**
+ * Bewertungen (45002) — **eigener Topf, nicht der der Themen.**
+ *
+ * Aus demselben Grund, aus dem sich Forge-Wurzeln und Forge-Beiwerk keinen Deckel
+ * teilen: eine lebhafte Abstimmung verdrängte sonst die Themen selbst, und ein Thema
+ * ohne seine Zeile ist ein größerer Verlust als eine Zahl, die um eins danebenliegt.
+ * Höher als der Themendeckel, weil auf ein Thema viele Stimmen kommen; global statt
+ * je Kanal, weil eine Stimme ohne ihr Thema ohnehin nichts anzeigt (die Falt-Regel
+ * verwirft sie mangels Ziel) und der Kanaltopf sie damit doppelt begrenzte.
+ */
+const FORUM_VOTE_CAP_TOTAL = 2000
 const FORGE_ROOT_CAP_TOTAL = 300
 const FORGE_META_CAP_TOTAL = 600
 
@@ -433,9 +527,24 @@ const LONGLIVED_MAX_AGE_SEC = 180 * 24 * 60 * 60
 const CAPPED_KINDS = new Set<number>([
     MESSAGE,
     BUZZ_MESSAGE_V2,
+    // P5 — **nachgetragener Bestandsfehler, gefunden von der umgebauten Regel in
+    // `storagePersistKinds.test.ts`.** Umfrage (1068) und Spendenziel (9041) standen seit
+    // jeher in `PERSIST_KINDS`, aber in keinem Deckel: `eventsToPrune` überspringt alles,
+    // was `isCappedEvent` verneint, **noch vor dem Alters-Backstop**. Gemessen am
+    // 2026-09-03 mit 401 Ereignissen je Kind, eines davon 400 Tage alt: kind 9 verwarf
+    // 101, kind 1068 und kind 9041 verwarfen **null**. Sie wuchsen also unbegrenzt, und
+    // die alte, aufzählende Fassung des Wächters blieb dabei grün.
+    //
+    // Sie gehören in den CHAT-Topf und nicht in einen eigenen: sie kommen über denselben
+    // `#h`-gescopten Raumfilter herein wie kind 9 (`feeds.ts` `roomFilter`), werden als
+    // Zeile in derselben Zeitleiste gerendert und altern genauso. Ein eigener Deckel
+    // hieße, einer Umfrage mehr Platz zu geben als der Nachricht daneben.
+    POLL,
+    ZAP_GOAL,
     COMMENT,
     FORUM_POST,
     FORUM_COMMENT,
+    FORUM_VOTE,
     GIT_ISSUE,
     GIT_PULL_REQUEST,
     GIT_PR_UPDATE,
@@ -460,6 +569,7 @@ export type PruneCaps = {
     commentTotal: number
     forumPostPerRoom: number
     forumCommentTotal: number
+    forumVoteTotal: number
     forgeRootTotal: number
     forgeMetaTotal: number
     longLivedMaxAgeSec: number
@@ -471,6 +581,7 @@ const DEFAULT_CAPS: PruneCaps = {
     commentTotal: COMMENT_CAP_TOTAL,
     forumPostPerRoom: FORUM_POST_CAP_PER_ROOM,
     forumCommentTotal: FORUM_COMMENT_CAP_TOTAL,
+    forumVoteTotal: FORUM_VOTE_CAP_TOTAL,
     forgeRootTotal: FORGE_ROOT_CAP_TOTAL,
     forgeMetaTotal: FORGE_META_CAP_TOTAL,
     longLivedMaxAgeSec: LONGLIVED_MAX_AGE_SEC,
@@ -483,10 +594,11 @@ const nowSec = (): number => Math.floor(Date.now() / 1000)
  *
  * | Familie                         | Deckel        | Alters-Backstop |
  * |---------------------------------|---------------|-----------------|
- * | kind 9 / Buzz-V2 (Chat)         | pro Raum      | 30 Tage         |
+ * | kind 9 / Buzz-V2 / 1068 / 9041  | pro Raum      | 30 Tage         |
  * | kind 1111 (Thread-Kommentar)    | global        | 30 Tage         |
  * | 45001 (Forum-Thema)             | pro Kanal     | 180 Tage        |
  * | 45003 (Forum-Antwort)           | global        | 180 Tage        |
+ * | 45002 (Forum-Bewertung)         | global        | 180 Tage        |
  * | 1621/1618 (Issue, PR)           | global        | 180 Tage        |
  * | 1619, 1630–1633, kind 1 (Forge) | global        | 180 Tage        |
  *
@@ -502,6 +614,7 @@ export function eventsToPrune(events: TrustedEvent[], now: number, caps: Partial
         commentTotal,
         forumPostPerRoom,
         forumCommentTotal,
+        forumVoteTotal,
         forgeRootTotal,
         forgeMetaTotal,
         longLivedMaxAgeSec,
@@ -512,6 +625,7 @@ export function eventsToPrune(events: TrustedEvent[], now: number, caps: Partial
     const forumByRoom = new Map<string, TrustedEvent[]>()
     const comments: TrustedEvent[] = []
     const forumComments: TrustedEvent[] = []
+    const forumVotes: TrustedEvent[] = []
     const forgeRoots: TrustedEvent[] = []
     const forgeMeta: TrustedEvent[] = []
     const drop: string[] = []
@@ -532,7 +646,14 @@ export function eventsToPrune(events: TrustedEvent[], now: number, caps: Partial
         if (!isCappedEvent(event)) {
             continue
         }
-        const chat = event.kind === MESSAGE || event.kind === BUZZ_MESSAGE_V2 || event.kind === COMMENT
+        // Umfrage und Spendenziel zählen als Chat: gleicher Raumfilter, gleiche
+        // Zeitleiste, gleiches Altersfenster (Begründung bei {@link CAPPED_KINDS}).
+        const chat =
+            event.kind === MESSAGE ||
+            event.kind === BUZZ_MESSAGE_V2 ||
+            event.kind === COMMENT ||
+            event.kind === POLL ||
+            event.kind === ZAP_GOAL
         if (event.created_at < (chat ? chatCutoff : longCutoff)) {
             drop.push(event.id)
             continue
@@ -546,6 +667,9 @@ export function eventsToPrune(events: TrustedEvent[], now: number, caps: Partial
                 break
             case FORUM_COMMENT:
                 forumComments.push(event)
+                break
+            case FORUM_VOTE:
+                forumVotes.push(event)
                 break
             case GIT_ISSUE:
             case GIT_PULL_REQUEST:
@@ -577,6 +701,7 @@ export function eventsToPrune(events: TrustedEvent[], now: number, caps: Partial
     }
     capOff(comments, commentTotal)
     capOff(forumComments, forumCommentTotal)
+    capOff(forumVotes, forumVoteTotal)
     capOff(forgeRoots, forgeRootTotal)
     capOff(forgeMeta, forgeMetaTotal)
 

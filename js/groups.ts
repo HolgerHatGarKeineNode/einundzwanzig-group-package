@@ -73,7 +73,8 @@ import { storageReady } from './storage.ts'
 import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 import { spaceIsBuzzAsync } from './buzzAdmin.ts'
 import { parseMeetupTags } from './meetupPresentation.ts'
-import { parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories.ts'
+import { parseDmTag, parseForumTag, parseProjectSupportTags, withExtraTags } from './roomCategories.ts'
+import { dmParticipants } from './dmModels.ts'
 import type { RelayInfo } from './welshmanRelay.ts'
 import { waitForPublishError } from './publishResult.ts'
 
@@ -547,6 +548,24 @@ export type RoomView = {
      * `channel_type` — siehe `FORUM_CHANNEL_TYPE` in `roomCategories.ts`.
      */
     isForum: boolean
+    // ── DM-Kanäle (Buzz, P7) ───────────────────────────────────────────────────
+    /**
+     * Traegt das 39000 den Buzz-Kanaltyp `["t","dm"]`? Dann ist der „Raum" eine
+     * Unterhaltung: er steht in {@link SpaceView.dmRooms} statt in `userRooms`, und
+     * die Rail zeigt ihn in ihrer eigenen Gruppe. Quelle ist wieder der
+     * relay-eigene `channel_type` — siehe `DM_CHANNEL_TYPE` in `roomCategories.ts`.
+     */
+    isDm: boolean
+    /**
+     * Die Teilnehmer-Pubkeys aus den `["p", …]`-Tags des 39000 — nur DM-Kanäle
+     * tragen sie (`side_effects.rs:1085-1095` steht innerhalb von
+     * `if channel.channel_type == "dm"`), bei jedem anderen Raum ist die Liste leer.
+     *
+     * Sie ist der einzige brauchbare Name einer Unterhaltung: der Relay speichert
+     * als Kanalnamen die Zeichenkette `"DM"` bzw. `"Group DM (N)"`
+     * (`buzz-db/src/dm.rs:157-162`), also für JEDE Unterhaltung dieselbe.
+     */
+    dmParticipants: string[]
     /**
      * `created_at` des jüngsten bekannten Timeline-Events (9/1068/9041) dieses Raums,
      * `null` solange keins vorliegt. Quelle: {@link lastMessageAtByUrl}. Trägt die
@@ -568,6 +587,29 @@ export type SpaceView = {
     banner: string
     userRooms: RoomView[]
     otherRooms: RoomView[]
+    /**
+     * Die DM-Kanäle dieses Space (P7) — beigetreten wie `userRooms`, aber als
+     * EIGENER Topf.
+     *
+     * **Warum die Trennung an der Quelle sitzt und nicht bei jedem Verbraucher.**
+     * Ein DM-Kanal ist auf Buzz ein gewöhnlicher Kanal mit `channel_type = 'dm'`;
+     * sein 39000 kommt durch dieselbe Abfrage wie jedes andere Raum-Meta
+     * (`loadSpaceRooms`/`watchSpaceRooms`, `{kinds:[39000,…]}` ohne `#p`) und der
+     * Nutzer ist immer Mitglied. Ohne diese Trennung stünde jede Unterhaltung in
+     * „Meine Räume", in der Befehlspalette, im Forge-Baum und in der mobilen
+     * Kanalliste — überall unter dem Namen „DM", weil der Relay genau den
+     * speichert. Das an sieben Verbraucherstellen einzeln wegzufiltern hieße,
+     * dieselbe Regel siebenmal zu schreiben und beim achten Verbraucher zu
+     * vergessen.
+     *
+     * **Was dadurch NICHT verloren geht, weil es ausdrücklich nachgezogen ist:**
+     * der Ungelesen-Punkt und die Updates-Liste hängen an `joinedRoomHs`/
+     * `joinedRoomNames` (`bridge.ts`), und beide falten `dmRooms` mit ein — eine
+     * Unterhaltung, deren neue Nachricht niemand anzeigt, wäre ein halbes Feature.
+     * Ebenso `nostrRail.openRoom`, das am Vorkommen in der Workspace-Sicht
+     * entscheidet, ob `?space=workspace` an die URL muss.
+     */
+    dmRooms: RoomView[]
 }
 
 /** Kürzt eine Relay-URL für die Anzeige (Schema/Trailing-Slash weg). */
@@ -592,11 +634,21 @@ const buildSpaceView = (
 
     const joined: string[] = []
     const other: string[] = []
+    const dms: string[] = []
     for (const room of byUrl.get(url) ?? []) {
         if (room.livekit) {
             continue
         }
-        ;(isMember(room.h) ? joined : other).push(room.h)
+        // Ein DM-Kanal ist per Konstruktion beigetreten — `open_dm` legt den Ersteller
+        // und jeden Teilnehmer als `channel_members`-Zeile an (`buzz-db/src/dm.rs:181-196`).
+        // Die Abfrage `isMember` steht trotzdem davor und nicht dahinter: sähen wir ein
+        // DM-39000 OHNE Mitgliedschaft (fremder Relay, manipulierte Tags), gehörte es in
+        // die entdeckbaren Räume und nicht in die eigenen Unterhaltungen.
+        if (!isMember(room.h)) {
+            other.push(room.h)
+            continue
+        }
+        ;(parseDmTag(room.event?.tags ?? []) ? dms : joined).push(room.h)
     }
 
     const toView = (hs: string[]): RoomView[] =>
@@ -622,12 +674,14 @@ const buildSpaceView = (
                 isProjectSupport: projectSupport.isProjectSupport,
                 proposalId: projectSupport.proposalId,
                 isForum: parseForumTag(room?.event?.tags ?? []),
+                isDm: parseDmTag(room?.event?.tags ?? []),
+                dmParticipants: dmParticipants(room?.event?.tags ?? []),
                 lastMessageAt: lastByH.get(h) ?? null,
             }
         })
 
     const brand = spaceBranding(displayRelayUrl(url), profile)
-    return { url, ...brand, userRooms: toView(joined), otherRooms: toView(other) }
+    return { url, ...brand, userRooms: toView(joined), otherRooms: toView(other), dmRooms: toView(dms) }
 }
 
 /**

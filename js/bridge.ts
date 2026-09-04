@@ -25,7 +25,6 @@ import { load } from './welshmanNet.ts'
 import { deriveEvents, throttled } from '@welshman/store'
 import type { TrustedEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
-import QRCode from 'qrcode'
 import { DEFAULT_RELAYS, isMobile, mayFallbackToRaw, nativeBrowserOpen, nativeBrowserInApp, proxifyImage, storageReady } from './core.ts'
 import { sanitizeReturnUrl, isAuthed } from './auth-gate.ts'
 import { createLightboxZoom } from './lightbox.ts'
@@ -53,6 +52,10 @@ import { wirePalette } from './palette.ts'
 import { wireDisplayPrefs } from './displayPrefs.ts'
 import { wireRoomSearch } from './roomSearch.ts'
 import { wireRoomPins } from './roomPins.ts'
+import { wireBookmarks } from './bookmarks.ts'
+import { wireReminders } from './reminders.ts'
+import { wirePresence } from './presence.ts'
+import { wireDms } from './dms.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -139,7 +142,11 @@ import { KOMMENTAR_MAX_ZEICHEN, kommentarSperre } from './articleWrite.ts'
 import { DEFAULT_ARTICLE_SORT, type ArticleSort } from './articleSorts.ts'
 import { DEFAULT_ROOM_TYPE, isFocusMode, isStandardRoom, parseForumTag, parseRoomType, supportsCountryFilter, type RoomTypeFilter } from './roomCategories.ts'
 import { deriveForumTopics, listenForum, loadForumTopics, type ForumTopic } from './forumFeed.ts'
-import { forumTopicTitle } from './forumModels.ts'
+import { DEFAULT_FORUM_SORT, FORUM_VOTE, forumTopicTitle, sortForumTopics, type ForumSort } from './forumModels.ts'
+import { mayWriteKind } from './relayCapability.ts'
+import { BUZZ_TIMEOUT } from './moderationTimeoutModels.ts'
+import { voteOnForumTopic } from './forumVote.ts'
+import { type VoteDirection } from './forumVoteModels.ts'
 import { topicComposerZiel, type TopicComposerZiel } from './forumWriteModels.ts'
 import { clearPendingTopics, forumPending, publishForumTopic, type PendingTopic } from './forumWrite.ts'
 import { splitMine, type WorkspacePrefs } from './railGroups.ts'
@@ -164,6 +171,7 @@ import { agentMentionItems, mergeMentionItems } from './agentDirectoryData.ts'
 import { mentionInsert } from './interactions.ts'
 import { mentionQueryAt, spliceMention } from './mentionCompose.ts'
 import { roomsFingerprint, type RoomLike } from './roomFingerprint.ts'
+import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam.ts'
 import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab.ts'
 import { ORTSKARTEN_DROSSEL_MS, ORTSKARTEN_NACHLADE_MS, zeigeLive } from './ortskarten.ts'
@@ -179,7 +187,7 @@ import {
     watchSpaceDirectory,
     loadMemberProfiles,
     settleMemberProfiles,
-    loadBannedMembers,
+    loadRestrictedMembers,
     createRole,
     editRole,
     deleteRole,
@@ -188,6 +196,8 @@ import {
     removeSpaceMember,
     banSpaceMember,
     unbanSpaceMember,
+    timeoutSpaceMember,
+    untimeoutSpaceMember,
     addSpaceMember,
     banEvent,
     resolveReport,
@@ -200,7 +210,7 @@ import {
     type MemberView,
     type RoleView,
     type SpaceRole,
-    type BannedMember,
+    type RestrictedMember,
     type VereinAccess,
 } from './members.ts'
 import {
@@ -425,6 +435,31 @@ const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
             },
         )
     })
+
+/**
+ * QR data URL for a payment request or a `nostrconnect://` URI.
+ *
+ * **The renderer arrives via `import()`, and that is a boot-path decision, not a
+ * style one.** `qrcode` is 22 182 B raw in the `app` chunk (measured 2026-09-04 by
+ * source-map attribution) — a chunk that EVERY page loads, for four surfaces that
+ * only a minority of sessions ever opens: the wallet receive sheet, the two zap
+ * QR fallbacks, and the desktop NIP-46 login.
+ *
+ * **When the surface first needs it:** never during render. All four callers are
+ * already `async` and already `await` a Lightning invoice or a connect URI before
+ * they have anything to encode; the module load overlaps that wait, and the
+ * surface sits in its own loading state meanwhile.
+ *
+ * **On a load failure** (chunk gone after a deploy, offline) this rejects, and
+ * every caller sits inside the `try/catch` that already handles "no invoice" —
+ * the surface shows its error text instead of a QR. It is never on the boot path,
+ * so it cannot take the island down.
+ */
+const qrDataUrl = async (text: string): Promise<string> => {
+    const { default: QRCode } = await import('qrcode')
+
+    return QRCode.toDataURL(text, { width: 256, margin: 1 })
+}
 
 /** Minimal-API des cropperjs-Instanz, die wir nutzen (C6a). */
 type CropperLike = {
@@ -1101,7 +1136,18 @@ type DirectoryState = {
     rolesFull: SpaceRole[]
     editingMember: MemberView | null
     roleForm: RoleForm
-    banned: BannedMember[]
+    banned: RestrictedMember[]
+    /** Warum die Sperrliste leer ist, wenn sie es nicht wirklich ist ('' = alles gut). */
+    bannedError: string
+    // Befristete Sperre (P4, Buzz kind 9042/9043). `canTimeout` ist der Riegel aus P1 in
+    // der Fläche: der Menü-Eintrag existiert nur, wo der Kind auch geschrieben werden darf.
+    _spaceKind: SpaceKind
+    _unsubSpaceKind: null | (() => void)
+    canTimeout: boolean
+    timeoutTarget: MemberView | null
+    /** Ausgewählte Dauer in SEKUNDEN — als String, weil ein <select> Strings liefert. */
+    timeoutDuration: string
+    timeoutReason: string
     inviteLink: string
     inviteBusy: boolean
     busy: boolean
@@ -1140,6 +1186,9 @@ type DirectoryState = {
     toggleMemberRole(roleId: string): Promise<void>
     removeMember(m: MemberView): Promise<void>
     banMember(m: MemberView): Promise<void>
+    openTimeout(m: MemberView): void
+    confirmTimeout(): Promise<void>
+    liftTimeout(pubkey: string): Promise<void>
     loadBanned(): Promise<void>
     unbanMember(pubkey: string): Promise<void>
     restoreMember(pubkey: string): Promise<void>
@@ -1299,6 +1348,20 @@ type RoomChatState = {
     /** Ids der Themen, die gerade unterwegs sind — die Zeile steht schon (optimistisch). */
     topicSending: string[]
     _unsubTopicPending: null | (() => void)
+    // ── Bewertungen (45002, P3) ──────────────────────────────────────────────
+    // Die Punktstände selbst hängen an den Zeilen (`ForumTopic.score`) und kommen
+    // aus der Ableitung; hier steht nur, was die BEDIENUNG braucht.
+    /** Gewählte Ordnung der Themenliste. Reine Ansichtssache, nichts wird nachgeladen. */
+    topicSort: ForumSort
+    /**
+     * Darf auf DIESEM Space überhaupt bewertet werden? Spiegel des Riegels für das
+     * Markup — die Entscheidung selbst fällt `planForumVote` ein zweites Mal, in seiner
+     * eigenen Währung, damit ein veraltetes Feld sie nicht umgehen kann.
+     */
+    canVote: boolean
+    /** Dreiwertige Relay-Art des Space; `'unknown'` sperrt (fail-closed). */
+    _spaceKind: SpaceKind
+    _unsubSpaceKind: null | (() => void)
     _unsubRoomMeta: null | (() => void)
     _unsubRelay: null | (() => void) // deriveRelay-Subscription: korrigiert spaceHint nach, wenn NIP-11 nach dem Mount eintrifft (P13)
     _url: string | null
@@ -1369,6 +1432,18 @@ type RoomChatState = {
     topicTitlePreview(): string
     /** Thema absenden (kind 45001). */
     submitTopic(): Promise<void>
+    /** Die Themenliste in der gewählten Ordnung — reine Umsortierung, kein Nachladen. */
+    sortedTopics(): ForumTopic[]
+    /**
+     * Ein Thema bewerten (kind 45002) — oder die eigene Stimme zurücknehmen.
+     *
+     * `direction` ist `1` oder `-1`. Ein Klick auf den bereits gedrückten Pfeil ist die
+     * RÜCKNAHME: sie schreibt je eigener Stimme auf diesem Ziel eine NIP-09-Löschung
+     * (Buzz nimmt genau ein Ziel je Grabstein). Welcher der drei Fälle vorliegt und ob
+     * er überhaupt stattfinden darf, entscheidet `planForumVote` — nicht der Knopf, denn
+     * die Tastatur löst denselben Pfad aus.
+     */
+    voteTopic(topic: ForumTopic, direction: VoteDirection): Promise<void>
     threadHref(m: ChatMessage): string
     closeThread(): void
     /** Kopf-Pfeil im RAUM: history.back() bei App-internem Vorgänger, sonst `upTarget`. */
@@ -1600,9 +1675,17 @@ const myCountryCode = (): string => {
 // Beides hängt bewusst NICHT an einer Seiten-Insel, sondern am Insel-Boot: der Punkt
 // sitzt in der Bottom-Nav und damit auf JEDER Seite, nicht nur auf der Raumliste.
 
-/** `h` der beigetretenen Räume des aktiven Space (relay-signierte 39002). */
+/**
+ * `h` der beigetretenen Räume des aktiven Space (relay-signierte 39002).
+ *
+ * **`dmRooms` steht seit P7 ausdrücklich mit dabei.** Die Unterhaltungen sind ein
+ * eigener Topf der `SpaceView`, damit sie nicht in „Meine Räume", der Befehlspalette
+ * und dem Forge-Baum auftauchen — der Ungelesen-Punkt und die Updates-Liste sind aber
+ * genau die zwei Stellen, an denen sie mitzählen MÜSSEN. Eine Unterhaltung, deren neue
+ * Nachricht niemand anzeigt, wäre ein halbes Feature.
+ */
 const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceView) =>
-    $view.userRooms.map((room) => room.h),
+    [...$view.userRooms, ...$view.dmRooms].map((room) => room.h),
 )
 
 /**
@@ -1611,7 +1694,13 @@ const joinedRoomHs: Readable<string[]> = derived(activeSpaceView, ($view: SpaceV
  * Liste genau die Aussage, die sie treffen soll (der Raum ist weg/nicht mehr meiner).
  */
 const joinedRoomNames: Readable<Record<string, string>> = derived(activeSpaceView, ($view: SpaceView) =>
-    Object.fromEntries($view.userRooms.map((room) => [room.h, room.name])),
+    // `dmRooms` mit dabei, aus demselben Grund wie oben — ein fehlender Schlüssel hieße
+    // „verwaist", und eine Unterhaltung, für die es keinen Namen gibt, verschwände aus
+    // den Updates statt dort zu stehen. Der Name ist bei einer Unterhaltung allerdings
+    // der des RELAYS („DM" / „Group DM (N)", `buzz-db/src/dm.rs:157-162`): die Auflösung
+    // über die Teilnehmer hängt an Profilen und liegt in der Rail (`railName`), nicht in
+    // dieser rein textlichen Zuordnung.
+    Object.fromEntries([...$view.userRooms, ...$view.dmRooms].map((room) => [room.h, room.name])),
 )
 
 /**
@@ -1897,6 +1986,36 @@ export function registerNostrComponents(Alpine: {
     // In `nostrRoomChat` entsteht dadurch KEIN neues Feld — das Markup liest
     // `$store.roomPins.*` und reicht `menuFor`/`isAdmin`/`joined` lesend hinein.
     wireRoomPins(Alpine)
+    // P2 — NIP-51-Lesezeichen. Wieder ein STORE und keine Insel, aus demselben Grund
+    // wie beim Pin: der Zustand wird an zwei Stellen gebraucht, die einander im DOM
+    // nicht sehen (der `/bookmarks`-Screen und der Eintrag im Nachrichten-Menü
+    // innerhalb von `nostrRoomChat`). Begründung im Kopf von `bookmarks.ts`; in
+    // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
+    wireBookmarks(Alpine)
+    // P5 — NIP-ER-Erinnerungen (30300). Dritter Store nach demselben Muster und aus
+    // demselben Grund: der Zustand wird an zwei Stellen gebraucht, die einander im DOM
+    // nicht sehen (der Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat` und die
+    // Erinnerungs-Fläche auf `/updates`). Begründung im Kopf von `reminders.ts`; in
+    // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
+    wireReminders(Alpine)
+    // P6 — Präsenz (Buzz kind 20001). Vierter Store nach demselben Muster: der Zustand
+    // wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (der Punkt am
+    // Avatar jeder Chat-Zeile und der eigene Punkt in der Desktop-Rail). In
+    // `nostrRoomChat` entsteht dadurch KEIN neues Feld — das Markup liest
+    // `$store.presence.byPubkey[…]`.
+    //
+    // Er ist der einzige Store dieser Reihe, der von sich aus SCHREIBT (Herzschlag alle
+    // 45 s, solange ein Raum offen ist). Deshalb steht der Riegel in `presenceData.ts`
+    // und nicht hier: `planPresence` liefert auf zooid und bei noch unbekannter Relay-Art
+    // gar keinen Ereigniskörper. Begründung im Kopf von `presence.ts`.
+    wirePresence(Alpine)
+    // P7 — Buzz-DM-Kanäle (41010/41011/41012). Fünfter Store derselben Reihe: der
+    // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (die
+    // DM-Gruppe der Desktop-Rail und der Dialog darunter). Ein DM-Kanal ist bei Buzz ein
+    // Kanal mit einem `h` — die Chat-Fläche bleibt deshalb unberührt, dieser Store
+    // schreibt nur die drei Kommandos und liest die relay-signierte Sichtbarkeit (30622).
+    // Begründung im Kopf von `dms.ts`, die Regeln in `dmModels.ts`.
+    wireDms(Alpine)
     // P5 (Onboarding) — Vereins-Beitritt (`/verein/beitritt`). Wieder eine eigene Insel:
     // der Flow hat seinen eigenen Screen und seinen eigenen Geltungsbereich, und die REINE
     // Logik (Schritt-Entscheid, Fehler→Ausweg, Nachfass-Plan) liegt nochmals daneben in
@@ -2485,7 +2604,7 @@ export function registerNostrComponents(Alpine: {
                     description: this.recvMemo || t('Empfangen via Lightning'),
                 })
                 this.recvInvoice = pr
-                this.recvQr = await QRCode.toDataURL(pr.toUpperCase(), { width: 256, margin: 1 })
+                this.recvQr = await qrDataUrl(pr.toUpperCase())
                 toast(t('Rechnung erstellt'), 'success')
             } catch (e) {
                 this.error = e instanceof Error ? e.message : t('Rechnung fehlgeschlagen')
@@ -2662,7 +2781,13 @@ export function registerNostrComponents(Alpine: {
         _controller: null,
         // Raumname zu einem h-Tag (aus den bereits geladenen Space-Räumen) — für die Thread-Liste.
         roomName(h: string): string {
-            const rooms = [...(this.space?.userRooms ?? []), ...(this.space?.otherRooms ?? [])]
+            // `dmRooms` mit dabei (P7): ohne sie fiele eine Unterhaltung in der
+            // Thread-Liste auf ihre rohe UUID zurück.
+            const rooms = [
+                ...(this.space?.userRooms ?? []),
+                ...(this.space?.otherRooms ?? []),
+                ...(this.space?.dmRooms ?? []),
+            ]
             return rooms.find((r) => r.h === h)?.name || h
         },
         // Praesentations-Join fuer die Kachel: room.meetupSlug → {flag, portalLink,
@@ -4890,6 +5015,16 @@ export function registerNostrComponents(Alpine: {
         editingMember: null,
         roleForm: { id: '', label: '', description: '', hue: 210, lightness: 0.5, order: 0 },
         banned: [],
+        bannedError: '',
+        _spaceKind: 'unknown',
+        _unsubSpaceKind: null,
+        canTimeout: false,
+        timeoutTarget: null,
+        // Vorauswahl 1 Tag — die Dauer ist im Dialog frei wählbar (Nutzerwunsch
+        // 2026-09-03: „Timeout, welchen man einstellen kann"), dies ist nur der
+        // Startwert des Auswahlfelds und keine im Code festgeschriebene Sperrdauer.
+        timeoutDuration: '86400',
+        timeoutReason: '',
         inviteLink: '',
         inviteBusy: false,
         busy: false,
@@ -4923,6 +5058,7 @@ export function registerNostrComponents(Alpine: {
                 this._unsubJoins?.()
                 this._unsubStatuses?.()
                 this._unsubStatusPending?.()
+                this._unsubSpaceKind?.()
                 this._controller?.abort()
                 this.ready = false
                 this.profilesReady = false
@@ -4934,6 +5070,13 @@ export function registerNostrComponents(Alpine: {
                 this.statuses = {}
                 this.gatedOut = false
                 this.editingMember = null
+                // Die Sperrliste gehört dem alten Space — sie beim Wechsel stehen zu
+                // lassen zeigte fremde Sperren unter neuem Namen.
+                this.banned = []
+                this.bannedError = ''
+                this.timeoutTarget = null
+                this._spaceKind = 'unknown'
+                this.canTimeout = false
                 this._url = url
                 this._controller = new AbortController()
                 // Sicherheitsnetz: bleibt das Directory-Loaded-Signal (EOSE/CLOSED)
@@ -5015,6 +5158,20 @@ export function registerNostrComponents(Alpine: {
                 })
                 this._unsubAdmin = deriveUserIsSpaceAdmin(url).subscribe((admin: boolean) => {
                     this.isAdmin = admin
+                })
+                // Die Relay-Art entscheidet, ob es die befristete Sperre hier überhaupt
+                // gibt (9042/9043 sind Buzz-Dialekt), und sie trifft SPÄT ein. Abonniert
+                // statt einmal gelesen — ein synchroner Blick beim Aufziehen meldet
+                // verlässlich `'unknown'`, der Menü-Eintrag bliebe für immer aus und
+                // niemand sähe, warum (dieselbe Klasse Fehler wie beim
+                // `spaceIsBuzz()`-Schnappschuss aus P6).
+                this._unsubSpaceKind = deriveSpaceKind(url).subscribe((kind: SpaceKind) => {
+                    this._spaceKind = kind
+                    // Der Riegel aus P1 beantwortet die Markup-Frage und die Schreibfrage
+                    // aus DERSELBEN Funktion. Eine zweite Regel hier („ist es Buzz?")
+                    // driftete von der ersten weg, und das Ergebnis wäre ein Knopf, der
+                    // garantiert nichts tut.
+                    this.canTimeout = mayWriteKind(BUZZ_TIMEOUT, kind)
                 })
                 // Melde-Queue (P3): Meldungen (kind 1984) laden + live halten. Die
                 // Ableitung ist billig; die UI zeigt sie nur Admins (x-show), also
@@ -5143,11 +5300,74 @@ export function registerNostrComponents(Alpine: {
                 this.busy = false
             }
         },
+        // ── P4: befristete Sperre (Buzz kind 9042/9043) ────────────────────────
+        // Die HÄRTESTE Maßnahme dieser Oberfläche. Entfernen und Bannen von Mitgliedern
+        // bietet sie nicht mehr an (fachliche Entscheidung des Vereins, 2026-09-03) —
+        // die Schreibpfade dafür stehen weiterhin darüber, ihre Bedienflächen sind an
+        // allen vier Markup-Stellen auskommentiert und tragen den Grund im Kommentar.
+        openTimeout(m: MemberView) {
+            this.timeoutTarget = m
+            this.timeoutReason = ''
+            dispatchModal('member-timeout')
+        },
+        async confirmTimeout() {
+            const target = this.timeoutTarget
+            if (!this._url || !target || this.busy) {
+                return
+            }
+            this.busy = true
+            try {
+                // `Number(...)` erst hier: das <select> liefert einen String, und die
+                // Umrechnung Dauer → `expiration` gehört in die reine Funktion
+                // (`planTimeout`), nicht in die Fläche. Ein unbrauchbarer Wert kommt von
+                // dort als Absage zurück, statt hier zu einem NaN zu werden.
+                const err = await timeoutSpaceMember(
+                    this._url,
+                    target.pubkey,
+                    Number(this.timeoutDuration),
+                    this._spaceKind,
+                    this.timeoutReason.trim(),
+                )
+                if (err) {
+                    toast(err)
+                } else {
+                    dispatchModal('member-timeout', false)
+                    toast(t('Mitglied befristet gesperrt.'), 'success')
+                    // 9042 ist nie lesbar (der Relay speichert und fanoutet 9042–9044
+                    // nicht) — die Sperrliste ist der einzige Erfolgsnachweis, also frisch
+                    // ziehen statt optimistisch etwas anzuzeigen.
+                    await this.loadBanned()
+                }
+            } finally {
+                this.busy = false
+            }
+        },
+        async liftTimeout(pubkey: string) {
+            if (!this._url || this.busy) {
+                return
+            }
+            this.busy = true
+            try {
+                const err = await untimeoutSpaceMember(this._url, pubkey, this._spaceKind)
+                if (err) {
+                    toast(err)
+                } else {
+                    await this.loadBanned()
+                }
+            } finally {
+                this.busy = false
+            }
+        },
         async loadBanned() {
             if (!this._url) {
                 return
             }
-            this.banned = await loadBannedMembers(this._url)
+            // Zwei Felder statt eines: „niemand ist gesperrt" und „du darfst diese
+            // Abfrage nicht" sind verschiedene Auskünfte, und die zweite als leere Liste
+            // zu zeigen sagte dem Moderator das Gegenteil der Wahrheit.
+            const { entries, error } = await loadRestrictedMembers(this._url)
+            this.banned = entries
+            this.bannedError = error
         },
         async unbanMember(pubkey: string) {
             if (!this._url || this.busy) {
@@ -5453,6 +5673,7 @@ export function registerNostrComponents(Alpine: {
             this._unsubJoins?.()
             this._unsubStatuses?.()
             this._unsubStatusPending?.()
+            this._unsubSpaceKind?.()
             this._controller?.abort()
         },
     }))
@@ -5554,6 +5775,10 @@ export function registerNostrComponents(Alpine: {
         topicError: '',
         topicSending: [],
         _unsubTopicPending: null,
+        topicSort: DEFAULT_FORUM_SORT,
+        canVote: false,
+        _spaceKind: 'unknown',
+        _unsubSpaceKind: null,
         pendingAdminDelete: null,
         banAuthorFor: null,
         moderating: false,
@@ -6260,6 +6485,53 @@ export function registerNostrComponents(Alpine: {
             this._unsubTopics = deriveForumTopics(url, this.h).subscribe((rows: ForumTopic[]) => {
                 this.topics = rows
             })
+            // Die Relay-Art entscheidet, ob hier überhaupt bewertet werden darf, und sie
+            // trifft SPÄT ein. Abonniert statt einmal gelesen: ein synchroner Blick beim
+            // Aufziehen meldete verlässlich `'unknown'`, die Pfeile blieben für immer
+            // stumm und niemand sähe, warum (die dokumentierte Klasse Fehler aus P6,
+            // `spaceIsBuzz()`-Schnappschuss). Nur im Forum abonniert — ein Chat-Raum
+            // zahlt für dieses Feature nichts.
+            this._unsubSpaceKind?.()
+            this._unsubSpaceKind = deriveSpaceKind(url).subscribe((kind: SpaceKind) => {
+                this._spaceKind = kind
+                // Nur die RELAY-Frage steht in diesem Feld. Ob jemand angemeldet und
+                // Mitglied ist, trägt `joined` — dasselbe Feld, an dem schon der
+                // Themen-Composer hängt. Zwei Felder für dieselbe Bedingung wären zwei
+                // Antworten, die auseinanderlaufen können.
+                this.canVote = mayWriteKind(FORUM_VOTE, kind)
+            })
+        },
+        sortedTopics() {
+            // Eine Methode und kein Feld: sie liest `topics` UND `topicSort` innerhalb
+            // des Alpine-Effekts, wird also bei beidem neu ausgewertet. Als Feld müsste
+            // jede der zwei Quellen es von Hand nachziehen, und die zweite vergisst man.
+            return sortForumTopics(this.topics, this.topicSort)
+        },
+        async voteTopic(topic: ForumTopic, direction: VoteDirection) {
+            if (!this._url) {
+                return
+            }
+            // `myVoteIds` und nicht nur `myVote`: ein Klick auf den bereits gedrückten
+            // Pfeil NIMMT die Stimme zurück, und dafür braucht der Schreibpfad die
+            // Ereignis-Ids — eine Rücknahme ist eine NIP-09-Löschung je eigener Stimme
+            // auf diesem Ziel (Begründung bei `ForumVoteTally.mineIds`).
+            const error = await voteOnForumTopic(
+                this._url,
+                this.h,
+                topic.id,
+                topic.myVote,
+                topic.myVoteIds,
+                direction,
+                this._spaceKind,
+            )
+            // Der Erfolgsfall braucht keine Meldung — die Zahl neben dem Pfeil hat sich
+            // schon beim Klick bewegt (optimistisch) und bleibt stehen. Die Ablehnung
+            // dagegen NIMMT die Bewegung zurück (`publishOptimistic` entfernt das
+            // Ereignis wieder), und eine Zahl, die von selbst zurückspringt, sieht wie
+            // ein Fehler der Fläche aus statt wie eine Entscheidung des Relays.
+            if (error) {
+                toast(error)
+            }
         },
         openTopic(topic: ForumTopic) {
             // `openThread` braucht von der Wurzel genau zwei Felder: `id` (Thread-Wurzel,
@@ -6357,6 +6629,14 @@ export function registerNostrComponents(Alpine: {
             this._unsubTopics = null
             this._unsubTopicPending?.()
             this._unsubTopicPending = null
+            this._unsubSpaceKind?.()
+            this._unsubSpaceKind = null
+            this._spaceKind = 'unknown'
+            this.canVote = false
+            // `topicSort` wird BEWUSST nicht zurückgesetzt: es ist eine Lesegewohnheit
+            // des Nutzers und keine Eigenschaft des Kanals. Wer die Punkteordnung wählt,
+            // will sie im nächsten Forum auch — und der Umschalter steht sichtbar
+            // darüber, die Wahl ist also nie unsichtbar.
             // Die Merker verwerfen und nicht nur das Abo lösen: sie hängen am
             // Modul und trügen sonst den Fehlschlag des VERLASSENEN Kanals in den
             // nächsten hinein. Ein Thema, das beim Verlassen noch flog, ist damit
@@ -7634,7 +7914,7 @@ export function registerNostrComponents(Alpine: {
                             return
                         }
                         this.zapInvoice = invoice
-                        this.zapQr = await QRCode.toDataURL(invoice.toUpperCase(), { width: 256, margin: 1 })
+                        this.zapQr = await qrDataUrl(invoice.toUpperCase())
                         ;(this as unknown as AlpineMagics).$nextTick(() => (this as unknown as AlpineMagics).$refs.zapCopyBtn?.focus())
                     }
                     return
@@ -7664,7 +7944,7 @@ export function registerNostrComponents(Alpine: {
                         return
                     }
                     this.zapInvoice = invoice
-                    this.zapQr = await QRCode.toDataURL(invoice.toUpperCase(), { width: 256, margin: 1 })
+                    this.zapQr = await qrDataUrl(invoice.toUpperCase())
                     this._zapSub = new AbortController()
                     watchZapReceipt({
                         zapper,
@@ -8249,7 +8529,7 @@ export function registerNostrComponents(Alpine: {
                         this.openAmber()
                     } else {
                         // Desktop: QR zum Scannen mit Amber (kein zweites Gerät im Web).
-                        this.connectQr = await QRCode.toDataURL(url, { width: 256, margin: 1 })
+                        this.connectQr = await qrDataUrl(url)
                     }
                 }, abort.signal)
                 window.location.assign(await postLoginRedirect())

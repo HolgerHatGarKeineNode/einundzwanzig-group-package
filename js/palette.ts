@@ -104,6 +104,7 @@ const GROUP_LABEL: Record<RailGroupKey, string> = {
     meetups: t('Meetups'),
     proposals: t('Projektunterstützung'),
     workspace: t('Workspace'),
+    dms: t('Direktnachrichten'),
 }
 
 const SECTION_LABEL: Record<PaletteSection, string> = {

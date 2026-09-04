@@ -17,8 +17,10 @@ import {
     publishError,
     publishFehlermeldung,
     relayHinweis,
+    publishDetail,
     setRelayNoticeReader,
     waitForPublishError,
+    waitForPublishOutcome,
 } from './publishResult.ts'
 
 /**
@@ -250,4 +252,73 @@ test('`relayHinweis` ist verhaltensgleich mit dem, was `mapRelayError` intern ha
     const ohne = 'invalid: channel-scoped events must include an h tag'
     assert.equal(relayHinweis(ohne), '')
     assert.ok(mapRelayError(ohne).includes('Vom Relay abgelehnt'))
+})
+
+// ── Die Bestaetigungszeile des Relays (P7) ──────────────────────────────────
+//
+// NIP-01 laesst das OK-Frame auch bei `true` eine Nachricht tragen, und Buzz benutzt
+// genau das als Antwortkanal seiner Kommando-Kinds: ein 41010 wird nicht mit einem
+// Ereignis beantwortet, sondern mit `response:{"channel_id":…}` im OK. welshman hebt den
+// Text auf (`publishOne` setzt `result.detail` auch im Erfolgszweig) — die vorhandenen
+// Auswerter kamen nur nicht an ihn heran.
+
+test('publishDetail liefert die Zeile des ersten erfolgreichen Relays', () => {
+    assert.equal(
+        publishDetail({ 'wss://a': { status: 'success', detail: 'response:{"channel_id":"x"}' } }),
+        'response:{"channel_id":"x"}',
+    )
+})
+
+test('publishDetail: erfolgreich ohne Zeile ist der Normalfall, nicht ein Fehler', () => {
+    // Ein gewoehnliches Relay antwortet mit `["OK", <id>, true, ""]`. `''` heisst „nichts
+    // gesagt", nicht „noch nicht entschieden" — sonst wartete der Aufrufer auf ein
+    // Verdikt, das laengst da ist.
+    assert.equal(publishDetail({ 'wss://a': { status: 'success' } }), '')
+    assert.equal(publishDetail({ 'wss://a': { status: 'success', detail: '' } }), '')
+})
+
+test('publishDetail: dieselbe „noch nicht entschieden"-Konvention wie publishError', () => {
+    assert.equal(publishDetail(undefined), undefined)
+    assert.equal(publishDetail({}), undefined)
+    assert.equal(publishDetail({ 'wss://a': { status: 'pending' } }), undefined)
+    assert.equal(publishDetail({ 'wss://a': { status: 'sending' } }), undefined)
+})
+
+test('publishDetail: eine ABLEHNUNG traegt keine Bestaetigung', () => {
+    // Die Begruendung einer Ablehnung steht in `publishError`. Kaeme sie auch hier
+    // heraus, deutete ein Aufrufer sie als Kommando-Antwort — bei Buzz waere das
+    // `restricted: unknown event kind` als „channel_id".
+    assert.equal(publishDetail({ 'wss://a': { status: 'failure', detail: 'restricted: nope' } }), '')
+    assert.equal(publishDetail({ 'wss://a': { status: 'timeout', detail: 'timed out' } }), '')
+})
+
+test('waitForPublishOutcome liefert Fehler UND Zeile aus demselben Verdikt', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const thunk = fakeThunk()
+    const p = waitForPublishOutcome(thunk)
+    thunk.emit({ 'wss://a': { status: 'success', detail: 'response:{"channel_id":"abc","created":true}' } })
+
+    assert.deepEqual(await p, { error: '', detail: 'response:{"channel_id":"abc","created":true}' })
+})
+
+test('waitForPublishOutcome: bei einer Ablehnung bleibt die Zeile leer', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const thunk = fakeThunk()
+    const p = waitForPublishOutcome(thunk)
+    thunk.emit({ 'wss://a': { status: 'failure', detail: 'restricted: unknown event kind' } })
+
+    assert.deepEqual(await p, { error: 'restricted: unknown event kind', detail: '' })
+})
+
+test('waitForPublishOutcome: dieselbe Zeitgrenze, dieselbe NOTICE-Nachfrage', async (t) => {
+    // `waitForPublishError` ist seit P7 in dieser Funktion ausgedrueckt statt daneben
+    // kopiert. Dieser Fall belegt, dass der Ausstieg wirklich derselbe ist — zwei
+    // Fassungen derselben Wartezeit waeren zwei Wahrheiten ueber den Abbruchfall.
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    setRelayNoticeReader((url) => (url === 'wss://a' ? 'rate-limited: quota exceeded' : ''))
+    const p = waitForPublishOutcome(fakeThunk())
+    t.mock.timers.tick(PUBLISH_VERDICT_TIMEOUT_MS + 1)
+
+    assert.deepEqual(await p, { error: `${NO_VERDICT_ERROR} rate-limited: quota exceeded`, detail: '' })
+    setRelayNoticeReader(() => '')
 })

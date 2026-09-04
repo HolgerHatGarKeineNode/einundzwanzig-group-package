@@ -38,6 +38,233 @@ export const FORUM_POST = 45001
 /** Buzz: Antwort in einem Forum-Thema (`KIND_FORUM_COMMENT`, `kind.rs:554`). */
 export const FORUM_COMMENT = 45003
 
+/**
+ * Buzz: Bewertung eines Forum-Beitrags (`KIND_FORUM_VOTE`, `kind.rs:552`).
+ *
+ * **The relay does not count these — we do.** Outside `kind.rs` and `ingest.rs` every
+ * occurrence of 45002 in the relay repository sits in `#[cfg(test)]`: there is no
+ * reader, no aggregate, no synthesized summary event. Whatever a score says on this
+ * surface, this file computed it.
+ */
+export const FORUM_VOTE = 45002
+
+// ── Votes ───────────────────────────────────────────────────────────────────
+
+/**
+ * The two `content` values a vote can carry (`buzz-sdk/src/builders.rs:456-470`,
+ * `build_vote`).
+ *
+ * **These are an SDK convention and nothing more.** `validate_forum_vote_target`
+ * (`ingest.rs:1001-1046`) checks the `e` tag, the existence of the target, the target's
+ * kind and the channel — it never touches `content`. A third value is therefore a valid
+ * event that the relay stores and fans out, and {@link foldForumVotes} discards it
+ * instead of guessing: a vote whose direction we cannot read is not a quiet yes.
+ */
+export const VOTE_UP = '+'
+export const VOTE_DOWN = '-'
+
+/** What a pubkey has decided about one target: up, down, or nothing. */
+export type VoteChoice = 0 | 1 | -1
+
+/** What the fold needs from a 45002 — structurally, not `TrustedEvent`. */
+export type ForumVoteInput = {
+    id: string
+    pubkey: string
+    created_at: number
+    /** Value of the vote's single `e` tag — the event it is about. */
+    targetId: string
+    /** Raw `content`. Anything outside `"+"`/`"-"` makes the vote unreadable. */
+    content: string
+}
+
+/**
+ * A NIP-09 tombstone, reduced to what the fold needs.
+ *
+ * Only the ids and the author: a delete counts **only against its own author's** events,
+ * exactly as `Repository.isDeletedById` decides it
+ * (`@welshman/net/dist/net/src/repository.js:199`, `some(spec({pubkey: event.pubkey}), …)`).
+ * Without that check anybody could erase anybody's vote from this surface by publishing a
+ * kind 5 that names it — the relay would refuse to act on it, and we would act anyway.
+ */
+export type ForumTombstoneInput = {
+    pubkey: string
+    created_at: number
+    /** Every `e` tag value of the kind 5. */
+    targetIds: readonly string[]
+}
+
+/** The result of folding every vote on one target. */
+export type ForumVoteTally = {
+    up: number
+    down: number
+    /** `up - down`. */
+    score: number
+    /** What the reading user voted, `0` if they did not. */
+    mine: VoteChoice
+    /**
+     * Every still-standing vote of the reading user on this target, newest first.
+     * Empty when they have none.
+     *
+     * **Why the whole list and not just the winner.** A retraction is a kind 5 naming
+     * **one** event id — `ingest.rs:2477-2489` accepts exactly one target per tombstone.
+     * Deleting only the winner would *resurrect* the vote before it: somebody who voted
+     * `+`, flipped to `-` and then took the `-` back would silently count as `+` again,
+     * because the `+` is still a perfectly valid event that nobody deleted. Nobody
+     * clicking "take it back" means that. So the write path takes back **all** of them,
+     * one tombstone each, and this is the list it needs.
+     *
+     * The alternative — a single tombstone plus a "everything older than this is gone
+     * too" rule in the fold — was tried and dropped: a tombstone names a vote id and
+     * carries no reference to the forum post, so such a rule can only be keyed on the
+     * author, and it would then silently delete that author's votes on **other** topics
+     * cast before the retraction.
+     */
+    mineIds: readonly string[]
+}
+
+/** No vote at all — shared instance, never mutated. */
+export const EMPTY_TALLY: ForumVoteTally = Object.freeze({ up: 0, down: 0, score: 0, mine: 0, mineIds: [] })
+
+/**
+ * Is `a` the later of two votes by the same pubkey on the same target?
+ *
+ * The tie-break is not decoration. Buzz refuses an event whose `created_at` is more
+ * than ±900 s off server time (`ingest.rs:2005-2011`), so votes cluster in whole
+ * seconds, and two votes in the same second are the normal case rather than the corner
+ * one — exactly the reasoning `buildForumTopics` already writes down for the topic
+ * order ("am Relay ist Sekundengleichheit der Normalfall").
+ *
+ * On a tie the **lexicographically smaller id wins**, because that is the direction
+ * this file already treats as "newer": the reply sort below is
+ * `b.created_at - a.created_at || a.id.localeCompare(b.id)`, so within one second the
+ * smaller id sorts to the newest-first end. One rule, one direction, two places.
+ */
+const isLaterVote = (a: ForumVoteInput, b: ForumVoteInput): boolean =>
+    a.created_at !== b.created_at ? a.created_at > b.created_at : a.id < b.id
+
+/**
+ * Fold raw votes into one tally per target — **the rule this whole phase turns on.**
+ *
+ * The relay has **no dedup for 45002.** NIP-25 reactions get one
+ * (`insert_reaction_event_with_thread_metadata` with `ON CONFLICT`, `ingest.rs:2792-2850`);
+ * forum votes take the plain ingest path and two votes by the same pubkey on the same
+ * target are two valid, both-stored, both-delivered events. Summing naively would count
+ * a user as often as they clicked, and there is no server-side number to fall back on.
+ *
+ * Three filters, in this order, and the order is the rule:
+ *
+ *  1. **Unknown target out.** `targets` is the set of forum events this view actually
+ *     holds (roots and replies). The relay only accepts a vote whose target exists and
+ *     is a 45001/45003 in the same channel — but that is *its* check on *its* data, and
+ *     a client that trusted it would still count a vote on a chat message the moment a
+ *     less strict relay stored one. The set is also why a vote can arrive before its
+ *     target and simply not count yet: the next batch that brings the target recomputes
+ *     everything, because the derivation feeds all forum kinds through one filter.
+ *  2. **Unreadable direction out** (see {@link VOTE_UP}). Discarded *before* the
+ *     newest-wins step, not after: a garbage event must not be able to silence a
+ *     legitimate earlier vote of the same author. The consequence, stated because it
+ *     is the flip side and not an oversight — a third `content` value is **not** a way
+ *     to retract a vote. Retraction has its own, exact mechanism (rule 3): a NIP-09
+ *     tombstone naming the vote's id.
+ *  3. **Retracted out.** A vote whose id a tombstone **of its own author** names does
+ *     not count. Author-checked, exactly as `Repository.isDeletedById` decides it
+ *     (`@welshman/net/dist/net/src/repository.js:199`) — without that check anybody
+ *     could erase anybody's vote from this surface with a kind 5 the relay would never
+ *     have acted on. There is no `created_at` comparison here for the same reason there
+ *     is none there: an id names one immutable event, and comparing would strand a vote
+ *     taken back in the second it was made.
+ *  4. **Newest per `(pubkey, target)` wins**, older ones dropped entirely — not
+ *     subtracted. Switching from `+` to `-` therefore moves the score by two, which is
+ *     what a reader expects, and re-clicking the same direction moves it by nothing.
+ *
+ * ── Why rule 3 exists here at all, given the repository already applies deletes ─────
+ *
+ * It is a second lock on the same door, and the door is known to be loose. The list this
+ * function is fed comes from `deriveEventsForUrl`, i.e. from `Repository.query`, which
+ * skips deleted events and drops them again on the `removed` half of an update — so in
+ * the normal case a retracted vote never arrives here. But `deriveEventsByIdForUrl`'s
+ * `tracker.add` branch re-adds an event by id **without** asking `isDeleted`
+ * (`@welshman/store/dist/store/src/repository.js`), so a deleted vote can reappear in
+ * the list once its origin is tracked. Rule 3 makes the promise "a retracted vote does
+ * not count" a property of this function instead of a property of a dependency — and
+ * that is also what makes it provable under `node --test`.
+ */
+export const foldForumVotes = (
+    votes: readonly ForumVoteInput[],
+    targets: ReadonlySet<string>,
+    self = '',
+    tombstones: readonly ForumTombstoneInput[] = [],
+): Map<string, ForumVoteTally> => {
+    // `pubkey -> the ids that pubkey took back`. Keyed by author, because a tombstone
+    // only ever speaks for its own author (rule 3).
+    const retracted = new Map<string, Set<string>>()
+    for (const stone of tombstones) {
+        if (!stone.pubkey) {
+            continue
+        }
+        const known = retracted.get(stone.pubkey) ?? new Set<string>()
+        for (const id of stone.targetIds) {
+            if (id) {
+                known.add(id)
+            }
+        }
+        if (known.size > 0) {
+            retracted.set(stone.pubkey, known)
+        }
+    }
+
+    const winners = new Map<string, ForumVoteInput>()
+    /** Every still-standing vote of `self`, by target — the list a retraction deletes. */
+    const own = new Map<string, ForumVoteInput[]>()
+    for (const vote of votes) {
+        if (!vote.id || !vote.pubkey || !targets.has(vote.targetId)) {
+            continue
+        }
+        if (vote.content !== VOTE_UP && vote.content !== VOTE_DOWN) {
+            continue
+        }
+        if (retracted.get(vote.pubkey)?.has(vote.id)) {
+            continue
+        }
+        if (self !== '' && vote.pubkey === self) {
+            const mine = own.get(vote.targetId)
+            if (mine) {
+                mine.push(vote)
+            } else {
+                own.set(vote.targetId, [vote])
+            }
+        }
+        const key = `${vote.pubkey}|${vote.targetId}`
+        const held = winners.get(key)
+        if (held && !isLaterVote(vote, held)) {
+            continue
+        }
+        winners.set(key, vote)
+    }
+
+    const tallies = new Map<string, ForumVoteTally>()
+    for (const vote of winners.values()) {
+        const up = vote.content === VOTE_UP
+        const held = tallies.get(vote.targetId) ?? { up: 0, down: 0, score: 0, mine: 0 as VoteChoice, mineIds: [] }
+        held.up += up ? 1 : 0
+        held.down += up ? 0 : 1
+        held.score = held.up - held.down
+        if (self !== '' && vote.pubkey === self) {
+            held.mine = up ? 1 : -1
+            // Newest first, by the SAME comparator that picked the winner — so
+            // `mineIds[0]` is the vote the arrow is showing, and the rest is history the
+            // retraction still has to clean up.
+            held.mineIds = (own.get(vote.targetId) ?? [])
+                .slice()
+                .sort((a, b) => (isLaterVote(a, b) ? -1 : 1))
+                .map((entry) => entry.id)
+        }
+        tallies.set(vote.targetId, held)
+    }
+
+    return tallies
+}
+
 // ── Titel & Vorschau ────────────────────────────────────────────────────────
 
 /** Obergrenze des Titels in Zeichen. Darüber wird hart gekürzt (mit Ellipse). */
@@ -115,7 +342,59 @@ export type ForumTopicRow = {
     lastActivityAt: number
     /** Autoren der jüngsten Antworten, neueste zuerst, ohne Wiederholung, max. 3. */
     faces: string[]
+    /** `up - down` after the fold. Computed here; no relay reports it. */
+    score: number
+    upCount: number
+    downCount: number
+    /** What the reading user voted on this topic. */
+    myVote: VoteChoice
+    /**
+     * Every still-standing vote of the reading user on this topic, newest first — the
+     * list a retraction has to take back. See {@link ForumVoteTally.mineIds}.
+     */
+    myVoteIds: readonly string[]
 }
+
+// ── Sortierung ──────────────────────────────────────────────────────────────
+
+/**
+ * The orders the topic list offers, in the order the surface offers them.
+ *
+ * Literally two — a test pins the count and the values. Same construction and same
+ * reason as `ARTICLE_SORTS` (`js/articleSorts.ts`): a labels-in-Blade / values-in-TS
+ * split silently drifts, and a comparator that falls back to the default on an unknown
+ * value never turns red on its own.
+ */
+export const FORUM_SORTS = ['activity', 'score'] as const
+
+export type ForumSort = (typeof FORUM_SORTS)[number]
+
+/**
+ * The order without a choice: **last activity**.
+ *
+ * Unchanged from before votes existed, and deliberately so. A forum whose default is
+ * the score buries the question asked five minutes ago under the one everybody already
+ * agreed with a month ago — the opposite of what {@link buildForumTopics} rule 2 is for.
+ */
+export const DEFAULT_FORUM_SORT: ForumSort = 'activity'
+
+/**
+ * Order the rows. Returns a **new** array; the input is not touched.
+ *
+ * The score order falls back to activity and then to the id, so it is total: a forum in
+ * which nobody has voted yet is not shuffled into a random order by picking "points",
+ * it simply looks like the activity order. Without the second level that is exactly
+ * what would happen — every score is 0, `sort` is only stable per specification since
+ * ES2019 and the *input* order is a repository emit order, not a promise.
+ */
+export const sortForumTopics = <T extends ForumTopicRow>(rows: readonly T[], sort: ForumSort): T[] =>
+    rows
+        .slice()
+        .sort((a, b) =>
+            sort === 'score'
+                ? b.score - a.score || b.lastActivityAt - a.lastActivityAt || a.id.localeCompare(b.id)
+                : b.lastActivityAt - a.lastActivityAt || a.id.localeCompare(b.id),
+        )
 
 /** Wie viele Gesichter an einer Zeile stehen. Wie im Thread-Indikator des Chats. */
 export const FORUM_FACE_CAP = 3
@@ -139,15 +418,33 @@ export const FORUM_FACE_CAP = 3
  *    Gleichstand die Eingangsreihenfolge behält, ordnete die Liste bei jedem
  *    Nachladen anders — am Relay ist Sekundengleichheit der Normalfall, nicht
  *    der Sonderfall (Seed-Ereignisse tragen dieselbe Sekunde).
+ * 4. *The score is folded, never summed* — see {@link foldForumVotes}. `votes` and
+ *    `tombstones` are optional so that every caller written before this phase keeps
+ *    working and reads a score of 0, which is the truth for a forum nobody has voted in.
  */
 export const buildForumTopics = (
     roots: readonly ForumRootInput[],
     replies: readonly ForumReplyInput[],
+    votes: readonly ForumVoteInput[] = [],
+    self = '',
+    tombstones: readonly ForumTombstoneInput[] = [],
 ): ForumTopicRow[] => {
     const byId = new Map<string, ForumRootInput>()
     for (const root of roots) {
         byId.set(root.id, root)
     }
+
+    // The set of forum events this view holds — roots AND replies, because a vote may
+    // target either (`validate_forum_vote_target` accepts 45001 and 45003 alike). A
+    // reply whose root is unresolvable is still a forum event and still a legal target;
+    // it is only its *display* that rule 1 below suppresses. Votes on replies are folded
+    // and currently shown nowhere — the thread view is the next surface that needs them,
+    // and computing them twice under two rules is how the two would drift.
+    const voteTargets = new Set<string>(byId.keys())
+    for (const reply of replies) {
+        voteTargets.add(reply.id)
+    }
+    const tallies = foldForumVotes(votes, voteTargets, self, tombstones)
 
     const grouped = new Map<string, ForumReplyInput[]>()
     for (const reply of replies) {
@@ -165,6 +462,7 @@ export const buildForumTopics = (
 
     const rows: ForumTopicRow[] = []
     for (const root of byId.values()) {
+        const tally = tallies.get(root.id) ?? EMPTY_TALLY
         const own = (grouped.get(root.id) ?? []).slice().sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))
         const faces: string[] = []
         for (const reply of own) {
@@ -184,8 +482,16 @@ export const buildForumTopics = (
             replyCount: own.length,
             lastActivityAt: own.length > 0 ? Math.max(root.created_at, own[0].created_at) : root.created_at,
             faces,
+            score: tally.score,
+            upCount: tally.up,
+            downCount: tally.down,
+            myVote: tally.mine,
+            myVoteIds: tally.mineIds,
         })
     }
 
-    return rows.sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.id.localeCompare(b.id))
+    // Rule 3 is the DEFAULT order, not the only one. The user's choice is applied by
+    // {@link sortForumTopics} at the surface: it is not a store input, and threading it
+    // through the derivation would rebuild every row for a click that changes no data.
+    return sortForumTopics(rows, DEFAULT_FORUM_SORT)
 }

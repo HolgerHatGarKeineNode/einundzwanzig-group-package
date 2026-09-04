@@ -29,9 +29,15 @@ import {
     buzzUnbanPubkey,
     buzzChangeRole,
     buzzDeleteEvent,
+    buzzLoadRestricted,
     buzzResolveReport,
+    buzzTimeoutPubkey,
+    buzzUntimeoutPubkey,
     type BuzzRelayRole,
 } from './buzzAdmin.ts'
+import { planTimeout, planUntimeout, type RestrictionListFailure } from './moderationTimeoutModels.ts'
+import type { SpaceKind } from './spaceCaps.ts'
+import { formatTimestamp } from './locale.ts'
 import { warmHandles, verifiedNip05 } from './handles.ts'
 import { loadSpaceProfiles, profilesByPubkey, purgeSpaceLocalProfiles } from './spaceProfiles.ts'
 import { t } from './i18n.ts'
@@ -519,6 +525,49 @@ export const unbanSpaceMember = async (url: string, pubkey: string): Promise<str
         : manageError(await app.use(RelayManagement).forUrl(url).unbanPubkey(pubkey))
 
 /**
+ * **Timed suspension** (Buzz kind 9042) — the strongest measure this surface offers
+ * against a person. `''` on success, otherwise the relay's wording or the gate's refusal.
+ *
+ * ── Why there is no `spaceIsBuzzAsync` here ─────────────────────────────────
+ *
+ * The neighbours above ask for the relay kind themselves because they have **two** arms
+ * (a Buzz kind or NIP-86). This measure has one: 9042 is Buzz dialect, zooid has no
+ * counterpart — and zooid would not reject the command, it would **store** it as a
+ * permanent, unreadable event and suspend nobody. The decision therefore falls in the P1
+ * gate (`mayWriteKind`), and it falls **as a return value**: `planTimeout` hands back the
+ * event body or `null`. A caller that publishes without it has nothing to publish.
+ *
+ * `now` is a parameter and is read at the call, not before: Buzz accepts moderation
+ * commands only within ±120 s (`MAX_COMMAND_SKEW_SECS`), so the event must not be
+ * prepared ahead of time.
+ */
+export const timeoutSpaceMember = async (
+    url: string,
+    pubkey: string,
+    durationSecs: number,
+    spaceKind: SpaceKind,
+    reason = '',
+    nowSecs: number = Math.floor(Date.now() / 1000),
+): Promise<string> => {
+    const command = planTimeout(pubkey, durationSecs, nowSecs, spaceKind, reason)
+    if (!command) {
+        return t('Dieser Space kennt keine befristete Sperre (nur Buzz-Spaces unterstützen das).')
+    }
+
+    return await buzzTimeoutPubkey(url, command)
+}
+
+/** Lifts a timed suspension (Buzz kind 9043). Same construction, its own gate. */
+export const untimeoutSpaceMember = async (url: string, pubkey: string, spaceKind: SpaceKind): Promise<string> => {
+    const command = planUntimeout(pubkey, spaceKind)
+    if (!command) {
+        return t('Dieser Space kennt keine befristete Sperre (nur Buzz-Spaces unterstützen das).')
+    }
+
+    return await buzzUntimeoutPubkey(url, command)
+}
+
+/**
  * Rolle eines bestehenden Mitglieds setzen (Buzz kind 9032, **nur Owner**). Auf
  * zooid gibt es dafür kein Gegenstück — dort sind Rollen benannte 33534-Labels
  * ohne Rechtewirkung, die Rechte stehen in der Relay-TOML. Deshalb liefert der
@@ -593,17 +642,88 @@ export const setRelayDescription = async (url: string, description: string): Pro
 export const setRelayIcon = async (url: string, icon: string): Promise<string> =>
     manageError(await app.use(RelayManagement).forUrl(url).changeRelayIcon(icon))
 
-export type BannedMember = { pubkey: string; npub: string; short: string; reason: string }
+/**
+ * One standing restriction, in the shape the surface renders.
+ *
+ * `banned` separates the two kinds: a **ban** (permanent, set by an older client or
+ * another tool — this surface does not ban any more) from a running **timed suspension**.
+ * `until` is the end of the suspension in the active language, and is filled for the
+ * timed one only.
+ */
+export type RestrictedMember = {
+    pubkey: string
+    npub: string
+    short: string
+    reason: string
+    banned: boolean
+    until: string
+}
 
-/** Lädt die Ban-Liste (`listbannedpubkeys`) frisch als Promise (kein Store-Cache). */
-export const loadBannedMembers = async (url: string): Promise<BannedMember[]> => {
-    const res = (await app.use(RelayManagement).forUrl(url).listBannedPubkeys()) as {
-        result?: { pubkey: string; reason?: string }[]
+/**
+ * The answer to a restriction query: the list **or** a reason why there is none.
+ *
+ * Two fields rather than a throw, because the surface has to show both and an empty array
+ * would be the wrong answer: "nobody is restricted" and "you may not ask this" are
+ * different statements (see [[buzzLoadRestricted]]).
+ */
+export type RestrictedList = { entries: RestrictedMember[]; error: string }
+
+/** One sentence per failure — the 403 says in as many words that the permission is missing. */
+const restrictionFailureText = (reason: RestrictionListFailure): string =>
+    reason === 'forbidden' || reason === 'unauthorized'
+        ? t('Keine Berechtigung, die Sperrliste dieses Space zu lesen.')
+        : t('Die Sperrliste konnte nicht geladen werden.')
+
+const asRestricted = (pubkey: string, reason: string, banned: boolean, until: string): RestrictedMember => {
+    const npub = nip19.npubEncode(pubkey)
+
+    return { pubkey, npub, short: shortNpub(npub), reason, banned, until }
+}
+
+/**
+ * Loads the standing restrictions fresh as a promise (no store cache).
+ *
+ * **Buzz:** `GET /moderation/restricted` — one answer carrying bans AND running timed
+ * suspensions, and the only proof that a 9042 took effect (the relay neither stores nor
+ * fans out 9042–9044). A failure is reported as text, never as an empty list.
+ *
+ * **zooid:** NIP-86 `listbannedpubkeys` as before. There is no timed suspension there, so
+ * every row is a ban.
+ */
+export const loadRestrictedMembers = async (url: string): Promise<RestrictedList> => {
+    if (await spaceIsBuzzAsync(url)) {
+        const result = await buzzLoadRestricted(url)
+        if (!result.ok) {
+            return { entries: [], error: restrictionFailureText(result.reason) }
+        }
+
+        return {
+            entries: result.entries.map((entry) =>
+                asRestricted(
+                    entry.pubkey,
+                    entry.reason,
+                    entry.banned,
+                    entry.mutedUntil === null
+                        ? ''
+                        : formatTimestamp(entry.mutedUntil, { dateStyle: 'medium', timeStyle: 'short' }),
+                ),
+            ),
+            error: '',
+        }
     }
-    return (res.result ?? []).map(({ pubkey, reason }) => {
-        const npub = nip19.npubEncode(pubkey)
-        return { pubkey, npub, short: shortNpub(npub), reason: reason ?? '' }
-    })
+
+    try {
+        const res = (await app.use(RelayManagement).forUrl(url).listBannedPubkeys()) as {
+            result?: { pubkey: string; reason?: string }[]
+        }
+
+        return {
+            entries: (res.result ?? []).map(({ pubkey, reason }) => asRestricted(pubkey, reason ?? '', true, '')),
+            error: '',
+        }
+    } catch {
+        return { entries: [], error: t('Die Sperrliste konnte nicht geladen werden.') }
+    }
 }
 
 // ── Laden ────────────────────────────────────────────────────────────────────

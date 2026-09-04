@@ -137,6 +137,17 @@ export type SpaceKind = 'unknown' | 'buzz' | 'other'
 export type RelayInfoLike = { software?: string }
 
 /**
+ * Das NIP-11-Doc, soweit dieser Client hineinsieht — die Felder, die `relayCaps.ts`
+ * strukturell prüft. Bewusst KEIN welshman-`RelayInfo`: dessen Typ führt 15
+ * Standardfelder, und `supported_extensions`/`limitation.max_not_before_delta` sind
+ * keins davon (siehe {@link deriveSpaceProfile}).
+ */
+export type SpaceProfile = RelayInfoLike & {
+    supported_extensions?: string[]
+    limitation?: { max_not_before_delta?: number }
+}
+
+/**
  * Wartezeiten der Wiederholungen. Ein Sofortversuch beim ersten Abonnenten plus
  * bis zu drei Wiederholungen nach 1 s / 4 s / 15 s; scheitert auch die letzte,
  * steht `'other'`.
@@ -285,3 +296,49 @@ export const deriveSpaceKind = (url: string): Readable<SpaceKind> => {
     }
     return store
 }
+
+/**
+ * Das **ganze** NIP-11-Doc eines Space, reaktiv — für die Fälle, in denen die
+ * dreiwertige Relay-Art nicht reicht.
+ *
+ * ── Warum das eine eigene Ableitung ist und kein zweites Feld an `deriveSpaceKind` ──
+ *
+ * `deriveSpaceKind` liefert bewusst `'unknown' | 'buzz' | 'other'` und sonst nichts;
+ * 26 Aufrufstellen entscheiden daran eine Ja/Nein-Frage. Sie um das Doc zu erweitern
+ * hieße, ihren Typ für einen einzigen Verbraucher zu verbreitern.
+ *
+ * ── Und warum sie trotzdem auf `deriveSpaceKind` sitzt ─────────────────────────────
+ *
+ * Weil das Doc **nicht von selbst kommt**: `app.use(Relays).one(url)` stößt beim
+ * Ableiten nur ein `load` an, das am eigenen Merker abprallt, sobald einmal ein
+ * Versuch lief (Herleitung im Kopf dieser Datei). Die Wiederhol-Schleife mit
+ * `forceLoad` steckt in {@link makeSpaceKindStore}, und sie läuft nur, solange
+ * jemand abonniert hat. Ein Abo darauf ist deshalb kein Beiwerk, sondern der
+ * Antrieb — ohne es bliebe diese Ableitung auf einem stillen Relay ewig
+ * `undefined`, und die Fläche darüber wäre dauerhaft aus, ohne Fehler.
+ *
+ * Der Wert ist **roh**, wie welshman ihn aus dem NIP-11-JSON übernimmt
+ * (`Object.assign(this, json, …)`) — also inklusive der Felder, die welshmans
+ * `RelayInfo`-Typ nicht kennt (`supported_extensions`, `limitation.max_not_before_delta`).
+ * Wer sie liest, prüft ihre Form selbst; `relayCaps.ts` tut genau das.
+ */
+export const deriveSpaceProfile = (url: string): Readable<SpaceProfile | undefined> =>
+    readable<SpaceProfile | undefined>(undefined, (set) => {
+        if (!url) {
+            return () => {}
+        }
+        // Hält die Ladeschleife am Leben; ihr Wert interessiert hier nicht.
+        const stopLoad = deriveSpaceKind(url).subscribe(() => {})
+        const stopDoc = app.use(Relays).one(url).subscribe((info: unknown) => {
+            // Nie von „bekannt" zurück auf `undefined` fallen — dieselbe Regel wie im
+            // Kind-Store: ein leerer Zwischenwert ist kein Widerruf des Docs.
+            if (info) {
+                set(info as SpaceProfile)
+            }
+        })
+
+        return () => {
+            stopDoc()
+            stopLoad()
+        }
+    })

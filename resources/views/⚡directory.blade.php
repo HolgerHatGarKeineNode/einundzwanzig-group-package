@@ -67,8 +67,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:modal.trigger name="roles-list">
                 <flux:button size="sm" variant="ghost" icon="swatch">{{ __('Rollen verwalten') }}</flux:button>
             </flux:modal.trigger>
+            {{-- Bestehende Sperren: seit P4 stehen hier befristete Sperren (9042) NEBEN
+                 den Bannen, die ältere Clients gesetzt haben. Beide müssen sichtbar und
+                 aufhebbar bleiben, deshalb bleibt der Reiter — nur seine Beschriftung
+                 folgt dem, was er heute zeigt. Die Abfrage feuert erst beim Klick. --}}
             <flux:modal.trigger name="banned">
-                <flux:button size="sm" variant="ghost" icon="no-symbol" x-on:click="loadBanned()">{{ __('Gebannt') }}</flux:button>
+                <flux:button size="sm" variant="ghost" icon="no-symbol" x-on:click="loadBanned()">{{ __('Gesperrt') }}</flux:button>
             </flux:modal.trigger>
             <flux:modal.trigger name="invite">
                 <flux:button size="sm" variant="ghost" icon="user-plus" x-on:click="loadInvite()">{{ __('Einladen') }}</flux:button>
@@ -170,9 +174,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch" aria-label="{{ __('Mitglied verwalten') }}" />
                                 <flux:menu>
                                     <flux:menu.item icon="swatch" x-on:click="openMemberRoles(m)">{{ __('Rollen bearbeiten') }}</flux:menu.item>
-                                    <flux:menu.separator />
+                                    {{-- Timed suspension (Buzz kind 9042) — the strongest measure this
+                                         surface offers. Separator and entry both hang on `canTimeout`:
+                                         a zooid space has no timeout command, and a divider at the end
+                                         of the menu would then separate nothing. One flux child per
+                                         `template x-if` — a wrapper div swallows flux:menu (same rule
+                                         and same reason as in `partials/chat-row.blade.php`). --}}
+                                    <template x-if="canTimeout">
+                                        <flux:menu.separator />
+                                    </template>
+                                    <template x-if="canTimeout">
+                                        <flux:menu.item icon="clock" x-on:click="openTimeout(m)">{{ __('Befristet sperren') }}</flux:menu.item>
+                                    </template>
+                                    {{-- no removal or ban of members here — the association does not remove
+                                         or ban its members (decision 2026-09-03); the timed suspension above
+                                         is the strongest measure this surface offers. The write paths stay
+                                         (`removeMember`/`banMember` in `js/bridge.ts`, `removeSpaceMember`/
+                                         `banSpaceMember` in `js/members.ts`): they carry the zooid arm and
+                                         are unused capability, not dead code.
                                     <flux:menu.item icon="user-minus" x-on:click="removeMember(m)">{{ __('Entfernen') }}</flux:menu.item>
                                     <flux:menu.item variant="danger" icon="no-symbol" x-on:click="banMember(m)">{{ __('Bannen') }}</flux:menu.item>
+                                    --}}
                                 </flux:menu>
                             </flux:dropdown>
                         </div>
@@ -308,12 +330,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </flux:modal>
 
-        {{-- Gebannte Mitglieder --}}
+        {{-- Bestehende Sperren: befristete Sperren (9042, aufhebbar per 9043) und die
+             Banns älterer Clients (aufhebbar per 9041/NIP-86). Diese Oberfläche bannt
+             nicht mehr — anzeigen und aufheben muss sie beides trotzdem. --}}
         <flux:modal name="banned" class="max-w-sm">
             <div class="space-y-4">
-                <flux:heading size="lg">{{ __('Gebannt') }}</flux:heading>
-                <template x-if="banned.length === 0">
-                    <flux:text class="text-sm text-muted">{{ __('Niemand gebannt.') }}</flux:text>
+                <flux:heading size="lg">{{ __('Gesperrt') }}</flux:heading>
+                {{-- Ein Fehlgrund ist KEINE leere Liste: „niemand ist gesperrt" und „du
+                     darfst diese Abfrage nicht" sagen dem Moderator das Gegenteil
+                     voneinander. Deshalb zwei getrennte Zustände. --}}
+                <template x-if="bannedError">
+                    <flux:callout variant="danger" icon="exclamation-triangle">
+                        <flux:callout.text x-text="bannedError"></flux:callout.text>
+                    </flux:callout>
+                </template>
+                <template x-if="!bannedError && banned.length === 0">
+                    <flux:text class="text-sm text-muted">{{ __('Niemand gesperrt.') }}</flux:text>
                 </template>
                 <div class="space-y-2">
                     <template x-for="b in banned" :key="b.pubkey">
@@ -321,11 +353,54 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <div class="min-w-0 flex-1">
                                 <div class="truncate font-mono text-xs text-muted" x-text="b.short"></div>
                                 <div class="truncate text-xs text-muted" x-text="b.reason"></div>
+                                <div x-show="b.until" x-cloak class="truncate text-xs text-muted">{{ __('Bis') }} <span x-text="b.until"></span></div>
                             </div>
-                            <flux:button size="xs" variant="ghost" class="icon-btn-touch" x-on:click="unbanMember(b.pubkey)" ::disabled="busy">{{ __('Entbannen') }}</flux:button>
-                            <flux:button size="xs" variant="primary" class="icon-btn-touch" x-on:click="restoreMember(b.pubkey)" ::disabled="busy">{{ __('Wiederaufnehmen') }}</flux:button>
+                            {{-- Befristete Sperre: EIN Knopf (9043). Ein „Wiederaufnehmen"
+                                 gibt es hier nicht — die Mitgliedschaft war nie weg. --}}
+                            <template x-if="!b.banned">
+                                <flux:button size="xs" variant="ghost" class="icon-btn-touch" x-on:click="liftTimeout(b.pubkey)" ::disabled="busy">{{ __('Sperre aufheben') }}</flux:button>
+                            </template>
+                            {{-- Ban aus einem älteren Client: aufheben UND wieder aufnehmen,
+                                 wie bisher. Ein Wrapper-Div, weil `template x-if` genau EIN
+                                 Wurzelelement trägt. --}}
+                            <template x-if="b.banned">
+                                <div class="flex shrink-0 gap-2">
+                                    <flux:button size="xs" variant="ghost" class="icon-btn-touch" x-on:click="unbanMember(b.pubkey)" ::disabled="busy">{{ __('Entbannen') }}</flux:button>
+                                    <flux:button size="xs" variant="primary" class="icon-btn-touch" x-on:click="restoreMember(b.pubkey)" ::disabled="busy">{{ __('Wiederaufnehmen') }}</flux:button>
+                                </div>
+                            </template>
                         </div>
                     </template>
+                </div>
+            </div>
+        </flux:modal>
+
+        {{-- Befristet sperren (P4, Buzz kind 9042). Die Dauer ist WÄHLBAR — ausdrücklicher
+             Nutzerwunsch vom 2026-09-03, kein fester Wert im Code. Was das Auswahlfeld
+             liefert, sind Sekunden; die Umrechnung Dauer → `expiration` steht als reine
+             Funktion in `js/moderationTimeoutModels.ts` und nicht in dieser Datei.
+
+             Das Ereignis entsteht erst beim Klick auf „Sperren": Buzz nimmt
+             Moderationsbefehle nur innerhalb von ±120 s an (`MAX_COMMAND_SKEW_SECS`), ein
+             vorbereitetes Ereignis wäre beim Absenden abgelaufen. --}}
+        <flux:modal name="member-timeout" class="max-w-sm">
+            <div class="space-y-4">
+                <flux:heading size="lg">{{ __('Befristet sperren') }}</flux:heading>
+                <flux:text class="text-sm text-muted">
+                    {{ __('Das Mitglied kann bis zum Ablauf nichts schreiben. Es bleibt Mitglied — entfernt oder gebannt wird niemand.') }}
+                </flux:text>
+                <div class="truncate text-sm font-medium" x-text="timeoutTarget?.name"></div>
+                <flux:select x-model="timeoutDuration" label="{{ __('Dauer') }}">
+                    <flux:select.option value="3600">{{ __('1 Stunde') }}</flux:select.option>
+                    <flux:select.option value="86400">{{ __('1 Tag') }}</flux:select.option>
+                    <flux:select.option value="259200">{{ __('3 Tage') }}</flux:select.option>
+                    <flux:select.option value="604800">{{ __('7 Tage') }}</flux:select.option>
+                    <flux:select.option value="2592000">{{ __('30 Tage') }}</flux:select.option>
+                </flux:select>
+                <flux:input x-model="timeoutReason" label="{{ __('Grund (optional)') }}" placeholder="{{ __('Wird dem Mitglied mitgeteilt') }}" />
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close><flux:button variant="ghost">{{ __('Abbrechen') }}</flux:button></flux:modal.close>
+                    <flux:button variant="danger" x-on:click="confirmTimeout()" ::disabled="busy">{{ __('Sperren') }}</flux:button>
                 </div>
             </div>
         </flux:modal>
@@ -405,8 +480,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <div class="flex flex-wrap justify-end gap-2">
                                 <flux:button size="xs" variant="ghost" x-on:click="dismissReport(r)" ::disabled="busy">{{ __('Verwerfen') }}</flux:button>
                                 <flux:button size="xs" variant="ghost" icon="trash" x-on:click="removeReportedContent(r)" ::disabled="busy">{{ __('Inhalt entfernen') }}</flux:button>
-                                {{-- „Autor bannen" (banpubkey) vorerst NICHT angeboten (bewusst deaktiviert).
-                                     Zum Reaktivieren wieder einkommentieren (JS banReportedUser bleibt).
+                                {{-- „Autor bannen" (banpubkey) NICHT angeboten.
+                                     no removal or ban of members here — the association does not remove or
+                                     ban its members (decision 2026-09-03); the timed suspension in the member
+                                     menu (Buzz kind 9042) is the strongest measure this surface offers.
+                                     „Inhalt entfernen" stays: it hits content, not a person. The write path
+                                     stays (JS `banReportedUser`).
                                 <flux:button size="xs" variant="danger" icon="no-symbol" x-on:click="banReportedUser(r)" ::disabled="busy">{{ __('Autor bannen') }}</flux:button>
                                 --}}
                             </div>

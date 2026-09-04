@@ -28,11 +28,55 @@
  *   Buzz-Space keine einzige Admin-Aktion ausführen.
  * - 9040 — **Buzz**: Pubkey aus der Community bannen (buzzAdmin.ts). Das Entbannen ist
  *   9041, das schon wegen NIP-75 gelistet ist — bewusst nicht zweimal aufgeführt.
+ * - 9042/9043 — **Buzz**: befristet sperren und die Sperre aufheben (buzzAdmin.ts
+ *   `buzzTimeoutPubkey`/`buzzUntimeoutPubkey`, geplant in `moderationTimeoutModels.ts`).
+ *   Seit P4 die HÄRTESTE Maßnahme dieser Oberfläche — entfernt und gebannt wird nicht
+ *   mehr (Entscheidung 2026-09-03). Ohne diese beiden Einträge kann ein Amber-Nutzer die
+ *   Schaltfläche nicht bedienen: eine bestehende Bunker-Verbindung wird nie nachverhandelt.
  * - 9044 — **Buzz**: Meldung erledigen (buzzAdmin.ts `buzzResolveReport`). Ohne dieses
  *   Kind bleibt jede Meldung in der Relay-Datenbank offen stehen.
  * - 9041 ZAP_GOAL — NIP-75-Spendenziel (interactions.ts) UND Buzz-Entbannen (s.o.)
  * - 9734 ZAP_REQUEST — NIP-57 (zaps.ts)
+ * - 10003 BOOKMARKS — NIP-51-Lesezeichenliste (bookmarks.ts `toggleBookmark`). Ohne
+ *   diesen Eintrag verweigert ein Amber/Bunker-Nutzer beim ersten Merken die Signatur,
+ *   und die Fläche ist für ihn tot. **30003 steht bewusst NICHT hier:** Lesezeichen-Sets
+ *   werden nur GELESEN (fremde Clients legen sie an), dieser Client schreibt sie nie —
+ *   ein Recht für eine Art, die wir nicht signieren, wäre eine falsche Angabe in einer
+ *   Liste, deren Beleg ausdrücklich die Aufrufstelle ist.
+ * - 45002 FORUM_VOTE — **Buzz**: Forum-Bewertung (forumVote.ts `voteOnForumTopic`).
+ *   Ohne diesen Eintrag verweigert ein Amber/Bunker-Nutzer den ersten Pfeilklick und die
+ *   Bewertungsfläche ist für ihn tot. **45001/45003 stehen bewusst NICHT hier:** ein
+ *   Thema wird über `forumWrite.ts` verfasst und eine Antwort läuft über den
+ *   Chat-Antwortpfad (kind 9, schon gelistet) — was dieser Client nie signiert, gehört
+ *   nicht in eine Liste, deren Beleg ausdrücklich die Aufrufstelle ist.
  * - 10009 ROOMS-Liste — NIP-51 (groups.ts)
+ * - 30300 EVENT_REMINDER — **Buzz/NIP-ER**: private Erinnerung (reminders.ts `create`
+ *   und `finish`, geplant in `reminderModels.ts`). Buzz-only, aber die Perm-Liste wird
+ *   beim KOPPELN einmal ausgehandelt, lange bevor feststeht, welchen Space der Nutzer
+ *   öffnet — wie bei 9042/9043 und 45002. **`nip44_encrypt`/`nip44_decrypt` stehen oben
+ *   bereits und gelten mit:** der `content` einer Erinnerung ist NIP-44-Chiffrat an den
+ *   eigenen Schlüssel, und ohne diese beiden Methoden könnte ein Bunker-Nutzer die
+ *   Erinnerung zwar signieren, aber weder schreiben noch je wieder lesen. Sie kamen mit
+ *   der 10009-Space-Liste herein, nicht mit dieser Phase — geprüft, nicht angenommen.
+ * - 20001 PRESENCE_UPDATE — **Buzz**: Präsenz (presence.ts, geplant in `presenceData.ts`).
+ *   Der EINZIGE Eintrag dieser Liste, der wiederkehrend signiert wird: die Fläche schlägt
+ *   alle 45 s Herzschlag, solange ein Raum offen ist. Ohne diesen Eintrag fragte ein
+ *   Bunker bei JEDEM Schlag nach — und weil bestehende NIP-46-Verbindungen nie
+ *   nachverhandelt werden, wäre die Präsenz für einen früher gekoppelten Nutzer entweder
+ *   tot oder eine Prompt-Lawine. **20002 (Tipp-Indikator) steht bewusst NICHT hier:**
+ *   dieser Client schreibt ihn nirgends (Entscheidung 2026-09-03, P6), und ein Recht für
+ *   eine Art, die wir nie signieren, wäre eine falsche Angabe in einer Liste, deren Beleg
+ *   ausdrücklich die Aufrufstelle ist.
+ * - 41010/41011/41012 — **Buzz**: DM-Kanal eröffnen, erweitern, ausblenden (dms.ts
+ *   `submit`/`hide`, geplant in `dmModels.ts`). Buzz-only wie 45002 und 30300, und aus
+ *   demselben Grund trotzdem hier: die Perm-Liste wird beim KOPPELN einmal ausgehandelt,
+ *   lange bevor feststeht, welchen Space der Nutzer öffnet. **30622 DM_VISIBILITY steht
+ *   bewusst NICHT hier:** der Kind ist relay-only (`is_relay_only_kind`,
+ *   `buzz-core/src/kind.rs:830-838`), ein Client-Publish endet mit
+ *   `restricted: relay-only kind` — ein Recht für eine Art, die dieser Client nicht
+ *   einmal signieren DÜRFTE, wäre eine falsche Angabe in einer Liste, deren Beleg
+ *   ausdrücklich die Aufrufstelle ist. Ebenso **41001**: der Kind hat im Relay keinen
+ *   Erzeuger und fiele beim Ingest in `restricted: unknown event kind`.
  * - 22242 CLIENT_AUTH — NIP-42 member-only-zooid (core.ts)
  * - 27235 HTTP_AUTH — KRITISCH: Server-Login-Handoff (session.ts) UND NIP-86-Relay-Admin (members.ts)
  * - 28934/28936 RELAY_JOIN/RELAY_LEAVE — NIP-29 Space beitreten/verlassen (groups.ts)
@@ -66,14 +110,23 @@ export const NIP46_PERMS = [
     'sign_event:9033',
     'sign_event:9040',
     'sign_event:9041',
+    'sign_event:9042',
+    'sign_event:9043',
     'sign_event:9044',
     'sign_event:9734',
+    'sign_event:10003',
     'sign_event:10009',
+    'sign_event:20001',
     'sign_event:22242',
     'sign_event:27235',
     'sign_event:28934',
     'sign_event:28936',
     'sign_event:30078',
+    'sign_event:30300',
+    'sign_event:41010',
+    'sign_event:41011',
+    'sign_event:41012',
+    'sign_event:45002',
 ].join(',')
 
 /** localStorage-Key des zuletzt gewährten Perms-Strings (Reconnect-Nudge). */

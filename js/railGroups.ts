@@ -26,6 +26,26 @@ export type RailRoom = {
     isProjectSupport?: boolean
     /** Buzz-Kanaltyp `["t","forum"]` — die Zeile fuehrt in eine Themenliste, nicht in einen Chat. */
     isForum?: boolean
+    /**
+     * Buzz-Kanaltyp `["t","dm"]` (P7) — die Zeile ist eine Unterhaltung und steht in
+     * der Gruppe `dms`. Sie fuehrt auf dieselbe `/rooms/{h}`-Chatflaeche wie jeder
+     * andere Kanal; nur ihr Platz in der Spalte und ihr NAME sind anders.
+     */
+    isDm?: boolean
+    /**
+     * Teilnehmer eines DM-Kanals (`p`-Tags des 39000). Traegt den Anzeigenamen, weil
+     * der Relay als Kanalnamen fuer JEDE Unterhaltung `"DM"` bzw. `"Group DM (N)"`
+     * speichert (`buzz-db/src/dm.rs:157-162`) — `dmTitle` in `dmModels.ts`.
+     */
+    dmParticipants?: string[]
+    /**
+     * Der Space, aus dem die Zeile stammt — gesetzt nur fuer DM-Kanaele (P7).
+     *
+     * Die Rail zeigt die Unterhaltungen BEIDER Sichten (Heim-Space und Workspace); ein
+     * `41012` an den falschen Relay beantwortet der Server mit `invalid: DM not found`.
+     * Die Zeile traegt ihren Relay deshalb selbst mit, statt dass der Store raet.
+     */
+    spaceUrl?: string
     meetupSlug?: string
     /** `created_at` des jüngsten Timeline-Events, `null` wenn keins bekannt. */
     lastMessageAt?: number | null
@@ -40,8 +60,8 @@ export type RailPresentation = {
     city?: string
 }
 
-/** Die vier Gruppen. Reihenfolge ist Teil des Vertrags, nicht Zufall. */
-export type RailGroupKey = 'rooms' | 'meetups' | 'proposals' | 'workspace'
+/** Die fünf Gruppen. Reihenfolge ist Teil des Vertrags, nicht Zufall. */
+export type RailGroupKey = 'rooms' | 'meetups' | 'proposals' | 'workspace' | 'dms'
 
 /**
  * Die Anzeige-Reihenfolge. Sie ist ZWEIMAL wirksam und muss es genau EINMAL
@@ -58,8 +78,16 @@ export type RailGroupKey = 'rooms' | 'meetups' | 'proposals' | 'workspace'
  * Workspace-Kopf gemessen bei y = 644 von 900 px, und ein aufgeklapptes MEETUPS
  * schob ihn rund 2900 px nach unten — die wichtigste Sektion der Spalte lag
  * damit hinter dem längsten Verzeichnis.
+ *
+ * **Warum DIREKTNACHRICHTEN seit P7 an dritter Stelle stehen.** Sie sind der dritte
+ * Arbeitsort neben RÄUME („wo bin ich") und FORGE („woran arbeite ich"): „mit wem
+ * spreche ich". Die beiden Verzeichnisse darunter sind zum Stöbern da und bringen in
+ * Produktion 92 Meetup-Zeilen mit — eine Unterhaltung dahinter wäre so weit unten wie
+ * der Workspace vor P2. Vor RÄUME stehen sie NICHT: die Raumliste ist die Fläche, für
+ * die dieser Client gebaut ist, und ein Bestand von null bis drei Unterhaltungen darf
+ * sie nicht nach unten schieben.
  */
-export const RAIL_GROUP_ORDER: readonly RailGroupKey[] = ['rooms', 'workspace', 'meetups', 'proposals']
+export const RAIL_GROUP_ORDER: readonly RailGroupKey[] = ['rooms', 'workspace', 'dms', 'meetups', 'proposals']
 
 /**
  * Kürzel, die den Scope adressierbar machen. Es ist genau die Zeichenfolge, die
@@ -90,6 +118,9 @@ export const SCOPE_PREFIX: Readonly<Record<string, RailGroupKey>> = {
     p: 'proposals',
     f: 'workspace',
     w: 'workspace',
+    // P7 — Direktnachrichten. `d:` war frei; die vier bestehenden Kürzel bleiben
+    // unverändert, damit kein Kopf umlernen muss, der die Rail schon benutzt.
+    d: 'dms',
 }
 
 /**
@@ -181,9 +212,20 @@ const byActivity = (a: RailRoom, b: RailRoom): number =>
 
 /**
  * Der Typ eines Raums. Reihenfolge der Prüfung ist bedeutsam: ein Raum kann
- * beide Marker tragen, und „Antrag" ist die speziellere Aussage.
+ * mehrere Marker tragen, und die speziellere Aussage gewinnt.
+ *
+ * **`dm` steht ganz vorn und ist die einzige Aussage des RELAYS in dieser Kette.**
+ * `meetup` und `project-support` sind Marker, die dieser Client bzw. das
+ * Vereins-Portal selbst an ein 39000 hängt; `dm` ist Buzz' eigener `channel_type`
+ * und beschreibt nicht eine Kategorie, sondern eine andere ART von Ort. Trüge ein
+ * DM-Kanal zusätzlich einen unserer Marker (technisch möglich, praktisch nie —
+ * unsere Marker entstehen nur beim Anlegen über `createRoom`), bliebe er trotzdem
+ * eine Unterhaltung.
  */
 export const groupOf = (room: RailRoom): Exclude<RailGroupKey, 'workspace'> => {
+    if (room.isDm) {
+        return 'dms'
+    }
     if (room.isProjectSupport) {
         return 'proposals'
     }
@@ -427,10 +469,16 @@ export const buildGroups = (rooms: RailRoom[], opts: BuildOptions = {}): RailGro
     const mutedSet = new Set(prefs.muted ?? [])
     const claimedSet = new Set(opts.claimedRoomHs ?? [])
 
-    const buckets: Record<RailGroupKey, RailRoom[]> = { rooms: [], meetups: [], proposals: [], workspace: [] }
+    const buckets: Record<RailGroupKey, RailRoom[]> = { rooms: [], meetups: [], proposals: [], workspace: [], dms: [] }
     for (const room of rooms) {
         buckets[groupOf(room)].push(room)
     }
+    // Workspace-Räume gehen an `groupOf` VORBEI: sie sind per Herkunft zugeordnet,
+    // nicht per Marker. Das bleibt auch mit den DM-Kanälen so — und zwar deshalb, weil
+    // hier gar keiner ankommt: `SpaceView` führt sie seit P7 in einem eigenen Topf
+    // (`dmRooms`), und `rail.ts` reicht sie über die ERSTE Liste herein, wo `groupOf`
+    // sie am `isDm`-Marker in die Gruppe `dms` schickt. Eine Weiche an dieser Stelle
+    // wäre also eine, die nie schaltet.
     for (const room of opts.workspaceRooms ?? []) {
         buckets.workspace.push(room)
     }
@@ -482,7 +530,13 @@ export const buildGroups = (rooms: RailRoom[], opts: BuildOptions = {}): RailGro
         // Der Sortiermodus gilt nur im Workspace; überall sonst bleibt die
         // bisherige Regel (beigetreten alphabetisch, Meetups nach Aktivität).
         const restSort = isWorkspace ? comparatorFor(prefs.sort) : null
-        const joined = rest.filter((r) => r.joined).sort(restSort ?? byName)
+        // Unterhaltungen nach Aktivität, nicht nach Namen — und das ist keine
+        // Geschmacksfrage: der Relay speichert als Kanalnamen für JEDE Unterhaltung
+        // `"DM"` bzw. `"Group DM (N)"` (`buzz-db/src/dm.rs:157-162`). Der sichtbare Name
+        // entsteht erst beim Rendern aus den Teilnehmern (`dmTitle`), eine Sortierung
+        // über `room.name` sortierte also über eine Konstante und ließe die Reihenfolge
+        // vom Zufall der Eingangsliste abhängen.
+        const joined = rest.filter((r) => r.joined).sort(restSort ?? (key === 'dms' ? byActivity : byName))
         const others = rest.filter((r) => !r.joined).sort(restSort ?? (key === 'meetups' ? byActivity : byName))
         const capped = filtering ? others : others.slice(0, UNJOINED_CAP)
         const inSectionCount = sections.reduce((sum, s) => sum + s.rooms.length, 0)
