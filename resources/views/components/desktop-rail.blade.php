@@ -70,22 +70,19 @@
          "
          class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
-        {{-- ── Direktnachrichten (P7): Store anmelden ──────────────────────────────
-             Der Zustand liegt in `$store.dms` (js/dms.ts) und nicht in `nostrRail` — er
-             wird an zwei Stellen gebraucht, die einander im DOM nicht sehen: die Gruppe
-             in dieser Spalte und der Dialog am Ende dieser Datei. Dieselbe Bauart und
-             derselbe Grund wie bei Pin, Lesezeichen, Erinnerung und Präsenz.
+        {{-- ══ THE DIRECT CHILDREN OF `[data-rail]` ARE THE FOUR LAYOUT BLOCKS ══════
+             Header · search field · list · footer, and nothing else. The placeholder
+             (`rail-skelett.blade.php`) mirrors exactly these four, and
+             `tests/e2e/desktop-boot-geometrie.spec.ts` compares them block for block —
+             its `bloecke()` throws on any other count, because a pairwise comparison of
+             two differently long lists is not a comparison.
 
-             Die Anmeldung hängt an der RAIL und nicht an einer Raumseite: die DM-Gruppe
-             steht auf jeder Desktop-Seite, und die ausgeblendeten Unterhaltungen (30622)
-             müssen bekannt sein, bevor die erste Zeile gerendert wird. Der Zähler in
-             `mount`/`unmount` deckt den `wire:navigate`-Fall ab (neuer Body VOR dem
-             Abräumen des alten). Auf dem Telefon existiert dieser Knoten nicht (das
-             `x-if` oben), der Store wird dort also nie angemeldet. --}}
-        <div x-data="{
-                 init() { $store.dms?.mount() },
-                 destroy() { $store.dms?.unmount() },
-             }" hidden></div>
+             Non-layout attachments (store lifecycles, overlays) therefore go INSIDE one
+             of the four, not next to them — the DM store lifecycle at the top of the
+             scroller, the DM dialog at the end of the footer, each with its own note.
+             A visibility filter in the test would not be an alternative: an empty
+             `<ui-modal>` is not `display:none`, so it would pass such a filter and the
+             invariant would only look intact. --}}
 
         {{-- Space-Kopf: „wo bin ich" gehört an den Anfang der Ortsspalte. --}}
         <div class="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-3">
@@ -182,6 +179,32 @@
              prüft damit, was von „Regel 1" bleibt — im SCROLLER steht kein flacher
              Forge-Eintrag; er ist eine Fläche des Clients, kein Raum. --}}
         <div data-rail-scroller class="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+
+            {{-- ── Direktnachrichten (P7): Store anmelden ──────────────────────────
+                 Der Zustand liegt in `$store.dms` (js/dms.ts) und nicht in `nostrRail` — er
+                 wird an zwei Stellen gebraucht, die einander im DOM nicht sehen: die Gruppe
+                 in dieser Spalte und der Dialog am Ende dieser Datei. Dieselbe Bauart und
+                 derselbe Grund wie bei Pin, Lesezeichen, Erinnerung und Präsenz.
+
+                 Die Anmeldung hängt an der RAIL und nicht an einer Raumseite: die DM-Gruppe
+                 steht auf jeder Desktop-Seite, und die ausgeblendeten Unterhaltungen (30622)
+                 müssen bekannt sein, bevor die erste Zeile gerendert wird. Der Zähler in
+                 `mount`/`unmount` deckt den `wire:navigate`-Fall ab (neuer Body VOR dem
+                 Abräumen des alten). Auf dem Telefon existiert dieser Knoten nicht (das
+                 `x-if` oben), der Store wird dort also nie angemeldet. --}}
+            {{-- It stands at the TOP of the scroller and no longer as the rail's first
+                 child: `[data-rail]` may carry exactly the four layout blocks (see the
+                 note at the top of this file). Here the sentence above still holds
+                 literally — the DM group is rendered by the very groups below, so the
+                 store is armed before their first row. Measured 2026-09-04 with a probe
+                 on `$store.dms.mount`: at the moment of the call the rail stood with its
+                 four blocks and `[data-rail-gruppenkopf]` was still **0**. `hidden` keeps
+                 the node out of the box tree entirely, so the scroller's height is
+                 untouched. --}}
+            <div x-data="{
+                     init() { $store.dms?.mount() },
+                     destroy() { $store.dms?.unmount() },
+                 }" hidden></div>
 
             {{-- Vier Gruppen, feste Reihenfolge. Die zweite Achse (Mitgliedschaft)
                  wird bewusst NICHT zur Überschrift — sie ist Reihenfolge, Textgewicht
@@ -536,14 +559,29 @@
                     </div>
                 </div>
             </div>
-        </div>
 
-        {{-- ── Der Dialog für Direktnachrichten (P7) ───────────────────────────────
-             Innerhalb des `nostrRail`-Scopes, weil er die Liste der Unterhaltungen aus
-             `groupFor('dms')` liest — derselben Ableitung, aus der die Spalte darüber
-             gebaut wird. Eine zweite Liste wäre eine zweite Wahrheit über dieselbe Frage.
-             Er steht am ENDE der Spalte und nicht in der Gruppe: ein `flux:modal` in
-             einem `x-show`-Block würde mit der Gruppe auf- und zugeklappt. --}}
-        <x-group::dm-modal />
+            {{-- ══ A NON-LAYOUT ATTACHMENT — INSIDE the footer, not next to it ═════
+                 The dialog below occupies no space: a closed `flux:modal` is a
+                 `<dialog>` in the UA's `display:none` state inside an empty
+                 `<ui-modal>` — no line box, no height. It still may not be a direct
+                 child of `[data-rail]`: that child set IS the measured column (four
+                 blocks, see the note at the top of this file), and a fifth entry breaks
+                 the block-for-block comparison against the placeholder.
+
+                 The footer is the host because it is the one block that is never
+                 collapsed, never scrolled and always present (`shrink-0`) — the dialog
+                 keeps standing at the END of the column, as its own note below says,
+                 and its height (302 px, 264 px without a workspace) is asserted in
+                 `desktop-boot-geometrie.spec.ts`, so a box appearing here cannot pass
+                 unnoticed. --}}
+
+            {{-- ── Der Dialog für Direktnachrichten (P7) ───────────────────────────
+                 Innerhalb des `nostrRail`-Scopes, weil er die Liste der Unterhaltungen aus
+                 `groupFor('dms')` liest — derselben Ableitung, aus der die Spalte darüber
+                 gebaut wird. Eine zweite Liste wäre eine zweite Wahrheit über dieselbe Frage.
+                 Er steht am ENDE der Spalte und nicht in der Gruppe: ein `flux:modal` in
+                 einem `x-show`-Block würde mit der Gruppe auf- und zugeklappt. --}}
+            <x-group::dm-modal />
+        </div>
     </div>
 </template>
