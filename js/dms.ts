@@ -33,12 +33,24 @@
  * (home and workspace), and a hide sent to the wrong relay is answered with
  * `invalid: DM not found` — a confusing failure for a correct click. Every DM row
  * therefore carries the URL it came from (`RailRoom.spaceUrl`, set in `rail.ts`), and
- * {@link DmsStore.hide} and {@link DmsStore.openAdd} take it. Only opening a NEW
- * conversation has no row to ask, and that one uses the active space.
+ * {@link DmsStore.hide} and {@link DmsStore.openAdd} take it.
+ *
+ * Opening a NEW conversation has no row to ask, and it used to fall back to the active
+ * space. **That fallback was the whole feature's ceiling.** `/spaces` pins the active
+ * space to the persisted home relay (`clearEphemeralSpace()` in its `init`,
+ * `bridge.ts:3515`), so on a deployment with a zooid home and a Buzz workspace the
+ * question "can this space do DMs" was asked of zooid on every surface and answered no —
+ * measured on the device on 2026-09-04. The target is now `chooseDmSpace` over the
+ * reachable spaces (`dmModels.ts`), the same list `relevantUrls` builds here, with the
+ * space in view first so a Buzz home space behaves exactly as before.
  *
  * The gate follows the same rule: {@link kindOf} answers per URL, so a command is refused
  * against a relay that is not Buzz — and against one whose NIP-11 doc has not arrived
- * (`'unknown'` denies, `relayCapability.ts`).
+ * (`'unknown'` denies, `relayCapability.ts`). What the gate does NOT answer is
+ * authorisation: whether the viewer may write to that relay at all is the relay's
+ * decision, it comes back as an `OK false`, and {@link DmsStore.error} shows it. That was
+ * true before and is unchanged — a capability check is about the dialect, not about
+ * membership.
  *
  * ══ The gate comes back as the command body, not as a boolean ════════════════════
  *
@@ -73,7 +85,7 @@ import { makeEvent, type TrustedEvent } from '@welshman/util'
 import { app, Relays, Thunks } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { load } from './welshmanNet.ts'
-import { activeSpace, activeSpaceView, deriveSpaceViewFor, type SpaceView } from './groups.ts'
+import { activeSpace, activeSpaceView, deriveSpaceViewFor, watchSpaceRooms, type SpaceView } from './groups.ts'
 import { deriveRelaySignedEvents } from './repository.ts'
 import { deriveSpaceDirectory, watchSpaceDirectory, type DirectoryView } from './members.ts'
 import { deriveSpaceKind, hasWorkspace, WORKSPACE_URL, type SpaceKind } from './spaceCaps.ts'
@@ -86,7 +98,9 @@ import {
     DM_ADD_MEMBER,
     DM_MAX_PARTICIPANTS,
     DM_OPEN,
+    chooseDmSpace,
     dmListFilter,
+    dmMembershipFilter,
     dmTitle,
     dmVisibilityFilter,
     foldDmRooms,
@@ -222,13 +236,20 @@ export type DmConversation = {
 }
 
 export type DmsStore = {
-    /** May this client open a conversation on the ACTIVE space at all? */
+    /**
+     * May this client open a conversation from here at all?
+     *
+     * „From here" and not „on the active space": the target is whichever reachable space
+     * can carry a `DM_OPEN` (`chooseDmSpace`), and the command goes to exactly that one.
+     */
     canDm: boolean
     /**
-     * Whether the active space does DMs — three-valued, unlike {@link DmsStore.canDm}.
+     * Whether a conversation can be opened from here — three-valued, unlike
+     * {@link DmsStore.canDm}, which additionally needs a signer.
      *
-     * `'unknown'` means the NIP-11 doc has not arrived; a surface that reads it as „no"
-     * states a fact about the relay that nobody has established yet.
+     * `'unknown'` means at least one reachable space is still waiting for its NIP-11 doc
+     * and none has answered yes yet; a surface that reads that as „no" states a fact
+     * about a relay nobody has established yet.
      */
     dmSupport: SpaceKind
     /** Channel ids this viewer has dismissed (relay-signed 30622). */
@@ -402,13 +423,27 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
     let unsubConversations: () => void = noop
     let unsubHidden: () => void = noop
     let dirController: AbortController | null = null
+    let listController: AbortController | null = null
     const unsubKind = new Map<string, () => void>()
     /** url → three-valued relay kind; a missing key denies (there is no doc yet). */
     const spaceKinds = new Map<string, SpaceKind>()
     /** `<url>|<viewer>` of every 30622 snapshot already asked for; see `armVisibility`. */
     const requestedVisibility = new Set<string>()
-    /** The space a NEW conversation is opened on. */
+    /** The space in view — what `activeSpace` last said. NOT necessarily the DM target. */
     let activeUrl = ''
+    /**
+     * The relay a NEW conversation is opened on — `chooseDmSpace` over the reachable
+     * spaces, `''` while none may carry a `DM_OPEN`.
+     *
+     * Separate from {@link activeUrl} since the DM capability stopped being a property of
+     * the space in view: on `/spaces` that space is pinned to the persisted home relay
+     * (`clearEphemeralSpace()`, `bridge.ts:3515`), so a zooid home with a Buzz workspace
+     * had no writable DM space at all. The full reasoning is at `chooseDmSpace`.
+     *
+     * `canDm` and this field come out of the SAME call — a control that promises what the
+     * write cannot keep is the failure mode this pairing exists to prevent.
+     */
+    let dmUrl = ''
     /** The last emit of the space views the dialog list is folded from; `[]` while disarmed. */
     let conversationViews: SpaceView[] = []
     /** How many island nodes hold the store; see `roomPins.ts` for the `wire:navigate` race. */
@@ -450,12 +485,21 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
     }
 
     const recomputePermission = (): void => {
+        // ONE call, three consumers: the target relay, the three-valued state the surface
+        // may show, and the boolean the control hangs on. They cannot disagree because
+        // they are not computed separately — see `chooseDmSpace` for why that matters.
+        //
+        // The candidates are the same list `relevantUrls` gives every other reader here,
+        // in the same order: space in view first, workspace second. On a Buzz home space
+        // the first candidate wins and nothing about the old behaviour moves.
+        const choice = chooseDmSpace(relevantUrls(activeUrl).map((url) => ({ url, spaceKind: kindOf(url) })))
+        dmUrl = choice.url
         // Two fields out of one question, and they are NOT the same question. `canDm`
         // answers „may I open one" — it needs a signer and denies while the NIP-11 doc is
-        // missing. `dmSupport` answers „does this relay do DMs at all", and it keeps the
-        // third value: a surface that folds `'unknown'` into „no" tells someone on a slow
-        // relay that the space cannot do something it can.
-        self.dmSupport = kindOf(activeUrl)
+        // missing. `dmSupport` answers „can a conversation be opened from here at all",
+        // and it keeps the third value: a surface that folds `'unknown'` into „no" tells
+        // someone on a slow relay that they cannot do something they can.
+        self.dmSupport = choice.support
         self.canDm = Boolean(me()) && mayWriteKind(DM_OPEN, self.dmSupport)
     }
 
@@ -470,8 +514,18 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         }))
     }
 
+    /**
+     * The relay the OPEN DIALOG is about: the conversation's own for `'add'`, the DM
+     * target for `'new'`.
+     *
+     * It used to be `activeUrl` for both, which was wrong in the `'add'` case before this
+     * change already — extending a conversation of the workspace relay looked up its
+     * participants' profiles on the home relay, which has never heard of them.
+     */
+    const dialogUrl = (): string => (self.mode === 'add' ? self.forUrl : dmUrl)
+
     /** Register pubkeys this surface shows; see {@link ensureDmNames}. */
-    const ensureNames = (pubkeys: Iterable<string>): void => ensureDmNames(activeUrl, pubkeys)
+    const ensureNames = (pubkeys: Iterable<string>): void => ensureDmNames(dialogUrl(), pubkeys)
 
     /**
      * Ask the relay for this viewer's 30622 snapshot — **the request, and nothing else.**
@@ -520,14 +574,19 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
      * `watchSpaceDirectory` sends a REQ for 13534/33534; the palette arms it on open for
      * exactly this reason (`palette.ts:859`). Arming it at mount would cost every page
      * load a directory read for a dialog most visits never open.
+     *
+     * **Against the relay the command goes to** (`url`), not against the space in view.
+     * A picker fed from the home relay's directory while the conversation is opened on
+     * the workspace suggests people that relay has never heard of — and it is the same
+     * `13534`/`33534` read either way, just aimed at the right relay.
      */
-    const armDirectory = (): void => {
-        if (dirController || !activeUrl) {
+    const armDirectory = (url: string): void => {
+        if (dirController || !url) {
             return
         }
         dirController = new AbortController()
-        watchSpaceDirectory(activeUrl, dirController.signal)
-        unsubDirectory = deriveSpaceDirectory(activeUrl).subscribe((dir: DirectoryView) => {
+        watchSpaceDirectory(url, dirController.signal)
+        unsubDirectory = deriveSpaceDirectory(url).subscribe((dir: DirectoryView) => {
             self.directory = dir.members.map((member) => ({
                 pubkey: member.pubkey,
                 name: member.name,
@@ -554,6 +613,21 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
      *
      * The workspace view only joins in when one is configured — `deriveSpaceViewFor('')`
      * would normalise an empty URL.
+     *
+     * **And it asks for that view's rooms**, which nothing here used to do.
+     * `deriveSpaceViewFor` states the obligation in its own docblock — *"Wer sie nutzt,
+     * muss die Räume selbst anstoßen (`watchSpaceRooms`) — diese Ableitung liest nur"* —
+     * and every other caller honours it (`rail.ts:1004`, `palette.ts:865`,
+     * `bridge.ts:3677`). This one did not, and all three of those are out of reach on a
+     * phone: the rail does not exist below `xl`, the palette arms on its first open, and
+     * `bridge.ts:3677` is the `/forge` island. So on `/spaces` the panel folded a
+     * workspace view that nobody had ever loaded, and the workspace's conversations were
+     * missing from the one surface built to show them.
+     *
+     * The space in view brings its own watch from the page island, so only the workspace
+     * is armed here. Two watches on one URL are not a new risk — the repository
+     * deduplicates and the cost is one REQ (the same reckoning `rail.ts` writes down for
+     * its own second watch).
      */
     const armConversations = (): void => {
         if (unsubConversations !== noop) {
@@ -562,6 +636,8 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         const views: Readable<SpaceView>[] = [activeSpaceView]
         if (hasWorkspace()) {
             views.push(deriveSpaceViewFor(WORKSPACE_URL))
+            listController = new AbortController()
+            watchSpaceRooms(WORKSPACE_URL, listController.signal)
         }
         unsubConversations = derived(views, ($views: SpaceView[]) => $views).subscribe((next: SpaceView[]) => {
             conversationViews = next
@@ -570,6 +646,8 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
     }
 
     const disarmConversations = (): void => {
+        listController?.abort()
+        listController = null
         unsubConversations()
         unsubConversations = noop
         conversationViews = []
@@ -598,6 +676,7 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
         // subscriptions as soon as the last subscriber lets go.
         requestedVisibility.clear()
         activeUrl = ''
+        dmUrl = ''
         listHolders = 0
         self.canDm = false
         self.dmSupport = 'unknown'
@@ -633,7 +712,12 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
 
     /** Pull a freshly created conversation into the repository; see the module header. */
     const refresh = async (url: string): Promise<void> => {
-        const filters = dmListFilter(me())
+        // Both halves in one REQ: the DM's 39000 AND the relay-signed 39002 that makes it
+        // the viewer's own. Without the second one `buildSpaceView` sorts the fresh
+        // channel into the DISCOVERABLE rooms and the conversation never appears in the
+        // list at all — the reasoning, and the relay's own note about why a live
+        // subscription cannot deliver either of them, is at `dmMembershipFilter`.
+        const filters = [...dmListFilter(me()), ...dmMembershipFilter(me())]
         if (filters.length > 0) {
             await load({ relays: [url], filters })
         }
@@ -830,7 +914,9 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             self.picked = []
             self.draft = ''
             self.error = ''
-            armDirectory()
+            // The directory of the relay this conversation will be created on — which is
+            // not necessarily the space in view; see `dmUrl`.
+            armDirectory(dmUrl)
             // Only the `'new'` dialog lists the existing conversations, so only it pays
             // for them — `'add'` is one action on one conversation and shows no list.
             self.armList()
@@ -853,7 +939,7 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             // Against `url` and not the active space: this conversation may be one of the
             // workspace relay's, and its participants are then unknown at home.
             ensureDmNames(url, participants)
-            armDirectory()
+            armDirectory(url)
             dispatchModal(DM_MODAL)
         },
 
@@ -900,7 +986,11 @@ const createStore = (): { store: DmsStore; bind: (reactive: DmsStore) => void } 
             if (self.busy || self.picked.length === 0) {
                 return
             }
-            const url = self.mode === 'add' ? self.forUrl : activeUrl
+            // `dmUrl` and not `activeUrl`: the relay `canDm` was decided against is the
+            // relay the command goes to. {@link dialogUrl} says the same thing for the
+            // names; this line is the one that spends a signature, so it reads the
+            // fields directly.
+            const url = self.mode === 'add' ? self.forUrl : dmUrl
             // THE GATE, and it comes back as the command body or as `null`. `canDm`
             // mirrors the same decision for the markup, but a store method must not trust
             // a field the markup could have gone stale on.

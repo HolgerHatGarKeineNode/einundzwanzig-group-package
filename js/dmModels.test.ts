@@ -19,8 +19,10 @@ import {
     DM_MAX_PARTICIPANTS,
     DM_OPEN,
     DM_VISIBILITY,
+    chooseDmSpace,
     dmCounterparts,
     dmListFilter,
+    dmMembershipFilter,
     dmOthers,
     dmParticipants,
     dmTitle,
@@ -66,6 +68,79 @@ test('GATE: nur ein Buzz-Space nimmt die drei Kommandos an', () => {
     assert.notEqual(planDmHide(H, ctx('buzz')), null)
     assert.equal(planDmHide(H, ctx('other')), null)
     assert.equal(planDmHide(H, ctx('unknown')), null)
+})
+
+// ── Welcher Space eine NEUE Unterhaltung trägt ─────────────────────────────────
+
+const HOME = 'wss://zooid.test.invalid/'
+const WORK = 'wss://buzz.test.invalid/'
+
+test('WAHL: der Workspace trägt die Unterhaltung, wenn der Space in der Ansicht es nicht kann', () => {
+    // Genau der Aufbau, an dem die Fläche hing: zooid daheim, Buzz als Workspace. Vor
+    // `chooseDmSpace` fragte der Store nur den ersten und bekam „nein" — auf `/spaces`
+    // dauerhaft, weil dessen `init()` den ephemeren Space unbedingt zurücksetzt.
+    assert.deepEqual(
+        chooseDmSpace([{ url: HOME, spaceKind: 'other' }, { url: WORK, spaceKind: 'buzz' }]),
+        { url: WORK, support: 'buzz' },
+    )
+})
+
+test('WAHL: der Space in der Ansicht hat Vorrang — ein Buzz-Heim-Space verhält sich unverändert', () => {
+    // Die Reihenfolge ist die Präferenz, und der Aufrufer stellt den Space in der Ansicht
+    // nach vorn. Fiele diese Zusage, liefe auf einem Buzz-Heim-Space plötzlich jede neue
+    // Unterhaltung auf den Workspace — eine stille Umleitung bestehender Installationen.
+    assert.deepEqual(
+        chooseDmSpace([{ url: HOME, spaceKind: 'buzz' }, { url: WORK, spaceKind: 'buzz' }]),
+        { url: HOME, support: 'buzz' },
+    )
+})
+
+test('WAHL: kann keiner es, gibt es kein Ziel — und das ist ein entschiedenes Nein', () => {
+    assert.deepEqual(
+        chooseDmSpace([{ url: HOME, spaceKind: 'other' }, { url: WORK, spaceKind: 'other' }]),
+        { url: '', support: 'other' },
+    )
+    // Keine Kandidaten ist ebenfalls entschieden: es gibt nichts, worauf man warten
+    // könnte. Dieselbe Richtung wie `makeSpaceKindStore` bei leerer URL.
+    assert.deepEqual(chooseDmSpace([]), { url: '', support: 'other' })
+    assert.deepEqual(chooseDmSpace([{ url: '', spaceKind: 'unknown' }]), { url: '', support: 'other' })
+})
+
+test('WAHL: `unknown` wird NICHT zu `other` eingeebnet — auch nicht neben einem entschiedenen Nein', () => {
+    // DAS ist die Zeile, die die Dreiwertigkeit trägt. Ein `some(kind === "unknown")` ist
+    // leicht zu einem `every(kind === "other")` zu vereinfachen, und dann meldete die
+    // Fläche einem Nutzer auf einem langsamen Relay ein Nein, das niemand festgestellt
+    // hat. Kleene-Oder: falsch ∨ unbestimmt ist unbestimmt, nicht falsch.
+    assert.deepEqual(
+        chooseDmSpace([{ url: HOME, spaceKind: 'other' }, { url: WORK, spaceKind: 'unknown' }]),
+        { url: '', support: 'unknown' },
+    )
+    assert.deepEqual(
+        chooseDmSpace([{ url: HOME, spaceKind: 'unknown' }, { url: WORK, spaceKind: 'unknown' }]),
+        { url: '', support: 'unknown' },
+    )
+})
+
+test('WAHL: ein entschiedenes Ja schlägt ein offenes Doc — wahr ∨ unbestimmt ist wahr', () => {
+    // Die Gegenrichtung derselben Regel: wer schon einen tragfähigen Relay hat, wartet
+    // nicht auf den zweiten. Sonst bliebe der Knopf aus, solange irgendein Space schweigt.
+    assert.deepEqual(
+        chooseDmSpace([{ url: HOME, spaceKind: 'unknown' }, { url: WORK, spaceKind: 'buzz' }]),
+        { url: WORK, support: 'buzz' },
+    )
+})
+
+test('WAHL: ein Ziel kommt NUR heraus, wenn `mayWriteKind` es für 41010 durchlässt', () => {
+    // Der Riegel steht nicht neben der Wahl, er IST sie: jedes zurückgegebene Ziel muss
+    // dieselbe Prüfung bestehen, die `planDmOpen` gleich noch einmal stellt.
+    for (const kind of ['other', 'unknown'] as SpaceKind[]) {
+        const choice = chooseDmSpace([{ url: HOME, spaceKind: kind }])
+        assert.equal(choice.url, '')
+        assert.equal(planDmOpen([ALICE], ME, ctx(choice.support)), null)
+    }
+    const ja = chooseDmSpace([{ url: WORK, spaceKind: 'buzz' }])
+    assert.equal(ja.url, WORK)
+    assert.notEqual(planDmOpen([ALICE], ME, ctx(ja.support)), null, 'Gegenprobe: mit Ziel gibt es einen Körper')
 })
 
 test('GATE: der Riegel IST der Rückgabewert — es gibt keinen zweiten Weg zum Körper', () => {
@@ -335,6 +410,21 @@ test('Auflisten läuft über 39000 mit `#p` — nicht über 41001', () => {
     // 41001 `KIND_DM_CREATED` hat im Relay keinen Erzeuger und keine Scope-Zeile; ein
     // Filter darauf liefert per Konstruktion null Ergebnisse (`buzz-cli` tut genau das).
     assert.equal(JSON.stringify(dmListFilter(ME)).includes('41001'), false)
+})
+
+test('Die Auffrischung liest AUCH die 39002 — sonst ist die neue Unterhaltung keine', () => {
+    // `buildSpaceView` sortiert einen Kanal nur dann in `dmRooms`, wenn die
+    // relay-signierte Mitgliederliste den Betrachter nennt. Ohne diesen zweiten Filter
+    // landet die eben eröffnete Unterhaltung in den ENTDECKBAREN Räumen und taucht in
+    // keiner DM-Liste auf — die 39000 allein reicht nicht, ihre eigenen `p`-Tags sind
+    // die Aussage des Kanals über sich selbst, nicht die des Relays über Mitgliedschaft.
+    assert.deepEqual(dmMembershipFilter(ME), [{ kinds: [39002], '#p': [ME] }])
+    assert.deepEqual(dmMembershipFilter(''), [], 'ohne eigenen Schlüssel gibt es nichts zu fragen')
+    // Und beide zusammen sind das, was `refresh()` schickt: zwei Filter, ein REQ.
+    assert.deepEqual(
+        [...dmListFilter(ME), ...dmMembershipFilter(ME)],
+        [{ kinds: [39000], '#p': [ME] }, { kinds: [39002], '#p': [ME] }],
+    )
 })
 
 test('Der Sichtbarkeits-Filter trägt `#p` — ohne ihn schließt der Relay das REQ', () => {

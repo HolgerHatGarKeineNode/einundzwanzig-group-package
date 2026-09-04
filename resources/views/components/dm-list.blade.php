@@ -72,8 +72,18 @@
      ── Warum es KEINEN Leerzustand „dieser Space kann keine DMs" gibt ──────────────
      Weil ein Abschnitt, den es nicht gibt, die ehrlichere Auskunft ist. Ein Tab muss
      immer dastehen und deshalb erklären, warum er leer ist; ein Abschnitt in einer Liste
-     darf schlicht fehlen. Auf einem zooid-Space gibt es keine Unterhaltungen und keinen
-     Knopf — und keine Zeile, die über etwas spricht, das es hier nicht gibt.
+     darf schlicht fehlen. Kann KEIN erreichbarer Space Unterhaltungen führen, gibt es
+     hier weder Zeilen noch Knopf — und keine Zeile, die über etwas spricht, das es hier
+     nicht gibt.
+
+     **Der Bezugspunkt ist nicht mehr der Space in der Ansicht.** Hier stand „auf einem
+     zooid-Space gibt es keine Unterhaltungen und keinen Knopf", und das war für die
+     Anlage dieser Seite die falsche Beschreibung: `/spaces` setzt den ephemeren Space in
+     seinem `init()` unbedingt zurück (`bridge.ts:3515`), also ist der Space in der
+     Ansicht hier IMMER der Heim-Relay. Auf einem Aufbau mit zooid daheim und Buzz als
+     Workspace konnte `canDm` deshalb nie wahr werden — auf keiner Fläche, auch nicht am
+     Desktop. `$store.dms.canDm` fragt seit `chooseDmSpace` (`js/dmModels.ts`) alle
+     erreichbaren Spaces und liefert den Relay mit, auf dem die Unterhaltung entsteht.
 
      Aus demselben Grund kein Skelett, solange das NIP-11-Doc fehlt: ein Skelett sagt
      „hier kommt gleich etwas" zu, und für diesen Abschnitt ist die Zusage nicht gedeckt.

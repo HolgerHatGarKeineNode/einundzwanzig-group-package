@@ -241,6 +241,91 @@ export type DmCommand = {
     tags: string[][]
 }
 
+/** One space a new conversation could be opened on, with its three-valued relay kind. */
+export type DmSpaceCandidate = {
+    url: string
+    /** From `deriveSpaceKind` for THAT url — not for the space in view. */
+    spaceKind: SpaceKind
+}
+
+/**
+ * Where a new conversation goes, and how far that answer is decided.
+ *
+ * `url` is `''` in both undecided and refused states; `support` is what tells them
+ * apart, and it is the value the surface shows.
+ */
+export type DmSpaceChoice = {
+    /** The relay a `DM_OPEN` is published to, or `''` when none may carry it. */
+    url: string
+    /** `'buzz'` = decided yes, `'unknown'` = not decided yet, `'other'` = decided no. */
+    support: SpaceKind
+}
+
+/**
+ * **Which of the reachable spaces a NEW conversation is opened on.**
+ *
+ * ── The defect this answers ──────────────────────────────────────────────────────
+ *
+ * Until this function existed the store asked exactly one relay — the space in view —
+ * and on `/spaces` that relay is pinned: `nostrSpaces.init()` calls
+ * `clearEphemeralSpace()` unconditionally (`bridge.ts:3515`), so the space in view there
+ * is always the persisted HOME space. On a deployment whose home is zooid and whose
+ * workspace is Buzz, `canDm` was therefore `false` on every surface, forever — measured
+ * on the device on 2026-09-04 (`canDm: false`, `dmSupport: "other"` on `/spaces`,
+ * `/spaces?space=workspace` and `/forge`). That was never a regression; it is what
+ * "the active space" means once a second space exists next to it.
+ *
+ * ── Why the answer is a URL and not a boolean ────────────────────────────────────
+ *
+ * A `canDm` that says yes while the write goes somewhere else is a promise the next
+ * write breaks. So this returns the RELAY, and the store publishes to exactly the URL
+ * it got back — one decision with two readers (the control and the command), never two
+ * decisions that could drift. `hide`/`openAdd` are unaffected: they address the relay of
+ * the row they act on (`RailRoom.spaceUrl`), which is a different question and already
+ * had its own answer.
+ *
+ * ── The order is preference, and it keeps the existing deployment identical ──────
+ *
+ * Candidates are tried in order and the caller passes the space in view first
+ * (`relevantUrls` in `dms.ts`). On a Buzz home space the first candidate wins and
+ * nothing about the old behaviour changes; the workspace is only consulted when the
+ * space in view cannot carry the kind at all.
+ *
+ * ── Three-valued, and the middle value is not folded away ────────────────────────
+ *
+ * This is a Kleene disjunction over {@link SpaceKind}, not a boolean OR:
+ *
+ *   · any candidate decided yes            → `'buzz'`     (that one is the target)
+ *   · else any candidate still undecided   → `'unknown'`  (NIP-11 in flight, no target)
+ *   · else                                 → `'other'`    (all answered, none can)
+ *
+ * The middle row is the one that matters. Folding an in-flight NIP-11 doc into "no"
+ * would state a fact about a relay nobody has established yet — the exact reason
+ * `SpaceKind` has three values (`spaceCaps.ts`) — and it would also make the answer
+ * flip under the user on a slow relay. Fail-closed is preserved by
+ * {@link mayWriteKind}, which denies on `'unknown'`: undecided yields no target URL,
+ * so nothing can be written while the answer is still open.
+ *
+ * No candidates, or only candidates without a URL, is a decided **no**: there is nothing
+ * left to wait for. Same direction as `makeSpaceKindStore`, which answers `'other'` for
+ * an empty URL rather than an eternal `'unknown'`.
+ */
+export const chooseDmSpace = (candidates: readonly DmSpaceCandidate[]): DmSpaceChoice => {
+    const reachable = candidates.filter((candidate) => Boolean(candidate?.url))
+    for (const candidate of reachable) {
+        // `mayWriteKind` and not `spaceKind === 'buzz'`: the policy table stays the one
+        // place that says which relay a 41010 belongs on.
+        if (mayWriteKind(DM_OPEN, candidate.spaceKind)) {
+            return { url: candidate.url, support: candidate.spaceKind }
+        }
+    }
+
+    return {
+        url: '',
+        support: reachable.some((candidate) => candidate.spaceKind === 'unknown') ? 'unknown' : 'other',
+    }
+}
+
 /**
  * The other participants of a conversation, normalised: lowercase, deduplicated, self
  * removed, order preserved, anything that is not a 64-hex pubkey dropped.
@@ -604,6 +689,38 @@ export const foldDmRooms = <T extends { h: string }>(
  */
 export const dmListFilter = (self: string): { kinds: number[]; '#p': string[] }[] =>
     isDmPubkey(self) ? [{ kinds: [39000], '#p': [self] }] : []
+
+/**
+ * The second half of the same read: the relay-signed **39002** of the viewer's channels.
+ *
+ * **Without it a freshly opened conversation is not a conversation.** `buildSpaceView`
+ * (`groups.ts`) sorts a channel into `dmRooms` only once the relay-signed member list
+ * names the viewer — deliberately, so a DM 39000 seen WITHOUT membership (foreign relay,
+ * forged tags) lands in the discoverable rooms instead of in someone's own column. The
+ * DM 39000 carries `p` tags of its own (the relay puts them there so clients can resolve
+ * names "without a separate kind:39002 fetch", `side_effects.rs:1085-1089`), but those
+ * are the channel's claim about itself, not the relay's about membership — this client
+ * does not accept the former for the latter, and that decision is not undone here.
+ *
+ * So the refresh after a `DM_OPEN` has to fetch both. `emit_group_discovery_events`
+ * writes 39000, 39001 and 39002 in the same call (`side_effects.rs:1056-1162`), all
+ * channel-scoped, and channel-scoped storage is exactly why the ordinary live
+ * subscription never sees them: *"live global subscriptions won't receive these events
+ * via fan-out. Clients discover groups via historical REQ queries"* (`:1054-1057`). The
+ * historical query is this one.
+ *
+ * `#p:[self]` and not `#d:[<channel>]`: the channel id is unknown at the moment the
+ * dialog is armed, and known only as a string after the command — one filter that always
+ * works beats a second code path for the case where the relay answered `duplicate:
+ * already processed` and named no channel at all.
+ *
+ * 39002 is neither p-gated nor shared-gated on Buzz (`P_GATED_KINDS`,
+ * `SHARED_GATED_KINDS`, `buzz-core/src/kind.rs:159-169`, `:216`); the access control it
+ * does carry is channel scope, which is what makes this answer the viewer's own
+ * memberships and nobody else's.
+ */
+export const dmMembershipFilter = (self: string): { kinds: number[]; '#p': string[] }[] =>
+    isDmPubkey(self) ? [{ kinds: [39002], '#p': [self] }] : []
 
 /**
  * The filter for the hidden-set snapshot.
