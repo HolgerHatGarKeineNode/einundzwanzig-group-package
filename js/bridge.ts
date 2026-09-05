@@ -2164,12 +2164,12 @@ export function registerNostrComponents(Alpine: {
     // Berührung mit `nostrRoomChat` ist ein `scrollToMessage(id)` aus dem Markup heraus
     // (Scope-Kette), so wie es die Zitat-Vorschau in `chat-row` schon tut.
     wireRoomSearch(Alpine)
-    // P1 — Moderations-Historie (`GET /moderation/audit`). Eigene Insel und KEIN Feld in
-    // `nostrDirectory`: sie lädt erst beim Öffnen des Moderations-Dialogs (jeder Abruf
-    // kostet eine NIP-98-Signatur), liest über HTTP statt aus dem Repository und macht
-    // aus einem 403 eine leere Liste statt eines Fehlers. Die einzige Naht zur
-    // Directory-Insel liegt im Markup: der Auslöser sendet `moderation-audit-open`.
-    // Begründung im Kopf von `moderationAudit.ts`, die Regeln in `moderationAuditModels.ts`.
+    // P1 — moderation history (`GET /moderation/audit`). Its own island and NO field in
+    // `nostrDirectory`: it loads only when the moderation dialog opens (every fetch costs
+    // a NIP-98 signature), it reads over HTTP instead of from the repository, and it turns
+    // a 403 into an empty list rather than an error. The single seam to the directory
+    // island lies in the markup: the trigger dispatches `moderation-audit-open`.
+    // Reasoning in the header of `moderationAudit.ts`, the rules in `moderationAuditModels.ts`.
     wireModerationAudit(Alpine)
     // P6b — Angepinnte Nachrichten. Ausnahmsweise ein STORE statt einer Insel: der
     // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (Leiste

@@ -40,26 +40,26 @@ import { importiertAus, liesDatei, ruftAuf } from './workspaceQuelleGate.ts'
 import { flattenWhitespace, readBlade } from './moderationSurfaceGate.ts'
 
 const JS_DIR = import.meta.dirname
-const befund = (name: string) => liesDatei(join(JS_DIR, name), name)
+const source = (name: string) => liesDatei(join(JS_DIR, name), name)
 
 const VIEWS = join(JS_DIR, '..', 'resources', 'views')
 const directory = () => readBlade(join(VIEWS, '⚡directory.blade.php'), '⚡directory.blade.php')
 
 /**
- * Does `datei` call `callee(…)` with `literal` among its string arguments?
+ * Does `file` call `callee(…)` with `literal` among its string arguments?
  *
  * The route path is the one part of this chain that the identifier scanner cannot see:
  * `buzzModerationFetch(url, '/moderation/restricted')` and
  * `buzzModerationFetch(url, '/moderation/audit')` are the same call to it. A history
  * pointed at the wrong route would answer, and answer with the restriction list.
  */
-const ruftMitZeichenkette = (datei: string, callee: string, literal: string): boolean => {
-    const quelltext = readFileSync(join(JS_DIR, datei), 'utf8')
-    const sourceFile = ts.createSourceFile(datei, quelltext, ts.ScriptTarget.Latest, true)
+const callsWithLiteral = (file: string, callee: string, literal: string): boolean => {
+    const text = readFileSync(join(JS_DIR, file), 'utf8')
+    const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true)
     if (sourceFile.statements.length === 0) {
-        throw new Error(`${datei}: keine einzige Anweisung geparst — der Scanner misst hier nichts.`)
+        throw new Error(`${file}: not a single statement parsed — the scanner measures nothing here.`)
     }
-    let gefunden = false
+    let found = false
     const walk = (node: ts.Node): void => {
         if (
             ts.isCallExpression(node)
@@ -67,13 +67,13 @@ const ruftMitZeichenkette = (datei: string, callee: string, literal: string): bo
             && node.expression.text === callee
             && node.arguments.some((arg) => ts.isStringLiteralLike(arg) && arg.text === literal)
         ) {
-            gefunden = true
+            found = true
         }
         ts.forEachChild(node, walk)
     }
     walk(sourceFile)
 
-    return gefunden
+    return found
 }
 
 /**
@@ -88,7 +88,7 @@ const ruftMitZeichenkette = (datei: string, callee: string, literal: string): bo
 const MIN_CALLS_ISLAND = 4
 
 test('CALIBRATION: the scanner really reads the island', () => {
-    const f = befund('moderationAudit.ts')
+    const f = source('moderationAudit.ts')
     assert.ok(
         f.aufrufe.length >= MIN_CALLS_ISLAND,
         `only ${f.aufrufe.length} calls seen (at least ${MIN_CALLS_ISLAND} expected) — the scanner measures nothing here`,
@@ -105,10 +105,10 @@ test('CALIBRATION: the Blade reader really reads the directory screen', () => {
 })
 
 test('CORE 1: the transport asks `/moderation/audit`, not one of its two neighbours', () => {
-    const f = befund('buzzAdmin.ts')
+    const f = source('buzzAdmin.ts')
     assert.ok(ruftAuf(f, 'buzzModerationFetch'), 'the authenticated GET is gone')
     assert.ok(
-        ruftMitZeichenkette('buzzAdmin.ts', 'buzzModerationFetch', '/moderation/audit'),
+        callsWithLiteral('buzzAdmin.ts', 'buzzModerationFetch', '/moderation/audit'),
         '`buzzLoadAudit` no longer points at the audit route',
     )
     // The parse is the client's, not a raw hand-through: the 403 rule lives there.
@@ -117,7 +117,7 @@ test('CORE 1: the transport asks `/moderation/audit`, not one of its two neighbo
 })
 
 test('CORE 2: the island really fetches — this is the assertion the mutation probe removes', () => {
-    const f = befund('moderationAudit.ts')
+    const f = source('moderationAudit.ts')
     assert.ok(importiertAus(f, 'buzzLoadAudit', './buzzAdmin.ts'), 'the island does not import the fetch')
     assert.ok(ruftAuf(f, 'buzzLoadAudit'), '… and never calls it: the history would stay empty forever')
     // Every failure has to end in the same empty list — that decision is in the pure
@@ -127,7 +127,7 @@ test('CORE 2: the island really fetches — this is the assertion the mutation p
 })
 
 test('CORE 3: the island is registered — an unregistered `x-data` renders nothing', () => {
-    const f = befund('bridge.ts')
+    const f = source('bridge.ts')
     assert.ok(importiertAus(f, 'wireModerationAudit', './moderationAudit.ts'), 'bridge.ts does not import the island')
     assert.ok(ruftAuf(f, 'wireModerationAudit'), '… and never wires it into `registerNostrComponents`')
 })
@@ -149,7 +149,7 @@ test('… and zooid is not asked at all: the Buzz check sits in front of the fet
     // `/moderation/audit` is Buzz's native API; zooid has no such route. Asking anyway
     // would spend a NIP-98 signature (a bunker roundtrip, a prompt on the device) on a
     // guaranteed 404. The async check, for the reason `loadSpaceReports` states.
-    const f = befund('moderationAudit.ts')
+    const f = source('moderationAudit.ts')
     assert.ok(importiertAus(f, 'spaceIsBuzzAsync', './buzzAdmin.ts'))
     assert.ok(ruftAuf(f, 'spaceIsBuzzAsync'))
 })
@@ -160,9 +160,9 @@ test('COUNTER-PROOF: the scanner does NOT see a name that only stands in a comme
     // *mentions* the fetch. `moderationAudit.ts` names `loadSpaceReports` in its header
     // (as the precedent for the Buzz check) and never calls it; `actionItems.ts` does.
     assert.equal(
-        ruftAuf(befund('moderationAudit.ts'), 'loadSpaceReports'),
+        ruftAuf(source('moderationAudit.ts'), 'loadSpaceReports'),
         false,
         'there the name stands in a comment only',
     )
-    assert.ok(ruftAuf(befund('actionItems.ts'), 'loadSpaceReports'), 'a real call of the same name is found')
+    assert.ok(ruftAuf(source('actionItems.ts'), 'loadSpaceReports'), 'a real call of the same name is found')
 })
