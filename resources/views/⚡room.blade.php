@@ -327,28 +327,28 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  destroy() { $store.presence?.unmount() },
              }" hidden></div>
 
-        {{-- ── Nächster Meetup-Termin (P2, NIP-52) ────────────────────────────────────
-             Eigene Insel (`js/calendar.ts`), kein Zustand in `nostrRoomChat` — wie die
-             Suche (P6a) und die Moderations-Historie (P1). Sie liest von einer DRITTEN
-             Relay-Quelle (den öffentlichen Relays des Portals, nicht dem Space) und
-             schreibt eine Zusage, die mit dem `h` des Raums nichts zu tun hat.
+        {{-- ── Next meetup date (P2, NIP-52) ─────────────────────────────────────────
+             Its own island (`js/calendar.ts`), no state in `nostrRoomChat` — like the
+             history search (P6a) and the moderation history (P1). It reads from a THIRD
+             relay source (the portal's public relays, not the space) and writes an RSVP
+             that has nothing to do with the room's `h`.
 
-             `x-show="source"` und KEIN `room.isMeetup` davor: ob ein Raum ein Meetup ist,
-             kann dieses Markup nicht entscheiden. Auf zooid steht der Marker als Tag im
-             39000, auf Buzz im Präfix von `about` — `RoomView.isMeetup` kennt nur den
-             ersten Fall und wäre auf Buzz immer falsch. Die Insel entscheidet es an
-             EINER Stelle (`roomMeetupId`) und sagt es über `source`.
+             `x-show="source"` and NO `room.isMeetup` in front of it: this markup cannot
+             decide whether a room is a meetup. On zooid the marker is a tag on the 39000,
+             on Buzz it sits in the prefix of `about` — `RoomView.isMeetup` only knows the
+             first case and would be false on every Buzz workspace. The island decides it
+             in ONE place (`roomMeetupId`) and reports it through `source`.
 
-             Drei Zustände, und der mittlere ist der Grund für das Feld:
-               `source === 'nostr'` — ein signierter Termin des Portals, mit Zusage-Knöpfen
-               `source === 'http'`  — der Termin aus `/api/mobile/meetups` (Rückfallweg),
-                                      ohne Zusage: dort gibt es kein Ereignis, auf das
-                                      man antworten könnte. Das steht als Satz da, statt
-                                      dass zwei tote Knöpfe stehen.
-               `source === ''`      — kein Meetup oder kein Termin: die Karte fehlt ganz.
+             Three states, and the middle one is why the field exists:
+               `source === 'nostr'` — a signed date of the portal, with RSVP buttons
+               `source === 'http'`  — the date from `/api/mobile/meetups` (the fallback),
+                                      without RSVP: there is no event there to answer.
+                                      That is stated as a sentence instead of leaving two
+                                      dead buttons standing.
+               `source === ''`      — no meetup, or no date: the card is absent entirely.
 
-             Im Thread ausgeblendet, wie die Pin-Leiste darunter: der Termin gehört zum
-             RAUM. --}}
+             Hidden inside a thread, like the pin bar below it: the date belongs to the
+             ROOM. --}}
         <div x-data="nostrMeetupEvent(@js($h))"
              x-show="!threadRootId && source" x-cloak
              data-testid="meetup-event-card" class="mb-2 shrink-0">
@@ -359,38 +359,57 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <span class="block truncate text-sm font-semibold" data-testid="meetup-event-title" x-text="title"></span>
                         <span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted">
                             <span data-testid="meetup-event-date" x-text="dateLabel"></span>
+                            {{-- The TIME ZONE, always next to the time and never omitted.
+                                 A meetup happens in one place at one o'clock; a card that
+                                 silently converts into the reader's zone makes a false
+                                 statement about a place-bound event. Measured: the
+                                 Indianapolis meetup starting 19:00 local rendered here as
+                                 „Do., 17. Sept., 01:00" with nothing to say it was not
+                                 the local time of the venue. For a signed date this is
+                                 the IANA name off `start_tzid`; where none is usable — and
+                                 on the HTTP fallback, whose `next_event_start` names no
+                                 zone at all — it is the translated „deine Zeit". --}}
+                            <span data-testid="meetup-event-zone"
+                                  class="shrink-0 rounded-sm bg-zinc-100 px-1 font-mono text-[0.7rem] dark:bg-zinc-800"
+                                  x-text="dateZone"></span>
+                            {{-- The separator only does its job while date, zone and venue
+                                 stay on ONE line. Measured at 375 px it wrapped onto a line
+                                 of its own and read as an empty row between the two — so it
+                                 is hidden below `sm`, where the venue wraps anyway and the
+                                 line break separates them by itself. Still `aria-hidden`
+                                 and still in the markup: it is decoration either way. --}}
                             <template x-if="location">
-                                <span aria-hidden="true" class="text-zinc-300 dark:text-zinc-600">·</span>
+                                <span aria-hidden="true" class="hidden text-zinc-300 sm:inline dark:text-zinc-600">·</span>
                             </template>
                             <template x-if="location">
                                 <span class="min-w-0 truncate" data-testid="meetup-event-location" x-text="location"></span>
                             </template>
                         </span>
                     </span>
-                    {{-- „N kommen": die Zahl trägt Farbe, ist also TEXT im Sinne von 1.4.3
-                         (≥ 4,5:1) — `brand-800` auf der Karte, wie das Datum der
-                         Meetup-Kachel. Nur beim Nostr-Termin: der HTTP-Rückfallweg hat
-                         keine Zusagen, und eine „0 kommen" wäre dort eine Aussage, die
-                         niemand gemessen hat. --}}
+                    {{-- „N kommen": the number carries colour, so it is TEXT in the sense
+                         of 1.4.3 (≥ 4.5:1) — `brand-800` on the card, like the date of the
+                         meetup tile. Only for the Nostr date: the HTTP fallback has no
+                         RSVPs, and a „0 kommen" there would be a statement nobody
+                         measured. What the number is worth is said below the buttons. --}}
                     <span x-show="source === 'nostr'" x-cloak
                           data-testid="meetup-event-attending"
                           class="shrink-0 text-xs font-semibold text-brand-800 dark:text-brand-400"
                           x-text="$plural(attending, '1 kommt', ':count kommen')"></span>
                 </div>
 
-                {{-- Zusagen. `size="sm"` und nicht `xs` wie die Knöpfe der Pin-Leiste: das
-                     ist gemessen, nicht geschmacklich. Bei `xs` maß der Knopf am
-                     375-px-Gerät **24 px** Höhe (E2E, 2026-09-05) — WCAG 2.5.8 gerade so
-                     erfüllt und für einen Daumen zu klein. `sm` misst 32 px, und
-                     `text-btn-touch` hebt beschriftete Ziele auf grobem Pointer auf die
-                     44 px der HIG (`theme.css`, nur `@media (pointer: coarse)` — der
-                     E2E-Lauf hat einen feinen Pointer und sieht diese Regel nicht).
+                {{-- RSVP. `size="sm"` and not `xs` like the pin bar's buttons: that is
+                     measured, not a matter of taste. At `xs` the button was **24 px** high
+                     on a 375 px screen (E2E, 2026-09-05) — WCAG 2.5.8 met by a hair and too
+                     small for a thumb. `sm` measures 32 px, and `text-btn-touch` lifts
+                     labelled targets on a coarse pointer to the 44 px of the HIG
+                     (`theme.css`, `@media (pointer: coarse)` only — the E2E run has a fine
+                     pointer and never sees that rule).
 
-                     `aria-pressed` statt einer eigenen Aktiv-Klasse: die beiden
-                     Knöpfe sind ein Umschalter mit zwei Zuständen, und ein Screenreader
-                     soll den aktuellen hören, nicht nur sehen. Statisch `false` im Markup,
-                     damit es vor dem Alpine-Boot stimmt (gleiche Regel wie beim
-                     Suchknopf im Kopf). --}}
+                     `aria-pressed` instead of an active class of its own: the two buttons
+                     are ONE toggle with two states, and a screen reader should hear the
+                     current one rather than only see it. The static `false` stands in the
+                     markup so that it is right before Alpine boots — same rule as the
+                     search button in the header. --}}
                 <div x-show="canRsvp" x-cloak class="flex items-center gap-1.5 px-1">
                     <flux:button size="sm" variant="ghost" icon="check" class="text-btn-touch"
                                  data-testid="meetup-event-yes"
@@ -410,16 +429,54 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </flux:button>
                 </div>
 
-                {{-- Der Rückfallweg sagt, dass er einer ist. Ohne den Satz sähe die Karte
-                     ohne Knöpfe aus wie eine kaputte Karte mit Knöpfen. --}}
+                {{-- WHAT THE PRESS OF THAT BUTTON ACTUALLY DOES — next to the button, not
+                     only in the operator's documentation.
+
+                     A click writes a signed kind 31925 to third-party relays. It is
+                     public, it is permanent, and one query against the coordinate returns
+                     the complete guest list (measured at a foreign coordinate: 13
+                     pubkeys). „Absagen" REPLACES the answer at the relay; it does not
+                     recall what has already propagated. `config/group.php` and
+                     `.env.example` lay that out for whoever runs this — the person who
+                     actually enters into it read it nowhere until this line existed.
+
+                     The same sentence carries the honest limit of the counter (F3): a
+                     signature is not a person. Anyone can generate keys, so the number is
+                     a lower bound on interest and no measure of attendance. Whoever wants
+                     a stronger number has to restrict it to space members — a decision
+                     with its own cost, not a wording fix. --}}
+                <p x-show="canRsvp" x-cloak
+                   data-testid="meetup-event-disclosure" class="px-1 text-xs text-muted">
+                    {{ __('Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.') }}
+                </p>
+
+                {{-- PARTIAL result: some relays took the answer, others did not. Not an
+                     error and not a success — the answer IS out there, just not
+                     everywhere, and the reader is told where. Measured 2026-09-05:
+                     `relay.damus.io` answered 5 of 8 attempts with `503` while `nos.lol`
+                     took the same event, so on the recommended two-relay configuration
+                     this is the ordinary case. `warning`, not `danger`: nothing failed
+                     that the user has to repair. --}}
+                <template x-if="partial">
+                    <flux:callout variant="warning" icon="exclamation-triangle" class="mx-1">
+                        <flux:callout.text data-testid="meetup-event-partial" x-text="partialLabel()"></flux:callout.text>
+                        <x-slot name="actions">
+                            <flux:button size="sm" variant="ghost" x-on:click="dismissError()">{{ __('Verstanden') }}</flux:button>
+                        </x-slot>
+                    </flux:callout>
+                </template>
+
+                {{-- The fallback says that it is one. Without the sentence a card without
+                     buttons would look like a broken card with buttons. --}}
                 <p x-show="source === 'http'" x-cloak
                    data-testid="meetup-event-fallback" class="px-1 text-xs text-muted">
                     {{ __('Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.') }}
                 </p>
 
-                {{-- Wörtliche Begründung des Relays, wie in der Pin-Leiste darunter: die
-                     Ablehnungen sind unterscheidbar, und nur der Originaltext trägt diese
-                     Unterscheidung bis zum Nutzer. --}}
+                {{-- The relay's verbatim reason, like the pin bar below: the rejections
+                     are distinguishable, and only the original text carries that
+                     distinction through to the user. Shown ONLY when nothing landed
+                     anywhere — a partial result has its own line above. --}}
                 <template x-if="error">
                     <flux:callout variant="danger" icon="exclamation-triangle" class="mx-1">
                         <flux:callout.text x-text="error"></flux:callout.text>

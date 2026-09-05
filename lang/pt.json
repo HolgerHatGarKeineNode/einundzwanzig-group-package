@@ -1256,5 +1256,8 @@
     "1 kommt": "1 vai participar",
     ":count kommen": ":count vão participar",
     ":count kommen#one": ":count vai participar",
-    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Data da lista do portal — falta o evento assinado para confirmar a presença."
+    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Data da lista do portal — falta o evento assinado para confirmar a presença.",
+    "deine Zeit": "a tua hora",
+    "Zusage liegt auf :ok, nicht auf :fehlt.": "A confirmação está em :ok, mas não em :fehlt.",
+    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Uma confirmação é um evento assinado e público em relays de terceiros — fica lá, mesmo depois de recusares. O contador não é verificado: conta assinaturas, não pessoas."
 }

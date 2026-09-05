@@ -1223,5 +1223,8 @@
     "Absagen": "Elutasítom",
     "1 kommt": "1 fő jön",
     ":count kommen": ":count fő jön",
-    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Időpont a portál listájából – hiányzik az aláírt esemény a visszajelzéshez."
+    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Időpont a portál listájából – hiányzik az aláírt esemény a visszajelzéshez.",
+    "deine Zeit": "a te időd",
+    "Zusage liegt auf :ok, nicht auf :fehlt.": "A visszajelzés itt van: :ok, itt viszont nincs: :fehlt.",
+    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "A visszajelzés aláírt, nyilvános esemény idegen reléken – ott marad akkor is, ha később lemondod. A számláló ellenőrizetlen: aláírásokat számol, nem embereket."
 }

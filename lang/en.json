@@ -1223,5 +1223,8 @@
     "Absagen": "Decline",
     "1 kommt": "1 attending",
     ":count kommen": ":count attending",
-    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Date from the portal list — the signed event needed for an RSVP is missing."
+    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Date from the portal list — the signed event needed for an RSVP is missing.",
+    "deine Zeit": "your time",
+    "Zusage liegt auf :ok, nicht auf :fehlt.": "The RSVP is on :ok, not on :fehlt.",
+    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "An RSVP is a signed, public event on third-party relays — it stays there, even after you decline. The count is unverified: it counts signatures, not people."
 }

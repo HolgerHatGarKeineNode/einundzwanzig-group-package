@@ -6,12 +6,20 @@
  * the wall clock is a documented flake source in this repository, and half of this
  * module's job is to decide which date is the NEXT one.
  *
- * The two fixtures at the top are not invented. `PORTAL_EVENT` is the kind 31923 that
- * `daf83d92…` published on 2026-09-04 for the Indianapolis meetup, tag for tag and
- * character for character as `nak req -a daf83d92… -k 31923` returned it on 2026-09-05;
- * `FOREIGN_EVENT` is the shape a third-party publisher uses on the same relay (an
- * Austrian club's own event, which carries `summary`/`end_tzid`/`r` and no `a` at all).
- * A rule proven against a hand-rolled fixture proves nothing about the wire.
+ * The two fixtures at the top are not invented. Their TAGS are verbatim: tag for tag and
+ * character for character as `nak req -a daf83d92… -k 31923 wss://nos.lol` returned them
+ * on 2026-09-05. `PORTAL_EVENT` is the kind 31923 that `daf83d92…` published on
+ * 2026-09-04 for the Indianapolis meetup; `FOREIGN_EVENT` is the shape a third-party
+ * publisher uses on the same relay (an Austrian club's own event, carrying
+ * `summary`/`end_tzid`/`r` and no `a` at all). A rule proven against a hand-rolled
+ * fixture proves nothing about the wire.
+ *
+ * **One deliberate deviation, named because "verbatim" has to mean it:** the `content` of
+ * `PORTAL_EVENT` is ABRIDGED to its first sentence. The real one is ~1 100 characters of
+ * emoji-prefixed prose, and no rule in this module reads it beyond copying it into
+ * `description`. The `id` and `sig` therefore do NOT hash this fixture — nothing here
+ * verifies a signature, and if anything ever does, this fixture has to be completed
+ * first. `FOREIGN_EVENT` carries its real content in full (it is one sentence).
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -20,6 +28,7 @@ import {
     CALENDAR_KIND,
     CALENDAR_RSVP_KIND,
     countRsvps,
+    keepOwnAuthors,
     latestByAddress,
     makeRsvpTags,
     meetupCalendarAddress,
@@ -28,6 +37,7 @@ import {
     readCalendarEvent,
     readRsvp,
     rsvpDTag,
+    usableTimeZone,
     type CalendarSourceEvent,
 } from './calendarModels.ts'
 
@@ -36,7 +46,7 @@ const FOREIGN = '6cb4dab56ca4d76eb310a3b9f35af391d736f6b5fd349c556eb59eed619212c
 const ME = 'a'.repeat(64)
 const SOMEONE = 'b'.repeat(64)
 
-/** Verbatim off nos.lol, 2026-09-05 (`d=meetup-event-3780`). */
+/** Off nos.lol, 2026-09-05 (`d=meetup-event-3780`) — tags verbatim, `content` abridged. */
 const PORTAL_EVENT: CalendarSourceEvent = {
     id: 'c6619354a2bc07f498040465905894ae5f9f76879d630b9a4d8af7a955b1ba18',
     pubkey: PORTAL,
@@ -367,4 +377,51 @@ test('no `fb` tag is invented', () => {
     // user's calendar that the user never made.
     assert.equal(makeRsvpTags(PORTAL_EVENT, 'accepted').some((t) => t[0] === 'fb'), false)
     assert.equal(makeRsvpTags(PORTAL_EVENT, 'declined').some((t) => t[0] === 'fb'), false)
+})
+
+// ── The time zone of a place-bound event ────────────────────────────────────────────
+
+test('usableTimeZone passes a zone this runtime can format in', () => {
+    assert.equal(usableTimeZone('Europe/Vienna'), 'Europe/Vienna')
+    assert.equal(usableTimeZone('America/Indiana/Indianapolis'), 'America/Indiana/Indianapolis')
+    assert.equal(usableTimeZone('  Europe/Berlin  '), 'Europe/Berlin', 'trimmed, because a tag is free text')
+})
+
+test('usableTimeZone returns "" instead of letting the formatter throw', () => {
+    // `new Intl.DateTimeFormat(l, {timeZone: 'Erde/Mitte'})` THROWS, and `formatTimestamp`
+    // catches every construction error and falls back to the reader's LOCAL time without
+    // saying so. For a place-bound event that silent fallback is the whole defect: it
+    // looks exactly like a correct rendering.
+    assert.equal(usableTimeZone('Erde/Mitte'), '')
+    assert.equal(usableTimeZone('MESZ'), '')
+    assert.equal(usableTimeZone(''), '')
+    assert.equal(usableTimeZone('   '), '')
+})
+
+test('the portal event carries a zone, and this is the one it carries', () => {
+    // Reported upstream rather than worked around: the tag says `Europe/Berlin` on an
+    // INDIANAPOLIS meetup. The `start` timestamp is right (1789599600 = 19:00 EDT), the
+    // zone name is not — the portal derives it from the country code
+    // (`NostrCalendarEventFactory` -> `CountryTimezone::forCountryCode`). The card can
+    // only render the zone it is given; naming it is what makes the error visible instead
+    // of hiding it behind the reader's own clock.
+    assert.equal(readCalendarEvent(PORTAL_EVENT).startTzid, 'Europe/Berlin')
+    assert.equal(usableTimeZone(readCalendarEvent(PORTAL_EVENT).startTzid), 'Europe/Berlin')
+})
+
+// ── The reading half of the author filter ───────────────────────────────────────────
+
+test('keepOwnAuthors drops everything that is not ours', () => {
+    // The second application of the filter. The first is the `authors` key of the REQ; a
+    // relay may answer with whatever it likes, and the repository is shared with every
+    // other surface of this client.
+    assert.deepEqual(keepOwnAuthors([PORTAL_EVENT, FOREIGN_EVENT], [PORTAL]), [PORTAL_EVENT])
+    assert.deepEqual(keepOwnAuthors([PORTAL_EVENT, FOREIGN_EVENT], [FOREIGN]), [FOREIGN_EVENT])
+    assert.deepEqual(keepOwnAuthors([PORTAL_EVENT, FOREIGN_EVENT], [PORTAL, FOREIGN]).length, 2)
+})
+
+test('keepOwnAuthors with NO authors keeps nothing — it does not fall open', () => {
+    // The dangerous shape would be "no authors configured, so let everything through".
+    // That is the one behaviour that must not exist on this path.
+    assert.deepEqual(keepOwnAuthors([PORTAL_EVENT, FOREIGN_EVENT], []), [])
 })

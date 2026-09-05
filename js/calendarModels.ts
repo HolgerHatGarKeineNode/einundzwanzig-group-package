@@ -177,6 +177,55 @@ export const readRsvp = (event: CalendarSourceEvent): RsvpFields => {
 }
 
 /**
+ * `tzid` if this runtime can actually format in it, `''` otherwise.
+ *
+ * ## Why this is a check and not a cast
+ *
+ * `new Intl.DateTimeFormat(locale, {timeZone: 'Erde/Mitte'})` THROWS, and the house
+ * formatter (`locale.ts formatTimestamp`) catches every construction error and falls
+ * back to a plain ISO-like rendering **in the reader's local time** — silently. For a
+ * place-bound event that is the one outcome that must not happen by accident: it looks
+ * exactly like a correct local-time rendering, and somebody plans a journey around it.
+ * Asking first turns the silent fallback into a decision the caller makes and labels.
+ *
+ * A relay carries whatever the publisher wrote, and `start_tzid` is free text.
+ */
+export const usableTimeZone = (tzid: string): string => {
+    const value = (tzid || '').trim()
+    if (!value) {
+        return ''
+    }
+    try {
+        new Intl.DateTimeFormat('en', { timeZone: value }).format(0)
+
+        return value
+    } catch {
+        return ''
+    }
+}
+
+/**
+ * Keeps only the events of `authors` — the SECOND application of the author filter, on
+ * the reading side.
+ *
+ * ## Why it exists twice, and why it is its own function
+ *
+ * The first application is the `authors` key of the REQ (`calendar.ts
+ * calendarEventFilters`). A relay is free to answer with whatever it likes, and the
+ * repository these events land in is shared with every other surface of this client — an
+ * event that arrived through some other query is in there too.
+ *
+ * It sits here, exported and pure, because a check that only exists inside a subscribe
+ * callback cannot be falsified on its own: with both halves in place, removing either
+ * one leaves every test green, and only removing BOTH turns the surface red. Two halves,
+ * two tests.
+ */
+export const keepOwnAuthors = <T extends { pubkey: string }>(
+    events: readonly T[],
+    authors: readonly string[],
+): T[] => events.filter((event) => authors.includes(event.pubkey))
+
+/**
  * Folds a list of ADDRESSABLE events down to one per `(pubkey, d)`, newest wins.
  *
  * Ties on `created_at` are broken by the lexicographically smaller event id, so that two

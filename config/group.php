@@ -109,57 +109,54 @@ return [
     'article_relay_urls' => env('NOSTR_ARTICLE_METRIC_RELAYS'),
 
     /*
-     * P2 — die Relays, auf denen die NIP-52-TERMINE eines Meetups liegen (kind 31923)
-     * und auf die dieser Client seine Zusagen schreibt (kind 31925). Kommagetrennt,
-     * z. B. `wss://nos.lol,wss://relay.damus.io`.
+     * P2 — the relays a meetup's NIP-52 DATES live on (kind 31923) and that this client
+     * writes its RSVPs to (kind 31925). Comma separated, e.g.
+     * `wss://nos.lol,wss://relay.damus.io`.
      *
-     * **Das ist die Adresse des PORTALS, nicht unsere.** Das Vereins-Portal signiert und
-     * publiziert seine Meetups und Termine seit dem 2026-09-04 selbst
-     * (`einundzwanzig-portal`, `nostr:publish-calendar`, alle fünf Minuten) — und zwar
-     * auf die Relays aus SEINEM `NOSTR_RELAYS` (`config/services.php`, Default
-     * `wss://nos.lol,wss://relay.damus.io`). Weicht die Prod-Instanz des Portals davon
-     * ab, gehört hier ihr Wert hinein, sonst fragt der Client den falschen Relay und
-     * fällt für jeden Raum auf die HTTP-Quelle zurück.
+     * **This is the PORTAL's address, not ours.** The association portal has signed and
+     * published its meetups and dates itself since 2026-09-04 (`einundzwanzig-portal`,
+     * `nostr:publish-calendar`, every five minutes) — to the relays from ITS own
+     * `NOSTR_RELAYS` (`config/services.php`, default `wss://nos.lol,wss://relay.damus.io`).
+     * If the portal's production instance differs, ITS value belongs here; otherwise the
+     * client asks the wrong relay and falls back to the HTTP source in every room.
      *
-     * Ohne Code-Default, aus demselben Grund wie `board_relay_url`: ein Default machte
-     * aus einer fehlenden Konfiguration eine stille WebSocket-Verbindung ins öffentliche
-     * Internet, und ein E2E-Lauf wäre gegen den Relay-Wächter sofort rot. Leer heißt:
-     * die Terminkarte zeigt weiter den HTTP-Termin aus `/api/mobile/meetups` und
-     * schickt **keinen** REQ.
+     * No code default, for the same reason as `board_relay_url`: a default turns a
+     * missing configuration into a silent WebSocket connection to the public internet,
+     * and an E2E run would go red against the relay guard immediately. Empty means: the
+     * date card keeps showing the HTTP date from `/api/mobile/meetups` and sends NO REQ.
      *
-     * ── Was diese Relays über deine Leser erfahren ────────────────────────────────
+     * ── What these relays learn about your readers ────────────────────────────────
      *
-     * Beim blossen Öffnen eines MEETUP-Raums — ohne Klick, ohne Zutun des Lesers —
-     * bekommen sie eine WebSocket-Verbindung und damit IP, User-Agent, Zeitpunkt und die
-     * angefragten Filter, also **welches Meetup dieser Leser gerade ansieht** (der Filter
-     * trägt genau eine Koordinate). Der **Pubkey** geht dabei NICHT hinaus:
-     * `js/relayConfig.ts` nimmt diese Adressen seit P2 in dieselbe AUTH-Sperre auf wie
-     * die Metrik-Relais darüber. Wer auf einen Termin zusagt, gibt seinen Pubkey
-     * natürlich preis — ein kind 31925 trägt ihn im Klartext. Das geschieht aber nur auf
-     * Knopfdruck.
+     * On the bare opening of a MEETUP room — no click, nothing the reader does — they get
+     * a WebSocket connection and with it the IP address, the user agent, the time and the
+     * filters asked for, i.e. **which meetup this reader is looking at** (the filter
+     * carries exactly one coordinate). The **pubkey** does not go out: `js/relayConfig.ts`
+     * puts these addresses into the same AUTH block as the metric relays above. Whoever
+     * accepts an invitation does of course reveal their pubkey — a kind 31925 carries it
+     * in the clear — but that only happens on a button press, and the surface says so
+     * next to the button.
      */
     'calendar_relay_urls' => env('NOSTR_CALENDAR_RELAYS'),
 
     /*
-     * P2 — die Pubkeys (hex, kommagetrennt), deren kind 31923 als Termin eines Meetups
-     * gilt. Ohne diesen Wert fragt der Client **gar nichts** ab.
+     * P2 — the pubkeys (hex, comma separated) whose kind 31923 counts as a date of a
+     * meetup. Without this value the client asks for **nothing at all**.
      *
-     * **Der Autorenfilter ist die halbe Fläche, nicht eine Härtung.** Ein kind 31923 ist
-     * ein öffentliches Kind auf öffentlichen Relays, und das `a`-Tag, mit dem ein Termin
-     * an einen Meetup-Kalender gebunden wird, ist eine BEHAUPTUNG: jeder darf ein Event
-     * mit unserer Koordinate publizieren. Am 2026-09-05 gemessen lieferte ein blanker
-     * `nak req -k 31923 -l 100 wss://nos.lol` 100 Events von 16 Autoren — Baseballspiele,
-     * brasilianische Konzerte und zwei verschiedene Schlüssel, die die Termine desselben
-     * österreichischen Clubs byte-gleich publizieren. Ohne `authors` stünde im Raumkopf,
-     * was ein Fremder dorthin zeigt.
+     * **The author filter is half the surface, not a hardening.** A kind 31923 is a
+     * public kind on public relays, and the `a` tag that binds a date to a meetup
+     * calendar is a CLAIM: anybody may publish an event carrying our coordinate. Measured
+     * 2026-09-05, a bare `nak req -k 31923 -l 100 wss://nos.lol` returned 100 events from
+     * 16 authors — baseball fixtures, Brazilian concerts, and two different keys
+     * publishing the same Austrian club's dates byte for byte. Without `authors` the room
+     * header would show whatever a stranger points at it.
      *
-     * Der gemessene Prod-Wert ist EIN Schlüssel:
+     * The measured production value is ONE key:
      * `daf83d92768b5d0005373f83e30d4203c0b747c170449e02fea611a0da125ee6`
      * (`npub1mturmynk3dwsqpfh87p7xr2zq0qtw37pwpzfuqh75cg6pksjtmnqqxv6kw`, kind 0
-     * „Einundzwanzig Portal", `website: portal.einundzwanzig.space`). Er steht in
-     * `.env.example`, nicht hier — eine Liste ist trotzdem vorgesehen, weil die
-     * Kalender-Koordinate den Autor enthält: nach einer Schlüsselrotation wären sonst
-     * alle vorher publizierten Termine unauffindbar.
+     * "Einundzwanzig Portal", `website: portal.einundzwanzig.space`). It belongs in
+     * `.env.example`, not here — but a LIST is provided for, because the calendar
+     * coordinate embeds the author: after a key rotation every previously published date
+     * would otherwise be unfindable.
      */
     'calendar_authors' => env('NOSTR_CALENDAR_AUTHORS'),
 

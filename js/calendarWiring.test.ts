@@ -68,7 +68,8 @@ const PORTAL = 'daf83d92768b5d0005373f83e30d4203c0b747c170449e02fea611a0da125ee6
 const freshCalendar = (specifier: string): Promise<typeof import('./calendar.ts')> =>
     import(specifier) as Promise<typeof import('./calendar.ts')>
 
-const { calendarEventFilters, rsvpFilters, calendarConfigured, CALENDAR_AUTHORS } = await freshCalendar('./calendar.ts')
+const { calendarEventFilters, rsvpFilters, calendarConfigured, roomMeetupId, CALENDAR_AUTHORS }
+    = await freshCalendar('./calendar.ts')
 
 const JS_DIR = import.meta.dirname
 const source = (name: string) => liesDatei(join(JS_DIR, name), name)
@@ -211,13 +212,42 @@ test('CORE 2: every relay query names its relays explicitly', () => {
 
 // ── CORE 3: the RSVP is published, and through the rollback path ────────────────────
 
-test('CORE 3: the island publishes its RSVP through `publishOptimistic`', () => {
+test('CORE 3: the island publishes its RSVP through `publishSpreadOptimistic`', () => {
     const f = source('calendar.ts')
-    assert.ok(importiertAus(f, 'publishOptimistic', './publishOptimistic.ts'), 'the publish path is gone')
-    assert.ok(ruftAuf(f, 'publishOptimistic'), '… and is never called: the button would do nothing')
+    // The SPREAD variant, not the flat one, and that is the assertion: the flat
+    // `publishOptimistic` reports a partial result as a failure, and `calendar.ts` writes
+    // to several relays where the partial result is the ordinary case.
+    assert.ok(importiertAus(f, 'publishSpreadOptimistic', './publishOptimistic.ts'), 'the publish path is gone')
+    assert.ok(ruftAuf(f, 'publishSpreadOptimistic'), '… and is never called: the button would do nothing')
+    assert.equal(
+        ruftAuf(f, 'publishOptimistic'),
+        false,
+        'back on the flat variant — a partial result would be reported as a failure and rolled back',
+    )
     // The tags are the pure module's business, not this file's — one place decides.
     assert.ok(importiertAus(f, 'makeRsvpTags', './calendarModels.ts'))
     assert.ok(ruftAuf(f, 'makeRsvpTags'))
+})
+
+test('CORE 3d: the reading-side author check goes through the pure function', () => {
+    // Not a style point. The filter that goes out and the check on the way back are two
+    // halves of the same promise, and with both in place removing either one leaves every
+    // test green (measured: only removing BOTH turns the E2E red). Routing the second
+    // half through `keepOwnAuthors` makes it falsifiable on its own —
+    // `calendarModels.test.ts` does that.
+    const f = source('calendar.ts')
+    assert.ok(importiertAus(f, 'keepOwnAuthors', './calendarModels.ts'), 'the reading-side check is gone')
+    assert.ok(ruftAuf(f, 'keepOwnAuthors'))
+})
+
+test('CORE 3e: the date is rendered in a NAMED time zone', () => {
+    // A meetup happens in one place at one o'clock. Without `usableTimeZone` the house
+    // formatter converts into the reader's zone and, on an unusable `start_tzid`, falls
+    // back to local time silently — measured: the Indianapolis meetup starting 19:00
+    // local rendered as "Do., 17. Sept., 01:00" with nothing saying which clock that was.
+    const f = source('calendar.ts')
+    assert.ok(importiertAus(f, 'usableTimeZone', './calendarModels.ts'), 'the zone check is gone')
+    assert.ok(ruftAuf(f, 'usableTimeZone'))
 })
 
 test('CORE 3b: the join is built, not guessed', () => {
@@ -241,6 +271,27 @@ test('CORE 3c: the HTTP source is still reached — it is the fallback, not a le
 
 // ── CORE 4: registration ───────────────────────────────────────────────────────────
 
+test('CORE 3f: the rollback goes through the pure rule, not through an inline `if`', () => {
+    /*
+     * This assertion lives in the CALENDAR latch although it is about
+     * `publishOptimistic.ts`, and that is deliberate: the calendar is the only caller
+     * that writes to several relays, so it is the only one for which "rolled back" and
+     * "went wrong" come apart at all. The other 16 callers use one relay, where the two
+     * are the same question.
+     *
+     * It exists because the mutation probe found the gap: changing the condition back to
+     * `if (outcome.error)` — the shape that deletes an event a relay is holding — left
+     * EVERY test in this repository green. The pure rule has its own cases in
+     * `publishResult.test.ts`; this is the half that says it is actually called.
+     */
+    const f = source('publishOptimistic.ts')
+    assert.ok(
+        importiertAus(f, 'rollBackAfterPublish', './publishResult.ts'),
+        'the rollback rule is inlined again — a partial publish would be deleted locally',
+    )
+    assert.ok(ruftAuf(f, 'rollBackAfterPublish'), '… and it is never called')
+})
+
 test('CORE 4: the island is registered — an unregistered `x-data` renders nothing', () => {
     const f = source('bridge.ts')
     assert.ok(importiertAus(f, 'wireMeetupEvent', './calendar.ts'), 'bridge.ts does not import the island')
@@ -257,6 +308,37 @@ test('CORE 5: the room mounts the card and both buttons answer', () => {
     // The three states are what makes the fallback visible instead of looking broken.
     assert.ok(markup.includes("source === 'http'"), 'the fallback state is not rendered as such')
     assert.ok(markup.includes("source === 'nostr'"), 'the attendance count is not gated on the signed date')
+})
+
+test('CORE 5c: the time zone is printed, always — an unlabelled time is the defect', () => {
+    const markup = flattenWhitespace(room().active)
+    assert.ok(markup.includes('x-text="dateZone"'), 'the date carries no zone label')
+    assert.ok(markup.includes('x-text="dateLabel"'), 'the date itself is gone')
+})
+
+test('CORE 5d: the card says what pressing the button does — and what the count is worth', () => {
+    // Everything the operator documentation lays out (`config/group.php`, `.env.example`)
+    // is read by whoever RUNS this; the person who actually enters into it read it
+    // nowhere. The sentence carries both halves: a signed, public, permanent event on
+    // third-party relays that declining replaces rather than recalls, and a counter that
+    // counts signatures rather than people.
+    const markup = flattenWhitespace(room().active)
+    assert.ok(
+        markup.includes('data-testid="meetup-event-disclosure"'),
+        'the RSVP has no disclosure next to it',
+    )
+    assert.ok(markup.includes('signiertes, öffentliches Ereignis'), 'the disclosure does not say it is public')
+    assert.ok(markup.includes('zählt Signaturen, nicht Personen'), 'the disclosure does not qualify the counter')
+})
+
+test('CORE 5e: a partial publish has its OWN line, separate from the error', () => {
+    // The measured case: one relay took the RSVP, the other timed out. Rendering that as
+    // an error would be a lie about a write that happened and is public.
+    const markup = flattenWhitespace(room().active)
+    assert.ok(markup.includes('x-text="partialLabel()"'), 'a partial result has no line of its own')
+    assert.ok(markup.includes('x-if="partial"'), 'the partial line is not gated on a partial result')
+    assert.ok(markup.includes('x-if="error"'), 'the error line is gone')
+    assert.ok(markup.includes('variant="warning"'), 'the partial result is not distinguished from an error')
 })
 
 test('CORE 5b: the card is NOT gated on `room.isMeetup` — that flag is false on Buzz', () => {
@@ -279,4 +361,58 @@ test('COUNTER-PROOF: the scanner does NOT see a name that only stands in a comme
     assert.equal(ruftAuf(f, 'leseRelayListe'), false, 'there the name stands in a comment only')
     assert.ok(ruftAuf(f, 'leseRelayListeNachsichtig'), 'the lenient reader IS called')
     assert.ok(ruftAuf(f, 'pickNextCalendarEvent'), 'a real call is found')
+})
+
+// ── The join, on BOTH relay shapes ──────────────────────────────────────────────────
+
+test('BUZZ HALF: the meetup id is read out of the `about` prefix, not only out of a tag', () => {
+    /*
+     * This is a BEHAVIOUR test and not a structural one, and it is here because the Buzz
+     * half of the join has no other cover: `meetup-calendar.spec.ts` is not in
+     * `BUZZ_SPECS` (`playwright.config.ts`), so the Buzz arm never runs it.
+     *
+     * The two shapes exist because the two relays store the marker differently, and the
+     * caller must not have to know which relay it is looking at:
+     *
+     *   zooid passes a 9007's extra tags into the 39000 unchanged → `["i","meetup:<id>"]`
+     *   Buzz builds the 39000 itself from a fixed tag set and DROPS foreign markers, so
+     *   `scripts/sync-meetup-rooms.sh` writes the id into `about` instead.
+     *
+     * Losing the second branch makes the card silently dead on every Buzz workspace —
+     * and `RoomView.isMeetup` is false there for the same reason, which is why the markup
+     * must not gate on it either (CORE 5b).
+     */
+    // zooid: the marker tag.
+    assert.equal(
+        roomMeetupId({ event: { tags: [['t', 'meetup'], ['i', 'meetup:359']] }, about: '' }),
+        '359',
+    )
+    // Buzz: the `about` prefix, exactly the form `buildAboutMarker` writes.
+    assert.equal(
+        roomMeetupId({ event: { tags: [['t', 'stream']] }, about: 'einundzwanzig:meetup:359 — Indy Bitcoin Meetup' }),
+        '359',
+    )
+    // Buzz without free text.
+    assert.equal(roomMeetupId({ event: null, about: 'einundzwanzig:meetup:e2e-berlin' }), 'e2e-berlin')
+})
+
+test('BUZZ HALF: the tag wins over the prefix when a room carries both', () => {
+    // A room can legitimately carry both (a zooid room whose `about` was written by the
+    // sync script). One place has to decide, and the tag is the one the relay guarantees.
+    assert.equal(
+        roomMeetupId({
+            event: { tags: [['i', 'meetup:tag-wins']] },
+            about: 'einundzwanzig:meetup:about-loses',
+        }),
+        'tag-wins',
+    )
+})
+
+test('BUZZ HALF: an ordinary room resolves to "" and a foreign prefix is not a meetup', () => {
+    assert.equal(roomMeetupId(undefined), '')
+    assert.equal(roomMeetupId({ event: { tags: [] }, about: '' }), '')
+    assert.equal(roomMeetupId({ event: { tags: [] }, about: 'Ein ganz normaler Raum' }), '')
+    // A different category under the same prefix must not be read as a meetup — the
+    // proposal rooms use `einundzwanzig:proposal:<id>`.
+    assert.equal(roomMeetupId({ event: { tags: [] }, about: 'einundzwanzig:proposal:87' }), '')
 })

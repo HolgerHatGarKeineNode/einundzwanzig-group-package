@@ -38,14 +38,17 @@
     <script>window.__nostrArticleRelays = window.__nostrArticleRelays ?? @js(config('group.article_relay_urls'));</script>
 @endif
 
-{{-- P2 — NIP-52-Kalender: die Relays der Meetup-Termine (kind 31923) und der Zusagen
-     (kind 31925), kommagetrennt, sowie die Pubkeys, deren Termine gelten. BEIDE Werte
-     werden gebraucht; fehlt einer, fragt die Terminkarte keinen Relay und zeigt weiter
-     den HTTP-Termin aus der Portal-Liste. Gleiche `??`-Regel wie oben, damit ein
-     E2E-Lauf sie per addInitScript auf seinen eigenen Relay ziehen kann.
+{{-- P2 — NIP-52 calendar: the relays a meetup's dates (kind 31923) and the RSVPs
+     (kind 31925) live on, comma separated, plus the pubkeys whose dates count. BOTH
+     values are needed; with one missing the date card asks no relay and keeps showing
+     the HTTP date from the portal list. Same `??` rule as above, so an E2E run can pull
+     them onto its own relay with addInitScript.
 
-     **Auch diese zwei Zeilen stehen ZWEIMAL im Baum** — siehe die Begruendung beim
-     Artikel-Block. `tests/Feature/CalendarRelaysTest.php` haelt beide zusammen. --}}
+     **These two lines stand TWICE in the tree** — see the reasoning at the article
+     block. `tests/Feature/CalendarRelaysTest.php` holds both together; it exists because
+     exactly this mistake happened while building P2: the lines were in the package
+     partial only, and the date card would have stayed silently on the HTTP fallback in
+     normal web operation. --}}
 @if (config('group.calendar_relay_urls'))
     <script>window.__nostrCalendarRelays = window.__nostrCalendarRelays ?? @js(config('group.calendar_relay_urls'));</script>
 @endif

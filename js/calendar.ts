@@ -45,8 +45,8 @@ import { CALENDAR_EVENT, CALENDAR_RSVP } from './welshmanKinds.ts'
 import { leseRelayListeNachsichtig } from './articleMetrics.ts'
 import { load } from './welshmanNet.ts'
 import { deriveEventsForUrls } from './repository.ts'
-import { publishOptimistic } from './publishOptimistic.ts'
-import { activeSpace, makeRoomId, roomsById, type Room } from './groups.ts'
+import { publishSpreadOptimistic } from './publishOptimistic.ts'
+import { activeSpace, makeRoomId, roomsById } from './groups.ts'
 import { parseMeetupTags } from './meetupPresentation.ts'
 import { parseAboutMarker } from './roomAbout.ts'
 import { getMeetupPresentation, loadMeetupPresentations } from './meetups.ts'
@@ -55,11 +55,13 @@ import { formatTimestamp } from './locale.ts'
 import { t } from './i18n.ts'
 import {
     countRsvps,
+    keepOwnAuthors,
     makeRsvpTags,
     meetupCalendarAddress,
     ownRsvpStatus,
     pickNextCalendarEvent,
     readCalendarEvent,
+    usableTimeZone,
     type RsvpStatus,
 } from './calendarModels.ts'
 
@@ -134,7 +136,13 @@ const RSVP_LOAD_LIMIT = 200
  * `parseAboutMarker` has existed since the Buzz port and had, until this phase, **not a
  * single production caller** — built and never wired. This is it.
  */
-export const roomMeetupId = (room: Pick<Room, 'event' | 'about'> | undefined): string => {
+export const roomMeetupId = (
+    // Structurally typed against what is actually READ, not against `Room`: this
+    // function touches `event.tags` and `about` and nothing else, and a `Room`-shaped
+    // parameter would force every caller — including the tests that prove the Buzz half
+    // — to build a full `TrustedEvent` for two fields.
+    room: { event?: { tags: string[][] } | null; about?: string | null } | undefined,
+): string => {
     if (!room) {
         return ''
     }
@@ -172,8 +180,42 @@ export const rsvpFilters = (eventAddress: string): Filter[] =>
 export const calendarEventAddress = (event: TrustedEvent): string =>
     `${event.kind}:${event.pubkey}:${readCalendarEvent(event).dTag}`
 
-/** Absolute date in the active language — same shape the meetup tile prints. */
-const dateLabelOf = (start: number): string =>
+/**
+ * A relay URL as a person reads it: host only, no scheme, no trailing slash.
+ *
+ * `wss://relay.damus.io/` in a sentence is noise; `relay.damus.io` is the name the
+ * operator of that relay uses. Falls back to the raw string for anything unparseable —
+ * an unreadable address still has to be nameable in a message about it.
+ */
+const displayRelay = (url: string): string => {
+    try {
+        return new URL(url).host
+    } catch {
+        return url
+    }
+}
+
+/** The reader's own IANA zone, or '' if this runtime will not name it. */
+const readerTimeZone = (): string => {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    } catch {
+        return ''
+    }
+}
+
+/**
+ * Absolute date in the active language, rendered in `zone` — same shape the meetup tile
+ * prints, plus the time zone.
+ *
+ * **The zone is the point, not a refinement.** A meetup happens in ONE place at ONE
+ * o'clock, and a card that silently converts into the reader's zone makes a false
+ * statement about a place-bound event: the Indianapolis meetup starting 19:00 local
+ * rendered as `Do., 17. Sept., 01:00` here, and somebody could plan a journey around
+ * that. `zone` is empty only when the event carries no usable `start_tzid`; then the
+ * caller labels the result as the reader's own time instead of pretending otherwise.
+ */
+const dateLabelOf = (start: number, zone: string): string =>
     start > 0
         ? formatTimestamp(start, {
             weekday: 'short',
@@ -181,6 +223,7 @@ const dateLabelOf = (start: number): string =>
             month: 'short',
             hour: '2-digit',
             minute: '2-digit',
+            ...(zone ? { timeZone: zone } : {}),
         })
         : ''
 
@@ -204,8 +247,15 @@ type MeetupEventState = {
     /** Where the shown date comes from: the relays, the portal HTTP list, or nowhere. */
     source: 'nostr' | 'http' | ''
     title: string
-    /** Localised absolute date, ready to print. */
+    /** Localised absolute date, ready to print — in {@link MeetupEventState.dateZone}. */
     dateLabel: string
+    /**
+     * The zone `dateLabel` is expressed in, shown next to it. The IANA name for a signed
+     * date (`Europe/Vienna`), the translated "your time" when the event carries no usable
+     * `start_tzid` and for the HTTP fallback. NEVER empty while a date is shown — an
+     * unlabelled time on a place-bound event is the defect this field exists against.
+     */
+    dateZone: string
     location: string
     /** How many said yes — only ever non-zero for a Nostr-sourced date. */
     attending: number
@@ -215,11 +265,19 @@ type MeetupEventState = {
     busy: boolean
     /** Verbatim relay rejection, shown as-is. '' when nothing went wrong. */
     error: string
+    /**
+     * The relays that took the RSVP and those that did not, when the two disagree.
+     * Non-empty ONLY on a partial result — which is the ordinary case here, not an edge
+     * one: `relay.damus.io` answered 5 of 8 attempts with `503` on 2026-09-05. An
+     * `error` alone would say "it did not work" while one relay holds the answer
+     * publicly and permanently.
+     */
+    partial: { delivered: string[]; failed: string[] } | null
     /** Can this user answer at all? False without a session or without a Nostr date. */
     canRsvp: boolean
     _h: string
     _url: string
-    _meetupId: string
+    _meetupId: string | null
     _address: string
     _event: TrustedEvent | null
     _rsvps: TrustedEvent[]
@@ -228,6 +286,7 @@ type MeetupEventState = {
     _unsubRsvps: (() => void) | null
     init(): void
     rsvp(status: RsvpStatus): Promise<void>
+    partialLabel(): string
     dismissError(): void
     destroy(): void
     _start(): void
@@ -248,15 +307,17 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
     source: '',
     title: '',
     dateLabel: '',
+    dateZone: '',
     location: '',
     attending: 0,
     myStatus: '',
     busy: false,
     error: '',
+    partial: null,
     canRsvp: false,
     _h: String(h ?? ''),
     _url: '',
-    _meetupId: ' not-resolved-yet',
+    _meetupId: null,
     _address: '',
     _event: null,
     _rsvps: [],
@@ -286,8 +347,12 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
 
     /**
      * Ask the calendar relays for this room's dates — once per (room, meetup id), which
-     * is why `_meetupId` starts at a value no id can equal instead of at `''`: an
-     * ordinary room resolves to `''` and must still run through the render once.
+     * is why `_meetupId` starts at `null` rather than at `''`: an ordinary room resolves
+     * to `''` and must still run through the render once, so the initial value has to be
+     * something no resolution can produce. `null` is that; a sentinel STRING would not
+     * be, and the first attempt at one put a literal NUL byte into this file — which
+     * made the whole module invisible to `grep -r` and `rg` without changing a line of
+     * behaviour.
      *
      * Not a live `request`: a meetup date is not a chat. The portal republishes at most
      * every five minutes, and whoever leaves the page open misses a moved venue until
@@ -314,11 +379,12 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
         }
         void load({ relays: CALENDAR_RELAYS, filters })
         this._unsubEvents = deriveEventsForUrls(CALENDAR_RELAYS, filters).subscribe((events: TrustedEvent[]) => {
-            // The author check is repeated HERE and not only in the filter that went out.
-            // A relay may answer with whatever it likes, and the repository is shared
-            // with every other surface of this client — the guarantee has to hold on the
-            // reading side too.
-            const mine = events.filter((event) => CALENDAR_AUTHORS.includes(event.pubkey))
+            // The author check is repeated HERE and not only in the filter that went
+            // out: a relay may answer with whatever it likes, and the repository is
+            // shared with every other surface of this client. Through the pure
+            // `keepOwnAuthors` so that this half can be falsified on its own — with both
+            // halves in place, removing either one leaves every test green.
+            const mine = keepOwnAuthors(events, CALENDAR_AUTHORS)
             this._event = pickNextCalendarEvent(mine, Math.floor(Date.now() / 1000))
             const address = this._event ? calendarEventAddress(this._event) : ''
             if (address && address !== this._address) {
@@ -351,9 +417,15 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
         const event = this._event
         if (event) {
             const fields = readCalendarEvent(event)
+            // The event's OWN zone wins over the reader's. `usableTimeZone` returns ''
+            // for anything this runtime cannot format in — `start_tzid` is free text on
+            // the wire, and the house formatter would otherwise fall back to local time
+            // without saying so.
+            const zone = usableTimeZone(fields.startTzid)
             this.source = 'nostr'
             this.title = fields.title
-            this.dateLabel = dateLabelOf(fields.start)
+            this.dateLabel = dateLabelOf(fields.start, zone)
+            this.dateZone = zone || t('deine Zeit')
             this.location = fields.location
             this.attending = countRsvps(this._rsvps, this._address).accepted
             this.myStatus = ownRsvpStatus(this._rsvps, this._address, get(pubkey))
@@ -363,12 +435,19 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
         }
         // Fallback: the portal's HTTP list, joined by slug exactly as the meetup tile
         // does it. It has no venue and no attendance — and says so by leaving them empty.
+        //
+        // Its date has no zone either: `next_event_start` is a bare `YYYY-MM-DD HH:MM`
+        // and the API says nothing about which clock it is on, so it is parsed and shown
+        // as the READER's local time and labelled as such. Naming a zone here would be
+        // an invention; leaving the label off would be the very silence this field
+        // exists against.
         const room = get(roomsById).get(makeRoomId(this._url, this._h))
         const slug = parseMeetupTags(room?.event?.tags ?? []).meetupSlug
         const seconds = httpDateSeconds(getMeetupPresentation(slug)?.nextEventStart ?? '')
         this.source = seconds > 0 ? 'http' : ''
         this.title = seconds > 0 ? t('Nächster Termin') : ''
-        this.dateLabel = seconds > 0 ? dateLabelOf(seconds) : ''
+        this.dateLabel = seconds > 0 ? dateLabelOf(seconds, readerTimeZone()) : ''
+        this.dateZone = seconds > 0 ? t('deine Zeit') : ''
         this.location = ''
         this.attending = 0
         this.myStatus = ''
@@ -376,14 +455,30 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
     },
 
     /**
-     * Publish our own kind 31925 to the calendar relays and wait for their verdict.
+     * Publish our own kind 31925 to the calendar relays and report what became of it.
      *
-     * `publishOptimistic` puts the event into the repository immediately, so the count
-     * and the button state move without a round trip, and removes it again if the relays
-     * reject it — without that rollback a "yes" would keep standing that nobody ever
-     * accepted. The `d` is derived from the target (`calendarModels.rsvpDTag`), so
-     * changing the answer REPLACES the previous one instead of stacking a second event
-     * beside it.
+     * `publishSpreadOptimistic` puts the event into the repository immediately, so the
+     * count and the button state move without a round trip. The `d` is derived from the
+     * target (`calendarModels.rsvpDTag`), so changing the answer REPLACES the previous
+     * one instead of stacking a second event beside it.
+     *
+     * ── Three outcomes, not two, and the middle one is the ordinary case ────────────
+     *
+     * Writing to SEVERAL relays has an in-between state that a single one does not, and
+     * treating it as failure is worse than treating it as success:
+     *
+     *   delivered = []          → nothing landed. The local event is rolled back (by
+     *                             `publishSpreadOptimistic`) and the reason is shown.
+     *   delivered, failed = []  → everywhere. Nothing to say.
+     *   both non-empty          → the answer IS public and permanent on the relays in
+     *                             `delivered`. Rolling it back locally would show the
+     *                             user a state the world does not share; calling it an
+     *                             error would be a lie about a write that happened.
+     *
+     * Measured on 2026-09-05: `relay.damus.io` answered 5 of 8 attempts with `503`,
+     * while `nos.lol` took the same event. On the recommended two-relay configuration
+     * the partial result is therefore the NORMAL case — the previous version of this
+     * method reported it as a failure and deleted the local event while nos.lol kept it.
      */
     async rsvp(status: RsvpStatus): Promise<void> {
         const event = this._event
@@ -392,18 +487,37 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
         }
         this.busy = true
         this.error = ''
+        this.partial = null
         try {
-            this.error = await publishOptimistic(
+            const outcome = await publishSpreadOptimistic(
                 CALENDAR_RELAYS,
                 makeEvent(CALENDAR_RSVP, { tags: makeRsvpTags(event, status) }),
             )
+            if (outcome.delivered.length === 0) {
+                this.error = outcome.error
+            } else if (outcome.failed.length > 0) {
+                this.partial = { delivered: outcome.delivered, failed: outcome.failed }
+            }
         } finally {
             this.busy = false
         }
     },
 
+    /** The partial-result line, ready to print — '' when there is nothing to say. */
+    partialLabel(): string {
+        if (!this.partial) {
+            return ''
+        }
+
+        return t('Zusage liegt auf :ok, nicht auf :fehlt.', {
+            ok: this.partial.delivered.map(displayRelay).join(', '),
+            fehlt: this.partial.failed.map(displayRelay).join(', '),
+        })
+    },
+
     dismissError(): void {
         this.error = ''
+        this.partial = null
     },
 
     destroy(): void {
