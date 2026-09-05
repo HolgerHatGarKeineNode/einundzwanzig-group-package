@@ -34,6 +34,7 @@ import { makeBlossomAuthEvent, uploadBlob } from '@welshman/util'
 import { signer } from './welshmanSession.ts'
 import { parseJson, sha256 } from '@welshman/lib'
 import { spaceIsBuzzAsync } from './buzzAdmin.ts'
+import { attachmentNoteFor, checkAttachment } from './attachmentPolicy.ts'
 import { t } from './i18n.ts'
 
 // ponytail: fixer Server statt kind-10063-Auflösung; Profil-Serverliste wieder einbauen,
@@ -49,6 +50,14 @@ export type Attachment = {
      * Optional, weil `buildAttachment` (rein, ohne Canvas) es nicht setzen kann.
      */
     previewUrl?: string
+    /**
+     * MIME of the stored blob as the SERVER reported it. The composer decides on it
+     * whether the preview is an image tile or a file row — it should not have to take
+     * the `imeta` tag apart a second time for that.
+     */
+    mime?: string
+    /** Original file name where usable ({@link sanitizeFilename}), `''` otherwise. */
+    name?: string
 }
 
 /**
@@ -133,6 +142,19 @@ export const uploadServerFor = async (spaceUrl: string | null | undefined): Prom
     spaceUrl && (await spaceIsBuzzAsync(spaceUrl)) ? relayHttpOrigin(spaceUrl) : BLOSSOM_SERVER
 
 /**
+ * The sentence the composer shows about what this space's upload target accepts.
+ *
+ * Deliberately routed through {@link uploadServerFor} rather than asking
+ * `spaceIsBuzz` a second time: the note must describe the server the NEXT upload would
+ * actually reach. A second, synchronous answer to the same question is exactly the kind
+ * of second truth that drifts — and the synchronous form reliably says "not Buzz" while
+ * NIP-11 is still in flight, so the note would have described the wrong server on every
+ * freshly loaded tab.
+ */
+export const attachmentNoteForSpace = async (spaceUrl?: string | null): Promise<string> =>
+    attachmentNoteFor((await uploadServerFor(spaceUrl)) === BLOSSOM_SERVER ? 'blossom' : 'buzz')
+
+/**
  * Baut URL + NIP-92-`imeta`-Tag aus dem Blossom-Ergebnis. Rein (kein Netzwerk/Store) →
  * als JS-Unit testbar. Die Server-URL ist **untrusted** (Antwort des konfigurierten
  * Servers): `new URL(...).href` normalisiert sie (entfernt eingeschleuste Whitespace/
@@ -147,7 +169,7 @@ export const uploadServerFor = async (spaceUrl: string | null | undefined): Prom
  * NIP-92 sieht das Feld ohnehin vor, deshalb steht es auf BEIDEN Strecken drin und
  * nicht nur im Buzz-Zweig.
  */
-export const buildAttachment = (rawUrl: string, mime: string, hash: string, size: number, dim?: string): Attachment => {
+export const buildAttachment = (rawUrl: string, mime: string, hash: string, size: number, dim?: string, filename?: string): Attachment => {
     const u = new URL(rawUrl)
     if (u.protocol !== 'https:' && u.protocol !== 'http:') {
         throw new Error(t('Ungültige Upload-URL vom Server'))
@@ -164,7 +186,37 @@ export const buildAttachment = (rawUrl: string, mime: string, hash: string, size
     if (dim) {
         imetaTag.push(`dim ${dim}`)
     }
-    return { url, imetaTag }
+    const cleanName = sanitizeFilename(filename)
+    if (cleanName !== '') {
+        imetaTag.push(`filename ${cleanName}`)
+    }
+    return { url, imetaTag, mime, name: cleanName }
+}
+
+/**
+ * The original file name for the `filename` field of the `imeta` tag — or `''`.
+ *
+ * **Why the file card cannot simply read the URL:** both servers name the blob after its
+ * content hash. A 190-byte PDF comes back as `…/media/794abaa4…f47b.pdf` (measured
+ * 2026-09-05, `p5-endpunkt-buzz-roh.txt`); that is a checksum, and the only place the
+ * reader's `Vereinsprotokoll.pdf` still exists is the sender's browser.
+ *
+ * **The three rules are Buzz's, taken from its validator** (`handlers/imeta.rs:140-154`),
+ * not invented here: 1–255 characters, no path separator, no control character. A tag
+ * that breaks any of them makes the relay reject the whole MESSAGE — a bad file name
+ * would not lose a label, it would lose the post. Anything unusable is therefore dropped
+ * rather than repaired: a name is a nicety, the message is not.
+ */
+const sanitizeFilename = (raw: string | undefined): string => {
+    if (typeof raw !== 'string') {
+        return ''
+    }
+    const clean = raw
+        .replace(/[\u0000-\u001f\u007f]/g, '')
+        .replace(/[\\/]/g, '')
+        .trim()
+
+    return clean.length >= 1 && clean.length <= 255 ? clean : ''
 }
 
 /**
@@ -178,23 +230,55 @@ type BlobDescriptor = { url?: string; sha256?: string; size?: number; type?: str
 const HEX64 = /^[0-9a-f]{64}$/
 
 /**
+ * The refusal in the words the SERVER used — the two of them speak different channels.
+ *
+ * Measured 2026-09-05 (`p5-endpunkt-*`): Blossom (khatru `blossomError`) puts its reason
+ * in the `X-Reason` header and usually leaves the body empty; **Buzz sets no `X-Reason`
+ * at all** and answers `{"error":"disallowed content type: audio/mpeg"}` with HTTP 415,
+ * or `{"error":"media contains metadata or a non-canonical metadata channel"}` with 422.
+ * Reading only the header left the Buzz half of the toast at a bare status code; reading
+ * the raw body put a JSON object in front of the user. Hence: header first, then the
+ * `error` field of a JSON body, then the raw text.
+ */
+const refusalReason = (headerReason: string | null, body: string): string => {
+    if (headerReason) {
+        return headerReason
+    }
+    const parsed = parseJson<{ error?: unknown }>(body)
+
+    return typeof parsed?.error === 'string' && parsed.error.trim() !== '' ? parsed.error.trim() : body.trim()
+}
+
+/**
  * Lädt einen Bild-Blob hoch und gibt URL + `imeta`-Tag zurück. `spaceUrl` entscheidet das
  * Ziel (siehe {@link uploadServerFor}); `dim` = BxH des zugeschnittenen Canvas.
  * Wirft mit der Server-/Netzwerkmeldung bei Fehlschlag (bridge zeigt sie als Toast).
+ *
+ * Since P5 it carries any blob, not only an image, and `filename` passes the original
+ * file name through to the `imeta` tag (set for non-image attachments only).
  *
  * **Die Metadaten kommen bevorzugt aus dem Descriptor des Servers**, nicht aus dem lokalen
  * Blob: Buzz gleicht `m` und `size` gegen die gespeicherte Sidecar-Datei ab
  * (`verify_imeta_blobs`). Reicht der Server einen anderen (gesnifften) MIME oder eine andere
  * Größe zurück als der Browser meint, gewinnt der Server — sonst lehnt er die eigene Datei
  * beim Publizieren ab. Fehlt ein Feld, bleibt der lokale Wert.
+ *
+ * **The pre-check sits AFTER the server choice, not before it** (P5): which file kinds
+ * get through depends on the target and not on the client — the two servers were
+ * measured to be differently strict ([[attachmentPolicy]]). It refuses only what is
+ * certain to fail; everything else stays the server's decision.
  */
-export const uploadAttachment = async (blob: Blob, spaceUrl?: string | null, dim?: string): Promise<Attachment> => {
+export const uploadAttachment = async (blob: Blob, spaceUrl?: string | null, dim?: string, filename?: string): Promise<Attachment> => {
     const activeSigner = signer.get()
     if (!activeSigner) {
         throw new Error(t('Kein aktiver Signer — bitte anmelden.'))
     }
     const server = await uploadServerFor(spaceUrl)
     const isOwnRelay = server !== BLOSSOM_SERVER
+    const verdict = checkAttachment({ type: blob.type, size: blob.size, name: filename ?? '' }, isOwnRelay ? 'buzz' : 'blossom')
+    if (!verdict.ok) {
+        throw new Error(verdict.reason)
+    }
     const host = new URL(server).host
     const hash = await sha256(await blob.arrayBuffer())
     const authEvent = await activeSigner.sign(makeBlossomAuthEvent({ action: 'upload', server, hashes: [hash] }))
@@ -214,7 +298,7 @@ export const uploadAttachment = async (blob: Blob, spaceUrl?: string | null, dim
     }
     const text = await res.text()
     if (!res.ok) {
-        const reason = res.headers.get('X-Reason') || text.trim()
+        const reason = refusalReason(res.headers.get('X-Reason'), text)
         throw new Error(t(':host lehnte den Upload ab (HTTP :status:reason).', { host, status: res.status, reason: reason ? `: ${reason}` : '' }))
     }
     const task = parseJson<BlobDescriptor>(text)
@@ -227,5 +311,6 @@ export const uploadAttachment = async (blob: Blob, spaceUrl?: string | null, dim
         typeof task.sha256 === 'string' && HEX64.test(task.sha256) ? task.sha256 : hash,
         Number.isInteger(task.size) && (task.size as number) > 0 ? (task.size as number) : blob.size,
         dim ?? (typeof task.dim === 'string' ? task.dim : undefined),
+        filename,
     )
 }

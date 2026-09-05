@@ -267,7 +267,7 @@ import {
     type SpaceThread,
 } from './feeds.ts'
 import type { PollType } from './polls.ts'
-import { uploadAttachment, thumbDataUrl, type Attachment } from './uploads.ts'
+import { attachmentNoteForSpace, uploadAttachment, thumbDataUrl, type Attachment } from './uploads.ts'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health.ts'
 import {
     loadEmojiGroups,
@@ -1258,6 +1258,7 @@ type RoomChatState = {
     _cropForThread: boolean // beim Cropper-Öffnen erfasst: Ziel ist der Thread- (true) statt Haupt-Composer
     cropRatio: number // aktives Seitenverhältnis (NaN = frei) — für die Button-Hervorhebung
     uploadingImage: boolean // Crop→Upload läuft (Doppel-Klick-Guard, Busy-Anzeige)
+    attachmentNote: string // was das Upload-Ziel dieses Space annimmt (attachmentNoteForSpace)
     editingId: string | null // id der gerade bearbeiteten eigenen Nachricht (sonst null)
     activeId: string | null // Nachricht mit eingeblendeten Aktionen (Tap-to-toggle, Touch)
     flashId: string | null // kurz hervorgehobene Nachricht (Sprung zum Zitat)
@@ -1473,6 +1474,7 @@ type RoomChatState = {
     toggleReaction(m: ChatMessage, r: ReactionChip): Promise<void>
     send(): Promise<void>
     _openCropper(file: File): void
+    _uploadPlainFile(file: File): Promise<void>
     pickImage(input: HTMLInputElement): void
     pasteImage(e: ClipboardEvent): void
     setCropRatio(r: number): void
@@ -5948,6 +5950,7 @@ export function registerNostrComponents(Alpine: {
         _cropForThread: false,
         cropRatio: NaN,
         uploadingImage: false,
+        attachmentNote: '',
         editingId: null,
         activeId: null,
         flashId: null,
@@ -6118,6 +6121,13 @@ export function registerNostrComponents(Alpine: {
         setup(url: string) {
             this.teardown()
             this._url = url
+            // What this space's upload target accepts. The two servers were measured to
+            // be differently strict (`attachmentPolicy.ts`), and the composer says so
+            // instead of concealing it. Not awaited: the answer hangs on NIP-11 and
+            // arrives a moment later; until then the line is simply not there.
+            void attachmentNoteForSpace(url).then((note: string) => {
+                this.attachmentNote = note
+            })
             // **Woher kommt dieser Raum?** Solange er im Vereins-Space liegt — also fast
             // immer — bleibt der Hinweis leer und der Kopf sieht aus wie bisher. Steht der
             // Nutzer aber in einem WORKSPACE-Raum, sagt ihm bis hierher nichts, in welchem
@@ -7784,11 +7794,39 @@ export function registerNostrComponents(Alpine: {
             })
         },
         // Datei-Picker (+-Menü): Wert danach leeren, damit dieselbe Datei erneut wählbar bleibt.
+        // Image goes to the cropper as before, everything else straight to the upload:
+        // there is nothing to crop about a PDF, and the cropper would render it as a
+        // broken image.
         pickImage(input: HTMLInputElement) {
             const file = input.files?.[0]
             input.value = ''
-            if (file) {
+            if (!file) {
+                return
+            }
+            if (file.type.startsWith('image/')) {
                 this._openCropper(file)
+            } else {
+                void this._uploadPlainFile(file)
+            }
+        },
+        // Non-image attachment: no canvas, no `dim`, but the file name for the `imeta`.
+        // Target composer captured NOW, as in the cropper path — not when the answer
+        // arrives, by which time the user may have left the thread.
+        async _uploadPlainFile(file: File) {
+            const forThread = Boolean(this.threadRootId)
+            this.uploadingImage = true
+            try {
+                const up = await uploadAttachment(file, this._url, undefined, file.name)
+                if (forThread) {
+                    this.threadAttachment = up
+                } else {
+                    this.attachment = up
+                }
+                this.refocusComposer()
+            } catch (e) {
+                toast(String((e as Error)?.message ?? e))
+            } finally {
+                this.uploadingImage = false
             }
         },
         // Copy&Paste ins Eingabefeld: ein reines Bild (Screenshot) öffnet den Cropper.

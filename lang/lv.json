@@ -1297,5 +1297,13 @@
     "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Datums no portāla saraksta — trūkst parakstīta pasākuma, lai apstiprinātu dalību.",
     "deine Zeit": "tavs laiks",
     "Zusage liegt auf :ok, nicht auf :fehlt.": "Apstiprinājums ir uz :ok, bet ne uz :fehlt.",
-    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Apstiprinājums ir parakstīts, publisks notikums svešos relejos — tas tur paliek arī pēc atteikuma. Skaitītājs nav pārbaudīts: tas skaita parakstus, nevis cilvēkus."
+    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Apstiprinājums ir parakstīts, publisks notikums svešos relejos — tas tur paliek arī pēc atteikuma. Skaitītājs nav pārbaudīts: tas skaita parakstus, nevis cilvēkus.",
+    "Bild oder Datei": "Attēls vai fails",
+    "Bild oder Datei anhängen": "Pievienot attēlu vai failu",
+    "Datei angehängt": "Fails pievienots",
+    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "Biedrības serveris pieņem jebkura veida failus līdz 1 GB.",
+    "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "Fails ir lielāks par 1 GB — tik daudz biedrības serveris nepieņem.",
+    "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "Šis Relay pieņem attēlus, MP4 video bez iegultiem metadatiem, dokumentus un arhīvus — bet ne audio failus un ne programmas.",
+    "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "Šis Relay nepieņem programmas un izpildāmus failus.",
+    "Dieser Relay nimmt keine Audiodateien an — auch keine Sprachnachrichten.": "Šis Relay nepieņem audio failus — arī balss ziņas ne."
 }

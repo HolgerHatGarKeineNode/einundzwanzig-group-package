@@ -1264,5 +1264,13 @@
     "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Termin z listy portalu — brakuje podpisanego wydarzenia, aby potwierdzić.",
     "deine Zeit": "twój czas",
     "Zusage liegt auf :ok, nicht auf :fehlt.": "Potwierdzenie jest na :ok, ale nie na :fehlt.",
-    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Potwierdzenie to podpisane, publiczne zdarzenie na obcych przekaźnikach — zostaje tam nawet po odmowie. Licznik jest niezweryfikowany: liczy podpisy, nie osoby."
+    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Potwierdzenie to podpisane, publiczne zdarzenie na obcych przekaźnikach — zostaje tam nawet po odmowie. Licznik jest niezweryfikowany: liczy podpisy, nie osoby.",
+    "Bild oder Datei": "Obraz lub plik",
+    "Bild oder Datei anhängen": "Załącz obraz lub plik",
+    "Datei angehängt": "Załączono plik",
+    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "Serwer stowarzyszenia przyjmuje każdy rodzaj pliku do 1 GB.",
+    "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "Plik jest większy niż 1 GB — tyle serwer stowarzyszenia nie przyjmie.",
+    "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "Ten Relay przyjmuje obrazy, filmy MP4 bez osadzonych metadanych, dokumenty i archiwa — bez plików dźwiękowych i bez programów.",
+    "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "Ten Relay nie przyjmuje programów ani plików wykonywalnych.",
+    "Dieser Relay nimmt keine Audiodateien an — auch keine Sprachnachrichten.": "Ten Relay nie przyjmuje plików dźwiękowych — również wiadomości głosowych."
 }

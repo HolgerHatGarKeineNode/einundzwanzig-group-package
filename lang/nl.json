@@ -1231,5 +1231,13 @@
     "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Datum uit de portaallijst — het ondertekende evenement voor een aanmelding ontbreekt.",
     "deine Zeit": "jouw tijd",
     "Zusage liegt auf :ok, nicht auf :fehlt.": "De aanmelding staat op :ok, niet op :fehlt.",
-    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Een aanmelding is een ondertekende, openbare gebeurtenis op relays van derden — die blijft daar staan, ook na een afmelding. De teller is ongeverifieerd: hij telt handtekeningen, geen mensen."
+    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Een aanmelding is een ondertekende, openbare gebeurtenis op relays van derden — die blijft daar staan, ook na een afmelding. De teller is ongeverifieerd: hij telt handtekeningen, geen mensen.",
+    "Bild oder Datei": "Afbeelding of bestand",
+    "Bild oder Datei anhängen": "Afbeelding of bestand bijvoegen",
+    "Datei angehängt": "Bestand bijgevoegd",
+    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "De server van de vereniging accepteert elk bestandstype tot 1 GB.",
+    "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "Het bestand is groter dan 1 GB — zoveel accepteert de server van de vereniging niet.",
+    "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "Deze Relay accepteert afbeeldingen, MP4-video's zonder ingesloten metadata, documenten en archieven — geen audiobestanden en geen programma's.",
+    "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "Deze Relay accepteert geen programma's of uitvoerbare bestanden.",
+    "Dieser Relay nimmt keine Audiodateien an — auch keine Sprachnachrichten.": "Deze Relay accepteert geen audiobestanden — ook geen spraakberichten."
 }

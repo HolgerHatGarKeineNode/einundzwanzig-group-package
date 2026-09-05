@@ -31,7 +31,7 @@
  * Der Preis ist ein `querySelectorAll` je Mutations-Bündel. MutationObserver bündelt
  * pro Microtask, ein Chat-Nachladen mit 50 Zeilen ist also EIN Lauf, nicht 50.
  */
-import { BLOSSOM_SRC_ATTR, BLOSSOM_STATE_ATTR } from './blossomMarkup.ts'
+import { BLOSSOM_SRC_ATTR, BLOSSOM_STATE_ATTR, BLOSSOM_TARGET_ATTR } from './blossomMarkup.ts'
 
 /** Nur das, was der Hydrator von einem Element braucht — ein echtes `Element` erfüllt es. */
 export type BlossomImageEl = {
@@ -49,11 +49,19 @@ export type BlossomRoot = {
 /** `blossomMedia.load` — `''` heißt „für diesen Nutzer nicht verfügbar". */
 export type BlossomLoad = (url: string) => Promise<string>
 
-/** Unbearbeitete Marker-Bilder. Der Zustand IST die Sperre gegen Doppelarbeit. */
-const OFFEN = `img[${BLOSSOM_SRC_ATTR}]:not([${BLOSSOM_STATE_ATTR}])`
+/**
+ * Unbearbeitete Marker-Elemente. Der Zustand IST die Sperre gegen Doppelarbeit.
+ *
+ * **No longer `img[…]`.** Since chat attachments may also be a `<video>` or a file card
+ * (`<a>`, see [[blossomMarkup]]), the selector is the marker itself. Tying it to a tag
+ * name was the kind of narrowing that reads as harmless and then quietly excludes the
+ * next shape — the two new ones would have been picked up by nothing, and the failure
+ * would have looked like a relay that does not answer.
+ */
+const OFFEN = `[${BLOSSOM_SRC_ATTR}]:not([${BLOSSOM_STATE_ATTR}])`
 
-/** Alle Marker-Bilder, unabhängig vom Zustand (für `rescan`). */
-const ALLE = `img[${BLOSSOM_SRC_ATTR}]`
+/** Every marker element, whatever its state — the input of `rescan`. */
+const ALLE = `[${BLOSSOM_SRC_ATTR}]`
 
 /**
  * Alle noch unbearbeiteten Marker-Bilder unter `root` holen.
@@ -80,7 +88,10 @@ export const hydrateBlossomImages = async (root: BlossomRoot, load: BlossomLoad)
 
                         return
                     }
-                    el.setAttribute('src', objectUrl)
+                    // `src` for an image or a video, `href` for a file card — the markup
+                    // says which ([[blossomMarkup]] `BLOSSOM_TARGET_ATTR`). Absent means
+                    // `src`, so every element built before this phase is unaffected.
+                    el.setAttribute(el.getAttribute(BLOSSOM_TARGET_ATTR) || 'src', objectUrl)
                     // `data-full` nur füllen, wenn das Markup es vorgesehen hat (Chat-Bild
                     // mit Lightbox); ein Emoji hat keins und bekommt auch keins.
                     if (el.hasAttribute('data-full')) {
@@ -138,7 +149,9 @@ export const startBlossomHydration = <T>(root: BlossomRoot, load: BlossomLoad, m
                 // Das `src` MUSS mit weg: es zeigt auf eine `blob:`-URL, die beim
                 // Sitzungswechsel widerrufen wurde. Bliebe es stehen, zeigte die Fläche
                 // dem nächsten Nutzer ein kaputtes Bild statt gar keines.
-                el.removeAttribute('src')
+                // The `href` of a file card is the same case: a revoked `blob:` is a
+                // dead download, so the attribute the markup named is the one to drop.
+                el.removeAttribute(el.getAttribute(BLOSSOM_TARGET_ATTR) || 'src')
                 el.removeAttribute(BLOSSOM_STATE_ATTR)
             }
             void hydrateBlossomImages(root, load)

@@ -1231,5 +1231,13 @@
     "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Fecha de la lista del portal: falta el evento firmado para poder confirmar.",
     "deine Zeit": "tu hora",
     "Zusage liegt auf :ok, nicht auf :fehlt.": "La confirmación está en :ok, no en :fehlt.",
-    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Una confirmación es un evento firmado y público en relés ajenos: permanece allí incluso si luego la rechazas. El contador no está verificado: cuenta firmas, no personas."
+    "Eine Zusage ist ein signiertes, öffentliches Ereignis auf fremden Relays — sie bleibt dort, auch nach einer Absage. Der Zähler ist ungeprüft: er zählt Signaturen, nicht Personen.": "Una confirmación es un evento firmado y público en relés ajenos: permanece allí incluso si luego la rechazas. El contador no está verificado: cuenta firmas, no personas.",
+    "Bild oder Datei": "Imagen o archivo",
+    "Bild oder Datei anhängen": "Adjuntar imagen o archivo",
+    "Datei angehängt": "Archivo adjunto",
+    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "El servidor de la asociación acepta cualquier tipo de archivo de hasta 1 GB.",
+    "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "El archivo supera 1 GB: el servidor de la asociación no acepta tanto.",
+    "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "Este Relay acepta imágenes, vídeos MP4 sin metadatos incrustados, documentos y archivos comprimidos — ni archivos de audio ni programas.",
+    "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "Este Relay no acepta programas ni archivos ejecutables.",
+    "Dieser Relay nimmt keine Audiodateien an — auch keine Sprachnachrichten.": "Este Relay no acepta archivos de audio, tampoco mensajes de voz."
 }
