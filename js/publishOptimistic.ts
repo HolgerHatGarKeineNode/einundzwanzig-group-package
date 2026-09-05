@@ -38,12 +38,25 @@ import { mapRelayError, waitForPublishError } from './publishResult.ts'
  * Gibt `''` bei Erfolg, sonst die übersetzte Relay-Begründung — dieselbe Konvention wie
  * überall im Haus, und {@link mapRelayError} führt seit P7 den Originaltext des Relays
  * wörtlich mit.
+ *
+ * ── `url` nimmt seit P2 auch eine LISTE, und warum das die Erweiterung ist ──────────
+ *
+ * Der NIP-52-Kalender (`calendar.ts`) schreibt sein RSVP auf **mehrere** Relays: die
+ * Termine liegen auf den öffentlichen Adressen des Portals, und eine Antwort, die nur auf
+ * einem davon landet, ist für jeden Leser des anderen nicht vorhanden. Die Alternative
+ * wäre ein zweiter, handgeschriebener Thunk in `calendar.ts` gewesen — also genau die
+ * Kopie, gegen die der Kopf dieser Datei geschrieben ist: zwei Antworten auf die Frage,
+ * was bei einem Relay-Reject passiert, von denen die zweite unbemerkt altert.
+ *
+ * Die Erweiterung ist **quellkompatibel**: alle 16 Bestandsaufrufe übergeben einen
+ * String und laufen unverändert durch denselben Zweig. Ein `readonly string[]` deshalb,
+ * weil die Aufrufer ihre Relay-Liste als Modulkonstante halten.
  */
 export const publishOptimistic = async (
-    url: string,
+    url: string | readonly string[],
     event: ThunkOptions['event'],
 ): Promise<string> => {
-    const thunk = app.use(Thunks).publish({ relays: [url], event })
+    const thunk = app.use(Thunks).publish({ relays: typeof url === 'string' ? [url] : [...url], event })
     const err = await waitForPublishError(thunk)
     if (err) {
         app.repository.removeEvent(thunk.event.id)

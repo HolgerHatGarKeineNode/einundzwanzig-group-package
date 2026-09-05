@@ -327,6 +327,110 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  destroy() { $store.presence?.unmount() },
              }" hidden></div>
 
+        {{-- ── Nächster Meetup-Termin (P2, NIP-52) ────────────────────────────────────
+             Eigene Insel (`js/calendar.ts`), kein Zustand in `nostrRoomChat` — wie die
+             Suche (P6a) und die Moderations-Historie (P1). Sie liest von einer DRITTEN
+             Relay-Quelle (den öffentlichen Relays des Portals, nicht dem Space) und
+             schreibt eine Zusage, die mit dem `h` des Raums nichts zu tun hat.
+
+             `x-show="source"` und KEIN `room.isMeetup` davor: ob ein Raum ein Meetup ist,
+             kann dieses Markup nicht entscheiden. Auf zooid steht der Marker als Tag im
+             39000, auf Buzz im Präfix von `about` — `RoomView.isMeetup` kennt nur den
+             ersten Fall und wäre auf Buzz immer falsch. Die Insel entscheidet es an
+             EINER Stelle (`roomMeetupId`) und sagt es über `source`.
+
+             Drei Zustände, und der mittlere ist der Grund für das Feld:
+               `source === 'nostr'` — ein signierter Termin des Portals, mit Zusage-Knöpfen
+               `source === 'http'`  — der Termin aus `/api/mobile/meetups` (Rückfallweg),
+                                      ohne Zusage: dort gibt es kein Ereignis, auf das
+                                      man antworten könnte. Das steht als Satz da, statt
+                                      dass zwei tote Knöpfe stehen.
+               `source === ''`      — kein Meetup oder kein Termin: die Karte fehlt ganz.
+
+             Im Thread ausgeblendet, wie die Pin-Leiste darunter: der Termin gehört zum
+             RAUM. --}}
+        <div x-data="nostrMeetupEvent(@js($h))"
+             x-show="!threadRootId && source" x-cloak
+             data-testid="meetup-event-card" class="mb-2 shrink-0">
+            <div class="surface-card flex flex-col gap-1.5 p-2">
+                <div class="flex items-start gap-2 px-1">
+                    <flux:icon.calendar-days variant="micro" class="mt-0.5 shrink-0 text-brand-500" />
+                    <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm font-semibold" data-testid="meetup-event-title" x-text="title"></span>
+                        <span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted">
+                            <span data-testid="meetup-event-date" x-text="dateLabel"></span>
+                            <template x-if="location">
+                                <span aria-hidden="true" class="text-zinc-300 dark:text-zinc-600">·</span>
+                            </template>
+                            <template x-if="location">
+                                <span class="min-w-0 truncate" data-testid="meetup-event-location" x-text="location"></span>
+                            </template>
+                        </span>
+                    </span>
+                    {{-- „N kommen": die Zahl trägt Farbe, ist also TEXT im Sinne von 1.4.3
+                         (≥ 4,5:1) — `brand-800` auf der Karte, wie das Datum der
+                         Meetup-Kachel. Nur beim Nostr-Termin: der HTTP-Rückfallweg hat
+                         keine Zusagen, und eine „0 kommen" wäre dort eine Aussage, die
+                         niemand gemessen hat. --}}
+                    <span x-show="source === 'nostr'" x-cloak
+                          data-testid="meetup-event-attending"
+                          class="shrink-0 text-xs font-semibold text-brand-800 dark:text-brand-400"
+                          x-text="$plural(attending, '1 kommt', ':count kommen')"></span>
+                </div>
+
+                {{-- Zusagen. `size="sm"` und nicht `xs` wie die Knöpfe der Pin-Leiste: das
+                     ist gemessen, nicht geschmacklich. Bei `xs` maß der Knopf am
+                     375-px-Gerät **24 px** Höhe (E2E, 2026-09-05) — WCAG 2.5.8 gerade so
+                     erfüllt und für einen Daumen zu klein. `sm` misst 32 px, und
+                     `text-btn-touch` hebt beschriftete Ziele auf grobem Pointer auf die
+                     44 px der HIG (`theme.css`, nur `@media (pointer: coarse)` — der
+                     E2E-Lauf hat einen feinen Pointer und sieht diese Regel nicht).
+
+                     `aria-pressed` statt einer eigenen Aktiv-Klasse: die beiden
+                     Knöpfe sind ein Umschalter mit zwei Zuständen, und ein Screenreader
+                     soll den aktuellen hören, nicht nur sehen. Statisch `false` im Markup,
+                     damit es vor dem Alpine-Boot stimmt (gleiche Regel wie beim
+                     Suchknopf im Kopf). --}}
+                <div x-show="canRsvp" x-cloak class="flex items-center gap-1.5 px-1">
+                    <flux:button size="sm" variant="ghost" icon="check" class="text-btn-touch"
+                                 data-testid="meetup-event-yes"
+                                 aria-pressed="false"
+                                 x-bind:aria-pressed="myStatus === 'accepted' ? 'true' : 'false'"
+                                 x-bind:class="myStatus === 'accepted' ? 'bg-brand-500/15 text-brand-500!' : ''"
+                                 x-on:click="rsvp('accepted')" ::disabled="busy">
+                        {{ __('Zusagen') }}
+                    </flux:button>
+                    <flux:button size="sm" variant="ghost" icon="x-mark" class="text-btn-touch"
+                                 data-testid="meetup-event-no"
+                                 aria-pressed="false"
+                                 x-bind:aria-pressed="myStatus === 'declined' ? 'true' : 'false'"
+                                 x-bind:class="myStatus === 'declined' ? 'bg-brand-500/15 text-brand-500!' : ''"
+                                 x-on:click="rsvp('declined')" ::disabled="busy">
+                        {{ __('Absagen') }}
+                    </flux:button>
+                </div>
+
+                {{-- Der Rückfallweg sagt, dass er einer ist. Ohne den Satz sähe die Karte
+                     ohne Knöpfe aus wie eine kaputte Karte mit Knöpfen. --}}
+                <p x-show="source === 'http'" x-cloak
+                   data-testid="meetup-event-fallback" class="px-1 text-xs text-muted">
+                    {{ __('Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.') }}
+                </p>
+
+                {{-- Wörtliche Begründung des Relays, wie in der Pin-Leiste darunter: die
+                     Ablehnungen sind unterscheidbar, und nur der Originaltext trägt diese
+                     Unterscheidung bis zum Nutzer. --}}
+                <template x-if="error">
+                    <flux:callout variant="danger" icon="exclamation-triangle" class="mx-1">
+                        <flux:callout.text x-text="error"></flux:callout.text>
+                        <x-slot name="actions">
+                            <flux:button size="sm" variant="ghost" x-on:click="dismissError()">{{ __('Verstanden') }}</flux:button>
+                        </x-slot>
+                    </flux:callout>
+                </template>
+            </div>
+        </div>
+
         {{-- ── Angepinnte Nachrichten (P6b) ───────────────────────────────────────────
              Der Zustand liegt in `$store.roomPins` (js/roomPins.ts), NICHT in
              `nostrRoomChat` — er wird an zwei Stellen gebraucht, die einander im DOM nicht

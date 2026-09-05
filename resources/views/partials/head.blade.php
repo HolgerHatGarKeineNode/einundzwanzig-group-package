@@ -38,6 +38,21 @@
     <script>window.__nostrArticleRelays = window.__nostrArticleRelays ?? @js(config('group.article_relay_urls'));</script>
 @endif
 
+{{-- P2 — NIP-52-Kalender: die Relays der Meetup-Termine (kind 31923) und der Zusagen
+     (kind 31925), kommagetrennt, sowie die Pubkeys, deren Termine gelten. BEIDE Werte
+     werden gebraucht; fehlt einer, fragt die Terminkarte keinen Relay und zeigt weiter
+     den HTTP-Termin aus der Portal-Liste. Gleiche `??`-Regel wie oben, damit ein
+     E2E-Lauf sie per addInitScript auf seinen eigenen Relay ziehen kann.
+
+     **Auch diese zwei Zeilen stehen ZWEIMAL im Baum** — siehe die Begruendung beim
+     Artikel-Block. `tests/Feature/CalendarRelaysTest.php` haelt beide zusammen. --}}
+@if (config('group.calendar_relay_urls'))
+    <script>window.__nostrCalendarRelays = window.__nostrCalendarRelays ?? @js(config('group.calendar_relay_urls'));</script>
+@endif
+@if (config('group.calendar_authors'))
+    <script>window.__nostrCalendarAuthors = window.__nostrCalendarAuthors ?? @js(config('group.calendar_authors'));</script>
+@endif
+
 {{-- Ziel der Profil-Verweise: die öffentliche Creator-Seite auf media.
      (`group.media_public_url`). Nur gesetzt, wenn konfiguriert — leer heißt „kein
      Verweis", und dann entfällt die Zeile auf beiden Flächen ganz. Gleiche `??`-Regel

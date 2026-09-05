@@ -1249,5 +1249,12 @@
     "Meldung erledigt (gebannt)": "Denúncia resolvida (banido)",
     "Meldung erledigt (befristet gesperrt)": "Denúncia resolvida (suspenso temporariamente)",
     "Meldung erledigt": "Denúncia resolvida",
-    "Moderations-Verlauf": "Histórico de moderação"
+    "Moderations-Verlauf": "Histórico de moderação",
+    "Nächster Termin": "Próximo evento",
+    "Zusagen": "Confirmar",
+    "Absagen": "Recusar",
+    "1 kommt": "1 vai participar",
+    ":count kommen": ":count vão participar",
+    ":count kommen#one": ":count vai participar",
+    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Data da lista do portal — falta o evento assinado para confirmar a presença."
 }

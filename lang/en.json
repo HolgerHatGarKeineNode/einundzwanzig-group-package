@@ -1217,5 +1217,11 @@
     "Meldung erledigt (gebannt)": "Report resolved (banned)",
     "Meldung erledigt (befristet gesperrt)": "Report resolved (suspended temporarily)",
     "Meldung erledigt": "Report resolved",
-    "Moderations-Verlauf": "Moderation history"
+    "Moderations-Verlauf": "Moderation history",
+    "Nächster Termin": "Next event",
+    "Zusagen": "Accept",
+    "Absagen": "Decline",
+    "1 kommt": "1 attending",
+    ":count kommen": ":count attending",
+    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Date from the portal list — the signed event needed for an RSVP is missing."
 }

@@ -1217,5 +1217,11 @@
     "Meldung erledigt (gebannt)": "Melding afgehandeld (verbannen)",
     "Meldung erledigt (befristet gesperrt)": "Melding afgehandeld (tijdelijk geblokkeerd)",
     "Meldung erledigt": "Melding afgehandeld",
-    "Moderations-Verlauf": "Moderatiegeschiedenis"
+    "Moderations-Verlauf": "Moderatiegeschiedenis",
+    "Nächster Termin": "Volgende bijeenkomst",
+    "Zusagen": "Aanmelden",
+    "Absagen": "Afmelden",
+    "1 kommt": "1 komt",
+    ":count kommen": ":count komen",
+    "Termin aus der Portal-Liste — für eine Zusage fehlt der signierte Termin.": "Datum uit de portaallijst — het ondertekende evenement voor een aanmelding ontbreekt."
 }

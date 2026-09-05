@@ -52,6 +52,7 @@ import { wirePalette } from './palette.ts'
 import { wireDisplayPrefs } from './displayPrefs.ts'
 import { wireRoomSearch } from './roomSearch.ts'
 import { wireModerationAudit } from './moderationAudit.ts'
+import { wireMeetupEvent } from './calendar.ts'
 import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
 import { wireReminders } from './reminders.ts'
@@ -2171,6 +2172,14 @@ export function registerNostrComponents(Alpine: {
     // island lies in the markup: the trigger dispatches `moderation-audit-open`.
     // Reasoning in the header of `moderationAudit.ts`, the rules in `moderationAuditModels.ts`.
     wireModerationAudit(Alpine)
+    // P2 — the NIP-52 date card in a meetup room's header. Its own island and NO field
+    // in `nostrRoomChat`: it reads from a THIRD relay source (the portal's public relays,
+    // not the space), it decides for itself whether a room is a meetup at all (the marker
+    // sits in a tag on zooid and inside `about` on Buzz — the markup cannot tell), and it
+    // writes an RSVP that has nothing to do with the room's `h`. There is no seam to the
+    // chat island; the card mounts itself from the markup with the room's `h`.
+    // Reasoning in the header of `calendar.ts`, the rules in `calendarModels.ts`.
+    wireMeetupEvent(Alpine)
     // P6b — Angepinnte Nachrichten. Ausnahmsweise ein STORE statt einer Insel: der
     // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (Leiste
     // über dem Verlauf, Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat`).
