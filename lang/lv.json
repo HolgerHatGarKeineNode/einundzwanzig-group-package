@@ -1268,5 +1268,18 @@
     "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Šim sarakstam ir privāta daļa, ko šis klients nerāda. Tā paliek neskarta.",
     "Der Space hat das Lesezeichen nicht übernommen.": "Space nepieņēma grāmatzīmi.",
     "“:name” aus der Auswahl nehmen": "Noņemt “:name” no izvēles",
-    "“:name” ausblenden": "Paslēpt “:name”"
+    "“:name” ausblenden": "Paslēpt “:name”",
+    "Bann aufgehoben": "Bloķēšana atcelta",
+    "Befristet gesperrt": "Bloķēts uz laiku",
+    "Sperre aufgehoben": "Bloķēšana atcelta uz laiku",
+    "Inhalt entfernt": "Saturs noņemts",
+    "Aus dem Raum entfernt": "Noņemts no telpas",
+    "Meldung verworfen": "Ziņojums atmests",
+    "Meldung eskaliert": "Ziņojums eskalēts",
+    "Meldung erledigt (Inhalt entfernt)": "Ziņojums izskatīts (saturs noņemts)",
+    "Meldung erledigt (aus dem Raum entfernt)": "Ziņojums izskatīts (noņemts no telpas)",
+    "Meldung erledigt (gebannt)": "Ziņojums izskatīts (bloķēts)",
+    "Meldung erledigt (befristet gesperrt)": "Ziņojums izskatīts (bloķēts uz laiku)",
+    "Meldung erledigt": "Ziņojums izskatīts",
+    "Moderations-Verlauf": "Moderācijas vēsture"
 }

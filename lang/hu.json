@@ -1204,5 +1204,18 @@
     "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Ennek a listának van egy privát része, amelyet ez a kliens nem jelenít meg. Érintetlen marad.",
     "Der Space hat das Lesezeichen nicht übernommen.": "A Space nem vette át a könyvjelzőt.",
     "“:name” aus der Auswahl nehmen": "„:name” eltávolítása a kijelölésből",
-    "“:name” ausblenden": "„:name” elrejtése"
+    "“:name” ausblenden": "„:name” elrejtése",
+    "Bann aufgehoben": "Kitiltás feloldva",
+    "Befristet gesperrt": "Ideiglenesen felfüggesztve",
+    "Sperre aufgehoben": "Felfüggesztés feloldva",
+    "Inhalt entfernt": "Tartalom eltávolítva",
+    "Aus dem Raum entfernt": "Eltávolítva a szobából",
+    "Meldung verworfen": "Bejelentés elvetve",
+    "Meldung eskaliert": "Bejelentés eszkalálva",
+    "Meldung erledigt (Inhalt entfernt)": "Bejelentés lezárva (tartalom eltávolítva)",
+    "Meldung erledigt (aus dem Raum entfernt)": "Bejelentés lezárva (eltávolítva a szobából)",
+    "Meldung erledigt (gebannt)": "Bejelentés lezárva (kitiltva)",
+    "Meldung erledigt (befristet gesperrt)": "Bejelentés lezárva (ideiglenesen felfüggesztve)",
+    "Meldung erledigt": "Bejelentés lezárva",
+    "Moderations-Verlauf": "Moderálási előzmények"
 }

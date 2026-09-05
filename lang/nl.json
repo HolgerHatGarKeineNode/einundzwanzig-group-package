@@ -1204,5 +1204,18 @@
     "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Deze lijst heeft een privégedeelte dat deze client niet toont. Het blijft ongewijzigd.",
     "Der Space hat das Lesezeichen nicht übernommen.": "De Space heeft de bladwijzer niet overgenomen.",
     "“:name” aus der Auswahl nehmen": "“:name” uit de selectie halen",
-    "“:name” ausblenden": "“:name” verbergen"
+    "“:name” ausblenden": "“:name” verbergen",
+    "Bann aufgehoben": "Verbanning opgeheven",
+    "Befristet gesperrt": "Tijdelijk geblokkeerd",
+    "Sperre aufgehoben": "Blokkade opgeheven",
+    "Inhalt entfernt": "Inhoud verwijderd",
+    "Aus dem Raum entfernt": "Uit de kamer verwijderd",
+    "Meldung verworfen": "Melding genegeerd",
+    "Meldung eskaliert": "Melding geëscaleerd",
+    "Meldung erledigt (Inhalt entfernt)": "Melding afgehandeld (inhoud verwijderd)",
+    "Meldung erledigt (aus dem Raum entfernt)": "Melding afgehandeld (uit de kamer verwijderd)",
+    "Meldung erledigt (gebannt)": "Melding afgehandeld (verbannen)",
+    "Meldung erledigt (befristet gesperrt)": "Melding afgehandeld (tijdelijk geblokkeerd)",
+    "Meldung erledigt": "Melding afgehandeld",
+    "Moderations-Verlauf": "Moderatiegeschiedenis"
 }

@@ -50,9 +50,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Admin-Werkzeuge (nur wenn der Relay dem User NIP-86-Methoden erlaubt) --}}
         <div x-show="isAdmin" x-cloak class="flex flex-wrap gap-2">
             {{-- Melde-Queue (P3, NIP-56 kind 1984). Count-Badge signalisiert offene
-                 Meldungen; reports werden in der Insel geladen + live gehalten. --}}
+                 Meldungen; reports werden in der Insel geladen + live gehalten.
+
+                 `moderation-audit-open` (P1) startet den Abruf der Moderations-Historie in
+                 der Insel weiter unten im Dialog: sie liegt AUSSERHALB dieser Scope-Kette,
+                 also wird gesendet statt aufgerufen. Erst beim Klick, weil jeder Abruf
+                 eine NIP-98-Signatur kostet — dieselbe Regel wie bei `loadBanned()`. --}}
             <flux:modal.trigger name="action-items">
-                <flux:button size="sm" variant="ghost" icon="flag">
+                <flux:button size="sm" variant="ghost" icon="flag" x-on:click="$dispatch('moderation-audit-open')">
                     <span class="inline-flex items-center gap-1.5">
                         {{ __('Meldungen & Beitritte') }}
                         <span x-show="reports.length + joinRequests.length" x-cloak x-text="reports.length + joinRequests.length"
@@ -489,6 +494,50 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <flux:button size="xs" variant="danger" icon="no-symbol" x-on:click="banReportedUser(r)" ::disabled="busy">{{ __('Autor bannen') }}</flux:button>
                                 --}}
                             </div>
+                        </div>
+                    </template>
+                </div>
+
+                {{-- Moderations-Historie (P1, `GET /moderation/audit`): was tatsächlich
+                     getan wurde, nach Tagen gruppiert. Bis hierher war eine ausgeführte
+                     Maßnahme nirgends nachlesbar — 9042/9043 werden vom Relay ausgeführt
+                     und weder gespeichert noch gefanoutet, die Audit-Zeile ist der einzige
+                     Beleg.
+
+                     Eigene Insel (`nostrModerationAudit`, Begründung in ihrem Kopf); der
+                     Abruf startet auf `moderation-audit-open` vom Auslöser oben.
+
+                     **Ohne Moderationsrechte antwortet der Relay 403.** Daraus wird eine
+                     leere Liste (`auditDays`), und dann steht hier NICHTS: kein
+                     Fehlerzustand, und auch kein „noch keine Maßnahmen" — das wäre für
+                     jemanden, der nur nicht hinsehen darf, schlicht falsch. --}}
+                <div x-data="nostrModerationAudit" x-on:moderation-audit-open.window="load()">
+                    <template x-if="days.length > 0">
+                        <div class="space-y-3">
+                            <p class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Moderations-Verlauf') }}</p>
+                            <template x-for="d in days" :key="d.key">
+                                <div class="space-y-2">
+                                    <p class="text-xs font-medium text-muted" x-text="d.label"></p>
+                                    <template x-for="e in d.entries" :key="e.id">
+                                        <div class="surface-card space-y-1 p-3">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <flux:badge size="sm"><span x-text="actionLabel(e.action)"></span></flux:badge>
+                                                {{-- Betroffenes Mitglied: Klick öffnet das Profil (wie in der
+                                                     Melde-Queue darüber). Bei einer Maßnahme gegen INHALT statt
+                                                     gegen eine Person ist `targetPubkey` leer — dann bleibt die
+                                                     Zeile bei Badge und Uhrzeit. --}}
+                                                <button type="button" x-show="e.targetPubkey" x-on:click="$dispatch('open-profile', e.targetPubkey)"
+                                                        class="pressable min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
+                                                        x-text="nameOf(e.targetPubkey)"></button>
+                                                <span class="ms-auto shrink-0 text-xs text-muted" x-text="timeLabel(e.createdAt)"></span>
+                                            </div>
+                                            {{-- Der Grund, den der Moderator mitgegeben hat (`public_reason`);
+                                                 fehlt er, steht dort der Maschinencode. --}}
+                                            <p x-show="e.reason" x-cloak class="text-sm text-muted" x-text="e.reason"></p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
                         </div>
                     </template>
                 </div>

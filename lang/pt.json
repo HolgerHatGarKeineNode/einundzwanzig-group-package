@@ -1236,5 +1236,18 @@
     "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Esta lista tem uma parte privada que este cliente não mostra. Permanece intacta.",
     "Der Space hat das Lesezeichen nicht übernommen.": "O Space não aceitou o marcador.",
     "“:name” aus der Auswahl nehmen": "Remover “:name” da seleção",
-    "“:name” ausblenden": "Ocultar “:name”"
+    "“:name” ausblenden": "Ocultar “:name”",
+    "Bann aufgehoben": "Banimento levantado",
+    "Befristet gesperrt": "Suspenso temporariamente",
+    "Sperre aufgehoben": "Suspensão levantada",
+    "Inhalt entfernt": "Conteúdo removido",
+    "Aus dem Raum entfernt": "Removido da sala",
+    "Meldung verworfen": "Denúncia descartada",
+    "Meldung eskaliert": "Denúncia escalada",
+    "Meldung erledigt (Inhalt entfernt)": "Denúncia resolvida (conteúdo removido)",
+    "Meldung erledigt (aus dem Raum entfernt)": "Denúncia resolvida (removido da sala)",
+    "Meldung erledigt (gebannt)": "Denúncia resolvida (banido)",
+    "Meldung erledigt (befristet gesperrt)": "Denúncia resolvida (suspenso temporariamente)",
+    "Meldung erledigt": "Denúncia resolvida",
+    "Moderations-Verlauf": "Histórico de moderação"
 }

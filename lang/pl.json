@@ -1236,5 +1236,18 @@
     "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "Ta lista ma prywatną część, której ten klient nie pokazuje. Pozostaje nienaruszona.",
     "Der Space hat das Lesezeichen nicht übernommen.": "Space nie przyjął zakładki.",
     "“:name” aus der Auswahl nehmen": "Usuń „:name” z wyboru",
-    "“:name” ausblenden": "Ukryj „:name”"
+    "“:name” ausblenden": "Ukryj „:name”",
+    "Bann aufgehoben": "Ban zdjęty",
+    "Befristet gesperrt": "Zablokowany czasowo",
+    "Sperre aufgehoben": "Blokada zdjęta",
+    "Inhalt entfernt": "Treść usunięta",
+    "Aus dem Raum entfernt": "Usunięty z pokoju",
+    "Meldung verworfen": "Zgłoszenie zignorowane",
+    "Meldung eskaliert": "Zgłoszenie eskalowane",
+    "Meldung erledigt (Inhalt entfernt)": "Zgłoszenie rozpatrzone (treść usunięta)",
+    "Meldung erledigt (aus dem Raum entfernt)": "Zgłoszenie rozpatrzone (usunięty z pokoju)",
+    "Meldung erledigt (gebannt)": "Zgłoszenie rozpatrzone (zbanowany)",
+    "Meldung erledigt (befristet gesperrt)": "Zgłoszenie rozpatrzone (zablokowany czasowo)",
+    "Meldung erledigt": "Zgłoszenie rozpatrzone",
+    "Moderations-Verlauf": "Historia moderacji"
 }

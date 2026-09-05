@@ -51,6 +51,7 @@ import { wireRail } from './rail.ts'
 import { wirePalette } from './palette.ts'
 import { wireDisplayPrefs } from './displayPrefs.ts'
 import { wireRoomSearch } from './roomSearch.ts'
+import { wireModerationAudit } from './moderationAudit.ts'
 import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
 import { wireReminders } from './reminders.ts'
@@ -2163,6 +2164,13 @@ export function registerNostrComponents(Alpine: {
     // Berührung mit `nostrRoomChat` ist ein `scrollToMessage(id)` aus dem Markup heraus
     // (Scope-Kette), so wie es die Zitat-Vorschau in `chat-row` schon tut.
     wireRoomSearch(Alpine)
+    // P1 — Moderations-Historie (`GET /moderation/audit`). Eigene Insel und KEIN Feld in
+    // `nostrDirectory`: sie lädt erst beim Öffnen des Moderations-Dialogs (jeder Abruf
+    // kostet eine NIP-98-Signatur), liest über HTTP statt aus dem Repository und macht
+    // aus einem 403 eine leere Liste statt eines Fehlers. Die einzige Naht zur
+    // Directory-Insel liegt im Markup: der Auslöser sendet `moderation-audit-open`.
+    // Begründung im Kopf von `moderationAudit.ts`, die Regeln in `moderationAuditModels.ts`.
+    wireModerationAudit(Alpine)
     // P6b — Angepinnte Nachrichten. Ausnahmsweise ein STORE statt einer Insel: der
     // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (Leiste
     // über dem Verlauf, Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat`).

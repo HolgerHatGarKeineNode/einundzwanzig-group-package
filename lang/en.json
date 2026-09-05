@@ -1204,5 +1204,18 @@
     "Diese Liste hat einen privaten Teil, den dieser Client nicht anzeigt. Er bleibt unangetastet.": "This list has a private part that this client does not show. It stays untouched.",
     "Der Space hat das Lesezeichen nicht übernommen.": "The Space did not take the bookmark.",
     "“:name” aus der Auswahl nehmen": "Remove “:name” from the selection",
-    "“:name” ausblenden": "Hide “:name”"
+    "“:name” ausblenden": "Hide “:name”",
+    "Bann aufgehoben": "Ban lifted",
+    "Befristet gesperrt": "Suspended temporarily",
+    "Sperre aufgehoben": "Suspension lifted",
+    "Inhalt entfernt": "Content removed",
+    "Aus dem Raum entfernt": "Removed from the room",
+    "Meldung verworfen": "Report dismissed",
+    "Meldung eskaliert": "Report escalated",
+    "Meldung erledigt (Inhalt entfernt)": "Report resolved (content removed)",
+    "Meldung erledigt (aus dem Raum entfernt)": "Report resolved (removed from the room)",
+    "Meldung erledigt (gebannt)": "Report resolved (banned)",
+    "Meldung erledigt (befristet gesperrt)": "Report resolved (suspended temporarily)",
+    "Meldung erledigt": "Report resolved",
+    "Moderations-Verlauf": "Moderation history"
 }

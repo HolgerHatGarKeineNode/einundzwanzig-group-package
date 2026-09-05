@@ -53,6 +53,7 @@ import {
     type TimeoutCommand,
     type UntimeoutCommand,
 } from './moderationTimeoutModels.ts'
+import { parseAuditList, type AuditListResult } from './moderationAuditModels.ts'
 
 // ── Buzz-Kind-Konstanten ────────────────────────────────────────────────────
 // Bewusst hier lokal statt in @welshman/util: das sind Buzz-Erweiterungen, kein
@@ -311,6 +312,30 @@ export const buzzLoadRestricted = async (url: string): Promise<RestrictionListRe
     try {
         const { status, body } = await buzzModerationFetch(url, '/moderation/restricted')
         return parseRestrictionList(status, body)
+    } catch (e) {
+        return { ok: false, reason: 'unavailable', status: 0, detail: e instanceof Error ? e.message : String(e) }
+    }
+}
+
+/**
+ * Reads the moderation history over `GET /moderation/audit` (`router.rs:123`, handler
+ * `api/bridge.rs:2163`) — **the third and last route of the same auth path**, and the
+ * first client-side caller it has ever had. Until this phase the only caller in the
+ * repository was the E2E probe (`tests/e2e/support/buzz-moderation.ts`).
+ *
+ * Built exactly like {@link buzzLoadRestricted} above, including the failure discipline:
+ * a status is reported, never thrown away, and a throw (no signer, DNS, offline) becomes
+ * `unavailable`. Which of those the surface renders is decided in `auditDays`
+ * (`moderationAuditModels.ts`) — here 403 is simply an answer.
+ *
+ * `limit` is the only parameter of the route (`ModerationReadQuery`; `status` applies to
+ * `/moderation/reports` alone) and the relay clamps it at 500 (`clamp_limit`). 100 is the
+ * same page size the report queue asks for.
+ */
+export const buzzLoadAudit = async (url: string, limit = 100): Promise<AuditListResult> => {
+    try {
+        const { status, body } = await buzzModerationFetch(url, '/moderation/audit', { limit })
+        return parseAuditList(status, body)
     } catch (e) {
         return { ok: false, reason: 'unavailable', status: 0, detail: e instanceof Error ? e.message : String(e) }
     }
