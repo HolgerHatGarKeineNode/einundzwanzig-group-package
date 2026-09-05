@@ -337,6 +337,7 @@ import { type Zapper } from './welshmanZap.ts'
 import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader.ts'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps.ts'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles.ts'
+import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { t, tPlural, type Replacements } from './i18n.ts'
 import { dateTimeFormat, formatNumber, formatTimestamp } from './locale.ts'
 
@@ -9269,6 +9270,50 @@ export function registerNostrComponents(Alpine: {
             if (!trigger?.contains(event.target as Node)) {
                 this.open = false
             }
+        },
+    }))
+
+    /**
+     * P7 — NIP-17 private messages (kind 14 inside a NIP-59 wrap). A SECOND transport
+     * next to the Buzz DM channels, not a replacement: a Buzz DM is a private channel
+     * whose messages lie in plaintext on the relay, a NIP-17 conversation is a gift wrap
+     * the operator cannot open. Reasoning in the header of `privateMessages.ts`, the
+     * rules in `privateMessageModels.ts`.
+     *
+     * ── Why the store is wired HERE and not at boot with the other five ─────────────
+     *
+     * `wirePrivateMessages` next to `wireMutes` was the first shape, and the boot-path
+     * guard measured what it costs: the app chunk went from 110 592 B gzip to **113 248**,
+     * over the 112 000 marker that had already been raised once
+     * (`bundleGrenze.nodetest.ts`, quoted verbatim on one line:
+     * "ein zweiter Fall unter normalem Wachstum ist eine Aussage über den Boot-Pfad, nicht über die Zahl").
+     * Raising it a second time is exactly what its own docblock forbids.
+     *
+     * The other five stores are wired at boot because each has readers that never see
+     * each other in the DOM (a profile card on every page, a menu entry inside the chat).
+     * This one has exactly ONE reader — the `/messages` screen — so the module belongs in
+     * that screen's chunk. Everything else about it is unchanged; `mount()`/`unmount()`
+     * still bracket the wrap subscription, which is the request that costs the signer.
+     */
+    Alpine.data('nostrPrivateMessages', () => ({
+        async init(): Promise<void> {
+            const { wirePrivateMessages } = await import('./privateMessages.ts')
+            // The four modules that are handed in rather than imported over there, and
+            // the measurement behind each of them, are in that module's own header:
+            // importing `members`, `profiles`, `spaceProfiles` or `i18n` from the lazy
+            // graph splits the app chunk into 9, 8, 7 and 7 boot chunks respectively.
+            wirePrivateMessages(Alpine as never, {
+                t,
+                displayProfileByPubkey,
+                profilesByPubkey,
+                warmProfiles,
+                deriveSpaceDirectory,
+                watchSpaceDirectory,
+            })
+            ;(Alpine.store('privateMessages') as { mount(): void } | undefined)?.mount()
+        },
+        destroy(): void {
+            ;(Alpine.store('privateMessages') as { unmount(): void } | undefined)?.unmount()
         },
     }))
 

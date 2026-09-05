@@ -295,6 +295,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Leser, statt zweier Wahrheiten über denselben Ort. --}}
                                 @foreach ([
                                     ['route' => 'group.bookmarks', 'icon' => 'bookmark', 'label' => __('Lesezeichen')],
+                                    ['route' => 'group.messages', 'icon' => 'lock-closed', 'label' => __('Verschlüsselt')],
                                     ['route' => config('group.settings_route', 'group.settings'), 'icon' => 'cog-6-tooth', 'label' => __('Einstellungen')],
                                 ] as $ziel)
                                     <a href="{{ route($ziel['route']) }}" wire:navigate data-profil-ziel="{{ $ziel['route'] }}"

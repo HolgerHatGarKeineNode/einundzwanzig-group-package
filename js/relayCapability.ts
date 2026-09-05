@@ -74,8 +74,16 @@ export const NIP_ER_EXTENSION = 'nip-er'
  * second condition on top of `'buzz'`: the relay must advertise the draft in its
  * NIP-11 doc, because the kind belongs to an extension that a Buzz build can be
  * compiled or configured without.
+ *
+ * **`'other'` is the third value, and it points the other way** (P7, 2026-09-05). Until
+ * then the table only ever protected zooid from Buzz's dialect, because Buzz protects
+ * itself with a closed allowlist. Kind 10050 is the first entry where that allowlist is
+ * the problem: it is an ordinary NIP-17 kind, `buzz-core/src/kind.rs` has no constant
+ * for it, and `required_scope_for_kind` therefore ends on
+ * `_ => Err("restricted: unknown event kind")`. `'other'` means "everywhere except a
+ * Buzz space" — the write is refused before signing instead of being sent and bounced.
  */
-type WriteRule = { readonly relay: 'any' | 'buzz'; readonly extension?: string }
+type WriteRule = { readonly relay: 'any' | 'buzz' | 'other'; readonly extension?: string }
 
 /**
  * The governed kinds. Numeric literals on purpose: this is a policy table, not the
@@ -99,6 +107,23 @@ const WRITE_RULES: ReadonlyMap<number, WriteRule> = new Map<number, WriteRule>([
     // lists and NIP-65 relay list — user-owned global state". zooid has no kind allowlist
     // and stores it like any other event. Read at the sources on 2026-09-05.
     [10000, { relay: 'any' }],
+
+    // ── NIP-17 / NIP-59 private messages (P7) ────────────────────────────────────
+    // `WRAP` (kind 1059). Both relays take it, and both were asked rather than read:
+    // Buzz names `KIND_GIFT_WRAP` in its ingest allowlist (`ingest.rs:380`) and even
+    // waives the pubkey/auth match for it (`ingest.rs:2023-2028`), because a wrap is
+    // signed by a throwaway key and not by the member sending it; zooid authorises the
+    // RECIPIENT instead of the author (`instance.go:192-197 AllowRecipientEvent`).
+    // Measured on 2026-09-05, each result confirmed by a requery
+    // (`p7-messung-a-wrap-drift.txt`): accepted and findable on both.
+    [1059, { relay: 'any' }],
+    // `MESSAGING_RELAYS` (kind 10050) — **not** `'any'`, and the difference is measured.
+    // Buzz has no constant for this kind at all, so it ends on the closing arm of
+    // `required_scope_for_kind` and answers `restricted: unknown event kind`; zooid
+    // stores it like any other event. Positive control in the same run: kind 10000 is
+    // accepted by both, so the refusal is about this kind and not about the connection
+    // (`p7-messung-c-kind10050.txt`). Reasoning and consequence: `messagingRelayModels.ts`.
+    [10050, { relay: 'other' }],
 
     // ── Buzz dialect — meaningless anywhere else ─────────────────────────────────
     // `KIND_FORUM_VOTE`, `kind.rs:552`. Buzz validates the target
@@ -147,6 +172,12 @@ export const mayWriteKind = (
 
     if (rule.relay === 'any') {
         return true
+    }
+
+    // `'other'` carries no extension condition — a NIP-11 doc says what a relay ADDS,
+    // never what it refuses, so there is nothing there to ask.
+    if (rule.relay === 'other') {
+        return spaceKind === 'other'
     }
 
     if (spaceKind !== 'buzz') {

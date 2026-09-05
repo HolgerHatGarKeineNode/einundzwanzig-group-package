@@ -46,6 +46,15 @@
              — deshalb steht der Satz hier und nicht in einer Fußnote. --}}
         <flux:text class="text-sm text-muted">{{ __('Nachrichten liegen unverschlüsselt auf diesem Relay — geschützt durch seine Zugriffsregeln, nicht durch Ende-zu-Ende-Verschlüsselung.') }}</flux:text>
 
+        {{-- P7: since there IS an encrypted way now, the sentence above owes the reader
+             the other half. Two transports live side by side — this dialog opens a Buzz
+             channel, `/messages` opens a NIP-17 conversation — and a user told only that
+             this one is unencrypted has been given a warning without an alternative. --}}
+        <flux:text class="text-sm text-muted" data-dm-verschluesselt-hinweis>
+            {{ __('Ende-zu-Ende-verschlüsselt geht es hier:') }}
+            <a href="{{ route('group.messages') }}" wire:navigate class="underline hover:no-underline">{{ __('Verschlüsselt') }}</a>
+        </flux:text>
+
         {{-- ── „Person hinzufügen" erzeugt eine NEUE Unterhaltung ────────────────
              `handle_dm_add_member` legt mit der VEREINIGTEN Teilnehmerliste einen neuen
              Kanal an, statt den alten zu erweitern („creates NEW DM — DM sets are
