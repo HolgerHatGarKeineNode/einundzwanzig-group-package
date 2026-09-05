@@ -87,8 +87,53 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <flux:text class="mt-2 text-sm text-muted"
                        x-show="!($store.privateMessages?.myRelays ?? []).length">{{ __('Noch keine Liste veröffentlicht. Andere Clients wissen dann nicht, wohin sie dir schreiben sollen.') }}</flux:text>
 
+            {{-- ── Why this one button carries five layout classes ──────────────────
+                 Its label is a sentence, not a word, and Flux gives every button
+                 `whitespace-nowrap` plus a FIXED height (`h-8` at `size="sm"`). The
+                 button therefore shrink-wrapped to a constant 373 px whatever the
+                 viewport: measured at 320 px it stuck out of a 288 px column and made
+                 `document.scrollingElement.scrollWidth` 406 against a 320 px client
+                 width — 86 px of horizontal document scroll, 31 px of it still at
+                 375 px. That is WCAG 1.4.10 (reflow, no two-dimensional scrolling at
+                 320 px), and this button was the ONLY element on the screen that
+                 overflowed at either width.
+
+                 Each class answers one measured obstacle, and none is decoration:
+
+                   `whitespace-normal!`  lets the sentence wrap at all
+                   `h-auto!`             releases `h-8`, which would paint the second
+                                         line outside a 32 px box
+                   `min-h-8`             keeps the one-line case at its old height
+                   `py-1.5`              gives the two lines room; the target GROWS
+                                         (52 px), so WCAG 2.5.8 is never at risk
+                   `text-start`          against the USER-AGENT default
+                                         `text-align: center` on `<button>` — with it
+                                         the wrapped lines sat centred, adrift from the
+                                         leading icon (looked at, not deduced)
+
+                 ── Why exactly two of them carry `!` ─────────────────────────────────
+                 Flux merges its own class string with this one, so both declarations
+                 are Tailwind utilities on the SAME element in the same layer: neither
+                 attribute order nor specificity decides which wins, the order in the
+                 BUILT stylesheet does. Measured at the rendered element with the plain
+                 forms first — `whitespace-normal` and `h-auto` both LOST (computed
+                 `white-space: nowrap`, `height: 32px`), while `py-1.5`, `min-h-8` and
+                 `text-start` landed, because nothing competes with them. The `!` is not
+                 a precaution here, it is the measured difference between a class that
+                 applies and one that silently does not.
+
+                 ── What was tried and taken back out ─────────────────────────────────
+                 `align="start"` (Flux's own prop → `justify-start`). Measured: a no-op.
+                 The button never has free space along its main axis — it either
+                 shrink-wraps to its content or is constrained and its label fills the
+                 rest — so `justify-content` has nothing to distribute. `text-align` was
+                 the property that actually moved the lines.
+
+                 At 1280 px nothing of this binds: 373 × 32 at x 369 before and after,
+                 to the pixel. Latched in `tests/e2e/messages-picker-footer.spec.ts`. --}}
             <template x-if="$store.privateMessages?.canListRelays">
-                <flux:button class="mt-3" size="sm" variant="ghost" icon="paper-airplane"
+                <flux:button class="mt-3 h-auto! min-h-8 whitespace-normal! py-1.5 text-start" size="sm" variant="ghost"
+                             icon="paper-airplane"
                              data-pm-relay-publish
                              x-bind:disabled="$store.privateMessages?.busy"
                              x-on:click="$store.privateMessages?.publishOwnRelays()">{{ __('Diesen Space als Zustelladresse veröffentlichen') }}</flux:button>
