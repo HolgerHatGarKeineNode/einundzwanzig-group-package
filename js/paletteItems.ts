@@ -75,15 +75,15 @@ export type PaletteRoom = RailRoom & {
 }
 
 /**
- * Zu welcher Rail-Gruppe zählt der Raum? Workspace schlägt den Typ — **eine
- * Unterhaltung aber schlägt den Workspace.**
+ * Which rail group does the room belong to? Workspace beats the type — **but a
+ * conversation beats the workspace.**
  *
- * Die Ausnahme ist keine Feinheit, sondern die Bedingung dafür, dass `d:` überhaupt
- * etwas findet: Unterhaltungen gibt es nur auf Buzz, und Buzz IST der Workspace. Ohne
- * den Vorrang landete jede Unterhaltung in der Gruppe `workspace`, `d:` bliebe für
- * immer leer und `f:`/`w:` mischte Kanäle mit Unterhaltungen. Die Rail entscheidet
- * dieselbe Frage schon so — dort kommen die Unterhaltungen an `groupOf` vorbei gar
- * nicht erst in den Workspace-Topf (`railGroups.buildGroups`).
+ * That exception is not a nicety, it is the condition for `d:` finding anything at all:
+ * conversations exist only on Buzz, and Buzz IS the workspace. Without the precedence
+ * every conversation counted as a workspace room, `d:` stayed empty for good and
+ * `f:`/`w:` mixed channels with conversations. The rail decides the same question the
+ * same way — there a conversation never reaches the workspace bucket in the first place,
+ * it goes past `groupOf` (`railGroups.buildGroups`).
  */
 export const roomGroupKey = (room: PaletteRoom): RailGroupKey =>
     room.workspace === true && room.isDm !== true ? 'workspace' : groupOf(room)

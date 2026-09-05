@@ -168,22 +168,21 @@ const toPaletteRooms = (view: SpaceView | null, workspace: boolean): PaletteRoom
 ]
 
 /**
- * Der dritte Topf: die Unterhaltungen beider Sichten als Palette-Zeilen.
+ * The third pot: the conversations of both space views as palette rows.
  *
- * **Warum nicht einfach eine Zeile mehr in {@link toPaletteRooms}.** `dmRooms` ist
- * nicht `userRooms` mit anderem Marker. Der Topf muss über BEIDE Sichten entdoppelt
- * werden (der Heim-Space KANN der Workspace sein, und zwei Zeilen mit demselben `h`
- * verschluckt Alpines `:key` stillschweigend), und die vom Nutzer per 41012
- * weggelegten Unterhaltungen dürfen nicht auftauchen. Beides entscheidet
- * `foldDmRooms` — dieselbe Faltung, die Rail und Dialog benutzen; eine zweite wäre
- * eine zweite Wahrheit über dieselbe Frage.
+ * **Why not simply one more line inside {@link toPaletteRooms}.** `dmRooms` is not
+ * `userRooms` with a different marker. The pot has to be deduplicated across BOTH views
+ * (the home space MAY be the workspace, and Alpine's `:key` swallows two rows with the
+ * same `h` without a word), and the conversations the user put away with a 41012 must not
+ * reappear. `foldDmRooms` decides both — the same fold the rail and the dialog use; a
+ * second one would be a second truth about the same question.
  *
- * **Der Name entsteht hier und nicht im Markup**, weil Flux' Filter über
- * `textContent` sucht: die Zeile ist nur über den Namen auffindbar, der wirklich in
- * ihr steht. Roh stünde dort `"DM"` bzw. `"Group DM (N)"` — der Relay speichert für
- * JEDE Unterhaltung genau diese Zeichenkette (`buzz-db/src/dm.rs:157-162`) —, und
- * eine Suche nach einem Teilnehmernamen fände vierzig gleichnamige Zeilen oder keine.
- * Aufgelöst wird mit der geteilten Regel (`dmRoomName`), nicht mit einer eigenen.
+ * **The name is built here and not in the markup**, because Flux filters over
+ * `textContent`: a row is findable only through the name that really stands in it. Raw
+ * that name is `"DM"` or `"Group DM (N)"` — the relay stores exactly that string for
+ * EVERY conversation (`buzz-db/src/dm.rs:157-162`) — so a search for a participant would
+ * find forty identically named rows or none. The resolution is the shared rule
+ * (`dmRoomName`), never a private one.
  */
 const toPaletteDms = (
     views: readonly (SpaceView | null)[],
@@ -195,9 +194,10 @@ const toPaletteDms = (
     foldDmRooms(views, hidden).map((room) => ({
         ...room,
         name: dmRoomName(room, me, names),
-        // `spaceUrl` statt der Herkunftsliste: `foldDmRooms` entdoppelt über beide
-        // Sichten hinweg, die Zeile weiß danach selbst, von welchem Relay sie kam —
-        // und genau davon hängt ab, ob `openRoom` den ephemeren Space setzen muss.
+        // `spaceUrl` rather than the list a row came from: `foldDmRooms` deduplicates
+        // ACROSS both views, so afterwards the row itself knows which relay it came
+        // from — and that is what decides whether `openRoom` has to set the ephemeral
+        // space.
         workspace: room.spaceUrl === workspaceUrl,
     }))
 
@@ -229,11 +229,11 @@ export type PaletteState = {
     _spaceUrls: string[]
     _relays: Map<string, RelayInfo>
     _directory: DirectoryView
-    /** Anzeigenamen der DM-Teilnehmer — Spiegel von `dmNames`, siehe `_ensureData`. */
+    /** Display names of the DM participants — mirror of `dmNames`, see `_ensureData`. */
     _dmNames: Record<string, string>
-    /** Per 41012 weggelegte Unterhaltungen — Spiegel von `hiddenDms`. */
+    /** Conversations dismissed with a 41012 — mirror of `hiddenDms`. */
     _hiddenDms: string[]
-    /** Der Leser selbst; er ist nie sein eigener Gesprächspartner. */
+    /** The viewer; never their own counterparty. */
     _me: string
     _url: string
     _wired: boolean
@@ -491,9 +491,9 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         const roomViews: RoomView[] = [
             ...(self._workspace?.userRooms ?? []),
             ...(self._workspace?.otherRooms ?? []),
-            // Der dritte Topf. Ohne ihn war eine Unterhaltung im Workspace-Scope
-            // unauffindbar, obwohl ihre NACHRICHTEN dort längst als Treffer standen —
-            // man fand also den Satz, aber nicht den Ort, an dem er steht.
+            // The third pot. Without it a conversation was unfindable in the workspace
+            // scope while its MESSAGES had been showing up as hits all along — you found
+            // the sentence but not the place where it was said.
             ...(self._workspace?.dmRooms ?? []),
         ]
         const rooms: InstantRow[] = roomViews.map((room) => ({
@@ -502,8 +502,8 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
             h: room.h,
             pubkey: '',
             text: room.about,
-            // Aufgelöst wie in {@link toPaletteDms}: `searchMessages` sucht über
-            // `name`, und roh stünde dort für jede Unterhaltung dasselbe Wort.
+            // Resolved as in {@link toPaletteDms}: `searchMessages` searches over
+            // `name`, and raw that field holds the same word for every conversation.
             name: dmRoomName(room, self._me, self._dmNames) || room.h,
             created_at: room.lastMessageAt ?? 0,
         }))
@@ -796,22 +796,22 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         dispatchModal(SHORTCUTS_MODAL)
     },
 
-    // ── Die Unterhaltungen ──────────────────────────────────────────────────
+    // ── The conversations ───────────────────────────────────────────────────
 
     /**
-     * Der Anstoß, ohne den die Namen der Teilnehmer gekürzte Schlüssel blieben.
+     * The nudge without which the participants' names would stay shortened keys.
      *
-     * Er steht hier und nicht in `_ensureData`, weil die Teilnehmer erst mit den
-     * Räumen eintreffen: beim Aufbau der Abos ist `_workspace` noch `null`.
-     * `ensureDmNames` dedupliziert selbst und schreibt vor seinem ersten `await` in
-     * keinen Store — dieselbe Eigenschaft, auf die sich `railName` beim Aufruf aus
-     * einem Getter stützt (siehe Modulkopf von `dms.ts`).
+     * It sits here and not in `_ensureData` because the participants only arrive with the
+     * rooms: while the subscriptions are being built `_workspace` is still `null`.
+     * `ensureDmNames` deduplicates itself and writes to no store before its first
+     * `await` — the same property `railName` relies on when it calls from inside a getter
+     * (see the module header of `dms.ts`).
      *
-     * **Zwei Aufrufer, und der zweite ist nicht redundant:** im Workspace-Scope
-     * erzeugt `visibleSections` ABSICHTLICH keine Raumzeile (sonst spränge Enter in
-     * den ersten Treffer statt zu suchen). Dort läuft `_dmItems` also nie — und ohne
-     * den Anstoß aus den Sofort-Treffern hießen die Unterhaltungen genau auf der
-     * Fläche wieder `npub1…`, auf der man sie sucht.
+     * **Two callers, and the second one is not redundant:** in the workspace scope
+     * `visibleSections` produces no room row ON PURPOSE (otherwise Enter would jump into
+     * the first hit instead of searching). `_dmItems` therefore never runs there — and
+     * without the nudge from the instant hits the conversations would read `npub1…` on
+     * exactly the surface where one goes looking for them.
      */
     _nudgeDmNames(): void {
         const self = this as PaletteState
@@ -822,7 +822,7 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         }
     },
 
-    /** Die Unterhaltungen beider Sichten als Palette-Zeilen. */
+    /** The conversations of both space views as palette rows. */
     _dmItems(): PaletteRoom[] {
         const self = this as PaletteState
         self._nudgeDmNames()
@@ -992,10 +992,10 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
             this._relays = byUrl
         })
 
-        // Die drei Zutaten des DM-Namens in EINEM Abo. Sie gehören zusammen: ein
-        // Wechsel des Lesers wechselt beide anderen mit, und drei getrennte Abos
-        // schrieben denselben Zustand in drei Reihenfolgen. `hiddenDms` fordert
-        // nichts an — es liest, was ohnehin im Repository liegt (siehe `dms.ts`).
+        // The three ingredients of a DM name in ONE subscription. They belong together:
+        // a change of viewer changes the other two with it, and three separate
+        // subscriptions would write the same state in three orders. `hiddenDms` requests
+        // nothing — it reads what is in the repository anyway (see `dms.ts`).
         this._unsubDms = derived(
             [dmNames, hiddenDms, pubkey],
             (values: [Record<string, string>, string[], string | undefined]) => values,
