@@ -58,7 +58,7 @@ import { wireBookmarks } from './bookmarks.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
 import { dmNames, dmRoomName, ensureDmNames, hiddenDms, wireDms } from './dms.ts'
-import { foldDmRooms } from './dmModels.ts'
+import { dmNameableFromTags, foldDmRooms } from './dmModels.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -99,6 +99,7 @@ import {
     addRoomMember,
     removeRoomMember,
     type SpaceView,
+    type Room,
     type RoomView,
     type RoomInput,
 } from './groups.ts'
@@ -6234,14 +6235,36 @@ export function registerNostrComponents(Alpine: {
             // Raum-Anzeigename aus der Client-Meta (39000) reaktiv nachziehen — der
             // SSR-Header trägt bei member-only-Relays nur den Slug (Server hat keine
             // AUTH). `url` ist bereits normalisiert (activeSpace), roomsByUrl ebenso.
-            this._unsubRoomMeta = roomsByUrl.subscribe(($byUrl) => {
+            // ── A conversation is not called "DM" any more (community-features P3) ──
+            // The relay stores the literal `"DM"` / `"Group DM (N)"` as the channel name
+            // of EVERY conversation (`buzz-db/src/dm.rs:157-162`), so the header of every
+            // DM read the same word. The resolution is the one rule the rail and
+            // `/updates` already use (`dmRoomName` → `dmModels.roomDisplayName`); this is
+            // its third binding, not a second rule.
+            //
+            // `dmNames` belongs in the DEPENDENCIES and not behind a one-off read: the
+            // participants' profiles arrive AFTER the mount, and a snapshot would freeze
+            // the header on shortened pubkeys — the same trap `railName` avoids by reading
+            // the Alpine store on every render.
+            this._unsubRoomMeta = derived(
+                [roomsByUrl, dmNames, pubkey],
+                (values: [Map<string, Room[]>, Record<string, string>, string | undefined]) => values,
+            ).subscribe(([$byUrl, $names, $me]) => {
                 const room = ($byUrl.get(url) ?? []).find((r) => r.h === this.h)
+                const nameable = dmNameableFromTags(room?.name ?? '', room?.event?.tags ?? [])
+                // The nudge without which the header would show shortened keys forever.
+                // `ensureDmNames` deduplicates itself and writes to no store before its
+                // first `await`, so it is safe from inside a derivation (see `dms.ts`).
+                if (nameable.isDm) {
+                    ensureDmNames(url, nameable.dmParticipants ?? [])
+                }
                 if (room?.name) {
-                    this.roomName = room.name
+                    const shown = dmRoomName(nameable, $me ?? '', $names)
+                    this.roomName = shown
                     // Meta-/Tab-Titel clientseitig auf den echten Raumnamen setzen: der server-
                     // gerenderte Titel fällt bei SpaceCache-Miss auf die rohe Raum-id zurück
                     // (`# <h>`); sobald die Insel den Namen aus 39000/9007 auflöst, korrigieren.
-                    document.title = `# ${room.name}`
+                    document.title = `# ${shown}`
                 }
                 // P3: Forum-Kanal? Dieselbe Quelle, derselbe Emit — der Kanaltyp
                 // steht im selben 39000 wie der Name. Sobald er da ist, zieht die
