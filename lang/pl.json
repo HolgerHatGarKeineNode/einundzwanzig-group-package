@@ -1268,7 +1268,7 @@
     "Bild oder Datei": "Obraz lub plik",
     "Bild oder Datei anhängen": "Załącz obraz lub plik",
     "Datei angehängt": "Załączono plik",
-    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "Serwer stowarzyszenia przyjmuje każdy rodzaj pliku do 1 GB.",
+    "Der Vereins-Server nimmt Dateien bis 1 GB an.": "Serwer stowarzyszenia przyjmuje pliki do 1 GB.",
     "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "Plik jest większy niż 1 GB — tyle serwer stowarzyszenia nie przyjmie.",
     "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "Ten Relay przyjmuje obrazy, filmy MP4 bez osadzonych metadanych, dokumenty i archiwa — bez plików dźwiękowych i bez programów.",
     "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "Ten Relay nie przyjmuje programów ani plików wykonywalnych.",

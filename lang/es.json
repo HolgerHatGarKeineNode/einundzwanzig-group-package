@@ -1235,7 +1235,7 @@
     "Bild oder Datei": "Imagen o archivo",
     "Bild oder Datei anhängen": "Adjuntar imagen o archivo",
     "Datei angehängt": "Archivo adjunto",
-    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "El servidor de la asociación acepta cualquier tipo de archivo de hasta 1 GB.",
+    "Der Vereins-Server nimmt Dateien bis 1 GB an.": "El servidor de la asociación acepta archivos de hasta 1 GB.",
     "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "El archivo supera 1 GB: el servidor de la asociación no acepta tanto.",
     "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "Este Relay acepta imágenes, vídeos MP4 sin metadatos incrustados, documentos y archivos comprimidos — ni archivos de audio ni programas.",
     "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "Este Relay no acepta programas ni archivos ejecutables.",

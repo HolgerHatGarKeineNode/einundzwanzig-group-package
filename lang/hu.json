@@ -1235,7 +1235,7 @@
     "Bild oder Datei": "Kép vagy fájl",
     "Bild oder Datei anhängen": "Kép vagy fájl csatolása",
     "Datei angehängt": "Fájl csatolva",
-    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "Az egyesület szervere bármilyen fájltípust elfogad 1 GB méretig.",
+    "Der Vereins-Server nimmt Dateien bis 1 GB an.": "Az egyesület szervere 1 GB méretig fogad el fájlokat.",
     "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "A fájl nagyobb 1 GB-nál – ennyit az egyesület szervere nem fogad el.",
     "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "Ez a Relay elfogad képeket, beágyazott metaadat nélküli MP4-videókat, dokumentumokat és archívumokat – hangfájlokat és programokat nem.",
     "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "Ez a Relay nem fogad el programokat és futtatható fájlokat.",

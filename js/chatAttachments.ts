@@ -121,6 +121,15 @@ export const attachmentRenderKind = (href: string, info: AttachmentInfo | undefi
     return isVideo && ownMedia ? 'video' : 'file'
 }
 
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB'] as const
+
+/**
+ * The value as the card will PRINT it: whole numbers for bytes and kilobytes, one
+ * decimal from megabytes upwards. Rounding has to happen before the unit is chosen —
+ * see {@link formatByteSize}.
+ */
+const roundedForUnit = (value: number, step: number): number => (step >= 2 ? Math.round(value * 10) / 10 : Math.round(value))
+
 /**
  * Byte count as a short, locale-formatted string. `0` yields `''` — a file card without
  * a size says nothing instead of claiming zero bytes.
@@ -129,22 +138,26 @@ export const attachmentRenderKind = (href: string, info: AttachmentInfo | undefi
  * symbols, identical across the seven locales of this house. Only the NUMBER is
  * localised, and that is what {@link formatNumber} is for — `1,2 MB` under `de`,
  * `1.2 MB` under `en`.
+ *
+ * **The unit is chosen from the ROUNDED value, not the raw one.** The first cut of this
+ * function compared the raw byte count against fixed thresholds, and a file of
+ * 1 048 575 bytes came out as `1.024 KB`: it is 1023.999 KB, below the megabyte
+ * threshold, and rounding it afterwards produced a kilobyte figure nobody writes.
+ * Found by the unit case at the boundary, not in the browser — which is the point of
+ * having the boundary as a case at all.
  */
 export const formatByteSize = (bytes: number): string => {
     if (!Number.isFinite(bytes) || bytes <= 0) {
         return ''
     }
-    if (bytes < 1024) {
-        return `${formatNumber(bytes)} B`
-    }
-    if (bytes < 1024 * 1024) {
-        return `${formatNumber(Math.round(bytes / 1024))} KB`
-    }
-    if (bytes < 1024 * 1024 * 1024) {
-        return `${formatNumber(Math.round((bytes / (1024 * 1024)) * 10) / 10)} MB`
+    let value = bytes
+    let step = 0
+    while (step < BYTE_UNITS.length - 1 && roundedForUnit(value, step) >= 1024) {
+        value /= 1024
+        step += 1
     }
 
-    return `${formatNumber(Math.round((bytes / (1024 * 1024 * 1024)) * 10) / 10)} GB`
+    return `${formatNumber(roundedForUnit(value, step))} ${BYTE_UNITS[step]}`
 }
 
 /**

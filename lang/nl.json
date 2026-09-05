@@ -1235,7 +1235,7 @@
     "Bild oder Datei": "Afbeelding of bestand",
     "Bild oder Datei anhängen": "Afbeelding of bestand bijvoegen",
     "Datei angehängt": "Bestand bijgevoegd",
-    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "De server van de vereniging accepteert elk bestandstype tot 1 GB.",
+    "Der Vereins-Server nimmt Dateien bis 1 GB an.": "De server van de vereniging accepteert bestanden tot 1 GB.",
     "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "Het bestand is groter dan 1 GB — zoveel accepteert de server van de vereniging niet.",
     "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "Deze Relay accepteert afbeeldingen, MP4-video's zonder ingesloten metadata, documenten en archieven — geen audiobestanden en geen programma's.",
     "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "Deze Relay accepteert geen programma's of uitvoerbare bestanden.",

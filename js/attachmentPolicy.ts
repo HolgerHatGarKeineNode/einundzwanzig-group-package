@@ -109,8 +109,15 @@ export const checkAttachment = (file: UploadCandidate, target: UploadTarget): At
  * (`max_file_bytes`, `max_video_bytes`), and a number printed here would be a claim
  * about a server this client does not read. Blossom's ceiling is a compiled-in
  * constant and is therefore named.
+ *
+ * **And deliberately without a claim about which file KINDS Blossom takes.** The
+ * sentence first read "nimmt jede Dateiart bis 1 GB an". The 1 GB is measurable — it is
+ * `maxUploadSize` in the source of the running service. The "any file type" was not: it
+ * came from a locally built stand-in for that service, corroborated three ways but not
+ * byte-identical to the deployed binary (`p5-endpunkt-messungen.md`). A surface that
+ * states a limit the reader will rely on may only state the half that was measured.
  */
 export const attachmentNoteFor = (target: UploadTarget): string =>
     target === 'buzz'
         ? t('Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.')
-        : t('Der Vereins-Server nimmt jede Dateiart bis 1 GB an.')
+        : t('Der Vereins-Server nimmt Dateien bis 1 GB an.')

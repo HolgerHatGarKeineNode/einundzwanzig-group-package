@@ -1235,7 +1235,7 @@
     "Bild oder Datei": "Image or file",
     "Bild oder Datei anhängen": "Attach image or file",
     "Datei angehängt": "File attached",
-    "Der Vereins-Server nimmt jede Dateiart bis 1 GB an.": "The association's server accepts any file type up to 1 GB.",
+    "Der Vereins-Server nimmt Dateien bis 1 GB an.": "The association's server accepts files up to 1 GB.",
     "Die Datei ist größer als 1 GB — so viel nimmt der Vereins-Server nicht an.": "The file is larger than 1 GB — the association's server does not accept that much.",
     "Dieser Relay nimmt Bilder, MP4-Videos ohne eingebettete Metadaten sowie Dokumente und Archive an — keine Audiodateien und keine Programme.": "This Relay accepts images, MP4 videos without embedded metadata, documents and archives — no audio files and no programs.",
     "Dieser Relay nimmt Programme und ausführbare Dateien nicht an.": "This Relay does not accept programs or executable files.",
