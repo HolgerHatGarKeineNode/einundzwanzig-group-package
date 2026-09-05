@@ -491,6 +491,45 @@
                     <flux:icon.bookmark variant="micro" class="size-4 shrink-0" />
                     <span>{{ __('Lesezeichen') }}</span>
                 </a>
+
+                {{-- Encrypted (NIP-17 direct messages) — the reason this row exists at all
+                     is that the screen had no fixed place in the chrome: the three ways in
+                     were the command palette, the DM modal's footer link and the profile
+                     popover of `⚡spaces.blade.php`. All three are things you open, none is
+                     a thing you see. A user went looking for the screen and did not find
+                     it, and that is a recognition-over-recall failure (Nielsen 6), not a
+                     discoverability nicety.
+
+                     WHY HERE and not one row higher: the profile popover already lists
+                     Lesezeichen → Verschlüsselt → Einstellungen. Keeping that order makes
+                     the two lists one vocabulary instead of two orderings of the same
+                     places.
+
+                     Unconditional, like the bookmarks row above and unlike Forge: the
+                     inbox hangs on the USER (NIP-17 kind 1059 giftwraps), not on a config.
+                     Without messages the screen explains itself; it is never a dead end.
+
+                     `lock-closed` is not a new pick — it is the glyph the profile popover
+                     already carries for this destination, and the only footer icon that
+                     says something about the KIND of place rather than its category.
+
+                     Own `data-rail-fuss` anchor, for the reason the block comment above
+                     gives: the label „Verschlüsselt" also stands in the command palette and
+                     in the profile popover, so a text-based test would hit any of the
+                     three. The anchor reads `messages` and not `verschluesselt` because it
+                     names the DESTINATION (`group.messages`) — a label may be retranslated,
+                     the route may not. --}}
+                @php($messagesActive = request()->routeIs('group.messages'))
+                <a href="{{ route('group.messages') }}" wire:navigate data-rail-fuss="messages"
+                   @if ($messagesActive) aria-current="page" @endif
+                   @class([
+                       'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
+                       'font-semibold text-zinc-900 dark:text-zinc-100' => $messagesActive,
+                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $messagesActive,
+                   ])>
+                    <flux:icon.lock-closed variant="micro" class="size-4 shrink-0" />
+                    <span>{{ __('Verschlüsselt') }}</span>
+                </a>
             </div>
 
             <x-group::bottom-nav orientation="rail" />

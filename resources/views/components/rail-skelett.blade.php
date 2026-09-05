@@ -69,9 +69,13 @@
 
        | Lage | Kopf | Suchfeld | Liste | Fußzeile |
        |---|---|---|---|---|
-       | mit `workspace_url`, Space ungeladen | 60 | 36 | 494 | 302 |
-       | ohne `workspace_url`, Space ungeladen | 60 | 36 | 532 | **264** |
-       | mit `workspace_url`, Space MIT Beschreibung | **64** | 36 | **490** | 302 |
+       | mit `workspace_url`, Space ungeladen | 60 | 36 | 456 | 340 |
+       | ohne `workspace_url`, Space ungeladen | 60 | 36 | 494 | **302** |
+       | mit `workspace_url`, Space MIT Beschreibung | **64** | 36 | **452** | 340 |
+
+     RE-MEASURED 2026-09-05: another 38 px moved from list to footer, for the FOURTH area
+     row („Verschlüsselt", the fixed place `/messages` had been missing). Both sides were
+     changed in one edit this time, so the boot jump never occurred — see `$flaechen`.
 
      RE-MEASURED 2026-09-04: all three rows moved by 38 px between list and footer. The
      footer gained the „Lesezeichen" row that P2 had added to `desktop-rail.blade.php`
@@ -259,12 +263,19 @@
          misst beide Konfigurationen gegeneinander. --}}
     <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <div class="mb-2">
-            {{-- Three area rows with a workspace, two without: Artikel · Forge · Lesezeichen
-                 in `desktop-rail.blade.php`, and only the Forge row hangs on the config.
+            {{-- Four area rows with a workspace, three without: Artikel · Forge ·
+                 Lesezeichen · Verschlüsselt in `desktop-rail.blade.php`, and only the Forge
+                 row hangs on the config.
                  The bookmarks row arrived with P2 and this list did not follow — measured
                  at 1440×900 the footer was 302 px in the rail and 264 px here, the very
-                 38 px boot jump the note above warns about. --}}
-            @php($flaechen = config('group.workspace_url') ? [0, 1, 2] : [0, 1])
+                 38 px boot jump the note above warns about. The „Verschlüsselt" row was
+                 added here in the SAME edit that added it to the rail, so that jump never
+                 reappeared — `rail).toEqual(platzhalter)` stayed green through the change
+                 and only the literals moved. Measured at 1440×900: both sides read 340 px
+                 with a workspace and 302 px without, and the list gave back exactly those
+                 38 px (494 → 456 with, 532 → 494 without). The numbers live in
+                 `desktop-boot-geometrie.spec.ts`; they are not repeated as a table here. --}}
+            @php($flaechen = config('group.workspace_url') ? [0, 1, 2, 3] : [0, 1, 2])
             @foreach ($flaechen as $i)
                 <div @class(['flex min-h-9 items-center gap-2 rounded-tile px-2', 'mt-0.5' => $i > 0])>
                     <div class="skeleton size-4 shrink-0 rounded"></div>
