@@ -74,9 +74,19 @@ export type PaletteRoom = RailRoom & {
     hint?: string
 }
 
-/** Zu welcher Rail-Gruppe zählt der Raum? Workspace schlägt den Typ. */
+/**
+ * Zu welcher Rail-Gruppe zählt der Raum? Workspace schlägt den Typ — **eine
+ * Unterhaltung aber schlägt den Workspace.**
+ *
+ * Die Ausnahme ist keine Feinheit, sondern die Bedingung dafür, dass `d:` überhaupt
+ * etwas findet: Unterhaltungen gibt es nur auf Buzz, und Buzz IST der Workspace. Ohne
+ * den Vorrang landete jede Unterhaltung in der Gruppe `workspace`, `d:` bliebe für
+ * immer leer und `f:`/`w:` mischte Kanäle mit Unterhaltungen. Die Rail entscheidet
+ * dieselbe Frage schon so — dort kommen die Unterhaltungen an `groupOf` vorbei gar
+ * nicht erst in den Workspace-Topf (`railGroups.buildGroups`).
+ */
 export const roomGroupKey = (room: PaletteRoom): RailGroupKey =>
-    room.workspace === true ? 'workspace' : groupOf(room)
+    room.workspace === true && room.isDm !== true ? 'workspace' : groupOf(room)
 
 /**
  * Liest den Scope aus dem Eingabetext und gibt den Rest zurück.
