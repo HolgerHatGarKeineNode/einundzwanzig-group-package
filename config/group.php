@@ -373,7 +373,7 @@ return [
      *
      * @var list<string>
      */
-    'settings' => ['account', 'space', 'wallet', 'relays', 'blossom', 'appearance', 'language', 'session'],
+    'settings' => ['account', 'space', 'wallet', 'relays', 'blossom', 'mutes', 'appearance', 'language', 'session'],
 
     /*
      * Sprach-Registry (P2): die Whitelist, gegen die `SetLocale` Cookie und

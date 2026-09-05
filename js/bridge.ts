@@ -55,6 +55,7 @@ import { wireModerationAudit } from './moderationAudit.ts'
 import { wireMeetupEvent } from './calendar.ts'
 import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
+import { wireMutes } from './mutes.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
 import { dmNames, dmRoomName, ensureDmNames, hiddenDms, wireDms } from './dms.ts'
@@ -2202,6 +2203,13 @@ export function registerNostrComponents(Alpine: {
     // innerhalb von `nostrRoomChat`). Begründung im Kopf von `bookmarks.ts`; in
     // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
     wireBookmarks(Alpine)
+    // P6 — hiding a person (NIP-51, kind 10000). A store again, and this time with THREE
+    // readers that never see each other in the DOM: the profile card (on every page), the
+    // management section in settings, and the chat list itself through
+    // `deriveMutedPubkeys`. Two truths about "is this person hidden" would be especially
+    // expensive here — one would filter, the other would label the button. Reasoning in
+    // the header of `mutes.ts`; `nostrRoomChat` gains NO new field.
+    wireMutes(Alpine)
     // P5 — NIP-ER-Erinnerungen (30300). Dritter Store nach demselben Muster und aus
     // demselben Grund: der Zustand wird an zwei Stellen gebraucht, die einander im DOM
     // nicht sehen (der Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat` und die

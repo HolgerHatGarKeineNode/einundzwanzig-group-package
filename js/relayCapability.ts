@@ -93,6 +93,12 @@ const WRITE_RULES: ReadonlyMap<number, WriteRule> = new Map<number, WriteRule>([
     [10001, { relay: 'any' }],
     [10003, { relay: 'any' }],
     [30003, { relay: 'any' }],
+    // `MUTES` (P6). Same shape, and Buzz names it in the very same match arm as the two
+    // above: `KIND_MUTE_LIST` (`buzz-core/src/kind.rs:17`) maps to `Scope::UsersWrite` in
+    // `buzz-relay/src/handlers/ingest.rs:365-377`, under the comment "NIP-51 standard
+    // lists and NIP-65 relay list — user-owned global state". zooid has no kind allowlist
+    // and stores it like any other event. Read at the sources on 2026-09-05.
+    [10000, { relay: 'any' }],
 
     // ── Buzz dialect — meaningless anywhere else ─────────────────────────────────
     // `KIND_FORUM_VOTE`, `kind.rs:552`. Buzz validates the target

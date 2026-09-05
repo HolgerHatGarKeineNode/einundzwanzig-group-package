@@ -49,6 +49,8 @@ import { quoteCardsEnabled } from './displayPrefs.ts'
 import { withSpace } from './spaceParam.ts'
 import { withOrigin } from './updatesView.ts'
 import { warmProfiles } from './profiles.ts'
+import { deriveMutedPubkeys } from './mutes.ts'
+import { visibleChatEvents } from './muteModels.ts'
 import { deriveUserStatuses, statusFingerprint, warmUserStatuses, type UserStatus } from './userStatus.ts'
 import { warmHandles, verifiedNip05 } from './handles.ts'
 import { BLOSSOM_SERVER, type Attachment } from './uploads.ts'
@@ -1266,8 +1268,24 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             throttled(200, deriveUserStatuses(url)),
             // Der Abschalter. Ungedrosselt: er hängt an einem Klick, nicht an einer Welle.
             quoteCardsEnabled,
+            // P6 (NIP-51): the people this reader has hidden. Unthrottled for the same
+            // reason as the switch above — the list changes on a click, not on a wave, and
+            // a delayed disappearance would look like the click had missed. The store arms
+            // itself on space and identity at the first subscription
+            // ({@link deriveMutedPubkeys}), so this surface needs no load call of its own.
+            deriveMutedPubkeys(url),
         ],
-        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies, $refEvents, $statuses, $cards]) => {
+        ([allEvents, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies, $refEvents, $statuses, $cards, $muted]) => {
+        // P6: hidden authors are dropped HERE and not at ingest. The price is a deliberate
+        // choice (plan, "P6 als Filter an allen zwölf Leseflächen"): a discarded event
+        // would be gone, un-hiding would need a re-fetch, and counters and threads would
+        // lose members. So the DISPLAY is filtered — the messages stay in the repository,
+        // and the surface says so in as many words.
+        //
+        // **This one surface only.** Directory, search, forums, forge, bookmarks, longform,
+        // pins, profiles, threads, palette and notifications stay unfiltered; they are
+        // named one by one in the plan's Restposten section.
+        const events = visibleChatEvents(allEvents, $muted, $me ?? '')
         // Beide Antwort-Formate in EINEN Strom: kind-1111/kind-10 (zooid) und Buzz'
         // kind-9-Antworten. `commentRootId` liest den Root aus beiden, der Rest des Feeds
         // sieht keinen Unterschied — Zähler, Gesichter und „zuletzt geantwortet" gelten für
