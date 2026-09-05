@@ -28,7 +28,7 @@ import { type TrustedEvent } from '@welshman/util'
 import { REF_DECODE_CAP } from './nostrEventLink.ts'
 import { previewBody, readableRefTokens, type NameResolver } from './previewText.ts'
 import { computeUpdates, type UpdateInput } from './updates.ts'
-import { replyPreview, threadSnippet } from './feeds.ts'
+import { refCardText, replyPreview, threadSnippet } from './feeds.ts'
 import { pinnedEntry } from './roomPins.ts'
 import { roomSearchRow } from './roomSearch.ts'
 import { roomKey, type ReadState } from './readState.ts'
@@ -418,6 +418,46 @@ describe('Fläche 5 — Thread-Übersicht der Startseite (feeds.ts threadSnippet
     })
 })
 
+/**
+ * Die sechste Fläche, nachgezogen am 2026-09-05. Sie war eine Runde lang zurückgestellt,
+ * weil neben ihrem Ausschnitt ein aufgelöster Deep-Link steht — an den rohen Zeichen IM
+ * Ausschnitt ändert der nichts, und die Komposition war byte-gleich zu der, die die
+ * anderen fünf gerade verloren hatten.
+ */
+describe('Fläche 6 — Zitatkarte (feeds.ts refCardText)', () => {
+    test('der Karten-Ausschnitt zeigt den Namen statt der Kennung', () => {
+        const text = refCardText(ereignis(`nostr:${NPUB_ME} schau mal`), kennt(ME, 'Alice'))
+        assert.equal(text, '@Alice schau mal')
+    })
+
+    test('ohne kind 0: Kurzform, und der Satz bleibt stehen', () => {
+        const text = refCardText(ereignis(`nostr:${NPUB_ME} schau mal`), kenntNichts)
+        assert.equal(traegtRoheKennung(text), false)
+        assert.ok(text.includes('schau mal'))
+        assert.notEqual(text.trim(), '')
+    })
+
+    /**
+     * Bis zum 2026-09-05 stand hier `bodyWithoutQuote`, das den Präfix nur MIT `q`-Tag
+     * entfernt. Zitiert ein Fremdclient per `e`-Tag, begann die erste Zeile der Karte damit
+     * an der gekürzten Kennung des Zitats statt am Satz — und eine zweite Karte, die diese
+     * Kennung auflösen würde, gibt es nicht („nie geschachtelt").
+     */
+    test('das vorangestellte Zitat fällt auch ohne q-Tag', () => {
+        const text = refCardText(
+            ereignis(`nostr:${NEVENT}\n\n${SATZ}`, { tags: [['e', EVENT_ID, URL, 'reply'], ['h', H]] }),
+            kenntNichts,
+        )
+        assert.equal(text, SATZ)
+    })
+
+    /** Dieselbe Zusage und dieselbe gerechnete Falle wie bei {@link replyPreview}. */
+    test('bereinigen VOR kürzen: eine Kennung an der Kappungsgrenze bleibt nicht stehen', () => {
+        pruefeGrenzKalibrierung()
+        assert.equal(traegtRoheKennung(refCardText(ereignis(grenzText()), kenntNichts)), false)
+    })
+})
+
 // ═══════════════════════════════════════════════════════════════════════════════════
 // C — der Verdrahtungs-Riegel
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -431,58 +471,76 @@ describe('Fläche 5 — Thread-Übersicht der Startseite (feeds.ts threadSnippet
  * die Verdrahtung selbst prüft, sieht es.
  *
  * Er ersetzt die Verhaltenstests nicht: er weiss nicht, ob der Aufruf das Richtige tut.
- * Er weiss nur, dass er da ist.
+ * Er weiss nur, dass er da ist — und zwar seit dem 2026-09-05 je AUFRUFSTELLE, nicht je
+ * Datei. Warum das der Unterschied zwischen Prüfmittel und Attrappe ist, steht unten.
  */
-describe('Verdrahtung: alle fünf Flächen rufen dieselbe Regel', () => {
-    // Vier DATEIEN, fünf Flächen: `feeds.ts` trägt zwei (Antwort-Vorschau und Thread-Kopf).
-    //
-    // **Was dieser Riegel für `feeds.ts` seit dem 2026-09-05 NICHT mehr leistet:** er ist
-    // erfüllt, sobald EINE der beiden Flächen `previewBody` ruft. Fiele die Antwort-Vorschau
-    // zurück, bliebe er grün, weil `threadSnippet` den Aufruf weiterhin enthält. Das ist
-    // hinnehmbar, weil beide Flächen daneben direkt am Verhalten geprüft sind (Fläche 2 und
-    // Fläche 5) — die Antwort-Vorschau IST `replyPreview`, der Test ruft sie selbst auf.
-    // Ungeprüft bliebe allein die Stelle, an der `deriveSpaceThreads` sein Snippet baut: die
-    // liegt in einer Store-Ableitung und ist aus einem Unit-Test nicht erreichbar. Genau
-    // dafür steht der zweite Riegel unten.
-    const FLAECHEN = [
-        ['updates.ts', 'Benachrichtigungs-Liste'],
-        ['feeds.ts', 'Antwort-Vorschau + Thread-Kopf'],
-        ['roomPins.ts', 'Pin-Leiste'],
-        ['roomSearch.ts', 'Raum-Suche'],
+describe('Verdrahtung: jede Fläche hat ihren EIGENEN Riegel', () => {
+    /**
+     * **Stellenscharf statt dateiweit — seit dem 2026-09-05, und das ist der eigentliche
+     * Punkt dieser Runde.**
+     *
+     * Bis dahin prüfte hier eine Schleife über vier DATEIEN, ob die Datei `previewBody`
+     * importiert und irgendwo aufruft. Dieser Riegel wurde mit jeder richtigen Änderung
+     * schwächer: `feeds.ts` trägt inzwischen drei Flächen, und der Dateitreffer ist erfüllt,
+     * sobald EINE von ihnen den Aufruf enthält. Gemessen am selben Rückbau (Antwort-Vorschau
+     * zurück auf die alte Form): mit einer Fläche in der Datei fiel er, mit zwei blieb er
+     * grün. Ein Prüfmittel, das durch Zuwachs stumpf wird, ist kein Prüfmittel.
+     *
+     * Jetzt hat jede Fläche ihren eigenen Eintrag mit dem Muster IHRER Aufrufstelle. Der
+     * Riegel kann dadurch nicht mehr erodieren: eine siebte Fläche erfüllt keinen der sechs
+     * Einträge.
+     *
+     * **Der Preis, ausdrücklich benannt:** die Muster hängen am Feldnamen der Aufrufstelle
+     * (`text:`, `snippet:`). Wer eine Zeile umbenennt oder umbaut, muss den Eintrag
+     * mitziehen — der Riegel diktiert insoweit die Bauform. Das ist hier gewollt: genau
+     * diese sechs Zeilen sind die Zusage, und eine Umbenennung soll bewusst geschehen.
+     *
+     * **Was er weiterhin NICHT kann** (und was kein Test hier kann): eine SIEBTE Anriss-
+     * Fläche sehen, die die Regel nie ruft. Genau das war der ursprüngliche Fehler. Dagegen
+     * hilft nur die Liste im Kopf von `previewText.ts` — wer eine Zeile baut, die eine
+     * Nachricht anreisst, trägt sie dort und hier ein.
+     */
+    const VERDRAHTUNG = [
+        ['Fläche 1 — Benachrichtigungs-Liste', 'updates.ts', /snippet: stripInlineMarkup\(\s*previewBody\(/],
+        ['Fläche 2 — Antwort-Vorschau', 'feeds.ts', /text: snippet\(previewBody\(quoted,/],
+        ['Fläche 3 — Pin-Leiste', 'roomPins.ts', /text: event \? previewBody\(event,/],
+        ['Fläche 4 — Raum-Suche', 'roomSearch.ts', /text: previewBody\(event,/],
+        ['Fläche 5 — Thread-Kopf der Startseite', 'feeds.ts', /snippet: threadSnippet\(root,/],
+        ['Fläche 6 — Zitatkarte', 'feeds.ts', /text: quoted \? refCardText\(quoted,/],
     ] as const
 
-    for (const [datei, flaeche] of FLAECHEN) {
-        test(`${datei} (${flaeche}) importiert previewBody und ruft es`, () => {
+    for (const [flaeche, datei, aufruf] of VERDRAHTUNG) {
+        test(`${flaeche} (${datei}) ist auf die gemeinsame Regel verdrahtet`, () => {
             const quelle = readFileSync(join(JS_DIR, datei), 'utf8')
             assert.match(
                 quelle,
                 /import \{[^}]*\bpreviewBody\b[^}]*\} from '\.\/previewText\.ts'/,
-                `${datei} importiert previewBody nicht mehr — die Fläche fällt auf den Rohtext zurück`,
+                `${datei} importiert previewBody nicht mehr`,
             )
-            assert.ok(
-                quelle.includes('previewBody('),
-                `${datei} ruft previewBody nicht mehr — die Fläche fällt auf den Rohtext zurück`,
+            assert.match(
+                quelle,
+                aufruf,
+                `${flaeche}: die Aufrufstelle in ${datei} passt nicht mehr auf ${aufruf} — die Fläche fällt auf den Rohtext oder auf „erst kürzen, dann bereinigen" zurück`,
             )
         })
     }
 
     /**
-     * **Die fünfte Fläche braucht einen eigenen Riegel**, weil sie in DERSELBEN Datei liegt
-     * wie die zweite: `feeds.ts` importiert `previewBody` und ruft es auch dann noch, wenn
-     * `deriveSpaceThreads` wieder auf `withShortRefTokens(snippet(...))` zurückfiele. Der
-     * Datei-Riegel oben bliebe dabei grün — genau die Blindheit, die diese Fläche
-     * überhaupt erst durch die letzte Runde getragen hat.
+     * **Die Muster müssen scheitern KÖNNEN.** Sechs `assert.match` beweisen nichts, wenn sie
+     * auf jeden beliebigen Quelltext passen. Gegenprobe: keines von ihnen trifft
+     * `previewText.ts` — die Datei, die die Regel definiert und keine einzige Aufrufstelle
+     * enthält. Dazu die alte Kalibrierung, dass hier wirklich Dateien gelesen werden.
      */
-    test('feeds.ts verdrahtet den Thread-Kopf der Startseite auf threadSnippet', () => {
-        const quelle = readFileSync(join(JS_DIR, 'feeds.ts'), 'utf8')
-        assert.match(
-            quelle,
-            /snippet: threadSnippet\(/,
-            'deriveSpaceThreads baut sein Snippet nicht mehr über threadSnippet — die Thread-Übersicht fällt auf die alte Reihenfolge zurück',
-        )
-    })
-
-    test('KALIBRIERUNG: der Riegel liest wirklich Dateien — ein erfundener Name findet nichts', () => {
+    test('KALIBRIERUNG: die Muster sind stellenscharf und lesen wirklich Dateien', () => {
+        const regel = readFileSync(join(JS_DIR, 'previewText.ts'), 'utf8')
+        assert.ok(regel.length > 1_000, 'previewText.ts kam leer an — dann bewiese die Gegenprobe nichts')
+        for (const [flaeche, , aufruf] of VERDRAHTUNG) {
+            assert.doesNotMatch(
+                regel,
+                aufruf,
+                `${flaeche}: das Muster ${aufruf} trifft auch previewText.ts, wo es keine Aufrufstelle gibt — dann ist es zu lose und der Riegel oben ist eine Attrappe`,
+            )
+        }
         const quelle = readFileSync(join(JS_DIR, 'updates.ts'), 'utf8')
         assert.equal(quelle.includes('previewBodyGibtEsNicht('), false)
         assert.ok(quelle.length > 1_000, 'updates.ts kam leer an — dann bewiese der Riegel oben nichts')

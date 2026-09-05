@@ -2,14 +2,24 @@
  * Der Vorschautext einer Nachricht — die eine Regel für alle Zeilen, die eine Nachricht
  * ANREISSEN statt sie zu rendern.
  *
- * Fünf Flächen zeigen einen Anriss: die Benachrichtigungs-Liste (`updates.ts`), die
- * Antwort-Vorschau über einer Nachricht (`feeds.ts replyPreview`), die Leiste der
- * angepinnten Nachricht (`roomPins.ts`), die Trefferzeile der Raum-Suche
- * (`roomSearch.ts`) und der Thread-Kopf in der Space-Übersicht der Startseite
- * (`feeds.ts threadSnippet`). Alle fünf gaben bis zum 2026-09-05 `bodyWithoutQuote(event)`
- * roh weiter, und damit jede NIP-19-Kennung, die im Text steht. Die fünfte kam am selben
- * Tag nach: sie lag ausserhalb der DoD der ersten Runde und trug die alte Reihenfolge
- * deshalb einen Commit länger.
+ * Sechs Flächen zeigen einen Anriss:
+ *
+ *   1. die Benachrichtigungs-Liste (`updates.ts`)
+ *   2. die Antwort-Vorschau über einer Nachricht (`feeds.ts replyPreview`)
+ *   3. die Leiste der angepinnten Nachricht (`roomPins.ts pinnedEntry`)
+ *   4. die Trefferzeile der Raum-Suche (`roomSearch.ts roomSearchRow`)
+ *   5. der Thread-Kopf in der Space-Übersicht der Startseite (`feeds.ts threadSnippet`)
+ *   6. der Ausschnitt in der Zitatkarte (`feeds.ts refCardText`)
+ *
+ * Alle sechs gaben bis zum 2026-09-05 `bodyWithoutQuote(event)` weiter und damit jede
+ * NIP-19-Kennung, die im Text steht — die ersten vier roh, die letzten beiden gekürzt,
+ * aber in der falschen Reihenfolge und ohne Namen. Sie kamen in drei Schritten desselben
+ * Tages nach; 5 und 6 lagen ausserhalb der DoD des ersten Schritts.
+ *
+ * **Diese Liste ist der einzige Schutz gegen eine SIEBTE Fläche.** Kein Test sieht eine
+ * Zeile, die es noch nicht gibt: der Verdrahtungs-Riegel in `previewText.test.ts` prüft je
+ * Aufrufstelle, kennt also nur die sechs hier. Wer eine Zeile baut, die eine Nachricht
+ * anreisst statt sie zu rendern, trägt sie an beiden Orten ein.
  *
  * **Was das gekostet hat, gemessen am 2026-09-04** (390 px, `line-clamp-2`, Textspalte
  * 278 px, Zeichen per Range-Rect gegen die Elementbox gezählt):
@@ -54,12 +64,12 @@
  * Füllung kürzt auch die FALSCHE Reihenfolge den Rest weg, und der Fall unterscheidet die
  * beiden nicht mehr.
  *
- * **Ein Ort im Haus macht es weiterhin umgekehrt, bewusst unangetastet:**
- * `feeds.ts buildRefCard` (`text:` der Zitatkarte) steht auf
- * `withShortRefTokens(snippet(bodyWithoutQuote(quoted)))` — dieselbe Komposition, dasselbe
- * Loch, am 2026-09-05 gemessen und gemeldet, aber ausserhalb dieser Runde. Wer ihn anfasst,
- * zieht ihn auf `snippet(previewBody(...))` nach: eine Zeile, und die Zitatkarte bekäme
- * denselben Namen statt der Kurzform.
+ * **Seit dem 2026-09-05 macht es kein Ort im Haus mehr umgekehrt.** `feeds.ts buildRefCard`
+ * war der letzte (`text:` der Zitatkarte, byte-gleiche Komposition) und wurde im selben
+ * Zug nachgezogen. Das Argument „daneben steht ja ein aufgelöster Link" hat ihn eine Runde
+ * lang gerettet und trägt nicht: die rohen Zeichen stehen IM Ausschnitt.
+ * `withShortRefTokens` hat damit keinen Aufrufer in der Anwendung mehr — es lebt nur noch
+ * in seinen eigenen Tests.
  *
  * **3. Die Fehlerrichtung geht nur nach kürzer und generischer, nie auf leer.** Kein
  * Nachladen, kein Wurf, kein Rückfall auf die rohe Kennung. Begründung an
@@ -86,13 +96,13 @@ import * as nip19 from 'nostr-tools/nip19'
  * (`updates.ts`, Vorfall vom 2026-07-23).
  *
  * **Nicht „`derived`-Callbacks" — das stand hier bis zum 2026-09-05 und war für zwei der
- * fünf Flächen falsch.** Zeile 57 ruft den SUBSCRIBER auf; ein `.subscribe()`-Callback
+ * sechs Flächen falsch.** Zeile 57 ruft den SUBSCRIBER auf; ein `.subscribe()`-Callback
  * steht damit genauso in der Schleife wie eine Ableitung. Der Weg je Fläche:
  *
  *   | Fläche | wie sie hierher kommt |
  *   |---|---|
  *   | `updates.ts computeUpdates` | `derived([...])`-Callback |
- *   | `feeds.ts replyPreview` / `threadSnippet` | `derived([...])`-Callback |
+ *   | `feeds.ts replyPreview` / `threadSnippet` / `refCardText` | `derived([...])`-Callback |
  *   | `roomPins.ts pinnedEntry` | `recompute()` aus `derivePinSource(...).subscribe(...)` |
  *   | `roomSearch.ts roomSearchRow` | `run()` aus `deriveRoomMessages(...).subscribe(...)` — **und** aus Alpines `$watch('query')` |
  *
@@ -241,7 +251,7 @@ export const readableRefTokens = (text: string, resolveName: NameResolver): stri
  * Der Vorschautext eines Ereignisses: ohne vorangestelltes Antwort-Zitat, ohne rohe
  * NIP-19-Kennung.
  *
- * Das ist die Funktion, die die fünf Anriss-Flächen rufen — **vor** jedem Kürzen und vor
+ * Das ist die Funktion, die die sechs Anriss-Flächen rufen — **vor** jedem Kürzen und vor
  * `stripInlineMarkup` (Auszeichnung zuletzt, gleiche Reihenfolge wie im Android-Poller).
  *
  * Ersetzt `feeds.ts bodyWithoutQuote` NICHT: das bleibt der richtige Griff überall dort,

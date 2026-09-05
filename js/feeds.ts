@@ -43,7 +43,7 @@ import { chatImageHtml, emojiImgHtml } from './blossomMarkup.ts'
 import { contentEmojiTags } from './emoji.ts'
 import { linkDisplay, isPlausibleUrl } from './chatLinks.ts'
 import { applyInlineMarkup, stripInlineMarkup } from './chatMarkup.ts'
-import { firstNostrRef, refClickTarget, refThreadPath, shortenEntity, withShortRefTokens, type NostrRef } from './nostrEventLink.ts'
+import { firstNostrRef, refClickTarget, refThreadPath, shortenEntity, type NostrRef } from './nostrEventLink.ts'
 import { previewBody } from './previewText.ts'
 import { quoteCardsEnabled } from './displayPrefs.ts'
 import { withSpace } from './spaceParam.ts'
@@ -929,7 +929,7 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
         resolved,
         pubkey: quoted?.pubkey ?? '',
         name: quoted ? displayProfileByPubkey(quoted.pubkey) : '',
-        text: quoted ? withShortRefTokens(snippet(bodyWithoutQuote(quoted))) : '',
+        text: quoted ? refCardText(quoted, displayProfileByPubkey) : '',
     }
 }
 
@@ -938,8 +938,10 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
  * anreisst.
  *
  * **`previewBody` VOR `snippet` (2026-09-05).** Hier stand der Rohtext der zitierten
- * Nachricht und damit jede NIP-19-Kennung darin; anders als bei der Zitatkarte
- * ({@link buildRefCard}) steht neben dieser Zeile nichts, was die Kennung auflösen würde.
+ * Nachricht und damit jede NIP-19-Kennung darin — anders als bei der Zitatkarte
+ * ({@link buildRefCard}) steht neben dieser Zeile nicht einmal ein aufgelöster Link. Dass
+ * die Karte einen hat, hat sie eine Runde lang vor derselben Korrektur bewahrt und war
+ * kein gutes Argument: sie steht seit demselben Tag auf {@link refCardText}.
  * Die Reihenfolge ist Teil der Zusage: bereinigen vor kürzen. Andersherum überlebt eine
  * Kennung, die über die 120 Zeichen von {@link snippet} hinausragt, als verstümmelter
  * Rest — kein Muster erkennt sie danach noch (nachgemessen, Kopf von `previewText.ts`).
@@ -974,6 +976,35 @@ export const replyPreview = (quoted: TrustedEvent | undefined, nameOf: (pubkey: 
  */
 export const threadSnippet = (root: TrustedEvent, nameOf: (pubkey: string) => string): string =>
     snippet(previewBody(root, nameOf))
+
+/**
+ * Der Ausschnitt IN der Zitatkarte ({@link buildRefCard}, Feld `text`).
+ *
+ * **Die sechste und letzte Anriss-Fläche, nachgezogen am 2026-09-05.** Sie stand auf
+ * `withShortRefTokens(snippet(bodyWithoutQuote(quoted)))` — byte-gleich zu der Form, die
+ * die anderen fünf am selben Tag verloren haben, mit denselben zwei Löchern: eine Kennung,
+ * die über die Kappung von {@link snippet} hinausragt, blieb roh stehen (gemessen: 51
+ * bech32-Zeichen plus dem `nostr:` davor), und ein `npub` wurde nur gekürzt statt zum
+ * Namen aufgelöst — obwohl dieselbe Karte den Namen des zitierten Autors eine Zeile höher
+ * bereits auflöst.
+ *
+ * **Dass neben dem Ausschnitt ein aufgelöster Link steht, rettet den Ausschnitt nicht.**
+ * Mit genau diesem Unterschied war die Fläche eine Runde lang zurückgestellt worden. Die
+ * rohen Zeichen stehen IM Text und werden von der Kennung daneben nicht lesbarer.
+ *
+ * **Das vorangestellte Antwort-Zitat fällt hier ab jetzt bedingungslos**, anders als beim
+ * bisherigen `bodyWithoutQuote`, das den Präfix nur mit `q`-Tag entfernt. Das ist die
+ * Fortsetzung von „nie geschachtelt" (`nostrEventLink.ts withShortRefTokens`, seit dieser
+ * Zeile ohne Aufrufer in der Anwendung): eine Karte zeigt einen
+ * Ausschnitt, und ein Ausschnitt, der mit der Kennung seines eigenen Zitats beginnt,
+ * verbrennt seine erste Zeile an einer Referenz, die keine zweite Karte bekommt.
+ *
+ * Eigene Funktion aus demselben Grund wie {@link threadSnippet}: {@link buildRefCard}
+ * braucht einen vollen {@link ChatBuildCtx}, diese Zeile nicht — und ohne sie wäre die
+ * Zusage nur über eine Store-Ableitung erreichbar, also gar nicht.
+ */
+export const refCardText = (quoted: TrustedEvent, nameOf: (pubkey: string) => string): string =>
+    snippet(previewBody(quoted, nameOf))
 
 /**
  * Baut die positions-UNABHÄNGIGEN ChatMessage-Felder eines Events — der gemeinsame Kern von
