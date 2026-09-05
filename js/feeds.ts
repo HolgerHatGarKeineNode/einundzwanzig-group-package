@@ -43,7 +43,8 @@ import { chatImageHtml, emojiImgHtml } from './blossomMarkup.ts'
 import { contentEmojiTags } from './emoji.ts'
 import { linkDisplay, isPlausibleUrl } from './chatLinks.ts'
 import { applyInlineMarkup, stripInlineMarkup } from './chatMarkup.ts'
-import { firstNostrRef, refClickTarget, refThreadPath, shortenEntity, withShortRefTokens, type NostrRef } from './nostrEventLink.ts'
+import { firstNostrRef, refClickTarget, refThreadPath, shortenEntity, type NostrRef } from './nostrEventLink.ts'
+import { previewBody } from './previewText.ts'
 import { quoteCardsEnabled } from './displayPrefs.ts'
 import { withSpace } from './spaceParam.ts'
 import { withOrigin } from './updatesView.ts'
@@ -928,9 +929,82 @@ const buildRefCard = (event: TrustedEvent, ctx: ChatBuildCtx, reply: ReplyPrevie
         resolved,
         pubkey: quoted?.pubkey ?? '',
         name: quoted ? displayProfileByPubkey(quoted.pubkey) : '',
-        text: quoted ? withShortRefTokens(snippet(bodyWithoutQuote(quoted))) : '',
+        text: quoted ? refCardText(quoted, displayProfileByPubkey) : '',
     }
 }
+
+/**
+ * Die Antwort-Vorschau über einer Nachricht: EINE Zeile, die die zitierte Nachricht
+ * anreisst.
+ *
+ * **`previewBody` VOR `snippet` (2026-09-05).** Hier stand der Rohtext der zitierten
+ * Nachricht und damit jede NIP-19-Kennung darin — anders als bei der Zitatkarte
+ * ({@link buildRefCard}) steht neben dieser Zeile nicht einmal ein aufgelöster Link. Dass
+ * die Karte einen hat, hat sie eine Runde lang vor derselben Korrektur bewahrt und war
+ * kein gutes Argument: sie steht seit demselben Tag auf {@link refCardText}.
+ * Die Reihenfolge ist Teil der Zusage: bereinigen vor kürzen. Andersherum überlebt eine
+ * Kennung, die über die 120 Zeichen von {@link snippet} hinausragt, als verstümmelter
+ * Rest — kein Muster erkennt sie danach noch (nachgemessen, Kopf von `previewText.ts`).
+ *
+ * Eigene Funktion statt einer Zeile in {@link toChatMessage}, damit die Zusage ohne den
+ * vollen `ChatBuildCtx` prüfbar ist.
+ */
+export const replyPreview = (quoted: TrustedEvent | undefined, nameOf: (pubkey: string) => string): ReplyPreview | null =>
+    quoted ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(previewBody(quoted, nameOf)) } : null
+
+/**
+ * Der Anriss eines Thread-Kopfs in der Space-Übersicht der Startseite
+ * ({@link SpaceThread}, gebaut in {@link deriveSpaceThreads}).
+ *
+ * **Die fünfte Anriss-Fläche, nachgezogen am 2026-09-05.** Sie stand bis dahin auf
+ * `withShortRefTokens(snippet(bodyWithoutQuote(root)))` — dieselbe löchrige Reihenfolge,
+ * die die anderen vier gerade verloren haben, und sie kostete hier zweierlei:
+ *
+ *  1. **Reihenfolge.** Eine Kennung, die über die Kappung von {@link snippet} hinausragt,
+ *     wird verstümmelt und passt danach auf kein Muster mehr — sie blieb roh stehen.
+ *     Gemessen am 2026-09-05: bei 62 Zeichen Vorlauf überleben 44 Datenzeichen der
+ *     `nevent1`-Kennung die Kappung, `REF_TOKEN` verlangt aber `{60,512}`.
+ *  2. **Namen.** `withShortRefTokens` kennt keinen Resolver und kürzt jede Kennung, auch
+ *     einen `npub`. Eine Erwähnung stand in der Threads-Liste damit als
+ *     `npub1abcdefghijk…`, während dieselbe Zeile den Namen ihres Wurzel-Autors eine
+ *     Zeile höher aus `displayProfileByPubkey` auflöst. Jetzt fragen beide denselben
+ *     Cache; fehlt das Profil, bleibt es bei der Kurzform.
+ *
+ * Eigene Funktion statt einer Zeile in {@link deriveSpaceThreads} — gleicher Grund wie bei
+ * {@link replyPreview}: so ist die Zusage ohne Store-Runtime prüfbar
+ * (`previewText.test.ts`, Fläche 5).
+ */
+export const threadSnippet = (root: TrustedEvent, nameOf: (pubkey: string) => string): string =>
+    snippet(previewBody(root, nameOf))
+
+/**
+ * Der Ausschnitt IN der Zitatkarte ({@link buildRefCard}, Feld `text`).
+ *
+ * **Die sechste und letzte Anriss-Fläche, nachgezogen am 2026-09-05.** Sie stand auf
+ * `withShortRefTokens(snippet(bodyWithoutQuote(quoted)))` — byte-gleich zu der Form, die
+ * die anderen fünf am selben Tag verloren haben, mit denselben zwei Löchern: eine Kennung,
+ * die über die Kappung von {@link snippet} hinausragt, blieb roh stehen (gemessen: 51
+ * bech32-Zeichen plus dem `nostr:` davor), und ein `npub` wurde nur gekürzt statt zum
+ * Namen aufgelöst — obwohl dieselbe Karte den Namen des zitierten Autors eine Zeile höher
+ * bereits auflöst.
+ *
+ * **Dass neben dem Ausschnitt ein aufgelöster Link steht, rettet den Ausschnitt nicht.**
+ * Mit genau diesem Unterschied war die Fläche eine Runde lang zurückgestellt worden. Die
+ * rohen Zeichen stehen IM Text und werden von der Kennung daneben nicht lesbarer.
+ *
+ * **Das vorangestellte Antwort-Zitat fällt hier ab jetzt bedingungslos**, anders als beim
+ * bisherigen `bodyWithoutQuote`, das den Präfix nur mit `q`-Tag entfernt. Das ist die
+ * Fortsetzung von „nie geschachtelt" (`nostrEventLink.ts withShortRefTokens`, seit dieser
+ * Zeile ohne Aufrufer in der Anwendung): eine Karte zeigt einen
+ * Ausschnitt, und ein Ausschnitt, der mit der Kennung seines eigenen Zitats beginnt,
+ * verbrennt seine erste Zeile an einer Referenz, die keine zweite Karte bekommt.
+ *
+ * Eigene Funktion aus demselben Grund wie {@link threadSnippet}: {@link buildRefCard}
+ * braucht einen vollen {@link ChatBuildCtx}, diese Zeile nicht — und ohne sie wäre die
+ * Zusage nur über eine Store-Ableitung erreichbar, also gar nicht.
+ */
+export const refCardText = (quoted: TrustedEvent, nameOf: (pubkey: string) => string): string =>
+    snippet(previewBody(quoted, nameOf))
 
 /**
  * Baut die positions-UNABHÄNGIGEN ChatMessage-Felder eines Events — der gemeinsame Kern von
@@ -943,9 +1017,7 @@ const toChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Omit<ChatMessage
     const mine = event.pubkey === ctx.me
     const quotedId = tagValue(tagSpec('q'), event.tags)
     const quoted = quotedId ? ctx.byId.get(quotedId) : undefined
-    const reply: ReplyPreview | null = quoted
-        ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(bodyWithoutQuote(quoted)) }
-        : null
+    const reply: ReplyPreview | null = replyPreview(quoted, nameOf)
     // Threading (C6b, Slack-Modell): JEDE Nachricht ist thread-fähig — der Thread wurzelt an
     // ihr selbst (event.id), Kommentare (kind 1111) tragen ["E", event.id]. null = keine Antworten.
     const thread = buildThreadSummary(ctx.commentsByRoot.get(event.id) ?? [], ctx.$profiles, nameOf)
@@ -2035,12 +2107,13 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
                     nevent: nip19.neventEncode({ id: root.id, relays: [url], author: root.pubkey }),
                     roomH: tagValue(tagSpec('h'), root.tags) ?? '',
                     authorName: displayProfileByPubkey(root.pubkey),
-                    // `withShortRefTokens` wie bei der Zitatkarte (`text:` weiter
-                    // oben): eine Nachricht, die mit `nostr:npub1…` beginnt, füllte
-                    // den Ausschnitt sonst mit 63 Zeichen bech32 und verdrängte den
-                    // Satz, um den es geht. In der Threads-Liste am Gerät gesehen
-                    // (2026-08-20) — derselbe Fehler, den die Notification hatte.
-                    snippet: withShortRefTokens(snippet(bodyWithoutQuote(root))),
+                    // Dieselbe Regel wie die Antwort-Vorschau, bereinigen VOR kürzen
+                    // ({@link threadSnippet}): eine Nachricht, die mit `nostr:npub1…`
+                    // beginnt, füllte den Ausschnitt sonst mit 63 Zeichen bech32 und
+                    // verdrängte den Satz, um den es geht. In der Threads-Liste am
+                    // Gerät gesehen (2026-08-20) — derselbe Fehler, den die
+                    // Notification hatte.
+                    snippet: threadSnippet(root, displayProfileByPubkey),
                     count: cs.length,
                     faces,
                     lastLabel: relativeTime(newestFirst[0].created_at),

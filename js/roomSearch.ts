@@ -58,7 +58,8 @@ import { type TrustedEvent } from '@welshman/util'
 import { MESSAGE } from './welshmanKinds.ts'
 import { displayProfileByPubkey } from './spaceProfiles.ts'
 import { activeSpace } from './groups.ts'
-import { bodyWithoutQuote, deriveRoomMessages, fullTimeLabel } from './feeds.ts'
+import { deriveRoomMessages, fullTimeLabel } from './feeds.ts'
+import { previewBody } from './previewText.ts'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 import { SEARCH_RESULT_LIMIT, searchMessages, type SearchHit, type SearchableRow } from './search.ts'
 
@@ -107,14 +108,33 @@ const isSearchable = (event: TrustedEvent): boolean =>
     event.kind === MESSAGE || event.kind === BUZZ_MESSAGE_V2
 
 /**
- * Ereignis → durchsuchbare Zeile. Der Text ist der Rohtext OHNE das vorangestellte
- * Zitat einer Antwort (`bodyWithoutQuote`): sonst fände „hallo" jede Antwort auf eine
- * Nachricht mit „hallo", und die Trefferliste zeigte reihenweise fremden Text.
+ * Ereignis → durchsuchbare Zeile. Der Text ist der Nachrichtentext OHNE das vorangestellte
+ * Zitat einer Antwort: sonst fände „hallo" jede Antwort auf eine Nachricht mit „hallo",
+ * und die Trefferliste zeigte reihenweise fremden Text.
+ *
+ * **`previewBody` statt `bodyWithoutQuote` (2026-09-05) — und das ändert hier BEIDES**,
+ * weil `SearchableRow.text` zugleich Heuhaufen und Anzeigetext ist: `searchMessages` baut
+ * die hervorgehobenen `segments` aus demselben String, den es durchsucht. Zwei Felder wären
+ * schlimmer als eines — die Trefferstellen lägen dann an Positionen des einen Strings und
+ * würden im anderen markiert.
+ *
+ * Was das gewinnt: die Trefferzeile zeigt keine rohe NIP-19-Kennung mehr (bis hierher
+ * konnte eine einzelne Erwähnung 69 Zeichen der Zeile füllen), und „Alice" findet ab jetzt
+ * Nachrichten, die Alice per `nostr:npub…` erwähnen — bisher stand ihr Name im Text gar
+ * nicht drin.
+ *
+ * Was das kostet, ausdrücklich: wer eine rohe `npub`/`nevent`-Kennung in das Suchfeld
+ * einfügt, findet sie nicht mehr. Das ist der bewusste Tausch — gesucht wird, was man
+ * sieht. Eine Suche, die auf einem anderen Text arbeitet als dem angezeigten, kann ihre
+ * Treffer nicht ehrlich hervorheben.
+ *
+ * Exportiert wie {@link import('./roomPins.ts').pinnedEntry}, damit die Zusage ohne die
+ * Alpine-Insel prüfbar ist.
  */
-const toRow = (event: TrustedEvent): RoomSearchRow => ({
+export const roomSearchRow = (event: TrustedEvent): RoomSearchRow => ({
     id: event.id,
     created_at: event.created_at,
-    text: bodyWithoutQuote(event),
+    text: previewBody(event, displayProfileByPubkey),
     name: displayProfileByPubkey(event.pubkey),
     time: fullTimeLabel(event.created_at),
 })
@@ -195,7 +215,7 @@ const createRoomSearch = (h: unknown): RoomSearchState => ({
 
     /** Suchen. Synchron, im Speicher, ohne Netz. */
     run(): void {
-        const outcome = searchMessages(this._events.map(toRow), this.query, this.limit)
+        const outcome = searchMessages(this._events.map(roomSearchRow), this.query, this.limit)
         this.searched = outcome.searched
         this.total = outcome.total
         this.hits = outcome.hits
