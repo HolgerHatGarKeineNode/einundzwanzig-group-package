@@ -2,11 +2,14 @@
  * Der Vorschautext einer Nachricht — die eine Regel für alle Zeilen, die eine Nachricht
  * ANREISSEN statt sie zu rendern.
  *
- * Vier Flächen zeigen einen Anriss: die Benachrichtigungs-Liste (`updates.ts`), die
- * Antwort-Vorschau über einer Nachricht (`feeds.ts`), die Leiste der angepinnten
- * Nachricht (`roomPins.ts`) und die Trefferzeile der Raum-Suche (`roomSearch.ts`). Alle
- * vier gaben bis zum 2026-09-05 `bodyWithoutQuote(event)` roh weiter, und damit jede
- * NIP-19-Kennung, die im Text steht.
+ * Fünf Flächen zeigen einen Anriss: die Benachrichtigungs-Liste (`updates.ts`), die
+ * Antwort-Vorschau über einer Nachricht (`feeds.ts replyPreview`), die Leiste der
+ * angepinnten Nachricht (`roomPins.ts`), die Trefferzeile der Raum-Suche
+ * (`roomSearch.ts`) und der Thread-Kopf in der Space-Übersicht der Startseite
+ * (`feeds.ts threadSnippet`). Alle fünf gaben bis zum 2026-09-05 `bodyWithoutQuote(event)`
+ * roh weiter, und damit jede NIP-19-Kennung, die im Text steht. Die fünfte kam am selben
+ * Tag nach: sie lag ausserhalb der DoD der ersten Runde und trug die alte Reihenfolge
+ * deshalb einen Commit länger.
  *
  * **Was das gekostet hat, gemessen am 2026-09-04** (390 px, `line-clamp-2`, Textspalte
  * 278 px, Zeichen per Range-Rect gegen die Elementbox gezählt):
@@ -35,11 +38,28 @@
  * Android-Poller entscheidet seit dem 2026-08-19 genauso (`twenty-one-companion`,
  * `RelayPollWorker.kt readableBody` — dort ebenfalls bedingungslos).
  *
- * **2. Bereinigen kommt VOR Kürzen.** `feeds.ts:2043` macht es umgekehrt
- * (`withShortRefTokens(snippet(x))`) und ist dadurch löchrig: eine Kennung, die über die
- * 120-Zeichen-Kappung hinausragt, wird verstümmelt, passt danach auf kein Muster mehr und
- * bleibt roh stehen (nachgemessen 2026-09-04 an `…\n\nvgl. nostr:note1…`). Wer diese
- * Funktion benutzt, ruft sie deshalb VOR jedem `slice`/`snippet` auf.
+ * **2. Bereinigen kommt VOR Kürzen.** Umgekehrt (`withShortRefTokens(snippet(x))`) ist es
+ * löchrig: eine Kennung, die über die 120-Zeichen-Kappung von `feeds.ts snippet`
+ * hinausragt, wird verstümmelt, passt danach auf kein Muster mehr — `REF_TOKEN` wie
+ * {@link PREVIEW_REF} verlangen für `nevent1` `{60,512}` — und bleibt roh stehen
+ * (nachgemessen 2026-09-04 an `…\n\nvgl. nostr:note1…`). Wer diese Funktion benutzt, ruft
+ * sie deshalb VOR jedem `slice`/`snippet` auf.
+ *
+ * Am 2026-09-05 ausgerechnet und gemessen: 62 Zeichen Vorlauf, dann eine `nevent1`-Kennung
+ * — nach der Kappung überleben 44 ihrer Datenzeichen. Zu wenig für `{60,512}`, also lässt
+ * die alte Reihenfolge sie stehen: 51 bech32-Zeichen (`nevent1` + 44) plus das `nostr:`
+ * davor, also 57 Zeichen roher Kennungs-Rumpf in einer Zeile, die 120 lang sein darf. Die
+ * richtige Reihenfolge liefert stattdessen `nevent1qgsvenxve…`. Genau diese Rechnung ist
+ * die Kalibrierung des Ordnungsfalls in `previewText.test.ts` — mit einer zu kleinen
+ * Füllung kürzt auch die FALSCHE Reihenfolge den Rest weg, und der Fall unterscheidet die
+ * beiden nicht mehr.
+ *
+ * **Ein Ort im Haus macht es weiterhin umgekehrt, bewusst unangetastet:**
+ * `feeds.ts buildRefCard` (`text:` der Zitatkarte) steht auf
+ * `withShortRefTokens(snippet(bodyWithoutQuote(quoted)))` — dieselbe Komposition, dasselbe
+ * Loch, am 2026-09-05 gemessen und gemeldet, aber ausserhalb dieser Runde. Wer ihn anfasst,
+ * zieht ihn auf `snippet(previewBody(...))` nach: eine Zeile, und die Zitatkarte bekäme
+ * denselben Namen statt der Kurzform.
  *
  * **3. Die Fehlerrichtung geht nur nach kürzer und generischer, nie auf leer.** Kein
  * Nachladen, kein Wurf, kein Rückfall auf die rohe Kennung. Begründung an
@@ -57,11 +77,29 @@ import * as nip19 from 'nostr-tools/nip19'
  * `spaceProfiles.ts displayProfileByPubkey` durch (liest `app.use(Profiles).get`, ein
  * Cache-Zugriff ohne Netz), `updates.ts` reicht seine schon gehaltene `profiles`-Map.
  *
- * Der Grund ist kein Geschmack: diese Funktionen laufen in svelte-`derived`-Callbacks.
- * Ein Wurf aus so einem Callback zerlegt svelte 5.56.4s globale `subscriber_queue`
- * dauerhaft — danach erreicht ein völlig unabhängiger `writable` seine Subscriber nicht
- * mehr (`updates.ts`, Vorfall vom 2026-07-23). Und ein Ladeanstoss aus einer Ableitung
- * heraus feuert bei jeder Neuberechnung erneut.
+ * Der Grund ist kein Geschmack: diese Funktionen laufen im Benachrichtigungslauf von
+ * svelte 5.56.4s globaler `subscriber_queue`, und ein Wurf von dort zerlegt sie dauerhaft.
+ * `svelte/src/store/shared/index.js:56-59` leert die Queue erst NACH der Schleife
+ * (`subscriber_queue.length = 0`); wer aus der Schleife heraus wirft, lässt sie gefüllt
+ * zurück, und jedes spätere `set` sieht `run_queue === false` und stellt nur noch ein.
+ * Danach erreicht ein völlig unabhängiger `writable` seine Subscriber nicht mehr
+ * (`updates.ts`, Vorfall vom 2026-07-23).
+ *
+ * **Nicht „`derived`-Callbacks" — das stand hier bis zum 2026-09-05 und war für zwei der
+ * fünf Flächen falsch.** Zeile 57 ruft den SUBSCRIBER auf; ein `.subscribe()`-Callback
+ * steht damit genauso in der Schleife wie eine Ableitung. Der Weg je Fläche:
+ *
+ *   | Fläche | wie sie hierher kommt |
+ *   |---|---|
+ *   | `updates.ts computeUpdates` | `derived([...])`-Callback |
+ *   | `feeds.ts replyPreview` / `threadSnippet` | `derived([...])`-Callback |
+ *   | `roomPins.ts pinnedEntry` | `recompute()` aus `derivePinSource(...).subscribe(...)` |
+ *   | `roomSearch.ts roomSearchRow` | `run()` aus `deriveRoomMessages(...).subscribe(...)` — **und** aus Alpines `$watch('query')` |
+ *
+ * Nur der `$watch`-Pfad steht ausserhalb der Queue; für ihn galt die alte Begründung nie.
+ * Die Vorsicht ändert das nicht, denn dieselbe Funktion läuft über den Abo-Pfad wieder
+ * hinein — eine Zusage, die nur auf einem von zwei Aufrufwegen gilt, ist keine. Und ein
+ * Ladeanstoss aus einer Ableitung heraus feuert bei jeder Neuberechnung erneut.
  *
  * Rückgabe ist IMMER etwas Anzeigbares — bei unbekanntem Profil die gekürzte Kennung aus
  * `@welshman/domain displayPubkey`. Liefert eine Fläche trotzdem `''`, greift der
@@ -146,8 +184,8 @@ const sanitizeName = (name: string): string =>
  * **Nie leer.** „Frag mal danach" ohne jeden Hinweis ist eine andere Nachricht als die
  * geschriebene; die Kennung wird ERSETZT, nicht gelöscht. **Nie roh.** Jede Stufe endet
  * bei etwas Kurzem, keine bei der vollen Kennung. **Nie ein Wurf:** `nip19.decode` wirft
- * bei kaputter Prüfsumme, und dieser Code läuft in `derived`-Callbacks (siehe
- * {@link NameResolver}).
+ * bei kaputter Prüfsumme, und dieser Code läuft im Benachrichtigungslauf der svelte-Stores
+ * — in Ableitungen wie in `.subscribe`-Callbacks (siehe {@link NameResolver}).
  *
  * **Der Deckel ist nicht gegen das Suchen, sondern gegen das Dekodieren.** Jeder
  * fehlschlagende `nip19.decode` erzeugt einen Error samt Stack; ein Text aus Attrappen
@@ -203,7 +241,7 @@ export const readableRefTokens = (text: string, resolveName: NameResolver): stri
  * Der Vorschautext eines Ereignisses: ohne vorangestelltes Antwort-Zitat, ohne rohe
  * NIP-19-Kennung.
  *
- * Das ist die Funktion, die die vier Anriss-Flächen rufen — **vor** jedem Kürzen und vor
+ * Das ist die Funktion, die die fünf Anriss-Flächen rufen — **vor** jedem Kürzen und vor
  * `stripInlineMarkup` (Auszeichnung zuletzt, gleiche Reihenfolge wie im Android-Poller).
  *
  * Ersetzt `feeds.ts bodyWithoutQuote` NICHT: das bleibt der richtige Griff überall dort,

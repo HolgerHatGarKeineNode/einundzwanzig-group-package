@@ -1,12 +1,16 @@
 /**
- * Der Vorschautext — die Regel selbst UND die vier Flächen, die sie anwenden.
+ * Der Vorschautext — die Regel selbst UND die fünf Flächen, die sie anwenden.
  *
  * Diese Datei bewacht einen Fehler, der viermal dieselbe Auslassung war: `bodyWithoutQuote`
  * gab den Rohtext weiter, und niemand ersetzte darin die NIP-19-Kennungen. Sie ist deshalb
- * zweigeteilt — Teil A prüft die Regel (`previewText.ts`), Teil B prüft, dass jede der vier
+ * zweigeteilt — Teil A prüft die Regel (`previewText.ts`), Teil B prüft, dass jede der fünf
  * Flächen sie tatsächlich ruft. Teil A allein hätte den ursprünglichen Fehler nicht gesehen:
  * die Funktion, die es richtig machte (`withShortRefTokens`), gab es die ganze Zeit — sie
  * wurde an vier Stellen nur nicht gerufen.
+ *
+ * Die fünfte Fläche (`feeds.ts threadSnippet`, Thread-Kopf der Startseite) kam am
+ * 2026-09-05 dazu und trug ein anderes Loch derselben Regel: sie rief `withShortRefTokens`
+ * schon, aber NACH dem Kürzen — und ohne Resolver, also ohne Namen.
  *
  * **Alle Kennungen sind echt** (`nostr-tools/nip19`). Eine erfundene bech32-Attrappe prüft
  * nichts: das Muster hat Längenschranken, und `nip19.decode` prüft eine Prüfsumme —
@@ -24,7 +28,7 @@ import { type TrustedEvent } from '@welshman/util'
 import { REF_DECODE_CAP } from './nostrEventLink.ts'
 import { previewBody, readableRefTokens, type NameResolver } from './previewText.ts'
 import { computeUpdates, type UpdateInput } from './updates.ts'
-import { replyPreview } from './feeds.ts'
+import { replyPreview, threadSnippet } from './feeds.ts'
 import { pinnedEntry } from './roomPins.ts'
 import { roomSearchRow } from './roomSearch.ts'
 import { roomKey, type ReadState } from './readState.ts'
@@ -70,6 +74,116 @@ const kennt = (pubkey: string, name: string): NameResolver => (pk) => (pk === pu
 
 /** Resolver, der nie einen Namen hat. */
 const kenntNichts: NameResolver = () => ''
+
+// ════════════════════════════════════════════════════════════════════════════════
+// Der Prüfstand für „bereinigen VOR kürzen“ — jede Schranke GEMESSEN
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Der Ordnungsfall („erst bereinigen, dann kürzen“) ist ZWEIMAL als Attrappe durchgegangen,
+// beide Male an einer von Hand gerechneten Füll-Länge. Deshalb steht hier keine Zahl mehr aus
+// dem Kopf — jede Schranke wird an dem Modul gemessen, das sie setzt. Warum, steht an
+// {@link pruefeGrenzKalibrierung}.
+
+/** Wo `feeds.ts snippet` kappt — am Verhalten gemessen, nicht aus `feeds.ts` abgeschrieben. */
+const SNIPPET_MAX = ((): number => {
+    const probe = 'a'.repeat(1_000)
+    const gekappt = (replyPreview(ereignis(probe), kenntNichts)?.text ?? '').replace(/…$/u, '')
+    if (gekappt.length >= probe.length) {
+        throw new Error('replyPreview kürzt 1000 Zeichen nicht — die Füll-Länge unten wäre dann geraten')
+    }
+    return gekappt.length
+})()
+
+/**
+ * Die kleinste Zahl bech32-Datenzeichen, ab der `previewText.ts` einen `nevent1`-Rest noch
+ * als Kennung ERKENNT (= die Untergrenze von `PREVIEW_REF`). Gemessen an
+ * {@link readableRefTokens} selbst: eine abgeschriebene 60 würde still falsch, sobald
+ * jemand die Schranke im Muster ändert — und der Fall unten wäre wieder eine Attrappe.
+ */
+const REF_MIN_DATENZEICHEN = ((): number => {
+    const daten = NEVENT.slice('nevent1'.length)
+    for (let n = 1; n <= daten.length; n++) {
+        const probe = `nostr:nevent1${daten.slice(0, n)}`
+        if (readableRefTokens(probe, kenntNichts) !== probe) {
+            return n
+        }
+    }
+    throw new Error('readableRefTokens ersetzt keinen nevent1-Rest — der Prüfstand misst dann nichts')
+})()
+
+/** Ab wie vielen Datenzeichen {@link traegtRoheKennung} anschlägt — dieselbe Vorsicht. */
+const ROHE_KENNUNG_MIN = ((): number => {
+    const daten = NEVENT.slice('nevent1'.length)
+    for (let n = 1; n <= daten.length; n++) {
+        if (traegtRoheKennung(`nevent1${daten.slice(0, n)}`)) {
+            return n
+        }
+    }
+    throw new Error('traegtRoheKennung schlägt bei keiner Länge an')
+})()
+
+/** Was vor den Datenzeichen steht: das Trennzeichen, `nostr:` und `nevent1`. */
+const KENNUNG_VORSPANN = ' nostr:nevent1'.length
+
+/**
+ * Füll-Länge, so gerechnet, dass der überlebende Rest MITTIG im Fenster
+ * [{@link ROHE_KENNUNG_MIN}, {@link REF_MIN_DATENZEICHEN}) landet — grösstmöglicher Abstand
+ * zu beiden Fehlern von oben. Mit den heutigen Werten (120 / 30 / 60): Füllung 62,
+ * Rest 44 Datenzeichen.
+ */
+const ORDNUNG_FUELL = SNIPPET_MAX - KENNUNG_VORSPANN - Math.floor((ROHE_KENNUNG_MIN + REF_MIN_DATENZEICHEN - 1) / 2)
+
+/** Ein Text, dessen Kennung genau an der Kappung zerschnitten wird. */
+const grenzText = (): string => `${'a'.repeat(ORDNUNG_FUELL)} nostr:${NEVENT} ende`
+
+/**
+ * Die Falle stellen — BEIDE Hälften, plus die Gegenprobe.
+ *
+ * Jede Anriss-Fläche mit eigener Kürzung ({@link replyPreview}, {@link threadSnippet})
+ * ruft das vor ihrer Ordnungs-Zusage. Ohne diese drei Sätze prüft die Zusage danach
+ * möglicherweise nichts, und man sähe es ihr nicht an.
+ *
+ * **Warum der überlebende Rest ein FENSTER treffen muss und keine Untergrenze.** Nach der
+ * Kappung bleibt von der Kennung ein Anfangsstück stehen. Es muss gleichzeitig
+ *
+ *   – **gross genug** sein, dass {@link traegtRoheKennung} es überhaupt als Kennung sieht,
+ *     UND
+ *   – **klein genug**, dass `PREVIEW_REF`/`REF_TOKEN` (`nevent1[0-9a-z]{60,512}`) es nicht
+ *     mehr matchen — sonst kürzt die FALSCHE Reihenfolge es genauso weg wie die richtige,
+ *     und der Fall unterscheidet die beiden gar nicht.
+ *
+ * Beide Fehler sind hier passiert, und beide Male blieb der Fall unter der Rückbau-Mutation
+ * GRÜN:
+ *
+ *   | Entwurf | Füllung | Rest-Datenzeichen | warum blind |
+ *   |---|---|---|---|
+ *   | 1 | 100 | 6 (13 Zeichen mit `nevent1`) | unter jeder Erkennungsschwelle |
+ *   | 2 | 40 | 66 (73 mit `nevent1`) | über `{60,512}` — beide Reihenfolgen kürzen |
+ *   | jetzt | gerechnet, heute 62 | 44 | mittig im Fenster [30, 60) |
+ *
+ * Entwurf 2 wurde am 2026-09-05 vom Prüfer nachgewiesen; Entwurf 1 stand als Warnung schon
+ * im Test und hat Entwurf 2 trotzdem nicht verhindert, weil er nur die untere Schranke
+ * nannte. Eine Kalibrierung, die nur die halbe Falle stellt, ist genau dieser Fehler —
+ * deshalb prüft die Funktion beide Schranken und misst zusätzlich am Ergebnis nach.
+ */
+const pruefeGrenzKalibrierung = (): void => {
+    const roh = grenzText()
+    const gekappt = `${roh.slice(0, SNIPPET_MAX)}…`
+    const restDatenzeichen = SNIPPET_MAX - (roh.indexOf(NEVENT) + 'nevent1'.length)
+    assert.ok(
+        roh.indexOf(NEVENT) + NEVENT.length > SNIPPET_MAX,
+        `KALIBRIERUNG 1/2: die Kennung muss über die Kappung bei ${SNIPPET_MAX} hinausragen — sonst wird nichts zerschnitten und beide Reihenfolgen liefern dasselbe`,
+    )
+    assert.ok(
+        restDatenzeichen >= ROHE_KENNUNG_MIN && restDatenzeichen < REF_MIN_DATENZEICHEN,
+        `KALIBRIERUNG 2/2: der geklemmte Rest (${restDatenzeichen} Datenzeichen) muss im Fenster [${ROHE_KENNUNG_MIN}, ${REF_MIN_DATENZEICHEN}) liegen — darüber kürzt auch die falsche Reihenfolge ihn weg, darunter erkennt ihn niemand mehr als Kennung`,
+    )
+    assert.equal(
+        traegtRoheKennung(readableRefTokens(gekappt, kenntNichts)),
+        true,
+        'KALIBRIERUNG Gegenprobe: erst kappen, dann bereinigen MUSS die Kennung roh stehen lassen — genau diesen Zustand schliesst die Zusage danach aus',
+    )
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════════
 // A — die Regel
@@ -168,7 +282,7 @@ describe('previewText: das vorangestellte Zitat fällt ohne Bedingung', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════════
-// B — die vier Flächen
+// B — die fünf Flächen
 // ═══════════════════════════════════════════════════════════════════════════════════
 
 const URL = 'wss://relay.example/'
@@ -227,24 +341,16 @@ describe('Fläche 2 — Antwort-Vorschau (feeds.ts replyPreview)', () => {
     })
 
     /**
-     * Die Reihenfolge IST die Zusage: `snippet` kappt bei 120 Zeichen. Wird erst gekappt und
-     * dann bereinigt, überlebt eine Kennung, die über die Kappung hinausragt, als
-     * verstümmelter Rest — genau der Fehler, den `feeds.ts:2043` noch trägt.
+     * Die Reihenfolge IST die Zusage: `snippet` kappt, und wer erst kappt und danach
+     * bereinigt, lässt eine Kennung, die über die Kappung hinausragt, als verstümmelten
+     * Rest stehen — kein Muster erkennt sie danach noch.
      *
-     * **Die Füll-Länge ist gerechnet, nicht geraten.** Der erste Entwurf nahm 100 Zeichen;
-     * die Kennung begann damit bei 107 und war nach der Kappung nur noch 13 Zeichen lang —
-     * unter jeder Nachweisschwelle. Der Test blieb unter der Rückbau-Mutation GRÜN und
-     * bewies nichts. Mit 40 Zeichen beginnt sie bei 47, und 73 ihrer Zeichen überleben die
-     * Kappung: genug, um sie als Kennung zu erkennen.
+     * Die Füll-Länge steht nicht hier, sie wird gerechnet: {@link ORDNUNG_FUELL}. Warum
+     * das nötig war und was zweimal schiefging, steht am {@link pruefeGrenzKalibrierung}.
      */
-    test('bereinigen VOR kürzen: eine Kennung an der 120-Zeichen-Grenze bleibt nicht stehen', () => {
-        const fuell = 'a'.repeat(40)
-        const roh = `${fuell} nostr:${NEVENT} ende`
-        assert.ok(
-            traegtRoheKennung(roh.slice(0, 120)),
-            'KALIBRIERUNG: der Aufbau muss die Kennung ÜBER die Kappung hinausragen lassen — sonst prüft der Fall nichts',
-        )
-        const preview = replyPreview(ereignis(roh), kenntNichts)
+    test('bereinigen VOR kürzen: eine Kennung an der Kappungsgrenze bleibt nicht stehen', () => {
+        pruefeGrenzKalibrierung()
+        const preview = replyPreview(ereignis(grenzText()), kenntNichts)
         assert.equal(traegtRoheKennung(preview?.text ?? ''), false)
     })
 
@@ -282,6 +388,36 @@ describe('Fläche 4 — Raum-Suche (roomSearch.ts roomSearchRow)', () => {
     })
 })
 
+/**
+ * Die fünfte Fläche, nachgezogen am 2026-09-05. Sie war formal ausserhalb der DoD der
+ * Vorrunde und trug die alte, löchrige Reihenfolge deshalb weiter — dieselbe Bauart, ein
+ * Stockwerk tiefer in derselben Datei.
+ */
+describe('Fläche 5 — Thread-Übersicht der Startseite (feeds.ts threadSnippet)', () => {
+    test('der Thread-Kopf zeigt den Namen statt der Kennung', () => {
+        const text = threadSnippet(ereignis(`nostr:${NPUB_ME} schau mal`), kennt(ME, 'Alice'))
+        assert.equal(text, '@Alice schau mal')
+    })
+
+    /**
+     * Ohne Profil bleibt die Kurzform — nie leer, nie roh. Der alte Griff
+     * `withShortRefTokens` lieferte GENAU das, und zwar immer: er kennt keinen Resolver.
+     * Was er nicht konnte, steht im Test darüber.
+     */
+    test('ohne kind 0: Kurzform, und der Satz bleibt stehen', () => {
+        const text = threadSnippet(ereignis(`nostr:${NPUB_ME} schau mal`), kenntNichts)
+        assert.equal(traegtRoheKennung(text), false)
+        assert.ok(text.includes('schau mal'))
+        assert.notEqual(text.trim(), '')
+    })
+
+    /** Dieselbe Zusage und dieselbe gerechnete Falle wie bei {@link replyPreview}. */
+    test('bereinigen VOR kürzen: eine Kennung an der Kappungsgrenze bleibt nicht stehen', () => {
+        pruefeGrenzKalibrierung()
+        assert.equal(traegtRoheKennung(threadSnippet(ereignis(grenzText()), kenntNichts)), false)
+    })
+})
+
 // ═══════════════════════════════════════════════════════════════════════════════════
 // C — der Verdrahtungs-Riegel
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -297,10 +433,20 @@ describe('Fläche 4 — Raum-Suche (roomSearch.ts roomSearchRow)', () => {
  * Er ersetzt die Verhaltenstests nicht: er weiss nicht, ob der Aufruf das Richtige tut.
  * Er weiss nur, dass er da ist.
  */
-describe('Verdrahtung: alle vier Flächen rufen dieselbe Regel', () => {
+describe('Verdrahtung: alle fünf Flächen rufen dieselbe Regel', () => {
+    // Vier DATEIEN, fünf Flächen: `feeds.ts` trägt zwei (Antwort-Vorschau und Thread-Kopf).
+    //
+    // **Was dieser Riegel für `feeds.ts` seit dem 2026-09-05 NICHT mehr leistet:** er ist
+    // erfüllt, sobald EINE der beiden Flächen `previewBody` ruft. Fiele die Antwort-Vorschau
+    // zurück, bliebe er grün, weil `threadSnippet` den Aufruf weiterhin enthält. Das ist
+    // hinnehmbar, weil beide Flächen daneben direkt am Verhalten geprüft sind (Fläche 2 und
+    // Fläche 5) — die Antwort-Vorschau IST `replyPreview`, der Test ruft sie selbst auf.
+    // Ungeprüft bliebe allein die Stelle, an der `deriveSpaceThreads` sein Snippet baut: die
+    // liegt in einer Store-Ableitung und ist aus einem Unit-Test nicht erreichbar. Genau
+    // dafür steht der zweite Riegel unten.
     const FLAECHEN = [
         ['updates.ts', 'Benachrichtigungs-Liste'],
-        ['feeds.ts', 'Antwort-Vorschau'],
+        ['feeds.ts', 'Antwort-Vorschau + Thread-Kopf'],
         ['roomPins.ts', 'Pin-Leiste'],
         ['roomSearch.ts', 'Raum-Suche'],
     ] as const
@@ -319,6 +465,22 @@ describe('Verdrahtung: alle vier Flächen rufen dieselbe Regel', () => {
             )
         })
     }
+
+    /**
+     * **Die fünfte Fläche braucht einen eigenen Riegel**, weil sie in DERSELBEN Datei liegt
+     * wie die zweite: `feeds.ts` importiert `previewBody` und ruft es auch dann noch, wenn
+     * `deriveSpaceThreads` wieder auf `withShortRefTokens(snippet(...))` zurückfiele. Der
+     * Datei-Riegel oben bliebe dabei grün — genau die Blindheit, die diese Fläche
+     * überhaupt erst durch die letzte Runde getragen hat.
+     */
+    test('feeds.ts verdrahtet den Thread-Kopf der Startseite auf threadSnippet', () => {
+        const quelle = readFileSync(join(JS_DIR, 'feeds.ts'), 'utf8')
+        assert.match(
+            quelle,
+            /snippet: threadSnippet\(/,
+            'deriveSpaceThreads baut sein Snippet nicht mehr über threadSnippet — die Thread-Übersicht fällt auf die alte Reihenfolge zurück',
+        )
+    })
 
     test('KALIBRIERUNG: der Riegel liest wirklich Dateien — ein erfundener Name findet nichts', () => {
         const quelle = readFileSync(join(JS_DIR, 'updates.ts'), 'utf8')

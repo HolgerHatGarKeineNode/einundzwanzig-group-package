@@ -951,6 +951,31 @@ export const replyPreview = (quoted: TrustedEvent | undefined, nameOf: (pubkey: 
     quoted ? { id: quoted.id, name: nameOf(quoted.pubkey), text: snippet(previewBody(quoted, nameOf)) } : null
 
 /**
+ * Der Anriss eines Thread-Kopfs in der Space-Übersicht der Startseite
+ * ({@link SpaceThread}, gebaut in {@link deriveSpaceThreads}).
+ *
+ * **Die fünfte Anriss-Fläche, nachgezogen am 2026-09-05.** Sie stand bis dahin auf
+ * `withShortRefTokens(snippet(bodyWithoutQuote(root)))` — dieselbe löchrige Reihenfolge,
+ * die die anderen vier gerade verloren haben, und sie kostete hier zweierlei:
+ *
+ *  1. **Reihenfolge.** Eine Kennung, die über die Kappung von {@link snippet} hinausragt,
+ *     wird verstümmelt und passt danach auf kein Muster mehr — sie blieb roh stehen.
+ *     Gemessen am 2026-09-05: bei 62 Zeichen Vorlauf überleben 44 Datenzeichen der
+ *     `nevent1`-Kennung die Kappung, `REF_TOKEN` verlangt aber `{60,512}`.
+ *  2. **Namen.** `withShortRefTokens` kennt keinen Resolver und kürzt jede Kennung, auch
+ *     einen `npub`. Eine Erwähnung stand in der Threads-Liste damit als
+ *     `npub1abcdefghijk…`, während dieselbe Zeile den Namen ihres Wurzel-Autors eine
+ *     Zeile höher aus `displayProfileByPubkey` auflöst. Jetzt fragen beide denselben
+ *     Cache; fehlt das Profil, bleibt es bei der Kurzform.
+ *
+ * Eigene Funktion statt einer Zeile in {@link deriveSpaceThreads} — gleicher Grund wie bei
+ * {@link replyPreview}: so ist die Zusage ohne Store-Runtime prüfbar
+ * (`previewText.test.ts`, Fläche 5).
+ */
+export const threadSnippet = (root: TrustedEvent, nameOf: (pubkey: string) => string): string =>
+    snippet(previewBody(root, nameOf))
+
+/**
  * Baut die positions-UNABHÄNGIGEN ChatMessage-Felder eines Events — der gemeinsame Kern von
  * Raum- und Thread-Feed (P3 4.1, „gleiches Model"). divider/showAuthor/unreadDivider hängen von
  * der Position in der Liste ab und kommen aus dem aufrufenden Fold. Leere Aggregations-Maps
@@ -2051,12 +2076,13 @@ export const deriveSpaceThreads = (url: string): Readable<SpaceThread[]> =>
                     nevent: nip19.neventEncode({ id: root.id, relays: [url], author: root.pubkey }),
                     roomH: tagValue(tagSpec('h'), root.tags) ?? '',
                     authorName: displayProfileByPubkey(root.pubkey),
-                    // `withShortRefTokens` wie bei der Zitatkarte (`text:` weiter
-                    // oben): eine Nachricht, die mit `nostr:npub1…` beginnt, füllte
-                    // den Ausschnitt sonst mit 63 Zeichen bech32 und verdrängte den
-                    // Satz, um den es geht. In der Threads-Liste am Gerät gesehen
-                    // (2026-08-20) — derselbe Fehler, den die Notification hatte.
-                    snippet: withShortRefTokens(snippet(bodyWithoutQuote(root))),
+                    // Dieselbe Regel wie die Antwort-Vorschau, bereinigen VOR kürzen
+                    // ({@link threadSnippet}): eine Nachricht, die mit `nostr:npub1…`
+                    // beginnt, füllte den Ausschnitt sonst mit 63 Zeichen bech32 und
+                    // verdrängte den Satz, um den es geht. In der Threads-Liste am
+                    // Gerät gesehen (2026-08-20) — derselbe Fehler, den die
+                    // Notification hatte.
+                    snippet: threadSnippet(root, displayProfileByPubkey),
                     count: cs.length,
                     faces,
                     lastLabel: relativeTime(newestFirst[0].created_at),
