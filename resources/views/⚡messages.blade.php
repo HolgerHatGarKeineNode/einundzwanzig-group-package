@@ -143,9 +143,36 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
         {{-- ── Picking people ───────────────────────────────────────────────────────
              Two ways into the same selection, as in the Buzz DM dialog: typing (a name
-             from the space directory) or pasting a key. --}}
+             from the space directory) or pasting a key.
+
+             ── Why this card scrolls itself into view ────────────────────────────────
+             Its last row carries the confirm button, and the card is the last block of
+             a page that scrolls in the document. On a phone the fixed bottom bar
+             therefore covers that row as soon as the card is taller than the space left
+             below it. Measured at 375 × 667 with this fix removed
+             (`tests/e2e/messages-picker-footer.spec.ts` in the host repo): the row sat at
+             y 684–716 on open and at y 679–711 after picking somebody, against a bar
+             starting at y 607 — 109 px and 104 px past the usable edge. On the reporting
+             device the same row came out sliced through the middle of the lettering.
+
+             The clearance was never missing (`pb-28` on the stage reserves 112 px); it
+             only exists at the END of a document scroll the user can hardly perform,
+             because the suggestion list below is a nested scroll region sitting exactly
+             where the thumb lands, and it swallows the gesture. That is what the second
+             screenshot of the report shows: the list scrolled, the page did not.
+
+             `block: 'end'` plus `scroll-mb-nav` puts the card's bottom edge one rem above
+             the bar's MEASURED top, so the row is clear without the user scrolling at
+             all. Where no bar is rendered the variable is 0 px and the page is not
+             scrollable anyway — at 1280 px the call is a no-op, measured.
+
+             `x-effect` rather than `x-init`: picking a person adds a chip row and grows
+             the card again. Reading `picked.length` subscribes this effect to exactly
+             that change and to nothing else. The scroll is instant (no
+             `behavior: 'smooth'`), so `prefers-reduced-motion` has nothing to suppress. --}}
         <template x-if="$store.privateMessages?.picking">
-            <div class="surface-card mt-3 px-4 py-3" data-pm-picker>
+            <div class="surface-card mt-3 scroll-mb-nav px-4 py-3" data-pm-picker
+                 x-effect="$store.privateMessages?.picked.length; $nextTick(() => $el.scrollIntoView({ block: 'end' }))">
                 <h2 class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Mit wem?') }}</h2>
 
                 <template x-if="($store.privateMessages?.picked ?? []).length">
@@ -193,7 +220,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </div>
                 </template>
 
-                <div class="mt-3 flex justify-end gap-2">
+                <div class="mt-3 flex justify-end gap-2" data-pm-fuss>
                     <flux:button size="sm" variant="ghost" x-on:click="$store.privateMessages?.stopPicking()">{{ __('Abbrechen') }}</flux:button>
                     <flux:button size="sm" variant="primary" data-pm-oeffnen
                                  x-bind:disabled="($store.privateMessages?.picked ?? []).length === 0"

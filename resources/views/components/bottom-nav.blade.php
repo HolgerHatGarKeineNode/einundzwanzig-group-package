@@ -71,6 +71,36 @@
         // Desktop-Chassis (siehe app-frame), dort bleibt die Bar auf JEDER Breite.
         'xl:hidden' => ! $native,
     ])
+    {{-- ── The bar reports its own height; nothing else guesses it ───────────────
+         A surface whose last row has to stay clear of this bar needs to know how
+         tall it is. The bar is content-driven (the app host renders five tabs, the
+         web host three) and adds `pb-safe` on top of that, so no constant written
+         in another file is right for every host. `pb-28` on the stage
+         (`app-shell.blade.php`) is exactly such a constant, and it is a guess.
+
+         So the bar measures ITSELF and publishes the number as `--group-nav-h` on
+         `<html>`. `display: none` — the `xl:hidden` of the web host — reports 0 px
+         through the same observer, so the variable also answers "is there a bar at
+         all", not just "how tall is it". No consumer needs a breakpoint of its own.
+
+         Inline instead of a module under `js/`: it is four lines that belong to
+         this element, and a bundle entry for them would be harder to find than the
+         element itself. --}}
+    x-data="{
+        beobachter: null,
+        melde() {
+            document.documentElement.style.setProperty('--group-nav-h', `${this.$el.offsetHeight}px`)
+        },
+        init() {
+            this.melde()
+            this.beobachter = new ResizeObserver(() => this.melde())
+            this.beobachter.observe(this.$el)
+        },
+        destroy() {
+            this.beobachter?.disconnect()
+            document.documentElement.style.removeProperty('--group-nav-h')
+        },
+    }"
 >
     {{-- Statische Spaltenklasse (JIT-sicher, beide Literale im Quelltext) je realer
          Tab-Zahl: Web 3 · Mobile 4. --}}

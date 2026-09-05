@@ -205,6 +205,15 @@
     padding-right: env(safe-area-inset-right);
 }
 
+/* Clearance for the fixed bottom nav, for anything that scrolls ITSELF into view.
+   `--group-nav-h` is published by the bar (`bottom-nav.blade.php`) and reads `0px`
+   wherever the bar is not rendered, so this utility needs neither a breakpoint nor
+   a host check. The `7rem` fallback covers only the window before Alpine has
+   booted; it matches the `pb-28` the stage already reserves. */
+@utility scroll-mb-nav {
+    scroll-margin-bottom: calc(var(--group-nav-h, 7rem) + 1rem);
+}
+
 /* Karten-Oberfläche: gemeinsame Surface aller Cards/Sections. Im Dark trägt
    der Border die Abgrenzung (kein sichtbarer Schatten). */
 @utility surface-card {
