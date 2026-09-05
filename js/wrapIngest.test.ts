@@ -85,6 +85,25 @@ describe('acceptRumor', () => {
         assert.equal(acceptRumor({ ...original, content: 'hello!' }), false)
     })
 
+    test('a fractional created_at is refused — it is the sort key', () => {
+        // Measured on 2026-09-05: this function accepted `1.5`, and because the id is
+        // hashed over the same body the id still matched. welshman's `isStampedEvent`
+        // refuses that one today, but a gate that holds only because somebody else's
+        // check runs first is not a gate. `created_at` sits INSIDE the ciphertext, so no
+        // relay gates it, and it decides where a message lands in the reader's list.
+        assert.equal(acceptRumor(rumor({ created_at: 1.5 })), false)
+    })
+
+    test('a negative created_at is refused', () => {
+        assert.equal(acceptRumor(rumor({ created_at: -5 })), false)
+    })
+
+    test('a non-numeric created_at is refused', () => {
+        assert.equal(acceptRumor({ ...rumor(), created_at: '1788600000' }), false)
+        assert.equal(acceptRumor({ ...rumor(), created_at: undefined }), false)
+        assert.equal(acceptRumor({ ...rumor(), created_at: Number.NaN }), false)
+    })
+
     test('a missing or malformed author is refused', () => {
         // Built by hand, not through the helper: `getHash` THROWS on a malformed pubkey
         // ("can't serialize event with wrong or missing properties"). That is also why

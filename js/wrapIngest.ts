@@ -92,6 +92,19 @@ export const acceptRumor = (rumor: RumorCandidate | null | undefined): boolean =
     if (rumor.sig !== undefined && rumor.sig !== '') {
         return false
     }
+    // NIP-01 says `created_at` is a whole number of seconds. Measured on 2026-09-05:
+    // this function accepted `1.5`, and since the id is hashed over the SAME body the id
+    // still matched. Upstream refuses that one today (`isStampedEvent` checks
+    // `created_at % 1 === 0 && created_at >= 0`) — but a gate that only holds because
+    // somebody else's check happens to run first is not a gate, and this one is the
+    // reason this whole phase exists. It is checked here.
+    //
+    // What it buys, concretely: `created_at` is the sort key of the conversation list and
+    // it sits INSIDE the ciphertext, so no relay gates it. Without the rule a sender
+    // chooses where their own message lands in the reader's list.
+    if (typeof rumor.created_at !== 'number' || !Number.isInteger(rumor.created_at) || rumor.created_at < 0) {
+        return false
+    }
     if (typeof rumor.pubkey !== 'string' || rumor.pubkey.length !== 64) {
         return false
     }

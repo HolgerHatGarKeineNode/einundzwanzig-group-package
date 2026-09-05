@@ -298,9 +298,16 @@ export const messageTargets = (
     allowed: readonly string[] = [],
 ): string[] => {
     const permitted = new Set(allowed.map(sameRelay).filter((url) => url !== ''))
+    // **The NORMALISED form is what comes back, not the string that was checked.**
+    // Returning the raw entry was the same class of defect this whole phase ran against:
+    // one form is checked, another is used. `space.example` normalises to
+    // `wss://space.example/`, passes the allow list — and the caller would have received
+    // `space.example`. Unreachable today only because the one production caller filters
+    // through `isMessagingRelayUrl` first, and nobody promised to keep that filter.
     const urls = listed
         .filter((url) => typeof url === 'string' && url !== '')
-        .filter((url) => permitted.has(sameRelay(url)))
+        .map(sameRelay)
+        .filter((url) => url !== '' && permitted.has(url))
     if (urls.length > 0) {
         return Array.from(new Set(urls))
     }

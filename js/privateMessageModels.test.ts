@@ -20,7 +20,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { getPubkey, makeSecret } from '@welshman/util'
+import { getPubkey, makeSecret, normalizeRelayUrl } from '@welshman/util'
 import { Nip01Signer, unwrap } from '@welshman/signer'
 import { buildGiftWrap } from './giftWrap.ts'
 import {
@@ -300,7 +300,23 @@ describe('messageTargets', () => {
     test('the same address in another spelling is the same relay', () => {
         // Compared after `normalizeRelayUrl`, so a trailing slash or a missing one does
         // not turn our own space into a foreign address.
-        assert.deepEqual(messageTargets(['wss://a.example'], SPACE, [A]), ['wss://a.example'])
+        assert.deepEqual(messageTargets(['wss://a.example'], SPACE, [A]), [A])
+    })
+
+    test('THE returned form is the CHECKED form, not the raw entry', () => {
+        // One form checked, another used — the class this whole phase ran against. A bare
+        // host normalises to a `wss://` address, passes the allow list, and used to be
+        // handed back as the bare host. Unreachable today only because the one production
+        // caller filters through `isMessagingRelayUrl` first; nobody promised to keep it.
+        assert.deepEqual(messageTargets(['a.example'], SPACE, [A]), [A])
+        for (const target of messageTargets(['a.example', 'wss://a.example'], SPACE, [A])) {
+            assert.equal(target, normalizeRelayUrl(target), `${target} is not the normalised form`)
+        }
+    })
+
+    test('two spellings of one relay collapse to one target', () => {
+        // Otherwise the same message goes out twice on the same socket.
+        assert.deepEqual(messageTargets(['a.example', 'wss://a.example', A], SPACE, [A]), [A])
     })
 
     test('a malformed listed address is dropped like any other foreign one', () => {
