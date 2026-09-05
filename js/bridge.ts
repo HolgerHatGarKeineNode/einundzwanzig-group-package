@@ -164,7 +164,9 @@ import type { ForgeNavProject, ForgeNavRepo } from './railForge.ts'
 // P7/NIP-78 — die in Buzz Desktop gesetzten Kanal-Präferenzen auch auf der Bühne
 // anwenden. `subscribeWorkspacePrefs` ist der EINZIGE Einstieg: er schaltet den
 // Netzweg beim ersten Abonnenten scharf (siehe `channelPrefs.ts`).
-import { subscribeWorkspacePrefs } from './channelPrefs.ts'
+// `toggleChannelFlag` is the write half added in P4 — same module, same workspace
+// binding, and the same function the rail calls.
+import { subscribeWorkspacePrefs, toggleChannelFlag } from './channelPrefs.ts'
 // P2/NIP-38 — Status lesen. `deriveStatusPending` ist der dreiwertige Zustand aus P1,
 // auf eine UI-Frage heruntergebrochen; `warmUserStatuses` ist der einzige Netz-Einstieg.
 import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserStatuses, warmUserStatuses, type UserStatus } from './userStatus.ts'
@@ -702,6 +704,10 @@ type WorkspaceRoomsState = {
     _apply(): void
     isMuted(room: RoomView): boolean
     isPinned(room: RoomView): boolean
+    /** Mute/unmute this channel — writes `channel-mutes` (P4). */
+    toggleMuted(room: RoomView): void
+    /** Pin/unpin this channel — writes `channel-stars` (P4). */
+    togglePinned(room: RoomView): void
     openRoom(room: RoomView): void
     /** Ziel-URL MIT Space-Markierung (reload-fest). */
     roomHref(room: RoomView): string
@@ -3785,6 +3791,17 @@ export function registerNostrComponents(Alpine: {
         /** Angeheftet? Trägt das Nadel-Icon der Zeile — dieselbe Quelle wie {@link isMuted}. */
         isPinned(room: RoomView) {
             return this.pinned.includes(room.h)
+        },
+        /**
+         * Mute/unmute (P4). Every row of this list is a workspace channel by
+         * construction, so — unlike the rail — no membership predicate is needed here.
+         */
+        toggleMuted(room: RoomView) {
+            toggleChannelFlag('mutes', room.h)
+        },
+        /** Pin/unpin (P4) — same path, other blob. */
+        togglePinned(room: RoomView) {
+            toggleChannelFlag('stars', room.h)
         },
         /**
          * Einen Workspace-Raum öffnen: aktiven Space auf die Workspace-URL stellen und

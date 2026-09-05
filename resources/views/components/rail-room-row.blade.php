@@ -75,8 +75,27 @@
 
      **Der Ungelesen-Zähler entfällt bei stumm.** Genau die Zahl fordert zum
      Hineinschauen auf; bliebe sie stehen, wäre die Stummschaltung Optik. Die
-     Gruppen-Summe am Kopf lässt denselben Raum aus (`rail.ts groupUnread`). --}}
+     Gruppen-Summe am Kopf lässt denselben Raum aus (`rail.ts groupUnread`).
+
+     ── Setting them, not only showing them (P4) ─────────────────────────────
+     Until P4 both states were read-only: they were set in Buzz Desktop and this
+     client displayed them. The trailing menu writes them — `channel-mutes` and
+     `channel-stars`, never the two blob tags next to them (`channelPrefs.ts`).
+
+     It appears ONLY on workspace rooms (`canSetPrefs`). The blobs describe Buzz
+     channels; offering the menu on a room of the home space would write an id
+     there that no other client can resolve.
+
+     **The column is reserved permanently, the button is only visible on hover or
+     focus.** Reserved, because a control that appears on hover and takes width
+     would move the name under the pointer — the same two right edges the room
+     tile fixed in July. Invisible at rest, because 280 px of rail carry the name
+     first: at 1280 px the row measures 248 px inside, of which the trigger takes
+     24. `opacity` and not `hidden`: opacity keeps it in the accessibility tree
+     and reachable by keyboard, and `group-focus-within/row` brings it back into
+     sight when it is tabbed to (WCAG 2.4.11). --}}
 <div>
+<div class="group/row flex items-center gap-0.5">
 <button type="button" x-on:click="openRoom(room)"
         {{-- Anker fuer Tests (P7): der `h` der Zeile, sonst nirgends im Markup. Die
              Zusage „genau DIESE Kanal-Id steht jetzt in der Rail" ist ohne ihn nicht
@@ -93,7 +112,7 @@
                 : (isMuted(room)
                     ? @js(__(':name, stummgeschaltet')).split(':name').join(room.name || room.h)
                     : null))"
-        class="pressable group relative flex min-h-8 w-full items-center gap-2 rounded-tile px-2 py-1 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        class="pressable group relative flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-tile px-2 py-1 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
         x-bind:class="room.h === activeRoomH
             ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
             : (isMuted(room)
@@ -155,6 +174,41 @@
          zweimal nachschlägt. --}}
     <x-group::unread-badge count="!isMuted(room) && $store.unread?.rooms?.[room.h]" size="sm" :sr="false" />
 </button>
+
+    {{-- The preference menu (P4). `x-if` and not `x-show`: a room outside the
+         workspace must not carry the trigger in the accessibility tree either —
+         a screen reader would announce an action that silently does nothing. --}}
+    <template x-if="canSetPrefs(room)">
+        <flux:dropdown position="bottom" align="end"
+                       class="shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+            {{-- `:name` as a whole key with a placeholder, not a concatenation:
+                 the same repair the row's own `aria-label` got on 2026-08-17, and
+                 the rule `I18nCatalogGateTest` enforces. Without the room name a
+                 list of rows would announce a dozen identical buttons.
+
+                 No `icon-btn-touch` here, unlike the same menu on the mobile
+                 channel list: the rail exists from `xl` upwards only, its rows are
+                 32 px high by design, and a 44 px control inside a 32 px row would
+                 set the density of the whole column. The touch surface for these
+                 two actions is the mobile list, and there the class is on. --}}
+            <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
+                         x-bind:aria-label="@js(__('Einstellungen für :name')).split(':name').join(room.name || room.h)" />
+            <flux:menu>
+                <flux:menu.item icon="map-pin" x-on:click="togglePinned(room)">
+                    <span x-text="isPinned(room) ? @js(__('Anheftung des Raums aufheben')) : @js(__('Raum anheften'))"></span>
+                </flux:menu.item>
+                {{-- `bell-slash` stays with the ROOM. Muting a PERSON (NIP-51,
+                     kind 10000) is a different thing on a different kind with a
+                     different merge rule and gets its own word and its own icon —
+                     the naming decision of this plan, held here so the next surface
+                     does not reuse this one. --}}
+                <flux:menu.item icon="bell-slash" x-on:click="toggleMuted(room)">
+                    <span x-text="isMuted(room) ? @js(__('Stummschaltung des Raums aufheben')) : @js(__('Raum stummschalten'))"></span>
+                </flux:menu.item>
+            </flux:menu>
+        </flux:dropdown>
+    </template>
+</div>
 
 {{-- Trefferbegründung: traf die Suche über die STADT und nicht über den Namen,
      steht die Stadt darunter. Ohne das findet der Nutzer eine Zeile, in der sein
