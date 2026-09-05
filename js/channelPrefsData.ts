@@ -603,3 +603,86 @@ export const planChannelPrefsPublish = (
         createdAt: nextPrefsCreatedAt(nowSec, remoteHead),
     }
 }
+
+/**
+ * Did at least ONE relay say `OK true`?
+ *
+ * The house rule since `profiles.ts summarizePublishResults`: one accepting relay means
+ * stored. Pure and parameterised over the token, so it runs under `node --test` without
+ * pulling `@welshman/net` into this module — the caller passes `PublishStatus.Success`.
+ *
+ * **An empty result map is `false`, not `true`.** That is the direction that matters:
+ * a publish that produced no verdict at all must not be remembered as delivered, or the
+ * switch is silently gone after the next reload.
+ */
+export const anyRelayAccepted = (
+    results: Record<string, { status: string }>,
+    successStatus: string,
+): boolean => Object.values(results).some((result) => result.status === successStatus)
+
+/**
+ * **Does this in-flight publish still belong to the identity that started it?**
+ *
+ * The arm counter goes up on every arm and disarm (`channelPrefs.ts resetStores`). A
+ * publish captures it before its first `await` and asks again afterwards — an identity
+ * switch during the fetch or the signer round trip would otherwise encrypt the NEW user's
+ * (freshly emptied) store with the NEW user's key and wipe whatever that user had.
+ *
+ * A one-line comparison, and it is a named function on purpose: the value of this call is
+ * that it is COUNTABLE. `channelPrefsWriteGate.test.ts` requires it at the call site after
+ * the encryption, because a removed guard there is invisible to every behaviour test that
+ * does not switch identity mid-publish.
+ */
+export const publishEpochUnchanged = (captured: number, current: number): boolean =>
+    captured === current
+
+/** Why a publish is not happening — the reasons are distinguished because they differ in what the caller must do next. */
+export type PublishSkipReason =
+    /** Identity or workspace changed under us. Keep the pending mark; the new identity owns nothing here. */
+    | 'stale'
+    /** `d` tag outside {@link WRITABLE_CHANNEL_PREFS_D} — the sections/sort prohibition. */
+    | 'not-writable'
+    /** Byte-identical to what a relay already confirmed. Nothing to send, and nothing pending either. */
+    | 'unchanged'
+
+export type PublishDecision =
+    | { go: false; reason: PublishSkipReason }
+    | { go: true; plan: ChannelPrefsPublishPlan }
+
+/**
+ * **The whole decision of a publish, in one pure function** — everything between "the
+ * relay's copy is merged in" and "encrypt and send".
+ *
+ * It exists in this shape because the three ways NOT to send are exactly the three ways
+ * this feature can lose data quietly, and none of them is reachable from a browser test:
+ *
+ * - `stale` — an identity switch mid-publish. Reproducing it in an E2E means logging out
+ *   inside a two-second window.
+ * - `not-writable` — the `channel-sections` / `channel-sort` prohibition.
+ * - `unchanged` — the no-op that keeps a tab switch from costing a signature.
+ *
+ * The impure half calls this once and then only encrypts and sends. That is the point:
+ * what can be decided without a relay is decided here, where a test can ask.
+ */
+export const decideChannelPrefsPublish = (input: {
+    dTag: string
+    store: FlagStore
+    nowSec: number
+    remoteHead: number
+    lastPublishedJson: string | undefined
+    capturedEpoch: number
+    currentEpoch: number
+}): PublishDecision => {
+    if (!publishEpochUnchanged(input.capturedEpoch, input.currentEpoch)) {
+        return { go: false, reason: 'stale' }
+    }
+    const plan = planChannelPrefsPublish(input.dTag, input.store, input.nowSec, input.remoteHead)
+    if (plan === null) {
+        return { go: false, reason: 'not-writable' }
+    }
+    if (plan.json === input.lastPublishedJson) {
+        return { go: false, reason: 'unchanged' }
+    }
+
+    return { go: true, plan }
+}

@@ -56,8 +56,12 @@ const JS_DIR = dirname(fileURLToPath(import.meta.url))
 const WRITER = 'channelPrefs.ts'
 /** The pure half, where the gate lives. */
 const DATA_MODULE = './channelPrefsData.ts'
-/** The gate itself: it hands out no plan for the two blob tags. */
-const GATE = 'planChannelPrefsPublish'
+/**
+ * The gate the writer goes through. It hands out no plan for the two blob tags — and
+ * since the second P4 round it also carries the identity guard, so the whole decision is
+ * one pure call the impure half either makes or does not.
+ */
+const GATE = 'decideChannelPrefsPublish'
 
 /**
  * Names that must exist in EXACTLY ONE production module, and that module is
@@ -72,14 +76,45 @@ const GATE = 'planChannelPrefsPublish'
 const SINGLE_SITE = ['makeEvent', 'nip44EncryptToSelf']
 
 /**
+ * The guards of the publish path, with the number of call sites each must have.
+ *
+ * **Why a COUNT and not just "is it called".** Each of these four is a step whose removal
+ * is invisible to every behaviour test that does not produce its rare precondition:
+ *
+ * | call | what a removal breaks in production |
+ * |---|---|
+ * | `mergeOwnBlobBeforePublish` | a second device's channel is dropped on the next publish |
+ * | `decideChannelPrefsPublish` | the sections/sort gate and the identity guard are both off the path |
+ * | `publishEpochUnchanged` | an identity switch during the SIGNER round trip writes the old store under the new key |
+ * | `anyRelayAccepted` | a refused publish counts as delivered — the switch is gone after the reload |
+ *
+ * `publishEpochUnchanged` is asked twice in total: once inside
+ * `decideChannelPrefsPublish` (pure, covered by its own test) and once HERE, after the
+ * encryption. Only the second one is visible to this scanner, hence 1.
+ *
+ * The behaviour of the first three is covered next door: the decision as a pure function
+ * (`channelPrefsData.test.ts`), the merge and the refusal against a real relay
+ * (`tests/e2e/buzz-channel-prefs.spec.ts`, anchors P4/5 and P4/6). What this table adds is
+ * the case those cannot see — the call simply gone.
+ */
+const PUBLISH_GUARDS: Readonly<Record<string, number>> = {
+    mergeOwnBlobBeforePublish: 1,
+    decideChannelPrefsPublish: 1,
+    publishEpochUnchanged: 1,
+    anyRelayAccepted: 1,
+}
+
+/**
  * Names that belong to the write half of the preferences and must have exactly one
  * caller in the whole production tree.
  */
 const WRITE_HALF_CALLERS: Readonly<Record<string, string>> = {
     [GATE]: WRITER,
     setFlag: WRITER,
-    // The serialiser sits BEHIND the gate: its only caller is the plan itself. A second
-    // caller anywhere would be a payload that never passed the `d` tag check.
+    // Both sit BEHIND the gate, inside the pure half: `planChannelPrefsPublish` is called
+    // by the decision, the serialiser by the plan. A second caller for either would be a
+    // payload that never passed the `d` tag check.
+    planChannelPrefsPublish: 'channelPrefsData.ts',
     flagPayloadJson: 'channelPrefsData.ts',
 }
 
@@ -136,6 +171,19 @@ describe('P4 latch: only stars and mutes are written', () => {
                 aufrufer,
                 [erwartet],
                 `${name}() is called by: ${aufrufer.join(', ') || '(nobody)'}. Allowed is ${erwartet}.`,
+            )
+        }
+    })
+
+    test('CORE: every guard of the publish path is still on the path', () => {
+        const befund = befundFuer(WRITER)
+        for (const [name, erwartet] of Object.entries(PUBLISH_GUARDS)) {
+            assert.equal(
+                zaehle(befund, name),
+                erwartet,
+                `${WRITER} calls ${name}() ${zaehle(befund, name)}x, expected ${erwartet}. `
+                    + 'A guard that is no longer called is invisible to every behaviour test that '
+                    + 'cannot produce its precondition — see the table at PUBLISH_GUARDS.',
             )
         }
     })

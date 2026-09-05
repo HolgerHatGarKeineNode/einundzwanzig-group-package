@@ -67,11 +67,13 @@ import {
     EMPTY_FLAGS,
     EMPTY_SECTIONS,
     EMPTY_SORT,
+    anyRelayAccepted,
     applyBlob,
+    decideChannelPrefsPublish,
     flaggedIds,
     mergeFlags,
     parseChannelPrefsContent,
-    planChannelPrefsPublish,
+    publishEpochUnchanged,
     setFlag,
     sortModeForGroup,
     toWorkspaceSections,
@@ -368,10 +370,6 @@ const nowSec = (): number => Math.floor(Date.now() / 1000)
  */
 export const PUBLISH_DEBOUNCE_MS = 2_000
 
-/** At least one relay said `OK true`. Same rule as `profiles.ts summarizePublishResults`. */
-const anyRelayAccepted = (results: Record<string, { status: string }>): boolean =>
-    Object.values(results).some((result) => result.status === PublishStatus.Success)
-
 /**
  * Fetch our own blob from the relay and merge it in BEFORE publishing — Buzz does the
  * same (`channelMutesSync.ts fetchOwnBlobBeforePublish`), and without it the per-channel
@@ -426,17 +424,33 @@ export const publishChannelFlags = async (kind: ChannelFlagKind): Promise<void> 
     const run = (async (): Promise<void> => {
         try {
             await mergeOwnBlobBeforePublish(pk)
-            if (epoch !== armEpoch) {
-                return // identity or workspace changed while we were fetching
-            }
-            const plan = planChannelPrefsPublish(dTag, get(storeFor(kind)), nowSec(), remoteHead.get(dTag) ?? 0)
-            if (plan === null || plan.json === publishedJson.get(dTag)) {
-                dirty.delete(kind)
+            // Everything that can be decided WITHOUT a relay is decided in the pure half,
+            // where a `node --test` can ask about it — including the two skips no browser
+            // test can produce (`stale`, `not-writable`).
+            const decision = decideChannelPrefsPublish({
+                dTag,
+                store: get(storeFor(kind)),
+                nowSec: nowSec(),
+                remoteHead: remoteHead.get(dTag) ?? 0,
+                lastPublishedJson: publishedJson.get(dTag),
+                capturedEpoch: epoch,
+                currentEpoch: armEpoch,
+            })
+            if (!decision.go) {
+                // `stale` keeps the pending mark: the store this publish was about belongs
+                // to an identity that is no longer here, and the mark is per kind, not per
+                // identity — `resetStores` has already cleared it.
+                if (decision.reason !== 'stale') {
+                    dirty.delete(kind)
+                }
 
                 return
             }
+            const { plan } = decision
             const content = await nip44EncryptToSelf(plan.json)
-            if (epoch !== armEpoch) {
+            // Asked a SECOND time: the signer round trip is the longer of the two awaits,
+            // and at NIP-46 it is a relay round trip on someone else's machine.
+            if (!publishEpochUnchanged(epoch, armEpoch)) {
                 return
             }
             const thunk = app.use(Thunks).publish({
@@ -444,7 +458,7 @@ export const publishChannelFlags = async (kind: ChannelFlagKind): Promise<void> 
                 relays: [WORKSPACE_URL],
             })
             await waitForThunkCompletion(thunk)
-            if (!anyRelayAccepted(thunk.results)) {
+            if (!anyRelayAccepted(thunk.results, PublishStatus.Success)) {
                 return // stays dirty — the next tab switch tries once more
             }
             publishedJson.set(dTag, plan.json)

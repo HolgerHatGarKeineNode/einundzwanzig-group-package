@@ -22,8 +22,10 @@ import {
     MAX_SECTIONS,
     MAX_SORT_GROUPS,
     WRITABLE_CHANNEL_PREFS_D,
+    anyRelayAccepted,
     applyBlob,
     boundFlags,
+    decideChannelPrefsPublish,
     flagFieldFor,
     flagPayloadJson,
     flaggedIds,
@@ -36,6 +38,7 @@ import {
     parseSortPayload,
     parseStarsPayload,
     planChannelPrefsPublish,
+    publishEpochUnchanged,
     sectionSortGroupKey,
     setFlag,
     sortModeForGroup,
@@ -45,6 +48,9 @@ import {
     type SortStore,
 } from './channelPrefsData.ts'
 import { buildGroups, buildWorkspaceList, type RailRoom } from './railGroups.ts'
+// The only import outside the pure pair in this file, and it buys one thing: the success
+// token below is welshman's own value rather than a string that agrees with itself.
+import { PublishStatus } from '@welshman/net'
 
 // Kanal-Ids in der Form, in der sie am Ziel-Relay stehen (kind 39000 `d`).
 const CH_NEWS = '08f1a277-3f0e-4a2f-9a5c-6b8a32936154'
@@ -728,4 +734,86 @@ test('the plan carries the bumped created_at, not a bare now', () => {
     assert.equal(plan.createdAt, 1_001)
     assert.equal(plan.field, 'starred')
     assert.equal(plan.dTag, D_CHANNEL_STARS)
+})
+
+// ── The publish decision (P4, second round) ─────────────────────────────────
+
+const decisionInput = (over: Partial<Parameters<typeof decideChannelPrefsPublish>[0]> = {}) => ({
+    dTag: D_CHANNEL_MUTES,
+    store: flags({ a: { on: true, updatedAt: 5 } }),
+    nowSec: 1_000,
+    remoteHead: 0,
+    lastPublishedJson: undefined,
+    capturedEpoch: 7,
+    currentEpoch: 7,
+    ...over,
+})
+
+/**
+ * The identity guard. In production this is the difference between "the publish stops"
+ * and "the previous user's store is written under the new user's key" — kind 30078 is
+ * addressable, so that write REPLACES whatever the new user had.
+ *
+ * No browser test reaches this: it needs a logout inside the two-second debounce.
+ */
+test('PUBLISH GUARD: an identity switch during the publish stops it — nothing is sent', () => {
+    const stale = decideChannelPrefsPublish(decisionInput({ capturedEpoch: 7, currentEpoch: 8 }))
+    assert.deepEqual(
+        stale,
+        { go: false, reason: 'stale' },
+        'a publish whose arm epoch moved must not send — it would write the old store under the new identity',
+    )
+    // Positive control: the same input with an unchanged epoch DOES send. Without it a
+    // decision function that refused everything would pass the line above.
+    const fresh = decideChannelPrefsPublish(decisionInput())
+    assert.equal(fresh.go, true)
+    assert.equal(publishEpochUnchanged(7, 7), true)
+    assert.equal(publishEpochUnchanged(7, 8), false)
+})
+
+test('PUBLISH GUARD: sections and sort never get past the decision either', () => {
+    for (const dTag of [D_CHANNEL_SECTIONS, D_CHANNEL_SORT]) {
+        assert.deepEqual(
+            decideChannelPrefsPublish(decisionInput({ dTag })),
+            { go: false, reason: 'not-writable' },
+            `${dTag} must not reach the encryption step`,
+        )
+    }
+})
+
+test('PUBLISH GUARD: a payload a relay already confirmed is not sent again', () => {
+    const first = decideChannelPrefsPublish(decisionInput())
+    assert.equal(first.go, true)
+    const again = decideChannelPrefsPublish(
+        decisionInput({ lastPublishedJson: first.go ? first.plan.json : '' }),
+    )
+    assert.deepEqual(again, { go: false, reason: 'unchanged' })
+    // …but a CHANGED store is sent, even though the last one was confirmed.
+    const changed = decideChannelPrefsPublish(decisionInput({
+        store: flags({ a: { on: false, updatedAt: 9 } }),
+        lastPublishedJson: first.go ? first.plan.json : '',
+    }))
+    assert.equal(changed.go, true)
+})
+
+/**
+ * The rule "one accepting relay means stored" — and, more importantly, its counter-case.
+ * A publish nobody confirmed must NOT be remembered as delivered: the client would then
+ * skip the retry, and the switch the user flipped is silently gone after the next reload.
+ */
+test('PUBLISH GUARD: no verdict and a refusal both count as NOT accepted', () => {
+    // Pinned against the REAL token, not against a literal that agrees with itself: if
+    // welshman ever renamed it, `anyRelayAccepted` would silently stop accepting and the
+    // client would republish forever. `@welshman/net` loads under `node --test`; measured.
+    assert.equal(PublishStatus.Success, 'success', 'the success token welshman reports')
+    const success: string = PublishStatus.Success
+    assert.equal(anyRelayAccepted({ a: { status: success } }, success), true)
+    assert.equal(anyRelayAccepted({ a: { status: 'failure' }, b: { status: success } }, success), true)
+    assert.equal(anyRelayAccepted({ a: { status: 'failure' } }, success), false)
+    assert.equal(anyRelayAccepted({ a: { status: 'timeout' } }, success), false)
+    assert.equal(
+        anyRelayAccepted({}, success),
+        false,
+        'an empty result map is not an acceptance — a publish without any verdict must stay pending',
+    )
 })
