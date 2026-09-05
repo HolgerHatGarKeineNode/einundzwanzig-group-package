@@ -39,7 +39,8 @@ import { roomTags, makeReaction, makeEventDelete, makeReport, makePoll, makePoll
 import { getPollEndsAt, getPollResults, getPollType, isPollClosed, isPollShareQuote, ownPollSelection, pollResponseTarget, QUOTE_PREFIX, type PollOption, type PollType } from './polls.ts'
 import { getGoalSummary, getGoalTargetSats, getGoalTitle, goalProgress } from './goals.ts'
 import { DEFAULT_RELAYS, proxifyImage } from './core.ts'
-import { chatImageHtml, emojiImgHtml } from './blossomMarkup.ts'
+import { chatFileHtml, chatImageHtml, chatVideoHtml, emojiImgHtml } from './blossomMarkup.ts'
+import { attachmentIndex, attachmentRenderKind, fileCardLabels, type AttachmentInfo } from './chatAttachments.ts'
 import { contentEmojiTags } from './emoji.ts'
 import { linkDisplay, isPlausibleUrl } from './chatLinks.ts'
 import { applyInlineMarkup, stripInlineMarkup } from './chatMarkup.ts'
@@ -49,9 +50,11 @@ import { quoteCardsEnabled } from './displayPrefs.ts'
 import { withSpace } from './spaceParam.ts'
 import { withOrigin } from './updatesView.ts'
 import { warmProfiles } from './profiles.ts'
+import { deriveMutedPubkeys } from './mutes.ts'
+import { visibleChatEvents } from './muteModels.ts'
 import { deriveUserStatuses, statusFingerprint, warmUserStatuses, type UserStatus } from './userStatus.ts'
 import { warmHandles, verifiedNip05 } from './handles.ts'
-import type { Attachment } from './uploads.ts'
+import { BLOSSOM_SERVER, type Attachment } from './uploads.ts'
 import { mapRelayError, waitForPublishError } from './publishResult.ts'
 import { publishOptimistic } from './publishOptimistic.ts'
 import { BUZZ_MESSAGE_V2 } from './relayCaps.ts'
@@ -61,8 +64,24 @@ import { spaceIsBuzzAsync } from './buzzAdmin.ts'
 import { t } from './i18n.ts'
 import { formatTimestamp } from './locale.ts'
 
-/** Endet die URL auf eine Bild-Extension? (wie welshmans `isImage`, ohne Query.) */
-const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
+/**
+ * Does this house serve the URL itself?
+ *
+ * Two cases, and they are the two upload targets of {@link uploadServerFor}: a blob on
+ * the workspace relay (recognised by the guard's empty verdict — see [[mediaGuard]]) and
+ * a blob on the association's own Blossom. Only for those may the renderer build an
+ * element that fetches on its own; see the header of [[chatAttachments]].
+ */
+const isOwnMedia = (href: string): boolean => {
+    if (proxifyImage(href, 'msg') === '') {
+        return true
+    }
+    try {
+        return new URL(href).origin === new URL(BLOSSOM_SERVER).origin
+    } catch {
+        return false
+    }
+}
 
 /**
  * `renderLink`-Override für welshman/content: Bild-URLs werden zu einem `<img>`
@@ -74,14 +93,32 @@ const IMAGE_URL = /\.(jpe?g|png|gif|webp)$/i
  * welshman-Baum zieht und im Browser eines Tests nicht ausführbar ist. Ein Anhang vom
  * Workspace-Relay bekommt dort kein `src`, sondern einen Marker; [[blossomHydrate]]
  * holt ihn signiert nach.
+ *
+ * ── Why this is a factory since P5 and no longer one module-level function ──────────
+ *
+ * Since the composer accepts more than images, a link may be a video or a document, and
+ * neither is decidable from the url alone: what tells them apart is the `imeta` tag of
+ * the SAME event (MIME, size, file name). The renderer therefore gets that event's index
+ * handed in, and everything that is not in it keeps rendering exactly as before — a full,
+ * unshortened anchor. A message body can carry any link, and a link is not an attachment.
  */
-const renderMessageLink = (href: string, display: string): string => {
-    if (IMAGE_URL.test(href)) {
+const makeMessageLinkRenderer = (attachments: Map<string, AttachmentInfo>) => (href: string, display: string): string => {
+    const info = attachments.get(href)
+    const kind = attachmentRenderKind(href, info, isOwnMedia(href))
+    if (kind === 'image') {
         // Bild in einen reservierten Container wickeln: dessen Maße stehen per CSS-`aspect-ratio`
         // schon VOR dem Laden fest → kein Layout-Sprung (CLS/„Kaugummi"), wenn das Bild spät
         // dekodiert. Das Bild wird KOMPLETT gezeigt (`object-fit:contain`, ganze Grafik sichtbar,
         // Leerraum wo das Verhältnis abweicht); die Lightbox (`data-full`) zeigt es groß.
         return chatImageHtml(document, href, proxifyImage(href, 'msg'), proxifyImage(href, 'full'))
+    }
+    if (kind === 'video') {
+        return chatVideoHtml(document, href, proxifyImage(href, 'msg'))
+    }
+    if (kind === 'file' && info) {
+        const { name, detail } = fileCardLabels(href, info)
+
+        return chatFileHtml(document, sanitizeUrl(href), proxifyImage(href, 'msg'), name, detail)
     }
     const a = document.createElement('a')
     a.href = sanitizeUrl(href)
@@ -307,6 +344,10 @@ const renderMessageHtml = (event: TrustedEvent): string => {
         // Profil-Mentions (NIP-27) rendert welshman als gekürztes `nprofile…` —
         // wir lösen sie stattdessen zu `@Name` auf (displayProfileByPubkey).
         let hasMention = false
+        // Since P5 the link renderer is EVENT-bound: only the `imeta` tags of THIS
+        // event decide whether a url is an attachment (reasoning at
+        // `makeMessageLinkRenderer`). Built once per message, not once per node.
+        const renderMessageLink = makeMessageLinkRenderer(attachmentIndex(event.tags))
         html = parse({ content: bodyWithoutQuote(event), tags: event.tags })
             .map((node) => {
                 if (node.type === ParsedType.Emoji) {
@@ -1299,8 +1340,24 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             throttled(200, deriveUserStatuses(url)),
             // Der Abschalter. Ungedrosselt: er hängt an einem Klick, nicht an einer Welle.
             quoteCardsEnabled,
+            // P6 (NIP-51): the people this reader has hidden. Unthrottled for the same
+            // reason as the switch above — the list changes on a click, not on a wave, and
+            // a delayed disappearance would look like the click had missed. The store arms
+            // itself on space and identity at the first subscription
+            // ({@link deriveMutedPubkeys}), so this surface needs no load call of its own.
+            deriveMutedPubkeys(url),
         ],
-        ([events, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies, $refEvents, $statuses, $cards]) => {
+        ([allEvents, $profiles, $me, $handles, $reactions, $pollResponses, $zaps, $zappers, $nip22Comments, $threadReplies, $refEvents, $statuses, $cards, $muted]) => {
+        // P6: hidden authors are dropped HERE and not at ingest. The price is a deliberate
+        // choice (plan, "P6 als Filter an allen zwölf Leseflächen"): a discarded event
+        // would be gone, un-hiding would need a re-fetch, and counters and threads would
+        // lose members. So the DISPLAY is filtered — the messages stay in the repository,
+        // and the surface says so in as many words.
+        //
+        // **This one surface only.** Directory, search, forums, forge, bookmarks, longform,
+        // pins, profiles, threads, palette and notifications stay unfiltered; they are
+        // named one by one in the plan's Restposten section.
+        const events = visibleChatEvents(allEvents, $muted, $me ?? '')
         // Beide Antwort-Formate in EINEN Strom: kind-1111/kind-10 (zooid) und Buzz'
         // kind-9-Antworten. `commentRootId` liest den Root aus beiden, der Rest des Feeds
         // sieht keinen Unterschied — Zähler, Gesichter und „zuletzt geantwortet" gelten für

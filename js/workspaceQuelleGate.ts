@@ -55,6 +55,144 @@ export type Quellenbefund = {
     importe: Importstelle[]
     /** Namen, die als Funktion aufgerufen werden (`f(…)`, auch `f<T>(…)`). */
     aufrufe: string[]
+    /** Places where a value is PRODUCED — see {@link Wertstelle}. */
+    werte: Wertstelle[]
+}
+
+/**
+ * **Where a value is produced, and in what FORM.**
+ *
+ * Added 2026-09-05, and the reason is a gap that was the same one twice in a row.
+ * {@link aufrufe} answers "is X called?" — a **deletion** detector. The first fix for that
+ * was a whole-statement text comparison, and that one falls to **appending**:
+ *
+ *     return isWorkspaceChannel(this.workspace, room.h) || room.isDm === true
+ *
+ * The pinned substring stands unchanged, every count is intact, and the gate is widened.
+ * Measured 2026-09-05: **6 of 9** statement comparisons in the P6 latch could be walked
+ * past that way. A prefix match is not beaten by deleting, it is beaten by appending.
+ *
+ * So what is recorded here is the FORM of the producing expression, not its text: append
+ * `|| true` and the expression is no longer a `CallExpression` but a `BinaryExpression||`,
+ * and `ruft` falls to empty.
+ *
+ * **What this scanner cannot do, written out:** it sees shapes, not control flow. A
+ * second `return` of the same shape placed earlier would satisfy an existence check while
+ * the real one lies. Only the behaviour tests next to it cover that, which is why they
+ * are there.
+ */
+export type Wertstelle = {
+    /** `return` · `binding` (`const x = …`) · `assignment` (`x.y = …`). */
+    art: 'return' | 'binding' | 'assignment'
+    /** The bound name, the assignment target, or — for a `return` — the enclosing function. */
+    name: string
+    /**
+     * `ts.SyntaxKind` of the producing expression, with the operator appended for a
+     * `BinaryExpression` (`BinaryExpression&&`). `await`, `as` and parentheses are peeled
+     * off first — none of them changes the value.
+     */
+    form: string
+    /**
+     * The called identifier when the value IS that call — also behind `&&` (right operand)
+     * and in the condition of a `?:`. Otherwise `''`.
+     */
+    ruft: string
+    /**
+     * For an object literal: the fields in order, `name` for the shorthand and `name=` for
+     * one with its own value. That tells `{ answered, list: x }` apart from
+     * `{ answered: true, list: x }` AND from `{ answered, list: x, answered: true }` — the
+     * duplicate wins in JS and would otherwise be invisible.
+     */
+    felder: string[]
+}
+
+/** Peel off `await x`, `x as T`, `(x)` and `x!` — none of them changes the value. */
+const kern = (node: ts.Expression): ts.Expression => {
+    let aktuell = node
+    for (;;) {
+        if (ts.isAwaitExpression(aktuell) || ts.isNonNullExpression(aktuell)) {
+            aktuell = aktuell.expression
+        } else if (ts.isAsExpression(aktuell) || ts.isSatisfiesExpression(aktuell)) {
+            aktuell = aktuell.expression
+        } else if (ts.isParenthesizedExpression(aktuell)) {
+            aktuell = aktuell.expression
+        } else {
+            return aktuell
+        }
+    }
+}
+
+/**
+ * The identifier whose call the value CONSISTS of.
+ *
+ * Two reach-throughs, both with a reason: in `a && f(x)` the deciding part is `f(x)` (the
+ * shape `Boolean(me) && mayWriteKind(…)`), and in `f(x) ? a : b` it is the condition. An
+ * appended `|| true` makes the top node a `||` whose right operand is not a call, so the
+ * answer falls back to `''` — which is exactly the point.
+ */
+const gerufenerKern = (node: ts.Expression): string => {
+    const innen = kern(node)
+    if (ts.isCallExpression(innen) && ts.isIdentifier(innen.expression)) {
+        return innen.expression.text
+    }
+    if (ts.isBinaryExpression(innen) && innen.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+        return gerufenerKern(innen.right)
+    }
+    if (ts.isConditionalExpression(innen)) {
+        return gerufenerKern(innen.condition)
+    }
+
+    return ''
+}
+
+const formVon = (node: ts.Expression): string => {
+    const innen = kern(node)
+    if (ts.isBinaryExpression(innen)) {
+        return `BinaryExpression${innen.operatorToken.getText()}`
+    }
+
+    return ts.SyntaxKind[innen.kind]
+}
+
+const felderVon = (node: ts.Expression): string[] => {
+    const innen = kern(node)
+    if (!ts.isObjectLiteralExpression(innen)) {
+        return []
+    }
+
+    return innen.properties.map((eigenschaft) => {
+        const name = eigenschaft.name && ts.isIdentifier(eigenschaft.name) ? eigenschaft.name.text : '?'
+
+        return ts.isShorthandPropertyAssignment(eigenschaft) ? name : `${name}=`
+    })
+}
+
+const wertstelle = (art: Wertstelle['art'], name: string, ausdruck: ts.Expression): Wertstelle => ({
+    art,
+    name,
+    form: formVon(ausdruck),
+    ruft: gerufenerKern(ausdruck),
+    felder: felderVon(ausdruck),
+})
+
+/** The function a `return` sits in — method, named function, or `const f = () => …`. */
+const umgebendeFunktion = (node: ts.Node): string => {
+    for (let eltern = node.parent; eltern; eltern = eltern.parent) {
+        if (ts.isMethodDeclaration(eltern) && ts.isIdentifier(eltern.name)) {
+            return eltern.name.text
+        }
+        if (ts.isFunctionDeclaration(eltern) && eltern.name) {
+            return eltern.name.text
+        }
+        if (ts.isVariableDeclaration(eltern) && ts.isIdentifier(eltern.name)) {
+            return eltern.name.text
+        }
+        if (ts.isPropertyAssignment(eltern) && ts.isIdentifier(eltern.name)) {
+            return eltern.name.text
+        }
+    }
+
+    return ''
 }
 
 /**
@@ -73,6 +211,7 @@ export function lies(datei: string, quelltext: string): Quellenbefund {
 
     const importe: Importstelle[] = []
     const aufrufe: string[] = []
+    const werte: Wertstelle[] = []
 
     const walk = (node: ts.Node): void => {
         if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
@@ -98,11 +237,24 @@ export function lies(datei: string, quelltext: string): Quellenbefund {
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
             aufrufe.push(node.expression.text)
         }
+        if (ts.isReturnStatement(node) && node.expression) {
+            werte.push(wertstelle('return', umgebendeFunktion(node), node.expression))
+        }
+        if (ts.isVariableDeclaration(node) && node.initializer && ts.isIdentifier(node.name)) {
+            werte.push(wertstelle('binding', node.name.text, node.initializer))
+        }
+        if (
+            ts.isBinaryExpression(node)
+            && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            && !ts.isIdentifier(node.left)
+        ) {
+            werte.push(wertstelle('assignment', node.left.getText().replace(/\s+/g, ''), node.right))
+        }
         ts.forEachChild(node, walk)
     }
     walk(sourceFile)
 
-    return { datei, importe, aufrufe }
+    return { datei, importe, aufrufe, werte }
 }
 
 /** Dieselbe Auskunft, direkt von der Platte. */

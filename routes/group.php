@@ -45,6 +45,20 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
          * `/rooms/{h}`.
          */
         Route::livewire('/bookmarks', 'group::bookmarks')->name('bookmarks');
+        /*
+         * Encrypted conversations (P7, NIP-17). Own screen and NO bottom-nav tab, for the
+         * same reason as the bookmarks route above: the bar's column class hangs on
+         * `count($items)` (`bottom-nav.blade.php:77`), one more entry would silently fall
+         * back to three columns, and the tab set lives in three repositories.
+         *
+         * **Why this is not the rail's DM surface.** A Buzz DM is a CHANNEL with an `h`
+         * and is read by the ordinary chat surface. A NIP-17 conversation has no `h` and
+         * no identity beyond the set of its participants — it cannot use `deriveRoomChat`
+         * at all. Two transports, two surfaces; the old one stays untouched.
+         *
+         * Static first segment, so it collides with no `/rooms/{h}`.
+         */
+        Route::livewire('/messages', 'group::messages')->name('messages');
         Route::livewire('/directory', 'group::directory')->name('directory');
         // Longform-Artikel (P7, NIP-23). Eigener Screen, KEIN Bottom-Nav-Tab und kein
         // Rail-Eintrag: die Spaltenklasse der Bottom-Nav hängt an `count($items)`

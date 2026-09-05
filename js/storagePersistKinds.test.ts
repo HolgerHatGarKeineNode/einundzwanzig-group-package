@@ -675,3 +675,32 @@ test('REIHENFOLGE: partitionForCache entscheidet ueber den SCHWUNG, nicht Ereign
     assert.equal(keep.length, 3, 'Repo + zwei Blaetter')
     forgetRepos()
 })
+
+test('P7: neither a gift wrap nor an unwrapped rumor may ever reach the disk', () => {
+    // The phase boundary asked this as a question, quoted verbatim on one line so the
+    // requirement stays the one that was written:
+    // "entpackte Rumors sind UNSIGNIERT. Wenn du sie aufnimmst, beantworte im Commit: wer liest sie, wie groß wird es, was passiert bei Müll."
+    // The answer is that they are NOT taken in, and this test is what holds that answer
+    // down — the decision is one `PERSIST_KINDS.add` away from being reversed by somebody
+    // who never read the reasoning.
+    //
+    // Why not: a rumor carries no signature and never will (`giftWrap.ts`). Its only
+    // proof is that it came out of a seal signed by the pubkey it claims, and that proof
+    // exists exactly once, at unwrap time. Anything read back from IndexedDB has lost it
+    // — a rumor in the cache is a message anybody with write access to that database can
+    // put words into, attributed to any pubkey they like.
+    //
+    // The cost of the decision, stated: a cold start shows no private history until the
+    // relay has answered and the wraps have been unwrapped again. That is a wait, not a
+    // loss — the wraps stay on the relay.
+    assert.equal(shouldPersistEvent(ev(1059)), false, 'kind 1059 (gift wrap)')
+    assert.equal(shouldPersistEvent(ev(14)), false, 'kind 14 (NIP-17 rumor)')
+    assert.equal(shouldPersistEvent(ev(15)), false, 'kind 15 (NIP-17 file rumor)')
+    assert.equal(shouldPersistEvent(ev(13)), false, 'kind 13 (seal)')
+    assert.equal(PERSIST_KINDS.has(1059), false)
+    assert.equal(PERSIST_KINDS.has(14), false)
+    // The positive control: the same helper DOES say yes for a kind that belongs in the
+    // cache. Without it a `shouldPersistEvent` that answered `false` for everything would
+    // pass this test.
+    assert.equal(shouldPersistEvent(ev(MESSAGE)), true, 'positive control: kind 9 is cached')
+})

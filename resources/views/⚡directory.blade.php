@@ -50,9 +50,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Admin-Werkzeuge (nur wenn der Relay dem User NIP-86-Methoden erlaubt) --}}
         <div x-show="isAdmin" x-cloak class="flex flex-wrap gap-2">
             {{-- Melde-Queue (P3, NIP-56 kind 1984). Count-Badge signalisiert offene
-                 Meldungen; reports werden in der Insel geladen + live gehalten. --}}
+                 Meldungen; reports werden in der Insel geladen + live gehalten.
+
+                 `moderation-audit-open` (P1) starts the fetch of the moderation history in
+                 the island further down inside the dialog: it lies OUTSIDE this scope
+                 chain, so the event is dispatched instead of a method being called. Only
+                 on the click, because every fetch costs a NIP-98 signature — the same rule
+                 `loadBanned()` already follows. --}}
             <flux:modal.trigger name="action-items">
-                <flux:button size="sm" variant="ghost" icon="flag">
+                <flux:button size="sm" variant="ghost" icon="flag" x-on:click="$dispatch('moderation-audit-open')">
                     <span class="inline-flex items-center gap-1.5">
                         {{ __('Meldungen & Beitritte') }}
                         <span x-show="reports.length + joinRequests.length" x-cloak x-text="reports.length + joinRequests.length"
@@ -489,6 +495,49 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <flux:button size="xs" variant="danger" icon="no-symbol" x-on:click="banReportedUser(r)" ::disabled="busy">{{ __('Autor bannen') }}</flux:button>
                                 --}}
                             </div>
+                        </div>
+                    </template>
+                </div>
+
+                {{-- Moderation history (P1, `GET /moderation/audit`): what was actually
+                     done, grouped by day. Until now a carried-out measure was readable
+                     nowhere — 9042/9043 are executed by the relay and neither stored nor
+                     fanned out, so the audit row is the only record.
+
+                     Its own island (`nostrModerationAudit`, reasoning in its header); the
+                     fetch starts on `moderation-audit-open` from the trigger above.
+
+                     **Without moderation rights the relay answers 403.** That becomes an
+                     empty list (`auditDays`), and then NOTHING stands here: no error state,
+                     and no "no measures yet" either — for someone who merely may not look,
+                     that sentence would simply be false. --}}
+                <div x-data="nostrModerationAudit" x-on:moderation-audit-open.window="load()">
+                    <template x-if="days.length > 0">
+                        <div class="space-y-3">
+                            <p class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">{{ __('Moderations-Verlauf') }}</p>
+                            <template x-for="d in days" :key="d.key">
+                                <div class="space-y-2">
+                                    <p class="text-xs font-medium text-muted" x-text="d.label"></p>
+                                    <template x-for="e in d.entries" :key="e.id">
+                                        <div class="surface-card space-y-1 p-3">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <flux:badge size="sm"><span x-text="actionLabel(e.action)"></span></flux:badge>
+                                                {{-- The member concerned: a click opens the profile (as in the
+                                                     report queue above). For a measure against CONTENT rather
+                                                     than against a person `targetPubkey` is empty — then the row
+                                                     keeps just the badge and the time. --}}
+                                                <button type="button" x-show="e.targetPubkey" x-on:click="$dispatch('open-profile', e.targetPubkey)"
+                                                        class="pressable min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
+                                                        x-text="nameOf(e.targetPubkey)"></button>
+                                                <span class="ms-auto shrink-0 text-xs text-muted" x-text="timeLabel(e.createdAt)"></span>
+                                            </div>
+                                            {{-- The wording the moderator supplied (`public_reason`); when it is
+                                                 missing, the machine reason code stands there instead. --}}
+                                            <p x-show="e.reason" x-cloak class="text-sm text-muted" x-text="e.reason"></p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
                         </div>
                     </template>
                 </div>

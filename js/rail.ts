@@ -71,9 +71,10 @@ import {
     buildWorkspaceModel,
     isChannelMuted,
     isChannelPinned,
+    isWorkspaceChannel,
     type WorkspaceModel,
 } from './workspaceModel.ts'
-import { subscribeWorkspacePrefs } from './channelPrefs.ts'
+import { subscribeWorkspacePrefs, toggleChannelFlag } from './channelPrefs.ts'
 import { subscribeForgeNav } from './forge.ts'
 import { t } from './i18n.ts'
 import { foldDmRooms } from './dmModels.ts'
@@ -227,6 +228,12 @@ export type RailState = {
     isMuted(room: RailRoom): boolean
     /** Ist dieser Raum in Buzz Desktop angeheftet (`channel-stars`)? */
     isPinned(room: RailRoom): boolean
+    /** May this row carry a channel preference? Only workspace rooms may (P4). */
+    canSetPrefs(room: RailRoom): boolean
+    /** Mute/unmute this room — writes `channel-mutes` (P4). */
+    toggleMuted(room: RailRoom): void
+    /** Pin/unpin this room — writes `channel-stars` (P4). */
+    togglePinned(room: RailRoom): void
     openRoom(room: RailRoom): void
     jumpToFirst(): void
     step(delta: number): void
@@ -862,6 +869,32 @@ export const createRail = (): RailState => ({
         return isChannelPinned(this.prefs, room.h)
     },
 
+    /**
+     * **May this row offer the preference menu?** Only rooms of the workspace relay:
+     * `channel-stars`/`channel-mutes` are Buzz' blobs, and a room of the home space has
+     * no entry there — a menu on it would write an id no other client can resolve.
+     *
+     * Same predicate {@link openRoom} uses for its space switch, so the rail cannot end
+     * up with two different opinions about which rows belong to the workspace.
+     */
+    canSetPrefs(room: RailRoom): boolean {
+        return isWorkspaceChannel(this.workspace, room.h)
+    },
+
+    /**
+     * Mute/unmute — {@link toggleChannelFlag} does the reading, the optimistic local set
+     * and the debounced publish; the rail only names the room. Both room lists call the
+     * same function, so "already muted" is decided in one place.
+     */
+    toggleMuted(room: RailRoom): void {
+        toggleChannelFlag('mutes', room.h)
+    },
+
+    /** Pin/unpin — same path as {@link toggleMuted}, other blob. */
+    togglePinned(room: RailRoom): void {
+        toggleChannelFlag('stars', room.h)
+    },
+
     /** Stadt als Trefferbegründung — nur, wenn die Suche NICHT über den Namen traf. */
     cityHint(room: RailRoom): string {
         const pres = this.presentations[room.meetupSlug ?? '']
@@ -875,10 +908,10 @@ export const createRail = (): RailState => ({
         // Unterhaltung des WORKSPACE-Relays `/rooms/{h}` ohne `?space=workspace` — also
         // gegen den Heim-Relay, der den Kanal nicht kennt: leerer Verlauf, und ein
         // Beitrittsversuch endete mit `invalid: group not found`.
-        const isWorkspaceRoom = this.workspace !== null
-            && (this.workspace.userRooms.some((r) => r.h === room.h)
-                || this.workspace.otherRooms.some((r) => r.h === room.h)
-                || this.workspace.dmRooms.some((r) => r.h === room.h))
+        //
+        // Since P4 the same question is asked by {@link canSetPrefs}, so it is answered
+        // in one place (`isWorkspaceChannel`) instead of twice with the same three lines.
+        const isWorkspaceRoom = isWorkspaceChannel(this.workspace, room.h)
 
         // `activeRoomH` sofort mitziehen: `wire:navigate` tauscht den Body erst nach
         // dem Netz-Roundtrip; ohne das bliebe die alte Zeile markiert. Aus demselben

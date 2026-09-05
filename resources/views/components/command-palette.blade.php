@@ -40,6 +40,11 @@
     // und ist auf jedem Relay lesbar (NIP-51 10003). Ein leerer Screen ist hier eine
     // Aussage („noch nichts gemerkt") und kein Sackgassen-Zustand wie bei der Forge.
     ['id' => 'bookmarks', 'label' => __('Lesezeichen'), 'href' => route('group.bookmarks')],
+    // P7 — encrypted conversations (NIP-17). Unconditional, for the same reason as the
+    // bookmarks entry: the screen itself says what the space can do. A Buzz space refuses
+    // the delivery list (10050) but carries messages between its members regardless, so
+    // the empty state is a statement rather than a dead end.
+    ['id' => 'messages', 'label' => __('Verschlüsselt'), 'href' => route('group.messages')],
     ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.wallet')],
     // ── Der Einstellungen-Eintrag zeigt auf die Route, die der HOST dafür nennt ──
     // Der Mobile-Host hat seine Einstellungen in P6 mit den Portal-Prefs auf EINEM

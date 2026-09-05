@@ -15,6 +15,8 @@ import {
     PUBLISH_VERDICT_TIMEOUT_MS,
     mapRelayError,
     publishError,
+    publishSpread,
+    rollBackAfterPublish,
     publishFehlermeldung,
     relayHinweis,
     publishDetail,
@@ -298,7 +300,15 @@ test('waitForPublishOutcome liefert Fehler UND Zeile aus demselben Verdikt', asy
     const p = waitForPublishOutcome(thunk)
     thunk.emit({ 'wss://a': { status: 'success', detail: 'response:{"channel_id":"abc","created":true}' } })
 
-    assert.deepEqual(await p, { error: '', detail: 'response:{"channel_id":"abc","created":true}' })
+    // `delivered`/`failed` are asserted along with it since P2: they are what tells
+    // "landed nowhere" from "landed somewhere" apart, and a shape assertion that left
+    // them out would stay green if they silently stopped being filled.
+    assert.deepEqual(await p, {
+        error: '',
+        detail: 'response:{"channel_id":"abc","created":true}',
+        delivered: ['wss://a'],
+        failed: [],
+    })
 })
 
 test('waitForPublishOutcome: bei einer Ablehnung bleibt die Zeile leer', async (t) => {
@@ -307,7 +317,12 @@ test('waitForPublishOutcome: bei einer Ablehnung bleibt die Zeile leer', async (
     const p = waitForPublishOutcome(thunk)
     thunk.emit({ 'wss://a': { status: 'failure', detail: 'restricted: unknown event kind' } })
 
-    assert.deepEqual(await p, { error: 'restricted: unknown event kind', detail: '' })
+    assert.deepEqual(await p, {
+        error: 'restricted: unknown event kind',
+        detail: '',
+        delivered: [],
+        failed: ['wss://a'],
+    })
 })
 
 test('waitForPublishOutcome: dieselbe Zeitgrenze, dieselbe NOTICE-Nachfrage', async (t) => {
@@ -319,6 +334,66 @@ test('waitForPublishOutcome: dieselbe Zeitgrenze, dieselbe NOTICE-Nachfrage', as
     const p = waitForPublishOutcome(fakeThunk())
     t.mock.timers.tick(PUBLISH_VERDICT_TIMEOUT_MS + 1)
 
-    assert.deepEqual(await p, { error: `${NO_VERDICT_ERROR} rate-limited: quota exceeded`, detail: '' })
+    // No verdict at all: nothing is known to have landed, and the spread has to say so
+    // — an empty `failed` here would read as "fine" to a caller.
+    assert.deepEqual(await p, {
+        error: `${NO_VERDICT_ERROR} rate-limited: quota exceeded`,
+        detail: '',
+        delivered: [],
+        failed: ['wss://a'],
+    })
     setRelayNoticeReader(() => '')
+})
+
+// ── publishSpread (P2): the reading that tells "nowhere" from "somewhere" apart ──────
+
+test('publishSpread: the partial result is its own state, not a failure', () => {
+    // The measured case: `relay.damus.io` answered 5 of 8 attempts with `503` on
+    // 2026-09-05 while `nos.lol` took the same event. `publishError` reports "timeout"
+    // for this, and a caller that rolls back on any error deletes an event that one
+    // relay is holding — publicly and permanently.
+    assert.deepEqual(
+        publishSpread({ 'wss://a': { status: 'success' }, 'wss://b': { status: 'timeout' } }),
+        { delivered: ['wss://a'], failed: ['wss://b'] },
+    )
+    assert.equal(
+        publishError({ 'wss://a': { status: 'success' }, 'wss://b': { status: 'timeout' } }),
+        'timeout',
+        'and this is why the two readings are needed side by side',
+    )
+})
+
+test('publishSpread: everywhere, and nowhere', () => {
+    assert.deepEqual(
+        publishSpread({ 'wss://a': { status: 'success' }, 'wss://b': { status: 'success' } }),
+        { delivered: ['wss://a', 'wss://b'], failed: [] },
+    )
+    assert.deepEqual(
+        publishSpread({ 'wss://a': { status: 'failure' }, 'wss://b': { status: 'aborted' } }),
+        { delivered: [], failed: ['wss://a', 'wss://b'] },
+    )
+})
+
+test('publishSpread: an unknown status counts as failed, not as delivered', () => {
+    // Same inversion the module header argues for: everything except `success` is a
+    // failure, including a status that does not exist yet.
+    assert.deepEqual(
+        publishSpread({ 'wss://a': { status: 'irgendwas-neues' } }),
+        { delivered: [], failed: ['wss://a'] },
+    )
+})
+
+test('publishSpread: the same "not decided yet" convention as its two neighbours', () => {
+    assert.equal(publishSpread({}), undefined)
+    assert.equal(publishSpread(undefined), undefined)
+    assert.equal(publishSpread({ 'wss://a': { status: 'success' }, 'wss://b': { status: 'pending' } }), undefined)
+})
+
+test('rollBackAfterPublish: the partial result is KEPT, and that is the whole rule', () => {
+    // The defect this replaces: `if (outcome.error)` deleted the local copy of an event
+    // that one relay was holding publicly and permanently. `error` is non-empty in the
+    // partial case too — that is why the rule reads `delivered`, not `error`.
+    assert.equal(rollBackAfterPublish({ delivered: ['wss://a'] }), false, 'a partial result must not be rolled back')
+    assert.equal(rollBackAfterPublish({ delivered: ['wss://a', 'wss://b'] }), false)
+    assert.equal(rollBackAfterPublish({ delivered: [] }), true, 'nothing landed — the local copy has to go')
 })

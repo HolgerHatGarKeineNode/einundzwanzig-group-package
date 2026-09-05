@@ -110,6 +110,44 @@
                     </a>
                 @endif
 
+                {{-- ── Hide a person (P6, NIP-51 kind 10000) ──────────────────────────
+                     The COUNTERPART of "Raum stummschalten": different kind, different
+                     list, different word, different icon (`eye-slash` instead of
+                     `bell-slash`). That naming decision was taken in P4 and is held as a
+                     comment in both room menus — this is the surface it was taken for.
+
+                     And it is explicitly NOT a ban: the association does not ban or
+                     remove its members (decision 2026-09-03). This action only affects
+                     this reader's own view, and the sentence below says so rather than
+                     leaving it to a comment.
+
+                     `x-show` and not `x-if`: the card is ONE node for every person,
+                     `open()` only swaps the data. An `x-if` would rebuild the button on
+                     every open, and the condition hangs on `canMute`, which is settled
+                     after the first open anyway.
+
+                     Your own person does not get the button: hiding yourself would take
+                     away your own messages together with the way back (`planMuteWrite`
+                     refuses it a second time). --}}
+                <div x-show="$store.mutes?.canMute && pubkey !== $store.mutes?.me" x-cloak class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                    {{-- `text-btn-touch`: the house utility for LABELLED targets — it lifts
+                         the height to 44 px on a coarse pointer only and leaves the mouse
+                         compact (`theme.css`, WCAG 2.5.5 / Apple HIG). Measured on
+                         2026-09-05, settled geometry: 44.00 px on a coarse pointer with the
+                         class, 32.00 px without it — which clears WCAG 2.5.8's 24 px and
+                         misses the thumb. On a mouse it is 32.00 px either way. No
+                         `icon-btn-touch` here: that one also sets `min-width`, and this
+                         button already spans the card. --}}
+                    <flux:button variant="ghost" size="sm" icon="eye-slash" class="w-full justify-start text-btn-touch"
+                                 data-person-mute
+                                 x-bind:aria-busy="$store.mutes.busy ? 'true' : 'false'"
+                                 x-on:click="$store.mutes.toggle(pubkey)">
+                        <span x-text="$store.mutes.isMuted(pubkey) ? @js(__('Person wieder einblenden')) : @js(__('Person ausblenden'))"></span>
+                    </flux:button>
+                    <flux:text class="mt-1 text-xs text-muted">{{ __('Wirkt nur in deiner Anzeige. Die Beiträge werden weiterhin vom Relay geladen — das ist keine Sperre und keine Vertraulichkeit.') }}</flux:text>
+                    <flux:text x-show="$store.mutes.error" x-cloak class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="$store.mutes.error"></flux:text>
+                </div>
+
                 {{-- Lightning — kopierbarer ⚡-Chip. Reine Anzeige, KEINE Zaps (PLAN §1). --}}
                 <button type="button" x-show="lud16" x-cloak x-on:click="copy(lud16, @js(__('Lightning-Adresse kopiert.')))"
                         aria-label="{{ __('Lightning-Adresse kopieren') }}"

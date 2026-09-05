@@ -54,6 +54,15 @@ export {
     // Zaps (NIP-57)
     ZAP_GOAL, // 9041
 
+    // Calendar (NIP-52) — P2. welshman's names are NOT the spec's: the package calls the
+    // time-based event `EVENT_TIME` and the RSVP `EVENT_RSVP`. They are renamed here to
+    // something that says what it is (`CALENDAR_EVENT`/`CALENDAR_RSVP`), so the call site
+    // reads. `CALENDAR` (31924) already carries its name; it is never queried, only built
+    // as the coordinate of an `a` tag (`calendarModels.meetupCalendarAddress`).
+    CALENDAR, // 31924
+    EVENT_TIME as CALENDAR_EVENT, // 31923
+    EVENT_RSVP as CALENDAR_RSVP, // 31925
+
     // Räume/Gruppen (NIP-29)
     ROOMS, // 10009
     ROOM_CREATE, // 9007

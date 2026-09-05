@@ -18,19 +18,29 @@ import {
     D_CHANNEL_STARS,
     EMPTY_FLAGS,
     MAX_FLAG_ENTRIES,
+    MAX_PREFS_FUTURE_SKEW_SEC,
     MAX_SECTIONS,
     MAX_SORT_GROUPS,
+    WRITABLE_CHANNEL_PREFS_D,
+    anyRelayAccepted,
     applyBlob,
     boundFlags,
+    decideChannelPrefsPublish,
+    flagFieldFor,
+    flagPayloadJson,
     flaggedIds,
     mergeFlags,
+    nextPrefsCreatedAt,
     orderedSections,
     parseChannelPrefsContent,
     parseMutesPayload,
     parseSectionsPayload,
     parseSortPayload,
     parseStarsPayload,
+    planChannelPrefsPublish,
+    publishEpochUnchanged,
     sectionSortGroupKey,
+    setFlag,
     sortModeForGroup,
     toWorkspaceSections,
     type FlagStore,
@@ -38,6 +48,9 @@ import {
     type SortStore,
 } from './channelPrefsData.ts'
 import { buildGroups, buildWorkspaceList, type RailRoom } from './railGroups.ts'
+// The only import outside the pure pair in this file, and it buys one thing: the success
+// token below is welshman's own value rather than a string that agrees with itself.
+import { PublishStatus } from '@welshman/net'
 
 // Kanal-Ids in der Form, in der sie am Ziel-Relay stehen (kind 39000 `d`).
 const CH_NEWS = '08f1a277-3f0e-4a2f-9a5c-6b8a32936154'
@@ -581,4 +594,226 @@ test('Kette: eine in Buzz angeheftete Zeile steht auch auf der Bühne oben', () 
 
     assert.deepEqual(liste.rooms.map((r) => r.name), ['forge', 'news'])
     assert.deepEqual(liste.pinned, [CH_FORGE])
+})
+
+// ── Write half (P4) ─────────────────────────────────────────────────────────
+
+const flags = (channels: Record<string, { on: boolean; updatedAt: number }>): FlagStore =>
+    ({ version: 1, channels })
+
+/**
+ * THE guard of this phase. `channel-sections` and `channel-sort` are whole-blob LWW —
+ * writing one replaces the section layout and the channel sorting the user set in Buzz
+ * Desktop, and this client has no surface to set either. The plan is the only way to
+ * build an event in `channelPrefs.ts`, so a `null` here means the write cannot happen.
+ */
+test('WRITE GUARD: sections and sort get no publish plan — only stars and mutes do', () => {
+    assert.deepEqual(
+        [...WRITABLE_CHANNEL_PREFS_D],
+        [D_CHANNEL_STARS, D_CHANNEL_MUTES],
+        'the writable set must stay exactly these two — adding a blob tag here is silent data loss in Buzz Desktop',
+    )
+    for (const dTag of [D_CHANNEL_SECTIONS, D_CHANNEL_SORT, 'einundzwanzig/read-state/v1', '']) {
+        assert.equal(flagFieldFor(dTag), null, `${dTag} must have no payload field`)
+        assert.equal(
+            planChannelPrefsPublish(dTag, EMPTY_FLAGS, 1_000, 0),
+            null,
+            `planChannelPrefsPublish must refuse ${dTag} — writing it overwrites the user's Buzz Desktop layout wholesale`,
+        )
+    }
+    // Positive control: without it a plan function that returned `null` for everything
+    // would pass the four lines above.
+    assert.equal(flagFieldFor(D_CHANNEL_STARS), 'starred')
+    assert.equal(flagFieldFor(D_CHANNEL_MUTES), 'muted')
+    assert.ok(planChannelPrefsPublish(D_CHANNEL_MUTES, EMPTY_FLAGS, 1_000, 0))
+})
+
+test('WRITE GUARD: the published payload carries channels only — no sections, no sort keys', () => {
+    const plan = planChannelPrefsPublish(D_CHANNEL_MUTES, flags({ a: { on: true, updatedAt: 5 } }), 1_000, 0)
+    assert.ok(plan)
+    const payload = JSON.parse(plan.json) as Record<string, unknown>
+    assert.deepEqual(Object.keys(payload).sort(), ['channels', 'version'])
+    for (const forbidden of ['sections', 'assignments', 'groups', 'sort']) {
+        assert.equal(forbidden in payload, false, `${forbidden} must never travel in a flag payload`)
+    }
+    assert.deepEqual(plan.tags, [['d', D_CHANNEL_MUTES], ['t', D_CHANNEL_MUTES]])
+})
+
+test('the payload has Buzz’ exact shape: `muted`/`starred` plus `updatedAt`, ids sorted', () => {
+    const store = flags({ b: { on: false, updatedAt: 7 }, a: { on: true, updatedAt: 5 } })
+    assert.equal(
+        flagPayloadJson(store, 'muted'),
+        '{"version":1,"channels":{"a":{"muted":true,"updatedAt":5},"b":{"muted":false,"updatedAt":7}}}',
+    )
+    assert.equal(
+        flagPayloadJson(store, 'starred'),
+        '{"version":1,"channels":{"a":{"starred":true,"updatedAt":5},"b":{"starred":false,"updatedAt":7}}}',
+    )
+    // Sorted, so that "have I published this already?" does not hang on insertion order.
+    assert.equal(flagPayloadJson(flags({ a: { on: true, updatedAt: 5 }, b: { on: false, updatedAt: 7 } }), 'muted'),
+        flagPayloadJson(store, 'muted'))
+})
+
+test('round trip: what we write is what our own parser reads back', () => {
+    const store = flags({ 'a956ca5e-f2f7-5bed-bfe9-3313a8ee8718': { on: true, updatedAt: 1_755_000_000 } })
+    const back = parseChannelPrefsContent(D_CHANNEL_MUTES, flagPayloadJson(store, 'muted'))
+    assert.deepEqual(back, store)
+    assert.deepEqual(parseChannelPrefsContent(D_CHANNEL_STARS, flagPayloadJson(store, 'starred')), store)
+})
+
+test('setFlag writes unconditionally — two toggles in the same second do not cancel out', () => {
+    const muted = setFlag(EMPTY_FLAGS, 'a', true, 100)
+    assert.deepEqual(muted.channels.a, { on: true, updatedAt: 100 })
+    // Through `mergeFlags` this would be a no-op (it needs a strictly newer updatedAt),
+    // and the user would watch the switch flip back.
+    const unmuted = setFlag(muted, 'a', false, 100)
+    assert.equal(unmuted.channels.a.on, false)
+    assert.equal(mergeFlags(muted, flags({ a: { on: false, updatedAt: 100 } })).channels.a.on, true)
+})
+
+test('setFlag keeps the other channels and stays under the cap', () => {
+    const many: Record<string, { on: boolean; updatedAt: number }> = {}
+    for (let i = 0; i < MAX_FLAG_ENTRIES; i++) {
+        many[`c${String(i).padStart(4, '0')}`] = { on: true, updatedAt: 1_000 + i }
+    }
+    const grown = setFlag(flags(many), 'fresh', true, 9_999)
+    assert.equal(Object.keys(grown.channels).length, MAX_FLAG_ENTRIES)
+    assert.equal(grown.channels.fresh.on, true, 'the entry just set must survive the cap')
+    assert.equal('c0000' in grown.channels, false, 'the oldest updatedAt is the one that goes')
+})
+
+/**
+ * DoD 3 of this phase, at the data layer: device A muted room 1, device B muted room 2.
+ * B fetches A's blob before publishing (`mergeOwnBlobBeforePublish`), so what B writes
+ * has to carry both. Kind 30078 is addressable — a relay does not union, it replaces.
+ */
+test('two devices, two different channels: the published payload carries both', () => {
+    const deviceA = setFlag(EMPTY_FLAGS, 'room-1', true, 1_000)
+    const deviceB = setFlag(EMPTY_FLAGS, 'room-2', true, 1_010)
+
+    const merged = mergeFlags(deviceB, deviceA)
+    const plan = planChannelPrefsPublish(D_CHANNEL_MUTES, merged, 2_000, 1_500)
+    assert.ok(plan)
+    const payload = JSON.parse(plan.json) as { channels: Record<string, { muted: boolean }> }
+    assert.deepEqual(Object.keys(payload.channels).sort(), ['room-1', 'room-2'])
+    assert.equal(payload.channels['room-1'].muted, true)
+    assert.equal(payload.channels['room-2'].muted, true)
+
+    // And the other direction, because the merge must not depend on who published last.
+    const other = planChannelPrefsPublish(D_CHANNEL_MUTES, mergeFlags(deviceA, deviceB), 2_000, 1_500)
+    assert.ok(other)
+    assert.equal(other.json, plan.json)
+})
+
+test('an unmute of one device does not resurrect through the other device’ older entry', () => {
+    const muted = setFlag(EMPTY_FLAGS, 'room-1', true, 1_000)
+    const unmuted = setFlag(muted, 'room-1', false, 1_100)
+    const payload = JSON.parse(flagPayloadJson(mergeFlags(unmuted, muted), 'muted')) as {
+        channels: Record<string, { muted: boolean }>
+    }
+    assert.equal(payload.channels['room-1'].muted, false, 'the newer updatedAt wins, and `false` is a statement')
+})
+
+test('created_at is bumped past the relay head — a second toggle in the same second is not swallowed', () => {
+    // Equal created_at means the relay keeps the OLDER event (NIP-01 tie break); the
+    // user would see the switch flip and lose it on reload.
+    assert.equal(nextPrefsCreatedAt(1_000, 1_000), 1_001)
+    assert.equal(nextPrefsCreatedAt(1_000, 1_004), 1_005)
+    // Nothing to beat: plain now.
+    assert.equal(nextPrefsCreatedAt(1_000, 0), 1_000)
+    assert.equal(nextPrefsCreatedAt(1_000, 999), 1_000)
+    // A foreign device with a broken clock must not push us past Buzz' ±900 s window
+    // (`ingest.rs:2005-2012`) — every write would be REJECTED instead of not replacing.
+    assert.equal(nextPrefsCreatedAt(1_000, 99_999), 1_000 + MAX_PREFS_FUTURE_SKEW_SEC)
+    assert.ok(MAX_PREFS_FUTURE_SKEW_SEC < 900, 'the cap has to stay inside Buzz’ drift window')
+})
+
+test('the plan carries the bumped created_at, not a bare now', () => {
+    const plan = planChannelPrefsPublish(D_CHANNEL_STARS, EMPTY_FLAGS, 1_000, 1_000)
+    assert.ok(plan)
+    assert.equal(plan.createdAt, 1_001)
+    assert.equal(plan.field, 'starred')
+    assert.equal(plan.dTag, D_CHANNEL_STARS)
+})
+
+// ── The publish decision (P4, second round) ─────────────────────────────────
+
+const decisionInput = (over: Partial<Parameters<typeof decideChannelPrefsPublish>[0]> = {}) => ({
+    dTag: D_CHANNEL_MUTES,
+    store: flags({ a: { on: true, updatedAt: 5 } }),
+    nowSec: 1_000,
+    remoteHead: 0,
+    lastPublishedJson: undefined,
+    capturedEpoch: 7,
+    currentEpoch: 7,
+    ...over,
+})
+
+/**
+ * The identity guard. In production this is the difference between "the publish stops"
+ * and "the previous user's store is written under the new user's key" — kind 30078 is
+ * addressable, so that write REPLACES whatever the new user had.
+ *
+ * No browser test reaches this: it needs a logout inside the two-second debounce.
+ */
+test('PUBLISH GUARD: an identity switch during the publish stops it — nothing is sent', () => {
+    const stale = decideChannelPrefsPublish(decisionInput({ capturedEpoch: 7, currentEpoch: 8 }))
+    assert.deepEqual(
+        stale,
+        { go: false, reason: 'stale' },
+        'a publish whose arm epoch moved must not send — it would write the old store under the new identity',
+    )
+    // Positive control: the same input with an unchanged epoch DOES send. Without it a
+    // decision function that refused everything would pass the line above.
+    const fresh = decideChannelPrefsPublish(decisionInput())
+    assert.equal(fresh.go, true)
+    assert.equal(publishEpochUnchanged(7, 7), true)
+    assert.equal(publishEpochUnchanged(7, 8), false)
+})
+
+test('PUBLISH GUARD: sections and sort never get past the decision either', () => {
+    for (const dTag of [D_CHANNEL_SECTIONS, D_CHANNEL_SORT]) {
+        assert.deepEqual(
+            decideChannelPrefsPublish(decisionInput({ dTag })),
+            { go: false, reason: 'not-writable' },
+            `${dTag} must not reach the encryption step`,
+        )
+    }
+})
+
+test('PUBLISH GUARD: a payload a relay already confirmed is not sent again', () => {
+    const first = decideChannelPrefsPublish(decisionInput())
+    assert.equal(first.go, true)
+    const again = decideChannelPrefsPublish(
+        decisionInput({ lastPublishedJson: first.go ? first.plan.json : '' }),
+    )
+    assert.deepEqual(again, { go: false, reason: 'unchanged' })
+    // …but a CHANGED store is sent, even though the last one was confirmed.
+    const changed = decideChannelPrefsPublish(decisionInput({
+        store: flags({ a: { on: false, updatedAt: 9 } }),
+        lastPublishedJson: first.go ? first.plan.json : '',
+    }))
+    assert.equal(changed.go, true)
+})
+
+/**
+ * The rule "one accepting relay means stored" — and, more importantly, its counter-case.
+ * A publish nobody confirmed must NOT be remembered as delivered: the client would then
+ * skip the retry, and the switch the user flipped is silently gone after the next reload.
+ */
+test('PUBLISH GUARD: no verdict and a refusal both count as NOT accepted', () => {
+    // Pinned against the REAL token, not against a literal that agrees with itself: if
+    // welshman ever renamed it, `anyRelayAccepted` would silently stop accepting and the
+    // client would republish forever. `@welshman/net` loads under `node --test`; measured.
+    assert.equal(PublishStatus.Success, 'success', 'the success token welshman reports')
+    const success: string = PublishStatus.Success
+    assert.equal(anyRelayAccepted({ a: { status: success } }, success), true)
+    assert.equal(anyRelayAccepted({ a: { status: 'failure' }, b: { status: success } }, success), true)
+    assert.equal(anyRelayAccepted({ a: { status: 'failure' } }, success), false)
+    assert.equal(anyRelayAccepted({ a: { status: 'timeout' } }, success), false)
+    assert.equal(
+        anyRelayAccepted({}, success),
+        false,
+        'an empty result map is not an acceptance — a publish without any verdict must stay pending',
+    )
 })

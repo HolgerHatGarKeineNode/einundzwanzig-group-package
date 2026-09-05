@@ -123,6 +123,7 @@
  * encodes.
  */
 import { mayWriteKind } from './relayCapability.ts'
+import { parseDmTag } from './roomCategories.ts'
 import type { SpaceKind } from './spaceCaps.ts'
 
 /** Buzz `KIND_DM_OPEN` (`buzz-core/src/kind.rs:507`). */
@@ -626,6 +627,25 @@ export const roomDisplayName = (
 
     return dmTitle(room.dmParticipants ?? [], self, nameOf, limit) || room.name
 }
+
+/**
+ * A {@link DmNameableRoom} lifted out of the RAW tags of a 39000.
+ *
+ * **Why the chat header needs this and the rail does not.** `RoomView` (`groups.ts`)
+ * carries `isDm` and `dmParticipants` as fields, so every surface that renders a room
+ * LIST already holds them. The chat header renders no list: it reads `roomsByUrl`, which
+ * holds `Room` — welshman's `readRoomMeta` output, and that reader looks at neither `t`
+ * nor `p`. Without this the header would need its own second naming rule, which is the
+ * exact defect `roomDisplayName` was written to end.
+ *
+ * Both markers come from the same event and are read the same way `buildSpaceView` reads
+ * them, so a room can never be a conversation here and a plain channel there.
+ */
+export const dmNameableFromTags = (name: string, tags: readonly string[][]): DmNameableRoom => ({
+    name,
+    isDm: parseDmTag(tags as string[][]),
+    dmParticipants: dmParticipants(tags),
+})
 
 /** A space view, as far as {@link foldDmRooms} looks into it. */
 export type DmRoomSource<T> = { url?: string; dmRooms?: readonly T[] } | null | undefined

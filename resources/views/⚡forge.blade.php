@@ -1419,7 +1419,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      Locator über Klassen (`min-h-[2.75rem]`) bräche beim ersten
                                      Layout-Feinschliff. Der E2E misst die Zahl am Reiter gegen
                                      die Zahl DIESER Zeilen — zwei Inseln, dieselbe Wahrheit. --}}
-                                <div data-forge-kanalzeile
+                                {{-- `data-room-h` alongside it since P4: the counting
+                                     anchor says "a row", this one says WHICH row. The
+                                     visible name is not an identifier (two channels may
+                                     carry the same one), and the preference is written
+                                     per `h` — a test on it needs the id. Same anchor and
+                                     same reasoning as `rail-room-row.blade.php`. --}}
+                                <div data-forge-kanalzeile x-bind:data-room-h="room.h"
                                      class="group flex items-center gap-1 rounded-tile hover:bg-zinc-100 dark:hover:bg-zinc-800">
                                     <button type="button"
                                             class="flex min-h-[2.75rem] flex-1 items-center gap-3 rounded-tile px-2 py-2 text-start"
@@ -1454,6 +1460,36 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         </template>
                                         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
                                     </button>
+                                    {{-- Setting them, not only showing them (P4). Every row of
+                                         this list is a workspace channel by construction, so —
+                                         unlike the rail — there is no membership predicate here.
+
+                                         The trigger is permanently VISIBLE here and only appears
+                                         on hover in the rail: this is the touch surface (below
+                                         `xl` it is the only channel list of the workspace), and a
+                                         control that needs a hover does not exist on a finger.
+                                         `icon-btn-touch` lifts it to 44 px on a coarse pointer
+                                         only, so the mouse version stays compact.
+
+                                         `x-on:click.stop` because the row around it navigates:
+                                         without it, opening the menu would leave the page. Same
+                                         reason as the admin menu in `room-tile.blade.php`. --}}
+                                    <div class="shrink-0 pe-1" x-on:click.stop>
+                                        <flux:dropdown position="bottom" align="end">
+                                            <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch"
+                                                         x-bind:aria-label="@js(__('Einstellungen für :name')).split(':name').join(room.name)" />
+                                            <flux:menu>
+                                                <flux:menu.item icon="map-pin" x-on:click="togglePinned(room)">
+                                                    <span x-text="isPinned(room) ? @js(__('Anheftung des Raums aufheben')) : @js(__('Raum anheften'))"></span>
+                                                </flux:menu.item>
+                                                {{-- `bell-slash` stays with the ROOM; muting a PERSON
+                                                     (NIP-51, kind 10000) gets its own word and icon. --}}
+                                                <flux:menu.item icon="bell-slash" x-on:click="toggleMuted(room)">
+                                                    <span x-text="isMuted(room) ? @js(__('Stummschaltung des Raums aufheben')) : @js(__('Raum stummschalten'))"></span>
+                                                </flux:menu.item>
+                                            </flux:menu>
+                                        </flux:dropdown>
+                                    </div>
                                 </div>
                             </template>
                         </div>

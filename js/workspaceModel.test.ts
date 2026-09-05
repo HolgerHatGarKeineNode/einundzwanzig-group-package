@@ -15,7 +15,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildWorkspaceModel, isChannelMuted, isChannelPinned } from './workspaceModel.ts'
+import { buildWorkspaceModel, isChannelMuted, isChannelPinned, isWorkspaceChannel } from './workspaceModel.ts'
 import type { RailRoom, WorkspacePrefs } from './railGroups.ts'
 import type { ForgeNavRepo } from './railForge.ts'
 
@@ -248,5 +248,55 @@ describe('buildWorkspaceModel — eine Ableitung, zwei Fassungen', () => {
         assert.equal(model.channelCount, 0)
         assert.deepEqual(model.rows, [])
         assert.deepEqual(model.pinned, [])
+    })
+})
+
+/**
+ * **`isWorkspaceChannel` — the FIRST gate of the write path (P4).**
+ *
+ * It decides whether a row carries the preference menu at all. If it wrongly says yes,
+ * the client writes the `h` of a zooid-space room into Buzz' `channel-stars` /
+ * `channel-mutes` — an id no other client of that workspace can resolve, inside a blob
+ * Buzz Desktop keeps maintaining.
+ *
+ * **Why this lives here and not in the E2E:** in the E2E fixture the home space and the
+ * workspace point at the SAME relay (`support/buzz.ts useBuzz`). By construction there is
+ * no room there that does not belong to the workspace — the negative direction cannot be
+ * produced in the browser. As a pure function it takes ten lines.
+ */
+describe('isWorkspaceChannel: which row may carry a channel preference (P4)', () => {
+    const workspace = {
+        userRooms: [{ h: 'joined' }],
+        otherRooms: [{ h: 'discoverable' }],
+        dmRooms: [{ h: 'conversation' }],
+    }
+
+    test('all three pots of the workspace count — all three', () => {
+        for (const h of ['joined', 'discoverable', 'conversation']) {
+            assert.equal(isWorkspaceChannel(workspace, h), true, `${h} belongs to the workspace`)
+        }
+    })
+
+    test('CORE: a room of the HOME space does not belong to it', () => {
+        assert.equal(
+            isWorkspaceChannel(workspace, 'zooid-room'),
+            false,
+            'a foreign room must not carry a preference menu — its `h` would end up in Buzz’ blob',
+        )
+        // The neighbouring edge case: an `h` that exists NOWHERE (the empty string out of a
+        // half-built state) is not a workspace channel either.
+        assert.equal(isWorkspaceChannel(workspace, ''), false)
+    })
+
+    test('CORE: without a loaded workspace the answer is NO, not "maybe"', () => {
+        assert.equal(
+            isWorkspaceChannel(null, 'joined'),
+            false,
+            'as long as the workspace view is not there, no row carries a menu — fail-closed',
+        )
+    })
+
+    test('an empty workspace is not a free pass', () => {
+        assert.equal(isWorkspaceChannel({ userRooms: [], otherRooms: [], dmRooms: [] }, 'x'), false)
     })
 })

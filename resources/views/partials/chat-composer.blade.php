@@ -46,17 +46,67 @@
      die DOM-REIHENFOLGE (`.first()`). Die ist mit der Desktop-Shell gekippt — der
      Thread-Composer sitzt seit dem Panel-Umbau IM Thread-Block und damit vor dem
      Raum-Composer. Eine Reihenfolge ist kein Vertrag; dieser Haken ist einer. --}}
+{{-- Since P5 the preview has two shapes instead of one: the image tile as before, and a
+     file row carrying the original name for everything else.
+
+     The shape is decided on the attachment's `mime`, which `buildAttachment` takes from
+     the SERVER's answer — not from the local `File.type`. Which MIME the blob ends up
+     with is sniffed from its bytes by the server and reported back, and the two servers
+     disagree: the same text file came back as `application/octet-stream` from Buzz and
+     as `text/plain` from Blossom (measured, `p5-endpunkt-*`).
+
+     **A MISSING `mime` yields the image tile, not the file row.** The field arrives with
+     this phase; an attachment that predates it — one restored from an older state, or a
+     fixture that only ever needed a url — carried an image and nothing else could reach
+     this preview back then. Defaulting the other way would have turned exactly those
+     into a paper clip with no name next to it. --}}
 <div x-show="{{ $attachment }}" x-cloak data-composer="{{ $context }}"
      class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
-    <img :src="{{ $attachment }}?.previewUrl || $img({{ $attachment }}?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
-         class="size-14 shrink-0 rounded-tile object-cover" />
-    <div class="min-w-0 flex-1 text-xs text-muted">{{ __('Bild angehängt') }}</div>
+    <template x-if="({{ $attachment }}?.mime || 'image/').startsWith('image/')">
+        <img :src="{{ $attachment }}?.previewUrl || $img({{ $attachment }}?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
+             class="size-14 shrink-0 rounded-tile object-cover" />
+    </template>
+    <template x-if="!({{ $attachment }}?.mime || 'image/').startsWith('image/')">
+        <flux:icon icon="paper-clip" class="size-6 shrink-0 text-muted" />
+    </template>
+    <div class="min-w-0 flex-1 text-xs text-muted"
+         x-text="({{ $attachment }}?.mime || 'image/').startsWith('image/')
+             ? {!! \Illuminate\Support\Js::from(__('Bild angehängt')) !!}
+             : ({{ $attachment }}?.name || {!! \Illuminate\Support\Js::from(__('Datei angehängt')) !!})"></div>
     <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch"
                  x-on:click="{{ $attachment }} = null" aria-label="{{ __('Anhang entfernen') }}" />
 </div>
 
-{{-- Verstecktes Datei-Feld → pickImage öffnet dasselbe Crop-Overlay in beiden Kontexten. --}}
-<input type="file" accept="image/*" x-ref="{{ $imageRef }}" class="hidden"
+{{-- What this space's upload target accepts.
+
+     **Why this line exists at all:** the same button talks to one of two servers
+     depending on the space (`js/uploads.ts uploadServerFor`), and the two were measured
+     to be differently strict — Buzz refuses audio files, executables and MP4s that carry
+     embedded metadata; the association's Blossom takes any file type up to 1 GB
+     (protocols `p5-endpunkt-*`). Without this line the button would behave differently
+     per room with nothing anywhere saying why.
+
+     It sits ABOVE the input field and not in a tooltip: touch devices have no `title`,
+     and the thread composer has no menu it could otherwise live in. `x-show` and not
+     `x-if`, because the text is empty until the NIP-11 answer arrives — an element that
+     only comes into being afterwards would push the composer upwards. --}}
+<div x-show="attachmentNote" x-cloak data-attachment-note="{{ $context }}"
+     class="mb-1 px-1 text-xs text-muted" x-text="attachmentNote"></div>
+
+{{-- Hidden file field: `pickImage` sends images into the same crop overlay as before
+     and everything else straight to the upload (`bridge.ts _uploadPlainFile`).
+
+     **No `accept` any more.** It read `image/*`, so a PDF could not even be picked in
+     the dialog. Putting a list of permitted types in its place would be the wrong
+     repair: which types get through is the relay's decision, and the two possible
+     targets decide it differently. An `accept` that mirrors only ONE of them locks out
+     files the other would have taken. The pre-check therefore sits where the target is
+     known (`attachmentPolicy.ts`).
+
+     The package's two other `type="file"` inputs (space icon in `⚡directory.blade.php`,
+     room picture in `⚡spaces.blade.php`) keep their `accept="image/*"` — there an image
+     is not one option among several, it is the thing itself. --}}
+<input type="file" x-ref="{{ $imageRef }}" class="hidden"
        x-on:change="pickImage($event.target)" aria-hidden="true" tabindex="-1" />
 
 <div class="relative flex items-end gap-2">
@@ -222,16 +272,19 @@
     </template>
 
     @if ($isThread)
-        {{-- Thread: nur Bild anhängen. Umfrage/Zap-Ziel sind raum-scoped (eigene Kinds 1068/9041,
-             keine thread-Standard-Verankerung) → hier bewusst nicht. --}}
-        <flux:button type="button" variant="ghost" icon="photo" class="shrink-0 icon-btn-touch"
-                     x-on:click="$refs.{{ $imageRef }}.click()" aria-label="{{ __('Bild anhängen') }}" />
+        {{-- Thread: attachments only. Polls and zap goals are room-scoped (own kinds
+             1068/9041, no thread-level anchoring), so they are deliberately absent here.
+
+             Icon `paper-clip` instead of `photo`: since P5 this button no longer attaches
+             images only, and a camera would promise that it did. --}}
+        <flux:button type="button" variant="ghost" icon="paper-clip" class="shrink-0 icon-btn-touch"
+                     x-on:click="$refs.{{ $imageRef }}.click()" aria-label="{{ __('Bild oder Datei anhängen') }}" />
     @else
-        {{-- Raum: „+"-Menü bündelt Bild + Umfrage + Zap-Ziel (spart Composer-Platz). --}}
+        {{-- Room: the „+" menu bundles attachment, poll and zap goal (saves composer space). --}}
         <flux:dropdown position="top" align="start" class="shrink-0">
             <flux:button type="button" variant="ghost" icon="plus" class="icon-btn-touch" aria-label="{{ __('Anhängen') }}" />
             <flux:menu>
-                <flux:menu.item icon="photo" x-on:click="$refs.{{ $imageRef }}.click()">{{ __('Bild') }}</flux:menu.item>
+                <flux:menu.item icon="paper-clip" x-on:click="$refs.{{ $imageRef }}.click()">{{ __('Bild oder Datei') }}</flux:menu.item>
                 <flux:menu.item icon="chart-bar" x-on:click="openPollCreate()">{{ __('Umfrage') }}</flux:menu.item>
                 <template x-if="zapsEnabled">
                     <flux:menu.item icon="trophy" x-on:click="openGoalCreate()">{{ __('Zap-Ziel') }}</flux:menu.item>

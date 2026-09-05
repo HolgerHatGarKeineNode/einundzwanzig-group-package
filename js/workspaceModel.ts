@@ -103,6 +103,36 @@ export const isChannelMuted = (prefs: WorkspacePrefs | undefined, h: string): bo
     (prefs?.muted ?? []).includes(h)
 
 /**
+ * The three room pots of a space view — structurally typed, so this module keeps its
+ * two imports and stays loadable under `node --test`. Matches `groups.ts SpaceView`.
+ */
+export type WorkspaceRoomPots = {
+    userRooms: readonly { h: string }[]
+    otherRooms: readonly { h: string }[]
+    dmRooms: readonly { h: string }[]
+}
+
+/**
+ * **Does this room belong to the workspace relay?** — the ONE answer to a question that
+ * two places in the rail ask.
+ *
+ * It decides two things at once: whether `openRoom` has to switch the ephemeral space
+ * before navigating, and (since P4) whether a row may carry a channel preference at
+ * all. The second one is a data question, not a cosmetic one — the `channel-stars` and
+ * `channel-mutes` blobs describe BUZZ channels, and writing a room of the zooid space
+ * into them would put an id there that no other client can resolve.
+ *
+ * `some` over three short arrays and no `Set`: the same reasoning as
+ * {@link isChannelPinned} — the markup asks this once per row, and building a set per
+ * call costs more than the linear look at a list of dozens.
+ */
+export const isWorkspaceChannel = (workspace: WorkspaceRoomPots | null, h: string): boolean =>
+    workspace !== null
+    && (workspace.userRooms.some((room) => room.h === h)
+        || workspace.otherRooms.some((room) => room.h === h)
+        || workspace.dmRooms.some((room) => room.h === h))
+
+/**
  * Eine Zeile der flachen Kanalliste — die mobile Fassung des Modells.
  *
  * **Der Raum bleibt als Objekt daran hängen** ({@link WorkspaceChannelRow.room}),

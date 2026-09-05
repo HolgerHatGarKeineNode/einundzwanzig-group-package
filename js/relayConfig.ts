@@ -138,7 +138,31 @@ export const normalisiereWorkspaceUrl = (roh?: string): string => {
 export const WORKSPACE = normalisiereWorkspaceUrl(WORKSPACE_ROH)
 
 /**
- * Die Relays der ARTIKEL-SOZIALSIGNALE (P6) — **die einzigen, die nie ein AUTH bekommen.**
+ * The FOREIGN relays that never get an AUTH: the article social signals (P6) **and since
+ * P2 the calendar relays** (`__nostrCalendarRelays`, NIP-52).
+ *
+ * ── Why the calendar relays had to go in here ────────────────────────────────────
+ *
+ * The header of {@link darfAuthBekommen} names the price of the exclusion form outright:
+ * *"it is fail-OPEN for anything that comes later. A new foreign-relay path … gets AUTH
+ * without anybody doing anything and without anything going red."* P2 is such a path —
+ * and the case is the same one as the metric relays, not a similar one:
+ * `nos.lol`/`relay.damus.io` are foreign operators, they are asked **without any user
+ * action** on the bare opening of a meetup room, and the filter carries exactly ONE
+ * meetup coordinate. A signed 22242 would tie identity, IP, time and "which meetup does
+ * this reader care about" together.
+ *
+ * **WRITING an RSVP is untouched by this and does not refute the block:** a kind 31925
+ * carries the pubkey in the clear anyway, but it only leaves on a button press. The block
+ * protects the reader, not the responder — and neither relay demands an AUTH for either
+ * path (NIP-11 `limitation` without `auth_required`, measured 2026-08-21 and confirmed
+ * unchanged during the calendar load on 2026-09-05).
+ *
+ * The `EIGENE_RELAYS` exception applies here just the same: an E2E run enters the
+ * worker's own zooid as the calendar relay (a foreign address there would break the relay
+ * guard), and that zooid does demand AUTH. Without the exception the surface would be
+ * **silently** empty there — the same measurement that `board-fixtures.ts` already paid
+ * for once.
  *
  * ── `…Nachsichtig` und NICHT `leseRelayListe`, und das ist hier kein Detail ──────
  *
@@ -164,9 +188,10 @@ export const WORKSPACE = normalisiereWorkspaceUrl(WORKSPACE_ROH)
  * wohlgeformte Adressen**, und genau darauf stützt sich {@link darfAuthBekommen}, wenn es
  * einen unlesbaren Eintrag als abwesend behandelt.
  */
-const METRIK_RELAYS = new Set(
-    leseRelayListeNachsichtig((globalThis as { __nostrArticleRelays?: string }).__nostrArticleRelays),
-)
+const METRIK_RELAYS = new Set([
+    ...leseRelayListeNachsichtig((globalThis as { __nostrArticleRelays?: string }).__nostrArticleRelays),
+    ...leseRelayListeNachsichtig((globalThis as { __nostrCalendarRelays?: string }).__nostrCalendarRelays),
+])
 
 /**
  * Die zum Boot bekannten EIGENEN Relays — sie stechen die Metrik-Sperre.

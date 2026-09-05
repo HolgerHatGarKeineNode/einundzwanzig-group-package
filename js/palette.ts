@@ -33,8 +33,11 @@
  * das Abo frischt nur nach.
  */
 
-import { get } from 'svelte/store'
+import { derived, get } from 'svelte/store'
 import { app, Relays } from './welshmanApp.ts'
+import { pubkey } from './welshmanSession.ts'
+import { dmNames, dmRoomName, ensureDmNames, hiddenDms } from './dms.ts'
+import { foldDmRooms } from './dmModels.ts'
 import { type TrustedEvent } from '@welshman/util'
 import type { RelayInfo } from './welshmanRelay.ts'
 import { displayProfileByPubkey } from './spaceProfiles.ts'
@@ -164,6 +167,40 @@ const toPaletteRooms = (view: SpaceView | null, workspace: boolean): PaletteRoom
     ...(view?.otherRooms ?? []).map((r: RoomView) => ({ ...r, joined: false, workspace })),
 ]
 
+/**
+ * The third pot: the conversations of both space views as palette rows.
+ *
+ * **Why not simply one more line inside {@link toPaletteRooms}.** `dmRooms` is not
+ * `userRooms` with a different marker. The pot has to be deduplicated across BOTH views
+ * (the home space MAY be the workspace, and Alpine's `:key` swallows two rows with the
+ * same `h` without a word), and the conversations the user put away with a 41012 must not
+ * reappear. `foldDmRooms` decides both — the same fold the rail and the dialog use; a
+ * second one would be a second truth about the same question.
+ *
+ * **The name is built here and not in the markup**, because Flux filters over
+ * `textContent`: a row is findable only through the name that really stands in it. Raw
+ * that name is `"DM"` or `"Group DM (N)"` — the relay stores exactly that string for
+ * EVERY conversation (`buzz-db/src/dm.rs:157-162`) — so a search for a participant would
+ * find forty identically named rows or none. The resolution is the shared rule
+ * (`dmRoomName`), never a private one.
+ */
+const toPaletteDms = (
+    views: readonly (SpaceView | null)[],
+    hidden: readonly string[],
+    me: string,
+    names: Record<string, string>,
+    workspaceUrl: string,
+): PaletteRoom[] =>
+    foldDmRooms(views, hidden).map((room) => ({
+        ...room,
+        name: dmRoomName(room, me, names),
+        // `spaceUrl` rather than the list a row came from: `foldDmRooms` deduplicates
+        // ACROSS both views, so afterwards the row itself knows which relay it came
+        // from — and that is what decides whether `openRoom` has to set the ephemeral
+        // space.
+        workspace: room.spaceUrl === workspaceUrl,
+    }))
+
 /** `route()` liefert absolute URLs; der Auth-Gate will den reinen „/…"-Pfad. */
 const pathOf = (href: string): string => {
     try {
@@ -192,6 +229,12 @@ export type PaletteState = {
     _spaceUrls: string[]
     _relays: Map<string, RelayInfo>
     _directory: DirectoryView
+    /** Display names of the DM participants — mirror of `dmNames`, see `_ensureData`. */
+    _dmNames: Record<string, string>
+    /** Conversations dismissed with a 41012 — mirror of `hiddenDms`. */
+    _hiddenDms: string[]
+    /** The viewer; never their own counterparty. */
+    _me: string
     _url: string
     _wired: boolean
     _unsubActive: (() => void) | null
@@ -200,6 +243,7 @@ export type PaletteState = {
     _unsubSpaces: (() => void) | null
     _unsubRelays: (() => void) | null
     _unsubDirectory: (() => void) | null
+    _unsubDms: (() => void) | null
     _unsubMeetups: (() => void) | null
     _controller: AbortController | null
     _wsController: AbortController | null
@@ -257,6 +301,8 @@ export type PaletteState = {
     runAction(action: PaletteAction): void
     openShortcuts(): void
     _go(href: string, label: string): void
+    _nudgeDmNames(): void
+    _dmItems(): PaletteRoom[]
     _hintFor(room: PaletteRoom): string
     _el(): HTMLElement | null
     _syncHeadings(): void
@@ -284,6 +330,9 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
     _spaceUrls: [],
     _relays: new Map(),
     _directory: EMPTY_DIRECTORY,
+    _dmNames: {},
+    _hiddenDms: [],
+    _me: '',
     _url: DEFAULT_SPACE_URL,
     _wired: false,
     _unsubActive: null,
@@ -292,6 +341,7 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
     _unsubSpaces: null,
     _unsubRelays: null,
     _unsubDirectory: null,
+    _unsubDms: null,
     _unsubMeetups: null,
     _controller: null,
     _wsController: null,
@@ -344,7 +394,11 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
             return []
         }
 
-        const all = [...toPaletteRooms(self._space, false), ...toPaletteRooms(self._workspace, true)]
+        const all = [
+            ...toPaletteRooms(self._space, false),
+            ...toPaletteRooms(self._workspace, true),
+            ...self._dmItems(),
+        ]
         // Ruhezustand: die zuletzt benutzten fünf. Sobald gesucht oder eingegrenzt
         // wird, der volle Bestand — Flux blendet daraus aus, was nicht passt.
         const shown = !self.hasScope && self.query.trim() === ''
@@ -429,6 +483,7 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
             return []
         }
 
+        self._nudgeDmNames()
         // Direkt aus der `SpaceView` und nicht über `toPaletteRooms`: die
         // Beschreibung (`about`) gehört zu `RoomView`, nicht zu `RailRoom` — sie
         // fiele auf dem Weg über den Palette-Typ weg, und genau sie macht einen
@@ -436,6 +491,10 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         const roomViews: RoomView[] = [
             ...(self._workspace?.userRooms ?? []),
             ...(self._workspace?.otherRooms ?? []),
+            // The third pot. Without it a conversation was unfindable in the workspace
+            // scope while its MESSAGES had been showing up as hits all along — you found
+            // the sentence but not the place where it was said.
+            ...(self._workspace?.dmRooms ?? []),
         ]
         const rooms: InstantRow[] = roomViews.map((room) => ({
             id: `room:${room.h}`,
@@ -443,7 +502,9 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
             h: room.h,
             pubkey: '',
             text: room.about,
-            name: room.name || room.h,
+            // Resolved as in {@link toPaletteDms}: `searchMessages` searches over
+            // `name`, and raw that field holds the same word for every conversation.
+            name: dmRoomName(room, self._me, self._dmNames) || room.h,
             created_at: room.lastMessageAt ?? 0,
         }))
         const messages: InstantRow[] = self._wsEvents.map((event) => ({
@@ -735,6 +796,46 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         dispatchModal(SHORTCUTS_MODAL)
     },
 
+    // ── The conversations ───────────────────────────────────────────────────
+
+    /**
+     * The nudge without which the participants' names would stay shortened keys.
+     *
+     * It sits here and not in `_ensureData` because the participants only arrive with the
+     * rooms: while the subscriptions are being built `_workspace` is still `null`.
+     * `ensureDmNames` deduplicates itself and writes to no store before its first
+     * `await` — the same property `railName` relies on when it calls from inside a getter
+     * (see the module header of `dms.ts`).
+     *
+     * **Two callers, and the second one is not redundant:** in the workspace scope
+     * `visibleSections` produces no room row ON PURPOSE (otherwise Enter would jump into
+     * the first hit instead of searching). `_dmItems` therefore never runs there — and
+     * without the nudge from the instant hits the conversations would read `npub1…` on
+     * exactly the surface where one goes looking for them.
+     */
+    _nudgeDmNames(): void {
+        const self = this as PaletteState
+        for (const view of [self._space, self._workspace]) {
+            if (view) {
+                ensureDmNames(view.url, view.dmRooms.flatMap((room) => room.dmParticipants ?? []))
+            }
+        }
+    },
+
+    /** The conversations of both space views as palette rows. */
+    _dmItems(): PaletteRoom[] {
+        const self = this as PaletteState
+        self._nudgeDmNames()
+
+        return toPaletteDms(
+            [self._space, self._workspace],
+            self._hiddenDms,
+            self._me,
+            self._dmNames,
+            self._workspace?.url ?? '',
+        )
+    },
+
     // ── Rechtsbündiger Zusatz einer Raumzeile ───────────────────────────────
 
     /**
@@ -891,6 +992,19 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
             this._relays = byUrl
         })
 
+        // The three ingredients of a DM name in ONE subscription. They belong together:
+        // a change of viewer changes the other two with it, and three separate
+        // subscriptions would write the same state in three orders. `hiddenDms` requests
+        // nothing — it reads what is in the repository anyway (see `dms.ts`).
+        this._unsubDms = derived(
+            [dmNames, hiddenDms, pubkey],
+            (values: [Record<string, string>, string[], string | undefined]) => values,
+        ).subscribe(([names, hidden, me]) => {
+            this._dmNames = names
+            this._hiddenDms = hidden
+            this._me = me ?? ''
+        })
+
         void loadMeetupPresentations()
         this._unsubMeetups = meetupPresentationBySlug.subscribe((bySlug: Map<string, MeetupPresentation>) => {
             this.presentations = Object.fromEntries(bySlug)
@@ -938,6 +1052,7 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         this._unsubSpaces?.()
         this._unsubRelays?.()
         this._unsubDirectory?.()
+        this._unsubDms?.()
         this._unsubMeetups?.()
         this._unsubWsEvents?.()
         this._unsubSpaceKind?.()

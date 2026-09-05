@@ -51,12 +51,15 @@ import { wireRail } from './rail.ts'
 import { wirePalette } from './palette.ts'
 import { wireDisplayPrefs } from './displayPrefs.ts'
 import { wireRoomSearch } from './roomSearch.ts'
+import { wireModerationAudit } from './moderationAudit.ts'
+import { wireMeetupEvent } from './calendar.ts'
 import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
+import { wireMutes } from './mutes.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
 import { dmNames, dmRoomName, ensureDmNames, hiddenDms, wireDms } from './dms.ts'
-import { foldDmRooms } from './dmModels.ts'
+import { dmNameableFromTags, foldDmRooms } from './dmModels.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -97,6 +100,7 @@ import {
     addRoomMember,
     removeRoomMember,
     type SpaceView,
+    type Room,
     type RoomView,
     type RoomInput,
 } from './groups.ts'
@@ -161,7 +165,9 @@ import type { ForgeNavProject, ForgeNavRepo } from './railForge.ts'
 // P7/NIP-78 — die in Buzz Desktop gesetzten Kanal-Präferenzen auch auf der Bühne
 // anwenden. `subscribeWorkspacePrefs` ist der EINZIGE Einstieg: er schaltet den
 // Netzweg beim ersten Abonnenten scharf (siehe `channelPrefs.ts`).
-import { subscribeWorkspacePrefs } from './channelPrefs.ts'
+// `toggleChannelFlag` is the write half added in P4 — same module, same workspace
+// binding, and the same function the rail calls.
+import { subscribeWorkspacePrefs, toggleChannelFlag } from './channelPrefs.ts'
 // P2/NIP-38 — Status lesen. `deriveStatusPending` ist der dreiwertige Zustand aus P1,
 // auf eine UI-Frage heruntergebrochen; `warmUserStatuses` ist der einzige Netz-Einstieg.
 import { deriveStatusPending, deriveUserStatus, deriveUserStatuses, resyncUserStatuses, warmUserStatuses, type UserStatus } from './userStatus.ts'
@@ -262,7 +268,7 @@ import {
     type SpaceThread,
 } from './feeds.ts'
 import type { PollType } from './polls.ts'
-import { uploadAttachment, thumbDataUrl, type Attachment } from './uploads.ts'
+import { attachmentNoteForSpace, uploadAttachment, thumbDataUrl, type Attachment } from './uploads.ts'
 import { signerHealth, signerHealthLabel, type SignerHealth } from './signer-health.ts'
 import {
     loadEmojiGroups,
@@ -331,6 +337,7 @@ import { type Zapper } from './welshmanZap.ts'
 import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader.ts'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps.ts'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles.ts'
+import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { t, tPlural, type Replacements } from './i18n.ts'
 import { dateTimeFormat, formatNumber, formatTimestamp } from './locale.ts'
 
@@ -699,6 +706,10 @@ type WorkspaceRoomsState = {
     _apply(): void
     isMuted(room: RoomView): boolean
     isPinned(room: RoomView): boolean
+    /** Mute/unmute this channel — writes `channel-mutes` (P4). */
+    toggleMuted(room: RoomView): void
+    /** Pin/unpin this channel — writes `channel-stars` (P4). */
+    togglePinned(room: RoomView): void
     openRoom(room: RoomView): void
     /** Ziel-URL MIT Space-Markierung (reload-fest). */
     roomHref(room: RoomView): string
@@ -1249,6 +1260,7 @@ type RoomChatState = {
     _cropForThread: boolean // beim Cropper-Öffnen erfasst: Ziel ist der Thread- (true) statt Haupt-Composer
     cropRatio: number // aktives Seitenverhältnis (NaN = frei) — für die Button-Hervorhebung
     uploadingImage: boolean // Crop→Upload läuft (Doppel-Klick-Guard, Busy-Anzeige)
+    attachmentNote: string // was das Upload-Ziel dieses Space annimmt (attachmentNoteForSpace)
     editingId: string | null // id der gerade bearbeiteten eigenen Nachricht (sonst null)
     activeId: string | null // Nachricht mit eingeblendeten Aktionen (Tap-to-toggle, Touch)
     flashId: string | null // kurz hervorgehobene Nachricht (Sprung zum Zitat)
@@ -1464,6 +1476,7 @@ type RoomChatState = {
     toggleReaction(m: ChatMessage, r: ReactionChip): Promise<void>
     send(): Promise<void>
     _openCropper(file: File): void
+    _uploadPlainFile(file: File): Promise<void>
     pickImage(input: HTMLInputElement): void
     pasteImage(e: ClipboardEvent): void
     setCropRatio(r: number): void
@@ -2163,6 +2176,21 @@ export function registerNostrComponents(Alpine: {
     // Berührung mit `nostrRoomChat` ist ein `scrollToMessage(id)` aus dem Markup heraus
     // (Scope-Kette), so wie es die Zitat-Vorschau in `chat-row` schon tut.
     wireRoomSearch(Alpine)
+    // P1 — moderation history (`GET /moderation/audit`). Its own island and NO field in
+    // `nostrDirectory`: it loads only when the moderation dialog opens (every fetch costs
+    // a NIP-98 signature), it reads over HTTP instead of from the repository, and it turns
+    // a 403 into an empty list rather than an error. The single seam to the directory
+    // island lies in the markup: the trigger dispatches `moderation-audit-open`.
+    // Reasoning in the header of `moderationAudit.ts`, the rules in `moderationAuditModels.ts`.
+    wireModerationAudit(Alpine)
+    // P2 — the NIP-52 date card in a meetup room's header. Its own island and NO field
+    // in `nostrRoomChat`: it reads from a THIRD relay source (the portal's public relays,
+    // not the space), it decides for itself whether a room is a meetup at all (the marker
+    // sits in a tag on zooid and inside `about` on Buzz — the markup cannot tell), and it
+    // writes an RSVP that has nothing to do with the room's `h`. There is no seam to the
+    // chat island; the card mounts itself from the markup with the room's `h`.
+    // Reasoning in the header of `calendar.ts`, the rules in `calendarModels.ts`.
+    wireMeetupEvent(Alpine)
     // P6b — Angepinnte Nachrichten. Ausnahmsweise ein STORE statt einer Insel: der
     // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (Leiste
     // über dem Verlauf, Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat`).
@@ -2176,6 +2204,13 @@ export function registerNostrComponents(Alpine: {
     // innerhalb von `nostrRoomChat`). Begründung im Kopf von `bookmarks.ts`; in
     // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
     wireBookmarks(Alpine)
+    // P6 — hiding a person (NIP-51, kind 10000). A store again, and this time with THREE
+    // readers that never see each other in the DOM: the profile card (on every page), the
+    // management section in settings, and the chat list itself through
+    // `deriveMutedPubkeys`. Two truths about "is this person hidden" would be especially
+    // expensive here — one would filter, the other would label the button. Reasoning in
+    // the header of `mutes.ts`; `nostrRoomChat` gains NO new field.
+    wireMutes(Alpine)
     // P5 — NIP-ER-Erinnerungen (30300). Dritter Store nach demselben Muster und aus
     // demselben Grund: der Zustand wird an zwei Stellen gebraucht, die einander im DOM
     // nicht sehen (der Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat` und die
@@ -3767,6 +3802,17 @@ export function registerNostrComponents(Alpine: {
         /** Angeheftet? Trägt das Nadel-Icon der Zeile — dieselbe Quelle wie {@link isMuted}. */
         isPinned(room: RoomView) {
             return this.pinned.includes(room.h)
+        },
+        /**
+         * Mute/unmute (P4). Every row of this list is a workspace channel by
+         * construction, so — unlike the rail — no membership predicate is needed here.
+         */
+        toggleMuted(room: RoomView) {
+            toggleChannelFlag('mutes', room.h)
+        },
+        /** Pin/unpin (P4) — same path, other blob. */
+        togglePinned(room: RoomView) {
+            toggleChannelFlag('stars', room.h)
         },
         /**
          * Einen Workspace-Raum öffnen: aktiven Space auf die Workspace-URL stellen und
@@ -5913,6 +5959,7 @@ export function registerNostrComponents(Alpine: {
         _cropForThread: false,
         cropRatio: NaN,
         uploadingImage: false,
+        attachmentNote: '',
         editingId: null,
         activeId: null,
         flashId: null,
@@ -6083,6 +6130,13 @@ export function registerNostrComponents(Alpine: {
         setup(url: string) {
             this.teardown()
             this._url = url
+            // What this space's upload target accepts. The two servers were measured to
+            // be differently strict (`attachmentPolicy.ts`), and the composer says so
+            // instead of concealing it. Not awaited: the answer hangs on NIP-11 and
+            // arrives a moment later; until then the line is simply not there.
+            void attachmentNoteForSpace(url).then((note: string) => {
+                this.attachmentNote = note
+            })
             // **Woher kommt dieser Raum?** Solange er im Vereins-Space liegt — also fast
             // immer — bleibt der Hinweis leer und der Kopf sieht aus wie bisher. Steht der
             // Nutzer aber in einem WORKSPACE-Raum, sagt ihm bis hierher nichts, in welchem
@@ -6217,14 +6271,36 @@ export function registerNostrComponents(Alpine: {
             // Raum-Anzeigename aus der Client-Meta (39000) reaktiv nachziehen — der
             // SSR-Header trägt bei member-only-Relays nur den Slug (Server hat keine
             // AUTH). `url` ist bereits normalisiert (activeSpace), roomsByUrl ebenso.
-            this._unsubRoomMeta = roomsByUrl.subscribe(($byUrl) => {
+            // ── A conversation is not called "DM" any more (community-features P3) ──
+            // The relay stores the literal `"DM"` / `"Group DM (N)"` as the channel name
+            // of EVERY conversation (`buzz-db/src/dm.rs:157-162`), so the header of every
+            // DM read the same word. The resolution is the one rule the rail and
+            // `/updates` already use (`dmRoomName` → `dmModels.roomDisplayName`); this is
+            // its third binding, not a second rule.
+            //
+            // `dmNames` belongs in the DEPENDENCIES and not behind a one-off read: the
+            // participants' profiles arrive AFTER the mount, and a snapshot would freeze
+            // the header on shortened pubkeys — the same trap `railName` avoids by reading
+            // the Alpine store on every render.
+            this._unsubRoomMeta = derived(
+                [roomsByUrl, dmNames, pubkey],
+                (values: [Map<string, Room[]>, Record<string, string>, string | undefined]) => values,
+            ).subscribe(([$byUrl, $names, $me]) => {
                 const room = ($byUrl.get(url) ?? []).find((r) => r.h === this.h)
+                const nameable = dmNameableFromTags(room?.name ?? '', room?.event?.tags ?? [])
+                // The nudge without which the header would show shortened keys forever.
+                // `ensureDmNames` deduplicates itself and writes to no store before its
+                // first `await`, so it is safe from inside a derivation (see `dms.ts`).
+                if (nameable.isDm) {
+                    ensureDmNames(url, nameable.dmParticipants ?? [])
+                }
                 if (room?.name) {
-                    this.roomName = room.name
+                    const shown = dmRoomName(nameable, $me ?? '', $names)
+                    this.roomName = shown
                     // Meta-/Tab-Titel clientseitig auf den echten Raumnamen setzen: der server-
                     // gerenderte Titel fällt bei SpaceCache-Miss auf die rohe Raum-id zurück
                     // (`# <h>`); sobald die Insel den Namen aus 39000/9007 auflöst, korrigieren.
-                    document.title = `# ${room.name}`
+                    document.title = `# ${shown}`
                 }
                 // P3: Forum-Kanal? Dieselbe Quelle, derselbe Emit — der Kanaltyp
                 // steht im selben 39000 wie der Name. Sobald er da ist, zieht die
@@ -7727,11 +7803,39 @@ export function registerNostrComponents(Alpine: {
             })
         },
         // Datei-Picker (+-Menü): Wert danach leeren, damit dieselbe Datei erneut wählbar bleibt.
+        // Image goes to the cropper as before, everything else straight to the upload:
+        // there is nothing to crop about a PDF, and the cropper would render it as a
+        // broken image.
         pickImage(input: HTMLInputElement) {
             const file = input.files?.[0]
             input.value = ''
-            if (file) {
+            if (!file) {
+                return
+            }
+            if (file.type.startsWith('image/')) {
                 this._openCropper(file)
+            } else {
+                void this._uploadPlainFile(file)
+            }
+        },
+        // Non-image attachment: no canvas, no `dim`, but the file name for the `imeta`.
+        // Target composer captured NOW, as in the cropper path — not when the answer
+        // arrives, by which time the user may have left the thread.
+        async _uploadPlainFile(file: File) {
+            const forThread = Boolean(this.threadRootId)
+            this.uploadingImage = true
+            try {
+                const up = await uploadAttachment(file, this._url, undefined, file.name)
+                if (forThread) {
+                    this.threadAttachment = up
+                } else {
+                    this.attachment = up
+                }
+                this.refocusComposer()
+            } catch (e) {
+                toast(String((e as Error)?.message ?? e))
+            } finally {
+                this.uploadingImage = false
             }
         },
         // Copy&Paste ins Eingabefeld: ein reines Bild (Screenshot) öffnet den Cropper.
@@ -9166,6 +9270,50 @@ export function registerNostrComponents(Alpine: {
             if (!trigger?.contains(event.target as Node)) {
                 this.open = false
             }
+        },
+    }))
+
+    /**
+     * P7 — NIP-17 private messages (kind 14 inside a NIP-59 wrap). A SECOND transport
+     * next to the Buzz DM channels, not a replacement: a Buzz DM is a private channel
+     * whose messages lie in plaintext on the relay, a NIP-17 conversation is a gift wrap
+     * the operator cannot open. Reasoning in the header of `privateMessages.ts`, the
+     * rules in `privateMessageModels.ts`.
+     *
+     * ── Why the store is wired HERE and not at boot with the other five ─────────────
+     *
+     * `wirePrivateMessages` next to `wireMutes` was the first shape, and the boot-path
+     * guard measured what it costs: the app chunk went from 110 592 B gzip to **113 248**,
+     * over the 112 000 marker that had already been raised once
+     * (`bundleGrenze.nodetest.ts`, quoted verbatim on one line:
+     * "ein zweiter Fall unter normalem Wachstum ist eine Aussage über den Boot-Pfad, nicht über die Zahl").
+     * Raising it a second time is exactly what its own docblock forbids.
+     *
+     * The other five stores are wired at boot because each has readers that never see
+     * each other in the DOM (a profile card on every page, a menu entry inside the chat).
+     * This one has exactly ONE reader — the `/messages` screen — so the module belongs in
+     * that screen's chunk. Everything else about it is unchanged; `mount()`/`unmount()`
+     * still bracket the wrap subscription, which is the request that costs the signer.
+     */
+    Alpine.data('nostrPrivateMessages', () => ({
+        async init(): Promise<void> {
+            const { wirePrivateMessages } = await import('./privateMessages.ts')
+            // The four modules that are handed in rather than imported over there, and
+            // the measurement behind each of them, are in that module's own header:
+            // importing `members`, `profiles`, `spaceProfiles` or `i18n` from the lazy
+            // graph splits the app chunk into 9, 8, 7 and 7 boot chunks respectively.
+            wirePrivateMessages(Alpine as never, {
+                t,
+                displayProfileByPubkey,
+                profilesByPubkey,
+                warmProfiles,
+                deriveSpaceDirectory,
+                watchSpaceDirectory,
+            })
+            ;(Alpine.store('privateMessages') as { mount(): void } | undefined)?.mount()
+        },
+        destroy(): void {
+            ;(Alpine.store('privateMessages') as { unmount(): void } | undefined)?.unmount()
         },
     }))
 

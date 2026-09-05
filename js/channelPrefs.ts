@@ -3,10 +3,24 @@
  * Hälfte: Filter, Entschlüsselung, Stores. Das Parsen und Mergen liegt in
  * `channelPrefsData.ts` und läuft dort unter `node --test`.
  *
- * Vorbild ist `readStateSync.ts`: dasselbe kind, dasselbe Krypto-Verfahren
- * (nip44 an sich selbst), dieselbe Fail-Soft-Zusage. Der Unterschied ist die
- * Richtung — hier wird **nur gelesen**. Gesetzt werden die Präferenzen weiterhin
- * in Buzz Desktop; das ist die Entscheidung des Plans, kein fehlendes Stück.
+ * The model is `readStateSync.ts`: same kind, same crypto (nip44 to self), same
+ * fail-soft promise.
+ *
+ * ── Both directions since P4 — but only TWO of the four blobs ──────────────
+ *
+ * Until P4 this module only READ, and the paragraph here said so: preferences were
+ * set in Buzz Desktop. Since P4 muting and starring a room are set HERE as well,
+ * through {@link toggleChannelFlag} → {@link publishChannelFlags}.
+ *
+ * **Written are `channel-stars` and `channel-mutes`, never `channel-sections` or
+ * `channel-sort`.** The first two merge per channel over `updatedAt`, the other two
+ * are whole-blob LWW — writing one of them would replace the section layout and the
+ * channel sorting the user set in Buzz Desktop wholesale. The prohibition is not a
+ * rule of this file but a return value: `planChannelPrefsPublish` hands out no plan
+ * for the two blob tags, and this module has no other way to build an event.
+ *
+ * The write path is bound to the same workspace as the read path — the `d` tags
+ * describe Buzz channels, and a room of the zooid space has no preference here.
  *
  * ── Vier `d`-Tags, EIN Filter ──
  *
@@ -35,9 +49,11 @@
  * angenommen: die beiden Seiten leiten denselben Conversation-Key ab.
  */
 import { derived, get, writable, type Readable, type Writable } from 'svelte/store'
-import { ensurePlaintext, pubkey } from './welshmanSession.ts'
+import { ensurePlaintext, nip44EncryptToSelf, pubkey } from './welshmanSession.ts'
+import { app, Thunks, waitForThunkCompletion } from './welshmanApp.ts'
+import { PublishStatus } from '@welshman/net'
 import { load, request } from './welshmanNet.ts'
-import { type TrustedEvent } from '@welshman/util'
+import { makeEvent, type TrustedEvent } from '@welshman/util'
 import { APP_DATA } from './welshmanKinds.ts'
 import { tagSpec, tagValue } from './welshmanTags.ts'
 import { WORKSPACE_URL, deriveSpaceKind, hasWorkspace } from './spaceCaps.ts'
@@ -51,10 +67,14 @@ import {
     EMPTY_FLAGS,
     EMPTY_SECTIONS,
     EMPTY_SORT,
+    anyRelayAccepted,
     applyBlob,
+    decideChannelPrefsPublish,
     flaggedIds,
     mergeFlags,
     parseChannelPrefsContent,
+    publishEpochUnchanged,
+    setFlag,
     sortModeForGroup,
     toWorkspaceSections,
     type Dated,
@@ -140,6 +160,23 @@ let unsubEvents: (() => void) | null = null
 let lastLoadAt = 0
 let warned = false
 
+/**
+ * Counts every arm/disarm. A publish captures it before its first `await` and drops
+ * out if it changed — otherwise a publish still in flight during an identity switch
+ * would encrypt the NEW user's (empty) store with the NEW user's signer and wipe the
+ * preferences of whoever just logged in.
+ */
+let armEpoch = 0
+
+/** Newest `created_at` seen at the relay, per `d` tag — the basis of the bump. */
+const remoteHead = new Map<string, number>()
+/** Payload that at least one relay has confirmed, per `d` tag. */
+const publishedJson = new Map<string, string>()
+/** Kinds changed locally since their last confirmed publish. */
+const dirty = new Set<ChannelFlagKind>()
+const publishTimers = new Map<ChannelFlagKind, ReturnType<typeof setTimeout>>()
+const publishInFlight = new Map<ChannelFlagKind, Promise<void>>()
+
 const warnOnce = (error: unknown): void => {
     if (!warned) {
         warned = true
@@ -153,6 +190,17 @@ const resetStores = (): void => {
     sortHead = null
     decrypted.clear()
     inFlight.clear()
+    // The write state is personal too, and it is the dangerous half: a `remoteHead`
+    // or a `publishedJson` carried over from the previous identity would make the
+    // next publish of the NEW user either unreplaceable or a silent no-op.
+    armEpoch += 1
+    remoteHead.clear()
+    publishedJson.clear()
+    dirty.clear()
+    for (const timer of publishTimers.values()) {
+        clearTimeout(timer)
+    }
+    publishTimers.clear()
     channelSections.set(EMPTY_SECTIONS)
     channelSort.set(EMPTY_SORT)
     channelStars.set(EMPTY_FLAGS)
@@ -183,6 +231,12 @@ const applyEvent = async (pk: string, event: TrustedEvent): Promise<void> => {
     const dTag = tagValue(tagSpec('d'), event.tags)
     if (!dTag || !CHANNEL_PREFS_D.includes(dTag)) {
         return
+    }
+    // The relay head is recorded from the RAW event, before the decryption gate —
+    // exactly where Buzz records it (`channelMutesSync.ts:126-127`). An event we
+    // cannot read still occupies the address, and our next write has to outrank it.
+    if (event.created_at > (remoteHead.get(dTag) ?? 0)) {
+        remoteHead.set(dTag, event.created_at)
     }
     if (decrypted.has(event.id) || inFlight.has(event.id)) {
         return
@@ -286,6 +340,185 @@ const disarm = (): void => {
     resetStores()
 }
 
+// ── Write half (P4) ─────────────────────────────────────────────────────────
+
+/** Which of the two WRITABLE blobs a call means. */
+export type ChannelFlagKind = 'stars' | 'mutes'
+
+const D_FOR: Readonly<Record<ChannelFlagKind, string>> = {
+    stars: D_CHANNEL_STARS,
+    mutes: D_CHANNEL_MUTES,
+}
+
+const storeFor = (kind: ChannelFlagKind): Writable<FlagStore> =>
+    kind === 'stars' ? channelStars : channelMutes
+
+const nowSec = (): number => Math.floor(Date.now() / 1000)
+
+/**
+ * Publish delay: **2 s**, and the number is Buzz' own (`channelMutesSync.ts:23`).
+ *
+ * `readStateSync.ts` waits 30 s for the same kind on the same relay, and that is right
+ * there and wrong here: a read watermark is worth nothing to look at, a mute is
+ * something the user just clicked and might reload one second later. A 30 s window
+ * would make the preference disappear on that reload — the exact failure this phase
+ * exists to remove.
+ *
+ * The window starts at the FIRST change and is not reset by further ones (the rule of
+ * `readStateSync.ts schedulePublish`): a user flipping several rooms in a row would
+ * otherwise be able to postpone the publish indefinitely.
+ */
+export const PUBLISH_DEBOUNCE_MS = 2_000
+
+/**
+ * Fetch our own blob from the relay and merge it in BEFORE publishing — Buzz does the
+ * same (`channelMutesSync.ts fetchOwnBlobBeforePublish`), and without it the per-channel
+ * merge would be a promise this client cannot keep.
+ *
+ * The case: a second device muted a DIFFERENT channel a moment ago and its event has
+ * not reached our live subscription yet. Publishing our own store then replaces the
+ * address and drops the other statement — kind 30078 is addressable, there is no union
+ * on the relay. With the pre-fetch the foreign entry runs through {@link applyEvent}
+ * and thus through `mergeFlags`, and the published store carries both.
+ *
+ * Fail-soft in Buzz' direction: a failing fetch keeps the local store as the merge base
+ * instead of blocking the write.
+ */
+const mergeOwnBlobBeforePublish = async (pk: string): Promise<void> => {
+    try {
+        const events: TrustedEvent[] = await load({ relays: [WORKSPACE_URL], filters: [prefsFilter(pk)] })
+        for (const event of events) {
+            await applyEvent(pk, event)
+        }
+    } catch (error) {
+        warnOnce(error)
+    }
+}
+
+/**
+ * Publish one of the two writable blobs, if it changed since the last confirmed write.
+ *
+ * Order: merge the relay's copy in → plan → encrypt → publish → remember. The plan is
+ * where `sections`/`sort` are refused; this function has no other way to build an event.
+ *
+ * **No retry loop.** Same decision as `readStateSync.ts publishReadState`: a permanently
+ * refusing relay would otherwise be re-asked every couple of seconds forever. A failed
+ * publish keeps its {@link dirty} mark instead, so the next tab switch retries it once —
+ * bounded by user action, not by a timer.
+ *
+ * The publish itself carries welshman's own abort after 30 s
+ * (`@welshman/app thunk.js:186,207`), so a Buzz rate limiter that answers with NOTICE
+ * instead of OK cannot park this promise forever.
+ */
+export const publishChannelFlags = async (kind: ChannelFlagKind): Promise<void> => {
+    const running = publishInFlight.get(kind)
+    if (running) {
+        return running
+    }
+    const pk = pubkey.get() ?? ''
+    if (!dirty.has(kind) || !pk || armedFor !== `${pk}|${WORKSPACE_URL}`) {
+        return
+    }
+    const epoch = armEpoch
+    const dTag = D_FOR[kind]
+    const run = (async (): Promise<void> => {
+        try {
+            await mergeOwnBlobBeforePublish(pk)
+            // Everything that can be decided WITHOUT a relay is decided in the pure half,
+            // where a `node --test` can ask about it — including the two skips no browser
+            // test can produce (`stale`, `not-writable`).
+            const decision = decideChannelPrefsPublish({
+                dTag,
+                store: get(storeFor(kind)),
+                nowSec: nowSec(),
+                remoteHead: remoteHead.get(dTag) ?? 0,
+                lastPublishedJson: publishedJson.get(dTag),
+                capturedEpoch: epoch,
+                currentEpoch: armEpoch,
+            })
+            if (!decision.go) {
+                // `stale` keeps the pending mark: the store this publish was about belongs
+                // to an identity that is no longer here, and the mark is per kind, not per
+                // identity — `resetStores` has already cleared it.
+                if (decision.reason !== 'stale') {
+                    dirty.delete(kind)
+                }
+
+                return
+            }
+            const { plan } = decision
+            const content = await nip44EncryptToSelf(plan.json)
+            // Asked a SECOND time: the signer round trip is the longer of the two awaits,
+            // and at NIP-46 it is a relay round trip on someone else's machine.
+            if (!publishEpochUnchanged(epoch, armEpoch)) {
+                return
+            }
+            const thunk = app.use(Thunks).publish({
+                event: makeEvent(APP_DATA, { content, tags: plan.tags, created_at: plan.createdAt }),
+                relays: [WORKSPACE_URL],
+            })
+            await waitForThunkCompletion(thunk)
+            if (!anyRelayAccepted(thunk.results, PublishStatus.Success)) {
+                return // stays dirty — the next tab switch tries once more
+            }
+            publishedJson.set(dTag, plan.json)
+            remoteHead.set(dTag, Math.max(remoteHead.get(dTag) ?? 0, plan.createdAt))
+            dirty.delete(kind)
+        } catch (error) {
+            // No signer, no network, a refused encryption: fail-soft like every other
+            // path in this module. The local store keeps carrying the display.
+            warnOnce(error)
+        } finally {
+            publishInFlight.delete(kind)
+        }
+    })()
+    publishInFlight.set(kind, run)
+
+    return run
+}
+
+const schedulePublish = (kind: ChannelFlagKind): void => {
+    if (publishTimers.has(kind)) {
+        return
+    }
+    publishTimers.set(kind, setTimeout(() => {
+        publishTimers.delete(kind)
+        void publishChannelFlags(kind)
+    }, PUBLISH_DEBOUNCE_MS))
+}
+
+/**
+ * Set or clear the flag of ONE channel and schedule the publish.
+ *
+ * The local store is written first and the network follows — the switch has to answer
+ * within the frame, and a preference that only appears after a relay round trip reads
+ * as broken. The relay's answer cannot contradict it either: our entry carries a fresh
+ * `updatedAt` and wins every per-channel merge against the older remote one.
+ *
+ * Silently does nothing without an armed workspace: the preferences are Buzz' blobs,
+ * and a room of the zooid space has no place in them (the standing one-workspace
+ * decision, see {@link arm}).
+ */
+export const setChannelFlag = (kind: ChannelFlagKind, h: string, on: boolean): void => {
+    const pk = pubkey.get() ?? ''
+    if (h === '' || pk === '' || armedFor !== `${pk}|${WORKSPACE_URL}`) {
+        return
+    }
+    const store = storeFor(kind)
+    store.set(setFlag(get(store), h, on, nowSec()))
+    dirty.add(kind)
+    schedulePublish(kind)
+}
+
+/**
+ * Flip the flag of one channel — **the entry point of both room lists** (the rail and
+ * the mobile channel list). Reading the current value here rather than in each island
+ * keeps the two surfaces from growing their own idea of what "already muted" means.
+ */
+export const toggleChannelFlag = (kind: ChannelFlagKind, h: string): void => {
+    setChannelFlag(kind, h, !(get(storeFor(kind)).channels[h]?.on ?? false))
+}
+
 /**
  * Idempotenter Einstieg. Tut nichts ohne konfigurierten Workspace
  * ({@link hasWorkspace}, synchron und ohne Netz) und nichts ohne angemeldete
@@ -350,9 +583,20 @@ export function initChannelPrefs(): void {
     // Rückweg aus dem Hintergrund: in Buzz Desktop gesetzte Präferenzen sollen nach
     // einem Tab-Wechsel da sein, nicht erst nach einem Neustart. Dieselbe Stelle,
     // an der `readStateSync.ts` seinen Fremdstand nachlädt.
+    //
+    // The other direction is the flush of the write half: a tab that goes away must not
+    // swallow the last toggle. Gated on {@link dirty}, so an ordinary app switch costs
+    // nothing — without that gate every `hidden` would pay for two REQs and two
+    // decryptions in `mergeOwnBlobBeforePublish`, for a store nobody touched.
     if (typeof document !== 'undefined') {
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && isBuzz && pk) {
+            if (document.visibilityState === 'hidden') {
+                void publishChannelFlags('stars')
+                void publishChannelFlags('mutes')
+
+                return
+            }
+            if (isBuzz && pk) {
                 loadPrefs(pk)
             }
         })

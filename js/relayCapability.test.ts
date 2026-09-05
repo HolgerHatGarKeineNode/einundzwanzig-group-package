@@ -119,3 +119,31 @@ test('the gate is not a general publish gate — the everyday kinds are denied t
         assert.equal(mayWriteKind(kind, 'buzz'), false, `kind ${kind} is not governed here`)
     }
 })
+
+// ── P7: NIP-17 / NIP-59 ────────────────────────────────────────────────────
+
+test('a gift wrap (1059) may be written on either relay', () => {
+    // Both were asked, not read: Buzz names KIND_GIFT_WRAP in its ingest allowlist and
+    // waives the pubkey/auth match for it; zooid authorises the recipient instead of the
+    // author. Measured with a requery on 2026-09-05 (`p7-messung-a-wrap-drift.txt`).
+    assert.equal(mayWriteKind(1059, 'buzz'), true)
+    assert.equal(mayWriteKind(1059, 'other'), true)
+    assert.equal(mayWriteKind(1059, 'unknown'), false)
+})
+
+test('a messaging relay list (10050) is refused on Buzz and allowed elsewhere', () => {
+    // The first entry in this table that protects the USER from a relay rather than the
+    // relay from the client: Buzz has no constant for 10050 at all and answers
+    // `restricted: unknown event kind`. Measured with kind 10000 as the positive control
+    // in the same run (`p7-messung-c-kind10050.txt`).
+    assert.equal(mayWriteKind(10050, 'buzz'), false)
+    assert.equal(mayWriteKind(10050, 'other'), true)
+    assert.equal(mayWriteKind(10050, 'unknown'), false)
+})
+
+test("the 'other' rule is not the 'any' rule with extra words", () => {
+    // If `'other'` ever collapsed into `'any'`, 10050 would be signed on a Buzz space and
+    // bounced there — the exact failure the entry exists to prevent. Held against a kind
+    // that IS `'any'`, so the two answers have to differ on a Buzz space.
+    assert.notEqual(mayWriteKind(10050, 'buzz'), mayWriteKind(10000, 'buzz'))
+})

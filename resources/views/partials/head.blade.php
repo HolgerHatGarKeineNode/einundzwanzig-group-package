@@ -38,6 +38,24 @@
     <script>window.__nostrArticleRelays = window.__nostrArticleRelays ?? @js(config('group.article_relay_urls'));</script>
 @endif
 
+{{-- P2 — NIP-52 calendar: the relays a meetup's dates (kind 31923) and the RSVPs
+     (kind 31925) live on, comma separated, plus the pubkeys whose dates count. BOTH
+     values are needed; with one missing the date card asks no relay and keeps showing
+     the HTTP date from the portal list. Same `??` rule as above, so an E2E run can pull
+     them onto its own relay with addInitScript.
+
+     **These two lines stand TWICE in the tree** — see the reasoning at the article
+     block. `tests/Feature/CalendarRelaysTest.php` holds both together; it exists because
+     exactly this mistake happened while building P2: the lines were in the package
+     partial only, and the date card would have stayed silently on the HTTP fallback in
+     normal web operation. --}}
+@if (config('group.calendar_relay_urls'))
+    <script>window.__nostrCalendarRelays = window.__nostrCalendarRelays ?? @js(config('group.calendar_relay_urls'));</script>
+@endif
+@if (config('group.calendar_authors'))
+    <script>window.__nostrCalendarAuthors = window.__nostrCalendarAuthors ?? @js(config('group.calendar_authors'));</script>
+@endif
+
 {{-- Ziel der Profil-Verweise: die öffentliche Creator-Seite auf media.
      (`group.media_public_url`). Nur gesetzt, wenn konfiguriert — leer heißt „kein
      Verweis", und dann entfällt die Zeile auf beiden Flächen ganz. Gleiche `??`-Regel

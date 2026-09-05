@@ -91,6 +91,60 @@ export const publishDetail = (results: Record<string, PublishResultRow> | undefi
     return rows.find((r) => r.status === 'success')?.detail ?? ''
 }
 
+/**
+ * Which relays took the event and which did not — the third reading next to
+ * {@link publishError} and {@link publishDetail}, and the one that tells "nowhere" from
+ * "somewhere" apart.
+ *
+ * ## Why the first two are not enough
+ *
+ * `publishError` reports the reason of the FIRST relay that did not answer `success`.
+ * That is the right answer to "is anything wrong", and the wrong one to "did the write
+ * happen": with `{nos.lol: success, relay.damus.io: timeout}` it returns `"timeout"`,
+ * and a caller that rolls back on any error removes an event that one relay is holding
+ * — publicly, permanently, and out of the client's reach.
+ *
+ * That combination is not exotic. Measured on 2026-09-05, `relay.damus.io` answered 5 of
+ * 8 attempts with `503`; for a two-relay write the partial result is the ordinary case.
+ *
+ * `undefined` while anything is still `sending`/`pending`, or when there is no result at
+ * all — same convention as its two neighbours.
+ */
+export const publishSpread = (
+    results: Record<string, PublishResultRow> | undefined,
+): { delivered: string[]; failed: string[] } | undefined => {
+    const rows = Object.entries(results ?? {})
+    if (rows.length === 0) {
+        return undefined
+    }
+    if (rows.some(([, r]) => r.status === 'sending' || r.status === 'pending')) {
+        return undefined
+    }
+
+    return {
+        delivered: rows.filter(([, r]) => r.status === 'success').map(([url]) => url),
+        // Everything that is not `success` counts as failed, including a status this
+        // version does not know yet — the same inversion the module header argues for.
+        failed: rows.filter(([, r]) => r.status !== 'success').map(([url]) => url),
+    }
+}
+
+/**
+ * Should the optimistically inserted event be taken out of the repository again?
+ *
+ * **Only when it landed NOWHERE.** The rule is one line and it is here, pure and
+ * exported, because it is the one that was silently wrong: rolling back on
+ * `error !== ''` deletes the local copy of an event that a relay is holding — publicly,
+ * permanently, and out of the client's reach. `publishOptimistic` used to do exactly
+ * that, and on a two-relay write the partial result is the ordinary case (measured
+ * 2026-09-05: `relay.damus.io` answered 5 of 8 attempts with `503`).
+ *
+ * A rule that only exists inside the `if` of a network function cannot be falsified: a
+ * mutation back to `if (outcome.error)` left every test in this repository green.
+ */
+export const rollBackAfterPublish = (spread: { delivered: readonly string[] }): boolean =>
+    spread.delivered.length === 0
+
 type ThunkLike = {
     results?: Record<string, PublishResultRow>
     /** welshmans `Thunk` trägt hier seine Zielrelays — die Quelle für die NOTICE-Nachfrage. */
@@ -130,6 +184,13 @@ export type PublishOutcome = {
     error: string
     /** `detail` des `OK`-Frames bei Erfolg, sonst `''`. */
     detail: string
+    /**
+     * The relays that took the event. EMPTY is the only state that means "nowhere" —
+     * `error !== ''` does not, see {@link publishSpread}.
+     */
+    delivered: string[]
+    /** The relays that did not, for any reason (rejection, timeout, abort, no verdict). */
+    failed: string[]
 }
 
 /**
@@ -160,12 +221,20 @@ export const waitForPublishOutcome = (thunk: ThunkLike): Promise<PublishOutcome>
         }
         const timer = setTimeout(() => {
             const reason = (thunk.options?.relays ?? []).map((url) => readNotice(url, started)).find(Boolean) ?? ''
-            settle({ error: reason ? `${NO_VERDICT_ERROR} ${reason}` : NO_VERDICT_ERROR, detail: '' })
+            // No verdict at all means nothing is known to have landed anywhere — the
+            // spread has to say so, or a caller would read the empty `failed` as "fine".
+            settle({
+                error: reason ? `${NO_VERDICT_ERROR} ${reason}` : NO_VERDICT_ERROR,
+                detail: '',
+                delivered: [],
+                failed: [...(thunk.options?.relays ?? [])],
+            })
         }, PUBLISH_VERDICT_TIMEOUT_MS)
         thunk.subscribe(($thunk) => {
             const err = publishError($thunk.results)
             if (err !== undefined) {
-                settle({ error: err, detail: publishDetail($thunk.results) ?? '' })
+                const spread = publishSpread($thunk.results) ?? { delivered: [], failed: [] }
+                settle({ error: err, detail: publishDetail($thunk.results) ?? '', ...spread })
             }
         })
     })

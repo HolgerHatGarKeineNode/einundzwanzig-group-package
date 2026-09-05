@@ -74,9 +74,19 @@ export type PaletteRoom = RailRoom & {
     hint?: string
 }
 
-/** Zu welcher Rail-Gruppe zählt der Raum? Workspace schlägt den Typ. */
+/**
+ * Which rail group does the room belong to? Workspace beats the type — **but a
+ * conversation beats the workspace.**
+ *
+ * That exception is not a nicety, it is the condition for `d:` finding anything at all:
+ * conversations exist only on Buzz, and Buzz IS the workspace. Without the precedence
+ * every conversation counted as a workspace room, `d:` stayed empty for good and
+ * `f:`/`w:` mixed channels with conversations. The rail decides the same question the
+ * same way — there a conversation never reaches the workspace bucket in the first place,
+ * it goes past `groupOf` (`railGroups.buildGroups`).
+ */
 export const roomGroupKey = (room: PaletteRoom): RailGroupKey =>
-    room.workspace === true ? 'workspace' : groupOf(room)
+    room.workspace === true && room.isDm !== true ? 'workspace' : groupOf(room)
 
 /**
  * Liest den Scope aus dem Eingabetext und gibt den Rest zurück.

@@ -21,7 +21,7 @@
  * Boot-Pfad ohnehin liegt) und `publishResult.ts` (kein welshman).
  */
 import { app, Thunks, type ThunkOptions } from './welshmanApp.ts'
-import { mapRelayError, waitForPublishError } from './publishResult.ts'
+import { mapRelayError, rollBackAfterPublish, waitForPublishOutcome } from './publishResult.ts'
 
 /**
  * Publiziert ein Event optimistisch (der Thunk legt es sofort ins Repository → die UI
@@ -38,16 +38,72 @@ import { mapRelayError, waitForPublishError } from './publishResult.ts'
  * Gibt `''` bei Erfolg, sonst die übersetzte Relay-Begründung — dieselbe Konvention wie
  * überall im Haus, und {@link mapRelayError} führt seit P7 den Originaltext des Relays
  * wörtlich mit.
+ *
+ * ── `url` takes a LIST since P2, and the rollback rule changed with it ──────────────
+ *
+ * The NIP-52 calendar (`calendar.ts`) writes its RSVP to SEVERAL relays: the dates live
+ * on the portal's public addresses, and an answer that lands on only one of them does
+ * not exist for anybody reading the other. Writing a second thunk by hand in
+ * `calendar.ts` would have been exactly the copy this file's header argues against —
+ * two answers to "what happens on a relay reject", of which the second ages unnoticed.
+ *
+ * The widening is SOURCE-COMPATIBLE: all 16 existing calls pass a string and go through
+ * the same branch. `readonly string[]` because the callers keep their relay list as a
+ * module constant.
+ *
+ * **And the rollback now asks "did it land ANYWHERE", not "was anything wrong".** With
+ * one relay the two questions have the same answer, so nothing changes for the 16; with
+ * several they come apart, and the old reading destroyed real writes. See
+ * {@link publishSpreadOptimistic}, which is where the distinction lives — this function
+ * only flattens it back to the one-string convention.
  */
 export const publishOptimistic = async (
-    url: string,
+    url: string | readonly string[],
     event: ThunkOptions['event'],
-): Promise<string> => {
-    const thunk = app.use(Thunks).publish({ relays: [url], event })
-    const err = await waitForPublishError(thunk)
-    if (err) {
+): Promise<string> => (await publishSpreadOptimistic(url, event)).error
+
+/** What a publish across several relays actually did. */
+export type OptimisticSpread = {
+    /** `''` = landed everywhere, otherwise the translated reason of the first failure. */
+    error: string
+    /** The relays that took it. Empty means the event was rolled back locally. */
+    delivered: string[]
+    /** The relays that did not. */
+    failed: string[]
+}
+
+/**
+ * The same publish, but reporting WHERE the event ended up.
+ *
+ * ## The rule, and the measurement behind it
+ *
+ * `{nos.lol: success, relay.damus.io: timeout}` used to be reported as a failure and
+ * rolled back — while nos.lol kept the event, publicly and permanently. On 2026-09-05
+ * `relay.damus.io` answered 5 of 8 attempts with `503`; for a two-relay write the
+ * partial result is the ordinary case, not an edge one.
+ *
+ * So the event is removed again only when **nothing** landed. A caller with a non-empty
+ * `failed` next to a non-empty `delivered` has a write that happened, and it is the
+ * caller's job to say so rather than to pretend either way.
+ *
+ * The reason string is still filled on a partial result: it names what went wrong. It is
+ * the wrong thing to render as an error on its own, which is why `delivered` is here.
+ */
+export const publishSpreadOptimistic = async (
+    url: string | readonly string[],
+    event: ThunkOptions['event'],
+): Promise<OptimisticSpread> => {
+    const thunk = app.use(Thunks).publish({ relays: typeof url === 'string' ? [url] : [...url], event })
+    const outcome = await waitForPublishOutcome(thunk)
+    // Through the pure rule and not inline: see {@link rollBackAfterPublish}. Written
+    // out here, a mutation back to `if (outcome.error)` left every test green.
+    if (rollBackAfterPublish(outcome)) {
         app.repository.removeEvent(thunk.event.id)
     }
 
-    return err ? mapRelayError(err) : ''
+    return {
+        error: outcome.error ? mapRelayError(outcome.error) : '',
+        delivered: outcome.delivered,
+        failed: outcome.failed,
+    }
 }

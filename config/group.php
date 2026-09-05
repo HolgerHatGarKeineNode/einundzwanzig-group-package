@@ -109,6 +109,58 @@ return [
     'article_relay_urls' => env('NOSTR_ARTICLE_METRIC_RELAYS'),
 
     /*
+     * P2 — the relays a meetup's NIP-52 DATES live on (kind 31923) and that this client
+     * writes its RSVPs to (kind 31925). Comma separated, e.g.
+     * `wss://nos.lol,wss://relay.damus.io`.
+     *
+     * **This is the PORTAL's address, not ours.** The association portal has signed and
+     * published its meetups and dates itself since 2026-09-04 (`einundzwanzig-portal`,
+     * `nostr:publish-calendar`, every five minutes) — to the relays from ITS own
+     * `NOSTR_RELAYS` (`config/services.php`, default `wss://nos.lol,wss://relay.damus.io`).
+     * If the portal's production instance differs, ITS value belongs here; otherwise the
+     * client asks the wrong relay and falls back to the HTTP source in every room.
+     *
+     * No code default, for the same reason as `board_relay_url`: a default turns a
+     * missing configuration into a silent WebSocket connection to the public internet,
+     * and an E2E run would go red against the relay guard immediately. Empty means: the
+     * date card keeps showing the HTTP date from `/api/mobile/meetups` and sends NO REQ.
+     *
+     * ── What these relays learn about your readers ────────────────────────────────
+     *
+     * On the bare opening of a MEETUP room — no click, nothing the reader does — they get
+     * a WebSocket connection and with it the IP address, the user agent, the time and the
+     * filters asked for, i.e. **which meetup this reader is looking at** (the filter
+     * carries exactly one coordinate). The **pubkey** does not go out: `js/relayConfig.ts`
+     * puts these addresses into the same AUTH block as the metric relays above. Whoever
+     * accepts an invitation does of course reveal their pubkey — a kind 31925 carries it
+     * in the clear — but that only happens on a button press, and the surface says so
+     * next to the button.
+     */
+    'calendar_relay_urls' => env('NOSTR_CALENDAR_RELAYS'),
+
+    /*
+     * P2 — the pubkeys (hex, comma separated) whose kind 31923 counts as a date of a
+     * meetup. Without this value the client asks for **nothing at all**.
+     *
+     * **The author filter is half the surface, not a hardening.** A kind 31923 is a
+     * public kind on public relays, and the `a` tag that binds a date to a meetup
+     * calendar is a CLAIM: anybody may publish an event carrying our coordinate. Measured
+     * 2026-09-05, a bare `nak req -k 31923 -l 100 wss://nos.lol` returned 100 events from
+     * 16 authors — baseball fixtures, Brazilian concerts, and two different keys
+     * publishing the same Austrian club's dates byte for byte. Without `authors` the room
+     * header would show whatever a stranger points at it.
+     *
+     * The measured production value is ONE key:
+     * `daf83d92768b5d0005373f83e30d4203c0b747c170449e02fea611a0da125ee6`
+     * (`npub1mturmynk3dwsqpfh87p7xr2zq0qtw37pwpzfuqh75cg6pksjtmnqqxv6kw`, kind 0
+     * "Einundzwanzig Portal", `website: portal.einundzwanzig.space`). It belongs in
+     * `.env.example`, not here — but a LIST is provided for, because the calendar
+     * coordinate embeds the author: after a key rotation every previously published date
+     * would otherwise be unfindable.
+     */
+    'calendar_authors' => env('NOSTR_CALENDAR_AUTHORS'),
+
+    /*
      * P5 (Onboarding) — Origin der Vereins-API, z.B. `https://verein.einundzwanzig.space`.
      *
      * Das ist KEIN Geheimnis (der Schlüssel dazu ist eins und bleibt im Proxy,
@@ -321,7 +373,7 @@ return [
      *
      * @var list<string>
      */
-    'settings' => ['account', 'space', 'wallet', 'relays', 'blossom', 'appearance', 'language', 'session'],
+    'settings' => ['account', 'space', 'wallet', 'relays', 'blossom', 'mutes', 'appearance', 'language', 'session'],
 
     /*
      * Sprach-Registry (P2): die Whitelist, gegen die `SetLocale` Cookie und

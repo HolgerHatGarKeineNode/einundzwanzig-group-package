@@ -474,3 +474,215 @@ export const toWorkspaceSections = (
         ),
     }
 }
+
+// ── Write half (P4) ─────────────────────────────────────────────────────────
+
+/**
+ * The two `d` tags this client may WRITE — and the two that are missing are missing
+ * for a data-loss reason, not for a scope reason.
+ *
+ * `channel-stars` and `channel-mutes` merge PER CHANNEL over `updatedAt`
+ * ({@link mergeFlags}): two devices that each muted a different channel keep both
+ * statements. `channel-sections` and `channel-sort` go through {@link applyBlob},
+ * i.e. whole-blob LWW — writing one of them replaces the section layout and the
+ * channel sorting the user set in Buzz Desktop WHOLESALE, and this client offers no
+ * surface to set either. That is silent data loss in a foreign client, so the
+ * prohibition lives here as code and not as a sentence in a comment.
+ *
+ * {@link planChannelPrefsPublish} is the only gate; it returns `null` for every `d`
+ * tag outside this list.
+ */
+export const WRITABLE_CHANNEL_PREFS_D: readonly string[] = [D_CHANNEL_STARS, D_CHANNEL_MUTES]
+
+/** The payload field of a writable `d` tag — `null` for everything else. */
+export const flagFieldFor = (dTag: string): 'starred' | 'muted' | null => {
+    if (dTag === D_CHANNEL_STARS) {
+        return 'starred'
+    }
+    if (dTag === D_CHANNEL_MUTES) {
+        return 'muted'
+    }
+
+    return null
+}
+
+/**
+ * Set one channel's flag locally.
+ *
+ * Unconditional, unlike {@link mergeFlags}: this is the user's own action on this
+ * device, not a remote statement that has to win a timestamp comparison. Routed
+ * through the merge it would CANCEL ITSELF on a second toggle inside the same second
+ * — `mergeFlags` overwrites only on a strictly newer `updatedAt`.
+ *
+ * {@link boundFlags} runs afterwards for the same reason it runs on the read side:
+ * both clients have to keep the same 500 entries.
+ */
+export const setFlag = (store: FlagStore, h: string, on: boolean, updatedAt: number): FlagStore =>
+    boundFlags({ version: 1, channels: { ...store.channels, [h]: { on, updatedAt } } })
+
+/**
+ * Store → the exact payload Buzz Desktop writes (`channelMutesSync.ts:165-168`,
+ * `{version: 1, channels: merged.channels}`), channel ids in sorted order.
+ *
+ * Sorted because the caller compares this string against the last published one to
+ * decide whether a publish would be a no-op. Without a fixed order that comparison
+ * would hang on object insertion order and republish an unchanged store.
+ */
+export const flagPayloadJson = (store: FlagStore, field: 'starred' | 'muted'): string => {
+    const channels: Record<string, Record<string, unknown>> = {}
+    for (const id of Object.keys(store.channels).sort()) {
+        const entry = store.channels[id]
+        channels[id] = { [field]: entry.on, updatedAt: entry.updatedAt }
+    }
+
+    return JSON.stringify({ version: 1, channels })
+}
+
+/**
+ * How far into the future a `created_at` may be pushed to win the addressable
+ * replacement — 600 s.
+ *
+ * Buzz rejects EVERY event whose timestamp sits more than ±900 s from server time
+ * (`buzz/crates/buzz-relay/src/handlers/ingest.rs:2005-2012` — a global check, not
+ * one for gift wraps). 600 leaves room for the seconds between building the event and
+ * its ingest.
+ */
+export const MAX_PREFS_FUTURE_SKEW_SEC = 600
+
+/**
+ * The `created_at` of the next publish: now, but at least one second past the newest
+ * event we have seen at the relay.
+ *
+ * Without the bump a second toggle inside the same second would be dropped SILENTLY:
+ * kind 30078 is addressable, and on an equal `created_at` a relay keeps the older
+ * event (NIP-01 tie break). The user sees the switch flip and loses it on reload.
+ * Buzz bumps for the same reason (`channelMutesSync.ts:170-173`).
+ *
+ * Capped, because the head carries a FOREIGN device's clock: a Buzz Desktop running
+ * an hour fast would otherwise push every write past Buzz' ±900 s window, and the
+ * relay would reject all of them instead of merely not replacing. The capped
+ * direction is the recoverable one.
+ */
+export const nextPrefsCreatedAt = (nowSec: number, remoteHead: number): number =>
+    Math.min(Math.max(nowSec, remoteHead + 1), nowSec + MAX_PREFS_FUTURE_SKEW_SEC)
+
+/** Everything the impure half needs to turn a store into an event. */
+export type ChannelPrefsPublishPlan = {
+    dTag: string
+    field: 'starred' | 'muted'
+    /** The PLAINTEXT payload — encrypting it is the impure half's job. */
+    json: string
+    /** `[["d",tag],["t",tag]]` — exactly Buzz' tags (`channelMutesSync.ts:178-181`). */
+    tags: string[][]
+    createdAt: number
+}
+
+/**
+ * The ONE gate between a preference store and a published event.
+ *
+ * Returns `null` for every `d` tag outside {@link WRITABLE_CHANNEL_PREFS_D}. A caller
+ * that wants to write `channel-sections` or `channel-sort` gets nothing to publish —
+ * that is the whole enforcement, and it is testable without a relay.
+ */
+export const planChannelPrefsPublish = (
+    dTag: string,
+    store: FlagStore,
+    nowSec: number,
+    remoteHead: number,
+): ChannelPrefsPublishPlan | null => {
+    const field = flagFieldFor(dTag)
+    if (field === null || !WRITABLE_CHANNEL_PREFS_D.includes(dTag)) {
+        return null
+    }
+
+    return {
+        dTag,
+        field,
+        json: flagPayloadJson(store, field),
+        tags: [['d', dTag], ['t', dTag]],
+        createdAt: nextPrefsCreatedAt(nowSec, remoteHead),
+    }
+}
+
+/**
+ * Did at least ONE relay say `OK true`?
+ *
+ * The house rule since `profiles.ts summarizePublishResults`: one accepting relay means
+ * stored. Pure and parameterised over the token, so it runs under `node --test` without
+ * pulling `@welshman/net` into this module — the caller passes `PublishStatus.Success`.
+ *
+ * **An empty result map is `false`, not `true`.** That is the direction that matters:
+ * a publish that produced no verdict at all must not be remembered as delivered, or the
+ * switch is silently gone after the next reload.
+ */
+export const anyRelayAccepted = (
+    results: Record<string, { status: string }>,
+    successStatus: string,
+): boolean => Object.values(results).some((result) => result.status === successStatus)
+
+/**
+ * **Does this in-flight publish still belong to the identity that started it?**
+ *
+ * The arm counter goes up on every arm and disarm (`channelPrefs.ts resetStores`). A
+ * publish captures it before its first `await` and asks again afterwards — an identity
+ * switch during the fetch or the signer round trip would otherwise encrypt the NEW user's
+ * (freshly emptied) store with the NEW user's key and wipe whatever that user had.
+ *
+ * A one-line comparison, and it is a named function on purpose: the value of this call is
+ * that it is COUNTABLE. `channelPrefsWriteGate.test.ts` requires it at the call site after
+ * the encryption, because a removed guard there is invisible to every behaviour test that
+ * does not switch identity mid-publish.
+ */
+export const publishEpochUnchanged = (captured: number, current: number): boolean =>
+    captured === current
+
+/** Why a publish is not happening — the reasons are distinguished because they differ in what the caller must do next. */
+export type PublishSkipReason =
+    /** Identity or workspace changed under us. Keep the pending mark; the new identity owns nothing here. */
+    | 'stale'
+    /** `d` tag outside {@link WRITABLE_CHANNEL_PREFS_D} — the sections/sort prohibition. */
+    | 'not-writable'
+    /** Byte-identical to what a relay already confirmed. Nothing to send, and nothing pending either. */
+    | 'unchanged'
+
+export type PublishDecision =
+    | { go: false; reason: PublishSkipReason }
+    | { go: true; plan: ChannelPrefsPublishPlan }
+
+/**
+ * **The whole decision of a publish, in one pure function** — everything between "the
+ * relay's copy is merged in" and "encrypt and send".
+ *
+ * It exists in this shape because the three ways NOT to send are exactly the three ways
+ * this feature can lose data quietly, and none of them is reachable from a browser test:
+ *
+ * - `stale` — an identity switch mid-publish. Reproducing it in an E2E means logging out
+ *   inside a two-second window.
+ * - `not-writable` — the `channel-sections` / `channel-sort` prohibition.
+ * - `unchanged` — the no-op that keeps a tab switch from costing a signature.
+ *
+ * The impure half calls this once and then only encrypts and sends. That is the point:
+ * what can be decided without a relay is decided here, where a test can ask.
+ */
+export const decideChannelPrefsPublish = (input: {
+    dTag: string
+    store: FlagStore
+    nowSec: number
+    remoteHead: number
+    lastPublishedJson: string | undefined
+    capturedEpoch: number
+    currentEpoch: number
+}): PublishDecision => {
+    if (!publishEpochUnchanged(input.capturedEpoch, input.currentEpoch)) {
+        return { go: false, reason: 'stale' }
+    }
+    const plan = planChannelPrefsPublish(input.dTag, input.store, input.nowSec, input.remoteHead)
+    if (plan === null) {
+        return { go: false, reason: 'not-writable' }
+    }
+    if (plan.json === input.lastPublishedJson) {
+        return { go: false, reason: 'unchanged' }
+    }
+
+    return { go: true, plan }
+}
