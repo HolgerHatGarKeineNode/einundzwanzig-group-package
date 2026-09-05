@@ -1252,7 +1252,7 @@
     "Dieser Relay nimmt keine Audiodateien an — auch keine Sprachnachrichten.": "This Relay does not accept audio files — voice messages included.",
     "Verschlüsselt": "Encrypted",
     "Was hier verborgen bleibt": "What stays hidden here",
-    "Inhalt und Absender sieht niemand — auch der Relay-Betreiber nicht. Wer eine Nachricht bekommt, ist auf einem zooid-Space für andere Mitglieder sichtbar; auf einem Buzz-Space nicht.": "Nobody sees the content or the sender — not even the relay operator. Who receives a message is visible to other members on a zooid space; on a Buzz space it is not.",
+    "Den Inhalt sieht niemand — auch der Relay-Betreiber nicht. Wer mit wem schreibt, ist auf einem zooid-Space für andere Mitglieder sichtbar; auf einem Buzz-Space nicht.": "Nobody sees the content — not even the relay operator. Who writes to whom is visible to other members on a zooid space; on a Buzz space it is not.",
     "Wo du privat erreichbar bist": "Where people can reach you privately",
     "Noch keine Liste veröffentlicht. Andere Clients wissen dann nicht, wohin sie dir schreiben sollen.": "No list published yet. Other clients therefore do not know where to write to you.",
     "Diesen Space als Zustelladresse veröffentlichen": "Publish this space as your delivery address",

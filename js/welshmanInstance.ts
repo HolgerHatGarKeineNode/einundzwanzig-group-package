@@ -64,7 +64,6 @@ import {
     appPolicyRelayStats,
     appPolicyCacheDecrypt,
     appPolicyLogSignerMethods,
-    appPolicyWraps,
     User,
     type AppPolicy,
     type IApp,
@@ -83,6 +82,7 @@ import {
 import { SocketEvent, isRelayEvent, makeSocketPolicyAuth } from '@welshman/net'
 import { guardRelayQuality } from './deadRelays.ts'
 import { socketPolicyAuthHold } from './authHold.ts'
+import { appPolicyPrivateWraps } from './wrapIngest.ts'
 import {
     forgetClosedSubscription,
     isSolicitedEvent,
@@ -301,7 +301,7 @@ const ingestMitWorkspaceRiegel: AppPolicy = (app) => {
             if (isDVMKind(event.kind) || isEphemeralKind(event.kind)) {
                 return
             }
-            // P7 — THE origin check `appPolicyWraps` is switched on behind. Before
+            // P7 — THE origin check the NIP-59 unpacking is switched on behind. Before
             // `verifyEvent`, because the cheap question is the one that keeps a hostile
             // push from costing anything at all. Kind 1059 only: an unsolicited kind 9
             // wastes an object, an unsolicited kind 1059 costs a signer round trip
@@ -441,12 +441,19 @@ const authHoldPolicy: AppPolicy = (app) => {
  * zwei der sechs Voreinstellungen ersetzen wir — `appPolicyIngest` durch den
  * Workspace-Riegel (R3) und `appPolicyAuthUnlessBlocked` durch unsere engere AUTH-Regel.
  *
- * ── `appPolicyWraps` is in the list since P7 — under the condition written here ──
- * Until 2026-09-05 it was left out on purpose, and the sentence under which it was
+ * ── NIP-59 unpacking is in the list since P7 — but NOT `appPolicyWraps` ──────────
+ * Until 2026-09-05 there was no unpacking at all, and the sentence under which it was
  * allowed back stood verbatim at this spot:
  * "erst wieder hinein, wenn es eine Fläche gibt, die NIP-59 tatsächlich liest — und dann mit einer Herkunftsprüfung davor, nicht als Voreinstellung."
  * Both halves now hold: `js/privateMessages.ts` reads NIP-17, and `js/wrapOrigin.ts`
  * stands in the receive path in front of it.
+ *
+ * **welshman's own `appPolicyWraps` is nevertheless not what runs here**, and that is a
+ * second, independent measurement: everything it unwraps goes through
+ * `WrapManager.add`, which publishes the rumor into the SHARED repository and gives it
+ * the envelope's relay origin — unsigned, of any kind, with an id nobody verified. A
+ * kind 9 with an `h` tag inside a solicited wrap reached the room feed. The replacement
+ * is `appPolicyPrivateWraps` in `js/wrapIngest.ts`; the full reasoning is its header.
  *
  * **Why the condition existed, measured against the real app instance:** `isRelayEvent`
  * checks `m[0] === "EVENT"` and not the subscription id — so any connected relay may
@@ -479,15 +486,15 @@ const policies: AppPolicy[] = [
     ingestMitWorkspaceRiegel,
     // P7. **The position in this list carries NOTHING here** — it is stated so nobody
     // mistakes it for the protection: the two policies are independent
-    // (`appPolicyWraps` hangs on the repository's `update` event, the guard above it on
-    // the pool), and the backlog loop inside `appPolicyWraps` runs over an empty
-    // repository wherever it stands.
+    // (`appPolicyPrivateWraps` hangs on the repository's `update` event, the guard above
+    // it on the pool), and its backlog loop runs over an empty repository wherever it
+    // stands.
     //
     // What does carry is the ONE way in: a received 1059 reaches the repository only
     // through `ingestMitWorkspaceRiegel` (the three other `repository.publish` callers
     // are named above), and none can arrive from localStorage, because neither 1059 nor
     // 14 is in `PERSIST_KINDS`.
-    appPolicyWraps,
+    appPolicyPrivateWraps,
     appPolicyRelayStats,
     authPolicy,
     authHoldPolicy,

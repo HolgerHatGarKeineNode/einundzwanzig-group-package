@@ -43,18 +43,27 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
         {{-- ── The promise this surface owes ────────────────────────────────────────
              Measured on 2026-09-05 against local slots, with a positive control
-             (`p7-messung-d-lesegatter.txt`): content and sender stay hidden from the
-             operator as well — the envelope is signed by a throwaway key. The RECIPIENT
-             is not hidden on a zooid space: there the relay answers a `{"kinds":[1059]}`
-             without `#p` to every member with every envelope. Buzz refuses the same
-             request.
+             (`p7-messung-d-lesegatter.txt`): the CONTENT stays hidden from the operator
+             too — the envelope is signed by a throwaway key and the author is inside the
+             seal. On a zooid space the relay answers a `{"kinds":[1059]}` without `#p` to
+             every member with every envelope; Buzz refuses the same request.
+
+             **The sentence says "wer mit wem", not "wer bekommt etwas", and that is a
+             correction from the P7 audit.** Each message goes out as TWO envelopes on the
+             same relay — one to the recipient, one to the author's own key, because
+             NIP-17 has no sent folder. A member with a live `{"kinds":[1059]}`
+             subscription on zooid sees them arrive 139 ms apart (measured), so the PAIR
+             falls out, not just the recipient. The timestamp randomisation in
+             `js/giftWrap.ts` does not help against that: it scrambles `created_at`, and a
+             live subscriber reads arrival time. (It does help against a later bulk fetch,
+             which is what it buys.)
 
              The sentence stands here and not in a footnote, for the same reason as the
              plaintext note on the Buzz DM dialog: a reader who sees "encrypted" and
              assumes more than holds has been misled by the surface, not by the relay. --}}
         <flux:callout variant="secondary" icon="lock-closed" class="mb-3" data-pm-zusage>
             <flux:callout.heading>{{ __('Was hier verborgen bleibt') }}</flux:callout.heading>
-            <flux:callout.text>{{ __('Inhalt und Absender sieht niemand — auch der Relay-Betreiber nicht. Wer eine Nachricht bekommt, ist auf einem zooid-Space für andere Mitglieder sichtbar; auf einem Buzz-Space nicht.') }}</flux:callout.text>
+            <flux:callout.text>{{ __('Den Inhalt sieht niemand — auch der Relay-Betreiber nicht. Wer mit wem schreibt, ist auf einem zooid-Space für andere Mitglieder sichtbar; auf einem Buzz-Space nicht.') }}</flux:callout.text>
         </flux:callout>
 
         {{-- ── Reachability (kind 10050) ────────────────────────────────────────────

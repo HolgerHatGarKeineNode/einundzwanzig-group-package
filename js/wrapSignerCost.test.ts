@@ -50,6 +50,9 @@ const { WRAP, getPubkey, hash, makeSecret, normalizeRelayUrl, prep } = await imp
 const { Nip01Signer, getSeal } = await import('@welshman/signer')
 const { buildGiftWrap } = await import('./giftWrap.ts')
 const { wrapFilters } = await import('./privateMessages.ts')
+const { privateRumors, clearPrivateRumors } = await import('./wrapIngest.ts')
+const { deriveEventsForUrl } = await import('./repository.ts')
+const { get } = await import('svelte/store')
 
 const URL_ = normalizeRelayUrl('wss://hostile.relay.invalid/')
 const N = 25
@@ -104,6 +107,7 @@ before(async () => {
 after(() => {
     // The socket carries a 30 s ping interval; without this the runner waits it out.
     app.pool.remove(URL_)
+    clearPrivateRumors()
 })
 
 test(`THE MEASUREMENT: ${N} unsolicited wraps cost 0 signer calls`, async () => {
@@ -175,9 +179,127 @@ test('POSITIVE CONTROL: a wrap we asked for is decrypted and unwrapped', async (
 
     assert.ok(decrypts() - before_ >= 1, 'the wrap we asked for still reaches the signer')
     assert.equal(app.repository.query([{ kinds: [WRAP] }]).length, 1, 'and only this one entered the repository')
-    const rumor = app.wrapManager.getRumor(wanted.id)
-    assert.equal(rumor?.content, 'solicited', 'the unwrapped message is the one that was sent')
+    const rumor = get(privateRumors).find((event) => event.content === 'solicited')
+    assert.ok(rumor, 'the unwrapped message is the one that was sent')
     assert.equal(rumor?.pubkey, getPubkey(senderSecret), 'the author comes out of the seal, not off the envelope')
+    // …and it is NOT in the shared repository. See the next case for why.
+    assert.equal(app.repository.query([{ kinds: [14] }]).length, 0)
+})
+
+test('F1: a rumor of a foreign kind in a SOLICITED wrap reaches nothing', async () => {
+    // The high finding of the P7 audit, measured the same way the auditor measured it.
+    // `WrapManager.add` publishes whatever came out of the envelope into the SHARED
+    // repository, unsigned and wearing the envelope's relay origin, and `unwrap` checks
+    // only that the seal signed the claimed author — `isHashedEvent` verifies the LENGTH
+    // of the id and no hash at all. A kind 9 with an `h` tag therefore reached
+    // `deriveEventsForUrl(url, [{kinds:[9], "#h":[…]}])`, which is the shape of
+    // `roomStreamFilter` and the source `deriveRoomChat` reads: a foreign, unsigned
+    // message in the room feed, past the kind allowlist, past the room membership rules
+    // and past `verifyEvent`, with no relay involved in the trick.
+    const senderSecret = makeSecret()
+    const sender = Nip01Signer.fromSecret(senderSecret)
+    const foreign = {
+        kind: 9,
+        pubkey: getPubkey(senderSecret),
+        created_at: now(),
+        content: 'FOREIGN-IN-THE-ROOM',
+        tags: [['h', 'welcome']],
+        // A freely chosen id: nothing upstream recomputes it, so it can be aimed at a
+        // real event to shadow it for the session.
+        id: 'a'.repeat(64),
+    }
+    const seal = await getSeal(sender, ME, foreign as never)
+    const wrapper = Nip01Signer.ephemeral()
+    const smuggler = await wrapper.sign(
+        hash({
+            kind: WRAP,
+            pubkey: await wrapper.getPubkey(),
+            content: await wrapper.nip44.encrypt(ME, JSON.stringify(seal)),
+            created_at: now(),
+            tags: [['p', ME]],
+        }),
+    )
+
+    socket.send(['REQ', 'REQ-wraps-f1', ...wrapFilters(ME)])
+    socket.emit(SocketEvent.Receive, ['EVENT', 'REQ-wraps-f1', smuggler], URL_)
+    await settle()
+
+    assert.equal(app.repository.query([{ kinds: [9] }]).length, 0, 'a kind 9 came out of a wrap')
+    assert.equal(
+        get(deriveEventsForUrl(URL_, [{ kinds: [9], '#h': ['welcome'] }])).length,
+        0,
+        'the room feed reads exactly this shape',
+    )
+    assert.equal(
+        get(privateRumors).some((event) => event.content === 'FOREIGN-IN-THE-ROOM'),
+        false,
+        'and it is not a private message either',
+    )
+    assert.equal(app.tracker.getRelays('a'.repeat(64)).size, 0, 'no relay origin was minted for it')
+})
+
+test('F1: a kind 14 with a prefilled id is refused as well', async () => {
+    // Same envelope, right kind, wrong id: the object would otherwise occupy an id in the
+    // private view that its sender chose.
+    const senderSecret = makeSecret()
+    const sender = Nip01Signer.fromSecret(senderSecret)
+    const lying = {
+        kind: 14,
+        pubkey: getPubkey(senderSecret),
+        created_at: now(),
+        content: 'PREFILLED-ID',
+        tags: [['p', ME]],
+        id: 'b'.repeat(64),
+    }
+    const seal = await getSeal(sender, ME, lying as never)
+    const wrapper = Nip01Signer.ephemeral()
+    const smuggler = await wrapper.sign(
+        hash({
+            kind: WRAP,
+            pubkey: await wrapper.getPubkey(),
+            content: await wrapper.nip44.encrypt(ME, JSON.stringify(seal)),
+            created_at: now(),
+            tags: [['p', ME]],
+        }),
+    )
+
+    socket.send(['REQ', 'REQ-wraps-f1b', ...wrapFilters(ME)])
+    socket.emit(SocketEvent.Receive, ['EVENT', 'REQ-wraps-f1b', smuggler], URL_)
+    await settle()
+
+    assert.equal(get(privateRumors).some((event) => event.content === 'PREFILLED-ID'), false)
+})
+
+test('F2: a SIGNED plaintext kind 14 from the relay is not a private message', async () => {
+    // The second finding. This one passes `verifyEvent` and enters the repository like
+    // any other event — every `{ids}` loader pulls one in, the quote loader among them.
+    // While the private view read the repository it appeared on the screen that promises
+    // nobody is reading along, although the text lies open on the relay.
+    const senderSecret = makeSecret()
+    const sender = Nip01Signer.fromSecret(senderSecret)
+    const plain = await sender.sign(
+        hash({
+            kind: 14,
+            pubkey: getPubkey(senderSecret),
+            created_at: now(),
+            content: 'PLAINTEXT-ON-THE-RELAY',
+            tags: [['p', ME]],
+        }),
+    )
+
+    socket.send(['REQ', 'REQ-14', { kinds: [14], '#p': [ME] }])
+    socket.emit(SocketEvent.Receive, ['EVENT', 'REQ-14', plain], URL_)
+    await settle()
+
+    // It IS in the repository — that is not this phase's business to prevent, and saying
+    // otherwise would be the false claim all over again.
+    assert.equal(app.repository.query([{ kinds: [14] }]).length, 1, 'precondition: the relay put it there')
+    // What matters is that the private view does not show it.
+    assert.equal(
+        get(privateRumors).some((event) => event.content === 'PLAINTEXT-ON-THE-RELAY'),
+        false,
+        'plaintext under the lock symbol',
+    )
 })
 
 test('the seal is what proves the author — and getSeal is welshman’s, unchanged', async () => {

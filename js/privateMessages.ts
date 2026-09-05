@@ -22,18 +22,24 @@
  *
  * ══ What NIP-17 hides here, and what it does not — measured ══════════════════════
  *
- * Content and sender: hidden from everyone including the operator. The wrap is signed by
- * a throwaway key and the author is only inside the seal.
+ * The CONTENT is hidden from everyone including the operator. The wrap is signed by a
+ * throwaway key and the author is only inside the seal, so no single envelope names its
+ * sender.
  *
- * **The recipient is not hidden from other members on a zooid space.** Measured on
+ * **On a zooid space, who writes to whom is not hidden from other members.** Measured on
  * 2026-09-05 against a local slot with a positive control
  * (`p7-messung-d-lesegatter.txt`): a member who is NOT the recipient asked
  * `{"kinds":[1059]}` with no `#p` at all and got every wrap on the relay. Buzz refuses
- * the same request — `restricted: p-gated events require #p matching your pubkey` — and
- * serves the recipient their own. So on zooid every member can count who receives
- * private messages and how many, while what is in them and who sent them stays closed.
- * That sentence is on the surface, because a client that lets its users believe otherwise
- * is worse than one with no encryption at all.
+ * the same request — `restricted: p-gated events require #p matching your pubkey`.
+ *
+ * The first version of this paragraph said "content and sender stay hidden", and the P7
+ * audit showed that is too broad: {@link deliver} sends TWO envelopes per message on the
+ * same relay — one to the recipient, one to the author, because NIP-17 has no sent folder
+ * — and a live `{"kinds":[1059]}` subscriber on zooid sees them 139 ms apart. That pairs
+ * sender and recipient. The `created_at` randomisation cannot help there; it scrambles
+ * the timestamp, and a live subscriber reads the arrival. The surface says the narrower
+ * true sentence instead, because a client that lets its users believe otherwise is worse
+ * than one with no encryption at all.
  *
  * ══ Why the reading subscription is not a detail ═════════════════════════════════
  *
@@ -44,7 +50,6 @@
  * the check follows it; remove the request and no message ever arrives.
  */
 import { get, type Readable, type Unsubscriber } from 'svelte/store'
-import { deriveEvents } from '@welshman/store'
 import { WRAP, prep, type TrustedEvent } from '@welshman/util'
 import { app } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
@@ -53,6 +58,7 @@ import { activeSpace } from './groups.ts'
 import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { publishOptimistic } from './publishOptimistic.ts'
 import { buildGiftWrap } from './giftWrap.ts'
+import { addOwnPrivateMessage, privateRumors } from './wrapIngest.ts'
 import type { Readable as StoreReadable } from 'svelte/store'
 import { armMessagingRelays, deriveMessagingRelays, fetchMessagingRelays, writeMessagingRelays } from './messagingRelays.ts'
 import { MESSAGING_RELAYS } from './messagingRelayModels.ts'
@@ -171,19 +177,23 @@ export type PrivateMessagesStore = {
 export const wrapFilters = (self: string) => [{ kinds: [WRAP], '#p': [self] }]
 
 /**
- * Every kind-14 rumor this session has unwrapped.
+ * Every private message this session has unwrapped.
  *
- * Straight off the repository and deliberately NOT `deriveEventsForUrl`: a rumor's
- * origin is copied from its wrap by the wrap manager, and our own outgoing message is
- * added to the manager before it has been anywhere, so it has no origin at all yet. A
- * relay-bound derivation would leave the sender staring at a message that did not appear.
+ * **This reads `js/wrapIngest.ts`, not the repository — and the difference is the whole
+ * point.** Until 2026-09-05 this function was
+ * `deriveEvents({repository: app.repository, filters: [{kinds: [DIRECT_MESSAGE]}]})`
+ * with a docblock claiming *"a kind 14 can only enter it through `WrapManager.add`"*.
+ * **That was measured false.** A SIGNED plaintext kind 14 carrying `["p", <victim>]`
+ * passes `verifyEvent`, enters the repository like any other event — every `{ids}` loader
+ * pulls one in, the quote loader in `js/feeds.ts` among them — and appeared on this
+ * screen under the lock symbol. Text lying open on the relay, shown on the surface that
+ * promises nobody is reading along; the origin check does not help, it applies to kind
+ * 1059 only.
  *
- * There is no contamination risk in reading the repository directly here: a kind 14 can
- * only enter it through `WrapManager.add`, which runs exactly once per wrap that our own
- * signer opened.
+ * `wrapIngest.ts` holds only what our own signer opened out of a wrap we asked for, of
+ * kind 14 or 15, unsigned, with a verified id. Nothing else can put anything in it.
  */
-const derivePrivateRumors = (): Readable<TrustedEvent[]> =>
-    deriveEvents({ repository: app.repository, filters: [{ kinds: [DIRECT_MESSAGE] }] })
+const derivePrivateRumors = (): Readable<TrustedEvent[]> => privateRumors
 
 const createStore = (
     deps: PrivateMessagesDeps,
@@ -418,7 +428,12 @@ const createStore = (
             let lastError = ''
             for (const recipient of draft.wrapFor) {
                 const listed = await fetchMessagingRelays(self.spaceUrl, recipient)
-                const targets = messageTargets(listed, self.spaceUrl)
+                // The third argument is the allow list, and it is the fix for the audit's
+                // F3: a kind 10050 is written by SOMEBODY ELSE, and until it was added,
+                // naming an address there was enough to make this client open a socket
+                // and answer its NIP-42 challenge with our own pubkey. Reasoning in
+                // `messageTargets`.
+                const targets = messageTargets(listed, self.spaceUrl, [self.spaceUrl, ...self.myRelays])
                 if (targets.length === 0) {
                     continue
                 }
@@ -429,7 +444,11 @@ const createStore = (
                     now: Math.round(Date.now() / 1000),
                 })
                 if (recipient === author) {
-                    app.wrapManager.add({ recipient, wrap, rumor: rumor as never })
+                    // Our own copy goes into `wrapIngest`'s store, NOT through
+                    // `app.wrapManager` — that would publish an unsigned rumor into the
+                    // shared repository and hand it the envelope's relay origin, which is
+                    // exactly the hole this phase closed on the receiving side.
+                    addOwnPrivateMessage(rumor as TrustedEvent)
                 }
                 const failure = await publishOptimistic(targets, wrap)
                 if (failure) {

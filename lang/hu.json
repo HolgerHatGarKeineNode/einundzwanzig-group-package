@@ -1252,7 +1252,7 @@
     "Dieser Relay nimmt keine Audiodateien an — auch keine Sprachnachrichten.": "Ez a Relay nem fogad el hangfájlokat – hangüzeneteket sem.",
     "Verschlüsselt": "Titkosított",
     "Was hier verborgen bleibt": "Mi marad itt rejtve",
-    "Inhalt und Absender sieht niemand — auch der Relay-Betreiber nicht. Wer eine Nachricht bekommt, ist auf einem zooid-Space für andere Mitglieder sichtbar; auf einem Buzz-Space nicht.": "A tartalmat és a feladót senki sem látja – a relay üzemeltetője sem. Azt viszont, hogy ki kap üzenetet, egy zooid-téren a többi tag látja; Buzz-téren nem.",
+    "Den Inhalt sieht niemand — auch der Relay-Betreiber nicht. Wer mit wem schreibt, ist auf einem zooid-Space für andere Mitglieder sichtbar; auf einem Buzz-Space nicht.": "A tartalmat senki sem látja – a relay üzemeltetője sem. Azt viszont, hogy ki kinek ír, egy zooid-téren a többi tag látja; Buzz-téren nem.",
     "Wo du privat erreichbar bist": "Hol érnek el téged privátban",
     "Noch keine Liste veröffentlicht. Andere Clients wissen dann nicht, wohin sie dir schreiben sollen.": "Még nincs közzétett lista. A többi kliens így nem tudja, hová írjon neked.",
     "Diesen Space als Zustelladresse veröffentlichen": "Ennek a térnek a közzététele kézbesítési címként",

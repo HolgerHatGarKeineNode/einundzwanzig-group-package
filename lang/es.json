@@ -1252,7 +1252,7 @@
     "Dieser Relay nimmt keine Audiodateien an — auch keine Sprachnachrichten.": "Este Relay no acepta archivos de audio, tampoco mensajes de voz.",
     "Verschlüsselt": "Cifrado",
     "Was hier verborgen bleibt": "Qué permanece oculto aquí",
-    "Inhalt und Absender sieht niemand — auch der Relay-Betreiber nicht. Wer eine Nachricht bekommt, ist auf einem zooid-Space für andere Mitglieder sichtbar; auf einem Buzz-Space nicht.": "Nadie ve el contenido ni el remitente, tampoco el operador del relay. Quién recibe un mensaje sí es visible para otros miembros en un espacio zooid; en un espacio Buzz no.",
+    "Den Inhalt sieht niemand — auch der Relay-Betreiber nicht. Wer mit wem schreibt, ist auf einem zooid-Space für andere Mitglieder sichtbar; auf einem Buzz-Space nicht.": "Nadie ve el contenido, tampoco el operador del relay. Quién escribe a quién sí es visible para otros miembros en un espacio zooid; en un espacio Buzz no.",
     "Wo du privat erreichbar bist": "Dónde pueden contactarte en privado",
     "Noch keine Liste veröffentlicht. Andere Clients wissen dann nicht, wohin sie dir schreiben sollen.": "Aún no has publicado ninguna lista. Otros clientes no saben dónde escribirte.",
     "Diesen Space als Zustelladresse veröffentlichen": "Publicar este espacio como dirección de entrega",

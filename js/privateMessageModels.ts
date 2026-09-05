@@ -37,7 +37,7 @@
  * well below the point where that can happen, and `privateMessageModels.test.ts` proves
  * the ceiling by actually wrapping a message of exactly that size.
  */
-import { DIRECT_MESSAGE, WRAP } from '@welshman/util'
+import { DIRECT_MESSAGE, WRAP, normalizeRelayUrl } from '@welshman/util'
 import { mayWriteKind } from './relayCapability.ts'
 import type { SpaceKind } from './spaceCaps.ts'
 
@@ -244,22 +244,63 @@ export const planPrivateMessage = ({
     }
 }
 
+/** Same normalisation the pool uses, without letting a malformed entry throw. */
+const sameRelay = (url: string): string => {
+    try {
+        return normalizeRelayUrl(url)
+    } catch {
+        return ''
+    }
+}
+
 /**
  * Where one recipient's wrap goes.
  *
- * NIP-17 says: the relays in their kind-10050 list. This client adds one fallback and
- * refuses one thing:
+ * NIP-17 says: the relays in their kind-10050 list. **That list is written by somebody
+ * else**, and this function is the reason that matters.
  *
- *  - **Fallback to the space relay** when the recipient has no list. Without it the
- *    feature would be dead on a Buzz-only deployment, where 10050 cannot be published at
- *    all (measured, `p7-messung-c-kind10050.txt`) — and the members of one space can
- *    reach each other there perfectly well.
- *  - **Never an empty list.** A send with no target succeeds locally and arrives nowhere;
- *    the caller has to be able to tell that apart, so it comes back empty and the caller
- *    refuses.
+ * ══ The addresses are FOREIGN input, and they used to reach the socket pool ══════
+ *
+ * Found by the P7 security audit and reproduced in both directions. A 10050 is a public,
+ * replaceable event anybody can publish; naming an address in it used to be enough to
+ * make this client open a socket there. `darfAuthBekommen` (`js/relayConfig.ts`) is
+ * fail-OPEN by construction — its own docblock predicted this exact path: *"it is
+ * fail-OPEN for anything that comes later. A new foreign-relay path … gets AUTH without
+ * anybody doing anything"* — so the relay of the sender's choosing received a NIP-42
+ * kind 22242 signed with OUR pubkey. That binds our IP to our identity for a stranger,
+ * which is the opposite of what this whole surface promises.
+ *
+ * ══ An allow list, and what it costs ═════════════════════════════════════════════
+ *
+ * `allowed` is the set of relays this client already speaks to on its own account — the
+ * active space and our own published messaging relays. A listed address outside it is
+ * dropped, and the message goes to the fallback instead. Compared after
+ * `normalizeRelayUrl`, so a different spelling of the same address is not a different
+ * relay; a malformed entry normalises to `''` and never matches.
+ *
+ * **The price, stated rather than discovered:** a recipient who reads private messages
+ * ONLY on a third relay does not get the message there. This client reads on the active
+ * space and nowhere else (the "one space, one list" decision), so the asymmetry would
+ * exist either way — but it is a real limit and it is in the plan's Restposten. Widening
+ * it needs the other fix, which is `darfAuthBekommen` becoming fail-closed, and that
+ * touches every relay path in the client rather than this one.
+ *
+ * The two rules that were here before stand unchanged:
+ *
+ *  - **Fallback to the space relay** when nothing survives. Without it the feature would
+ *    be dead on a Buzz-only deployment, where 10050 cannot be published at all.
+ *  - **Never an empty answer with a fallback available.** A send with no target succeeds
+ *    locally and arrives nowhere; the caller has to be able to tell that apart.
  */
-export const messageTargets = (listed: readonly string[], fallback: string): string[] => {
-    const urls = listed.filter((url) => typeof url === 'string' && url !== '')
+export const messageTargets = (
+    listed: readonly string[],
+    fallback: string,
+    allowed: readonly string[] = [],
+): string[] => {
+    const permitted = new Set(allowed.map(sameRelay).filter((url) => url !== ''))
+    const urls = listed
+        .filter((url) => typeof url === 'string' && url !== '')
+        .filter((url) => permitted.has(sameRelay(url)))
     if (urls.length > 0) {
         return Array.from(new Set(urls))
     }

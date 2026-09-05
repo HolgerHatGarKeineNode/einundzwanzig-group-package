@@ -271,22 +271,56 @@ describe('the ceiling, proved by building a real wrap', () => {
 })
 
 describe('messageTargets', () => {
-    test('the listed relays win', () => {
-        assert.deepEqual(messageTargets(['wss://a/', 'wss://b/'], SPACE), ['wss://a/', 'wss://b/'])
+    const A = 'wss://a.example/'
+    const B = 'wss://b.example/'
+
+    test('a listed relay we already speak to is used', () => {
+        assert.deepEqual(messageTargets([A, B], SPACE, [A, B]), [A, B])
     })
 
     test('duplicates collapse — otherwise the message goes twice', () => {
-        assert.deepEqual(messageTargets(['wss://a/', 'wss://a/'], SPACE), ['wss://a/'])
+        assert.deepEqual(messageTargets([A, A], SPACE, [A]), [A])
     })
 
-    test('THE fallback: no list means the space relay, not nowhere', () => {
+    test('THE F3 gate: an address we do not already speak to is dropped', () => {
+        // A kind 10050 is written by somebody else. Until the allow list existed, naming
+        // an address there was enough to make this client open a socket and answer the
+        // relay's NIP-42 challenge with OUR pubkey — `darfAuthBekommen` is fail-open by
+        // construction and its own docblock predicted this path.
+        assert.deepEqual(messageTargets(['wss://attacker.example/'], SPACE, [SPACE]), [SPACE])
+        assert.deepEqual(messageTargets([A, 'wss://attacker.example/'], SPACE, [A]), [A])
+    })
+
+    test('with no allow list at all nothing listed survives', () => {
+        // Fail-closed: a caller that forgets the third argument delivers to the fallback,
+        // not to whatever the foreign list happened to name.
+        assert.deepEqual(messageTargets([A, B], SPACE), [SPACE])
+    })
+
+    test('the same address in another spelling is the same relay', () => {
+        // Compared after `normalizeRelayUrl`, so a trailing slash or a missing one does
+        // not turn our own space into a foreign address.
+        assert.deepEqual(messageTargets(['wss://a.example'], SPACE, [A]), ['wss://a.example'])
+    })
+
+    test('a malformed listed address is dropped like any other foreign one', () => {
+        // `normalizeRelayUrl` REPAIRS rather than rejects — `not-a-url` becomes
+        // `wss://not-a-url/`, which is a reachable address. That is harmless here only
+        // because the comparison is against the allow list: the repaired form is not in
+        // it. What we publish about OURSELVES goes through the strict
+        // `isMessagingRelayUrl` instead, so a repaired address cannot get in that way
+        // either.
+        assert.deepEqual(messageTargets(['not-a-url'], SPACE, [SPACE]), [SPACE])
+    })
+
+    test('THE fallback: no usable list means the space relay, not nowhere', () => {
         // Without it the feature is dead on a Buzz-only deployment, where 10050 cannot be
         // published at all.
-        assert.deepEqual(messageTargets([], SPACE), [SPACE])
-        assert.deepEqual(messageTargets(['', ''], SPACE), [SPACE])
+        assert.deepEqual(messageTargets([], SPACE, [SPACE]), [SPACE])
+        assert.deepEqual(messageTargets(['', ''], SPACE, [SPACE]), [SPACE])
     })
 
     test('no list and no fallback answers empty so the caller can refuse', () => {
-        assert.deepEqual(messageTargets([], ''), [])
+        assert.deepEqual(messageTargets([], '', []), [])
     })
 })
