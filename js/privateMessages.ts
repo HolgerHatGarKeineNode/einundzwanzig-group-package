@@ -115,6 +115,15 @@ export type PrivateMessagesDeps = {
      * the four dependencies below.
      */
     openConversationAt: (key: string) => void
+    /**
+     * The reader's watermark for one conversation, in Unix seconds; `0` = everything in
+     * it is new. `conversationWatermark` from `readState.ts`, handed in for the same
+     * reason as {@link PrivateMessagesDeps.openConversationAt}: a static import of that
+     * module from this lazily loaded one splits the boot path.
+     */
+    watermarkOf: (key: string) => number
+    /** Mark one conversation read — `setRead(conversationReadKey(key))`. */
+    markConversationRead: (key: string) => void
     displayProfileByPubkey: (pubkey: string) => string
     profilesByPubkey: StoreReadable<unknown>
     warmProfiles: (pubkeys: string[]) => unknown
@@ -172,6 +181,14 @@ export type PrivateMessagesStore = {
     /** The reader's own kind-10050 list. */
     myRelays: string[]
     conversations: ConversationRow[]
+    /**
+     * Unread messages across ALL conversations — the number the section heading carries.
+     *
+     * A field and not a getter: Alpine tracks property reads on the reactive proxy, and a
+     * getter defined on the raw object before `bind` would be copied as a value once and
+     * never recompute. Same shape as `roomsTotal` on the unread store.
+     */
+    unreadTotal: number
     /** The conversation in view; `''` = the list. */
     openKey: string
     messages: MessageRow[]
@@ -228,7 +245,7 @@ const derivePrivateRumors = (): Readable<TrustedEvent[]> => privateRumors
 const createStore = (
     deps: PrivateMessagesDeps,
 ): { store: PrivateMessagesStore; bind: (reactive: PrivateMessagesStore) => void; start: () => void } => {
-    const { t, openConversationAt, displayProfileByPubkey, profilesByPubkey, warmProfiles, deriveSpaceDirectory, watchSpaceDirectory } = deps
+    const { t, openConversationAt, watermarkOf, markConversationRead, displayProfileByPubkey, profilesByPubkey, warmProfiles, deriveSpaceDirectory, watchSpaceDirectory } = deps
     let spaceKind: SpaceKind = 'unknown'
     let rumors: RumorLike[] = []
     let mounts = 0
@@ -255,6 +272,7 @@ const createStore = (
         spaceUrl: '',
         myRelays: [],
         conversations: [],
+        unreadTotal: 0,
         openKey: '',
         messages: [],
         draft: '',
@@ -277,6 +295,7 @@ const createStore = (
             if (wanted) {
                 self.openKey = wanted
                 self.picking = false
+                markConversationRead(wanted)
                 recompute()
                 recomputeMessages()
             }
@@ -314,7 +333,13 @@ const createStore = (
         openConversation(key: string): void {
             self.openKey = key
             self.draft = ''
+            // Opening IS reading — the same rule the room surface follows. It sits here
+            // and in `writeTo`, the two ways a conversation can come into view; the
+            // watermark is monotone (`setRead` writes `Math.max`), so a second call
+            // during the same second costs nothing.
+            markConversationRead(key)
             recomputeMessages()
+            recompute()
         },
 
         closeConversation(): void {
@@ -402,6 +427,7 @@ const createStore = (
             self.picking = false
             self.openKey = key
             self.draft = ''
+            markConversationRead(key)
             // `recompute` first: it is the one that seeds an empty row for an `openKey`
             // nothing has been written to yet, and the header of the open thread reads its
             // title off that row.
@@ -569,7 +595,14 @@ const createStore = (
 
     const recompute = (): void => {
         const author = me()
-        const rows = foldPrivateConversations(rumors, author)
+        // A message arriving into the conversation the reader is LOOKING AT is read on
+        // arrival — otherwise the open thread would grow an unread pill for a line the
+        // reader can see. Same rule as the room surface, and it has to sit before the
+        // fold: the fold is what turns the watermark into a number.
+        if (self.openKey) {
+            markConversationRead(self.openKey)
+        }
+        const rows = foldPrivateConversations(rumors, author, watermarkOf)
         const known = new Set(rows.map((row) => row.key))
         self.conversations = rows.map((row) => ({ ...row, title: self.titleOf(row.others) }))
         // A conversation the reader just opened from the picker has no messages yet, so
@@ -585,11 +618,13 @@ const createStore = (
                     lastAt: 0,
                     preview: '',
                     count: 0,
+                    unread: 0,
                     title: self.titleOf(others),
                 },
                 ...self.conversations,
             ]
         }
+        self.unreadTotal = self.conversations.reduce((sum, row) => sum + row.unread, 0)
         void warmProfiles(Array.from(new Set(self.conversations.flatMap((row) => row.others))))
     }
 

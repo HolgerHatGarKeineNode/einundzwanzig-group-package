@@ -51,6 +51,10 @@ const settle = (ms = 400): Promise<void> => new Promise((resolve) => setTimeout(
 let store: PrivateMessagesStore
 /** Every address `goTo` asked for, in order — the seam that replaces navigation here. */
 const gesprungen: string[] = []
+/** `conversationKey` → watermark, the seam that replaces `readState.ts` here. */
+const marken: Record<string, number> = {}
+/** Every conversation the store marked read, in order. */
+const quittiert: string[] = []
 
 before(async () => {
     app.netContext.getAdapter = (): AbstractAdapter => new MockAdapter(URL_, (_m: ClientMessage) => {})
@@ -76,6 +80,14 @@ before(async () => {
         {
             t: (text: string) => text,
             openConversationAt: (key: string) => void gesprungen.push(key),
+            // The watermark seam. A map in the test rather than the real `readState`: the
+            // cases below need to say "this conversation was read at T" without a store,
+            // an IndexedDB and a clock.
+            watermarkOf: (key: string) => marken[key] ?? 0,
+            markConversationRead: (key: string) => {
+                marken[key] = Math.max(marken[key] ?? 0, now())
+                quittiert.push(key)
+            },
             displayProfileByPubkey: (pubkey: string) => pubkey.slice(0, 8),
             profilesByPubkey: readable(new Map()),
             warmProfiles: () => undefined,

@@ -42,8 +42,9 @@ export const READ_STATE_D = 'einundzwanzig/read-state/v1'
  *   'all'             globales Wasserzeichen („alles gelesen")
  *   `r:${url}|${h}`   Raum (url = normalisierte Space-Relay-URL, h = NIP-29-Group-ID)
  *   `t:${rootId}`     Thread (rootId = 64-hex Event-ID der Wurzel, NIP-22 `E`)
+ *   `c:${key}`        encrypted conversation (NIP-17), `key` = `conversationKey`
  */
-export type ReadKey = 'all' | `r:${string}|${string}` | `t:${string}`
+export type ReadKey = 'all' | `r:${string}|${string}` | `t:${string}` | `c:${string}`
 
 /** key → Unix-Sekunden (Wall-Clock des Geräts, das gelesen hat). */
 export type ReadState = Record<string, number>
@@ -52,6 +53,26 @@ export const ALL_KEY: ReadKey = 'all'
 
 export const roomKey = (url: string, h: string): ReadKey => `r:${url}|${h}`
 export const threadKey = (rootId: string): ReadKey => `t:${rootId}`
+
+/**
+ * Watermark key of an encrypted conversation (P8).
+ *
+ * `key` is the `conversationKey` from `privateMessageModels.ts` — the sorted,
+ * comma-joined participant list. **The social graph is therefore IN the key**, which is
+ * exactly what {@link isConversationKey} and the exception in the persistence path hang
+ * on: this key is never written to IndexedDB. The reasoning is at
+ * {@link persistableReadRows}.
+ */
+export const conversationReadKey = (key: string): ReadKey => `c:${key}`
+
+/**
+ * Is this the watermark key of a conversation?
+ *
+ * Its own function rather than a `startsWith` in three places: it is the latch that keeps
+ * the social graph off the disk, and a latch spelled out three times is one that gets
+ * forgotten the fourth time.
+ */
+export const isConversationKey = (key: string): boolean => key.startsWith('c:')
 
 /** Obergrenze der lokalen Karte; hält die IDB bounded. */
 export const READ_STATE_CAP = 500
@@ -193,6 +214,39 @@ export function publishableReadState(
 }
 
 /**
+ * What, out of a set of changed keys, may really reach the DISK.
+ *
+ * Its own pure function rather than a `continue` inside the write path — for the same
+ * reason {@link publishableReadState} is one: a rule that lives only inside an `async`
+ * function talking to IndexedDB is a rule nobody can test, and an untested rule about the
+ * social graph is not a rule.
+ *
+ * **The one exception is the conversations.** Their key IS the participant list
+ * ({@link conversationReadKey}); an IDB row about it would write „who talks to whom" in
+ * plaintext onto the device — exactly what `/messages` does not store. The same value
+ * still travels over the wire, but nip44-SELF-encrypted inside the 30078
+ * (`readStateSync.ts`): the relay operator sees a blob length, not a name.
+ *
+ * **What that costs, stated rather than hidden:** a cold start without network shows
+ * every conversation as unread until that event arrives. Fail-open towards „shows too
+ * much" and never towards „loses a message".
+ */
+export function persistableReadRows(keys: readonly string[], state: ReadState): { key: string; ts: number }[] {
+    const rows: { key: string; ts: number }[] = []
+    for (const key of keys) {
+        if (isConversationKey(key)) {
+            continue
+        }
+        const ts = state[key]
+        if (ts !== undefined) {
+            rows.push({ key, ts })
+        }
+    }
+
+    return rows
+}
+
+/**
  * Effektives Raum-Wasserzeichen.
  *
  * **Raum und Thread sind NICHT hierarchisch gekoppelt — das ist Absicht, nicht eine
@@ -210,6 +264,17 @@ export const roomWatermark = (state: ReadState, url: string, h: string): number 
 /** Effektives Thread-Wasserzeichen. Siehe {@link roomWatermark} zur Nicht-Kopplung. */
 export const threadWatermark = (state: ReadState, rootId: string): number =>
     Math.max(state[ALL_KEY] ?? 0, state[threadKey(rootId)] ?? 0)
+
+/**
+ * Effective watermark of an encrypted conversation.
+ *
+ * `all` dominates here too: whoever presses „mark everything read" acknowledges the
+ * conversations with it. Same rule as for room and thread, not an exception for the new
+ * surface — a global „read" that leaves one category standing is the state in which the
+ * bottom-nav dot glows for something the user just acknowledged.
+ */
+export const conversationWatermark = (state: ReadState, key: string): number =>
+    Math.max(state[ALL_KEY] ?? 0, state[conversationReadKey(key)] ?? 0)
 
 /** Präfix des Alt-Lesestands aus `feeds.ts` (`room:lastread:${url}:${h}`, localStorage). */
 export const LEGACY_LASTREAD_PREFIX = 'room:lastread:'
@@ -628,15 +693,9 @@ async function flush(): Promise<boolean> {
     }
     const keys = Array.from(dirty)
     dirty.clear()
-    const current = get(state)
-    const rows: ReadRow[] = []
-    for (const key of keys) {
-        const ts = current[key]
-        if (ts !== undefined) {
-            rows.push({ key, ts })
-        }
-    }
-    return writeRows(rows)
+    // The rule about WHAT may reach the disk is the pure function above, including the
+    // exception for the conversations and its reasoning.
+    return writeRows(persistableReadRows(keys, get(state)))
 }
 
 function scheduleFlush(): void {

@@ -31,13 +31,24 @@
      built bundle `.px-4` sits at byte 70292, `.px-2` at 70086, so `px-4` wins), and making
      the bar scroll (an entry you have to push out of the way is not an entry point).
 
-     ── Why there is NO unread pill here ────────────────────────────────────────────
-     Until P7 `$store.unread.dmsTotal` stood here — a partition of the `rooms` map that
-     counted Buzz DM CHANNELS. A NIP-17 conversation has no `h` and sits in no such map;
-     there is no unread counter for it today. A pill that always reads zero would not be
-     information but an empty promise — so it goes entirely instead of quietly standing at
-     zero. The COUNT (how many conversations exist) stays as a grey number next to the
-     heading, exactly like the neighbouring sections.
+     ── Where the unread numbers come from ──────────────────────────────────────────
+     NOT from `$store.unread`. That map is keyed by `h`, and a NIP-17 conversation has
+     none — it is keyed by its participant set. The count is folded in
+     `privateMessageModels.ts` against a watermark under `c:<conversationKey>`
+     (`readState.ts`), and the store hands it over per row as `unread`.
+
+     **That watermark is deliberately never written to disk.** Its key IS the participant
+     list, so an IndexedDB row would put "who talks to whom" in plaintext on the device —
+     the very thing this surface does not store. It travels over the wire instead, inside
+     the nip44-SELF-encrypted 30078 (`readState.ts flush`, `readStateSync.ts`). The price,
+     stated rather than hidden: a cold start without network shows every conversation as
+     unread until that event arrives.
+
+     Two levels, same rule as the neighbouring sections: the heading carries the SUM, each
+     row carries its own. The grey number next to the label is the stock (how many
+     conversations exist) and stays what it was — three distinguishing marks keep the two
+     apart, as at the room sections: the stock is grey, without a surface, and sits right
+     at the label; the unread counter is an opaque `brand-500` pill at the end.
 
      ── `x-if` and not `xl:hidden`, although the neighbouring sections do the opposite ─
      The neighbours ("my rooms", "other rooms") hide themselves from `xl` up via CSS, with
@@ -85,6 +96,15 @@
                         <span x-show="($store.privateMessages?.conversations ?? []).length > 0" x-cloak
                               class="font-normal normal-case tabular-nums tracking-normal"
                               x-text="($store.privateMessages?.conversations ?? []).length"></span>
+                        {{-- `size="sm"` (16 px) and not the 20 px of the row pills: the
+                             house rule distinguishes exactly here — 20 px for a FREE
+                             STANDING pill at the end of a row, 16 px for a marker NEXT TO
+                             something. `ms-2` and not `ms-0.5`: with an 8 px gap stock
+                             („3") and unread („22") read as two groups; at 2 px they read
+                             as one number. --}}
+                        <x-group::unread-badge count="$store.privateMessages?.unreadTotal" size="sm" badge-class="ms-2"
+                                               :sr-one="__('ungelesene Nachricht')"
+                                               :sr-many="__('ungelesene Nachrichten')" />
                     </p>
 
                     {{-- On `canSend` and not on the relay kind: the button is a WRITE
@@ -127,6 +147,7 @@
                             <x-group::nostr-avatar picture="''" name="row.title" size="2rem" />
                             <flux:icon.lock-closed variant="micro" aria-hidden="true" class="size-3.5 shrink-0 text-brand-500" />
                             <span class="min-w-0 flex-1 truncate font-medium" x-text="row.title"></span>
+                            <x-group::unread-badge count="row.unread" />
                             <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
                         </button>
                     </template>

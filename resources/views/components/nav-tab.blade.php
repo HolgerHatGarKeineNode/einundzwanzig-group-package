@@ -80,7 +80,15 @@
          Der Punkt speist sich aus `any` (irgendwo etwas ungelesen), nicht aus einer
          Summe: auf 11-px-Beschriftungsebene ist die einzige Frage „muss ich da
          rein?". Der Ring trennt ihn vom Icon-Strich und gibt der Kontrastmessung
-         einen bekannten flachen Nachbarn (Nav-Grund zinc-50/zinc-950). --}}
+         einen bekannten flachen Nachbarn (Nav-Grund zinc-50/zinc-950).
+
+         ── The encrypted conversations are a SECOND source (P8) ────────────────
+         `$store.unread.any` covers everything keyed by `h`. A NIP-17 conversation has
+         none and is folded in its own store, so an unread message there would leave this
+         dot dark — and the dot is the one place that answers "is anything waiting
+         anywhere". Two sources, one question; the `?? 0` keeps it dark while the lazily
+         loaded store is not there yet. --}}
+@php($punkt = '$store.unread?.any || ($store.privateMessages?.unreadTotal ?? 0) > 0')
     <span class="relative inline-flex">
         <flux:icon :name="$icon" :variant="$active ? 'solid' : 'outline'" @class(['size-6' => ! $rail, 'size-5' => $rail]) />
         @if ($unreadDot)
@@ -88,7 +96,7 @@
                  Bottom-Bar sitzt auf zinc-50/zinc-950, die Rail auf white/zinc-900.
                  Ein falscher Ring sähe aus wie ein Rand am Punkt. --}}
             <x-group::unread-dot
-                when="$store.unread?.any"
+                :when="$punkt"
                 :sr="false"
                 :dot-class="'absolute -end-1 -top-1 ring-2 '.($rail ? 'ring-white dark:ring-zinc-900' : 'ring-zinc-50 dark:ring-zinc-950')" />
         @endif
@@ -104,7 +112,7 @@
     {{-- Der sr-only-Text steht NACH dem Label (Lesereihenfolge „Chat, ungelesene
          Nachrichten"); das <a> trägt kein aria-label, der Kindtext kommt also an. --}}
     @if ($unreadDot)
-        <template x-if="$store.unread?.any">
+        <template x-if="{{ $punkt }}">
             <span class="sr-only">, {{ __('ungelesene Nachrichten') }}</span>
         </template>
     @endif

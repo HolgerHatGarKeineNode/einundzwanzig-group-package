@@ -281,6 +281,8 @@ import {
     type RecentEmoji,
 } from './emoji.ts'
 import {
+    conversationReadKey,
+    conversationWatermark,
     readState,
     readStateReady,
     roomKey,
@@ -9179,6 +9181,8 @@ export function registerNostrComponents(Alpine: {
             wirePrivateMessages(Alpine as never, {
                 t,
                 openConversationAt: openPrivateConversation,
+                watermarkOf: (key: string) => conversationWatermark(get(readState), key),
+                markConversationRead: (key: string) => setRead(conversationReadKey(key)),
                 displayProfileByPubkey,
                 profilesByPubkey,
                 warmProfiles,
