@@ -89,7 +89,14 @@
             <x-group::nostr-avatar picture="space?.icon" name="spaceLabel" size="2rem" />
             <div class="min-w-0 flex-1">
                 <div class="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="spaceLabel"></div>
-                <div x-show="space?.description" x-cloak class="truncate text-xs text-muted" x-text="space?.description"></div>
+                {{-- `data-rail-space-beschreibung`: der Anker, an dem
+                     `desktop-boot-geometrie.spec.ts` wartet, bevor sie den Rail-Kopf
+                     misst. Die Beschreibung ist ein Relay-Datum und trifft nach dem
+                     Boot asynchron ein (`x-show`); ein Test, der nur auf `[data-rail]`
+                     wartet, misst manchmal den ungewachsenen Kopf (60 statt 64 px) —
+                     siehe `vergleich()` in der Spec-Datei. --}}
+                <div x-show="space?.description" x-cloak data-rail-space-beschreibung
+                     class="truncate text-xs text-muted" x-text="space?.description"></div>
             </div>
         </div>
 
