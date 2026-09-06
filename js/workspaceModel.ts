@@ -103,13 +103,15 @@ export const isChannelMuted = (prefs: WorkspacePrefs | undefined, h: string): bo
     (prefs?.muted ?? []).includes(h)
 
 /**
- * The three room pots of a space view — structurally typed, so this module keeps its
+ * The two room pots of a space view — structurally typed, so this module keeps its
  * two imports and stays loadable under `node --test`. Matches `groups.ts SpaceView`.
+ *
+ * There was a third one until P7 (`dmRooms`, the Buzz DM channels). It is gone with the
+ * transport: an unencrypted conversation is no longer a surface in this client.
  */
 export type WorkspaceRoomPots = {
     userRooms: readonly { h: string }[]
     otherRooms: readonly { h: string }[]
-    dmRooms: readonly { h: string }[]
 }
 
 /**
@@ -122,15 +124,14 @@ export type WorkspaceRoomPots = {
  * `channel-mutes` blobs describe BUZZ channels, and writing a room of the zooid space
  * into them would put an id there that no other client can resolve.
  *
- * `some` over three short arrays and no `Set`: the same reasoning as
+ * `some` over two short arrays and no `Set`: the same reasoning as
  * {@link isChannelPinned} — the markup asks this once per row, and building a set per
  * call costs more than the linear look at a list of dozens.
  */
 export const isWorkspaceChannel = (workspace: WorkspaceRoomPots | null, h: string): boolean =>
     workspace !== null
     && (workspace.userRooms.some((room) => room.h === h)
-        || workspace.otherRooms.some((room) => room.h === h)
-        || workspace.dmRooms.some((room) => room.h === h))
+        || workspace.otherRooms.some((room) => room.h === h))
 
 /**
  * Eine Zeile der flachen Kanalliste — die mobile Fassung des Modells.

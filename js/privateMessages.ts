@@ -63,19 +63,18 @@ import type { Readable as StoreReadable } from 'svelte/store'
 import { armMessagingRelays, deriveMessagingRelays, fetchMessagingRelays, writeMessagingRelays } from './messagingRelays.ts'
 import { MESSAGING_RELAYS } from './messagingRelayModels.ts'
 import { mayWriteKind } from './relayCapability.ts'
-import { parseDmRecipient } from './dmModels.ts'
 import * as nip19 from 'nostr-tools/nip19'
 import {
     DIRECT_MESSAGE,
     conversationKey,
     foldPrivateConversations,
     messageTargets,
+    parseDmRecipient,
     planPrivateMessage,
     privateConversationMessages,
     type PrivateConversation,
     type RumorLike,
 } from './privateMessageModels.ts'
-
 
 /**
  * What this module is NOT allowed to import — and why that is a measurement, not taste.
@@ -104,6 +103,18 @@ import {
  */
 export type PrivateMessagesDeps = {
     t: (text: string) => string
+    /**
+     * Navigate to this surface — `openPrivateConversation` from `navigate.ts`.
+     *
+     * Handed in rather than imported, and the bundle guard is the reason, measured: a
+     * static `import … from './navigate.ts'` here pulled `groups.ts` and `spaceCaps.ts`
+     * out of the app chunk into shared chunks of their own, taking the boot path from 6
+     * HTTP requests to **8** on every page in both hosts (`bundleGrenze.nodetest.ts`,
+     * "BOOT-CHUNKS: es bleiben genau 6"). This module is loaded lazily; anything it
+     * imports statically is either duplicated or split out. Same shape and same reason as
+     * the four dependencies below.
+     */
+    openConversationAt: (key: string) => void
     displayProfileByPubkey: (pubkey: string) => string
     profilesByPubkey: StoreReadable<unknown>
     warmProfiles: (pubkeys: string[]) => unknown
@@ -112,6 +123,21 @@ export type PrivateMessagesDeps = {
 }
 
 const noop = (): void => {}
+
+/**
+ * The conversation named by `?c=` in the current address, `''` if there is none.
+ *
+ * Reading `window.location` and not a handed-in value: the address is not state this
+ * module keeps, and every caller would read the same thing. Guarded, because this module
+ * is also loaded under `node --test`, where there is no `window`.
+ */
+const conversationFromAddress = (): string => {
+    try {
+        return new URL(window.location.href).searchParams.get('c') ?? ''
+    } catch {
+        return ''
+    }
+}
 
 /** How many people the picker offers at once — a dialog list, not a directory. */
 const MAX_SUGGESTIONS = 8
@@ -157,6 +183,8 @@ export type PrivateMessagesStore = {
     directory: Candidate[]
     mount(): void
     unmount(): void
+    /** Jump to the surface — `''` shows the list, a key shows one conversation. */
+    goTo(key?: string): void
     openConversation(key: string): void
     closeConversation(): void
     send(): Promise<void>
@@ -166,6 +194,8 @@ export type PrivateMessagesStore = {
     unpick(pubkey: string): void
     addPersonDraft(): void
     beginConversation(): void
+    /** Open (or start) the conversation with exactly one person and jump to it. */
+    writeTo(other: string): void
     suggestions(): Candidate[]
     nameOf(pubkey: string): string
     titleOf(others: readonly string[]): string
@@ -198,7 +228,7 @@ const derivePrivateRumors = (): Readable<TrustedEvent[]> => privateRumors
 const createStore = (
     deps: PrivateMessagesDeps,
 ): { store: PrivateMessagesStore; bind: (reactive: PrivateMessagesStore) => void; start: () => void } => {
-    const { t, displayProfileByPubkey, profilesByPubkey, warmProfiles, deriveSpaceDirectory, watchSpaceDirectory } = deps
+    const { t, openConversationAt, displayProfileByPubkey, profilesByPubkey, warmProfiles, deriveSpaceDirectory, watchSpaceDirectory } = deps
     let spaceKind: SpaceKind = 'unknown'
     let rumors: RumorLike[] = []
     let mounts = 0
@@ -235,7 +265,37 @@ const createStore = (
 
         mount(): void {
             mounts += 1
+            // A `?c=<key>` in the address opens that conversation — the deep link the rail
+            // group, the list on `/spaces` and the profile card all produce (`goTo`). Read
+            // on EVERY mount and not once at wiring time: `wire:navigate` keeps the store
+            // alive across page swaps, so the address changes without the module reloading.
+            //
+            // An unknown key is not an error: `recompute` seeds an empty row for it, and
+            // the surface opens on an empty thread — which is exactly right for a
+            // conversation that has not been written to yet.
+            const wanted = conversationFromAddress()
+            if (wanted) {
+                self.openKey = wanted
+                self.picking = false
+                recompute()
+                recomputeMessages()
+            }
             armWraps()
+        },
+
+        /**
+         * Jump to `/messages`, with or without a particular conversation.
+         *
+         * On the STORE and not on the Alpine component, because since P8 three surfaces
+         * jump here and all THREE sit outside `nostrPrivateMessages`: the rail group, the
+         * list on `/spaces` and the profile card. A method on the store is reachable from
+         * each of them; one on the component would have needed three extra `x-data`
+         * wrappers — and every one of those would have been another `mount()`, hence
+         * another reason to keep the wrap subscription alive. It is meant to have exactly
+         * ONE bracket (`app-frame.blade.php`).
+         */
+        goTo(key = ''): void {
+            openConversationAt(key)
         },
 
         unmount(): void {
@@ -319,6 +379,37 @@ const createStore = (
          * only once a message has actually been exchanged. The empty view in between is
          * honest: there is nothing on any relay yet.
          */
+        /**
+         * Write to one person — the entry point from the profile card.
+         *
+         * It does not go through the picker on purpose: the person is already chosen, and
+         * `startPicking()` would clear that choice again. An existing conversation is
+         * found by the very same key an existing row carries (`conversationKey` sorts, so
+         * the order of the two pubkeys does not matter); if none exists yet, `recompute`
+         * seeds the empty row for `openKey` and the surface opens on an empty thread.
+         *
+         * Refuses your own pubkey. A conversation with yourself is a legal NIP-17 shape
+         * (every message is wrapped to the author as well, because there is no sent
+         * folder), but the profile card offers it as a way to reach SOMEBODY — and a row
+         * whose title is your own name reads like a defect, not like a note to self.
+         */
+        writeTo(other: string): void {
+            const author = me()
+            if (!other || !author || other === author) {
+                return
+            }
+            const key = conversationKey([other, author])
+            self.picking = false
+            self.openKey = key
+            self.draft = ''
+            // `recompute` first: it is the one that seeds an empty row for an `openKey`
+            // nothing has been written to yet, and the header of the open thread reads its
+            // title off that row.
+            recompute()
+            recomputeMessages()
+            self.goTo(key)
+        },
+
         beginConversation(): void {
             if (self.picked.length === 0) {
                 return

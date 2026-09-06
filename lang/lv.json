@@ -1335,5 +1335,9 @@
     "Nur du": "Tikai tu",
     "Die Nachricht konnte nirgends zugestellt werden.": "Ziņu neizdevās piegādāt nekur.",
     "Nicht alle Beteiligten konnten erreicht werden.": "Neizdevās sasniegt visus dalībniekus.",
-    "Ende-zu-Ende-verschlüsselt geht es hier:": "Pilnīgi šifrēts — šeit:"
+    "Ende-zu-Ende-verschlüsselt geht es hier:": "Pilnīgi šifrēts — šeit:",
+    "Folgen": "Sekot",
+    "Entfolgen": "Pārtraukt sekošanu",
+    "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "Vēl nav neviena šifrēta saruna — ar zīmuli augšā vari sākt vienu.",
+    "Verschlüsselte Nachricht schreiben": "Rakstīt šifrētu ziņu"
 }

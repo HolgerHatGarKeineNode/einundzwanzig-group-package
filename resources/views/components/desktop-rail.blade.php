@@ -187,31 +187,18 @@
              Forge-Eintrag; er ist eine Fläche des Clients, kein Raum. --}}
         <div data-rail-scroller class="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
 
-            {{-- ── Direktnachrichten (P7): Store anmelden ──────────────────────────
-                 Der Zustand liegt in `$store.dms` (js/dms.ts) und nicht in `nostrRail` — er
-                 wird an zwei Stellen gebraucht, die einander im DOM nicht sehen: die Gruppe
-                 in dieser Spalte und der Dialog am Ende dieser Datei. Dieselbe Bauart und
-                 derselbe Grund wie bei Pin, Lesezeichen, Erinnerung und Präsenz.
+            {{-- ── Where the conversation store is mounted (P8) ────────────────────
+                 It was mounted right here until P7, for the Buzz DM channels: their
+                 dismissed-conversation state (30622) had to be known before the first row
+                 rendered. That transport is gone, and the NIP-17 store that replaced it is
+                 mounted once for the whole app in `app-frame.blade.php` — it feeds this
+                 group AND the list on `/spaces`, and its wrap subscription is the one
+                 request that costs the signer, so it gets exactly one bracket.
 
-                 Die Anmeldung hängt an der RAIL und nicht an einer Raumseite: die DM-Gruppe
-                 steht auf jeder Desktop-Seite, und die ausgeblendeten Unterhaltungen (30622)
-                 müssen bekannt sein, bevor die erste Zeile gerendert wird. Der Zähler in
-                 `mount`/`unmount` deckt den `wire:navigate`-Fall ab (neuer Body VOR dem
-                 Abräumen des alten). Auf dem Telefon existiert dieser Knoten nicht (das
-                 `x-if` oben), der Store wird dort also nie angemeldet. --}}
-            {{-- It stands at the TOP of the scroller and no longer as the rail's first
-                 child: `[data-rail]` may carry exactly the four layout blocks (see the
-                 note at the top of this file). Here the sentence above still holds
-                 literally — the DM group is rendered by the very groups below, so the
-                 store is armed before their first row. Measured 2026-09-04 with a probe
-                 on `$store.dms.mount`: at the moment of the call the rail stood with its
-                 four blocks and `[data-rail-gruppenkopf]` was still **0**. `hidden` keeps
-                 the node out of the box tree entirely, so the scroller's height is
-                 untouched. --}}
-            <div x-data="{
-                     init() { $store.dms?.mount() },
-                     destroy() { $store.dms?.unmount() },
-                 }" hidden></div>
+                 Nothing is left here on purpose: a second mount would be a second reason
+                 to keep that subscription alive, and the rail is the wrong owner for it —
+                 the NativePHP host never renders this column server-side and the web
+                 client only from `xl` up. --}}
 
             {{-- Vier Gruppen, feste Reihenfolge. Die zweite Achse (Mitgliedschaft)
                  wird bewusst NICHT zur Überschrift — sie ist Reihenfolge, Textgewicht
@@ -310,36 +297,33 @@
                 </div>
             </template>
 
-            {{-- ── Direktnachrichten (P7, Buzz-Kommando-Kinds 41010/41011/41012) ──
-                 An DRITTER Stelle und damit vor den beiden Verzeichnissen: „mit wem
-                 spreche ich" ist der dritte Arbeitsort neben RÄUME und FORGE. Die
-                 Blockfolge hier MUSS `RAIL_GROUP_ORDER` entsprechen — dieselbe Regel und
-                 derselbe Grund wie oben (das Auge liest die Blockfolge, Alt+↑/↓ läuft
-                 `railTargets`).
+            {{-- ── Encrypted conversations (P8, NIP-17) ────────────────────────────
+                 In THIRD place and therefore before the two directories: "who am I
+                 talking to" is the third place of work next to ROOMS and FORGE. The block
+                 order here MUST match `RAIL_GROUP_ORDER` — same rule and same reason as
+                 above (the eye reads the block order, Alt+↑/↓ walks `railTargets`).
 
-                 Ohne Bedingung, anders als der Workspace: der Riegel sitzt am Store
-                 (`$store.dms.canDm`, fail-closed über `mayWriteKind`), und kann kein
-                 erreichbarer Space Unterhaltungen führen, ist die Gruppe schlicht leer —
-                 dann gibt es keine DM-Kanäle, also auch keine Zeilen. Was dann fehlt, ist
-                 der `+`-Knopf, und den blendet die Fläche selbst aus.
+                 ── What changed with P8 ─────────────────────────────────────────────
+                 Until P7 the Buzz DM channels stood here: a channel with an `h` whose
+                 messages lie in PLAINTEXT on the relay. They are gone without replacement
+                 — a conversation in this house is always a NIP-17 gift wrap the operator
+                 cannot open. The rows therefore come from
+                 `$store.privateMessages.conversations` and lead to `/messages`, not to
+                 `/rooms/{h}`: an encrypted conversation has no `h` on any relay
+                 (`rail.ts`, `toRailDms`).
 
-                 **„Erreichbar" ist mehr als der Heim-Space.** Hier stand „auf einem
-                 zooid-Space schlicht leer"; das beschrieb die Rail vor `chooseDmSpace`
-                 (`js/dmModels.ts`) richtig und ist es seitdem nicht mehr. Die Rail zeigt
-                 ohnehin die Unterhaltungen BEIDER Sichten (`toRailDms`, `rail.ts:319`) —
-                 dass der `+`-Knopf trotzdem am Heim-Relay hing, war der Bruch: mit zooid
-                 daheim und Buzz als Workspace standen Zeilen da, die man nicht ergänzen
-                 konnte. Jetzt hängen Zeilen und Knopf an derselben Menge Spaces.
-
-                 Ein DM-Kanal ist bei Buzz ein Kanal mit einem `h`: die Zeile führt auf
-                 `/rooms/{h}` und damit auf dieselbe Chat-Fläche wie jeder andere Raum. --}}
-            <x-group::rail-group group="dms" :label="__('Direktnachrichten')"
+                 ── Where the conversations come from ────────────────────────────────
+                 From `$store.privateMessages`, which `app-frame.blade.php` mounts on
+                 every page behind the gate — that is where the ONE bracket around the
+                 wrap subscription lives, and where it is written down why it unwraps
+                 exactly once per tab and stores nothing. This group only reads. --}}
+            <x-group::rail-group group="dms" :label="__('Verschlüsselt')"
                                  :action-label="__('Neue Unterhaltung')"
                                  action-icon="pencil-square"
-                                 action-click="$store.dms?.openNew()"
-                                 action-show="$store.dms?.canDm"
-                                 always-show="$store.dms?.canDm"
-                                 :empty-text="__('Noch keine Unterhaltung — der Stift oben eröffnet eine.')" />
+                                 action-click="$store.privateMessages?.startPicking(); $store.privateMessages?.goTo()"
+                                 action-show="$store.privateMessages?.canSend"
+                                 always-show="true"
+                                 :empty-text="__('Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.')" />
 
             <x-group::rail-group group="meetups" :label="__('Meetups')" :countries="true" />
             <x-group::rail-group group="proposals" :label="__('Projektunterstützung')" />
@@ -614,30 +598,23 @@
                 </div>
             </div>
 
-            {{-- ══ WO DER DM-DIALOG GEBLIEBEN IST ═══════════════════════════════════
-                 `<x-group::dm-modal />` stand hier, am Ende der Fußzeile, und steht
-                 jetzt in `app-frame.blade.php` neben der `profile-card`.
+            {{-- ══ WHERE THE DM DIALOG WENT ═════════════════════════════════════════
+                 `<x-group::dm-modal />` stood here, at the end of the footer. It is gone
+                 with the Buzz DM channels (P8): a conversation is created in the person
+                 picker on `/messages` now, and the rail's `+` button jumps there.
 
-                 Bis P7b MUSSTE er hier stehen: er las seine Liste aus `groupFor('dms')`,
-                 einer Methode dieser Alpine-Komponente. Seit er sie aus `$store.dms`
-                 liest, ist ihm der Scope gleichgültig — und die Rail ist der falsche Ort,
-                 weil es sie im NativePHP-Host serverseitig nie und im Web erst ab `xl`
-                 gibt, während `$store.dms.openNew()` inzwischen von der „Direkt"-Fläche
-                 auf `/spaces` gerufen wird, also von jedem Telefon.
+                 **Nothing changes for this column's geometry, and that is why this note
+                 stands here and not only in the commit.** A closed `flux:modal` is a
+                 `<dialog>` in the UA's `display:none` state — no line box, no height. The
+                 footer measured 302 px with and without it (264 without the workspace),
+                 pinned down in `desktop-boot-geometrie.spec.ts`.
 
-                 **Für die Geometrie dieser Spalte ändert sich nichts, und das ist der
-                 Grund, warum dieser Hinweis hier steht und nicht nur im Commit.** Ein
-                 geschlossenes `flux:modal` ist ein `<dialog>` im `display:none`-Zustand
-                 der UA — keine Zeilenbox, keine Höhe. Die Fußzeile misst mit und ohne ihn
-                 302 px (264 ohne Workspace), festgenagelt in
-                 `desktop-boot-geometrie.spec.ts`.
-
-                 Wer hier je wieder ein Overlay unterbringt: NICHT als direktes Kind von
-                 `[data-rail]`. Dieser Kindsatz IST die gemessene Spalte (vier Blöcke,
-                 siehe die Notiz am Anfang dieser Datei), ein fünfter Eintrag bricht den
-                 blockweisen Vergleich gegen den Platzhalter. Die Fußzeile war der
-                 Gastgeber, weil sie der eine Block ist, der nie zusammenklappt, nie
-                 scrollt und immer da ist (`shrink-0`). --}}
+                 Whoever ever puts an overlay here again: NOT as a direct child of
+                 `[data-rail]`. That set of children IS the measured column (four blocks,
+                 see the note at the top of this file); a fifth entry breaks the
+                 block-by-block comparison against the placeholder. The footer was the host
+                 because it is the one block that never collapses, never scrolls and is
+                 always there (`shrink-0`). --}}
         </div>
     </div>
 </template>

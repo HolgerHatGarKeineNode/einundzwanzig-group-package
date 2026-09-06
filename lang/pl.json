@@ -666,7 +666,7 @@
     "Schließen": "Zamknij",
     "Schließen, Suche leeren": "Zamknij, wyczyść wyszukiwanie",
     "Schreib die erste.": "Napisz pierwszą.",
-    "Schreiben": "Zapis",
+    "Schreiben": "Napisz",
     "Seite neu laden": "Odśwież stronę",
     "Seite nicht gefunden": "Nie znaleziono strony",
     "Senden": "Wyślij",
@@ -1302,5 +1302,9 @@
     "Nur du": "Tylko ty",
     "Die Nachricht konnte nirgends zugestellt werden.": "Nie udało się dostarczyć wiadomości nigdzie.",
     "Nicht alle Beteiligten konnten erreicht werden.": "Nie udało się dotrzeć do wszystkich uczestników.",
-    "Ende-zu-Ende-verschlüsselt geht es hier:": "Szyfrowane end-to-end jest tutaj:"
+    "Ende-zu-Ende-verschlüsselt geht es hier:": "Szyfrowane end-to-end jest tutaj:",
+    "Folgen": "Obserwuj",
+    "Entfolgen": "Przestań obserwować",
+    "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "Brak zaszyfrowanej rozmowy — ołówek powyżej rozpoczyna nową.",
+    "Verschlüsselte Nachricht schreiben": "Napisz zaszyfrowaną wiadomość"
 }

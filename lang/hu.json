@@ -1269,5 +1269,9 @@
     "Nur du": "Csak te",
     "Die Nachricht konnte nirgends zugestellt werden.": "Az üzenetet sehová sem sikerült kézbesíteni.",
     "Nicht alle Beteiligten konnten erreicht werden.": "Nem sikerült minden résztvevőt elérni.",
-    "Ende-zu-Ende-verschlüsselt geht es hier:": "Végpontok közötti titkosítással erre:"
+    "Ende-zu-Ende-verschlüsselt geht es hier:": "Végpontok közötti titkosítással erre:",
+    "Folgen": "Követés",
+    "Entfolgen": "Követés megszüntetése",
+    "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "Még nincs titkosított beszélgetés — a fenti ceruzával indíthatsz egyet.",
+    "Verschlüsselte Nachricht schreiben": "Titkosított üzenet írása"
 }

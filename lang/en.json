@@ -1269,5 +1269,9 @@
     "Nur du": "Only you",
     "Die Nachricht konnte nirgends zugestellt werden.": "The message could not be delivered anywhere.",
     "Nicht alle Beteiligten konnten erreicht werden.": "Not everyone involved could be reached.",
-    "Ende-zu-Ende-verschlüsselt geht es hier:": "End-to-end encrypted goes here:"
+    "Ende-zu-Ende-verschlüsselt geht es hier:": "End-to-end encrypted goes here:",
+    "Folgen": "Follow",
+    "Entfolgen": "Unfollow",
+    "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "No encrypted conversation yet — the pencil above starts one.",
+    "Verschlüsselte Nachricht schreiben": "Write an encrypted message"
 }

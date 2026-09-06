@@ -314,3 +314,60 @@ export const messageTargets = (
 
     return fallback ? [fallback] : []
 }
+
+// ══ Who the user means ═════════════════════════════════════════════════════════
+// The three lived in `dmModels.ts` until P7, the file of the Buzz DM channels. That file
+// is gone; the person parser is still needed — it answers the same question for the gift
+// wrap, which is where it has moved.
+
+/** A 64-character lowercase hex pubkey — the only form a `p` tag carries. */
+const HEX_64 = /^[0-9a-f]{64}$/
+
+/**
+ * Is this a pubkey a `p` tag may carry?
+ *
+ * Case-sensitive on purpose: `hex::decode` on the relay side refuses uppercase, so a
+ * mixed-case pubkey would be answered with `invalid: bad pubkey hex` — a gate that
+ * accepted here what the relay refuses there would only move the error.
+ */
+export const isDmPubkey = (value: unknown): value is string =>
+    typeof value === 'string' && HEX_64.test(value)
+
+/**
+ * What a user may type into the participant field, turned into a hex pubkey — or `''`.
+ *
+ * `decode` is handed in rather than imported so this module stays free of
+ * `nostr-tools`. The bundle guard (`bundleGrenze.nodetest.ts`) exists because exactly
+ * this kind of incidental value import once cost every chunk 48 kB. The same shape as
+ * `agentLabels(…, nip19.npubEncode)` in `forgeWake.ts`, and it
+ * makes the parser testable without a bech32 implementation.
+ *
+ * Accepted: a bare 64-hex pubkey in either case, and an `npub1…`. Refused — deliberately
+ * — is every other bech32 form: an `nprofile` carries relay hints this surface would
+ * silently drop, and an `note`/`nevent`/`naddr` in a person field is a mistake, not an
+ * abbreviation. `''` means "not a person", and the caller shows that instead of sending
+ * a wrap to a recipient that does not exist.
+ */
+export const parseDmRecipient = (
+    value: string,
+    decode: (bech32: string) => { type: string; data: unknown },
+): string => {
+    const raw = (value ?? '').trim()
+    if (!raw) {
+        return ''
+    }
+    const lower = raw.toLowerCase()
+    if (HEX_64.test(lower)) {
+        return lower
+    }
+    if (!lower.startsWith('npub1')) {
+        return ''
+    }
+    try {
+        const { type, data } = decode(lower)
+
+        return type === 'npub' && isDmPubkey(data) ? data : ''
+    } catch {
+        return ''
+    }
+}

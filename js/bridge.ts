@@ -56,10 +56,9 @@ import { wireMeetupEvent } from './calendar.ts'
 import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
 import { wireMutes } from './mutes.ts'
+import { wireFollows } from './follows.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
-import { dmNames, dmRoomName, ensureDmNames, hiddenDms, wireDms } from './dms.ts'
-import { dmNameableFromTags, foldDmRooms } from './dmModels.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
 import { dispatchModal } from './modal.ts'
@@ -155,6 +154,7 @@ import { type VoteDirection } from './forumVoteModels.ts'
 import { topicComposerZiel, type TopicComposerZiel } from './forumWriteModels.ts'
 import { clearPendingTopics, forumPending, publishForumTopic, type PendingTopic } from './forumWrite.ts'
 import { splitMine, type WorkspacePrefs } from './railGroups.ts'
+import { openPrivateConversation } from './navigate.ts'
 // P6 — die EINE Ableitung der Workspace-Frage, geteilt mit der Desktop-Rail
 // (`rail.ts`). `buildWorkspaceList` steht bewusst NICHT mehr hier: die mobile
 // Kanalliste und `forgeRows` kommen seither aus derselben Funktion, und ein
@@ -1690,172 +1690,80 @@ const myCountryCode = (): string => {
 // sitzt in der Bottom-Nav und damit auf JEDER Seite, nicht nur auf der Raumliste.
 
 /**
- * Die `h` der Räume, die für diesen Betrachter ZÄHLEN — Ungelesen-Punkt, Updates-Liste
- * und die Aktivitäts-Subscription.
+ * The `h` of the rooms that COUNT for this viewer — unread dot, updates list and the
+ * activity subscription.
  *
- * **`dmRooms` steht seit P7 ausdrücklich mit dabei.** Die Unterhaltungen sind ein
- * eigener Topf der `SpaceView`, damit sie nicht in „Meine Räume", der Befehlspalette
- * und dem Forge-Baum auftauchen — der Ungelesen-Punkt und die Updates-Liste sind aber
- * genau die zwei Stellen, an denen sie mitzählen MÜSSEN. Eine Unterhaltung, deren neue
- * Nachricht niemand anzeigt, wäre ein halbes Feature.
+ * **Until P7 a second half stood here.** The Buzz DM channels were their own pot of the
+ * `SpaceView` so they would not show up in "my rooms", the command palette and the forge
+ * tree — and were explicitly folded back in here, because the unread dot and the updates
+ * list were the two places where they had to count. Both went away with the transport:
+ * since P8 there are no unencrypted conversations in this client, and a DM channel never
+ * reaches the `SpaceView` in the first place (`groups.ts`).
  *
- * ── P7c: „ausgeblendet" galt bis hierher nur für die Rail-Spalte ────────────────
+ * **What that means for the encrypted conversations:** they do NOT count here, and not by
+ * accident. A NIP-17 conversation has no `h` on any relay; it sits in no room map, and its
+ * unread state is computed nowhere today. A number that does not exist is not passed on as
+ * zero — the surfaces therefore show the COUNT (how many conversations), not an unread
+ * pill.
  *
- * Die Liste hiess `joinedRoomHs` und war die reine Mitgliedschaft. Eine mit 41012
- * ausgeblendete Unterhaltung fiel damit aus der Spalte, fütterte aber weiter den
- * Ungelesen-Punkt und erzeugte `/updates`-Zeilen. Auf dem Telefon ist das teurer als am
- * Desktop: dort ist die Glocke der einzige Weg zu den Unterhaltungen, es gibt keine
- * Spalte, an der man sähe, dass sie weg ist — der Punkt leuchtete für etwas, das der
- * Nutzer ausdrücklich weggeräumt hat.
+ * ── What remains of P7c ─────────────────────────────────────────────────────────
+ * The distinction "skipped" vs. "orphaned" holds unchanged: an `h` missing here is SKIPPED
+ * in `computeUpdates` (rule 5, `updates.ts:669`/`:717`); orphaned (rule 10) is a room
+ * WITHOUT A NAME whose row stays put reading "message no longer available". That is why
+ * {@link joinedRoomNames} stays the FULL set.
  *
- * **Der Name ist mitgewandert.** „beigetreten" wäre jetzt falsch: der Nutzer IST weiter
- * Mitglied (die 39002 sagt es), er hat die Unterhaltung nur weggelegt. Zwei verschiedene
- * Aussagen, und die Liste trägt die zweite.
- *
- * **Was das für `computeUpdates` heisst — die Unterscheidung, auf die es ankommt:**
- * ein `h`, das hier fehlt, wird dort ÜBERSPRUNGEN (Regel 5, `updates.ts:669`/`:717`),
- * nicht als „verwaist" geführt. Verwaist (Regel 10) ist etwas anderes und bleibt es: das
- * ist ein Raum OHNE NAMEN, dessen Zeile mit „Nachricht nicht mehr verfügbar" stehen
- * bleibt. Ausgeblendet erzeugt gar keine Zeile. Genau deshalb bleibt {@link joinedRoomNames}
- * unten die VOLLE Menge — nähme man dort dieselben Einträge heraus, wären die beiden
- * Aussagen im selben sichtbaren Ergebnis vermischt, sobald die Listen je auseinanderlaufen.
- *
- * `computeUnread` verhält sich gleich: es sät `rooms[h] = 0` je Eintrag der Liste
- * (`unread.ts:205`) und zählt nur diese — ein fehlendes `h` trägt schlicht nichts bei.
+ * `computeUnread` seeds `rooms[h] = 0` per entry of the list (`unread.ts:205`) and counts
+ * only those — a missing `h` simply contributes nothing.
  */
-export const countedRoomHsOf = (view: SpaceView, dismissed: readonly string[]): string[] => [
-    ...plainRoomHsOf(view),
-    ...countedDmHsOf(view, dismissed),
-]
+export const countedRoomHsOf = (view: SpaceView): string[] => view.userRooms.map((room) => room.h)
 
-/** Die `h` der eigenen RÄUME — die Nicht-DM-Hälfte von {@link countedRoomHsOf}. */
-export const plainRoomHsOf = (view: SpaceView): string[] => view.userRooms.map((room) => room.h)
-
-/**
- * Die `h` der sichtbaren UNTERHALTUNGEN — die DM-Hälfte.
- *
- * `foldDmRooms` ist die Faltung, die auch die Rail und der DM-Dialog benutzen; sie kennt
- * den Ausgeblendet-Filter und die Entdopplung bereits. Ein eigenes
- * `.filter(h => !dismissed.includes(h))` hier wäre die zweite Wahrheit über dieselbe Frage.
- */
-export const countedDmHsOf = (view: SpaceView, dismissed: readonly string[]): string[] =>
-    foldDmRooms([view], dismissed).map((room) => room.h)
-
-/**
- * Die drei Listen in EINER Ableitung — `all` füttert die Zähl-Ableitungen, `rooms` und
- * `dms` teilen deren Ergebnis danach auf.
- *
- * Zusammen und nicht als drei Ableitungen, damit die Aufteilung nie gegen eine andere
- * Emission gerechnet wird als die Zählung: `deriveUnread` ist `throttled(300, …)`, ein
- * `get()` auf eine Nachbarableitung im Abonnenten läge also regelmässig einen Takt vorn.
- */
-export type CountedHs = { all: string[]; rooms: string[]; dms: string[] }
-
-/**
- * Die Zuordnung selbst — rein, weil genau HIER die Lücke sass.
- *
- * Sie stand als Objektliteral in der Ableitung darunter, und `rooms` und `dms` dort zu
- * VERTAUSCHEN liess jeden Fall grün: die Tests bauten ihr `counted` aus den beiden
- * exportierten Faltungen selbst, prüften also „die richtigen Faltungen tun das Richtige"
- * und „die Flächen lesen die richtigen Zahlen" — nicht die Verdrahtung dazwischen. Das
- * ist dieselbe Form wie bei {@link unreadTotalsOf}: eine reine Funktion prüft ihren
- * Rumpf, nicht ihre Zuweisung. Als Funktion ist die Zuordnung prüfbar, und in der
- * Ableitung bleibt eine Delegation ohne Feldnamen, in der sich nichts mehr vertauschen
- * lässt.
- */
-export const countedHsOf = (view: SpaceView, dismissed: readonly string[]): CountedHs => {
-    const rooms = plainRoomHsOf(view)
-    const dms = countedDmHsOf(view, dismissed)
-
-    return { all: [...rooms, ...dms], rooms, dms }
-}
-
-const countedHs: Readable<CountedHs> = derived(
-    [activeSpaceView, hiddenDms],
-    ([$view, $hidden]: [SpaceView, string[]]) => countedHsOf($view, $hidden),
+const countedRoomHs: Readable<string[]> = derived(
+    activeSpaceView,
+    ($view: SpaceView) => countedRoomHsOf($view),
 )
 
-const countedRoomHs: Readable<string[]> = derived(countedHs, ($counted: CountedHs) => $counted.all)
 
 /**
- * Die drei Zahlen des `unread`-Stores aus EINER `UnreadView` — rein, damit die Aufteilung
- * prüfbar ist und nicht nur in einer Subscription steht.
+ * The two numbers of the `unread` store out of ONE `UnreadView` — pure, so the split is
+ * testable instead of living inside a subscription.
  *
- * **Beide Hälften als PARTITION derselben `rooms`-Karte** (`sumUnreadRooms`, node-getestet
- * und ausdrücklich dafür gebaut) statt als Subtraktion. Das ist der Unterschied, der
- * zählt: eine Differenz kann keine der beiden Zahlen über die Summe heben, versteckt aber
- * jedes `h`, das in KEINER der beiden Listen steht — mit zwei Faltungen fällt so ein
- * Schlüssel auf, weil `roomsTotal + dmsTotal` dann unter `view.roomsTotal` liegt. Genau
- * das prüft `dmUnreadEbenen.test.ts`.
+ * Until P7 there were three: `roomsTotal` and `dmsTotal` were a PARTITION of the same
+ * `rooms` map (deliberately instead of a subtraction, so an `h` in NEITHER list would show
+ * up as `roomsTotal + dmsTotal < view.roomsTotal`). The DM half is gone; `counted` is one
+ * list again, and the partition has a single part.
  */
 export const unreadTotalsOf = (
     view: UnreadView,
-    counted: CountedHs,
-): { roomsTotal: number; dmsTotal: number; threadsTotal: number } => ({
-    roomsTotal: sumUnreadRooms(view.rooms, counted.rooms),
-    dmsTotal: sumUnreadRooms(view.rooms, counted.dms),
+    counted: readonly string[],
+): { roomsTotal: number; threadsTotal: number } => ({
+    roomsTotal: sumUnreadRooms(view.rooms, counted),
     threadsTotal: view.threadsTotal,
 })
 
 /**
- * `h` → Anzeigename der beigetretenen Räume. Nur die BEIGETRETENEN: ein fehlender
- * Schlüssel heißt in `computeUpdates` „verwaist" (§8) — nähme man `otherRooms` dazu,
- * verlöre die Liste genau die Aussage, die sie treffen soll (der Raum ist weg/nicht mehr
- * meiner).
+ * `h` → display name of the joined rooms, as a pure function — extracted so the superset
+ * promise against {@link countedRoomHsOf} is TESTABLE instead of merely asserted.
  *
- * **Und deshalb NICHT um die ausgeblendeten gekürzt** (P7c). Diese Karte muss eine
- * Obermenge von {@link countedRoomHs} bleiben: „ausgeblendet" wird eine Ebene höher
- * durchgesetzt (kein Eintrag in der zählenden Liste ⇒ übersprungen), „verwaist" hier
- * (kein Name ⇒ Zeile bleibt stehen, aber tot). Beides über denselben fehlenden Schlüssel
- * zu regeln hiesse, zwei verschiedene Aussagen im selben sichtbaren Ergebnis zu mischen.
+ * It was not testable at first, and the probe showed it: a version that additionally
+ * filters out the dismissed rooms here (settling "dismissed" and "orphaned" through the
+ * same missing key) passed **20 green tests and a green typecheck** on 2026-09-04. The
+ * difference becomes visible the moment the two lists diverge — and then a living room is
+ * called "message no longer available".
  *
- * ── P7b: eine Unterhaltung heißt nicht mehr „DM" ────────────────────────────────
+ * **Until P7 it also folded in `dmRooms` and resolved their names through the
+ * participants** (`dmRoomName`): the relay stored the literal `"DM"` for EVERY two-party
+ * conversation, so without that the updates list showed N identically named rows. The pot
+ * went away with the transport; a room name now comes from exactly one place again.
  *
- * Hier stand `room.name` roh, mit der Begründung, die Auflösung über die Teilnehmer
- * hänge an Profilen und liege in der Rail. Das stimmte und war trotzdem der Defekt: die
- * Rail wird im NativePHP-Host serverseitig nie gerendert (`app-frame.blade.php:44`), und
- * unterhalb `xl` steht sie auch im Web nicht. Über die Glocke → `/updates` sind die
- * Unterhaltungen dort längst erreichbar (`countedRoomHs` oben faltet `dmRooms` ein) — die
- * Liste zeigte also N Zeilen namens „DM", weil der Relay für JEDE Zweier-Unterhaltung
- * genau diese Zeichenkette speichert (`buzz-db/src/dm.rs:157-162`).
- *
- * `dmRoomName` ist dieselbe Auflösung, die `railName` benutzt — eine Regel
- * (`dmModels.roomDisplayName`), eine Namenstabelle (`dmNames`), zwei Bindungen. Der
- * **Rückfall bleibt `room.name`**, nie `''`: `buildItem` liest einen leeren Namen als
- * „verwaist" und ersetzt die Zeile durch „Nachricht nicht mehr verfügbar". Eine
- * Unterhaltung ohne auflösbare Teilnehmer soll unter dem Relay-Namen stehen bleiben,
- * nicht verschwinden.
+ * The **fallback stays `room.name`**, never `''`: `buildItem` reads an empty name as
+ * "orphaned" and replaces the row with "message no longer available".
  */
-/**
- * Die Namenskarte als reine Funktion — ausgelagert, damit die Obermengen-Zusage
- * PRÜFBAR ist und nicht nur behauptet.
- *
- * Sie war es zuerst nicht, und die Probe hat das gezeigt: eine Fassung, die hier
- * zusätzlich die ausgeblendeten Räume herausfiltert (also „ausgeblendet" und „verwaist"
- * über denselben fehlenden Schlüssel regelt), lief am 2026-09-04 durch **20 grüne Tests
- * und einen grünen Typecheck**. Sichtbar wird der Unterschied heute nicht, weil
- * `computeUpdates` zuerst an der zählenden Liste vorbeisortiert und den Namen dann gar
- * nicht mehr nachschlägt — er wird es in dem Moment, in dem die beiden Listen
- * auseinanderlaufen, und dann heisst eine lebende Unterhaltung „Nachricht nicht mehr
- * verfügbar". `dmHiddenCounting.test.ts` hält die Zusage jetzt fest.
- */
-export const roomNamesOf = (view: SpaceView, names: Record<string, string>, me: string): Record<string, string> =>
-    Object.fromEntries([...view.userRooms, ...view.dmRooms].map((room) => [room.h, dmRoomName(room, me, names)]))
+export const roomNamesOf = (view: SpaceView): Record<string, string> =>
+    Object.fromEntries(view.userRooms.map((room) => [room.h, room.name]))
 
 const joinedRoomNames: Readable<Record<string, string>> = derived(
-    [activeSpaceView, dmNames, pubkey],
-    ([$view, $names, $me]: [SpaceView, Record<string, string>, string | undefined]) => {
-        // Die Profile der Beteiligten anfordern — `ensureDmNames` dedupliziert selbst und
-        // schreibt vor seinem ersten `await` in keinen Store, ist aus einer Ableitung
-        // heraus also gefahrlos. Ohne diesen Anstoß bliebe es auf Mobil bei gekürzten
-        // Pubkeys: die Rail und der Dialog, die ihn sonst auslösen, existieren dort nicht.
-        ensureDmNames(
-            $view.url,
-            $view.dmRooms.flatMap((room) => room.dmParticipants ?? []),
-        )
-
-        return roomNamesOf($view, $names, $me ?? '')
-    },
+    activeSpaceView,
+    ($view: SpaceView) => roomNamesOf($view),
 )
 
 /**
@@ -1944,32 +1852,22 @@ type UnreadStore = UnreadView & {
     /**
      * Ungelesene Ereignisse in UNTERHALTUNGEN — die DM-Hälfte von `UnreadView.roomsTotal`.
      *
-     * **Warum es diese Zahl gibt (P7d).** `roomsTotal` kommt aus `computeUnread` und ist
-     * kategorieblind: es summiert über ALLE gezählten `h`, und seit P7 sind die
-     * Unterhaltungen darunter. Am Store hängt es aber an der Tab-Pille „Räume"
-     * (`⚡spaces.blade.php`), also an einer EBENE — und die Unterhaltungen sind seit dem
-     * Umbau des Kollegen eine eigene. Am Store werden die beiden Zahlen deshalb getrennt:
-     * `roomsTotal` = Räume, `dmsTotal` = Unterhaltungen, `threadsTotal` = Threads. Drei
-     * disjunkte Summen, und `roomsTotal + dmsTotal` ist exakt das, was `computeUnread`
-     * als `roomsTotal` liefert (mit `sumUnreadRooms` über dieselbe `rooms`-Karte
-     * gefaltet, also per Konstruktion eine Partition und keine zweite Zählung).
+     * **Who reads which** — the answer to "two numbers with similar names":
      *
-     * **Wer welche liest** — die Antwort auf „zwei Zahlen mit ähnlichem Namen":
+     *   `roomsTotal`   → tab pill "rooms" (`⚡spaces.blade.php`)
+     *   `threadsTotal` → tab pill "threads"
+     *   `any`          → the dot in the bottom nav; UNCHANGED across both levels,
+     *                    because an unread message is an unread message
+     *   `updates`      → the header bell, its own derivation (`deriveUpdates`)
      *
-     *   `roomsTotal`   → Tab-Pille „Räume" (`⚡spaces.blade.php`)
-     *   `dmsTotal`     → noch niemand; der Abschnitt „Direkt" auf `/spaces` ist der Ort
-     *                    (`dm-list.blade.php`, siehe Bericht zu P7d)
-     *   `threadsTotal` → Tab-Pille „Threads"
-     *   `any`          → der Punkt der Bottom-Nav; UNVERÄNDERT über alle drei Ebenen,
-     *                    denn eine ungelesene Nachricht ist eine ungelesene Nachricht
-     *   `updates`      → die Header-Glocke, eigene Ableitung (`deriveUpdates`), enthält
-     *                    die Unterhaltungen weiterhin
+     * **Until P7 there was a third one, `dmsTotal`** — the unread sum of the Buzz DM
+     * channels, as a partition of the same `rooms` map. It went away with the transport; a
+     * NIP-17 conversation has no `h` and sits in no room map. The surfaces therefore show
+     * the count for conversations, not an unread number (`dm-list.blade.php`).
      *
-     * Der Push-Zähler liest KEINE davon: der Android-Worker bekommt seine Raumliste über
-     * `pushSyncState` (`groups.ts`) und die trägt nur `userRooms` — Unterhaltungen sieht
-     * er gar nicht. Drei Verbraucher, drei Quellen; sie hängen nicht zusammen.
+     * The push counter reads NONE of these: the Android worker gets its room list through
+     * `pushSyncState` (`groups.ts`). Two consumers, two sources; they are unrelated.
      */
-    dmsTotal: number
     /**
      * Ungelesene ZEILEN von `/updates` — die Zahl der Header-Glocke (§4.1 Nr. 6).
      *
@@ -2036,7 +1934,6 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         threads: {},
         any: false,
         roomsTotal: 0,
-        dmsTotal: 0,
         threadsTotal: 0,
         updates: 0,
         capped: (count, cap = BADGE_CAP) => formatUnreadCount(count, cap),
@@ -2107,7 +2004,6 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         store.threads = {}
         store.any = false
         store.roomsTotal = 0
-        store.dmsTotal = 0
         store.threadsTotal = 0
         store.updates = 0
         // Auch die Region auf Anfang: der Zählerstand des ALTEN Space darf im neuen
@@ -2119,21 +2015,19 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         livePending = null
         liveAnnounced = false
         store.liveText = ''
-        // `deriveUnread` UND die Aufteilung in EINER Ableitung, damit beide Hälften gegen
-        // dieselbe Emission gerechnet werden — `deriveUnread` ist `throttled(300, …)`.
+        // `deriveUnread` AND the counted list in ONE derivation, so both are computed
+        // against the same emission — `deriveUnread` is `throttled(300, …)`.
         unsubUnread = derived(
-            [deriveUnread(url, countedRoomHs), countedHs],
-            ([$view, $counted]: [UnreadView, CountedHs]) => ({ $view, $counted }),
-        ).subscribe(({ $view, $counted }: { $view: UnreadView; $counted: CountedHs }) => {
+            [deriveUnread(url, countedRoomHs), countedRoomHs],
+            ([$view, $counted]: [UnreadView, string[]]) => ({ $view, $counted }),
+        ).subscribe(({ $view, $counted }: { $view: UnreadView; $counted: string[] }) => {
             store.rooms = $view.rooms
             store.threads = $view.threads
-            // `any` bleibt die VOLLE Sicht: der Punkt der Bottom-Nav beantwortet „liegt
-            // irgendwo etwas", und eine ungelesene Unterhaltung gehört dazu. Nur die
-            // Zahlen darunter sind nach Ebene getrennt.
+            // `any` stays the FULL view: the bottom-nav dot answers "is anything waiting
+            // anywhere". Only the numbers below it are split by level.
             store.any = $view.any
             const totals = unreadTotalsOf($view, $counted)
             store.roomsTotal = totals.roomsTotal
-            store.dmsTotal = totals.dmsTotal
             store.threadsTotal = totals.threadsTotal
         })
         // Die Glocken-Zahl. Zweite Ableitung über DENSELBEN Bestand — bewusst nicht aus
@@ -2211,6 +2105,7 @@ export function registerNostrComponents(Alpine: {
     // expensive here — one would filter, the other would label the button. Reasoning in
     // the header of `mutes.ts`; `nostrRoomChat` gains NO new field.
     wireMutes(Alpine)
+    wireFollows(Alpine)
     // P5 — NIP-ER-Erinnerungen (30300). Dritter Store nach demselben Muster und aus
     // demselben Grund: der Zustand wird an zwei Stellen gebraucht, die einander im DOM
     // nicht sehen (der Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat` und die
@@ -2234,7 +2129,6 @@ export function registerNostrComponents(Alpine: {
     // Kanal mit einem `h` — die Chat-Fläche bleibt deshalb unberührt, dieser Store
     // schreibt nur die drei Kommandos und liest die relay-signierte Sichtbarkeit (30622).
     // Begründung im Kopf von `dms.ts`, die Regeln in `dmModels.ts`.
-    wireDms(Alpine)
     // P5 (Onboarding) — Vereins-Beitritt (`/verein/beitritt`). Wieder eine eigene Insel:
     // der Flow hat seinen eigenen Screen und seinen eigenen Geltungsbereich, und die REINE
     // Logik (Schritt-Entscheid, Fehler→Ausweg, Nachfass-Plan) liegt nochmals daneben in
@@ -3000,12 +2894,9 @@ export function registerNostrComponents(Alpine: {
         _controller: null,
         // Raumname zu einem h-Tag (aus den bereits geladenen Space-Räumen) — für die Thread-Liste.
         roomName(h: string): string {
-            // `dmRooms` mit dabei (P7): ohne sie fiele eine Unterhaltung in der
-            // Thread-Liste auf ihre rohe UUID zurück.
             const rooms = [
                 ...(this.space?.userRooms ?? []),
                 ...(this.space?.otherRooms ?? []),
-                ...(this.space?.dmRooms ?? []),
             ]
             return rooms.find((r) => r.h === h)?.name || h
         },
@@ -4234,14 +4125,13 @@ export function registerNostrComponents(Alpine: {
             // Räume UND Threads: die Karte führt an den Ort „Chat", und der hat beide
             // Ebenen. Bewusst nicht `$store.unread.updates` — das ist die Glocke, also
             // eine andere Menge (siehe die Begründung am Glocken-Marker).
-            // Alle DREI Ebenen: seit P7d ist `roomsTotal` auf Räume verengt, und eine
-            // ungelesene Unterhaltung ist für diese Karte genauso „Chat" wie ein Raum.
-            // Ohne `dmsTotal` hätte die Karte still angefangen, weniger zu zeigen.
+            // Both levels. Until P7 there were three — `dmsTotal` counted the Buzz DM
+            // channels, which no longer exist.
             const store = Alpine.store('unread') as
-                | { roomsTotal?: number; dmsTotal?: number; threadsTotal?: number }
+                | { roomsTotal?: number; threadsTotal?: number }
                 | undefined
 
-            return (store?.roomsTotal ?? 0) + (store?.dmsTotal ?? 0) + (store?.threadsTotal ?? 0)
+            return (store?.roomsTotal ?? 0) + (store?.threadsTotal ?? 0)
         },
         zeigt(wert: number | null) {
             return zeigeLive(wert)
@@ -6271,31 +6161,15 @@ export function registerNostrComponents(Alpine: {
             // Raum-Anzeigename aus der Client-Meta (39000) reaktiv nachziehen — der
             // SSR-Header trägt bei member-only-Relays nur den Slug (Server hat keine
             // AUTH). `url` ist bereits normalisiert (activeSpace), roomsByUrl ebenso.
-            // ── A conversation is not called "DM" any more (community-features P3) ──
-            // The relay stores the literal `"DM"` / `"Group DM (N)"` as the channel name
-            // of EVERY conversation (`buzz-db/src/dm.rs:157-162`), so the header of every
-            // DM read the same word. The resolution is the one rule the rail and
-            // `/updates` already use (`dmRoomName` → `dmModels.roomDisplayName`); this is
-            // its third binding, not a second rule.
             //
-            // `dmNames` belongs in the DEPENDENCIES and not behind a one-off read: the
-            // participants' profiles arrive AFTER the mount, and a snapshot would freeze
-            // the header on shortened pubkeys — the same trap `railName` avoids by reading
-            // the Alpine store on every render.
-            this._unsubRoomMeta = derived(
-                [roomsByUrl, dmNames, pubkey],
-                (values: [Map<string, Room[]>, Record<string, string>, string | undefined]) => values,
-            ).subscribe(([$byUrl, $names, $me]) => {
+            // Until P7 this block also resolved a conversation's name through its
+            // participants: the relay stored the literal `"DM"` for EVERY DM channel.
+            // Those channels are gone (`groups.ts` drops them at the source), so the
+            // channel name is once again the name that belongs on screen.
+            this._unsubRoomMeta = roomsByUrl.subscribe(($byUrl: Map<string, Room[]>) => {
                 const room = ($byUrl.get(url) ?? []).find((r) => r.h === this.h)
-                const nameable = dmNameableFromTags(room?.name ?? '', room?.event?.tags ?? [])
-                // The nudge without which the header would show shortened keys forever.
-                // `ensureDmNames` deduplicates itself and writes to no store before its
-                // first `await`, so it is safe from inside a derivation (see `dms.ts`).
-                if (nameable.isDm) {
-                    ensureDmNames(url, nameable.dmParticipants ?? [])
-                }
                 if (room?.name) {
-                    const shown = dmRoomName(nameable, $me ?? '', $names)
+                    const shown = room.name
                     this.roomName = shown
                     // Meta-/Tab-Titel clientseitig auf den echten Raumnamen setzen: der server-
                     // gerenderte Titel fällt bei SpaceCache-Miss auf die rohe Raum-id zurück
@@ -9304,6 +9178,7 @@ export function registerNostrComponents(Alpine: {
             // graph splits the app chunk into 9, 8, 7 and 7 boot chunks respectively.
             wirePrivateMessages(Alpine as never, {
                 t,
+                openConversationAt: openPrivateConversation,
                 displayProfileByPubkey,
                 profilesByPubkey,
                 warmProfiles,

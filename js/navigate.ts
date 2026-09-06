@@ -20,6 +20,15 @@ import { clearEphemeralSpace, ephemeralSpaceUrl, setActiveSpaceEphemeral } from 
 import { WORKSPACE_URL } from './spaceCaps.ts'
 import { planRoomNavigation } from './roomNavModel.ts'
 
+/**
+ * The address of the encrypted conversations (NIP-17).
+ *
+ * A constant rather than a string at every call site: since P8 THREE surfaces lead there
+ * — the rail group, the list on `/spaces` and the profile card. Site-relative like
+ * `/rooms/{h}` in `roomNavModel.ts`; the package is mounted at the root.
+ */
+export const MESSAGES_PATH = '/messages'
+
 /** Navigate through Livewire, with a hard fallback — at ONE place instead of three. */
 export const navigateTo = (href: string): void => {
     if (href === '') {
@@ -31,6 +40,19 @@ export const navigateTo = (href: string): void => {
     } else {
         window.location.assign(href)
     }
+}
+
+/**
+ * Open an encrypted conversation.
+ *
+ * @param key The `conversationKey` (`privateMessageModels.ts`) — the sorted,
+ *            comma-joined participant list. It travels as a query parameter so that a
+ *            jump from the rail opens the conversation that was clicked, and so a link
+ *            still works when reopened in the same browser. The key holds public keys
+ *            only, never content.
+ */
+export const openPrivateConversation = (key: string): void => {
+    navigateTo(key === '' ? MESSAGES_PATH : `${MESSAGES_PATH}?c=${encodeURIComponent(key)}`)
 }
 
 /**

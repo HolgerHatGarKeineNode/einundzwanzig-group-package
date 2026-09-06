@@ -1,218 +1,132 @@
 @props([
-    // Alpine-Ausdruck, der wahr ist, solange diese Fläche GEBRAUCHT wird. Er entscheidet
-    // über die EXISTENZ des Knotens, nicht über seine Sichtbarkeit — siehe unten.
+    // Alpine expression that is true while this surface is NEEDED. It decides the
+    // EXISTENCE of the node, not its visibility — see below.
     'show' => 'true',
 ])
 
-{{-- ── Die Unterhaltungen in der Raumliste (mobile Erreichbarkeit) ──────────────────
+{{-- ── The encrypted conversations inside the room list (mobile reachability) ──────
 
-     Bis hierher gab es die Direktnachrichten an genau ZWEI Orten, und beide sind auf
-     einem Telefon nicht da: die Gruppe in `desktop-rail.blade.php` (die Rail rendert der
-     NativePHP-Host serverseitig nie und der Web-Client erst ab `xl`) und die Liste IM
-     Dialog, die man nur sieht, während man eine neue Unterhaltung eröffnet. Wer auf dem
-     Telefon eine bestehende Unterhaltung suchte, hatte keinen Weg dorthin — die Glocke
-     führt auf `/updates`, und das ist eine Liste von Hinweisen, keine von Gesprächen.
-     Eine NEUE eröffnen ging gar nicht.
+     ── What P8 changed here ────────────────────────────────────────────────────────
+     Until P7 this spot held the list of BUZZ DM channels — a channel with an `h` whose
+     messages lie in plaintext on the relay. That surface is gone; a conversation in this
+     house is always a NIP-17 gift wrap from now on (`/messages`, `js/privateMessages.ts`).
+     The PLACE stayed, because the reasoning for it is unchanged: the rail never renders on
+     a phone, and a third tab does not fit (measurement below). What changed is the data
+     source, the target and the wording.
 
-     ── Warum ein ABSCHNITT der Raumliste und kein dritter Tab ──────────────────────
-     Der erste Entwurf war ein dritter Eintrag „Direkt" in der Segmented-Bar. Er ist an
-     einer Messung gescheitert, nicht an einer Meinung: die Bar ist `inline-flex` und
-     schrumpft nicht, ihre drei Einträge messen zusammen **314 px** (je Tab 32 px
-     Polster + 20 px Icon + 8 px Lücke + Text; Text 35/49/42 px in Inconsolata 14 px),
-     die Inhaltsspalte bei 320 px Fenster misst **288 px**. Ergebnis am gerenderten
-     Element: `document.scrollWidth` 330 gegen `clientWidth` 320 — 10 px waagerechter
-     Überlauf, und das auf der Hauptfläche des Clients. Mit zwei Einträgen sind es 212 px;
-     die Bar ist also schon vor dieser Änderung zu 74 % gefüllt.
+     ── Why a SECTION of the room list and not a third tab ──────────────────────────
+     The first draft was a third entry "direct" in the segmented bar. It failed on a
+     measurement, not on an opinion: the bar is `inline-flex` and does not shrink, its
+     three entries measure **314 px** together (per tab 32 px padding + 20 px icon + 8 px
+     gap + text; text 35/49/42 px in Inconsolata 14 px), while the content column at a
+     320 px viewport measures **288 px**. Result on the rendered element:
+     `document.scrollWidth` 330 against `clientWidth` 320 — 10 px of horizontal overflow,
+     on the main surface of the client. With two entries it is 212 px; the bar is already
+     74 % full before this change.
 
-     Drei Auswege wurden durchgerechnet und verworfen: Icons weglassen (−84 px, passt —
-     nimmt aber eine ausdrückliche Entscheidung samt mutationsgeprüftem Test zurück,
-     `OrtskartenTest` „Threads-Tab und Chat-Ortskarte zeigen verschiedene Zeichen"),
-     Polster auf `px-2` (passt — verliert aber gegen Flux' eigenes `px-4`: beide sind
-     Tailwind-Utilities gleicher Spezifität, und im gebauten Bundle steht `.px-4` bei Byte
-     70292, `.px-2` bei 70086, also gewinnt `px-4`), und die Bar scrollen zu lassen (ein
-     Eintrag, den man wegschieben muss, ist kein Einstieg).
+     Three ways out were costed and rejected: dropping the icons (−84 px, fits — but takes
+     back an explicit decision with a mutation-checked test, `OrtskartenTest` "threads tab
+     and chat location card show different glyphs"), padding at `px-2` (fits — but loses
+     against Flux' own `px-4`: both are Tailwind utilities of equal specificity, and in the
+     built bundle `.px-4` sits at byte 70292, `.px-2` at 70086, so `px-4` wins), and making
+     the bar scroll (an entry you have to push out of the way is not an entry point).
 
-     **Der zweite Grund war eine Zahl, und sie ist inzwischen eine andere.** Als dieser
-     Abschnitt entstand, zählte `$store.unread.roomsTotal` — die Pille am Tab „Räume" —
-     die Unterhaltungen mit: `countedRoomHsOf` (`bridge.ts`) faltete `dmRooms` ein, und
-     die Zahl war kategorieblind. Ein Ungelesen-Badge hier hätte dieselben Ereignisse ein
-     zweites Mal gezeigt; deshalb stand hier zunächst keiner.
+     ── Why there is NO unread pill here ────────────────────────────────────────────
+     Until P7 `$store.unread.dmsTotal` stood here — a partition of the `rooms` map that
+     counted Buzz DM CHANNELS. A NIP-17 conversation has no `h` and sits in no such map;
+     there is no unread counter for it today. A pill that always reads zero would not be
+     information but an empty promise — so it goes entirely instead of quietly standing at
+     zero. The COUNT (how many conversations exist) stays as a grey number next to the
+     heading, exactly like the neighbouring sections.
 
-     **Seit P7d (`unreadTotalsOf`, `bridge.ts`) gibt es die Zahl getrennt**, und zwar als
-     PARTITION derselben `rooms`-Karte statt als Differenz: `roomsTotal` sind die Räume,
-     `dmsTotal` die Unterhaltungen, `roomsTotal + dmsTotal` ist exakt das, was
-     `computeUnread` liefert (`dmUnreadEbenen.test.ts`). Damit gilt jetzt:
+     ── `x-if` and not `xl:hidden`, although the neighbouring sections do the opposite ─
+     The neighbours ("my rooms", "other rooms") hide themselves from `xl` up via CSS, with
+     the explicit reasoning that an `x-if` condition would be a second truth about the
+     breakpoint. For them that holds: they cost nothing while invisible.
 
-       · Tab-Pille „Räume"   = Summe der Pillen an den Raum-Zeilen darüber
-       · Badge an DIESEM Kopf = Summe der Pillen an den Zeilen darunter
+     This section costs something — and since P8 more than before: `nostrPrivateMessages`
+     holds the wrap subscription, the ONE request in the client whose answers cost the
+     signer (every unwrapped envelope = two `nip44.decrypt`). **Alpine initialises
+     `x-data` inside elements hidden by CSS as well** — the same trap that puts
+     `desktop-rail` inside a `<template x-if>`. Hidden via `xl:hidden` every desktop view
+     would pay twice: here AND in the rail, which shows the same list there. The condition
+     reads `$store.viewport.desktop`, so exactly the one `matchMedia` truth from
+     `viewport.ts` — not a second one.
 
-     Beides ist die Zusage, die `js/unread.ts` einfordert („die Summe der sichtbaren
-     Pillen ergäbe nicht die Zahl am Tab") — und sie ist erst seit der Trennung für BEIDE
-     Ebenen einlösbar. Nachgemessen in `js/dmUnreadFlaechen.test.ts`, gegen die
-     Ausdrücke, die diese Datei wirklich rendert.
+     ── Why there is NO empty state "this space cannot do DMs" ──────────────────────
+     Because a section that is not there is the more honest answer. A tab always has to
+     stand and therefore explain why it is empty; a section in a list may simply be absent.
+     If the reachable space cannot accept gift wraps (`canSend`, fail-closed through
+     `mayWriteKind`), there are neither rows nor a button here.
 
-     **Am Ort ändert das nichts.** Die 314 px stehen unverändert: der dritte Tab passt bei
-     320 px nicht, und die Ebene, auf der die Bar gliedert, ist die des Chats. Was die
-     Trennung ändert, ist die Zahl AM Abschnitt, nicht sein Platz. Zwei Pillen auf zwei
-     Ebenen sind kein Widerspruch, sondern die Auflösung des alten: jede zählt genau das,
-     was unter ihr steht.
-
-     ── `x-if` und nicht `xl:hidden`, obwohl die Nachbarabschnitte es umgekehrt tun ──
-     Die Nachbarn („Meine Räume", „Andere Räume") verstecken sich ab `xl` per CSS, mit
-     der ausdrücklichen Begründung, eine `x-if`-Bedingung wäre eine zweite Wahrheit über
-     den Breakpoint. Für sie stimmt das: sie kosten nichts, wenn sie unsichtbar sind.
-
-     Dieser Abschnitt kostet etwas. Er meldet über `armList()` eine Ableitung an, und
-     **Alpine initialisiert `x-data` auch in Elementen, die per CSS versteckt sind** —
-     dieselbe Falle, wegen der `desktop-rail` in einem `<template x-if>` steht. Per
-     `xl:hidden` versteckt zahlte jede Desktop-Ansicht für eine Liste, die dort die Rail
-     zeigt. Die Bedingung liest `$store.viewport.desktop`, also genau die eine
-     `matchMedia`-Wahrheit aus `viewport.ts` — keine zweite.
-
-     ── Warum es KEINEN Leerzustand „dieser Space kann keine DMs" gibt ──────────────
-     Weil ein Abschnitt, den es nicht gibt, die ehrlichere Auskunft ist. Ein Tab muss
-     immer dastehen und deshalb erklären, warum er leer ist; ein Abschnitt in einer Liste
-     darf schlicht fehlen. Kann KEIN erreichbarer Space Unterhaltungen führen, gibt es
-     hier weder Zeilen noch Knopf — und keine Zeile, die über etwas spricht, das es hier
-     nicht gibt.
-
-     **Der Bezugspunkt ist nicht mehr der Space in der Ansicht.** Hier stand „auf einem
-     zooid-Space gibt es keine Unterhaltungen und keinen Knopf", und das war für die
-     Anlage dieser Seite die falsche Beschreibung: `/spaces` setzt den ephemeren Space in
-     seinem `init()` unbedingt zurück (`bridge.ts:3515`), also ist der Space in der
-     Ansicht hier IMMER der Heim-Relay. Auf einem Aufbau mit zooid daheim und Buzz als
-     Workspace konnte `canDm` deshalb nie wahr werden — auf keiner Fläche, auch nicht am
-     Desktop. `$store.dms.canDm` fragt seit `chooseDmSpace` (`js/dmModels.ts`) alle
-     erreichbaren Spaces und liefert den Relay mit, auf dem die Unterhaltung entsteht.
-
-     Aus demselben Grund kein Skelett, solange das NIP-11-Doc fehlt: ein Skelett sagt
-     „hier kommt gleich etwas" zu, und für diesen Abschnitt ist die Zusage nicht gedeckt.
-
-     ── Was diese Fläche NICHT kann, und warum ──────────────────────────────────────
-     Erweitern und Ausblenden je Zeile. Beides steht im Dialog, einen Tap entfernt, und
-     beides ist eine Handlung, die im Jahr zweimal vorkommt. Drei Ziele in einer
-     320-px-Zeile hießen entweder Ziele unter 44 px oder eine zweizeilige Zeile.
-     Dieselbe Abwägung, die der Dialog für die Rail-Zeile schon einmal getroffen hat.
-
-     Und sie sagt NICHTS über Verschlüsselung. Der Satz „Nachrichten liegen
-     unverschlüsselt auf diesem Relay" steht im Dialog, also dort, wo eine Unterhaltung
-     ENTSTEHT. Zweimal dieselbe Zusage an zwei Orten ist der Anfang von zwei Fassungen
-     davon.
-
-     Der Zähler in `armList()` ist kein Zierrat: der Dialog wird VON dieser Fläche aus
-     geöffnet und meldet dieselbe Liste ein zweites Mal an. Ohne den Zähler räumte das
-     erste `closeDialog()` die Liste ab, in die der Nutzer gerade schaut
-     (`js/dmListArming.test.ts`, mutationsgeprüft). --}}
+     And this surface says NOTHING about encryption in detail. The promise — what stays
+     hidden and what does not — lives on `/messages`, where a conversation is CREATED.
+     Making the same promise in two places is how two versions of it begin. --}}
 <template x-if="{{ $show }}">
-    <div data-dm-panel x-data="{
-             init() { $store.dms?.armList() },
-             destroy() { $store.dms?.disarmList() },
-         }">
+    <div data-dm-panel>
 
-        {{-- Der ganze Abschnitt entsteht nur, wenn es etwas zu zeigen oder zu tun gibt:
-             Zeilen, oder das Recht, eine Unterhaltung zu eröffnen. --}}
-        <template x-if="($store.dms?.conversations ?? []).length > 0 || $store.dms?.canDm">
+        {{-- The whole section exists only when there is something to show or to do:
+             rows, or the right to open a conversation. --}}
+        <template x-if="($store.privateMessages?.conversations ?? []).length > 0 || $store.privateMessages?.canSend">
             <div class="mt-2">
 
-                {{-- Sektionskopf in der Form der Nachbarn: Beschriftung, Bestand als
-                     graue Zahl daneben. Die Zahl steht INLINE hinter der Beschriftung und
-                     nicht rechtsbündig — dieselbe Entscheidung wie bei „Meine Räume" und
-                     „Andere Räume", und aus demselben Grund: sie beschreibt genau das, was
-                     unmittelbar darunter steht.
+                {{-- Section heading in the shape of its neighbours: label, count as a grey
+                     number next to it. The number stands INLINE behind the label and not
+                     flush right — the same decision as for "my rooms" and "other rooms",
+                     and for the same reason: it describes exactly what stands right below.
 
-                     Der Eröffnen-Knopf sitzt rechts in derselben Zeile. `min-h-11` (44 px)
-                     steht an der ZEILE und nicht am Knopf: der Kopf behält seine Höhe auch
-                     dann, wenn der Knopf fehlt (kein `canDm`) — sonst spränge die Liste,
-                     sobald die NIP-11-Antwort eintrifft. --}}
+                     The compose button sits right in the same row. `min-h-11` (44 px) is on
+                     the ROW and not on the button: the heading keeps its height even when
+                     the button is absent (no `canSend`) — otherwise the list would jump the
+                     moment the NIP-11 answer arrives. --}}
                 <div class="flex min-h-11 items-center justify-between gap-2 px-2">
-                    {{-- Drei Angaben, in Leserichtung: WAS · wie viele es GIBT · wie viele
-                         NEU sind. Die Reihenfolge ist nicht Geschmack, sondern die beider
-                         Nachbarn zusammengenommen — die Sektionsköpfe daneben tragen den
-                         Bestand als graue Zahl hinter der Beschriftung, die Tab-Pillen den
-                         Ungelesen-Zähler am Ende. Hier fällt beides in eine Zeile.
-
-                         Die Verwechslung der zwei Zahlen ist an DREI Merkmalen zugleich
-                         ausgeschlossen (dieselbe Regel wie an den Raum-Sektionen): der
-                         Bestand ist grau, flächenlos und steht direkt an der Beschriftung;
-                         der Ungelesen-Zähler ist eine deckende `brand-500`-Pille am Ende.
-                         Ohne Ungelesenes rendert er GAR NICHT — `unread-badge` benutzt
-                         `x-if`, es bleibt also kein leerer Platzhalter stehen.
-
-                         `items-baseline` gilt für die Textspannen; die Pille bringt ihre
-                         eigene Höhe mit (20 px) und ist damit das höchste Element der
-                         Zeile — die Zeile misst trotzdem unverändert 44 px, weil
-                         `min-h-11` am Container steht und nicht am Inhalt. --}}
                     <p class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
-                        <span class="truncate">{{ __('Direktnachrichten') }}</span>
-                        <span x-show="($store.dms?.conversations ?? []).length > 0" x-cloak
+                        <span class="truncate">{{ __('Verschlüsselt') }}</span>
+                        <span x-show="($store.privateMessages?.conversations ?? []).length > 0" x-cloak
                               class="font-normal normal-case tabular-nums tracking-normal"
-                              x-text="($store.dms?.conversations ?? []).length"></span>
-                        {{-- `dmsTotal` und NICHT `roomsTotal`: die beiden sind seit P7d
-                             disjunkt, und diese Ebene zählt nur, was in ihr steht.
-                             Der sr-Text kommt aus der Komponente (`sr=true`) — der Kopf ist
-                             kein interaktives Element, sein Text wächst also einfach mit.
-
-                             `size="sm"` (16 px) und nicht die 20 px der Zeilen-Pillen. Die
-                             Hausregel unterscheidet genau hier: 20 px gelten für eine
-                             FREI STEHENDE Pille am Zeilenende, 16 px für einen Marker NEBEN
-                             etwas — so steht sie an der Glocke. Am gerenderten Kopf
-                             nachgesehen war die grosse Pille das schwerste Element der
-                             Zeile und schlug die Überschrift selbst; sie ist aber deren
-                             Fussnote, nicht ihr Gegenstand.
-
-                             `ms-2` statt `ms-0.5`: mit 8 px Lücke stehen Bestand („3") und
-                             Ungelesen („22") sichtbar in zwei Gruppen. Bei 2 px lasen sie
-                             sich als eine Zahlenreihe — genau die Verwechslung, die die
-                             drei Merkmale (Fläche, Farbe, Ort) verhindern sollen, hier
-                             durch blosse Nähe wieder eingesammelt. --}}
-                        <x-group::unread-badge count="$store.unread?.dmsTotal" size="sm" badge-class="ms-2"
-                                               :sr-one="__('ungelesene Nachricht')"
-                                               :sr-many="__('ungelesene Nachrichten')" />
+                              x-text="($store.privateMessages?.conversations ?? []).length"></span>
                     </p>
 
-                    {{-- Am `canDm` und nicht an `dmSupport`: der Knopf ist eine SCHREIB-
-                         Handlung, und ohne Signer-Sitzung führte er in eine Signatur, die
-                         nie kommt. Icon-only mit `aria-label` — die Beschriftung „Neue
-                         Unterhaltung" kostete in einer 288-px-Spalte neben dem Sektionskopf
-                         mehr Platz, als sie erklärt, und dasselbe Zeichen (`pencil-square`)
-                         trägt die Rail an derselben Stelle. --}}
-                    <flux:button x-show="$store.dms?.canDm" x-cloak size="sm" variant="ghost" icon="pencil-square"
-                                 class="icon-btn-touch shrink-0" data-dm-neu
+                    {{-- On `canSend` and not on the relay kind: the button is a WRITE
+                         action, and without a signer session it would lead into a signature
+                         that never comes. Icon-only with an `aria-label` — the label "new
+                         conversation" costs more room next to the heading in a 288 px column
+                         than it explains, and the rail carries the same glyph
+                         (`pencil-square`) in the same position.
+
+                         The person picker lives on `/messages`; the button opens it in the
+                         store and jumps there. A second dialog HERE would be a second
+                         version of the same surface. --}}
+                    <flux:button x-show="$store.privateMessages?.canSend" x-cloak size="sm" variant="ghost"
+                                 icon="pencil-square" class="icon-btn-touch shrink-0" data-dm-neu
                                  aria-label="{{ __('Neue Unterhaltung') }}"
-                                 x-on:click="$store.dms.openNew()" />
+                                 x-on:click="$store.privateMessages?.startPicking(); $store.privateMessages?.goTo()" />
                 </div>
 
-                {{-- Kein eigener Leerzustand, wenn nur der Knopf dasteht: die Zeile
-                     „Direktnachrichten +" sagt bereits alles, was ein Satz sagen würde,
-                     und ein Leerzustand mitten in einer Liste anderer Abschnitte wäre eine
-                     zweite Karte in einer Karte (dieselbe Regel wie beim gated-Zustand und
-                     beim Meetup-Filter in derselben Karte). --}}
+                {{-- No separate empty state when only the button stands there: the row
+                     "encrypted +" already says everything a sentence would, and an empty
+                     state in the middle of a list of other sections would be a second card
+                     inside a card (the same rule as for the gated state and the meetup
+                     filter in this card). --}}
                 <div class="space-y-0.5">
-                    <template x-for="room in ($store.dms?.conversations ?? [])" :key="room.h">
-                        {{-- **Niemals `room.name`** — der Relay speichert für JEDE
-                             Unterhaltung wörtlich `"DM"` (`buzz-db/src/dm.rs:157-162`),
-                             eine Liste daraus wäre eine Spalte identischer Zeilen.
-                             `displayName` löst die Beteiligten auf und stößt die fehlenden
-                             Profile selbst an; weil es `self.names` liest, läuft dieser
-                             Ausdruck neu, sobald eines eintrifft.
+                    <template x-for="row in ($store.privateMessages?.conversations ?? [])" :key="row.key">
+                        {{-- `row.title` arrives finished from the store (`titleOf`), which
+                             resolves the participants' profiles and warms the missing ones
+                             itself. No `aria-label` on the button: its child text IS the
+                             name — a label would replace it and have to rebuild it (same
+                             rule as in `room-tile`).
 
-                             Kein `aria-label` am Knopf: sein Kindtext IST der Name, und die
-                             Ungelesen-Pille bringt ihren sr-Text mit. Ein Label hier
-                             ersetzte beide und müsste sie nachbauen — dieselbe Regel wie in
-                             `room-tile`.
-
-                             Der Avatar bekommt bewusst KEIN Bild: eine Unterhaltung hat
-                             keins, und die Bilder der Beteiligten lägen nur vor, solange
-                             der Dialog armiert ist. Die Initiale aus dem aufgelösten Namen
-                             ist die Auskunft, die ohne zweite Datenquelle stimmt — und sie
-                             unterscheidet die Zeile auf einen Blick von der `#`-Kachel der
-                             Räume darüber. --}}
+                             The avatar deliberately gets NO picture: a conversation has
+                             none, and a picture taken from the counterparty's profile would
+                             be an assertion once there are three people. The initial from
+                             the title distinguishes the row at a glance from the `#` tile of
+                             the rooms above; the padlock in front says why it is here. --}}
                         <button type="button" data-dm-row
-                                x-on:click="$store.dms.openConversation(room)"
+                                x-on:click="$store.privateMessages?.goTo(row.key)"
                                 class="pressable flex min-h-11 w-full items-center gap-2.5 rounded-tile p-1.5 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                            <x-group::nostr-avatar picture="''" name="$store.dms.displayName(room)" size="2rem" />
-                            <span class="min-w-0 flex-1 truncate font-medium" x-text="$store.dms.displayName(room)"></span>
-                            <x-group::unread-badge count="$store.unread?.rooms?.[room.h]" />
+                            <x-group::nostr-avatar picture="''" name="row.title" size="2rem" />
+                            <flux:icon.lock-closed variant="micro" aria-hidden="true" class="size-3.5 shrink-0 text-brand-500" />
+                            <span class="min-w-0 flex-1 truncate font-medium" x-text="row.title"></span>
                             <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
                         </button>
                     </template>
