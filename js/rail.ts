@@ -306,7 +306,8 @@ const toRailRooms = (view: SpaceView | null): RailRoom[] => [
  * column recomputes as soon as one more envelope has been unwrapped.
  */
 type PrivateMessagesLese = {
-    conversations?: readonly { key: string; title: string }[]
+    conversations?: readonly { key: string; title: string; unread: number }[]
+    unreadTotal?: number
 }
 
 const privateMessagesStore = (): PrivateMessagesLese | undefined =>
@@ -334,6 +335,11 @@ const toRailDms = (): RailRoom[] =>
         isDm: true,
         isPrivateDm: true,
         joined: true,
+        // The count travels ON the row, unlike every other kind of row here, whose pill
+        // comes from `$store.unread.rooms[h]`. That map is keyed by `h` and a conversation
+        // has none — the fold in `privateMessageModels.ts` is the only place that knows
+        // this number, and copying it into a second map would be a second truth about it.
+        unread: row.unread,
     }))
 
 const readOpen = (): Record<string, boolean> => {
@@ -621,11 +627,15 @@ export const createRail = (): RailState => ({
         // Die Unterhaltungen stehen seit P7 in einem EIGENEN Topf der `SpaceView` und
         // kommen aus beiden Sichten. Ohne diesen Zweig zählte der Kopf der DM-Gruppe
         // immer null — die Zeilen trügen ihre Pillen, der zugeklappte Kopf nicht.
+        // The conversations do not go through `$store.unread` at all: they have no `h`,
+        // so `sumUnreadRooms` below would look them up in a map that cannot hold them and
+        // answer zero. Their sum is folded where their rows are (`unreadTotal`).
+        if (key === 'dms') {
+            return privateMessagesStore()?.unreadTotal ?? 0
+        }
         const all = key === 'workspace'
             ? toRailRooms(this.workspace)
-            : key === 'dms'
-                ? toRailDms()
-                : toRailRooms(this.space)
+            : toRailRooms(this.space)
         // `isChannelMuted` und kein eigenes Set (P6): das war die dritte Stelle,
         // die „ist dieser Kanal stumm?" selbst beantwortet hat.
         const hs = all

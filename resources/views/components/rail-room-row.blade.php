@@ -172,7 +172,10 @@
          Attributwerten wieder, Alpine bekommt also `&&`. Sieht in „Seitenquelltext
          anzeigen" falsch aus, ist es nicht — hier notiert, damit es niemand
          zweimal nachschlägt. --}}
-    <x-group::unread-badge count="!isMuted(room) && $store.unread?.rooms?.[room.h]" size="sm" :sr="false" />
+    {{-- An encrypted conversation carries its own count: it has no `h`, so
+         `$store.unread.rooms` cannot hold it (`rail.ts`, `toRailDms`). Muting does not
+         apply to it either — there is no channel preference blob for a conversation. --}}
+    <x-group::unread-badge count="room.isPrivateDm ? room.unread : (!isMuted(room) && $store.unread?.rooms?.[room.h])" size="sm" :sr="false" />
 </button>
 
     {{-- The preference menu (P4). `x-if` and not `x-show`: a room outside the

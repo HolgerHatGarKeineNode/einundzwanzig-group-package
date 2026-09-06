@@ -115,6 +115,79 @@ describe('isOwnPrivateMessage', () => {
     })
 })
 
+describe('foldPrivateConversations: the unread count (P8)', () => {
+    const keyOf = (others: string[]) => [...others, ME].sort().join(',')
+
+    test('everything is unread when nothing has been read yet', () => {
+        const rows = foldPrivateConversations(
+            [rumor({ pubkey: ANNA, tags: [['p', ME]], created_at: NOW - 10 }),
+             rumor({ id: '2'.repeat(64), pubkey: ANNA, tags: [['p', ME]], created_at: NOW })],
+            ME,
+        )
+        assert.equal(rows[0].unread, 2)
+    })
+
+    test('THE CORE RULE: your OWN messages never count', () => {
+        // NIP-17 has no sent folder: every message goes out as TWO envelopes, one to the
+        // recipient and one to the author, and both come back through the reader's own
+        // wrap subscription. Without this rule every message you send would immediately
+        // show up as one unread message of your own.
+        const rows = foldPrivateConversations(
+            [rumor({ pubkey: ME, tags: [['p', ANNA]], created_at: NOW }),
+             rumor({ id: '2'.repeat(64), pubkey: ME, tags: [['p', ANNA]], created_at: NOW })],
+            ME,
+        )
+        assert.equal(rows[0].count, 2, 'both messages are in the conversation')
+        assert.equal(rows[0].unread, 0, 'and neither of them is unread')
+    })
+
+    test('the watermark cuts: only what arrived AFTER it counts', () => {
+        const rows = foldPrivateConversations(
+            [rumor({ pubkey: ANNA, tags: [['p', ME]], created_at: NOW - 100 }),
+             rumor({ id: '2'.repeat(64), pubkey: ANNA, tags: [['p', ME]], created_at: NOW - 10 }),
+             rumor({ id: '3'.repeat(64), pubkey: ANNA, tags: [['p', ME]], created_at: NOW })],
+            ME,
+            (key) => (key === keyOf([ANNA]) ? NOW - 50 : 0),
+        )
+        assert.equal(rows[0].count, 3)
+        assert.equal(rows[0].unread, 2, 'the one before the watermark is read')
+    })
+
+    test('a message exactly AT the watermark is read, not unread', () => {
+        // Strictly greater, like `computeUnread` for rooms. Otherwise the message that
+        // triggered the read would come back as unread on the very next fold.
+        const rows = foldPrivateConversations(
+            [rumor({ pubkey: ANNA, tags: [['p', ME]], created_at: NOW })],
+            ME,
+            () => NOW,
+        )
+        assert.equal(rows[0].unread, 0)
+    })
+
+    test('the watermark of ONE conversation does not silence another', () => {
+        const rows = foldPrivateConversations(
+            [rumor({ pubkey: ANNA, tags: [['p', ME]], created_at: NOW }),
+             rumor({ id: '2'.repeat(64), pubkey: BEN, tags: [['p', ME]], created_at: NOW })],
+            ME,
+            (key) => (key === keyOf([ANNA]) ? NOW : 0),
+        )
+        const anna = rows.find((row) => row.others[0] === ANNA)
+        const ben = rows.find((row) => row.others[0] === BEN)
+        assert.equal(anna?.unread, 0)
+        assert.equal(ben?.unread, 1, 'a per-conversation watermark is per conversation')
+    })
+
+    test('CALIBRATION: without a watermark the same input counts', () => {
+        // Without this line every case above would also pass on a fold that returns 0
+        // unconditionally, and "read" would prove nothing.
+        const rows = foldPrivateConversations(
+            [rumor({ pubkey: ANNA, tags: [['p', ME]], created_at: NOW })],
+            ME,
+        )
+        assert.equal(rows[0].unread, 1)
+    })
+})
+
 describe('foldPrivateConversations', () => {
     test('messages of the same set land in one conversation, newest first', () => {
         const rows = foldPrivateConversations(

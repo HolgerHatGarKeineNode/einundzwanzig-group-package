@@ -33,6 +33,10 @@ import {
     noteBootstrapSeed,
     pruneReadState,
     publishableReadState,
+    conversationReadKey,
+    conversationWatermark,
+    isConversationKey,
+    persistableReadRows,
     readState,
     readStateRestorePlan,
     restoreReadState,
@@ -49,6 +53,70 @@ import {
 const URL = 'wss://group.einundzwanzig.space/'
 const ROOM = 'welcome'
 const ROOT = 'a'.repeat(64)
+
+// ── Encrypted conversations (P8) ───────────────────────────────────────────
+//
+// The key of a conversation IS its participant list. That is why these cases are not
+// bookkeeping: they hold the promise that "who talks to whom" never reaches the disk,
+// while the watermark itself still travels — inside the nip44-self-encrypted 30078.
+
+test('the conversation key carries the participant set, and is recognisable as one', () => {
+    const key = 'aaaa,bbbb'
+    assert.equal(conversationReadKey(key), 'c:aaaa,bbbb')
+    assert.equal(isConversationKey(conversationReadKey(key)), true)
+})
+
+test('THE GUARD: room and thread keys are NOT conversation keys', () => {
+    // If this were ever true for a room key, the persistence path would silently stop
+    // writing room watermarks — the failure would look like "my rooms keep going unread"
+    // and would have nothing to do with conversations.
+    assert.equal(isConversationKey(roomKey(URL, ROOM)), false)
+    assert.equal(isConversationKey(threadKey(ROOT)), false)
+    assert.equal(isConversationKey('all'), false)
+})
+
+test('`all` dominates a conversation, exactly as it dominates a room', () => {
+    // "Mark everything read" that leaves one category standing is the state in which the
+    // bottom-nav dot glows for something the user just acknowledged.
+    const state: ReadState = { all: 500 }
+    assert.equal(conversationWatermark(state, 'aaaa,bbbb'), 500)
+    assert.equal(conversationWatermark({ ...state, 'c:aaaa,bbbb': 900 }, 'aaaa,bbbb'), 900)
+    assert.equal(conversationWatermark({ ...state, 'c:aaaa,bbbb': 100 }, 'aaaa,bbbb'), 500)
+})
+
+test('an unknown conversation has no watermark of its own', () => {
+    assert.equal(conversationWatermark({}, 'aaaa,bbbb'), 0)
+})
+
+test('THE PROMISE: a conversation watermark never reaches the disk', () => {
+    // Its key is the participant list. An IDB row would put „who talks to whom" in
+    // plaintext on the device — the one thing `/messages` does not store. The value still
+    // travels, but only inside the nip44-self-encrypted 30078.
+    const state: ReadState = {
+        all: 100,
+        [roomKey(URL, ROOM)]: 200,
+        [threadKey(ROOT)]: 300,
+        [conversationReadKey('aaaa,bbbb')]: 400,
+    }
+    const rows = persistableReadRows(Object.keys(state), state)
+
+    assert.deepEqual(
+        rows.map((row) => row.key).sort(),
+        ['all', roomKey(URL, ROOM), threadKey(ROOT)].sort(),
+        'the conversation key must not be among the rows written',
+    )
+})
+
+test('CALIBRATION: the same call DOES carry a room key through', () => {
+    // Without this line the case above would also pass on a function that returns nothing
+    // at all — and then the read state would silently stop persisting entirely.
+    const state: ReadState = { [roomKey(URL, ROOM)]: 200 }
+    assert.deepEqual(persistableReadRows(Object.keys(state), state), [{ key: roomKey(URL, ROOM), ts: 200 }])
+})
+
+test('a key without a value is not written — a dirty marker is not a watermark', () => {
+    assert.deepEqual(persistableReadRows(['all'], {}), [])
+})
 
 // ── Merge (Grow-only-Max) ──────────────────────────────────────────────────
 

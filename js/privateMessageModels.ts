@@ -74,6 +74,16 @@ export type PrivateConversation = {
     lastAt: number
     preview: string
     count: number
+    /**
+     * Messages in this conversation that arrived after the reader's watermark and are
+     * not the reader's own. `0` means "nothing new".
+     *
+     * Computed in {@link foldPrivateConversations} rather than at the surface, because
+     * three surfaces render this list (the rail group, the section on `/spaces`, the
+     * screen itself) and a count computed three times is three chances to count
+     * differently.
+     */
+    unread: number
 }
 
 const isHexPubkey = (value: unknown): value is string =>
@@ -123,9 +133,35 @@ export const isOwnPrivateMessage = (rumor: RumorLike, self: string): boolean =>
  * that reshuffles on every incoming message is unusable, and two messages in the same
  * second is the normal case in a live exchange.
  */
+/**
+ * Does this message count as unread for the reader?
+ *
+ * Two conditions, and the first one is not bookkeeping: **the reader's own messages never
+ * count.** NIP-17 has no sent folder, so every message goes out as two envelopes — one to
+ * the recipient and one to the author — and both come back through the reader's own wrap
+ * subscription. Without this check every message you send would immediately show up as
+ * one unread message of your own.
+ *
+ * The watermark is a wall clock of the reading device, the message carries an
+ * author-set `created_at` (NIP-01). They are compared anyway, exactly as
+ * `computeUnread` does it for rooms: an author who back-dates makes their own message
+ * look read, an author who post-dates makes it stay unread — neither reaches anyone
+ * else's counter, and neither can hide a message from the person it was sent to.
+ */
+const neuFuerLeser = (rumor: RumorLike, self: string, watermark: number): boolean =>
+    rumor.pubkey !== self && rumor.created_at > watermark
+
 export const foldPrivateConversations = (
     rumors: readonly RumorLike[],
     self: string,
+    /**
+     * `conversationKey` → the reader's watermark in Unix seconds; `0` means the whole
+     * conversation is new. A FUNCTION rather than a map: the keys are only known while
+     * folding, so a map would force the caller to fold once to learn them and once more
+     * to use them. Handed in rather than read from `readState.ts`, so this module stays
+     * free of stores and testable under `node --test`.
+     */
+    watermarkOf: (key: string) => number = () => 0,
 ): PrivateConversation[] => {
     const byKey = new Map<string, PrivateConversation>()
     for (const rumor of rumors) {
@@ -143,10 +179,14 @@ export const foldPrivateConversations = (
                 lastAt: rumor.created_at,
                 preview: rumor.content,
                 count: 1,
+                unread: neuFuerLeser(rumor, self, watermarkOf(key)) ? 1 : 0,
             })
             continue
         }
         existing.count += 1
+        if (neuFuerLeser(rumor, self, watermarkOf(key))) {
+            existing.unread += 1
+        }
         if (rumor.created_at > existing.lastAt) {
             existing.lastAt = rumor.created_at
             existing.preview = rumor.content

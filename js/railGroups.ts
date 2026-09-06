@@ -35,6 +35,14 @@ export type RailRoom = {
      * marker the click would run into a room no relay knows.
      */
     isPrivateDm?: boolean
+    /**
+     * Unread messages of an encrypted conversation — carried ON the row.
+     *
+     * Every other row type gets its pill from `$store.unread.rooms[h]`. A NIP-17
+     * conversation has no `h` and is in no such map, so its number rides along from the
+     * fold that computed it (`privateMessageModels.ts`).
+     */
+    unread?: number
     meetupSlug?: string
     /** `created_at` des jüngsten Timeline-Events, `null` wenn keins bekannt. */
     lastMessageAt?: number | null
