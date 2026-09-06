@@ -1269,5 +1269,9 @@
     "Nur du": "Solo tú",
     "Die Nachricht konnte nirgends zugestellt werden.": "El mensaje no se pudo entregar en ningún sitio.",
     "Nicht alle Beteiligten konnten erreicht werden.": "No se pudo llegar a todos los participantes.",
-    "Ende-zu-Ende-verschlüsselt geht es hier:": "Cifrado de extremo a extremo por aquí:"
+    "Ende-zu-Ende-verschlüsselt geht es hier:": "Cifrado de extremo a extremo por aquí:",
+    "Folgen": "Seguir",
+    "Entfolgen": "Dejar de seguir",
+    "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "Aún no hay ninguna conversación cifrada: el lápiz de arriba inicia una.",
+    "Verschlüsselte Nachricht schreiben": "Escribir un mensaje cifrado"
 }

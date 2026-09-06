@@ -49,6 +49,8 @@ const now = (): number => Math.round(Date.now() / 1000)
 const settle = (ms = 400): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 let store: PrivateMessagesStore
+/** Every address `goTo` asked for, in order — the seam that replaces navigation here. */
+const gesprungen: string[] = []
 
 before(async () => {
     app.netContext.getAdapter = (): AbstractAdapter => new MockAdapter(URL_, (_m: ClientMessage) => {})
@@ -73,6 +75,7 @@ before(async () => {
         },
         {
             t: (text: string) => text,
+            openConversationAt: (key: string) => void gesprungen.push(key),
             displayProfileByPubkey: (pubkey: string) => pubkey.slice(0, 8),
             profilesByPubkey: readable(new Map()),
             warmProfiles: () => undefined,
@@ -132,4 +135,54 @@ test('POSITIVE CONTROL: a properly unwrapped message DOES become a conversation'
     const row = store.conversations.find((entry) => entry.preview === 'SEALED-TO-ME')
     assert.ok(row, 'an unwrapped message reaches the screen')
     assert.deepEqual(row?.others, [OTHER])
+})
+
+// ── P8: the three surfaces outside `/messages` reach a conversation through the store ──
+
+test('writeTo opens the conversation with one person and jumps to it', () => {
+    // The entry point from the profile card. It deliberately does NOT go through the
+    // picker: the person is already chosen, and `startPicking()` would clear that choice.
+    gesprungen.length = 0
+    store.startPicking()
+    store.writeTo(OTHER)
+
+    assert.equal(store.picking, false, 'the picker is closed — this path does not use it')
+    assert.equal(store.openKey, [ME, OTHER].sort().join(','), 'the key is participant-sorted, so both sides agree')
+    assert.deepEqual(gesprungen, [store.openKey], 'and the surface is asked for exactly that conversation')
+})
+
+test('writeTo finds the EXISTING conversation rather than making a second one', async () => {
+    // `conversationKey` sorts, so the order of the two pubkeys must not matter. Without
+    // that the profile card would open an empty thread next to a conversation that exists.
+    const zeile = store.conversations.find((row) => row.others.length === 1 && row.others[0] === OTHER)
+    assert.ok(zeile, 'precondition: the positive control above left a conversation with OTHER')
+
+    store.writeTo(OTHER)
+    assert.equal(store.openKey, zeile.key, 'the same key the existing row carries')
+})
+
+test('writeTo refuses your OWN pubkey — a row titled with your own name reads as a defect', () => {
+    gesprungen.length = 0
+    const vorher = store.openKey
+    store.writeTo(ME)
+
+    assert.equal(store.openKey, vorher, 'nothing was opened')
+    assert.deepEqual(gesprungen, [], 'and nothing was navigated to')
+})
+
+test('goTo without a key asks for the plain list', () => {
+    // The rail's `+` button takes this path: `startPicking()` then `goTo()`, so the picker
+    // is already open when the screen arrives.
+    gesprungen.length = 0
+    store.goTo()
+    assert.deepEqual(gesprungen, [''], 'an empty key means the list, not a conversation')
+})
+
+test('CALIBRATION: the seam is really the one the store uses', () => {
+    // Without this, every case above would also pass if `goTo` had stopped calling
+    // `openConversationAt` altogether — `gesprungen` would just stay empty, and three
+    // assertions on it would read as "nothing unexpected happened".
+    gesprungen.length = 0
+    store.goTo('x,y')
+    assert.deepEqual(gesprungen, ['x,y'])
 })

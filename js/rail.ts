@@ -39,7 +39,7 @@ import {
 } from './groups.ts'
 import { loadMeetupPresentations, meetupPresentationBySlug } from './meetups.ts'
 import { type MeetupPresentation } from './meetupPresentation.ts'
-import { navigateTo, openRoomAt } from './navigate.ts'
+import { navigateTo, openPrivateConversation, openRoomAt } from './navigate.ts'
 import { regionName } from './countryNames.ts'
 import { sumUnreadRooms } from './unread.ts'
 import {
@@ -77,8 +77,6 @@ import {
 import { subscribeWorkspacePrefs, toggleChannelFlag } from './channelPrefs.ts'
 import { subscribeForgeNav } from './forge.ts'
 import { t } from './i18n.ts'
-import { foldDmRooms } from './dmModels.ts'
-import { dmRoomName, ensureDmNames } from './dms.ts'
 import { pubkey } from './welshmanSession.ts'
 
 /**
@@ -296,35 +294,47 @@ const toRailRooms = (view: SpaceView | null): RailRoom[] => [
 ]
 
 /**
- * Der DM-Store, wenn er schon steht — sonst `undefined`.
+ * The NIP-17 store, if it is already there — `undefined` otherwise.
  *
- * Über `window.Alpine.store` und nicht über einen Import: derselbe Weg, den
- * {@link RailState.groupUnread} für `$store.unread` geht. Alpine-Stores sind reaktive
- * Proxys, ein Lesen daraus innerhalb eines Getters wird also mitverfolgt — die Rail
- * rechnet neu, sobald der Store seine ausgeblendeten Unterhaltungen oder seine
- * Namenstabelle ändert.
+ * Through `window.Alpine.store` rather than an import: the same route
+ * {@link RailState.groupUnread} takes for `$store.unread` — and here additionally the
+ * only one that keeps the bundle marker. `privateMessages.ts` deliberately lives in its
+ * own chunk (`bridge.ts`, `nostrPrivateMessages`); a static import would pull the module
+ * into the boot path and past the marker in `bundleGrenze.nodetest.ts`.
+ *
+ * Alpine stores are reactive proxies, so reading one inside a getter is tracked: the
+ * column recomputes as soon as one more envelope has been unwrapped.
  */
-type DmStoreLese = {
-    hidden?: string[]
-    names?: Record<string, string>
+type PrivateMessagesLese = {
+    conversations?: readonly { key: string; title: string }[]
 }
 
-const dmStore = (): DmStoreLese | undefined =>
-    (window as unknown as { Alpine?: { store(n: string): unknown } }).Alpine?.store('dms') as
-        | DmStoreLese
+const privateMessagesStore = (): PrivateMessagesLese | undefined =>
+    (window as unknown as { Alpine?: { store(n: string): unknown } }).Alpine?.store('privateMessages') as
+        | PrivateMessagesLese
         | undefined
 
 /**
- * Die Unterhaltungen BEIDER Sichten (Heim-Space und Workspace), nach `h` entdoppelt.
+ * The encrypted conversations (NIP-17) as rail rows.
  *
- * Die Faltung selbst steht seit P7b als `foldDmRooms` in `dmModels.ts` — der Dialog
- * (`dm-modal.blade.php`) baut seine Liste aus derselben Funktion, statt wie bisher aus
- * `groupFor('dms')` und damit aus dem Alpine-Scope dieser Rail. Zwei Faltungen wären
- * zwei Wahrheiten über dieselbe Frage; die Begründungen (Entdopplung, `spaceUrl`,
- * `joined`, ausgeblendete Zeilen) stehen dort.
+ * **Why the rows come from a STORE and not from the `SpaceView`.** Until P8 the Buzz DM
+ * channels stood here: a channel with an `h`, held by the relay in plaintext. They are
+ * gone without replacement — a conversation in this house is encrypted from now on. A
+ * NIP-17 conversation has no `h` and no identity beyond the set of its participants; its
+ * key (`conversationKey`) therefore sits in the `h` field, and `isPrivateDm` sends the
+ * click to `/messages` instead of a `/rooms/{h}` chat surface that does not exist for it.
+ *
+ * `joined: true` without a check: a row exists only once an envelope addressed to us has
+ * been unwrapped — being part of it is then true by construction.
  */
-const toRailDms = (home: SpaceView | null, workspace: SpaceView | null): RailRoom[] =>
-    foldDmRooms([home, workspace], dmStore()?.hidden ?? [])
+const toRailDms = (): RailRoom[] =>
+    (privateMessagesStore()?.conversations ?? []).map((row) => ({
+        h: row.key,
+        name: row.title,
+        isDm: true,
+        isPrivateDm: true,
+        joined: true,
+    }))
 
 const readOpen = (): Record<string, boolean> => {
     try {
@@ -423,7 +433,7 @@ export const createRail = (): RailState => ({
         // und damit gilt für sie automatisch dieselbe Such-, Scope- und Kappungsregel
         // wie für jede andere Zeile. Eine dritte Option neben `workspaceRooms` wäre
         // ein zweiter Weg durch dieselbe Funktion.
-        return buildGroups([...toRailRooms(self.space), ...toRailDms(self.space, self.workspace)], {
+        return buildGroups([...toRailRooms(self.space), ...toRailDms()], {
             presentations: self.presentations,
             query: self.query,
             scope: self.scope,
@@ -614,7 +624,7 @@ export const createRail = (): RailState => ({
         const all = key === 'workspace'
             ? toRailRooms(this.workspace)
             : key === 'dms'
-                ? toRailDms(this.space, this.workspace)
+                ? toRailDms()
                 : toRailRooms(this.space)
         // `isChannelMuted` und kein eigenes Set (P6): das war die dritte Stelle,
         // die „ist dieser Kanal stumm?" selbst beantwortet hat.
@@ -817,31 +827,17 @@ export const createRail = (): RailState => ({
     },
 
     /**
-     * Der sichtbare Name einer Zeile.
+     * The visible name of a row.
      *
-     * **Für eine Unterhaltung kommt er NICHT aus dem Raumnamen.** Buzz speichert als
-     * Kanalnamen für jede Zweier-Unterhaltung die Zeichenkette `"DM"` und für jede
-     * Gruppe `"Group DM (N)"` (`buzz-db/src/dm.rs:157-162`) — die Spalte zeigte sonst
-     * dieselbe Zeile mehrfach.
-     *
-     * **Die Auflösung ist seit P7b `dmRoomName` und steht genau einmal** (`dms.ts`,
-     * Regel in `dmModels.roomDisplayName`): dieselbe Funktion beantwortet die Frage für
-     * `/updates` in `bridge.ts joinedRoomNames`, wo bisher der rohe Relay-Name stand.
-     * Übergeben wird die Namenstabelle des DM-Stores und nicht in ihr gelesen — der
-     * Lesezugriff auf `$store.dms.names` HIER ist es, den Alpine mitverfolgt; die Zeile
-     * rechnet also neu, sobald ein Profil eintrifft. Fehlt der Store (Boot), bleibt der
-     * Raumname als ehrlicher Rückfall.
+     * **A conversation brings it along.** Until P8 a special rule stood here for the Buzz
+     * DM channels: the relay stored the literal `"DM"` as the channel name of every
+     * two-party conversation, so without the rule the column showed the same row over and
+     * over. Those channels are gone; a NIP-17 row carries its `title` from
+     * `privateMessages.conversations`, where it is built from the participants' profiles.
+     * One place, one rule.
      */
     railName(room: RailRoom): string {
-        if (room.isDm) {
-            // Der Anstoß, ohne den die Zeile für immer einen gekürzten Schlüssel zeigte.
-            // Er hing bis P7b in `titleOf` und lief damit gegen den AKTIVEN Space, auch
-            // für eine Unterhaltung des Workspace-Relays; `spaceUrl` fragt den Relay, von
-            // dem die Zeile stammt (`foldDmRooms` setzt ihn).
-            ensureDmNames(room.spaceUrl ?? '', room.dmParticipants ?? [])
-        }
-
-        return middleTruncate(dmRoomName(room, pubkey.get() ?? '', dmStore()?.names ?? {}) || room.h)
+        return middleTruncate(room.name || room.h)
     },
 
     roomFlag(room: RailRoom): string {
@@ -903,12 +899,19 @@ export const createRail = (): RailState => ({
     },
 
     openRoom(room: RailRoom): void {
-        // `dmRooms` steht hier ausdrücklich mit dabei: seit P7 sind die Unterhaltungen
-        // ein eigener Topf der `SpaceView`, und ohne diese Zeile öffnete eine
-        // Unterhaltung des WORKSPACE-Relays `/rooms/{h}` ohne `?space=workspace` — also
-        // gegen den Heim-Relay, der den Kanal nicht kennt: leerer Verlauf, und ein
-        // Beitrittsversuch endete mit `invalid: group not found`.
-        //
+        // An encrypted conversation has no `h` on any relay — its `h` field carries the
+        // `conversationKey`, and its surface is `/messages`. Without this branch the click
+        // would run into `openRoomAt` and from there to `/rooms/<key>`, a room no relay
+        // knows: empty history, and a join attempt ending in `invalid: group not found`.
+        if (room.isPrivateDm) {
+            this.activeRoomH = room.h
+            this.activeRepoNaddr = ''
+            this.activeRepoTab = ''
+            openPrivateConversation(room.h)
+
+            return
+        }
+
         // Since P4 the same question is asked by {@link canSetPrefs}, so it is answered
         // in one place (`isWorkspaceChannel`) instead of twice with the same three lines.
         const isWorkspaceRoom = isWorkspaceChannel(this.workspace, room.h)

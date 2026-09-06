@@ -110,6 +110,76 @@
                     </a>
                 @endif
 
+                {{-- ── Reach this person (P8) ─────────────────────────────────────────
+                     Two actions, side by side, above the hide block: write to them, and
+                     follow them. Both were missing until P8 — the card showed who somebody
+                     is and offered exactly one thing to DO with that, namely hide them.
+
+                     `x-show` and not `x-if`, like the block below and for the same reason:
+                     the card is ONE node for every person, `open()` only swaps the data.
+
+                     **Neither button appears on your own card.** Writing to yourself is a
+                     legal NIP-17 shape but reads like a defect (`writeTo` refuses it), and
+                     a contact list containing its own author says nothing (`planFollowWrite`
+                     refuses it). Both stores refuse a second time; this is the surface half
+                     of a decision that is settled in the pure rules.
+
+                     `text-btn-touch`: the house utility for LABELLED targets — 44 px on a
+                     coarse pointer, 32 px on a mouse (`theme.css`, WCAG 2.5.5 / Apple HIG).
+                     Same class as the hide button below, so the three targets in this card
+                     grow together. --}}
+                <div x-show="pubkey && pubkey !== $store.follows?.me" x-cloak
+                     class="mt-4 flex gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                    {{-- The store is mounted app-wide in `app-frame.blade.php`; the card
+                         only reads it. `writeTo` opens (or seeds) the conversation and
+                         navigates — the picker on `/messages` is not involved, because the
+                         person is already chosen. --}}
+                    {{-- ── The label is „Schreiben", and that is a MEASUREMENT ─────────
+                         With „Nachricht schreiben" the two buttons came out 170.05 px and
+                         141.55 px at 1280 px. Not because `flex-1` failed — both carry
+                         `flex-basis: 0px`, `flex-grow: 1`, `flex-shrink: 1`, read off the
+                         rendered element — but because a Flux button is
+                         `whitespace-nowrap`: its content sets a `min-width` the flex
+                         algorithm cannot go below, so the longer label took its minimum and
+                         the other one got the remainder. `basis-0` changes nothing about
+                         that and stays only because it is the correct basis to state.
+
+                         Shortening the visible label is the fix that keeps both buttons
+                         under their share. The full sentence lives in `aria-label`, so
+                         screen readers keep it; the padlock carries „encrypted" visually,
+                         which is also why this button and no other has that icon. --}}
+                    <flux:button variant="primary" size="sm" icon="lock-closed" class="flex-1 basis-0 text-btn-touch"
+                                 data-person-dm
+                                 aria-label="{{ __('Verschlüsselte Nachricht schreiben') }}"
+                                 x-show="$store.privateMessages?.canSend" x-cloak
+                                 x-on:click="$store.privateMessages?.writeTo(pubkey)">
+                        {{ __('Schreiben') }}
+                    </flux:button>
+
+                    {{-- Kind 3 is the most consequential replaceable list this client
+                         writes: one per person, global, and the object every other client
+                         reads to build a feed. The button is offered on `canFollow`, but the
+                         write itself is gated a second time on whether the relay ANSWERED
+                         the read (`planFollowWrite`) — a follow written on an unseen list
+                         would delete every contact made elsewhere. `js/follows.ts` carries
+                         the measurement. --}}
+                    {{-- ONE button with a swapping label, and a FIXED `variant` — the
+                         same shape as the hide button below. `x-bind:variant` would be a
+                         dead binding: Flux resolves `variant` at compile time into a class
+                         set, so the bound attribute would land in the HTML and change
+                         nothing (measured in this repo for `flux:icon ::variant`, and the
+                         same mechanism applies here). Two buttons swapped by `x-show`
+                         would work but double the target the keyboard walks over. --}}
+                    <flux:button variant="filled" size="sm" class="flex-1 basis-0 text-btn-touch" data-person-follow
+                                 x-show="$store.follows?.canFollow" x-cloak
+                                 x-bind:aria-busy="$store.follows?.busy ? 'true' : 'false'"
+                                 x-on:click="$store.follows?.toggle(pubkey)">
+                        <span x-text="$store.follows?.isFollowing(pubkey) ? @js(__('Entfolgen')) : @js(__('Folgen'))"></span>
+                    </flux:button>
+                </div>
+                <flux:text x-show="$store.follows?.error" x-cloak data-person-follow-fehler
+                           class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="$store.follows?.error"></flux:text>
+
                 {{-- ── Hide a person (P6, NIP-51 kind 10000) ──────────────────────────
                      The COUNTERPART of "Raum stummschalten": different kind, different
                      list, different word, different icon (`eye-slash` instead of

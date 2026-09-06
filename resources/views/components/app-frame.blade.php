@@ -47,35 +47,38 @@
     'contents',
     'xl:grid xl:h-dvh xl:grid-cols-[20rem_minmax(0,1fr)] xl:grid-rows-1 xl:overflow-hidden' => $desktop,
 ])>
-    {{-- ── Direktnachrichten (P7): den Store anmelden, auf JEDEM Host ──────────────
-         Bis P7b hing die einzige `mount()`-Stelle in `desktop-rail.blade.php`. Die Rail
-         gibt es aber (a) im NativePHP-Host serverseitig nie (`$desktop` oben) und (b) im
-         Web unterhalb `xl` nicht (`<template x-if="$store.viewport?.desktop">`). Ohne
-         Mount läuft keiner der drei `recomputePermission()`-Aufrufe in `js/dms.ts`, und
-         `canDm` bleibt auf seinem Startwert `false` — jede DM-Fläche wäre dort
-         unsichtbar, bevor sie überhaupt gebaut werden kann.
+    {{-- ── Encrypted conversations (P8, NIP-17): mount the store ──────────────────
+         The ONE bracket around the wrap subscription — the single request in the client
+         whose answers cost the signer (every unwrapped envelope = two `nip44.decrypt`).
+         `mount()`/`unmount()` in `js/privateMessages.ts` count the surfaces reading it;
+         this is the only registration, and it stands on every page behind the gate.
 
-         **Hier und nicht auf einer Seite.** `app-frame` ist die Wurzel genau der Seiten
-         hinter dem Gate (dieselbe Begründung wie bei der `profile-card` weiter unten;
-         Login und Beitritt tragen keine `app-shell`). Auf `⚡spaces.blade.php` allein
-         wäre der Store beim Wechsel nach `/updates` wieder ABGERÄUMT: der neue Rumpf
-         trüge keine Anmeldung, der Zähler in `mount`/`unmount` fiele auf 0 und
-         `teardown()` setzte `canDm` und die ausgeblendeten Unterhaltungen zurück —
-         ausgerechnet auf der Fläche, die die Unterhaltungen zeigt.
+         **Why on every page and not only on `/messages`.** Until P7 `/messages` was the
+         only reader and the store was loaded there. Since P8 the rail group and the list
+         on `/spaces` show the same conversations — a hidden place is not a surface. That
+         makes the backlog something to unwrap exactly ONCE per tab: `armWraps` remembers
+         in `armedWrapsFor` what it is armed for, and the `load()` runs once per relay set
+         and identity. After that an open subscription with `limit: 0` keeps the list
+         current without unwrapping the backlog again.
 
-         **Die zweite Anmeldung in der Rail bleibt stehen und ist folgenlos.** Gemessen
-         in `js/dmMount.test.ts` am echten Store gegen einen `MockAdapter`: zwei Mounts,
-         genau EIN REQ auf dem Draht (`{kinds:[30622],"#p":[self]}`), und das erste
-         `unmount()` reisst nichts ab. Getragen wird das NICHT vom Zähler in `mount()` —
-         der schützt den `wire:navigate`-Fall —, sondern von den Riegeln je URL in
-         `armUrl`/`armVisibility`; die Mutationsprobe steht im Kopf jener Datei.
+         **Nothing is stored** (decision of 2026-09-06). The unwrapped set lives in this
+         tab's memory; who talks to whom reaches no disk. That is why there is no cache
+         here — and why a new tab costs another pass. That price is paid on purpose.
 
-         `hidden` hält den Knoten vollständig aus dem Box-Baum — er ist kein Grid-Item
-         und keine zweite, implizite Zeile, die Geometrie oben bleibt unberührt. --}}
-    <div x-data="{
-             init() { $store.dms?.mount() },
-             destroy() { $store.dms?.unmount() },
-         }" hidden></div>
+         **Here and not on a page.** `app-frame` is the root of exactly the pages behind
+         the gate (the same reasoning as for the `profile-card` further down; login and
+         join carry no `app-shell`). On `⚡spaces.blade.php` alone the store would be torn
+         down when navigating to `/updates`: the new body would carry no registration, the
+         counter in `mount`/`unmount` would fall to 0 and the subscription would die —
+         precisely while paging between surfaces that all show the same list.
+
+         `nostrPrivateMessages` loads `privateMessages.ts` dynamically: a static import
+         would pull the module into the app chunk and past the marker in
+         `bundleGrenze.nodetest.ts` (derivation in `bridge.ts` at the component).
+
+         `hidden` keeps the node out of the box tree entirely — it is no grid item and no
+         second, implicit row, so the geometry above is untouched. --}}
+    <div x-data="nostrPrivateMessages" hidden></div>
 
     @if ($desktop)
         {{-- WCAG 2.4.1 (Blöcke überspringen): ab xl liegen 25+ Tab-Stopps der Rail
@@ -137,30 +140,4 @@
          ein zweites Mal auszuschreiben. Die Insel ist bis zum ersten
          `open-profile` untätig (keine Abos im `init`). --}}
     <x-group::profile-card />
-
-    {{-- ── Der Dialog für Direktnachrichten (P7) ─────────────────────────────────
-         Er stand bis hierher in `desktop-rail.blade.php`, weil er seine Liste aus
-         `groupFor('dms')` las — einer Methode der Rail-Alpine-Komponente. Seit P7b liest
-         er sie aus `$store.dms`, und der Ort war damit „eine reine Blade-Zeile, die
-         Entscheidung darüber steht aus" (seine eigene Notiz). Sie ist getroffen: hier.
-
-         **Nicht im Layout, sondern hier — und das ist derselbe Grund wie bei der
-         `profile-card` darüber.** `app-frame` ist die Wurzel genau der Seiten hinter dem
-         Gate; `einundzwanzig.blade.php` trägt zusätzlich Login und Beitritt, wo es weder
-         eine Sitzung noch einen Space gibt. Ausschlaggebend ist aber die Deckungsgleichheit
-         mit dem MOUNT: `$store.dms.mount()` läuft oben in derselben Datei. Ein Dialog auf
-         einer Seite, auf der der Store nicht angemeldet ist, hätte `canDm === false`, eine
-         leere Vorschlagsliste und einen Knopf, der nichts tut — Dialog und Store gehören
-         auf dieselbe Seitenmenge.
-
-         **Was das auf dem Telefon ändert:** ohne diesen Umzug zeigte `$store.dms.openNew()`
-         dort nichts. Der Dialog existierte nur in der Rail, und die rendert der
-         NativePHP-Host serverseitig nie (siehe `$desktop` oben).
-
-         Layout-neutral wie die Karte darüber: ein geschlossenes `flux:modal` ist ein
-         `<dialog>` im `display:none`-Zustand der UA, also kein Grid-Item mit Höhe. Die
-         implizite Zeile, in die es per Auto-Placement fiele, deckelt `grid-rows-1` — die
-         Herleitung steht ganz oben und gilt ausdrücklich für JEDES künftige Overlay am
-         Ende dieses Rahmens. --}}
-    <x-group::dm-modal />
 </div>

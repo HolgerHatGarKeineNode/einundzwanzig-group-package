@@ -1302,5 +1302,9 @@
     "Nur du": "Apenas tu",
     "Die Nachricht konnte nirgends zugestellt werden.": "Não foi possível entregar a mensagem em lado nenhum.",
     "Nicht alle Beteiligten konnten erreicht werden.": "Não foi possível alcançar todos os participantes.",
-    "Ende-zu-Ende-verschlüsselt geht es hier:": "Encriptado ponta a ponta é por aqui:"
+    "Ende-zu-Ende-verschlüsselt geht es hier:": "Encriptado ponta a ponta é por aqui:",
+    "Folgen": "Seguir",
+    "Entfolgen": "Deixar de seguir",
+    "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "Ainda não há conversa encriptada — o lápis acima inicia uma.",
+    "Verschlüsselte Nachricht schreiben": "Escrever uma mensagem encriptada"
 }

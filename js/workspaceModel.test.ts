@@ -268,11 +268,11 @@ describe('isWorkspaceChannel: which row may carry a channel preference (P4)', ()
     const workspace = {
         userRooms: [{ h: 'joined' }],
         otherRooms: [{ h: 'discoverable' }],
-        dmRooms: [{ h: 'conversation' }],
     }
 
-    test('all three pots of the workspace count — all three', () => {
-        for (const h of ['joined', 'discoverable', 'conversation']) {
+    // Until P7 there were three pots; `dmRooms` went away with the Buzz DM channels.
+    test('both pots of the workspace count — both', () => {
+        for (const h of ['joined', 'discoverable']) {
             assert.equal(isWorkspaceChannel(workspace, h), true, `${h} belongs to the workspace`)
         }
     })
@@ -297,6 +297,6 @@ describe('isWorkspaceChannel: which row may carry a channel preference (P4)', ()
     })
 
     test('an empty workspace is not a free pass', () => {
-        assert.equal(isWorkspaceChannel({ userRooms: [], otherRooms: [], dmRooms: [] }, 'x'), false)
+        assert.equal(isWorkspaceChannel({ userRooms: [], otherRooms: [] }, 'x'), false)
     })
 })

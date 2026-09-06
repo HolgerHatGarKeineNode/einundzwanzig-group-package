@@ -107,6 +107,20 @@ const WRITE_RULES: ReadonlyMap<number, WriteRule> = new Map<number, WriteRule>([
     // lists and NIP-65 relay list — user-owned global state". zooid has no kind allowlist
     // and stores it like any other event. Read at the sources on 2026-09-05.
     [10000, { relay: 'any' }],
+    // `FOLLOWS` (kind 3, P8) — the NIP-02 contact list behind the follow button on the
+    // profile card. Same shape as the lists above and read at both sources rather than
+    // assumed: Buzz maps `KIND_CONTACT_LIST` (`buzz-core/src/kind.rs:13`) to
+    // `Scope::UsersWrite` in the allowlist arm of `required_scope_for_kind`
+    // (`buzz-relay/src/handlers/ingest.rs`), well above the closing
+    // `_ => Err("restricted: unknown event kind")`; zooid has no kind allowlist and
+    // stores it like any other event.
+    //
+    // **The dangerous part of this kind is not the gate, it is the write.** Kind 3 is
+    // replaceable and global — a write from an incomplete picture deletes every contact
+    // the user made anywhere else. That refusal lives in `planFollowWrite`
+    // (`followModels.ts`), which demands an answered read before it will build a body.
+    // This rule only says the relay would take it.
+    [3, { relay: 'any' }],
 
     // ── NIP-17 / NIP-59 private messages (P7) ────────────────────────────────────
     // `WRAP` (kind 1059). Both relays take it, and both were asked rather than read:

@@ -26,26 +26,15 @@ export type RailRoom = {
     isProjectSupport?: boolean
     /** Buzz-Kanaltyp `["t","forum"]` — die Zeile fuehrt in eine Themenliste, nicht in einen Chat. */
     isForum?: boolean
-    /**
-     * Buzz-Kanaltyp `["t","dm"]` (P7) — die Zeile ist eine Unterhaltung und steht in
-     * der Gruppe `dms`. Sie fuehrt auf dieselbe `/rooms/{h}`-Chatflaeche wie jeder
-     * andere Kanal; nur ihr Platz in der Spalte und ihr NAME sind anders.
-     */
+    /** The row is a conversation and belongs to the `dms` group. */
     isDm?: boolean
     /**
-     * Teilnehmer eines DM-Kanals (`p`-Tags des 39000). Traegt den Anzeigenamen, weil
-     * der Relay als Kanalnamen fuer JEDE Unterhaltung `"DM"` bzw. `"Group DM (N)"`
-     * speichert (`buzz-db/src/dm.rs:157-162`) — `dmTitle` in `dmModels.ts`.
+     * The conversation is an ENCRYPTED one (NIP-17) — since P8 the only kind left here.
+     * It has no `h` on any relay: its `h` field carries the `conversationKey` (the sorted
+     * participants), and a click leads to `/messages`, not to `/rooms/{h}`. Without this
+     * marker the click would run into a room no relay knows.
      */
-    dmParticipants?: string[]
-    /**
-     * Der Space, aus dem die Zeile stammt — gesetzt nur fuer DM-Kanaele (P7).
-     *
-     * Die Rail zeigt die Unterhaltungen BEIDER Sichten (Heim-Space und Workspace); ein
-     * `41012` an den falschen Relay beantwortet der Server mit `invalid: DM not found`.
-     * Die Zeile traegt ihren Relay deshalb selbst mit, statt dass der Store raet.
-     */
-    spaceUrl?: string
+    isPrivateDm?: boolean
     meetupSlug?: string
     /** `created_at` des jüngsten Timeline-Events, `null` wenn keins bekannt. */
     lastMessageAt?: number | null
