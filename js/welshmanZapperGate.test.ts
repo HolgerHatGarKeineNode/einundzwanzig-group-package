@@ -1,88 +1,110 @@
 /**
- * **R1-Tor: das Zapper-Gate von 0.9.5 verlangt ein Feld, das es in NIP-57 nicht gibt.**
+ * **R1 latch: the zapper gate 0.9.5 shipped asked for a field NIP-57 does not have.**
  *
- * Ausführen (läuft in `npm run test:unit` mit, Repo-Root):
+ * Run (part of `npm run test:unit`, repo root):
  *   node --experimental-strip-types --test packages/einundzwanzig-group/js/welshmanZapperGate.test.ts
  *
- * ── Dieser Test ist ein ALARM, kein Beweis ─────────────────────────────────────────
+ * ── This file is an ALARM, not a proof ─────────────────────────────────────────────
  *
- * Anders als das R2-Tor (`js/welshmanParseBech32.test.ts`) hält er ein Verhalten fest,
- * das wir BEHALTEN wollen. Er ist heute grün, wird beim Sprung auf 0.9.5 rot und bleibt
- * es, **bis 0.9.6 erscheint**. Sein Rotwerden ist das Signal „die Zap-Fläche wartet noch",
- * und genau so steht es im Plan
- * (`docs/plans/2026-08-28T1950-welshman-0-9-sprung.md`, R1 · Scope „Out").
+ * Unlike the R2 latch (`js/welshmanParseBech32.test.ts`) it pins behaviour we want to
+ * KEEP. It was green on 0.8.16, went red with the jump to 0.9.5, and stayed red until the
+ * upstream fix shipped — its going red was the signal "the zap surface is still waiting",
+ * and that is exactly how the plan described it
+ * (`docs/plans/2026-08-28T1950-welshman-0-9-sprung.md`, R1 · scope "Out").
+ * Whoever LOOSENS an expectation here to see green has switched the alarm off instead of
+ * fixing the problem. That sentence stood here while the latch was red and it is repeated
+ * now that it is green, because it is the only reason a green run means anything: not one
+ * expectation below was weakened when the pins moved.
  *
- * **Was der Sprung mit dieser Datei getan hat:** Ebene A und C unverändert gelassen —
- * sie sind der Alarm und laufen weiter. In Ebene B ist der eine Fall übersprungen, den
- * 0.9.5 nicht mehr ausführbar macht; seine Begründung steht am Fall und verweist auf
- * 0.9.6. Wer eine Erwartung LOCKERT, um Grün zu sehen, hat den Alarm abgeschaltet und
- * nicht das Problem gelöst — das gilt unverändert.
- * **Was P4/eine spätere Phase damit tut:** nach dem Update auf 0.9.6 muss er von selbst
- * grün werden. Tut er das nicht, ist der Upstream-Fix nicht drin.
+ * ── Where this stands: 2026-09-11, `@welshman/*` 0.9.5 → 0.9.9 ────────────────────
  *
- * ── Der Defekt, mit Zeile ──────────────────────────────────────────────────────────
+ * The fix is in. Measured on the INSTALLED package, not read from a changelog —
+ * `@welshman/app@0.9.9`, `dist/app/src/plugins/zappers.js:22`:
+ *
+ *     if (info?.allowsNostr && info?.nostrPubkey) {
+ *
+ * and `grep -rn 'info?.pubkey'` over both installed welshman trees returns nothing.
+ * Level C therefore went green because its subject changed, not because its assertion did:
+ * pattern, anchors and the positive control against the literal 0.9.5 line are unchanged.
+ *
+ * What actually moved between the two pins was measured by diffing the published tarballs
+ * of all nine packages: the zapper gate is the ONLY change that touches this file's
+ * subject. (The other three: `relayTags` now normalises its URLs, a thunk abort check in
+ * the NIP-59 branch, and a rewritten socket lifecycle policy in `@welshman/net` — that
+ * last one drops `socketPolicyPing` and renames `socketPolicyCloseInactive` to
+ * `socketPolicyLifecycle`, neither of which this repo imports.)
+ *
+ * **What this bump did NOT do, and it is due work.** `js/welshmanZapApi.ts` still makes
+ * `loadZapperForPubkey` THROW, and its message names 0.9.5 and the `info.pubkey` gate as
+ * the reason. That reason is gone. The block is ours alone now, so `resolveZapper`
+ * (`js/zaps.ts`) and with it the zapper-less branch of `createZapInvoice` stay dead until
+ * someone removes the throw and covers `Zappers.loadForPubkey` with a case of its own.
+ * Reported with this bump, deliberately not done inside it.
+ *
+ * ── The defect, with its line — kept as the historical record ──────────────────────
  *
  * `@welshman/app@0.9.5`, `dist/app/src/plugins/zappers.js:21`:
  *
  *     if (info?.pubkey && info?.nostrPubkey) {
  *
- * `info` ist die **lnurl-pay-Antwort** des Empfänger-Servers (LUD-06/LUD-16, mit den
- * NIP-57-Zusätzen `allowsNostr`/`nostrPubkey`). Ein Feld `pubkey` gibt es dort nicht — in
- * keiner der drei Spezifikationen. Das Gate verwirft damit **jeden** Zapper, bevor unser
- * eigenes, korrektes `canZap` (`js/zaps.ts:281`, `allowsNostr && nostrPubkey`) ihn je zu
- * sehen bekommt. 0.8.16 hat an dieser Stelle gar kein Gate (`if (info)`).
+ * `info` is the recipient server's **lnurl-pay response** (LUD-06/LUD-16 with the NIP-57
+ * additions `allowsNostr`/`nostrPubkey`). There is no `pubkey` field there — in none of
+ * the three specifications. The gate discarded **every** zapper before our own, correct
+ * `canZap` (`js/zaps.ts`, `allowsNostr && nostrPubkey`) ever saw one. 0.8.16 had no gate
+ * at that spot at all (`if (info)`).
  *
- * Der Fix steht auf `master` (`bebf008`, 2026-08-27, `allowsNostr && nostrPubkey`), ist
- * in **0.9.5 nicht enthalten**, und `master` trägt keinen Tag.
+ * The fix sat on `master` as `bebf008` (2026-08-27, `allowsNostr && nostrPubkey`), was not
+ * in 0.9.5, and `master` carried no tag then. It was published as 0.9.6 on 2026-09-01.
  *
- * ── Drei Ebenen, weil eine nicht reicht ────────────────────────────────────────────
+ * ── Three levels, because one is not enough ────────────────────────────────────────
  *
- * A **Datenform** — versionsunabhängig: die Antwort trägt `allowsNostr`+`nostrPubkey`
- *   und KEIN `pubkey`. Das ist die Tatsache, an der sich das Gate blamiert; sie gilt
- *   unabhängig davon, welche welshman-Fassung installiert ist.
- * B **Verhalten der Ladewege** — aus dieser Antwort wird ein brauchbarer Zapper
- *   (`canZap` sagt ja, `zapFromEvent` nimmt eine Quittung an).
+ * A **data shape** — version independent: the response carries `allowsNostr` and
+ *   `nostrPubkey` and NO `pubkey`. That is the fact the gate embarrassed itself on, and it
+ *   holds whichever welshman is installed.
+ * B **behaviour of the load paths** — this response becomes a usable zapper (`canZap` says
+ *   yes, `zapFromEvent` accepts a receipt).
  *
- *   **Seit dem Sprung auf 0.9.5 ist diese Ebene geteilt**, und zwar entlang dessen, was
- *   R1 wirklich trifft: der Fall über welshmans EIGENEN Lader ist **übersprungen** (mit
- *   Begründung am Fall), weil `fetchZapper`/`getZapper` dort nicht mehr existieren und
- *   der Ersatzweg per Konstruktion in das Gate läuft. Die Fälle über UNSEREN Weg
- *   (`loadZapperNow`, `canZap`, `zapFromEvent`) laufen weiter und sind grün — gemessen,
- *   nicht angenommen: unser Lader holt das Dokument selbst und geht an welshmans Gate
- *   vorbei.
+ *   **The split this level carried under 0.9.5 is gone.** The case over welshman's OWN
+ *   loader was skipped there, because `fetchZapper`/`getZapper` no longer existed and the
+ *   replacement ran by construction into the gate. It is live again, rewritten onto
+ *   `app.use(Zappers).load(lnurl)` — the API the installed version really offers
+ *   (`LoadableMapPlugin.load`, `dist/app/src/plugins/base.d.ts`), checked at the package
+ *   rather than taken from the skip text, which was written against 0.9.5. It comes with a
+ *   counter-probe, because "the loader returns something" is not the same statement as
+ *   "the gate is still a gate": 0.9.9 NARROWED the condition, it did not delete it, and a
+ *   later version that deleted it would look identical from the positive case alone.
  *
- *   Eine Datei, die schon an der Importzeile scheitert, wäre der schlechtere Alarm: sie
- *   vergiftet die Suite mit einer nichtssagenden Meldung und nimmt Ebene A und C mit.
- * C **Quelltext-Riegel auf die installierte `@welshman/app`** — versionsunabhängig und
- *   unabhängig von unserer Importfläche: der Zapper-Batchlader darf nicht auf `pubkey`
- *   prüfen. Diese Ebene überlebt den Sprung als lauffähiger Test und nennt den Defekt
- *   beim Namen, während B schon an der Importzeile scheitert.
+ *   The cases over OUR path (`loadZapperNow`, `canZap`, `zapFromEvent`) ran throughout —
+ *   measured, not assumed: our loader fetches the document itself and walks past
+ *   welshman's gate.
  *
- * Ebene C ist ein Quelltext-Test und damit von Natur aus anfällig dafür, still blind zu
- * werden. Sie hat deshalb zwei Ankerprüfungen (der Lader wird GEFUNDEN, und er enthält
- * seinen Annahmezweig) und eine Positivkontrolle des Suchmusters gegen die wörtliche
- * 0.9.5-Zeile. Findet sie ihren Gegenstand nicht, wirft sie — sie überspringt nicht.
+ *   A file that already fails at its import line would be the worse alarm: it poisons the
+ *   suite with a meaningless message and takes levels A and C with it.
+ * C **source latch on the installed `@welshman/app`** — version independent and
+ *   independent of our import surface: the zapper batch loader must not gate on `pubkey`.
+ *   This level survived the jump as a runnable test and named the defect out loud while B
+ *   was split.
  *
- * ── Ein Befund am Rande, damit ihn P3 nicht neu suchen muss ───────────────────────
+ * Level C is a source-text test and so is prone to going blind in silence. It therefore
+ * carries two anchor checks (the loader IS found, and it contains its acceptance branch)
+ * and a positive control of the search pattern against the literal 0.9.5 line. If it
+ * cannot find its subject it throws — it does not skip.
  *
- * Unser **heißer** Pfad geht gar nicht durch welshmans Lader: `loadZapperNow`
- * (`js/zaps.ts:249`) holt das LNURL-Dokument selbst und schreibt den Zapper direkt in
- * `zappersByLnurl` — bewusst, siehe die Begründung in `js/bridge.ts:7487-7507`
- * (Batcher-Defekt, Drosselung). Durch welshmans Lader läuft nur `resolveZapper`
- * (`js/zaps.ts:64` → `loadZapperForPubkey`), und das ruft heute keine Produktionsstelle
- * auf.
+ * ── A side finding, so nobody has to hunt for it twice ─────────────────────────────
  *
- * **Nachgemessen beim Sprung — der Satz „der Weg ist ein anderer, die Sperre dieselbe"
- * stimmt so NICHT:** in 0.9.5 ist der Wert im Store zwar als `Zapper`-KLASSE typisiert,
- * aber `MapPlugin.set` nimmt am laufenden Paket gemessen jedes schlichte Objekt an
- * (kein `instanceof`-Zwang), und `get` gibt genau dieses Objekt zurück. Die Feldzugriffe,
- * auf denen `canZap`/`canPay` beruhen, funktionieren daran unverändert — die Fälle unten
- * belegen das. Was zur Laufzeit brechen WÜRDE, sind Klassenmethoden (`validate`,
- * `getResponseFilter`) auf einem solchen Objekt; die ruft unser Code nicht auf, und
- * `js/welshmanZapApi.ts` hebt den Zapper vorher in eine echte Instanz.
+ * Our HOT path does not go through welshman's loader at all: `loadZapperNow`
+ * (`js/zaps.ts`) fetches the LNURL document itself and writes the zapper straight into
+ * `zappersByLnurl` — deliberately, see the (a)/(b) reasoning in `js/bridge.ts` (search
+ * `Batcher-Defekt`): exponential backoff on one side, a promise that never settles on the
+ * other. Only `resolveZapper` (`js/zaps.ts` → `loadZapperForPubkey`) goes through
+ * welshman's loader, and no production site calls it today.
  *
- * R1 bleibt damit auf genau einen Weg beschränkt: `loadZapperForPubkey`. Der wirft seit
- * dem Sprung mit einer Meldung, die hierher zeigt, statt still `undefined` zu liefern.
+ * Measured at the jump and still true: the value in the store is TYPED as the `Zapper`
+ * class, but `MapPlugin.set` takes any plain object (no `instanceof` check) and `get`
+ * hands exactly that object back. The field reads `canZap`/`canPay` rest on work on it
+ * unchanged — the cases below show it. What WOULD break at runtime are class methods
+ * (`validate`, `getResponseFilter`) on such an object; our code does not call them, and
+ * `js/welshmanZapApi.ts` lifts the zapper into a real instance first.
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -91,6 +113,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { getLnUrl } from '@welshman/util'
 import { bech32ToHex } from '@welshman/lib'
+import { Zappers } from '@welshman/app'
+import { app } from './welshmanInstance.ts'
 import { zapFromEvent } from './welshmanZap.ts'
 import { canZap, loadZapperNow } from './zaps.ts'
 
@@ -189,22 +213,32 @@ describe('R1 · B · aus dieser Antwort wird heute ein brauchbarer Zapper', () =
         assert.equal(bech32ToHex(lnurl), 'https://example.test/.well-known/lnurlp/zap')
     })
 
-    test(
-        'welshmans eigener Lader nimmt sie an — das ist die Stelle, die 0.9.5 zumacht',
-        {
-            skip:
-                'R1 · abgeschaltet mit dem Sprung auf @welshman/app@0.9.5, nicht repariert. ' +
-                'Dieser Fall prüfte welshmans EIGENEN Zapper-Lader über `fetchZapper`/`getZapper` — ' +
-                'beide gibt es in 0.9.5 nicht mehr (dort: `app.use(Zappers)`), und der Ersatzweg ' +
-                '`Zappers.loadForPubkey` läuft in genau das Gate, das dieser Test anprangert: ' +
-                '`if (info?.pubkey && info?.nostrPubkey)` in `plugins/zappers.js:21`. Ihn auf den ' +
-                'neuen Weg umzuschreiben hiesse, einen Fall zu bauen, der per Konstruktion rot ist ' +
-                'und nichts Neues sagt — den Defekt hält Ebene C fest, dauerhaft und lauffähig. ' +
-                'Der Fix steht upstream auf master (bebf008) und kommt mit 0.9.6; DANN ist dieser ' +
-                'Fall auf `app.use(Zappers).load(lnurl)` umzuschreiben und wieder scharfzustellen.',
-        },
-        () => {},
-    )
+    test("welshman's own loader accepts it — this is the spot 0.9.5 closed", async () => {
+        const lnurl = getLnUrl('welshman-lader@example.test')!
+        gerufeneUrls.length = 0
+        stelleFetch({ ...LNURL_PAY_ANTWORT })
+
+        const zapper = await app.use(Zappers).load(lnurl)
+
+        assert.ok(zapper, 'app.use(Zappers).load returned nothing — the gate discarded the document')
+        assert.equal(canZap(zapper), true, 'canZap refuses a zapper carrying allowsNostr and nostrPubkey')
+        // Proves the stub answered the endpoint the lnurl encodes, not some other address.
+        assert.deepEqual(gerufeneUrls, [bech32ToHex(lnurl)])
+    })
+
+    test("COUNTER-PROBE: welshman's loader still turns down a response without the NIP-57 additions", async () => {
+        // Without this case the one above would only say "the loader returns something".
+        // 0.9.9 NARROWED the gate (`allowsNostr && nostrPubkey`), it did not remove it, and
+        // a later version that removed it would pass the case above unchanged.
+        const lnurl = getLnUrl('welshman-ohne-nostr@example.test')!
+        gerufeneUrls.length = 0
+        stelleFetch({ ...LNURL_PAY_OHNE_NOSTR })
+
+        assert.equal(await app.use(Zappers).load(lnurl), undefined)
+        // ... and the document really was fetched, so `undefined` means turned down here
+        // rather than never asked for.
+        assert.deepEqual(gerufeneUrls, [bech32ToHex(lnurl)])
+    })
 
     test('unser eigener Lader (`loadZapperNow`) ebenso — der Weg, den die Fläche wirklich geht', async () => {
         const lnurl = getLnUrl('unser-weg@example.test')!
