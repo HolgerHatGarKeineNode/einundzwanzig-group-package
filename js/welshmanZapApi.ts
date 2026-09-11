@@ -35,6 +35,18 @@
  * absichtlicher Wurf an einer Stelle, die eine Sieben-Zeilen-Portierung heilt, würde die
  * Fläche kaputter machen als der Versionssprung sie macht — und die Meldung „wartet auf
  * 0.9.6" wäre dort schlicht unwahr.
+ *
+ * ── Update 2026-09-11, @welshman/* 0.9.5 => 0.9.9 ───────────────────────────────
+ * Point 1 above expired: 0.9.9 carries `bebf008`, and `Zappers.fetch` now gates on
+ * `allowsNostr && nostrPubkey`. The measurements above are kept as the record of what
+ * 0.9.5 did, not as a description of what is installed.
+ *
+ * What did NOT change is why {@link loadZapperForPubkey} is closed. It reads as a
+ * workaround for that gate, and after the bump the tempting move is to delete it. Three
+ * reasons survive the bump, all re-measured against 0.9.9 — orphaned batcher rejections,
+ * `makeLoadItem` backoff answering explicit taps, and the NIP-42 relay round trip. They
+ * are spelled out with file and line at the function itself; read that block before
+ * touching it.
  */
 import { Profiles, Zappers, RelayLists, Router as RouterPlugin } from '@welshman/app'
 import {
@@ -137,25 +149,48 @@ export const loadProfile = async (pubkey: string): Promise<Profile | undefined> 
     ausReader(await app.use(Profiles).load(pubkey))
 
 /**
- * **Gesperrt durch R1 — der eine Weg, den 0.9.5 wirklich zumacht.**
+ * **Closed deliberately — and NOT because of the 0.9.5 zapper gate any more.**
  *
- * `Zappers.loadForPubkey` geht durch `Zappers.fetch`, und dessen Gate verlangt
- * `info.pubkey` — ein Feld, das eine NIP-57-lnurl-pay-Antwort nicht führt
- * (`app/src/plugins/zappers.js:21`). Gemessen: ein reales Dokument wird verworfen, die
- * Sammlung bleibt leer, und der Aufrufer bekäme `undefined` ohne jeden Hinweis.
+ * That gate (`info.pubkey`, a field a NIP-57 lnurl-pay response does not carry) was the
+ * reason this threw when it was written, and it is gone: 0.9.9 ships `bebf008` and gates
+ * on `allowsNostr && nostrPubkey`. Reading the old justification, the obvious next move
+ * is to delete this function and let `resolveZapper` through. Measured against the
+ * installed 0.9.9, that would be a regression — three reasons remain, none of them a
+ * version bug, each with a user-visible failure behind it:
  *
- * Der Fix steht upstream auf `master` (`bebf008`, `allowsNostr && nostrPubkey`), ist in
- * 0.9.5 **nicht** enthalten und hat keinen Tag. Deshalb hier ein Wurf statt eines
- * stillen `undefined`: der einzige Aufrufer ist `resolveZapper` (`js/zaps.ts:64`), und
- * der hat heute keine Produktionsstelle — fiele das je zurück in den heissen Pfad,
- * soll es auffallen.
+ * 1. **An unreachable endpoint produces an ORPHAN rejection.** `Zappers.fetch` is still
+ *    `batcher(800, …)` (`app/src/plugins/zappers.js:15`), and `batcher` still starts its
+ *    work with `setTimeout(_execute, t)` and throws the promise away
+ *    (`@welshman/lib/dist/Tools.js:1078`). A rejection there reaches no caller's
+ *    `.catch`, and the caller's own promise never settles. A dead wallet domain in
+ *    someone's profile — an everyday case — becomes an unhandled rejection in every
+ *    viewer's browser. This is what `storage-cache.spec.ts` P4 reported as a "flake"
+ *    for weeks.
+ * 2. **Exponential backoff answers an explicit user tap.** `makeLoadItem` still throttles
+ *    repeat attempts per source (`@welshman/store/dist/store/src/repository.js:477-482`,
+ *    the comment says so in as many words). `warmZappers` spends those attempts in the
+ *    background for every feed author, so a tap on ⚡ got `undefined` out of the backoff
+ *    instead of an answer from the server — "payment endpoint unreachable" on a healthy
+ *    address, intermittently.
+ * 3. **It drags the OUTBOX relays and NIP-42 in with it.** `loadForPubkey` resolves the
+ *    profile first, which authenticates against a dozen foreign relays (a 22242 signature
+ *    each) before the zap sheet can open. See `js/bridge.ts`, `openZapSheet` — the sheet
+ *    opens first and resolves in the background for exactly this reason.
+ *
+ * So the throw stays, and so does `loadZapperNow` (`js/zaps.ts`, search `warmZapper`): it
+ * fetches the document itself with a real try/catch and writes into the same welshman
+ * store the feed reads from. Same state, no orphan, no backoff, no relay round trip.
+ *
+ * Re-open this only against a welshman release where points 1 and 2 are measurably gone —
+ * the two greps above are the check, and they take a minute.
  */
 export const loadZapperForPubkey = (_pubkey: string): never => {
     throw new Error(
-        'loadZapperForPubkey ist unter @welshman/app@0.9.5 gesperrt (R1): das Zapper-Gate in ' +
-            'plugins/zappers.ts prüft `info.pubkey`, ein Feld, das eine NIP-57-lnurl-pay-Antwort nicht ' +
-            'hat — jedes echte Dokument wird verworfen. Der Fix steht upstream auf master (bebf008) und ' +
-            'kommt mit 0.9.6. Bis dahin ist `loadZapperNow` der Weg; es holt das Dokument selbst.',
+        'loadZapperForPubkey is closed on purpose, and no longer because of the 0.9.5 zapper gate ' +
+            '(fixed in 0.9.9). Zappers.fetch is a batcher whose rejections are orphaned, its loader ' +
+            'throttles explicit taps through makeLoadItem backoff, and it resolves the profile over ' +
+            'the outbox relays with NIP-42 first. Use loadZapperNow — it fetches the document itself. ' +
+            'See the block above this function before reopening.',
     )
 }
 
