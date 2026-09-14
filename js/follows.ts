@@ -83,9 +83,15 @@
  *
  * ── Armed at boot, not on mount ─────────────────────────────────────────────────
  *
- * The profile card sits on every page behind the gate, and it is the only reader — but it
- * opens from a window event, not from a screen, so there is no mount to hang the arming
- * on. It arms as soon as the space and the identity are known, like `js/mutes.ts`.
+ * The profile card sits on every page behind the gate, and it opens from a window event,
+ * not from a screen, so there is no mount to hang the arming on. It arms as soon as the
+ * space and the identity are known, like `js/mutes.ts`.
+ *
+ * **Since P4 the card is not the only reader**: the bulk bar in the member directory reads
+ * the same three fields. It changes nothing about the arming — but it is why
+ * {@link FollowsStore.armFollowRead} exists, because that surface has a „load the list"
+ * step with no person attached to it, and for a `confirmed-none` reader the arming pass
+ * deliberately does not read (F7).
  *
  * ── `listSeen`: the only statement the surface may believe (P1) ────────────────
  *
@@ -180,6 +186,42 @@ export type FollowsStore = {
     following: string[]
     isFollowing(target: string): boolean
     toggle(target: string): Promise<void>
+    /**
+     * **Read our own list and write nothing** — the one entry point that is a read (P4).
+     *
+     * Everything else on this store needs a person: {@link FollowsStore.toggle} takes one
+     * and {@link FollowsStore.followMany} takes a set, and both of them write. For a reader
+     * whose {@link OutboxKnowledge} came back `confirmed-none` this client deliberately does
+     * not read the contact list on a page load (D8/F7: that read is
+     * `{kinds:[3],authors:[self]}` to relays the reader never chose, on every page view,
+     * with AUTH granted). Their {@link FollowsStore.listSeen} therefore stays `false` until
+     * something asks — and before P4 the only thing that could ask was a click that also
+     * wrote.
+     *
+     * The bulk bar in the member directory has no person to hang that on: it offers
+     * „Kontaktliste laden" as its own step, and without this method that button would be
+     * correct in its wording and inert forever for exactly that group of readers.
+     *
+     * Same read as the write path uses ({@link readOwnFollowList}, same relay set, same
+     * `EOSE` verdict), so `listSeen`/`noRelayList`/`following` come from one source and
+     * cannot drift from what a write would build on.
+     */
+    armFollowRead(): Promise<void>
+    /**
+     * **Follow n people in ONE signed event** (P4).
+     *
+     * Not a loop over {@link FollowsStore.toggle}: `makeEvent` stamps `created_at` in
+     * seconds, so n writes inside the same second carry the same timestamp, NIP-01 breaks
+     * the tie on the id hash, and Buzz reports every displaced one as `OK true` with
+     * `duplicate:`. „Follow 400 members" would end at 399 lost and report green. One call,
+     * one plan, one signature, one event — independent of the count, which is what
+     * `planFollowWrite` was widened for in P3.
+     *
+     * Targets already on the list contribute nothing and keep every column they had
+     * (`withFollowedPubkeys`); the reader's own key and empty strings are dropped rather
+     * than refusing the whole set.
+     */
+    followMany(targets: readonly string[]): Promise<void>
     dismissError(): void
 }
 
@@ -759,6 +801,38 @@ const publishToTargetSet = (
     event: Parameters<typeof publishSpreadOptimistic>[1],
 ): ReturnType<typeof publishSpreadOptimistic> => publishSpreadOptimistic(targets, event)
 
+/**
+ * **`followWriteConfirmed` for n people: ALL of them, or the write is not confirmed** (P4).
+ *
+ * One event carries the whole bulk follow, so „it landed" is only true when the list that
+ * came back holds every person it was supposed to. Asking about the first one, or `some`,
+ * would report a successful follow of 400 members to a reader whose relay quietly kept a
+ * shorter list — and that reader has no other way to find out.
+ *
+ * ── Written as a loop, and that is the latch talking ───────────────────────────
+ *
+ * `people.every((p) => followWriteConfirmed(…))` is the same rule and it is a worse shape
+ * here: `followWriteConfirmed` then sits in a concise arrow body, which is neither a
+ * `return`, a binding nor an assignment, so `followWriteGate.test.ts` loses the site
+ * entirely — measured, the expected value site went to `[]`. An appended `|| true` inside
+ * that arrow would have passed the count and the (now empty) site check alike. With the
+ * loop both rungs exist: the per-person answer is a binding, and this function's answer is
+ * the return value of `publishFollowList`.
+ *
+ * The rule itself is unchanged and stays in one place — including its asymmetry: `null`
+ * relay tags mean the relay answered nothing, which is „cannot tell" and not n failures.
+ */
+const followWritesConfirmed = (relayTags: string[][] | null, people: readonly string[], add: boolean): boolean => {
+    for (const person of people) {
+        const confirmed = followWriteConfirmed(relayTags, person, add)
+        if (!confirmed) {
+            return false
+        }
+    }
+
+    return true
+}
+
 // ── The store ───────────────────────────────────────────────────────────────────
 
 const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) => void; start: () => void } => {
@@ -894,7 +968,7 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
 
                     return
                 }
-                const failure = await publishFollowList(plan, target, add, me, answer)
+                const failure = await publishFollowList(plan, [target], add, me, answer)
                 if (failure) {
                     self.error = failure
                 }
@@ -903,6 +977,178 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                 // rejection while `self.error` stayed `''` — the direction was safe
                 // (nothing written) but silent, and a button that does nothing without
                 // saying why is indistinguishable from one that is broken.
+                self.error = t('Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.')
+            } finally {
+                self.busy = false
+            }
+        },
+
+        /**
+         * Read our own contact list once. **Nothing is planned and nothing is signed.**
+         *
+         * ── Why this is not `toggle` with a null target ────────────────────────
+         *
+         * Because `toggle` is a write path with a read in front of it, and the difference
+         * is the whole reason this method exists: the bulk bar's first step is labelled
+         * „Kontaktliste laden", and a step under that label must not be able to reach
+         * `planFollowWrite` on any branch. Keeping it a separate method makes that
+         * checkable at the wire rather than by reading an `if` — `followBulkWire.test.ts`
+         * counts the EVENT frames this produces and expects none.
+         *
+         * ── What it deliberately does NOT do ──────────────────────────────────
+         *
+         * It does not gate on {@link FollowsStore.canFollow}. That field asks whether the
+         * SPACE relay would take a kind 3 and is vestigial since K4 (a contact list is not
+         * written to the space any more); today its only effect is to wait for the space's
+         * NIP-11. Making a READ of the reader's own list on their own relays wait for a
+         * third party's NIP-11 would be the same coupling the plan lists as a leftover,
+         * one step worse. {@link FollowsStore.followMany} does gate on it, because that one
+         * writes.
+         *
+         * It also does not say „now click again". A click on this button asked for exactly
+         * this and got it; the label moves on by itself once `listSeen` is true.
+         */
+        async armFollowRead(): Promise<void> {
+            const me = get(pubkey) ?? ''
+            if (!me || !url) {
+                return
+            }
+            if (self.busy) {
+                // Not a silent return, and {@link FollowsStore.followMany} carries why:
+                // the surface reads an empty `error` as SUCCESS.
+                self.error = t('Es wurde nichts geändert. Bitte gleich noch einmal versuchen.')
+
+                return
+            }
+            self.busy = true
+            self.error = ''
+            try {
+                const answer = await readOwnFollowList(url, me)
+                // ORed for the same reason `armSource` ORs it: `false` here means „this
+                // attempt did not see it", never „it has not been seen".
+                self.listSeen = self.listSeen || answer.answered
+                self.noRelayList = answer.outbox === 'confirmed-none'
+                adoptReadList(answer.list)
+                if (!answer.answered) {
+                    // The read is the entire product of this call, so a read that did not
+                    // land has to be said out loud — otherwise the button reports success
+                    // by changing nothing and the reader presses it again.
+                    self.error = refusalReason(answer)
+                }
+            } catch {
+                self.error = t('Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.')
+            } finally {
+                self.busy = false
+            }
+        },
+
+        /**
+         * Follow every person in `targets` with ONE event.
+         *
+         * Order, and it is the same order as {@link FollowsStore.toggle}: read our own list
+         * from the relays that hold it → plan once → publish once → re-read to see whether
+         * those relays meant their `OK`. The read is not a convenience; without its
+         * `answered` verdict `planFollowWrite` refuses, and that refusal is the protection
+         * against replacing a contact list we have not seen.
+         *
+         * ── The bolt, and why it is sharper here than on the single button ─────
+         *
+         * A click while `listSeen` was false is a READ and never a write — the rule from
+         * P1, and for the bulk path it protects something the single button does not have:
+         * the preview. „Deine Kontaktliste wächst von 0 auf 400" is computed from
+         * {@link FollowsStore.following}, which is empty for as long as no relay has
+         * answered. If a write could follow that preview, the reader would have signed
+         * against numbers that were never true — and the numbers are the only place the
+         * plan gives them to notice an unread base before the signature.
+         *
+         * Through the surface this is reachable by switching identity with the preview
+         * open: the directory island nulls `bulkPlan` on a SPACE change, and a new pubkey
+         * is not one — `armSource` puts `listSeen` back to `false` and the frozen plan
+         * stands there, counted for somebody else.
+         *
+         * ── Every reachable refusal says something, and that is not decoration ─
+         *
+         * `confirmBulkFollow` in `js/bridge.ts` reads `''` in `store.error` as SUCCESS: it
+         * clears the selection and closes the dialog. A silent return from here is
+         * therefore not „nothing happened", it is a false confirmation of a write that
+         * never went out. So every cause that can actually be reached through the surface
+         * gets its own sentence, and none of them may borrow the sentence of another.
+         *
+         * Only three guards stay silent, and only because the surface cannot reach them:
+         * no identity, no space, an empty set. „Busy" is NOT among them — see below.
+         */
+        async followMany(targets: readonly string[]): Promise<void> {
+            const me = get(pubkey) ?? ''
+            if (!me || !url || targets.length === 0) {
+                return
+            }
+            if (self.busy) {
+                // **Busy is reachable and must not be silent.** The profile card opens from
+                // the member list itself, so a follow started there holds `busy` for up to
+                // two relay timeouts while the reader walks back and confirms the bulk
+                // selection — and `confirmBulkFollow` reads an empty `error` as success,
+                // clears the selection and closes the dialog over a write that never
+                // happened. The other three guards above are genuinely unreachable from
+                // the surface and stay quiet.
+                self.error = t('Es wurde nichts geändert. Bitte gleich noch einmal versuchen.')
+
+                return
+            }
+            self.busy = true
+            self.error = ''
+            try {
+                const answer = await readOwnFollowList(url, me)
+                const seenBefore = self.listSeen
+                self.listSeen = self.listSeen || answer.answered
+                self.noRelayList = answer.outbox === 'confirmed-none'
+                adoptReadList(answer.list)
+                if (!seenBefore) {
+                    self.error = answer.answered
+                        ? t('Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.')
+                        : refusalReason(answer)
+
+                    return
+                }
+                // THE GATE, once for the whole set. Two calls would be two ways to a relay
+                // past one gate, and n calls would be the `created_at` collision this
+                // method exists to avoid — `followWriteGate.test.ts` counts the calls.
+                const plan = planFollowWrite({
+                    list: answer.list,
+                    listAnswered: answer.answered,
+                    self: me,
+                    spaceKind,
+                    add: true,
+                    targets,
+                })
+                if (!plan) {
+                    // Three causes, three sentences. `planFollowWrite` answers `null` to
+                    // all of them, so the cause is re-asked here rather than guessed —
+                    // „you already follow everyone selected" printed for a space whose
+                    // NIP-11 has not resolved is a confident statement about the wrong
+                    // thing, and the reader would go and check their contact list.
+                    if (!answer.answered) {
+                        self.error = refusalReason(answer)
+                    } else if (!mayWriteKind(FOLLOWS, spaceKind)) {
+                        // Vestigial since K4 and kept as a documented refusal of
+                        // `planFollowWrite` (see {@link recomputePermission}): in practice
+                        // this is the window before the space's NIP-11 has resolved. The
+                        // wording says „nothing changed, try again in a moment" and not
+                        // „the space has not answered" on purpose — the reader cannot act
+                        // on a NIP-11 round trip, and the advice is the same either way.
+                        self.error = t('Es wurde nichts geändert. Bitte gleich noch einmal versuchen.')
+                    } else {
+                        // `sameTags`. Not an error — but it must not look like a write
+                        // either, because the surface treats an empty error as success.
+                        self.error = t('Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.')
+                    }
+
+                    return
+                }
+                const failure = await publishFollowList(plan, targets, true, me, answer)
+                if (failure) {
+                    self.error = failure
+                }
+            } catch {
                 self.error = t('Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.')
             } finally {
                 self.busy = false
@@ -969,7 +1215,7 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
      */
     const publishFollowList = async (
         plan: FollowWrite,
-        target: string,
+        people: readonly string[],
         add: boolean,
         me: string,
         read: FollowListRead,
@@ -983,8 +1229,9 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
         }
         const after = await readFollowListsFrom(read.targets, [], me, read.outbox)
         adoptReadList(after.list)
-
-        return followWriteConfirmed(after.list ? after.list.tags : null, target, add)
+        // ALL of them, through {@link followWritesConfirmed} — one event carries n people,
+        // so a list that came back short is not a successful write of the rest.
+        return followWritesConfirmed(after.list ? after.list.tags : null, people, add)
             ? ''
             : writeRefused(spread.failed.length > 0 ? spread.failed : read.targets)
     }

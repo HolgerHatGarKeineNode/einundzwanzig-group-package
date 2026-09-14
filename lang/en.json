@@ -1294,5 +1294,6 @@
     "Folgst du noch nicht": "You don't follow yet",
     "Folgst du schon": "You already follow",
     "Deine Kontaktliste wächst von :von auf :auf.": "Your contact list grows from :von to :auf.",
-    "Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.": "Your contact list does not change — you already follow everyone selected."
+    "Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.": "Your contact list does not change — you already follow everyone selected.",
+    "Es wurde nichts geändert. Bitte gleich noch einmal versuchen.": "Nothing was changed. Please try again in a moment."
 }

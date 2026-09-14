@@ -1147,14 +1147,17 @@ type RoleForm = { id: string; label: string; description: string; hue: number; l
 /**
  * **The two calls this surface needs from the follows store and does not have yet.**
  *
- * Optional members, deliberately: P4 builds the surface half of the bulk follow — the
- * selection, the freeze, the preview, the busy and error channels, the modal — and the
- * write half lands in `js/follows.ts` in the next step. Until then the call sites below
- * return early and nothing is signed. They are typed here rather than in `follows.ts`
- * because this file may not state what that module offers; it may only state what it
- * asks for.
+ * **Both exist now** — `js/follows.ts` implements them, and `FollowsStore` declares them.
+ * This type is kept because it says what this surface ASKS FOR, which is a different
+ * statement from what that module happens to offer: a reader of `armBulkFollow` below can
+ * see the contract without opening another file, and the guards at the call sites stay
+ * meaningful for a store that is not there at all (`Alpine.store('follows')` is
+ * `undefined` until `wireFollows` has run).
  *
  * `armFollowRead` is the one that is easy to miss: see {@link DirectoryState.armBulkFollow}.
+ * It is the only read-only entry point on the store, and without it the whole bulk bar
+ * stays inert forever for every reader whose `OutboxKnowledge` is `confirmed-none` — the
+ * button would say „Kontaktliste laden" and correctly do nothing.
  */
 type BulkFollowCapable = {
     /** One kind 3 for n targets — `planFollowWrite` has taken n since P3. */
@@ -5705,21 +5708,20 @@ export function registerNostrComponents(Alpine: {
         },
 
         /**
-         * ── SEAM (P4 surface → `nostr-specialist`) ─────────────────────────────────
          * **Arm the bulk action:** read the reader's own contact list once, so `listSeen`
          * turns true and the button can move on from „Kontaktliste laden".
          *
-         * **There is no read-only entry point on the store today, and this is the call
-         * that needs one.** `FollowsStore` exposes `toggle(target)` and nothing else, and
-         * `toggle` needs a person. For a reader whose `OutboxKnowledge` came back
-         * `confirmed-none` this client deliberately does not read on a page load (P2/D8) —
-         * so without `armFollowRead` that reader can never arm the bulk bar at all, and
-         * the whole surface stays permanently inert for them.
+         * **`armFollowRead` is the only read-only entry point on the store**, and it exists
+         * for this call. Everything else there needs a person and writes: `toggle(target)`
+         * takes one, `followMany(targets)` takes a set. For a reader whose
+         * `OutboxKnowledge` came back `confirmed-none` this client deliberately does not
+         * read on a page load (P2/D8) — so without it that reader could never arm the bulk
+         * bar at all, and the whole surface would stay permanently inert for them.
          *
-         * What belongs in it: a read through `readOwnFollowList` over the same relay set
-         * the write uses, with `listSeen`/`noRelayList`/`following` set from its answer and
-         * from nothing else (P1). That verdict is not reimplemented here, which is why the
-         * call is optional on the store instead of inlined into this file.
+         * It reads through `readOwnFollowList` over the same relay set the write uses, and
+         * `listSeen`/`noRelayList`/`following` come from that answer and from nothing else
+         * (P1). None of that verdict is reimplemented here, which is why the call sits on
+         * the store rather than inlined into this file.
          */
         async armBulkFollow() {
             const follows = Alpine.store('follows') as (FollowsStore & BulkFollowCapable) | undefined
@@ -5737,7 +5739,6 @@ export function registerNostrComponents(Alpine: {
         },
 
         /**
-         * ── SEAM (P4 surface → `nostr-specialist`) ─────────────────────────────────
          * **Sign and publish ONE kind 3** carrying `bulkPlan.targets` — since P3
          * `planFollowWrite` takes n targets in a single pass, one event, one signature,
          * independent of the count.
@@ -5766,6 +5767,23 @@ export function registerNostrComponents(Alpine: {
             }
             if (follows.error) {
                 this.bulkError = follows.error
+                // **A refused write voids the plan.** The three numbers above the button
+                // were counted against the contact list as the store held it when the
+                // dialog opened, and every refusal `followMany` can produce has moved that
+                // list or its owner: the first click on an unseen list IS the read (P1), so
+                // afterwards `following` is no longer `[]`; a partial write moved it too.
+                // Leaving the dialog open would put a second click one keystroke away from
+                // signing against „wächst von 0 auf 400" while the truth is 703 → 1103 —
+                // and those numbers are the only place the plan gives the reader to notice
+                // an unread base BEFORE the signature.
+                //
+                // Unconditional rather than „only when the list moved": the selection
+                // survives, so the cost is one press of „Auswahl prüfen", which rebuilds
+                // the counts from the list that is now loaded. A condition here would be a
+                // second rule about when the numbers are stale, and it would be the one
+                // that is wrong.
+                this.bulkPlan = null
+                dispatchModal(BULK_PREVIEW_MODAL, false)
 
                 return
             }

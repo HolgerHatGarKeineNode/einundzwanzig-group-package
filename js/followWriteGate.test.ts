@@ -114,17 +114,34 @@ const CARD_PATH = join(JS_DIR, '..', 'resources', 'views', 'components', 'profil
  * | `winningFollowList` | twice — the contact list and the relay list. Replace either with a tag union and every entry a relay has not caught up with comes back, silently and permanently |
  * | `followListWins` / `newestOwnEvent` | the NIP-01 resolution. Drop it and whichever answer arrived last decides |
  * | `followRelayTargets` | ONE call, and since N1 it is also the only place that knows what the target set is. Its arguments are the verdict, the declaration and the fallback — the space is not among them |
- * | `adoptReadList` | three times: arming, a click, and the re-read after a write. Drop them and the card renders the space relay's copy while `toggle()` decides from the real one — a button labelled „Folgen" that unfollows |
+ * | `adoptReadList` | five times: arming, a click, the re-read after a write, and the two P4 entry points. Drop them and the card renders a stale copy while the write path decides from the real one — a button labelled „Folgen" that unfollows |
+ *
+ * ── P4 moved five of these counts, and the reason is one method, not a refactor ─
+ *
+ * `followMany` and `armFollowRead` are two new ways into the same machinery, so every
+ * number that counts „how many entry points ask this guard" went up by one or two. What did
+ * NOT move is the shape each of them has: one read per call, one plan per write, one publish
+ * per plan. The counts to watch are therefore still the ones that say ONCE — `followRelayTargets`,
+ * `publishToTargetSet`, `makeEvent` — because those are the ones a bulk path could plausibly
+ * multiply, and a loop over `toggle()` (the naive bulk follow, n events with the same
+ * `created_at`) would show up there and in `js/followBulkWire.test.ts` at the wire.
  */
 const WRITE_GUARDS: Readonly<Record<string, number>> = {
-    readOwnFollowList: 2,
+    // arming · toggle · armFollowRead · followMany — one read per entry point, and each of
+    // them the SAME read, so no entry point can build on a base the others cannot see.
+    readOwnFollowList: 4,
     readFollowListsFrom: 2,
     readFollowListFrom: 2,
     readOwnRelayList: 1,
     readRelayListFrom: 1,
-    planFollowWrite: 1,
+    // toggle and followMany — two paths, one gate each. The gate and the event body are
+    // the same value at BOTH sites (the AST case below pins that), so a second caller is
+    // not a second door: it is a second path that cannot open the one door any wider.
+    planFollowWrite: 2,
     followedPubkeysOf: 2,
-    mayWriteKind: 1,
+    // recomputePermission (what the surface offers) and followMany (which SENTENCE a
+    // refusal may use). Neither decides the write — planFollowWrite asks it again.
+    mayWriteKind: 2,
     // F5 and D2 — both relay reads of this module go through a context of their own.
     baseReadContext: 2,
     // D2: two reads on the repository-free context now — the contact list and the kind 10002.
@@ -134,6 +151,9 @@ const WRITE_GUARDS: Readonly<Record<string, number>> = {
     // F7 — the arming pass asks only what the reader declared.
     armingReadsContactList: 1,
     followWriteConfirmed: 1,
+    // P4: the quantifier over n people. Its own name so that both rungs stay visible to
+    // the AST case below — the per-person answer AND the answer of the whole check.
+    followWritesConfirmed: 1,
     // The local door of D1, and the shared helper behind it — one call each. Widening
     // `publishSpreadOptimistic` for this caller would put the demand on `js/calendar.ts` too.
     publishToTargetSet: 1,
@@ -149,12 +169,14 @@ const WRITE_GUARDS: Readonly<Record<string, number>> = {
     // function. Fusing the two would put a `some` one refactor away from the F1 riegel.
     anyRelayAnswered: 1,
     unansweredRelays: 2,
-    refusalReason: 2,
+    // toggle 2 · armFollowRead 1 · followMany 2 — every refusal that a reader can reach
+    // names the silent relays instead of saying only that nothing changed.
+    refusalReason: 5,
     writeRefused: 2,
     winningFollowList: 2,
     newestOwnEvent: 2,
     followListWins: 1,
-    adoptReadList: 3,
+    adoptReadList: 5,
     // N1: the contact list is asked for ONCE per read, per relay — the live subscription
     // that used to stand open on the space relay is gone, not moved to the targets.
     followFilters: 1,
@@ -417,10 +439,14 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      */
     test('CORE: the answer of every guard IS the value — asked of the AST, not of the text', () => {
         const ERWARTET: ReadonlyArray<readonly [string, string[], string]> = [
-            [GATE, ['binding plan CallExpression'],
-                'the event body and the refusal are one value; a fallback beside it is a write past the gate.'],
-            ['readOwnFollowList', ['binding answer CallExpression'],
-                'toggle() must BE the relay read, not merely trigger it.'],
+            [GATE, ['binding plan CallExpression', 'binding plan CallExpression'],
+                'the event body and the refusal are one value; a fallback beside it is a write past the gate. '
+                    + 'TWO sites since P4 — toggle() and followMany() — and the demand is per site: each of them '
+                    + 'must BE the call, so neither path can keep a body the gate refused.'],
+            ['readOwnFollowList',
+                ['binding answer CallExpression', 'binding answer CallExpression', 'binding answer CallExpression'],
+                'toggle(), armFollowRead() and followMany() must each BE the relay read, not merely trigger it — '
+                    + 'a `?? {answered: true}` beside any of them is the one-entry kind 3.'],
             ['readFollowListsFrom', ['binding after CallExpression', 'return readOwnFollowList CallExpression'],
                 'the read of the contact list, and the re-read that checks the OK, must both BE this call — '
                     + 'and the second one must use the SAME target set it wrote to.'],
@@ -438,8 +464,14 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
                 'the rendered list AND the direction of a click come from a list somebody read.'],
             ['mayWriteKind', ['assignment self.canFollow BinaryExpression&&'],
                 'the offered action must be derived from the relay kind.'],
-            ['followWriteConfirmed', ['return publishFollowList ConditionalExpression'],
-                'the confirmation must decide the return value, not be computed beside it.'],
+            ['followWriteConfirmed', ['binding confirmed CallExpression'],
+                'the per-person answer must BE that call. Since P4 it is asked once per target inside '
+                    + 'followWritesConfirmed(); an `|| true` there would confirm a bulk follow the relay never took.'],
+            ['followWritesConfirmed', ['return publishFollowList ConditionalExpression'],
+                'the confirmation over ALL targets must decide the return value, not be computed beside it. '
+                    + 'Inlining it as `people.every((p) => followWriteConfirmed(…))` reads identically and costs '
+                    + 'the rung above: a concise arrow body is neither a return nor a binding, so the site '
+                    + 'vanishes from this case altogether (measured: expected [] ).'],
             // ── P2 ──────────────────────────────────────────────────────────
             ['followListAnswered', ['binding answered CallExpression'],
                 'the completeness verdict must BE the answer; `|| true` next to it is the one-entry kind 3 '
@@ -596,6 +628,15 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
                 // `read.answered` here (a PropertyAccessExpression, which is what stood
                 // here until the audit) throws away a verdict a click had already earned:
                 // the arming read takes up to twice READ_TIMEOUT_MS and can finish second.
+                'assignment self.listSeen BinaryExpression||',
+                // P4, armFollowRead(): the read-only entry point — the ONLY way a reader
+                // whose OutboxKnowledge is `confirmed-none` ever earns this verdict, since
+                // the arming pass deliberately does not read for them (F7).
+                'assignment self.listSeen BinaryExpression||',
+                // P4, followMany(): same rule for the bulk write. A `= true` here would be
+                // worse than on the single button — the preview counts „from X to Y" off
+                // `following`, so a hard-wired verdict is a signature against numbers that
+                // were computed from an empty list.
                 'assignment self.listSeen BinaryExpression||',
                 // armSource(): a new space or identity — nothing seen yet.
                 'assignment self.listSeen FalseKeyword',
