@@ -400,14 +400,41 @@ declare const followTargetSetBrand: unique symbol
  * ```
  *
  * A source walk can only ever enumerate the shapes it was told about, so each round it was
- * green against the form that had not been thought of yet. The type ends the enumeration:
+ * green against the form that had not been thought of yet. The type ends the enumeration
+ * for those four:
  *
  *  · `readonly string[]` has no `push`, no `splice`, no `sort` — the fourth form stops
- *    being a bypass and starts being a compile error.
+ *    being a bypass and starts being a compile error (`TS2339`).
  *  · a spread, a `concat`, a ternary, a re-assignment all produce a plain `string[]`,
- *    which does not carry the brand and is not assignable — forms one to three likewise.
- *  · the only remaining way in is a cast, and casts are a countable set. That is what the
- *    latch in `followWriteGate.test.ts` still checks, and all it checks.
+ *    which does not carry the brand and is not assignable — forms one to three, `TS2345`
+ *    and `TS2322`. A `satisfies` is the same story.
+ *
+ * ── WHAT THIS DOES NOT DO. Read this before you trust it. ──────────────────────
+ *
+ * An earlier version of this docblock closed with „the only remaining way in is a cast,
+ * and casts are a countable set". **That sentence was the actual defect of the round it
+ * was written in** — not because it was careless, but because it tells the next reviewer
+ * they may stop looking. A review then measured four ways in that are not casts, each
+ * `tsc` exit 0 and the source census green:
+ *
+ * | | how the brand is acquired without a cast |
+ * |---|---|
+ * | A1 | `JSON.parse(JSON.stringify([...targets, 'wss://…']))` — the return type is `any`, and `any` is assignable to everything |
+ * | A2 | `Object.assign([...targets, ...hints], targets)` — the result type is an INTERSECTION, so it carries the brand of the second argument while holding the elements of the first |
+ * | A3 | `type Minted = FollowTargetSet` in another file, then `urls as Minted` — a cast the census cannot see, because it matches the text `FollowTargetSet` and an alias never contains it |
+ * | A4 | mutating the array that was handed to {@link mintTargetSet} afterwards — closed since, see there |
+ *
+ * The shortest forgery out of the EXPORTED api, one expression, no `as` and no `any`:
+ * `Object.assign(noFollowTargets(), ['wss://attacker.example/'])`.
+ *
+ * So, precisely: **the brand closes the four forms that actually occurred in review, at
+ * compile time. It does not close laundering through `any`, through an intersection, or
+ * through an aliased cast.** What stands against those is not a type and not a source
+ * scanner but a measurement at the wire: `js/followClickGate.test.ts` counts the relays a
+ * CLICK asks and the events it sends, `js/followArmingGate.test.ts` does the same for the
+ * PAGE LOAD. Both, not either — the intersection form was placed in the arming branch
+ * precisely because nothing is written there, and it stayed green until the second file
+ * existed. A widened set is extra traffic whatever syntax produced it.
  *
  * The brand is minted in exactly one expression, {@link mintTargetSet}.
  */
@@ -418,8 +445,24 @@ export type FollowTargetSet = readonly string[] & { readonly [followTargetSetBra
  *
  * Deliberately not exported: a second minting site would give every caller the cast back
  * that the type just took away, and the whole assurance is that there is one.
+ *
+ * **Copies, and that is not tidiness (A4).** Until this was added the function branded the
+ * caller's array in place: `followRelayTargets('listed', declared, [])` handed back the
+ * very array `declared` pointed at, so a `declared.push('wss://…')` one line later widened
+ * a set that the type says is `readonly`. `readonly` is a statement about a binding at
+ * compile time; it protects no value at runtime. The copy makes the returned set a thing
+ * the caller no longer has a second handle on.
  */
-const mintTargetSet = (urls: readonly string[]): FollowTargetSet => urls as FollowTargetSet
+const mintTargetSet = (urls: readonly string[]): FollowTargetSet => {
+    // Bound as `readonly string[]` before the assertion so that the ONE cast in this file
+    // stays a cast from `readonly string[]`. `[...urls] as FollowTargetSet` is a cast from
+    // `string[]`, which TypeScript rejects as insufficiently overlapping (TS2352) and
+    // which would have to be laundered through `unknown` — a second entry in the census
+    // next door, and a worse one.
+    const copy: readonly string[] = [...urls]
+
+    return copy as FollowTargetSet
+}
 
 /**
  * The empty target set, for the callers that have to report „no set was drawn" without

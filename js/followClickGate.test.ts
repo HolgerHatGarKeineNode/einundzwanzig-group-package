@@ -110,6 +110,25 @@ let servedList2: TrustedEvent = await SIGNER_2.sign(
 const written: TrustedEvent[] = []
 /** The relay urls the writes went to, in order — the D2/outbox half of the measurement. */
 const writtenTo: string[] = []
+/**
+ * **Every REQ this client sent, with the relay it went to and the kinds it asked for.**
+ *
+ * Finding S4: without this the file recorded EVENT frames only, and a review used exactly
+ * that gap — it widened the target set inside the ARMING pass, where nothing is ever
+ * written, and the three cases here stayed green while the production effect was the whole
+ * of F7 coming back: `{kinds:[3],authors:[self]}` to four foreign relays on every page
+ * view, with AUTH granted to them in `js/relayConfig.ts`. A read is traffic too, and
+ * traffic is what a reader pays for in de-anonymisation.
+ */
+const requested: { url: string; kinds: number[] }[] = []
+
+/** The kind-3 reads, as the relay urls they went to. */
+const contactListReadsTo = (): string[] =>
+    requested.filter((req) => req.kinds.includes(FOLLOWS)).map((req) => req.url)
+
+/** The kind-10002 reads, as the relay urls they went to. */
+const relayListReadsTo = (): string[] =>
+    requested.filter((req) => req.kinds.includes(RELAYS)).map((req) => req.url)
 
 /**
  * A relay that serves the current kind 3 and has no kind 10002 for anybody.
@@ -123,6 +142,9 @@ const makeAdapter = (url: string): MockAdapterType => {
         if (message[0] === 'REQ') {
             const subId = message[1] as string
             const filters = message.slice(2) as Filter[]
+            for (const filter of filters) {
+                requested.push({ url, kinds: [...(filter.kinds ?? [])] })
+            }
             setTimeout(() => {
                 for (const filter of filters) {
                     const forSecond = filter.authors?.includes(ME_2) ?? false
@@ -210,9 +232,32 @@ describe('the first click reads, the second writes — measured at the relay', (
     })
 
     test('CORE: a click while the list is unseen writes NOTHING and says so', async () => {
+        requested.length = 0
         const store = await freshStore(SPACE)
         assert.equal(store.listSeen, false, 'CALIBRATION: without a kind 10002 the arming pass defers (F7)')
+
+        // ── S4: F7 measured at the wire, not in the source ────────────────────
+        //
+        // The page load is over at this point. A `confirmed-none` reader must not have had
+        // their contact list asked for anywhere: that request carries `authors:[self]` to
+        // relays they never chose, and `js/relayConfig.ts` grants those relays AUTH.
+        assert.deepEqual(
+            contactListReadsTo(),
+            [],
+            'the arming pass asked for the contact list. For a reader with no relay list that is a '
+                + '`{kinds:[3],authors:[self]}` to four foreign relays on every page view, with AUTH — F7, back '
+                + 'again. No source instrument is needed to see it: it is traffic.',
+        )
+        // And the pass DID run — otherwise the assertion above is true for the wrong
+        // reason, which is the failure mode of every absence measurement.
+        assert.deepEqual(
+            [...new Set(relayListReadsTo())],
+            [INDEXER],
+            'CALIBRATION: the arming pass has to have asked the indexer for a kind 10002. If it asked nothing at '
+                + 'all, the emptiness above says nothing about F7.',
+        )
         written.length = 0
+        requested.length = 0
 
         await store.toggle(ALICE)
 
@@ -230,6 +275,12 @@ describe('the first click reads, the second writes — measured at the relay', (
         )
         assert.equal(store.listSeen, true, 'the read did land — the next click is the ordinary one')
         assert.deepEqual(store.following, [ALICE, BOB], 'and the list the relay showed is what the card renders')
+        assert.deepEqual(
+            [...new Set(contactListReadsTo())],
+            [FALLBACK],
+            'the click read the contact list from the target set and from nowhere else — for this reader the '
+                + 'hints ARE the targets, so anything beyond that url is a set that grew on the way',
+        )
     })
 
     test('CALIBRATION: the SECOND click writes, and writes the read list plus one', async () => {

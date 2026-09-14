@@ -411,30 +411,33 @@ const readFollowListFrom = async (url: string, self: string): Promise<FollowRela
 
 /**
  * Read our own kind 10002 from ONE relay. Same construction and same reasoning as
- * {@link readFollowListFrom} — the `EOSE` has to stay attributable to this relay.
- */
-/**
- * **This read still runs WITH the repository, and that is a near-miss worth naming.**
+ * {@link readFollowListFrom} — the `EOSE` has to stay attributable to this relay, and
+ * since D2 the same {@link baseReadContext} as well.
  *
- * `readFollowListFrom` had to lose the repository from its context (F5) because
- * `@welshman/net` drops every event `repository.isDeleted(event)` accepts, before the
- * signature and filter checks and without touching the `EOSE`. The same thing happens
- * here: measured, this read returns zero events for a relay that did send the kind 10002,
- * once a newer copy of it sits in the repository.
+ * ── The near-miss this used to describe, and what became of it ─────────────────
  *
- * It is harmless **today**, and only for one reason: {@link readOwnRelayList} carries the
- * repository's own newest copy into `candidates` as a voteless source, so the declaration
- * survives the filter by another route. It becomes a finding the moment either of these
- * changes:
+ * This docblock said, in the present tense, „**this read still runs WITH the repository**,
+ * and that is a near-miss worth naming" — plus „taking the repository out of every read in
+ * this module would drop a protection nobody asked to lose" and „the latch next door pins
+ * that this read keeps the ordinary adapter". **All three were true until `1269eff` and
+ * are false now.** The code was inverted in D2 and the text stayed behind; the latch next
+ * door pins the exact opposite of the last sentence today. It is kept here as history
+ * rather than deleted, because the near-miss it describes is the reason for the change and
+ * because a reader who opens this function must not have to find that out two files away.
  *
- *  · `cached` is dropped from `candidates`, or
- *  · a kind 5 of the reader's own reaches the repository for their own 10002 address —
- *    then `isDeleted` holds for every copy and `cached` is empty too.
+ * What the near-miss was: `@welshman/net` drops every event `repository.isDeleted(event)`
+ * accepts, before the signature and filter checks and without touching the `EOSE`. With
+ * the repository in the context this read returned zero events for a relay that did send
+ * the kind 10002. It was harmless only because {@link readOwnRelayList} carries the
+ * repository's own newest copy into `candidates` as a voteless source — and that crutch
+ * breaks the moment a kind 5 of the reader's own reaches the repository for their own
+ * 10002 address: `isDeleted` then holds for every copy, `cached` is empty too,
+ * `{writeUrls: [], anyAnswered: true}` comes out, and {@link outboxKnowledgeOf} reads that
+ * as `confirmed-none` — the verdict that PERMITS a write. `DELETE` is in `PERSIST_KINDS`,
+ * so such a state survives every reload.
  *
- * Left as it is rather than widened: the contact-list read needed the narrow fix it got,
- * and taking the repository out of every read in this module would drop a protection
- * nobody asked to lose. The latch next door pins that this read keeps the ordinary
- * adapter, so a silent change here is visible.
+ * Hence D2: both reads of this module are on the repository-free context, and the module
+ * no longer imports the house adapter at all.
  */
 const readRelayListFrom = async (url: string, self: string): Promise<FollowRelayRead> => {
     let answered = false

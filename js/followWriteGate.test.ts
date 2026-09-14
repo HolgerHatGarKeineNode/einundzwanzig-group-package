@@ -233,6 +233,27 @@ const quelleDesWriters = (): string => readFileSync(join(JS_DIR, WRITER), 'utf8'
  * Used to say WHERE a brand is minted rather than only how often: „once, somewhere in the
  * file" would be satisfied by a cast that moved out of `mintTargetSet` into a caller.
  */
+/**
+ * **A floor under the file count of the brand scan.**
+ *
+ * 328 TypeScript files lay under `js/` when this was written, 5 of them in `js/fixtures/`.
+ * Stated well below that so ordinary deletions do not trip it — it is not a census, it is
+ * a guard against a scan that stopped reading. It cannot on its own catch a scan that only
+ * stopped DESCENDING, which is why the case pairs it with a subdirectory check.
+ */
+const SCAN_FLOOR = 250
+
+/**
+ * Every `.ts` file under a directory, recursively, as paths relative to it.
+ *
+ * `readdirSync(dir)` — no `recursive` — is what this replaces, and the difference was a
+ * measured bypass: a second minting site in `js/fixtures/` was invisible to it while the
+ * assertion above still reported one minter (S3).
+ */
+const tsFilesUnder = (dir: string): string[] =>
+    readdirSync(dir, { recursive: true, encoding: 'utf8' })
+        .filter((entry: string) => entry.endsWith('.ts'))
+
 const enclosingDeclarationName = (node: ts.Node): string => {
     for (let parent = node.parent; parent; parent = parent.parent) {
         if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
@@ -872,7 +893,8 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
     })
 
     /**
-     * **D1: the target set is a TYPE now, and this is all that is left to check.**
+     * **D1: the target set is a TYPE now. This case is the NARROW remainder — read the
+     * limits below before you treat it as complete.**
      *
      * ── Why the walk this replaces is gone ─────────────────────────────────────
      *
@@ -891,22 +913,41 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      * system, where the compiler decides the class rather than a list deciding the forms:
      * all four are a `tsc` error now, measured with the exit code.
      *
-     * ── What a type cannot do, and therefore this case ─────────────────────────
+     * ── What this case does, and it is two narrow things ───────────────────────
      *
-     * A cast launders anything into anything. Unlike array widening, casts ARE an
-     * enumerable category — `as X` and `<X>y`, nothing else — so a census of them is a
-     * complete check rather than a sample.
-     *
-     *  · repo-wide, exactly ONE assertion may name `FollowTargetSet`, and it has to sit in
-     *    `mintTargetSet`. A second one is a second minting site.
-     *  · the total assertion census of both files is pinned. That is what closes
-     *    `readFollowListsFrom(merged as any, …)`, which names no brand and would otherwise
-     *    pass: it cannot be written without moving a number in the table below.
+     *  · repo-wide, exactly ONE type assertion may name `FollowTargetSet`, and it has to
+     *    sit in `mintTargetSet`. A second one is a second minting site.
+     *  · the assertion census of the two follow modules is pinned, so a new `as any` in
+     *    them cannot appear without moving a number in the table below.
      *
      * The table is deliberately a census and not a ban — the three
      * `as unknown as FollowEventLike[]` in the writer are welshman's `TrustedEvent` being
      * narrowed and have nothing to do with relays. Changing them is allowed; changing them
      * silently is not.
+     *
+     * ── WHAT IT DOES NOT DO. This paragraph is the point of the case. ──────────
+     *
+     * The version before this one closed with „casts ARE an enumerable category … so a
+     * census of them is a complete check rather than a sample", and that sentence was the
+     * finding of its own round: it tells the next reviewer they may stop looking. Four ways
+     * in were then measured, each with `tsc` exit 0 and this census green:
+     *
+     * | | acquires the brand without an assertion this case can see |
+     * |---|---|
+     * | A1 | `JSON.parse(JSON.stringify([...targets, 'wss://…']))` — returns `any` |
+     * | A2 | `Object.assign([...targets, ...hints], targets)` — an intersection carries the brand |
+     * | A3 | `type Minted = FollowTargetSet` elsewhere, then `urls as Minted` — the text match below never sees an alias |
+     * | A4 | mutating the array handed to `mintTargetSet` — closed since, by copying there |
+     *
+     * Shortest forgery from the exported api, one expression, no `as`, no `any`:
+     * `Object.assign(noFollowTargets(), ['wss://attacker.example/'])`.
+     *
+     * A1 and A3 are **not** closed here and are not meant to be — chasing them one by one
+     * is the source walk again, in a new costume. What stands against them is
+     * `js/followClickGate.test.ts`: it counts the relays a read asks and the events a write
+     * sends, at the wire, where a widened set is extra traffic no matter which syntax
+     * produced it. If you are reviewing this area, that file is the instrument, and this
+     * one is a tripwire beside it.
      */
     test('CORE: the target-set brand is minted once, and no cast launders one', () => {
         /** `file` → assertion target type → how many. Measured, then pinned. */
@@ -942,16 +983,25 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         }
 
         // Repo-wide, because the type is exported: any file could mint one.
+        //
+        // RECURSIVE, and that word is the whole of finding S3. `readdirSync(JS_DIR)`
+        // without it sees the top level only, and `js/fixtures/` is a pre-existing
+        // subdirectory of ordinary TypeScript. A reviewer put a second minting site there,
+        // routed the real target set through it, and got `tsc` exit 0 with 123/123 green
+        // while this case still reported exactly one minter. A scanner that finds nothing
+        // because it looks nowhere reports the same thing as a clean tree.
+        const scanned: string[] = []
         const minters: string[] = []
-        for (const file of readdirSync(JS_DIR).filter((name: string) => name.endsWith('.ts'))) {
-            const tree = ts.createSourceFile(file, readFileSync(join(JS_DIR, file), 'utf8'), ts.ScriptTarget.Latest, true)
+        for (const entry of tsFilesUnder(JS_DIR)) {
+            scanned.push(entry)
+            const tree = ts.createSourceFile(entry, readFileSync(join(JS_DIR, entry), 'utf8'), ts.ScriptTarget.Latest, true)
             const walk = (node: ts.Node): void => {
                 if (
                     (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node))
                     && node.type.getText().includes('FollowTargetSet')
                 ) {
                     const enclosing = enclosingDeclarationName(node)
-                    minters.push(`${file}:${enclosing}`)
+                    minters.push(`${entry}:${enclosing}`)
                 }
                 ts.forEachChild(node, walk)
             }
@@ -963,6 +1013,24 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             `the brand is minted at ${minters.length} place(s): ${minters.join(', ') || '(none)'}. Exactly one, inside `
                 + 'mintTargetSet, is the whole assurance — a second one gives every caller back the cast the type '
                 + 'took away. None at all means the type no longer exists and the four bypasses are open again.',
+        )
+
+        // ── CALIBRATION of the scan itself ────────────────────────────────────
+        //
+        // Both halves are needed, and the second is the one S3 was about: a floor on the
+        // file count catches a walk that broke outright, but NOT a walk that silently
+        // stopped descending — the top level alone is well over any floor worth stating.
+        assert.ok(
+            scanned.length >= SCAN_FLOOR,
+            `the brand scan saw ${scanned.length} TypeScript files, expected at least ${SCAN_FLOOR}. It has stopped `
+                + 'reading the tree, and an empty finding list above means nothing while that is true.',
+        )
+        const fromSubdirectory = scanned.filter((entry: string) => entry.includes('/'))
+        assert.ok(
+            fromSubdirectory.length > 0,
+            'the brand scan saw no file from a subdirectory of js/. That is exactly the blind spot S3 measured: '
+                + '`js/fixtures/` is ordinary TypeScript, a minting site there is invisible to a flat readdir, and '
+                + 'the case above then passes without having looked.',
         )
     })
 

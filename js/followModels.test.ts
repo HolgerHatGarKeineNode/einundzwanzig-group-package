@@ -14,6 +14,7 @@ import {
     followWriteConfirmed,
     isFollowPersonTag,
     newestOwnEvent,
+    noFollowTargets,
     normalizeRelaySet,
     outboxKnowledgeOf,
     ownFollowList,
@@ -143,6 +144,52 @@ describe('followRelayTargets: one set, and the space is not in it', () => {
 
     test('CORE confirmed-none: the fallback set, and nothing of the declaration', () => {
         assert.deepEqual(followRelayTargets('confirmed-none', [], [FALLBACK, FALLBACK_2]), [FALLBACK, FALLBACK_2])
+    })
+
+    /**
+     * **A4: the set that comes out never aliases anything the caller still holds — and the
+     * review's version of this finding does not reproduce.**
+     *
+     * The finding as it was handed down had two halves: that
+     * `followRelayTargets('listed', [a, b], [])` hands back the caller's own array, and
+     * that `readonly` is a statement about a type rather than a guard on a value. The
+     * second half is true and worth keeping in mind. **The first half is not**, and it was
+     * measured rather than argued: at `9ff152a`, before `mintTargetSet` copied anything,
+     *
+     *     followRelayTargets('listed', declared, []) === declared   // false
+     *     declared.push('wss://attacker.example/')                  // targets stays at two
+     *
+     * because {@link normalizeRelaySet} sits in the path and allocates a fresh array on
+     * every call. So there was nothing to exploit, and this case passes at `9ff152a`
+     * exactly as it does here.
+     *
+     * **Which makes this a DOUBLY secured assurance, and that is why the case is written
+     * about the contract rather than about the copy.** Two independent allocations uphold
+     * it — `normalizeRelaySet` and, since the copy in `mintTargetSet`, the mint itself.
+     * Removing either one alone leaves this green; removing both turns it red. Measured
+     * both ways, and the second step is the one that shows the copy carries anything at
+     * all. The copy is kept because the invariant then belongs to the function that hands
+     * the value out, instead of depending on a helper further up continuing to allocate.
+     */
+    test('CORE: the minted set is a COPY — mutating the source afterwards cannot widen it', () => {
+        const declared = [OUTBOX, OUTBOX_2]
+        const targets = followRelayTargets('listed', declared, [])
+        declared.push(FALLBACK)
+        assert.deepEqual(
+            [...targets],
+            [OUTBOX, OUTBOX_2],
+            'the caller still holds a handle on the array the target set is made of. A push through it widens a '
+                + 'set the type says is readonly, and both the completeness verdict and the write follow it.',
+        )
+        // The same for the empty set, handed out at every early exit of `readOwnFollowList`:
+        // two callers must not end up holding one array between them, or a mutation through
+        // either reaches the other.
+        assert.notEqual(
+            noFollowTargets(),
+            noFollowTargets(),
+            'two calls of noFollowTargets() returned the SAME array. One caller mutating it at runtime then '
+                + 'widens the target set of an unrelated read.',
+        )
     })
 
     test('CORE unknown: the EMPTY set — nothing is read, so nothing can be written', () => {
