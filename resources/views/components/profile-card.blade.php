@@ -201,9 +201,24 @@
                                  x-show="$store.follows?.canFollow" x-cloak
                                  x-bind:aria-busy="$store.follows?.busy ? 'true' : 'false'"
                                  x-bind:aria-disabled="$store.follows?.listSeen ? null : 'true'"
-                                 x-bind:aria-label="$store.follows?.listSeen ? null : @js(__('Kontaktliste wird geladen — Folgen ist noch nicht möglich'))"
+                                 x-bind:aria-label="$store.follows?.listSeen ? null : ($store.follows?.noRelayList ? @js(__('Kontaktliste laden — danach kannst du folgen')) : @js(__('Kontaktliste wird geladen — Folgen ist noch nicht möglich')))"
                                  x-on:click="$store.follows?.toggle(pubkey)">
-                        <span x-text="!$store.follows?.listSeen ? @js(__('Lädt…')) : ($store.follows?.isFollowing(pubkey) ? @js(__('Entfolgen')) : @js(__('Folgen')))"></span>
+                        {{-- ── The third state has TWO wordings, and the difference is honesty (D8) ──
+                             `listSeen` false means „we have not read the list". For a
+                             reader with a NIP-65 list that read is running right now, so
+                             „Lädt…" is true. For a reader without one, F7 deliberately
+                             does NOT read on a page load — asking four relays they never
+                             chose, on every view, is a presence signal for nothing — so
+                             the read starts on the click. „Lädt…" would then claim a load
+                             that is not happening and offer no way out of it.
+
+                             `noRelayList` is exactly that group (it comes from
+                             `OutboxKnowledge` = `confirmed-none`, set by the arming pass,
+                             which still resolves the relay list). The label invites the
+                             click that does the reading. The click itself is unchanged:
+                             since P1 a click while `listSeen` is false is a read and never
+                             a write. --}}
+                        <span x-text="!$store.follows?.listSeen ? ($store.follows?.noRelayList ? @js(__('Kontaktliste laden')) : @js(__('Lädt…'))) : ($store.follows?.isFollowing(pubkey) ? @js(__('Entfolgen')) : @js(__('Folgen')))"></span>
                     </flux:button>
                 </div>
                 <flux:text x-show="$store.follows?.error" x-cloak data-person-follow-fehler

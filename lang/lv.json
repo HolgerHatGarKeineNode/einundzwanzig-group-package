@@ -1348,5 +1348,7 @@
     "Diese Relais haben die Änderung nicht übernommen: :relays.": "Šie Relay nepieņēma izmaiņas: :relays.",
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "Kontaktu sarakstu neizdevās nolasīt. Nekas netika mainīts.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Tev nav norādīts Relay saraksts (NIP-65). Tāpēc tavs kontaktu saraksts tiek rakstīts uz vispārīgiem publiskiem Relay.",
-    "Die Kontaktliste sieht kleiner aus als zuletzt bekannt. Es wurde nichts geschrieben — bitte versuch es noch einmal.": "Tavs kontaktu saraksts izskatās mazāks nekā pēdējoreiz. Nekas netika ierakstīts — lūdzu, mēģini vēlreiz."
+    "Die Kontaktliste sieht unvollständig aus — kleiner als das, was zuletzt bekannt war. Es wurde nichts geschrieben, bitte versuch es noch einmal.": "Tavs kontaktu saraksts izskatās nepilnīgs — mazāks nekā pēdējais zināmais. Nekas netika ierakstīts, lūdzu, mēģini vēlreiz.",
+    "Kontaktliste laden": "Ielādēt kontaktu sarakstu",
+    "Kontaktliste laden — danach kannst du folgen": "Ielādē savu kontaktu sarakstu — pēc tam vari sekot"
 }

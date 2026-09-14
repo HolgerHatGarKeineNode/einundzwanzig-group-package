@@ -123,14 +123,19 @@ const WRITE_GUARDS: Readonly<Record<string, number>> = {
     readOwnRelayList: 1,
     readRelayListFrom: 1,
     planFollowWrite: 1,
-    followedPubkeysOf: 3,
+    followedPubkeysOf: 2,
     mayWriteKind: 1,
     // K8 — the floor. Called once by the gate's own module and once here, for the message:
     // a refusal nobody can read is the worst version of this one, because it fires exactly
     // where every other explanation has already failed.
     followWriteShrinksBelowKnown: 1,
-    knownFollowCount: 2,
-    rememberFollowCount: 1,
+    knownFollowCount: 1,
+    floorAfterRead: 1,
+    knownContentNonEmpty: 1,
+    rememberFollowRead: 1,
+    setFollowCount: 1,
+    followWriteBlanksKnownContent: 1,
+    followedPubkeysIn: 1,
     // F5 — the base read must go through a context of its own.
     baseReadContext: 1,
     requestOneWithoutRepository: 1,
@@ -836,6 +841,53 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
     })
 
     /**
+     * **D7: the target argument is a BINDING, not an expression — asked of the AST.**
+     *
+     * The previous version of the F6 latch pinned literals at the consuming call sites
+     * (`followListAnswered(targetReads, targets)`, `publishSpreadOptimistic(read.targets…)`).
+     * The reviewer walked past all of them with one edit a level earlier:
+     * `readFollowListsFrom([...targets, ...hints], hints, …)` makes the hints a completeness
+     * voice AND a write target while every pinned literal stands untouched. 2921/2921 green.
+     *
+     * So this asks what actually flows in: the first argument of every call has to be a
+     * plain identifier. A spread, an array literal, a `concat` — anything that could widen
+     * the set on the way in — is a different node kind and fails here.
+     */
+    test('CORE: nothing is mixed INTO the target set on the way to the read', () => {
+        const quelle = readFileSync(join(JS_DIR, WRITER), 'utf8')
+        const baum = ts.createSourceFile(WRITER, quelle, ts.ScriptTarget.Latest, true)
+        const argumente: string[] = []
+        const walk = (node: ts.Node): void => {
+            if (
+                ts.isCallExpression(node)
+                && ts.isIdentifier(node.expression)
+                && node.expression.text === 'readFollowListsFrom'
+            ) {
+                const erstes = node.arguments[0]
+                argumente.push(erstes ? `${ts.SyntaxKind[erstes.kind]}:${erstes.getText()}` : '(none)')
+            }
+            ts.forEachChild(node, walk)
+        }
+        walk(baum)
+
+        assert.equal(
+            argumente.length,
+            2,
+            `${WRITER}: ${argumente.length} call(s) of readFollowListsFrom, expected 2 — the read and the `
+                + 're-read after a write.',
+        )
+        for (const argument of argumente) {
+            assert.ok(
+                /^Identifier:\w+$|^PropertyAccessExpression:read\.targets$/.test(argument),
+                `${WRITER}: the target set of a readFollowListsFrom call is \`${argument}\`. It has to be the `
+                    + 'binding that was drawn once — anything assembled here can fold a read-only source into '
+                    + 'the set that votes on completeness and gets written to, which is what every literal '
+                    + 'pinned further down is blind to.',
+            )
+        }
+    })
+
+    /**
      * **K8: the floor is inside the gate, and it is fed.**
      *
      * A rule that lives in `followModels.ts` and is never given a high-water mark measures
@@ -847,20 +899,32 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
     test('CORE: the high-water mark is kept per identity and reaches the gate', () => {
         const quelle = flattenWhitespace(quelleDesWriters())
         assert.ok(
-            quelle.includes('const followCountKey = (self: string): string | null => (self ? `e21:follows:count:${self}` : null)'),
+            quelle.includes('const followMemoryKey = (self: string): string | null => (self ? `e21:follows:count:${self}` : null)'),
             `${WRITER}: the mark is no longer kept per identity. A shared key hands the next reader on this `
                 + 'device somebody else\'s contact count, and a wrong mark here refuses writes.',
         )
         assert.ok(
-            quelle.includes('rememberFollowCount(self, followedPubkeysOf(list).length)'),
-            `${WRITER}: the mark is no longer raised from what the relays showed, so it stays at 0 and the `
-                + 'floor never refuses anything.',
+            quelle.includes('if (answered) { rememberFollowRead(self, [...targetReads, ...hintReads]) }'),
+            `${WRITER}: the mark is no longer raised from a COMPLETE read over ALL reads of the round. Feeding `
+                + 'it from the winner sets the floor to the size of a newer, smaller event (D2); feeding it '
+                + 'from a degraded round raises it out of a fault and refuses both directions afterwards (D3).',
         )
         assert.ok(
-            quelle.includes('if (!key || count <= knownFollowCount(self)) {'),
-            `${WRITER}: the mark is no longer monotone. A read that found less would then lower the floor that `
-                + 'protects everything else — which is the failure it exists to catch.',
+            quelle.includes('count: floorAfterRead(reads, previous.count)'),
+            `${WRITER}: the floor is no longer moved by the one function that decides both directions. Raising `
+                + 'and lowering split into two places is how "may it come down" and "come down to what" drift '
+                + 'apart — and the lowering has four conditions that only hold together.',
         )
+        assert.ok(
+            quelle.includes('setFollowCount(me, followedPubkeysIn(plan.tags).length)'),
+            `${WRITER}: the mark can no longer come down after a write this client made. It is then monotone `
+                + 'upwards again, and an ordinary second unfollow is refused — measured as at most one unfollow '
+                + 'per follow (D1).',
+        )
+        // What the storage DOES — that a written value comes back, per identity, monotone
+        // for reads and settable by a write — is measured in `js/followMemory.test.ts`
+        // against a localStorage stand-in. Literals cannot say it: neutralising `setItem`
+        // inside the helper left every literal here intact and the whole suite green.
     })
 
     /**

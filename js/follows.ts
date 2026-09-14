@@ -125,11 +125,14 @@ import {
     anyRelayAnswered,
     armingReadsContactList,
     declaredWriteRelaysOf,
+    floorAfterRead,
+    followedPubkeysIn,
     followedPubkeysOf,
     followListAnswered,
     followListWins,
     followRelayTargets,
     followWriteConfirmed,
+    followWriteBlanksKnownContent,
     followWriteShrinksBelowKnown,
     newestOwnEvent,
     normalizeRelaySet,
@@ -250,9 +253,17 @@ export const FOLLOW_FALLBACK_RELAYS: readonly string[] = DEFAULT_RELAYS
  *
  * ── Why an extra SOURCE is strictly safer and not laxer ────────────────────────
  *
- * A source can only ever raise the base: {@link winningFollowList} takes the NIP-01 winner
- * across every read, so one more read can replace `null` with a real list or an older list
- * with a newer one, and can never do the opposite. What would make it laxer is letting it
+ * A source can only ever move the base FORWARD IN TIME: {@link winningFollowList} takes the
+ * NIP-01 winner across every read, so one more read can replace `null` with a real list or
+ * an older list with a newer one, and can never do the opposite.
+ *
+ * **„Forward in time" is not „larger", and the first version of this sentence said
+ * „raise", which was wrong.** A newer event can carry fewer entries — that is what an
+ * unfollow is, and it is also what the one-tag stub of every finding on this path looks
+ * like. Measured: targets serving the real 700-entry list plus a hint serving a newer,
+ * validly signed one-entry event yields a base of one. The base is then correct by NIP-01
+ * and small, which is why the floor is fed by {@link rememberFollowRead} from the maximum
+ * over ALL reads and not from the winner. What would make it laxer is letting it
  * vote — either as a write target (then we replace a copy on a relay whose answer we did
  * not require) or as a completeness voice (then a hint answering could stand in for a
  * target that did not). It does neither, and the latch in `followWriteGate.test.ts` goes
@@ -264,53 +275,144 @@ export const FOLLOW_FALLBACK_RELAYS: readonly string[] = DEFAULT_RELAYS
 export const FOLLOW_BASE_HINT_RELAYS: readonly string[] = DEFAULT_RELAYS
 
 /**
- * **The high-water mark of this identity — the number {@link followWriteShrinksBelowKnown}
- * measures against (K8).**
+ * **What this device has learned about this identity's contact list.**
  *
- * Per pubkey and never shared, the same shape and the same reasoning as `progressKey()` in
+ * Two numbers-worth of memory, one record, because they are written at the same moments
+ * and read at the same moment: the high-water mark {@link followWriteShrinksBelowKnown}
+ * measures against, and whether the last complete read found a non-empty `content`.
+ *
+ * Per pubkey and never shared, the same shape and reasoning as `progressKey()` in
  * `js/verein.ts`: a collective key would hand the next reader on this device somebody
- * else's contact count, and a wrong mark here refuses writes. `null` without a pubkey.
+ * else's contact count, and a wrong value here refuses writes.
  */
-const followCountKey = (self: string): string | null => (self ? `e21:follows:count:${self}` : null)
+type FollowMemory = { count: number; content: boolean }
+
+const FOLLOW_MEMORY_NONE: FollowMemory = { count: 0, content: false }
+
+const followMemoryKey = (self: string): string | null => (self ? `e21:follows:count:${self}` : null)
 
 /**
- * The largest contact count ever seen for `self`, or `0`.
- *
- * `0` for an unknown identity is the right default and not a fallback: the guard can only
- * be as informed as this reader's own history, and a first write must go through.
- * `localStorage` throws in some WebView configurations on access alone, hence the `try` —
- * and a broken store degrades to „no history", which is the direction that refuses nothing.
+ * `{count: 0, content: false}` for an unknown identity, and that is the right default
+ * rather than a fallback: the floor can only be as informed as this reader's own history,
+ * and a first write must go through. `localStorage` throws in some WebView configurations
+ * on access alone, hence the `try` — and a broken store degrades to „no history", the
+ * direction that refuses nothing.
  */
-export const knownFollowCount = (self: string): number => {
-    const key = followCountKey(self)
+const readFollowMemory = (self: string): FollowMemory => {
+    const key = followMemoryKey(self)
     if (!key) {
-        return 0
+        return FOLLOW_MEMORY_NONE
     }
     try {
-        const raw = Number(localStorage.getItem(key))
+        const raw = localStorage.getItem(key)
+        if (!raw) {
+            return FOLLOW_MEMORY_NONE
+        }
+        const parsed = JSON.parse(raw) as Partial<FollowMemory>
+        const count = Number(parsed?.count)
 
-        return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0
+        return { count: Number.isFinite(count) && count > 0 ? Math.floor(count) : 0, content: parsed?.content === true }
     } catch {
-        return 0
+        return FOLLOW_MEMORY_NONE
     }
 }
 
-/**
- * Raise the mark. **Monotone up, by construction** — it records the largest list we have
- * ever seen, so a read that found less (a slow relay, a filtered response, a genuine mass
- * unfollow elsewhere) must not lower the floor that protects the rest.
- */
-export const rememberFollowCount = (self: string, count: number): void => {
-    const key = followCountKey(self)
-    if (!key || count <= knownFollowCount(self)) {
+const writeFollowMemory = (self: string, value: FollowMemory): void => {
+    const key = followMemoryKey(self)
+    if (!key) {
         return
     }
     try {
-        localStorage.setItem(key, String(count))
+        localStorage.setItem(key, JSON.stringify(value))
     } catch {
         // A store that refuses to write costs the guard its memory, never a write its
-        // safety: `knownFollowCount` then keeps returning the older, smaller number.
+        // safety: the reads below keep returning the older, smaller number.
     }
+}
+
+/** The largest contact count ever seen for `self`, or `0`. */
+export const knownFollowCount = (self: string): number => readFollowMemory(self).count
+
+/** Did the last complete read of `self`'s list find a non-empty `content`? */
+export const knownContentNonEmpty = (self: string): boolean => readFollowMemory(self).content
+
+/**
+ * **What a COMPLETE read taught us.** The only way the mark moves from a read (D2, D3, b).
+ *
+ * ── `count` is the maximum over ALL reads, not the count of the winner (D2) ─────
+ *
+ * The winner is the NIP-01 newest, and „newest" says nothing about „largest". Measured:
+ * the targets serve the real 700-entry list while a read-only hint serves a newer, validly
+ * signed ONE-entry event; the winner is the stub, and feeding the mark from it set the
+ * floor to 1 — the floor then waved through the very write it exists to stop. The maximum
+ * over every read cannot be lowered by a newer smaller event, and the F6 hints are exactly
+ * the reads that make the difference.
+ *
+ * **The docblock at {@link FOLLOW_BASE_HINT_RELAYS} used to say „a source can only ever
+ * raise the base". That is true over TIME and false over CONTENT**, and this is where the
+ * difference bites.
+ *
+ * ── Only from a read that passed the verdict (D3) ──────────────────────────────
+ *
+ * A round that may not write may not raise the floor either. Measured: with both targets
+ * silent and a hint carrying an older, larger, validly signed list of 712, the mark went
+ * to 712, and the next perfectly healthy read of the real 700 was then refused in BOTH
+ * directions — permanently, with no path back. A degraded read is not evidence about this
+ * identity; it is evidence about the network.
+ *
+ * ── And since variant (b), a read may lower it — under four conditions ─────────
+ *
+ * A monotone floor made a mass unfollow on another device a permanent lock-out: the mark
+ * stays at 700, both directions are refused, and because nothing can be written the mark
+ * never comes down either. {@link floorAfterRead} carries the four conditions and the
+ * check of each of them against every finding this module has had; the short form is that
+ * no single relay can cause it and none of the known failure shapes satisfies all four.
+ *
+ * `content` is taken from the same reads and only when at least one of them carried a
+ * list: all-null says nothing about the content, and writing `false` there would silently
+ * drop the second half of the floor.
+ */
+export const rememberFollowRead = (self: string, reads: readonly FollowRelayRead[]): void => {
+    const lists = reads.map((read: FollowRelayRead) => read.list).filter(Boolean) as FollowEventLike[]
+    if (!self || lists.length === 0) {
+        return
+    }
+    const previous = readFollowMemory(self)
+    writeFollowMemory(self, {
+        count: floorAfterRead(reads, previous.count),
+        content: lists.some((list: FollowEventLike) => list.content !== ''),
+    })
+}
+
+/**
+ * **The one way the mark comes DOWN: a write this client made itself (D1).**
+ *
+ * ── Why it has to be able to come down at all ──────────────────────────────────
+ *
+ * A monotone mark and ordinary unfollowing are mutually exclusive, and the first version
+ * chose the mark. Measured end to end over the real gate with 20 contacts: one unfollow
+ * went through, the second and third were refused, an add restored the count, and only
+ * then did a fourth unfollow work. **At most one unfollow per follow** — „unfollow A on
+ * Monday, B on Tuesday" was broken, which is not the mass-cleanup case the docblock
+ * claimed as the price, and the message told the reader to retry something that could
+ * never succeed.
+ *
+ * ── Why THIS number and not the one from the re-read ───────────────────────────
+ *
+ * The count of the event we just published. It is not a guess: the plan was built from a
+ * base that had already cleared every refusal above it, including the floor — so it is the
+ * one number on this path that a complete answer covers. Taking it from the re-read
+ * instead would make the floor depend on a second round trip that frequently comes back
+ * empty (the events are already in the tracker from the publish, so they arrive as
+ * duplicates and never reach the result), and „empty" would then set the mark to zero.
+ *
+ * Reads still only raise. This is the sole exception, and it is bounded by what we wrote.
+ */
+export const setFollowCount = (self: string, count: number): void => {
+    if (!self) {
+        return
+    }
+    writeFollowMemory(self, { count, content: readFollowMemory(self).content })
 }
 
 /** For which `url|pubkey` this module has already armed — `''` = for none. */
@@ -430,6 +532,29 @@ const readFollowListFrom = async (url: string, self: string): Promise<FollowRela
 /**
  * Read our own kind 10002 from ONE relay. Same construction and same reasoning as
  * {@link readFollowListFrom} — the `EOSE` has to stay attributable to this relay.
+ */
+/**
+ * **This read still runs WITH the repository, and that is a near-miss worth naming.**
+ *
+ * `readFollowListFrom` had to lose the repository from its context (F5) because
+ * `@welshman/net` drops every event `repository.isDeleted(event)` accepts, before the
+ * signature and filter checks and without touching the `EOSE`. The same thing happens
+ * here: measured, this read returns zero events for a relay that did send the kind 10002,
+ * once a newer copy of it sits in the repository.
+ *
+ * It is harmless **today**, and only for one reason: {@link readOwnRelayList} carries the
+ * repository's own newest copy into `candidates` as a voteless source, so the declaration
+ * survives the filter by another route. It becomes a finding the moment either of these
+ * changes:
+ *
+ *  · `cached` is dropped from `candidates`, or
+ *  · a kind 5 of the reader's own reaches the repository for their own 10002 address —
+ *    then `isDeleted` holds for every copy and `cached` is empty too.
+ *
+ * Left as it is rather than widened: the contact-list read needed the narrow fix it got,
+ * and taking the repository out of every read in this module would drop a protection
+ * nobody asked to lose. The latch next door pins that this read keeps the ordinary
+ * adapter, so a silent change here is visible.
  */
 const readRelayListFrom = async (url: string, self: string): Promise<FollowRelayRead> => {
     let answered = false
@@ -580,8 +705,11 @@ const readFollowListsFrom = async (
     const hintReads = await Promise.all(hints.map((hint: string) => readFollowListFrom(hint, self)))
     const answered = followListAnswered(targetReads, targets)
     const list = winningFollowList([...targetReads, ...hintReads])
-    if (list) {
-        rememberFollowCount(self, followedPubkeysOf(list).length)
+    // D3: a round that may not write may not raise the floor either, and D2: what it
+    // learns comes from every read of the round, not from the winner. Both live in
+    // {@link rememberFollowRead}, which is why it takes the reads and not a number.
+    if (answered) {
+        rememberFollowRead(self, [...targetReads, ...hintReads])
     }
 
     return { answered, list, targets, unanswered: unansweredRelays(targetReads, targets), outbox }
@@ -851,16 +979,17 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                     add,
                     spaceKind,
                     knownContactCount: knownFollowCount(me),
+                    knownContentNonEmpty: knownContentNonEmpty(me),
                 }
                 const plan = planFollowWrite(eingabe)
                 if (!plan) {
                     if (!answer.answered) {
                         self.error = refusalReason(answer)
-                    } else if (followWriteShrinksBelowKnown(eingabe)) {
+                    } else if (followWriteShrinksBelowKnown(eingabe) || followWriteBlanksKnownContent(eingabe)) {
                         // THE FLOOR refused. Silent here would be the worst of both
                         // worlds: nothing written and nothing said, on the one path that
                         // exists because every other explanation has already failed.
-                        self.error = t('Die Kontaktliste sieht kleiner aus als zuletzt bekannt. Es wurde nichts geschrieben — bitte versuch es noch einmal.')
+                        self.error = t('Die Kontaktliste sieht unvollständig aus — kleiner als das, was zuletzt bekannt war. Es wurde nichts geschrieben, bitte versuch es noch einmal.')
                     }
 
                     return
@@ -952,6 +1081,9 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
         if (spread.delivered.length === 0) {
             return spread.error || writeRefused(read.targets)
         }
+        // D1: the one place the floor may come down. The number is the one we just
+        // published — see {@link setFollowCount} for why it is that and not the re-read's.
+        setFollowCount(me, followedPubkeysIn(plan.tags).length)
         const after = await readFollowListsFrom(read.targets, [], me, read.outbox)
         adoptReadList(after.list)
 

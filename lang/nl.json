@@ -1282,5 +1282,7 @@
     "Diese Relais haben die Änderung nicht übernommen: :relays.": "Deze Relays hebben de wijziging niet toegepast: :relays.",
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "De contactlijst kon niet worden gelezen. Er is niets gewijzigd.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Je hebt geen Relay-lijst (NIP-65) vastgelegd. Je contactlijst wordt daarom naar algemene publieke Relays geschreven.",
-    "Die Kontaktliste sieht kleiner aus als zuletzt bekannt. Es wurde nichts geschrieben — bitte versuch es noch einmal.": "Je contactlijst lijkt kleiner dan de vorige keer. Er is niets geschreven — probeer het opnieuw."
+    "Die Kontaktliste sieht unvollständig aus — kleiner als das, was zuletzt bekannt war. Es wurde nichts geschrieben, bitte versuch es noch einmal.": "Je contactlijst lijkt onvolledig — kleiner dan wat het laatst bekend was. Er is niets geschreven, probeer het opnieuw.",
+    "Kontaktliste laden": "Contactlijst laden",
+    "Kontaktliste laden — danach kannst du folgen": "Laad je contactlijst — daarna kun je volgen"
 }

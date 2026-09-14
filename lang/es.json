@@ -1282,5 +1282,7 @@
     "Diese Relais haben die Änderung nicht übernommen: :relays.": "Estos Relays no han aplicado el cambio: :relays.",
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "No se ha podido leer la lista de contactos. No se ha cambiado nada.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "No tienes ninguna lista de Relays (NIP-65) guardada. Por eso tu lista de contactos se escribe en Relays públicos generales.",
-    "Die Kontaktliste sieht kleiner aus als zuletzt bekannt. Es wurde nichts geschrieben — bitte versuch es noch einmal.": "Tu lista de contactos parece más pequeña que la última vez. No se ha escrito nada — inténtalo de nuevo."
+    "Die Kontaktliste sieht unvollständig aus — kleiner als das, was zuletzt bekannt war. Es wurde nichts geschrieben, bitte versuch es noch einmal.": "Tu lista de contactos parece incompleta — más pequeña que lo último que se conocía. No se ha escrito nada, inténtalo de nuevo.",
+    "Kontaktliste laden": "Cargar lista de contactos",
+    "Kontaktliste laden — danach kannst du folgen": "Carga tu lista de contactos — después podrás seguir"
 }
