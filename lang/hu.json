@@ -1276,5 +1276,6 @@
     "Verschlüsselte Nachricht schreiben": "Titkosított üzenet írása",
     "Lädt…": "Betöltés…",
     "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "A névjegylista betöltése folyamatban — a követés még nem lehetséges",
-    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "A névjegylista betöltődött. Kattints még egyszer."
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "A névjegylista betöltődött. Kattints még egyszer.",
+    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Ez a névjegylista ezen a Space-en kívül nem található meg, mert nincs Relay-listád (NIP-65) megadva."
 }

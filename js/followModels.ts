@@ -31,15 +31,33 @@
  *    stay: `["p", <pubkey>, <relay hint>, <petname>]`. A follow written here adds a bare
  *    two-element tag, but an existing entry keeps its hint and petname.
  *
- * ── Which relay this is written to ──────────────────────────────────────────────
+ * ── Which relays this is read from and written to (P2) ─────────────────────────
  *
- * The active space, like every other write in this client. Both relays accept kind 3:
- * Buzz maps `KIND_CONTACT_LIST` to `Scope::UsersWrite`
+ * **The outbox relays of the reader, plus the active space** — {@link followRelayTargets}.
+ * Until P2 it was the space and nothing else, and that turned the empty merge base from
+ * an edge case into the normal one: a closed NIP-29 relay stands in nobody's NIP-65 list,
+ * no foreign client writes a kind 3 there, so `list: null` meant "the one relay we asked
+ * does not hold it" far more often than "there is none".
+ *
+ * The space stays in the set rather than being replaced by the outbox: the members read
+ * each other there, and a reader without a kind 10002 would otherwise have no target at
+ * all.
+ *
+ * **What is unioned are the SOURCES, never the `p` tags.** Kind 3 is replaceable
+ * (NIP-01: „for kind `n` such that `10000 <= n < 20000 || n == 0 || n == 3`, events are
+ * replaceable"), so exactly one of the lists we collect is valid — {@link followListWins}
+ * picks it. Merging the tags of several relays instead would look like the friendlier
+ * choice and is a data corruption with its own failure class: it resurrects every
+ * unfollow a relay has not caught up with yet, silently and permanently, and every
+ * superficial test of it passes.
+ *
+ * Both relays accept kind 3: Buzz maps `KIND_CONTACT_LIST` to `Scope::UsersWrite`
  * (`crates/buzz-relay/src/handlers/ingest.rs`, the allowlist arm above the
  * `_ => Err("restricted: unknown event kind")` catch-all), zooid has no kind allowlist at
  * all. The gate below therefore denies only on `'unknown'`, which is `mayWriteKind`'s
  * fail-closed default while NIP-11 is still in flight.
  */
+import { normalizeRelayUrl } from '@welshman/util'
 import { FOLLOWS } from './welshmanKinds.ts'
 import { mayWriteKind } from './relayCapability.ts'
 import type { SpaceKind } from './spaceCaps.ts'
@@ -64,6 +82,33 @@ export const isFollowPersonTag = (tag: string[]): boolean =>
     tag[0] === FOLLOW_PERSON_TAG && typeof tag[1] === 'string' && tag[1] !== ''
 
 /**
+ * **Does `candidate` replace `incumbent`?** The NIP-01 ordering for replaceable events,
+ * written out because P2 asks it of lists from DIFFERENT relays and not just of two
+ * copies in one batch.
+ *
+ * NIP-01, verbatim: *„In case of replaceable events with the same timestamp, the event
+ * with the lowest id (first in lexical order) should be retained, and the other
+ * discarded."* The tie is not exotic here — `makeEvent` stamps `created_at` in **seconds**
+ * (`@welshman/util` `Events.js`), so two writes inside the same second carry the same
+ * number and the id decides. Without the second line every relay would be free to pick a
+ * different winner, and this client would agree with whichever one answered first.
+ *
+ * `>` and not `>=` on the timestamp, deliberately: with `>=` an equally old list would
+ * displace the incumbent and the id rule below would never be reached, which is the same
+ * "whoever answered last wins" the rule exists to remove.
+ */
+export const followListWins = (candidate: FollowEventLike, incumbent: FollowEventLike | null): boolean => {
+    if (!incumbent) {
+        return true
+    }
+    if (candidate.created_at !== incumbent.created_at) {
+        return candidate.created_at > incumbent.created_at
+    }
+
+    return candidate.id < incumbent.id
+}
+
+/**
  * This user's newest kind-3, or `null`.
  *
  * Newest per author and not simply "the first one": the repository keeps one event per
@@ -79,12 +124,124 @@ export const ownFollowList = (events: FollowEventLike[], self: string): FollowEv
         if (event.kind !== FOLLOWS || event.pubkey !== self) {
             continue
         }
-        if (!newest || event.created_at > newest.created_at) {
+        if (followListWins(event, newest)) {
             newest = event
         }
     }
 
     return newest
+}
+
+/**
+ * `normalizeRelayUrl`, but **without a throw** — `''` for anything unreadable.
+ *
+ * The same construction and the same reasoning as `normalisiereOderNichts` in
+ * `js/articleMetrics.ts`: `normalizeRelayUrl` throws a `TypeError` on garbage, and a
+ * throw while assembling the relay set of a contact list would take out the read AND the
+ * write for one malformed entry. An unreadable URL counts as **absent** instead, which
+ * neither invents a target nor removes a well-formed one.
+ *
+ * What it does NOT do, measured against the installed welshman 0.9.9 rather than assumed:
+ * `wss://host/` and `wss://host` collapse, `wss://HOST/` lowercases — but
+ * `wss://host./` stays distinct from `wss://host/`. A trailing dot is a different name in
+ * a URL and the same name in DNS; stripping it here would be this client deciding about
+ * somebody else's relay entry. It simply stays a second target, which for a write is
+ * harmless and for the verdict below is judged on its own.
+ */
+const followRelayUrl = (url: string): string => {
+    if (!url) {
+        return ''
+    }
+    try {
+        return normalizeRelayUrl(url)
+    } catch {
+        return ''
+    }
+}
+
+/**
+ * **The relays a contact list is read from and written to: outbox ∪ space.**
+ *
+ * The space is appended rather than substituted — see the module header. Order is
+ * outbox first, space last; the de-duplication keeps the first occurrence, so a space
+ * that is also an outbox relay appears once and is still in the set.
+ *
+ * Normalised before de-duplicating, and that is not decoration: a `Set` over raw strings
+ * splits `wss://host` from `wss://host/` into two targets, and this repo has been bitten
+ * by exactly that class of host comparison before. Both callers happen to hand over
+ * normalised URLs today (`eigeneOutboxUrls()` runs every entry through welshman's
+ * `makeSelection`, `activeSpace` through `normalizeRelayUrl` in `js/groups.ts`) — which
+ * is a property of the callers, not of this function, and the next caller will not have
+ * it.
+ */
+export const followRelayTargets = (outboxUrls: readonly string[], spaceUrl: string): string[] => {
+    const targets: string[] = []
+    for (const raw of [...outboxUrls, spaceUrl]) {
+        const url = followRelayUrl(raw)
+        if (url && !targets.includes(url)) {
+            targets.push(url)
+        }
+    }
+
+    return targets
+}
+
+/** What ONE relay answered when asked for our own contact list. */
+export type FollowRelayRead = {
+    /** The relay asked, normalised by {@link followRelayTargets}. */
+    url: string
+    /**
+     * **Did this relay close the read with an `EOSE`?** A timeout, a `CLOSED` and a
+     * hanging AUTH round are all `false` — this repo has measured that a hanging AUTH
+     * round swallows the `EOSE` entirely, and the answer then looks exactly like an
+     * empty list.
+     */
+    answered: boolean
+    /** The newest kind 3 of ours this relay held, or `null`. */
+    list: FollowEventLike | null
+}
+
+/**
+ * **The staged, fail-closed verdict: may a write be planned from what we just read?**
+ *
+ * | outbox | what has to have answered | why |
+ * |---|---|---|
+ * | non-empty | at least ONE outbox relay | the contact list lives there. An `EOSE` from the space alone says nothing about it, and treating it as an answer is precisely the defect P2 removes: the space almost never holds the list, so "answered, empty" became the normal reading of "we asked the wrong relay" |
+ * | empty | any relay that was asked, i.e. the space | there is no better source. Refusing here would make following impossible for every reader without a kind 10002, and this client cannot write one for them |
+ *
+ * The verdict is about the relays that ANSWERED, never about the lists they carried: a
+ * reader who genuinely follows nobody has an outbox relay that answers with zero events,
+ * and that is a complete answer.
+ */
+export const followListAnswered = (reads: readonly FollowRelayRead[], outboxUrls: readonly string[]): boolean => {
+    const outbox = new Set(outboxUrls.map(followRelayUrl).filter(Boolean))
+    const answered = reads.filter((read) => read.answered)
+    if (outbox.size > 0) {
+        return answered.some((read) => outbox.has(read.url))
+    }
+
+    return answered.length > 0
+}
+
+/**
+ * **The one valid list among the relays we asked** — the union of SOURCES resolved back
+ * to a single event, never a union of tags (module header).
+ *
+ * Every read counts here, including one from a relay that never sent its `EOSE`. That is
+ * deliberate and it is the opposite direction from {@link followListAnswered}: a list
+ * carried by an unanswered read is still a real, signed event of ours, and taking it into
+ * the comparison can only raise the winner's `created_at`, never lower it. Whether we may
+ * WRITE is the verdict's question; what the merge base IS, is this one.
+ */
+export const winningFollowList = (reads: readonly FollowRelayRead[]): FollowEventLike | null => {
+    let winner: FollowEventLike | null = null
+    for (const read of reads) {
+        if (read.list && followListWins(read.list, winner)) {
+            winner = read.list
+        }
+    }
+
+    return winner
 }
 
 /** The followed pubkeys of one list, in list order, deduplicated. */
@@ -123,11 +280,21 @@ export type FollowWrite = { kind: number; content: string; tags: string[][] }
 
 /** What {@link planFollowWrite} needs to answer. */
 export type FollowPlanInput = {
-    /** Our own newest kind 3 as the relay last showed it, or `null` for "there is none". */
+    /**
+     * Our own newest kind 3, as {@link winningFollowList} resolved it across the relays
+     * that were asked — or `null`.
+     *
+     * **Since P2 `null` next to `listAnswered: true` really does mean "there is none".**
+     * Before P2 the read went to the space relay alone, where a contact list practically
+     * never lives, so `null` mostly meant "we asked the wrong relay" and the pair below
+     * could not tell the two apart. It is the relay SET that fixed that, not this gate.
+     */
     list: FollowEventLike | null
     /**
-     * **Did the relay answer the read that produced `list`?** `false` also covers "not
-     * asked yet" — the two are the same thing here, and both must refuse.
+     * **Did the read that produced `list` come back answered?** From
+     * {@link followListAnswered}, which is stricter than "some relay said `EOSE`": with a
+     * NIP-65 list on file it takes an `EOSE` from an OUTBOX relay. `false` also covers
+     * "not asked yet" — the two are the same thing here, and both must refuse.
      */
     listAnswered: boolean
     /** The person to follow or unfollow. */
@@ -156,7 +323,7 @@ const sameTags = (a: string[][], b: string[][]): boolean =>
  * |---|---|
  * | `!target` / `!self` | an empty `p` tag, or a guest write with no key |
  * | `target === self` | following yourself — harmless on the wire, but it puts a row in every reader's contact list that means nothing, and the button would offer "unfollow yourself" forever |
- * | `!listAnswered` | **the replaceable-kind data loss**: we replace the relay's contact list with the entries we happen to know, and every follow made on another device is deleted |
+ * | `!listAnswered` | **the replaceable-kind data loss**: we replace the relay's contact list with the entries we happen to know, and every follow made on another device is deleted. Since P2 the verdict behind this flag is the staged one in {@link followListAnswered} — an `EOSE` from the space relay alone no longer clears it while the reader has an outbox |
  * | `!mayWriteKind` | a write while the relay kind is still `'unknown'`, i.e. a guess about which relay we are talking to |
  * | `sameTags` | a signed event that changes nothing — a double click, or a second device that got there first |
  *

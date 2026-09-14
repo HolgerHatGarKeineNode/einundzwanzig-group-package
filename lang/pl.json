@@ -1309,5 +1309,6 @@
     "Verschlüsselte Nachricht schreiben": "Napisz zaszyfrowaną wiadomość",
     "Lädt…": "Wczytywanie…",
     "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Wczytywanie listy kontaktów — obserwowanie nie jest jeszcze możliwe",
-    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Lista kontaktów została wczytana. Kliknij jeszcze raz."
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Lista kontaktów została wczytana. Kliknij jeszcze raz.",
+    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Tej listy kontaktów nie da się znaleźć poza tym Space, bo nie masz zapisanej listy Relays (NIP-65)."
 }

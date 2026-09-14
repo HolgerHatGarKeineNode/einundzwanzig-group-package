@@ -209,6 +209,29 @@
                 <flux:text x-show="$store.follows?.error" x-cloak data-person-follow-fehler
                            class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="$store.follows?.error"></flux:text>
 
+                {{-- ── The reach of this list, said once and plainly (P2) ─────────────
+                     Since P2 the contact list goes to the reader's outbox relays AND the
+                     space. For a reader with no NIP-65 list there is no outbox, so it
+                     goes to the space alone — and there it is invisible to every other
+                     client they use, because kind 3 is exactly the object those clients
+                     build their feed from.
+
+                     The write still happens. A gate here would be a dead end: this
+                     client has no write path for kind 10002 (`RelayLists.update`,
+                     `setWriteUrls`, `addWriteUrl` appear nowhere in `js/`), so the
+                     reader could not satisfy it. A sentence they can act on elsewhere is
+                     the honest answer; a blocked button would not be.
+
+                     Gated on `listSeen` as well, and that is the whole point: before a
+                     read has come back, „no relay list" and „nobody has looked" are the
+                     same empty outbox, and only one of them is a statement about this
+                     reader. `js/follows.ts` sets both fields from the same answer. --}}
+                <flux:text x-show="$store.follows?.canFollow && $store.follows?.listSeen && $store.follows?.listSpaceOnly"
+                           x-cloak data-person-follow-lokal
+                           class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    {{ __('Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.') }}
+                </flux:text>
+
                 {{-- ── Hide a person (P6, NIP-51 kind 10000) ──────────────────────────
                      The COUNTERPART of "Raum stummschalten": different kind, different
                      list, different word, different icon (`eye-slash` instead of

@@ -1276,5 +1276,6 @@
     "Verschlüsselte Nachricht schreiben": "Escribir un mensaje cifrado",
     "Lädt…": "Cargando…",
     "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Cargando tu lista de contactos — todavía no es posible seguir",
-    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Tu lista de contactos ya está cargada. Haz clic de nuevo."
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Tu lista de contactos ya está cargada. Haz clic de nuevo.",
+    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Esta lista de contactos no se encuentra fuera de este Space, porque no tienes ninguna lista de Relays (NIP-65) guardada."
 }

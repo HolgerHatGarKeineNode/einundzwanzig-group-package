@@ -1276,5 +1276,6 @@
     "Verschlüsselte Nachricht schreiben": "Een versleuteld bericht schrijven",
     "Lädt…": "Laden…",
     "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Je contactlijst wordt geladen — volgen is nog niet mogelijk",
-    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Je contactlijst is nu geladen. Klik nog een keer."
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Je contactlijst is nu geladen. Klik nog een keer.",
+    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Deze contactlijst is buiten deze Space niet te vinden, omdat je geen Relay-lijst (NIP-65) hebt vastgelegd."
 }

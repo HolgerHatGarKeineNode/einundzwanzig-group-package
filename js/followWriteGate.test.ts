@@ -1,6 +1,10 @@
 /**
- * **P1 latch: the follow button never claims to know, and only one module writes a kind 3.**
+ * **P1/P2 latch: a kind 3 is written from what the RIGHT relays showed us, or not at all.**
  *   node --test --experimental-strip-types packages/einundzwanzig-group/js/followWriteGate.test.ts
+ *
+ * P1: the follow button never claims to know, and only one module builds a kind 3.
+ * P2: that module reads and writes outbox ∪ space, and the verdict it trusts is staged —
+ * an `EOSE` from the space relay alone no longer licenses a write.
  *
  * ── What the behaviour test next door cannot promise ───────────────────────────
  *
@@ -11,8 +15,8 @@
  * says „Folgen" while nothing has been read is the defect this phase exists for.
  *
  * So this latch measures the WIRING and the MARKUP: who may build the event, whose answer
- * the write decision is, where the `listSeen` verdict comes from, and whether the button
- * still announces the third state.
+ * the write decision is, where the `listSeen` verdict comes from, which relays the read and
+ * the write go to, and whether the button still announces the third state.
  *
  * ── What is at stake ──────────────────────────────────────────────────────────
  *
@@ -84,21 +88,41 @@ const CARD_PATH = join(JS_DIR, '..', 'resources', 'views', 'components', 'profil
  * | call | what a removal breaks in production |
  * |---|---|
  * | `readOwnFollowList` | three times: arming (the `listSeen` verdict), the merge base of a write, and the re-read that checks the relay meant its `OK`. Drop the first and the button never leaves the unknown state; drop the second and every write is blind; drop the third and a `created_at` that lost the race counts as delivered |
+ * | `readFollowListFrom` | the per-relay read. Replace it with one `load` over the set and the `EOSE` becomes a single merged verdict that can no longer say WHICH relay answered — the staged rule below is then undecidable |
  * | `planFollowWrite` | the whole gate — no-answer, self-follow, unknown relay kind and no-op all leave the path at once |
  * | `followedPubkeysOf` | twice: the rendered list, and the DIRECTION of a click. Drop the second and `add` comes from a cache that is empty until a relay answers |
  * | `mayWriteKind` | the card offers an action on a space whose kind is still in flight |
  * | `followWriteConfirmed` | a replaceable event dropped for a stale `created_at` reads as success |
- * | `publishOptimistic` | nothing reaches the relay; the local store carries a follow that exists nowhere |
+ * | `publishSpreadOptimistic` | nothing reaches the relays; the local store carries a follow that exists nowhere. The SPREAD form specifically: `publishOptimistic` flattens the per-relay outcome back to one string, and then a write that landed on two of three relays is rolled back in the interface |
  * | `makeEvent` | exactly one place builds the event — a second is a second way to the relay, past the gate |
+ *
+ * **P2 added six, and every one of them is a step no behaviour test of the pure half can
+ * see** — the pure functions keep passing while the writer stops asking them:
+ *
+ * | call | what a removal breaks in production |
+ * |---|---|
+ * | `eigeneOutboxUrls` | twice: the read set and the write set. Drop either and that direction is back to the space relay alone, which is the whole defect P2 removes |
+ * | `followRelayTargets` | twice, same two directions. This is where the space stays IN the set next to the outbox; without it a reader with no kind 10002 has no target at all |
+ * | `followListAnswered` | the staged verdict. Without it `answered` falls back to "somebody said EOSE", the space qualifies, and a kind 3 with one entry is what gets published |
+ * | `winningFollowList` | the NIP-01 resolution across relays. Replace it with a tag union and every unfollow a relay has not caught up with comes back — silently, permanently, and looking like success |
+ * | `followListWins` | twice: the rendered list and the adoption of a read. Drop it and the label is decided by whichever answer arrived last |
+ * | `adoptReadList` | three times: arming, a click, and the re-read after a write. Drop them and the card renders the space relay's copy while `toggle()` decides from the real one — a button labelled „Folgen" that unfollows |
  */
 const WRITE_GUARDS: Readonly<Record<string, number>> = {
     readOwnFollowList: 3,
+    readFollowListFrom: 1,
     planFollowWrite: 1,
     followedPubkeysOf: 2,
     mayWriteKind: 1,
     followWriteConfirmed: 1,
-    publishOptimistic: 1,
+    publishSpreadOptimistic: 1,
     makeEvent: 1,
+    eigeneOutboxUrls: 2,
+    followRelayTargets: 2,
+    followListAnswered: 1,
+    winningFollowList: 1,
+    followListWins: 2,
+    adoptReadList: 3,
 }
 
 /** Names of the write half that must have exactly one caller in the whole production tree. */
@@ -157,7 +181,31 @@ const folgenKnopf = (): string => {
     return flattenWhitespace(active.slice(start, ende + '</flux:button>'.length))
 }
 
-describe('P1 latch: a follow is never written blind, and the button never guesses', () => {
+/**
+ * The P2 notice under the button — „this list is not findable outside this space" — whole,
+ * with whitespace flattened.
+ *
+ * Sliced out of the ACTIVE markup for the same reason as the button: the comment above it
+ * explains the gating in prose and names both fields, so a scanner that read the comments
+ * would pass on the strength of the explanation alone.
+ */
+const lokalHinweis = (): string => {
+    const { active } = readBlade(CARD_PATH, CARD)
+    const anker = active.indexOf('data-person-follow-lokal')
+    assert.ok(
+        anker > 0,
+        `${CARD}: no element carries data-person-follow-lokal. A reader without a NIP-65 relay list then gets `
+            + 'told nothing: their contact list is written to the space relay only, where no other client of '
+            + 'theirs will ever look for it, and the surface claims a reach the list does not have.',
+    )
+    const start = active.lastIndexOf('<flux:text', anker)
+    const ende = active.indexOf('</flux:text>', anker)
+    assert.ok(start >= 0 && ende > start, `${CARD}: data-person-follow-lokal does not sit on a flux:text.`)
+
+    return flattenWhitespace(active.slice(start, ende + '</flux:text>'.length))
+}
+
+describe('P1/P2 latch: a follow is never written blind, and it is written where it can be found', () => {
     // ── Calibration ─────────────────────────────────────────────────────────
     //
     // Without these, every "does not call X" below is worth nothing: a scanner that read
@@ -239,6 +287,10 @@ describe('P1 latch: a follow is never written blind, and the button never guesse
      * | `followedPubkeysOf` | the rendered list, and the direction of a click, stop being the read list |
      * | `mayWriteKind` | the card offers the action while the relay kind is unknown |
      * | `followWriteConfirmed` | a silently dropped replaceable event reads as success |
+     * | `followListAnswered` | the staged verdict is asked and then overruled — `?? true` here is the one-entry kind 3 |
+     * | `eigeneOutboxUrls` | the outbox is looked up and then not used; the read falls back to the space relay |
+     * | `followListWins` | the rendered list stops being the NIP-01 winner of the two sources |
+     * | `publishSpreadOptimistic` | the per-relay outcome is discarded, and a partial write reads as a total failure |
      */
     test('CORE: the answer of every guard IS the value — asked of the AST, not of the text', () => {
         const ERWARTET: ReadonlyArray<readonly [string, string[], string]> = [
@@ -252,6 +304,18 @@ describe('P1 latch: a follow is never written blind, and the button never guesse
                 'the offered action must be derived from the relay kind.'],
             ['followWriteConfirmed', ['return publishFollowList ConditionalExpression'],
                 'the confirmation must decide the return value, not be computed beside it.'],
+            // ── P2 ──────────────────────────────────────────────────────────
+            ['eigeneOutboxUrls', ['binding outboxUrls CallExpression'],
+                'the relays a contact list is read from must BE the reader\'s outbox, not a value beside it.'],
+            ['followRelayTargets', ['binding targets CallExpression'],
+                'the read set must BE outbox ∪ space. The write set passes the same call inline, which the '
+                    + 'count in WRITE_GUARDS and the source case further down cover.'],
+            ['followListAnswered', ['binding answered CallExpression'],
+                'the staged verdict must BE the answer; `|| true` next to it is the one-entry kind 3 returning.'],
+            ['followListWins', ['return ownList ConditionalExpression'],
+                'the rendered list must be the NIP-01 winner of the two sources, not whichever arrived last.'],
+            ['publishSpreadOptimistic', ['binding spread CallExpression'],
+                'the per-relay outcome must be kept: a write that landed on two of three relays is not a failure.'],
         ]
 
         for (const [wache, erwartet, folge] of ERWARTET) {
@@ -414,13 +478,92 @@ describe('P1 latch: a follow is never written blind, and the button never guesse
             `${WRITER}: readOwnFollowList has ${rueckgaben.length} return(s) — the scanner reads the wrong file.`,
         )
 
-        const gesammelt = rueckgaben.filter((stelle) => stelle.felder.join(',') === 'answered,list=')
+        const gesammelt = rueckgaben.filter((stelle) => stelle.felder.join(',') === 'answered,list=,outboxUrls')
         assert.equal(
             gesammelt.length,
             1,
-            `${WRITER}: readOwnFollowList has ${gesammelt.length} return(s) of the form { answered, list: … }, `
-                + 'expected 1. A hard-wired `answered: true` turns the shorthand into a field with its own value; '
-                + 'a duplicate `answered: true` appended to the same object wins in JS while the shorthand stands.',
+            `${WRITER}: readOwnFollowList has ${gesammelt.length} return(s) of the form `
+                + '{ answered, list: …, outboxUrls }, expected 1. A hard-wired `answered: true` turns the shorthand '
+                + 'into a field with its own value; a duplicate `answered: true` appended to the same object wins in '
+                + 'JS while the shorthand stands. `outboxUrls` is a shorthand for the same reason — it is what the '
+                + 'card gates its "this list is not findable outside this space" notice on, and a literal `[]` there '
+                + 'would silence the notice for everybody.',
+        )
+    })
+
+    // ── Core: P2 — outbox ∪ space in BOTH directions ────────────────────────
+
+    /**
+     * **The two relay sets, pinned where a count cannot reach.**
+     *
+     * `WRITE_GUARDS` proves that `followRelayTargets` is called twice. It cannot prove
+     * WHAT it is called with — and `followRelayTargets([], url)` keeps every count intact
+     * while putting the read and the write back on the space relay alone, which is the
+     * defect this phase exists for.
+     *
+     * Matched against the raw source with `\s*` rather than the flattened text: the write
+     * call spans lines, and a regex anchored on both sides of the argument survives
+     * reformatting while still going red when either half of the union is removed.
+     */
+    test('CORE: the READ set is outbox ∪ space', () => {
+        const quelle = quelleDesWriters()
+        assert.match(
+            quelle,
+            /const targets = followRelayTargets\(outboxUrls, url\)/,
+            `${WRITER}: the read no longer asks outbox ∪ space. Against the space relay alone a contact list is `
+                + 'practically never found — a closed NIP-29 relay stands in nobody\'s NIP-65 list — so the merge '
+                + 'base comes back empty and a follow written on it is a kind 3 with one entry.',
+        )
+    })
+
+    test('CORE: the WRITE set is outbox ∪ space, through the same function', () => {
+        const quelle = quelleDesWriters()
+        assert.match(
+            quelle,
+            /publishSpreadOptimistic\(\s*followRelayTargets\(eigeneOutboxUrls\(\), url\)/,
+            `${WRITER}: the write no longer goes to outbox ∪ space. Writing the contact list to the space relay `
+                + 'only leaves it invisible to every other client the reader uses — kind 3 is the object those '
+                + 'clients build their feed from.',
+        )
+    })
+
+    /**
+     * **The outbox has to be ASKED before it is snapshotted.**
+     *
+     * `eigeneOutboxUrls()` is a synchronous projection over the repository. Measured in
+     * this tree on 2026-09-14: **no module requests kind 10002 for the reader's own
+     * pubkey** — `bridge.ts` derives it for display, and the one path that fetches it as a
+     * side effect (`Profiles.load(me)`) runs on the wallet settings island and in the
+     * member directory. Without this load the projection is empty for nearly every
+     * reader, "outbox ∪ space" is "space", and the whole phase measures green while doing
+     * nothing.
+     */
+    test('CORE: the relay list is fetched before the outbox is read off', () => {
+        const quelle = quelleDesWriters()
+        assert.match(
+            quelle,
+            /await app\.use\(RelayLists\)\.load\(self\)/,
+            `${WRITER}: the reader's NIP-65 list is no longer fetched before eigeneOutboxUrls() is asked. The `
+                + 'projection is then a cold snapshot: empty means "nobody looked", the empty-outbox branch of the '
+                + 'staged verdict is taken, and an EOSE from the space relay clears a write again.',
+        )
+    })
+
+    /**
+     * **A partial write is not a failure**, and the distinction only exists because the
+     * publish goes to several relays now.
+     *
+     * `publishSpreadOptimistic` reports `error` even when the event landed somewhere —
+     * its own header carries the measurement. Reading that string as the verdict would
+     * tell the reader their follow failed while it stands, publicly, on two of their
+     * three relays.
+     */
+    test('CORE: the write counts as failed only when it landed NOWHERE', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes('if (spread.delivered.length === 0) {'),
+            `${WRITER}: the failure question is no longer "did it land anywhere". With a set of relays a partial `
+                + 'result is the ordinary case, and reporting it as a failure contradicts a write that happened.',
         )
     })
 
@@ -466,6 +609,36 @@ describe('P1 latch: a follow is never written blind, and the button never guesse
             !xShow[1].includes('listSeen'),
             `${CARD}: the follow button is HIDDEN while the list is unseen (x-show="${xShow[1]}"). A missing `
                 + 'button is indistinguishable from "following is impossible here"; the third state has to be visible.',
+        )
+    })
+
+    /**
+     * **The notice, and the two conditions it hangs on.**
+     *
+     * Gating it on `listSpaceOnly` alone would show it to everybody during the first
+     * seconds of every page: before a read comes back the outbox is empty because nobody
+     * has looked yet, which is not a statement about this reader at all. Gating it on
+     * `listSeen` alone would show it to everybody, full stop. Both, or it lies in one
+     * direction or the other.
+     */
+    test('CORE: the card says when the list is findable in this space only', () => {
+        const hinweis = lokalHinweis()
+        const xShow = /x-show="([^"]*)"/.exec(hinweis)
+        assert.ok(xShow, `${CARD}: the P2 notice has no x-show at all — it would stand on every card, always.`)
+        assert.ok(
+            xShow[1].includes('listSpaceOnly'),
+            `${CARD}: the notice does not hang on listSpaceOnly (x-show="${xShow[1]}").`,
+        )
+        assert.ok(
+            xShow[1].includes('listSeen'),
+            `${CARD}: the notice does not hang on listSeen (x-show="${xShow[1]}"). Before a read has come back `
+                + '„no relay list" and „nobody looked yet" are the same empty outbox, and only one of them is '
+                + 'about this reader.',
+        )
+        assert.ok(
+            hinweis.includes('NIP-65'),
+            `${CARD}: the notice no longer names the reason. „Not findable" without „because no NIP-65 relay list `
+                + 'is on file" is something the reader cannot act on.',
         )
     })
 

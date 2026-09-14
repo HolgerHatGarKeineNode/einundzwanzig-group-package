@@ -1342,5 +1342,6 @@
     "Verschlüsselte Nachricht schreiben": "Rakstīt šifrētu ziņu",
     "Lädt…": "Ielādē…",
     "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Tiek ielādēts tavs kontaktu saraksts — sekošana vēl nav iespējama",
-    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Kontaktu saraksts tagad ir ielādēts. Lūdzu, noklikšķini vēlreiz."
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Kontaktu saraksts tagad ir ielādēts. Lūdzu, noklikšķini vēlreiz.",
+    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Šis kontaktu saraksts nav atrodams ārpus šī Space, jo tev nav norādīts Relay saraksts (NIP-65)."
 }
