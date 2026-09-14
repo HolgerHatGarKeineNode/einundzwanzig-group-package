@@ -548,12 +548,14 @@ describe('P4: n follows are one event, and the wire says so', () => {
      * `null` to `bulkPlan`. It cannot say that the dialog closes or that the reader sees
      * the bar again — that is a browser question and belongs to P6's E2E, where the dialog
      * exists. A shape latch is the weaker instrument and it is named as such rather than
-     * dressed up: `js/bridge.ts` is the Alpine island entry and does not run under
-     * `node --test`, which is why `js/followWriteGate.test.ts` reads it the same way.
+     * dressed up: `js/directoryIsland.ts` is an Alpine island and does not run under
+     * `node --test`, which is why `js/followWriteGate.test.ts` reads `bridge.ts` the same
+     * way. The file moved on 2026-09-15: the member directory left `bridge.ts` for a
+     * module of its own so that its 5 kB gzip stop riding along on every page.
      */
     test('CORE: a refused bulk write voids the frozen preview', () => {
-        const source = readFileSync(join(JS_DIR, 'bridge.ts'), 'utf8')
-        const tree = ts.createSourceFile('bridge.ts', source, ts.ScriptTarget.Latest, true)
+        const source = readFileSync(join(JS_DIR, 'directoryIsland.ts'), 'utf8')
+        const tree = ts.createSourceFile('directoryIsland.ts', source, ts.ScriptTarget.Latest, true)
         let method: ts.MethodDeclaration | null = null
         const findMethod = (node: ts.Node): void => {
             if (ts.isMethodDeclaration(node) && node.name.getText() === 'confirmBulkFollow') {
@@ -562,7 +564,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
             ts.forEachChild(node, findMethod)
         }
         findMethod(tree)
-        assert.ok(method, 'bridge.ts has no confirmBulkFollow() method — the bulk write has no call site at all.')
+        assert.ok(method, 'directoryIsland.ts has no confirmBulkFollow() method — the bulk write has no call site at all.')
 
         let branch: ts.Statement | null = null
         const findBranch = (node: ts.Node): void => {

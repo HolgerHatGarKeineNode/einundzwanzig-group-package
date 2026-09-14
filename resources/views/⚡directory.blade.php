@@ -34,8 +34,65 @@ new #[Layout('group::einundzwanzig')] class extends Component
     {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
     <x-group::verein-gate context="{{ __('Die Mitgliederliste') }}" class="mb-4" />
 
-    {{-- Directory des AKTIVEN Space (§12). Gated auf relay.self (Fix A). --}}
-    <div x-data="nostrDirectory" class="page-enter space-y-4">
+    {{-- ── The member directory, and the one island this client fetches ──────────
+         `nostrDirectory` is 5 016 B gzip of the `app` chunk that EVERY page loads, for
+         a screen that exists on this one route. The bundle latch broke over it a second
+         time and its docblock prescribes the split, so the island now lives in
+         `js/directoryIsland.ts` and arrives by `import()`.
+
+         The two elements below are what that costs in markup. `nostrDirectoryShell`
+         (`js/bridge.ts`) is the only thing left in the boot path; the island's own
+         `x-data="nostrDirectory"` moved one level in, onto the element inside the
+         `x-if` — evaluated only once the chunk is registered, which is the whole trick.
+         Alpine walks a tree synchronously, so without that gate every expression below
+         would run against a scope the chunk has not filled yet, and Alpine reports an
+         unknown name as a thrown page error rather than a warning.
+
+         `x-data="nostrDirectory"` keeps its name and its place in the tree on purpose:
+         two E2E suites address this island as `[x-data="nostrDirectory"]` and read it
+         through `Alpine.$data(el)`. `$root` still resolves to the element that holds
+         everything the island focuses (`enterSelectMode`/`leaveSelectMode`).
+
+         While the chunk is in flight the reader gets the SAME skeleton the island shows
+         while its profiles load — one file, included twice — so nothing changes shape
+         between the two waits. If the chunk never arrives, the callout below is what
+         they get; a lazy island that fails in silence would be worse than the bytes it
+         saves.
+
+         **The body below keeps its old indentation and that is deliberate.** Two levels
+         came in over 720 lines; re-indenting them makes every one of those lines an
+         ADDED line against `master`, and `tests/e2e/support/workLanguage.nodetest.ts`
+         then reads ~700 pre-existing German comment lines as new work and goes red —
+         measured, not feared. The doctrine is explicit that the existing German corpus
+         stays put; a whitespace pass that drags it through a language gate would be the
+         wrong way to satisfy both. The gain is the same one a reviewer gets: the diff of
+         this file is the handful of lines that actually changed. --}}
+    <div x-data="nostrDirectoryShell" class="page-enter space-y-4">
+
+        {{-- The import rejected: a chunk that is no longer where the manifest says
+             (a deploy during the visit), or a network that dropped between document
+             and chunk. The way out is a reload and not a second `import()`: a module
+             specifier whose fetch failed stays failed in this document's module map,
+             so a retry button here could not succeed — measured in Chromium on
+             2026-09-15 with the chunk made reachable again between the two tries, see
+             `nostrDirectoryShell` in `js/bridge.ts`. --}}
+        <template x-if="failed">
+            <flux:callout variant="danger" icon="exclamation-triangle" data-directory-chunk-error>
+                <flux:callout.text>{{ __('Die Mitgliederliste ist gerade nicht erreichbar.') }}</flux:callout.text>
+                <x-slot name="actions">
+                    <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="reload()">{{ __('Seite neu laden') }}</flux:button>
+                </x-slot>
+            </flux:callout>
+        </template>
+
+        {{-- The wait for the chunk, in the shape the island's own wait already has. --}}
+        <template x-if="!hydrated && !failed">
+            @include('group::partials.directory-skeleton')
+        </template>
+
+        {{-- Directory des AKTIVEN Space (§12). Gated auf relay.self (Fix A). --}}
+        <template x-if="hydrated">
+            <div x-data="nostrDirectory" class="space-y-4">
 
         {{-- Suche — für Nicht-Vereinsmitglieder ausgeblendet: die Mitgliederliste
              liefert der Relay nicht aus, eine Suche liefe ins Leere. Wrapper-Div,
@@ -138,18 +195,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Rutsch — kein progressives Umsortieren/Flackern, im Mobile-WebView
              kein Repaint-Sturm (schwarzer Bildschirm). --}}
         <template x-if="!profilesReady">
-            <div class="space-y-2" aria-busy="true">
-                <span class="sr-only" aria-live="polite">{{ __('Mitglieder werden geladen…') }}</span>
-                <template x-for="i in 4" :key="i">
-                    <div class="surface-card flex items-center gap-3 p-3">
-                        <div class="skeleton size-9 rounded-full"></div>
-                        <div class="flex-1 space-y-1.5">
-                            <div class="skeleton h-3.5 w-32"></div>
-                            <div class="skeleton h-2.5 w-20"></div>
-                        </div>
-                    </div>
-                </template>
-            </div>
+            @include('group::partials.directory-skeleton')
         </template>
 
         {{-- Geladen, aber keine Mitglieder. Für Nicht-Vereinsmitglieder ausgeblendet
@@ -766,6 +812,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </flux:modal>
 
+
+            </div>
+        </template>
 
     </div>
 

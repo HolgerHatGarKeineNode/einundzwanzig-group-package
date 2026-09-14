@@ -40,8 +40,14 @@ const befund = (name: string) => liesDatei(join(JS_DIR, name), name)
  * is why the numbers are far smaller than the file lengths suggest. The thresholds sit
  * well below the measurement: they are meant to catch a blind scanner, not the next
  * refactor.
+ *
+ * **Re-measured 2026-09-15**, when the member directory left `bridge.ts` for its own
+ * lazily loaded module: `members.ts` 129, `buzzAdmin.ts` 32, `bridge.ts` 622,
+ * `directoryIsland.ts` 114. The island file joins the list because three cases below now
+ * read it — without a floor of its own, a scanner that fails to read it would report
+ * exactly what a healthy one reports on a clean tree.
  */
-const MIN_CALLS = { 'members.ts': 60, 'buzzAdmin.ts': 15, 'bridge.ts': 200 }
+const MIN_CALLS = { 'members.ts': 60, 'buzzAdmin.ts': 15, 'bridge.ts': 200, 'directoryIsland.ts': 40 }
 
 test('CALIBRATION: the scanner really reads all three files', () => {
     for (const [name, floor] of Object.entries(MIN_CALLS)) {
@@ -56,6 +62,7 @@ test('CALIBRATION: the scanner really reads all three files', () => {
     assert.ok(ruftAuf(befund('members.ts'), 'shortNpub'))
     assert.ok(ruftAuf(befund('buzzAdmin.ts'), 'makeEvent'))
     assert.ok(ruftAuf(befund('bridge.ts'), 'dispatchModal'))
+    assert.ok(ruftAuf(befund('directoryIsland.ts'), 'formatNumber'))
 })
 
 test('CORE: the write path goes through the gated planner, not around it', () => {
@@ -87,7 +94,7 @@ test('CORE: the write path goes through the gated planner, not around it', () =>
 test('… and the island uses the facade instead of the relay arm', () => {
     // Calling `buzzTimeoutPubkey` from the island would skip the facade and with it the
     // planner — the one place the gate is asked.
-    const island = befund('bridge.ts')
+    const island = befund('directoryIsland.ts')
     assert.ok(importiertAus(island, 'timeoutSpaceMember', './members.ts'))
     assert.ok(ruftAuf(island, 'timeoutSpaceMember'), 'the island does not call the facade')
     assert.ok(ruftAuf(island, 'untimeoutSpaceMember'))
@@ -99,7 +106,7 @@ test('… and the markup mirror asks the same gate, so a dead menu entry never s
     // `canTimeout` decides whether the entry is rendered at all. It must come from the same
     // function as the write decision; a second rule ("is this Buzz?") would drift, and the
     // result would be a button that is guaranteed to do nothing.
-    const island = befund('bridge.ts')
+    const island = befund('directoryIsland.ts')
     assert.ok(importiertAus(island, 'mayWriteKind', './relayCapability.ts'))
     assert.ok(ruftAuf(island, 'mayWriteKind'))
     assert.ok(importiertAus(island, 'BUZZ_TIMEOUT', './moderationTimeoutModels.ts'))
@@ -116,7 +123,7 @@ test('CORE: the restriction list is parsed by the function that separates 403 fr
     const facade = befund('members.ts')
     assert.ok(ruftAuf(facade, 'buzzLoadRestricted'), 'the Buzz arm of the restriction list is gone')
 
-    const island = befund('bridge.ts')
+    const island = befund('directoryIsland.ts')
     assert.ok(ruftAuf(island, 'loadRestrictedMembers'), 'the island no longer loads the restriction list')
 })
 
