@@ -1283,5 +1283,16 @@
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "No se ha podido leer la lista de contactos. No se ha cambiado nada.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "No tienes ninguna lista de Relays (NIP-65) guardada. Por eso tu lista de contactos se escribe en Relays públicos generales.",
     "Kontaktliste laden": "Cargar lista de contactos",
-    "Kontaktliste laden — danach kannst du folgen": "Carga tu lista de contactos — después podrás seguir"
+    "Kontaktliste laden — danach kannst du folgen": "Carga tu lista de contactos — después podrás seguir",
+    "Mehreren folgen": "Seguir a varios",
+    "Alle auswählen": "Seleccionar todos",
+    ":name auswählen": "Seleccionar a :name",
+    "Auswahl: :n von :m": "Selección: :n de :m",
+    "Die Mitgliederliste ist noch nicht vollständig geladen.": "La lista de miembros aún no se ha cargado del todo.",
+    "Auswahl prüfen": "Revisar selección",
+    "Ausgewählt": "Seleccionados",
+    "Folgst du noch nicht": "Aún no sigues",
+    "Folgst du schon": "Ya sigues",
+    "Deine Kontaktliste wächst von :von auf :auf.": "Tu lista de contactos crece de :von a :auf.",
+    "Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.": "Tu lista de contactos no cambia — ya sigues a todos los seleccionados."
 }

@@ -1283,5 +1283,16 @@
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "De contactlijst kon niet worden gelezen. Er is niets gewijzigd.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Je hebt geen Relay-lijst (NIP-65) vastgelegd. Je contactlijst wordt daarom naar algemene publieke Relays geschreven.",
     "Kontaktliste laden": "Contactlijst laden",
-    "Kontaktliste laden — danach kannst du folgen": "Laad je contactlijst — daarna kun je volgen"
+    "Kontaktliste laden — danach kannst du folgen": "Laad je contactlijst — daarna kun je volgen",
+    "Mehreren folgen": "Meerdere volgen",
+    "Alle auswählen": "Alles selecteren",
+    ":name auswählen": ":name selecteren",
+    "Auswahl: :n von :m": "Selectie: :n van :m",
+    "Die Mitgliederliste ist noch nicht vollständig geladen.": "De ledenlijst is nog niet volledig geladen.",
+    "Auswahl prüfen": "Selectie controleren",
+    "Ausgewählt": "Geselecteerd",
+    "Folgst du noch nicht": "Volg je nog niet",
+    "Folgst du schon": "Volg je al",
+    "Deine Kontaktliste wächst von :von auf :auf.": "Je contactlijst groeit van :von naar :auf.",
+    "Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.": "Je contactlijst verandert niet — je volgt alle geselecteerden al."
 }

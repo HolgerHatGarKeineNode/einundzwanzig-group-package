@@ -1283,5 +1283,16 @@
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "A névjegylistát nem sikerült beolvasni. Semmi nem változott.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Nincs Relay-listád (NIP-65) megadva. A névjegylistád ezért általános nyilvános Relayekre kerül.",
     "Kontaktliste laden": "Névjegylista betöltése",
-    "Kontaktliste laden — danach kannst du folgen": "Töltsd be a névjegylistádat — utána tudsz követni"
+    "Kontaktliste laden — danach kannst du folgen": "Töltsd be a névjegylistádat — utána tudsz követni",
+    "Mehreren folgen": "Többek követése",
+    "Alle auswählen": "Összes kijelölése",
+    ":name auswählen": ":name kijelölése",
+    "Auswahl: :n von :m": "Kijelölve: :n / :m",
+    "Die Mitgliederliste ist noch nicht vollständig geladen.": "A tagok listája még nem töltődött be teljesen.",
+    "Auswahl prüfen": "Kijelölés ellenőrzése",
+    "Ausgewählt": "Kijelölve",
+    "Folgst du noch nicht": "Még nem követed",
+    "Folgst du schon": "Már követed",
+    "Deine Kontaktliste wächst von :von auf :auf.": "A névjegylistád :von elemről :auf elemre nő.",
+    "Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.": "A névjegylistád nem változik — a kijelöltek közül már mindenkit követsz."
 }

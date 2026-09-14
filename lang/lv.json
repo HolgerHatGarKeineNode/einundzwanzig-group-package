@@ -1349,5 +1349,16 @@
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "Kontaktu sarakstu neizdevās nolasīt. Nekas netika mainīts.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Tev nav norādīts Relay saraksts (NIP-65). Tāpēc tavs kontaktu saraksts tiek rakstīts uz vispārīgiem publiskiem Relay.",
     "Kontaktliste laden": "Ielādēt kontaktu sarakstu",
-    "Kontaktliste laden — danach kannst du folgen": "Ielādē savu kontaktu sarakstu — pēc tam vari sekot"
+    "Kontaktliste laden — danach kannst du folgen": "Ielādē savu kontaktu sarakstu — pēc tam vari sekot",
+    "Mehreren folgen": "Sekot vairākiem",
+    "Alle auswählen": "Atlasīt visus",
+    ":name auswählen": "Atlasīt :name",
+    "Auswahl: :n von :m": "Atlasīti: :n no :m",
+    "Die Mitgliederliste ist noch nicht vollständig geladen.": "Dalībnieku saraksts vēl nav pilnībā ielādēts.",
+    "Auswahl prüfen": "Pārbaudīt atlasi",
+    "Ausgewählt": "Atlasīti",
+    "Folgst du noch nicht": "Vēl neseko",
+    "Folgst du schon": "Jau seko",
+    "Deine Kontaktliste wächst von :von auf :auf.": "Tavs kontaktu saraksts pieaugs no :von līdz :auf.",
+    "Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.": "Tavs kontaktu saraksts nemainīsies — tu jau seko visiem atlasītajiem."
 }

@@ -1283,5 +1283,16 @@
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "The contact list could not be read. Nothing was changed.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "You have no relay list (NIP-65) on file. Your contact list is therefore written to general public relays.",
     "Kontaktliste laden": "Load contact list",
-    "Kontaktliste laden — danach kannst du folgen": "Load your contact list — then you can follow"
+    "Kontaktliste laden — danach kannst du folgen": "Load your contact list — then you can follow",
+    "Mehreren folgen": "Follow several",
+    "Alle auswählen": "Select all",
+    ":name auswählen": "Select :name",
+    "Auswahl: :n von :m": "Selected: :n of :m",
+    "Die Mitgliederliste ist noch nicht vollständig geladen.": "The member list has not finished loading.",
+    "Auswahl prüfen": "Review selection",
+    "Ausgewählt": "Selected",
+    "Folgst du noch nicht": "You don't follow yet",
+    "Folgst du schon": "You already follow",
+    "Deine Kontaktliste wächst von :von auf :auf.": "Your contact list grows from :von to :auf.",
+    "Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.": "Your contact list does not change — you already follow everyone selected."
 }

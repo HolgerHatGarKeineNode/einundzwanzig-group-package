@@ -56,7 +56,7 @@ import { wireMeetupEvent } from './calendar.ts'
 import { wireRoomPins } from './roomPins.ts'
 import { wireBookmarks } from './bookmarks.ts'
 import { wireMutes } from './mutes.ts'
-import { wireFollows } from './follows.ts'
+import { wireFollows, type FollowsStore } from './follows.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePresence } from './presence.ts'
 import { wireVerein } from './verein.ts'
@@ -1127,6 +1127,58 @@ const EMPTY_STATUS: { text: string; emoji: string } = Object.freeze({ text: '', 
 /** Formular-Zustand einer Rolle (hue 0–360, lightness 0–1; '' id = neu). */
 type RoleForm = { id: string; label: string; description: string; hue: number; lightness: number; order: number }
 
+/**
+ * **The frozen write set of one bulk follow** (P4, point 5 of the plan).
+ *
+ * Built once, in {@link DirectoryState.openBulkPreview}, and never recomputed while the
+ * preview stands. Both sources underneath it are live — the member list is a running
+ * subscription on the relay-signed 13534 (`members.ts`), and the reader's own contact
+ * list can come back larger at any moment — so "what is shown" and "what is written"
+ * would otherwise be two different sets separated by however long the reader looked at
+ * the dialog.
+ *
+ * `targets` is therefore the authoritative argument of the write, not `selected`.
+ *
+ * The three counts exist to be COMPARED by a human, which is the whole point of the
+ * step: a reader with 700 contacts who sees `from: 1` is looking at a contact list this
+ * client failed to read, and this dialog is the only place that number is visible before
+ * a signature turns it into the truth.
+ */
+/**
+ * **The two calls this surface needs from the follows store and does not have yet.**
+ *
+ * Optional members, deliberately: P4 builds the surface half of the bulk follow — the
+ * selection, the freeze, the preview, the busy and error channels, the modal — and the
+ * write half lands in `js/follows.ts` in the next step. Until then the call sites below
+ * return early and nothing is signed. They are typed here rather than in `follows.ts`
+ * because this file may not state what that module offers; it may only state what it
+ * asks for.
+ *
+ * `armFollowRead` is the one that is easy to miss: see {@link DirectoryState.armBulkFollow}.
+ */
+type BulkFollowCapable = {
+    /** One kind 3 for n targets — `planFollowWrite` has taken n since P3. */
+    followMany?(targets: readonly string[]): Promise<void>
+    /** A read-only pass over the reader's own list, so `listSeen` can become true. */
+    armFollowRead?(): Promise<void>
+}
+
+/** The Flux modal that shows {@link BulkFollowPlan} before anything is signed. */
+const BULK_PREVIEW_MODAL = 'follow-bulk-preview'
+
+type BulkFollowPlan = {
+    /** Pubkeys in list order, exactly the set the preview counted. */
+    targets: string[]
+    /** How many of `targets` are not in the reader's contact list yet — `to - from`. */
+    add: number
+    /** How many of `targets` the reader already follows. `add + already === targets.length`. */
+    already: number
+    /** Size of the reader's contact list when the preview opened. */
+    from: number
+    /** `from + add`. */
+    to: number
+}
+
 type DirectoryState = {
     ready: boolean
     profilesReady: boolean
@@ -1218,6 +1270,34 @@ type DirectoryState = {
     _prefillSpace(profile?: RelayInfo): void
     pickSpaceIcon(input: HTMLInputElement): void
     saveSpace(): Promise<void>
+    // ── Bulk follow (P4): selection mode over the member list ──────────────────
+    selectMode: boolean
+    selected: Record<string, boolean>
+    directoryAnswered: boolean
+    bulkPlan: BulkFollowPlan | null
+    bulkBusy: boolean
+    bulkError: string
+    enterSelectMode(root: HTMLElement): void
+    leaveSelectMode(root: HTMLElement): void
+    isSelected(pubkey: string): boolean
+    toggleSelect(pubkey: string, on: boolean): void
+    rowSelectLabel(m: MemberView): string
+    selectableMembers(): MemberView[]
+    selectedCount(): number
+    allVisibleSelected(): boolean
+    someVisibleSelected(): boolean
+    syncSelectAll(el: HTMLElement): void
+    setSelectAll(on: boolean): void
+    selectionSummary(): string
+    bulkHint(): string
+    bulkPrimaryLabel(): string
+    bulkPrimaryBlocked(): boolean
+    bulkPrimary(): void
+    openBulkPreview(): void
+    planGrowth(): string
+    num(value: number | undefined): string
+    armBulkFollow(): Promise<void>
+    confirmBulkFollow(): Promise<void>
 }
 
 /**
@@ -5162,6 +5242,13 @@ export function registerNostrComponents(Alpine: {
         spaceIconPreview: '',
         _spaceIconFile: null,
         spaceSaving: false,
+        // ── Bulk follow (P4) ───────────────────────────────────────────────────
+        selectMode: false,
+        selected: {},
+        directoryAnswered: false,
+        bulkPlan: null,
+        bulkBusy: false,
+        bulkError: '',
         _url: null,
         _controller: null,
         _unsubActive: null,
@@ -5204,6 +5291,15 @@ export function registerNostrComponents(Alpine: {
                 this.timeoutTarget = null
                 this._spaceKind = 'unknown'
                 this.canTimeout = false
+                // A selection is a statement about THIS space's member list. Carrying it
+                // across a space switch would offer to follow people the reader picked
+                // out of a list they are no longer looking at — the same class of fault
+                // as the ban list two lines up, only with a signature at the end of it.
+                this.selectMode = false
+                this.selected = {}
+                this.bulkPlan = null
+                this.bulkError = ''
+                this.directoryAnswered = false
                 this._url = url
                 this._controller = new AbortController()
                 // Sicherheitsnetz: bleibt das Directory-Loaded-Signal (EOSE/CLOSED)
@@ -5224,6 +5320,13 @@ export function registerNostrComponents(Alpine: {
                     // Mitgliederzahl final. `view.ready` allein (nur relay.self)
                     // triggerte das Gate bei members=0 → profilesReady verfrüht,
                     // die Liste sortierte/animierte danach bei jedem Profil neu.
+                    // P4, point 3: the bulk button waits for BOTH lists. This is the
+                    // 13534 half, and it is deliberately NOT `profilesReady` — that one
+                    // also goes true on the 8 s safety net above, which is a timeout and
+                    // not an answer. A surface that offers to write a contact list off a
+                    // member list nobody confirmed would be the same fail-open shape the
+                    // whole plan exists to close.
+                    this.directoryAnswered = this.directoryAnswered || a.ready
                     if (a.ready && !this._settleStarted) {
                         this._settleStarted = true
                         const pubkeys = this.members.map((m) => m.pubkey)
@@ -5323,6 +5426,351 @@ export function registerNostrComponents(Alpine: {
         filtered() {
             const q = this.query.trim().toLowerCase()
             return q ? this.members.filter((m) => m.search.includes(q)) : this.members
+        },
+
+        // ── Bulk follow (P4): selection mode ────────────────────────────────────────
+        //
+        // Everything below is the SURFACE half. It decides what is selected, what is
+        // shown and what is frozen; it signs nothing. The two seams that will sign are
+        // `armBulkFollow` and `confirmBulkFollow` at the end of the block.
+
+        /**
+         * Enter selection mode and put the keyboard where the mode begins.
+         *
+         * The focus move is not a nicety: the button that was just pressed is REMOVED by
+         * the same state change — the band swaps its content — and focus falls to
+         * `<body>`. That is the trap the empty-search state documents at length in
+         * `⚡directory.blade.php`, one variable further along.
+         *
+         * **The root comes in as an argument, and that is the whole fix.** `$refs` is no
+         * help for the documented reason (it ascends from the handler element, which is
+         * detached by the time the callback runs) — but `this.$el` is no help either, and
+         * that is the part the existing comment does not cover: magics are injected per
+         * ELEMENT into the scope stack, so inside a method reached from an `x-on:click` on
+         * a button, `this.$el` IS that button, not the island root. Measured 2026-09-14:
+         * driven from `Alpine.$data(root)` the same code focused the box and it held for
+         * 200 ms (`$el tag: div`); driven from the button's click it left
+         * `document.activeElement` on `<body>` at all three viewports.
+         *
+         * `$root` in the markup resolves to the `x-data` element whatever fires the call.
+         */
+        enterSelectMode(root: HTMLElement) {
+            this.selectMode = true
+            this.bulkError = ''
+            ;(this as unknown as AlpineMagics).$nextTick(() => {
+                root.querySelector<HTMLElement>('[data-directory-select-all]')?.focus()
+            })
+        },
+
+        /** Leave the mode; an explicit cancel drops the selection with it. */
+        leaveSelectMode(root: HTMLElement) {
+            this.selectMode = false
+            this.selected = {}
+            this.bulkPlan = null
+            this.bulkError = ''
+            ;(this as unknown as AlpineMagics).$nextTick(() => {
+                root.querySelector<HTMLElement>('[data-directory-select-toggle]')?.focus()
+            })
+        },
+
+        isSelected(pubkey: string): boolean {
+            return this.selected[pubkey] === true
+        },
+
+        /**
+         * A fresh object per change rather than a mutation: Alpine reacts to assignment,
+         * and every row's `checked` binding hangs on this single value. The cost is one
+         * object of at most the member count per click; the alternative is to mutate and
+         * then depend on the proxy trapping `delete`, which is a reactivity question this
+         * surface should not have to answer.
+         */
+        toggleSelect(pubkey: string, on: boolean) {
+            const next = { ...this.selected }
+            if (on) {
+                next[pubkey] = true
+            } else {
+                delete next[pubkey]
+            }
+            this.selected = next
+            this.bulkError = ''
+        },
+
+        rowSelectLabel(m: MemberView): string {
+            return t(':name auswählen', { name: m.name })
+        },
+
+        /**
+         * The rows a "select all" may touch: what the search currently shows, minus the
+         * reader themselves. A contact list containing its own author says nothing and
+         * `planFollowWrite` refuses it — a checkbox whose target the write path throws
+         * away is a checkbox that lies about the count above it.
+         */
+        selectableMembers(): MemberView[] {
+            const me = (Alpine.store('follows') as FollowsStore | undefined)?.me ?? ''
+
+            return this.filtered().filter((m) => m.pubkey !== me)
+        },
+
+        /** Only `true` is ever stored, so the key count IS the selection size. */
+        selectedCount(): number {
+            return Object.keys(this.selected).length
+        },
+
+        allVisibleSelected(): boolean {
+            const visible = this.selectableMembers()
+
+            return visible.length > 0 && visible.every((m) => this.isSelected(m.pubkey))
+        },
+
+        someVisibleSelected(): boolean {
+            return this.selectableMembers().some((m) => this.isSelected(m.pubkey))
+        },
+
+        /**
+         * Keep the "select all" box in step with the rows below it.
+         *
+         * **Two states and not three, and that is a measurement rather than a preference.**
+         * The obvious build is the tri-state box — checked, unchecked, mixed — and it is
+         * not available on `ui-checkbox`. Its `indeterminate` setter writes only
+         * `data-indeterminate`, so the dash is painted and `aria-checked` still says
+         * "false"; and writing `aria-checked="mixed"` from outside does not survive,
+         * because Flux installs a "durable attribute observer" over exactly that attribute
+         * that reverts any foreign mutation to its previous value
+         * (`attributeObserver`/`setAttribute2`, `flux-pro/dist/flux.module.js:1747-1809`).
+         * Measured at all three viewports: with one of 59 rows picked the box showed the
+         * dash and announced `aria-checked="false"` — a visual state no screen reader can
+         * hear, which is WCAG 4.1.2 rather than a missing nicety.
+         *
+         * Two honest states plus the count in the bar below ("Auswahl: 12 von 59") carry
+         * the same information in words, and the box then promises exactly what a click
+         * does: unchecked means "select all of these".
+         *
+         * Called from `x-effect`, so the reads inside `allVisibleSelected` register the
+         * dependencies (`selected`, `members`, `query`) and the box re-syncs when any of
+         * them moves — including when a search narrows what "all" means.
+         */
+        syncSelectAll(el: HTMLElement) {
+            ;(el as HTMLElement & { checked: boolean }).checked = this.allVisibleSelected()
+        },
+
+        /**
+         * "All" means what is on screen, which with an active search is the matches and
+         * not the directory. Turning it off drops those same rows and nothing else, so a
+         * reader who picks people, searches, and then clears the search keeps the earlier
+         * picks.
+         */
+        setSelectAll(on: boolean) {
+            const next = { ...this.selected }
+            for (const m of this.selectableMembers()) {
+                if (on) {
+                    next[m.pubkey] = true
+                } else {
+                    delete next[m.pubkey]
+                }
+            }
+            this.selected = next
+            this.bulkError = ''
+        },
+
+        /**
+         * `:m` counts the whole directory and not the filtered view, on purpose: it is the
+         * denominator a reader judges their own selection against, and it must not move
+         * while they type in the search field.
+         */
+        selectionSummary(): string {
+            const me = (Alpine.store('follows') as FollowsStore | undefined)?.me ?? ''
+            const total = this.members.filter((m) => m.pubkey !== me).length
+
+            return t('Auswahl: :n von :m', {
+                n: formatNumber(this.selectedCount()),
+                m: formatNumber(total),
+            })
+        },
+
+        /**
+         * Why the bulk action cannot run yet — `''` means it can.
+         *
+         * Literal, already translated wording, the same contract as `bannedError`: the
+         * markup prints this and decides nothing.
+         */
+        bulkHint(): string {
+            if (!this.directoryAnswered) {
+                return t('Die Mitgliederliste ist noch nicht vollständig geladen.')
+            }
+            const follows = Alpine.store('follows') as FollowsStore | undefined
+            if (!follows || !follows.listSeen) {
+                return follows?.noRelayList
+                    ? t('Kontaktliste laden — danach kannst du folgen')
+                    : t('Kontaktliste wird geladen — Folgen ist noch nicht möglich')
+            }
+
+            return ''
+        },
+
+        /**
+         * Three labels for the same three states the single-person button carries in
+         * `profile-card.blade.php`, in the same words.
+         *
+         * The third one — "we have not looked" — keeps both of its readings: for a reader
+         * WITH a relay list the read is running, so "Lädt…" is true; for a reader without
+         * one it has not started, because a page load does not ask four relays the reader
+         * never chose (P2/D8), and the label invites the click that does the reading.
+         */
+        bulkPrimaryLabel(): string {
+            const follows = Alpine.store('follows') as FollowsStore | undefined
+            if (!follows?.listSeen) {
+                return follows?.noRelayList ? t('Kontaktliste laden') : t('Lädt…')
+            }
+
+            return t('Auswahl prüfen')
+        },
+
+        bulkPrimaryBlocked(): boolean {
+            const follows = Alpine.store('follows') as FollowsStore | undefined
+            if (this.bulkBusy || follows?.busy === true || !this.directoryAnswered) {
+                return true
+            }
+            // Arming is a READ and needs no selection. Only the step that plans a write
+            // does, and for that an empty selection is what blocks it.
+            if (!follows?.listSeen) {
+                return !follows?.noRelayList
+            }
+
+            return this.selectedCount() === 0
+        },
+
+        bulkPrimary() {
+            if (this.bulkPrimaryBlocked()) {
+                return
+            }
+            if (!(Alpine.store('follows') as FollowsStore | undefined)?.listSeen) {
+                void this.armBulkFollow()
+
+                return
+            }
+            this.openBulkPreview()
+        },
+
+        /**
+         * Freeze the selection and show it (P4, points 4 and 5).
+         *
+         * `targets` comes out in member-list order — the dialog is read next to the list,
+         * and a set ordered by click would be hard to check against it. Anyone selected
+         * who has since left the directory is appended rather than dropped, so
+         * `targets.length` is always the number the bar was showing a moment ago; a count
+         * that shrinks between two surfaces looks like a bug even when it is not.
+         */
+        openBulkPreview() {
+            const follows = Alpine.store('follows') as FollowsStore | undefined
+            if (!follows?.listSeen) {
+                return
+            }
+            const inList = this.members.map((m) => m.pubkey).filter((pk) => this.isSelected(pk))
+            const known = new Set(inList)
+            const targets = [...inList, ...Object.keys(this.selected).filter((pk) => !known.has(pk))]
+            const from = follows.following.length
+            const already = targets.filter((pk) => follows.isFollowing(pk)).length
+            const add = targets.length - already
+            this.bulkError = ''
+            this.bulkPlan = { targets, add, already, from, to: from + add }
+            dispatchModal(BULK_PREVIEW_MODAL)
+        },
+
+        /**
+         * A whole sentence and not a figure with a label beside it — the house rule for
+         * counters (`lang/README.md`) and the reason there is no plural form to carry:
+         * both numbers sit next to prepositions, not next to a noun they would have to
+         * agree with, in all seven languages.
+         */
+        planGrowth(): string {
+            const plan = this.bulkPlan
+            if (!plan) {
+                return ''
+            }
+            // A reachable selection: pick only people you already follow. "grows from 703
+            // to 703" would be false in the one word that carries the sentence, and the
+            // reader would be looking for a change that is not coming.
+            if (plan.add === 0) {
+                return t('Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.')
+            }
+
+            return t('Deine Kontaktliste wächst von :von auf :auf.', {
+                von: formatNumber(plan.from),
+                auf: formatNumber(plan.to),
+            })
+        },
+
+        num(value: number | undefined): string {
+            return formatNumber(value ?? 0)
+        },
+
+        /**
+         * ── SEAM (P4 surface → `nostr-specialist`) ─────────────────────────────────
+         * **Arm the bulk action:** read the reader's own contact list once, so `listSeen`
+         * turns true and the button can move on from „Kontaktliste laden".
+         *
+         * **There is no read-only entry point on the store today, and this is the call
+         * that needs one.** `FollowsStore` exposes `toggle(target)` and nothing else, and
+         * `toggle` needs a person. For a reader whose `OutboxKnowledge` came back
+         * `confirmed-none` this client deliberately does not read on a page load (P2/D8) —
+         * so without `armFollowRead` that reader can never arm the bulk bar at all, and
+         * the whole surface stays permanently inert for them.
+         *
+         * What belongs in it: a read through `readOwnFollowList` over the same relay set
+         * the write uses, with `listSeen`/`noRelayList`/`following` set from its answer and
+         * from nothing else (P1). That verdict is not reimplemented here, which is why the
+         * call is optional on the store instead of inlined into this file.
+         */
+        async armBulkFollow() {
+            const follows = Alpine.store('follows') as (FollowsStore & BulkFollowCapable) | undefined
+            if (!follows?.armFollowRead || this.bulkBusy) {
+                return
+            }
+            this.bulkBusy = true
+            this.bulkError = ''
+            try {
+                await follows.armFollowRead()
+            } finally {
+                this.bulkBusy = false
+                this.bulkError = follows.error
+            }
+        },
+
+        /**
+         * ── SEAM (P4 surface → `nostr-specialist`) ─────────────────────────────────
+         * **Sign and publish ONE kind 3** carrying `bulkPlan.targets` — since P3
+         * `planFollowWrite` takes n targets in a single pass, one event, one signature,
+         * independent of the count.
+         *
+         * `targets` is copied into a local BEFORE the write can start, because the
+         * `x-on:close` on the preview modal clears `bulkPlan`, and a write that reaches
+         * for it afterwards finds `null`.
+         *
+         * On success the selection is dropped and the mode stays open — the reader keeps
+         * their place in the list. Saying that the write LANDED is P5's job (`duplicate:`
+         * is not success), so nothing is claimed here.
+         */
+        async confirmBulkFollow() {
+            const plan = this.bulkPlan
+            const follows = Alpine.store('follows') as (FollowsStore & BulkFollowCapable) | undefined
+            if (!plan || plan.add === 0 || this.bulkBusy || !follows?.followMany) {
+                return
+            }
+            const targets = [...plan.targets]
+            this.bulkBusy = true
+            this.bulkError = ''
+            try {
+                await follows.followMany(targets)
+            } finally {
+                this.bulkBusy = false
+            }
+            if (follows.error) {
+                this.bulkError = follows.error
+
+                return
+            }
+            this.selected = {}
+            dispatchModal(BULK_PREVIEW_MODAL, false)
         },
         // Nach jeder Admin-Mutation: neu ziehen + Admin-Status re-checken (Fix C).
         // Die Live-Sub reflektiert die relay-signierte Änderung ohnehin.
