@@ -161,7 +161,9 @@ describe('followRelayTargets: one set, and the space is not in it', () => {
      *
      * because {@link normalizeRelaySet} sits in the path and allocates a fresh array on
      * every call. So there was nothing to exploit, and this case passes at `9ff152a`
-     * exactly as it does here.
+     * exactly as it does here. The reporting review has since withdrawn the claim: both
+     * call sites of `mintTargetSet` allocate, and it is not exported, so there was no third
+     * one to find.
      *
      * **Which makes this a DOUBLY secured assurance, and that is why the case is written
      * about the contract rather than about the copy.** Two independent allocations uphold

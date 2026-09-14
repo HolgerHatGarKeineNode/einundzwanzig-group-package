@@ -4,12 +4,28 @@
  *
  * ── Why this is a separate file and not a fourth case next door ────────────────
  *
- * `js/followClickGate.test.ts` measures clicks. It cannot measure the arming pass of a
- * `listed` reader, and the reason is structural: `armedFor` in `js/follows.ts` is ONE
- * module-level key, and every store an earlier case wired stays subscribed to
- * `activeSpace` and `pubkey`. They re-arm first and take the key, so the store a later case
- * builds never receives an arming answer. A separate file is a separate process, one store,
- * no contention.
+ * **Not because the arming pass is unreachable over there.** An earlier version of this
+ * docblock said that, and a review disproved it inside the click file's own process:
+ * `arming=true knowledge=listed` does happen there, and under the mutation below the
+ * widened request really did go out. The click file stayed green for a duller reason — its
+ * `listed` case asserts what was WRITTEN and, until T3, said nothing about the set that was
+ * READ.
+ *
+ * The real reasons are **attributability and timing**, and they are why a fourth case next
+ * door would still be the wrong instrument:
+ *
+ *  · *Attributability.* A page load and a click both produce `{kinds:[3]}` REQs into one
+ *    shared recorder. Over there, three cases and several stores have already run; a url in
+ *    the list cannot be tied to the pass that caused it. Here there is exactly one store,
+ *    one pass, and every REQ in the record belongs to it.
+ *  · *Timing.* Arming runs beside the test, not inside it — it is started by a store
+ *    subscription and finishes two round trips later. A case that clicks cannot say when
+ *    the arming REQs stopped arriving, so „these and no others" is not a statement it can
+ *    make. This file waits for the pass to complete and then asserts a SET.
+ *
+ * A separate file is also a separate process, which removes the `armedFor` contention the
+ * click file has (one module-level arming key, earlier stores still subscribed) — welcome,
+ * but a consequence and not the reason.
  *
  * ── What it is for, and it is a measured gap, not a precaution ─────────────────
  *
@@ -20,13 +36,21 @@
  * — an intersection, so the brand survives; no cast, so the census next door sees nothing;
  * `tsc` exit 0. Placed in the arming branch **on purpose**, because nothing is ever written
  * there and every EVENT-frame assertion is therefore blind to it. Adding the REQ urls to
- * the click file did not help: measured, that mutation was 3/3 green before AND after, for
- * the structural reason above.
+ * the click file did not help either: measured, that mutation was 3/3 green before AND
+ * after, for the assertion gap named above.
  *
  * In production the same edit is the whole of F7 coming back — `{kinds:[3],authors:[self]}`
  * to four relays the reader never chose, on every page view, with AUTH granted to them in
  * `js/relayConfig.ts`. Deanonymisation, not data loss, and no source instrument is needed
  * to see it: it is traffic.
+ *
+ * ── A cost worth knowing before you copy this shape ────────────────────────────
+ *
+ * The assertions here finish in ~38 ms and the process then idles ~30 s before it exits —
+ * the same as `js/followClickGate.test.ts` (~32 s), which predates it. Something in the
+ * app graph keeps the event loop alive after the last assertion; it was not chased, and it
+ * is not this file's doing. **Every further test of this build costs `npm run test:unit`
+ * half a minute of wall clock.** Two files earn it; a third should have a reason.
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'

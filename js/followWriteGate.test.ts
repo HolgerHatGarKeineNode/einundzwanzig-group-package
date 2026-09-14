@@ -937,7 +937,7 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      * | A1 | `JSON.parse(JSON.stringify([...targets, 'wss://…']))` — returns `any` |
      * | A2 | `Object.assign([...targets, ...hints], targets)` — an intersection carries the brand |
      * | A3 | `type Minted = FollowTargetSet` elsewhere, then `urls as Minted` — the text match below never sees an alias |
-     * | A4 | mutating the array handed to `mintTargetSet` — closed since, by copying there |
+     * | A4 | **REFUTED** — reported as „mutate the array handed to `mintTargetSet` and the minted set widens", measured false at `9ff152a` before any copy existed: both call sites allocate, and the function is not exported. Kept in the table so it is not re-opened as a lead |
      *
      * Shortest forgery from the exported api, one expression, no `as`, no `any`:
      * `Object.assign(noFollowTargets(), ['wss://attacker.example/'])`.

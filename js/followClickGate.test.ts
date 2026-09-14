@@ -317,13 +317,22 @@ describe('the first click reads, the second writes — measured at the relay', (
      * So: a reader who HAS a NIP-65 list, served over that context, has to end up writing
      * to the relay it names — and to nothing else.
      *
-     * **This case says nothing about arming, on purpose.** `armedFor` in `js/follows.ts` is
-     * ONE module-level key, and every store the earlier cases wired is still subscribed to
-     * `activeSpace` and `pubkey` — they re-arm on the same url and take the key, so the
-     * store created last never receives an arming answer. That is a property of this
-     * harness, not of the code (F7's deferral is asserted in `js/followModels.test.ts` and
-     * pinned in `js/followWriteGate.test.ts`), and the case works around it the way a
-     * reader would: it clicks twice.
+     * **This case says nothing about the ARMING pass, and not because arming is out of
+     * reach here.** An earlier version of this docblock claimed that; a review measured
+     * `arming=true knowledge=listed` inside this very process and disproved it. What is
+     * true is narrower: arming runs beside the cases, started by a store subscription, and
+     * several stores share one recorder — so a url in the record cannot be attributed to a
+     * particular pass, and „these relays and no others at page load" is not a sentence this
+     * file can say. `js/followArmingGate.test.ts` says it, in its own process with one
+     * store. (`armedFor` is one module-level key and the earlier stores hold it, which is
+     * why this case clicks twice instead of waiting for a pre-load; that is a property of
+     * the harness, not of the code.)
+     *
+     * **What this case DOES say since T3 is the read set.** Until then it asserted only
+     * what was written, and that was a measured hole: a widening of the contact-list READ
+     * set on the click path passed the type, the census, this file and the arming file
+     * alike. The auditor's positive control was `["wss://outbox.click.invalid/",
+     * "wss://indexer.click.invalid/"]` — 3/3 green in both wire files.
      */
     test('CALIBRATION: a reader WITH a kind 10002 writes to their own relay, not to the fallback', async () => {
         const store = await freshStore('wss://outbox-space.click.invalid/', SECRET_2)
@@ -332,6 +341,9 @@ describe('the first click reads, the second writes — measured at the relay', (
         assert.equal(store.noRelayList, false, 'and the card says nothing about a missing outbox — this reader has one')
         written.length = 0
         writtenTo.length = 0
+        // The record is cleared here too, so the read-set equality below is about THIS
+        // click and not about everything the file has done so far.
+        requested.length = 0
 
         await store.toggle(BOB)
 
@@ -348,6 +360,18 @@ describe('the first click reads, the second writes — measured at the relay', (
             [...new Set(writtenTo)],
             [OUTBOX],
             'and it went to the relay the reader announced — the outbox branch, end to end',
+        )
+        // T3 — the READ set, as an equality and not as a containment. For a `listed`
+        // reader the two legitimate sources are the declared relay (target) and the
+        // default set (read-only hints, F6); anything beyond those two is a set that grew
+        // on the way, and the write path follows the read path.
+        assert.deepEqual(
+            [...new Set(contactListReadsTo())].sort(),
+            [FALLBACK, OUTBOX].sort(),
+            'the click asked for the contact list somewhere other than the declared relay and the read-only '
+                + 'hints. A widened read set is the same edit as a widened write set one step earlier — it '
+                + 'passes the brand (an intersection keeps it), it passes the census (no assertion), and it '
+                + 'passes the arming file (which measures a page load). This equality is where it stops.',
         )
     })
 })

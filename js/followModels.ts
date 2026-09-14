@@ -422,7 +422,7 @@ declare const followTargetSetBrand: unique symbol
  * | A1 | `JSON.parse(JSON.stringify([...targets, 'wss://…']))` — the return type is `any`, and `any` is assignable to everything |
  * | A2 | `Object.assign([...targets, ...hints], targets)` — the result type is an INTERSECTION, so it carries the brand of the second argument while holding the elements of the first |
  * | A3 | `type Minted = FollowTargetSet` in another file, then `urls as Minted` — a cast the census cannot see, because it matches the text `FollowTargetSet` and an alias never contains it |
- * | A4 | mutating the array that was handed to {@link mintTargetSet} afterwards — closed since, see there |
+ * | A4 | **REFUTED, never reachable** — the claim was that mutating the array handed to {@link mintTargetSet} widens the minted set. Measured at `9ff152a`, before any copy existed: both of its two call sites pass a freshly allocated array, and it is not exported. Listed here so nobody re-opens it as a lead; the contract in {@link mintTargetSet} is a promise, not a repair |
  *
  * The shortest forgery out of the EXPORTED api, one expression, no `as` and no `any`:
  * `Object.assign(noFollowTargets(), ['wss://attacker.example/'])`.
@@ -446,12 +446,21 @@ export type FollowTargetSet = readonly string[] & { readonly [followTargetSetBra
  * Deliberately not exported: a second minting site would give every caller the cast back
  * that the type just took away, and the whole assurance is that there is one.
  *
- * **Copies, and that is not tidiness (A4).** Until this was added the function branded the
- * caller's array in place: `followRelayTargets('listed', declared, [])` handed back the
- * very array `declared` pointed at, so a `declared.push('wss://…')` one line later widened
- * a set that the type says is `readonly`. `readonly` is a statement about a binding at
- * compile time; it protects no value at runtime. The copy makes the returned set a thing
- * the caller no longer has a second handle on.
+ * **Copies — as a contract, not as a repair (A4).** A review reported that this function
+ * branded the caller's array in place, so that `followRelayTargets('listed', declared, [])`
+ * handed back the very array `declared` pointed at and a later `declared.push('wss://…')`
+ * widened a set the type calls `readonly`. **That was measured at `9ff152a`, before the
+ * copy existed, and it did not hold:** the returned set was never identical to the argument
+ * and a push through it changed nothing. Both call sites below hand in a freshly allocated
+ * array — one a literal, one the result of {@link normalizeRelaySet} — and the function is
+ * not exported, so there was no third way in. The reporting review has since withdrawn the
+ * claim.
+ *
+ * The copy stayed anyway, and the reason is a contract rather than a hole: the function
+ * that hands the value out is the one that should owe „nobody else holds this array",
+ * instead of the promise resting on a helper further up continuing to allocate. What
+ * remains true from the original report is the general half — `readonly` is a statement
+ * about a binding at compile time and guards no value at runtime.
  */
 const mintTargetSet = (urls: readonly string[]): FollowTargetSet => {
     // Bound as `readonly string[]` before the assertion so that the ONE cast in this file
