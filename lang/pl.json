@@ -1315,7 +1315,6 @@
     "Diese Relais haben die Änderung nicht übernommen: :relays.": "Te Relays nie zastosowały zmiany: :relays.",
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "Nie udało się odczytać listy kontaktów. Nic nie zostało zmienione.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Nie masz zapisanej listy Relays (NIP-65). Dlatego Twoja lista kontaktów trafia na ogólne publiczne Relays.",
-    "Die Kontaktliste sieht unvollständig aus — kleiner als das, was zuletzt bekannt war. Es wurde nichts geschrieben, bitte versuch es noch einmal.": "Twoja lista kontaktów wygląda na niekompletną — mniejszą niż ostatnio znana. Nic nie zostało zapisane, spróbuj jeszcze raz.",
     "Kontaktliste laden": "Wczytaj listę kontaktów",
     "Kontaktliste laden — danach kannst du folgen": "Wczytaj swoją listę kontaktów — potem możesz obserwować"
 }

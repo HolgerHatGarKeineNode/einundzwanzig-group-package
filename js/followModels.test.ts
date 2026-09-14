@@ -4,13 +4,8 @@ import { RELAYS } from '@welshman/util'
 import { RelayListReader } from '@welshman/domain'
 import {
     FOLLOWS,
-    MIN_SOURCES_TO_LOWER,
-    floorAfterRead,
     anyRelayAnswered,
     armingReadsContactList,
-    followWriteBlanksKnownContent,
-    followWriteShrinksBelowKnown,
-    followedPubkeysIn,
     declaredWriteRelaysOf,
     followedPubkeysOf,
     followListAnswered,
@@ -233,8 +228,7 @@ describe('N1: the space stub can no longer poison a later session', () => {
                 self: ME,
                 add: false,
                 spaceKind: 'other',
-                knownContactCount: 0, knownContentNonEmpty: false,
-            }),
+                }),
         }
     }
 
@@ -511,27 +505,52 @@ describe('K7: the relay-list verdict needs ONE answer, the write still needs all
 })
 
 /**
- * **ACCEPTED RISK — this case DOCUMENTS a hole, it does not close one.**
+ * **ACCEPTED RISK — these cases DOCUMENT a hole, they do not close one.**
  *
- * Read it as a record of a decision, not as a guarantee. It asserts the damaging outcome
- * on purpose, the same way the P1 defect case did before P2 repaired it.
+ * Read them as a record of a decision, not as a guarantee. They assert the damaging
+ * outcome on purpose, the same way the P1 defect case did before P2 repaired it.
  *
- * The situation: a reader whose kind 10002 happens to be unfindable at this moment, and
- * whose real contact list sits on a relay that is in none of the fallback relays. Every
- * fallback relay answers and holds nothing, so the merge base is legitimately `null`, and
- * a one-entry kind 3 is written to the fallback set. If the reader's declared relays later
- * overlap that set, the stub wins the NIP-01 comparison there.
+ * **Restated after the high-water floor was removed.** For a while a per-identity contact
+ * count stood underneath this, so the stub below was refused on any device that had seen
+ * the real list. That floor is gone: it was the only fail-open element left on this path
+ * and it produced three dead ends of its own — one unfollow per follow, a lock-out after a
+ * mass unfollow on another device, and a permanent refusal after one degraded read. What
+ * catches a truncated base now is named below, and nothing else does.
  *
- * **Why it is accepted rather than fixed.** Closing it means going back to „every asked
- * relay must answer", and that was measured to lock the feature out entirely whenever one
- * of three third-party indexers is down — which was the case on the day this was written.
- * The remaining exposure is narrow: it needs the relay list to be unfindable AND the
- * contact list to be absent from every fallback relay, and three of the four default
- * relays were measured serving a real 704-tag list.
+ * ── The situation ─────────────────────────────────────────────────────────────
  *
- * **What would change the decision:** if a fallback relay stops serving kind 3, or if the
- * ask set shrinks to one relay, this narrows to almost nothing and the case should be
- * re-argued rather than kept.
+ * A reader whose kind 10002 is unfindable at this moment, and whose real contact list sits
+ * on a relay that is in none of the fallback relays. Every fallback relay answers and
+ * holds nothing, so the merge base is legitimately `null`, and a one-entry kind 3 goes to
+ * the fallback set. If the reader's declared relays later overlap that set, the stub wins
+ * the NIP-01 comparison there.
+ *
+ * ── What stands in the way, precisely — and what does not ─────────────────────
+ *
+ * | holds | does not hold |
+ * |---|---|
+ * | `followListAnswered` with `every`: one silent target and nothing is written at all | it cannot tell „answered and holds nothing" from „answered and holds the list" |
+ * | `OutboxKnowledge.unknown`: no relay list resolvable ⇒ no target set ⇒ no write | once `confirmed-none` is reached, the fallback set is used whatever it holds |
+ * | `FOLLOW_BASE_HINT_RELAYS` as an extra read-only source: it can only make the base more current | it cannot make it larger, and for `confirmed-none` it is the same set as the targets |
+ * | `content` is carried over byte for byte | when the base is missing there is no `content` to carry, and it goes out empty |
+ *
+ * So the honest summary is: **a complete answer from relays that genuinely hold nothing is
+ * indistinguishable from a complete answer from a reader who follows nobody, and this
+ * client writes the same event in both cases.** That is the residual exposure of the whole
+ * phase, in one sentence.
+ *
+ * ── Why it is accepted rather than closed ─────────────────────────────────────
+ *
+ * Every mechanism tried against it either refused legitimate writes (the floor, three dead
+ * ends) or locked the feature out entirely when a third-party relay was down („every asked
+ * relay must answer" — measured while `relay.damus.io` returned HTTP 521). The exposure
+ * itself is narrow: it needs the relay list to be unfindable AND the contact list to be
+ * absent from every fallback relay, and three of the four default relays were measured
+ * serving a real 704-tag list on 2026-09-14.
+ *
+ * **What would change the decision:** a fallback relay that stops serving kind 3, an ask
+ * set that shrinks to one relay, or a way to tell „this relay has no list for you" from
+ * „this relay has nothing for anybody" — the last one would close it outright.
  */
 describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a stub', () => {
     const FERN = 'wss://never-asked.example/'
@@ -547,7 +566,6 @@ describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a
             self: ME,
             add: true,
             spaceKind: 'other',
-            knownContactCount: 0, knownContentNonEmpty: false,
         })
         assert.ok(plan, 'every target answered, so the gate does not stand in the way here')
         assert.deepEqual(
@@ -556,6 +574,16 @@ describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a
             'ONE entry — this is the accepted risk, asserted so that it cannot change unnoticed',
         )
         assert.equal(plan.content, '', 'and no legacy relay map, because there was no list to carry one from')
+    })
+
+    test('DOCUMENTED: what the removed floor used to catch here, and no longer does', () => {
+        // Kept as an explicit record: until this round a per-identity high-water mark
+        // refused this write on any device that had seen the real list. Nothing takes its
+        // place — the assertion above IS the current behaviour, on every device.
+        const targets = followRelayTargets('confirmed-none', [], [FALLBACK, FALLBACK_2])
+        const reads = targets.map((url) => read(url, true, null))
+        assert.equal(followListAnswered(reads, targets), true, 'the completeness verdict is satisfied…')
+        assert.equal(winningFollowList(reads), null, '…and the base is still null. That pair is the whole hole.')
     })
 
     test('DOCUMENTED: the real list on a never-asked relay is untouched — the loss is deferred, not immediate', () => {
@@ -578,7 +606,6 @@ describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a
             self: ME,
             add: false,
             spaceKind: 'other',
-            knownContactCount: 0, knownContentNonEmpty: false,
         })
         assert.ok(plan)
         assert.deepEqual(plan.tags, [['p', ALICE], ['t', 'bitcoin']], 'the real list minus one, not a stub')
@@ -711,7 +738,6 @@ describe('F1: a partial answer never licenses a total replacement', () => {
             self: ME,
             add: false,
             spaceKind: 'other',
-            knownContactCount: 0, knownContentNonEmpty: false,
         })
         assert.equal(plan, null, 'this is the write that deletes 700 contacts; it must not exist')
     })
@@ -726,7 +752,6 @@ describe('F1: a partial answer never licenses a total replacement', () => {
             self: ME,
             add: false,
             spaceKind: 'other',
-            knownContactCount: 0, knownContentNonEmpty: false,
         })
         assert.ok(plan, 'a complete answer must still be able to write')
         assert.deepEqual(plan.tags, [['p', ALICE], ['t', 'bitcoin']], 'and it is built from the REAL list')
@@ -809,7 +834,7 @@ describe('the tag algebra keeps what it cannot display', () => {
 })
 
 describe('planFollowWrite: the gate and the event body are ONE value', () => {
-    const basis = { list: list([]), listAnswered: true, target: ALICE, self: ME, add: true, spaceKind: 'other' as const, knownContactCount: 0, knownContentNonEmpty: false }
+    const basis = { list: list([]), listAnswered: true, target: ALICE, self: ME, add: true, spaceKind: 'other' as const }
 
     test('the ordinary case produces a body that carries `content` over untouched', () => {
         const plan = planFollowWrite({ ...basis, list: list([['p', BOB]], 100, '{"wss://a/":{"read":true}}') })
@@ -919,126 +944,6 @@ describe('followWriteConfirmed: silence is not evidence', () => {
     })
 })
 
-/**
- * **K8 — THE FLOOR, and the whole point of this round.**
- *
- * Five findings on this path (F1, F2, N1, F5, F6) ended in one and the same state: a base
- * of `null` or a truncated one while `listAnswered` is `true`, a one-entry kind 3, written
- * to relays that hold the real list. Each was repaired at its own entrance, and each time
- * a new entrance turned up. This block asserts the EXIT instead.
- *
- * Every case below reproduces one of the known routes with its own inputs — the route is
- * not simulated, it is reconstructed from the shape it leaves behind — and asserts that no
- * event body comes out. The route that nobody has found yet leaves the same shape, which
- * is the only reason this is worth having.
- *
- * The calibration at the end is not decoration: without it, „refused" would also be true
- * of a floor that refuses everything, and every case above it would prove nothing.
- */
-describe('K8: the floor refuses the RESULT, whatever the route to it was', () => {
-    const HOCHSTAND = 700
-
-    /** The reader's real list, shortened; only the COUNT matters to this rule. */
-    const echt = (n: number): FollowEventLike =>
-        idList('aaa', Array.from({ length: n }, (_, i) => ['p', `${i}`.padStart(64, '0')]), 1000)
-
-    const plan = (over: Partial<Parameters<typeof planFollowWrite>[0]>) => planFollowWrite({
-        list: null,
-        listAnswered: true,
-        target: ALICE,
-        self: ME,
-        add: true,
-        spaceKind: 'other',
-        knownContactCount: HOCHSTAND,
-        knownContentNonEmpty: false,
-        ...over,
-    })
-
-    test('CORE route F1: an incomplete answer left the base empty — refused', () => {
-        // One relay answered and held nothing while the holders stayed silent. The verdict
-        // gate catches this one too; the floor catches it a second time, on its own.
-        assert.equal(plan({ list: null, listAnswered: true }), null)
-    })
-
-    test('CORE route F5: `isDeleted` suppressed every event, so the base is null — refused', () => {
-        // The shape this leaves is indistinguishable from F1 at the plan: `answered: true`,
-        // zero events. That is exactly why the floor does not ask how it got here.
-        assert.equal(plan({ list: null, listAnswered: true, add: true }), null)
-    })
-
-    test('CORE route F6: `listed` targets that hold nothing — refused', () => {
-        const targets = followRelayTargets('listed', [OUTBOX, OUTBOX_2], [])
-        const reads = targets.map((url) => read(url, true, null))
-        assert.equal(followListAnswered(reads, targets), true, 'CALIBRATION: the verdict gate is satisfied here')
-        assert.equal(
-            plan({ list: winningFollowList(reads), listAnswered: followListAnswered(reads, targets) }),
-            null,
-            'the declared write relays are what the outbox model points every other client at',
-        )
-    })
-
-    test('CORE route confirmed-none: the fallback relays hold nothing — refused', () => {
-        const targets = followRelayTargets('confirmed-none', [], [FALLBACK, FALLBACK_2])
-        const reads = targets.map((url) => read(url, true, null))
-        assert.equal(
-            plan({ list: winningFollowList(reads), listAnswered: followListAnswered(reads, targets) }),
-            null,
-            'this is the ACCEPTED RISK from the previous round. The floor catches it ONLY on a device that has '
-                + 'already seen the real list — with mark 0 (fresh profile, second device, cleared site data, '
-                + 'private window, unreadable storage) this plan is produced exactly as asserted here.',
-        )
-    })
-
-    test('CORE: a remove that would drop more than one entry — refused', () => {
-        // A truncated base with a real high-water mark: unfollowing one person from a list
-        // of three would leave two where 699 are expected.
-        assert.equal(plan({ list: echt(3), add: false, target: '0'.padStart(64, '0') }), null)
-    })
-
-    test('CORE: an add may never shrink — the boundary is exact, not generous', () => {
-        // From one below the mark an add lands exactly ON it, so it passes: following
-        // somebody has to remain possible right after a legitimate unfollow.
-        assert.ok(plan({ list: echt(HOCHSTAND - 1), add: true }), 'base 699 + one = 700, which meets the mark')
-        // From two below it cannot reach the mark, and that is a shrink.
-        assert.equal(plan({ list: echt(HOCHSTAND - 2), add: true }), null, 'base 698 + one = 699 < 700')
-    })
-
-    test('CALIBRATION: a legitimate add goes through', () => {
-        const written = plan({ list: echt(HOCHSTAND), add: true })
-        assert.ok(written, 'following somebody from a complete base must still work')
-        assert.equal(followedPubkeysIn(written.tags).length, HOCHSTAND + 1)
-    })
-
-    test('CALIBRATION: a legitimate remove goes through, and takes exactly one', () => {
-        const written = plan({ list: echt(HOCHSTAND), add: false, target: '0'.padStart(64, '0') })
-        assert.ok(written, 'unfollowing from a complete base must still work')
-        assert.equal(followedPubkeysIn(written.tags).length, HOCHSTAND - 1)
-    })
-
-    test('CALIBRATION: an identity with no history refuses nothing — a first write must pass', () => {
-        const written = plan({ list: null, knownContactCount: 0 })
-        assert.ok(written, 'the floor can only be as informed as this reader\'s own history')
-        assert.deepEqual(written.tags, [['p', ALICE]])
-    })
-
-    test('the rule itself, both directions, at the exact boundary', () => {
-        // An `add` targets somebody NOT in the base (so the count rises by one); a
-        // `remove` targets somebody who IS (so it falls by one). Using an absent target
-        // for a remove would measure the no-op case, which `sameTags` already refuses —
-        // and it is how the first draft of this case got its arithmetic wrong.
-        const drin = '0'.padStart(64, '0')
-        const bei = (n: number, add: boolean, known: number): boolean =>
-            followWriteShrinksBelowKnown({
-                list: echt(n), listAnswered: true, target: add ? ALICE : drin, self: ME, add,
-                spaceKind: 'other', knownContactCount: known, knownContentNonEmpty: false,
-            })
-        assert.equal(bei(10, true, 10), false, 'add from the mark: 11 ≥ 10')
-        assert.equal(bei(9, true, 10), false, 'add from one below lands ON the mark: 10 ≥ 10')
-        assert.equal(bei(8, true, 10), true, 'add from two below cannot reach it: 9 < 10')
-        assert.equal(bei(10, false, 10), false, 'remove from the mark: 9 ≥ 9')
-        assert.equal(bei(9, false, 10), true, 'remove from one below: 8 < 9')
-    })
-})
 
 /**
  * **F7: a page load asks only relays the reader chose.**
@@ -1060,259 +965,5 @@ describe('armingReadsContactList: who gets asked on a page load', () => {
     })
 })
 
-/**
- * **D1 — THE unfollow run, and the core proof of this round.**
- *
- * The first version of the floor was monotone upwards, which makes ordinary unfollowing
- * impossible: the mark stays at the old count, so the second unfollow in a row falls below
- * `mark − 1` and is refused. Measured end to end over the real gate with 20 contacts:
- * one unfollow through, the next two refused, an add restoring the count, and only then a
- * fourth unfollow working. **At most one unfollow per follow.**
- *
- * That is not the mass-cleanup case the docblock claimed as the price — it is „unfollow A
- * on Monday, B on Tuesday" — and the refusal text told the reader to retry something that
- * could never succeed.
- *
- * The repair: a write this client made itself sets the mark to what it published. Reads
- * still only raise it. This case walks the measured sequence step by step and asserts the
- * outcome of each; without the lowering, steps 2, 3 and 6 go red.
- */
-describe('D1: unfollowing twice in a row is not a defect', () => {
-    const kontakt = (i: number): string => `${i}`.padStart(64, '0')
-    const liste = (n: number, id = 'aaa'): FollowEventLike =>
-        idList(id, Array.from({ length: n }, (_, i) => ['p', kontakt(i)]), 1000)
 
-    /** The store, as `js/follows.ts` keeps it: reads raise, a confirmed write sets. */
-    const laufen = (schritte: ReadonlyArray<{ add: boolean; ziel: string }>) => {
-        let mark = 20
-        let stand = 20
-        const ergebnis: string[] = []
-        for (const schritt of schritte) {
-            const basis = liste(stand)
-            // A complete read raises the mark to what the relays showed — never lowers it.
-            mark = Math.max(mark, followedPubkeysOf(basis).length)
-            const plan = planFollowWrite({
-                list: basis,
-                listAnswered: true,
-                target: schritt.ziel,
-                self: ME,
-                add: schritt.add,
-                spaceKind: 'other',
-                knownContactCount: mark,
-                knownContentNonEmpty: false,
-            })
-            if (!plan) {
-                ergebnis.push('REFUSED')
-                continue
-            }
-            stand = followedPubkeysIn(plan.tags).length
-            mark = stand
-            ergebnis.push(`written(${stand})`)
-        }
 
-        return ergebnis
-    }
-
-    test('CORE: six steps, remove/remove/remove/add/remove/remove — every one of them lands', () => {
-        assert.deepEqual(
-            laufen([
-                { add: false, ziel: kontakt(0) },
-                { add: false, ziel: kontakt(1) },
-                { add: false, ziel: kontakt(2) },
-                { add: true, ziel: ALICE },
-                { add: false, ziel: kontakt(3) },
-                { add: false, ziel: kontakt(4) },
-            ]),
-            ['written(19)', 'written(18)', 'written(17)', 'written(18)', 'written(17)', 'written(16)'],
-            'the measured failure was written(19), REFUSED, REFUSED, written(20), written(19) — at most one '
-                + 'unfollow per follow, for an ordinary reader with no defect anywhere',
-        )
-    })
-
-    test('CORE: the floor is still there — a truncated base is refused at every step', () => {
-        // The same run, but each step reads a base of one. Nothing may be written.
-        let mark = 20
-        for (let i = 0; i < 6; i += 1) {
-            const plan = planFollowWrite({
-                list: liste(1),
-                listAnswered: true,
-                target: ALICE,
-                self: ME,
-                add: true,
-                spaceKind: 'other',
-                knownContactCount: mark,
-                knownContentNonEmpty: false,
-            })
-            assert.equal(plan, null, `step ${i + 1}: a base of one must never be written over a mark of ${mark}`)
-        }
-    })
-
-    test('CALIBRATION: without the lowering the second unfollow is refused', () => {
-        // The bug, reconstructed: mark frozen at 20 while the list shrinks.
-        const plan = planFollowWrite({
-            list: liste(19),
-            listAnswered: true,
-            target: kontakt(1),
-            self: ME,
-            add: false,
-            spaceKind: 'other',
-            knownContactCount: 20,
-            knownContentNonEmpty: false,
-        })
-        assert.equal(plan, null, 'this is exactly what D1 measured, and why the mark has to be able to come down')
-    })
-})
-
-/**
- * **D5 — the second half of the floor: a `content` we know about, going out empty.**
- *
- * The count cannot see this. `content` is the legacy relay map some clients still read;
- * this client carries it byte for byte and must not decide about it, so an empty `content`
- * in a plan means the base was empty **or the base was missing** — and the missing base is
- * the failure class this whole module keeps landing in.
- */
-describe('D5: blanking a known content is refused', () => {
-    const mitInhalt = (tags: string[][], content: string): FollowEventLike =>
-        ({ id: 'aaa', kind: FOLLOWS, pubkey: ME, created_at: 1000, tags, content })
-
-    const eingabe = (list: FollowEventLike | null, knownContentNonEmpty: boolean) => ({
-        list, listAnswered: true, target: ALICE, self: ME, add: true,
-        spaceKind: 'other' as const, knownContactCount: 0, knownContentNonEmpty,
-    })
-
-    test('CORE: a missing base while the content is known non-empty — refused', () => {
-        assert.equal(followWriteBlanksKnownContent(eingabe(null, true)), true)
-        assert.equal(planFollowWrite(eingabe(null, true)), null)
-    })
-
-    test('CORE: the count would NOT have caught this — the floor needs both halves', () => {
-        // Mark 0, so the shrink rule waves it through; only the content rule refuses.
-        assert.equal(followWriteShrinksBelowKnown(eingabe(null, true)), false)
-    })
-
-    test('a base that carries the content through is written', () => {
-        const plan = planFollowWrite(eingabe(mitInhalt([['p', BOB]], '{"wss://a/":{"read":true}}'), true))
-        assert.ok(plan)
-        assert.equal(plan.content, '{"wss://a/":{"read":true}}', 'byte for byte, as the module header requires')
-    })
-
-    test('a reader whose content was legitimately blanked elsewhere is NOT locked out', () => {
-        // The flag falls on the next complete read, so this is a guard and not a dead end.
-        assert.ok(planFollowWrite(eingabe(mitInhalt([['p', BOB]], ''), false)))
-    })
-
-    test('nothing known about the content: nothing refused', () => {
-        assert.equal(followWriteBlanksKnownContent(eingabe(null, false)), false)
-    })
-})
-
-/**
- * **Variant (b) — the way back out of the floor, and its four locks.**
- *
- * A monotone floor and a mass unfollow on another device are mutually exclusive: after
- * tidying up on a phone from 700 to 50, the desktop refuses both directions forever, and
- * because it cannot write, the mark never comes down either. That is the same class of
- * dead end as the one that broke ordinary unfollowing, one level further out.
- *
- * The way out is deliberately narrow. Every source of the round must have answered, every
- * one must have delivered a list, they must all agree on the count, and there must be at
- * least two of them. The counter-probes below take away one condition each — the point of
- * having them separately is that each of the five findings on this path fails a DIFFERENT
- * one, so loosening any single condition re-opens a different door.
- */
-describe('floorAfterRead: the floor comes down only on a unanimous, complete round', () => {
-    const liste = (n: number, id = 'aaa'): FollowEventLike =>
-        idList(id, Array.from({ length: n }, (_, i) => ['p', `${i}`.padStart(64, '0')]), 1000)
-
-    const quelle = (url: string, answered: boolean, held: FollowEventLike | null): FollowRelayRead =>
-        ({ url, answered, list: held })
-
-    test('CORE: the foreign-device chain — 700 down to 50, and the next follow goes through', () => {
-        const runde = [
-            quelle(OUTBOX, true, liste(50, 'aaa')),
-            quelle(OUTBOX_2, true, liste(50, 'bbb')),
-            quelle(FALLBACK, true, liste(50, 'ccc')),
-        ]
-        const boden = floorAfterRead(runde, 700)
-        assert.equal(boden, 50, 'every source answered, every one held a list, all agree, and 50 < 700')
-
-        const plan = planFollowWrite({
-            list: liste(50),
-            listAnswered: true,
-            target: ALICE,
-            self: ME,
-            add: true,
-            spaceKind: 'other',
-            knownContactCount: boden,
-            knownContentNonEmpty: false,
-        })
-        assert.ok(plan, 'without the lowering this is refused, and the reader is locked out for good')
-        assert.equal(followedPubkeysIn(plan.tags).length, 51)
-    })
-
-    test('COUNTER-PROBE (1): one source did not answer — no lowering', () => {
-        // The F1 shape. The silent one is exactly the relay that might hold the real list.
-        const runde = [
-            quelle(OUTBOX, true, liste(50, 'aaa')),
-            quelle(OUTBOX_2, false, liste(50, 'bbb')),
-            quelle(FALLBACK, true, liste(50, 'ccc')),
-        ]
-        assert.equal(floorAfterRead(runde, 700), 700)
-    })
-
-    test('COUNTER-PROBE (2): one source delivered nothing — no lowering', () => {
-        // The F5 shape: `EOSE` arrives, the events do not. „Delivered nothing" and
-        // „delivered an empty list" are different answers, and only the second one counts.
-        const runde = [
-            quelle(OUTBOX, true, liste(50, 'aaa')),
-            quelle(OUTBOX_2, true, null),
-            quelle(FALLBACK, true, liste(50, 'ccc')),
-        ]
-        assert.equal(floorAfterRead(runde, 700), 700)
-    })
-
-    test('COUNTER-PROBE (3): the sources disagree — no lowering, and the ORDER does not decide', () => {
-        // The F6/B2 shape: the targets carry the real list, a read-only hint carries a
-        // newer one-entry stub. It must not lower the floor and must not raise it to 1.
-        const echt = liste(700, 'aaa')
-        const stub = idList('zzz', [['p', ALICE]], 2000)
-        assert.equal(floorAfterRead([quelle(OUTBOX, true, echt), quelle(FALLBACK, true, stub)], 700), 700)
-        // **Both orders, and that is not symmetry for its own sake.** With the agreement
-        // check removed, the version above still passes — `counts[0]` happens to be 700,
-        // and 700 is not below the floor. Only the small-first order exposes it. Measured:
-        // the mutation that drops `new Set(counts).size === 1` left the one-sided case
-        // green, which is how a counter-probe can assert the right thing for the wrong
-        // reason.
-        assert.equal(floorAfterRead([quelle(FALLBACK, true, stub), quelle(OUTBOX, true, echt)], 700), 700)
-        const klein = liste(50, 'ccc')
-        assert.equal(
-            floorAfterRead([quelle(FALLBACK, true, klein), quelle(OUTBOX, true, echt)], 700),
-            700,
-            'a small list first and a large one second must not lower the floor to the small one',
-        )
-    })
-
-    test('COUNTER-PROBE (4): the agreed count is LARGER — the raising rule takes over', () => {
-        const runde = [quelle(OUTBOX, true, liste(900, 'aaa')), quelle(FALLBACK, true, liste(900, 'bbb'))]
-        assert.equal(floorAfterRead(runde, 700), 900, 'a unanimous larger round raises, it does not "lower to" it')
-    })
-
-    test('COUNTER-PROBE (4b): a single source can never lower, however unanimous it is with itself', () => {
-        assert.equal(floorAfterRead([quelle(OUTBOX, true, liste(50))], 700), 700)
-        assert.equal(MIN_SOURCES_TO_LOWER, 2, 'the fourth condition, named')
-    })
-
-    test('a round with nothing at all leaves the floor untouched', () => {
-        assert.equal(floorAfterRead([], 700), 700)
-        assert.equal(floorAfterRead([quelle(OUTBOX, true, null), quelle(FALLBACK, true, null)], 700), 700)
-    })
-
-    test('an empty list IS a list — a reader who follows nobody can say so unanimously', () => {
-        // Two sources, both answering, both handing over a real kind 3 with zero `p` tags.
-        const leer = idList('aaa', [['t', 'bitcoin']], 1000)
-        assert.equal(
-            floorAfterRead([quelle(OUTBOX, true, leer), quelle(FALLBACK, true, { ...leer, id: 'bbb' })], 700),
-            0,
-        )
-    })
-})

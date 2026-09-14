@@ -1282,7 +1282,6 @@
     "Diese Relais haben die Änderung nicht übernommen: :relays.": "Ezek a Relayek nem alkalmazták a változtatást: :relays.",
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "A névjegylistát nem sikerült beolvasni. Semmi nem változott.",
     "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Nincs Relay-listád (NIP-65) megadva. A névjegylistád ezért általános nyilvános Relayekre kerül.",
-    "Die Kontaktliste sieht unvollständig aus — kleiner als das, was zuletzt bekannt war. Es wurde nichts geschrieben, bitte versuch es noch einmal.": "A névjegylistád hiányosnak tűnik — kisebb, mint amit legutóbb ismertünk. Semmi nem lett kiírva, próbáld meg újra.",
     "Kontaktliste laden": "Névjegylista betöltése",
     "Kontaktliste laden — danach kannst du folgen": "Töltsd be a névjegylistádat — utána tudsz követni"
 }

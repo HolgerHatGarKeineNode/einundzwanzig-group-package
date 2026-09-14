@@ -571,168 +571,7 @@ export type FollowPlanInput = {
     add: boolean
     /** From `deriveSpaceKind`; `'unknown'` denies. */
     spaceKind: SpaceKind
-    /**
-     * **The largest number of contacts this client has ever seen for `self`.**
-     *
-     * The high-water mark {@link followWriteShrinksBelowKnown} measures against. `0` for
-     * an identity nothing has been read for yet, which lets every first write through —
-     * the guard can only ever be as informed as the reader's own history.
-     */
-    knownContactCount: number
-    /**
-     * **Did the last complete read find a non-empty `content`?**
-     *
-     * The second half of the floor, and an independent signal from the count. Kept for the
-     * same reason `content` is carried over byte for byte: it is the legacy relay map some
-     * clients still read, this client cannot display it, and a write that silently blanks
-     * it is a loss the count cannot see.
-     */
-    knownContentNonEmpty: boolean
 }
-
-/**
- * **THE FLOOR — the guard that does not care how you got here (K8).**
- *
- * Every finding on this path so far — F1, F2, F3, N1, F5, F6 — ended in the same state:
- *
- * > base `null` or truncated while `listAnswered` is `true` → a one-entry kind 3 → written
- * > to relays that hold the real list.
- *
- * The route was different every time and the next one will be different again. So this
- * rule guards the STATE instead of the route, and it is deliberately not measured against
- * the base of this write — in every one of those failures the base was exactly the thing
- * that had gone wrong. It is measured against the high-water mark: the largest contact
- * count this client has ever seen for this identity, kept per identity and across
- * sessions (`js/follows.ts`).
- *
- * | operation | the result must be at least |
- * |---|---|
- * | `add` | the high-water mark — following somebody can never make the list smaller |
- * | `remove` | the mark minus one — unfollowing removes exactly one person |
- *
- * **Where it is wrong, stated rather than discovered:** a reader who deliberately unfollows
- * many people at once, or who cleaned up on another device, is refused. The cost of that
- * is a visible refusal; the cost of the opposite error is every contact they have. There
- * is no override on purpose — an override is a button whose only job is to disable the
- * last line of defence, and it would be reached exactly in the situation the line exists
- * for. If the refusal turns out to bite real readers, that is its own decision with its
- * own measurement, not a flag added in advance.
- *
- * ── What this floor is NOT ────────────────────────────────────────────────────
- *
- * **It is a count, not a content guarantee.** Measured: a write with the same number of
- * `p` tags but the relay hints and petnames of every entry stripped, or the legacy relay
- * map in `content` blanked, passes this rule untouched. {@link followWriteBlanksKnownContent}
- * covers `content` specifically because the loss there is total and the check is one
- * comparison; the third and fourth columns of a `p` tag have no such cheap signal and are
- * **not** covered. The module header says this client must not decide about either — that
- * is a rule about the write path, and this floor is not what enforces it.
- *
- * **And it only knows what THIS device has seen.** On a fresh browser profile, a second
- * device, after cleared site data, in a private window, or when `localStorage` is
- * unreadable, the mark is `0` and the floor refuses nothing. That is not a gap to be
- * closed — there is nothing on such a device a floor could be built from — but it means
- * the read paths carry the whole load there, and a claim that „the floor catches it" is
- * only true where a history exists.
- *
- * It replaces no other check. It is the floor underneath them, for the route nobody has
- * found yet.
- */
-export const followWriteShrinksBelowKnown = (input: FollowPlanInput): boolean => {
-    const current = input.list?.tags ?? []
-    const next = input.add
-        ? withFollowedPubkey(current, input.target)
-        : withoutFollowedPubkey(current, input.target)
-
-    return followedPubkeysIn(next).length < input.knownContactCount - (input.add ? 0 : 1)
-}
-
-/**
- * **Where the floor stands after a read — the ONLY function that moves it from a read.**
- *
- * Raising and lowering are one function rather than two on purpose: „may it come down"
- * and „come down to what" are then a single answer and cannot drift apart.
- *
- * ── Raising (D2, D3) ──────────────────────────────────────────────────────────
- *
- * The maximum over every read of the round, never the count of the NIP-01 winner. „Newest"
- * says nothing about „largest": a validly signed one-entry event from a read-only hint IS
- * the winner and is exactly the shape every finding on this path produced.
- *
- * ── Lowering: three conditions, and they only work TOGETHER ────────────────────
- *
- * A monotone floor and a mass unfollow on another device are mutually exclusive. Without a
- * way down, a reader who tidied up on their phone can never follow or unfollow on their
- * desktop again — the same class of dead end as the one that broke ordinary unfollowing,
- * one level further out. So the floor may come down when:
- *
- *  1. **every** read of the round — targets and read-only hints alike — closed with an
- *     `EOSE`;
- *  2. **every** one of them actually delivered a list, not `null`;
- *  3. all delivered lists agree on the contact count, and that count is below the floor.
- *
- * **Checked against every finding this module has had, one by one — and each fails a
- * DIFFERENT condition, which is why they must not be loosened individually:**
- *
- * | finding | shape it produces | fails on |
- * |---|---|---|
- * | F1 | one relay answered, the holders stayed silent | (1) |
- * | F5 | `isDeleted` suppressed the events, `EOSE` still arrived | (2) — zero lists |
- * | F6 / B2 | targets carry 700, a hint carries a newer one-entry stub | (3) — they disagree |
- * | `confirmed-none` with nothing anywhere | every source answers, none holds a list | (2) |
- * | D3 | a degraded round with one large stale list | (1), and (3) if anything else answered |
- *
- * **No single relay can trigger the lowering** — and that needs a fourth condition, which
- * the first three do not give on their own: with exactly ONE source in the round, all
- * three are satisfied by that one relay. That is reachable, not hypothetical — the arming
- * pass reads the declared relays without hints, so a reader who declared a single write
- * relay would hand it the floor. Hence {@link MIN_SOURCES_TO_LOWER}. It costs nothing on
- * the ordinary path (a click reads the targets and the read-only hints, so the round has
- * four or five sources) and it makes the sentence above true rather than nearly true.
- *
- * A relay that lies alone therefore changes nothing; a relay that lies while every other
- * source independently agrees with it is not a lie this client can detect from a contact
- * list — at that point the base itself is that list.
- *
- * Condition (2) is the one that looks redundant and is not: „delivered nothing" and
- * „delivered an empty list" are different answers here. A reader who genuinely follows
- * nobody has relays that hand over a real kind 3 with zero `p` tags — that is a list, and
- * it counts. A relay that hands over nothing at all is `null`, and it does not.
- */
-export const MIN_SOURCES_TO_LOWER = 2
-
-export const floorAfterRead = (reads: readonly FollowRelayRead[], known: number): number => {
-    const lists = reads.map((read) => read.list).filter(Boolean) as FollowEventLike[]
-    if (lists.length === 0) {
-        return known
-    }
-    const counts = lists.map((list) => followedPubkeysIn(list.tags).length)
-    const complete = reads.length >= MIN_SOURCES_TO_LOWER
-        && reads.every((read) => read.answered)
-        && reads.every((read) => read.list !== null)
-    if (complete && new Set(counts).size === 1 && (counts[0] as number) < known) {
-        return counts[0] as number
-    }
-
-    return Math.max(known, ...counts)
-}
-
-/**
- * **Would this write blank a `content` we know to be non-empty? (D5)**
- *
- * The second, independent half of the floor. `content` is carried over byte for byte from
- * the base, so an empty `content` in a plan means the base was empty **or the base was
- * missing** — and the missing base is the whole failure class this module keeps landing
- * in. Where the count needs a history of hundreds to notice, this one notices at the first
- * write: a reader whose list carries a legacy relay map loses all of it in one event.
- *
- * `knownContentNonEmpty` is set from complete reads only, and it is set to what those
- * reads actually found — so a reader whose content is legitimately blanked elsewhere sees
- * the flag fall on the next complete read and is not locked out. That is the difference
- * between a guard and a dead end.
- */
-export const followWriteBlanksKnownContent = (input: FollowPlanInput): boolean =>
-    input.knownContentNonEmpty && (input.list?.content ?? '') === ''
 
 /** Are these two tag lists the same list? Order counts — a reorder IS a change. */
 const sameTags = (a: string[][], b: string[][]): boolean =>
@@ -745,7 +584,7 @@ const sameTags = (a: string[][], b: string[][]): boolean =>
  * result is dropped looks exactly like one that is honoured, so gate and body are made
  * the same value. A caller that skips this has nothing to sign.
  *
- * The seven refusals, each with what it prevents:
+ * The five refusals, each with what it prevents:
  *
  * | refusal | what happens without it |
  * |---|---|
@@ -754,8 +593,6 @@ const sameTags = (a: string[][], b: string[][]): boolean =>
  * | `!listAnswered` | **the replaceable-kind data loss**: we replace the relay's contact list with the entries we happen to know, and every follow made on another device is deleted. Since P2 the verdict behind this flag is the staged one in {@link followListAnswered} — an `EOSE` from the space relay alone no longer clears it while the reader has an outbox |
  * | `!mayWriteKind` | a write while the relay kind is still `'unknown'`, i.e. a guess about which relay we are talking to |
  * | `sameTags` | a signed event that changes nothing — a double click, or a second device that got there first |
- * | `followWriteShrinksBelowKnown` | **the floor**: a result smaller than the high-water mark of this identity. Every earlier finding ended in the same one-entry list by a different route; this one refuses the RESULT, whatever the route |
- * | `followWriteBlanksKnownContent` | the floor's second half: a `content` we know to be non-empty going out empty. The count cannot see it, and the loss is total |
  *
  * `content` is carried over unchanged: the relay map some clients still keep there is not
  * ours to rewrite (module header).
@@ -776,13 +613,6 @@ export const planFollowWrite = (input: FollowPlanInput): FollowWrite | null => {
     if (sameTags(current, tags)) {
         return null
     }
-    // THE FLOOR, and it comes last on purpose: a no-op is reported as a no-op, not as a
-    // shrink. Everything above this line asks how we got the base; this asks only what
-    // the result would look like.
-    if (followWriteShrinksBelowKnown(input) || followWriteBlanksKnownContent(input)) {
-        return null
-    }
-
     return { kind: FOLLOWS, content: list?.content ?? '', tags }
 }
 

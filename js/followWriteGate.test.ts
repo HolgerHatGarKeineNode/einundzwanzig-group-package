@@ -125,17 +125,6 @@ const WRITE_GUARDS: Readonly<Record<string, number>> = {
     planFollowWrite: 1,
     followedPubkeysOf: 2,
     mayWriteKind: 1,
-    // K8 — the floor. Called once by the gate's own module and once here, for the message:
-    // a refusal nobody can read is the worst version of this one, because it fires exactly
-    // where every other explanation has already failed.
-    followWriteShrinksBelowKnown: 1,
-    knownFollowCount: 1,
-    floorAfterRead: 1,
-    knownContentNonEmpty: 1,
-    rememberFollowRead: 1,
-    setFollowCount: 1,
-    followWriteBlanksKnownContent: 1,
-    followedPubkeysIn: 1,
     // F5 — the base read must go through a context of its own.
     baseReadContext: 1,
     requestOneWithoutRepository: 1,
@@ -435,15 +424,8 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         // survives an append.
         const quelle = flattenWhitespace(quelleDesWriters())
         assert.ok(
-            quelle.includes(`const plan = ${GATE}(eingabe)`),
-            `${WRITER}: the plan is no longer built from the bound input object. It is bound rather than `
-                + 'inlined so the gate and the message below it see the SAME value — asking the floor twice '
-                + 'with two different inputs is how a refusal and its explanation drift apart.',
-        )
-        assert.ok(
-            quelle.includes('knownContactCount: knownFollowCount(me),'),
-            `${WRITER}: the high-water mark no longer reaches the gate, so the floor measures against 0 and `
-                + 'refuses nothing. K8 is then decoration.',
+            quelle.includes(`const plan = ${GATE}({`),
+            `${WRITER}: the plan is no longer bound at all.`,
         )
         assert.ok(
             quelle.includes('if (!plan) {'),
@@ -841,90 +823,117 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
     })
 
     /**
-     * **D7: the target argument is a BINDING, not an expression — asked of the AST.**
+     * **D7: what FLOWS INTO the target set, not what the argument looks like.**
      *
-     * The previous version of the F6 latch pinned literals at the consuming call sites
-     * (`followListAnswered(targetReads, targets)`, `publishSpreadOptimistic(read.targets…)`).
-     * The reviewer walked past all of them with one edit a level earlier:
-     * `readFollowListsFrom([...targets, ...hints], hints, …)` makes the hints a completeness
-     * voice AND a write target while every pinned literal stands untouched. 2921/2921 green.
+     * Two versions of this latch have now been walked past, and the second failure is the
+     * instructive one.
      *
-     * So this asks what actually flows in: the first argument of every call has to be a
-     * plain identifier. A spread, an array literal, a `concat` — anything that could widen
-     * the set on the way in — is a different node kind and fails here.
+     * The first pinned literals at the consuming call sites (`followListAnswered(targetReads,
+     * targets)`, `publishSpreadOptimistic(read.targets, …)`). One edit a level earlier —
+     * `readFollowListsFrom([...targets, ...hints], hints, …)` — made the read-only hints a
+     * completeness voice AND a write target while every pinned literal stood untouched.
+     *
+     * The second asked the AST whether the first argument is an identifier. That catches
+     * the inline spread and not this:
+     *
+     *     const merged = [...targets, ...hints]
+     *     return readFollowListsFrom(merged, hints, self, relayList.knowledge)
+     *
+     * Measured on 2026-09-14: **155/155 green.** `merged` is an identifier, so the rule was
+     * satisfied; the value travels on through `FollowListRead.targets` into
+     * `publishSpreadOptimistic(read.targets, …)`, and the hints become write targets. The
+     * rule asked about the node KIND and the question is about the value's ORIGIN.
+     *
+     * So this version resolves the binding: an identifier argument is looked up in the
+     * function it sits in, and its initializer has to be the call that draws the set. A
+     * declaration that cannot be found counts as a violation — „I could not check" is not
+     * „it is fine", and that is the direction every other rule in this file takes too.
      */
-    test('CORE: nothing is mixed INTO the target set on the way to the read', () => {
+    test('CORE: nothing is mixed INTO the target set — the binding is resolved, not glanced at', () => {
         const quelle = readFileSync(join(JS_DIR, WRITER), 'utf8')
         const baum = ts.createSourceFile(WRITER, quelle, ts.ScriptTarget.Latest, true)
-        const argumente: string[] = []
+
+        /** The nearest enclosing function body of a node — where a `const` would live. */
+        const umgebendeFunktion = (node: ts.Node): ts.Node | undefined => {
+            for (let eltern = node.parent; eltern; eltern = eltern.parent) {
+                if (ts.isFunctionLike(eltern) || ts.isSourceFile(eltern)) {
+                    return eltern
+                }
+            }
+
+            return undefined
+        }
+
+        /** The initializer of `name` as declared inside `bereich`, or `undefined`. */
+        const initialisierer = (bereich: ts.Node, name: string): ts.Expression | undefined => {
+            let gefunden: ts.Expression | undefined
+            const suche = (node: ts.Node): void => {
+                if (
+                    ts.isVariableDeclaration(node)
+                    && ts.isIdentifier(node.name)
+                    && node.name.text === name
+                    && node.initializer
+                ) {
+                    gefunden = node.initializer
+                }
+                ts.forEachChild(node, suche)
+            }
+            suche(bereich)
+
+            return gefunden
+        }
+
+        /** `targets` has to BE the draw, or the literal `read.targets` carried from it. */
+        const istZielmenge = (ausdruck: ts.Expression): boolean => {
+            const text = ausdruck.getText().replace(/\s+/g, ' ')
+
+            return /^followRelayTargets\(/.test(text) || text === 'read.targets' || text === '[]'
+        }
+
+        const befunde: string[] = []
+        let gesehen = 0
         const walk = (node: ts.Node): void => {
             if (
                 ts.isCallExpression(node)
                 && ts.isIdentifier(node.expression)
                 && node.expression.text === 'readFollowListsFrom'
             ) {
+                gesehen += 1
                 const erstes = node.arguments[0]
-                argumente.push(erstes ? `${ts.SyntaxKind[erstes.kind]}:${erstes.getText()}` : '(none)')
+                if (!erstes) {
+                    befunde.push('(no argument)')
+                } else if (!ts.isIdentifier(erstes) && !istZielmenge(erstes)) {
+                    befunde.push(`inline ${erstes.getText().replace(/\s+/g, ' ')}`)
+                } else if (ts.isIdentifier(erstes)) {
+                    const bereich = umgebendeFunktion(node)
+                    const wert = bereich ? initialisierer(bereich, erstes.text) : undefined
+                    if (!wert) {
+                        befunde.push(`unresolvable ${erstes.text}`)
+                    } else if (!istZielmenge(wert)) {
+                        befunde.push(`${erstes.text} = ${wert.getText().replace(/\s+/g, ' ')}`)
+                    }
+                }
             }
             ts.forEachChild(node, walk)
         }
         walk(baum)
 
-        assert.equal(
-            argumente.length,
-            2,
-            `${WRITER}: ${argumente.length} call(s) of readFollowListsFrom, expected 2 — the read and the `
-                + 're-read after a write.',
+        assert.deepEqual(
+            befunde,
+            [],
+            `${WRITER}: the target set handed to readFollowListsFrom is built rather than drawn — ${befunde.join(' · ')}. `
+                + 'Anything assembled on the way in folds a read-only source into the set that votes on '
+                + 'completeness and gets written to, and every literal pinned further down is blind to it.',
         )
-        for (const argument of argumente) {
-            assert.ok(
-                /^Identifier:\w+$|^PropertyAccessExpression:read\.targets$/.test(argument),
-                `${WRITER}: the target set of a readFollowListsFrom call is \`${argument}\`. It has to be the `
-                    + 'binding that was drawn once — anything assembled here can fold a read-only source into '
-                    + 'the set that votes on completeness and gets written to, which is what every literal '
-                    + 'pinned further down is blind to.',
-            )
-        }
-    })
 
-    /**
-     * **K8: the floor is inside the gate, and it is fed.**
-     *
-     * A rule that lives in `followModels.ts` and is never given a high-water mark measures
-     * against `0` and refuses nothing — it would pass every test of its own arithmetic
-     * while doing nothing at all in production. So what is pinned here is the WIRING: the
-     * mark is read per identity, raised on every read that produced a list, and handed to
-     * the gate.
-     */
-    test('CORE: the high-water mark is kept per identity and reaches the gate', () => {
-        const quelle = flattenWhitespace(quelleDesWriters())
-        assert.ok(
-            quelle.includes('const followMemoryKey = (self: string): string | null => (self ? `e21:follows:count:${self}` : null)'),
-            `${WRITER}: the mark is no longer kept per identity. A shared key hands the next reader on this `
-                + 'device somebody else\'s contact count, and a wrong mark here refuses writes.',
+        // CALIBRATION, and it counts what the WALK found rather than what a regex finds:
+        // an empty finding list has to mean „tree clean", never „scanner saw nothing".
+        assert.equal(
+            gesehen,
+            2,
+            `${WRITER}: the walk saw ${gesehen} call(s) of readFollowListsFrom, expected 2 — the read and the `
+                + 're-read after a write. Any other number means this case is measuring something else.',
         )
-        assert.ok(
-            quelle.includes('if (answered) { rememberFollowRead(self, [...targetReads, ...hintReads]) }'),
-            `${WRITER}: the mark is no longer raised from a COMPLETE read over ALL reads of the round. Feeding `
-                + 'it from the winner sets the floor to the size of a newer, smaller event (D2); feeding it '
-                + 'from a degraded round raises it out of a fault and refuses both directions afterwards (D3).',
-        )
-        assert.ok(
-            quelle.includes('count: floorAfterRead(reads, previous.count)'),
-            `${WRITER}: the floor is no longer moved by the one function that decides both directions. Raising `
-                + 'and lowering split into two places is how "may it come down" and "come down to what" drift '
-                + 'apart — and the lowering has four conditions that only hold together.',
-        )
-        assert.ok(
-            quelle.includes('setFollowCount(me, followedPubkeysIn(plan.tags).length)'),
-            `${WRITER}: the mark can no longer come down after a write this client made. It is then monotone `
-                + 'upwards again, and an ordinary second unfollow is refused — measured as at most one unfollow '
-                + 'per follow (D1).',
-        )
-        // What the storage DOES — that a written value comes back, per identity, monotone
-        // for reads and settable by a write — is measured in `js/followMemory.test.ts`
-        // against a localStorage stand-in. Literals cannot say it: neutralising `setItem`
-        // inside the helper left every literal here intact and the whole suite green.
     })
 
     /**
