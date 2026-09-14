@@ -715,7 +715,39 @@ export type FollowWrite = { kind: number; content: string; tags: string[][] }
  * **So the union is that scope decision, held by the compiler.** Widening it is not a
  * type-level inconvenience to be smoothed out: whoever replaces this with one flag is
  * overruling a decision of the plan, and the cost of doing it deliberately is one edit to
- * this file — which is exactly where the „eigene Rückfrage" the plan asks for belongs.
+ * this file — which is exactly where the further question the plan asks for belongs.
+ *
+ * ── The two `?: never` members are the reason the sentence above is true (U2) ──
+ *
+ * Without them it was not. An audit found ways in that compiled at exit 0, none of them a
+ * cast, and **all of them SPREADS** — a spread is not a fresh object literal, so the
+ * excess-property check never runs on it:
+ *
+ * ```ts
+ * const beides: { add: boolean; target: string; targets: string[] } = …; planFollowWrite({ …, ...beides })
+ * const halb: { add: false; target: string; targets?: string[] } = …;    planFollowWrite({ …, ...halb })
+ * planFollowWrite({ …, add: false, target: x, ...(extra as Partial<{ targets: string[] }>) })
+ * ```
+ *
+ * `target?: never` and `targets?: never` close all three: the offending property is then
+ * present in the arm and of a type nothing inhabits. Measured with each form in its own file
+ * against the two versions of this type — before: exit 0, 0, 0; after: exit 2, 2, 2 — while
+ * both legitimate arms and the call site in `js/follows.ts` keep compiling.
+ *
+ * **What was NOT reproduced, stated because the difference is the whole point of this
+ * repair:** a plain object LITERAL carrying both properties. Three shapes were tried — a
+ * widened discriminant (`add: flagOfTypeBoolean`), `add: false as const` and
+ * `add: true as const`, each with `target` and `targets` side by side — and every one was
+ * already rejected at exit 2 before the fix, with `TS2561` from the excess-property check.
+ * So the hole was never „a union does not reject both properties"; it was „a spread is not
+ * checked at all". A reader who remembers the wider claim will look for the wrong thing.
+ *
+ * **And what the audit measured about the impact:** every compiling form produced exactly
+ * the plan of an ordinary single unfollow, because `targets` is inert in the shrink arm. The
+ * runtime shape held the scope decision even while the type did not. This repair moves it
+ * from „held by the shape of the code" to „held by the compiler", which is what the
+ * paragraph above claims — so do not delete these two members without replacing that claim
+ * with whatever is true afterwards.
  */
 export type FollowPlanDirection =
     | {
@@ -726,11 +758,15 @@ export type FollowPlanDirection =
          * carries why each of those is dropped rather than refused.
          */
         targets: readonly string[]
+        /** Never both: a set and a single target in one input is the widened-flag form (U2). */
+        target?: never
     }
     | {
         add: false
         /** The one person to unfollow. Empty or the reader themselves refuses the write. */
         target: string
+        /** Never both — the shrink arm takes no set, and that is the scope decision (U2). */
+        targets?: never
     }
 
 /** What {@link planFollowWrite} needs to answer. */

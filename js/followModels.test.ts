@@ -976,9 +976,18 @@ const basis = {
     spaceKind: 'other' as const,
 }
 
-/** The unfollow arm: one person, never a set. */
+/**
+ * The unfollow arm: one person, never a set.
+ *
+ * **The base carries `['p', ME]` on purpose (U1).** With an empty list every refusal of
+ * this arm is satisfied by the no-op rule instead — `withoutFollowedPubkey([], x)` is `[]`,
+ * `sameTags` fires, and the answer is `null` whatever the gate above decided. An audit
+ * measured exactly that: at `bfbd7f1` the `input.target === self` condition could be deleted
+ * and all 99 cases of this file stayed green. A fixture whose emptiness makes the assertions
+ * true for the wrong reason is the cheapest way to lose a guard.
+ */
 const abbau = {
-    list: list([]),
+    list: list([['p', ME], ['p', ALICE]]),
     listAnswered: true,
     target: ALICE,
     self: ME,
@@ -1053,8 +1062,26 @@ describe('planFollowWrite: the gate and the event body are ONE value', () => {
      * everybody" for exactly the members this feature exists for. What both arms hold is the
      * invariant the old refusal protected: self never becomes a NEW `p` tag.
      */
-    test('CORE: unfollowing YOURSELF is refused — one target, nothing to do', () => {
-        assert.equal(planFollowWrite({ ...abbau, target: ME }), null)
+    test('CORE: unfollowing YOURSELF is refused — measured against a base that HOLDS the entry', () => {
+        // The two calibrations come first, and without them this case proves nothing: they
+        // say that removing self really would change the list, and that the same base with
+        // an ordinary target does produce a body. Only then is the `null` below the gate.
+        assert.deepEqual(
+            followedPubkeysOf(abbau.list),
+            [ME, ALICE],
+            'CALIBRATION: the base carries self AND another entry, so a removal is a real change',
+        )
+        assert.ok(
+            planFollowWrite({ ...abbau }),
+            'CALIBRATION: the same base with an ordinary target writes — the gate is not simply closed',
+        )
+
+        assert.equal(
+            planFollowWrite({ ...abbau, target: ME }),
+            null,
+            'without this the answer is a plan with one tag where the base had two — a shrink, from a click the '
+                + 'reader never asked for',
+        )
     })
 
     test('CORE: following a set that CONTAINS yourself adds the rest, and adds no self tag', () => {
@@ -1080,10 +1107,34 @@ describe('planFollowWrite: the gate and the event body are ONE value', () => {
         assert.equal(planFollowWrite({ ...abbau, self: '' }), null)
     })
 
-    test('an empty target is refused — an empty `p` tag is not a follow', () => {
+    /**
+     * **The empty-target half of that refusal is redundant TODAY — pinned, not assumed (U1).**
+     *
+     * Measured: `withoutFollowedPubkey(base, '')` removes nothing, because
+     * {@link isFollowPersonTag} demands a non-empty value. A malformed `['p','']` in
+     * somebody's list therefore never matches an empty target, the plan ends at the no-op
+     * rule anyway, and the guard cannot be shown red on its own. A guard nobody can turn red
+     * is precisely the kind of assurance this module has already lost once.
+     *
+     * **It stays, and the reason sits one module away rather than in the abstract:** loosen
+     * `isFollowPersonTag` to accept an empty value and an empty target starts removing every
+     * `['p','']` a foreign client left behind — a shrink of the base. Measured on
+     * 2026-09-14: removing the guard alone is harmless, loosening `isFollowPersonTag` alone
+     * is harmless, doing both produces the shrink. The last assertion pins that coupling, so
+     * „redundant" stays a measured statement with a date on it.
+     */
+    test('an empty target is refused — and why that refusal is currently redundant', () => {
         assert.equal(planFollowWrite({ ...abbau, target: '' }), null)
         assert.equal(planFollowWrite({ ...basis, targets: [''] }), null, 'and a set of nothing but blanks too')
         assert.equal(planFollowWrite({ ...basis, targets: [] }), null, 'as does an empty set')
+
+        const malformed = [['p', ''], ['p', ALICE], ['p']]
+        assert.deepEqual(
+            withoutFollowedPubkey(malformed, ''),
+            malformed,
+            'an empty target matches no tag at all. If this ever changes, the refusal above stops being redundant '
+                + 'and becomes the only thing between an empty target and the malformed entries of the base.',
+        )
     })
 
     test('a write that changes nothing is refused — double click, or a second device first', () => {
