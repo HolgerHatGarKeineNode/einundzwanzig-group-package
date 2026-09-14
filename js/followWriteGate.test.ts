@@ -64,6 +64,7 @@ import {
     type Quellenbefund,
     type Wertstelle,
 } from './workspaceQuelleGate.ts'
+import ts from 'typescript'
 import { flattenWhitespace, readBlade } from './moderationSurfaceGate.ts'
 
 const JS_DIR = dirname(fileURLToPath(import.meta.url))
@@ -118,18 +119,30 @@ const CARD_PATH = join(JS_DIR, '..', 'resources', 'views', 'components', 'profil
 const WRITE_GUARDS: Readonly<Record<string, number>> = {
     readOwnFollowList: 2,
     readFollowListsFrom: 2,
-    readFollowListFrom: 1,
+    readFollowListFrom: 2,
     readOwnRelayList: 1,
     readRelayListFrom: 1,
     planFollowWrite: 1,
-    followedPubkeysOf: 2,
+    followedPubkeysOf: 3,
     mayWriteKind: 1,
+    // K8 — the floor. Called once by the gate's own module and once here, for the message:
+    // a refusal nobody can read is the worst version of this one, because it fires exactly
+    // where every other explanation has already failed.
+    followWriteShrinksBelowKnown: 1,
+    knownFollowCount: 2,
+    rememberFollowCount: 1,
+    // F5 — the base read must go through a context of its own.
+    baseReadContext: 1,
+    requestOneWithoutRepository: 1,
+    // F6 — the read-only sources reach the base and nothing else.
+    normalizeRelaySet: 2,
+    // F7 — the arming pass asks only what the reader declared.
+    armingReadsContactList: 1,
     followWriteConfirmed: 1,
     publishSpreadOptimistic: 1,
     makeEvent: 1,
     declaredWriteRelaysOf: 2,
     outboxKnowledgeOf: 1,
-    normalizeRelaySet: 1,
     followRelayTargets: 1,
     followListAnswered: 1,
     // K7: the relay-list verdict asks a DIFFERENT question and must use a different
@@ -213,6 +226,21 @@ const wertstellen = (datei: string, wache: string): string[] =>
     befundFuer(datei).werte.filter((stelle) => stelle.ruft === wache).map(kurz).sort()
 
 const quelleDesWriters = (): string => readFileSync(join(JS_DIR, WRITER), 'utf8')
+
+/**
+ * The writer's source with every comment removed — for the few checks that ask „does this
+ * LITERAL appear anywhere", where a well-commented file is otherwise its own false
+ * positive. `follows.ts` names `answered: true` in prose precisely to explain the hazard,
+ * the same way it names `FollowLists` and `forceLoad` to explain why they are not used.
+ *
+ * The compiler does the stripping, not a regex: a regex literal that looks like a block
+ * comment has fooled a gate in this repo before (`importEndungenGate.ts`), and
+ * `transpileModule` sees the same tokens `tsc` does.
+ */
+const codeDesWriters = (): string =>
+    ts.transpileModule(quelleDesWriters(), {
+        compilerOptions: { removeComments: true, target: ts.ScriptTarget.ESNext },
+    }).outputText
 
 /**
  * The follow button, whole — opening tag, label and closing tag — with whitespace
@@ -401,7 +429,17 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         // by deleting, it is beaten by appending, and this is one of the shapes that
         // survives an append.
         const quelle = flattenWhitespace(quelleDesWriters())
-        assert.ok(quelle.includes(`const plan = ${GATE}({`), `${WRITER}: the plan is no longer bound at all.`)
+        assert.ok(
+            quelle.includes(`const plan = ${GATE}(eingabe)`),
+            `${WRITER}: the plan is no longer built from the bound input object. It is bound rather than `
+                + 'inlined so the gate and the message below it see the SAME value — asking the floor twice '
+                + 'with two different inputs is how a refusal and its explanation drift apart.',
+        )
+        assert.ok(
+            quelle.includes('knownContactCount: knownFollowCount(me),'),
+            `${WRITER}: the high-water mark no longer reaches the gate, so the floor measures against 0 and `
+                + 'refuses nothing. K8 is then decoration.',
+        )
         assert.ok(
             quelle.includes('if (!plan) {'),
             `${WRITER}: the refusal of ${GATE} is not honoured. A fallback beside the gate means the gate is `
@@ -574,7 +612,7 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             (stelle) => stelle.art === 'return' && stelle.name === 'readFollowListsFrom',
         )
         const gesammelt = rueckgaben.filter(
-            (stelle) => stelle.felder.join(',') === 'answered,list=,targets,unanswered=,outbox',
+            (stelle) => stelle.felder.join(',') === 'answered,list,targets,unanswered=,outbox',
         )
         assert.equal(
             gesammelt.length,
@@ -595,9 +633,9 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         const objekte = rueckgaben.filter((stelle) => stelle.form === 'ObjectLiteralExpression')
         assert.equal(
             objekte.length,
-            2,
-            `${WRITER}: readOwnFollowList has ${objekte.length} object returns, expected 2 — the guest exit and `
-                + 'the one for an unretrievable relay list.',
+            3,
+            `${WRITER}: readOwnFollowList has ${objekte.length} object returns, expected 3 — the guest exit, the `
+                + 'one for an unretrievable relay list, and the F7 arming exit that asks no foreign relay.',
         )
         for (const stelle of objekte) {
             assert.equal(
@@ -607,7 +645,7 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             )
         }
         assert.ok(
-            !quelleDesWriters().includes('answered: true'),
+            !codeDesWriters().includes('answered: true'),
             `${WRITER}: an \`answered: true\` literal appears in the file. The verdict has exactly one source, `
                 + 'the completeness of the relay answers, and a literal beside it is the write this module exists '
                 + 'to prevent.',
@@ -723,6 +761,133 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         )
     })
 
+    /**
+     * **F5: the base read must not run through the repository's deletion index.**
+     *
+     * `@welshman/net` drops every received event for which `repository.isDeleted(event)`
+     * holds — before the signature check, before the filter check, and without touching
+     * the `EOSE`. The read then reports `answered: true` with zero events, which is the
+     * state this whole module exists to avoid. Our own optimistic thunk is enough to
+     * trigger it: it puts the new list into the repository, and every target relay still
+     * serving the previous one contributes nothing.
+     *
+     * Both halves are pinned: the context must lose the repository, and the read must use
+     * that context. Either one alone is a comment.
+     */
+    test('CORE: the base read runs on a context WITHOUT the repository', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes('const baseReadContext = (): NetContext => ({ ...app.netContext, repository: undefined })'),
+            `${WRITER}: the base read context no longer drops the repository. It then filters the read through `
+                + 'the deletion index, and a superseded-looking event disappears while the EOSE still arrives.',
+        )
+        // Bounded rather than greedy: the call body contains an arrow function, so a
+        // `[^}]*` would stop at its closing brace and report a clean file as broken.
+        assert.ok(
+            /requestOneWithoutRepository\(\{[\s\S]{0,400}?context: baseReadContext\(\)/.test(quelle),
+            `${WRITER}: the per-relay contact-list read no longer uses that context.`,
+        )
+        // And it must be the base read, not the relay-list read, that got it: the relay
+        // list is resolved through the ordinary adapter and has no such problem.
+        assert.ok(
+            /const readFollowListFrom = [\s\S]{0,600}?requestOneWithoutRepository/.test(quelle),
+            `${WRITER}: the repository-free context is not the one readFollowListFrom uses.`,
+        )
+        assert.ok(
+            /const readRelayListFrom = [\s\S]{0,600}?[^t]requestOne\(\{/.test(quelle),
+            `${WRITER}: the relay-list read left the ordinary adapter. Only the contact-list base read needs a `
+                + 'context of its own; widening that to every read would drop a protection nobody asked to lose.',
+        )
+    })
+
+    /**
+     * **F6: a read-only source raises the base and votes on nothing.**
+     *
+     * The accepted risk recorded next door covers `confirmed-none` only; on `listed` the
+     * targets are the relays the outbox model points every other client at, so a one-entry
+     * kind 3 there is the reader's contact list for the world. An extra SOURCE can only
+     * ever raise the base — `winningFollowList` takes the NIP-01 winner across every read.
+     * What would make it laxer is letting it be a target, or letting it vote on
+     * completeness. Both are pinned here; the count in `WRITE_GUARDS` cannot see either.
+     */
+    test('CORE: the read-only hints never become targets and never vote', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes('const answered = followListAnswered(targetReads, targets)'),
+            `${WRITER}: the completeness verdict can see the hint reads. A hint answering would then stand in `
+                + 'for a target that never did — F6 turned back into F1.',
+        )
+        assert.ok(
+            quelle.includes('const list = winningFollowList([...targetReads, ...hintReads])'),
+            `${WRITER}: the hints no longer reach the base, which is the only thing they are for.`,
+        )
+        assert.ok(
+            /publishSpreadOptimistic\(\s*read\.targets,/.test(quelleDesWriters()),
+            `${WRITER}: the write may go to the targets and to nothing else.`,
+        )
+        assert.ok(
+            !/publishSpreadOptimistic\([^)]*hint/i.test(flattenWhitespace(quelleDesWriters())),
+            `${WRITER}: a read-only source reached the write. It was never asked to answer for what it holds.`,
+        )
+        assert.ok(
+            quelle.includes('filter((url: string) => !targets.includes(url))'),
+            `${WRITER}: a relay in both sets is asked twice and, worse, looks like two independent sources.`,
+        )
+    })
+
+    /**
+     * **K8: the floor is inside the gate, and it is fed.**
+     *
+     * A rule that lives in `followModels.ts` and is never given a high-water mark measures
+     * against `0` and refuses nothing — it would pass every test of its own arithmetic
+     * while doing nothing at all in production. So what is pinned here is the WIRING: the
+     * mark is read per identity, raised on every read that produced a list, and handed to
+     * the gate.
+     */
+    test('CORE: the high-water mark is kept per identity and reaches the gate', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes('const followCountKey = (self: string): string | null => (self ? `e21:follows:count:${self}` : null)'),
+            `${WRITER}: the mark is no longer kept per identity. A shared key hands the next reader on this `
+                + 'device somebody else\'s contact count, and a wrong mark here refuses writes.',
+        )
+        assert.ok(
+            quelle.includes('rememberFollowCount(self, followedPubkeysOf(list).length)'),
+            `${WRITER}: the mark is no longer raised from what the relays showed, so it stays at 0 and the `
+                + 'floor never refuses anything.',
+        )
+        assert.ok(
+            quelle.includes('if (!key || count <= knownFollowCount(self)) {'),
+            `${WRITER}: the mark is no longer monotone. A read that found less would then lower the floor that `
+                + 'protects everything else — which is the failure it exists to catch.',
+        )
+    })
+
+    /**
+     * **F7: a page load asks only relays the reader chose.**
+     *
+     * Without this, `confirmed-none` sent `{kinds:[3], authors:[self]}` to four foreign
+     * relays on every page view, immediately before any contact-list write, and
+     * `relayConfig.ts` grants those relays AUTH. The read still happens — on the click,
+     * where P1 already put a retry.
+     */
+    test('CORE: the arming pass defers the read for anybody but a `listed` reader', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes('if (arming && !armingReadsContactList(relayList.knowledge)) {'),
+            `${WRITER}: the arming pass no longer defers. Every page view then announces the reader to four `
+                + 'relays they never chose.',
+        )
+        assert.ok(
+            quelle.includes('void readOwnFollowList(url, self, true)'),
+            `${WRITER}: the arming call no longer says it is an arming call, so the deferral never fires.`,
+        )
+        assert.ok(
+            /const hints = arming\s*\?\s*\[\]/.test(quelleDesWriters()),
+            `${WRITER}: an arming pass takes the read-only hints too — they are foreign relays as well.`,
+        )
+    })
+
     test('CORE: the repository and the live subscription are gone from this module', () => {
         const befund = befundFuer(WRITER)
         for (const name of FORBIDDEN_IN_WRITER) {
@@ -756,7 +921,7 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
                 + 'set. A fresh draw here is the finding coming back.',
         )
         assert.ok(
-            /readFollowListsFrom\(read\.targets, me, read\.outbox\)/.test(quelle),
+            /readFollowListsFrom\(read\.targets, \[\], me, read\.outbox\)/.test(quelle),
             `${WRITER}: the re-read after the write no longer uses the same relays the write went to, so it `
                 + 'answers a different question than the one that was asked.',
         )
@@ -815,8 +980,10 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
     test('CORE: completeness is measured against the targets — and only where it belongs', () => {
         const quelle = quelleDesWriters()
         assert.ok(
-            /followListAnswered\(reads, targets\)/.test(quelle),
-            `${WRITER}: the contact-list verdict is no longer measured against the target set.`,
+            /followListAnswered\(targetReads, targets\)/.test(quelle),
+            `${WRITER}: the contact-list verdict is no longer measured against the TARGET reads and the target `
+                + 'set. Handing it the hint reads too would let a read-only source stand in for a target that '
+                + 'never answered — F6 turned into F1.',
         )
         assert.ok(
             /outboxKnowledgeOf\(\{ writeUrls, anyAnswered: anyRelayAnswered\(reads\) \}\)/.test(quelle),
@@ -932,7 +1099,7 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
     /**
      * **The notice, and the two conditions it hangs on.**
      *
-     * Gating it on `listSpaceOnly` alone would show it to everybody during the first
+     * Gating it on `noRelayList` alone would show it to everybody during the first
      * seconds of every page: before a read comes back the outbox is empty because nobody
      * has looked yet, which is not a statement about this reader at all. Gating it on
      * `listSeen` alone would show it to everybody, full stop. Both, or it lies in one
@@ -943,8 +1110,8 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         const xShow = /x-show="([^"]*)"/.exec(hinweis)
         assert.ok(xShow, `${CARD}: the P2 notice has no x-show at all — it would stand on every card, always.`)
         assert.ok(
-            xShow[1].includes('listSpaceOnly'),
-            `${CARD}: the notice does not hang on listSpaceOnly (x-show="${xShow[1]}").`,
+            xShow[1].includes('noRelayList'),
+            `${CARD}: the notice does not hang on noRelayList (x-show="${xShow[1]}").`,
         )
         assert.ok(
             xShow[1].includes('listSeen'),

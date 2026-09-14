@@ -65,6 +65,16 @@ export const INDEXER_RELAYS = relayOverride?.indexer ?? (imBrowser ? [
     'wss://indexer.coracle.social/',
 ] : [])
 
+/**
+ * **Since P2 this list is no longer only a fallback for loading content.** `js/follows.ts`
+ * uses it twice over: as `FOLLOW_FALLBACK_RELAYS` — base source AND write target of a
+ * replaceable kind 3 for every reader without a NIP-65 list of their own — and as
+ * `FOLLOW_BASE_HINT_RELAYS`, a read-only base source for everybody else.
+ *
+ * So removing a relay here changes where those readers' contact lists are read from and
+ * written to, not just where posts come from. A relay that does not serve kind 3 does not
+ * belong in this list; the measurement behind that sits at `FOLLOW_FALLBACK_RELAYS`.
+ */
 export const DEFAULT_RELAYS = relayOverride?.default ?? (imBrowser ? [
     'wss://relay.primal.net/',
     'wss://theforest.nostr1.com/',

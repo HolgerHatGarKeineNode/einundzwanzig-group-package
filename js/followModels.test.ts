@@ -5,6 +5,9 @@ import { RelayListReader } from '@welshman/domain'
 import {
     FOLLOWS,
     anyRelayAnswered,
+    armingReadsContactList,
+    followWriteShrinksBelowKnown,
+    followedPubkeysIn,
     declaredWriteRelaysOf,
     followedPubkeysOf,
     followListAnswered,
@@ -227,6 +230,7 @@ describe('N1: the space stub can no longer poison a later session', () => {
                 self: ME,
                 add: false,
                 spaceKind: 'other',
+                knownContactCount: 0,
             }),
         }
     }
@@ -540,6 +544,7 @@ describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a
             self: ME,
             add: true,
             spaceKind: 'other',
+            knownContactCount: 0,
         })
         assert.ok(plan, 'every target answered, so the gate does not stand in the way here')
         assert.deepEqual(
@@ -570,6 +575,7 @@ describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a
             self: ME,
             add: false,
             spaceKind: 'other',
+            knownContactCount: 0,
         })
         assert.ok(plan)
         assert.deepEqual(plan.tags, [['p', ALICE], ['t', 'bitcoin']], 'the real list minus one, not a stub')
@@ -702,6 +708,7 @@ describe('F1: a partial answer never licenses a total replacement', () => {
             self: ME,
             add: false,
             spaceKind: 'other',
+            knownContactCount: 0,
         })
         assert.equal(plan, null, 'this is the write that deletes 700 contacts; it must not exist')
     })
@@ -716,6 +723,7 @@ describe('F1: a partial answer never licenses a total replacement', () => {
             self: ME,
             add: false,
             spaceKind: 'other',
+            knownContactCount: 0,
         })
         assert.ok(plan, 'a complete answer must still be able to write')
         assert.deepEqual(plan.tags, [['p', ALICE], ['t', 'bitcoin']], 'and it is built from the REAL list')
@@ -798,7 +806,7 @@ describe('the tag algebra keeps what it cannot display', () => {
 })
 
 describe('planFollowWrite: the gate and the event body are ONE value', () => {
-    const basis = { list: list([]), listAnswered: true, target: ALICE, self: ME, add: true, spaceKind: 'other' as const }
+    const basis = { list: list([]), listAnswered: true, target: ALICE, self: ME, add: true, spaceKind: 'other' as const, knownContactCount: 0 }
 
     test('the ordinary case produces a body that carries `content` over untouched', () => {
         const plan = planFollowWrite({ ...basis, list: list([['p', BOB]], 100, '{"wss://a/":{"read":true}}') })
@@ -905,5 +913,143 @@ describe('followWriteConfirmed: silence is not evidence', () => {
         // only means we cannot re-check.
         assert.equal(followWriteConfirmed(null, ALICE, true), true)
         assert.equal(followWriteConfirmed(null, ALICE, false), true)
+    })
+})
+
+/**
+ * **K8 — THE FLOOR, and the whole point of this round.**
+ *
+ * Five findings on this path (F1, F2, N1, F5, F6) ended in one and the same state: a base
+ * of `null` or a truncated one while `listAnswered` is `true`, a one-entry kind 3, written
+ * to relays that hold the real list. Each was repaired at its own entrance, and each time
+ * a new entrance turned up. This block asserts the EXIT instead.
+ *
+ * Every case below reproduces one of the known routes with its own inputs — the route is
+ * not simulated, it is reconstructed from the shape it leaves behind — and asserts that no
+ * event body comes out. The route that nobody has found yet leaves the same shape, which
+ * is the only reason this is worth having.
+ *
+ * The calibration at the end is not decoration: without it, „refused" would also be true
+ * of a floor that refuses everything, and every case above it would prove nothing.
+ */
+describe('K8: the floor refuses the RESULT, whatever the route to it was', () => {
+    const HOCHSTAND = 700
+
+    /** The reader's real list, shortened; only the COUNT matters to this rule. */
+    const echt = (n: number): FollowEventLike =>
+        idList('aaa', Array.from({ length: n }, (_, i) => ['p', `${i}`.padStart(64, '0')]), 1000)
+
+    const plan = (over: Partial<Parameters<typeof planFollowWrite>[0]>) => planFollowWrite({
+        list: null,
+        listAnswered: true,
+        target: ALICE,
+        self: ME,
+        add: true,
+        spaceKind: 'other',
+        knownContactCount: HOCHSTAND,
+        ...over,
+    })
+
+    test('CORE route F1: an incomplete answer left the base empty — refused', () => {
+        // One relay answered and held nothing while the holders stayed silent. The verdict
+        // gate catches this one too; the floor catches it a second time, on its own.
+        assert.equal(plan({ list: null, listAnswered: true }), null)
+    })
+
+    test('CORE route F5: `isDeleted` suppressed every event, so the base is null — refused', () => {
+        // The shape this leaves is indistinguishable from F1 at the plan: `answered: true`,
+        // zero events. That is exactly why the floor does not ask how it got here.
+        assert.equal(plan({ list: null, listAnswered: true, add: true }), null)
+    })
+
+    test('CORE route F6: `listed` targets that hold nothing — refused', () => {
+        const targets = followRelayTargets('listed', [OUTBOX, OUTBOX_2], [])
+        const reads = targets.map((url) => read(url, true, null))
+        assert.equal(followListAnswered(reads, targets), true, 'CALIBRATION: the verdict gate is satisfied here')
+        assert.equal(
+            plan({ list: winningFollowList(reads), listAnswered: followListAnswered(reads, targets) }),
+            null,
+            'the declared write relays are what the outbox model points every other client at',
+        )
+    })
+
+    test('CORE route confirmed-none: the fallback relays hold nothing — refused', () => {
+        const targets = followRelayTargets('confirmed-none', [], [FALLBACK, FALLBACK_2])
+        const reads = targets.map((url) => read(url, true, null))
+        assert.equal(
+            plan({ list: winningFollowList(reads), listAnswered: followListAnswered(reads, targets) }),
+            null,
+            'this is the ACCEPTED RISK from the previous round — the floor now catches it too',
+        )
+    })
+
+    test('CORE: a remove that would drop more than one entry — refused', () => {
+        // A truncated base with a real high-water mark: unfollowing one person from a list
+        // of three would leave two where 699 are expected.
+        assert.equal(plan({ list: echt(3), add: false, target: '0'.padStart(64, '0') }), null)
+    })
+
+    test('CORE: an add may never shrink — the boundary is exact, not generous', () => {
+        // From one below the mark an add lands exactly ON it, so it passes: following
+        // somebody has to remain possible right after a legitimate unfollow.
+        assert.ok(plan({ list: echt(HOCHSTAND - 1), add: true }), 'base 699 + one = 700, which meets the mark')
+        // From two below it cannot reach the mark, and that is a shrink.
+        assert.equal(plan({ list: echt(HOCHSTAND - 2), add: true }), null, 'base 698 + one = 699 < 700')
+    })
+
+    test('CALIBRATION: a legitimate add goes through', () => {
+        const written = plan({ list: echt(HOCHSTAND), add: true })
+        assert.ok(written, 'following somebody from a complete base must still work')
+        assert.equal(followedPubkeysIn(written.tags).length, HOCHSTAND + 1)
+    })
+
+    test('CALIBRATION: a legitimate remove goes through, and takes exactly one', () => {
+        const written = plan({ list: echt(HOCHSTAND), add: false, target: '0'.padStart(64, '0') })
+        assert.ok(written, 'unfollowing from a complete base must still work')
+        assert.equal(followedPubkeysIn(written.tags).length, HOCHSTAND - 1)
+    })
+
+    test('CALIBRATION: an identity with no history refuses nothing — a first write must pass', () => {
+        const written = plan({ list: null, knownContactCount: 0 })
+        assert.ok(written, 'the floor can only be as informed as this reader\'s own history')
+        assert.deepEqual(written.tags, [['p', ALICE]])
+    })
+
+    test('the rule itself, both directions, at the exact boundary', () => {
+        // An `add` targets somebody NOT in the base (so the count rises by one); a
+        // `remove` targets somebody who IS (so it falls by one). Using an absent target
+        // for a remove would measure the no-op case, which `sameTags` already refuses —
+        // and it is how the first draft of this case got its arithmetic wrong.
+        const drin = '0'.padStart(64, '0')
+        const bei = (n: number, add: boolean, known: number): boolean =>
+            followWriteShrinksBelowKnown({
+                list: echt(n), listAnswered: true, target: add ? ALICE : drin, self: ME, add,
+                spaceKind: 'other', knownContactCount: known,
+            })
+        assert.equal(bei(10, true, 10), false, 'add from the mark: 11 ≥ 10')
+        assert.equal(bei(9, true, 10), false, 'add from one below lands ON the mark: 10 ≥ 10')
+        assert.equal(bei(8, true, 10), true, 'add from two below cannot reach it: 9 < 10')
+        assert.equal(bei(10, false, 10), false, 'remove from the mark: 9 ≥ 9')
+        assert.equal(bei(9, false, 10), true, 'remove from one below: 8 < 9')
+    })
+})
+
+/**
+ * **F7: a page load asks only relays the reader chose.**
+ *
+ * The write path is unaffected — the first click while `listSeen` is `false` has been a
+ * read and never a write since P1, so deferring the read defers nothing but the label.
+ */
+describe('armingReadsContactList: who gets asked on a page load', () => {
+    test('CORE: `listed` — the reader\'s own declared relays, asked at arming', () => {
+        assert.equal(armingReadsContactList('listed'), true)
+    })
+
+    test('CORE: `confirmed-none` — four foreign relays, NOT asked until the reader acts', () => {
+        assert.equal(armingReadsContactList('confirmed-none'), false)
+    })
+
+    test('`unknown` has no set to ask either way', () => {
+        assert.equal(armingReadsContactList('unknown'), false)
     })
 })

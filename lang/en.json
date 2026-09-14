@@ -1281,5 +1281,6 @@
     "Diese Relais haben die Kontaktliste nicht ausgeliefert: :relays. Es wurde nichts geändert.": "These relays did not hand over the contact list: :relays. Nothing was changed.",
     "Diese Relais haben die Änderung nicht übernommen: :relays.": "These relays did not apply the change: :relays.",
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "The contact list could not be read. Nothing was changed.",
-    "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "You have no relay list (NIP-65) on file. Your contact list is therefore written to general public relays."
+    "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "You have no relay list (NIP-65) on file. Your contact list is therefore written to general public relays.",
+    "Die Kontaktliste sieht kleiner aus als zuletzt bekannt. Es wurde nichts geschrieben — bitte versuch es noch einmal.": "Your contact list looks smaller than it last did. Nothing was written — please try again."
 }

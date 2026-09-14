@@ -326,6 +326,25 @@ export const anyRelayAnswered = (reads: readonly FollowRelayRead[]): boolean =>
     reads.some((read) => read.answered)
 
 /**
+ * **May the ARMING pass read the contact list, or does it wait for a click? (F7)**
+ *
+ * Only for `listed`. Those relays are the reader's own declaration — asking them is the
+ * outbox model working as intended, and the answer is what lets the button show a truthful
+ * label instead of „Lädt…" forever.
+ *
+ * For `confirmed-none` the targets are public relays the reader never chose, and asking
+ * them `{kinds:[3], authors:[self]}` on **every page load** tells four third parties who
+ * is reading, when, and that a follow is about to happen. `relayConfig.ts` grants those
+ * relays AUTH, so it is not even a pseudonymous pattern. The read still happens — on the
+ * click, where P1 already put a retry: the first click while `listSeen` is false is a read
+ * and never a write, so nothing about the safety of the write changes. What changes is
+ * that a reader who never follows anybody never announces themselves.
+ *
+ * `unknown` reads nothing either way; there is no set to ask.
+ */
+export const armingReadsContactList = (knowledge: OutboxKnowledge): boolean => knowledge === 'listed'
+
+/**
  * **The relays a contact list is read from AND written to — one set, no space.**
  *
  * ── Why the space relay is in neither list any more (N1) ────────────────────────
@@ -486,10 +505,10 @@ export const winningFollowList = (reads: readonly FollowRelayRead[]): FollowEven
     return winner
 }
 
-/** The followed pubkeys of one list, in list order, deduplicated. */
-export const followedPubkeysOf = (list: FollowEventLike | null): string[] => {
+/** The followed pubkeys in a tag list, in order, deduplicated. */
+export const followedPubkeysIn = (tags: readonly string[][]): string[] => {
     const seen = new Set<string>()
-    for (const tag of list?.tags ?? []) {
+    for (const tag of tags) {
         if (isFollowPersonTag(tag)) {
             seen.add(tag[1] as string)
         }
@@ -497,6 +516,9 @@ export const followedPubkeysOf = (list: FollowEventLike | null): string[] => {
 
     return [...seen]
 }
+
+/** The followed pubkeys of one list, in list order, deduplicated. */
+export const followedPubkeysOf = (list: FollowEventLike | null): string[] => followedPubkeysIn(list?.tags ?? [])
 
 /**
  * The full tag list after following one person — **newest first**, every foreign tag kept.
@@ -549,6 +571,54 @@ export type FollowPlanInput = {
     add: boolean
     /** From `deriveSpaceKind`; `'unknown'` denies. */
     spaceKind: SpaceKind
+    /**
+     * **The largest number of contacts this client has ever seen for `self`.**
+     *
+     * The high-water mark {@link followWriteShrinksBelowKnown} measures against. `0` for
+     * an identity nothing has been read for yet, which lets every first write through —
+     * the guard can only ever be as informed as the reader's own history.
+     */
+    knownContactCount: number
+}
+
+/**
+ * **THE FLOOR — the guard that does not care how you got here (K8).**
+ *
+ * Every finding on this path so far — F1, F2, F3, N1, F5, F6 — ended in the same state:
+ *
+ * > base `null` or truncated while `listAnswered` is `true` → a one-entry kind 3 → written
+ * > to relays that hold the real list.
+ *
+ * The route was different every time and the next one will be different again. So this
+ * rule guards the STATE instead of the route, and it is deliberately not measured against
+ * the base of this write — in every one of those failures the base was exactly the thing
+ * that had gone wrong. It is measured against the high-water mark: the largest contact
+ * count this client has ever seen for this identity, kept per identity and across
+ * sessions (`js/follows.ts`).
+ *
+ * | operation | the result must be at least |
+ * |---|---|
+ * | `add` | the high-water mark — following somebody can never make the list smaller |
+ * | `remove` | the mark minus one — unfollowing removes exactly one person |
+ *
+ * **Where it is wrong, stated rather than discovered:** a reader who deliberately unfollows
+ * many people at once, or who cleaned up on another device, is refused. The cost of that
+ * is a visible refusal; the cost of the opposite error is every contact they have. There
+ * is no override on purpose — an override is a button whose only job is to disable the
+ * last line of defence, and it would be reached exactly in the situation the line exists
+ * for. If the refusal turns out to bite real readers, that is its own decision with its
+ * own measurement, not a flag added in advance.
+ *
+ * It replaces no other check. It is the floor underneath them, for the route nobody has
+ * found yet.
+ */
+export const followWriteShrinksBelowKnown = (input: FollowPlanInput): boolean => {
+    const current = input.list?.tags ?? []
+    const next = input.add
+        ? withFollowedPubkey(current, input.target)
+        : withoutFollowedPubkey(current, input.target)
+
+    return followedPubkeysIn(next).length < input.knownContactCount - (input.add ? 0 : 1)
 }
 
 /** Are these two tag lists the same list? Order counts — a reorder IS a change. */
@@ -562,7 +632,7 @@ const sameTags = (a: string[][], b: string[][]): boolean =>
  * result is dropped looks exactly like one that is honoured, so gate and body are made
  * the same value. A caller that skips this has nothing to sign.
  *
- * The five refusals, each with what it prevents:
+ * The six refusals, each with what it prevents:
  *
  * | refusal | what happens without it |
  * |---|---|
@@ -571,6 +641,7 @@ const sameTags = (a: string[][], b: string[][]): boolean =>
  * | `!listAnswered` | **the replaceable-kind data loss**: we replace the relay's contact list with the entries we happen to know, and every follow made on another device is deleted. Since P2 the verdict behind this flag is the staged one in {@link followListAnswered} — an `EOSE` from the space relay alone no longer clears it while the reader has an outbox |
  * | `!mayWriteKind` | a write while the relay kind is still `'unknown'`, i.e. a guess about which relay we are talking to |
  * | `sameTags` | a signed event that changes nothing — a double click, or a second device that got there first |
+ * | `followWriteShrinksBelowKnown` | **the floor**: a result smaller than the high-water mark of this identity. Every earlier finding ended in the same one-entry list by a different route; this one refuses the RESULT, whatever the route |
  *
  * `content` is carried over unchanged: the relay map some clients still keep there is not
  * ours to rewrite (module header).
@@ -589,6 +660,12 @@ export const planFollowWrite = (input: FollowPlanInput): FollowWrite | null => {
     const current = list?.tags ?? []
     const tags = add ? withFollowedPubkey(current, target) : withoutFollowedPubkey(current, target)
     if (sameTags(current, tags)) {
+        return null
+    }
+    // THE FLOOR, and it comes last on purpose: a no-op is reported as a no-op, not as a
+    // shrink. Everything above this line asks how we got the base; this asks only what
+    // the result would look like.
+    if (followWriteShrinksBelowKnown(input)) {
         return null
     }
 

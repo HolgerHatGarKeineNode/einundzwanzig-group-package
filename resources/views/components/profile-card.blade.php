@@ -233,7 +233,7 @@
                      read has come back, „no relay list" and „nobody has looked" are the
                      same `false`, and only one of them is a statement about this reader.
                      `js/follows.ts` sets both fields from the same answer. --}}
-                <flux:text x-show="$store.follows?.canFollow && $store.follows?.listSeen && $store.follows?.listSpaceOnly"
+                <flux:text x-show="$store.follows?.canFollow && $store.follows?.listSeen && $store.follows?.noRelayList"
                            x-cloak data-person-follow-lokal
                            class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                     {{ __('Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.') }}

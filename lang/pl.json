@@ -1314,5 +1314,6 @@
     "Diese Relais haben die Kontaktliste nicht ausgeliefert: :relays. Es wurde nichts geändert.": "Te Relays nie wydały listy kontaktów: :relays. Nic nie zostało zmienione.",
     "Diese Relais haben die Änderung nicht übernommen: :relays.": "Te Relays nie zastosowały zmiany: :relays.",
     "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "Nie udało się odczytać listy kontaktów. Nic nie zostało zmienione.",
-    "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Nie masz zapisanej listy Relays (NIP-65). Dlatego Twoja lista kontaktów trafia na ogólne publiczne Relays."
+    "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Nie masz zapisanej listy Relays (NIP-65). Dlatego Twoja lista kontaktów trafia na ogólne publiczne Relays.",
+    "Die Kontaktliste sieht kleiner aus als zuletzt bekannt. Es wurde nichts geschrieben — bitte versuch es noch einmal.": "Twoja lista kontaktów wygląda na mniejszą niż ostatnio. Nic nie zostało zapisane — spróbuj jeszcze raz."
 }
