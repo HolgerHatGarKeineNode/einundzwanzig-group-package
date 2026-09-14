@@ -103,9 +103,10 @@
 import { get } from 'svelte/store'
 import { makeEvent, type Filter, type TrustedEvent } from '@welshman/util'
 import { pubkey } from './welshmanSession.ts'
-import { requestOne } from './welshmanNet.ts'
-// F5 only — see {@link baseReadContext}. Every other query in this file goes through the
-// adapter above; this one needs a context the adapter deliberately does not offer.
+// Both relay reads of this module — F5 and D2, see {@link baseReadContext}. The house
+// adapter `js/welshmanNet.ts` hands every caller the app context including the repository,
+// which is exactly what neither of these two may have; so they take the raw request and
+// build their own. No other query in this file talks to a relay.
 import { requestOne as requestOneWithoutRepository } from '@welshman/net'
 import type { NetContext } from '@welshman/net'
 import { activeSpace } from './groups.ts'
@@ -120,6 +121,7 @@ import {
     FOLLOWS,
     type FollowEventLike,
     type FollowRelayRead,
+    type FollowTargetSet,
     type FollowWrite,
     type OutboxKnowledge,
     anyRelayAnswered,
@@ -131,6 +133,7 @@ import {
     followRelayTargets,
     followWriteConfirmed,
     newestOwnEvent,
+    noFollowTargets,
     normalizeRelaySet,
     ownFollowList,
     outboxKnowledgeOf,
@@ -300,8 +303,13 @@ export type FollowListRead = {
      * finding F3: the old set came from `eigeneOutboxUrls()`, a randomised sample of at
      * most three, drawn once for the read and again for the write. 88.7 % of follows read
      * a different set than they wrote, measured over 20 000 draws.
+     *
+     * Typed as {@link FollowTargetSet} and not as `string[]`, which is the D1 repair: the
+     * set cannot be widened on its way from here to the write without the compiler saying
+     * so. See the type's own docblock for the four bypasses that made a source walk the
+     * wrong instrument.
      */
-    targets: string[]
+    targets: FollowTargetSet
     /** Targets that did not answer — what the refusal on the card names. */
     unanswered: string[]
     /** What we know about the reader's own kind 10002 while this read happened. */
@@ -358,9 +366,25 @@ export type FollowListRead = {
  * only thing missing is the deletion index. Ingestion is unaffected: events reach the
  * repository through the app's ingest policy on the socket, not through this context.
  *
- * This is the one call in this file that does not go through `js/welshmanNet.ts`, and that
- * is the point: the adapter exists to hand every caller the SAME context, and this caller
- * needs a different one.
+ * ── It is the same hazard for the kind 10002 read, and worse (D2) ─────────────
+ *
+ * The docblock stopped here until the B2 finding, one sentence short of the consequence.
+ * {@link readRelayListFrom} ran with the repository in the context, and the same
+ * short-circuit applies to a kind 10002: the deletion index drops it before the signature
+ * check, the `EOSE` arrives anyway, `writeUrls` comes back empty with `anyAnswered: true`
+ * — and {@link outboxKnowledgeOf} reads that pair as **`confirmed-none`**, the verdict
+ * that ALLOWS a write, rather than `unknown`, the one that refuses it. The cached copy
+ * beside it is no second opinion: `app.repository.query()` defaults to
+ * `includeDeleted: false`, so both sources go quiet together.
+ *
+ * The trigger is a kind 5 the reader signed themselves against `10002:<pubkey>:`. Not
+ * attacker-producible — but `DELETE` is in `PERSIST_KINDS`, so once such an event has been
+ * seen it survives every reload, and the state is permanent rather than a session
+ * accident.
+ *
+ * Both reads therefore use this context, and neither of them goes through
+ * `js/welshmanNet.ts`: the adapter exists to hand every caller the SAME context, and these
+ * two callers need a different one.
  */
 const baseReadContext = (): NetContext => ({ ...app.netContext, repository: undefined })
 
@@ -416,7 +440,11 @@ const readRelayListFrom = async (url: string, self: string): Promise<FollowRelay
     let answered = false
     let events: TrustedEvent[] = []
     try {
-        events = await requestOne({
+        // D2: on {@link baseReadContext} for the same reason the contact-list read is —
+        // a deleted-marked kind 10002 would be dropped before the signature check, and the
+        // empty-with-EOSE result is the one that reads as `confirmed-none` and permits a
+        // write.
+        events = await requestOneWithoutRepository({
             relay: url,
             filters: relayListFilters(self),
             autoClose: true,
@@ -424,6 +452,7 @@ const readRelayListFrom = async (url: string, self: string): Promise<FollowRelay
                 answered = true
             },
             signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+            context: baseReadContext(),
         })
     } catch {
         return { url, answered: false, list: null }
@@ -550,8 +579,8 @@ export const readOwnRelayList = async (self: string): Promise<RelayListRead> => 
  *    from, and the second must never be a union of `p` tags.
  */
 const readFollowListsFrom = async (
-    targets: string[],
-    hints: string[],
+    targets: FollowTargetSet,
+    hints: readonly string[],
     self: string,
     outbox: OutboxKnowledge,
 ): Promise<FollowListRead> => {
@@ -586,16 +615,22 @@ export const readOwnFollowList = async (
     arming = false,
 ): Promise<FollowListRead> => {
     if (!spaceUrl || !self) {
-        return { answered: false, list: null, targets: [], unanswered: [], outbox: 'unknown' }
+        return { answered: false, list: null, targets: noFollowTargets(), unanswered: [], outbox: 'unknown' }
     }
     const relayList = await readOwnRelayList(self)
     if (relayList.knowledge === 'unknown') {
-        return { answered: false, list: null, targets: [], unanswered: relayList.unanswered, outbox: 'unknown' }
+        return {
+            answered: false,
+            list: null,
+            targets: noFollowTargets(),
+            unanswered: relayList.unanswered,
+            outbox: 'unknown',
+        }
     }
     // F7: on a page load we only ask relays the reader declared themselves. Everything
     // else waits for the click — {@link armingReadsContactList} carries why.
     if (arming && !armingReadsContactList(relayList.knowledge)) {
-        return { answered: false, list: null, targets: [], unanswered: [], outbox: relayList.knowledge }
+        return { answered: false, list: null, targets: noFollowTargets(), unanswered: [], outbox: relayList.knowledge }
     }
 
     const targets = followRelayTargets(relayList.knowledge, relayList.writeUrls, FOLLOW_FALLBACK_RELAYS)
@@ -701,6 +736,24 @@ const refusalReason = (read: FollowListRead): string => {
  */
 const writeRefused = (urls: readonly string[]): string =>
     t('Diese Relais haben die Änderung nicht übernommen: :relays.', { relays: relayNames(urls) })
+
+/**
+ * **The only door a contact list leaves this module through — and it takes the branded set
+ * or nothing.**
+ *
+ * `publishSpreadOptimistic` is shared with `js/calendar.ts` and therefore takes plain
+ * `string | readonly string[]`; widening its signature for this one caller would put the
+ * assurance on every other one. So the demand lives here, one line deep: the argument has
+ * to be a {@link FollowTargetSet}, which only {@link followRelayTargets} produces.
+ *
+ * Without it the read side would be sealed and the write side open — `publishSpread…(
+ * [...read.targets, ...hints], …)` is the very bypass class D7 kept finding, one step
+ * further down the path.
+ */
+const publishToTargetSet = (
+    targets: FollowTargetSet,
+    event: Parameters<typeof publishSpreadOptimistic>[1],
+): ReturnType<typeof publishSpreadOptimistic> => publishSpreadOptimistic(targets, event)
 
 // ── The store ───────────────────────────────────────────────────────────────────
 
@@ -912,7 +965,7 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
         me: string,
         read: FollowListRead,
     ): Promise<string> => {
-        const spread = await publishSpreadOptimistic(
+        const spread = await publishToTargetSet(
             read.targets,
             makeEvent(plan.kind, { content: plan.content, tags: plan.tags }),
         )

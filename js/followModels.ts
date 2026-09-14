@@ -375,16 +375,72 @@ export const armingReadsContactList = (knowledge: OutboxKnowledge): boolean => k
  * splits `wss://host` from `wss://host/` into two targets, and this repo has been bitten
  * by exactly that class of host comparison before.
  */
+declare const followTargetSetBrand: unique symbol
+
+/**
+ * **The target set as a TYPE — the assurance D7 kept losing, moved where a walk cannot be
+ * walked around.**
+ *
+ * A branded `readonly string[]`: structurally an array of relay urls, nominally something
+ * only {@link followRelayTargets} can produce. Everything downstream — the contact-list
+ * read, the write, {@link FollowRelayRead}-based verdicts — takes this type and not
+ * `string[]`.
+ *
+ * ── Why a type and not a fourth source check ───────────────────────────────────
+ *
+ * Three rounds of review found three different ways to fold the read-only hint relays into
+ * the set that votes on completeness and then gets written to, and every one of them was a
+ * new SHAPE of the same class:
+ *
+ * ```ts
+ * readFollowListsFrom([...targets, ...hints], …)    // round 6
+ * const merged = [...targets, ...hints]             // round 7
+ * let targets = …; targets = [...targets, ...hints] // round 8
+ * targets.push(...hints)                            // round 8
+ * ```
+ *
+ * A source walk can only ever enumerate the shapes it was told about, so each round it was
+ * green against the form that had not been thought of yet. The type ends the enumeration:
+ *
+ *  · `readonly string[]` has no `push`, no `splice`, no `sort` — the fourth form stops
+ *    being a bypass and starts being a compile error.
+ *  · a spread, a `concat`, a ternary, a re-assignment all produce a plain `string[]`,
+ *    which does not carry the brand and is not assignable — forms one to three likewise.
+ *  · the only remaining way in is a cast, and casts are a countable set. That is what the
+ *    latch in `followWriteGate.test.ts` still checks, and all it checks.
+ *
+ * The brand is minted in exactly one expression, {@link mintTargetSet}.
+ */
+export type FollowTargetSet = readonly string[] & { readonly [followTargetSetBrand]: true }
+
+/**
+ * THE one place the brand comes into existence.
+ *
+ * Deliberately not exported: a second minting site would give every caller the cast back
+ * that the type just took away, and the whole assurance is that there is one.
+ */
+const mintTargetSet = (urls: readonly string[]): FollowTargetSet => urls as FollowTargetSet
+
+/**
+ * The empty target set, for the callers that have to report „no set was drawn" without
+ * drawing one.
+ *
+ * Goes through {@link followRelayTargets} rather than minting its own, so the count of
+ * minting sites stays at one, and a fresh array each call so that no two callers can share
+ * a value somebody later mutates through a cast.
+ */
+export const noFollowTargets = (): FollowTargetSet => followRelayTargets('unknown', [], [])
+
 export const followRelayTargets = (
     knowledge: OutboxKnowledge,
     declaredWriteUrls: readonly string[],
     fallbackUrls: readonly string[],
-): string[] => {
+): FollowTargetSet => {
     if (knowledge === 'unknown') {
-        return []
+        return mintTargetSet([])
     }
 
-    return normalizeRelaySet(knowledge === 'listed' ? declaredWriteUrls : fallbackUrls)
+    return mintTargetSet(normalizeRelaySet(knowledge === 'listed' ? declaredWriteUrls : fallbackUrls))
 }
 
 /**

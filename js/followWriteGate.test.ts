@@ -52,7 +52,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -125,15 +125,21 @@ const WRITE_GUARDS: Readonly<Record<string, number>> = {
     planFollowWrite: 1,
     followedPubkeysOf: 2,
     mayWriteKind: 1,
-    // F5 — the base read must go through a context of its own.
-    baseReadContext: 1,
-    requestOneWithoutRepository: 1,
+    // F5 and D2 — both relay reads of this module go through a context of their own.
+    baseReadContext: 2,
+    // D2: two reads on the repository-free context now — the contact list and the kind 10002.
+    requestOneWithoutRepository: 2,
     // F6 — the read-only sources reach the base and nothing else.
     normalizeRelaySet: 2,
     // F7 — the arming pass asks only what the reader declared.
     armingReadsContactList: 1,
     followWriteConfirmed: 1,
+    // The local door of D1, and the shared helper behind it — one call each. Widening
+    // `publishSpreadOptimistic` for this caller would put the demand on `js/calendar.ts` too.
+    publishToTargetSet: 1,
     publishSpreadOptimistic: 1,
+    // D1: the empty set still goes through the one minting site, at every early exit.
+    noFollowTargets: 3,
     makeEvent: 1,
     declaredWriteRelaysOf: 2,
     outboxKnowledgeOf: 1,
@@ -220,6 +226,25 @@ const wertstellen = (datei: string, wache: string): string[] =>
     befundFuer(datei).werte.filter((stelle) => stelle.ruft === wache).map(kurz).sort()
 
 const quelleDesWriters = (): string => readFileSync(join(JS_DIR, WRITER), 'utf8')
+
+/**
+ * The name of the nearest enclosing named declaration — which function a node sits in.
+ *
+ * Used to say WHERE a brand is minted rather than only how often: „once, somewhere in the
+ * file" would be satisfied by a cast that moved out of `mintTargetSet` into a caller.
+ */
+const enclosingDeclarationName = (node: ts.Node): string => {
+    for (let parent = node.parent; parent; parent = parent.parent) {
+        if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+            return parent.name.text
+        }
+        if ((ts.isFunctionDeclaration(parent) || ts.isMethodDeclaration(parent)) && parent.name) {
+            return parent.name.getText()
+        }
+    }
+
+    return '(top level)'
+}
 
 /**
  * The writer's source with every comment removed — for the few checks that ask „does this
@@ -401,8 +426,10 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             ['followRelayTargets', ['binding targets CallExpression'],
                 'the target set must BE the answer of that function, not a value computed beside it — a `?? [url]` '
                     + 'there is the space back in the set.'],
-            ['publishSpreadOptimistic', ['binding spread CallExpression'],
-                'the per-relay outcome must be kept: a write that landed on two of three relays is not a failure.'],
+            ['publishToTargetSet', ['binding spread CallExpression'],
+                'the per-relay outcome must be kept: a write that landed on two of three relays is not a failure. '
+                    + 'Through the local door and not through publishSpreadOptimistic directly, because only the '
+                    + 'door demands a FollowTargetSet — see D1.'],
         ]
 
         for (const [wache, erwartet, folge] of ERWARTET) {
@@ -760,8 +787,22 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      *
      * Both halves are pinned: the context must lose the repository, and the read must use
      * that context. Either one alone is a comment.
+     *
+     * ── D2: and the kind 10002 read is the same hazard, not a lesser one ───────
+     *
+     * This case used to assert the opposite for the relay-list read — „only the
+     * contact-list base read needs a context of its own; widening that to every read would
+     * drop a protection nobody asked to lose". That sentence was wrong, and the audit
+     * measured how: a deleted-marked kind 10002 is dropped by the same short-circuit, the
+     * `EOSE` still arrives, and `{writeUrls: [], anyAnswered: true}` is read by
+     * `outboxKnowledgeOf` as `confirmed-none` — the verdict that PERMITS a write, not the
+     * one that refuses. The relay-list read had the worse failure mode of the two and the
+     * weaker protection.
+     *
+     * So both reads are pinned onto the same context now, and the house adapter is gone
+     * from this module entirely — there is no third read left that could want it.
      */
-    test('CORE: the base read runs on a context WITHOUT the repository', () => {
+    test('CORE: both relay reads run on a context WITHOUT the repository', () => {
         const quelle = flattenWhitespace(quelleDesWriters())
         assert.ok(
             quelle.includes('const baseReadContext = (): NetContext => ({ ...app.netContext, repository: undefined })'),
@@ -774,16 +815,24 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             /requestOneWithoutRepository\(\{[\s\S]{0,400}?context: baseReadContext\(\)/.test(quelle),
             `${WRITER}: the per-relay contact-list read no longer uses that context.`,
         )
-        // And it must be the base read, not the relay-list read, that got it: the relay
-        // list is resolved through the ordinary adapter and has no such problem.
         assert.ok(
             /const readFollowListFrom = [\s\S]{0,600}?requestOneWithoutRepository/.test(quelle),
             `${WRITER}: the repository-free context is not the one readFollowListFrom uses.`,
         )
+        // D2 — the same two halves for the kind 10002 read.
         assert.ok(
-            /const readRelayListFrom = [\s\S]{0,600}?[^t]requestOne\(\{/.test(quelle),
-            `${WRITER}: the relay-list read left the ordinary adapter. Only the contact-list base read needs a `
-                + 'context of its own; widening that to every read would drop a protection nobody asked to lose.',
+            /const readRelayListFrom = [\s\S]{0,700}?requestOneWithoutRepository\(\{[\s\S]{0,400}?context: baseReadContext\(\)/
+                .test(quelle),
+            `${WRITER}: the relay-list read is back on the app context. A kind 5 the reader signed against their `
+                + 'own 10002 then empties the outbox with an EOSE, and `confirmed-none` — the verdict that permits '
+                + 'a write — is what comes out.',
+        )
+        // The negative half of D2, and the reason it can be stated so bluntly: with both
+        // reads moved, no caller in this module has any business with the house adapter.
+        assert.ok(
+            !quelle.includes("from './welshmanNet.ts'"),
+            `${WRITER}: the house adapter is imported again. It hands out the app context, repository included, `
+                + 'which is the one thing neither read here may have.',
         )
     })
 
@@ -809,11 +858,11 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             `${WRITER}: the hints no longer reach the base, which is the only thing they are for.`,
         )
         assert.ok(
-            /publishSpreadOptimistic\(\s*read\.targets,/.test(quelleDesWriters()),
+            /publishToTargetSet\(\s*read\.targets,/.test(quelleDesWriters()),
             `${WRITER}: the write may go to the targets and to nothing else.`,
         )
         assert.ok(
-            !/publishSpreadOptimistic\([^)]*hint/i.test(flattenWhitespace(quelleDesWriters())),
+            !/publishToTargetSet\([^)]*hint/i.test(flattenWhitespace(quelleDesWriters())),
             `${WRITER}: a read-only source reached the write. It was never asked to answer for what it holds.`,
         )
         assert.ok(
@@ -823,118 +872,100 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
     })
 
     /**
-     * **D7: what FLOWS INTO the target set, not what the argument looks like.**
+     * **D1: the target set is a TYPE now, and this is all that is left to check.**
      *
-     * Two versions of this latch have now been walked past, and the second failure is the
-     * instructive one.
+     * ── Why the walk this replaces is gone ─────────────────────────────────────
      *
-     * The first pinned literals at the consuming call sites (`followListAnswered(targetReads,
-     * targets)`, `publishSpreadOptimistic(read.targets, …)`). One edit a level earlier —
-     * `readFollowListsFrom([...targets, ...hints], hints, …)` — made the read-only hints a
-     * completeness voice AND a write target while every pinned literal stood untouched.
+     * Three rounds, three versions of a source walk, four bypasses — and each version was
+     * green against the form nobody had thought of yet:
      *
-     * The second asked the AST whether the first argument is an identifier. That catches
-     * the inline spread and not this:
+     * ```ts
+     * readFollowListsFrom([...targets, ...hints], …)    // round 6, caught by version 2
+     * const merged = [...targets, ...hints]             // round 7, caught by version 3
+     * let targets = …; targets = [...targets, ...hints] // round 8, version 3 green
+     * targets.push(...hints)                            // round 8, version 3 green
+     * ```
      *
-     *     const merged = [...targets, ...hints]
-     *     return readFollowListsFrom(merged, hints, self, relayList.knowledge)
+     * „Every way to widen an array" is not an enumerable set, so a walk over shapes can
+     * only ever be one review behind. {@link FollowTargetSet} moves the rule into the type
+     * system, where the compiler decides the class rather than a list deciding the forms:
+     * all four are a `tsc` error now, measured with the exit code.
      *
-     * Measured on 2026-09-14: **155/155 green.** `merged` is an identifier, so the rule was
-     * satisfied; the value travels on through `FollowListRead.targets` into
-     * `publishSpreadOptimistic(read.targets, …)`, and the hints become write targets. The
-     * rule asked about the node KIND and the question is about the value's ORIGIN.
+     * ── What a type cannot do, and therefore this case ─────────────────────────
      *
-     * So this version resolves the binding: an identifier argument is looked up in the
-     * function it sits in, and its initializer has to be the call that draws the set. A
-     * declaration that cannot be found counts as a violation — „I could not check" is not
-     * „it is fine", and that is the direction every other rule in this file takes too.
+     * A cast launders anything into anything. Unlike array widening, casts ARE an
+     * enumerable category — `as X` and `<X>y`, nothing else — so a census of them is a
+     * complete check rather than a sample.
+     *
+     *  · repo-wide, exactly ONE assertion may name `FollowTargetSet`, and it has to sit in
+     *    `mintTargetSet`. A second one is a second minting site.
+     *  · the total assertion census of both files is pinned. That is what closes
+     *    `readFollowListsFrom(merged as any, …)`, which names no brand and would otherwise
+     *    pass: it cannot be written without moving a number in the table below.
+     *
+     * The table is deliberately a census and not a ban — the three
+     * `as unknown as FollowEventLike[]` in the writer are welshman's `TrustedEvent` being
+     * narrowed and have nothing to do with relays. Changing them is allowed; changing them
+     * silently is not.
      */
-    test('CORE: nothing is mixed INTO the target set — the binding is resolved, not glanced at', () => {
-        const quelle = readFileSync(join(JS_DIR, WRITER), 'utf8')
-        const baum = ts.createSourceFile(WRITER, quelle, ts.ScriptTarget.Latest, true)
-
-        /** The nearest enclosing function body of a node — where a `const` would live. */
-        const umgebendeFunktion = (node: ts.Node): ts.Node | undefined => {
-            for (let eltern = node.parent; eltern; eltern = eltern.parent) {
-                if (ts.isFunctionLike(eltern) || ts.isSourceFile(eltern)) {
-                    return eltern
-                }
-            }
-
-            return undefined
+    test('CORE: the target-set brand is minted once, and no cast launders one', () => {
+        /** `file` → assertion target type → how many. Measured, then pinned. */
+        const ASSERTION_CENSUS: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+            'followModels.ts': { FollowTargetSet: 1, string: 2 },
+            'follows.ts': { 'FollowEventLike[]': 3, FollowsStore: 1, unknown: 3 },
         }
 
-        /** The initializer of `name` as declared inside `bereich`, or `undefined`. */
-        const initialisierer = (bereich: ts.Node, name: string): ts.Expression | undefined => {
-            let gefunden: ts.Expression | undefined
-            const suche = (node: ts.Node): void => {
+        /** Every `as X` / `<X>y` in a file, counted by the text of X. */
+        const censusOf = (file: string): Record<string, number> => {
+            const tree = ts.createSourceFile(file, readFileSync(join(JS_DIR, file), 'utf8'), ts.ScriptTarget.Latest, true)
+            const counts: Record<string, number> = {}
+            const walk = (node: ts.Node): void => {
+                if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+                    const key = node.type.getText()
+                    counts[key] = (counts[key] ?? 0) + 1
+                }
+                ts.forEachChild(node, walk)
+            }
+            walk(tree)
+
+            return counts
+        }
+
+        for (const [file, expected] of Object.entries(ASSERTION_CENSUS)) {
+            assert.deepEqual(
+                censusOf(file),
+                expected,
+                `${file}: the type assertions in this file are no longer the ones that were reviewed. A new `
+                    + 'assertion is the one remaining way to hand an unbranded array to the read or the write '
+                    + '— `as any` needs no brand name to do it. Read the new one, then move the number here.',
+            )
+        }
+
+        // Repo-wide, because the type is exported: any file could mint one.
+        const minters: string[] = []
+        for (const file of readdirSync(JS_DIR).filter((name: string) => name.endsWith('.ts'))) {
+            const tree = ts.createSourceFile(file, readFileSync(join(JS_DIR, file), 'utf8'), ts.ScriptTarget.Latest, true)
+            const walk = (node: ts.Node): void => {
                 if (
-                    ts.isVariableDeclaration(node)
-                    && ts.isIdentifier(node.name)
-                    && node.name.text === name
-                    && node.initializer
+                    (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node))
+                    && node.type.getText().includes('FollowTargetSet')
                 ) {
-                    gefunden = node.initializer
+                    const enclosing = enclosingDeclarationName(node)
+                    minters.push(`${file}:${enclosing}`)
                 }
-                ts.forEachChild(node, suche)
+                ts.forEachChild(node, walk)
             }
-            suche(bereich)
-
-            return gefunden
+            walk(tree)
         }
-
-        /** `targets` has to BE the draw, or the literal `read.targets` carried from it. */
-        const istZielmenge = (ausdruck: ts.Expression): boolean => {
-            const text = ausdruck.getText().replace(/\s+/g, ' ')
-
-            return /^followRelayTargets\(/.test(text) || text === 'read.targets' || text === '[]'
-        }
-
-        const befunde: string[] = []
-        let gesehen = 0
-        const walk = (node: ts.Node): void => {
-            if (
-                ts.isCallExpression(node)
-                && ts.isIdentifier(node.expression)
-                && node.expression.text === 'readFollowListsFrom'
-            ) {
-                gesehen += 1
-                const erstes = node.arguments[0]
-                if (!erstes) {
-                    befunde.push('(no argument)')
-                } else if (!ts.isIdentifier(erstes) && !istZielmenge(erstes)) {
-                    befunde.push(`inline ${erstes.getText().replace(/\s+/g, ' ')}`)
-                } else if (ts.isIdentifier(erstes)) {
-                    const bereich = umgebendeFunktion(node)
-                    const wert = bereich ? initialisierer(bereich, erstes.text) : undefined
-                    if (!wert) {
-                        befunde.push(`unresolvable ${erstes.text}`)
-                    } else if (!istZielmenge(wert)) {
-                        befunde.push(`${erstes.text} = ${wert.getText().replace(/\s+/g, ' ')}`)
-                    }
-                }
-            }
-            ts.forEachChild(node, walk)
-        }
-        walk(baum)
-
         assert.deepEqual(
-            befunde,
-            [],
-            `${WRITER}: the target set handed to readFollowListsFrom is built rather than drawn — ${befunde.join(' · ')}. `
-                + 'Anything assembled on the way in folds a read-only source into the set that votes on '
-                + 'completeness and gets written to, and every literal pinned further down is blind to it.',
-        )
-
-        // CALIBRATION, and it counts what the WALK found rather than what a regex finds:
-        // an empty finding list has to mean „tree clean", never „scanner saw nothing".
-        assert.equal(
-            gesehen,
-            2,
-            `${WRITER}: the walk saw ${gesehen} call(s) of readFollowListsFrom, expected 2 — the read and the `
-                + 're-read after a write. Any other number means this case is measuring something else.',
+            minters,
+            ['followModels.ts:mintTargetSet'],
+            `the brand is minted at ${minters.length} place(s): ${minters.join(', ') || '(none)'}. Exactly one, inside `
+                + 'mintTargetSet, is the whole assurance — a second one gives every caller back the cast the type '
+                + 'took away. None at all means the type no longer exists and the four bypasses are open again.',
         )
     })
+
 
     /**
      * **F7: a page load asks only relays the reader chose.**
@@ -988,7 +1019,7 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
     test('CORE: the WRITE goes to the set the READ used — drawn once', () => {
         const quelle = quelleDesWriters()
         assert.ok(
-            /publishSpreadOptimistic\(\s*read\.targets,/.test(quelle),
+            /publishToTargetSet\(\s*read\.targets,/.test(quelle),
             `${WRITER}: the write no longer uses the target set of the read it is based on. Every relay in that `
                 + 'set answered; that is what makes replacing their copy defensible, and it is true for no other '
                 + 'set. A fresh draw here is the finding coming back.',

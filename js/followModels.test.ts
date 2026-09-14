@@ -24,6 +24,7 @@ import {
     withoutFollowedPubkey,
     type FollowEventLike,
     type FollowRelayRead,
+    type FollowTargetSet,
 } from './followModels.ts'
 
 /**
@@ -213,7 +214,7 @@ describe('N1: the space stub can no longer poison a later session', () => {
     const echteListe = idList('aaa', [['p', ALICE], ['p', BOB], ['t', 'bitcoin']], 1000)
 
     /** Session 1: no kind 10002 anywhere, and the fallback is where lists actually live. */
-    const sitzung1 = (): { targets: string[]; plan: ReturnType<typeof planFollowWrite> } => {
+    const sitzung1 = (): { targets: FollowTargetSet; plan: ReturnType<typeof planFollowWrite> } => {
         const targets = followRelayTargets('confirmed-none', [], [RELAY_A])
         // Every target answered; relay A holds the real list, because that is where the
         // reader's client put it.
@@ -517,13 +518,21 @@ describe('K7: the relay-list verdict needs ONE answer, the write still needs all
  * mass unfollow on another device, and a permanent refusal after one degraded read. What
  * catches a truncated base now is named below, and nothing else does.
  *
- * ── The situation ─────────────────────────────────────────────────────────────
+ * ── The situation, in BOTH branches ───────────────────────────────────────────
  *
- * A reader whose kind 10002 is unfindable at this moment, and whose real contact list sits
- * on a relay that is in none of the fallback relays. Every fallback relay answers and
- * holds nothing, so the merge base is legitimately `null`, and a one-entry kind 3 goes to
- * the fallback set. If the reader's declared relays later overlap that set, the stub wins
- * the NIP-01 comparison there.
+ * A reader whose real contact list is not on the relays this operation asks. Every asked
+ * relay answers and holds nothing, so the merge base is legitimately `null` and a
+ * one-entry kind 3 goes to the asked set. Which set that is depends on
+ * {@link OutboxKnowledge}, and the two branches are NOT equally bad:
+ *
+ * | branch | where the one-tag stub lands | how far the damage reaches |
+ * |---|---|---|
+ * | `confirmed-none` | the four fallback relays, which this reader never chose | **deferred** — the relays holding the real list are not written to, and the loss happens only if a later session reads both and the stub wins the NIP-01 comparison |
+ * | `listed` | the reader's **own, announced write relays** | **immediate and global** — those are precisely the addresses NIP-65 points every other client at, so every reader of this profile now sees a contact list of one |
+ *
+ * The `listed` branch is the heavier of the two and it is the one this file lost when the
+ * floor came out: `CORE route F6: 'listed' targets that hold nothing — refused` asserted a
+ * refusal that no longer happens. It is back below, as a record and not as a promise.
  *
  * ── What stands in the way, precisely — and what does not ─────────────────────
  *
@@ -531,7 +540,7 @@ describe('K7: the relay-list verdict needs ONE answer, the write still needs all
  * |---|---|
  * | `followListAnswered` with `every`: one silent target and nothing is written at all | it cannot tell „answered and holds nothing" from „answered and holds the list" |
  * | `OutboxKnowledge.unknown`: no relay list resolvable ⇒ no target set ⇒ no write | once `confirmed-none` is reached, the fallback set is used whatever it holds |
- * | `FOLLOW_BASE_HINT_RELAYS` as an extra read-only source: it can only make the base more current | it cannot make it larger, and for `confirmed-none` it is the same set as the targets |
+ * | `FOLLOW_BASE_HINT_RELAYS` as an extra read-only source: in the `listed` branch it asks four relays the targets do not | **it covers the `listed` branch only if the real list happens to sit on one of those four.** A reader whose list lives solely on their own relays gets nothing from it — and for `confirmed-none` the hints ARE the targets, so there it adds no source at all |
  * | `content` is carried over byte for byte | when the base is missing there is no `content` to carry, and it goes out empty |
  *
  * So the honest summary is: **a complete answer from relays that genuinely hold nothing is
@@ -552,11 +561,11 @@ describe('K7: the relay-list verdict needs ONE answer, the write still needs all
  * set that shrinks to one relay, or a way to tell „this relay has no list for you" from
  * „this relay has nothing for anybody" — the last one would close it outright.
  */
-describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a stub', () => {
+describe('ACCEPTED RISK, not a guarantee: relays that answer and hold nothing yield a stub', () => {
     const FERN = 'wss://never-asked.example/'
     const echteListe = idList('aaa', [['p', ALICE], ['p', BOB], ['t', 'bitcoin']], 1000)
 
-    test('DOCUMENTED: the fallback relays answer, hold nothing, and a one-entry list is built', () => {
+    test('DOCUMENTED: `confirmed-none` — the fallback relays answer, hold nothing, a one-entry list is built', () => {
         const targets = followRelayTargets('confirmed-none', [], [FALLBACK, FALLBACK_2])
         const reads = targets.map((url) => read(url, true, null))
         const plan = planFollowWrite({
@@ -576,6 +585,39 @@ describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a
         assert.equal(plan.content, '', 'and no legacy relay map, because there was no list to carry one from')
     })
 
+    test('DOCUMENTED: the `listed` branch writes the stub to the reader\'s OWN announced relays', () => {
+        // Restored from `CORE route F6` at 657dd5c, with the verdict turned around: there
+        // it asserted `null`, because the high-water floor refused. Nothing refuses now.
+        const targets = followRelayTargets('listed', [OUTBOX, OUTBOX_2], [])
+        const reads = targets.map((url) => read(url, true, null))
+        assert.equal(followListAnswered(reads, targets), true, 'CALIBRATION: the completeness gate is satisfied')
+        const plan = planFollowWrite({
+            list: winningFollowList(reads),
+            listAnswered: followListAnswered(reads, targets),
+            target: ALICE,
+            self: ME,
+            add: true,
+            spaceKind: 'other',
+        })
+        assert.ok(plan, 'and a plan is produced — this branch has no refusal left in it either')
+        assert.deepEqual(plan.tags, [['p', ALICE]], 'one entry, on the relays the outbox model advertises')
+        assert.deepEqual(
+            [...targets],
+            [OUTBOX, OUTBOX_2],
+            'the targets ARE the declared write relays, which is why this branch is the heavier one: the loss is '
+                + 'not deferred to a later session, it is visible to every client that follows NIP-65 immediately',
+        )
+        // And the hints do not save it: they are four foreign relays, and this reader's
+        // list is on neither of them.
+        const hintReads = [read(FALLBACK, true, null), read(FALLBACK_2, true, null)]
+        assert.equal(
+            winningFollowList([...reads, ...hintReads]),
+            null,
+            'the read-only sources raise the base only when the list is on one of THEM. Here it is not, and the '
+                + 'mitigation row above says so.',
+        )
+    })
+
     test('DOCUMENTED: what the removed floor used to catch here, and no longer does', () => {
         // Kept as an explicit record: until this round a per-identity high-water mark
         // refused this write on any device that had seen the real list. Nothing takes its
@@ -586,7 +628,7 @@ describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a
         assert.equal(winningFollowList(reads), null, '…and the base is still null. That pair is the whole hole.')
     })
 
-    test('DOCUMENTED: the real list on a never-asked relay is untouched — the loss is deferred, not immediate', () => {
+    test('DOCUMENTED: in `confirmed-none` the real list is on a never-asked relay — the loss is deferred', () => {
         // The stub does not reach the relay that holds the list, so nothing is destroyed
         // in this session. It becomes a loss only if a later session reads both.
         const targets = followRelayTargets('confirmed-none', [], [FALLBACK])
