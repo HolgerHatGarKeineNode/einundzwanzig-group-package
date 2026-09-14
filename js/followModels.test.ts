@@ -4,6 +4,7 @@ import { RELAYS } from '@welshman/util'
 import { RelayListReader } from '@welshman/domain'
 import {
     FOLLOWS,
+    anyRelayAnswered,
     declaredWriteRelaysOf,
     followedPubkeysOf,
     followListAnswered,
@@ -55,6 +56,8 @@ const relayList = (tags: string[][], created_at = 100): FollowEventLike =>
 const OUTBOX = 'wss://outbox.example/'
 const OUTBOX_2 = 'wss://second.example/'
 const SPACE = 'wss://space.example/'
+const FALLBACK = 'wss://fallback.example/'
+const FALLBACK_2 = 'wss://fallback-two.example/'
 
 describe('reading a contact list', () => {
     test('the NEWEST kind 3 of the author decides, not the first one seen', () => {
@@ -120,50 +123,191 @@ describe('reading a contact list', () => {
 })
 
 /**
- * **P2: which relays a contact list is read from and written to.**
+ * **N1: the base of a write and its target set are the same set — and the space is in
+ * neither.**
  *
- * The space relay is NOT replaced by the outbox. Members read each other there, and a
- * reader without a kind 10002 would otherwise have no target at all — the write would
- * land nowhere and the read would ask nobody.
+ * P2 put the space relay in „because the members read each other there". The premise was
+ * checked against the production tree and is false: nobody reads a foreign contact list
+ * anywhere. The space copy could only ever be consumed by our own merge base, and that is
+ * what made it a hazard rather than a service — see the two-session case further down.
  */
-describe('followRelayTargets: outbox ∪ space', () => {
-    test('CORE: both halves are in — outbox first, space always present', () => {
-        assert.deepEqual(followRelayTargets([OUTBOX, OUTBOX_2], SPACE), [OUTBOX, OUTBOX_2, SPACE])
+describe('followRelayTargets: one set, and the space is not in it', () => {
+    test('CORE listed: exactly the declared write relays — no space, no fallback', () => {
+        assert.deepEqual(
+            followRelayTargets('listed', [OUTBOX, OUTBOX_2], [FALLBACK]),
+            [OUTBOX, OUTBOX_2],
+        )
     })
 
-    test('CORE: an empty outbox still leaves the space — this reader can still follow', () => {
-        assert.deepEqual(followRelayTargets([], SPACE), [SPACE])
+    test('CORE confirmed-none: the fallback set, and nothing of the declaration', () => {
+        assert.deepEqual(followRelayTargets('confirmed-none', [], [FALLBACK, FALLBACK_2]), [FALLBACK, FALLBACK_2])
     })
 
-    test('a space that is also an outbox relay appears once, and is still there', () => {
-        assert.deepEqual(followRelayTargets([SPACE, OUTBOX], SPACE), [SPACE, OUTBOX])
+    test('CORE unknown: the EMPTY set — nothing is read, so nothing can be written', () => {
+        // Fail-closed expressed in the set rather than only in the verdict: an empty
+        // target set is refused by followListAnswered, so the two say the same thing
+        // twice and neither can be walked past alone.
+        assert.deepEqual(followRelayTargets('unknown', [OUTBOX], [FALLBACK]), [])
+        assert.equal(followListAnswered([read(OUTBOX, true)], followRelayTargets('unknown', [OUTBOX], [FALLBACK])), false)
+    })
+
+    test('CORE: a space url handed in as a declared relay is NOT special — it is simply not there', () => {
+        // The guarantee is structural: this function has no space parameter any more, so
+        // there is no argument through which a space could re-enter.
+        assert.equal(followRelayTargets.length, 3, 'the signature gained a space argument again')
+        assert.ok(!followRelayTargets('listed', [OUTBOX], [FALLBACK]).includes(SPACE))
+        assert.ok(!followRelayTargets('confirmed-none', [], [FALLBACK]).includes(SPACE))
     })
 
     test('de-duplication happens AFTER normalisation — a missing slash is not a second relay', () => {
         // Measured against the installed welshman 0.9.9: `normalizeRelayUrl` appends the
         // slash and lowercases the host. A raw `Set` would have written the same list to
-        // the same relay twice and, worse, counted it twice in the verdict below.
-        assert.deepEqual(followRelayTargets(['wss://outbox.example', 'wss://OUTBOX.example/'], SPACE), [OUTBOX, SPACE])
+        // the same relay twice and, worse, counted it twice in the verdict.
+        assert.deepEqual(
+            followRelayTargets('listed', ['wss://outbox.example', 'wss://OUTBOX.example/'], []),
+            [OUTBOX],
+        )
     })
 
     test('a trailing dot stays a SEPARATE relay — stated, not silently collapsed', () => {
         // `wss://host./` is a different name in a URL and the same name in DNS.
         // `normalizeRelayUrl` does not collapse it (measured), and this client does not
-        // rewrite somebody else's relay entry. It simply becomes a second target.
+        // rewrite somebody else's relay entry.
         assert.deepEqual(
-            followRelayTargets(['wss://outbox.example./'], SPACE),
-            ['wss://outbox.example./', SPACE],
+            followRelayTargets('listed', ['wss://outbox.example./'], []),
+            ['wss://outbox.example./'],
         )
     })
 
     test('an unreadable entry counts as ABSENT, it does not take the whole set down', () => {
-        // `normalizeRelayUrl` throws a TypeError on garbage. A throw here would take out
-        // the read AND the write for one malformed relay entry.
-        assert.deepEqual(followRelayTargets(['nicht mal eine url', '', OUTBOX], SPACE), [OUTBOX, SPACE])
+        assert.deepEqual(followRelayTargets('listed', ['nicht mal eine url', '', OUTBOX], []), [OUTBOX])
     })
 
-    test('an unreadable SPACE leaves an empty set — and an empty set can never answer', () => {
-        assert.deepEqual(followRelayTargets([], 'ws://'), [])
+    test('a declaration of nothing but garbage leaves an empty set — which can never answer', () => {
+        assert.deepEqual(followRelayTargets('listed', ['ws://'], [FALLBACK]), [])
+    })
+})
+
+/**
+ * **THE proof of this round: the two-session chain that destroyed 700 contacts.**
+ *
+ * Session 1 — the reader has no kind 10002. Under P2 the target set was the space alone,
+ * the space holds no contact list, the merge base was therefore `null`, and a kind 3 with
+ * ONE tag was written to the space.
+ *
+ * Session 2 — the relay list resolves. The target set became `[relay-a, space]`, the
+ * space stub was the newest event of that address, it won the NIP-01 comparison, and
+ * `planFollowWrite` built the next list from it. Relay A went from 700 entries to two.
+ *
+ * No attacker and no fault required: it is enough that the indexers answer and hold no
+ * kind 10002 for this reader while their contact list sits on a relay nobody asked.
+ *
+ * The case asserts the CONTACT COUNT on relay A before and after, because that is the
+ * quantity the reader loses — a test that only asserted „the target set has no space"
+ * would stay green for any number of other ways back in.
+ */
+describe('N1: the space stub can no longer poison a later session', () => {
+    const RELAY_A = 'wss://relay-a.example/'
+    /** The reader's real list — three stand in for 700; the count is what is asserted. */
+    const echteListe = idList('aaa', [['p', ALICE], ['p', BOB], ['t', 'bitcoin']], 1000)
+
+    /** Session 1: no kind 10002 anywhere, and the fallback is where lists actually live. */
+    const sitzung1 = (): { targets: string[]; plan: ReturnType<typeof planFollowWrite> } => {
+        const targets = followRelayTargets('confirmed-none', [], [RELAY_A])
+        // Every target answered; relay A holds the real list, because that is where the
+        // reader's client put it.
+        const reads = targets.map((url) => read(url, true, url === RELAY_A ? echteListe : null))
+
+        return {
+            targets,
+            plan: planFollowWrite({
+                list: winningFollowList(reads),
+                listAnswered: followListAnswered(reads, targets),
+                target: BOB,
+                self: ME,
+                add: false,
+                spaceKind: 'other',
+            }),
+        }
+    }
+
+    test('CORE: session 1 writes to a relay that HOLDS the list, so the base is the real one', () => {
+        const { targets, plan } = sitzung1()
+        assert.deepEqual(targets, [RELAY_A], 'the space is not a target, and the fallback is not empty')
+        assert.ok(plan, 'a complete answer must be able to write')
+        assert.equal(
+            followedPubkeysOf({ ...echteListe, tags: plan.tags }).length,
+            1,
+            'unfollowing BOB leaves ALICE — the real list minus one, not a stub',
+        )
+    })
+
+    test('CORE: the 700 survive — no one-tag stub is produced anywhere', () => {
+        const { plan } = sitzung1()
+        assert.ok(plan)
+        assert.ok(
+            plan.tags.some((tag) => tag[0] === 't'),
+            'the foreign tags of the real list are carried over; a stub would have none',
+        )
+        assert.notDeepEqual(plan.tags, [['p', BOB]], 'this shape IS the stub that destroyed the list')
+    })
+
+    test('CORE: session 2 with a resolved relay list cannot see a space copy at all', () => {
+        // Even if a stub from an older client version still sits on the space, it is not
+        // in the target set, so it is not a base source, so it cannot win.
+        const stub = idList('zzz', [['p', BOB]], 2000)
+        const targets = followRelayTargets('listed', [RELAY_A], [])
+        assert.deepEqual(targets, [RELAY_A])
+        const reads = targets.map((url) => read(url, true, echteListe))
+        const base = winningFollowList(reads)
+        assert.equal(base, echteListe, 'the base is what the target relays showed, and they showed the real list')
+        assert.equal(
+            followedPubkeysOf(base).length,
+            2,
+            'the reader still has both contacts — this number was 1 before N1 was fixed',
+        )
+        assert.ok(stub.created_at > echteListe.created_at, 'CALIBRATION: the stub really is the newer event')
+    })
+
+    test('CALIBRATION: the stub WOULD still win if it ever got into the set', () => {
+        // Without this the case above proves nothing: it has to be true that the only
+        // thing keeping the stub out is the target set, not some accident of timestamps.
+        const stub = idList('zzz', [['p', BOB]], 2000)
+        const vergiftet = [read(RELAY_A, true, echteListe), read(SPACE, true, stub)]
+        assert.equal(winningFollowList(vergiftet), stub)
+        assert.equal(followedPubkeysOf(winningFollowList(vergiftet)).length, 1, 'this is the 700 → 2 collapse')
+    })
+})
+
+/**
+ * **The divergence that is deliberately NOT closed.**
+ *
+ * `outboxKnowledgeOf` returns `listed` as soon as write relays are declared, without
+ * demanding that every asked relay answered. That is a decision, not an oversight: with
+ * the space out of the set, a stale kind 10002 leads to a CONSISTENT old relay set — read
+ * and written alike — while the newer relays are simply not touched and are read again
+ * next session. Divergence, not destruction. Tightening it would only add refusals.
+ */
+describe('a stale relay list gives a consistent old set, not a broken one', () => {
+    const ALT = 'wss://old-relay.example/'
+    const NEU = 'wss://new-relay.example/'
+
+    test('CORE: the stale declaration is read AND written — the same set, both ways', () => {
+        const knowledge = outboxKnowledgeOf({ writeUrls: [ALT], anyAnswered: false })
+        assert.equal(knowledge, 'listed', 'a declaration we hold is a declaration, answered or not')
+        const targets = followRelayTargets(knowledge, [ALT], [NEU])
+        assert.deepEqual(targets, [ALT], 'read and write both go here')
+        assert.ok(!targets.includes(NEU), 'the newer relay is not written to — and so not damaged either')
+    })
+
+    test('CORE: the untouched relay keeps its own copy, and wins later if it is newer', () => {
+        // The next session resolves the new declaration and reads both; NIP-01 decides.
+        const altListe = idList('aaa', [['p', ALICE]], 1000)
+        const neuListe = idList('bbb', [['p', ALICE], ['p', BOB]], 2000)
+        const targets = followRelayTargets('listed', [ALT, NEU], [])
+        const reads = [read(ALT, true, altListe), read(NEU, true, neuListe)]
+        assert.equal(followListAnswered(reads, targets), true)
+        assert.equal(winningFollowList(reads), neuListe, 'the newer copy wins; nothing was lost in between')
     })
 })
 
@@ -293,27 +437,142 @@ describe('declaredWriteRelaysOf: NIP-65 write relays', () => {
  */
 describe('outboxKnowledgeOf: three states, never two', () => {
     test('CORE listed: write relays are declared — completeness is then the contact list\'s problem', () => {
-        assert.equal(outboxKnowledgeOf({ writeUrls: [OUTBOX], allAnswered: false }), 'listed')
-        assert.equal(outboxKnowledgeOf({ writeUrls: [OUTBOX], allAnswered: true }), 'listed')
+        assert.equal(outboxKnowledgeOf({ writeUrls: [OUTBOX], anyAnswered: false }), 'listed')
+        assert.equal(outboxKnowledgeOf({ writeUrls: [OUTBOX], anyAnswered: true }), 'listed')
     })
 
-    test('CORE confirmed-none: nothing declared AND everybody answered', () => {
-        assert.equal(outboxKnowledgeOf({ writeUrls: [], allAnswered: true }), 'confirmed-none')
+    test('CORE confirmed-none: nothing declared, and at least one relay answered', () => {
+        assert.equal(outboxKnowledgeOf({ writeUrls: [], anyAnswered: true }), 'confirmed-none')
     })
 
-    test('CORE unknown: nothing declared and somebody stayed silent — NOT the same thing', () => {
-        // This is the whole finding. The two cases above and below differ by one boolean,
-        // and before the repair they were one value.
-        assert.equal(outboxKnowledgeOf({ writeUrls: [], allAnswered: false }), 'unknown')
+    test('CORE unknown: nothing declared and NOBODY answered — NOT the same thing', () => {
+        // This is the whole F2 finding. The two cases above and below differ by one
+        // boolean, and before the repair they were one value.
+        assert.equal(outboxKnowledgeOf({ writeUrls: [], anyAnswered: false }), 'unknown')
     })
 
     test('the three are distinct values, so a caller cannot collapse two by accident', () => {
         const alle = [
-            outboxKnowledgeOf({ writeUrls: [OUTBOX], allAnswered: true }),
-            outboxKnowledgeOf({ writeUrls: [], allAnswered: true }),
-            outboxKnowledgeOf({ writeUrls: [], allAnswered: false }),
+            outboxKnowledgeOf({ writeUrls: [OUTBOX], anyAnswered: true }),
+            outboxKnowledgeOf({ writeUrls: [], anyAnswered: true }),
+            outboxKnowledgeOf({ writeUrls: [], anyAnswered: false }),
         ]
         assert.equal(new Set(alle).size, 3, `expected three distinct verdicts, got ${JSON.stringify(alle)}`)
+    })
+})
+
+/**
+ * **K7: one answer is enough to conclude „no relay list", and never enough to write.**
+ *
+ * Two questions that look alike and are not. {@link anyRelayAnswered} decides WHICH relays
+ * to use; {@link followListAnswered} decides whether they may be REPLACED. Only the second
+ * is the F1 riegel, and it is untouched — the cases below assert both halves next to each
+ * other precisely so nobody reads the loosening as reaching further than it does.
+ *
+ * The bar moved because the strict form had a measured price and no longer had its
+ * benefit. Its benefit was gone with K4: a wrong `confirmed-none` no longer plants a stub
+ * on a relay nobody reads, it picks the fallback set — which, base and target being the
+ * same set, is read completely first. Its price was live: `relay.damus.io` answered HTTP
+ * 521 on three consecutive probes, and under `allAnswered` that alone locked out every
+ * member without a kind 10002.
+ */
+describe('K7: the relay-list verdict needs ONE answer, the write still needs all', () => {
+    test('CORE: one answering relay is enough to conclude „this reader declared none"', () => {
+        const reads = [read(OUTBOX, true, null), read(OUTBOX_2, false, null)]
+        assert.equal(anyRelayAnswered(reads), true)
+        assert.equal(outboxKnowledgeOf({ writeUrls: [], anyAnswered: anyRelayAnswered(reads) }), 'confirmed-none')
+    })
+
+    test('CORE: no answer at all is still `unknown` — the fail-closed edge is unchanged', () => {
+        const reads = [read(OUTBOX, false, null), read(OUTBOX_2, false, null)]
+        assert.equal(anyRelayAnswered(reads), false)
+        assert.equal(outboxKnowledgeOf({ writeUrls: [], anyAnswered: anyRelayAnswered(reads) }), 'unknown')
+    })
+
+    test('CORE: an empty ask set answers nothing — a deployment without indexers cannot follow', () => {
+        assert.equal(anyRelayAnswered([]), false)
+        assert.equal(outboxKnowledgeOf({ writeUrls: [], anyAnswered: anyRelayAnswered([]) }), 'unknown')
+    })
+
+    test('CORE: the WRITE gate is untouched — one answer there is still not enough', () => {
+        // The same two reads that are enough to pick a relay set are NOT enough to
+        // replace what those relays hold. If this ever goes green, the loosening has
+        // leaked from the question it was meant for into the one it was not.
+        const reads = [read(OUTBOX, true, null), read(OUTBOX_2, false, null)]
+        assert.equal(followListAnswered(reads, [OUTBOX, OUTBOX_2]), false)
+    })
+})
+
+/**
+ * **ACCEPTED RISK — this case DOCUMENTS a hole, it does not close one.**
+ *
+ * Read it as a record of a decision, not as a guarantee. It asserts the damaging outcome
+ * on purpose, the same way the P1 defect case did before P2 repaired it.
+ *
+ * The situation: a reader whose kind 10002 happens to be unfindable at this moment, and
+ * whose real contact list sits on a relay that is in none of the fallback relays. Every
+ * fallback relay answers and holds nothing, so the merge base is legitimately `null`, and
+ * a one-entry kind 3 is written to the fallback set. If the reader's declared relays later
+ * overlap that set, the stub wins the NIP-01 comparison there.
+ *
+ * **Why it is accepted rather than fixed.** Closing it means going back to „every asked
+ * relay must answer", and that was measured to lock the feature out entirely whenever one
+ * of three third-party indexers is down — which was the case on the day this was written.
+ * The remaining exposure is narrow: it needs the relay list to be unfindable AND the
+ * contact list to be absent from every fallback relay, and three of the four default
+ * relays were measured serving a real 704-tag list.
+ *
+ * **What would change the decision:** if a fallback relay stops serving kind 3, or if the
+ * ask set shrinks to one relay, this narrows to almost nothing and the case should be
+ * re-argued rather than kept.
+ */
+describe('ACCEPTED RISK, not a guarantee: no list on any fallback relay yields a stub', () => {
+    const FERN = 'wss://never-asked.example/'
+    const echteListe = idList('aaa', [['p', ALICE], ['p', BOB], ['t', 'bitcoin']], 1000)
+
+    test('DOCUMENTED: the fallback relays answer, hold nothing, and a one-entry list is built', () => {
+        const targets = followRelayTargets('confirmed-none', [], [FALLBACK, FALLBACK_2])
+        const reads = targets.map((url) => read(url, true, null))
+        const plan = planFollowWrite({
+            list: winningFollowList(reads),
+            listAnswered: followListAnswered(reads, targets),
+            target: ALICE,
+            self: ME,
+            add: true,
+            spaceKind: 'other',
+        })
+        assert.ok(plan, 'every target answered, so the gate does not stand in the way here')
+        assert.deepEqual(
+            plan.tags,
+            [['p', ALICE]],
+            'ONE entry — this is the accepted risk, asserted so that it cannot change unnoticed',
+        )
+        assert.equal(plan.content, '', 'and no legacy relay map, because there was no list to carry one from')
+    })
+
+    test('DOCUMENTED: the real list on a never-asked relay is untouched — the loss is deferred, not immediate', () => {
+        // The stub does not reach the relay that holds the list, so nothing is destroyed
+        // in this session. It becomes a loss only if a later session reads both.
+        const targets = followRelayTargets('confirmed-none', [], [FALLBACK])
+        assert.ok(!targets.includes(FERN), 'the relay that actually holds the list is not written to')
+        assert.equal(followedPubkeysOf(echteListe).length, 2, 'it still has both contacts after this session')
+    })
+
+    test('CALIBRATION: with the list present on ONE fallback relay, no stub is produced', () => {
+        // The ordinary case, and the reason the risk is narrow: a wrong verdict extends
+        // the real list instead of inventing one.
+        const targets = followRelayTargets('confirmed-none', [], [FALLBACK, FALLBACK_2])
+        const reads = targets.map((url) => read(url, true, url === FALLBACK ? echteListe : null))
+        const plan = planFollowWrite({
+            list: winningFollowList(reads),
+            listAnswered: followListAnswered(reads, targets),
+            target: BOB,
+            self: ME,
+            add: false,
+            spaceKind: 'other',
+        })
+        assert.ok(plan)
+        assert.deepEqual(plan.tags, [['p', ALICE], ['t', 'bitcoin']], 'the real list minus one, not a stub')
     })
 })
 

@@ -112,6 +112,7 @@ const CARD_PATH = join(JS_DIR, '..', 'resources', 'views', 'components', 'profil
  * | `writeRefused` | the failure message names the space again, which after P2 is usually not the relay that blocked |
  * | `winningFollowList` | twice — the contact list and the relay list. Replace either with a tag union and every entry a relay has not caught up with comes back, silently and permanently |
  * | `followListWins` / `newestOwnEvent` | the NIP-01 resolution. Drop it and whichever answer arrived last decides |
+ * | `followRelayTargets` | ONE call, and since N1 it is also the only place that knows what the target set is. Its arguments are the verdict, the declaration and the fallback — the space is not among them |
  * | `adoptReadList` | three times: arming, a click, and the re-read after a write. Drop them and the card renders the space relay's copy while `toggle()` decides from the real one — a button labelled „Folgen" that unfollows |
  */
 const WRITE_GUARDS: Readonly<Record<string, number>> = {
@@ -130,15 +131,42 @@ const WRITE_GUARDS: Readonly<Record<string, number>> = {
     outboxKnowledgeOf: 1,
     normalizeRelaySet: 1,
     followRelayTargets: 1,
-    followListAnswered: 2,
+    followListAnswered: 1,
+    // K7: the relay-list verdict asks a DIFFERENT question and must use a different
+    // function. Fusing the two would put a `some` one refactor away from the F1 riegel.
+    anyRelayAnswered: 1,
     unansweredRelays: 2,
     refusalReason: 2,
     writeRefused: 2,
     winningFollowList: 2,
     newestOwnEvent: 2,
-    followListWins: 2,
+    followListWins: 1,
     adoptReadList: 3,
+    // N1: the contact list is asked for ONCE per read, per relay — the live subscription
+    // that used to stand open on the space relay is gone, not moved to the targets.
+    followFilters: 1,
+    // N1: the repository is not a source for a kind 3 any more. `ownFollowList` survives
+    // in exactly one place, inside the per-relay read, where it picks the newest of what
+    // THAT relay just sent.
+    ownFollowList: 1,
 }
+
+/**
+ * **Names that must not appear in this module at all — N1.**
+ *
+ * `deriveEventsForUrl` is the repository read that made the space copy a base source:
+ * a one-tag kind 3 written to the space in an earlier session came back through it, from
+ * the relay and after a reload from IndexedDB as well (`FOLLOWS` is in `PERSIST_KINDS`
+ * and `js/storage.ts` restores the tracker line with it), and being the newest event of
+ * its address it won the NIP-01 comparison. 700 contacts to two, measured over two
+ * sessions.
+ *
+ * `request` is the live subscription that stood open on the space for our own kind 3. It
+ * delivered nothing — a contact list is not on the space — and pointing it at the target
+ * relays instead would have meant a permanent presence signal on up to four foreign
+ * relays.
+ */
+const FORBIDDEN_IN_WRITER = ['deriveEventsForUrl', 'request']
 
 /**
  * **The relay picker that must NOT be on this path — F3.**
@@ -348,8 +376,9 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             ['followListAnswered', ['binding answered CallExpression'],
                 'the completeness verdict must BE the answer; `|| true` next to it is the one-entry kind 3 '
                     + 'returning. The second call sits inline in outboxKnowledgeOf(), which the count covers.'],
-            ['followListWins', ['return ownList ConditionalExpression'],
-                'the rendered list must be the NIP-01 winner of the two sources, not whichever arrived last.'],
+            ['followRelayTargets', ['binding targets CallExpression'],
+                'the target set must BE the answer of that function, not a value computed beside it — a `?? [url]` '
+                    + 'there is the space back in the set.'],
             ['publishSpreadOptimistic', ['binding spread CallExpression'],
                 'the per-relay outcome must be kept: a write that landed on two of three relays is not a failure.'],
         ]
@@ -377,6 +406,40 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             quelle.includes('if (!plan) {'),
             `${WRITER}: the refusal of ${GATE} is not honoured. A fallback beside the gate means the gate is `
                 + 'asked and overruled — and every call count stays intact.',
+        )
+    })
+
+    /**
+     * **N1: the merge base has exactly one origin.**
+     *
+     * `adoptReadList` is the only writer of the field the surface and the plan both read,
+     * and it only ever takes a list that came out of {@link readFollowListFrom} — i.e.
+     * off a relay that is in the target set of this very operation. Before N1 it competed
+     * with a repository source scoped to the space, and `ownList()` took the NIP-01 winner
+     * of the two; that is how a space stub reached the plan.
+     */
+    test('CORE: the rendered list IS the read list — no second source beside it', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes('const ownList = (): FollowEventLike | null => readList'),
+            `${WRITER}: the rendered list is no longer just what the target relays showed. A second source here `
+                + 'is a second way into the merge base, and the space copy is the one that was there before.',
+        )
+        // The AST scanner records assignments to PROPERTIES, not to plain identifiers, so
+        // this one is counted on the text — anchored on both sides and with a count, the
+        // same construction the listSeen store literal uses next door.
+        assert.ok(
+            quelle.includes('if (list && followListWins(list, readList)) { readList = list'),
+            `${WRITER}: adoptReadList no longer gates on the NIP-01 comparison, so a later read that found `
+                + 'nothing — or an older list — can take the base away again.',
+        )
+        const schreibstellen = (quelle.match(/\breadList = /g) ?? []).length
+        assert.equal(
+            schreibstellen,
+            2,
+            `${WRITER}: readList is assigned at ${schreibstellen} places, expected 2 — the adoption inside `
+                + 'adoptReadList and the reset on a new identity. (The declaration carries a type annotation and '
+                + 'is not matched here.) A third is a second source for the merge base, which is what N1 was.',
         )
     })
 
@@ -565,14 +628,115 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      * call spans lines, and a regex anchored on both sides of the argument survives
      * reformatting while still going red when either half of the union is removed.
      */
-    test('CORE: the READ set is the DECLARED write relays ∪ space', () => {
+    test('CORE: the target set comes from the verdict, the declaration and the fallback', () => {
         const quelle = quelleDesWriters()
         assert.ok(
-            /followRelayTargets\(relayList\.writeUrls, url\)/.test(quelle),
-            `${WRITER}: the read no longer asks the declared write relays ∪ space. Against the space relay alone `
-                + 'a contact list is practically never found — a closed NIP-29 relay stands in nobody\'s NIP-65 '
-                + 'list — so the merge base comes back empty and a follow written on it is a kind 3 with one entry.',
+            /followRelayTargets\(relayList\.knowledge, relayList\.writeUrls, FOLLOW_FALLBACK_RELAYS\)/.test(quelle),
+            `${WRITER}: the target set is no longer built from the three things that may decide it. A space url `
+                + 'as a fourth argument is N1 coming back: the space holds no contact list, so it contributes a '
+                + '`null` base while being a write target, and the one-tag kind 3 that produces wins the next '
+                + "session's NIP-01 comparison.",
         )
+    })
+
+    /**
+     * **N1: nothing that can never hold a contact list may be in the set.**
+     *
+     * The fallback is where a reader without a kind 10002 has their list read AND written,
+     * so it has to be relays that accept and serve kind 3. Measured read-only on
+     * 2026-09-14, each relay checked for liveness with a second query: `nos.lol`,
+     * `nostr.oxtr.dev` and `theforest.nostr1.com` served a 704-tag contact list;
+     * `indexer.coracle.social` answered and served none at all — this repo already records
+     * why, quoting the relay: `blocked: this relay only accepts kind 10002 events`.
+     *
+     * A relay like that is the worst possible base source: it closes with `EOSE`,
+     * contributes `null`, and its answer counts towards completeness. That is why the set
+     * the kind 10002 is ASKED of must not be reused as the set the kind 3 is read from,
+     * and why this is a latch and not a comment.
+     */
+    test('CORE: the fallback set is the DEFAULT relays, never the indexers', () => {
+        const quelle = quelleDesWriters()
+        assert.ok(
+            /export const FOLLOW_FALLBACK_RELAYS: readonly string\[\] = DEFAULT_RELAYS/.test(quelle),
+            `${WRITER}: the fallback set is no longer DEFAULT_RELAYS. If it becomes INDEXER_RELAYS, then `
+                + 'indexer.coracle.social — which answers and serves no kind 3 at all — becomes a base source '
+                + 'whose empty answer counts as a complete one.',
+        )
+        assert.ok(
+            !/FOLLOW_FALLBACK_RELAYS[^\n]*INDEXER_RELAYS/.test(quelle),
+            `${WRITER}: the fallback set is built from INDEXER_RELAYS.`,
+        )
+    })
+
+    /**
+     * **N1: the space url is an arming scope, not a relay.**
+     *
+     * It still comes into `readOwnFollowList`, because „is a space active at all" decides
+     * whether this surface exists. It must not travel any further than that guard.
+     */
+    test('CORE: the space url reaches the guard and nothing else', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes('if (!spaceUrl || !self) {'),
+            `${WRITER}: the arming guard on the space url is gone.`,
+        )
+        const verwendungen = (quelle.match(/\bspaceUrl\b/g) ?? []).length
+        assert.equal(
+            verwendungen,
+            3,
+            `${WRITER}: \`spaceUrl\` appears ${verwendungen}x in the code, expected 3 — the parameter, the `
+                + 'guard, and nothing more. Anything beyond that is the space on its way back into a relay set.',
+        )
+    })
+
+    /**
+     * **N2: exactly one of the three verdicts may be remembered.**
+     *
+     * `listed` only decides WHICH relays are read and written; every one of them still has
+     * to answer the contact-list read itself, which is where the protection sits.
+     * `confirmed-none` is the verdict that licenses a write to the fallback set — cached
+     * once during a fault it would stand for the whole session, which is F2 with a memory.
+     *
+     * **This case exists because the promise had no latch.** The mutation that widens the
+     * store to `knowledge !== 'unknown'` was run and left every test green, so the
+     * asymmetry was prose only. Both halves are pinned here: what may be written into the
+     * cache, and what the cache is allowed to claim when it is read.
+     */
+    test('CORE: only a `listed` verdict may be cached, and the cache may only claim `listed`', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes("if (knowledge === 'listed') { listedRelayCache = { self, writeUrls } }"),
+            `${WRITER}: the relay-list cache no longer stores ONLY a listed verdict. A remembered `
+                + '`confirmed-none` makes one fault decide every write for the rest of the session.',
+        )
+        assert.ok(
+            quelle.includes("return { knowledge: 'listed', writeUrls: listedRelayCache.writeUrls, unanswered: [] }"),
+            `${WRITER}: the cache hit no longer returns a plain listed verdict. It may only ever hand back the `
+                + 'one state it is allowed to hold.',
+        )
+        const speicherstellen = (quelle.match(/listedRelayCache = /g) ?? []).length
+        assert.equal(
+            speicherstellen,
+            1,
+            `${WRITER}: listedRelayCache is written at ${speicherstellen} places, expected 1. A second write is `
+                + 'a second rule about what may be remembered.',
+        )
+    })
+
+    test('CORE: the repository and the live subscription are gone from this module', () => {
+        const befund = befundFuer(WRITER)
+        for (const name of FORBIDDEN_IN_WRITER) {
+            assert.equal(
+                zaehle(befund, name),
+                0,
+                `${WRITER} calls ${name}(). See FORBIDDEN_IN_WRITER — one of them is the path a space stub took `
+                    + 'back into the merge base, from the relay and from IndexedDB alike.',
+            )
+            assert.ok(
+                !befund.importe.some((stelle) => stelle.exportName === name),
+                `${WRITER} imports ${name}. Even unused it is an invitation back into N1.`,
+            )
+        }
     })
 
     /**
@@ -641,16 +805,28 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      * `followListAnswered(reads, reads.map(r => r.url))` would, and it is `some` in
      * disguise: a set built from the answers can never be missing one. The second argument
      * has to be the independently drawn target list.
+     *
+     * **And it belongs on the contact list ONLY.** Since K7 the relay-list verdict asks
+     * `anyRelayAnswered` — a deliberately different function for a deliberately different
+     * question („which relays do we use" versus „may we replace what they hold"). Both
+     * directions are pinned: the write gate must stay `every`, and the relay-list verdict
+     * must not be tightened into it.
      */
-    test('CORE: completeness is measured against the targets, on both lists', () => {
+    test('CORE: completeness is measured against the targets — and only where it belongs', () => {
         const quelle = quelleDesWriters()
         assert.ok(
             /followListAnswered\(reads, targets\)/.test(quelle),
             `${WRITER}: the contact-list verdict is no longer measured against the target set.`,
         )
         assert.ok(
-            /followListAnswered\(reads, asked\)/.test(quelle),
-            `${WRITER}: the relay-list verdict is no longer measured against the relays that were asked.`,
+            /outboxKnowledgeOf\(\{ writeUrls, anyAnswered: anyRelayAnswered\(reads\) \}\)/.test(quelle),
+            `${WRITER}: the relay-list verdict no longer goes through anyRelayAnswered. Swapping in `
+                + 'followListAnswered there would TIGHTEN it back to „every asked relay" — measured to lock the '
+                + 'feature out entirely while one of three third-party indexers is down (K7).',
+        )
+        assert.ok(
+            !/followListAnswered\(reads, asked\)/.test(quelle),
+            `${WRITER}: the relay-list verdict is measured with the contact-list gate again.`,
         )
         assert.ok(
             !/followListAnswered\([^)]*\.map\(/.test(quelle),
@@ -778,8 +954,16 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         )
         assert.ok(
             hinweis.includes('NIP-65'),
-            `${CARD}: the notice no longer names the reason. „Not findable" without „because no NIP-65 relay list `
-                + 'is on file" is something the reader cannot act on.',
+            `${CARD}: the notice no longer names the reason. A reader who is not told that the cause is a missing `
+                + 'NIP-65 relay list has nothing to act on.',
+        )
+        // N1 made the previous wording false: the space is no longer written to, so the
+        // list IS findable outside it — on the public fallback relays. A sentence that
+        // describes a previous version is worse than none, because the reader acts on it.
+        assert.ok(
+            !/außerhalb dieses Space nicht auffindbar/.test(hinweis),
+            `${CARD}: the notice still claims the list cannot be found outside this Space. Since N1 the space is `
+                + 'not a write target at all and the fallback relays are public ones that other clients read.',
         )
     })
 

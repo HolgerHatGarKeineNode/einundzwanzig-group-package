@@ -1310,9 +1310,9 @@
     "Lädt…": "A carregar…",
     "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "A carregar a tua lista de contactos — ainda não é possível seguir",
     "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "A tua lista de contactos já está carregada. Clica novamente.",
-    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Esta lista de contactos não é encontrada fora deste Space, porque não tens nenhuma lista de Relays (NIP-65) guardada.",
     "Deine Relay-Liste (NIP-65) war nicht abrufbar. Es wurde nichts geändert.": "Não foi possível obter a tua lista de Relays (NIP-65). Nada foi alterado.",
     "Diese Relais haben die Kontaktliste nicht ausgeliefert: :relays. Es wurde nichts geändert.": "Estes Relays não entregaram a lista de contactos: :relays. Nada foi alterado.",
     "Diese Relais haben die Änderung nicht übernommen: :relays.": "Estes Relays não aplicaram a alteração: :relays.",
-    "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "Não foi possível ler a lista de contactos. Nada foi alterado."
+    "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "Não foi possível ler a lista de contactos. Nada foi alterado.",
+    "Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.": "Não tens nenhuma lista de Relays (NIP-65) guardada. Por isso a tua lista de contactos é escrita em Relays públicos gerais."
 }

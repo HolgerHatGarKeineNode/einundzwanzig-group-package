@@ -28,29 +28,38 @@
  * refuses to build an event without one. Fail-closed on purpose — a refused follow costs
  * one click, a follow written blind costs everyone the user ever followed.
  *
- * ── Outbox ∪ space, and why the space is not enough (P2) ────────────────────────
+ * ── Where a contact list is read and written — and why not the space (N1) ──────
  *
- * Until P2 read and write both went to the **active space relay** and nowhere else —
- * the same decision as `js/mutes.ts` and `js/bookmarks.ts`, taken for the same reason:
- * the outbox route depends on a kind-10002 list many members do not have. For a NIP-51
- * list that reasoning carries; for kind 3 it does not, and the cost was measured: a
- * closed NIP-29 relay stands in nobody's NIP-65 list, so the space almost never holds
- * the reader's contact list, `list: null` was the normal answer, and a follow built on
- * it is a replaceable event with one entry.
+ * **One set for both directions, and the space is in neither.** P2 put the space in
+ * „because the members read each other there"; that premise was checked and is false. In
+ * the whole production tree nobody reads a foreign contact list — `followFilters` is
+ * `{kinds:[FOLLOWS], authors:[self]}`, and the only other source ran through
+ * `newestOwnEvent(events, self, FOLLOWS)`.
  *
- * Since P2 both directions use {@link followRelayTargets} — the reader's declared write
- * relays **plus** the space. The space stays in the set rather than being replaced: the
- * members read each other there, and a reader without a kind 10002 would otherwise have
- * no target at all. welshman routes a contact list the same way, minus the space
- * (`@welshman/domain` `FollowList.renderRoutes()` returns `[userOutbox()]`).
+ * **A `grep` for `FOLLOWS` does not find every consumer**, and the exception is worth
+ * knowing before somebody repeats that search: welshman's `Wot` plugin derives over EVERY
+ * kind 3 in the repository (`@welshman/app` `plugins/wot.js`) and `Profiles.makeSearch`
+ * ranks by it. That one is benign — it can tilt a search result, never reach the merge
+ * base — but „nobody reads a foreign contact list" is a statement about THIS module's
+ * code, not about the repository.
  *
- * Both relays take the kind. Buzz maps `KIND_CONTACT_LIST` to `Scope::UsersWrite`
- * (`crates/buzz-relay/src/handlers/ingest.rs`, the allowlist arm above the
- * `_ => Err("restricted: unknown event kind")` catch-all), zooid has no kind allowlist.
+ * The space copy had one consumer that could act
+ * on it, our own merge base, and that is exactly what made it dangerous: with no NIP-65
+ * list the target set was the space alone, the space holds no kind 3, so the base was
+ * `null` and a one-tag kind 3 landed there — and won the next session's NIP-01
+ * comparison. Measured across two sessions with real signatures: 700 contacts to two.
+ *
+ * So: `listed` → the declared write relays. `confirmed-none` → {@link FOLLOW_FALLBACK_RELAYS},
+ * which are public relays that accept and serve kind 3 (the constant carries the
+ * measurement, including the one relay that answers and can never hold a list).
+ * `unknown` → nothing is read and nothing is written.
+ *
+ * Both relay kinds take kind 3 where it matters for the E2E stack: Buzz maps
+ * `KIND_CONTACT_LIST` to `Scope::UsersWrite`, zooid has no kind allowlist at all.
  *
  * ── ONE set, drawn once, and every member of it has to answer ───────────────────
  *
- * The invariant and the three audit findings behind it are written out in the header of
+ * The invariant and the four findings behind it are written out in the header of
  * `js/followModels.ts`. What this file has to hold up:
  *
  *  · {@link readOwnRelayList} decides WHERE, with a verdict of its own
@@ -60,22 +69,17 @@
  *  · {@link publishFollowList} takes that set rather than drawing its own, and verifies
  *    against the same relays it wrote to.
  *
- * **The first version used `eigeneOutboxUrls()` for this and that was wrong three times
- * over.** It is a synchronous projection over the repository put through a
- * `RelayScenario`, so (a) an empty answer meant either „no NIP-65 list" or „nobody has
- * fetched it yet", (b) `RelayStats.getQuality` returns `0` after ONE socket error in 60 s
- * and `getUrls()` then drops that relay entirely — a fault silently shrinking the set —
- * and (c) the scenario keeps at most three and picks them with `Math.random()`, so two
- * draws rarely agree. For a read that is all reasonable; for the target set of a
- * replaceable write it is a hazard. `eigeneOutboxUrls()` is therefore no longer used here
- * and stays unchanged for its other callers.
+ * **`eigeneOutboxUrls()` is not used here and must not be.** It is a `RelayScenario`: at
+ * most three of the declared relays, picked with `Math.random()`, minus every relay whose
+ * live quality is `0` after a single socket error. For a read that is all reasonable; for
+ * the target set of a replaceable write it was three separate hazards (F2, F3). It stays
+ * unchanged for its other callers.
  *
- * **Two round trips per click, stated rather than hidden.** A follow now costs a kind
- * 10002 read (indexers ∪ the relays a cached list names) before the kind 3 read, each
- * bounded by {@link READ_TIMEOUT_MS}. That is up to twelve seconds in the worst case and
- * normally well under one. It is not cached: a cached „this reader has no relay list"
- * taken during a fault would stick for the session, and that verdict is the one that
- * licenses a space-only write.
+ * **Round trips per click, stated rather than hidden.** A follow costs a kind 10002 read
+ * (indexers ∪ the relays a cached list names) and then the kind 3 read over the target
+ * set, each bounded by {@link READ_TIMEOUT_MS}. The first is skipped once a `listed`
+ * verdict has been resolved for this identity — see {@link listedRelayCache} for why
+ * exactly that one verdict may be kept and the other two may not.
  *
  * ── Armed at boot, not on mount ─────────────────────────────────────────────────
  *
@@ -83,38 +87,30 @@
  * opens from a window event, not from a screen, so there is no mount to hang the arming
  * on. It arms as soon as the space and the identity are known, like `js/mutes.ts`.
  *
- * ── `ready` and `listSeen` answer DIFFERENT questions (P1) ──────────────────────
+ * ── `listSeen`: the only statement the surface may believe (P1) ────────────────
  *
- * `ready` says the repository handed us its copy of the kind 3. It is true within one
- * tick of arming, **with an empty list**: `deriveEventsForUrl` is a Svelte store, and a
- * Svelte store calls its subscriber synchronously on subscribe — measured against
- * welshman 0.9.9 with a `MockAdapter`: `subscribe callbacks before any await: 1 |
- * first value: []`. In that field "this person is not followed" and "we have not looked
- * yet" are the same value, and a button that believes it offers "Folgen" for somebody
- * the reader has followed for years.
+ * **A relay closed a read of our own list with an `EOSE`.** Its single source is
+ * {@link readOwnFollowList}`.answered` — never a store callback.
  *
- * {@link FollowsStore.listSeen} is the stricter statement, and the only one the surface
- * may believe: **a relay closed a read of our own list with an `EOSE`.** Its single
- * source is {@link readOwnFollowList}`.answered` — never a store callback, because a
- * store callback is exactly the mistake above.
- *
- * They are two fields and not one on purpose. Merging them would mean either weakening
- * `listSeen` to "the cache emitted" (the defect) or strengthening `ready` to "a relay
- * answered", which would silently change what the cache verdict means for any later
- * reader of it. Two questions, two answers, both named.
+ * There used to be a second field, `ready`, meaning „the repository handed us its copy".
+ * It was true within one tick of arming, **with an empty list**: `deriveEventsForUrl` is
+ * a Svelte store and calls its subscriber synchronously on subscribe — measured against
+ * welshman 0.9.9 with a `MockAdapter`: `subscribe callbacks before any await: 1 | first
+ * value: []`. In that field „this person is not followed" and „we have not looked yet"
+ * were the same value. N1 removed the repository source it reported on, so the field is
+ * gone with it rather than left standing at a permanent `false`.
  */
 import { get } from 'svelte/store'
 import { makeEvent, type Filter, type TrustedEvent } from '@welshman/util'
 import { pubkey } from './welshmanSession.ts'
-import { request, requestOne } from './welshmanNet.ts'
-import { deriveEventsForUrl } from './repository.ts'
+import { requestOne } from './welshmanNet.ts'
 import { activeSpace } from './groups.ts'
 import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { publishSpreadOptimistic } from './publishOptimistic.ts'
 import { mayWriteKind } from './relayCapability.ts'
 import { app } from './welshmanApp.ts'
 import { RELAYS } from './welshmanKinds.ts'
-import { INDEXER_RELAYS } from './relayConfig.ts'
+import { DEFAULT_RELAYS, INDEXER_RELAYS } from './relayConfig.ts'
 import { t } from './i18n.ts'
 import {
     FOLLOWS,
@@ -122,6 +118,7 @@ import {
     type FollowRelayRead,
     type FollowWrite,
     type OutboxKnowledge,
+    anyRelayAnswered,
     declaredWriteRelaysOf,
     followedPubkeysOf,
     followListAnswered,
@@ -138,13 +135,6 @@ import {
 } from './followModels.ts'
 
 export type FollowsStore = {
-    /**
-     * Has the repository emitted for the current space and identity?
-     *
-     * **Cache readiness, not knowledge** — true within one tick, with an empty list. The
-     * module header carries the measurement. Never gate a write or a label on it.
-     */
-    ready: boolean
     /**
      * **Has a relay closed a read of our own list with an `EOSE`?**
      *
@@ -201,6 +191,43 @@ export const followFilters = (self: string): Filter[] => [{ kinds: [FOLLOWS], au
 
 /** Every kind 10002 of one author, from one relay. */
 export const relayListFilters = (self: string): Filter[] => [{ kinds: [RELAYS], authors: [self] }]
+
+/**
+ * **Where a contact list goes when its owner has not said where — base and target alike.**
+ *
+ * `DEFAULT_RELAYS` and deliberately **not** `INDEXER_RELAYS`, and the difference is
+ * measured rather than assumed. Read-only `nak` probes on 2026-09-14 for one pubkey with a
+ * 704-entry contact list, each relay checked for liveness with a second query so that
+ * „no answer" and „does not have it" stay apart:
+ *
+ * | relay | in | connects | serves kind 1 | serves that kind 3 |
+ * |---|---|---|---|---|
+ * | `purplepag.es` | indexer | yes | no | **yes, 704 tags** |
+ * | `relay.damus.io` | indexer | **no — HTTP 521, three attempts** | — | — |
+ * | `indexer.coracle.social` | indexer | yes | no | **no** |
+ * | `relay.primal.net` | default | yes | yes | no (does not hold this one) |
+ * | `theforest.nostr1.com` | default | yes | yes | **yes, 704 tags** |
+ * | `nostr.oxtr.dev` | default | yes | yes | **yes, 704 tags** |
+ * | `nos.lol` | default | yes | yes | **yes, 704 tags** |
+ *
+ * **`indexer.coracle.social` is the row that decides this constant.** It answers, and it
+ * serves no contact list at all — this repo already records why, quoting the relay:
+ * `blocked: this relay only accepts kind 10002 events` (`js/profiles.ts`,
+ * `PROFILE_HOSTILE_INDEXERS`). A relay that per construction never holds the list is the
+ * worst possible base source: it closes with `EOSE`, contributes `null`, and its answer
+ * counts towards completeness. That is F1 in a new costume, and it is why the set the
+ * kind 10002 is ASKED of must not be reused as the set the kind 3 is read from.
+ *
+ * The defaults are general-purpose public relays that accept kind 3 and are read by other
+ * clients — which is the whole point of the fallback: a list nobody can find is not a
+ * contact list. `relay.primal.net` not holding this particular list is not a counter
+ * example, it is what a relay looks like before it is written to.
+ *
+ * Configurable through `window.__nostrRelays.default`, which is what makes this work in
+ * E2E (`tests/e2e/support/zooid.ts` points all three lists at the test relay) without a
+ * second code path.
+ */
+export const FOLLOW_FALLBACK_RELAYS: readonly string[] = DEFAULT_RELAYS
 
 /** For which `url|pubkey` the live subscription is armed — `''` = for none. */
 let armedFor = ''
@@ -354,9 +381,33 @@ const readRelayListFrom = async (url: string, self: string): Promise<FollowRelay
  * `confirmed-none` for every reader whose indexers are down. That is F2 with an extra
  * step.
  */
+/**
+ * **A resolved `listed` verdict, kept for the session — and nothing else (N2).**
+ *
+ * Measured by the auditor: without this, every click sent three REQ to foreign indexers
+ * immediately before a contact-list write. `relay.damus.io` is both an indexer here and a
+ * public relay, so it could read the timing and the target of every follow off that
+ * pattern. The relay list is not a secret, but the moment we ask for it is.
+ *
+ * **Only `listed` is cacheable, and the asymmetry is the whole point.** `confirmed-none`
+ * is the verdict that licenses a write to the fallback set; taken once during a fault it
+ * would then stand for the rest of the session, which is F2 with a memory. `unknown`
+ * caches nothing by construction. A `listed` answer, by contrast, only decides WHICH
+ * relays are read and written — and every one of them still has to answer the contact-list
+ * read itself ({@link followListAnswered}), which is where the protection actually sits.
+ *
+ * The cost is named: a kind 10002 changed on another device is not picked up until the
+ * next page load. The set then in use is the reader's own previous declaration, read and
+ * written consistently — divergence, not loss.
+ */
+let listedRelayCache: { self: string; writeUrls: string[] } | null = null
+
 export const readOwnRelayList = async (self: string): Promise<RelayListRead> => {
     if (!self) {
         return { knowledge: 'unknown', writeUrls: [], unanswered: [] }
+    }
+    if (listedRelayCache?.self === self) {
+        return { knowledge: 'listed', writeUrls: listedRelayCache.writeUrls, unanswered: [] }
     }
     const cached = newestOwnEvent(
         app.repository.query(relayListFilters(self)) as unknown as FollowEventLike[],
@@ -369,7 +420,10 @@ export const readOwnRelayList = async (self: string): Promise<RelayListRead> => 
     // it answers "what did this reader declare", never "could we ask".
     const candidates = [...reads, { url: '', answered: false, list: cached }]
     const writeUrls = declaredWriteRelaysOf(winningFollowList(candidates))
-    const knowledge = outboxKnowledgeOf({ writeUrls, allAnswered: followListAnswered(reads, asked) })
+    const knowledge = outboxKnowledgeOf({ writeUrls, anyAnswered: anyRelayAnswered(reads) })
+    if (knowledge === 'listed') {
+        listedRelayCache = { self, writeUrls }
+    }
 
     return { knowledge, writeUrls, unanswered: unansweredRelays(reads, asked) }
 }
@@ -400,16 +454,23 @@ const readFollowListsFrom = async (
 }
 
 /**
- * Read our own contact list from **declared write relays ∪ space** and report whether the
- * answer may be built upon.
+ * Read our own contact list from the relays that hold it, and report whether the answer
+ * may be built upon.
  *
  * The relay list comes first and it is a gate, not a lookup: while
  * {@link OutboxKnowledge} is `unknown` there is no honest target set, and asking a set we
  * cannot justify would produce exactly the verdict F2 produced — a confident answer built
  * on a fault.
+ *
+ * **`spaceUrl` is the arming SCOPE, never a relay target.** It answers „is a space active
+ * at all", which is what decides whether this surface exists; the relays are chosen by
+ * {@link followRelayTargets} and the space is not among them since N1. It is passed in
+ * rather than read from `activeSpace` here so that a read cannot report into a space the
+ * reader has meanwhile left. The latch in `followWriteGate.test.ts` pins that it never
+ * reaches the target set.
  */
-export const readOwnFollowList = async (url: string, self: string): Promise<FollowListRead> => {
-    if (!url || !self) {
+export const readOwnFollowList = async (spaceUrl: string, self: string): Promise<FollowListRead> => {
+    if (!spaceUrl || !self) {
         return { answered: false, list: null, targets: [], unanswered: [], outbox: 'unknown' }
     }
     const relayList = await readOwnRelayList(self)
@@ -417,28 +478,33 @@ export const readOwnFollowList = async (url: string, self: string): Promise<Foll
         return { answered: false, list: null, targets: [], unanswered: relayList.unanswered, outbox: 'unknown' }
     }
 
-    return readFollowListsFrom(followRelayTargets(relayList.writeUrls, url), self, relayList.knowledge)
+    const targets = followRelayTargets(relayList.knowledge, relayList.writeUrls, FOLLOW_FALLBACK_RELAYS)
+
+    return readFollowListsFrom(targets, self, relayList.knowledge)
 }
 
 /**
- * Arm this space and identity: read the backlog **with a verdict**, and open the live
- * subscription. Returns whether this call started a NEW arming.
+ * Arm this space and identity: read our own list **with a verdict**. Returns whether this
+ * call started a NEW arming.
  *
- * Two requests, two jobs:
+ * The read goes through {@link readOwnFollowList}, the same read the write path uses,
+ * because it is the only one that reports whether the relays **answered**. Until P1 this
+ * was a `load()`, and that is the whole defect: `load` fills the cache and hands back no
+ * `EOSE` of its own, so the only thing left to hang a verdict on was the repository store
+ * — which emits synchronously, with an empty list.
  *
- *  · The backlog goes through {@link readOwnFollowList}, the same read the write path
- *    uses, because it is the only one that reports whether the relay **answered**. Until
- *    P1 this was a `load()`, and that is the whole defect: `load` fills the cache and
- *    hands back no `EOSE` of its own, so the only thing left to hang a verdict on was the
- *    repository store — which emits synchronously, with an empty list. Nothing is lost by
- *    the swap: every event received on a socket reaches the repository through the app's
- *    ingest policy (`js/welshmanInstance.ts`), not through the loader.
- *  · The live request is what makes a follow set on another device arrive without a
- *    reload. It is **not** a source for `listSeen`; the verdict has exactly one source.
+ * ── The live subscription is gone (N1) ─────────────────────────────────────────
+ *
+ * It used to sit here, scoped to the space relay, so that a follow made on another device
+ * arrived without a reload. It delivered nothing: a contact list is not on the space, and
+ * since N1 the space is not a kind-3 relay for this client at all. Pointing it at the
+ * target relays instead would have meant a standing open subscription on up to four
+ * foreign relays for our own pubkey — a permanent presence signal, for a convenience that
+ * the read on every click already provides. So it is removed rather than moved.
  *
  * `onAnswered` fires at most once per arming, and only while this arming is still the
- * current one: a read may take six seconds, and it must not report into a space the user
- * has meanwhile left.
+ * current one: a read may take two relay round trips, and it must not report into a space
+ * the user has meanwhile left.
  */
 const armFollowList = (url: string, self: string, onAnswered: (read: FollowListRead) => void): boolean => {
     const key = `${url}|${self}`
@@ -446,12 +512,9 @@ const armFollowList = (url: string, self: string, onAnswered: (read: FollowListR
         return false
     }
     armedFor = key
-    liveController?.abort()
-    liveController = null
     if (!url || !self) {
         return true
     }
-    liveController = new AbortController()
     void readOwnFollowList(url, self)
         .then((read: FollowListRead) => {
             if (armedFor === key) {
@@ -459,11 +522,6 @@ const armFollowList = (url: string, self: string, onAnswered: (read: FollowListR
             }
         })
         .catch(noop)
-    void request({
-        relays: [url],
-        signal: liveController.signal,
-        filters: followFilters(self).map((filter) => ({ ...filter, limit: 0 })),
-    }).catch(noop)
 
     return true
 }
@@ -523,30 +581,33 @@ const writeRefused = (urls: readonly string[]): string =>
 const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) => void; start: () => void } => {
     let url = ''
     let spaceKind: SpaceKind = 'unknown'
-    let rawLists: FollowEventLike[] = []
     /**
-     * **The best contact list a relay has actually shown us, across outbox ∪ space.**
+     * **The only contact list this store knows: the one the target relays showed us.**
      *
-     * P2 needs this, and it is not a cache: {@link rawLists} comes from
-     * `deriveEventsForUrl(space, …)`, i.e. from the space relay ALONE. Until P2 that was
-     * also where the write path read, so the rendered label and the direction of a click
-     * could not disagree. Now the write path reads the outbox too, and without this field
-     * the two would come apart for exactly the people the phase is for: the card would
-     * offer „Folgen" from an empty space-only list while `toggle()` computes `add: false`
-     * from the real one — a click labelled "follow" that unfollows.
+     * ── Why there is no repository source beside it any more (N1) ───────────────
+     *
+     * Until N1 this field competed with `deriveEventsForUrl(space, [{kinds:[FOLLOWS]}])`,
+     * and `ownList()` took the NIP-01 winner of the two. That second source was the
+     * poisoning path: a one-tag kind 3 written to the space in an earlier session came
+     * back — from the relay, and after a reload from IndexedDB as well, because `FOLLOWS`
+     * is in `PERSIST_KINDS` and `js/storage.ts` restores the tracker line with it — and
+     * being the newest event of its address, it won.
+     *
+     * So the base has exactly one origin now: {@link readFollowListFrom}, over the relays
+     * of THIS operation. The repository is not consulted for a kind 3 at all. The price
+     * is that the button says „Lädt…" until the read lands instead of showing a cached
+     * answer, which is the honest state anyway — P1 built that state for exactly this.
      *
      * Written only from an answer of {@link readOwnFollowList}, and only when it wins by
      * the NIP-01 rule, so a later read that found nothing cannot take the list away
      * again.
      */
     let readList: FollowEventLike | null = null
-    let unsubSource: () => void = noop
     let unsubKind: () => void = noop
     /** Every write goes here: the raw object before {@link bind}, the reactive proxy after. */
     let self: FollowsStore
 
     const store: FollowsStore = {
-        ready: false,
         listSeen: false,
         listSpaceOnly: false,
         busy: false,
@@ -659,15 +720,8 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
 
     self = store
 
-    /**
-     * The list the surface renders: the space relay's copy and {@link readList}, resolved
-     * by the same NIP-01 rule the write path uses. Never a union of their tags.
-     */
-    const ownList = (): FollowEventLike | null => {
-        const cached = ownFollowList(rawLists, get(pubkey) ?? '')
-
-        return readList && followListWins(readList, cached) ? readList : cached
-    }
+    /** The list the surface renders — the same one the write path would build from. */
+    const ownList = (): FollowEventLike | null => readList
 
     /** Take a list a relay showed us, if it beats the one we already had. */
     const adoptReadList = (list: FollowEventLike | null): void => {
@@ -745,6 +799,13 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
      * write. This one only decides whether the markup offers the action at all: a button
      * that would do nothing is worse than no button. The store method never trusts this
      * field; the plan re-decides in its own currency.
+     *
+     * **Since K4 this says nothing about the write target.** It asks whether the SPACE
+     * relay would take a kind 3, and a kind 3 is no longer written to the space; in
+     * practice it now only delays the button until the space's NIP-11 has resolved
+     * (`[3, {relay: 'any'}]` in `relayCapability.ts`). Kept because it is a documented
+     * refusal of `planFollowWrite` from P8 and removing it is its own decision — but do
+     * not read it as a statement about where the list goes.
      */
     const recomputePermission = (): void => {
         self.me = get(pubkey) ?? ''
@@ -777,19 +838,7 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
             // another person's key.
             readList = null
         }
-        unsubSource()
-        if (!nextUrl || !me) {
-            rawLists = []
-            self.ready = false
-            recompute()
-
-            return
-        }
-        unsubSource = deriveEventsForUrl(nextUrl, [{ kinds: [FOLLOWS] }]).subscribe((events: TrustedEvent[]) => {
-            rawLists = events as unknown as FollowEventLike[]
-            self.ready = true
-            recompute()
-        })
+        recompute()
     }
 
     const start = (): void => {

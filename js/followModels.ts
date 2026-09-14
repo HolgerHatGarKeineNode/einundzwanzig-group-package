@@ -31,27 +31,25 @@
  *    stay: `["p", <pubkey>, <relay hint>, <petname>]`. A follow written here adds a bare
  *    two-element tag, but an existing entry keeps its hint and petname.
  *
- * ── Which relays this is read from and written to (P2) ─────────────────────────
+ * ── Which relays this is read from and written to ──────────────────────────────
  *
- * **The outbox relays of the reader, plus the active space** — {@link followRelayTargets}.
- * Until P2 it was the space and nothing else, and that turned the empty merge base from
- * an edge case into the normal one: a closed NIP-29 relay stands in nobody's NIP-65 list,
- * no foreign client writes a kind 3 there, so `list: null` meant "the one relay we asked
- * does not hold it" far more often than "there is none".
+ * **The reader's declared write relays, or — if they have declared none — a fallback set
+ * of public relays that actually serve kind 3.** {@link followRelayTargets} decides;
+ * `js/follows.ts` supplies the fallback and carries the measurement for it.
  *
- * The space stays in the set rather than being replaced by the outbox: the members read
- * each other there, and a reader without a kind 10002 would otherwise have no target at
- * all.
+ * The space relay is in neither direction. P2 had it in both „because the members read
+ * each other there", and that premise is false: nothing in this client reads a foreign
+ * contact list. See N1 below for what it cost.
  *
- * ── THE INVARIANT, after the audit ─────────────────────────────────────────────
+ * ── THE INVARIANT, after two audit rounds ──────────────────────────────────────
  *
- * > A kind 3 may be written only if **every relay in the target set closed the read with
- * > an `EOSE` in the same operation**. The target set is the DECLARED write relays of the
- * > reader's own kind 10002 ∪ the space, drawn **once** and used for the read and the
- * > write alike. The merge base is the NIP-01 winner over exactly that set.
+ * > **The base of a kind-3 write and its target set are the same set**, drawn once. No
+ * > relay is a write target that was not a base source. A write happens only if **every**
+ * > relay in that set closed the read with an `EOSE` in the same operation, and the base
+ * > is the NIP-01 winner over exactly that set.
  *
- * Three separate ways the first version broke it, all of them fail-OPEN and all of them
- * ending in the same replaceable-event data loss the module was written to prevent:
+ * Four ways earlier versions broke it, every one fail-OPEN, every one ending in the same
+ * replaceable-event data loss the module was written to prevent:
  *
  *  · **F1** — {@link followListAnswered} asked `some`. One relay that answered and held
  *    nothing licensed a full replacement on relays that had not answered and did hold the
@@ -62,6 +60,13 @@
  *    (`RelayScenario.getUrls()`), drawn once for the read and again for the write; 88.7 %
  *    of follows read a different set than they wrote. {@link declaredWriteRelaysOf} takes
  *    the declaration instead, and `js/follows.ts` draws it once.
+ *  · **N1** — the space relay was a write target without being a usable base source: it
+ *    holds no contact list, so the base was `null` and a one-tag kind 3 was written there,
+ *    which then won the next session's NIP-01 comparison. {@link followRelayTargets} no
+ *    longer knows the space at all.
+ *
+ * The first three are conditions on the ANSWER; N1 was a condition on the SET, one level
+ * below them, and that is why fixing the first three did not fix it.
  *
  * **What is unioned are the SOURCES, never the `p` tags.** Kind 3 is replaceable
  * (NIP-01: „for kind `n` such that `10000 <= n < 20000 || n == 0 || n == 3`, events are
@@ -246,9 +251,12 @@ export const declaredWriteRelaysOf = (list: FollowEventLike | null): string[] =>
  *
  * | value | means | what the follow path does |
  * |---|---|---|
- * | `listed` | a kind 10002 with at least one write relay | read and write go to those relays ∪ space, and every one of them must answer |
- * | `confirmed-none` | every relay we asked closed with `EOSE` and none held a usable kind 10002 | space-only, and the card says so |
- * | `unknown` | somebody did not answer, so „no list" and „could not ask" are indistinguishable | **nothing is written** |
+ * | `listed` | a kind 10002 with at least one write relay | read and write go to exactly those relays, and every one of them must answer |
+ * | `confirmed-none` | at least one relay we asked closed with `EOSE`, and nothing we got back held a usable kind 10002 | read and write go to the fallback set, and the card says the reach is not what it looks like |
+ * | `unknown` | somebody did not answer, so „no list" and „could not ask" are indistinguishable | **nothing is read and nothing is written** |
+ *
+ * The bar for `confirmed-none` was „every asked relay" until K7 — {@link outboxKnowledgeOf}
+ * carries why it moved and what the residual risk is.
  *
  * **F2 is the reason this type exists.** Before it, „no relay list" was a single empty
  * array, and the cheapest way to produce that array was a fault: `RelayStats.getQuality`
@@ -260,34 +268,105 @@ export const declaredWriteRelaysOf = (list: FollowEventLike | null): string[] =>
  */
 export type OutboxKnowledge = 'listed' | 'confirmed-none' | 'unknown'
 
-/** The three-way verdict. `allAnswered` is „every relay we asked for the 10002 sent `EOSE`". */
+/**
+ * **The three-way verdict.** `anyAnswered` is „at least one relay we asked for the kind
+ * 10002 closed with an `EOSE`".
+ *
+ * ── Why `some` here and `every` on the contact list (K7) ────────────────────────
+ *
+ * These answer two different questions, and only one of them licenses a write.
+ *
+ * {@link followListAnswered} asks *„may we replace what these relays hold?"* — that stays
+ * `every`, unconditionally. It is the F1 riegel and nothing here touches it.
+ *
+ * This function asks *„is it safe to conclude this reader has declared no relays?"* Until
+ * K7 it demanded every asked relay, for a good reason at the time: a wrong
+ * `confirmed-none` planted a one-tag kind 3 on the SPACE, which nobody read and which
+ * still won our own next merge base. **K4 removed that path.** What a wrong
+ * `confirmed-none` produces now is a write to the fallback set — and because base and
+ * target set are the same set, that set is READ first, completely, with `every`. Measured
+ * read-only on 2026-09-14: three of the four default relays serve the reader's real
+ * contact list. So the ordinary outcome of a wrong verdict is that the real list is
+ * extended, not that one is invented.
+ *
+ * The price of the strict form, by contrast, was not theoretical. `relay.damus.io` sits in
+ * `INDEXER_RELAYS` and answered HTTP 521 on three consecutive probes plus its NIP-11
+ * endpoint; under `allAnswered` that alone made `confirmed-none` unreachable, so **no
+ * member without a kind 10002 could follow at all** — which is exactly the group this
+ * feature exists for. Availability as the product of three third-party uptimes is not a
+ * design.
+ *
+ * `unknown` still covers „nobody answered", and an empty ask set still lands there, so the
+ * fail-closed edge for a deployment without indexers is unchanged.
+ *
+ * **The residual risk is named and pinned by a test rather than argued away**: a reader
+ * whose real list is on none of the fallback relays, asked while their kind 10002 happens
+ * to be unfindable, gets a one-entry stub on the fallback set. See the case
+ * „ACCEPTED RISK" in `followModels.test.ts`.
+ */
 export const outboxKnowledgeOf = (
-    input: { writeUrls: readonly string[]; allAnswered: boolean },
+    input: { writeUrls: readonly string[]; anyAnswered: boolean },
 ): OutboxKnowledge => {
     if (input.writeUrls.length > 0) {
         return 'listed'
     }
 
-    return input.allAnswered ? 'confirmed-none' : 'unknown'
+    return input.anyAnswered ? 'confirmed-none' : 'unknown'
 }
 
 /**
- * **The relays a contact list is read from and written to: outbox ∪ space.**
+ * **Did at least ONE of these relays close with an `EOSE`?**
  *
- * The space is appended rather than substituted — see the module header. Order is
- * outbox first, space last; the de-duplication keeps the first occurrence, so a space
- * that is also an outbox relay appears once and is still in the set.
+ * Deliberately a separate function from {@link followListAnswered} rather than a flag on
+ * it. The two look interchangeable and are not: this one decides which relays to use,
+ * that one decides whether they may be replaced. Fusing them would put a `some` one
+ * refactor away from the riegel that F1 cost us.
+ */
+export const anyRelayAnswered = (reads: readonly FollowRelayRead[]): boolean =>
+    reads.some((read) => read.answered)
+
+/**
+ * **The relays a contact list is read from AND written to — one set, no space.**
+ *
+ * ── Why the space relay is in neither list any more (N1) ────────────────────────
+ *
+ * P2 put the space in the set „because the members read each other there". That premise
+ * was checked and is false. In the whole production tree **nobody reads a foreign contact
+ * list**: `followFilters` is `{kinds:[FOLLOWS], authors:[self]}`, and the only other
+ * source went through `newestOwnEvent(events, self, FOLLOWS)`, which is the same
+ * restriction. The space copy of a kind 3 therefore had exactly one consumer that could
+ * act on it — our own merge base — and that made it a liability with no upside.
+ *
+ * The liability, measured across two sessions with real signatures: with no NIP-65 list
+ * the target set was the space alone, the space holds no kind 3, so the merge base was
+ * `null` and a one-tag kind 3 landed there. In the next session, once the relay list did
+ * resolve, that stub was the newest event of its address and won the NIP-01 comparison —
+ * 700 contacts down to two, no attacker and no fault required.
+ *
+ * ── The rule that replaces it ──────────────────────────────────────────────────
+ *
+ * > The base of a write and its target set are THE SAME SET.
+ *
+ * `listed` → the declared write relays. `confirmed-none` → the caller's fallback set,
+ * which has to be relays that actually accept and serve kind 3 (`js/follows.ts` picks it
+ * and the latch pins it). `unknown` → the empty set, which {@link followListAnswered}
+ * refuses, so nothing is read and nothing can be written.
  *
  * Normalised before de-duplicating, and that is not decoration: a `Set` over raw strings
  * splits `wss://host` from `wss://host/` into two targets, and this repo has been bitten
- * by exactly that class of host comparison before. Both callers happen to hand over
- * normalised URLs today (`eigeneOutboxUrls()` runs every entry through welshman's
- * `makeSelection`, `activeSpace` through `normalizeRelayUrl` in `js/groups.ts`) — which
- * is a property of the callers, not of this function, and the next caller will not have
- * it.
+ * by exactly that class of host comparison before.
  */
-export const followRelayTargets = (outboxUrls: readonly string[], spaceUrl: string): string[] =>
-    normalizeRelaySet([...outboxUrls, spaceUrl])
+export const followRelayTargets = (
+    knowledge: OutboxKnowledge,
+    declaredWriteUrls: readonly string[],
+    fallbackUrls: readonly string[],
+): string[] => {
+    if (knowledge === 'unknown') {
+        return []
+    }
+
+    return normalizeRelaySet(knowledge === 'listed' ? declaredWriteUrls : fallbackUrls)
+}
 
 /**
  * Normalise, drop what is not a relay url, de-duplicate — first occurrence wins, order
