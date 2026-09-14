@@ -1273,5 +1273,8 @@
     "Folgen": "Seguir",
     "Entfolgen": "Dejar de seguir",
     "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "Aún no hay ninguna conversación cifrada: el lápiz de arriba inicia una.",
-    "Verschlüsselte Nachricht schreiben": "Escribir un mensaje cifrado"
+    "Verschlüsselte Nachricht schreiben": "Escribir un mensaje cifrado",
+    "Lädt…": "Cargando…",
+    "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Cargando tu lista de contactos — todavía no es posible seguir",
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Tu lista de contactos ya está cargada. Haz clic de nuevo."
 }

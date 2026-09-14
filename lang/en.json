@@ -1273,5 +1273,8 @@
     "Folgen": "Follow",
     "Entfolgen": "Unfollow",
     "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "No encrypted conversation yet — the pencil above starts one.",
-    "Verschlüsselte Nachricht schreiben": "Write an encrypted message"
+    "Verschlüsselte Nachricht schreiben": "Write an encrypted message",
+    "Lädt…": "Loading…",
+    "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Loading your contact list — following is not possible yet",
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Your contact list is loaded now. Please click again."
 }

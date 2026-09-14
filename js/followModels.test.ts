@@ -104,6 +104,36 @@ describe('planFollowWrite: the gate and the event body are ONE value', () => {
         assert.equal(planFollowWrite({ ...basis, list: list([['p', BOB]]), listAnswered: false }), null)
     })
 
+    /**
+     * **Today's behaviour, written down because P1 does NOT fix it.**
+     *
+     * `listAnswered: true` with `list: null` builds a kind 3 holding exactly ONE entry.
+     * For somebody who genuinely has no contact list that is correct. For everybody else
+     * it is the replaceable-event data loss in full — and today that is the normal case,
+     * not the exception: this client reads the list from the **space relay only**, a
+     * closed NIP-29 relay stands in nobody's NIP-65 list, and no foreign client writes
+     * there. So `list: null` usually means "the one relay we asked does not hold it",
+     * not "there is none", and `listAnswered` cannot tell those two apart.
+     *
+     * It is not meant to. The repair is to ask the RIGHT relays — outbox ∪ space, P2 of
+     * `docs/plans/2026-09-14T1227-follow-features.md` — not to weaken the gate above,
+     * which is the only thing standing between a dead socket and this same body.
+     *
+     * **This case asserts the defect on purpose, and P2 must change it.** A test that
+     * pins today's output is the honest way to carry an open wound: it makes the repair
+     * visible as a diff instead of letting it pass as a refactor.
+     */
+    test('DOCUMENTED DEFECT, to be repaired in P2: an answered read with NO list still yields a ONE-entry list', () => {
+        const plan = planFollowWrite({ ...basis, list: null, listAnswered: true })
+        assert.ok(plan, 'the refusal hangs on `listAnswered`, and this input clears it')
+        assert.deepEqual(
+            plan.tags,
+            [['p', ALICE]],
+            'one entry — published, this replaces every contact the user made anywhere else',
+        )
+        assert.equal(plan.content, '', 'and there is no legacy relay map to carry over, because nothing was read')
+    })
+
     test('a relay whose kind is still unknown is refused — fail-closed', () => {
         assert.equal(planFollowWrite({ ...basis, spaceKind: 'unknown' }), null)
     })

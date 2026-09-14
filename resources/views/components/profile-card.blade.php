@@ -170,11 +170,40 @@
                          nothing (measured in this repo for `flux:icon ::variant`, and the
                          same mechanism applies here). Two buttons swapped by `x-show`
                          would work but double the target the keyboard walks over. --}}
+                    {{-- ── The THIRD state: we do not know yet (P1) ───────────────────
+                         `canFollow` only answers whether this RELAY takes a kind 3. It
+                         says nothing about whether we have seen the reader's own list, and
+                         until P1 the button had no way to say so: "does not follow" and
+                         "we have not looked" were one and the same word, namely „Folgen".
+                         That word is the lie this state exists to stop — so the label here
+                         is neutral and makes no claim about the direction.
+
+                         `listSeen` is the strict verdict: a relay closed a read of our own
+                         list with an `EOSE` (`js/follows.ts`). `$store.follows?.listSeen`
+                         is `undefined` before the store is wired, and `!undefined` is
+                         true — the unknown state is what an absent store falls into, which
+                         is the right way round.
+
+                         `aria-disabled` and NOT `disabled`: the button keeps its place in
+                         the tab order and keeps announcing itself, which is what lets a
+                         screen reader hear the reason at all. It is only an announcement
+                         though — the lock that makes a click harmless sits in
+                         `toggle()`, not here.
+
+                         The visible label is SHORT on purpose. Both buttons in this row
+                         are `flex-1 basis-0` and a Flux button is `whitespace-nowrap`, so
+                         its content sets a `min-width` the flex algorithm cannot go below
+                         — the measurement two comments up is exactly that failure. The
+                         whole sentence therefore lives in `aria-label`, which is bound to
+                         `null` in the ordinary state so it never overrides the real
+                         label. --}}
                     <flux:button variant="filled" size="sm" class="flex-1 basis-0 text-btn-touch" data-person-follow
                                  x-show="$store.follows?.canFollow" x-cloak
                                  x-bind:aria-busy="$store.follows?.busy ? 'true' : 'false'"
+                                 x-bind:aria-disabled="$store.follows?.listSeen ? null : 'true'"
+                                 x-bind:aria-label="$store.follows?.listSeen ? null : @js(__('Kontaktliste wird geladen — Folgen ist noch nicht möglich'))"
                                  x-on:click="$store.follows?.toggle(pubkey)">
-                        <span x-text="$store.follows?.isFollowing(pubkey) ? @js(__('Entfolgen')) : @js(__('Folgen'))"></span>
+                        <span x-text="!$store.follows?.listSeen ? @js(__('Lädt…')) : ($store.follows?.isFollowing(pubkey) ? @js(__('Entfolgen')) : @js(__('Folgen')))"></span>
                     </flux:button>
                 </div>
                 <flux:text x-show="$store.follows?.error" x-cloak data-person-follow-fehler

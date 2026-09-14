@@ -1339,5 +1339,8 @@
     "Folgen": "Sekot",
     "Entfolgen": "Pārtraukt sekošanu",
     "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "Vēl nav neviena šifrēta saruna — ar zīmuli augšā vari sākt vienu.",
-    "Verschlüsselte Nachricht schreiben": "Rakstīt šifrētu ziņu"
+    "Verschlüsselte Nachricht schreiben": "Rakstīt šifrētu ziņu",
+    "Lädt…": "Ielādē…",
+    "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Tiek ielādēts tavs kontaktu saraksts — sekošana vēl nav iespējama",
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Kontaktu saraksts tagad ir ielādēts. Lūdzu, noklikšķini vēlreiz."
 }

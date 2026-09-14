@@ -1306,5 +1306,8 @@
     "Folgen": "Obserwuj",
     "Entfolgen": "Przestań obserwować",
     "Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.": "Brak zaszyfrowanej rozmowy — ołówek powyżej rozpoczyna nową.",
-    "Verschlüsselte Nachricht schreiben": "Napisz zaszyfrowaną wiadomość"
+    "Verschlüsselte Nachricht schreiben": "Napisz zaszyfrowaną wiadomość",
+    "Lädt…": "Wczytywanie…",
+    "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Wczytywanie listy kontaktów — obserwowanie nie jest jeszcze możliwe",
+    "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Lista kontaktów została wczytana. Kliknij jeszcze raz."
 }
