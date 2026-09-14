@@ -96,34 +96,61 @@ const CARD_PATH = join(JS_DIR, '..', 'resources', 'views', 'components', 'profil
  * | `publishSpreadOptimistic` | nothing reaches the relays; the local store carries a follow that exists nowhere. The SPREAD form specifically: `publishOptimistic` flattens the per-relay outcome back to one string, and then a write that landed on two of three relays is rolled back in the interface |
  * | `makeEvent` | exactly one place builds the event — a second is a second way to the relay, past the gate |
  *
- * **P2 added six, and every one of them is a step no behaviour test of the pure half can
- * see** — the pure functions keep passing while the writer stops asking them:
+ * **P2, and then the audit repairs, added a layer of these** — every one is a step no
+ * behaviour test of the pure half can see, because the pure functions keep passing while
+ * the writer stops asking them:
  *
  * | call | what a removal breaks in production |
  * |---|---|
- * | `eigeneOutboxUrls` | twice: the read set and the write set. Drop either and that direction is back to the space relay alone, which is the whole defect P2 removes |
- * | `followRelayTargets` | twice, same two directions. This is where the space stays IN the set next to the outbox; without it a reader with no kind 10002 has no target at all |
- * | `followListAnswered` | the staged verdict. Without it `answered` falls back to "somebody said EOSE", the space qualifies, and a kind 3 with one entry is what gets published |
- * | `winningFollowList` | the NIP-01 resolution across relays. Replace it with a tag union and every unfollow a relay has not caught up with comes back — silently, permanently, and looking like success |
- * | `followListWins` | twice: the rendered list and the adoption of a read. Drop it and the label is decided by whichever answer arrived last |
+ * | `readOwnRelayList` / `readRelayListFrom` | the reader's kind 10002 is no longer resolved with a verdict of its own. „No relay list" and „could not ask" collapse back into one empty array — F2, where a single socket error licensed a space-only write and the card called it the harmless reason |
+ * | `declaredWriteRelaysOf` | twice: the relays to ask for the 10002, and the write set itself. The target set stops being the DECLARED one |
+ * | `outboxKnowledgeOf` | the three-way verdict becomes two-way again |
+ * | `normalizeRelaySet` | the relay-list targets stop being normalised and de-duplicated, so the same indexer can be asked twice and counted twice |
+ * | `followRelayTargets` | ONCE, and that is the point: the set is drawn in the read and carried to the write. A second call here is F3 coming back |
+ * | `followListAnswered` | twice — the contact list and the relay list. Without it `answered` falls back to "somebody said EOSE", which is F1 |
+ * | `unansweredRelays` / `refusalReason` | the strict rule refuses without saying which relay is silent, and a reader with a dead entry in their own relay list can never act on it |
+ * | `writeRefused` | the failure message names the space again, which after P2 is usually not the relay that blocked |
+ * | `winningFollowList` | twice — the contact list and the relay list. Replace either with a tag union and every entry a relay has not caught up with comes back, silently and permanently |
+ * | `followListWins` / `newestOwnEvent` | the NIP-01 resolution. Drop it and whichever answer arrived last decides |
  * | `adoptReadList` | three times: arming, a click, and the re-read after a write. Drop them and the card renders the space relay's copy while `toggle()` decides from the real one — a button labelled „Folgen" that unfollows |
  */
 const WRITE_GUARDS: Readonly<Record<string, number>> = {
-    readOwnFollowList: 3,
+    readOwnFollowList: 2,
+    readFollowListsFrom: 2,
     readFollowListFrom: 1,
+    readOwnRelayList: 1,
+    readRelayListFrom: 1,
     planFollowWrite: 1,
     followedPubkeysOf: 2,
     mayWriteKind: 1,
     followWriteConfirmed: 1,
     publishSpreadOptimistic: 1,
     makeEvent: 1,
-    eigeneOutboxUrls: 2,
-    followRelayTargets: 2,
-    followListAnswered: 1,
-    winningFollowList: 1,
+    declaredWriteRelaysOf: 2,
+    outboxKnowledgeOf: 1,
+    normalizeRelaySet: 1,
+    followRelayTargets: 1,
+    followListAnswered: 2,
+    unansweredRelays: 2,
+    refusalReason: 2,
+    writeRefused: 2,
+    winningFollowList: 2,
+    newestOwnEvent: 2,
     followListWins: 2,
     adoptReadList: 3,
 }
+
+/**
+ * **The relay picker that must NOT be on this path — F3.**
+ *
+ * `eigeneOutboxUrls()` puts the declared relays through a `RelayScenario`: at most three
+ * of them (`getLimit()` defaults to 3), chosen with `Math.random()` in `scoreRelay`, and
+ * with every relay whose live quality is `0` dropped entirely. For a read that is a
+ * sensible optimisation. As the target set of a REPLACEABLE write it means the write goes
+ * somewhere else than the read looked — measured at 88.7 % of follows over 20 000 draws —
+ * and that a single socket error silently shrinks the set the verdict was formed over.
+ */
+const FORBIDDEN_RELAY_PICKERS = ['eigeneOutboxUrls', 'szenarioAusUrls']
 
 /** Names of the write half that must have exactly one caller in the whole production tree. */
 const WRITE_HALF_CALLERS: Readonly<Record<string, string>> = {
@@ -296,8 +323,21 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         const ERWARTET: ReadonlyArray<readonly [string, string[], string]> = [
             [GATE, ['binding plan CallExpression'],
                 'the event body and the refusal are one value; a fallback beside it is a write past the gate.'],
-            ['readOwnFollowList', ['binding after CallExpression', 'binding answer CallExpression'],
-                'toggle() and publishFollowList() must BE the relay read, not merely trigger it.'],
+            ['readOwnFollowList', ['binding answer CallExpression'],
+                'toggle() must BE the relay read, not merely trigger it.'],
+            ['readFollowListsFrom', ['binding after CallExpression', 'return readOwnFollowList CallExpression'],
+                'the read of the contact list, and the re-read that checks the OK, must both BE this call — '
+                    + 'and the second one must use the SAME target set it wrote to.'],
+            ['readOwnRelayList', ['binding relayList CallExpression'],
+                'where to read and write must BE the answer of the relay-list read, gate and all.'],
+            ['declaredWriteRelaysOf', ['binding writeUrls CallExpression'],
+                'the write relays must BE the declaration in the kind 10002, not a value computed beside it.'],
+            ['outboxKnowledgeOf', ['binding knowledge CallExpression'],
+                'the three-way verdict must BE the answer; `?? "confirmed-none"` next to it is F2 returning.'],
+            ['newestOwnEvent', ['binding cached CallExpression'],
+                'the cached relay list must BE the NIP-01 winner over the repository, not the first row found.'],
+            ['normalizeRelaySet', ['binding asked CallExpression'],
+                'the relays asked for the kind 10002 must BE the normalised, de-duplicated set.'],
             ['followedPubkeysOf', ['assignment self.following CallExpression', 'binding followedNow CallExpression'],
                 'the rendered list AND the direction of a click come from a list somebody read.'],
             ['mayWriteKind', ['assignment self.canFollow BinaryExpression&&'],
@@ -305,13 +345,9 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             ['followWriteConfirmed', ['return publishFollowList ConditionalExpression'],
                 'the confirmation must decide the return value, not be computed beside it.'],
             // ── P2 ──────────────────────────────────────────────────────────
-            ['eigeneOutboxUrls', ['binding outboxUrls CallExpression'],
-                'the relays a contact list is read from must BE the reader\'s outbox, not a value beside it.'],
-            ['followRelayTargets', ['binding targets CallExpression'],
-                'the read set must BE outbox ∪ space. The write set passes the same call inline, which the '
-                    + 'count in WRITE_GUARDS and the source case further down cover.'],
             ['followListAnswered', ['binding answered CallExpression'],
-                'the staged verdict must BE the answer; `|| true` next to it is the one-entry kind 3 returning.'],
+                'the completeness verdict must BE the answer; `|| true` next to it is the one-entry kind 3 '
+                    + 'returning. The second call sits inline in outboxKnowledgeOf(), which the count covers.'],
             ['followListWins', ['return ownList ConditionalExpression'],
                 'the rendered list must be the NIP-01 winner of the two sources, not whichever arrived last.'],
             ['publishSpreadOptimistic', ['binding spread CallExpression'],
@@ -420,10 +456,13 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             [
                 // toggle(): adopt the verdict of the read it just did, never lose one.
                 'assignment self.listSeen BinaryExpression||',
+                // the arming read came back — ORed for the same reason. Assigning
+                // `read.answered` here (a PropertyAccessExpression, which is what stood
+                // here until the audit) throws away a verdict a click had already earned:
+                // the arming read takes up to twice READ_TIMEOUT_MS and can finish second.
+                'assignment self.listSeen BinaryExpression||',
                 // armSource(): a new space or identity — nothing seen yet.
                 'assignment self.listSeen FalseKeyword',
-                // the arming read has answered (or timed out): `read.answered`.
-                'assignment self.listSeen PropertyAccessExpression',
             ],
             `${WRITER}: the assignments to self.listSeen are [${stellen.join(' | ')}]. A \`TrueKeyword\` among `
                 + 'them is a hard-wired verdict, and then the button claims to know the follow state of a list '
@@ -455,39 +494,60 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         assert.ok(quelle.length > 4_000, `${WRITER} is only ${quelle.length} bytes — the scanner reads the wrong file`)
         assert.ok(quelle.includes('export const readOwnFollowList'), `${WRITER} no longer defines readOwnFollowList`)
 
-        assert.match(
-            quelle,
-            /let answered = false/,
+        assert.ok(
+            /let answered = false/.test(quelle),
             `${WRITER}: the verdict no longer starts at false. Starting at true means every write is treated as `
                 + 'informed, including the ones where the relay said nothing at all.',
         )
-        assert.match(
-            quelle,
-            /onEose:\s*\(\)\s*=>\s*\{\s*answered\s*=\s*true/,
+        assert.ok(
+            /onEose:\s*\(\)\s*=>\s*\{\s*answered\s*=\s*true/.test(quelle),
             `${WRITER}: the verdict is no longer set from the request's onEose. Then \`listAnswered\` is not the `
                 + `relay's answer any more, and the gate in ${GATE} is decoration.`,
         )
     })
 
-    test('CORE: readOwnFollowList returns the COLLECTED verdict, in the shorthand', () => {
+    test('CORE: readFollowListsFrom returns the COLLECTED verdict, in the shorthand', () => {
         const rueckgaben = befundFuer(WRITER).werte.filter(
-            (stelle) => stelle.art === 'return' && stelle.name === 'readOwnFollowList',
+            (stelle) => stelle.art === 'return' && stelle.name === 'readFollowListsFrom',
         )
-        assert.ok(
-            rueckgaben.length >= 2,
-            `${WRITER}: readOwnFollowList has ${rueckgaben.length} return(s) — the scanner reads the wrong file.`,
+        const gesammelt = rueckgaben.filter(
+            (stelle) => stelle.felder.join(',') === 'answered,list=,targets,unanswered=,outbox',
         )
-
-        const gesammelt = rueckgaben.filter((stelle) => stelle.felder.join(',') === 'answered,list=,outboxUrls')
         assert.equal(
             gesammelt.length,
             1,
-            `${WRITER}: readOwnFollowList has ${gesammelt.length} return(s) of the form `
-                + '{ answered, list: …, outboxUrls }, expected 1. A hard-wired `answered: true` turns the shorthand '
-                + 'into a field with its own value; a duplicate `answered: true` appended to the same object wins in '
-                + 'JS while the shorthand stands. `outboxUrls` is a shorthand for the same reason — it is what the '
-                + 'card gates its "this list is not findable outside this space" notice on, and a literal `[]` there '
-                + 'would silence the notice for everybody.',
+            `${WRITER}: readFollowListsFrom has ${gesammelt.length} return(s) of the form `
+                + '{ answered, list: …, targets, unanswered: …, outbox }, expected 1. Each shorthand is load '
+                + 'bearing: a hard-wired `answered: true` turns it into a field with its own value, `targets` is '
+                + 'the set the write is allowed to use, and `outbox` is what the card gates its "not findable '
+                + 'outside this space" notice on. A duplicate key appended to the same object wins in JS while the '
+                + 'shorthand still stands there looking right.',
+        )
+    })
+
+    test('CORE: every early exit of readOwnFollowList refuses — no verdict is ever hard-wired true', () => {
+        const rueckgaben = befundFuer(WRITER).werte.filter(
+            (stelle) => stelle.art === 'return' && stelle.name === 'readOwnFollowList',
+        )
+        const objekte = rueckgaben.filter((stelle) => stelle.form === 'ObjectLiteralExpression')
+        assert.equal(
+            objekte.length,
+            2,
+            `${WRITER}: readOwnFollowList has ${objekte.length} object returns, expected 2 — the guest exit and `
+                + 'the one for an unretrievable relay list.',
+        )
+        for (const stelle of objekte) {
+            assert.equal(
+                stelle.felder.join(','),
+                'answered=,list=,targets=,unanswered=,outbox=',
+                `${WRITER}: an early exit of readOwnFollowList has fields [${stelle.felder.join(' | ')}].`,
+            )
+        }
+        assert.ok(
+            !quelleDesWriters().includes('answered: true'),
+            `${WRITER}: an \`answered: true\` literal appears in the file. The verdict has exactly one source, `
+                + 'the completeness of the relay answers, and a literal beside it is the write this module exists '
+                + 'to prevent.',
         )
     })
 
@@ -505,25 +565,97 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      * call spans lines, and a regex anchored on both sides of the argument survives
      * reformatting while still going red when either half of the union is removed.
      */
-    test('CORE: the READ set is outbox ∪ space', () => {
+    test('CORE: the READ set is the DECLARED write relays ∪ space', () => {
         const quelle = quelleDesWriters()
-        assert.match(
-            quelle,
-            /const targets = followRelayTargets\(outboxUrls, url\)/,
-            `${WRITER}: the read no longer asks outbox ∪ space. Against the space relay alone a contact list is `
-                + 'practically never found — a closed NIP-29 relay stands in nobody\'s NIP-65 list — so the merge '
-                + 'base comes back empty and a follow written on it is a kind 3 with one entry.',
+        assert.ok(
+            /followRelayTargets\(relayList\.writeUrls, url\)/.test(quelle),
+            `${WRITER}: the read no longer asks the declared write relays ∪ space. Against the space relay alone `
+                + 'a contact list is practically never found — a closed NIP-29 relay stands in nobody\'s NIP-65 '
+                + 'list — so the merge base comes back empty and a follow written on it is a kind 3 with one entry.',
         )
     })
 
-    test('CORE: the WRITE set is outbox ∪ space, through the same function', () => {
+    /**
+     * **F3: the write set is the read set, not a second draw.**
+     *
+     * A count cannot see this. Two calls to `followRelayTargets` would keep every number
+     * intact and still produce two different sets — that is exactly what the audit
+     * measured, at 88.7 % of follows. So the write has to take the set it was handed, and
+     * the argument is pinned rather than the call.
+     */
+    test('CORE: the WRITE goes to the set the READ used — drawn once', () => {
         const quelle = quelleDesWriters()
-        assert.match(
-            quelle,
-            /publishSpreadOptimistic\(\s*followRelayTargets\(eigeneOutboxUrls\(\), url\)/,
-            `${WRITER}: the write no longer goes to outbox ∪ space. Writing the contact list to the space relay `
-                + 'only leaves it invisible to every other client the reader uses — kind 3 is the object those '
-                + 'clients build their feed from.',
+        assert.ok(
+            /publishSpreadOptimistic\(\s*read\.targets,/.test(quelle),
+            `${WRITER}: the write no longer uses the target set of the read it is based on. Every relay in that `
+                + 'set answered; that is what makes replacing their copy defensible, and it is true for no other '
+                + 'set. A fresh draw here is the finding coming back.',
+        )
+        assert.ok(
+            /readFollowListsFrom\(read\.targets, me, read\.outbox\)/.test(quelle),
+            `${WRITER}: the re-read after the write no longer uses the same relays the write went to, so it `
+                + 'answers a different question than the one that was asked.',
+        )
+    })
+
+    test('CORE: the randomised, quality-filtered relay sample is not on this path', () => {
+        const befund = befundFuer(WRITER)
+        for (const name of FORBIDDEN_RELAY_PICKERS) {
+            assert.equal(
+                zaehle(befund, name),
+                0,
+                `${WRITER} calls ${name}(). That runs the declared relays through a RelayScenario: at most three `
+                    + 'of them, picked with Math.random(), and every relay with a live quality of 0 dropped. As '
+                    + 'the target set of a replaceable write that means the write lands somewhere else than the '
+                    + 'read looked, and one socket error silently shrinks the set the verdict was formed over.',
+            )
+            assert.ok(
+                !befund.importe.some((stelle) => stelle.exportName === name),
+                `${WRITER} imports ${name}. Even unused it is an invitation back into F3.`,
+            )
+        }
+    })
+
+    /**
+     * **F2: the relay list is a gate, not a lookup.**
+     *
+     * With {@link OutboxKnowledge} `unknown` there is no honest target set — „this reader
+     * has no relay list" and „we could not ask" are indistinguishable, and the second one
+     * is produced by a fault. Without this branch the path continues with an empty
+     * declaration, which is precisely the space-only write the finding is about.
+     */
+    test('CORE: an unretrievable relay list stops the read before it picks targets', () => {
+        const quelle = flattenWhitespace(quelleDesWriters())
+        assert.ok(
+            quelle.includes("if (relayList.knowledge === 'unknown') {"),
+            `${WRITER}: the relay-list verdict is no longer honoured. An empty declaration then reads as "this `
+                + 'reader has no NIP-65 list", the target set collapses to the space, and a socket error is enough '
+                + 'to produce it.',
+        )
+    })
+
+    /**
+     * **F1: the verdict is asked of the TARGET set, not of the reads alone.**
+     *
+     * `followListAnswered(reads)` — one argument — would type-check nowhere, but
+     * `followListAnswered(reads, reads.map(r => r.url))` would, and it is `some` in
+     * disguise: a set built from the answers can never be missing one. The second argument
+     * has to be the independently drawn target list.
+     */
+    test('CORE: completeness is measured against the targets, on both lists', () => {
+        const quelle = quelleDesWriters()
+        assert.ok(
+            /followListAnswered\(reads, targets\)/.test(quelle),
+            `${WRITER}: the contact-list verdict is no longer measured against the target set.`,
+        )
+        assert.ok(
+            /followListAnswered\(reads, asked\)/.test(quelle),
+            `${WRITER}: the relay-list verdict is no longer measured against the relays that were asked.`,
+        )
+        assert.ok(
+            !/followListAnswered\([^)]*\.map\(/.test(quelle),
+            `${WRITER}: the target set handed to followListAnswered is derived from the reads themselves. A set `
+                + 'built from the answers is complete by construction — that is `some` wearing `every`.',
         )
     })
 
@@ -538,14 +670,23 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      * reader, "outbox ∪ space" is "space", and the whole phase measures green while doing
      * nothing.
      */
-    test('CORE: the relay list is fetched before the outbox is read off', () => {
+    test('CORE: the relay list is read with an EOSE verdict of its own, per relay', () => {
         const quelle = quelleDesWriters()
-        assert.match(
-            quelle,
-            /await app\.use\(RelayLists\)\.load\(self\)/,
-            `${WRITER}: the reader's NIP-65 list is no longer fetched before eigeneOutboxUrls() is asked. The `
-                + 'projection is then a cold snapshot: empty means "nobody looked", the empty-outbox branch of the '
-                + 'staged verdict is taken, and an EOSE from the space relay clears a write again.',
+        const eose = quelle.match(/onEose:\s*\(\)\s*=>\s*\{\s*answered\s*=\s*true/g) ?? []
+        assert.equal(
+            eose.length,
+            2,
+            `${WRITER}: ${eose.length} read(s) take their verdict from an onEose, expected 2 — the contact list `
+                + 'and the relay list. Without its own verdict the kind 10002 read is back to `RelayLists.load`, '
+                + 'which resolves to `undefined` both when there is no relay list and when no indexer could be '
+                + 'reached: F2 exactly.',
+        )
+        const falsch = quelle.match(/let answered = false/g) ?? []
+        assert.equal(
+            falsch.length,
+            2,
+            `${WRITER}: ${falsch.length} verdict(s) start at false, expected 2. Starting at true means a read `
+                + 'that never happened counts as complete.',
         )
     })
 

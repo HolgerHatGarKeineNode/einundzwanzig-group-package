@@ -1277,5 +1277,9 @@
     "Lädt…": "Betöltés…",
     "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "A névjegylista betöltése folyamatban — a követés még nem lehetséges",
     "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "A névjegylista betöltődött. Kattints még egyszer.",
-    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Ez a névjegylista ezen a Space-en kívül nem található meg, mert nincs Relay-listád (NIP-65) megadva."
+    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Ez a névjegylista ezen a Space-en kívül nem található meg, mert nincs Relay-listád (NIP-65) megadva.",
+    "Deine Relay-Liste (NIP-65) war nicht abrufbar. Es wurde nichts geändert.": "A Relay-listád (NIP-65) nem volt lekérhető. Semmi nem változott.",
+    "Diese Relais haben die Kontaktliste nicht ausgeliefert: :relays. Es wurde nichts geändert.": "Ezek a Relayek nem adták ki a névjegylistát: :relays. Semmi nem változott.",
+    "Diese Relais haben die Änderung nicht übernommen: :relays.": "Ezek a Relayek nem alkalmazták a változtatást: :relays.",
+    "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "A névjegylistát nem sikerült beolvasni. Semmi nem változott."
 }

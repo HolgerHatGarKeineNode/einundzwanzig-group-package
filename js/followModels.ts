@@ -43,6 +43,26 @@
  * each other there, and a reader without a kind 10002 would otherwise have no target at
  * all.
  *
+ * ── THE INVARIANT, after the audit ─────────────────────────────────────────────
+ *
+ * > A kind 3 may be written only if **every relay in the target set closed the read with
+ * > an `EOSE` in the same operation**. The target set is the DECLARED write relays of the
+ * > reader's own kind 10002 ∪ the space, drawn **once** and used for the read and the
+ * > write alike. The merge base is the NIP-01 winner over exactly that set.
+ *
+ * Three separate ways the first version broke it, all of them fail-OPEN and all of them
+ * ending in the same replaceable-event data loss the module was written to prevent:
+ *
+ *  · **F1** — {@link followListAnswered} asked `some`. One relay that answered and held
+ *    nothing licensed a full replacement on relays that had not answered and did hold the
+ *    list.
+ *  · **F2** — „no NIP-65 list" and „could not ask" were the same empty array, and the
+ *    cheapest way to produce it was a socket error. {@link OutboxKnowledge} splits them.
+ *  · **F3** — the set came from a quality-filtered, randomised sample of at most three
+ *    (`RelayScenario.getUrls()`), drawn once for the read and again for the write; 88.7 %
+ *    of follows read a different set than they wrote. {@link declaredWriteRelaysOf} takes
+ *    the declaration instead, and `js/follows.ts` draws it once.
+ *
  * **What is unioned are the SOURCES, never the `p` tags.** Kind 3 is replaceable
  * (NIP-01: „for kind `n` such that `10000 <= n < 20000 || n == 0 || n == 3`, events are
  * replaceable"), so exactly one of the lists we collect is valid — {@link followListWins}
@@ -57,7 +77,7 @@
  * all. The gate below therefore denies only on `'unknown'`, which is `mayWriteKind`'s
  * fail-closed default while NIP-11 is still in flight.
  */
-import { normalizeRelayUrl } from '@welshman/util'
+import { isRelayUrl, normalizeRelayUrl } from '@welshman/util'
 import { FOLLOWS } from './welshmanKinds.ts'
 import { mayWriteKind } from './relayCapability.ts'
 import type { SpaceKind } from './spaceCaps.ts'
@@ -109,19 +129,24 @@ export const followListWins = (candidate: FollowEventLike, incumbent: FollowEven
 }
 
 /**
- * This user's newest kind-3, or `null`.
+ * This user's newest replaceable event of one kind, or `null`.
  *
  * Newest per author and not simply "the first one": the repository keeps one event per
  * replaceable address, but a cold start can hand us an IndexedDB copy and a fresh one in
- * the same batch, and the older of the two would otherwise decide who is followed.
+ * the same batch, and the older of the two would otherwise decide.
+ *
+ * Takes the kind because the follow path now resolves TWO replaceable lists with the same
+ * rule — kind 3 and, since the F2 repair, the reader's own kind 10002. One winner
+ * implementation for both; two would drift, and the NIP-01 tie-break is exactly the part
+ * that gets forgotten in a copy.
  */
-export const ownFollowList = (events: FollowEventLike[], self: string): FollowEventLike | null => {
+export const newestOwnEvent = (events: FollowEventLike[], self: string, kind: number): FollowEventLike | null => {
     if (!self) {
         return null
     }
     let newest: FollowEventLike | null = null
     for (const event of events) {
-        if (event.kind !== FOLLOWS || event.pubkey !== self) {
+        if (event.kind !== kind || event.pubkey !== self) {
             continue
         }
         if (followListWins(event, newest)) {
@@ -131,6 +156,10 @@ export const ownFollowList = (events: FollowEventLike[], self: string): FollowEv
 
     return newest
 }
+
+/** This user's newest kind-3, or `null`. */
+export const ownFollowList = (events: FollowEventLike[], self: string): FollowEventLike | null =>
+    newestOwnEvent(events, self, FOLLOWS)
 
 /**
  * `normalizeRelayUrl`, but **without a throw** — `''` for anything unreadable.
@@ -147,9 +176,16 @@ export const ownFollowList = (events: FollowEventLike[], self: string): FollowEv
  * a URL and the same name in DNS; stripping it here would be this client deciding about
  * somebody else's relay entry. It simply stays a second target, which for a write is
  * harmless and for the verdict below is judged on its own.
+ *
+ * `isRelayUrl` first, and that is not belt-and-braces: `normalizeRelayUrl` does NOT throw
+ * on `http://host/`, it rewrites it to `wss://host/` (measured). Accepting that would
+ * invent a relay out of a web link somebody put in their NIP-65 list, and this module
+ * would then disagree with `RelayListReader` in `@welshman/domain`, which gates on
+ * `isRelayUrl` — a disagreement the differential test in `followModels.test.ts` exists to
+ * catch.
  */
 const followRelayUrl = (url: string): string => {
-    if (!url) {
+    if (!url || !isRelayUrl(url)) {
         return ''
     }
     try {
@@ -157,6 +193,82 @@ const followRelayUrl = (url: string): string => {
     } catch {
         return ''
     }
+}
+
+/**
+ * The tag names a NIP-65 relay entry can carry. `relay` is welshman's alias
+ * (`relayTags(["r", "relay"])` in `@welshman/domain` `kinds/RelayList.js`); the spec only
+ * names `r`, and reading both is what keeps this in step with the library.
+ */
+export const RELAY_LIST_TAGS: readonly string[] = ['r', 'relay']
+
+/** The NIP-65 marker that makes an entry write-only. */
+export const RELAY_LIST_WRITE_MARKER = 'write'
+
+/**
+ * **The relays this reader has DECLARED they write to** — NIP-65, kind 10002.
+ *
+ * NIP-65, verbatim: *„If the marker is omitted, the relay is both read and write."* So an
+ * entry counts as a write relay when its third column is absent, empty, or exactly
+ * `write`; a `read` marker excludes it. Mirrors `RelayListReader.writeUrls()` down to the
+ * `isRelayUrl` gate and the normalisation, and `followModels.test.ts` runs both over the
+ * same fixtures rather than trusting that sentence.
+ *
+ * **Why this is parsed here and not read off `RelayLists.writeUrls(pk)`.** That projection
+ * is welshman's and it is correct — but it answers a different question than the one the
+ * write path has to ask. It hands back urls with no way to say whether anybody was ever
+ * asked, and F2 was exactly that: an empty projection read as „this reader has no relay
+ * list". Parsing the winning EVENT keeps the url list and the verdict about it tied to one
+ * object.
+ */
+export const declaredWriteRelaysOf = (list: FollowEventLike | null): string[] => {
+    const urls: string[] = []
+    for (const tag of list?.tags ?? []) {
+        if (!RELAY_LIST_TAGS.includes(tag[0] as string)) {
+            continue
+        }
+        const marker = tag[2]
+        if (marker && marker !== RELAY_LIST_WRITE_MARKER) {
+            continue
+        }
+        const url = followRelayUrl(tag[1] ?? '')
+        if (url && !urls.includes(url)) {
+            urls.push(url)
+        }
+    }
+
+    return urls
+}
+
+/**
+ * **What we know about the reader's own NIP-65 list**, and the whole point is that it is
+ * three values rather than two.
+ *
+ * | value | means | what the follow path does |
+ * |---|---|---|
+ * | `listed` | a kind 10002 with at least one write relay | read and write go to those relays ∪ space, and every one of them must answer |
+ * | `confirmed-none` | every relay we asked closed with `EOSE` and none held a usable kind 10002 | space-only, and the card says so |
+ * | `unknown` | somebody did not answer, so „no list" and „could not ask" are indistinguishable | **nothing is written** |
+ *
+ * **F2 is the reason this type exists.** Before it, „no relay list" was a single empty
+ * array, and the cheapest way to produce that array was a fault: `RelayStats.getQuality`
+ * returns `0` after ONE `SocketStatus.Error` inside 60 s (`@welshman/app`
+ * `plugins/relayStats.js`), and `RelayScenario.getUrls()` drops a zero-quality relay
+ * entirely. A network hiccup therefore emptied the outbox, the empty outbox took the
+ * lenient branch, and the surface told the reader the harmless reason. The failure signal
+ * opened the bolt it should have closed.
+ */
+export type OutboxKnowledge = 'listed' | 'confirmed-none' | 'unknown'
+
+/** The three-way verdict. `allAnswered` is „every relay we asked for the 10002 sent `EOSE`". */
+export const outboxKnowledgeOf = (
+    input: { writeUrls: readonly string[]; allAnswered: boolean },
+): OutboxKnowledge => {
+    if (input.writeUrls.length > 0) {
+        return 'listed'
+    }
+
+    return input.allAnswered ? 'confirmed-none' : 'unknown'
 }
 
 /**
@@ -174,9 +286,21 @@ const followRelayUrl = (url: string): string => {
  * is a property of the callers, not of this function, and the next caller will not have
  * it.
  */
-export const followRelayTargets = (outboxUrls: readonly string[], spaceUrl: string): string[] => {
+export const followRelayTargets = (outboxUrls: readonly string[], spaceUrl: string): string[] =>
+    normalizeRelaySet([...outboxUrls, spaceUrl])
+
+/**
+ * Normalise, drop what is not a relay url, de-duplicate — first occurrence wins, order
+ * kept.
+ *
+ * Its own function because the relay-list read needs the same treatment for a set that
+ * has nothing to do with a space (indexers ∪ the relays a cached kind 10002 names), and
+ * calling {@link followRelayTargets} with an empty second argument would have said
+ * something untrue about what that argument is.
+ */
+export const normalizeRelaySet = (urls: readonly string[]): string[] => {
     const targets: string[] = []
-    for (const raw of [...outboxUrls, spaceUrl]) {
+    for (const raw of urls) {
         const url = followRelayUrl(raw)
         if (url && !targets.includes(url)) {
             targets.push(url)
@@ -202,25 +326,64 @@ export type FollowRelayRead = {
 }
 
 /**
- * **The staged, fail-closed verdict: may a write be planned from what we just read?**
+ * **The invariant of this whole module, in one function: every relay we are about to
+ * WRITE to must have answered the read in the SAME operation.**
  *
- * | outbox | what has to have answered | why |
- * |---|---|---|
- * | non-empty | at least ONE outbox relay | the contact list lives there. An `EOSE` from the space alone says nothing about it, and treating it as an answer is precisely the defect P2 removes: the space almost never holds the list, so "answered, empty" became the normal reading of "we asked the wrong relay" |
- * | empty | any relay that was asked, i.e. the space | there is no better source. Refusing here would make following impossible for every reader without a kind 10002, and this client cannot write one for them |
+ * ── What it replaces, and why that was a High finding ───────────────────────────
+ *
+ * Until the F1 repair this asked `some`: one outbox relay that answered was enough. That
+ * reads reasonably and is wrong by exactly one word, because the write does not go to the
+ * relay that answered — it goes to the whole target set. Measured by the auditor with
+ * these functions: a reader on `[fresh.example, relay.damus.io, nos.lol]` whose 700-entry
+ * list sits on the last two; `fresh.example` answers with `EOSE` and nothing; the other
+ * two run into the six-second timeout.
+ *
+ *     followListAnswered : true
+ *     merge base         : null
+ *     planFollowWrite    : 1 tag, content ""
+ *     write targets      : [fresh.example, relay.damus.io, nos.lol, space]
+ *
+ * `created_at` is `now()`, so it dominates on all four. 700 contacts and the legacy relay
+ * map in `content` gone, and the surface reports success. A partial answer licensed a
+ * total replacement.
+ *
+ * ── The cost of the strict form, stated rather than discovered ──────────────────
+ *
+ * One permanently dead relay in the reader's own kind 10002 makes following impossible
+ * until they remove it — and this client has no write path for kind 10002, so they have
+ * to do that elsewhere. That is the right direction for an object with no undo: the
+ * refusal costs a click, the mistake costs every contact they have. It is only bearable
+ * because the refusal is **visible and names the relay** — see {@link unansweredRelays},
+ * which exists for that message and not for diagnostics.
  *
  * The verdict is about the relays that ANSWERED, never about the lists they carried: a
- * reader who genuinely follows nobody has an outbox relay that answers with zero events,
- * and that is a complete answer.
+ * reader who genuinely follows nobody has relays that answer with zero events, and that
+ * is a complete answer.
  */
-export const followListAnswered = (reads: readonly FollowRelayRead[], outboxUrls: readonly string[]): boolean => {
-    const outbox = new Set(outboxUrls.map(followRelayUrl).filter(Boolean))
-    const answered = reads.filter((read) => read.answered)
-    if (outbox.size > 0) {
-        return answered.some((read) => outbox.has(read.url))
+export const followListAnswered = (reads: readonly FollowRelayRead[], targets: readonly string[]): boolean => {
+    const wanted = new Set(targets.map(followRelayUrl).filter(Boolean))
+    if (wanted.size === 0) {
+        // Nothing was asked. Not "everything answered vacuously" — `[].every(…)` is
+        // `true`, and that would be a write to nowhere reported as a complete read.
+        return false
     }
+    const answered = new Set(reads.filter((read) => read.answered).map((read) => followRelayUrl(read.url)))
 
-    return answered.length > 0
+    return [...wanted].every((url) => answered.has(url))
+}
+
+/**
+ * The targets that did NOT close with an `EOSE`, normalised — the content of the refusal
+ * message.
+ *
+ * A target nobody even attempted counts as unanswered: the set is built from `targets`,
+ * not from `reads`, so a read that silently never happened shows up here instead of
+ * disappearing.
+ */
+export const unansweredRelays = (reads: readonly FollowRelayRead[], targets: readonly string[]): string[] => {
+    const answered = new Set(reads.filter((read) => read.answered).map((read) => followRelayUrl(read.url)))
+
+    return targets.map(followRelayUrl).filter((url) => url && !answered.has(url))
 }
 
 /**
@@ -284,17 +447,20 @@ export type FollowPlanInput = {
      * Our own newest kind 3, as {@link winningFollowList} resolved it across the relays
      * that were asked — or `null`.
      *
-     * **Since P2 `null` next to `listAnswered: true` really does mean "there is none".**
-     * Before P2 the read went to the space relay alone, where a contact list practically
-     * never lives, so `null` mostly meant "we asked the wrong relay" and the pair below
-     * could not tell the two apart. It is the relay SET that fixed that, not this gate.
+     * **`null` next to `listAnswered: true` really does mean "there is none".** Before P2
+     * the read went to the space relay alone, where a contact list practically never
+     * lives, so `null` mostly meant "we asked the wrong relay"; after P2 but before the
+     * audit, one answering relay was enough, so it meant "the relay that answered does not
+     * hold it". Both are closed by the invariant in the module header — by the relay SET
+     * and the completeness of its answer, never by this gate.
      */
     list: FollowEventLike | null
     /**
-     * **Did the read that produced `list` come back answered?** From
-     * {@link followListAnswered}, which is stricter than "some relay said `EOSE`": with a
-     * NIP-65 list on file it takes an `EOSE` from an OUTBOX relay. `false` also covers
-     * "not asked yet" — the two are the same thing here, and both must refuse.
+     * **Did EVERY relay of the target set close the read with an `EOSE`?** From
+     * {@link followListAnswered}. Not „some relay said `EOSE`" — that was F1, and it let a
+     * relay which held nothing license a full replacement on the ones that held the list.
+     * `false` also covers "not asked yet" and "the reader's own kind 10002 was not
+     * retrievable" ({@link OutboxKnowledge}`.unknown`); all of them must refuse.
      */
     listAnswered: boolean
     /** The person to follow or unfollow. */

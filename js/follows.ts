@@ -38,40 +38,44 @@
  * the reader's contact list, `list: null` was the normal answer, and a follow built on
  * it is a replaceable event with one entry.
  *
- * Since P2 both directions use {@link followRelayTargets} — the reader's outbox relays
- * **plus** the space. The space stays in the set rather than being replaced: the members
- * read each other there, and a reader without a kind 10002 would otherwise have no
- * target at all. welshman routes a contact list the same way, minus the space
+ * Since P2 both directions use {@link followRelayTargets} — the reader's declared write
+ * relays **plus** the space. The space stays in the set rather than being replaced: the
+ * members read each other there, and a reader without a kind 10002 would otherwise have
+ * no target at all. welshman routes a contact list the same way, minus the space
  * (`@welshman/domain` `FollowList.renderRoutes()` returns `[userOutbox()]`).
  *
  * Both relays take the kind. Buzz maps `KIND_CONTACT_LIST` to `Scope::UsersWrite`
  * (`crates/buzz-relay/src/handlers/ingest.rs`, the allowlist arm above the
  * `_ => Err("restricted: unknown event kind")` catch-all), zooid has no kind allowlist.
  *
- * ── The outbox has to be ASKED before it is snapshotted ─────────────────────────
+ * ── ONE set, drawn once, and every member of it has to answer ───────────────────
  *
- * `eigeneOutboxUrls()` is a synchronous projection over the repository
- * (`@welshman/app` `plugins/relayLists.js`: `writeUrls` is `this.project(…)`), so an
- * empty answer means either "this reader has no NIP-65 list" or "nobody has fetched it
- * yet" — and the two demand opposite behaviour. Measured in this tree on 2026-09-14:
- * **no module requests kind 10002 for the reader's own pubkey.** `bridge.ts` derives it
- * from the repository for display only, and the one place that would fetch it as a side
- * effect (`Profiles.load(me)` → `Network.loadUsingOutbox` → `RelayLists.load`) runs on
- * the wallet settings island and in the member directory, neither of which the profile
- * card waits for. Without the load below, "outbox ∪ space" would be "space" for nearly
- * every reader and this whole phase would be a no-op that measures green.
+ * The invariant and the three audit findings behind it are written out in the header of
+ * `js/followModels.ts`. What this file has to hold up:
  *
- * `RelayLists.load` is welshman's own cached loader (`makeLoadItem`: one attempt per
- * pubkey per hour, shared pending promise, bounded by the loader's 3 s timeout), and it
- * is a plugin METHOD, not the `forceLoad` import the P1 latch forbids.
+ *  · {@link readOwnRelayList} decides WHERE, with a verdict of its own
+ *    ({@link OutboxKnowledge}) instead of an empty array that could mean two things;
+ *  · {@link readOwnFollowList} draws the set once and carries it in
+ *    {@link FollowListRead.targets};
+ *  · {@link publishFollowList} takes that set rather than drawing its own, and verifies
+ *    against the same relays it wrote to.
  *
- * **What it still cannot tell us, stated rather than discovered:** `load` resolves with
- * `undefined` both when no kind 10002 exists and when no indexer could be reached. So
- * "the outbox is empty" is an *attempted* answer, not a confirmed one, and a reader whose
- * indexers are unreachable falls into the empty-outbox branch — where an `EOSE` from the
- * space suffices. Closing that would take a second loader with its own `EOSE` verdict,
- * the way {@link readFollowListFrom} has one; it is named here so it is a known hole and
- * not a surprise.
+ * **The first version used `eigeneOutboxUrls()` for this and that was wrong three times
+ * over.** It is a synchronous projection over the repository put through a
+ * `RelayScenario`, so (a) an empty answer meant either „no NIP-65 list" or „nobody has
+ * fetched it yet", (b) `RelayStats.getQuality` returns `0` after ONE socket error in 60 s
+ * and `getUrls()` then drops that relay entirely — a fault silently shrinking the set —
+ * and (c) the scenario keeps at most three and picks them with `Math.random()`, so two
+ * draws rarely agree. For a read that is all reasonable; for the target set of a
+ * replaceable write it is a hazard. `eigeneOutboxUrls()` is therefore no longer used here
+ * and stays unchanged for its other callers.
+ *
+ * **Two round trips per click, stated rather than hidden.** A follow now costs a kind
+ * 10002 read (indexers ∪ the relays a cached list names) before the kind 3 read, each
+ * bounded by {@link READ_TIMEOUT_MS}. That is up to twelve seconds in the worst case and
+ * normally well under one. It is not cached: a cached „this reader has no relay list"
+ * taken during a fault would stick for the session, and that verdict is the one that
+ * licenses a space-only write.
  *
  * ── Armed at boot, not on mount ─────────────────────────────────────────────────
  *
@@ -108,21 +112,28 @@ import { activeSpace } from './groups.ts'
 import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { publishSpreadOptimistic } from './publishOptimistic.ts'
 import { mayWriteKind } from './relayCapability.ts'
-import { app, RelayLists } from './welshmanApp.ts'
-import { eigeneOutboxUrls } from './welshmanRouter.ts'
+import { app } from './welshmanApp.ts'
+import { RELAYS } from './welshmanKinds.ts'
+import { INDEXER_RELAYS } from './relayConfig.ts'
 import { t } from './i18n.ts'
 import {
     FOLLOWS,
     type FollowEventLike,
     type FollowRelayRead,
     type FollowWrite,
+    type OutboxKnowledge,
+    declaredWriteRelaysOf,
     followedPubkeysOf,
     followListAnswered,
     followListWins,
     followRelayTargets,
     followWriteConfirmed,
+    newestOwnEvent,
+    normalizeRelaySet,
     ownFollowList,
+    outboxKnowledgeOf,
     planFollowWrite,
+    unansweredRelays,
     winningFollowList,
 } from './followModels.ts'
 
@@ -145,15 +156,19 @@ export type FollowsStore = {
     /**
      * **Was the reader's contact list written to this space and nowhere else?** (P2)
      *
-     * `true` means the last read found no NIP-65 relay list for them, so
-     * {@link followRelayTargets} had nothing but the space to offer. The list is still
-     * written — refusing would make following impossible for exactly the people who
+     * `true` means {@link OutboxKnowledge} came back **`confirmed-none`**: every relay we
+     * asked for the reader's kind 10002 answered, and none of them had one. The list is
+     * still written — refusing would make following impossible for exactly the people who
      * cannot fix it, because this client has no write path for kind 10002 — but the card
      * says so instead of promising a reach the list does not have.
      *
-     * Only meaningful together with {@link FollowsStore.listSeen}: before a read has
-     * come back, "no outbox" and "not looked yet" are the same `false`, and the surface
-     * gates on both.
+     * **`confirmed-none` and not „the url list came back empty".** That was F2: a single
+     * socket error emptied the quality-filtered outbox, the empty array took the lenient
+     * branch, and this field then told the reader the harmless reason for a fault. In the
+     * `unknown` state it stays `false` and nothing is written at all.
+     *
+     * Only meaningful together with {@link FollowsStore.listSeen}: before a read has come
+     * back, both are `false`, and the surface gates on both.
      */
     listSpaceOnly: boolean
     busy: boolean
@@ -184,24 +199,45 @@ export const READ_TIMEOUT_MS = 6_000
 /** Every kind 3 of one author, from one relay. */
 export const followFilters = (self: string): Filter[] => [{ kinds: [FOLLOWS], authors: [self] }]
 
+/** Every kind 10002 of one author, from one relay. */
+export const relayListFilters = (self: string): Filter[] => [{ kinds: [RELAYS], authors: [self] }]
+
 /** For which `url|pubkey` the live subscription is armed — `''` = for none. */
 let armedFor = ''
 let liveController: AbortController | null = null
 
-/** What a read of our own list came back with. */
+/** What a read of our own NIP-65 list came back with. */
+export type RelayListRead = {
+    /** Three values, not two — see {@link OutboxKnowledge}. */
+    knowledge: OutboxKnowledge
+    /** The declared write relays, normalised. Non-empty exactly when `knowledge` is `listed`. */
+    writeUrls: string[]
+    /** Relays asked for the kind 10002 that never sent an `EOSE` — for the refusal message. */
+    unanswered: string[]
+}
+
+/** What a read of our own contact list came back with. */
 export type FollowListRead = {
     /**
-     * **Is the merge base usable?** From {@link followListAnswered} — with a NIP-65 list
-     * on file this takes an `EOSE` from an OUTBOX relay; the space alone is not enough.
-     * `false` means: do not write anything.
+     * **Is the merge base usable?** From {@link followListAnswered}: EVERY relay in
+     * {@link FollowListRead.targets} closed the read with an `EOSE`. `false` means: do not
+     * write anything.
      */
     answered: boolean
     list: FollowEventLike | null
     /**
-     * The outbox relays this read asked, as `eigeneOutboxUrls()` reported them **after**
-     * the relay list had been fetched. Empty = no NIP-65 list we were able to find.
+     * **The relay set this read used — and the only set a write may go to.**
+     *
+     * Carried out of here rather than recomputed at the write, because recomputing is
+     * finding F3: the old set came from `eigeneOutboxUrls()`, a randomised sample of at
+     * most three, drawn once for the read and again for the write. 88.7 % of follows read
+     * a different set than they wrote, measured over 20 000 draws.
      */
-    outboxUrls: string[]
+    targets: string[]
+    /** Targets that did not answer — what the refusal on the card names. */
+    unanswered: string[]
+    /** What we know about the reader's own kind 10002 while this read happened. */
+    outbox: OutboxKnowledge
 }
 
 /**
@@ -241,31 +277,147 @@ const readFollowListFrom = async (url: string, self: string): Promise<FollowRela
 }
 
 /**
- * Read our own contact list from **outbox ∪ space** and report whether the answer may be
- * built upon.
+ * Read our own kind 10002 from ONE relay. Same construction and same reasoning as
+ * {@link readFollowListFrom} — the `EOSE` has to stay attributable to this relay.
+ */
+const readRelayListFrom = async (url: string, self: string): Promise<FollowRelayRead> => {
+    let answered = false
+    let events: TrustedEvent[] = []
+    try {
+        events = await requestOne({
+            relay: url,
+            filters: relayListFilters(self),
+            autoClose: true,
+            onEose: () => {
+                answered = true
+            },
+            signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+        })
+    } catch {
+        return { url, answered: false, list: null }
+    }
+
+    return { url, answered, list: newestOwnEvent(events as unknown as FollowEventLike[], self, RELAYS) }
+}
+
+/**
+ * **Find out where this reader has declared that they write — and whether we could find
+ * out at all.** The F2 repair.
  *
- * Four steps, each with its own section in the module header:
+ * Three answers, never two ({@link OutboxKnowledge}). The one that did not exist before is
+ * `unknown`, and its absence was the finding: „this reader has no NIP-65 list" and „we
+ * could not ask" were the same empty array, and the cheapest way to produce that array was
+ * a fault rather than a fact.
  *
- *  · fetch the reader's NIP-65 list, so that an empty outbox is an *attempted* answer and
- *    not a cold snapshot of a projection nobody ever filled;
- *  · assemble the targets — {@link followRelayTargets}, outbox first, space always in;
- *  · ask every target separately and in parallel, so the `EOSE` verdict stays per relay;
- *  · resolve the answers. The verdict comes from {@link followListAnswered}, the merge
- *    base from {@link winningFollowList} — two different questions, asked of two
- *    different functions on purpose. One decides whether we may write at all, the other
- *    what we would write from, and the second one must never be a union of `p` tags.
+ * ── Whom we ask ────────────────────────────────────────────────────────────────
+ *
+ * The indexers plus whatever the repository already knows this reader's write relays to
+ * be — the same set welshman's own `RelayLists.fetch` assembles
+ * (`@welshman/app` `plugins/relayLists.js`: `uniq([...indexerScenario, ...writeUrls])`).
+ * A relay list is announced to the relays it names, so they are a real second source.
+ *
+ * ── Why not `RelayLists.load(self)`, which is right there ──────────────────────
+ *
+ * Because it answers with data and never with a verdict: `makeLoadItem` resolves to
+ * `undefined` when there is no kind 10002 AND when no indexer could be reached, with no
+ * error and no flag — the same shape of hole this module refuses to accept for kind 3. It
+ * also caches for an hour, which would make a fault taken once stick for the session.
+ *
+ * ── Why the winning EVENT and not `RelayLists.writeUrls(self)` ─────────────────
+ *
+ * The projection is correct and it is welshman's; it is simply a different question. It
+ * hands back urls with no way to say whether anybody was ever asked, and it would make the
+ * url list depend on when the repository happened to ingest relative to when we looked.
+ * Resolving the event ourselves keeps the urls and the verdict about them tied to one
+ * object, through the same NIP-01 rule the contact list uses.
+ *
+ * **A cached list is a `listed`, without waiting for anyone.** A kind 10002 in the
+ * repository (`RELAYS` is in `PERSIST_KINDS`, so it survives a cold start) is a
+ * declaration this reader made; requiring the indexers to confirm it would block following
+ * on somebody else's uptime for no gain — the protection for that reader is the complete
+ * answer demanded on the contact list itself, {@link followListAnswered}.
+ *
+ * **`confirmed-none` is the one verdict here that needs EVERY asked relay to have
+ * answered**, because it is the only one that licenses a write. Getting it wrong is not a
+ * local mistake: the space-only kind 3 it produces carries a fresh `created_at`, so in the
+ * next session — when the real relay list does resolve — it wins the NIP-01 comparison
+ * against the reader's genuine list and takes it down with it. That two-step is why the
+ * bar is „all", and the price is stated rather than hidden: with three indexers
+ * configured, one of them silent means a reader who has no kind 10002 cannot follow until
+ * it answers. A refused click against a contact list that cannot be restored.
+ *
+ * **A deployment with NO indexers configured cannot follow at all**, and that is the same
+ * decision seen from the other side: `asked` is then empty, and an empty set is not
+ * vacuously complete ({@link followListAnswered} says so explicitly). Adding the space
+ * relay to this set as a fallback would make the answer non-empty and worthless — the
+ * space holds nobody's kind 10002, so „it answered, there is none" would be
+ * `confirmed-none` for every reader whose indexers are down. That is F2 with an extra
+ * step.
+ */
+export const readOwnRelayList = async (self: string): Promise<RelayListRead> => {
+    if (!self) {
+        return { knowledge: 'unknown', writeUrls: [], unanswered: [] }
+    }
+    const cached = newestOwnEvent(
+        app.repository.query(relayListFilters(self)) as unknown as FollowEventLike[],
+        self,
+        RELAYS,
+    )
+    const asked = normalizeRelaySet([...INDEXER_RELAYS, ...declaredWriteRelaysOf(cached)])
+    const reads = await Promise.all(asked.map((target: string) => readRelayListFrom(target, self)))
+    // The cached copy joins the NIP-01 comparison as a source with no verdict of its own —
+    // it answers "what did this reader declare", never "could we ask".
+    const candidates = [...reads, { url: '', answered: false, list: cached }]
+    const writeUrls = declaredWriteRelaysOf(winningFollowList(candidates))
+    const knowledge = outboxKnowledgeOf({ writeUrls, allAnswered: followListAnswered(reads, asked) })
+
+    return { knowledge, writeUrls, unanswered: unansweredRelays(reads, asked) }
+}
+
+/**
+ * Ask a KNOWN target set for our own contact list and resolve the two questions it raises.
+ *
+ * The set comes in rather than being computed here, and that is the F3 repair: the read
+ * and the write have to use the same relays, so the draw happens once, in
+ * {@link readOwnFollowList}, and is carried through {@link FollowListRead.targets}.
+ *
+ *  · Every target is asked separately and in parallel, so the `EOSE` verdict stays per
+ *    relay — {@link followListAnswered} needs to know *which* of them answered.
+ *  · The verdict comes from {@link followListAnswered}, the merge base from
+ *    {@link winningFollowList}. Two different questions, asked of two different functions
+ *    on purpose: one decides whether we may write at all, the other what we would write
+ *    from, and the second must never be a union of `p` tags.
+ */
+const readFollowListsFrom = async (
+    targets: string[],
+    self: string,
+    outbox: OutboxKnowledge,
+): Promise<FollowListRead> => {
+    const reads = await Promise.all(targets.map((target: string) => readFollowListFrom(target, self)))
+    const answered = followListAnswered(reads, targets)
+
+    return { answered, list: winningFollowList(reads), targets, unanswered: unansweredRelays(reads, targets), outbox }
+}
+
+/**
+ * Read our own contact list from **declared write relays ∪ space** and report whether the
+ * answer may be built upon.
+ *
+ * The relay list comes first and it is a gate, not a lookup: while
+ * {@link OutboxKnowledge} is `unknown` there is no honest target set, and asking a set we
+ * cannot justify would produce exactly the verdict F2 produced — a confident answer built
+ * on a fault.
  */
 export const readOwnFollowList = async (url: string, self: string): Promise<FollowListRead> => {
     if (!url || !self) {
-        return { answered: false, list: null, outboxUrls: [] }
+        return { answered: false, list: null, targets: [], unanswered: [], outbox: 'unknown' }
     }
-    await app.use(RelayLists).load(self).catch(noop)
-    const outboxUrls = eigeneOutboxUrls()
-    const targets = followRelayTargets(outboxUrls, url)
-    const reads = await Promise.all(targets.map((target: string) => readFollowListFrom(target, self)))
-    const answered = followListAnswered(reads, outboxUrls)
+    const relayList = await readOwnRelayList(self)
+    if (relayList.knowledge === 'unknown') {
+        return { answered: false, list: null, targets: [], unanswered: relayList.unanswered, outbox: 'unknown' }
+    }
 
-    return { answered, list: winningFollowList(reads), outboxUrls }
+    return readFollowListsFrom(followRelayTargets(relayList.writeUrls, url), self, relayList.knowledge)
 }
 
 /**
@@ -315,6 +467,56 @@ const armFollowList = (url: string, self: string, onAnswered: (read: FollowListR
 
     return true
 }
+
+/** At most this many relay names go into a refusal — the rest as „+n". */
+const NAMED_RELAYS_IN_ERROR = 3
+
+/** `wss://relay.example/` → `relay.example` — a relay name a reader can match to theirs. */
+const relayLabel = (url: string): string => url.replace(/^wss?:\/\//, '').replace(/\/$/, '')
+
+/** A short, readable list of relay names, capped so one message cannot become a wall. */
+const relayNames = (urls: readonly string[]): string => {
+    const names = urls.map(relayLabel)
+    const shown = names.slice(0, NAMED_RELAYS_IN_ERROR).join(', ')
+
+    return names.length > NAMED_RELAYS_IN_ERROR ? `${shown} +${names.length - NAMED_RELAYS_IN_ERROR}` : shown
+}
+
+/**
+ * **Why nothing was written, in words the reader can act on.**
+ *
+ * The strict verdict of {@link followListAnswered} is only bearable because of this
+ * function. „Es wurde nichts geändert" on its own leaves a reader with a button that
+ * refuses forever and no idea which of their relays to remove or wake up; a dead entry in
+ * their own kind 10002 is a thing they CAN fix, but only if they are told which one.
+ *
+ * The two causes are genuinely different and get different sentences:
+ *
+ *  · `unknown` — their relay list itself was not retrievable, so we never had a target
+ *    set. Nothing about their contact list is implied.
+ *  · otherwise — the target set stands and some of it stayed silent. Those are named.
+ */
+const refusalReason = (read: FollowListRead): string => {
+    if (read.outbox === 'unknown') {
+        return t('Deine Relay-Liste (NIP-65) war nicht abrufbar. Es wurde nichts geändert.')
+    }
+    return t('Diese Relais haben die Kontaktliste nicht ausgeliefert: :relays. Es wurde nichts geändert.', {
+        relays: relayNames(read.unanswered),
+    })
+}
+
+/**
+ * Which relays refused or dropped the write — the counterpart of {@link refusalReason}
+ * for the other end of the round trip.
+ *
+ * Until the audit this said „Der Space hat die Änderung nicht übernommen." for every
+ * outcome, and after P2 the space is usually not the relay that blocked: a replaceable
+ * event dropped for a `created_at` that lost the race sits wherever it sat. A message that
+ * names the wrong relay is worse than a vague one — the reader goes and checks something
+ * that is working.
+ */
+const writeRefused = (urls: readonly string[]): string =>
+    t('Diese Relais haben die Änderung nicht übernommen: :relays.', { relays: relayNames(urls) })
 
 // ── The store ───────────────────────────────────────────────────────────────────
 
@@ -386,7 +588,7 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                 // saw: a kind 10002 that arrives mid-session has to be able to take the
                 // notice off the card, and a session that starts before the relay list
                 // resolves has to be able to put it on.
-                self.listSpaceOnly = answer.outboxUrls.length === 0
+                self.listSpaceOnly = answer.outbox === 'confirmed-none'
                 adoptReadList(answer.list)
                 if (!seenBefore) {
                     // THE BOLT IN THE PATH, and it has to be here rather than on the
@@ -399,7 +601,7 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                     // is the ordinary one.
                     self.error = answer.answered
                         ? t('Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.')
-                        : t('Der Space hat die Liste nicht ausgeliefert. Es wurde nichts geändert.')
+                        : refusalReason(answer)
 
                     return
                 }
@@ -430,15 +632,21 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                 })
                 if (!plan) {
                     if (!answer.answered) {
-                        self.error = t('Der Space hat die Liste nicht ausgeliefert. Es wurde nichts geändert.')
+                        self.error = refusalReason(answer)
                     }
 
                     return
                 }
-                const failure = await publishFollowList(plan, target, add, me)
+                const failure = await publishFollowList(plan, target, add, me, answer)
                 if (failure) {
                     self.error = failure
                 }
+            } catch {
+                // A rejection out of the read path used to escape as an unhandled
+                // rejection while `self.error` stayed `''` — the direction was safe
+                // (nothing written) but silent, and a button that does nothing without
+                // saying why is indistinguishable from one that is broken.
+                self.error = t('Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.')
             } finally {
                 self.busy = false
             }
@@ -491,30 +699,41 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
      * ⇒ report. Otherwise the write happened and the re-read below decides, the same way
      * it did before P2.
      *
-     * `eigeneOutboxUrls()` is read synchronously here and that is safe **because of the
-     * order in `toggle()`**, not by itself: the merge-base read runs first and awaits the
-     * NIP-65 fetch, so the projection is warm by the time this runs. Calling
-     * `publishFollowList` from anywhere else would have to await that fetch again.
+     * ── `targets` comes IN — it is not drawn again here (F3) ───────────────────
+     *
+     * The set was drawn once, by the read whose answer this plan is built on, and the
+     * invariant of this module is that those are the same relays. Recomputing it was the
+     * finding: the old call went through `eigeneOutboxUrls()`, whose scenario keeps at
+     * most three of the declared relays and picks them with `Math.random()`, so the write
+     * routinely went somewhere else than the read — measured at 88.7 % of follows. Every
+     * relay in this set answered the read; that is what makes replacing their copy
+     * defensible, and it is only true for THIS set.
+     *
+     * The re-read uses the same set too, which is also why it is
+     * {@link readFollowListsFrom} and not {@link readOwnFollowList}: verifying against
+     * relays we did not write to would answer a different question, and re-resolving the
+     * kind 10002 would cost a second round of indexer requests for nothing.
      */
     const publishFollowList = async (
         plan: FollowWrite,
         target: string,
         add: boolean,
         me: string,
+        read: FollowListRead,
     ): Promise<string> => {
         const spread = await publishSpreadOptimistic(
-            followRelayTargets(eigeneOutboxUrls(), url),
+            read.targets,
             makeEvent(plan.kind, { content: plan.content, tags: plan.tags }),
         )
         if (spread.delivered.length === 0) {
-            return spread.error || t('Der Space hat die Änderung nicht übernommen.')
+            return spread.error || writeRefused(read.targets)
         }
-        const after = await readOwnFollowList(url, me)
+        const after = await readFollowListsFrom(read.targets, me, read.outbox)
         adoptReadList(after.list)
 
         return followWriteConfirmed(after.list ? after.list.tags : null, target, add)
             ? ''
-            : t('Der Space hat die Änderung nicht übernommen.')
+            : writeRefused(spread.failed.length > 0 ? spread.failed : read.targets)
     }
 
     const recompute = (): void => {
@@ -539,8 +758,13 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
         // Re-arming the same pair must not reset the verdict: no second read follows it,
         // and the button would stay inert for the rest of the session.
         if (armFollowList(nextUrl, me, (read: FollowListRead) => {
-            self.listSeen = read.answered
-            self.listSpaceOnly = read.outboxUrls.length === 0
+            // ORed, not assigned. The arming read takes up to twice {@link READ_TIMEOUT_MS}
+            // and a click can finish first; assigning would then throw away a verdict
+            // `toggle()` had already earned, putting the button back into the unknown
+            // state for no reason the reader can see. `false` here never means „not
+            // seen", only „this attempt did not see it".
+            self.listSeen = self.listSeen || read.answered
+            self.listSpaceOnly = read.outbox === 'confirmed-none'
             adoptReadList(read.list)
         })) {
             self.listSeen = false

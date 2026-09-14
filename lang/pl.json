@@ -1310,5 +1310,9 @@
     "Lädt…": "Wczytywanie…",
     "Kontaktliste wird geladen — Folgen ist noch nicht möglich": "Wczytywanie listy kontaktów — obserwowanie nie jest jeszcze możliwe",
     "Die Kontaktliste ist jetzt geladen. Bitte noch einmal klicken.": "Lista kontaktów została wczytana. Kliknij jeszcze raz.",
-    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Tej listy kontaktów nie da się znaleźć poza tym Space, bo nie masz zapisanej listy Relays (NIP-65)."
+    "Diese Kontaktliste ist außerhalb dieses Space nicht auffindbar, weil keine Relay-Liste (NIP-65) hinterlegt ist.": "Tej listy kontaktów nie da się znaleźć poza tym Space, bo nie masz zapisanej listy Relays (NIP-65).",
+    "Deine Relay-Liste (NIP-65) war nicht abrufbar. Es wurde nichts geändert.": "Nie udało się pobrać Twojej listy Relays (NIP-65). Nic nie zostało zmienione.",
+    "Diese Relais haben die Kontaktliste nicht ausgeliefert: :relays. Es wurde nichts geändert.": "Te Relays nie wydały listy kontaktów: :relays. Nic nie zostało zmienione.",
+    "Diese Relais haben die Änderung nicht übernommen: :relays.": "Te Relays nie zastosowały zmiany: :relays.",
+    "Die Kontaktliste konnte nicht gelesen werden. Es wurde nichts geändert.": "Nie udało się odczytać listy kontaktów. Nic nie zostało zmienione."
 }

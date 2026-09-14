@@ -1,15 +1,22 @@
 import test, { describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { RELAYS } from '@welshman/util'
+import { RelayListReader } from '@welshman/domain'
 import {
     FOLLOWS,
+    declaredWriteRelaysOf,
     followedPubkeysOf,
     followListAnswered,
     followListWins,
     followRelayTargets,
     followWriteConfirmed,
     isFollowPersonTag,
+    newestOwnEvent,
+    normalizeRelaySet,
+    outboxKnowledgeOf,
     ownFollowList,
     planFollowWrite,
+    unansweredRelays,
     winningFollowList,
     withFollowedPubkey,
     withoutFollowedPubkey,
@@ -40,6 +47,10 @@ const idList = (id: string, tags: string[][], created_at = 100): FollowEventLike
 
 const read = (url: string, answered: boolean, held: FollowEventLike | null = null): FollowRelayRead =>
     ({ url, answered, list: held })
+
+/** A kind 10002 of ours, for the NIP-65 cases. */
+const relayList = (tags: string[][], created_at = 100): FollowEventLike =>
+    ({ id: 'r', kind: RELAYS, pubkey: ME, created_at, tags, content: '' })
 
 const OUTBOX = 'wss://outbox.example/'
 const OUTBOX_2 = 'wss://second.example/'
@@ -156,51 +167,303 @@ describe('followRelayTargets: outbox ∪ space', () => {
     })
 })
 
+describe('normalizeRelaySet: the shared normaliser', () => {
+    test('CORE: normalises, drops non-relays, de-duplicates, keeps order', () => {
+        assert.deepEqual(
+            normalizeRelaySet(['wss://outbox.example', OUTBOX_2, 'wss://OUTBOX.example/', '', 'ws://']),
+            [OUTBOX, OUTBOX_2],
+        )
+    })
+
+    test('an empty input stays empty — it does not invent a fallback', () => {
+        assert.deepEqual(normalizeRelaySet([]), [])
+    })
+})
+
+describe('newestOwnEvent: one NIP-01 winner for both lists', () => {
+    test('CORE: the kind is part of the question', () => {
+        const drei = idList('aaa', [['p', ALICE]], 200)
+        const zehntausendzwei = relayList([['r', OUTBOX]], 300)
+        assert.equal(newestOwnEvent([drei, zehntausendzwei], ME, FOLLOWS), drei)
+        assert.equal(newestOwnEvent([drei, zehntausendzwei], ME, RELAYS), zehntausendzwei)
+    })
+
+    test('a foreign author never wins, whatever the timestamp', () => {
+        const fremd = { ...relayList([['r', OUTBOX]], 900), pubkey: BOB }
+        assert.equal(newestOwnEvent([fremd], ME, RELAYS), null)
+    })
+
+    test('the tie-break applies here too — the same function, not a copy of it', () => {
+        const klein = { ...relayList([['r', OUTBOX]], 100), id: 'aaa' }
+        const gross = { ...relayList([['r', OUTBOX_2]], 100), id: 'bbb' }
+        assert.equal(newestOwnEvent([gross, klein], ME, RELAYS), klein)
+    })
+})
+
 /**
- * **P2: the staged, fail-closed verdict.** This is the rule the whole phase turns on.
+ * **NIP-65 parsing, checked against welshman rather than against the spec text.**
  *
- * Both branches are asserted here, not one: a test that only covers "outbox present"
- * leaves the branch every reader without a kind 10002 actually takes unmeasured, and a
- * test that only covers "outbox empty" is green for a rule that never looks at the outbox
- * at all.
+ * The rule itself is one sentence — NIP-65: *„If the marker is omitted, the relay is both
+ * read and write."* — and it is still worth a differential test, because this function has
+ * to agree with `RelayListReader.writeUrls()` in `@welshman/domain`, not merely with my
+ * reading of the spec. The reference parser is RUN here, not quoted: `isRelayUrl` gating,
+ * the `relay` alias, normalisation and de-duplication are all places where a reimplementation
+ * drifts silently.
  */
-describe('followListAnswered: an EOSE from the space alone is not an answer', () => {
-    test('CORE, outbox present: the space answering is NOT enough', () => {
-        // This is the defect P2 removes, in one line. The space relay practically never
-        // holds a contact list — a closed NIP-29 relay stands in nobody's NIP-65 list —
-        // so "answered, and it held nothing" used to be the normal reading of "we asked
-        // the wrong relay", and a write on it is a kind 3 with one entry.
-        assert.equal(followListAnswered([read(SPACE, true), read(OUTBOX, false)], [OUTBOX]), false)
+describe('declaredWriteRelaysOf: NIP-65 write relays', () => {
+    test('CORE: an absent marker means read AND write', () => {
+        assert.deepEqual(declaredWriteRelaysOf(relayList([['r', OUTBOX]])), [OUTBOX])
     })
 
-    test('CORE, outbox present: ONE outbox relay answering is enough', () => {
-        assert.equal(followListAnswered([read(SPACE, false), read(OUTBOX, true)], [OUTBOX, OUTBOX_2]), true)
+    test('CORE: `write` counts, `read` does not', () => {
+        assert.deepEqual(
+            declaredWriteRelaysOf(relayList([['r', OUTBOX, 'write'], ['r', OUTBOX_2, 'read']])),
+            [OUTBOX],
+        )
     })
 
-    test('CORE, outbox EMPTY: the space answering is enough — there is no better source', () => {
-        // Refusing here would make following impossible for exactly the people who cannot
-        // fix it: this client has no write path for kind 10002.
-        assert.equal(followListAnswered([read(SPACE, true)], []), true)
+    test('a kind 10002 that declares only read relays yields NO write relay', () => {
+        assert.deepEqual(declaredWriteRelaysOf(relayList([['r', OUTBOX, 'read']])), [])
     })
 
-    test('outbox empty and nobody answered: still no', () => {
-        assert.equal(followListAnswered([read(SPACE, false)], []), false)
+    test('no list at all: empty, and it is the caller who decides what that means', () => {
+        assert.deepEqual(declaredWriteRelaysOf(null), [])
     })
 
-    test('nothing was asked at all: no', () => {
+    test('normalised and de-duplicated; non-relay entries drop out', () => {
+        assert.deepEqual(
+            declaredWriteRelaysOf(relayList([
+                ['r', 'wss://outbox.example'],
+                ['r', 'wss://OUTBOX.example/'],
+                ['r', 'http://outbox.example/'],
+                ['r', 'nicht mal eine url'],
+                ['p', OUTBOX_2],
+            ])),
+            [OUTBOX],
+        )
+    })
+
+    test('DIFFERENTIAL: agrees with welshman RelayListReader on every fixture', () => {
+        // Run, not read. A reimplementation of somebody else's parser is a claim about
+        // their code, and the only honest way to make it is to execute theirs.
+        const fixtures: string[][][] = [
+            [['r', OUTBOX]],
+            [['r', OUTBOX, 'write'], ['r', OUTBOX_2, 'read']],
+            [['r', OUTBOX, 'read']],
+            [['r', OUTBOX, '']],
+            [['relay', OUTBOX_2], ['r', OUTBOX, 'write']],
+            [['r', 'wss://outbox.example'], ['r', 'wss://OUTBOX.example/']],
+            [['r', 'http://outbox.example/'], ['r', 'nicht mal eine url'], ['r', '']],
+            [['p', ALICE], ['t', 'bitcoin']],
+            [],
+        ]
+        for (const tags of fixtures) {
+            const event = relayList(tags)
+            const referenz = new RelayListReader(RELAYS, {} as never, event as never).writeUrls()
+            assert.deepEqual(
+                declaredWriteRelaysOf(event),
+                referenz,
+                `disagrees with RelayListReader on ${JSON.stringify(tags)}`,
+            )
+        }
+    })
+
+    test('CALIBRATION: the reference parser is really running and really discriminates', () => {
+        // Without this, a `RelayListReader` that threw or returned `[]` for everything
+        // would make the differential case above green against a broken implementation.
+        assert.deepEqual(
+            new RelayListReader(RELAYS, {} as never, relayList([['r', OUTBOX], ['r', OUTBOX_2, 'read']]) as never)
+                .writeUrls(),
+            [OUTBOX],
+        )
+    })
+})
+
+/**
+ * **F2: „this reader has no relay list" and „we could not ask" are different answers.**
+ *
+ * All three states get their own case. Two of three would leave exactly the gap the
+ * finding describes: before the repair there were two values, and the missing third was
+ * the one a fault produced.
+ *
+ * The fault was cheap to produce, which is what made it a High: `RelayStats.getQuality`
+ * returns `0` after ONE `SocketStatus.Error` inside 60 s, and `RelayScenario.getUrls()`
+ * drops a zero-quality relay entirely — so a network hiccup emptied the outbox, the empty
+ * outbox took the lenient branch, and the card told the reader the harmless reason.
+ */
+describe('outboxKnowledgeOf: three states, never two', () => {
+    test('CORE listed: write relays are declared — completeness is then the contact list\'s problem', () => {
+        assert.equal(outboxKnowledgeOf({ writeUrls: [OUTBOX], allAnswered: false }), 'listed')
+        assert.equal(outboxKnowledgeOf({ writeUrls: [OUTBOX], allAnswered: true }), 'listed')
+    })
+
+    test('CORE confirmed-none: nothing declared AND everybody answered', () => {
+        assert.equal(outboxKnowledgeOf({ writeUrls: [], allAnswered: true }), 'confirmed-none')
+    })
+
+    test('CORE unknown: nothing declared and somebody stayed silent — NOT the same thing', () => {
+        // This is the whole finding. The two cases above and below differ by one boolean,
+        // and before the repair they were one value.
+        assert.equal(outboxKnowledgeOf({ writeUrls: [], allAnswered: false }), 'unknown')
+    })
+
+    test('the three are distinct values, so a caller cannot collapse two by accident', () => {
+        const alle = [
+            outboxKnowledgeOf({ writeUrls: [OUTBOX], allAnswered: true }),
+            outboxKnowledgeOf({ writeUrls: [], allAnswered: true }),
+            outboxKnowledgeOf({ writeUrls: [], allAnswered: false }),
+        ]
+        assert.equal(new Set(alle).size, 3, `expected three distinct verdicts, got ${JSON.stringify(alle)}`)
+    })
+})
+
+/**
+ * **THE invariant, and the finding that it replaces.**
+ *
+ * A kind 3 may be written only if EVERY relay of the target set closed the read with an
+ * `EOSE` in the same operation. The first version of this function asked `some`, which
+ * reads reasonably and is wrong by one word: the write does not go to the relay that
+ * answered, it goes to the whole set.
+ *
+ * Both directions are asserted, and so is the vacuous one — `[].every(…)` is `true`, and
+ * an empty target set sliding through as "everything answered" would be a write to
+ * nowhere reported as a complete read.
+ */
+describe('followListAnswered: EVERY target must have answered, not just one', () => {
+    test('CORE: one relay that answered does NOT license the ones that stayed silent', () => {
+        // F1 in one line. The relay that answered is not the relay the write replaces.
+        assert.equal(followListAnswered([read(OUTBOX, true), read(OUTBOX_2, false), read(SPACE, false)],
+            [OUTBOX, OUTBOX_2, SPACE]), false)
+    })
+
+    test('CORE: all of them answered — and only then', () => {
+        assert.equal(followListAnswered([read(OUTBOX, true), read(OUTBOX_2, true), read(SPACE, true)],
+            [OUTBOX, OUTBOX_2, SPACE]), true)
+    })
+
+    test('CORE: a reader with no relay list — the space alone IS the whole set', () => {
+        // Not a second, laxer branch: the set is `[SPACE]`, and every member of it
+        // answered. One rule, two situations. Refusing here would make following
+        // impossible for people who cannot fix it — this client writes no kind 10002.
+        assert.equal(followListAnswered([read(SPACE, true)], [SPACE]), true)
+        assert.equal(followListAnswered([read(SPACE, false)], [SPACE]), false)
+    })
+
+    test('an empty target set is NOT vacuously complete', () => {
         assert.equal(followListAnswered([], []), false)
-        assert.equal(followListAnswered([], [OUTBOX]), false)
+        assert.equal(followListAnswered([read(OUTBOX, true)], []), false)
+    })
+
+    test('a target nobody even asked counts as unanswered', () => {
+        // The set is built from `targets`, not from `reads`: a read that silently never
+        // happened has to show up as a gap, not disappear.
+        assert.equal(followListAnswered([read(OUTBOX, true)], [OUTBOX, OUTBOX_2]), false)
     })
 
     test('the verdict is about the ANSWER, not about what the relay held', () => {
-        // A reader who genuinely follows nobody has an outbox relay that answers with zero
-        // events. That is a complete answer, and refusing it would leave them unable to
-        // make their first follow ever.
-        assert.equal(followListAnswered([read(OUTBOX, true, null)], [OUTBOX]), true)
+        // A reader who genuinely follows nobody has relays that answer with zero events.
+        // That is a complete answer, and refusing it would leave them unable to make
+        // their first follow ever.
+        assert.equal(followListAnswered([read(OUTBOX, true, null), read(SPACE, true, null)], [OUTBOX, SPACE]), true)
     })
 
-    test('the outbox is matched NORMALISED — a missing slash must not silently fail closed', () => {
-        assert.equal(followListAnswered([read(OUTBOX, true)], ['wss://outbox.example']), true)
+    test('targets and answers are matched NORMALISED — a missing slash must not fail closed', () => {
+        assert.equal(followListAnswered([read('wss://outbox.example', true)], ['wss://outbox.example/']), true)
+        assert.equal(followListAnswered([read('wss://outbox.example/', true)], ['wss://outbox.example']), true)
+    })
+})
+
+/**
+ * The refusal has to NAME the relay, or the strict rule above is unusable: a reader whose
+ * own kind 10002 carries a dead entry can fix that — elsewhere, this client writes no
+ * relay list — but only if they are told which entry.
+ */
+describe('unansweredRelays: what the refusal says', () => {
+    test('CORE: exactly the targets that did not answer, normalised', () => {
+        assert.deepEqual(
+            unansweredRelays([read(OUTBOX, true), read(OUTBOX_2, false), read(SPACE, false)],
+                [OUTBOX, OUTBOX_2, SPACE]),
+            [OUTBOX_2, SPACE],
+        )
+    })
+
+    test('a target with no read at all is named too', () => {
+        assert.deepEqual(unansweredRelays([read(OUTBOX, true)], [OUTBOX, OUTBOX_2]), [OUTBOX_2])
+    })
+
+    test('everything answered: nothing to name', () => {
+        assert.deepEqual(unansweredRelays([read(OUTBOX, true), read(SPACE, true)], [OUTBOX, SPACE]), [])
+    })
+})
+
+/**
+ * **The F1 scenario end to end, in the auditor's own shape.**
+ *
+ * A reader on three write relays whose 700-entry list sits on two of them. The third is
+ * fresh and holds nothing; it answers. The two that hold the list run into the timeout.
+ * Under the `some` rule this produced a signed kind 3 with ONE tag and an empty `content`,
+ * addressed at all four relays, with `created_at = now()` — 700 contacts and the legacy
+ * relay map gone, reported as success.
+ *
+ * The whole chain is exercised here rather than the verdict alone, because the verdict is
+ * only half of the claim: `winningFollowList` still returns `null` in this situation, and
+ * `planFollowWrite` would still build a body from it. The promise is that **no body comes
+ * out**, and that is only true if the two functions are wired the way `js/follows.ts`
+ * wires them.
+ */
+describe('F1: a partial answer never licenses a total replacement', () => {
+    const FRESH = 'wss://fresh.example/'
+    const DAMUS = 'wss://relay.damus.io/'
+    const NOSLOL = 'wss://nos.lol/'
+
+    /** The 700 the reader would lose, shortened to three — the count is not the point. */
+    const echteListe = idList('aaa', [['p', ALICE], ['p', BOB], ['t', 'bitcoin']], 100)
+
+    const reads = [
+        read(FRESH, true, null),
+        read(DAMUS, false, echteListe),
+        read(NOSLOL, false, echteListe),
+        read(SPACE, false, null),
+    ]
+    const targets = [FRESH, DAMUS, NOSLOL, SPACE]
+
+    test('CORE: the verdict is NOT answered', () => {
+        assert.equal(
+            followListAnswered(reads, targets),
+            false,
+            'one fresh relay that answered and held nothing must not stand in for the two that hold the list',
+        )
+    })
+
+    test('CORE: no event body comes out — the plan refuses', () => {
+        const plan = planFollowWrite({
+            list: winningFollowList(reads),
+            listAnswered: followListAnswered(reads, targets),
+            target: BOB,
+            self: ME,
+            add: false,
+            spaceKind: 'other',
+        })
+        assert.equal(plan, null, 'this is the write that deletes 700 contacts; it must not exist')
+    })
+
+    test('CALIBRATION: the same inputs with every relay answering DO produce a body', () => {
+        // Without this the case above would also pass for a gate that refuses everything.
+        const alleDa = reads.map((r) => ({ ...r, answered: true }))
+        const plan = planFollowWrite({
+            list: winningFollowList(alleDa),
+            listAnswered: followListAnswered(alleDa, targets),
+            target: BOB,
+            self: ME,
+            add: false,
+            spaceKind: 'other',
+        })
+        assert.ok(plan, 'a complete answer must still be able to write')
+        assert.deepEqual(plan.tags, [['p', ALICE], ['t', 'bitcoin']], 'and it is built from the REAL list')
+    })
+
+    test('CALIBRATION: the refusal names the two relays that stayed silent', () => {
+        assert.deepEqual(unansweredRelays(reads, targets), [DAMUS, NOSLOL, SPACE])
     })
 })
 
