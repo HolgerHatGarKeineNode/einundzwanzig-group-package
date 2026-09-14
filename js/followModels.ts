@@ -629,19 +629,56 @@ export const followedPubkeysIn = (tags: readonly string[][]): string[] => {
 export const followedPubkeysOf = (list: FollowEventLike | null): string[] => followedPubkeysIn(list?.tags ?? [])
 
 /**
- * The full tag list after following one person — **newest first**, every foreign tag kept.
+ * **The full tag list after following n people — the base carried over UNTOUCHED, the
+ * genuinely new entries in front of it, in the order they were given.**
  *
  * Prepending for the same reason `withMutedPubkey` does: a list that grows at the bottom
  * pushes the entry the user just made out of sight wherever it is rendered top down.
  *
- * The new entry is a bare `["p", <pubkey>]`. A relay hint would be a guess — the space we
+ * A new entry is a bare `["p", <pubkey>]`. A relay hint would be a guess — the space we
  * happen to be on is not necessarily where that person writes — and an invented hint is
  * worse than none, because other clients act on it.
+ *
+ * ── Why the base is not filtered, and why that is the whole point of P3 ─────────
+ *
+ * The single-target predecessor removed the target's existing entry and re-prepended it as
+ * a bare tag. For one person that is a reordering with one measurable cost: the entry loses
+ * its relay hint and its petname (`["p", <hex>, <relay>, <petname>]` → `["p", <hex>]`).
+ * `js/follows.ts` never reaches the case, because it derives the direction from the list a
+ * relay just showed it, so a person already followed is unfollowed and never re-added.
+ *
+ * **A bulk call has no such luck.** „Follow every member" over 400 people of whom 380 are
+ * already followed would run all 380 through that reordering and strip 380 petnames and
+ * hints in one signed event — refusal 3 of {@link planFollowWrite}, broken 380 times, and
+ * invisible on screen because the follow itself succeeds. So an already-followed target
+ * contributes **nothing**: it stays exactly where it is, with every column it had.
+ *
+ * ── The properties this function is chosen for ─────────────────────────────────
+ *
+ *  · **`tags` is a SUFFIX of the result**, element for element, column for column. The
+ *    result can therefore never be shorter than the base, whatever is passed in — which is
+ *    the one outcome a contact-list write must never have.
+ *  · A pubkey repeated inside `targets` is added once. A duplicate `p` tag is not a
+ *    stronger follow, it is a malformed list.
+ *  · `self` and the empty string are dropped from the additions rather than refusing the
+ *    call. The reader's own key is in the member directory this feeds, and „follow all"
+ *    must not be impossible for a member; the invariant those refusals protect is „self
+ *    never becomes a new `p` tag", and dropping keeps it. A self entry the base already
+ *    carries is left alone — removing it would be a shrink nobody asked for.
  */
-export const withFollowedPubkey = (tags: string[][], target: string): string[][] => [
-    [FOLLOW_PERSON_TAG, target],
-    ...tags.filter((tag) => !(isFollowPersonTag(tag) && tag[1] === target)),
-]
+export const withFollowedPubkeys = (tags: string[][], targets: readonly string[], self: string): string[][] => {
+    const known = new Set(followedPubkeysIn(tags))
+    const added: string[][] = []
+    for (const target of targets) {
+        if (!target || target === self || known.has(target)) {
+            continue
+        }
+        known.add(target)
+        added.push([FOLLOW_PERSON_TAG, target])
+    }
+
+    return [...added, ...tags]
+}
 
 /** The full tag list after unfollowing one person. Every other tag stays. */
 export const withoutFollowedPubkey = (tags: string[][], target: string): string[][] =>
@@ -650,8 +687,54 @@ export const withoutFollowedPubkey = (tags: string[][], target: string): string[
 /** The body of the event a write would produce — nothing more than that. */
 export type FollowWrite = { kind: number; content: string; tags: string[][] }
 
+/**
+ * **The direction of a write, as a shape rather than as a flag — and the reason it is a
+ * union is a decision of the plan, not a taste in types.**
+ *
+ * | arm | what it takes | what it can do |
+ * |---|---|---|
+ * | `add: true` | `targets`, n ≥ 0 | grow the list by the entries it does not already have |
+ * | `add: false` | `target`, exactly one | remove exactly one entry |
+ *
+ * ── Why growth is bulk and shrinking is not ────────────────────────────────────
+ *
+ * P3 exists because n follows must become ONE replaceable event: `makeEvent` stamps
+ * `created_at` in seconds, so n writes inside the same second carry the same timestamp and
+ * the id hash decides which survives — on Buzz the loser is reported as `OK true` with
+ * `duplicate:`, which reads as success. n calls would be n events that displace each other;
+ * one call is one event.
+ *
+ * None of that argues for a bulk UNFOLLOW, and the plan puts mass-unfollow out of scope
+ * with a reason of its own: same mechanism, but a misclick cannot be taken back, so it is
+ * its own piece of work with its own question to the user. With a plain `targets: string[]`
+ * next to a plain `add: boolean`, that decision would be three characters away — `add: false`
+ * over a selection of 400 produces an event with 400 entries FEWER than the base, which is
+ * the single outcome this module exists to prevent, and no test of the follow direction
+ * would see it.
+ *
+ * **So the union is that scope decision, held by the compiler.** Widening it is not a
+ * type-level inconvenience to be smoothed out: whoever replaces this with one flag is
+ * overruling a decision of the plan, and the cost of doing it deliberately is one edit to
+ * this file — which is exactly where the „eigene Rückfrage" the plan asks for belongs.
+ */
+export type FollowPlanDirection =
+    | {
+        add: true
+        /**
+         * The people to follow. Duplicates, entries already on the list, the reader's own
+         * key and empty strings all contribute nothing — {@link withFollowedPubkeys}
+         * carries why each of those is dropped rather than refused.
+         */
+        targets: readonly string[]
+    }
+    | {
+        add: false
+        /** The one person to unfollow. Empty or the reader themselves refuses the write. */
+        target: string
+    }
+
 /** What {@link planFollowWrite} needs to answer. */
-export type FollowPlanInput = {
+export type FollowPlanInput = FollowPlanDirection & {
     /**
      * Our own newest kind 3, as {@link winningFollowList} resolved it across the relays
      * that were asked — or `null`.
@@ -672,11 +755,8 @@ export type FollowPlanInput = {
      * retrievable" ({@link OutboxKnowledge}`.unknown`); all of them must refuse.
      */
     listAnswered: boolean
-    /** The person to follow or unfollow. */
-    target: string
     /** The reader's own pubkey; `''` for a guest. */
     self: string
-    add: boolean
     /** From `deriveSpaceKind`; `'unknown'` denies. */
     spaceKind: SpaceKind
 }
@@ -696,18 +776,50 @@ const sameTags = (a: string[][], b: string[][]): boolean =>
  *
  * | refusal | what happens without it |
  * |---|---|
- * | `!target` / `!self` | an empty `p` tag, or a guest write with no key |
- * | `target === self` | following yourself — harmless on the wire, but it puts a row in every reader's contact list that means nothing, and the button would offer "unfollow yourself" forever |
+ * | `!self` | a guest write with no key |
+ * | no usable target | an empty `p` tag, or an unfollow of nobody |
  * | `!listAnswered` | **the replaceable-kind data loss**: we replace the relay's contact list with the entries we happen to know, and every follow made on another device is deleted. Since P2 the verdict behind this flag is the staged one in {@link followListAnswered} — an `EOSE` from the space relay alone no longer clears it while the reader has an outbox |
  * | `!mayWriteKind` | a write while the relay kind is still `'unknown'`, i.e. a guess about which relay we are talking to |
- * | `sameTags` | a signed event that changes nothing — a double click, or a second device that got there first |
+ * | `sameTags` | a signed event that changes nothing — a double click, a second device that got there first, or a bulk call in which every target was already followed |
  *
  * `content` is carried over unchanged: the relay map some clients still keep there is not
  * ours to rewrite (module header).
+ *
+ * ── n targets, ONE event — and why that is not an optimisation (P3) ────────────
+ *
+ * The follow direction takes a set and resolves it in one pass. Calling this n times and
+ * signing each answer would produce n replaceable events with, in the ordinary case, the
+ * SAME `created_at`: `makeEvent` stamps seconds. NIP-01 then breaks the tie on the id, so
+ * one of the n survives and the other n-1 are dropped — Buzz reports the dropped ones as
+ * `OK true` with the message `duplicate:`, which every surface reads as success. Each of
+ * those n bodies was built from the same base and therefore holds the base plus exactly one
+ * entry: „follow 400 members" would end at 399 lost, reported green. One call, one event.
+ *
+ * ── The two arms decide the reader's OWN key differently, deliberately ─────────
+ *
+ * `add: false, target: self` **refuses the whole write**; `add: true` with `self` among the
+ * targets **drops it and adds the rest**. That is not an inconsistency left behind:
+ *
+ *  · The unfollow arm takes exactly one target, so „that target is unusable" and „this call
+ *    has nothing to do" are the same sentence. Refusing says it once and plainly.
+ *  · The follow arm is fed by the member directory, and the reader is a member. Refusing
+ *    the whole set because the reader's own row is in it would make „follow everybody"
+ *    impossible for precisely the people this feature is for. The invariant behind the old
+ *    refusal is „self never becomes a new `p` tag", and dropping keeps it exactly.
+ *
+ * A self entry the base already carries is untouched in both arms of the follow direction —
+ * removing it would be a shrink nobody asked for, and shrinking is what this module is
+ * about ({@link withFollowedPubkeys}).
  */
 export const planFollowWrite = (input: FollowPlanInput): FollowWrite | null => {
-    const { list, listAnswered, target, self, add, spaceKind } = input
-    if (!target || !self || target === self) {
+    const { list, listAnswered, self, spaceKind } = input
+    if (!self) {
+        return null
+    }
+    // The unfollow arm, which is single-target by construction: an unusable target leaves
+    // it with nothing to do, and saying so here keeps it out of the tag algebra. The follow
+    // arm has no equivalent — an unusable entry among n is dropped, not fatal.
+    if (!input.add && (!input.target || input.target === self)) {
         return null
     }
     if (!listAnswered) {
@@ -717,7 +829,9 @@ export const planFollowWrite = (input: FollowPlanInput): FollowWrite | null => {
         return null
     }
     const current = list?.tags ?? []
-    const tags = add ? withFollowedPubkey(current, target) : withoutFollowedPubkey(current, target)
+    const tags = input.add
+        ? withFollowedPubkeys(current, input.targets, self)
+        : withoutFollowedPubkey(current, input.target)
     if (sameTags(current, tags)) {
         return null
     }

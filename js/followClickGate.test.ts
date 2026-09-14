@@ -350,7 +350,7 @@ describe('the first click reads, the second writes — measured at the relay', (
         assert.equal(written.length, 1, 'the click wrote, so the relay-list read really did resolve')
         assert.deepEqual(
             written[0]?.tags,
-            // Newest first — `withFollowedPubkey` prepends. TWO entries is the load-bearing
+            // Newest first — `withFollowedPubkeys` prepends. TWO entries is the load-bearing
             // part: a read that came back empty would have produced exactly `[['p', BOB]]`,
             // which is the stub this whole phase is about.
             [['p', BOB], ['p', ALICE]],

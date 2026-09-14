@@ -120,6 +120,7 @@ import { t } from './i18n.ts'
 import {
     FOLLOWS,
     type FollowEventLike,
+    type FollowPlanDirection,
     type FollowRelayRead,
     type FollowTargetSet,
     type FollowWrite,
@@ -873,13 +874,18 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                 // plan is silent for every reason but this one — the user has to learn
                 // that nothing was written, or they will believe a follow that does not
                 // exist.
+                //
+                // The direction is a SHAPE since P3, not a flag: following takes a set,
+                // unfollowing takes one person. Built here as one value and handed to one
+                // call, because two calls would be two ways to the relay past one gate —
+                // `followWriteGate.test.ts` counts this call and expects exactly one.
+                const direction: FollowPlanDirection = add ? { add: true, targets: [target] } : { add: false, target }
                 const plan = planFollowWrite({
                     list: answer.list,
                     listAnswered: answer.answered,
-                    target,
                     self: me,
-                    add,
                     spaceKind,
+                    ...direction,
                 })
                 if (!plan) {
                     if (!answer.answered) {

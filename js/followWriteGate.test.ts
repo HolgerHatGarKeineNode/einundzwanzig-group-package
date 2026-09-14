@@ -198,7 +198,7 @@ const WRITE_HALF_CALLERS: Readonly<Record<string, string>> = {
     [GATE]: WRITER,
     // Behind the gate, inside the pure half: the tag algebra is called by the plan and by
     // nobody else. A second caller would be a tag list that never passed the refusals.
-    withFollowedPubkey: 'followModels.ts',
+    withFollowedPubkeys: 'followModels.ts',
     withoutFollowedPubkey: 'followModels.ts',
 }
 

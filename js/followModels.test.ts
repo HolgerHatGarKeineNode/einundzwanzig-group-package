@@ -7,6 +7,7 @@ import {
     anyRelayAnswered,
     armingReadsContactList,
     declaredWriteRelaysOf,
+    followedPubkeysIn,
     followedPubkeysOf,
     followListAnswered,
     followListWins,
@@ -21,9 +22,10 @@ import {
     planFollowWrite,
     unansweredRelays,
     winningFollowList,
-    withFollowedPubkey,
+    withFollowedPubkeys,
     withoutFollowedPubkey,
     type FollowEventLike,
+    type FollowPlanInput,
     type FollowRelayRead,
     type FollowTargetSet,
 } from './followModels.ts'
@@ -41,6 +43,7 @@ import {
 const ME = 'a'.repeat(64)
 const ALICE = 'b'.repeat(64)
 const BOB = 'c'.repeat(64)
+const CAROL = 'd'.repeat(64)
 
 const list = (tags: string[][], created_at = 100, content = '', pubkey = ME): FollowEventLike =>
     ({ id: 'x', kind: FOLLOWS, pubkey, created_at, tags, content })
@@ -620,7 +623,7 @@ describe('ACCEPTED RISK, not a guarantee: relays that answer and hold nothing yi
         const plan = planFollowWrite({
             list: winningFollowList(reads),
             listAnswered: followListAnswered(reads, targets),
-            target: ALICE,
+            targets: [ALICE],
             self: ME,
             add: true,
             spaceKind: 'other',
@@ -643,7 +646,7 @@ describe('ACCEPTED RISK, not a guarantee: relays that answer and hold nothing yi
         const plan = planFollowWrite({
             list: winningFollowList(reads),
             listAnswered: followListAnswered(reads, targets),
-            target: ALICE,
+            targets: [ALICE],
             self: ME,
             add: true,
             spaceKind: 'other',
@@ -905,14 +908,49 @@ describe('winningFollowList: the newest list wins, the tags are never merged', (
 describe('the tag algebra keeps what it cannot display', () => {
     test('following prepends a BARE tag and keeps every foreign one', () => {
         const vorher = [['t', 'bitcoin'], ['p', ALICE, 'wss://relay/', 'ali']]
-        const nachher = withFollowedPubkey(vorher, BOB)
+        const nachher = withFollowedPubkeys(vorher, [BOB], ME)
         assert.deepEqual(nachher[0], ['p', BOB], 'the new entry is first — and carries no invented relay hint')
         assert.deepEqual(nachher.slice(1), vorher, 'every existing tag survives, with its extra columns')
     })
 
-    test('following somebody already followed moves them to the front WITHOUT duplicating', () => {
-        const nachher = withFollowedPubkey([['p', ALICE, 'wss://relay/', 'ali']], ALICE)
-        assert.deepEqual(nachher, [['p', ALICE]])
+    /**
+     * **The single most important difference to the function P3 replaced.**
+     *
+     * `withFollowedPubkey([['p', ALICE, 'wss://relay/', 'ali']], ALICE)` answered
+     * `[['p', ALICE]]` — it removed the entry and re-prepended it bare, so the relay hint
+     * and the petname were gone. For one person that was a reordering nobody reached (the
+     * store derives the direction from the list a relay just showed it). For „follow all
+     * 400 members" of whom 380 are already followed it would be refusal 3 of the module
+     * header, broken 380 times, in one signed event that looks like a success.
+     */
+    test('CORE: a target that is ALREADY followed changes nothing — hint and petname survive', () => {
+        const vorher = [['p', ALICE, 'wss://relay/', 'ali']]
+        assert.deepEqual(withFollowedPubkeys(vorher, [ALICE], ME), vorher)
+    })
+
+    test('CORE: the same person twice in one set is added ONCE', () => {
+        assert.deepEqual(withFollowedPubkeys([], [BOB, BOB, BOB], ME), [['p', BOB]])
+    })
+
+    test('CORE: new entries keep the order they were given, in front of the base', () => {
+        assert.deepEqual(
+            withFollowedPubkeys([['t', 'bitcoin']], [ALICE, BOB], ME),
+            [['p', ALICE], ['p', BOB], ['t', 'bitcoin']],
+        )
+    })
+
+    test('CORE: the reader\'s own key and an empty entry drop out — the rest is still added', () => {
+        assert.deepEqual(withFollowedPubkeys([], [ME, '', BOB], ME), [['p', BOB]])
+    })
+
+    test('CORE: a self entry the base already carries is left alone — removing it would shrink', () => {
+        const vorher = [['p', ME], ['p', ALICE]]
+        assert.deepEqual(withFollowedPubkeys(vorher, [ME, BOB], ME), [['p', BOB], ['p', ME], ['p', ALICE]])
+    })
+
+    test('an empty set of targets leaves the list exactly as it was', () => {
+        const vorher = [['p', ALICE, 'wss://relay/', 'ali'], ['t', 'x']]
+        assert.deepEqual(withFollowedPubkeys(vorher, [], ME), vorher)
     })
 
     test('unfollowing removes only that person — hint and petname of the others stay', () => {
@@ -924,9 +962,31 @@ describe('the tag algebra keeps what it cannot display', () => {
     })
 })
 
-describe('planFollowWrite: the gate and the event body are ONE value', () => {
-    const basis = { list: list([]), listAnswered: true, target: ALICE, self: ME, add: true, spaceKind: 'other' as const }
+/**
+ * The two arms of the direction, as two constants — a single `basis` with `add: boolean`
+ * cannot exist any more, and that is the point of the union (see {@link FollowPlanDirection}
+ * in `js/followModels.ts`): a bulk unfollow is not a flag away, it is an edit to that file.
+ */
+const basis = {
+    list: list([]),
+    listAnswered: true,
+    targets: [ALICE],
+    self: ME,
+    add: true as const,
+    spaceKind: 'other' as const,
+}
 
+/** The unfollow arm: one person, never a set. */
+const abbau = {
+    list: list([]),
+    listAnswered: true,
+    target: ALICE,
+    self: ME,
+    add: false as const,
+    spaceKind: 'other' as const,
+}
+
+describe('planFollowWrite: the gate and the event body are ONE value', () => {
     test('the ordinary case produces a body that carries `content` over untouched', () => {
         const plan = planFollowWrite({ ...basis, list: list([['p', BOB]], 100, '{"wss://a/":{"read":true}}') })
         assert.ok(plan)
@@ -984,25 +1044,55 @@ describe('planFollowWrite: the gate and the event body are ONE value', () => {
         assert.equal(planFollowWrite({ ...basis, spaceKind: 'unknown' }), null)
     })
 
-    test('following yourself is refused', () => {
-        assert.equal(planFollowWrite({ ...basis, target: ME }), null)
+    /**
+     * **The two arms answer the reader's own key differently, and that is deliberate.**
+     *
+     * Unfollow takes one target, so „unusable target" and „nothing to do" are one sentence
+     * and refusing says it plainly. Follow is fed by the member directory, in which the
+     * reader has a row of their own; refusing the whole set because of it would lock „follow
+     * everybody" for exactly the members this feature exists for. What both arms hold is the
+     * invariant the old refusal protected: self never becomes a NEW `p` tag.
+     */
+    test('CORE: unfollowing YOURSELF is refused — one target, nothing to do', () => {
+        assert.equal(planFollowWrite({ ...abbau, target: ME }), null)
+    })
+
+    test('CORE: following a set that CONTAINS yourself adds the rest, and adds no self tag', () => {
+        const plan = planFollowWrite({ ...basis, targets: [ME, ALICE, BOB] })
+        assert.ok(plan, 'the reader\'s own row in the member directory must not lock the whole action')
+        assert.deepEqual(plan.tags, [['p', ALICE], ['p', BOB]], 'self is dropped, the other two are added')
+    })
+
+    /**
+     * The more important half of the pair: an entry the base already carries stays, whoever
+     * it names. Removing it would be an event with fewer entries than the base — the one
+     * outcome this module exists to prevent — and it would happen for a reason the reader
+     * never asked for.
+     */
+    test('CORE: a self entry ALREADY on the list survives a bulk follow untouched', () => {
+        const plan = planFollowWrite({ ...basis, list: list([['p', ME, 'wss://mine/', 'me']]), targets: [ME, BOB] })
+        assert.ok(plan)
+        assert.deepEqual(plan.tags, [['p', BOB], ['p', ME, 'wss://mine/', 'me']])
     })
 
     test('a guest has nothing to sign with', () => {
         assert.equal(planFollowWrite({ ...basis, self: '' }), null)
+        assert.equal(planFollowWrite({ ...abbau, self: '' }), null)
     })
 
     test('an empty target is refused — an empty `p` tag is not a follow', () => {
-        assert.equal(planFollowWrite({ ...basis, target: '' }), null)
+        assert.equal(planFollowWrite({ ...abbau, target: '' }), null)
+        assert.equal(planFollowWrite({ ...basis, targets: [''] }), null, 'and a set of nothing but blanks too')
+        assert.equal(planFollowWrite({ ...basis, targets: [] }), null, 'as does an empty set')
     })
 
     test('a write that changes nothing is refused — double click, or a second device first', () => {
-        assert.equal(planFollowWrite({ ...basis, list: list([['p', ALICE]]), add: true }), null)
-        assert.equal(planFollowWrite({ ...basis, list: list([['p', BOB]]), add: false }), null)
+        assert.equal(planFollowWrite({ ...basis, list: list([['p', ALICE]]) }), null)
+        assert.equal(planFollowWrite({ ...abbau, list: list([['p', BOB]]) }), null)
     })
 
     test('unfollowing produces the list without that person', () => {
-        const plan = planFollowWrite({ ...basis, list: list([['p', ALICE], ['p', BOB]]), add: false })
+        const plan = planFollowWrite({ ...abbau, list: list([['p', ALICE], ['p', BOB]]) })
         assert.ok(plan)
         assert.deepEqual(plan.tags, [['p', BOB]])
     })
@@ -1010,7 +1100,318 @@ describe('planFollowWrite: the gate and the event body are ONE value', () => {
     test('CALIBRATION: the case above is only meaningful because the same input with `add` writes', () => {
         // Without this line "refused" would also be true for a gate that refuses
         // everything, and every refusal case above would prove nothing.
-        assert.ok(planFollowWrite({ ...basis, list: list([['p', BOB]]), add: true }))
+        assert.ok(planFollowWrite({ ...basis, list: list([['p', BOB]]) }))
+    })
+})
+
+/**
+ * **P3: n targets resolve in ONE pass, and the base is a suffix of the answer.**
+ *
+ * The phase exists because of a property of `makeEvent`, not because of a convenience:
+ * `created_at` is stamped in SECONDS, so n writes inside the same second carry the same
+ * timestamp, NIP-01 breaks the tie on the id, and the losers are dropped. Buzz reports a
+ * dropped replaceable event as `OK true` with the message `duplicate:`
+ * (`buzz/crates/buzz-relay/src/handlers/ingest.rs`), which every surface reads as success.
+ * n calls would therefore be n events that displace each other, each holding the base plus
+ * exactly one entry — „follow 400" ending at 399 lost, reported green.
+ */
+describe('P3: n targets, ONE event', () => {
+    test('CORE: one call takes the whole set, and the base keeps its extra columns', () => {
+        const plan = planFollowWrite({
+            ...basis,
+            list: list([['p', ALICE, 'wss://relay/', 'ali'], ['t', 'bitcoin']], 100, '{"wss://a/":{}}'),
+            targets: [BOB, CAROL],
+        })
+        assert.ok(plan)
+        assert.deepEqual(
+            plan.tags,
+            [['p', BOB], ['p', CAROL], ['p', ALICE, 'wss://relay/', 'ali'], ['t', 'bitcoin']],
+            'both new entries in front, in the order given; hint, petname and foreign tag untouched',
+        )
+        assert.equal(plan.content, '{"wss://a/":{}}', 'and the legacy relay map is carried over byte for byte')
+    })
+
+    /**
+     * **What n separate calls would have produced — the created_at trap, without a relay.**
+     *
+     * Each call sees the same base and answers base + 1. Signed in the same second, one of
+     * them survives and the rest are silently displaced, so the reader ends up with exactly
+     * ONE of the people they selected. This case is why the set form exists and it is the
+     * calibration for the one above: without it, „one call adds both" would also be true of
+     * an implementation that happened to be called twice.
+     */
+    test('CALIBRATION: n separate calls each answer base + 1 — so n-1 follows are lost', () => {
+        const bestand = list([['p', ALICE]])
+        const einzeln = [BOB, CAROL].map((one) => planFollowWrite({ ...basis, list: bestand, targets: [one] }))
+        for (const plan of einzeln) {
+            assert.ok(plan)
+            assert.equal(
+                followedPubkeysIn(plan.tags).length,
+                2,
+                'every one of the n bodies holds the base plus exactly one entry — they are not cumulative',
+            )
+        }
+        assert.deepEqual(einzeln.at(-1)?.tags, [['p', CAROL], ['p', ALICE]], 'the last one signed keeps only CAROL')
+        const zusammen = planFollowWrite({ ...basis, list: bestand, targets: [BOB, CAROL] })
+        assert.equal(followedPubkeysIn(zusammen?.tags ?? []).length, 3, 'the one call keeps all three')
+    })
+
+    test('CORE: a set in which SOME are already followed succeeds and adds only the missing ones', () => {
+        const plan = planFollowWrite({
+            ...basis,
+            list: list([['p', ALICE, 'wss://relay/', 'ali'], ['p', BOB]]),
+            targets: [ALICE, CAROL, BOB],
+        })
+        assert.ok(plan, 'a partly-redundant selection is the ordinary case of a bulk follow, not an error')
+        assert.deepEqual(
+            plan.tags,
+            [['p', CAROL], ['p', ALICE, 'wss://relay/', 'ali'], ['p', BOB]],
+            'only CAROL is new; ALICE keeps her hint and her petname, and neither is re-sorted',
+        )
+    })
+
+    test('CORE: a set in which EVERY target is already followed produces no event at all', () => {
+        assert.equal(
+            planFollowWrite({ ...basis, list: list([['p', ALICE], ['p', BOB]]), targets: [BOB, ALICE] }),
+            null,
+            'a signed event that changes nothing is refusal 5, and a bulk call is where it happens most',
+        )
+    })
+
+    test('CORE: the answer is never shorter than the base, whatever the set contains', () => {
+        const bestand = list([['p', ALICE], ['t', 'x'], ['p', BOB, 'wss://r/', 'bo']])
+        for (const targets of [[], [ALICE], [ME], [''], [ALICE, BOB], [CAROL], [CAROL, CAROL, ME, '']]) {
+            const plan = planFollowWrite({ ...basis, list: bestand, targets })
+            assert.ok(
+                (plan?.tags.length ?? bestand.tags.length) >= bestand.tags.length,
+                `a set of ${JSON.stringify(targets)} produced a body shorter than the base`,
+            )
+        }
+    })
+})
+
+// ── The property test — the core proof of P3 ───────────────────────────────────
+
+/**
+ * A deterministic PRNG (mulberry32). Seeded on purpose: a property test whose corpus
+ * changes between runs reports a failure nobody can reproduce, and a green run of it says
+ * nothing about the next one.
+ */
+const makeRandom = (seed: number): (() => number) => {
+    let state = seed >>> 0
+
+    return (): number => {
+        state = (state + 0x6d2b79f5) >>> 0
+        let t = state
+        t = Math.imul(t ^ (t >>> 15), t | 1)
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+
+        return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296
+    }
+}
+
+/** 64 hex characters, distinct per index — a pubkey as far as this module is concerned. */
+const pk = (n: number): string => n.toString(16).padStart(2, '0').repeat(32)
+
+/** The shapes a `p` tag carries in the wild: bare, with a relay hint, with a petname. */
+const EXTRA_COLUMNS: readonly (readonly string[])[] = [
+    [],
+    ['wss://hint.example/'],
+    ['wss://hint.example/', 'petname'],
+    ['', 'petname-without-hint'],
+]
+
+/**
+ * Tags this client cannot display and must not decide about — including two malformed `p`
+ * tags, which are the ones a naive filter loses first.
+ */
+const FOREIGN_TAGS: readonly (readonly string[])[] = [
+    ['t', 'bitcoin'],
+    ['e', 'f'.repeat(64)],
+    ['relay', 'wss://legacy.example/'],
+    ['client', 'einundzwanzig', 'wss://x/'],
+    ['p'],
+    ['p', ''],
+]
+
+/** `content` shapes, including the legacy relay map and bytes no parser should touch. */
+const CONTENTS: readonly string[] = [
+    '',
+    '{"wss://a/":{"read":true,"write":true}}',
+    '   ',
+    '{"broken":',
+    'ünïcödé ✅   tail',
+]
+
+describe('P3 PROPERTY: every previous entry survives, `content` is byte-identical, no answer means no body', () => {
+    test('CORE: 500 generated bases with hints, petnames and foreign tags', () => {
+        const rnd = makeRandom(0x21_09_14)
+        const POOL = 10
+        let faelle = 0
+        let zusicherungen = 0
+        // The corpus has to CONTAIN the interesting shapes, or the properties below are
+        // true of a degenerate one. Counted, then asserted at the end.
+        let mitBestand = 0
+        let mitFremdtag = 0
+        let mitPetname = 0
+        let mitSchonGefolgt = 0
+        let mitSelbst = 0
+        let verweigert = 0
+        let geschrieben = 0
+
+        for (let n = 0; n < 500; n++) {
+            faelle++
+            // ── the base ──────────────────────────────────────────────────
+            const baseTags: string[][] = []
+            const eintraege = Math.floor(rnd() * 7)
+            for (let i = 0; i < eintraege; i++) {
+                const wer = rnd() < 0.12 ? ME : pk(Math.floor(rnd() * POOL))
+                const extra = EXTRA_COLUMNS[Math.floor(rnd() * EXTRA_COLUMNS.length)] as readonly string[]
+                if (extra.length === 2) {
+                    mitPetname++
+                }
+                baseTags.push(['p', wer, ...extra])
+                if (rnd() < 0.4) {
+                    mitFremdtag++
+                    baseTags.push([...(FOREIGN_TAGS[Math.floor(rnd() * FOREIGN_TAGS.length)] as readonly string[])])
+                }
+            }
+            if (baseTags.length > 0) {
+                mitBestand++
+            }
+            const content = CONTENTS[Math.floor(rnd() * CONTENTS.length)] as string
+            const bestand = rnd() < 0.15 ? null : list(baseTags, 100, content)
+            const vorher = bestand?.tags ?? []
+            const gefolgt = followedPubkeysIn(vorher)
+
+            // ── the target set ────────────────────────────────────────────
+            const targets: string[] = []
+            const gewuenscht = Math.floor(rnd() * 8)
+            for (let i = 0; i < gewuenscht; i++) {
+                const r = rnd()
+                if (r < 0.08) {
+                    targets.push(ME)
+                } else if (r < 0.14) {
+                    targets.push('')
+                } else if (r < 0.45 && gefolgt.length > 0) {
+                    targets.push(gefolgt[Math.floor(rnd() * gefolgt.length)] as string)
+                } else {
+                    targets.push(pk(Math.floor(rnd() * POOL)))
+                }
+            }
+            if (targets.includes(ME)) {
+                mitSelbst++
+            }
+            if (targets.some((one) => gefolgt.includes(one))) {
+                mitSchonGefolgt++
+            }
+
+            // What a correct answer must add: usable, not already there, first occurrence.
+            const bekannt = new Set(gefolgt)
+            const erwartet: string[] = []
+            for (const one of targets) {
+                if (!one || one === ME || bekannt.has(one)) {
+                    continue
+                }
+                bekannt.add(one)
+                erwartet.push(one)
+            }
+
+            const eingabe: FollowPlanInput = {
+                list: bestand,
+                listAnswered: true,
+                targets,
+                self: ME,
+                add: true,
+                spaceKind: 'other',
+            }
+
+            // ── 1. without a relay answer there is NO body. Every case, not one. ──
+            assert.equal(
+                planFollowWrite({ ...eingabe, listAnswered: false }),
+                null,
+                `case ${n}: an unanswered read produced an event body. That is the replaceable-kind data loss `
+                    + 'itself — the relay\'s list replaced by whatever this client happened to hold.',
+            )
+            zusicherungen++
+
+            const plan = planFollowWrite(eingabe)
+
+            if (erwartet.length === 0) {
+                verweigert++
+                assert.equal(
+                    plan,
+                    null,
+                    `case ${n}: a set that adds nobody produced a signed event. A no-op kind 3 costs a signature `
+                        + 'and a created_at that displaces the real list on relays that are behind.',
+                )
+                zusicherungen++
+                continue
+            }
+
+            geschrieben++
+            assert.ok(plan, `case ${n}: a set with ${erwartet.length} new entries produced no body`)
+            zusicherungen++
+
+            // ── 2. `content` byte for byte ────────────────────────────────
+            assert.equal(
+                plan.content,
+                bestand?.content ?? '',
+                `case ${n}: \`content\` was rewritten. NIP-02 calls it unused; plenty of clients keep their relay `
+                    + 'map there, and this client cannot display it — so it is not ours to decide about.',
+            )
+            zusicherungen++
+
+            // ── 3. THE suffix property: the base survives, byte for byte, in order ──
+            assert.deepEqual(
+                plan.tags.slice(plan.tags.length - vorher.length),
+                vorher,
+                `case ${n}: the previous list is not a suffix of the answer. Every relay hint, every petname and `
+                    + 'every foreign tag has to come through a bulk follow unchanged — and while that holds, an '
+                    + 'answer shorter than the base is structurally impossible.',
+            )
+            zusicherungen++
+
+            assert.ok(
+                plan.tags.length >= vorher.length,
+                `case ${n}: the answer is shorter than the base — the one outcome this module exists to prevent`,
+            )
+            zusicherungen++
+
+            // ── 4. the prefix is exactly the additions: bare, unique, in order ──
+            assert.deepEqual(
+                plan.tags.slice(0, plan.tags.length - vorher.length),
+                erwartet.map((one) => ['p', one]),
+                `case ${n}: the added entries are not exactly the usable targets, bare and in the order given. `
+                    + 'A duplicate here is a malformed list; an invented relay hint is a claim other clients act on.',
+            )
+            zusicherungen++
+
+            // ── 5. self is never a NEW entry, whatever the set said ───────
+            assert.ok(
+                !plan.tags.slice(0, plan.tags.length - vorher.length).some((tag) => tag[1] === ME),
+                `case ${n}: the reader was added to their own contact list`,
+            )
+            zusicherungen++
+        }
+
+        // ── the corpus itself, so that none of the above is true vacuously ──
+        assert.equal(faelle, 500, 'the case count is measured here, not claimed in prose')
+        assert.ok(mitBestand > 100, `only ${mitBestand} cases had a non-empty base`)
+        assert.ok(mitFremdtag > 100, `only ${mitFremdtag} foreign tags were generated`)
+        assert.ok(mitPetname > 100, `only ${mitPetname} entries carried extra columns`)
+        assert.ok(mitSchonGefolgt > 50, `only ${mitSchonGefolgt} cases had an already-followed target`)
+        assert.ok(mitSelbst > 20, `only ${mitSelbst} cases had the reader's own key in the set`)
+        assert.ok(verweigert > 50, `only ${verweigert} cases were refused — the refusal branch is barely exercised`)
+        assert.ok(geschrieben > 200, `only ${geschrieben} cases produced a body`)
+        assert.ok(zusicherungen > 2_500, `only ${zusicherungen} assertions ran`)
+        // Reported rather than described: the DoD asks for the case count, and a number in a
+        // comment rots the moment the loop bound moves.
+        console.log(
+            `P3 property: ${faelle} cases, ${zusicherungen} assertions — ${geschrieben} bodies, `
+                + `${verweigert} refusals, ${mitSchonGefolgt} with an already-followed target, `
+                + `${mitSelbst} with the reader's own key, ${mitFremdtag} foreign tags, ${mitPetname} extra columns`,
+        )
     })
 })
 
