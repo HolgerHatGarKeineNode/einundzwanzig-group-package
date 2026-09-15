@@ -967,8 +967,12 @@ export const planFollowWrite = (input: FollowPlanInput): FollowWrite | null => {
  * coin flip, and green on every surface that reads `OK true` as success.
  *
  * So: a clock that runs behind makes every follow a silent no-op everywhere, and a second
- * write inside the same second does it on everything except zooid. Written out at length
- * in `js/pins.ts` at `pinStateReached`, which measured both halves.
+ * write inside the same second does it on everything except zooid.
+ *
+ * `js/pins.ts` at `pinStateReached` writes out the ZOOID half at length, and only that
+ * half — its closing sentence says a tie is uncritical BECAUSE zooid deviates from the
+ * NIP-01 tie-break. Read alone it reads like the opposite of the paragraph above. The
+ * Buzz half is measured here, in the source lines quoted above it.
  *
  * `null` means the relay answered nothing, and that is **not** a failure — the same
  * asymmetry `muteWriteConfirmed` spells out: a hanging AUTH round swallows the `EOSE` of

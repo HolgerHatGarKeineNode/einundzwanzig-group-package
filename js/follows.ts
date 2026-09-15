@@ -1022,6 +1022,22 @@ const unconfirmedWriteTargets = (
     add: boolean,
     saidDuplicate: readonly string[],
 ): string[] => {
+    // **The latch for the string identity the docblock above rests on.** `saidDuplicate` is
+    // by construction a SUBSET of the target urls, so a name that matches no row means the
+    // two sides have stopped spelling the same relay the same way — exactly what a welshman
+    // bump that normalises in between would do, and exactly the failure that would otherwise
+    // be silent (rung 2 simply stops firing). Zero false positives, and it turns "nobody
+    // notices for a release" into a thrown error at the moment it happens.
+    const known = new Set(reads.map((read) => read.url))
+    const stray = saidDuplicate.filter((url) => !known.has(url))
+    if (stray.length > 0) {
+        throw new Error(
+            `follow write: relay urls of the publish and of the re-read no longer match — `
+                + `${stray.join(', ')} said duplicate: but appears in no target row. `
+                + 'A welshman version that normalises relay urls would do this, and rung 2 of '
+                + '`unconfirmedWriteTargets` would silently stop firing.',
+        )
+    }
     const unconfirmed: string[] = []
     for (const read of reads) {
         if (read.list) {

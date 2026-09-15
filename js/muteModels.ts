@@ -233,7 +233,9 @@ export const visibleChatEvents = <T extends { pubkey: string }>(
  * foreign relay are the sharp case:** a tie goes to the lower id and the loser gets
  * `OK true` with `duplicate:`. A clock that runs behind makes every mute a silent no-op
  * everywhere; a second write inside the same second does it on everything but zooid,
- * because `makeEvent` stamps seconds. Measured in `js/pins.ts` at `pinStateReached`.
+ * because `makeEvent` stamps seconds. `js/pins.ts` at `pinStateReached` measures the
+ * ZOOID half only — `grep -c duplicate js/pins.ts` is 0 and its docblock never names
+ * Buzz. The sharp half is the relay sources quoted above.
  *
  * `null` means the relay answered nothing, and that is **not** a failure — the same
  * asymmetry `writeConfirmed` in `bookmarkModels.ts` spells out at length: a hanging AUTH

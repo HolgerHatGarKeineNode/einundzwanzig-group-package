@@ -317,8 +317,10 @@ export const isBookmarked = (refs: BookmarkRef[], value: string): boolean =>
  * goes to the lower id and the loser is answered `OK true` with `duplicate:`. Kind 10003
  * is replaceable, so it sits in exactly that trap — a clock that runs behind makes every
  * bookmark a no-op everywhere, a second write inside the same second does it on everything
- * but zooid, and the relay keeps saying yes. Both halves are measured in `js/pins.ts` at
- * `pinStateReached`. The store therefore re-reads the list from the relay and asks this
+ * but zooid, and the relay keeps saying yes. `js/pins.ts` at `pinStateReached` measures
+ * the ZOOID half only — its closing sentence calls a tie uncritical BECAUSE zooid
+ * deviates from the NIP-01 tie-break, which read alone says the opposite of this
+ * paragraph. The Buzz half is the source lines quoted above. The store therefore re-reads the list from the relay and asks this
  * question of what came back.
  *
  * `null` means the relay answered nothing — which is not a failure: an AUTH round that
