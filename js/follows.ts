@@ -1052,8 +1052,23 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                     // from the read three lines up, so there is no earlier statement to the
                     // reader that a changed base could contradict. Binding it to
                     // `self.following` would bind it to the same read it is planning from.
-                    // The seam is real all the same — an identity switch with a profile card
-                    // open is the shape — and it is P5's, written down in the header there.
+                    // **What this leaves single-covered, measured 2026-09-15 rather than
+                    // argued.** The bulk path carries two independent guards: the held list
+                    // votes in the comparison, AND the counted base binds the write. This
+                    // button carries only the first. With the voiceless candidate disabled,
+                    // the bulk path writes NOTHING under the C2 condition while this button
+                    // writes 401 tags with `error: ""` — 302 contacts destroyed — and an
+                    // unfollow of person 500 produces an event that still contains person
+                    // 500. That is not a gap today, because the first guard holds; it is the
+                    // reason the first guard may not be removed here on the argument that
+                    // the second one exists.
+                    //
+                    // Binding the id the profile card actually rendered would close the
+                    // asymmetry. It is an open item of this plan under `## Restposten`,
+                    // owned there — NOT by the P5 section, which is about `OK true` and
+                    // `duplicate:` and says nothing about this seam. An earlier version of
+                    // this comment handed it to P5, which would have left it with an owner
+                    // that does not know it has it.
                     shownBase: null,
                     ...direction,
                 })
