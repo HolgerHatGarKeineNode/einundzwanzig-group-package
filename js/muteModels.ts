@@ -226,11 +226,14 @@ export const visibleChatEvents = <T extends { pubkey: string }>(
 /**
  * Did the relay really take the write?
  *
- * `OK true` does not say so, and kind 10000 sits in the same trap as 10003: zooid's
- * `ReplaceEvent` drops a replaceable event whose `created_at` is not greater than the
- * stored one and returns no error (`zooid/events.go:440-443`, written out in `js/pins.ts`
- * at `pinStateReached`). A clock that runs behind makes every mute a silent no-op while
- * the relay keeps saying yes.
+ * `OK true` does not say so, and kind 10000 sits in the same trap as 10003 — but not the
+ * trap this comment named until P5. **zooid is the tolerant one:** `ReplaceEvent` keeps the
+ * incoming event when `previous.CreatedAt <= evt.CreatedAt` (`zooid/zooid/events.go:440`),
+ * so a TIE goes to the new event there, deliberately. **Buzz and every NIP-01-conformant
+ * foreign relay are the sharp case:** a tie goes to the lower id and the loser gets
+ * `OK true` with `duplicate:`. A clock that runs behind makes every mute a silent no-op
+ * everywhere; a second write inside the same second does it on everything but zooid,
+ * because `makeEvent` stamps seconds. Measured in `js/pins.ts` at `pinStateReached`.
  *
  * `null` means the relay answered nothing, and that is **not** a failure — the same
  * asymmetry `writeConfirmed` in `bookmarkModels.ts` spells out at length: a hanging AUTH

@@ -406,6 +406,24 @@ export type FollowListRead = {
     unanswered: string[]
     /** What we know about the reader's own kind 10002 while this read happened. */
     outbox: OutboxKnowledge
+    /**
+     * **What each target answered, one row per relay — the P5 repair.**
+     *
+     * `list` above is the NIP-01 winner ACROSS the targets, and that is the right value
+     * for a merge base: one list, the newest, never a union of tags. It is the wrong value
+     * for the question "did every relay we wrote to take the write", because a winner
+     * hides the relays that lost. Measured on `ea43054`: a reader with two declared write
+     * relays, one of them answering `OK true` + `duplicate:` and keeping its old copy —
+     * the other one's fresh copy won the comparison, {@link followWritesConfirmed} said
+     * yes, and `store.error` stayed `''` while half the reader's relays never saw the
+     * follow.
+     *
+     * Rows, not a second verdict: `answered` and `list` per relay are exactly what
+     * {@link followListAnswered} and {@link winningFollowList} are built from, so this
+     * adds no new source and no new authority. Read-only hint relays are NOT in here —
+     * they were never written to, so they have nothing to confirm.
+     */
+    byTarget: readonly FollowRelayRead[]
 }
 
 /**
@@ -714,7 +732,18 @@ const readFollowListsFrom = async (
     const answered = followListAnswered(targetReads, targets)
     const list = winningFollowList([...targetReads, ...hintReads, heldRead])
 
-    return { answered, list, targets, unanswered: unansweredRelays(targetReads, targets), outbox }
+    // `byTarget` is `targetReads` and nothing else: hints were never written to, and the
+    // held list is not a relay at all. P5 asks these rows whether every relay we wrote to
+    // took the write, and a row in there that nobody wrote to would answer a question that
+    // was not asked.
+    return {
+        answered,
+        list,
+        targets,
+        unanswered: unansweredRelays(targetReads, targets),
+        outbox,
+        byTarget: targetReads,
+    }
 }
 
 /**
@@ -746,7 +775,14 @@ export const readOwnFollowList = async (
     arming = false,
 ): Promise<FollowListRead> => {
     if (!spaceUrl || !self) {
-        return { answered: false, list: null, targets: noFollowTargets(), unanswered: [], outbox: 'unknown' }
+        return {
+            answered: false,
+            list: null,
+            targets: noFollowTargets(),
+            unanswered: [],
+            outbox: 'unknown',
+            byTarget: [],
+        }
     }
     const relayList = await readOwnRelayList(self)
     if (relayList.knowledge === 'unknown') {
@@ -756,12 +792,22 @@ export const readOwnFollowList = async (
             targets: noFollowTargets(),
             unanswered: relayList.unanswered,
             outbox: 'unknown',
+            // Nothing was asked, so nothing answered. `[]` here is „no relay was written
+            // to", which is the only honest reading of an empty target set.
+            byTarget: [],
         }
     }
     // F7: on a page load we only ask relays the reader declared themselves. Everything
     // else waits for the click — {@link armingReadsContactList} carries why.
     if (arming && !armingReadsContactList(relayList.knowledge)) {
-        return { answered: false, list: null, targets: noFollowTargets(), unanswered: [], outbox: relayList.knowledge }
+        return {
+            answered: false,
+            list: null,
+            targets: noFollowTargets(),
+            unanswered: [],
+            outbox: relayList.knowledge,
+            byTarget: [],
+        }
     }
 
     const targets = followRelayTargets(relayList.knowledge, relayList.writeUrls, FOLLOW_FALLBACK_RELAYS)
@@ -916,6 +962,81 @@ const followWritesConfirmed = (relayTags: string[][] | null, people: readonly st
     }
 
     return true
+}
+
+/**
+ * **Which of the relays we wrote to are NOT holding the change — asked of each of them,
+ * not of the winner among them** (P5).
+ *
+ * ## The finding this replaces
+ *
+ * The verdict used to be one call against `after.list`, the NIP-01 winner across the
+ * target set. That is the right value for a merge base and the wrong one for a
+ * confirmation: the winner is by construction the relay that is furthest ahead, so a relay
+ * that dropped the write is invisible behind any relay that took it. Measured on
+ * `ea43054` with a `MockAdapter`: a reader whose kind 10002 declares two write relays,
+ * `out1` storing the new list (2 tags) and `out2` answering `OK true` + `duplicate:` while
+ * keeping its old one (1 tag) — `store.error` came back `""`, which every surface in this
+ * house reads as success.
+ *
+ * ## Two rungs, and they catch different relays
+ *
+ * **1. A relay that answered with a list is asked about ITS list.** All of the people, in
+ * the direction that was written — {@link followWritesConfirmed} unchanged, once per
+ * relay. This is the rung that catches a `duplicate:` relay which still serves reads, and
+ * it catches it whether or not the relay said the word.
+ *
+ * **2. A relay that answered nothing is „cannot tell" — unless it said `duplicate:`.**
+ * The fail-open asymmetry of {@link followWriteConfirmed} is deliberate and it stays:
+ * silence is not evidence, a hanging AUTH round swallows an `EOSE`, and turning that into
+ * a red error would contradict a verdict we already have for the people with the worst
+ * connection. But `duplicate:` is not silence. NIP-01 makes it a machine-readable prefix
+ * of `OK` and both readings of it say the same thing about our event — Buzz uses it for a
+ * replaceable write that LOST the `created_at` comparison, NIP-01's own example for „I
+ * already have this id". A relay that says that word and then cannot show us a list has
+ * told us it kept something else, and that is positive evidence, not absence of it.
+ *
+ * Rung 2 alone leaves the measured two-relay case open (that relay answers, so rung 1
+ * decides it); rung 1 alone leaves the silent one open (no list, nothing to ask). Both are
+ * needed, and each is red on its own — see `js/followBulkWire.test.ts`.
+ *
+ * Returns the urls, in target order, for {@link writeRefused} — which names relays,
+ * because a message that names the wrong one sends the reader to check something that
+ * works.
+ *
+ * ── What `saidDuplicate.includes(read.url)` rests on ───────────────────────────
+ *
+ * String identity, and it holds by construction rather than by luck: the urls go out as
+ * `ThunkOptions.relays` (which is {@link FollowListRead.targets}, already normalised),
+ * welshman seeds `thunk.results[relay]` from that same array and only ever writes back
+ * `result.relay`, and `@welshman/net@0.9.9` sets `result.relay = options.relay` verbatim in
+ * `publishOne` — no normalisation anywhere on the way. `read.url` is the same target
+ * string. A welshman version that normalised in between would make this comparison miss,
+ * and the failure would be SILENT (rung 2 simply stops firing), so it is written down
+ * here: the case in `js/followBulkWire.test.ts` that names `fallback.bulk.invalid` is
+ * green only while the identity holds.
+ */
+const unconfirmedWriteTargets = (
+    reads: readonly FollowRelayRead[],
+    people: readonly string[],
+    add: boolean,
+    saidDuplicate: readonly string[],
+): string[] => {
+    const unconfirmed: string[] = []
+    for (const read of reads) {
+        if (read.list) {
+            const tookIt = followWritesConfirmed(read.list.tags, people, add)
+            if (!tookIt) {
+                unconfirmed.push(read.url)
+            }
+            continue
+        }
+        if (saidDuplicate.includes(read.url)) {
+            unconfirmed.push(read.url)
+        }
+    }
+
+    return unconfirmed
 }
 
 // ── The store ───────────────────────────────────────────────────────────────────
@@ -1354,6 +1475,20 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
      * {@link readFollowListsFrom} and not {@link readOwnFollowList}: verifying against
      * relays we did not write to would answer a different question, and re-resolving the
      * kind 10002 would cost a second round of indexer requests for nothing.
+     *
+     * ── And the re-read is judged PER RELAY since P5 ───────────────────────────
+     *
+     * „The relays meant their `OK`" is a statement about each of them, and it was asked of
+     * the merge base — one list, the NIP-01 winner across the set. That question cannot
+     * come out negative as long as any single target took the write, which is precisely
+     * the configuration `OK true` + `duplicate:` produces on a multi-relay reader. The
+     * rule now lives in {@link unconfirmedWriteTargets}, which takes
+     * {@link FollowListRead.byTarget} and returns the relays to name.
+     *
+     * The failure message therefore names the relays that are NOT holding the change
+     * rather than the ones that rejected the publish. Those two sets overlap and are not
+     * the same: a relay that timed out on the `OK` but is serving the new list took it,
+     * and a relay that answered `OK true` may not have.
      */
     const publishFollowList = async (
         plan: FollowWrite,
@@ -1375,11 +1510,15 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
         // copy we had before the publish.
         const after = await readFollowListsFrom(read.targets, [], me, read.outbox, null)
         adoptReadList(after.list)
-        // ALL of them, through {@link followWritesConfirmed} — one event carries n people,
-        // so a list that came back short is not a successful write of the rest.
-        return followWritesConfirmed(after.list ? after.list.tags : null, people, add)
-            ? ''
-            : writeRefused(spread.failed.length > 0 ? spread.failed : read.targets)
+        // EVERY target, each about its own copy — {@link unconfirmedWriteTargets}. This
+        // asked `after.list`, the winner ACROSS the set, until P5; a winner is by
+        // construction the relay furthest ahead, so one relay taking the write covered for
+        // every relay that dropped it. `spread.duplicates` carries the relays that said
+        // `OK true` + `duplicate:`, which is the one case where a silent re-read is
+        // evidence rather than the absence of it.
+        const unconfirmed = unconfirmedWriteTargets(after.byTarget, people, add, spread.duplicates)
+
+        return unconfirmed.length === 0 ? '' : writeRefused(unconfirmed)
     }
 
     const recompute = (): void => {

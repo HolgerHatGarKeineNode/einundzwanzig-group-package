@@ -94,6 +94,7 @@ const CARD_PATH = join(JS_DIR, '..', 'resources', 'views', 'components', 'profil
  * | `followedPubkeysOf` | twice: the rendered list, and the DIRECTION of a click. Drop the second and `add` comes from a cache that is empty until a relay answers |
  * | `mayWriteKind` | the card offers an action on a space whose kind is still in flight |
  * | `followWriteConfirmed` | a replaceable event dropped for a stale `created_at` reads as success |
+ * | `unconfirmedWriteTargets` | the re-read is judged against the winner across the target set again, so one relay taking the write covers for every relay that dropped it |
  * | `publishSpreadOptimistic` | nothing reaches the relays; the local store carries a follow that exists nowhere. The SPREAD form specifically: `publishOptimistic` flattens the per-relay outcome back to one string, and then a write that landed on two of three relays is rolled back in the interface |
  * | `makeEvent` | exactly one place builds the event — a second is a second way to the relay, past the gate |
  *
@@ -154,6 +155,12 @@ const WRITE_GUARDS: Readonly<Record<string, number>> = {
     // P4: the quantifier over n people. Its own name so that both rungs stay visible to
     // the AST case below — the per-person answer AND the answer of the whole check.
     followWritesConfirmed: 1,
+    // P5: the quantifier over the TARGETS. A third rung, and the one a count can actually
+    // defend: remove the call and `publishFollowList` has nothing left to return but `''`.
+    // What it guards is that the re-read is judged per relay — measured on `ea43054`, a
+    // reader with two declared write relays and one of them answering `OK true` +
+    // `duplicate:` got `store.error === ''` while that relay kept its old list.
+    unconfirmedWriteTargets: 1,
     // The local door of D1, and the shared helper behind it — one call each. Widening
     // `publishSpreadOptimistic` for this caller would put the demand on `js/calendar.ts` too.
     publishToTargetSet: 1,
@@ -442,6 +449,7 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
      * | `followedPubkeysOf` | the rendered list, and the direction of a click, stop being the read list |
      * | `mayWriteKind` | the card offers the action while the relay kind is unknown |
      * | `followWriteConfirmed` | a silently dropped replaceable event reads as success |
+     * | `unconfirmedWriteTargets` | the per-relay verdict is computed and then dropped; `OK true` + `duplicate:` reads as success again |
      * | `followListAnswered` | the staged verdict is asked and then overruled — `?? true` here is the one-entry kind 3 |
      * | `eigeneOutboxUrls` | the outbox is looked up and then not used; the read falls back to the space relay |
      * | `followListWins` | the rendered list stops being the NIP-01 winner of the two sources |
@@ -477,11 +485,19 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             ['followWriteConfirmed', ['binding confirmed CallExpression'],
                 'the per-person answer must BE that call. Since P4 it is asked once per target inside '
                     + 'followWritesConfirmed(); an `|| true` there would confirm a bulk follow the relay never took.'],
-            ['followWritesConfirmed', ['return publishFollowList ConditionalExpression'],
-                'the confirmation over ALL targets must decide the return value, not be computed beside it. '
+            ['followWritesConfirmed', ['binding tookIt CallExpression'],
+                'the confirmation over ALL PEOPLE must BE the per-relay answer, not be computed beside it. '
                     + 'Inlining it as `people.every((p) => followWriteConfirmed(…))` reads identically and costs '
                     + 'the rung above: a concise arrow body is neither a return nor a binding, so the site '
-                    + 'vanishes from this case altogether (measured: expected [] ).'],
+                    + 'vanishes from this case altogether (measured: expected [] ). It sat on the RETURN of '
+                    + 'publishFollowList until P5; it now sits one level in, inside unconfirmedWriteTargets, '
+                    + 'because the question moved from „did the winner take it" to „did each relay take it".'],
+            ['unconfirmedWriteTargets', ['binding unconfirmed CallExpression'],
+                'P5: the list of relays that are NOT holding the change must BE this call. `?? []` beside it, or '
+                    + 'an `unconfirmed.length > 1` in the return, puts the confirmation back on the winner across '
+                    + 'the target set — and a winner is by construction the relay furthest ahead, so one relay '
+                    + 'taking the write covers for every relay that answered `OK true` + `duplicate:` and kept '
+                    + 'its old copy.'],
             // ── P2 ──────────────────────────────────────────────────────────
             ['followListAnswered', ['binding answered CallExpression'],
                 'the completeness verdict must BE the answer; `|| true` next to it is the one-entry kind 3 '
@@ -698,17 +714,20 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
             (stelle) => stelle.art === 'return' && stelle.name === 'readFollowListsFrom',
         )
         const gesammelt = rueckgaben.filter(
-            (stelle) => stelle.felder.join(',') === 'answered,list,targets,unanswered=,outbox',
+            (stelle) => stelle.felder.join(',') === 'answered,list,targets,unanswered=,outbox,byTarget=',
         )
         assert.equal(
             gesammelt.length,
             1,
             `${WRITER}: readFollowListsFrom has ${gesammelt.length} return(s) of the form `
-                + '{ answered, list: …, targets, unanswered: …, outbox }, expected 1. Each shorthand is load '
-                + 'bearing: a hard-wired `answered: true` turns it into a field with its own value, `targets` is '
-                + 'the set the write is allowed to use, and `outbox` is what the card gates its "not findable '
-                + 'outside this space" notice on. A duplicate key appended to the same object wins in JS while the '
-                + 'shorthand still stands there looking right.',
+                + '{ answered, list: …, targets, unanswered: …, outbox, byTarget: … }, expected 1. Each shorthand '
+                + 'is load bearing: a hard-wired `answered: true` turns it into a field with its own value, '
+                + '`targets` is the set the write is allowed to use, and `outbox` is what the card gates its "not '
+                + 'findable outside this space" notice on. A duplicate key appended to the same object wins in JS '
+                + 'while the shorthand still stands there looking right. `byTarget` joined them in P5 and is '
+                + 'pinned for the same reason in the other direction: it must be the per-relay rows themselves. '
+                + '`byTarget: []` compiles, keeps every other assertion green, and silently returns the write '
+                + 'confirmation to „any single relay took it is enough".',
         )
     })
 
@@ -726,8 +745,10 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
         for (const stelle of objekte) {
             assert.equal(
                 stelle.felder.join(','),
-                'answered=,list=,targets=,unanswered=,outbox=',
-                `${WRITER}: an early exit of readOwnFollowList has fields [${stelle.felder.join(' | ')}].`,
+                'answered=,list=,targets=,unanswered=,outbox=,byTarget=',
+                `${WRITER}: an early exit of readOwnFollowList has fields [${stelle.felder.join(' | ')}]. `
+                    + 'The P5 field belongs here too: an early exit asked no relay, so its per-relay rows are '
+                    + 'empty, and a missing field would not compile while a wrong one would.',
             )
         }
         assert.ok(

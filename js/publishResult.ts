@@ -92,9 +92,32 @@ export const publishDetail = (results: Record<string, PublishResultRow> | undefi
 }
 
 /**
- * Which relays took the event and which did not — the third reading next to
- * {@link publishError} and {@link publishDetail}, and the one that tells "nowhere" from
- * "somewhere" apart.
+ * The machine-readable prefix of an `OK` or `CLOSED` message, lowercased — `''` when the
+ * message carries none.
+ *
+ * NIP-01 defines the 4th element of an `OK` frame as "a machine-readable single-word
+ * prefix followed by a `:` and then a human-readable message", and lists the standardized
+ * prefixes: `duplicate`, `pow`, `blocked`, `rate-limited`, `invalid`, `restricted`, `mute`
+ * and `error`. That is the whole parsing rule, and it is one line — the point of having it
+ * as a function is that the word is read from the SPEC and not from one relay's wording:
+ * Buzz answers a bare `"duplicate:"` with nothing after the colon, the spec's own example
+ * is `"duplicate: already have this event"`, and both have to reach the same verdict.
+ *
+ * `''` for a message without a colon: an empty `detail` is the ordinary success case
+ * (NIP-01: the 4th parameter "MAY be an empty string when the 3rd is `true`"), and a relay
+ * that writes prose there says nothing machine-readable.
+ */
+export const relayMessagePrefix = (detail: string | undefined): string => {
+    const text = detail ?? ''
+    const colon = text.indexOf(':')
+
+    return colon === -1 ? '' : text.slice(0, colon).trim().toLowerCase()
+}
+
+/**
+ * Which relays took the event, which did not — and which of them answered `OK true` while
+ * keeping something else. The third reading next to {@link publishError} and
+ * {@link publishDetail}, and the one that tells "nowhere" from "somewhere" apart.
  *
  * ## Why the first two are not enough
  *
@@ -107,12 +130,35 @@ export const publishDetail = (results: Record<string, PublishResultRow> | undefi
  * That combination is not exotic. Measured on 2026-09-05, `relay.damus.io` answered 5 of
  * 8 attempts with `503`; for a two-relay write the partial result is the ordinary case.
  *
+ * ## `duplicates` — the relays that said yes and stored something else (P5)
+ *
+ * A `success` row is not the same statement as "this relay now holds this event". NIP-01
+ * gives `OK true` its own machine-readable prefix for exactly that case, and two relays in
+ * this house use it in two different senses:
+ *
+ *  - **Buzz** answers `OK true` with `"duplicate:"` whenever a replaceable write LOST the
+ *    `created_at` comparison — `created_at < existing || (created_at == existing &&
+ *    incoming_id >= existing_id)` in `buzz-db/src/lib.rs`, then `accepted: true, message:
+ *    "duplicate:"` in `buzz-relay/src/handlers/ingest.rs`. `makeEvent` stamps seconds, so
+ *    two writes inside the same second tie and the id hash decides — a coin flip.
+ *  - **NIP-01's own reading** is narrower: `"duplicate: already have this event"`, i.e. the
+ *    relay holds this very id.
+ *
+ * Both mean "what I store is not necessarily what you just sent", and neither is visible
+ * in `delivered`. Keeping them in their own column is what lets a caller ask the relay
+ * again instead of believing its `true`; what the answer is worth is the caller's
+ * business, because the two senses differ exactly there (`js/follows.ts`
+ * `unconfirmedWriteTargets` re-reads and decides).
+ *
+ * Only `success` rows are collected. A rejection that happens to carry the same prefix is
+ * already in `failed` and needs no second voice.
+ *
  * `undefined` while anything is still `sending`/`pending`, or when there is no result at
  * all — same convention as its two neighbours.
  */
 export const publishSpread = (
     results: Record<string, PublishResultRow> | undefined,
-): { delivered: string[]; failed: string[] } | undefined => {
+): { delivered: string[]; failed: string[]; duplicates: string[] } | undefined => {
     const rows = Object.entries(results ?? {})
     if (rows.length === 0) {
         return undefined
@@ -126,6 +172,9 @@ export const publishSpread = (
         // Everything that is not `success` counts as failed, including a status this
         // version does not know yet — the same inversion the module header argues for.
         failed: rows.filter(([, r]) => r.status !== 'success').map(([url]) => url),
+        duplicates: rows
+            .filter(([, r]) => r.status === 'success' && relayMessagePrefix(r.detail) === 'duplicate')
+            .map(([url]) => url),
     }
 }
 
@@ -191,6 +240,12 @@ export type PublishOutcome = {
     delivered: string[]
     /** The relays that did not, for any reason (rejection, timeout, abort, no verdict). */
     failed: string[]
+    /**
+     * The relays that answered `OK true` with NIP-01's `duplicate:` prefix — they are in
+     * `delivered` and they are holding something other than what was sent. See
+     * {@link publishSpread}; a caller that cares has to re-read them.
+     */
+    duplicates: string[]
 }
 
 /**
@@ -228,12 +283,15 @@ export const waitForPublishOutcome = (thunk: ThunkLike): Promise<PublishOutcome>
                 detail: '',
                 delivered: [],
                 failed: [...(thunk.options?.relays ?? [])],
+                // No `OK` frame arrived at all, so no relay claimed anything about a
+                // stored copy — an empty column here is a fact, not a default.
+                duplicates: [],
             })
         }, PUBLISH_VERDICT_TIMEOUT_MS)
         thunk.subscribe(($thunk) => {
             const err = publishError($thunk.results)
             if (err !== undefined) {
-                const spread = publishSpread($thunk.results) ?? { delivered: [], failed: [] }
+                const spread = publishSpread($thunk.results) ?? { delivered: [], failed: [], duplicates: [] }
                 settle({ error: err, detail: publishDetail($thunk.results) ?? '', ...spread })
             }
         })

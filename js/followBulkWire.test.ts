@@ -33,6 +33,15 @@
  * `calculateFilterGroup` gives every filter with a `limit` a random group id). The bulk
  * follow must never take that shape, which is why `kinds: [0]` on this path is asserted to
  * be absent and the absence is calibrated against a real kind-0 request.
+ *
+ * ── And the gate of P5, which is the same instrument asking a different question ──
+ *
+ * The last four cases are not about cost. They are about the frame at the other end of the
+ * write: `OK true` with NIP-01's `duplicate:` prefix, which says the relay accepted the
+ * event and is holding something else. The `MockAdapter` can send that frame and can let
+ * one relay of a target set disagree with the others ({@link RelayQuirk}), which is what it
+ * takes to show the hole — a confirmation asked of the merge base cannot come out negative
+ * while any single relay took the write.
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -84,6 +93,17 @@ const target = (i: number): string => (i + 1).toString(16).padStart(64, '0')
 
 const ALICE = 'b'.repeat(64)
 const BOB = 'c'.repeat(64)
+
+/**
+ * A `created_at` safely in the PAST — the P5 cases sign their base with it.
+ *
+ * The default of {@link signList} is `1_800_000_000`, which is 2027: a base stamped with it
+ * WINS the NIP-01 comparison against anything this client writes with `makeEvent`, which
+ * stamps `now()`. That is harmless where the relay replaces its copy on a write (the cases
+ * above the P5 block), and it would quietly invert the P5 cases, where the whole point is
+ * that one relay KEPT an older list while another one did not.
+ */
+const OLD_ENOUGH = 1_700_000_000
 
 /**
  * **The size the cost claim is made at.** The plan states every figure as a function of n
@@ -140,6 +160,43 @@ type Behaviour = {
     silentFollows?: boolean
     /** What the relay serves AFTER a write, instead of what was written. */
     serveAfterWrite?: TrustedEvent
+    /**
+     * **What ONE named relay does differently** — the P5 cases, keyed by url.
+     *
+     * Everything above is per identity and therefore the same on every relay this reader
+     * talks to. That is enough for P4, where the interesting number is the frame count,
+     * and it is exactly what P5 cannot use: the whole finding is that relays disagree
+     * about whether they took the write.
+     */
+    perRelay?: Record<string, RelayQuirk>
+    /**
+     * What a named relay is HOLDING, once it has diverged from `list`. A url present here
+     * takes precedence over `list` for reads and is the only thing a write to that relay
+     * can change — so the relays that are not named keep behaving exactly as before.
+     */
+    heldBy?: Record<string, TrustedEvent | null>
+    /** Set by the mock when a write reaches a relay with `silentAfterWrite`. */
+    wentQuiet?: Record<string, boolean>
+}
+
+/** What one relay does differently from the others for the same reader (P5). */
+type RelayQuirk = {
+    /**
+     * Answer `OK true` with NIP-01's `duplicate:` prefix instead of an empty message.
+     *
+     * This is the frame the phase is about. Buzz sends it for a replaceable write that
+     * lost the `created_at` comparison (`buzz-db/src/lib.rs` → `buzz-relay/src/handlers/
+     * ingest.rs`, `accepted: true, message: "duplicate:"`), and NIP-01 lists `duplicate`
+     * among the standardized machine-readable prefixes with the example
+     * `["OK", …, true, "duplicate: already have this event"]`. The cases below use the
+     * spec's spelling WITH a human message, because a parser that only recognises Buzz's
+     * bare `"duplicate:"` would be a parser for one relay.
+     */
+    duplicate?: boolean
+    /** Keep the stored copy when a write arrives — what a dominated replaceable write does. */
+    frozen?: boolean
+    /** Stop closing kind-3 reads with an `EOSE` once a write has arrived. */
+    silentAfterWrite?: boolean
 }
 const behaviour = new Map<string, Behaviour>()
 
@@ -204,12 +261,17 @@ const makeAdapter = (url: string): MockAdapterType => {
                         continue
                     }
                     if (filter.kinds?.includes(FOLLOWS)) {
-                        if (state?.silentFollows) {
+                        const quirk = state?.perRelay?.[url]
+                        if (state?.silentFollows || (quirk?.silentAfterWrite && state?.wentQuiet?.[url])) {
                             hold = true
                             continue
                         }
-                        if (state?.list) {
-                            adapter.receive(['EVENT', subId, state.list])
+                        // A url named in `heldBy` serves ITS copy, which is how two relays
+                        // in one target set can disagree. Everyone else serves `list`, so
+                        // nothing about the P4 cases changes.
+                        const list = state?.heldBy && url in state.heldBy ? state.heldBy[url] : state?.list
+                        if (list) {
+                            adapter.receive(['EVENT', subId, list])
                         }
                     }
                 }
@@ -225,13 +287,28 @@ const makeAdapter = (url: string): MockAdapterType => {
             written.push(event)
             writtenTo.push(url)
             const state = behaviour.get(event.pubkey)
+            const quirk = state?.perRelay?.[url]
             if (state) {
                 // A relay that keeps something other than what it was sent is not exotic:
                 // a replaceable write that loses the `created_at` race is answered
                 // `OK true` with `duplicate:` and the stored copy never moves.
-                state.list = state.serveAfterWrite ?? event
+                const stored = state.serveAfterWrite ?? event
+                if (state.heldBy && url in state.heldBy) {
+                    if (!quirk?.frozen) {
+                        state.heldBy[url] = stored
+                    }
+                } else {
+                    state.list = stored
+                }
+                if (quirk?.silentAfterWrite) {
+                    state.wentQuiet = { ...(state.wentQuiet ?? {}), [url]: true }
+                }
             }
-            setTimeout(() => adapter.receive(['OK', event.id, true, '']), 0)
+            // NIP-01's own spelling, with a human message after the prefix — a reader of
+            // this frame that only recognises Buzz's bare `"duplicate:"` recognises one
+            // relay, not the standard.
+            const okMessage = quirk?.duplicate ? 'duplicate: already have this event' : ''
+            setTimeout(() => adapter.receive(['OK', event.id, true, okMessage]), 0)
         }
     })
 
@@ -931,6 +1008,211 @@ describe('P4: n follows are one event, and the wire says so', () => {
             'Deine Kontaktliste ändert sich nicht — du folgst allen Ausgewählten schon.',
             'and the reason is on screen. Silence here is worse than an error: `confirmBulkFollow` treats an empty '
                 + '`error` as success, clears the selection and closes the dialog.',
+        )
+    })
+
+    // ── P5: `OK true` is not a receipt ──────────────────────────────────────────
+    //
+    // The four cases below belong together and are best read in order: two of them are the
+    // holes, two are what keeps the repair from becoming a blanket refusal.
+    //
+    // **What the frame means.** NIP-01 gives the `OK` message a machine-readable prefix and
+    // lists `duplicate` among the standardized ones, with the example
+    // `["OK", …, true, "duplicate: already have this event"]`. Two relays in this house use
+    // it in two different senses, and both matter here:
+    //
+    //  · **Buzz** answers it whenever a REPLACEABLE write lost the `created_at` comparison
+    //    — `created_at < existing || (created_at == existing && incoming_id >= existing_id)`
+    //    in `buzz-db/src/lib.rs`, then `accepted: true, message: "duplicate:"` in
+    //    `buzz-relay/src/handlers/ingest.rs`. `makeEvent` stamps SECONDS, so two writes in
+    //    the same second tie and the id hash decides — roughly a coin flip.
+    //  · **NIP-01's own reading** is narrower: the relay holds this very id.
+    //
+    // Under the first reading the relay is holding an older list; under the second it is
+    // holding exactly what we sent. The frame alone cannot tell them apart, which is why
+    // the verdict is not „a `duplicate:` is a failure" but „a relay that said it has to
+    // show us its list".
+    //
+    // **And zooid is not the relay to guard against here** — the house comment said so
+    // until this phase. Its `ReplaceEvent` keeps the incoming event on `previous.CreatedAt
+    // <= evt.CreatedAt` (`zooid/zooid/events.go:440`, with a comment above it saying the
+    // NIP-01 tie-break is deliberately not followed). On a tie the NEW event wins there.
+
+    /**
+     * **THE GATE OF P5.** Two declared write relays, one of them answering `OK true` with
+     * `duplicate:` and keeping its old copy.
+     *
+     * Measured on `ea43054`, before the repair: `out1` stored the new list (2 tags), `out2`
+     * kept its old one (1 tag), and `store.error` came back `""` — which
+     * `confirmBulkFollow` reads as success, clears the selection and closes the dialog.
+     *
+     * The cause is one word in the old verdict: it asked `followWritesConfirmed` about
+     * `after.list`, the NIP-01 winner ACROSS the target set. A winner is by construction
+     * the relay furthest ahead, so the question „did the relays take the write" could not
+     * come out negative as long as any single one of them had. The reader is then following
+     * these people on half of their own relays, and every other client that reads the other
+     * half sees nothing.
+     */
+    test('CORE: a relay that answers `duplicate:` and keeps its old list is not a success', async () => {
+        const secret = makeSecret()
+        const base = await signList(secret, [['p', ALICE]], OLD_ENOUGH)
+        const { store } = await freshIdentityWithSecret('dupkeeps', secret, {
+            list: base,
+            relayList: await signRelayList(secret, [OUT1, OUT2]),
+            // OUT2 is named, so it serves its OWN copy and a write cannot move it. OUT1 is
+            // not, so it behaves like every relay in the cases above.
+            heldBy: { [OUT2]: base },
+            perRelay: { [OUT2]: { duplicate: true, frozen: true } },
+        })
+
+        await store.armFollowRead()
+        assert.equal(store.noRelayList, false, 'PRECONDITION: this reader declared two write relays')
+        assert.equal(store.listSeen, true, 'PRECONDITION: both of them answered the arming read')
+        clearWire()
+
+        await store.followMany([target(0)], store.listId)
+
+        assert.equal(
+            new Set(written.map((event: TrustedEvent) => event.id)).size,
+            1,
+            'PRECONDITION: one signed event went out, spread over both declared relays',
+        )
+        assert.deepEqual([...new Set(writtenTo)].sort(), [OUT1, OUT2], 'PRECONDITION: to both of them')
+        assert.equal(
+            (behaviour.get(store.me)?.heldBy?.[OUT2]?.tags ?? []).length,
+            1,
+            'PRECONDITION: out2 really is still holding its one-tag copy — the relay answered yes and stored '
+                + 'nothing, which is the whole situation this case is about',
+        )
+        assert.equal(
+            store.error,
+            'Diese Relais haben die Änderung nicht übernommen: out2.bulk.invalid.',
+            'one of the reader\'s two declared write relays answered `OK true` + `duplicate:` and kept its old '
+                + 'list, and the surface reported success — measured on `ea43054`, `store.error` was "". The '
+                + 'confirmation has to be asked of EVERY target: the merge base is the winner across them, and a '
+                + 'winner hides exactly the relays that lost.',
+        )
+    })
+
+    /**
+     * **The second rung: a relay that said `duplicate:` and then cannot show us a list.**
+     *
+     * `followWriteConfirmed` treats „the relay answered nothing" as „cannot tell" and lets
+     * it pass, on purpose — a hanging AUTH round swallows an `EOSE`, and turning that into
+     * a red error would contradict a verdict we already have, most often for the people
+     * with the worst connection. That asymmetry stays (the case after this one holds it
+     * down).
+     *
+     * It does not cover this: the relay SAID it kept something else. That is positive
+     * evidence, and the absence of a list afterwards no longer rescues it. Measured on
+     * `ea43054`: `store.error` was `""` while the relay held its one-tag copy.
+     */
+    test('CORE: `duplicate:` plus a silent re-read is evidence, not an unanswered question', async () => {
+        const secret = makeSecret()
+        const base = await signList(secret, [['p', ALICE]], OLD_ENOUGH)
+        const { store } = await freshIdentityWithSecret('dupsilent', secret, {
+            list: base,
+            heldBy: { [FALLBACK]: base },
+            perRelay: { [FALLBACK]: { duplicate: true, frozen: true, silentAfterWrite: true } },
+        })
+
+        await store.armFollowRead()
+        assert.equal(store.listSeen, true, 'PRECONDITION: the relay answered the arming read')
+        clearWire()
+
+        await store.followMany([target(0)], store.listId)
+
+        assert.equal(written.length, 1, 'PRECONDITION: the write went out and the relay answered OK')
+        assert.equal(
+            (behaviour.get(store.me)?.heldBy?.[FALLBACK]?.tags ?? []).length,
+            1,
+            'PRECONDITION: and it is still holding its one-tag copy',
+        )
+        assert.equal(
+            store.error,
+            'Diese Relais haben die Änderung nicht übernommen: fallback.bulk.invalid.',
+            'the relay said `duplicate:` and then stopped answering reads. Reading that silence as „cannot tell" '
+                + 'is how this came back as success on `ea43054` — but the relay had already told us it kept '
+                + 'something else, and a statement is not an absence.',
+        )
+    })
+
+    /**
+     * **DOCUMENTED, and the limit of the rung above.** A relay that goes silent after the
+     * write WITHOUT having said anything about a duplicate is still „cannot tell", and the
+     * surface still reports success.
+     *
+     * This is the asymmetry `followWriteConfirmed` spells out, unchanged since P1, and it
+     * is not an oversight: the same silence is produced by a hanging AUTH round, by a tab
+     * that went offline between two frames, and by a `CLOSED`. Turning it red would put an
+     * error in front of the readers with the worst connections for a write that in all
+     * likelihood landed.
+     *
+     * It is here so that the repair above cannot quietly grow into „every relay that does
+     * not answer the re-read has failed". That version would be red on this case.
+     */
+    test('DOCUMENTED: silence WITHOUT a duplicate: is still not evidence', async () => {
+        const secret = makeSecret()
+        const base = await signList(secret, [['p', ALICE]], OLD_ENOUGH)
+        const { store } = await freshIdentityWithSecret('quietnodup', secret, {
+            list: base,
+            heldBy: { [FALLBACK]: base },
+            // The same relay as the case above, minus the one thing it said.
+            perRelay: { [FALLBACK]: { frozen: true, silentAfterWrite: true } },
+        })
+
+        await store.armFollowRead()
+        assert.equal(store.listSeen, true, 'PRECONDITION: the relay answered the arming read')
+        clearWire()
+
+        await store.followMany([target(0)], store.listId)
+
+        assert.equal(written.length, 1, 'PRECONDITION: the write went out')
+        assert.equal(
+            store.error,
+            '',
+            'a relay that says nothing at all about the write and then stops answering is not a failed write — '
+                + 'this is the documented fail-open half, and a repair that turns silence into an error takes '
+                + 'the whole class of bad connections with it.',
+        )
+    })
+
+    /**
+     * **CALIBRATION: `duplicate:` is not itself the failure.**
+     *
+     * Under NIP-01's own reading (`"duplicate: already have this event"`) the relay is
+     * holding exactly what was sent, and the desired state IS reached. A rule that refused
+     * on the word alone would report a failure for a reader who simply clicked twice, or
+     * whose second device got there first — and would then be wrong in the direction that
+     * makes people re-send.
+     *
+     * Same frame as the two cases above, same relay, one difference: this one stores what
+     * it was sent.
+     */
+    test('CALIBRATION: a `duplicate:` relay that IS holding the change is a success', async () => {
+        const secret = makeSecret()
+        const { store } = await freshIdentityWithSecret('dupstores', secret, {
+            list: await signList(secret, [['p', ALICE]], OLD_ENOUGH),
+            perRelay: { [FALLBACK]: { duplicate: true } },
+        })
+
+        await store.armFollowRead()
+        clearWire()
+
+        await store.followMany([target(0)], store.listId)
+
+        assert.equal(written.length, 1, 'PRECONDITION: the write went out and the relay answered with the prefix')
+        assert.deepEqual(
+            store.following,
+            [target(0), ALICE],
+            'PRECONDITION: and the re-read came back with the new list — this is the relay holding what it was sent',
+        )
+        assert.equal(
+            store.error,
+            '',
+            'the relay answered `duplicate:` and is nevertheless serving the change. Refusing on the word alone '
+                + 'would be an error message for a double click, and NIP-01\'s own reading of the prefix is '
+                + 'exactly that case: „already have this event".',
         )
     })
 })

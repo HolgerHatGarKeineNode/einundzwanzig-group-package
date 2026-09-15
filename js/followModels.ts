@@ -951,10 +951,24 @@ export const planFollowWrite = (input: FollowPlanInput): FollowWrite | null => {
 /**
  * Did the relay really take the write?
  *
- * `OK true` does not say so: zooid's `ReplaceEvent` drops a replaceable event whose
- * `created_at` is not greater than the stored one and returns no error
- * (`zooid/events.go:440-443`, written out in `js/pins.ts` at `pinStateReached`). A clock
- * that runs behind makes every follow a silent no-op while the relay keeps saying yes.
+ * `OK true` does not say so, and the relay class this has to guard against is NOT the one
+ * this comment named until P5. **zooid is the tolerant one:** its `ReplaceEvent` keeps the
+ * incoming event when `previous.CreatedAt <= evt.CreatedAt` (`zooid/zooid/events.go:440`,
+ * with a comment right above it saying it deliberately does not follow NIP-01's tie-break
+ * because its own state store puts two updates in the same second routinely). On a TIE the
+ * new event wins there; only a `created_at` that jumped backwards is dropped, silently and
+ * with no error.
+ *
+ * **Buzz and every NIP-01-conformant foreign relay are the sharp case.** Buzz drops on
+ * `created_at < existing || (created_at == existing && incoming_id >= existing_id)` and
+ * answers `OK true` with the message `duplicate:` (`buzz-db/src/lib.rs`,
+ * `buzz-relay/src/handlers/ingest.rs`). `makeEvent` stamps SECONDS, so a tie is the
+ * ordinary case for two writes in the same second and the id hash decides it — roughly a
+ * coin flip, and green on every surface that reads `OK true` as success.
+ *
+ * So: a clock that runs behind makes every follow a silent no-op everywhere, and a second
+ * write inside the same second does it on everything except zooid. Written out at length
+ * in `js/pins.ts` at `pinStateReached`, which measured both halves.
  *
  * `null` means the relay answered nothing, and that is **not** a failure — the same
  * asymmetry `muteWriteConfirmed` spells out: a hanging AUTH round swallows the `EOSE` of
