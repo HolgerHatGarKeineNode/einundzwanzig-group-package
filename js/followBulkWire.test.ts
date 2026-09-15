@@ -81,6 +81,9 @@ const { loginWithNip01 } = await import('./welshmanSession.ts')
 const { activeSpaceUrl } = await import('./groups.ts')
 const { wireFollows } = await import('./follows.ts')
 const { load } = await import('./welshmanNet.ts')
+// The publish seam itself, for the CONTRACT case: it is the one place where the url a
+// caller hands in and the url a result comes back under can drift apart.
+const { publishSpreadOptimistic } = await import('./publishOptimistic.ts')
 const { MockAdapter } = await import('@welshman/net')
 const { Relay } = await import('@welshman/domain')
 const { FOLLOWS } = await import('./followModels.ts')
@@ -1134,6 +1137,60 @@ describe('P4: n follows are one event, and the wire says so', () => {
             'the relay said `duplicate:` and then stopped answering reads. Reading that silence as „cannot tell" '
                 + 'is how this came back as success on `ea43054` — but the relay had already told us it kept '
                 + 'something else, and a statement is not an absence.',
+        )
+    })
+
+    /**
+     * **CONTRACT — the string identity that rung 2 above stands on, pinned against the
+     * dependency that provides it.**
+     *
+     * `unconfirmedWriteTargets` compares `spread.duplicates` with `FollowListRead.byTarget`
+     * by `===` on the relay url. That holds by construction today: the urls go out as
+     * `ThunkOptions.relays`, and `@welshman/net@0.9.9` keys the results with those very
+     * strings (`dist/net/src/publish.js`, `fromPairs(options.relays.map(async relay => …
+     * [relay, result]))`) — no normalisation anywhere on the way. `read.url` is the same
+     * target string.
+     *
+     * **A welshman version that normalised in between would break it SILENTLY**, and that
+     * is the whole reason this case exists: rung 2 would simply stop firing, the identity
+     * latch in `js/follows.ts` would start throwing on a path nobody exercises, and every
+     * case above would stay green.
+     *
+     * ── Why this, and not a case that drives the latch itself ─────────────────────
+     *
+     * Because the latch's `stray` branch is not reachable through ANY input. Both sides of
+     * the comparison are the same array: the publish takes `read.targets`, the re-read
+     * takes `read.targets`, and `readFollowListsFrom` copies the target string into
+     * `read.url` verbatim. The only thing that can pull them apart is the dependency, and
+     * the seam this harness owns (`app.netContext.getAdapter`) sits BELOW the place where
+     * the keys are chosen — an adapter cannot rename the relay it was asked for. So the
+     * permanent case that can exist is this one: the assumption, measured against the real
+     * welshman, in the same run as the two rungs that rest on it.
+     */
+    test('CONTRACT: a publish reports back the target url verbatim — rung 2 rests on it', async () => {
+        const secret = makeSecret()
+        await freshIdentityWithSecret('urlidentity', secret, {
+            list: null,
+            perRelay: { [FALLBACK]: { duplicate: true } },
+        })
+        clearWire()
+
+        const spread = await publishSpreadOptimistic([FALLBACK], makeEvent(1, { content: 'contract' }))
+
+        assert.deepEqual(writtenTo, [FALLBACK], 'PRECONDITION: the event reached the one relay it was addressed to')
+        assert.deepEqual(
+            spread.delivered,
+            [FALLBACK],
+            'the url the publish reports as delivered is no longer the string it was given. Every comparison '
+                + 'between a publish result and a target in this module is `===` on that string.',
+        )
+        assert.deepEqual(
+            spread.duplicates,
+            [FALLBACK],
+            'the relay answered `OK true` + `duplicate:` and the publish reported it under a DIFFERENT url than '
+                + 'the one it was asked to write to. That is the welshman change `unconfirmedWriteTargets` is '
+                + 'latched against: rung 2 (`saidDuplicate.includes(read.url)`) stops firing, silently, and the '
+                + 'relays that said they kept something else are no longer named.',
         )
     })
 
