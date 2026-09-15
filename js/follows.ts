@@ -134,6 +134,7 @@ import {
     anyRelayAnswered,
     armingReadsContactList,
     declaredWriteRelaysOf,
+    followBaseId,
     followedPubkeysOf,
     followListAnswered,
     followListWins,
@@ -145,6 +146,7 @@ import {
     ownFollowList,
     outboxKnowledgeOf,
     planFollowWrite,
+    plannedBaseWasShown,
     unansweredRelays,
     winningFollowList,
 } from './followModels.ts'
@@ -176,6 +178,26 @@ export type FollowsStore = {
      * back, both are `false`, and the surface gates on both.
      */
     noRelayList: boolean
+    /**
+     * **A read of our own list came back WITHOUT a complete answer** — F3.
+     *
+     * `listSeen` and `noRelayList` describe what we know; this one describes the attempt,
+     * and the bulk bar needs it: for a `listed` reader whose declared relay never closes the
+     * read, the arming pass ends after {@link READ_TIMEOUT_MS} with `answered: false`, no
+     * error and nothing on screen. The bar then said „Lädt…" for the rest of the session —
+     * no relay name, no retry — while {@link followListAnswered} justifies its strict
+     * verdict with „the refusal is visible and names the relay". It was not.
+     *
+     * With this field the bar offers the load step again, and THAT click goes through
+     * {@link FollowsStore.armFollowRead}, which sets {@link FollowsStore.error} to the
+     * refusal that names the silent relay. So the names are not reimplemented anywhere; the
+     * field only says that asking again is worth offering.
+     *
+     * `true` also covers „the read was deferred": for a reader whose {@link OutboxKnowledge}
+     * is `unknown` the arming pass returns without asking anybody, which is equally a state
+     * the reader can only leave by pressing something.
+     */
+    listReadFailed: boolean
     busy: boolean
     /** Literal, already translated wording; `''` = none. */
     error: string
@@ -184,6 +206,19 @@ export type FollowsStore = {
     me: string
     /** The pubkeys we follow, in list order. */
     following: string[]
+    /**
+     * **The id of the event {@link FollowsStore.following} was rendered from** — `''` when
+     * there is none, which is a state and not a gap (a reader who follows nobody).
+     *
+     * It exists so that a surface which FREEZES a count can freeze the identity of the list
+     * that count came from and hand it back at the write: {@link FollowsStore.followMany}
+     * takes it, and `planFollowWrite` refuses a body built on anything else. The count
+     * alone cannot carry that — „703" says nothing about which 703 (F1).
+     *
+     * Written in `recompute()` together with `following`, off the same list, so the two can
+     * never describe different events.
+     */
+    listId: string
     isFollowing(target: string): boolean
     toggle(target: string): Promise<void>
     /**
@@ -220,8 +255,22 @@ export type FollowsStore = {
      * Targets already on the list contribute nothing and keep every column they had
      * (`withFollowedPubkeys`); the reader's own key and empty strings are dropped rather
      * than refusing the whole set.
+     *
+     * ── `shownBase` binds the write to the preview (F1) ────────────────────────
+     *
+     * The second argument is {@link FollowsStore.listId} **as the preview froze it**, not as
+     * it is at the moment of the click. If the base this call reads back is a different
+     * event, nothing is written and {@link FollowsStore.error} says so — because the numbers
+     * the reader confirmed („wächst von 703 auf 706") were counted against that list, and a
+     * kind 3 is replaceable with no undo.
+     *
+     * **The refusal travels in `error` rather than in the return value, and that is the
+     * existing contract of this store**: `confirmBulkFollow` already reads an empty `error`
+     * as success and a non-empty one as „refused, void the preview and reopen the bar". A
+     * widened return type would add a second channel for the same verdict, and the older one
+     * would keep being the one the surface believes.
      */
-    followMany(targets: readonly string[]): Promise<void>
+    followMany(targets: readonly string[], shownBase: string): Promise<void>
     dismissError(): void
 }
 
@@ -623,19 +672,48 @@ export const readOwnRelayList = async (self: string): Promise<RelayListRead> => 
  *    {@link winningFollowList}. Two different questions, asked of two different functions
  *    on purpose: one decides whether we may write at all, the other what we would write
  *    from, and the second must never be a union of `p` tags.
+ *  · `held` is a THIRD kind of source: the list this session has already read off a relay.
+ *    It joins the base comparison and nothing else — see below.
+ *
+ * ── Why the list we already hold is a source, and a voiceless one (F1) ────────
+ *
+ * The precedent is three functions up: {@link readOwnRelayList} puts the cached kind 10002
+ * into `candidates` for exactly this reason, and the argument is written out in the
+ * docblock of {@link winningFollowList} — an extra source can only ever raise the winner's
+ * `created_at`, never lower it.
+ *
+ * Without it, ONE relay missing the window rewrites the base under a preview that is
+ * already on screen. Measured on `6565549`: outbox holding an old 400-entry copy, the
+ * current 703 on a hint relay, the hint silent for one read — the dialog said „703 → 706",
+ * the signed event carried 403 tags, and `store.error` stayed `''`.
+ *
+ * **Voiceless is the load-bearing word.** `held` does not reach
+ * {@link followListAnswered} and it is not in {@link FollowListRead.unanswered}: a list we
+ * are holding says nothing about whether a relay could be asked, and letting it vote would
+ * be F1 again — a write licensed by something other than a complete relay answer.
+ *
+ * **And it is only a source where it is OUR list.** It goes through
+ * {@link ownFollowList}, which re-asks kind and author, because the one thing that could
+ * reach this parameter wrongly is a list left over from another identity.
  */
 const readFollowListsFrom = async (
     targets: FollowTargetSet,
     hints: readonly string[],
     self: string,
     outbox: OutboxKnowledge,
+    held: FollowEventLike | null,
 ): Promise<FollowListRead> => {
     const targetReads = await Promise.all(targets.map((target: string) => readFollowListFrom(target, self)))
     // Read-only sources, kept in their own array so that the two questions below can only
     // ever be asked of the targets — see {@link FOLLOW_BASE_HINT_RELAYS}.
     const hintReads = await Promise.all(hints.map((hint: string) => readFollowListFrom(hint, self)))
+    // The list we already hold, as a source with no verdict of its own — F1. `url: ''` and
+    // `answered: false` are the same shape `readOwnRelayList` uses for the cached kind
+    // 10002, and they are what keeps it out of both verdicts below.
+    const heldRead: FollowRelayRead = { url: '', answered: false, list: held ? ownFollowList([held], self) : null }
     const answered = followListAnswered(targetReads, targets)
-    const list = winningFollowList([...targetReads, ...hintReads])
+    const list = winningFollowList([...targetReads, ...hintReads, heldRead])
+
     return { answered, list, targets, unanswered: unansweredRelays(targetReads, targets), outbox }
 }
 
@@ -658,6 +736,13 @@ const readFollowListsFrom = async (
 export const readOwnFollowList = async (
     spaceUrl: string,
     self: string,
+    /**
+     * The list this store already holds, as a voiceless candidate for the base (F1). `null`
+     * from the arming pass, and that is not a shortcut: `armSource` drops the previous
+     * identity's list only AFTER {@link armFollowList} has started this read, so the value
+     * in the closure at that moment can still belong to the reader who just logged out.
+     */
+    held: FollowEventLike | null,
     arming = false,
 ): Promise<FollowListRead> => {
     if (!spaceUrl || !self) {
@@ -687,7 +772,7 @@ export const readOwnFollowList = async (
         ? []
         : normalizeRelaySet(FOLLOW_BASE_HINT_RELAYS).filter((url: string) => !targets.includes(url))
 
-    return readFollowListsFrom(targets, hints, self, relayList.knowledge)
+    return readFollowListsFrom(targets, hints, self, relayList.knowledge, held)
 }
 
 /**
@@ -722,7 +807,7 @@ const armFollowList = (url: string, self: string, onAnswered: (read: FollowListR
     if (!url || !self) {
         return true
     }
-    void readOwnFollowList(url, self, true)
+    void readOwnFollowList(url, self, null, true)
         .then((read: FollowListRead) => {
             if (armedFor === key) {
                 onAnswered(read)
@@ -880,6 +965,8 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
         canFollow: false,
         me: '',
         following: [],
+        listId: '',
+        listReadFailed: false,
 
         /**
          * Read off {@link FollowsStore.following} and not off the raw list in the closure:
@@ -907,9 +994,10 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
             self.busy = true
             self.error = ''
             try {
-                const answer = await readOwnFollowList(url, me)
+                const answer = await readOwnFollowList(url, me, ownList())
                 const seenBefore = self.listSeen
                 self.listSeen = self.listSeen || answer.answered
+                self.listReadFailed = !answer.answered
                 // Refreshed from the read that just happened, not left at what arming
                 // saw: a kind 10002 that arrives mid-session has to be able to take the
                 // notice off the card, and a session that starts before the relay list
@@ -959,6 +1047,14 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                     listAnswered: answer.answered,
                     self: me,
                     spaceKind,
+                    // **The documented opt-out, and the only one in the tree.** This button
+                    // shows no preview and no count: the direction AND the base both come
+                    // from the read three lines up, so there is no earlier statement to the
+                    // reader that a changed base could contradict. Binding it to
+                    // `self.following` would bind it to the same read it is planning from.
+                    // The seam is real all the same — an identity switch with a profile card
+                    // open is the shape — and it is P5's, written down in the header there.
+                    shownBase: null,
                     ...direction,
                 })
                 if (!plan) {
@@ -1023,10 +1119,11 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
             self.busy = true
             self.error = ''
             try {
-                const answer = await readOwnFollowList(url, me)
+                const answer = await readOwnFollowList(url, me, ownList())
                 // ORed for the same reason `armSource` ORs it: `false` here means „this
                 // attempt did not see it", never „it has not been seen".
                 self.listSeen = self.listSeen || answer.answered
+                self.listReadFailed = !answer.answered
                 self.noRelayList = answer.outbox === 'confirmed-none'
                 adoptReadList(answer.list)
                 if (!answer.answered) {
@@ -1061,23 +1158,40 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
          * against numbers that were never true — and the numbers are the only place the
          * plan gives them to notice an unread base before the signature.
          *
-         * Through the surface this is reachable by switching identity with the preview
-         * open: the directory island nulls `bulkPlan` on a SPACE change, and a new pubkey
-         * is not one — `armSource` puts `listSeen` back to `false` and the frozen plan
-         * stands there, counted for somebody else.
+         * **What the bolt does NOT cover — corrected, because a promise that was never true
+         * is what comes back.** This paragraph used to end with „through the surface this is
+         * reachable by switching identity with the preview open: … `armSource` puts
+         * `listSeen` back to `false` and the frozen plan stands there, counted for somebody
+         * else". Both halves are false:
+         *
+         *  · `listSeen` going back to `false` is a window of ONE relay round and not a
+         *    state. The arming pass that follows closes it again for a `listed` reader, and
+         *    a preview counted for A is then signed under B with the bolt shut.
+         *  · The path is not reachable today at all: every login route measured ends in a
+         *    hard `window.location.assign(...)` (`js/session.ts`, `js/bridge.ts`,
+         *    `js/verein.ts`), and `dropSession` sets `pubkey` to `undefined` rather than to
+         *    another key — so there is no in-page A → B switch for a preview to survive.
+         *    Measured by the P4 security gate on 2026-09-15 and checked again here; it is a
+         *    statement about the login routes that exist, so a NEW one that swaps the key
+         *    in place brings the seam back.
+         *
+         * What covers that seam since F1 is `shownBase`, and for the right reason: a new
+         * identity has read no list yet, so {@link FollowsStore.listId} is `''` while the
+         * frozen base is A's event id, and the plan refuses. The bolt is what it always was
+         * — a click on an unread list is a READ — and the preview is bound by the base.
          *
          * ── Every reachable refusal says something, and that is not decoration ─
          *
-         * `confirmBulkFollow` in `js/bridge.ts` reads `''` in `store.error` as SUCCESS: it
-         * clears the selection and closes the dialog. A silent return from here is
-         * therefore not „nothing happened", it is a false confirmation of a write that
+         * `confirmBulkFollow` in `js/directoryIsland.ts` reads `''` in `store.error` as
+         * SUCCESS: it clears the selection and closes the dialog. A silent return from here
+         * is therefore not „nothing happened", it is a false confirmation of a write that
          * never went out. So every cause that can actually be reached through the surface
          * gets its own sentence, and none of them may borrow the sentence of another.
          *
          * Only three guards stay silent, and only because the surface cannot reach them:
          * no identity, no space, an empty set. „Busy" is NOT among them — see below.
          */
-        async followMany(targets: readonly string[]): Promise<void> {
+        async followMany(targets: readonly string[], shownBase: string): Promise<void> {
             const me = get(pubkey) ?? ''
             if (!me || !url || targets.length === 0) {
                 return
@@ -1097,9 +1211,10 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
             self.busy = true
             self.error = ''
             try {
-                const answer = await readOwnFollowList(url, me)
+                const answer = await readOwnFollowList(url, me, ownList())
                 const seenBefore = self.listSeen
                 self.listSeen = self.listSeen || answer.answered
+                self.listReadFailed = !answer.answered
                 self.noRelayList = answer.outbox === 'confirmed-none'
                 adoptReadList(answer.list)
                 if (!seenBefore) {
@@ -1117,6 +1232,11 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                     listAnswered: answer.answered,
                     self: me,
                     spaceKind,
+                    // F1: the base the preview counted, frozen when the dialog opened. The
+                    // read above may have come back with a different list — one relay out of
+                    // the window is enough — and this is what stops that list from being
+                    // signed under the reader's numbers.
+                    shownBase,
                     add: true,
                     targets,
                 })
@@ -1128,6 +1248,13 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
                     // thing, and the reader would go and check their contact list.
                     if (!answer.answered) {
                         self.error = refusalReason(answer)
+                    } else if (!plannedBaseWasShown(answer.list, shownBase)) {
+                        // F1. Re-asked here rather than inferred: `planFollowWrite` answers
+                        // `null` to four causes on this path and this one is the only one
+                        // where nothing is wrong with the relays — the list simply moved,
+                        // most often because another device wrote it. The preview is voided
+                        // by the caller, so „look again" is advice the reader can follow.
+                        self.error = t('Deine Kontaktliste hat sich seit der Vorschau geändert. Es wurde nichts geschrieben — prüfe die Auswahl noch einmal.')
                     } else if (!mayWriteKind(FOLLOWS, spaceKind)) {
                         // Vestigial since K4 and kept as a documented refusal of
                         // `planFollowWrite` (see {@link recomputePermission}): in practice
@@ -1227,7 +1354,11 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
         if (spread.delivered.length === 0) {
             return spread.error || writeRefused(read.targets)
         }
-        const after = await readFollowListsFrom(read.targets, [], me, read.outbox)
+        // `null` for the held list, and that is the one place it must be: this read asks
+        // what the RELAYS hold now, and the answer decides whether they took the write.
+        // A local candidate in that comparison would answer a different question with the
+        // copy we had before the publish.
+        const after = await readFollowListsFrom(read.targets, [], me, read.outbox, null)
         adoptReadList(after.list)
         // ALL of them, through {@link followWritesConfirmed} — one event carries n people,
         // so a list that came back short is not a successful write of the rest.
@@ -1238,6 +1369,10 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
 
     const recompute = (): void => {
         self.following = followedPubkeysOf(ownList())
+        // The same list, in the same breath: what the surface RENDERS and what it can hand
+        // back to bind a write. Two separate recomputations would be two moments, and the
+        // gap between them is exactly the one F1 lived in.
+        self.listId = followBaseId(ownList())
     }
 
     /**
@@ -1271,10 +1406,16 @@ const createStore = (): { store: FollowsStore; bind: (reactive: FollowsStore) =>
             // state for no reason the reader can see. `false` here never means „not
             // seen", only „this attempt did not see it".
             self.listSeen = self.listSeen || read.answered
+            // NOT ORed, unlike `listSeen`: this one is about the LAST attempt, and a later
+            // one that lands has to be able to take the retry offer off the bar again.
+            self.listReadFailed = !read.answered
             self.noRelayList = read.outbox === 'confirmed-none'
             adoptReadList(read.list)
         })) {
             self.listSeen = false
+            // Nothing has been attempted for this pair yet — „Lädt…" is the honest label
+            // until the arming read comes back, and only then can it be wrong.
+            self.listReadFailed = false
             // Not `true`: „no outbox" and „not looked yet" are the same absence of a
             // relay list, and only one of them is a statement about this reader. The
             // notice on the card is gated on `listSeen` for the same reason.

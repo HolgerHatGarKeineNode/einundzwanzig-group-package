@@ -19,6 +19,7 @@ import {
     normalizeRelaySet,
     outboxKnowledgeOf,
     ownFollowList,
+    followBaseId,
     planFollowWrite,
     unansweredRelays,
     winningFollowList,
@@ -277,6 +278,7 @@ describe('N1: the space stub can no longer poison a later session', () => {
             plan: planFollowWrite({
                 list: winningFollowList(reads),
                 listAnswered: followListAnswered(reads, targets),
+                shownBase: null,
                 target: BOB,
                 self: ME,
                 add: false,
@@ -623,6 +625,7 @@ describe('ACCEPTED RISK, not a guarantee: relays that answer and hold nothing yi
         const plan = planFollowWrite({
             list: winningFollowList(reads),
             listAnswered: followListAnswered(reads, targets),
+            shownBase: null,
             targets: [ALICE],
             self: ME,
             add: true,
@@ -646,6 +649,7 @@ describe('ACCEPTED RISK, not a guarantee: relays that answer and hold nothing yi
         const plan = planFollowWrite({
             list: winningFollowList(reads),
             listAnswered: followListAnswered(reads, targets),
+            shownBase: null,
             targets: [ALICE],
             self: ME,
             add: true,
@@ -696,6 +700,7 @@ describe('ACCEPTED RISK, not a guarantee: relays that answer and hold nothing yi
         const plan = planFollowWrite({
             list: winningFollowList(reads),
             listAnswered: followListAnswered(reads, targets),
+            shownBase: null,
             target: BOB,
             self: ME,
             add: false,
@@ -828,6 +833,7 @@ describe('F1: a partial answer never licenses a total replacement', () => {
         const plan = planFollowWrite({
             list: winningFollowList(reads),
             listAnswered: followListAnswered(reads, targets),
+            shownBase: null,
             target: BOB,
             self: ME,
             add: false,
@@ -842,6 +848,7 @@ describe('F1: a partial answer never licenses a total replacement', () => {
         const plan = planFollowWrite({
             list: winningFollowList(alleDa),
             listAnswered: followListAnswered(alleDa, targets),
+            shownBase: null,
             target: BOB,
             self: ME,
             add: false,
@@ -974,6 +981,11 @@ const basis = {
     self: ME,
     add: true as const,
     spaceKind: 'other' as const,
+    // The opt-out of the F1 binding: these cases are about the OTHER refusals, and most of
+    // them override `list` in the spread — a fixture that bound the base would make every
+    // one of them refuse for the new reason and prove nothing about the old ones. The
+    // binding has cases of its own (below, and in `js/followPreviewBase.test.ts`).
+    shownBase: null,
 }
 
 /**
@@ -993,6 +1005,9 @@ const abbau = {
     self: ME,
     add: false as const,
     spaceKind: 'other' as const,
+    // As in `basis`: the unfollow arm has no preview to bind to at all (`js/follows.ts`,
+    // `toggle`), so `null` here is the production value and not a convenience.
+    shownBase: null,
 }
 
 describe('planFollowWrite: the gate and the event body are ONE value', () => {
@@ -1291,7 +1306,7 @@ const CONTENTS: readonly string[] = [
     '{"wss://a/":{"read":true,"write":true}}',
     '   ',
     '{"broken":',
-    'ünïcödé ✅   tail',
+    'ünïcödé ✅ \u0000 tail',
 ]
 
 describe('P3 PROPERTY: every previous entry survives, `content` is byte-identical, no answer means no body', () => {
@@ -1375,6 +1390,10 @@ describe('P3 PROPERTY: every previous entry survives, `content` is byte-identica
                 self: ME,
                 add: true,
                 spaceKind: 'other',
+                // Bound to the base it is planning from — the ordinary case of a previewed
+                // write, 500 times over. It is the calibration the F1 refusal below needs:
+                // a gate that refused everything would show up here as 500 refusals.
+                shownBase: followBaseId(bestand),
             }
 
             // ── 1. without a relay answer there is NO body. Every case, not one. ──
@@ -1383,6 +1402,20 @@ describe('P3 PROPERTY: every previous entry survives, `content` is byte-identica
                 null,
                 `case ${n}: an unanswered read produced an event body. That is the replaceable-kind data loss `
                     + 'itself — the relay\'s list replaced by whatever this client happened to hold.',
+            )
+            zusicherungen++
+
+            // ── 1b. …and not on a base the reader never saw. F1, 500 times over. ──
+            //
+            // The id is the identity of the base, so „some other list" is any id but this
+            // one. A complete relay answer does not make a body legitimate: the answer can
+            // be a DIFFERENT list than the one the numbers were counted against, and on
+            // this path that difference is silent — measured at 703 counted, 403 written.
+            assert.equal(
+                planFollowWrite({ ...eingabe, shownBase: `${followBaseId(bestand)}0` }),
+                null,
+                `case ${n}: a body was built on a base the reader was never shown. The preview counts against one `
+                    + 'list and freezes it; a kind 3 is replaceable, and what gets signed has to be the same list.',
             )
             zusicherungen++
 

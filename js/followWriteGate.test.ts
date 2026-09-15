@@ -181,9 +181,19 @@ const WRITE_GUARDS: Readonly<Record<string, number>> = {
     // that used to stand open on the space relay is gone, not moved to the targets.
     followFilters: 1,
     // N1: the repository is not a source for a kind 3 any more. `ownFollowList` survives
-    // in exactly one place, inside the per-relay read, where it picks the newest of what
-    // THAT relay just sent.
-    ownFollowList: 1,
+    // inside the per-relay read, where it picks the newest of what THAT relay just sent —
+    // and since F1 a second time, on the locally held list, where it re-asks kind and
+    // author before that list may join the comparison. Drop the second and a list left
+    // over from another identity is a merge base.
+    ownFollowList: 2,
+    // ── F1: the base that was counted binds the write ────────────────────────
+    //
+    // | call | what a removal breaks in production |
+    // |---|---|
+    // | `followBaseId` | the surface can no longer name the list it counted, so `listId` is `''` for every reader and the binding below agrees with everything |
+    // | `plannedBaseWasShown` | the SENTENCE of the refusal. `planFollowWrite` still refuses, but `followMany` then says „du folgst allen Ausgewählten schon" about a list that moved — a confident statement about the wrong thing |
+    followBaseId: 1,
+    plannedBaseWasShown: 1,
 }
 
 /**
@@ -916,8 +926,20 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
                 + 'for a target that never did — F6 turned back into F1.',
         )
         assert.ok(
-            quelle.includes('const list = winningFollowList([...targetReads, ...hintReads])'),
-            `${WRITER}: the hints no longer reach the base, which is the only thing they are for.`,
+            quelle.includes('const list = winningFollowList([...targetReads, ...hintReads, heldRead])'),
+            `${WRITER}: the hints or the locally held list no longer reach the base, which is the only thing `
+                + 'either of them is for. The held list is the F1 repair: without it one relay missing the window '
+                + 'rewrites the base under a preview that is already on screen — 703 counted, 403 written.',
+        )
+        assert.ok(
+            quelle.includes(
+                "const heldRead: FollowRelayRead = { url: '', answered: false, list: held ? ownFollowList([held], self) : null }",
+            ),
+            `${WRITER}: the held list is no longer VOICELESS. \`answered: false\` and the empty url are what keep `
+                + 'it out of followListAnswered() and unansweredRelays(); a list we are holding says nothing '
+                + 'about whether a relay could be asked, and letting it vote is F1 with extra steps. '
+                + '`ownFollowList` is the other half: it re-asks kind and author, so a list left over from '
+                + 'another identity cannot become a merge base.',
         )
         assert.ok(
             /publishToTargetSet\(\s*read\.targets,/.test(quelleDesWriters()),
@@ -1092,8 +1114,11 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
                 + 'relays they never chose.',
         )
         assert.ok(
-            quelle.includes('void readOwnFollowList(url, self, true)'),
-            `${WRITER}: the arming call no longer says it is an arming call, so the deferral never fires.`,
+            quelle.includes('void readOwnFollowList(url, self, null, true)'),
+            `${WRITER}: the arming call no longer says it is an arming call, so the deferral never fires — or it `
+                + 'stopped passing `null` as the held list. The second one matters as much: `armSource` drops the '
+                + "previous identity's list only AFTER this call has started, so the value in the closure here can "
+                + 'still belong to the reader who just logged out.',
         )
         assert.ok(
             /const hints = arming\s*\?\s*\[\]/.test(quelleDesWriters()),
@@ -1134,9 +1159,11 @@ describe('P1/P2 latch: a follow is never written blind, and it is written where 
                 + 'set. A fresh draw here is the finding coming back.',
         )
         assert.ok(
-            /readFollowListsFrom\(read\.targets, \[\], me, read\.outbox\)/.test(quelle),
-            `${WRITER}: the re-read after the write no longer uses the same relays the write went to, so it `
-                + 'answers a different question than the one that was asked.',
+            /readFollowListsFrom\(read\.targets, \[\], me, read\.outbox, null\)/.test(quelle),
+            `${WRITER}: the re-read after the write no longer uses the same relays the write went to — or it `
+                + 'stopped passing `null` for the held list. Both break the same question: this read asks what '
+                + 'the RELAYS hold now, and a local candidate in that comparison answers with the copy we had '
+                + 'before the publish.',
         )
     })
 

@@ -51,6 +51,24 @@
  * `groups.ts` and the rest are imported by other components of `bridge.ts` too and stay
  * in the boot chunk. The 5 016 B are this file's own code, nothing else — which is also
  * why the win cannot be repeated by moving one more import along.
+ *
+ * ── The size of the move, corrected ────────────────────────────────────────────────
+ *
+ * The commit message of `6565549` states the move as „49 231 B of island plus 8 140 B of
+ * declarations, verified". **Neither number is reproducible**, measured twice
+ * independently (a reviewer on 2026-09-15 and again here). The move is two verbatim spans
+ * of `bridge.ts@da12490`, and they are:
+ *
+ * | span | lines | bytes |
+ * |---|---|---|
+ * | the island body (`bridge.ts` 5206–6272 → this file at 6565549, 317–1383) | 1 067 | **49 815** |
+ * | the declarations (`bridge.ts` 1119–1306 → this file at 6565549, 118–305) | 188 | **8 227**, or 8 226 without the final newline |
+ *
+ * No single cut at either end produces the stated pair — 49 231 sits below every boundary
+ * tried, and 8 140 falls between two adjacent ones. **What the numbers were beside still
+ * holds**: the spans ARE byte-identical, and that is the claim a reviewer diffs in one
+ * command. They are corrected here rather than left standing, because a figure that cannot
+ * be reproduced next to a claim that can is what makes the next reader doubt the claim.
  */
 import { get } from 'svelte/store'
 import { app, Relays } from './welshmanApp.ts'
@@ -159,11 +177,39 @@ type RoleForm = { id: string; label: string; description: string; hue: number; l
  * button would say „Kontaktliste laden" and correctly do nothing.
  */
 type BulkFollowCapable = {
-    /** One kind 3 for n targets — `planFollowWrite` has taken n since P3. */
-    followMany?(targets: readonly string[]): Promise<void>
+    /**
+     * One kind 3 for n targets — `planFollowWrite` has taken n since P3.
+     *
+     * `shownBase` is {@link BulkFollowPlan.base}: the identity of the contact list the
+     * preview counted. The store refuses the write if the base it reads back is a different
+     * event, because the reader confirmed numbers that were taken against that one (F1).
+     */
+    followMany?(targets: readonly string[], shownBase: string): Promise<void>
     /** A read-only pass over the reader's own list, so `listSeen` can become true. */
     armFollowRead?(): Promise<void>
 }
+
+/**
+ * **May the reader press „Kontaktliste laden" — i.e. is there anything left to wait for?**
+ * (F3)
+ *
+ * Two reasons to offer the step, and they have to be one predicate because three places ask
+ * the same question and the third one is what makes the button inert:
+ *
+ *  · `noRelayList` — a `confirmed-none` reader is deliberately not read on a page load
+ *    (P2/D8), so for them the click IS the read.
+ *  · `listReadFailed` — an attempt came back without a complete answer. For a `listed`
+ *    reader whose declared relay never closes the read that is the state after
+ *    `READ_TIMEOUT_MS`, and until F3 the bar said „Lädt…" for the rest of the session: no
+ *    relay name, no error, no retry, while the strict verdict behind the refusal is
+ *    justified with „the refusal is visible and names the relay". The retry click reaches
+ *    `armFollowRead`, which puts exactly that refusal into `error` and from there into
+ *    {@link DirectoryState.bulkError}.
+ *
+ * „Lädt…" stays the label while neither holds — a read that is genuinely in flight.
+ */
+const canLoadContactList = (follows: FollowsStore | undefined): boolean =>
+    Boolean(follows?.noRelayList) || Boolean(follows?.listReadFailed)
 
 /** The Flux modal that shows {@link BulkFollowPlan} before anything is signed. */
 const BULK_PREVIEW_MODAL = 'follow-bulk-preview'
@@ -179,6 +225,17 @@ type BulkFollowPlan = {
     from: number
     /** `from + add`. */
     to: number
+    /**
+     * **The IDENTITY of the list `from` was counted against** — `follows.listId` frozen at
+     * the same moment, `''` for „no list yet".
+     *
+     * Frozen for the same reason `targets` is, and it is the half that was missing: both
+     * sources under this dialog are live, so „what was counted" and „what is written" were
+     * two different lists separated by however long the reader looked at the numbers. The
+     * count alone cannot bind that — 703 says nothing about which 703 — so the event id
+     * goes back to the store at submit time and the write refuses on disagreement.
+     */
+    base: string
 }
 
 type DirectoryState = {
@@ -713,7 +770,7 @@ export function wireDirectory(Alpine: {
             }
             const follows = Alpine.store('follows') as FollowsStore | undefined
             if (!follows || !follows.listSeen) {
-                return follows?.noRelayList
+                return canLoadContactList(follows)
                     ? t('Kontaktliste laden — danach kannst du folgen')
                     : t('Kontaktliste wird geladen — Folgen ist noch nicht möglich')
             }
@@ -733,7 +790,7 @@ export function wireDirectory(Alpine: {
         bulkPrimaryLabel(): string {
             const follows = Alpine.store('follows') as FollowsStore | undefined
             if (!follows?.listSeen) {
-                return follows?.noRelayList ? t('Kontaktliste laden') : t('Lädt…')
+                return canLoadContactList(follows) ? t('Kontaktliste laden') : t('Lädt…')
             }
 
             return t('Auswahl prüfen')
@@ -747,7 +804,7 @@ export function wireDirectory(Alpine: {
             // Arming is a READ and needs no selection. Only the step that plans a write
             // does, and for that an empty selection is what blocks it.
             if (!follows?.listSeen) {
-                return !follows?.noRelayList
+                return !canLoadContactList(follows)
             }
 
             return this.selectedCount() === 0
@@ -783,10 +840,14 @@ export function wireDirectory(Alpine: {
             const known = new Set(inList)
             const targets = [...inList, ...Object.keys(this.selected).filter((pk) => !known.has(pk))]
             const from = follows.following.length
+            // Frozen in the same breath as the count it belongs to: `listId` is the id of
+            // the event `following` was rendered from, and `confirmBulkFollow` hands it back
+            // so the write can refuse a base the reader never saw (F1).
+            const base = follows.listId
             const already = targets.filter((pk) => follows.isFollowing(pk)).length
             const add = targets.length - already
             this.bulkError = ''
-            this.bulkPlan = { targets, add, already, from, to: from + add }
+            this.bulkPlan = { targets, add, already, from, to: from + add, base }
             dispatchModal(BULK_PREVIEW_MODAL)
         },
 
@@ -869,10 +930,14 @@ export function wireDirectory(Alpine: {
                 return
             }
             const targets = [...plan.targets]
+            // From the FROZEN plan and never from `follows.listId` — the live field is what
+            // the store holds now, which is the very thing the write has to be measured
+            // against. Reading it here would compare the base with itself (F1).
+            const shownBase = plan.base
             this.bulkBusy = true
             this.bulkError = ''
             try {
-                await follows.followMany(targets)
+                await follows.followMany(targets, shownBase)
             } finally {
                 this.bulkBusy = false
             }

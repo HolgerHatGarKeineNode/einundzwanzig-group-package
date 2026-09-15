@@ -48,6 +48,9 @@ const JS_DIR = dirname(fileURLToPath(import.meta.url))
 
 const INDEXER = 'wss://indexer.bulk.invalid/'
 const FALLBACK = 'wss://fallback.bulk.invalid/'
+/** The two relays a `listed` reader declares in their kind 10002 — see the last case. */
+const OUT1 = 'wss://out1.bulk.invalid/'
+const OUT2 = 'wss://out2.bulk.invalid/'
 
 // Before ANY import of the module graph: `js/relayConfig.ts` reads this once, at load.
 // Without it `DEFAULT_RELAYS` is empty outside a browser, the fallback target set is empty
@@ -101,12 +104,38 @@ const TARGETS: readonly string[] = Array.from({ length: MANY }, (_, i) => target
 const BULK_REQ_CEILING = 4
 
 /**
+ * **The ceiling as the formula it always was** — `2·|targets| + |hints \ targets| + cold`.
+ *
+ * The constant above is the `confirmed-none` configuration of this file (1 target, no hints,
+ * one cold kind-10002 round) and it was read for a while as the ceiling of the path. It is
+ * not: on the `listed` path the targets are the DECLARED write relays and
+ * `readOwnFollowList` additionally asks `FOLLOW_BASE_HINT_RELAYS` minus the targets, so a
+ * reader with two declared relays pays five frames — measured in the last case here.
+ *
+ * What the formula has to show is that **no term contains n**: the read is one REQ per
+ * relay, the re-read is one REQ per target, and the number of people in the selection
+ * appears nowhere. The naive bulk follow — a loop over `toggle()` — multiplies the whole
+ * expression by n, and 400 × `Profiles.load(pk)` adds 1200 frames that are not in it at all.
+ *
+ * `cold` is 1 while the reader's kind 10002 has not been resolved this session and 0
+ * afterwards ({@link listedRelayCache} in `js/follows.ts` keeps a `listed` verdict, and only
+ * that one).
+ */
+const bulkReqCeiling = (targets: number, hints: number, cold: number): number => 2 * targets + hints + cold
+
+/**
  * What one relay does for one reader. Keyed by pubkey, because a single `MockAdapter` per
  * url serves every identity in this file — the pool hands out one adapter per relay.
  */
 type Behaviour = {
     /** The kind 3 this relay serves for that author, or `null` for „has none". */
     list: TrustedEvent | null
+    /**
+     * The reader's kind 10002. `undefined` — the default in this file — is the
+     * `confirmed-none` verdict, which puts the target set on {@link FALLBACK}. One identity
+     * here has one, and that is the `listed` configuration: see the last case.
+     */
+    relayList?: TrustedEvent
     /** Never close a kind-3 read with an `EOSE` — the fail-closed case. */
     silentFollows?: boolean
     /** What the relay serves AFTER a write, instead of what was written. */
@@ -163,10 +192,15 @@ const makeAdapter = (url: string): MockAdapterType => {
                 for (const filter of filters) {
                     const author = filter.authors?.[0] ?? ''
                     const state = behaviour.get(author)
-                    // Nobody in this file has a kind 10002: that is the `confirmed-none`
-                    // verdict, which puts the target set on the fallback relay and keeps
-                    // it the same for every case here.
+                    // Almost nobody in this file has a kind 10002: that is the
+                    // `confirmed-none` verdict, which puts the target set on the fallback
+                    // relay and keeps it the same for every case here. The one identity
+                    // that HAS one is the `listed` counting case at the end — the reviewer's
+                    // finding that the ceiling below was measured on one configuration only.
                     if (filter.kinds?.includes(RELAYS)) {
+                        if (state?.relayList) {
+                            adapter.receive(['EVENT', subId, state.relayList])
+                        }
                         continue
                     }
                     if (filter.kinds?.includes(FOLLOWS)) {
@@ -206,6 +240,16 @@ const makeAdapter = (url: string): MockAdapterType => {
 
 const settle = (ms = 300): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** A signed kind 10002 — the declaration that makes a reader `listed`. */
+const signRelayList = async (secret: string, urls: string[]): Promise<TrustedEvent> =>
+    (await Nip01Signer.fromSecret(secret).sign(
+        makeEvent(RELAYS, {
+            created_at: 1_700_000_000,
+            tags: urls.map((url: string) => ['r', url, 'write']),
+            content: '',
+        }),
+    )) as unknown as TrustedEvent
+
 /** A signed kind 3 for one identity — really signed, because `@welshman/net` verifies. */
 const signList = async (
     secret: string,
@@ -225,7 +269,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
 
     after(() => {
         app.netContext.getAdapter = originalGetAdapter
-        for (const url of [INDEXER, FALLBACK]) {
+        for (const url of [INDEXER, FALLBACK, OUT1, OUT2]) {
             app.pool.remove(url)
         }
     })
@@ -240,7 +284,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
         assert.deepEqual(store.following, [ALICE, BOB], 'PRECONDITION: and it is the relay copy that is rendered')
         clearWire()
 
-        await store.followMany(TARGETS)
+        await store.followMany(TARGETS, store.listId)
 
         assert.equal(
             written.length,
@@ -278,7 +322,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
         })
         await many.store.armFollowRead()
         clearWire()
-        await many.store.followMany(TARGETS)
+        await many.store.followMany(TARGETS, many.store.listId)
         const forMany = wireFrames()
         const manyAskedAbout = askedAbout()
         assert.equal(written.length, 1, 'PRECONDITION: the many-target write happened')
@@ -289,7 +333,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
         })
         await one.store.armFollowRead()
         clearWire()
-        await one.store.followMany([target(0)])
+        await one.store.followMany([target(0)], one.store.listId)
         const forOne = wireFrames()
         assert.equal(written.length, 1, 'PRECONDITION: the one-target write happened')
 
@@ -315,6 +359,13 @@ describe('P4: n follows are one event, and the wire says so', () => {
             ],
             'the frames of a bulk follow, in order — a fourth one is either a relay set drawn twice (F3) or a '
                 + 'read that scales with the selection',
+        )
+        assert.equal(
+            forMany.length,
+            bulkReqCeiling(1, 0, 1),
+            `a bulk follow sent ${forMany.length} REQ frames; for THIS configuration — confirmed-none, so one `
+                + 'target (the fallback), no hints beside it, and the kind 10002 still cold — the formula gives '
+                + `${bulkReqCeiling(1, 0, 1)}. The „listed" configuration is counted in its own case below.`,
         )
         assert.ok(
             forMany.length <= BULK_REQ_CEILING,
@@ -409,7 +460,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
         assert.equal(store.listSeen, false, 'PRECONDITION: nothing has been read yet')
         clearWire()
 
-        await store.followMany([target(0), target(1)])
+        await store.followMany([target(0), target(1)], store.listId)
 
         assert.deepEqual(
             written.map((event: TrustedEvent) => event.kind),
@@ -443,7 +494,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
         await store.armFollowRead()
         clearWire()
 
-        await store.followMany([target(0), target(1)])
+        await store.followMany([target(0), target(1)], store.listId)
 
         assert.equal(written.length, 1, 'PRECONDITION: the write went out and the relay answered OK')
         assert.equal(
@@ -483,7 +534,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
         assert.equal(behaviour.get(me)?.silentFollows, true, 'PRECONDITION: the relay is the silent one now')
         clearWire()
 
-        await store.followMany([target(0)])
+        await store.followMany([target(0)], store.listId)
 
         assert.deepEqual(written.map((event: TrustedEvent) => event.kind), [], 'nothing may be written on a base '
             + 'nobody confirmed — this is the replaceable-kind data loss, and it does not care that an earlier '
@@ -520,7 +571,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
         const inFlight = store.armFollowRead()
         assert.equal(store.busy, true, 'PRECONDITION: the first operation holds the store')
 
-        await store.followMany([target(0)])
+        await store.followMany([target(0)], store.listId)
 
         assert.deepEqual(written.map((event: TrustedEvent) => event.kind), [], 'nothing may be written')
         assert.equal(
@@ -602,6 +653,262 @@ describe('P4: n follows are one event, and the wire says so', () => {
         )
     })
 
+    /**
+     * **The same count on the OTHER configuration — the reviewer's finding of this round.**
+     *
+     * Everything above runs `confirmed-none`: nobody in this file has a kind 10002, so the
+     * target set is the one fallback relay and the hint set is empty. That is one of the two
+     * shapes this path has, and the ceiling of 4 was measured on it alone.
+     *
+     * A `listed` reader is the other one, and it is the one that matters most: the targets
+     * are then the relays the outbox model points every other client at. The set is bigger
+     * (two declared relays here), `readOwnFollowList` asks the hint relays beside them, and
+     * the re-read after the write goes to every target again — five frames, not three.
+     *
+     * **What must hold is the same sentence as above, and it is the load-bearing half: the
+     * count does not depend on n.** The code batches over the relay set, never over people,
+     * so 400 targets and 1 target produce the identical frames. The F1 repair of this round
+     * adds nothing here — the locally held list is a candidate in the comparison, not a read.
+     */
+    test('CORE: the REQ count does not grow with n on the `listed` path either', async () => {
+        const secretMany = makeSecret()
+        const many = await freshIdentityWithSecret('listedmany', secretMany, {
+            list: await signList(secretMany, [['p', ALICE]]),
+            relayList: await signRelayList(secretMany, [OUT1, OUT2]),
+        })
+        await many.store.armFollowRead()
+        assert.equal(many.store.noRelayList, false, 'PRECONDITION: this reader IS listed — they declared two relays')
+        clearWire()
+        await many.store.followMany(TARGETS, many.store.listId)
+        const forMany = wireFrames()
+        const manyAskedAbout = askedAbout()
+        assert.equal(
+            new Set(written.map((event: TrustedEvent) => event.id)).size,
+            1,
+            'PRECONDITION: the many-target write happened, and it is ONE event — two EVENT frames here are the '
+                + 'same signed event spread over two relays, which is what a declared write set is for',
+        )
+        assert.deepEqual(
+            [...new Set(writtenTo)].sort(),
+            [OUT1, OUT2],
+            'and it went to the DECLARED relays — on this path the target set is the outbox, not the fallback',
+        )
+
+        const secretOne = makeSecret()
+        const one = await freshIdentityWithSecret('listedone', secretOne, {
+            list: await signList(secretOne, [['p', ALICE]]),
+            relayList: await signRelayList(secretOne, [OUT1, OUT2]),
+        })
+        await one.store.armFollowRead()
+        clearWire()
+        await one.store.followMany([target(0)], one.store.listId)
+        const forOne = wireFrames()
+        assert.equal(
+            new Set(written.map((event: TrustedEvent) => event.id)).size,
+            1,
+            'PRECONDITION: the one-target write happened',
+        )
+
+        assert.equal(
+            forMany.length,
+            forOne.length,
+            `on the listed path ${MANY} targets cost ${forMany.length} REQ frames and 1 target costs `
+                + `${forOne.length}. The selection must not appear in the count on either configuration.`,
+        )
+        assert.deepEqual(
+            forMany,
+            [
+                // The merge base, over the declared write relays — one REQ each.
+                { url: OUT1, kinds: [FOLLOWS] },
+                { url: OUT2, kinds: [FOLLOWS] },
+                // The read-only hint, which is the default set minus the targets (F6).
+                { url: FALLBACK, kinds: [FOLLOWS] },
+                // The re-read that checks the `OK`, over the targets and only them.
+                { url: OUT1, kinds: [FOLLOWS] },
+                { url: OUT2, kinds: [FOLLOWS] },
+            ],
+            'the frames of a bulk follow for a listed reader, in order. The kind 10002 is not among them because '
+                + 'the arming read resolved it and a `listed` verdict is kept for the session (listedRelayCache); '
+                + 'a frame for it here would mean that cache is gone, which is three indexer requests immediately '
+                + 'before every contact-list write.',
+        )
+        assert.equal(
+            forMany.length,
+            bulkReqCeiling(2, 1, 0),
+            `a listed bulk follow sent ${forMany.length} REQ frames; two declared relays, one hint beside them and `
+                + `a warm relay-list verdict give ${bulkReqCeiling(2, 1, 0)}. This is the number the ceiling of 4 `
+                + 'did not cover — it is a ceiling for the confirmed-none configuration, not for the path.',
+        )
+        assert.deepEqual(
+            manyAskedAbout,
+            [many.me],
+            `a listed bulk follow asked about [${manyAskedAbout.length} pubkeys], expected only the reader's own.`,
+        )
+    })
+
+    /**
+     * **F1, the surface half: the preview freezes the base, and the write is measured
+     * against the FROZEN one.**
+     *
+     * The store refuses a plan built on a base other than the one it was handed — but only
+     * if what it is handed is the base the reader was SHOWN. `follows.listId` read at submit
+     * time is the store's current answer, so passing that would compare the base with
+     * itself and the whole binding would be a no-op that looks exactly like the repair.
+     *
+     * Same instrument and same limits as the case above: `js/directoryIsland.ts` is an
+     * Alpine island and does not run under `node --test`, so this pins a SHAPE. What it
+     * cannot say is that the dialog shows the right numbers — that is P6's E2E.
+     */
+    test('CORE: the write is bound to the base the preview froze, not to the live one', () => {
+        const source = readFileSync(join(JS_DIR, 'directoryIsland.ts'), 'utf8')
+        const tree = ts.createSourceFile('directoryIsland.ts', source, ts.ScriptTarget.Latest, true)
+        const methods = new Map<string, ts.MethodDeclaration>()
+        const findMethods = (node: ts.Node): void => {
+            if (ts.isMethodDeclaration(node)) {
+                methods.set(node.name.getText(), node)
+            }
+            ts.forEachChild(node, findMethods)
+        }
+        findMethods(tree)
+
+        const preview = methods.get('openBulkPreview')
+        assert.ok(preview, 'directoryIsland.ts has no openBulkPreview() — nothing freezes anything.')
+        const frozen: string[] = []
+        const findBindings = (node: ts.Node): void => {
+            if (ts.isVariableDeclaration(node) && node.name.getText() === 'base' && node.initializer) {
+                frozen.push(node.initializer.getText())
+            }
+            ts.forEachChild(node, findBindings)
+        }
+        findBindings(preview)
+        assert.deepEqual(
+            frozen,
+            ['follows.listId'],
+            `openBulkPreview() freezes [${frozen.join(' | ')}] as the base, expected [follows.listId]. That field `
+                + 'is the id of the event `following` was rendered from, and it is the only thing that can say '
+                + 'WHICH list the three numbers were counted against — `from` says 703 and not which 703.',
+        )
+        const plans: string[] = []
+        const findPlan = (node: ts.Node): void => {
+            if (
+                ts.isBinaryExpression(node)
+                && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+                && node.left.getText().endsWith('.bulkPlan')
+                && ts.isObjectLiteralExpression(node.right)
+            ) {
+                plans.push(node.right.getText())
+            }
+            ts.forEachChild(node, findPlan)
+        }
+        findPlan(preview)
+        assert.equal(plans.length, 1, 'openBulkPreview() no longer assigns a frozen plan object.')
+        assert.ok(
+            /\bbase\b/.test(plans[0] ?? ''),
+            `the frozen plan is ${plans[0]}, and it does not carry the base. Then the write has nothing to be `
+                + 'measured against and the preview is decoration.',
+        )
+
+        const confirm = methods.get('confirmBulkFollow')
+        assert.ok(confirm, 'directoryIsland.ts has no confirmBulkFollow() — the bulk write has no call site.')
+        const calls: string[][] = []
+        const findCalls = (node: ts.Node): void => {
+            if (ts.isCallExpression(node) && node.expression.getText().endsWith('.followMany')) {
+                calls.push(node.arguments.map((argument: ts.Expression) => argument.getText()))
+            }
+            ts.forEachChild(node, findCalls)
+        }
+        findCalls(confirm)
+        assert.deepEqual(
+            calls,
+            [['targets', 'shownBase']],
+            `confirmBulkFollow() calls followMany with [${calls.map((c) => c.join(', ')).join(' | ')}]. It has to `
+                + 'hand over both the frozen selection and the frozen base — a call with one argument leaves '
+                + '`shownBase` undefined, which the gate refuses (fail-closed, but every bulk follow then fails).',
+        )
+        const bound: string[] = []
+        const findBase = (node: ts.Node): void => {
+            if (ts.isVariableDeclaration(node) && node.name.getText() === 'shownBase' && node.initializer) {
+                bound.push(node.initializer.getText())
+            }
+            ts.forEachChild(node, findBase)
+        }
+        findBase(confirm)
+        assert.deepEqual(
+            bound,
+            ['plan.base'],
+            `confirmBulkFollow() takes its base from [${bound.join(' | ')}], expected [plan.base]. Reading `
+                + '`follows.listId` here compares the store with itself: the numbers the reader confirmed came '
+                + 'from the frozen plan, and so must the base.',
+        )
+        // Asked of the AST and not of the text, because the comment in that method NAMES the
+        // live field in order to rule it out — a text match would be red for the sentence
+        // that explains the rule.
+        const liveReads: string[] = []
+        const findLive = (node: ts.Node): void => {
+            if (ts.isPropertyAccessExpression(node) && node.name.getText() === 'listId') {
+                liveReads.push(node.getText())
+            }
+            ts.forEachChild(node, findLive)
+        }
+        findLive(confirm)
+        assert.deepEqual(
+            liveReads,
+            [],
+            `confirmBulkFollow() reads [${liveReads.join(' | ')}]. The live field at submit time is the store's `
+                + 'current answer — the very thing the frozen base exists to be compared against.',
+        )
+    })
+
+    /**
+     * **F3, the surface half: three methods, one question.**
+     *
+     * „May the reader press „Kontaktliste laden"" is asked by the hint, by the label and by
+     * the disabled state, and the third one is what makes the difference between a button
+     * that invites a retry and one that is inert. Three copies of the condition is how one
+     * of them stays behind — the state this repairs is exactly that shape: the label said
+     * „Lädt…" forever while the store had long given up.
+     */
+    test('CORE: the bulk bar asks ONE predicate whether the list can still be loaded', () => {
+        const source = readFileSync(join(JS_DIR, 'directoryIsland.ts'), 'utf8')
+        const tree = ts.createSourceFile('directoryIsland.ts', source, ts.ScriptTarget.Latest, true)
+        const methods = new Map<string, ts.MethodDeclaration>()
+        const findMethods = (node: ts.Node): void => {
+            if (ts.isMethodDeclaration(node)) {
+                methods.set(node.name.getText(), node)
+            }
+            ts.forEachChild(node, findMethods)
+        }
+        findMethods(tree)
+
+        for (const name of ['bulkHint', 'bulkPrimaryLabel', 'bulkPrimaryBlocked']) {
+            const method = methods.get(name)
+            assert.ok(method, `directoryIsland.ts has no ${name}() — the bulk bar lost one of its three states.`)
+            const calls: string[] = []
+            const findCalls = (node: ts.Node): void => {
+                if (ts.isCallExpression(node) && node.expression.getText() === 'canLoadContactList') {
+                    calls.push(node.getText())
+                }
+                ts.forEachChild(node, findCalls)
+            }
+            findCalls(method)
+            assert.equal(
+                calls.length,
+                1,
+                `${name}() asks canLoadContactList() ${calls.length}x, expected once. Asking noRelayList alone `
+                    + 'is the state this repairs: a listed reader whose declared relay never closes the read is '
+                    + 'left with „Lädt…" for the session — no relay name, no error, no retry.',
+            )
+        }
+
+        const predicate = source.slice(source.indexOf('const canLoadContactList'))
+        assert.ok(
+            /noRelayList/.test(predicate.slice(0, 200)) && /listReadFailed/.test(predicate.slice(0, 200)),
+            'canLoadContactList() no longer reads both reasons. `noRelayList` is the reader who is deliberately '
+                + 'not read on a page load (P2/D8); `listReadFailed` is the reader whose read was attempted and '
+                + 'did not land. Dropping either one makes the bar inert for that group.',
+        )
+    })
+
     test('CORE: a selection that changes nothing is refused out loud, not silently', async () => {
         const secret = makeSecret()
         const { store } = await freshIdentityWithSecret('noop', secret, {
@@ -610,7 +917,7 @@ describe('P4: n follows are one event, and the wire says so', () => {
         await store.armFollowRead()
         clearWire()
 
-        await store.followMany([target(0), target(1)])
+        await store.followMany([target(0), target(1)], store.listId)
 
         assert.deepEqual(
             written.map((event: TrustedEvent) => event.kind),

@@ -613,6 +613,41 @@ export const winningFollowList = (reads: readonly FollowRelayRead[]): FollowEven
     return winner
 }
 
+/**
+ * **The identity of a merge base, in the one form a surface can hold on to: the event id.**
+ *
+ * `''` means „there is no list", and that is a state rather than a missing value — a
+ * reader who genuinely follows nobody plans against `null` and is shown `from: 0`. Both
+ * ends of the comparison go through this function, so „no list" binds exactly as tightly
+ * as a 703-entry one; an `undefined` on either side would quietly agree with everything.
+ *
+ * **The id and not the count.** „703" says nothing about WHICH 703. The case this exists
+ * for happened to differ in size as well (703 counted, 403 written), but a base of the
+ * same length and different content is the same loss with a number that agrees.
+ */
+export const followBaseId = (list: FollowEventLike | null): string => list?.id ?? ''
+
+/**
+ * **Is the list we are about to plan against the one the reader was shown?** (F1)
+ *
+ * The preview freezes what it counted; the write re-reads the relays and plans against
+ * whatever comes back. Nothing compared the two until this function: a relay that did not
+ * answer in that window moved the base without moving the numbers on screen, and the
+ * reader signed „703 → 706" over a body built from 403 entries.
+ *
+ * `null` for `shownBase` is the documented opt-out — this write was never previewed, so
+ * there is nothing to bind it to. It has to be passed deliberately:
+ * {@link FollowPlanInput.shownBase} is required, so no caller reaches the opt-out by
+ * forgetting the argument.
+ *
+ * Disagreement is a REFUSAL and not a re-plan, including when the base grew: a list that
+ * moved between the preview and the click is another device's write, and the honest answer
+ * is to say so and let the reader look at the new numbers. Re-planning silently would be
+ * the same signature over different facts, which is the thing this is here to stop.
+ */
+export const plannedBaseWasShown = (list: FollowEventLike | null, shownBase: string | null): boolean =>
+    shownBase === null || followBaseId(list) === shownBase
+
 /** The followed pubkeys in a tag list, in order, deduplicated. */
 export const followedPubkeysIn = (tags: readonly string[][]): string[] => {
     const seen = new Set<string>()
@@ -795,6 +830,37 @@ export type FollowPlanInput = FollowPlanDirection & {
     self: string
     /** From `deriveSpaceKind`; `'unknown'` denies. */
     spaceKind: SpaceKind
+    /**
+     * **The base the reader was SHOWN — {@link followBaseId} of it — or `null` for a write
+     * that was never previewed.** The F1 repair.
+     *
+     * ── What went wrong without it ─────────────────────────────────────────────
+     *
+     * The bulk preview freezes its three numbers against the list the store holds. The
+     * write then re-reads the relays and plans against `list` above, and the two were
+     * never compared. Measured on `6565549` with one hint relay failing to answer once:
+     * the dialog said „703 → 706", the signed event carried **403** tags, 303 contacts
+     * were destroyed, and `store.error` stayed `''` — which the surface reads as success,
+     * clears the selection and closes the dialog over. A replaceable kind 3 with a fresh
+     * `created_at` on the reader's own declared write relays; no undo.
+     *
+     * ── Why this is REQUIRED and not optional ──────────────────────────────────
+     *
+     * An optional field defaults to „not bound" for every caller who does not think about
+     * it, which is precisely the caller this exists for. Required, the opt-out has to be
+     * written out as `shownBase: null`, it is greppable, and it appears exactly where a
+     * reader of this module can check the reason: the single follow button, which shows no
+     * preview and derives its direction from the same read it plans from.
+     *
+     * ── Why it does not fire in ordinary use ───────────────────────────────────
+     *
+     * Because the locally held list joins the NIP-01 comparison of the read as a voiceless
+     * source (`js/follows.ts`, {@link winningFollowList}), a relay dropping out of the
+     * window no longer moves the base — it can only stay or move forward. What is left to
+     * refuse on is a base that genuinely changed: another device wrote, or a relay served
+     * something newer than the preview saw. Both of those are worth stopping for.
+     */
+    shownBase: string | null
 }
 
 /** Are these two tag lists the same list? Order counts — a reorder IS a change. */
@@ -808,13 +874,14 @@ const sameTags = (a: string[][], b: string[][]): boolean =>
  * result is dropped looks exactly like one that is honoured, so gate and body are made
  * the same value. A caller that skips this has nothing to sign.
  *
- * The five refusals, each with what it prevents:
+ * The six refusals, each with what it prevents:
  *
  * | refusal | what happens without it |
  * |---|---|
  * | `!self` | a guest write with no key |
  * | no usable target | an empty `p` tag, or an unfollow of nobody |
  * | `!listAnswered` | **the replaceable-kind data loss**: we replace the relay's contact list with the entries we happen to know, and every follow made on another device is deleted. Since P2 the verdict behind this flag is the staged one in {@link followListAnswered} — an `EOSE` from the space relay alone no longer clears it while the reader has an outbox |
+ * | `!plannedBaseWasShown` | **F1**: the body is built from a base the reader never saw. The preview counted 703 and froze it, one relay then missed the window, and the event carried 403 tags — with an empty `error`, which every surface here reads as success |
  * | `!mayWriteKind` | a write while the relay kind is still `'unknown'`, i.e. a guess about which relay we are talking to |
  * | `sameTags` | a signed event that changes nothing — a double click, a second device that got there first, or a bulk call in which every target was already followed |
  *
@@ -848,7 +915,7 @@ const sameTags = (a: string[][], b: string[][]): boolean =>
  * about ({@link withFollowedPubkeys}).
  */
 export const planFollowWrite = (input: FollowPlanInput): FollowWrite | null => {
-    const { list, listAnswered, self, spaceKind } = input
+    const { list, listAnswered, self, spaceKind, shownBase } = input
     if (!self) {
         return null
     }
@@ -859,6 +926,13 @@ export const planFollowWrite = (input: FollowPlanInput): FollowWrite | null => {
         return null
     }
     if (!listAnswered) {
+        return null
+    }
+    // F1: the base that was counted binds the write. A read that answered completely can
+    // still hand back a DIFFERENT list than the one the reader was shown — one relay out
+    // of the window is enough — and planning on it silently is how „703 → 706" became a
+    // 403-tag event.
+    if (!plannedBaseWasShown(list, shownBase)) {
         return null
     }
     if (!mayWriteKind(FOLLOWS, spaceKind)) {
