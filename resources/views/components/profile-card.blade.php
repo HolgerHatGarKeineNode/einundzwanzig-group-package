@@ -170,15 +170,89 @@
                          nothing (measured in this repo for `flux:icon ::variant`, and the
                          same mechanism applies here). Two buttons swapped by `x-show`
                          would work but double the target the keyboard walks over. --}}
+                    {{-- ── The THIRD state: we do not know yet (P1) ───────────────────
+                         `canFollow` only answers whether this RELAY takes a kind 3. It
+                         says nothing about whether we have seen the reader's own list, and
+                         until P1 the button had no way to say so: "does not follow" and
+                         "we have not looked" were one and the same word, namely „Folgen".
+                         That word is the lie this state exists to stop — so the label here
+                         is neutral and makes no claim about the direction.
+
+                         `listSeen` is the strict verdict: a relay closed a read of our own
+                         list with an `EOSE` (`js/follows.ts`). `$store.follows?.listSeen`
+                         is `undefined` before the store is wired, and `!undefined` is
+                         true — the unknown state is what an absent store falls into, which
+                         is the right way round.
+
+                         `aria-disabled` and NOT `disabled`: the button keeps its place in
+                         the tab order and keeps announcing itself, which is what lets a
+                         screen reader hear the reason at all. It is only an announcement
+                         though — the lock that makes a click harmless sits in
+                         `toggle()`, not here.
+
+                         The visible label is SHORT on purpose. Both buttons in this row
+                         are `flex-1 basis-0` and a Flux button is `whitespace-nowrap`, so
+                         its content sets a `min-width` the flex algorithm cannot go below
+                         — the measurement two comments up is exactly that failure. The
+                         whole sentence therefore lives in `aria-label`, which is bound to
+                         `null` in the ordinary state so it never overrides the real
+                         label. --}}
                     <flux:button variant="filled" size="sm" class="flex-1 basis-0 text-btn-touch" data-person-follow
                                  x-show="$store.follows?.canFollow" x-cloak
                                  x-bind:aria-busy="$store.follows?.busy ? 'true' : 'false'"
+                                 x-bind:aria-disabled="$store.follows?.listSeen ? null : 'true'"
+                                 x-bind:aria-label="$store.follows?.listSeen ? null : ($store.follows?.noRelayList ? @js(__('Kontaktliste laden — danach kannst du folgen')) : @js(__('Kontaktliste wird geladen — Folgen ist noch nicht möglich')))"
                                  x-on:click="$store.follows?.toggle(pubkey)">
-                        <span x-text="$store.follows?.isFollowing(pubkey) ? @js(__('Entfolgen')) : @js(__('Folgen'))"></span>
+                        {{-- ── The third state has TWO wordings, and the difference is honesty (D8) ──
+                             `listSeen` false means „we have not read the list". For a
+                             reader with a NIP-65 list that read is running right now, so
+                             „Lädt…" is true. For a reader without one, F7 deliberately
+                             does NOT read on a page load — asking four relays they never
+                             chose, on every view, is a presence signal for nothing — so
+                             the read starts on the click. „Lädt…" would then claim a load
+                             that is not happening and offer no way out of it.
+
+                             `noRelayList` is exactly that group (it comes from
+                             `OutboxKnowledge` = `confirmed-none`, set by the arming pass,
+                             which still resolves the relay list). The label invites the
+                             click that does the reading. The click itself is unchanged:
+                             since P1 a click while `listSeen` is false is a read and never
+                             a write. --}}
+                        <span x-text="!$store.follows?.listSeen ? ($store.follows?.noRelayList ? @js(__('Kontaktliste laden')) : @js(__('Lädt…'))) : ($store.follows?.isFollowing(pubkey) ? @js(__('Entfolgen')) : @js(__('Folgen')))"></span>
                     </flux:button>
                 </div>
                 <flux:text x-show="$store.follows?.error" x-cloak data-person-follow-fehler
                            class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="$store.follows?.error"></flux:text>
+
+                {{-- ── The reach of this list, said once and plainly (P2, corrected N1) ──
+                     A reader with no NIP-65 relay list has not said where their data
+                     belongs, so this client writes their contact list to the general
+                     public relays (`FOLLOW_FALLBACK_RELAYS` in `js/follows.ts`). That
+                     works — those relays serve kind 3 and other clients read them — but
+                     it is not what the reader chose, and the next client they use may
+                     look somewhere else entirely.
+
+                     **The earlier wording said the list „is not findable outside this
+                     Space". That was true while the space was the only target and is
+                     false since N1** — the space is no longer written to at all. A
+                     sentence that describes a previous version is worse than none: the
+                     reader acts on it.
+
+                     The write still happens. A gate here would be a dead end: this
+                     client has no write path for kind 10002 (`RelayLists.update`,
+                     `setWriteUrls`, `addWriteUrl` appear nowhere in `js/`), so the
+                     reader could not satisfy it. A sentence they can act on elsewhere is
+                     the honest answer; a blocked button would not be.
+
+                     Gated on `listSeen` as well, and that is the whole point: before a
+                     read has come back, „no relay list" and „nobody has looked" are the
+                     same `false`, and only one of them is a statement about this reader.
+                     `js/follows.ts` sets both fields from the same answer. --}}
+                <flux:text x-show="$store.follows?.canFollow && $store.follows?.listSeen && $store.follows?.noRelayList"
+                           x-cloak data-person-follow-lokal
+                           class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    {{ __('Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.') }}
+                </flux:text>
 
                 {{-- ── Hide a person (P6, NIP-51 kind 10000) ──────────────────────────
                      The COUNTERPART of "Raum stummschalten": different kind, different

@@ -34,8 +34,65 @@ new #[Layout('group::einundzwanzig')] class extends Component
     {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
     <x-group::verein-gate context="{{ __('Die Mitgliederliste') }}" class="mb-4" />
 
-    {{-- Directory des AKTIVEN Space (§12). Gated auf relay.self (Fix A). --}}
-    <div x-data="nostrDirectory" class="page-enter space-y-4">
+    {{-- ── The member directory, and the one island this client fetches ──────────
+         `nostrDirectory` is 5 016 B gzip of the `app` chunk that EVERY page loads, for
+         a screen that exists on this one route. The bundle latch broke over it a second
+         time and its docblock prescribes the split, so the island now lives in
+         `js/directoryIsland.ts` and arrives by `import()`.
+
+         The two elements below are what that costs in markup. `nostrDirectoryShell`
+         (`js/bridge.ts`) is the only thing left in the boot path; the island's own
+         `x-data="nostrDirectory"` moved one level in, onto the element inside the
+         `x-if` — evaluated only once the chunk is registered, which is the whole trick.
+         Alpine walks a tree synchronously, so without that gate every expression below
+         would run against a scope the chunk has not filled yet, and Alpine reports an
+         unknown name as a thrown page error rather than a warning.
+
+         `x-data="nostrDirectory"` keeps its name and its place in the tree on purpose:
+         two E2E suites address this island as `[x-data="nostrDirectory"]` and read it
+         through `Alpine.$data(el)`. `$root` still resolves to the element that holds
+         everything the island focuses (`enterSelectMode`/`leaveSelectMode`).
+
+         While the chunk is in flight the reader gets the SAME skeleton the island shows
+         while its profiles load — one file, included twice — so nothing changes shape
+         between the two waits. If the chunk never arrives, the callout below is what
+         they get; a lazy island that fails in silence would be worse than the bytes it
+         saves.
+
+         **The body below keeps its old indentation and that is deliberate.** Two levels
+         came in over 720 lines; re-indenting them makes every one of those lines an
+         ADDED line against `master`, and `tests/e2e/support/workLanguage.nodetest.ts`
+         then reads ~700 pre-existing German comment lines as new work and goes red —
+         measured, not feared. The doctrine is explicit that the existing German corpus
+         stays put; a whitespace pass that drags it through a language gate would be the
+         wrong way to satisfy both. The gain is the same one a reviewer gets: the diff of
+         this file is the handful of lines that actually changed. --}}
+    <div x-data="nostrDirectoryShell" class="page-enter space-y-4">
+
+        {{-- The import rejected: a chunk that is no longer where the manifest says
+             (a deploy during the visit), or a network that dropped between document
+             and chunk. The way out is a reload and not a second `import()`: a module
+             specifier whose fetch failed stays failed in this document's module map,
+             so a retry button here could not succeed — measured in Chromium on
+             2026-09-15 with the chunk made reachable again between the two tries, see
+             `nostrDirectoryShell` in `js/bridge.ts`. --}}
+        <template x-if="failed">
+            <flux:callout variant="danger" icon="exclamation-triangle" data-directory-chunk-error>
+                <flux:callout.text>{{ __('Die Mitgliederliste ist gerade nicht erreichbar.') }}</flux:callout.text>
+                <x-slot name="actions">
+                    <flux:button size="sm" variant="ghost" icon="arrow-path" x-on:click="reload()">{{ __('Seite neu laden') }}</flux:button>
+                </x-slot>
+            </flux:callout>
+        </template>
+
+        {{-- The wait for the chunk, in the shape the island's own wait already has. --}}
+        <template x-if="!hydrated && !failed">
+            @include('group::partials.directory-skeleton')
+        </template>
+
+        {{-- Directory des AKTIVEN Space (§12). Gated auf relay.self (Fix A). --}}
+        <template x-if="hydrated">
+            <div x-data="nostrDirectory" class="space-y-4">
 
         {{-- Suche — für Nicht-Vereinsmitglieder ausgeblendet: die Mitgliederliste
              liefert der Relay nicht aus, eine Suche liefe ins Leere. Wrapper-Div,
@@ -45,6 +102,54 @@ new #[Layout('group::einundzwanzig')] class extends Component
              hierher zurück, wenn er sich selbst wegräumt. --}}
         <div x-show="!gatedOut">
             <flux:input x-ref="search" x-model="query" icon="magnifying-glass" placeholder="{{ __('Mitglied suchen…') }}" clearable />
+        </div>
+
+        {{-- ── Follow several at once: the way in, and the head of selection mode (P4) ──
+             ONE band, two contents. Out of the mode it holds a single quiet way in; in
+             the mode it holds "select all". Same row, same height, so turning the mode
+             on moves nothing below it — the list stays where the reader was looking.
+
+             `min-h-11` is that promise made concrete: both contents are 44 px tall, so
+             the band cannot change height when its content swaps.
+
+             Gated on the same `canFollow` as the single-person button in
+             `profile-card.blade.php`, for the same reason and out of the same store. A
+             way into a mode whose only action the relay refuses is a dead end.
+
+             The way OUT of the mode is not here. It sits in the action bar at the foot
+             of the list, which is pinned — at the bottom of a list of a few hundred
+             people this band is far off screen, and an escape you have to scroll to find
+             is not an escape. One cancel, always in reach. --}}
+        <div x-show="profilesReady && members.length > 0 && !gatedOut && $store.follows?.canFollow" x-cloak
+             class="flex min-h-11 items-center">
+            <template x-if="!selectMode">
+                <flux:button size="sm" variant="ghost" icon="user-plus" class="ms-auto text-btn-touch"
+                             data-directory-select-toggle x-on:click="enterSelectMode($root)">
+                    {{ __('Mehreren folgen') }}
+                </flux:button>
+            </template>
+            {{-- A hand-built `<label>` rather than `flux:checkbox`'s own `label` prop, and
+                 the reason is the target size: the prop puts the label NEXT TO the control
+                 inside a `ui-field`, and the clickable box that comes out is the height of
+                 its own text — measured 18 px for the control, ~20 px for the label, both
+                 under WCAG 2.5.8's 24 px. `ui-checkbox` calls `respondToLabelClick` in its
+                 constructor and toggles on a click anywhere in an ancestor `<label>`, so
+                 wrapping it gives the same behaviour in a box this file controls.
+                 `aria-label` carries the name that `ui-field` would otherwise have wired.
+
+                 Gone when a search has narrowed the list to nothing: "all" would then be
+                 the empty set, the click would do nothing, and a control that does
+                 nothing is worse than an empty band. The empty-search card below offers
+                 the way out. --}}
+            <template x-if="selectMode && selectableMembers().length > 0">
+                <label class="pressable -ms-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-tile px-2">
+                    <flux:checkbox data-directory-select-all
+                                   aria-label="{{ __('Alle auswählen') }}"
+                                   x-effect="syncSelectAll($el)"
+                                   x-on:change="setSelectAll($event.target.checked)" />
+                    <span class="text-sm font-medium">{{ __('Alle auswählen') }}</span>
+                </label>
+            </template>
         </div>
 
         {{-- Admin-Werkzeuge (nur wenn der Relay dem User NIP-86-Methoden erlaubt) --}}
@@ -90,18 +195,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Rutsch — kein progressives Umsortieren/Flackern, im Mobile-WebView
              kein Repaint-Sturm (schwarzer Bildschirm). --}}
         <template x-if="!profilesReady">
-            <div class="space-y-2" aria-busy="true">
-                <span class="sr-only" aria-live="polite">{{ __('Mitglieder werden geladen…') }}</span>
-                <template x-for="i in 4" :key="i">
-                    <div class="surface-card flex items-center gap-3 p-3">
-                        <div class="skeleton size-9 rounded-full"></div>
-                        <div class="flex-1 space-y-1.5">
-                            <div class="skeleton h-3.5 w-32"></div>
-                            <div class="skeleton h-2.5 w-20"></div>
-                        </div>
-                    </div>
-                </template>
-            </div>
+            @include('group::partials.directory-skeleton')
         </template>
 
         {{-- Geladen, aber keine Mitglieder. Für Nicht-Vereinsmitglieder ausgeblendet
@@ -137,7 +231,41 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <template x-if="profilesReady && members.length > 0">
             <div class="list-stagger space-y-2">
                 <template x-for="(m, idx) in filtered()" :key="m.pubkey">
-                    <div class="surface-card flex items-center gap-3 p-3" :style="`--i:${idx}`">
+                    <div class="surface-card flex items-center gap-3 p-3" :style="`--i:${idx}`"
+                         data-directory-row x-bind:data-pubkey="m.pubkey">
+                        {{-- ── The row in selection mode (P4) ─────────────────────────
+                             One checkbox at the leading edge and NOTHING else changes —
+                             no tint, no swapped border, no second badge. The list is the
+                             primary thing on this screen and has to stay legible while
+                             a dozen of its rows are picked; the checked box is already
+                             the marker, and a second one would only compete with it.
+
+                             The negative margins hand the row's own padding to the
+                             label, so the target reaches the card's edge instead of
+                             floating inside it. `icon-btn-touch` is the house utility:
+                             44 px on a coarse pointer, compact on a mouse — the control
+                             itself is 18 px, which clears nothing at all on a thumb.
+                             `self-stretch` gives it the full height of the row. --}}
+                        <template x-if="selectMode">
+                            <label class="icon-btn-touch -my-3 -ms-3 flex shrink-0 cursor-pointer items-center justify-center self-stretch px-3">
+                                {{-- Your own row carries no checkbox: a contact list
+                                     containing its own author says nothing, and
+                                     `planFollowWrite` refuses it — so the box would be a
+                                     target whose result the write path throws away. The
+                                     empty span of the same size keeps the column
+                                     straight; a row that simply loses its first cell
+                                     makes the whole list look broken. --}}
+                                <template x-if="m.pubkey !== ($store.follows?.me ?? '')">
+                                    <flux:checkbox data-directory-row-check
+                                                   x-bind:aria-label="rowSelectLabel(m)"
+                                                   x-effect="$el.checked = isSelected(m.pubkey)"
+                                                   x-on:change="toggleSelect(m.pubkey, $event.target.checked)" />
+                                </template>
+                                <template x-if="m.pubkey === ($store.follows?.me ?? '')">
+                                    <span class="size-4.5" aria-hidden="true"></span>
+                                </template>
+                            </label>
+                        </template>
                         <button type="button" x-on:click="$dispatch('open-profile', m.pubkey)"
                                 class="pressable shrink-0" aria-label="{{ __('Profil anzeigen') }}">
                             {{-- Status-Emoji (NIP-38) als Plakette; der Text steht unten in der Zeile. --}}
@@ -241,6 +369,146 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </template>
             </div>
         </template>
+
+        {{-- ── The bulk action bar (P4) ───────────────────────────────────────────
+             Exists only in selection mode, and pinned, because the decision it carries
+             is taken at the end of a long list and the reader must not have to scroll
+             back to a header to make it. It holds BOTH remaining actions — the escape
+             and the way forward — so neither is ever off screen.
+
+             `sticky` and not `fixed`, and that is a measurement rather than a taste:
+             below `xl` the document scrolls, from `xl` the stage itself is the scrollport
+             (`xl:overflow-y-auto` in `app-shell.blade.php`). A sticky box is positioned
+             against whichever of the two is scrolling, so one rule serves both; a fixed
+             box would need the stage's own column geometry restated here.
+
+             The offset is `--group-nav-h`, the height the bottom bar measures on itself
+             and publishes on `<html>` (`bottom-nav.blade.php`). It reports `0px` where
+             the bar is not rendered — from `xl` in the web host — so this needs neither a
+             breakpoint nor a host check, the same construction `scroll-mb-nav` already
+             uses. The `7rem` fallback only covers the window before Alpine has booted,
+             and this bar cannot be on screen then: it takes a click to exist.
+
+             Opaque surface, not a translucent one: rows scroll underneath it. --}}
+        <template x-if="selectMode">
+            <div data-directory-bulk-bar role="group" aria-label="{{ __('Mehreren folgen') }}"
+                 class="surface-card sticky bottom-[calc(var(--group-nav-h,7rem)+0.75rem)] z-30 space-y-3 p-3">
+                {{-- Why the action cannot run yet — the same three states and the same
+                     wording the single-person button carries, out of `bulkHint()`. Empty
+                     string means it can run, and then this line is not there at all. --}}
+                <p x-show="bulkHint()" x-cloak class="text-xs text-muted" x-text="bulkHint()"></p>
+                <p x-show="bulkError" x-cloak data-directory-bulk-error
+                   class="text-xs text-red-600 dark:text-red-400" x-text="bulkError"></p>
+                {{-- Stacked on a phone, one line from `sm` up — and the buttons only
+                     stretch in the stacked case. Measured at 1280 px before this split:
+                     `flex-1 basis-0` handed each of the two buttons 448 px of an 896 px
+                     bar, which is the phone layout wearing a desktop's width. A button
+                     wider than its own sentence stops reading as a button. --}}
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p class="text-xs text-muted" x-text="selectionSummary()"></p>
+                    <div class="flex gap-2 sm:shrink-0">
+                        <flux:button size="sm" variant="ghost" class="flex-1 basis-0 text-btn-touch sm:flex-none"
+                                     data-directory-bulk-cancel x-on:click="leaveSelectMode($root)">
+                            {{ __('Abbrechen') }}
+                        </flux:button>
+                        {{-- `aria-disabled` and not `disabled`, the same decision as the
+                             follow button on the profile card: the control keeps its place in
+                             the tab order and keeps announcing itself, which is what lets the
+                             reason above it be heard at all. The lock that makes a press
+                             harmless is in `bulkPrimary()`, not here.
+
+                             One button with a swapping label and a FIXED `variant` — Flux
+                             resolves `variant` at compile time into a class set, so a bound
+                             one would land in the HTML and change nothing. --}}
+                        <flux:button variant="primary" size="sm" class="flex-1 basis-0 text-btn-touch sm:flex-none"
+                                     data-directory-bulk-submit
+                                     x-bind:aria-busy="bulkBusy ? 'true' : 'false'"
+                                     x-bind:aria-disabled="bulkPrimaryBlocked() ? 'true' : null"
+                                     x-on:click="bulkPrimary()">
+                            <span x-text="bulkPrimaryLabel()"></span>
+                        </flux:button>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        {{-- ── Before anything is signed (P4, point 4) ────────────────────────────
+             A blocking step, not a notice that slides past. A kind 3 is replaceable and
+             global: what gets written REPLACES the reader's contact list everywhere, and
+             this dialog is the only place the size of the list this client managed to
+             read is visible before a signature turns it into the truth. A reader with
+             700 contacts who sees their list "grow from 1 to 13" can stop here; after the
+             signature nobody can.
+
+             The four figures are the content, so they get the type. Inconsolata is a
+             monospace face, which is why the column of numbers lines up on its own — no
+             tabular variant, no fixed width, no grid.
+
+             `x-on:close` on the modal, not on the buttons: Flux splits that attribute onto
+             the `<dialog>` itself, so it catches every way out — the cancel button, the
+             Escape key, a click on the backdrop and the close cross. `bulkPlan` is
+             therefore null exactly while this dialog is shut. --}}
+        <flux:modal name="follow-bulk-preview" class="max-w-sm" x-on:close="bulkPlan = null">
+            <div class="space-y-5" x-show="bulkPlan" x-cloak>
+                <flux:heading size="lg">{{ __('Auswahl prüfen') }}</flux:heading>
+
+                {{-- The sentence comes FIRST and in words, because it is the one thing
+                     that can still be caught here: a reader with 700 contacts whose list
+                     "grows from 1 to 13" is looking at a base this client failed to read.
+                     No arrow, no display figure — a screen reader hears "from 703 to 715"
+                     rather than two loose numbers, and everyone else reads the same thing. --}}
+                <p data-directory-bulk-growth class="font-medium" x-text="planGrowth()"></p>
+
+                <dl data-directory-bulk-preview class="space-y-2">
+                    <div class="flex items-baseline justify-between gap-6">
+                        <dt class="text-sm text-muted">{{ __('Ausgewählt') }}</dt>
+                        <dd class="font-semibold" x-text="num(bulkPlan?.targets.length)"></dd>
+                    </div>
+                    {{-- Two labels in the same person and the same tense, so the pair is
+                         read as one split and not as two facts: what you do not follow
+                         yet is the number that is about to change. --}}
+                    <div class="flex items-baseline justify-between gap-6">
+                        <dt class="text-sm text-muted">{{ __('Folgst du noch nicht') }}</dt>
+                        <dd class="font-semibold" data-directory-bulk-add x-text="num(bulkPlan?.add)"></dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-6">
+                        <dt class="text-sm text-muted">{{ __('Folgst du schon') }}</dt>
+                        <dd class="font-semibold" data-directory-bulk-already x-text="num(bulkPlan?.already)"></dd>
+                    </div>
+                </dl>
+
+                {{-- The same sentence the profile card shows for the same reader, from the
+                     same two store fields — a bulk write reaches no further than a single
+                     one, and it would be strange to say it only on the small action. --}}
+                <flux:text x-show="$store.follows?.listSeen && $store.follows?.noRelayList" x-cloak
+                           class="text-xs text-muted">
+                    {{ __('Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.') }}
+                </flux:text>
+
+                <p x-show="bulkError" x-cloak class="text-xs text-red-600 dark:text-red-400" x-text="bulkError"></p>
+
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close>
+                        <flux:button variant="ghost" class="text-btn-touch">{{ __('Abbrechen') }}</flux:button>
+                    </flux:modal.close>
+                    {{-- "Folgen" and not a second verb: it is the same action the button on
+                         a profile card performs, and an action that changes its name
+                         between two places has to be learned twice. The step before it is
+                         called „Auswahl prüfen", which is what that one does — so the two
+                         buttons in this flow say two different true things instead of the
+                         same word with two different consequences. --}}
+                    {{-- Inert when the plan adds nobody: every selected person is already
+                         on the list, so there is nothing to write and the sentence above
+                         says exactly that. --}}
+                    <flux:button variant="primary" class="text-btn-touch" data-directory-bulk-confirm
+                                 x-bind:aria-busy="bulkBusy ? 'true' : 'false'"
+                                 x-bind:aria-disabled="bulkBusy || bulkPlan?.add === 0 ? 'true' : null"
+                                 x-on:click="confirmBulkFollow()">
+                        {{ __('Folgen') }}
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
 
         {{-- ── Admin-Modals (NIP-86) ─────────────────────────────────────────── --}}
 
@@ -544,6 +812,9 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </flux:modal>
 
+
+            </div>
+        </template>
 
     </div>
 

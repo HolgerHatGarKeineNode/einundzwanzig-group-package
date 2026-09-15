@@ -70,6 +70,15 @@ export type OptimisticSpread = {
     delivered: string[]
     /** The relays that did not. */
     failed: string[]
+    /**
+     * The relays that answered `OK true` with NIP-01's `duplicate:` prefix (P5). They are
+     * in `delivered` — the event was accepted — and they are nevertheless holding
+     * something else: for Buzz that is a replaceable write that lost the `created_at`
+     * comparison, for a NIP-01-literal relay it is "I already have this id". A caller that
+     * wants to know which of the two happened has to ask the relay again; see
+     * {@link publishSpread}.
+     */
+    duplicates: string[]
 }
 
 /**
@@ -105,5 +114,6 @@ export const publishSpreadOptimistic = async (
         error: outcome.error ? mapRelayError(outcome.error) : '',
         delivered: outcome.delivered,
         failed: outcome.failed,
+        duplicates: outcome.duplicates,
     }
 }

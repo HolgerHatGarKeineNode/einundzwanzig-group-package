@@ -219,9 +219,11 @@ describe('visibleChatEvents — the display filter', () => {
 
 describe('muteWriteConfirmed — did the relay mean its OK?', () => {
     test('a relay list that disagrees with us is believed', () => {
-        // zooid drops a replaceable event whose `created_at` is not greater than the
-        // stored one and returns no error. A clock running behind makes every mute a
-        // silent no-op while the relay keeps saying yes.
+        // A replaceable write can be dropped without an error: zooid drops one whose
+        // `created_at` went BACKWARDS (a tie goes to the new event there,
+        // `zooid/zooid/events.go:440`), Buzz and every NIP-01-conformant relay drop it on a
+        // tie as well and answer `OK true` + `duplicate:`. A clock running behind makes
+        // every mute a silent no-op while the relay keeps saying yes.
         assert.equal(muteWriteConfirmed([['p', THIRD]], OTHER, true), false)
         assert.equal(muteWriteConfirmed([['p', OTHER]], OTHER, false), false)
     })

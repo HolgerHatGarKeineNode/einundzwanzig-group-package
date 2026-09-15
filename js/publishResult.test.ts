@@ -20,6 +20,7 @@ import {
     publishFehlermeldung,
     relayHinweis,
     publishDetail,
+    relayMessagePrefix,
     setRelayNoticeReader,
     waitForPublishError,
     waitForPublishOutcome,
@@ -300,14 +301,16 @@ test('waitForPublishOutcome liefert Fehler UND Zeile aus demselben Verdikt', asy
     const p = waitForPublishOutcome(thunk)
     thunk.emit({ 'wss://a': { status: 'success', detail: 'response:{"channel_id":"abc","created":true}' } })
 
-    // `delivered`/`failed` are asserted along with it since P2: they are what tells
-    // "landed nowhere" from "landed somewhere" apart, and a shape assertion that left
-    // them out would stay green if they silently stopped being filled.
+    // `delivered`/`failed` are asserted along with it since P2, `duplicates` since P5:
+    // they are what tells "landed nowhere" from "landed somewhere" apart, and what tells
+    // "the relay stored it" from "the relay said yes". A shape assertion that left them
+    // out would stay green if they silently stopped being filled.
     assert.deepEqual(await p, {
         error: '',
         detail: 'response:{"channel_id":"abc","created":true}',
         delivered: ['wss://a'],
         failed: [],
+        duplicates: [],
     })
 })
 
@@ -322,6 +325,7 @@ test('waitForPublishOutcome: bei einer Ablehnung bleibt die Zeile leer', async (
         detail: '',
         delivered: [],
         failed: ['wss://a'],
+        duplicates: [],
     })
 })
 
@@ -341,6 +345,7 @@ test('waitForPublishOutcome: dieselbe Zeitgrenze, dieselbe NOTICE-Nachfrage', as
         detail: '',
         delivered: [],
         failed: ['wss://a'],
+        duplicates: [],
     })
     setRelayNoticeReader(() => '')
 })
@@ -354,7 +359,7 @@ test('publishSpread: the partial result is its own state, not a failure', () => 
     // relay is holding — publicly and permanently.
     assert.deepEqual(
         publishSpread({ 'wss://a': { status: 'success' }, 'wss://b': { status: 'timeout' } }),
-        { delivered: ['wss://a'], failed: ['wss://b'] },
+        { delivered: ['wss://a'], failed: ['wss://b'], duplicates: [] },
     )
     assert.equal(
         publishError({ 'wss://a': { status: 'success' }, 'wss://b': { status: 'timeout' } }),
@@ -366,11 +371,11 @@ test('publishSpread: the partial result is its own state, not a failure', () => 
 test('publishSpread: everywhere, and nowhere', () => {
     assert.deepEqual(
         publishSpread({ 'wss://a': { status: 'success' }, 'wss://b': { status: 'success' } }),
-        { delivered: ['wss://a', 'wss://b'], failed: [] },
+        { delivered: ['wss://a', 'wss://b'], failed: [], duplicates: [] },
     )
     assert.deepEqual(
         publishSpread({ 'wss://a': { status: 'failure' }, 'wss://b': { status: 'aborted' } }),
-        { delivered: [], failed: ['wss://a', 'wss://b'] },
+        { delivered: [], failed: ['wss://a', 'wss://b'], duplicates: [] },
     )
 })
 
@@ -379,7 +384,7 @@ test('publishSpread: an unknown status counts as failed, not as delivered', () =
     // failure, including a status that does not exist yet.
     assert.deepEqual(
         publishSpread({ 'wss://a': { status: 'irgendwas-neues' } }),
-        { delivered: [], failed: ['wss://a'] },
+        { delivered: [], failed: ['wss://a'], duplicates: [] },
     )
 })
 
@@ -396,4 +401,73 @@ test('rollBackAfterPublish: the partial result is KEPT, and that is the whole ru
     assert.equal(rollBackAfterPublish({ delivered: ['wss://a'] }), false, 'a partial result must not be rolled back')
     assert.equal(rollBackAfterPublish({ delivered: ['wss://a', 'wss://b'] }), false)
     assert.equal(rollBackAfterPublish({ delivered: [] }), true, 'nothing landed — the local copy has to go')
+})
+
+
+// ── relayMessagePrefix + the `duplicates` column (P5) ────────────────────────────────
+//
+// `OK true` is not a receipt. NIP-01 makes the 4th element of an `OK` frame "a
+// machine-readable single-word prefix followed by a `:` and then a human-readable
+// message" and lists the standardized prefixes: `duplicate`, `pow`, `blocked`,
+// `rate-limited`, `invalid`, `restricted`, `mute`, `error`. `duplicate` is the one that
+// arrives with `true` next to it.
+
+test('relayMessagePrefix: the spec spelling and the bare one reach the same verdict', () => {
+    // NIP-01's own example.
+    assert.equal(relayMessagePrefix('duplicate: already have this event'), 'duplicate')
+    // What Buzz actually sends: `message: "duplicate:".into()` — nothing after the colon.
+    // A parser written against one of these two and not the other is a parser for one
+    // relay, and the other relay is the one in production.
+    assert.equal(relayMessagePrefix('duplicate:'), 'duplicate')
+    assert.equal(relayMessagePrefix('Duplicate: Already Have This Event'), 'duplicate')
+    assert.equal(relayMessagePrefix(' duplicate: x'), 'duplicate')
+})
+
+test('relayMessagePrefix: no colon, no machine-readable word', () => {
+    // The ordinary success case — NIP-01: the 4th parameter "MAY be an empty string when
+    // the 3rd is `true`".
+    assert.equal(relayMessagePrefix(''), '')
+    assert.equal(relayMessagePrefix(undefined), '')
+    // Prose without a prefix says nothing machine-readable, and inventing one out of the
+    // first word would turn a relay's chattiness into a verdict.
+    assert.equal(relayMessagePrefix('duplicate event, sorry'), '')
+})
+
+test('relayMessagePrefix: the other standardized prefixes are not duplicates', () => {
+    // The column below filters on exactly one word. `pow:` arrives with `OK true` as
+    // well (NIP-01: `["OK", …, true, "pow: difficulty 25>=24"]`) and means the event WAS
+    // stored — treating any prefixed success as suspect would refuse those writes.
+    assert.equal(relayMessagePrefix('pow: difficulty 25>=24'), 'pow')
+    assert.equal(relayMessagePrefix('rate-limited: slow down there chief'), 'rate-limited')
+    assert.equal(relayMessagePrefix('restricted: not allowed to write.'), 'restricted')
+})
+
+test('publishSpread: a `duplicate:` success is delivered AND a duplicate', () => {
+    // Both columns, deliberately: the event was accepted, so rolling it back would delete
+    // a local copy the relay may well be holding — and it is not confirmed either, because
+    // the relay just said it kept something else. The caller has to re-read; it is
+    // `js/follows.ts` that decides what the answer is worth.
+    assert.deepEqual(
+        publishSpread({
+            'wss://a': { status: 'success', detail: '' },
+            'wss://b': { status: 'success', detail: 'duplicate: already have this event' },
+        }),
+        { delivered: ['wss://a', 'wss://b'], failed: [], duplicates: ['wss://b'] },
+    )
+})
+
+test('publishSpread: a rejection carrying the same prefix is not counted twice', () => {
+    // It is already in `failed`, where every non-success row belongs. A second voice for
+    // it would make a caller that unions the two columns report one relay as two.
+    assert.deepEqual(
+        publishSpread({ 'wss://a': { status: 'failure', detail: 'duplicate: already have this event' } }),
+        { delivered: [], failed: ['wss://a'], duplicates: [] },
+    )
+})
+
+test('publishSpread: `pow:` on a success is a delivery, not a duplicate', () => {
+    assert.deepEqual(
+        publishSpread({ 'wss://a': { status: 'success', detail: 'pow: difficulty 25>=24' } }),
+        { delivered: ['wss://a'], failed: [], duplicates: [] },
+    )
 })
