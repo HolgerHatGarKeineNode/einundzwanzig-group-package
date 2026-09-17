@@ -14,15 +14,20 @@ use Livewire\Component;
 new #[Layout('group::einundzwanzig')] #[Title('Wallet')] class extends Component {}; ?>
 
 @php
-    // Rücksprung host-aware aus EINER Quelle (der nav-Registry, P3): Ist die Wallet
-    // ein eigener Bottom-Nav-Peer-Tab (Web + Mobile), ist sie KEINE Settings-
-    // Unterseite → kein Zurück-Pfeil (man bleibt im Tab). Nur wenn die Wallet NICHT
-    // in der Nav steht (z.B. Package-Default), ist sie ein Hub-Sub-Screen → zurück
-    // zum verschmolzenen Settings-Hub. Deckungsgleich mit der Registry-Sichtbarkeit
-    // (dort ist die `wallet`-Sektion genau dann ausgeblendet). Kein @mobile/@web-Seam.
-    $walletIsNavTab = collect(config('group.nav', []))
-        ->contains(fn (array $tab): bool => ($tab['route'] ?? null) === 'group.wallet');
-    $backToHub = $walletIsNavTab ? null : route('group.settings');
+    // The way back is host-aware and derived from ONE source — since P2 that is the AREAS
+    // registry and no longer `nav` (the bottom bar has three fixed slots, and the wallet is
+    // none of them).
+    //
+    // If the wallet is an area of its own it is NOT a settings sub-page: the arrow leads
+    // back to where its tile stands (Start). If it is NOT among the areas it is a
+    // sub-screen of the settings hub and the arrow leads there — congruent with the
+    // registry's own visibility (that is exactly when the `wallet` section is shown). No
+    // @mobile/@web seam.
+    $walletIstBereich = collect(config('group.areas', []))
+        ->contains(fn (array $bereich): bool => ($bereich['key'] ?? null) === 'wallet');
+    $backToHub = $walletIstBereich
+        ? route(config('group.start_route', 'group.start'))
+        : route(config('group.settings_route', 'group.ich.einstellungen'));
 @endphp
 
 <x-group::app-shell>

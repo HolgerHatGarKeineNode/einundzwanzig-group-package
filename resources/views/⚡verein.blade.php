@@ -437,7 +437,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                             <template x-if="bolt11 && !payInApp()">
                                 <flux:text class="text-center text-xs text-muted">
                                     {{ __('Mit einer verbundenen Wallet zahlst du direkt in der App.') }}
-                                    <a class="underline" href="{{ route('group.wallet') }}" wire:navigate>{{ __('Wallet verbinden') }}</a>
+                                    <a class="underline" href="{{ route('group.bereich.wallet') }}" wire:navigate>{{ __('Wallet verbinden') }}</a>
                                 </flux:text>
                             </template>
                         </div>
@@ -673,7 +673,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                         <flux:text class="text-sm text-muted">{{ __('Dein Zugang ist freigeschaltet.') }}</flux:text>
                         <flux:button variant="primary" class="w-full" icon="arrow-right"
                                      data-testid="verein-zum-space"
-                                     href="{{ route('group.spaces') }}" wire:navigate>
+                                     href="{{ route('group.bereich.chat') }}" wire:navigate>
                             {{ __('Zu den Räumen') }}
                         </flux:button>
                     </div>
@@ -691,7 +691,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
 
              `x-text` statt zweier Zweige: beide Beschriftungen laufen durch
              `__()`, der Katalog bleibt die einzige Textquelle. --}}
-        <flux:button variant="ghost" size="sm" class="w-full" href="{{ route('group.spaces') }}" wire:navigate>
+        <flux:button variant="ghost" size="sm" class="w-full" href="{{ route('group.bereich.chat') }}" wire:navigate>
             <span x-text="['warten', 'freigeschaltet'].includes(phase)
                       ? @js($jsVar7)
                       : @js($jsVar8)"></span>

@@ -21,15 +21,15 @@
      korrigiert. Die drei Werte oben bleiben, weil genau sie dort als Literal
      assertiert werden (Kernbeweis und Negativkontrolle).
 
-     ── Warum ein Platzhalter und nicht `x-cloak` an der Ortskarten-Leiste ──────────
+     ── Why a placeholder and not `x-cloak` on the rail ─────────────────────────────
      `x-cloak` hätte in derselben Zeitspanne GAR NICHTS gezeigt. Eine tote Seite ist
      nicht besser als eine springende — sie ist dieselbe Falschaussage über den
      Systemzustand (Nielsen #1), nur leiser.
 
      ── Warum ein Skeleton hier ehrlich ist ─────────────────────────────────────────
-     `ortskarten.blade.php` begründet ausführlich, warum es dort KEINS gibt: ein
-     Skeleton ist die Zusage „hier kommt gleich etwas", und für Zahlen von zwei
-     Relays ist Schweigen ein möglicher Ausgang. Hier ist die Zusage gedeckt: ob die
+     A surface whose numbers come from a relay deliberately gets NONE: a skeleton is the
+     promise "something is about to arrive here", and for numbers from two relays silence
+     is a possible outcome. Here the promise is covered: whether the
      Rail kommt, entscheidet `matchMedia` beim Boot — kein Netz, kein Relay, kein
      Ausgang „nie". Ab 1280 px kommt sie immer.
 
@@ -75,11 +75,17 @@
 
      RE-MEASURED 2026-09-05: another 38 px moved from list to footer, for the FOURTH area
      row („Verschlüsselt", the fixed place `/messages` had been missing). Both sides were
-     changed in one edit this time, so the boot jump never occurred — see `$flaechen`.
+     changed in one edit this time, so the boot jump never occurred.
+
+     ── P2 (Concept C): the footer carries only the profile row ─────────────────────
+     The four area rows and the nav rows are gone from the rail, and this placeholder went
+     with them. The numbers above are therefore HISTORICAL — they stand as the derivation
+     of the coupling, not as today's measurements; today's are held by
+     `desktop-boot-geometrie.spec.ts`.
 
      RE-MEASURED 2026-09-04: all three rows moved by 38 px between list and footer. The
-     footer gained the „Lesezeichen" row that P2 had added to `desktop-rail.blade.php`
-     alone — see the note at `$flaechen` below, and the head of
+     footer gained the „Lesezeichen" row that the bookmarks phase had added to
+     `desktop-rail.blade.php` alone — see the head of
      `desktop-boot-geometrie.spec.ts`.
 
      Die ersten beiden Lagen trifft der Platzhalter zahlengleich — er trägt dieselben
@@ -202,7 +208,7 @@
              Quelltext, nicht als ein zur Laufzeit gebautes `w-` plus Zahl: Tailwind
              scannt Quelltext, ein zusammengesetzter Name existierte im gebauten
              Stylesheet nie und der Balken fiele auf `auto` zurück. Dieselbe Regel
-             wie bei `grid-cols-3`/`grid-cols-2` in `ortskarten.blade.php`. --}}
+             wie bei `grid-cols-3` in `bottom-nav.blade.php`. --}}
         @foreach ([
             ['w-28', 'w-32', 'w-24', 'w-36', 'w-28', 'w-32', 'w-24'],
             ['w-32', 'w-24', 'w-28', 'w-36', 'w-24', 'w-32', 'w-28'],
@@ -233,70 +239,20 @@
         @endforeach
     </div>
 
-    {{-- Fußzeile — und hier trägt der Platzhalter DIESELBEN Bedingungen wie die
-         Fläche, die er vertritt. Nicht ähnliche, dieselben:
-
-           · Die Artikel-Zeile steht unbedingt, wie dort.
-           · Die Forge-Zeile hängt an `config('group.workspace_url')` — zeichengleich
-             mit `desktop-rail.blade.php`. Die Config ist `env('NOSTR_WORKSPACE_URL')`
-             OHNE Default; in einer Installation ohne Workspace fehlt die Zeile also.
-           · Die Nav-Zeilen kommen aus `config('group.nav')`, weil
-             `bottom-nav.blade.php` genau darüber iteriert.
-
-             **Nicht, weil ein Host heute vier hätte** — hier stand „Web hat drei,
-             Mobile vier", und das ist nachgesehen falsch: `config/group.php` im Host
-             führt chat/wallet/settings, das Paket chat/members/settings, beide also
-             DREI. Die Vier stammte aus dem `grid-cols-4`-Zweig in
-             `bottom-nav.blade.php`, war also aus einem Kommentar extrapoliert statt
-             gezählt. Der Grund für die Kopplung ist trotzdem gültig und liegt eine
-             Ebene höher: die Zahl ist eine KONFIGURATION, kein Systemwert. Eine
-             Konstante daneben wäre auch dann falsch gebaut, wenn sie heute zufällig
-             stimmt — und `RailSkelettTest` prüft die Kopplung deshalb gegen mehrere
-             Längen und nicht gegen die heutige Drei.
-           · Die Profilzeile steht unbedingt, wie dort.
-
-         Die erste Fassung schrieb zwei Flächenzeilen und drei Nav-Zeilen als feste
-         Zahlen hin. Gemessen ergab das ohne Workspace eine Fußzeile von 264 statt 226
-         und damit **38 px Sprung beim Boot** — derselbe Fehler, gegen den diese ganze
-         Datei geschrieben ist, nur eine Ebene tiefer. Wer hier eine Zeile ergänzt,
-         ergänzt sie in `desktop-rail.blade.php` mit; `desktop-boot-geometrie.spec.ts`
-         misst beide Konfigurationen gegeneinander. --}}
     <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
-        <div class="mb-2">
-            {{-- Four area rows with a workspace, three without: Artikel · Forge ·
-                 Lesezeichen · Verschlüsselt in `desktop-rail.blade.php`, and only the Forge
-                 row hangs on the config.
-                 The bookmarks row arrived with P2 and this list did not follow — measured
-                 at 1440×900 the footer was 302 px in the rail and 264 px here, the very
-                 38 px boot jump the note above warns about. The „Verschlüsselt" row was
-                 added here in the SAME edit that added it to the rail, so that jump never
-                 reappeared — `rail).toEqual(platzhalter)` stayed green through the change
-                 and only the literals moved. Measured at 1440×900: both sides read 340 px
-                 with a workspace and 302 px without, and the list gave back exactly those
-                 38 px (494 → 456 with, 532 → 494 without). The numbers live in
-                 `desktop-boot-geometrie.spec.ts`; they are not repeated as a table here. --}}
-            @php($flaechen = config('group.workspace_url') ? [0, 1, 2, 3] : [0, 1, 2])
-            @foreach ($flaechen as $i)
-                <div @class(['flex min-h-9 items-center gap-2 rounded-tile px-2', 'mt-0.5' => $i > 0])>
-                    <div class="skeleton size-4 shrink-0 rounded"></div>
-                    <div class="text-sm"><span class="skeleton inline-block h-2 w-14 rounded-pill align-middle"></span></div>
-                </div>
-            @endforeach
-        </div>
+        {{-- Since P2 the footer reserves exactly ONE row: the profile row.
 
-        {{-- Die Balkenbreiten wechseln je Zeile; bei mehr Nav-Einträgen als Breiten
-             fängt die Folge von vorn an. Alle Werte als volle Literale im Quelltext. --}}
-        @php($navBreiten = ['w-12', 'w-20', 'w-24', 'w-16'])
-        <div class="flex flex-col gap-0.5">
-            @foreach (array_keys(config('group.nav', [])) as $n)
-                <div class="flex min-h-9 items-center gap-2.5 rounded-tile px-2">
-                    <div class="skeleton size-5 shrink-0 rounded"></div>
-                    <div class="text-sm"><span class="skeleton inline-block h-2 rounded-pill align-middle {{ $navBreiten[$n % count($navBreiten)] }}"></span></div>
-                </div>
-            @endforeach
-        </div>
+             The four area rows (Artikel · Forge · Lesezeichen · Verschlüsselt) and the nav
+             rows from `config('group.nav')` stood here, each under the same condition as in
+             the rail. Both blocks are gone over there (reasoning at the footer of
+             `desktop-rail.blade.php`), and this placeholder follows them — which is the
+             whole point of this file: whoever adds or removes a row does it on BOTH sides,
+             otherwise the difference is a jump at boot. The most expensive one so far was
+             38 px, because the bookmarks row stood in the rail and was missing here.
 
-        <div class="mt-2 flex items-center gap-1 border-t border-zinc-200 pt-2 dark:border-zinc-800">
+             `desktop-boot-geometrie.spec.ts` measures both configurations against each
+             other, `RailSkelettTest` pins the coupling on the server side. --}}
+        <div data-rail-fuss-profil class="flex items-center gap-1">
             <div class="skeleton size-9 shrink-0 rounded-full"></div>
             <div class="min-w-0 flex-1 px-1.5 text-sm"><span class="skeleton inline-block h-2.5 w-24 rounded-pill align-middle"></span></div>
         </div>

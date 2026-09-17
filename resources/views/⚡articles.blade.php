@@ -167,11 +167,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     {{-- Der Basis-Pfad kommt aus `route()`, nicht als Literal in die Insel: die Route
          heißt an genau einer Stelle `/articles`, und das ist `routes/group.php`. --}}
-    <div x-data="nostrArticles(@js(route('group.articles')), @js($sortOptions))" class="page-enter">
+    <div x-data="nostrArticles(@js(route('group.bereich.artikel')), @js($sortOptions))" class="page-enter">
 
-        <x-group::app-header :title="__('Artikel')" :back="route('group.spaces')" />
-
-        <x-group::ortskarten />
+        {{-- UP target is Start: the articles are an AREA next to the chat, not a sub-screen
+             of it (until P2 they hung off a discovery row at the foot of the room list). --}}
+        <x-group::app-header :title="__('Artikel')" :back="route(config('group.start_route', 'group.start'))" />
 
         {{-- Ob es überhaupt eine Quelle gibt, entscheidet der SERVER — nicht die Insel.
 
@@ -237,15 +237,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              103,6: beides war gegen den Viewport gemessen, und der
                              wandert während der `page-enter`-Animation. Die 0,4 px
                              Unterschied waren deren Rauschen. Was heute gilt, hält
-                             `desktop-boot-geometrie.spec.ts` fest — als Abstand zur
-                             Ortskarten-Leiste, transformfrei und über zwölf Läufe mit
-                             Streuung 0,00 px.
+                             `desktop-boot-geometrie.spec.ts` fest — als Abstand zum
+                             page header, transform-free and over twelve runs with a
+                             spread of 0.00 px.
 
                              Und er muss LEER sein: ein Balken wäre die Zusage „hier kommt
                              ein Suchfeld", und die ist nicht gedeckt — kommt kein Artikel,
                              kommt auch kein Filterkopf, sondern der Leerzustand. Dieselbe
-                             Regel und derselbe Grund wie bei der Unterzeile der
-                             Ortskarten (`ortskarten.blade.php`). Die sechs Karten darunter
+                             rule and the same reason as for any sub-line whose number
+                             comes from a relay. Die sechs Karten darunter
                              DÜRFEN Balken sein: „Artikel werden geladen" ist gedeckt, ein
                              REQ ist unterwegs.
 
@@ -296,7 +296,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:heading class="mt-2">{{ __('Noch keine Artikel.') }}</flux:heading>
                             <flux:text class="mt-1 text-sm text-muted">{{ __('Sobald jemand einen Artikel veröffentlicht, erscheint er hier.') }}</flux:text>
                             <div class="mt-4">
-                                <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.spaces')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
+                                <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.bereich.chat')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
                             </div>
                         </div>
                     </div>

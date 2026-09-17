@@ -1,5 +1,6 @@
 <?php
 
+use Einundzwanzig\Group\Http\Controllers\LegacyRedirect;
 use Einundzwanzig\Group\Http\Controllers\LocaleController;
 use Einundzwanzig\Group\Http\Controllers\NostrAuthController;
 use Einundzwanzig\Group\Http\Middleware\ContentSecurityPolicy;
@@ -7,12 +8,12 @@ use Illuminate\Routing\RedirectController;
 use Illuminate\Support\Facades\Route;
 
 /*
- * Group-Routen des Packages. Alle Namen unter dem `group.`-Präfix — der Host
- * verlinkt via `route('group.spaces')` (Web-Client heute, Portal-Nav in P1).
- * CSP nur auf diesen Routen (Reibung 9), nicht global an die Host-web-Group.
+ * The package's group routes. Every name under the `group.` prefix — a host links via
+ * `route('group.start')`. CSP on these routes only (friction 9), not globally on the
+ * host's `web` group.
  */
-// `web` explizit: Package-Routen (loadRoutesFrom) erben die web-Group des Hosts
-// nicht automatisch — ohne sie fehlen Session/Cookies/CSRF.
+// `web` explicitly: package routes (`loadRoutesFrom`) do NOT inherit the host's `web`
+// group automatically — without it there is no session, no cookies and no CSRF.
 Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(function (): void {
     // M1 — Nostr-Login (Client-Signer) + NIP-98-Handoff an die Laravel-Session.
     Route::livewire('/nostr-login', 'group::nostr-login')->name('nostr-login');
@@ -26,89 +27,112 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
     // muss vor dem nächsten Render stehen, `wire:navigate` reicht dafür nicht).
     Route::post('/locale', [LocaleController::class, 'update'])->name('locale');
 
+    /*
+     * ══ THE HUB ROUTES (Concept C "One Entrance", D3) ═══════════════════════════
+     *
+     * Start · Postfach · Bereich-* · Ich-* replace the old hub paths; the object
+     * routes (`/rooms/{h}`, thread, `/articles/{naddr}`, `/forge/*`, `/join`,
+     * `/verein/*`) keep their paths. The old hub paths answer with a 302 at the end
+     * of this file.
+     *
+     * STATIC routes per area and NOT one `/bereich/{name}` dispatcher: the middleware
+     * and the config gate differ per area, and a dispatcher would have to re-derive
+     * both from a string at request time.
+     */
+
+    /*
+     * Start (D4) — the one entrance. NO `nostr.auth`: a guest sees Start in guest
+     * mode, public tiles navigate, gated tiles open the login sheet. The
+     * guest/member split is decided in the island with a skeleton, never
+     * server-rendered: on the app the login state lives only in `localStorage`, so a
+     * server guess would flash the wrong state on every cold start.
+     */
+    Route::livewire('/start', 'group::start')->name('start');
+
+    /*
+     * Articles are readable WITHOUT a session since P2 (D4) — all three routes, not
+     * just the list: a shared `naddr` and an author page are exactly what a guest
+     * follows from outside. The board relay is `restricted_writes`, so what is
+     * readable here is curated; the reader stays anonymous either way (`core.ts`
+     * answers no NIP-42 challenge for these relays).
+     */
+    Route::livewire('/bereich/artikel', 'group::articles')->name('bereich.artikel');
+    // Die Vollansicht adressiert über `naddr` (NIP-19), nicht über die Event-Id: ein
+    // 30023 ist ersetzbar, seine Id wechselt mit jeder Überarbeitung — der `naddr`
+    // (Kind + Autor + `d`) bleibt und funktioniert auch in fremden Clients.
+    Route::livewire('/articles/{naddr}', 'group::article')->name('article');
+    /*
+     * Die Autorenseite (P4). Adressiert über eine **npub ODER eine NIP-05-Adresse** —
+     * `npub1…` löst der Browser ohne Netz auf, `name@domain.tld` über eine
+     * `.well-known/nostr.json`-Abfrage bei der genannten Domain. Beide Formen sind
+     * das, was ein Mensch von einem anderen Client kopiert; nur eine davon
+     * anzunehmen hieße, die halben geteilten Links abzuweisen.
+     *
+     * **Route und nicht Drawer.** Die Fremdvorlage `discover.einundzwanzig.space`
+     * zeigt dieselbe Auskunft in einem JS-Drawer über einen API-Endpunkt und hat
+     * dafür keine URL. Eine teilbare Adresse ist genau der Vorteil gegenüber dem
+     * Original — und der Grund, warum diese Seite ein eigenes Segment bekommt.
+     *
+     * **Kein Konflikt mit `/articles/{naddr}`:** drei Segmente gegen zwei, Laravel
+     * kann sie gar nicht verwechseln. `/articles/autor` OHNE Kennung landet dagegen
+     * auf der Vollansicht und bekommt dort „Diesen Artikel gibt es nicht" — richtig,
+     * denn ohne Autor gibt es keine Autorenseite, und eine Liste aller Autoren ist
+     * bewusst nicht Teil dieses Vorhabens.
+     *
+     * Der Parameter wird server-seitig NICHT gedeutet: eine NIP-05-Auflösung im
+     * Server wäre eine Verbindung zu einer vom Besucher gewählten fremden Domain,
+     * aufgebaut aus dem Rechenzentrum. Sie gehört in den Browser des Lesers, und
+     * dort steht sie (`js/articleAuthor.ts`).
+     */
+    Route::livewire('/articles/autor/{autor}', 'group::article-author')->name('articles.author');
+
+    /*
+     * „Ich" and the settings hub carry NO server gate: their sections gate
+     * client-side, for the same reason Start does. A guest who opens `/ich` sees the
+     * login invitation, not a 302 to a login screen he did not ask for.
+     */
+    Route::livewire('/ich', 'group::ich')->name('ich');
+    // Verschmolzener Settings-Screen (§6): der EINE Settings-Ort.
+    Route::livewire('/ich/einstellungen', 'group::pages.settings')->name('ich.einstellungen');
+
     // Geschützt durch das Nostr-Gate: aktiver Space + Raum-Liste (Single-Space §12).
     Route::middleware('nostr.auth')->group(function (): void {
-        Route::livewire('/spaces', 'group::spaces')->name('spaces');
-        // Benachrichtigungen („Neu", P4). Eigener Screen statt Bottom-Nav-Tab —
-        // ein fünfter Tab bräche `bottom-nav.blade.php` still auf 3 Spalten und
-        // wäre ein Drei-Repo-Release inkl. Play-Store. Statisches erstes Segment,
-        // kollidiert also mit keinem `/rooms/{h}`.
-        Route::livewire('/updates', 'group::updates')->name('updates');
         /*
-         * Lesezeichen (P2, NIP-51 kind 10003/30003). Eigener Screen, KEIN
-         * Bottom-Nav-Tab: die Spaltenklasse der Bar hängt an `count($items)`
-         * (`bottom-nav.blade.php:77`), ein fünfter Eintrag fiele still auf drei
-         * Spalten zurück — und der Tab-Satz lebt in drei Repos (Package, Web-Host,
-         * Mobile-Host), ein neuer Tab wäre ein Drei-Repo-Release inkl. Play-Store.
-         * Einstiege sind deshalb Befehlspalette, Rail-Fußzeile und das
-         * Nachrichten-Menü. Statisches erstes Segment, kollidiert mit keinem
-         * `/rooms/{h}`.
+         * Area "Chat" — the room list. Until P2 this was `/spaces`; the old path forwards
+         * here and carries `q` and `rt` along (search resp. focus mode).
          */
-        Route::livewire('/bookmarks', 'group::bookmarks')->name('bookmarks');
-        /*
-         * Encrypted conversations (P7, NIP-17). Own screen and NO bottom-nav tab, for the
-         * same reason as the bookmarks route above: the bar's column class hangs on
-         * `count($items)` (`bottom-nav.blade.php:77`), one more entry would silently fall
-         * back to three columns, and the tab set lives in three repositories.
-         *
-         * **Why this is not the rail's DM surface.** A Buzz DM is a CHANNEL with an `h`
-         * and is read by the ordinary chat surface. A NIP-17 conversation has no `h` and
-         * no identity beyond the set of its participants — it cannot use `deriveRoomChat`
-         * at all. Two transports, two surfaces; the old one stays untouched.
-         *
-         * Static first segment, so it collides with no `/rooms/{h}`.
-         */
-        Route::livewire('/messages', 'group::messages')->name('messages');
-        Route::livewire('/directory', 'group::directory')->name('directory');
-        // Longform-Artikel (P7, NIP-23). Eigener Screen, KEIN Bottom-Nav-Tab und kein
-        // Rail-Eintrag: die Spaltenklasse der Bottom-Nav hängt an `count($items)`
-        // (`bottom-nav.blade.php:77` — der Verweis stand bis P2 auf `:56` und zeigte
-        // seit einem Blockverschub ins Leere) — ein vierter Tab wäre ein
-        // Drei-Repo-Release; und
-        // die Rail ist eine Sprungliste für RÄUME (`RailRoom` verlangt ein `h`), ein
-        // Artikel hat keins. Einstiege sind deshalb Befehlspalette, Rail-Fußzeile und
-        // eine Zeile auf der Übersicht. Statisches erstes Segment, kollidiert mit keinem
-        // `/rooms/{h}`.
-        Route::livewire('/articles', 'group::articles')->name('articles');
-        // Die Vollansicht adressiert über `naddr` (NIP-19), nicht über die Event-Id: ein
-        // 30023 ist ersetzbar, seine Id wechselt mit jeder Überarbeitung — der `naddr`
-        // (Kind + Autor + `d`) bleibt und funktioniert auch in fremden Clients.
-        Route::livewire('/articles/{naddr}', 'group::article')->name('article');
-        /*
-         * Die Autorenseite (P4). Adressiert über eine **npub ODER eine NIP-05-Adresse** —
-         * `npub1…` löst der Browser ohne Netz auf, `name@domain.tld` über eine
-         * `.well-known/nostr.json`-Abfrage bei der genannten Domain. Beide Formen sind
-         * das, was ein Mensch von einem anderen Client kopiert; nur eine davon
-         * anzunehmen hieße, die halben geteilten Links abzuweisen.
-         *
-         * **Route und nicht Drawer.** Die Fremdvorlage `discover.einundzwanzig.space`
-         * zeigt dieselbe Auskunft in einem JS-Drawer über einen API-Endpunkt und hat
-         * dafür keine URL. Eine teilbare Adresse ist genau der Vorteil gegenüber dem
-         * Original — und der Grund, warum diese Seite ein eigenes Segment bekommt.
-         *
-         * **Kein Konflikt mit `/articles/{naddr}`:** drei Segmente gegen zwei, Laravel
-         * kann sie gar nicht verwechseln. `/articles/autor` OHNE Kennung landet dagegen
-         * auf der Vollansicht und bekommt dort „Diesen Artikel gibt es nicht" — richtig,
-         * denn ohne Autor gibt es keine Autorenseite, und eine Liste aller Autoren ist
-         * bewusst nicht Teil dieses Vorhabens.
-         *
-         * Der Parameter wird server-seitig NICHT gedeutet: eine NIP-05-Auflösung im
-         * Server wäre eine Verbindung zu einer vom Besucher gewählten fremden Domain,
-         * aufgebaut aus dem Rechenzentrum. Sie gehört in den Browser des Lesers, und
-         * dort steht sie (`js/articleAuthor.ts`).
-         */
-        Route::livewire('/articles/autor/{autor}', 'group::article-author')->name('articles.author');
-
+        Route::livewire('/bereich/chat', 'group::spaces')->name('bereich.chat');
+        Route::livewire('/bereich/leute', 'group::directory')->name('bereich.leute');
         /*
          * Forge (P6, NIP-34 + NIP-MP). Nur der Workspace-Arm trägt sie — der
          * zooid-Space kennt weder Repos noch Issues. Ob überhaupt ein Workspace
          * konfiguriert ist, entscheidet die SEITE (server-seitig, wie bei den
          * Artikeln); die Route existiert unabhängig davon, damit ein geteilter
          * Link nicht auf einen 404 läuft, sondern auf eine erklärende Fläche.
-         *
-         * Statisches erstes Segment, kollidiert mit keinem `/rooms/{h}`.
          */
-        Route::livewire('/forge', 'group::forge')->name('forge');
+        Route::livewire('/bereich/forge', 'group::forge')->name('bereich.forge');
+        Route::livewire('/bereich/wallet', 'group::settings.wallet')->name('bereich.wallet');
+
+        /*
+         * Postfach (D5) — ONE page with five segments (Alles · Erwähnungen · Threads ·
+         * Direkt · Erinnerungen), chosen through `?ansicht=`. P2 ships the interim form:
+         * the existing updates surface plus a reminders section; the segmentation itself
+         * and the late decryption of the NIP-17 wraps are built in P3.
+         */
+        Route::livewire('/postfach', 'group::updates')->name('postfach');
+
+        /*
+         * Bookmarks (NIP-51 kind 10003/30003) and the association surface live under
+         * „Ich": both belong to the user, not to the space.
+         */
+        Route::livewire('/ich/lesezeichen', 'group::bookmarks')->name('ich.lesezeichen');
+        /*
+         * Ich › Verein (D11). P2 shows the existing join flow here; status, contribution
+         * year and receipts arrive with P5 through the signed app proxy resp. the session
+         * proxy.
+         */
+        Route::livewire('/ich/verein', 'group::verein')->name('ich.verein');
+
         /*
          * Ein Repository, adressiert über `naddr` (NIP-19) — nicht über die
          * Event-Id: ein 30617 ist ersetzbar und seine Id wechselt mit jeder
@@ -139,14 +163,6 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
         // Direkt verlinkbarer Thread (C6b): dieselbe Room-SFC, öffnet den Thread als
         // Vollansicht. `{nevent}` = bech32-Referenz auf die Wurzel-Nachricht (portabel/teilbar).
         Route::livewire('/rooms/{h}/thread/{nevent}', 'group::room')->name('room.thread');
-        // Verschmolzener Settings-Screen (§6): der EINE Settings-Ort.
-        Route::livewire('/settings', 'group::pages.settings')->name('settings');
-        // Alte ad-hoc space.settings-Seite konsolidiert → Redirect auf den Hub.
-        // Route-NAME beibehalten (Cross-Repo-Hardlinks: Mobile-`nav`-`match` +
-        // layouts/mobile.blade.php verweisen darauf; Rename = 3 Repos). Entfällt
-        // in P5, sobald der Mobile-Host keine space.settings-Referenz mehr hält.
-        Route::redirect('/settings/space', '/settings')->name('space.settings');
-        Route::livewire('/settings/wallet', 'group::settings.wallet')->name('wallet');
         Route::livewire('/join', 'group::join')->name('join');
 
         /*
@@ -184,4 +200,59 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
             ->defaults('status', 302)
             ->name('verein.return');
     });
+
+    /*
+     * ══ THE OLD HUB PATHS (R7) ══════════════════════════════════════════════════
+     *
+     * Every row of the map in the plan's route section, as a 302 that KEEPS the query
+     * string — `Route::redirect()` drops it, and `?c=`, `?rt=`, `?tab=`, `?q=` all
+     * stand in links people have shared and in shipped app builds. Renames are
+     * explicit (`c` → `an`), so the receiving page reads its own vocabulary.
+     *
+     * 302 and not 301 until the P7 sweep: a 301 is cached by a browser indefinitely
+     * and cannot be taken back.
+     *
+     * OUTSIDE `nostr.auth` on purpose. A redirect is not a surface; forwarding a
+     * guest to the new address and letting THAT route decide is one gate, not two —
+     * and a login redirect that swallows the target would lose the query the row
+     * exists to preserve.
+     *
+     * The old NAMES are deliberately not kept (`space.settings` excepted, below):
+     * a reference this phase forgot to move now throws `Route [group.spaces] not
+     * defined` in the suite instead of silently costing every internal link a
+     * redirect hop.
+     */
+    /**
+     * @param  array{behalte?: list<string>, umbenenne?: array<string, string>, weiche?: array{param: string, werte: array<string, string>}, name?: string}  $defaults
+     */
+    $legacy = static function (string $pfad, string $ziel, array $defaults = []): void {
+        Route::get($pfad, LegacyRedirect::class)
+            ->defaults('ziel', $ziel)
+            ->defaults('behalte', $defaults['behalte'] ?? [])
+            ->defaults('umbenenne', $defaults['umbenenne'] ?? [])
+            ->defaults('weiche', $defaults['weiche'] ?? null)
+            ->name($defaults['name'] ?? 'legacy.'.trim(str_replace('/', '.', $pfad), '.'));
+    };
+
+    // `?tab=workspaces` was the room list's workspace tab — it moved to `/forge`, and the
+    // old link has to land there, not on the chat list.
+    $legacy('/spaces', '/bereich/chat', [
+        'behalte' => ['q', 'rt'],
+        'weiche' => ['param' => 'tab', 'werte' => ['workspaces' => '/bereich/forge?tab=workspaces']],
+    ]);
+    $legacy('/updates', '/postfach');
+    // `c` hieß die Unterhaltung im alten Nachrichten-Screen; im Postfach heißt sie `an`.
+    $legacy('/messages', '/postfach?ansicht=direkt', ['umbenenne' => ['c' => 'an']]);
+    $legacy('/bookmarks', '/ich/lesezeichen');
+    $legacy('/directory', '/bereich/leute');
+    $legacy('/articles', '/bereich/artikel');
+    $legacy('/forge', '/bereich/forge', ['behalte' => ['tab']]);
+    $legacy('/settings', '/ich/einstellungen');
+    /*
+     * The route NAME `space.settings` is kept: cross-repo hardlinks point at it (the
+     * association embed and shipped app builds). A rename would be a three-repo release for
+     * a string nobody reads.
+     */
+    $legacy('/settings/space', '/ich/einstellungen', ['name' => 'space.settings']);
+    $legacy('/settings/wallet', '/bereich/wallet');
 });

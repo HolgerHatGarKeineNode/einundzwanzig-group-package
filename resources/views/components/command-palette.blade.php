@@ -28,33 +28,36 @@
      Augenschein. --}}
 
 @php($paletteActions = [
-    ['id' => 'spaces', 'label' => __('Alle Räume & Entdecken'), 'href' => route('group.spaces')],
-    ['id' => 'directory', 'label' => __('Mitgliederverzeichnis'), 'href' => route('group.directory')],
-    ['id' => 'articles', 'label' => __('Artikel'), 'href' => route('group.articles')],
+    ['id' => 'start', 'label' => __('Start'), 'href' => route(config('group.start_route', 'group.start'))],
+    ['id' => 'spaces', 'label' => __('Alle Räume & Entdecken'), 'href' => route('group.bereich.chat')],
+    ['id' => 'directory', 'label' => __('Mitgliederverzeichnis'), 'href' => route('group.bereich.leute')],
+    ['id' => 'articles', 'label' => __('Artikel'), 'href' => route('group.bereich.artikel')],
     // P6 — die Forge gibt es nur mit konfiguriertem Workspace. `array_filter` unten
     // wirft den Eintrag sonst raus: ein Palettenbefehl, der in einen Leerzustand
     // führt, ist schlechter als kein Befehl.
-    config('group.workspace_url') ? ['id' => 'forge', 'label' => __('Forge'), 'href' => route('group.forge')] : null,
-    ['id' => 'updates', 'label' => __('Neu'), 'href' => route('group.updates')],
+    config('group.workspace_url') ? ['id' => 'forge', 'label' => __('Forge'), 'href' => route('group.bereich.forge')] : null,
+    ['id' => 'updates', 'label' => __('Postfach'), 'href' => route('group.postfach')],
     // P2 — Lesezeichen. Ohne Bedingung: die Liste gehört dem Nutzer, nicht dem Space,
     // und ist auf jedem Relay lesbar (NIP-51 10003). Ein leerer Screen ist hier eine
     // Aussage („noch nichts gemerkt") und kein Sackgassen-Zustand wie bei der Forge.
-    ['id' => 'bookmarks', 'label' => __('Lesezeichen'), 'href' => route('group.bookmarks')],
+    ['id' => 'bookmarks', 'label' => __('Lesezeichen'), 'href' => route('group.ich.lesezeichen')],
     // P7 — encrypted conversations (NIP-17). Unconditional, for the same reason as the
     // bookmarks entry: the screen itself says what the space can do. A Buzz space refuses
     // the delivery list (10050) but carries messages between its members regardless, so
     // the empty state is a statement rather than a dead end.
-    ['id' => 'messages', 'label' => __('Verschlüsselt'), 'href' => route('group.messages')],
-    ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.wallet')],
+    ['id' => 'messages', 'label' => __('Verschlüsselt'), 'href' => route('group.postfach', ['ansicht' => 'direkt'])],
+    ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.bereich.wallet')],
     // ── Der Einstellungen-Eintrag zeigt auf die Route, die der HOST dafür nennt ──
     // Der Mobile-Host hat seine Einstellungen in P6 mit den Portal-Prefs auf EINEM
     // Screen verschmolzen (`pages/profile`, dort inline dieselben
-    // `group::partials.settings.*`). `group.settings` existiert dort weiterhin und
-    // rendert eine ZWEITE, dünnere Fassung derselben Sektionen — zwei Orte für eine
-    // Sache, und der Palettenbefehl führte auf den falschen (Nielsen #4).
-    // `settings_route` ist die Config-Zeile je Host, wie `group.exit`; Default ist die
+    // `group::partials.settings.*`) — NOT ANY MORE since P2: its app-only sections are
+    // injected into THIS hub (`view:` entries of the `settings` registry). The config
+    // line stays all the same, because it answers a question a foreign host may answer
+    // differently (Nielsen #4: not two places for one thing).
+    // `settings_route` ist die Config-Zeile je Host; Default ist die
     // package-eigene Route, der Web-Client bleibt damit zeichengleich.
-    ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route(config('group.settings_route', 'group.settings'))],
+    ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route(config('group.settings_route', 'group.ich.einstellungen'))],
+    ['id' => 'ich', 'label' => __('Ich'), 'href' => route(config('group.me_route', 'group.ich'))],
 ])
 @php($paletteActions = array_values(array_filter($paletteActions)))
 {{-- Ein Stil für alle Tastenkappen: derselbe wie am Rail-Prompt. --}}

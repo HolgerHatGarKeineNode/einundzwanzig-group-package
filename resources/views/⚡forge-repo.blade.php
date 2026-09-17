@@ -54,10 +54,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
      62 rem zwang die Tabellen in eine Breite, in der Spalten umbrachen, während
      rechts Platz stand.
 
-     KEINE Ortskarten-Leiste: das hier ist eine Detail-Ebene, kein Ort. Der Weg
-     zurück steht im `app-header` (Pfeil auf die Forge-Übersicht), genau wie in der
-     Artikel-Vollansicht. Eine Ortsleiste über einer Detailseite behauptete, man sei
-     an einem der drei Orte angekommen — man ist eine Ebene darunter. --}}
+     NO area strip: this is a detail level, not a place. The way back sits in the
+     `app-header` (arrow to the forge overview), exactly as in the full article view.
+     An area strip above a detail page would claim you had arrived at one of the areas —
+     you are one level below it. --}}
 @php($native = \Einundzwanzig\Group\Chassis::istApp())
 <x-group::app-shell width="wide">
 
@@ -107,11 +107,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
              eine Struktur (dieselbe Bauform wie die Pfad-Krümelspur im
              Code-Reiter weiter unten). Der letzte Krümel ist kein Link und
              trägt `aria-current="page"` — er ist der Ort, an dem man steht. --}}
-        <x-group::app-header :title="__('Repository')" :title-expr="$titleExpr" :back="route('group.forge')">
+        <x-group::app-header :title="__('Repository')" :title-expr="$titleExpr" :back="route('group.bereich.forge')">
             <x-slot name="subtitle">
                 <nav class="mt-1 flex items-center gap-1.5 text-xs text-muted xl:hidden"
                      aria-label="{{ __('Pfad') }}" data-forge-kruemel>
-                    <a href="{{ route('group.forge') }}" wire:navigate
+                    <a href="{{ route('group.bereich.forge') }}" wire:navigate
                        class="pressable rounded-tile px-1 py-0.5 -mx-1 font-semibold hover:text-zinc-900 dark:hover:text-zinc-100">{{ __('Forge') }}</a>
                     <span aria-hidden="true">/</span>
                     {{-- `truncate` plus `min-w-0`: ein Repo-Name ist Fremdtext und
@@ -162,7 +162,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <flux:heading size="lg" class="mt-4">{{ __('Dieses Repository kennt der Workspace nicht.') }}</flux:heading>
                         <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Vielleicht wurde es entfernt, oder der Link zeigt auf ein anderes Relay.') }}</flux:text>
                         <div class="mt-4">
-                            <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.forge')" wire:navigate>{{ __('Zur Forge') }}</flux:button>
+                            <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.bereich.forge')" wire:navigate>{{ __('Zur Forge') }}</flux:button>
                         </div>
                     </div>
                 </template>
@@ -1994,7 +1994,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <ul class="forge-spur-pillen" data-forge-verwandte>
                                     <template x-for="andere in view.verwandte" :key="andere.address">
                                         <li>
-                                            <a :href="'{{ route('group.forge') }}/' + andere.naddr" wire:navigate
+                                            <a :href="'{{ route('group.bereich.forge') }}/' + andere.naddr" wire:navigate
                                                class="forge-anker pressable inline-flex items-center gap-1.5 rounded-tile px-2 py-1 text-xs"
                                                {{-- EINFACHER Doppelpunkt: das hier ist ein normales
                                                     `<a>`, keine Flux-Komponente. `::data-…` erzeugte

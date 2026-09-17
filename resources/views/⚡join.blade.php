@@ -41,7 +41,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Einladung')] class extends Compon
                              x-on:click="accept()" ::disabled="joining">
                     <span x-text="joining ? @js(__('Trete bei…')) : @js(__('Space beitreten'))"></span>
                 </flux:button>
-                <flux:button variant="ghost" size="sm" class="mt-2" :href="route('group.spaces')" wire:navigate>{{ __('Abbrechen') }}</flux:button>
+                <flux:button variant="ghost" size="sm" class="mt-2" :href="route('group.bereich.chat')" wire:navigate>{{ __('Abbrechen') }}</flux:button>
             </div>
         </template>
 

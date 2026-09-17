@@ -187,7 +187,7 @@ test('die Insel bekommt die Basis-Route — ohne sie ist nichts teilbar', () => 
     // `artikelTeilZiel('' , …)` liefert `teilbar: false`. Fiele dieses zweite Argument
     // weg, wäre JEDER Artikel unteilbar — und zwar lautlos, mit einem Knopf, der den
     // inerten Grund nennt, obwohl der Artikel eine Adresse hat.
-    assert.match(lies(ARTIKEL), /x-data="nostrArticle\(@js\(\$naddr\), @js\(route\('group\.articles'\)\)\)"/)
+    assert.match(lies(ARTIKEL), /x-data="nostrArticle\(@js\(\$naddr\), @js\(route\('group\.bereich\.artikel'\)\)\)"/)
 })
 
 test('die Leseleiste beginnt, wo die BUEHNE beginnt — dieselbe Zahl wie die Rail-Spalte', () => {

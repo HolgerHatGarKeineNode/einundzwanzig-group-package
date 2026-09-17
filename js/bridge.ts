@@ -179,7 +179,6 @@ import { roomsFingerprint, type RoomLike } from './roomFingerprint.ts'
 import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam.ts'
 import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab.ts'
-import { ORTSKARTEN_DROSSEL_MS, ORTSKARTEN_NACHLADE_MS, zeigeLive } from './ortskarten.ts'
 import {
     deriveSpaceDirectory,
     deriveVereinAccess,
@@ -493,7 +492,7 @@ async function postLoginRedirect(): Promise<string> {
         // Boot-Gate führt ihn dort aus). Direkt hier würde die folgende
         // window.location-Navigation ihn nach dem Signieren abreißen.
         schedulePortalHandoff()
-        return ret ?? '/spaces'
+        return ret ?? '/start'
     }
     // Web: NIP-98-Handoff MUSS laufen (setzt die Laravel-Session), das Ziel danach.
     // Bei Direkt-Hit auf eine gegatete Route liefert der Server `url.intended`; ein
@@ -821,33 +820,6 @@ type ArticleSortOption = {
     label: string
 }
 
-/**
- * Zustand der Ortskarten-Leiste (P5) — der Live-Zeilen wegen, sonst nichts.
- *
- * Die Leiste selbst ist reines Server-Markup (`components/ortskarten.blade.php`): Orte,
- * Links, Aktiv-Zustand stehen im ausgelieferten HTML. Diese Insel liefert ausschließlich
- * die drei Zahlen — und `null` heißt „noch keine", nicht „keine".
- */
-type OrtskartenState = {
-    /** Bestand der Artikelliste. `null`, solange nichts geladen wurde. */
-    artikelZahl: number | null
-    /** Repositories im Forge-Baum. `null`, solange nichts geladen wurde. */
-    repoZahl: number | null
-    /** Ist der Screen weg, bevor das Nachladen überhaupt begonnen hat? */
-    _dead: boolean
-    /** Kennung des angemeldeten Leerlauf-Rückrufs (0 = keiner). */
-    _idle: number
-    _unsubArtikel: null | (() => void)
-    _unsubForge: null | (() => void)
-    init(): void
-    destroy(): void
-    /** Startet die beiden Nachlader — erst nach dem ersten Paint, siehe `init`. */
-    _nachladen(): void
-    /** Ungelesenes über Räume UND Threads, aus dem globalen Store. */
-    ungelesen(): number
-    /** Darf dieser Wert die statische Unterzeile ersetzen? (`ortskarten.ts`) */
-    zeigt(wert: number | null): boolean
-}
 
 /**
  * Bildschirm-Zustand der Artikelliste (P2). Alles Fachliche liegt in `longformFeed.ts`
@@ -3501,8 +3473,8 @@ export function registerNostrComponents(Alpine: {
             // „welche Kanäle gibt es" statt „welche Kanäle gibt es und wozu gehören
             // sie" —, und das wäre wieder ein zweites Modell, nur unauffälliger.
             //
-            // **Was es kostet, offen benannt** (dieselbe Rechnung wie bei
-            // `nostrOrtskarten`): `subscribeForgeNav` schaltet den Netzweg modulweit
+            // **Was es kostet, offen benannt**: `subscribeForgeNav` schaltet den
+            // Netzweg modulweit
             // idempotent scharf. Oberhalb `xl` null Aufpreis — die Desktop-Rail ruft
             // ihn ohnehin. Unterhalb `xl` auf `/forge`, wo es keine Rail gibt, sind es
             // vier REQs auf den Workspace-Relay; **kein zweiter Socket und keine
@@ -3856,165 +3828,6 @@ export function registerNostrComponents(Alpine: {
         }
     })
 
-    /**
-     * Die Ortskarten-Leiste (P5) — **nur die drei Zahlen**, sonst nichts.
-     *
-     * Orte, Links und Aktiv-Zustand stehen im Server-Markup
-     * (`components/ortskarten.blade.php`). Diese Insel beantwortet genau eine Frage je
-     * Karte: „gibt es dazu eine Zahl?".
-     *
-     * ── Warum das NACH dem ersten Paint läuft und nicht im `init` ──────────────────
-     *
-     * Die Leiste ist Navigation, ihre Zahlen sind Beiwerk. Sie steht auf `/spaces` über
-     * dem Raum-Feed, auf `/articles` über der Artikelliste und auf `/forge` über dem
-     * Forge-Baum — überall über dem, wofür der Nutzer gekommen ist. Ein `import()` plus
-     * REQ im `init` konkurrierte mit genau dieser Fläche um Netz und Hauptstrang.
-     *
-     * Der Auslöser ist deshalb `requestIdleCallback` mit einer harten Obergrenze
-     * ({@link ORTSKARTEN_NACHLADE_MS}) für Browser, deren Hauptstrang nie ruhig wird —
-     * und für Safari, das `requestIdleCallback` bis heute nicht kennt (dort greift
-     * unmittelbar der `setTimeout`-Zweig).
-     *
-     * ── Was die Zahlen NICHT tun ──────────────────────────────────────────────────
-     *
-     * Sie warten nicht, sie blinken nicht, und sie verschwinden nicht wieder. Bleibt ein
-     * Relay stumm, bleibt der Wert `null` und die statische Unterzeile stehen — die Regel
-     * dafür ist `zeigeLive` (`ortskarten.ts`), geprüft, und sie gilt für alle drei Karten
-     * gleich. `0` fällt ausdrücklich darunter.
-     *
-     * ── Die Kosten, offen benannt ─────────────────────────────────────────────────
-     *
-     * `artikelZahl` kostet einen REQ auf den Board-Relay (kind 30023, `ARTICLE_LOAD_LIMIT`)
-     * — denselben, den `/articles` ohnehin fährt; wer dort landet, hat ihn schon.
-     * `repoZahl` hängt an `subscribeForgeNav`, das modulweit idempotent ist und auf
-     * `/forge` und in der Desktop-Rail ohnehin läuft. Auf `/spaces` sind das zwei REQs,
-     * die es vorher nicht gab. Das ist der Preis der Live-Zeilen, und er ist der Grund
-     * für die Leerlauf-Verzögerung oben.
-     */
-    Alpine.data('nostrOrtskarten', (): OrtskartenState => ({
-        artikelZahl: null,
-        repoZahl: null,
-        _dead: false,
-        _idle: 0,
-        _unsubArtikel: null,
-        _unsubForge: null,
-        init() {
-            // `requestIdleCallback` existiert nicht überall (Safari). Der Rückfall ist
-            // KEIN sofortiges Laden, sondern derselbe Aufschub per `setTimeout` — sonst
-            // wäre ausgerechnet der Browser ohne Leerlauf-API der, der am aggressivsten
-            // lädt.
-            const ric = (window as unknown as {
-                requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
-            }).requestIdleCallback
-            this._idle = ric
-                ? ric(() => this._nachladen(), { timeout: ORTSKARTEN_NACHLADE_MS })
-                : (setTimeout(() => this._nachladen(), ORTSKARTEN_NACHLADE_MS) as unknown as number)
-        },
-        destroy() {
-            this._dead = true
-            if (this._idle) {
-                const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
-                if (cic) {
-                    cic(this._idle)
-                } else {
-                    clearTimeout(this._idle)
-                }
-                this._idle = 0
-            }
-            this._unsubArtikel?.()
-            this._unsubForge?.()
-            this._unsubArtikel = null
-            this._unsubForge = null
-        },
-        _nachladen() {
-            this._idle = 0
-            if (this._dead) {
-                return
-            }
-            // Zwei unabhängige Zweige, bewusst NICHT in einem `Promise.all` und bewusst
-            // ohne gemeinsamen Ausstieg: fällt der eine aus, soll der andere trotzdem
-            // seine Zahl liefern. Fehler bleiben stumm — eine fehlende Beiwerk-Zahl ist
-            // kein Ereignis, über das jemand unterrichtet werden müsste; die statische
-            // Zeile trägt weiter.
-            //
-            // **Kein Chunk ohne Quelle.** `longformFeed` zieht `markdown-it` nach (gemessen
-            // 116 kB roh / 50 kB gzip als eigener Chunk). Ohne konfigurierten Board-Relay
-            // hat `loadArticles` nichts zu tun (`BOARD_URL` ist dort der Riegel) — dann
-            // wäre der Download reine Kosten. Die Frage wird HIER gestellt und nicht im
-            // Modul, weil die Antwort sonst erst nach dem Herunterladen feststünde.
-            // Dieselbe Quelle wie `BOARD_URL` selbst: `window.__nostrBoard` aus
-            // `partials/head.blade.php`, also aus `config('group.board_relay_url')`.
-            // `if` und NICHT `return`: ein früher Ausstieg nähme dem Forge-Zweig darunter
-            // seinen Lauf mit, und der hat mit dem Board nichts zu tun.
-            if ((window as { __nostrBoard?: string }).__nostrBoard) {
-                void import('./longformFeed.ts')
-                    .then((feed) => {
-                        if (this._dead) {
-                            return
-                        }
-                        this._unsubArtikel = throttled(ORTSKARTEN_DROSSEL_MS, feed.deriveArticles()).subscribe(
-                            (rows: ArticleRow[]) => {
-                                this.artikelZahl = rows.length
-                            },
-                        )
-                        void feed.loadArticles().catch(() => undefined)
-                    })
-                    .catch(() => undefined)
-            }
-
-            // `subscribeForgeNav` STATISCH importiert, anders als `longformFeed`: die
-            // Insel-Registrierung `wireForge` hängt ohnehin an `forge.ts`, das Modul liegt
-            // also längst im `app`-Chunk. Ein `import()` daneben täuschte eine
-            // Code-Trennung vor, die es nicht gibt — Rolldown meldet das als
-            // INEFFECTIVE_DYNAMIC_IMPORT und legt das Modul trotzdem in denselben Chunk.
-            // Aufgeschoben wird hier ohnehin nicht der DOWNLOAD, sondern das ABO; das
-            // erledigt der Leerlauf-Rückruf oben. `subscribeForgeNav` schaltet den Netzweg
-            // selbst scharf (idempotent, modulweit) und tut ohne konfigurierten Workspace
-            // gar nichts.
-            //
-            // ── WAS DIESE VIER ZEILEN KOSTEN, gemessen (P5, 2026-08-21) ───────────────
-            //
-            // Playwright-Socket-Mitschnitt auf `/spaces`, 8 s nach dem Mount, gegen einen
-            // lokalen Buzz-Stack; zwischen den Ständen jeweils voller Rebuild:
-            //
-            //   Fenster < xl (1279 px, keine Rail)   mit:  1 Socket · 7 REQ · 1 AUTH
-            //                                        ohne: 0 Sockets · 0 REQ · 0 AUTH
-            //   Fenster ≥ xl (1440 px, mit Rail)     mit:  2 Sockets · 12 REQ · 1 AUTH
-            //                                        ohne: 2 Sockets · 12 REQ · 1 AUTH
-            //
-            // Oberhalb `xl` also **null Aufpreis**: die Desktop-Rail ruft `subscribeForgeNav`
-            // ohnehin auf, und der Netzweg ist modulweit idempotent. Unterhalb `xl` — wo es
-            // keine Rail gibt — kostet die Zahl „7 Repos" eine zweite Relay-Verbindung mit
-            // einer NIP-42-AUTH-Runde auf der wichtigsten Fläche des Clients.
-            //
-            // **Zum Vergleich der Stand VOR P5:** dort fuhr der Workspaces-Tab auf `/spaces`
-            // 2 Sockets · 7 REQ · 1 AUTH. Diese Fläche ist mit den vier Zeilen hier also
-            // immer noch billiger als vorher, nicht teurer.
-            //
-            // **Soll die Zahl weg, ist das GENAU DIESE Zuweisung** (`this._unsubForge = …`).
-            // Fällt sie, bleibt in der Forge-Karte die statische Unterzeile „Repos" stehen —
-            // die Regel dafür (`zeigeLive`) trägt den Fall bereits, es ist kein Umbau.
-            // `_unsubForge` bleibt dann dauerhaft `null`, `destroy()` verträgt das.
-            this._unsubForge = subscribeForgeNav((data) => {
-                this.repoZahl = data.repos.length
-            })
-        },
-        ungelesen() {
-            // Räume UND Threads: die Karte führt an den Ort „Chat", und der hat beide
-            // Ebenen. Bewusst nicht `$store.unread.updates` — das ist die Glocke, also
-            // eine andere Menge (siehe die Begründung am Glocken-Marker).
-            // Both levels. Until P7 there were three — `dmsTotal` counted the Buzz DM
-            // channels, which no longer exist.
-            const store = Alpine.store('unread') as
-                | { roomsTotal?: number; threadsTotal?: number }
-                | undefined
-
-            return (store?.roomsTotal ?? 0) + (store?.threadsTotal ?? 0)
-        },
-        zeigt(wert: number | null) {
-            return zeigeLive(wert)
-        },
-    }))
 
     /**
      * Artikelliste (P7, `/articles`) — Longform vom Board-Relay.
@@ -7200,7 +7013,7 @@ export function registerNostrComponents(Alpine: {
             // Sinn (der QR liegt auf dem eigenen Gerät, nicht scanbar). Statt Modal
             // direkt in die Wallet-Einstellungen (group.wallet), wo NWC verbunden wird.
             if (isMobile && !(await loadWallet())) {
-                location.assign('/settings/wallet')
+                location.assign('/bereich/wallet')
                 return
             }
             // Modal SOFORT öffnen — dass eine lud16 existiert, weiß der Feed bereits (m.zappable).
@@ -7699,7 +7512,7 @@ export function registerNostrComponents(Alpine: {
                 )
             }
             // SPA-Navigation (welshman bleibt warm) statt Full-Reload.
-            ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/spaces')
+            ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/bereich/chat')
         },
         // Aktiven Space beitreten/verlassen (Space-Ebene, kind 28934/28936).
         async joinActive() {
@@ -7770,7 +7583,7 @@ export function registerNostrComponents(Alpine: {
                 } else {
                     setActiveSpace(this.space)
                     this.done = true
-                    ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/spaces')
+                    ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/bereich/chat')
                 }
             } finally {
                 this.joining = false
@@ -7929,7 +7742,7 @@ export function registerNostrComponents(Alpine: {
                 // Nutzer eine Fehlermeldung auf der Login-Seite — angemeldet, aber
                 // stehengeblieben. Ein Fehler beim ZIEL darf den geglückten Login nicht
                 // wie einen gescheiterten aussehen lassen.
-                let ziel = '/spaces'
+                let ziel = '/bereich/chat'
                 try {
                     ziel = await postLoginRedirect()
                 } catch {

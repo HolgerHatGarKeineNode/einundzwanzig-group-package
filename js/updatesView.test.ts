@@ -444,19 +444,25 @@ test('firstNonEmpty loest genau EINMAL auf', async () => {
 // ── Rückweg: die `?from=`-Whitelist ───────────────────────────────────────
 
 test('Whitelist: jeder gelistete Wert wird erkannt', () => {
-    assert.deepEqual([...ORIGIN_KEYS], ['updates', 'spaces', 'room'])
+    // P2 (Concept C) added `start` and `postfach`; `updates` STAYS, because the token sits
+    // in links that have long been shared.
+    assert.deepEqual([...ORIGIN_KEYS], ['start', 'postfach', 'updates', 'spaces', 'room'])
     for (const key of ORIGIN_KEYS) {
         assert.equal(readOrigin(`?from=${key}`), key)
     }
 })
 
-test('UP-Ziel: nur `updates` fuehrt nach „Neu", alles andere auf die Raumliste', () => {
-    assert.equal(originTarget('?from=updates'), '/updates')
+test('UP target: `updates`/`postfach` lead to the inbox, `start` to Start, the rest to the room list', () => {
+    // Both spellings reach the same address: the screen is called `/postfach` since P2, but
+    // the `updates` token is in shared links and must not be discarded silently.
+    assert.equal(originTarget('?from=updates'), '/postfach')
+    assert.equal(originTarget('?from=postfach'), '/postfach')
+    assert.equal(originTarget('?from=start'), '/start')
     assert.equal(originTarget('?from=spaces'), ORIGIN_FALLBACK)
     // `room` ist gelistet, hat aber KEIN eigenes Ziel: der Parameter traegt keinen
     // Raum-`h`, und ein Raum kann nicht sein eigenes UP-Ziel sein.
     assert.equal(originTarget('?from=room'), ORIGIN_FALLBACK)
-    assert.equal(ORIGIN_FALLBACK, '/spaces')
+    assert.equal(ORIGIN_FALLBACK, '/bereich/chat')
 })
 
 test('UP-Ziel: NICHT gelistete Werte fallen auf die Raumliste', () => {
@@ -476,9 +482,9 @@ test('UP-Ziel: NICHT gelistete Werte fallen auf die Raumliste', () => {
     }
 })
 
-test('UP-Ziel: die Aufrufstelle darf ihr eigenes Fallback setzen (route(group.spaces))', () => {
-    assert.equal(originTarget('?from=nonsense', 'https://group.einundzwanzig.space/spaces'), 'https://group.einundzwanzig.space/spaces')
-    assert.equal(originTarget('?from=updates', 'https://group.einundzwanzig.space/spaces'), '/updates')
+test('UP target: the call site may set its own fallback (route(group.bereich.chat))', () => {
+    assert.equal(originTarget('?from=nonsense', 'https://group.einundzwanzig.space/bereich/chat'), 'https://group.einundzwanzig.space/bereich/chat')
+    assert.equal(originTarget('?from=updates', 'https://group.einundzwanzig.space/bereich/chat'), '/postfach')
 })
 
 test('doppelter Parameter: der ERSTE gewinnt (Zusage von URLSearchParams)', () => {

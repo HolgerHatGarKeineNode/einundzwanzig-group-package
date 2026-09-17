@@ -163,7 +163,7 @@ export const repoHref = (naddr: string): string => (naddr === '' ? '' : `/forge/
  * Die Übersichtsseite. Ziel des `</>`-Icons im Sektionskopf, des Sektionsnamens
  * und der `more`-Zeile — drei Wege, ein Ort.
  */
-export const FORGE_OVERVIEW_HREF = '/forge'
+export const FORGE_OVERVIEW_HREF = '/bereich/forge'
 
 /**
  * Der Tab-Parameter der Repo-Seite. Die Fläche hält den Tab in Alpine; ohne

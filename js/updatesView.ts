@@ -392,11 +392,11 @@ export const undoClickAction = (undoUntil: number, now: number, hasSnapshot: boo
  * `?from=//evil.tld` oder `?from=https://phish.example` dürfen weder ein
  * Navigationsziel werden noch weitergereicht.
  */
-export const ORIGIN_KEYS = ['updates', 'spaces', 'room'] as const
+export const ORIGIN_KEYS = ['start', 'postfach', 'updates', 'spaces', 'room'] as const
 export type OriginKey = (typeof ORIGIN_KEYS)[number]
 
 /** Default-UP-Ziel, wenn keine gültige Herkunft dasteht. */
-export const ORIGIN_FALLBACK = '/spaces'
+export const ORIGIN_FALLBACK = '/bereich/chat'
 
 /**
  * Gültige Herkunft aus einem Query-String, sonst `null`.
@@ -413,19 +413,29 @@ export function readOrigin(search: string): OriginKey | null {
 /**
  * UP-Ziel aus der Herkunft (§6.2/§6.4).
  *
- * `updates` ist der einzige Wert mit eigenem Ziel. `spaces` fällt bewusst auf denselben
- * Weg wie der Default (es IST der Default), und `room` hat **kein** Ziel: der Parameter
+ * `postfach`/`updates` and `start` are the values with a target of their own. `updates`
+ * STAYS in the list although the screen is called `/postfach` now: the token sits in links
+ * that have long been shared, so both lead to the same address — a token that were
+ * silently discarded would cost the way back. `spaces` falls back to the same path as the
+ * default on purpose (it IS the default), and `room` has **no** target: der Parameter
  * trägt nur den Screen-TYP, keine `h` — welcher Raum gemeint war, steht nirgends. Ein
  * Raum kann auch nicht sein eigenes UP-Ziel sein, das wäre eine Schleife. `room` bleibt
  * trotzdem in der Whitelist, weil {@link withOrigin} ihn DURCHREICHEN muss statt ihn als
  * Müll zu verwerfen — sonst verlöre ein Thread-Wechsel eine gültige Herkunft.
  *
  * @param fallback UP-Ziel ohne gültige Herkunft. Die Aufrufstelle (`⚡room.blade.php`)
- *   reicht dafür `route('group.spaces')` durch — damit bleibt das Ziel dort, wo die
- *   Routen definiert sind, statt als zweites Literal im JS zu leben.
+ *   passes `route('group.bereich.chat')` for that — which keeps the target where the routes
+ *   are defined instead of living on as a second literal in the JS.
  */
 export function originTarget(search: string, fallback: string = ORIGIN_FALLBACK): string {
-    return readOrigin(search) === 'updates' ? '/updates' : fallback
+    const origin = readOrigin(search)
+    if (origin === 'updates' || origin === 'postfach') {
+        return '/postfach'
+    }
+    if (origin === 'start') {
+        return '/start'
+    }
+    return fallback
 }
 
 /**

@@ -119,7 +119,11 @@ class NostrAuthController
         return response()->json([
             'ok' => true,
             'pubkey' => $event['pubkey'],
-            'redirect' => session()->pull('url.intended', route('group.spaces')),
+            // Default target after login is START and no longer the room list (P2,
+            // Concept C): Start is the one entrance, and it is the only surface that
+            // renders for a member and a guest alike. `url.intended` still wins —
+            // whoever was sent to the login screen from somewhere goes back there.
+            'redirect' => session()->pull('url.intended', route(config('group.start_route', 'group.start'))),
         ]);
     }
 

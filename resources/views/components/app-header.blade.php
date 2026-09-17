@@ -13,16 +13,21 @@
     'backClass' => '',
 ])
 
-{{-- Einheitlicher Kopf aller Kern-Screens (Space/Directory/Einstellungen).
-     Links steht — in dieser Reihenfolge:
-       1. screen-interner `back` (z.B. Raum → Raumliste): Zurück-Pfeil.
-       2. Host-Rücksprung (config('group.exit') gesetzt, z.B. Mobile-App-Tab):
-          sichtbarer „‹ {label}"-Ausgang zurück in die Host-App — der Chat ist
-          ein Vollbild-Takeover, ohne diesen Ausgang säße der Nutzer fest.
-       3. sonst der Brand-Mark (eigenständiger Web-Client → Startseite).
-     `subtitle`/`actions`-Slots füllen die Seiten. `x-data` wird durchgereicht,
-     damit Alpine-Scopes (z.B. nostrAuth) die Slots umschließen. --}}
-@php($exit = config('group.exit'))
+{{-- The one header of every core screen (Start/Bereich/Postfach/Ich).
+     On the left, in this order:
+       1. a screen-internal `back` (e.g. room → room list): the back arrow.
+       2. otherwise the brand mark (→ Start).
+     On the right, after `actions`, stands the AVATAR (P2) — the one way to „Ich".
+     The `subtitle`/`actions` slots are filled by the pages. `x-data` is passed through so
+     that Alpine scopes (e.g. nostrAuth) can wrap the slots.
+
+     ── The host exit (`config('group.exit')`) is gone with P2 ─────────────────────
+     It existed because the chat was a full-screen takeover NEXT TO the host's own nav:
+     the app showed "Meetups · Termine · Karte · Profil" and the chat replaced the whole
+     screen including that bar — without an exit the user was stuck. Since Concept C there
+     is exactly ONE shell in both hosts; there is no "back into the app" any more, because
+     you never left it. An exit pointing at the same frame would be a claim about a border
+     that no longer exists. --}}
 <header {{ $attributes->class('mb-6 flex items-center gap-3') }}>
     @if ($backExpr)
         {{-- JS-Rücksprung statt Navigate: für Vollbild-Takeover, die INNERHALB derselben
@@ -34,14 +39,8 @@
                      x-ref="threadClose" :class="$backClass" aria-label="{{ __('Zurück') }}" />
     @elseif ($back)
         <flux:button variant="ghost" size="sm" icon="arrow-left" :href="$back" wire:navigate aria-label="{{ __('Zurück') }}" />
-    @elseif ($exit)
-        <a href="{{ route($exit['route']) }}" wire:navigate aria-label="{{ __('Zurück zu :label', ['label' => $exit['label']]) }}"
-           class="pressable -ms-1 inline-flex shrink-0 items-center gap-0.5 rounded-full py-1.5 pe-3 ps-1.5 text-sm font-semibold text-accent">
-            <flux:icon.chevron-left variant="micro" class="size-5" />
-            <span>{{ $exit['label'] }}</span>
-        </a>
     @else
-        <a href="{{ route('home') }}" wire:navigate aria-label="{{ __('Startseite') }}" class="pressable shrink-0">
+        <a href="{{ route(config('group.start_route', 'group.start')) }}" wire:navigate aria-label="{{ __('Startseite') }}" class="pressable shrink-0">
             <x-group::app-brand-mark class="size-9" />
         </a>
     @endif
@@ -63,7 +62,14 @@
         @endisset
     </div>
 
-    @isset($actions)
-        <div class="flex shrink-0 items-center gap-1">{{ $actions }}</div>
-    @endisset
+    <div class="flex shrink-0 items-center gap-1">
+        @isset($actions)
+            {{ $actions }}
+        @endisset
+
+        {{-- The avatar is a component of its own because the room list builds its own
+             header and carries it there as well — the reasoning lives in
+             `me-avatar.blade.php`. --}}
+        <x-group::me-avatar />
+    </div>
 </header>

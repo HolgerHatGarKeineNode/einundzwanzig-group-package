@@ -778,7 +778,7 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
                 'info',
             )
         }
-        this._go('/spaces', space.label)
+        this._go('/bereich/chat', space.label)
     },
 
     runAction(action: PaletteAction): void {

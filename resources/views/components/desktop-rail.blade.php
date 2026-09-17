@@ -216,8 +216,8 @@
                  hält Markup und Tastatur gegen sie. --}}
             {{-- ══ DAS LANDMARK DER RAUMLISTE — hier trägt `flux:navlist` wirklich ══
                  Gemessen und dabei die eigene Annahme korrigiert: die Rail hatte
-                 sehr wohl ein `<nav>` — aber das der FUSSZEILE (`bottom-nav`,
-                 `orientation="rail"`). Die Raumliste selbst stand in keinem
+                 sehr wohl ein `<nav>` — aber das der FUSSZEILE (the vertical set of nav
+                 tabs, gone since P2). Die Raumliste selbst stand in keinem
                  (`p6b-rail-VORHER.log`: `scrollerIstNav: false`). Das eigentliche
                  Navigationsangebot des Clients — vier Gruppen, Räume, Forge-Baum —
                  war also kein Landmark, während die kleine Linkreihe darunter eines
@@ -290,7 +290,7 @@
                 <div>
                     <x-group::rail-group group="workspace" :label="__('Forge')"
                                          :tree="true"
-                                         heading-href="{{ route('group.forge') }}"
+                                         heading-href="{{ route('group.bereich.forge') }}"
                                          :overview-label="__('Forge-Übersicht öffnen')"
                                          :heading-title="__('Forge auf :wert')"
                                          heading-title-value="workspaceLabel" />
@@ -345,7 +345,7 @@
             </template>
 
             {{-- Der Weg zu allem, was die Rail bewusst nicht kann. --}}
-            <a href="{{ route('group.spaces') }}" wire:navigate
+            <a href="{{ route('group.bereich.chat') }}" wire:navigate
                class="pressable mt-1 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
                 <flux:icon.squares-2x2 variant="micro" class="size-4 shrink-0" />
                 <span>{{ __('Alle Räume & Entdecken') }}</span>
@@ -368,173 +368,30 @@
 
         {{-- Fußzeile: Artikel, darunter die Nav-Ziele, darunter Glocke und Identität. --}}
         <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            {{-- ── „Artikel" steht HIER und nicht mehr im Scroller ──────────────────
-                 Die Artikel sind eine Fläche des Clients, aber keine Räume — und der
-                 Scroller darüber ist eine Raumliste. An deren Ende hing die Zeile
-                 faktisch hinter vier Gruppen (Räume · Workspace · Meetups ·
-                 Projektunterstützung), und deren Länge bestimmt der Relay, nicht das
-                 Layout: auf einem Space mit vielen Meetup-Gruppen war sie nur nach dem
-                 Durchscrollen aller vier zu erreichen. Die Fußzeile ist `shrink-0` und
-                 damit die einzige Fläche der Rail, die IMMER sichtbar ist — genau das
-                 Versprechen, das eine Hauptfläche braucht.
+            {{-- ══ What stood here until P2, and why it is gone ══════════════════════
+                 Four area rows (Artikel · Forge · Lesezeichen · Verschlüsselt), the
+                 vertical set of nav tabs from `config('group.nav')`, and a bell.
 
-                 ── Warum sie NICHT wie die Nav-Tabs darunter aussieht ───────────────
-                 Die Tabs darunter kommen aus `config('group.nav')` und sind in allen
-                 Hosts dieselbe Menge; diese Zeile ist es nicht. Sie trägt deshalb
-                 weiterhin die leisere Form aus dem Scroller (Micro-Icon, `font-medium`,
-                 `text-muted`) statt Markenfarbe und Aktiv-Balken. Die Trennung trägt
-                 Gewicht und Icon-Größe, KEINE weitere Haarlinie: die Fußzeile hat
-                 bereits zwei, und eine dritte auf so engem Raum wäre Gitter statt
-                 Gliederung.
+                 All three blocks answered the same question — "where else?" — and each in
+                 its own way: the rows quietly, the tabs in brand colour, the bell as an
+                 icon with a number. Three vocabularies for one question, on 20 rem of
+                 width, next to a room list that already fills the same surface.
 
-                 ── Aktiv-Zustand, den es vorher nicht gab ───────────────────────────
-                 Solange die Zeile im Scroller lag, war sie meist unsichtbar und ein
-                 Marker sinnlos. Sichtbar stehend muss sie „du bist hier" beantworten
-                 (Nielsen #1). Sie tut das über Textgewicht und Vordergrundfarbe plus
-                 `aria-current` — nicht über den brand-Ton der Nav-Tabs, der zur
-                 Registry-Sprache gehört. Die Vollansichten zählen mit: wer einen
-                 Artikel liest, ist unter „Artikel".
+                 Since Concept C the answer exists once: Start carries "Alle Bereiche", the
+                 command palette (⌘K) finds every place from every page, and the Postfach is
+                 a slot of the bar, resp. an icon of the command bar from P6 on. The `nav`
+                 registry is gone from every host with this phase.
 
-                 ── Die Forge-Zeile steht seit P5 daneben ────────────────────────────
-                 Hier stand bis dahin die Begründung, warum es sie NICHT gibt:
-                 `buzz-rail-forge` hielt als „Regel 1" fest, dass die Rail keinen Link
-                 namens „Forge" trägt, weil ein solcher Eintrag am Fuß des Scrollers den
-                 Workspace ein zweites Mal beschrieben hätte — die Repos liegen auf
-                 demselben Relay wie die Kanäle in der Sektion darüber.
-
-                 **Die Regel ist in P5 begründet ERSETZT, nicht umgangen.** Was sich
-                 geändert hat, ist die Voraussetzung, auf der sie stand: die Sektion
-                 heißt jetzt selbst „Forge", und der Client hat mit der Ortskarten-Leiste
-                 eine Ebene bekommen, auf der Chat, Artikel und Forge gleichrangig
-                 nebeneinander stehen. Die Rail-Fußzeile ist die Desktop-Entsprechung
-                 dieser Ebene — dort fehlte von den dreien genau einer. Ein Ort, der auf
-                 jeder Bühne in der Leiste steht und im Navigator nur als Sektionskopf
-                 im Scroller, ist an zwei Stellen verschieden wichtig.
-
-                 Die alte Sorge bleibt beantwortet: die Zeile beschreibt den Workspace
-                 NICHT ein zweites Mal, denn der Sektionskopf oben trägt jetzt denselben
-                 Namen und führt an dasselbe Ziel. Zwei Wege zu einem Ort sind kein
-                 Duplikat, sondern der Normalfall dieser Rail — die Artikel-Zeile
-                 daneben ist auch in der Befehlspalette erreichbar. --}}
-            {{-- `mb-2` = 8px aus der Abstands-Skala, nicht 4: die Nav-Tabs darunter
-                 stehen mit `gap-0.5` (2px) dicht beieinander. Ein 4px-Absatz läse sich
-                 als unsauberer Zeilenabstand innerhalb EINER Liste; 8px sind der
-                 sichtbare Unterschied zwischen „andere Gruppe" und „nächste Zeile".
-                 Das ist die Trennung, die hier die Haarlinie ersetzt. --}}
-            <div class="mb-2">
-                {{-- Die Vollansichten zählen mit: wer einen Artikel liest oder auf der
-                     Autorenseite steht, ist unter „Artikel". Dieselbe Regel wie in der
-                     Ortskarten-Leiste, und aus demselben Grund. --}}
-                @php($articlesActive = request()->routeIs('group.articles', 'group.article', 'group.articles.author'))
-                {{-- `data-rail-fuss`: die beiden Zeilen brauchen einen EINDEUTIGEN Anker.
-                     Ihre Beschriftungen („Artikel", „Forge") stehen auf derselben Seite
-                     noch zweimal — in der Ortskarten-Leiste und am Sektionskopf des
-                     Scrollers. Ein Test, der auf den Text zielt, misst dann irgendeine
-                     der drei Stellen. --}}
-                <a href="{{ route('group.articles') }}" wire:navigate data-rail-fuss="artikel"
-                   @if ($articlesActive) aria-current="page" @endif
-                   @class([
-                       'pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
-                       'font-semibold text-zinc-900 dark:text-zinc-100' => $articlesActive,
-                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $articlesActive,
-                   ])>
-                    <flux:icon.document-text variant="micro" class="size-4 shrink-0" />
-                    <span>{{ __('Artikel') }}</span>
-                </a>
-
-                {{-- Forge — dieselbe leise Form wie die Artikel-Zeile darüber (Micro-Icon,
-                     `font-medium`, `text-muted`) und ausdrücklich NICHT die Markenfarbe
-                     der Nav-Tabs darunter: die kommen aus `config('group.nav')` und sind
-                     in allen Hosts dieselbe Menge, diese beiden Zeilen sind es nicht.
-
-                     Nur bei konfigurierter Quelle, wie die Forge-Ortskarte: ohne
-                     `workspace_url` führt `/forge` in einen erklärenden Leerzustand, und
-                     eine Zeile in einen Leerzustand ist ein Ort ohne Inhalt. --}}
-                @if (config('group.workspace_url'))
-                    @php($forgeActive = request()->routeIs('group.forge', 'group.forge.repo'))
-                    <a href="{{ route('group.forge') }}" wire:navigate data-rail-fuss="forge"
-                       @if ($forgeActive) aria-current="page" @endif
-                       @class([
-                           'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
-                           'font-semibold text-zinc-900 dark:text-zinc-100' => $forgeActive,
-                           'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $forgeActive,
-                       ])>
-                        <flux:icon.code-bracket-square variant="micro" class="size-4 shrink-0" />
-                        <span>{{ __('Forge') }}</span>
-                    </a>
-                @endif
-
-                {{-- Lesezeichen (P2) — dieselbe leise Form wie die beiden Zeilen darüber.
-                     Ohne Bedingung, anders als die Forge: die Liste hängt am NUTZER
-                     (NIP-51 kind 10003) und nicht an einer Konfiguration, ein Leerzustand
-                     hier ist also eine Aussage und keine Sackgasse. Eigener
-                     `data-rail-fuss`-Anker, weil „Lesezeichen" auch in der
-                     Befehlspalette steht — ein Test auf den Text träfe irgendeine der
-                     beiden Stellen. --}}
-                @php($bookmarksActive = request()->routeIs('group.bookmarks'))
-                <a href="{{ route('group.bookmarks') }}" wire:navigate data-rail-fuss="lesezeichen"
-                   @if ($bookmarksActive) aria-current="page" @endif
-                   @class([
-                       'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
-                       'font-semibold text-zinc-900 dark:text-zinc-100' => $bookmarksActive,
-                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $bookmarksActive,
-                   ])>
-                    <flux:icon.bookmark variant="micro" class="size-4 shrink-0" />
-                    <span>{{ __('Lesezeichen') }}</span>
-                </a>
-
-                {{-- Encrypted (NIP-17 direct messages) — the reason this row exists at all
-                     is that the screen had no fixed place in the chrome: the three ways in
-                     were the command palette, the DM modal's footer link and the profile
-                     popover of `⚡spaces.blade.php`. All three are things you open, none is
-                     a thing you see. A user went looking for the screen and did not find
-                     it, and that is a recognition-over-recall failure (Nielsen 6), not a
-                     discoverability nicety.
-
-                     WHY HERE and not one row higher: the profile popover already lists
-                     Lesezeichen → Verschlüsselt → Einstellungen. Keeping that order makes
-                     the two lists one vocabulary instead of two orderings of the same
-                     places.
-
-                     Unconditional, like the bookmarks row above and unlike Forge: the
-                     inbox hangs on the USER (NIP-17 kind 1059 giftwraps), not on a config.
-                     Without messages the screen explains itself; it is never a dead end.
-
-                     `lock-closed` is not a new pick — it is the glyph the profile popover
-                     already carries for this destination, and the only footer icon that
-                     says something about the KIND of place rather than its category.
-
-                     Own `data-rail-fuss` anchor, for the reason the block comment above
-                     gives: the label „Verschlüsselt" also stands in the command palette and
-                     in the profile popover, so a text-based test would hit any of the
-                     three. The anchor reads `messages` and not `verschluesselt` because it
-                     names the DESTINATION (`group.messages`) — a label may be retranslated,
-                     the route may not. --}}
-                @php($messagesActive = request()->routeIs('group.messages'))
-                <a href="{{ route('group.messages') }}" wire:navigate data-rail-fuss="messages"
-                   @if ($messagesActive) aria-current="page" @endif
-                   @class([
-                       'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
-                       'font-semibold text-zinc-900 dark:text-zinc-100' => $messagesActive,
-                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $messagesActive,
-                   ])>
-                    <flux:icon.lock-closed variant="micro" class="size-4 shrink-0" />
-                    <span>{{ __('Verschlüsselt') }}</span>
-                </a>
-            </div>
-
-            <x-group::bottom-nav orientation="rail" />
-
-            <div x-data="nostrAuth" class="mt-2 flex items-center gap-1 border-t border-zinc-200 pt-2 dark:border-zinc-800">
-                <a href="{{ route('group.updates') }}" wire:navigate
-                   :aria-label="$store.unread?.updates ? @js(__('Neu, :hints')).split(':hints').join($plural($store.unread.updates, '1 ungelesener Hinweis', ':count ungelesene Hinweise')) : ($store.unread?.updates === undefined && $store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu')))"
-                   class="pressable relative flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5">
-                    <flux:icon.bell class="size-5 text-muted" />
-                    <x-group::unread-badge count="$store.unread?.updates" :cap="9" size="sm" :sr="false"
-                                           badge-class="absolute end-0.5 top-0.5 ring-2 ring-white dark:ring-zinc-900" />
-                    <x-group::unread-dot when="$store.unread?.updates === undefined && $store.unread?.any" :sr="false"
-                                         dot-class="absolute end-1.5 top-1.5 ring-2 ring-white dark:ring-zinc-900" />
-                </a>
+                 **What REMAINS is the identity at the bottom left** — the established
+                 desktop convention and, until P6 builds the command bar, the only avatar
+                 place on the desktop. The rail also keeps its room groups; P6 reshapes it
+                 into "Deine Leiste" (Start + pins + collapsible groups). --}}
+            {{-- `data-rail-fuss-profil`: the unambiguous anchor of the ONE row the footer
+                 still carries. The geometry class is no good for that — `flex items-center
+                 gap-1` occurs four times in this rail, and a test on it counted arbitrary
+                 rows (measured 4 instead of 1). Same construction and same reason as the
+                 former `data-rail-fuss`. --}}
+            <div x-data="nostrAuth" data-rail-fuss-profil class="flex items-center gap-1">
 
                 {{-- Identität unten links — die eingeführte Desktop-Konvention. Das
                      Popover-Markup ist dasselbe wie im Mobil-Kopf, nur der Ursprung

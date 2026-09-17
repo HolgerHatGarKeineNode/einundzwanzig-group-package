@@ -28,7 +28,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
          `wire:navigate` MOUNTS the new body before it tears the old one down. --}}
     <div x-data="nostrPrivateMessages" class="page-enter">
 
-        <x-group::app-header :title="__('Verschlüsselt')" :back="route('group.spaces')" />
+        {{-- UP target is the Postfach: since P2 the encrypted conversations are its
+             `?ansicht=direkt` segment (D5). This surface has NO route of its own in P2 —
+             P3 builds the five segments and mounts it there. --}}
+        <x-group::app-header :title="__('Verschlüsselt')" :back="route('group.postfach')" />
 
         {{-- The relay's error, verbatim. Same construction as everywhere in this house:
              on a rejection the original wording is the only honest answer we have. --}}

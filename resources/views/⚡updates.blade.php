@@ -28,7 +28,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Kopf: UP-Ziel ist die Übersicht (explizites Ziel, nie history.back() —
              der Deep-Link-Kaltstart hat keinen Stack). Subtitle + „Alles" erscheinen
              erst, wenn es überhaupt etwas gibt. --}}
-        <x-group::app-header :title="__('Neu')" :back="route('group.spaces')">
+        {{-- NO `:back`: the Postfach is a slot of the bottom bar, so it sits on the same
+             level as Start — between them there is no "back", there is "somewhere else".
+             Until P2 it was a sub-screen of the room list and had one. --}}
+        <x-group::app-header :title="__('Postfach')">
             <x-slot:subtitle>
                 <span class="text-xs text-muted" x-show="hasAny()" x-cloak x-text="subtitleText()"></span>
             </x-slot:subtitle>
@@ -268,7 +271,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <flux:heading class="mt-2">{{ __('Alles gelesen.') }}</flux:heading>
                         <flux:text class="mt-1 text-sm text-muted">{{ __('Neue Nachrichten aus deinen Räumen erscheinen hier.') }}</flux:text>
                         <div class="mt-4">
-                            <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.spaces')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
+                            <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.bereich.chat')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
                         </div>
                     </div>
                 </div>

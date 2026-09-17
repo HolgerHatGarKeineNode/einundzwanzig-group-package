@@ -114,7 +114,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         // gesprungen ist, will nach „Neu" zurück. Ohne/mit ungültigem Parameter bleibt
         // es bei der Raumliste, die deshalb weiterhin aus route() kommt und nicht als
         // zweites Literal im JS steht.
-        $backExpr = 'threadRootId ? backFromThread() : backFromRoom(originHref('.json_encode(route('group.spaces')).'))';
+        $backExpr = 'threadRootId ? backFromThread() : backFromRoom(originHref('.json_encode(route('group.bereich.chat')).'))';
     @endphp
     <x-group::app-header :title="'# '.($roomName ?? $h)" :title-expr="$titleExpr" :back-expr="$backExpr"
                          back-class="xl:hidden" class="shrink-0">
@@ -1345,7 +1345,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <flux:input readonly ::value="zapInvoice" class="flex-1 font-mono text-xs" />
                     <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, @js($jsVar18))" aria-label="{{ __('Rechnung kopieren') }}" />
                 </div>
-                <a href="{{ route('group.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">{{ __('Wallet verbinden für 1-Klick-Zaps') }}</a>
+                <a href="{{ route('group.bereich.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">{{ __('Wallet verbinden für 1-Klick-Zaps') }}</a>
                 <flux:modal.close><flux:button variant="ghost" class="w-full">{{ __('Fertig') }}</flux:button></flux:modal.close>
             </div>
         </div>

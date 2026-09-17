@@ -1,5 +1,7 @@
 <?php
 
+use Einundzwanzig\Group\Shell\AreaRegistry;
+
 return [
     /*
      * Fixierter Default-Space (§12): die Relay-URL, die die Web-Client-Insel
@@ -300,62 +302,74 @@ return [
     'vite' => ['resources/css/app.css', 'resources/js/app.ts'],
 
     /*
-     * Rücksprung aus dem Vollbild-Chat in die Host-App. Das Group-Layout ist ein
-     * kompletter Vollbild-Takeover (eigene Bottom-Nav) — betreibt die App den
-     * Chat als eingebetteten Tab (z.B. einundzwanzig-mobile-app neben „Meetups"),
-     * bliebe der Nutzer sonst ohne sichtbaren Ausgang gefangen. Der Host setzt
-     * hier eine benannte Route + Label; der App-Header zeigt dann oben links einen
-     * „‹ {label}"-Ausgang, der DIREKT dorthin springt (umgeht eine home-Weiche,
-     * die chat-eingeloggte Nutzer zurück in den Chat loopen würde).
-     * `null` = eigenständiger Web-Client (kein Rücksprung → Brand-Mark bleibt).
+     * ── The shell's route registry (Concept C "One Entrance", P2) ─────────────────
      *
-     * @var array{route: string, label: string}|null
+     * The bottom nav is no longer a config list. It has exactly THREE slots (Start ·
+     * Search · Postfach) as fixed markup in `components/bottom-nav.blade.php`; what a
+     * host may still redirect is WHERE those three, the avatar and the settings hub
+     * point. The keys are flat and single-valued on purpose: the merge is shallow
+     * (`mergeConfigFrom` → `array_merge` on the top level), so a nested override would
+     * silently replace the whole subtree.
+     *
+     * `exit`, `nav` and the companion's `unified_shell` are gone with this phase — a
+     * config-driven N-tab bar invites drift, and the design has three slots.
      */
-    'exit' => null,
+    'start_route' => 'group.start',
 
     /*
-     * Die Route, die „Einstellungen" in diesem Host bedeutet.
-     *
-     * Gelesen von der Befehlspalette und vom Profil-Chip auf `/spaces` — den beiden
-     * Stellen, über die ein Nutzer die Einstellungen überhaupt findet. Default ist der
-     * package-eigene Hub (`group::pages.settings`, iteriert `settings` weiter unten).
-     *
-     * Ein Host, der die Sektionen ANDERSWO einbindet, nennt hier seine eigene Route:
-     * `twenty-one-companion` hat sie in P6 mit den Portal-Prefs auf einem Screen
-     * verschmolzen (`pages/profile` bindet dieselben `partials/settings/*` inline ein).
-     * Ohne diese Zeile führten beide Einstiege dort auf eine zweite, dünnere Fassung
-     * derselben Sektionen — zwei Orte für eine Sache.
-     *
-     * Es ist bewusst eine ROUTE und kein Href: `route()` wirft bei einem Tippfehler,
-     * eine falsche URL fiele still ins Leere.
+     * The avatar in the app header points here ("Ich"). Guests get the login sheet
+     * instead; the decision is made client-side, because on the app the login state
+     * lives only in `localStorage` (D4).
      */
-    'settings_route' => 'group.settings',
+    'me_route' => 'group.ich',
 
     /*
-     * Nav-Registry der Shell (`<x-group::app-shell>` / `<x-group::bottom-nav>`).
-     * Die eigentliche Vereinigung (§8.2): jeder Host publiziert seine Tabs als
-     * Config, `bottom-nav` iteriert sie und rendert je Eintrag `<x-group::nav-tab>`.
-     * „GENAU N Tabs" ist damit eine Config-Zeile, in jedem Consumer identisch.
+     * The route that means „Einstellungen" in this host.
      *
-     * Default = die drei package-nativen Chat-Tabs (Räume/Mitglieder/Einstellungen),
-     * damit das alte Vollbild-Layout unverändert weiterläuft. Hosts überschreiben:
-     *   Web → 3 Tabs (Chat · Wallet · Einstellungen), Mobile → 4 (+ Meetups · Mehr).
+     * Read by the command palette, the Ich page and the Start tiles. Default is the
+     * package hub (`group::pages.settings`, which iterates `settings` below). A host
+     * that mounts the sections elsewhere names its own route here — but since P2 the
+     * companion no longer does: its app-only sections are injected INTO this registry
+     * (`view:…` entries, see `settings`), so there is one settings place, not two.
      *
-     * Felder je Eintrag:
-     *   key    stabiler Bezeichner (Aktiv-Match für host-injizierte Routen, §10.6)
-     *   route  benannte Route (route()-auflösbar)
-     *   match  routeIs()-Pattern für den Aktiv-State (Default: route)
-     *   icon   Flux-Icon-Name (outline/solid je Aktiv-State)
-     *   label  Tab-Beschriftung
-     *   gate   'guest' = frei | 'nostr' = Tap ohne pubkey → open-login-sheet
-     *
-     * @var list<array{key: string, route: string, match?: string, icon: string, label: string, gate: 'guest'|'nostr'}>
+     * Deliberately a ROUTE and not an href: `route()` throws on a typo, a wrong URL
+     * would fail silently.
      */
-    'nav' => [
-        ['key' => 'chat', 'route' => 'group.spaces', 'match' => 'group.spaces', 'icon' => 'chat-bubble-left-right', 'label' => 'Räume', 'gate' => 'nostr'],
-        ['key' => 'members', 'route' => 'group.directory', 'match' => 'group.directory', 'icon' => 'users', 'label' => 'Mitglieder', 'gate' => 'nostr'],
-        ['key' => 'settings', 'route' => 'group.settings', 'match' => 'group.settings,group.space.settings', 'icon' => 'cog-6-tooth', 'label' => 'Einstellungen', 'gate' => 'nostr'],
-    ],
+    'settings_route' => 'group.ich.einstellungen',
+
+    /*
+     * Origin of the association portal. The `meetups`/`kurse` tiles link there until
+     * P4 builds the read-only pages in the package (D9), and the palette's Portal
+     * sections (P4) read the same value.
+     */
+    'portal_url' => env('PORTAL_URL', 'https://portal.einundzwanzig.space'),
+
+    /*
+     * "Alle Bereiche" — the tile grid on Start. Source of truth is
+     * `Einundzwanzig\Group\Shell\AreaRegistry`; a host passes its own route targets
+     * there instead of copying the list (the shallow merge would otherwise force a
+     * full copy, and a copy drifts).
+     *
+     * @var list<array{key: string, route: string|null, path?: string, icon: string, gate: 'guest'|'nostr', requires?: string}>
+     */
+    'areas' => AreaRegistry::defaults(),
+
+    /*
+     * Ordered entries of the „Ich" page. Keys map to `group::partials.ich.<key>`;
+     * a host may inject its own with a `view:` prefix (same mechanism as `settings`).
+     *
+     * @var list<string>
+     */
+    'ich' => ['identitaet', 'wallet', 'verein', 'lesezeichen', 'einstellungen'],
+
+    /*
+     * The views `/bereich/meetups` offers (P4). Listed here already because the
+     * companion adds `karte` — a view only the app can bind (Leaflet + native
+     * location) — and P2's redirect map has to know the token set.
+     *
+     * @var list<string>
+     */
+    'meetup_views' => ['liste', 'termine'],
 
     /*
      * Settings-Registry (§4.1): geordnete Liste der Sektions-Keys, die der
@@ -369,7 +383,14 @@ return [
      *
      * Default = voller Satz (Package-nativ). Hosts überschreiben:
      *   Web   → ohne 'relays' (Web-Client editiert/zeigt keine Relays).
-     *   Mobile→ mit 'relays', ohne 'wallet' (Wallet ist dort eigener Bottom-Nav-Tab).
+     *   Mobile→ mit 'relays', ohne 'wallet' (Wallet ist dort eigener Bereich).
+     *
+     * ── Host-injected sections (P2) ───────────────────────────────────────────────
+     * An entry prefixed `view:` is included as a HOST view instead of a package
+     * partial: `view:partials.settings.region` → `@includeIf('partials.settings.region')`.
+     * That is how `twenty-one-companion` folds its app-only sections (region, push,
+     * portal connection, about) into this one hub instead of keeping a second
+     * settings screen — the reason `settings_route` no longer points away there.
      *
      * @var list<string>
      */

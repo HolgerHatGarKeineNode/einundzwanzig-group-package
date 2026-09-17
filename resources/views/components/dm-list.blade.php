@@ -25,8 +25,8 @@
      74 % full before this change.
 
      Three ways out were costed and rejected: dropping the icons (−84 px, fits — but takes
-     back an explicit decision with a mutation-checked test, `OrtskartenTest` "threads tab
-     and chat location card show different glyphs"), padding at `px-2` (fits — but loses
+     back an explicit decision that was pinned by a mutation-checked test until the
+     location cards were removed in P2), padding at `px-2` (fits — but loses
      against Flux' own `px-4`: both are Tailwind utilities of equal specificity, and in the
      built bundle `.px-4` sits at byte 70292, `.px-2` at 70086, so `px-4` wins), and making
      the bar scroll (an entry you have to push out of the way is not an entry point).

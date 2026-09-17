@@ -9,7 +9,7 @@
  *
  * ── Seit P5 gibt es genau ZWEI Tabs ──────────────────────────────────────────────────
  *
- * Der dritte Tab „Workspaces" ist nach `/forge` gewandert (Ortskarten-Leiste, P5). Damit
+ * Der dritte Tab „Workspaces" ist nach `/forge` gewandert (P5). Damit
  * hat die Bar in **jeder** Konfiguration zwei Einträge, das `x-if` im Markup ist weg — und
  * dieser Leser braucht die Frage „gibt es einen Workspace?" nicht mehr. Sie war ein
  * ARGUMENT und keine Annahme, weil der Tab ohne Workspace gar nicht gerendert wurde; ohne
@@ -52,7 +52,7 @@ export type SpacesTab = 'rooms' | 'threads'
  * URL — eine saubere Adresse für den Normalfall, siehe den Schreiber in `bridge.ts`.
  *
  * Zugleich die Festlegung „Chat steht an erster Stelle": auf beiden Ebenen der Navigation
- * (Ortskarten und Segmented-Bar) ist der Chat der erste Eintrag.
+ * (Bereichskacheln auf Start und Segmented-Bar) ist der Chat der erste Eintrag.
  */
 export const DEFAULT_SPACES_TAB: SpacesTab = 'rooms'
 

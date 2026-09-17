@@ -1,46 +1,29 @@
-{{-- Shell-Nav, config-getrieben (§8.2): iteriert `config('group.nav')` und
-     rendert je Eintrag <x-group::nav-tab>. Die Tab-Menge ist damit eine
-     Config-Zeile je Host (Web 3 · Mobile 4), das Item-Markup bleibt geteilt.
-     Default-Config = die drei package-nativen Tabs → altes Layout unverändert.
+{{-- ══ The shell's bottom bar — THREE slots, fixed markup (Concept C, P2) ═════════
 
-     Fixiert am unteren Rand, in der max-w-md-Spalte zentriert (skaliert auf
-     Desktop mit). @web wird dieselbe Komponente in P2 zur linken Rail — hier
-     bleibt sie zunächst die Bottom-Bar (additiv). --}}
-@props([
-    // 'bottom' = die fixe Bar am unteren Rand (Mobil, unverändert).
-    // 'rail'   = derselbe Tab-Satz senkrecht in der Fußzeile des Desktop-Navigators.
-    'orientation' => 'bottom',
-])
-@php($items = config('group.nav', []))
-@php($rail = $orientation === 'rail')
+     Start · Search · Postfach. It is no longer driven by `config('group.nav')`, and
+     that registry is gone from every host with this phase.
 
-{{-- Rail-Form: kein `fixed`, kein Raster, keine Backdrop-Frage — eine schlichte
-     senkrechte Liste in der Rail-Fußzeile. Sie rendert NUR innerhalb der Rail,
-     die selbst schon hinter `$store.viewport.desktop` steht; ein zweites
-     Breakpoint-Gate wäre hier eine zweite Wahrheit. --}}
-@if ($rail)
-    <nav aria-label="{{ __('Hauptnavigation') }}" class="flex flex-col gap-0.5">
-        @foreach ($items as $item)
-            <x-group::nav-tab
-                orientation="rail"
-                :route="$item['route']"
-                :match="$item['match'] ?? null"
-                :icon="$item['icon']"
-                :label="$item['label']"
-                :gate="$item['gate'] ?? 'guest'"
-                :unread-dot="($item['key'] ?? null) === 'chat'"
-            />
-        @endforeach
-    </nav>
-@else
+     **Why the config went away.** The old bar iterated a per-host list and derived its
+     column class from `count($items)` — three hosts published three different tab sets,
+     a fourth entry silently fell back to three columns, and every screen that was not a
+     tab had to justify why it was not one (the old route file is full of those
+     paragraphs). A config-driven N-tab bar invites exactly that drift. The design has
+     three slots; three slots are what stands here.
 
-{{-- backdrop-blur nur auf Web: eine fixe Nav mit backdrop-filter über
-     scrollendem Inhalt ist der klassische Mobile-WebView-Scroll-Killer (Blur wird
-     pro Frame neu berechnet → Ruckeln/schwarze Flächen). Auf Native daher opaker
-     Hintergrund ohne Blur. --}}
+     **The middle slot is not a place.** Search is the one thing that reaches everything
+     (D6), so it dispatches `open-command-palette` instead of navigating — the same event
+     the magnifier used to send from beside the grid. It is a `button`, not a link, and
+     it carries no active state: you are never "on" search.
+
+     Fixed at the bottom, centred in the same continuous width as before. --}}
+
+{{-- `backdrop-blur` on web only: a fixed nav with a backdrop-filter over scrolling
+     content is the classic mobile-WebView scroll killer (the blur is recomputed per
+     frame → stutter and black patches). On native therefore an opaque background
+     without blur. --}}
 @php($native = \Einundzwanzig\Group\Chassis::istApp())
 <nav
-    aria-label="Hauptnavigation"
+    aria-label="{{ __('Hauptnavigation') }}"
     @class([
         {{-- ── EINE stetige Breite statt dreier Schwellen (P5, aus P2/6) ─────────
              Hier stand `max-w-md md:max-w-lg lg:max-w-2xl`: drei Viewport-Schwellen
@@ -59,24 +42,19 @@
              Eine Container-Query wäre hier FALSCH und nicht bloß unnötig: die Bar
              ist `position: fixed`, ihr Bezugsrahmen IST das Ansichtsfenster —
              und ein Vorfahre mit `container-type` würde sie sogar aus ihm
-             herausreissen. Die Hausregel „Geometrie über Container-Queries"
-             meint Flächen im Fluss; für ein fixiertes Element ist die
-             viewport-relative Einheit die richtige Antwort. Was hier fiel, sind
-             die SCHWELLEN, nicht die Bezugsgröße. --}}
+             herausreissen. --}}
         'fixed inset-x-0 bottom-0 z-40 mx-auto w-[min(100%,clamp(28rem,66vw,42rem))] border-t border-zinc-200 px-2 pb-safe dark:border-zinc-800',
         'bg-zinc-50 dark:bg-zinc-950' => $native,
         'bg-zinc-50/90 backdrop-blur-md dark:bg-zinc-950/90' => ! $native,
-        // Ab xl trägt der Navigator dieselben Ziele senkrecht — zwei Navigationen
-        // gleichzeitig wären eine zu viel. In der NativePHP-App gibt es kein
-        // Desktop-Chassis (siehe app-frame), dort bleibt die Bar auf JEDER Breite.
+        // From xl up the navigator carries the destinations vertically — two navigations
+        // at once would be one too many. In the NativePHP app there is no desktop chassis
+        // (see app-frame), so the bar stays there at EVERY width.
         'xl:hidden' => ! $native,
     ])
     {{-- ── The bar reports its own height; nothing else guesses it ───────────────
          A surface whose last row has to stay clear of this bar needs to know how
-         tall it is. The bar is content-driven (the app host renders five tabs, the
-         web host three) and adds `pb-safe` on top of that, so no constant written
-         in another file is right for every host. `pb-28` on the stage
-         (`app-shell.blade.php`) is exactly such a constant, and it is a guess.
+         tall it is. The bar adds `pb-safe` on top of its content height, so no
+         constant written in another file is right for every device.
 
          So the bar measures ITSELF and publishes the number as `--group-nav-h` on
          `<html>`. `display: none` — the `xl:hidden` of the web host — reports 0 px
@@ -102,43 +80,37 @@
         },
     }"
 >
-    {{-- Statische Spaltenklasse (JIT-sicher, beide Literale im Quelltext) je realer
-         Tab-Zahl: Web 3 · Mobile 4. --}}
-    @php($cols = count($items) === 4 ? 'grid-cols-4' : 'grid-cols-3')
-    {{-- P4: Die Lupe ist der mobile Eingang in die Befehlspalette — hier gibt es
-         kein ⌘K. Bewusst NEBEN dem Raster statt als weiterer Eintrag in
-         `config('group.nav')`: die Spaltenklasse hängt an `count($items)`, ein
-         zusätzlicher Eintrag verschöbe sie in drei Hosts gleichzeitig. Als feste
-         Spalte davor bleibt das Raster unverändert, in jedem Host. --}}
-    <div class="flex items-stretch">
+    {{-- `grid-cols-3` as a literal and not derived from a count: there are three
+         slots, and the number is a property of the design, not of a list. --}}
+    <div class="grid grid-cols-3" data-bottom-nav>
+        {{-- Start is `guest`: it is the one route that renders for everyone (D4). --}}
+        <x-group::nav-tab :route="config('group.start_route', 'group.start')"
+                          icon="home" :label="__('Start')" gate="guest" />
+
+        {{-- ── The centre button ────────────────────────────────────────────────
+             The one search (D6). No route, no active state, no unread dot — it opens
+             the command palette, which is mounted in the group layout and listens for
+             this event.
+
+             `data-palette-open` stays as the anchor the E2E specs use; it moved from
+             the magnifier beside the grid into the grid itself, and the anchor is what
+             makes that provable rather than guessable. --}}
         <button type="button" data-palette-open
                 x-data
                 x-on:click="$dispatch('open-command-palette')"
                 aria-label="{{ __('Suchen und springen') }}"
                 aria-haspopup="dialog"
-                class="pressable flex min-h-14 w-14 shrink-0 flex-col items-center justify-center gap-1 text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200">
-            <flux:icon.magnifying-glass class="size-6" />
+                class="pressable relative flex min-h-14 flex-col items-center justify-center gap-1 py-2.5 text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200">
+            <span class="relative inline-flex">
+                <flux:icon.magnifying-glass class="size-6" />
+            </span>
             <span class="text-[11px] font-semibold leading-none">{{ __('Suche') }}</span>
         </button>
 
-        <div class="grid flex-1 {{ $cols }}">
-            {{-- `unreadDot` ist eine reine LESE-Ableitung aus dem bestehenden `key`
-                 (existiert in allen drei Nav-Registries: Package-Default, Web-Host,
-                 Mobile-Host-Unified). Die Config bleibt unangetastet, kein Eintrag
-                 kommt hinzu, `count($items)` und damit die Spaltenklasse ändern sich
-                 nicht. Fehlt der Key in einer fremden Registry, ist das Ergebnis
-                 `false` → kein Punkt, kein Fehler. --}}
-            @foreach ($items as $item)
-                <x-group::nav-tab
-                    :route="$item['route']"
-                    :match="$item['match'] ?? null"
-                    :icon="$item['icon']"
-                    :label="$item['label']"
-                    :gate="$item['gate'] ?? 'guest'"
-                    :unread-dot="($item['key'] ?? null) === 'chat'"
-                />
-            @endforeach
-        </div>
+        {{-- Postfach carries the unread dot — it is the one place that answers "is
+             anything waiting anywhere". `gate=nostr`: a guest's tap opens the login
+             sheet instead of running into the server gate. --}}
+        <x-group::nav-tab route="group.postfach" icon="inbox"
+                          :label="__('Postfach')" gate="nostr" :unread-dot="true" />
     </div>
 </nav>
-@endif

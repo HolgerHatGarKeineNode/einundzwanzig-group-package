@@ -74,3 +74,30 @@ Dagewesene (das für diese Zahlen schlicht falsch war), aber sie sind zu prüfen
   Stelle (Eingabefeld-Platzhalter, Drag-Handle-Label) die übliche Form ist.
 
 Wer eine dieser Stellen korrigiert, streicht den Punkt hier mit.
+
+## Offen: die 19 Schlüssel von P2 (Navigations-Umbau, 2026-09-18)
+
+Konzept C („Ein Eingang") hat Start, Postfach und Ich gebracht, dazu die
+Bereichs-Kacheln. **`en` ist von Hand gesetzt, die sechs übrigen Sprachen sind
+maschinell übersetzt** (Entscheid D13 des Plans) und stehen damit unter demselben
+Vorbehalt wie die drei Zählformen darüber:
+
+`(öffnet das Portal)` · `Alle Bereiche` · `Alles ansehen` · `Artikel und Meetups
+kannst du ohne Anmeldung lesen…` · `Gemerkte Nachrichten und Artikel` ·
+`Guthaben, senden und empfangen` · `Ich` · `Konto, Space, Darstellung und Sprache` ·
+`Kurse` · `Leute` · `Mit deinem Nostr-Schlüssel gehören dir…` · `Mitgliedschaft und
+Beitrag` · `Nichts Neues für dich.` · `Noch nicht angemeldet` · `Postfach` ·
+`Start` · `Verein` · `Verschlüsselte Nachrichten öffnen` · `Willkommen bei
+EINUNDZWANZIG`
+
+Zwei Stellen verdienen dabei besonderes Misstrauen, weil sie kurz und damit
+kontextlos sind:
+
+- **`Ich`** ist die Beschriftung des Avatars und heißt „meine Sachen", nicht das
+  Pronomen in einem Satz. `en` nimmt deshalb `You` und nicht `I`; ob `Yo` · `Én` ·
+  `Es` · `Ik` · `Ja` · `Eu` an einem Navigationsziel dasselbe leisten, ist offen.
+- **`Space`** bleibt in `Konto, Space, Darstellung und Sprache` unübersetzt — es
+  ist der Eigenname des Relays in dieser Oberfläche, so wie in den vorhandenen
+  Schlüsseln daneben.
+
+Wer eine Sprache prüft, streicht sie hier heraus.
