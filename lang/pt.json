@@ -1459,5 +1459,8 @@
     "Raum nicht gefunden": "Sala não encontrada",
     "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Esta sala é desconhecida nesta sessão — foi excluída, ou o link leva a uma conversa criptografada que só pode ser lida no dispositivo onde aconteceu.",
     "Zum Postfach": "Para a caixa de entrada",
-    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Suas salas estão na barra à esquerda — ⌘K as encontra de qualquer lugar."
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Suas salas estão na barra à esquerda — ⌘K as encontra de qualquer lugar.",
+    "Bereich": "Área",
+    "Eintrag": "Entrada",
+    "Aus der Leiste entfernen": "Remover da tua barra"
 }

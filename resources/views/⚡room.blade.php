@@ -735,13 +735,51 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  provably fails with `invalid: group not found`, and a button
                  that cannot keep what its label says is worse than none. --}}
             <template x-if="!loading && raumUnbekannt && $store.authGate?.authed && !gatedOut">
-                <div class="surface-card empty-state mt-8 p-6 text-center" data-room-unbekannt-karte>
+                <div class="surface-card empty-state mt-8 p-6 text-center" data-room-unbekannt-karte
+                     {{-- `toterPin()`: the pin row whose `h` is THIS room — the way the
+                          reader got here. The relay part of the key cannot be rebuilt from
+                          the URL (the URL never carries it), so the row is MATCHED, not
+                          constructed: `row.value` is `h@relay`, sliced at the LAST `@` —
+                          the same cut `ziel()` in `pin-list.blade.php` builds the room
+                          path with. `roomPinKeyFor` would guess the persisted space and
+                          MISS every pin whose relay is the workspace or a dead one. --}}
+                     x-data="{ toterPin() {
+                         return ($store.pinSet?.rows ?? []).find(
+                             (row) => row.prefix === 'room' && row.value.slice(0, row.value.lastIndexOf('@')) === h,
+                         ) ?? null
+                     } }">
                     <flux:icon.question-mark-circle class="mx-auto size-8 text-zinc-400" />
                     <flux:heading size="lg" class="mt-2 text-balance">{{ __('Raum nicht gefunden') }}</flux:heading>
                     <flux:text class="mx-auto mt-2 max-w-xs text-balance text-sm text-muted">
                         {{ __('Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.') }}
                     </flux:text>
                     <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                        {{-- ── The way OUT of the bar, for exactly the pin that led here ──
+                             The rest note this closes: until 2026-09-18 a dead pin had NO
+                             unpin path at all — no room list carries it, so no tile and no
+                             row menu; the pin stayed visible in the bar forever. The card
+                             is the one surface that knows the `h`, so the removal lives
+                             HERE.
+
+                             Rendered only while a matching pin EXISTS (`x-if`): without
+                             one the button would be an affordance with nothing to act on —
+                             the empty-state rule this card already follows.
+
+                             Navigation via `Livewire.navigate` and NOT a location jump:
+                             the toggle's publish is debounced by 2 s
+                             (`pinSetSync.ts PUBLISH_DEBOUNCE_MS`), and a hard navigation
+                             inside that window tears the page down before the signer round
+                             trip finishes — the toggle would be lost. `wire:navigate`
+                             keeps the module alive for the same reason
+                             (`angeheftet-postfach.spec.ts` measured that loss). Start is
+                             the target because that is where the bar shows the result. --}}
+                        <template x-if="toterPin()">
+                            <flux:button size="sm" variant="ghost" icon="x-mark" class="text-btn-touch"
+                                         data-room-unbekannt-loesen
+                                         x-on:click="$store.pinSet?.toggle(toterPin().key); window.Livewire?.navigate({{ \Illuminate\Support\Js::from(route('group.start')) }})">
+                                {{ __('Aus der Leiste entfernen') }}
+                            </flux:button>
+                        </template>
                         <flux:button size="sm" variant="ghost" icon="home" class="text-btn-touch"
                                      :href="route('group.start')" wire:navigate>{{ __('Zur Startseite') }}</flux:button>
                         <flux:button size="sm" variant="ghost" icon="inbox-stack" class="text-btn-touch"

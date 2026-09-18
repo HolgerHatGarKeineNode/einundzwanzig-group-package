@@ -1493,5 +1493,8 @@
     "Raum nicht gefunden": "Istaba nav atrasta",
     "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Šī istaba šajā sesijā nav zināma — tā tika izdzēsta, vai arī saite ved uz šifrētu sarunu, kuru var lasīt tikai ierīcē, kurā tā notika.",
     "Zum Postfach": "Uz pastkasti",
-    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Tavas istabas ir kreisajā joslā — ⌘K tās atrod no jebkurienes."
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Tavas istabas ir kreisajā joslā — ⌘K tās atrod no jebkurienes.",
+    "Bereich": "Joma",
+    "Eintrag": "Ieraksts",
+    "Aus der Leiste entfernen": "Noņemt no joslas"
 }

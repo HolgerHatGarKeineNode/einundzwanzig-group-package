@@ -1425,5 +1425,8 @@
     "Raum nicht gefunden": "Room not found",
     "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "This room is unknown in this session — it was deleted, or the link leads to an encrypted conversation that only the device it took place on can read.",
     "Zum Postfach": "Go to the inbox",
-    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Your rooms are in the bar on the left — ⌘K finds them from anywhere."
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Your rooms are in the bar on the left — ⌘K finds them from anywhere.",
+    "Bereich": "Area",
+    "Eintrag": "Entry",
+    "Aus der Leiste entfernen": "Remove from your bar"
 }

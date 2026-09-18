@@ -1425,5 +1425,8 @@
     "Raum nicht gefunden": "A szoba nem található",
     "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Ez a szoba ebben a munkamenetben ismeretlen — törölték, vagy a link egy titkosított beszélgetésre mutat, amely csak azon az eszközön olvasható, ahol folyt.",
     "Zum Postfach": "A postafiókhoz",
-    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "A szobáid a bal oldali sávban vannak — a ⌘K bárhonnan megtalálja őket."
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "A szobáid a bal oldali sávban vannak — a ⌘K bárhonnan megtalálja őket.",
+    "Bereich": "Terület",
+    "Eintrag": "Bejegyzés",
+    "Aus der Leiste entfernen": "Eltávolítás a sávodból"
 }

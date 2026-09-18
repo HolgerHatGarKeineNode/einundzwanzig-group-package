@@ -1459,5 +1459,8 @@
     "Raum nicht gefunden": "Nie znaleziono pokoju",
     "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Ten pokój nie jest znany w tej sesji — został usunięty albo link prowadzi do szyfrowanej rozmowy, którą można przeczytać tylko na urządzeniu, na którym ją prowadzono.",
     "Zum Postfach": "Do skrzynki",
-    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Twoje pokoje są na pasku po lewej — ⌘K znajdzie je z dowolnego miejsca."
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Twoje pokoje są na pasku po lewej — ⌘K znajdzie je z dowolnego miejsca.",
+    "Bereich": "Obszar",
+    "Eintrag": "Wpis",
+    "Aus der Leiste entfernen": "Usuń z paska"
 }

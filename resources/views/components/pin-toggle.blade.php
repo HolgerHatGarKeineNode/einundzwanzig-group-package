@@ -6,7 +6,15 @@
     'schluessel',
     // What is being pinned, for the accessible name: „Raum", „Artikel", „Repository", …
     // The name has to say WHAT, otherwise a list of rows announces a dozen identical buttons.
-    'was',
+    // Either `was` (one static word, the caller's list is uniform) or `wasExpr` — see below.
+    'was' => null,
+    // ALPINE EXPRESSION yielding that same word, for lists that are MIXED by necessity:
+    // the pin bar holds rooms, articles, repos, meetups, areas and people side by side, and
+    // no single static word names them all. The sentence stays whole and the `:was`
+    // placeholder is filled where the word is known — the row — via `.split(':was')
+    // .join(…)`, exactly the shape `rail-room-row` uses for `:name` (whole catalog key,
+    // no fragment concatenation, `I18nCatalogGateTest` reads both forms).
+    'wasExpr' => null,
     // 'icon' = the bare pin glyph (rows, headers) · 'menu' = a `flux:menu.item` for a menu
     // that already exists.
     'form' => 'icon',
@@ -44,13 +52,25 @@
      again before Alpine sees them.
 
      Whole sentences with a `:was` placeholder instead of concatenation — the house rule
-     `I18nCatalogGateTest` enforces: the translator gets the sentence, not the fragment. --}}
-@php($labelAn = __(':was anheften', ['was' => $was]))
-@php($labelAus = __('Anheftung von :was aufheben', ['was' => $was]))
+     `I18nCatalogGateTest` enforces: the translator gets the sentence, not the fragment.
+
+     With `wasExpr` the placeholder stays in the sentence and the row fills it at runtime;
+     the two branches below are ONE answer about how a pin is named, not two. `Js::from`
+     strings pass through `{{ }}` (Blade escapes the quotes, the HTML parser decodes them
+     again — the measured finding at the top of this block). --}}
+@php
+    if ($wasExpr === null) {
+        $labelAus = (string) \Illuminate\Support\Js::from(__('Anheftung von :was aufheben', ['was' => $was ?? __('Eintrag')]));
+        $labelAn = (string) \Illuminate\Support\Js::from(__(':was anheften', ['was' => $was ?? __('Eintrag')]));
+    } else {
+        $labelAus = (string) \Illuminate\Support\Js::from(__('Anheftung von :was aufheben')).".split(':was').join({$wasExpr})";
+        $labelAn = (string) \Illuminate\Support\Js::from(__(':was anheften')).".split(':was').join({$wasExpr})";
+    }
+@endphp
 
 @if ($form === 'menu')
     <flux:menu.item icon="map-pin" x-on:click="$store.pinSet?.toggle({{ $schluessel }})">
-        <span x-text="$store.pinSet?.has({{ $schluessel }}) ? {{ \Illuminate\Support\Js::from($labelAus) }} : {{ \Illuminate\Support\Js::from($labelAn) }}"></span>
+        <span x-text="$store.pinSet?.has({{ $schluessel }}) ? {{ $labelAus }} : {{ $labelAn }}"></span>
     </flux:menu.item>
 @else
     {{-- `icon-btn-touch`: the house utility for iconic targets — 44 px on a coarse pointer,
@@ -61,7 +81,7 @@
                  data-pin-toggle
                  x-bind:data-pin-key="{{ $schluessel }}"
                  x-bind:aria-pressed="$store.pinSet?.has({{ $schluessel }}) ? 'true' : 'false'"
-                 x-bind:aria-label="$store.pinSet?.has({{ $schluessel }}) ? {{ \Illuminate\Support\Js::from($labelAus) }} : {{ \Illuminate\Support\Js::from($labelAn) }}"
+                 x-bind:aria-label="$store.pinSet?.has({{ $schluessel }}) ? {{ $labelAus }} : {{ $labelAn }}"
                  x-on:click.stop.prevent="$store.pinSet?.toggle({{ $schluessel }})"
                  {{ $attributes->class('icon-btn-touch shrink-0') }}>
         {{-- Solid = pinned, outline = not. The SHAPE carries the state as well, not only the

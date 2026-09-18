@@ -66,6 +66,16 @@
              return '/start'
          },
          extern(row) { return row.prefix === 'meetup' && @js($meetupExtern) },
+         wasWort(prefix) {
+             return {
+                 room: @js(__('Raum')),
+                 article: @js(__('Artikel')),
+                 repo: @js(__('Repository')),
+                 meetup: @js(__('Meetup')),
+                 area: @js(__('Bereich')),
+                 person: @js(__('Person')),
+             }[prefix] ?? @js(__('Eintrag'))
+         },
      }"
      x-show="($store.pinSet?.rows ?? []).length > 0" x-cloak>
 
@@ -104,7 +114,33 @@
                  A pin is a link and not a button: it navigates. The type icon is
                  `aria-hidden` — the label carries the name, the icon only helps the eye
                  sort a mixed list. --}}
-            <span class="contents">
+            {{-- ── The way OUT of the bar, on the row itself (Concept C rest note
+                  "pin affordances on rooms") ──────────────────────────────────────────
+                  Until 2026-09-18 a pin was visible here with no way to remove it: the
+                  mobile room list carried the toggle, the desktop rail did not, and a
+                  DEAD pin (an `h` no room list carries, e.g. the key of a pre-P8
+                  encrypted conversation) appeared in no list at all — the production
+                  report asked how to get it out of the bar and the honest answer was
+                  "not from here".
+
+                  The row therefore groups the link with the SAME `<x-group::pin-toggle>`
+                  every other surface uses (D7: one component, one truth about what
+                  "pinned" means) — as a SIBLING and not inside the anchor: interactive
+                  content in an `<a>` is invalid markup and would navigate instead of
+                  unpinning (`AngeheftetPostfachTest` holds that structurally). All rows
+                  here are pinned by definition, so the glyph reads as the state
+                  "angepinnt"; one press takes the row out. No toast — the row
+                  disappearing IS the feedback (the rule pinned in `pin-toggle`).
+
+                  CHIPS stand always visible (`room-tile` rule: `:hover` never fires on
+                  a touch device, and Start is the mobile surface for pins); the BAR row
+                  reserves the column and reveals the glyph on hover/focus — the
+                  `rail-room-row` menu pattern, because a 295 px column owes the name the
+                  space first. --}}
+            <span @class([
+                'group/pin inline-flex max-w-full items-center gap-1' => $variant === 'chips',
+                'group/pin flex w-full items-center' => $variant === 'bar',
+            ])>
                 <template x-if="!extern(row)">
                     <a x-bind:href="ziel(row)" wire:navigate x-bind:data-pin-chip="row.key"
                        @class([
@@ -112,8 +148,8 @@
                                 #2f2f33, Text fg-2 #d4d4d4 in 14 px — keine Tint-Fläche
                                 mehr, der Chip ist Kontur („keine Deko": Struktur kommt aus
                                 Rahmen und Abstand). Typ-Icon Orange 14 px. --}}
-                           'pressable inline-flex h-8 max-w-full items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
-                           'pressable flex min-h-11 w-full items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
+                           'pressable inline-flex h-8 max-w-full min-w-0 flex-1 items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
+                           'pressable flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
                         {{-- Typ-Icon: themenbewusst statt blauem Orange im Light. text-accent
                             (#f7931a) hällt auf Weiß nur 2,17:1 — als Deko zwar WCAG-frei,
@@ -154,8 +190,8 @@
                                 #2f2f33, Text fg-2 #d4d4d4 in 14 px — keine Tint-Fläche
                                 mehr, der Chip ist Kontur („keine Deko": Struktur kommt aus
                                 Rahmen und Abstand). Typ-Icon Orange 14 px. --}}
-                           'pressable inline-flex h-8 max-w-full items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
-                           'pressable flex min-h-11 w-full items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
+                           'pressable inline-flex h-8 max-w-full min-w-0 flex-1 items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
+                           'pressable flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
                         <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 shrink-0" />
                         <span class="min-w-0 truncate" x-text="row.label"></span>
@@ -163,6 +199,22 @@
                         <span class="sr-only">{{ __('(öffnet das Portal)') }}</span>
                     </a>
                 </template>
+                {{-- The unpin toggle — one per row, whatever the row's type (the key is
+                     what the row IS, `row.key`, and `toggle()` routes on its own). The
+                     accessible name names the TYPE via `wasWort`, so a mixed list does
+                     not announce a dozen identical buttons — the same rule the static
+                     `was` prop holds on uniform surfaces. `shrink-0` and the 44 px touch
+                     floor come with the component; the bar adds only the reveal (the
+                     reserved-column pattern of `rail-room-row`).
+
+                     `:class` and NOT a bare `{{ }}` ternary in the tag: the component
+                     tag parser reads raw echoes in its attribute list as markup — the
+                     rendered button carried literal `bar="bar" :=":"` attributes and
+                     nothing of the reveal (measured in the E2E run of 2026-09-18). The
+                     PHP-evaluated form is the same mechanism `:href` uses one screen
+                     down, in the unknown-room card. --}}
+                <x-group::pin-toggle schluessel="row.key" wasExpr="wasWort(row.prefix)"
+                                     :class="$variant === 'bar' ? 'opacity-0 transition-opacity group-hover/pin:opacity-100 group-focus-within/pin:opacity-100' : ''" />
             </span>
         </template>
     </div>
