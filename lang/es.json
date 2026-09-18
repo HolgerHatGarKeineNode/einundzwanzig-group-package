@@ -1316,5 +1316,16 @@
     "Start": "Inicio",
     "Verein": "Asociación",
     "Verschlüsselte Nachrichten öffnen": "Abrir mensajes cifrados",
-    "Willkommen bei EINUNDZWANZIG": "Bienvenido a EINUNDZWANZIG"
+    "Willkommen bei EINUNDZWANZIG": "Bienvenido a EINUNDZWANZIG",
+    ":was anheften": "Fijar :was",
+    "Anheftung von :was aufheben": "Dejar de fijar :was",
+    "Angeheftet": "Fijado",
+    "Direkt": "Directo",
+    "Im Menü einer Nachricht kannst du dich später erinnern lassen.": "En el menú de un mensaje puedes crear un recordatorio.",
+    "Kein Relay hat deine Anheftungen bestätigt — sie gelten bis dahin nur auf diesem Gerät.": "Ningún relay ha confirmado tus elementos fijados: hasta entonces solo valen en este dispositivo.",
+    "Keine Erinnerungen.": "Sin recordatorios.",
+    "Noch nicht fällig": "Aún no vence",
+    "Raum": "Sala",
+    "nicht verbunden": "no conectada",
+    "verbunden": "conectada"
 }

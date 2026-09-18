@@ -90,6 +90,26 @@ Beitrag` · `Nichts Neues für dich.` · `Noch nicht angemeldet` · `Postfach` �
 `Start` · `Verein` · `Verschlüsselte Nachrichten öffnen` · `Willkommen bei
 EINUNDZWANZIG`
 
+**P3 (Angeheftet, Postfach, Wallet-Zeile)** hat elf weitere hinzugefügt, `de`/`en` von
+Hand, die sechs anderen maschinell — ungeprüft:
+
+`:was anheften` · `Anheftung von :was aufheben` · `Angeheftet` · `Direkt` · `Im Menü
+einer Nachricht kannst du dich später erinnern lassen.` · `Kein Relay hat deine
+Anheftungen bestätigt…` · `Keine Erinnerungen.` · `Noch nicht fällig` · `Raum` ·
+`nicht verbunden` · `verbunden`
+
+Auch hier zwei Stellen, die kontextlos kurz sind und deshalb besonderes Misstrauen
+verdienen:
+
+- **`:was anheften` / `Anheftung von :was aufheben`** tragen einen Platzhalter, der zur
+  Laufzeit ein Objektwort wird (`Raum`, `Artikel`, `Repository`, `Person`). Sprachen mit
+  Kasus (hu, lv, pl) brauchen das Wort womöglich in einer anderen Form als die, in der es
+  einzeln im Katalog steht — die maschinellen Fassungen setzen den Platzhalter einfach
+  ein.
+- **`verbunden` / `nicht verbunden`** beschreiben die WALLET (feminin im Deutschen), nicht
+  das Gerät. `es`/`pl`/`pt` sind entsprechend femininisiert; ob das in der Zeile trägt, ist
+  offen.
+
 Zwei Stellen verdienen dabei besonderes Misstrauen, weil sie kurz und damit
 kontextlos sind:
 

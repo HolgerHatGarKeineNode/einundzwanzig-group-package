@@ -1,9 +1,22 @@
 /**
- * **The workspace boundary of the rail's preference menu — carried over from P4 into P6.**
+ * **The workspace boundary of the rail's preference menu — P4 → P6, re-cut in P3 of Concept C.**
  *   node --test --experimental-strip-types packages/einundzwanzig-group/js/railPrefsGate.test.ts
  *
  * Plan: `docs/plans/2026-09-05T0125-community-features-herbst.md`, section
  * "Aus P4 nach P6 uebertragen — entschieden, nicht vergessen".
+ *
+ * ── What P3 of the navigation revamp changed about this promise ─────────────────
+ *
+ * The menu carries TWO actions, and since P3 they no longer share one gate:
+ *
+ * | action | gate | why |
+ * |---|---|---|
+ * | „Raum stummschalten" | `canSetPrefs` = workspace only | `channel-mutes` is Buzz' blob, keyed by channel UUID. A room of the home space has no key in it, and writing one puts an id there that no other client can resolve. UNCHANGED. |
+ * | „Raum anheften" | `canPin` = every row with an `h` | D7 moved pinning to the reader's OWN kind 30078 (`js/pinSet.ts`). `togglePinned` routes by key: workspace → `channel-stars` (shared with Buzz Desktop), everything else → the pin set. No relay has to permit it. |
+ *
+ * So the cases below no longer assert "both actions behind `canSetPrefs`" — that would now
+ * be a false promise. They assert the per-action gate, and the mute half is asserted exactly
+ * as strictly as before.
  *
  * ── The hole this closes, measured in P4 ────────────────────────────────────────
  *
@@ -53,13 +66,15 @@ const PREDICATE = 'isWorkspaceChannel'
  *
  * | call site | what a removal breaks in production |
  * |---|---|
- * | `canSetPrefs` | the preference menu appears on rooms of the HOME space, and a flag written there lands in Buzz' blob under an `h` Buzz cannot resolve |
+ * | `canSetPrefs` | the MUTE entry appears on rooms of the HOME space, and a flag written there lands in Buzz' blob under an `h` Buzz cannot resolve |
  * | `openRoom` | a workspace conversation opens `/rooms/{h}` without `?space=workspace`, i.e. against the home relay: empty history, and a join attempt ends in `invalid: group not found` |
+ * | `isPinned` | the pin glyph reads the wrong source for a workspace row: Buzz' star is then invisible in the rail although Buzz Desktop shows it |
+ * | `togglePinned` | the pin key of a workspace room carries the SPACE url — a second „angeheftet" truth next to `channel-stars`, exactly what D7 forbids |
  *
  * A count and not "is it called": with one shared predicate, "called at all" stays true
  * when either of the two call sites is deleted. That is the whole failure mode.
  */
-const PREDICATE_CALLS = 2
+const PREDICATE_CALLS = 4
 
 describe('P6 carry-over: the rail still asks whether a room belongs to the workspace', () => {
     // ── Calibration ─────────────────────────────────────────────────────────
@@ -147,31 +162,69 @@ describe('P6 carry-over: the rail still asks whether a room belongs to the works
         )
     })
 
-    test('CORE: the menu markup is behind the gate, not next to it', () => {
+    /**
+     * **Each action behind ITS OWN gate, and the mute half as strictly as before.**
+     *
+     * The order test is the same construction as before — the gate has to stand BEFORE its
+     * action in the active markup. What changed is that there are two gates now, and the
+     * dangerous direction is only one of them: a mute written on a home-space room lands in
+     * Buzz' blob under an unresolvable id, while a pin written anywhere lands in the reader's
+     * own event, which is the whole point of D7.
+     */
+    test('CORE: the MUTE entry is behind canSetPrefs, the PIN entry behind canPin', () => {
         const row = readBlade(ROW_BLADE, 'rail-room-row.blade.php')
-        const gate = row.active.indexOf('x-if="canSetPrefs(room)"')
+        const muteGate = row.active.indexOf('x-if="canSetPrefs(room)"')
         assert.notEqual(
-            gate,
+            muteGate,
             -1,
-            'rail-room-row.blade.php no longer wraps the preference menu in <template x-if="canSetPrefs(room)">. '
+            'rail-room-row.blade.php no longer wraps the MUTE entry in <template x-if="canSetPrefs(room)">. '
                 + 'In production that gate is the ONLY per-room check: setChannelFlag validates the armed '
                 + 'workspace, not the room.',
         )
-        for (const action of ['togglePinned(', 'toggleMuted(']) {
-            const at = row.active.indexOf(action)
-            assert.ok(
-                at > gate,
-                `${action} stands BEFORE the canSetPrefs gate in the active markup — it is not behind it.`,
-            )
-        }
+        const pinGate = row.active.indexOf('x-if="canPin(room)"')
+        assert.notEqual(pinGate, -1, 'rail-room-row.blade.php no longer wraps the PIN entry in <template x-if="canPin(room)">.')
+
+        assert.ok(
+            row.active.indexOf('toggleMuted(') > muteGate,
+            'toggleMuted( stands BEFORE the canSetPrefs gate in the active markup — it is not behind it.',
+        )
+        assert.ok(
+            row.active.indexOf('togglePinned(') > pinGate,
+            'togglePinned( stands BEFORE the canPin gate in the active markup — it is not behind it.',
+        )
+        // And the trigger itself only exists when at least one entry does — otherwise a row
+        // without any action would still carry a menu button that opens an empty menu.
+        assert.ok(row.active.includes('x-if="canPin(room) || canSetPrefs(room)"'))
     })
 
-    test('CORE: the gate is an x-if and not an x-show', () => {
-        // Not cosmetics. `x-show` leaves the trigger in the accessibility tree: a screen
-        // reader would announce an action that silently does nothing, on every room of the
-        // home space. The comment above the template says so; this is the assertion.
+    test('CORE: both gates are x-if and not x-show', () => {
+        // Not cosmetics. An entry that silently does nothing must not be in the tree at all: a
+        // screen reader would announce an action with no effect, on every room of the home
+        // space. The comments above the templates say so; this is the assertion.
         const row = readBlade(ROW_BLADE, 'rail-room-row.blade.php')
         assert.ok(row.active.includes('<template x-if="canSetPrefs(room)">'))
+        assert.ok(row.active.includes('<template x-if="canPin(room)">'))
         assert.equal(row.active.includes('x-show="canSetPrefs(room)"'), false)
+        assert.equal(row.active.includes('x-show="canPin(room)"'), false)
+    })
+
+    /**
+     * **The pin key of a row is built in ONE place** — `roomPinKeyFor` in `js/pinSetSync.ts`.
+     *
+     * Two call sites in `rail.ts` (`isPinned` and `togglePinned`) and no third way: a row that
+     * assembled `'room:' + h + '@' + url` itself would be free to take the url from
+     * `activeSpace`, i.e. from the ephemeral workspace override — and then the key of a pinned
+     * home-space room would change the moment the user has visited a workspace room. The
+     * plan's D7 names exactly that relay set as the one that must NOT be used.
+     */
+    test('CORE: the rail does not build a pin key of its own', () => {
+        const befund = liesDatei(join(JS_DIR, 'rail.ts'), 'rail.ts')
+        assert.equal(befund.aufrufe.filter((name) => name === 'roomPinKeyFor').length, 2)
+        assert.ok(befund.importe.some((stelle) => stelle.exportName === 'roomPinKeyFor'))
+        // Not the low-level builder either: `roomPinKey(h, relay)` takes the relay as an
+        // argument, so a call to it here would be a second place that decides which relay
+        // belongs into the key. (A text search for `'room:'` would NOT do: the rail carries
+        // that prefix for its own target ids, which have nothing to do with pins.)
+        assert.equal(befund.aufrufe.filter((name) => name === 'roomPinKey').length, 0)
     })
 })

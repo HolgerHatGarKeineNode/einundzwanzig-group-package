@@ -1349,5 +1349,16 @@
     "Start": "Início",
     "Verein": "Associação",
     "Verschlüsselte Nachrichten öffnen": "Abrir mensagens encriptadas",
-    "Willkommen bei EINUNDZWANZIG": "Bem-vindo à EINUNDZWANZIG"
+    "Willkommen bei EINUNDZWANZIG": "Bem-vindo à EINUNDZWANZIG",
+    ":was anheften": "Fixar :was",
+    "Anheftung von :was aufheben": "Deixar de fixar :was",
+    "Angeheftet": "Fixado",
+    "Direkt": "Direto",
+    "Im Menü einer Nachricht kannst du dich später erinnern lassen.": "No menu de uma mensagem podes criar um lembrete.",
+    "Kein Relay hat deine Anheftungen bestätigt — sie gelten bis dahin nur auf diesem Gerät.": "Nenhum relay confirmou os teus itens fixados — até lá valem apenas neste dispositivo.",
+    "Keine Erinnerungen.": "Sem lembretes.",
+    "Noch nicht fällig": "Ainda não vence",
+    "Raum": "Sala",
+    "nicht verbunden": "não ligada",
+    "verbunden": "ligada"
 }

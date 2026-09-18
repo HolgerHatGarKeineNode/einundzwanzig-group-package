@@ -312,18 +312,26 @@
                  `/rooms/{h}`: an encrypted conversation has no `h` on any relay
                  (`rail.ts`, `toRailDms`).
 
-                 ── Where the conversations come from ────────────────────────────────
-                 From `$store.privateMessages`, which `app-frame.blade.php` mounts on
-                 every page behind the gate — that is where the ONE bracket around the
-                 wrap subscription lives, and where it is written down why it unwraps
-                 exactly once per tab and stores nothing. This group only reads. --}}
-            <x-group::rail-group group="dms" :label="__('Verschlüsselt')"
-                                 :action-label="__('Neue Unterhaltung')"
-                                 action-icon="pencil-square"
-                                 action-click="$store.privateMessages?.startPicking(); $store.privateMessages?.goTo()"
-                                 action-show="$store.privateMessages?.canSend"
-                                 always-show="true"
-                                 :empty-text="__('Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.')" />
+                 ── What changed with P3 (D5) ────────────────────────────────────────
+                 The ROWS are gone. `$store.privateMessages` is no longer mounted outside
+                 the Postfach's „Direkt" segment, because its `mount()` arms the wrap
+                 subscription and every envelope it answers with costs the user's signer two
+                 `nip44.decrypt`. A rail that lists conversations has paid for that on every
+                 page — and there is no cheaper version of the list: the participants sit
+                 inside the seal.
+
+                 What is left is the group with ONE row that leads there. The group keeps its
+                 place in `RAIL_GROUP_ORDER` (the eye reads the block order, Alt+↑/↓ walks
+                 `railTargets`), so nothing about the rail's geometry or its keyboard order
+                 moves; P6 rebuilds this column anyway.
+
+                 `rail.ts toRailDms` therefore has no source any more and yields an empty
+                 list — which is why the row below is plain markup and not a `rail-group`
+                 row. --}}
+            <flux:navlist.item :href="route('group.postfach', ['ansicht' => 'direkt'])" wire:navigate
+                               icon="lock-closed" data-rail-dm>
+                {{ __('Verschlüsselt') }}
+            </flux:navlist.item>
 
             <x-group::rail-group group="meetups" :label="__('Meetups')" :countries="true" />
             <x-group::rail-group group="proposals" :label="__('Projektunterstützung')" />

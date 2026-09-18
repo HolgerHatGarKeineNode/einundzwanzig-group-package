@@ -1316,5 +1316,16 @@
     "Start": "Kezdőlap",
     "Verein": "Egyesület",
     "Verschlüsselte Nachrichten öffnen": "Titkosított üzenetek megnyitása",
-    "Willkommen bei EINUNDZWANZIG": "Üdvözlünk az EINUNDZWANZIG-nál"
+    "Willkommen bei EINUNDZWANZIG": "Üdvözlünk az EINUNDZWANZIG-nál",
+    ":was anheften": ":was kitűzése",
+    "Anheftung von :was aufheben": ":was kitűzésének visszavonása",
+    "Angeheftet": "Kitűzve",
+    "Direkt": "Közvetlen",
+    "Im Menü einer Nachricht kannst du dich später erinnern lassen.": "Egy üzenet menüjében emlékeztetőt állíthatsz be.",
+    "Kein Relay hat deine Anheftungen bestätigt — sie gelten bis dahin nur auf diesem Gerät.": "Egyetlen relay sem igazolta vissza a kitűzéseidet – addig csak ezen az eszközön érvényesek.",
+    "Keine Erinnerungen.": "Nincsenek emlékeztetők.",
+    "Noch nicht fällig": "Még nem jár le",
+    "Raum": "Szoba",
+    "nicht verbunden": "nincs csatlakoztatva",
+    "verbunden": "csatlakoztatva"
 }

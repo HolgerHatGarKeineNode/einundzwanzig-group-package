@@ -148,11 +148,44 @@
                          under their share. The full sentence lives in `aria-label`, so
                          screen readers keep it; the padlock carries „encrypted" visually,
                          which is also why this button and no other has that icon. --}}
+                    {{-- ── Since P3 this NAVIGATES instead of asking the store (D5) ──────
+                         Until P3 the button hung on `$store.privateMessages?.canSend` and
+                         called `writeTo(pubkey)`. That store is no longer mounted outside the
+                         Postfach's „Direkt" segment — the condition would be permanently
+                         `undefined`, and the only way to start a conversation from a profile
+                         would have silently disappeared with the mount.
+
+                         So the button is a LINK to the segment, carrying the recipient in
+                         `?an=`. The segment mounts the store, reads the parameter
+                         (`conversationFromAddress`) and opens the conversation — the same path
+                         a shared link takes, which is why there is now exactly one.
+
+                         **It stays a BUTTON and navigates in the handler** — deliberately not
+                         `x-bind:href`: Flux decides at COMPILE TIME whether this component
+                         renders an `<a>` or a `<button>`, by asking whether the `href`
+                         attribute is present. A bound `x-bind:href` is a different attribute
+                         name, so the element would stay a `<button>` and the binding would
+                         land on it without effect — the same dead-binding class as
+                         `flux:icon ::variant` (three measured cases in this house).
+
+                         And the target cannot be server-rendered: the conversation key is the
+                         sorted participant list, and the reader's own pubkey is only known in
+                         the browser. `$store.pinSet.me` carries it — the same session value,
+                         no store of its own.
+
+                         `Js::from` and not `@js()`: inside the attribute list of a `<flux:…>`
+                         tag the directive is not executed and lands verbatim in the expression
+                         (P5 finding, held by `ReportFixesTest`).
+
+                         No `canSend` gate any more: whether the relay accepts a gift wrap is
+                         decided by the segment, which can say so. A button that hides itself
+                         because a NIP-11 answer has not arrived yet looks like a missing
+                         feature (the documented `spaceCaps` trap). --}}
                     <flux:button variant="primary" size="sm" icon="lock-closed" class="flex-1 basis-0 text-btn-touch"
                                  data-person-dm
                                  aria-label="{{ __('Verschlüsselte Nachricht schreiben') }}"
-                                 x-show="$store.privateMessages?.canSend" x-cloak
-                                 x-on:click="$store.privateMessages?.writeTo(pubkey)">
+                                 x-show="pubkey && pubkey !== $store.pinSet?.me" x-cloak
+                                 x-on:click="Livewire.navigate({{ \Illuminate\Support\Js::from(route('group.postfach', ['ansicht' => 'direkt'])) }} + '&an=' + encodeURIComponent([pubkey, $store.pinSet?.me ?? ''].sort().join(',')))">
                         {{ __('Schreiben') }}
                     </flux:button>
 
@@ -253,6 +286,36 @@
                            class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                     {{ __('Du hast keine Relay-Liste (NIP-65) hinterlegt. Deine Kontaktliste wird deshalb auf allgemeine Relais geschrieben.') }}
                 </flux:text>
+
+                {{-- ── Anheften (P3, D7) ──────────────────────────────────────────────
+                     A person is one of the six pinnable objects, and the card is the one
+                     surface that shows a person on their own. `person:<hex>` — hex and not
+                     npub: the npub is a display form, and a key has to be identical across
+                     devices.
+
+                     No `canPin` gate: the pin set is the reader's own kind 30078 and needs no
+                     permission from any relay — and a guest's set lives in `localStorage`
+                     until he signs in (D7). Only the reader's OWN card is spared, like the
+                     hide action below: pinning yourself is an entry that says nothing. --}}
+                <div x-show="pubkey && pubkey !== $store.pinSet?.me" x-cloak class="mt-3">
+                    <flux:button variant="ghost" size="sm" class="w-full justify-start text-btn-touch"
+                                 data-person-pin
+                                 x-bind:aria-pressed="$store.pinSet?.has('person:' + pubkey) ? 'true' : 'false'"
+                                 x-on:click="$store.pinSet?.toggle('person:' + pubkey)">
+                        <span x-show="$store.pinSet?.has('person:' + pubkey)" x-cloak>
+                            <flux:icon.map-pin variant="solid" class="size-4 text-brand-600 dark:text-brand-400" />
+                        </span>
+                        <span x-show="!$store.pinSet?.has('person:' + pubkey)">
+                            <flux:icon.map-pin class="size-4" />
+                        </span>
+                        {{-- Finished sentences from PHP instead of `@js()` concatenation: the
+                             same rule as in `pin-toggle.blade.php`, and the same reason — the
+                             translator gets the sentence, not the fragment. --}}
+                        <span x-text="$store.pinSet?.has('person:' + pubkey)
+                            ? {{ \Illuminate\Support\Js::from(__('Anheftung von :was aufheben', ['was' => __('Person')])) }}
+                            : {{ \Illuminate\Support\Js::from(__(':was anheften', ['was' => __('Person')])) }}"></span>
+                    </flux:button>
+                </div>
 
                 {{-- ── Hide a person (P6, NIP-51 kind 10000) ──────────────────────────
                      The COUNTERPART of "Raum stummschalten": different kind, different

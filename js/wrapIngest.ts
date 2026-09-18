@@ -52,6 +52,27 @@
  * `nip44.decrypt` at the user's signer, and on NIP-46 that is a bunker round trip, on
  * NIP-55 a prompt on the device. One after another is slower and does not stampede a
  * remote signer.
+ *
+ * ══ Closed until a Direkt view stands (D5, P3) ═══════════════════════════════════
+ *
+ * Since P3 the policy is **gated**: while no „Direkt" segment of the Postfach is mounted,
+ * an arriving wrap is QUEUED and not opened ({@link openPrivateWraps} /
+ * {@link closePrivateWraps}). D5 says the NIP-17 wraps are decrypted only while Direkt is
+ * open, and "not decrypted" has to mean the signer is not asked — a count, a preview or a
+ * badge would each cost exactly the calls the decision exists to avoid.
+ *
+ * **Why the gate is here and not only at the subscription.** Removing the global mount in
+ * `app-frame.blade.php` already stops the wrap REQ, and that is the first and larger half.
+ * It is not sufficient: `isRelayEvent` in `@welshman/net` checks `m[0] === "EVENT"` and not
+ * the subscription id, so a connected relay may push a kind 1059 carrying our `p` tag at any
+ * time (measured: 25 unsolicited wraps → 25 forced `nip44.decrypt`, before the origin check
+ * in `js/welshmanInstance.ts` cut it to 0). The origin check is the guard against a FOREIGN
+ * wrap; this gate is the guard against our OWN wraps arriving on a page that must not open
+ * them — a room page whose REQ shares a socket, a leftover subscription, the backlog loop at
+ * construction time.
+ *
+ * Opening drains the queue and re-scans the repository, so nothing that arrived while the
+ * gate was closed is lost — it is only postponed.
  */
 import { derived, writable, type Readable } from 'svelte/store'
 import { DIRECT_MESSAGE, WRAP, getHash, type TrustedEvent } from '@welshman/util'
@@ -153,14 +174,106 @@ export const addOwnPrivateMessage = (rumor: TrustedEvent): boolean => {
 }
 
 /**
- * Watch the repository for wraps and unwrap them into {@link privateRumors}.
+ * **The gate, as a value** — a queue with an open/closed state and a counter.
+ *
+ * A factory and not four module globals, so `wrapGate.test.ts` can drive it with a
+ * counting fake instead of a signer: the promise "0 decryptions while closed" is then a
+ * number a test reads, not a behaviour somebody asserts by looking.
+ *
+ * The counter (rather than a boolean) is what survives `wire:navigate`: Livewire MOUNTS
+ * the new body before it tears the old one down, so a Direkt→Direkt navigation goes
+ * 1 → 2 → 1 and never through 0. That is the same reason `privateMessages.ts` counts its
+ * mounts.
+ */
+export type WrapGate = {
+    /** Hand a wrap to the gate: unpacked now if open, queued if closed. */
+    enqueue(wrap: TrustedEvent): void
+    /** A Direkt view mounted. The first one drains the queue. */
+    open(): void
+    /** A Direkt view unmounted. */
+    close(): void
+    isOpen(): boolean
+    /** How many wraps are waiting — the number the signer has NOT been asked about. */
+    pending(): number
+}
+
+export const makeWrapGate = (unpack: (wrap: TrustedEvent) => Promise<void>): WrapGate => {
+    let open = 0
+    /** Waiting wraps, by id — a relay that redelivers must not queue the same one twice. */
+    const queued = new Map<string, TrustedEvent>()
+    let chain: Promise<void> = Promise.resolve()
+
+    const run = (wrap: TrustedEvent): void => {
+        chain = chain.then(() => unpack(wrap))
+    }
+
+    const drain = (): void => {
+        const waiting = Array.from(queued.values())
+        queued.clear()
+        for (const wrap of waiting) {
+            run(wrap)
+        }
+    }
+
+    return {
+        enqueue(wrap: TrustedEvent): void {
+            if (open > 0) {
+                run(wrap)
+
+                return
+            }
+            queued.set(wrap.id, wrap)
+        },
+        open(): void {
+            open += 1
+            if (open === 1) {
+                drain()
+            }
+        },
+        close(): void {
+            open = Math.max(0, open - 1)
+        },
+        isOpen: (): boolean => open > 0,
+        pending: (): number => queued.size,
+    }
+}
+
+/**
+ * The gate of the running app. A module global because the policy is constructed once per
+ * app instance and the Direkt surface has to reach it from a dynamically imported module.
+ */
+let gate: WrapGate | null = null
+/** Re-scan of the repository on opening, installed by the policy. */
+let rescan: () => void = () => {}
+
+/**
+ * **A Direkt view mounted** — from here wraps may cost the signer. Drains what arrived
+ * while the gate was closed and re-scans the repository, so a wrap that came in before the
+ * policy existed is picked up too.
+ */
+export const openPrivateWraps = (): void => {
+    gate?.open()
+    rescan()
+}
+
+/** A Direkt view unmounted. At zero the gate closes and queues again. */
+export const closePrivateWraps = (): void => gate?.close()
+
+/** Only for tests and for the E2E probe: is the gate open, and how much is waiting? */
+export const privateWrapGateState = (): { open: boolean; pending: number } => ({
+    open: gate?.isOpen() ?? false,
+    pending: gate?.pending() ?? 0,
+})
+
+/**
+ * Watch the repository for wraps and unwrap them into {@link privateRumors} — **but only
+ * while a Direkt view stands** (see the header).
  *
  * The backlog loop is welshman's shape and runs over an empty repository at construction
  * time — wraps can only arrive later, through the origin-checked ingest.
  */
 export const appPolicyPrivateWraps: AppPolicy = (app: IApp) => {
     const seen = new Set<string>()
-    let chain: Promise<void> = Promise.resolve()
 
     const unpack = async (wrap: TrustedEvent): Promise<void> => {
         const user = app.user
@@ -185,18 +298,30 @@ export const appPolicyPrivateWraps: AppPolicy = (app: IApp) => {
         }
     }
 
-    const enqueue = (wrap: TrustedEvent): void => {
-        chain = chain.then(() => unpack(wrap))
+    const own = makeWrapGate(unpack)
+    gate = own
+    /**
+     * Re-scan on opening. The gate's own queue only holds what passed through
+     * {@link WrapGate.enqueue} while it was closed; a wrap that reached the repository
+     * before this policy was constructed — or through a path that does not emit `update`
+     * — is only found by asking the repository again. `seen` keeps the pass cheap.
+     */
+    rescan = (): void => {
+        for (const wrap of app.repository.query([{ kinds: [WRAP] }])) {
+            if (!seen.has(wrap.id)) {
+                own.enqueue(wrap)
+            }
+        }
     }
 
     for (const wrap of app.repository.query([{ kinds: [WRAP] }])) {
-        enqueue(wrap)
+        own.enqueue(wrap)
     }
 
     return on(app.repository, 'update', ({ added }: { added: TrustedEvent[] }) => {
         for (const event of added) {
             if (event.kind === WRAP) {
-                enqueue(event)
+                own.enqueue(event)
             }
         }
     })

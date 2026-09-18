@@ -1,37 +1,22 @@
-<?php
+{{-- ── „Direkt": the encrypted conversations (P3, D5) ─────────────────────────────
 
-use Livewire\Attributes\Layout;
-use Livewire\Component;
+     This segment of the Postfach is the ONLY place `nostrPrivateMessages` is mounted — and
+     therefore the only place NIP-17 wraps are decrypted.
 
-/**
- * Encrypted conversations (`/messages`, P7, NIP-17) as a Livewire full-page SFC.
- * A thin shell like `⚡bookmarks.blade.php`: list, permissions, read and write path all
- * live in the Alpine store `privateMessages` (js/privateMessages.ts), the pure rules next
- * to it in `js/privateMessageModels.ts`, the envelope in `js/giftWrap.ts`. No `mount()` —
- * there is nothing to prepare server-side, and there MUST be nothing: the content of this
- * page exists in cleartext only inside the browser.
- */
-new #[Layout('group::einundzwanzig')] class extends Component
-{
-    public function render()
-    {
-        return $this->view()->title(__('Verschlüsselt'));
-    }
-}; ?>
+     ── Why the surface moved here ──────────────────────────────────────────────────
+     Until P2 it was a screen of its own (`⚡messages.blade.php`, routeless since P2) and the
+     store hung on `app-frame.blade.php`, i.e. on EVERY page behind the gate. D5 inverts that:
+     `mount()` arms the wrap subscription, and every envelope it answers with costs the user's
+     signer two `nip44.decrypt` — on NIP-46 two bunker round trips, on NIP-55 potentially two
+     prompts on the device. A page that shows or counts conversations has already paid for it.
 
-<x-group::app-shell>
+     `<template x-if>` in the caller and NOT `x-show`: Alpine initialises `x-data` inside
+     CSS-hidden elements as well. Under `x-show` the wrap subscription would run in all five
+     segments — exactly the state this phase removes.
 
-    {{-- `init`/`destroy` keep the wrap subscription alive while this screen stands — and
-         ONLY while it stands. It is the one request in the client whose answers cost the
-         signer (every unwrapped envelope = two `nip44.decrypt`), so it does not keep
-         running in the background. The counter in `mount`/`unmount` covers the fact that
-         `wire:navigate` MOUNTS the new body before it tears the old one down. --}}
-    <div x-data="nostrPrivateMessages" class="page-enter">
-
-        {{-- UP target is the Postfach: since P2 the encrypted conversations are its
-             `?ansicht=direkt` segment (D5). This surface has NO route of its own in P2 —
-             P3 builds the five segments and mounts it there. --}}
-        <x-group::app-header :title="__('Verschlüsselt')" :back="route('group.postfach')" />
+     The markup itself is taken over unchanged from the old screen; what moved is the place
+     and the header (the segment bar above carries the title now). --}}
+<div x-data="nostrPrivateMessages">
 
         {{-- The relay's error, verbatim. Same construction as everywhere in this house:
              on a rejection the original wording is the only honest answer we have. --}}
@@ -323,6 +308,4 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
             </div>
         </template>
-    </div>
-
-</x-group::app-shell>
+</div>

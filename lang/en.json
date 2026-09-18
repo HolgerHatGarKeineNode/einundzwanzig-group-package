@@ -1316,5 +1316,16 @@
     "Start": "Home",
     "Verein": "Association",
     "Verschlüsselte Nachrichten öffnen": "Open encrypted messages",
-    "Willkommen bei EINUNDZWANZIG": "Welcome to EINUNDZWANZIG"
+    "Willkommen bei EINUNDZWANZIG": "Welcome to EINUNDZWANZIG",
+    ":was anheften": "Pin :was",
+    "Anheftung von :was aufheben": "Unpin :was",
+    "Angeheftet": "Pinned",
+    "Direkt": "Direct",
+    "Im Menü einer Nachricht kannst du dich später erinnern lassen.": "You can set a reminder from a message's menu.",
+    "Kein Relay hat deine Anheftungen bestätigt — sie gelten bis dahin nur auf diesem Gerät.": "No relay has confirmed your pins — until then they only apply on this device.",
+    "Keine Erinnerungen.": "No reminders.",
+    "Noch nicht fällig": "Not due yet",
+    "Raum": "Room",
+    "nicht verbunden": "not connected",
+    "verbunden": "connected"
 }

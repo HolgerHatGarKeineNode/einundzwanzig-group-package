@@ -50,7 +50,7 @@ const { WRAP, getPubkey, hash, makeSecret, normalizeRelayUrl, prep } = await imp
 const { Nip01Signer, getSeal } = await import('@welshman/signer')
 const { buildGiftWrap } = await import('./giftWrap.ts')
 const { wrapFilters } = await import('./privateMessages.ts')
-const { privateRumors, clearPrivateRumors } = await import('./wrapIngest.ts')
+const { closePrivateWraps, clearPrivateRumors, openPrivateWraps, privateRumors, privateWrapGateState } = await import('./wrapIngest.ts')
 const { deriveEventsForUrl } = await import('./repository.ts')
 const { get } = await import('svelte/store')
 
@@ -102,6 +102,14 @@ before(async () => {
         return thunk()
     })
     socket = app.pool.get(URL_) as unknown as typeof socket
+    // ── Why the gate is opened here (P3, D5) ────────────────────────────────────────
+    // Since P3 `appPolicyPrivateWraps` only unwraps while a „Direkt" view is mounted;
+    // everything else is QUEUED. With the gate closed the three zero-measurements above
+    // would be green for the wrong reason — a queue scores zero on every signer count, and
+    // the origin check they are about would no longer be what produces the zero. So the file
+    // measures with the gate OPEN, and the one case that measures the gate itself closes it
+    // explicitly.
+    openPrivateWraps()
 })
 
 after(() => {
@@ -160,6 +168,57 @@ test('a wrap for SOMEBODY ELSE on our own wrap subscription is not ours either',
     assert.equal(decrypts() - before_, 0, 'the filter says #p is us; this one is not')
 })
 
+test('D5: while no Direkt view is mounted, a SOLICITED wrap is queued and costs 0 signer calls', async () => {
+    // ── The promise of this phase, as a number ──────────────────────────────────────
+    // D5: "NIP-17 wraps are decrypted only while Direkt is open." Not "counted differently",
+    // not "shown later" — the signer must not be asked. On NIP-46 every unwrap is two bunker
+    // round trips, on NIP-55 potentially two prompts on the phone; a badge, a preview or a
+    // count on Start would each have paid that price on every page load.
+    //
+    // Measured against the same app instance and the same signer counter as the cases above,
+    // and in BOTH directions in one case: closed ⇒ 0, opened ⇒ the same envelope is unwrapped.
+    // A zero alone would also be produced by an ingest that drops everything.
+    closePrivateWraps()
+    assert.equal(privateWrapGateState().open, false, 'PRECONDITION: no Direkt view is mounted')
+
+    const senderSecret = makeSecret()
+    const sender = Nip01Signer.fromSecret(senderSecret)
+    const gated = await buildGiftWrap({
+        sender,
+        recipient: ME,
+        template: prep({ kind: 14, content: 'gated', tags: [['p', ME]], created_at: now() } as never, getPubkey(senderSecret)),
+        now: now(),
+    })
+
+    socket.send(['REQ', 'REQ-wraps-gate', ...wrapFilters(ME)])
+    const before_ = decrypts()
+    socket.emit(SocketEvent.Receive, ['EVENT', 'REQ-wraps-gate', gated], URL_)
+    await settle()
+
+    assert.equal(decrypts() - before_, 0, 'the signer was asked although no Direkt view stands')
+    assert.equal(
+        get(privateRumors).some((event) => event.content === 'gated'),
+        false,
+        'nothing was unwrapped, so nothing can be shown or counted either',
+    )
+    // The envelope is NOT lost: it sits in the repository (the ingest accepted it) and in the
+    // gate's queue. "Postponed" and "dropped" are different promises, and only the first one
+    // survives a user who opens Direkt a minute later.
+    assert.equal(app.repository.query([{ kinds: [WRAP] }]).length >= 1, true, 'the envelope reached the repository')
+    assert.ok(privateWrapGateState().pending >= 1, 'and it is waiting in the queue')
+
+    // ── The other direction: mounting Direkt drains the queue ───────────────────────
+    openPrivateWraps()
+    await settle()
+
+    assert.ok(decrypts() - before_ >= 1, 'opening Direkt did NOT unwrap what was queued')
+    assert.ok(
+        get(privateRumors).some((event) => event.content === 'gated'),
+        'the queued message appears once the segment stands',
+    )
+    assert.equal(privateWrapGateState().pending, 0, 'and the queue is empty afterwards')
+})
+
 test('POSITIVE CONTROL: a wrap we asked for is decrypted and unwrapped', async () => {
     // Without this case the zeros above would also be produced by an ingest that drops
     // every wrap — a mute button scores zero on every measurement there is.
@@ -174,11 +233,19 @@ test('POSITIVE CONTROL: a wrap we asked for is decrypted and unwrapped', async (
 
     socket.send(['REQ', 'REQ-wraps-b', ...wrapFilters(ME)])
     const before_ = decrypts()
+    // Counted as a DELTA, not as an absolute: the D5 case above leaves its own solicited
+    // envelope in the repository on purpose (queued, then drained). An absolute `1` here
+    // would measure the order of the cases in this file instead of the ingest.
+    const wrapsBefore = app.repository.query([{ kinds: [WRAP] }]).length
     socket.emit(SocketEvent.Receive, ['EVENT', 'REQ-wraps-b', wanted], URL_)
     await settle()
 
     assert.ok(decrypts() - before_ >= 1, 'the wrap we asked for still reaches the signer')
-    assert.equal(app.repository.query([{ kinds: [WRAP] }]).length, 1, 'and only this one entered the repository')
+    assert.equal(
+        app.repository.query([{ kinds: [WRAP] }]).length - wrapsBefore,
+        1,
+        'and exactly this one entered the repository — no hostile envelope came with it',
+    )
     const rumor = get(privateRumors).find((event) => event.content === 'solicited')
     assert.ok(rumor, 'the unwrapped message is the one that was sent')
     assert.equal(rumor?.pubkey, getPubkey(senderSecret), 'the author comes out of the seal, not off the envelope')

@@ -741,7 +741,13 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         // run into `/rooms/<key>`, a room no relay knows. The same branch stands in
         // `rail.openRoom`; both columns show the same rows.
         if (room.isPrivateDm === true) {
-            this._go(`${MESSAGES_PATH}?c=${encodeURIComponent(room.h)}`, room.name || room.h)
+            // `&an=` and not `?c=`: `MESSAGES_PATH` already carries `?ansicht=direkt`, so a
+            // second `?` produced `…?ansicht=direkt?c=<key>` — one parameter named
+            // `ansicht` with the value `direkt?c=<key>`, i.e. the palette opened the
+            // conversation list and never the conversation. Present since P2, found while
+            // building the Direkt segment. The separator and the name are decided in
+            // `js/navigate.ts`; this call site no longer builds either.
+            this._go(`${MESSAGES_PATH}&an=${encodeURIComponent(room.h)}`, room.name || room.h)
 
             return
         }

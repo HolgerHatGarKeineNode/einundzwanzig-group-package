@@ -491,7 +491,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  Zeile allein zu füllen. Ein `xl:col-span-3` hätte auf
                                  96 rem einen 64-rem-Banner ergeben, unter dem der Rest
                                  der Liste wie eine Fußnote aussieht. --}}
-                            <article class="surface-card flex h-full flex-col overflow-hidden"
+                            {{-- `relative` since P3: the pin button at the card's edge is
+                                 absolutely positioned and needs THIS card as its containing
+                                 block. Without it the reference would be the next positioned
+                                 ancestor and the button would sit on a foreign card. --}}
+                            <article class="surface-card relative flex h-full flex-col overflow-hidden"
                                      :class="card.featured ? 'sm:col-span-2' : ''">
 
                                 <a :href="href(card) || null" wire:navigate
@@ -674,6 +678,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         </div>
                                     </div>
                                 </a>
+
+                                {{-- Pinning (P3, D7) — OUTSIDE the link: a button inside a link
+                                     is nested interactive content, and the click would navigate
+                                     instead of pinning.
+
+                                     The key is the article's ADDRESS (`30023:<pubkey>:<d>`) and
+                                     not its `naddr`: an `naddr` also carries relay hints, so two
+                                     devices would pin the same article under two different keys.
+                                     `card.identifier`/`card.pubkey` stand in the row for exactly
+                                     this (reasoning at `ArticleRow` in `longform.ts`).
+
+                                     No `d`, no key: a 30023 without a `d` is not addressable and
+                                     therefore not pinnable. --}}
+                                <template x-if="card.identifier">
+                                    <div class="absolute end-2 top-2 z-10">
+                                        <x-group::pin-toggle schluessel="'article:30023:' + card.pubkey + ':' + card.identifier"
+                                                             :was="__('Artikel')" />
+                                    </div>
+                                </template>
 
                                 {{-- ── Player: AUSSERHALB des Links, und erst auf Klick ──
 

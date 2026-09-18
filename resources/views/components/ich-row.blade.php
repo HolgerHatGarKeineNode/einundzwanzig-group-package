@@ -27,6 +27,11 @@
             <span class="mt-0.5 block truncate text-xs text-muted">{{ $hint }}</span>
         @endif
     </span>
+    {{-- Optional slot BEFORE the chevron: a value the row carries (the wallet balance since
+         P3). In the slot and not as a `value` prop, because what stands there is an Alpine
+         island of the calling partial — a prop would have to be an expression the row then
+         evaluates in its own scope. --}}
+    {{ $trailing ?? '' }}
     @if ($external)
         <flux:icon.arrow-top-right-on-square variant="micro" class="size-4 shrink-0 text-muted" />
         <span class="sr-only">{{ __('(öffnet das Portal)') }}</span>

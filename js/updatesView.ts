@@ -17,14 +17,33 @@
 import type { UpdateBucket, UpdateItem } from './updates.ts'
 import { t, tPlural } from './i18n.ts'
 
-// ── Filter (die drei Tabs) ─────────────────────────────────────────────────
-
-/** Die drei Tabs aus `⚡updates.blade.php`. `all` ist der Default. */
-export type UpdateFeed = 'all' | 'mentions' | 'threads'
+// ── Filter (the five segments) ─────────────────────────────────────────────
 
 /**
- * Tab → Zeilen. `message`-Zeilen erscheinen **nur** unter „Alle": weder eine Erwähnung
- * noch eine Thread-Antwort, und ein vierter Tab „Räume" wäre die Liste selbst.
+ * The segments of the Postfach (D5). `all` is the default.
+ *
+ * **Three of them filter `UpdateItem`s, two do not.** `direkt` shows the encrypted
+ * conversations (own store, own source, own crypto) and `erinnerungen` the reader's own
+ * NIP-ER reminders — neither is a notice ABOUT SOMEBODY ELSE, and `computeUpdates` knows
+ * about neither. They stand in this type all the same, because the type describes the
+ * SELECTION and not the data source: the screen has one state "which segment", and two
+ * states for it would be two truths about the same address.
+ */
+export type UpdateFeed = 'all' | 'mentions' | 'threads' | 'direkt' | 'erinnerungen'
+
+/** The segments made of {@link UpdateItem}s — the list computes for those only. */
+export const NOTICE_FEEDS: readonly UpdateFeed[] = ['all', 'mentions', 'threads']
+
+/** Does this segment compute the notice list? `false` for `direkt`/`erinnerungen`. */
+export const isNoticeFeed = (feed: UpdateFeed): boolean => NOTICE_FEEDS.includes(feed)
+
+/**
+ * Segment → rows. `message` rows appear **only** under „Alle": they are neither a mention
+ * nor a thread reply, and a segment „Räume" would be the room list itself.
+ *
+ * The two foreign segments return **empty** rather than the whole set: they show their own
+ * source, and a list that also printed every notice next to it would be a segment that does
+ * not keep its name.
  */
 export const filterUpdates = (items: readonly UpdateItem[], feed: UpdateFeed): UpdateItem[] => {
     if (feed === 'mentions') {
@@ -33,7 +52,84 @@ export const filterUpdates = (items: readonly UpdateItem[], feed: UpdateFeed): U
     if (feed === 'threads') {
         return items.filter((item) => item.type === 'thread')
     }
+    if (!isNoticeFeed(feed)) {
+        return []
+    }
     return [...items]
+}
+
+// ── Address ↔ segment (`?ansicht=`) ────────────────────────────────────────
+
+/**
+ * The values that stand in the ADDRESS — German, like every other path of this client
+ * (`/postfach?ansicht=direkt`). `UpdateFeed` stays English: that is the internal name, and
+ * `all`/`mentions`/`threads` have stood in `⚡updates.blade.php` that way since P4.
+ *
+ * Two vocabularies with one translation table instead of one shared vocabulary: the address
+ * is public and frozen into shared links, the internal name may change.
+ */
+export const ANSICHT_TO_FEED: Readonly<Record<string, UpdateFeed>> = {
+    alles: 'all',
+    erwaehnungen: 'mentions',
+    threads: 'threads',
+    direkt: 'direkt',
+    erinnerungen: 'erinnerungen',
+}
+
+const FEED_TO_ANSICHT: Readonly<Record<UpdateFeed, string>> = {
+    all: 'alles',
+    mentions: 'erwaehnungen',
+    threads: 'threads',
+    direkt: 'direkt',
+    erinnerungen: 'erinnerungen',
+}
+
+/**
+ * The segment named in a query string. Everything unknown falls back to `all` — the
+ * parameter comes from the address bar and is therefore foreign input (the same rule as
+ * {@link readOrigin}).
+ */
+export const feedFromSearch = (search: string): UpdateFeed => {
+    let value: string | null = null
+    try {
+        value = new URLSearchParams(search).get('ansicht')
+    } catch {
+        return 'all'
+    }
+
+    return (value !== null && ANSICHT_TO_FEED[value]) || 'all'
+}
+
+/** The address value of a segment. */
+export const ansichtOf = (feed: UpdateFeed): string => FEED_TO_ANSICHT[feed] ?? 'alles'
+
+/**
+ * The address that has to stand in the bar after a segment change.
+ *
+ * `alles` does NOT appear in the address: it is the default, and a parameter repeating the
+ * default turns a shared `/postfach` into a second, equivalent URL. Every other parameter
+ * (`an=` of the open conversation) survives — a segment change must not discard state some
+ * other surface has set.
+ */
+export const postfachUrl = (pathname: string, search: string, feed: UpdateFeed): string => {
+    let params: URLSearchParams
+    try {
+        params = new URLSearchParams(search)
+    } catch {
+        params = new URLSearchParams()
+    }
+    if (feed === 'all') {
+        params.delete('ansicht')
+    } else {
+        params.set('ansicht', ansichtOf(feed))
+    }
+    // The open conversation belongs to `direkt` and to nothing else.
+    if (feed !== 'direkt') {
+        params.delete('an')
+    }
+    const rest = params.toString()
+
+    return rest === '' ? pathname : `${pathname}?${rest}`
 }
 
 // ── Paginierung (§3.6) ────────────────────────────────────────────────────

@@ -1316,5 +1316,16 @@
     "Start": "Start",
     "Verein": "Vereniging",
     "Verschlüsselte Nachrichten öffnen": "Versleutelde berichten openen",
-    "Willkommen bei EINUNDZWANZIG": "Welkom bij EINUNDZWANZIG"
+    "Willkommen bei EINUNDZWANZIG": "Welkom bij EINUNDZWANZIG",
+    ":was anheften": ":was vastmaken",
+    "Anheftung von :was aufheben": ":was losmaken",
+    "Angeheftet": "Vastgemaakt",
+    "Direkt": "Direct",
+    "Im Menü einer Nachricht kannst du dich später erinnern lassen.": "In het menu van een bericht kun je een herinnering instellen.",
+    "Kein Relay hat deine Anheftungen bestätigt — sie gelten bis dahin nur auf diesem Gerät.": "Geen enkele relay heeft je vastgemaakte items bevestigd — tot dan gelden ze alleen op dit apparaat.",
+    "Keine Erinnerungen.": "Geen herinneringen.",
+    "Noch nicht fällig": "Nog niet verlopen",
+    "Raum": "Ruimte",
+    "nicht verbunden": "niet verbonden",
+    "verbunden": "verbonden"
 }

@@ -181,7 +181,11 @@
     {{-- The preference menu (P4). `x-if` and not `x-show`: a room outside the
          workspace must not carry the trigger in the accessibility tree either —
          a screen reader would announce an action that silently does nothing. --}}
-    <template x-if="canSetPrefs(room)">
+    {{-- Since P3 the menu also stands on rooms OUTSIDE the workspace: „anheften" works
+         everywhere (the pin set is the reader's own kind 30078), only „stummschalten" is a
+         Buzz preference and therefore workspace-only. `canPin(room)` is the wider condition,
+         so the trigger exists whenever at least one of the two entries does. --}}
+    <template x-if="canPin(room) || canSetPrefs(room)">
         <flux:dropdown position="bottom" align="end"
                        class="shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
             {{-- `:name` as a whole key with a placeholder, not a concatenation:
@@ -197,17 +201,28 @@
             <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
                          x-bind:aria-label="@js(__('Einstellungen für :name')).split(':name').join(room.name || room.h)" />
             <flux:menu>
-                <flux:menu.item icon="map-pin" x-on:click="togglePinned(room)">
-                    <span x-text="isPinned(room) ? @js(__('Anheftung des Raums aufheben')) : @js(__('Raum anheften'))"></span>
-                </flux:menu.item>
+                {{-- `togglePinned` routes: a workspace room goes to Buzz' `channel-stars`, a
+                     space room into the reader's own pin set (`pinWriteRoute`). One entry, one
+                     word — the user does not have to know which relay owns the statement. --}}
+                <template x-if="canPin(room)">
+                    <flux:menu.item icon="map-pin" x-on:click="togglePinned(room)">
+                        <span x-text="isPinned(room) ? @js(__('Anheftung des Raums aufheben')) : @js(__('Raum anheften'))"></span>
+                    </flux:menu.item>
+                </template>
                 {{-- `bell-slash` stays with the ROOM. Muting a PERSON (NIP-51,
                      kind 10000) is a different thing on a different kind with a
                      different merge rule and gets its own word and its own icon —
                      the naming decision of this plan, held here so the next surface
                      does not reuse this one. --}}
-                <flux:menu.item icon="bell-slash" x-on:click="toggleMuted(room)">
-                    <span x-text="isMuted(room) ? @js(__('Stummschaltung des Raums aufheben')) : @js(__('Raum stummschalten'))"></span>
-                </flux:menu.item>
+                {{-- `x-if` and not `x-show`, per entry (P3): an entry that silently does
+                     nothing must not be in the tree at all. Muting stays workspace-only —
+                     `channel-mutes` is Buzz' blob, and a room of the home space has no key in
+                     it. Pinning is the reader's own event and works everywhere. --}}
+                <template x-if="canSetPrefs(room)">
+                    <flux:menu.item icon="bell-slash" x-on:click="toggleMuted(room)">
+                        <span x-text="isMuted(room) ? @js(__('Stummschaltung des Raums aufheben')) : @js(__('Raum stummschalten'))"></span>
+                    </flux:menu.item>
+                </template>
             </flux:menu>
         </flux:dropdown>
     </template>

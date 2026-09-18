@@ -58,6 +58,7 @@ import { wireBookmarks } from './bookmarks.ts'
 import { wireMutes } from './mutes.ts'
 import { wireFollows } from './follows.ts'
 import { wireReminders } from './reminders.ts'
+import { wirePinSet } from './pinSetSync.ts'
 import { wirePresence } from './presence.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
@@ -264,13 +265,16 @@ import { BADGE_CAP, deriveUnread, formatUnreadCount, sumUnreadRooms, type Unread
 import { deriveUpdates, type UpdateItem } from './updates.ts'
 import {
     countUnreadUpdates,
+    feedFromSearch,
     firstNonEmpty,
     groupUpdates,
     hasMoreUpdates,
     hasUnreadUpdates,
+    isNoticeFeed,
     liveRegionDelay,
     nextUpdatesLimit,
     originTarget,
+    postfachUrl,
     threadBackTarget,
     undoClickAction,
     undoSnapshotFor,
@@ -805,6 +809,10 @@ type UpdatesState = {
     open(item: UpdateItem): void
     retry(): void
     resetFeed(): void
+    /** P3/D5: does this segment render the notice list at all? `false` for Direkt/Erinnerungen. */
+    isNotices(): boolean
+    /** P3/D5: the segment counts of the tab bar — mentions, threads, due reminders. NEVER a DM count. */
+    segmentCount(feed: UpdateFeed, dueCount?: number): number
     markAllRead(): void
     _closeUndo(): void
     undoMarkAll(): void
@@ -1413,6 +1421,19 @@ type InviteState = {
 }
 
 /** ZAPS.md Z0.4 — vollwertige Lightning-Wallet-Insel (Verbinden/Balance/Senden/Empfangen). */
+/**
+ * The wallet ROW on „Ich" (P3/D8) — balance and nothing else. See the island for why this
+ * is not `nostrWallet`.
+ */
+type WalletBalanceState = {
+    zapsEnabled: boolean
+    connected: boolean
+    /** `null` = no amount (not connected, WebLN, or the call failed). Never a fabricated 0. */
+    balanceSats: number | null
+    loading: boolean
+    init(): Promise<void>
+}
+
 type WalletState = {
     zapsEnabled: boolean
     connected: boolean
@@ -1962,6 +1983,13 @@ export function registerNostrComponents(Alpine: {
     // Erinnerungs-Fläche auf `/updates`). Begründung im Kopf von `reminders.ts`; in
     // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
     wireReminders(Alpine)
+    // P3 (D7/D8) — „Angeheftet": the user's personal pin set (kind 30078,
+    // `d = einundzwanzig/pins`). A store for the same reason as the five above, and this
+    // one has the most readers that never see each other: the chips on Start, the left bar,
+    // the room menus, the profile card, the article and repo headers. Two islands would be
+    // two truths about "is this pinned" — and one of them would be the one a user taps.
+    // The rules are in `js/pinSet.ts`, the relays and the EOSE gate in `js/pinSetSync.ts`.
+    wirePinSet(Alpine)
     // P6 — Präsenz (Buzz kind 20001). Vierter Store nach demselben Muster: der Zustand
     // wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (der Punkt am
     // Avatar jeder Chat-Zeile und der eigene Punkt in der Desktop-Rail). In
@@ -2691,6 +2719,50 @@ export function registerNostrComponents(Alpine: {
             }
             this._unsubProfile?.()
             this._unsubHandle?.()
+        },
+    }))
+
+    /**
+     * P3 (D8) — the balance in the wallet ROW on „Ich". A tiny island of its own and NOT
+     * `nostrWallet`.
+     *
+     * The reason is the price of `nostrWallet.init()`: it subscribes to the reader's own
+     * profile, resolves the NIP-05 verification against a foreign domain, holds a 6 s timer
+     * and waits for `loadUserProfile()` — all for a SCREEN on which one sets an address and
+     * builds invoices. A row showing a number needs none of it. No second truth about
+     * "connected" appears either: both read the same source (`loadWallet()` from
+     * `js/wallet.ts`), and nothing is written here at all.
+     *
+     * **Only NWC carries a number.** `getWalletBalance()` goes through the NWC client; a
+     * WebLN extension has no balance command that answers without a user dialog. The row
+     * then says „verbunden" without an amount instead of a 0 — an invented zero would be the
+     * worse answer (the same rule as `nostrWallet.refreshBalance`).
+     */
+    Alpine.data('nostrWalletGuthaben', (): WalletBalanceState => ({
+        zapsEnabled: zapsEnabled(),
+        connected: false,
+        balanceSats: null,
+        loading: true,
+        async init() {
+            // The pubkey is hydrated from localStorage asynchronously — without this wait a
+            // hard reload on `/ich` would make `loadWallet()` read an empty key, and a
+            // connected wallet would appear as „nicht verbunden" (the same trap
+            // `nostrWallet.init` and `nostrAuth.init` catch).
+            await ensureAuthReady()
+            try {
+                const wallet = await loadWallet()
+                this.connected = wallet !== null
+                if (wallet?.type === WalletType.NWC) {
+                    const res = await getWalletBalance()
+                    this.balanceSats = fromMsats(res.balance)
+                }
+            } catch {
+                // No balance, no error text: the row leads to the wallet, and the diagnosis
+                // stands there. Red text in a navigation row helps nobody.
+                this.balanceSats = null
+            } finally {
+                this.loading = false
+            }
         },
     }))
 
@@ -3614,10 +3686,26 @@ export function registerNostrComponents(Alpine: {
             _unsubActive: null,
             _unsubItems: null,
             init() {
-                // Filterwechsel setzt die Seitenlänge zurück: „Ältere anzeigen" gilt für
-                // die Ansicht, die man gerade sieht, nicht für alle drei Tabs zusammen.
-                ;(this as unknown as { $watch(p: string, cb: () => void): void }).$watch('feed', () => {
+                // D5/P3 — the segment stands in the ADDRESS (`/postfach?ansicht=direkt`).
+                // Read from there on mount, written back on every change: otherwise a shared
+                // link, the way back out of a conversation and the browser's back button all
+                // land on „Alles".
+                this.feed = feedFromSearch(window.location.search)
+                // A segment change resets the page length: "show older" applies to the view
+                // one is looking at, not to all five segments together.
+                ;(this as unknown as { $watch(p: string, cb: (value: UpdateFeed) => void): void }).$watch('feed', (value: UpdateFeed) => {
                     this.limit = UPDATES_PAGE
+                    // `replaceState` and NOT `Livewire.navigate`: a segment change is not a
+                    // page change — the island keeps its state, and a round trip would rebuild
+                    // the list and its subscriptions. `replace` rather than `push`, so five
+                    // taps do not leave five history entries nobody wants to tap back through.
+                    try {
+                        const ziel = postfachUrl(window.location.pathname, window.location.search, value)
+                        window.history.replaceState(window.history.state, '', ziel)
+                    } catch {
+                        // A browser without the History API only changes the display. The
+                        // segment state lives in the island, not in the address.
+                    }
                 })
                 this._unsubActive = activeSpace.subscribe((url: string) => {
                     this._url = url
@@ -3752,6 +3840,40 @@ export function registerNostrComponents(Alpine: {
             resetFeed() {
                 this.feed = 'all'
                 this.limit = UPDATES_PAGE
+            },
+            /**
+             * Does this segment compute the notice list? It carries the existence of the
+             * list, of the pagination and of both empty states — `direkt` and `erinnerungen`
+             * bring a surface of their own.
+             */
+            isNotices() {
+                return isNoticeFeed(this.feed)
+            },
+            /**
+             * The count on a segment — mentions, threads, due reminders.
+             *
+             * **For `direkt` it is 0 by construction, and that is not thrift but D5.** A
+             * number about encrypted messages exists only after decrypting; showing one here
+             * would cost exactly the signer calls the decision avoids. The function therefore
+             * ACCEPTS `direkt` and answers 0, rather than leaving the choice to the markup —
+             * a number that must not be shown belongs in a function that says no, not in a
+             * template.
+             *
+             * `all` gets no number either: the segment shows everything, and a number next to
+             * it would be the length of the list right below.
+             */
+            segmentCount(feed: UpdateFeed, dueCount = 0) {
+                if (feed === 'mentions' || feed === 'threads') {
+                    return visibleUpdates(this.items, feed, this.items.length).length
+                }
+                if (feed === 'erinnerungen') {
+                    // The due reminders live in `$store.reminders`, not in this island — the
+                    // surface hands the number in rather than this file building itself a way
+                    // to that store.
+                    return Math.max(0, dueCount)
+                }
+
+                return 0
             },
             /**
              * „Alles gelesen" — mit Rückweg (§8, verbindlich): erst die Karte puffern,

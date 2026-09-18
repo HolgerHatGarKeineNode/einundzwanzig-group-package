@@ -788,8 +788,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      ohne Tabellensemantik zu behaupten, die diese Liste nicht
                                      hat. Die Ablehnung steht hier und nicht nur im Plan, damit
                                      der nächste Leser sie am Gegenstand findet. --}}
+                                {{-- ONE root element per `x-for` pass (Alpine's contract): the
+                                     pin button must not sit INSIDE the link (nested interactive
+                                     content), so a `relative` frame wraps both. `border-b` moves
+                                     out with it — otherwise the hairline would be drawn under
+                                     the link and the button would stand below it. --}}
+                                <div class="relative border-b border-zinc-200 last:border-b-0 dark:border-zinc-800">
                                 <a :href="repoHref(repo) || null" wire:navigate data-forge-repo :data-naddr="repo.naddr"
-                                   class="forge-zeile pressable group border-b border-zinc-200 p-4 transition-colors last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/60">
+                                   class="forge-zeile pressable group p-4 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60">
                                     <span class="forge-glyphe flex size-9 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-300">
                                         <flux:icon.code-bracket class="size-5" />
                                     </span>
@@ -950,6 +956,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         </span>
                                     </span>
                                 </a>
+
+                                {{-- Pinning (P3, D7) — outside the link, absolutely placed in the
+                                     row. The key is `repo.address`, i.e. the NIP-01 address
+                                     `30617:<owner>:<d>` (`forgeModels.ts repoAddressOf`) and not
+                                     the row's `naddr`: that one also carries relay hints, so two
+                                     devices would pin the same repository under two keys. --}}
+                                <div class="absolute end-2 top-3 z-10">
+                                    <x-group::pin-toggle schluessel="'repo:' + repo.address" :was="__('Repository')" />
+                                </div>
+                                </div>
                             </template>
                         </div>
                     </section>

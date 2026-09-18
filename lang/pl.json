@@ -1349,5 +1349,16 @@
     "Start": "Start",
     "Verein": "Stowarzyszenie",
     "Verschlüsselte Nachrichten öffnen": "Otwórz zaszyfrowane wiadomości",
-    "Willkommen bei EINUNDZWANZIG": "Witamy w EINUNDZWANZIG"
+    "Willkommen bei EINUNDZWANZIG": "Witamy w EINUNDZWANZIG",
+    ":was anheften": "Przypnij :was",
+    "Anheftung von :was aufheben": "Odepnij :was",
+    "Angeheftet": "Przypięte",
+    "Direkt": "Bezpośrednie",
+    "Im Menü einer Nachricht kannst du dich später erinnern lassen.": "W menu wiadomości możesz ustawić przypomnienie.",
+    "Kein Relay hat deine Anheftungen bestätigt — sie gelten bis dahin nur auf diesem Gerät.": "Żaden relay nie potwierdził Twoich przypięć — do tego czasu obowiązują tylko na tym urządzeniu.",
+    "Keine Erinnerungen.": "Brak przypomnień.",
+    "Noch nicht fällig": "Jeszcze nie na czasie",
+    "Raum": "Pokój",
+    "nicht verbunden": "niepodłączona",
+    "verbunden": "podłączona"
 }

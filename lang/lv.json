@@ -1382,5 +1382,16 @@
     "Start": "Sākums",
     "Verein": "Biedrība",
     "Verschlüsselte Nachrichten öffnen": "Atvērt šifrētās ziņas",
-    "Willkommen bei EINUNDZWANZIG": "Laipni lūdzam EINUNDZWANZIG"
+    "Willkommen bei EINUNDZWANZIG": "Laipni lūdzam EINUNDZWANZIG",
+    ":was anheften": "Piespraust :was",
+    "Anheftung von :was aufheben": "Noņemt :was piespraudumu",
+    "Angeheftet": "Piesprausts",
+    "Direkt": "Tieši",
+    "Im Menü einer Nachricht kannst du dich später erinnern lassen.": "Ziņas izvēlnē vari izveidot atgādinājumu.",
+    "Kein Relay hat deine Anheftungen bestätigt — sie gelten bis dahin nur auf diesem Gerät.": "Neviens relejs nav apstiprinājis tavus piespraudumus — līdz tam tie darbojas tikai šajā ierīcē.",
+    "Keine Erinnerungen.": "Nav atgādinājumu.",
+    "Noch nicht fällig": "Vēl nav pienācis laiks",
+    "Raum": "Telpa",
+    "nicht verbunden": "nav savienots",
+    "verbunden": "savienots"
 }
