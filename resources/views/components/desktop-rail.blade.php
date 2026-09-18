@@ -77,7 +77,7 @@
              zeigeKanaele()
              $nextTick(() => vollzieheKanalSprung($el.querySelector('[data-rail-gruppenkopf=&quot;workspace&quot;]')))
          "
-         class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
+         class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-border dark:bg-zinc-950">
 
         {{-- ══ THE DIRECT CHILDREN OF `[data-rail]` ARE THE THREE LAYOUT BLOCKS ═════
              Header · search field · list, and nothing else. Until P6 there was a fourth,
@@ -144,7 +144,7 @@
              zur Hälfte Formular, und man müsste zum Suchen erst scrollen.
              Der Chip kostet 0px zusätzliche Höhe und macht die Gruppenstruktur
              adressierbar statt nur aufklappbar. --}}
-        <label class="mx-3 mb-2 flex shrink-0 items-center gap-1.5 rounded-tile bg-zinc-100 px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-accent dark:bg-zinc-800">
+        <label class="mx-3 mb-2 flex shrink-0 items-center gap-1.5 rounded-tile border border-zinc-300 bg-zinc-100 px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-accent dark:border-border-chip dark:bg-zinc-900">
             <span aria-hidden="true" class="text-sm font-bold text-brand-800 dark:text-brand-400">#</span>
 
             <template x-if="scope.group || scope.country">
@@ -184,7 +184,7 @@
                     x-on:click.stop.prevent="$dispatch('open-command-palette')"
                     aria-label="{{ __('Befehlspalette öffnen') }}" aria-haspopup="dialog"
                     aria-keyshortcuts="Meta+K Control+K"
-                    class="pressable inline-flex h-6 shrink-0 items-center rounded bg-black/5 px-1.5 text-xs text-muted transition-colors hover:text-zinc-900 dark:bg-white/10 dark:hover:text-zinc-100">⌘K</button>
+                    class="pressable inline-flex h-6 shrink-0 items-center rounded-pill border border-zinc-300 px-2 text-[11px] leading-none text-muted transition-colors hover:text-zinc-900 dark:border-border-strong dark:hover:text-zinc-100">⌘K</button>
         </label>
 
         {{-- Die einzige Fläche, die scrollt. `min-h-0` ist Pflicht: ohne das
@@ -210,9 +210,29 @@
                  LIST („Räume und Bereiche"), and a client surface inside it would claim to
                  be a room group. Same distinction the „Alle Räume & Entdecken" row at the
                  foot of this scroller already makes, and the same class signature. --}}
+            {{-- P3 (Entwurf C `.rail a`): die Startzeile ist 44 px hoch, radius 10 —
+                  dieselbe Zeilenform wie die Raumzeilen. `xl:`-Varianten statt Austausch
+                  der Basis: `min-h-9 … rounded-tile` ist die signierte Geometrie der
+                  Drittblock-Messung in RailSkelettTest (Positivkontrolle der Fußzeilen-
+                  Negation) und bleibt als Grundstand erhalten; ab `xl` — wo allein die
+                  Rail existiert — tragen die Varianten das Entwurfsmaß. Zwei Varianten-
+                  getrennte Utilities konkurrieren nicht miteinander.
+
+                  Der AKTIVE Zustand hängt am Pfad wie der aktive Raum (`roomHFromPath`
+                  liest die URL, weil `wire:navigate` Alpine neu aufbaut, die Adressleiste
+                  nicht): Fläche im accent-wash, Text in Orange, Gewicht 800 — Farbe, Fläche
+                  UND Gewicht, nie Farbe allein (WCAG 1.4.1). Farbe und Gewicht stehen im
+                  x-bind und nicht in der Basis: eine Basis-`text-*` davor verlöre gegen die
+                  gebundene Farbe je nach Build-Reihenfolge — dieselbe Falle, die
+                  `rail-room-row` für die Mitgliedschaftsstufen dokumentiert. --}}
+            @php($startPfad = (string) parse_url(route(config('group.start_route', 'group.start')), PHP_URL_PATH))
             <a href="{{ route(config('group.start_route', 'group.start')) }}" wire:navigate data-rail-start
-               class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800">
-                <flux:icon.home variant="micro" class="size-4 shrink-0" />
+               x-bind:aria-current="window.location.pathname === @js($startPfad) ? 'page' : null"
+               class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 xl:min-h-11 xl:rounded-btn dark:hover:bg-zinc-800"
+               x-bind:class="window.location.pathname === @js($startPfad)
+                   ? 'bg-accent-wash font-extrabold text-accent'
+                   : 'font-medium text-zinc-900 dark:text-zinc-100'">
+                <flux:icon.home variant="micro" class="sw-18 size-5 shrink-0" />
                 <span>{{ __('Start') }}</span>
             </a>
 
@@ -387,9 +407,12 @@
             </template>
 
             {{-- Der Weg zu allem, was die Rail bewusst nicht kann. --}}
+            {{-- Der Weg zu allem, was die Rail bewusst nicht kann. Dasselbe Zeilenmaß
+                  wie Start oben (44 px, radius 10, `xl:`-Varianten über der signierten
+                  Basis — Begründung dort). --}}
             <a href="{{ route('group.bereich.chat') }}" wire:navigate
-               class="pressable mt-1 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
-                <flux:icon.squares-2x2 variant="micro" class="size-4 shrink-0" />
+               class="pressable mt-1 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 xl:min-h-11 xl:rounded-btn dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
+                <flux:icon.squares-2x2 variant="micro" class="sw-18 size-5 shrink-0" />
                 <span>{{ __('Alle Räume & Entdecken') }}</span>
             </a>
 

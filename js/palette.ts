@@ -957,6 +957,27 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         this.resetSearch()
     },
 
+    // ── Filter-Chips (P3, Entwurf C `screen-desktop`) ────────────────────────
+    // Die Chips sind die klickbare Form derselben Bereichs-Grammatik, die sonst
+    // über Token (`r:`, `@`, `>`) im Feld greift: EIN Scope, EINE Wahrheit — ein
+    // Chip setzt genau das, was das entsprechende Token setze, über denselben
+    // Zustand (`this.scope`), nicht über einen zweiten Filterbegriff.
+    // `null` ist der Chip „Alles": leerer Scope. Ob ein Chip brennt, entscheidet
+    // der Scope- zustand allein — auch ein getipptes `@:` lässt den Mitglieder-
+    // Chip angehen, weil beide Seiten dieselbe Quelle lesen.
+    chipActive(section: PaletteSection | null): boolean {
+        const scope = (this as PaletteState).scope
+        return section === null
+            ? !hasPaletteScope(scope)
+            : scope.section === section && scope.group === null && scope.country === ''
+    },
+
+    setChipScope(section: PaletteSection | null): void {
+        this.scope =
+            section === null ? { ...EMPTY_PALETTE_SCOPE } : { section, group: null, country: '' }
+        this.resetSearch()
+    },
+
     // ── Ziele ───────────────────────────────────────────────────────────────
 
     /**

@@ -74,8 +74,17 @@
              next to it (`rail-group.blade.php`): uppercase, `text-xs`, muted. NOT a
              collapsible group — a pin is a shortcut the reader placed there himself, and
              putting it behind a chevron would answer a question nobody asked. --}}
-        <h2 id="{{ $kopfId }}" class="flex min-h-7 items-center px-2 text-xs font-semibold uppercase tracking-wider text-muted">
-            {{ __('Angeheftet') }}
+        {{-- P3 (Entwurf C `screen-desktop`): die Sektion heißt „Deine Leiste" —
+             das ist die Aussage des Artboards über diesen Block: was HIER steht,
+             hat der Leser selbst dorthin gelegt (Start-Kachel anheften, Raum
+             anheften). „Angeheftet" beschrieb die Technik (NIP-78/30078),
+             „Deine Leiste" den Ort. Bewusst KEIN „anpassen"-Text-Link wie im
+             Artboard: dort führt er zu einer Verwaltung der Leiste, die es hier
+             nicht gibt — die Verwaltung sind die Zeilenmenüs (anheften/aufheben)
+             direkt an den Einträgen. Ein Link ohne wahrhaftiges Ziel wäre eine
+             Falschzusage (Nielsen #2). --}}
+        <h2 id="{{ $kopfId }}" class="flex min-h-7 items-center px-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+            {{ __('Deine Leiste') }}
         </h2>
     @else
         <h2 id="{{ $kopfId }}" class="mb-2 text-xs font-bold uppercase tracking-[0.08em] text-muted">
@@ -104,7 +113,7 @@
                                 mehr, der Chip ist Kontur („keine Deko": Struktur kommt aus
                                 Rahmen und Abstand). Typ-Icon Orange 14 px. --}}
                            'pressable inline-flex h-8 max-w-full items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
-                           'pressable flex min-h-8 w-full items-center gap-2 rounded-tile px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800' => $variant === 'bar',
+                           'pressable flex min-h-11 w-full items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
                         <span aria-hidden="true" class="shrink-0 text-accent">
                             <span x-show="row.prefix === 'room'"><flux:icon.hashtag variant="micro" class="size-4" /></span>
@@ -125,7 +134,7 @@
                                 mehr, der Chip ist Kontur („keine Deko": Struktur kommt aus
                                 Rahmen und Abstand). Typ-Icon Orange 14 px. --}}
                            'pressable inline-flex h-8 max-w-full items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
-                           'pressable flex min-h-8 w-full items-center gap-2 rounded-tile px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800' => $variant === 'bar',
+                           'pressable flex min-h-11 w-full items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
                         <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 shrink-0" />
                         <span class="min-w-0 truncate" x-text="row.label"></span>

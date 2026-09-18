@@ -49,6 +49,11 @@
 
      `tabular-nums` BLEIBT: es schaltet eine Zifferngestalt, keine Familie. --}}
 @php($geometry = match ($size) {
+    // P3 (Entwurf C §2 `.badge`): die Pille der Befehlsleiste misst 18 px —
+    // zwischen der Leszeile (md, 20) und der Glocke (sm, 16), dem Maß des
+    // Artboards `screen-desktop`. Ganzer String je Größe (s. Kommentar oben):
+    // `h-4` plus `h-[18px]` in einer Liste entschiede der Build, nicht das Markup.
+    'bar' => 'h-[18px] min-w-[18px] px-1 text-[11px]',
     'sm' => 'h-4 min-w-4 px-1 text-xs',
     default => 'h-5 min-w-5 px-1.5 text-xs',
 })

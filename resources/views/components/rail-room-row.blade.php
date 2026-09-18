@@ -116,15 +116,20 @@
                 : (isMuted(room)
                     ? @js(__(':name, stummgeschaltet')).split(':name').join(room.name || room.h)
                     : null))"
-        class="pressable group relative flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-tile px-2 py-1 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        {{-- P3 (Entwurf C `.rail a`): 44 px Zeilen, Radius 10. Der AKTIVE Zustand ist
+             der accent-wash (#241a0d) mit orangem Text und Gewicht 800 — Fläche,
+             Farbe UND Gewicht, nie Farbe allein (WCAG 1.4.1). Der Markierungsbalken
+             ist damit gefallen: der Wash IST die Fläche, das Gewicht das zweite
+             Merkmal; ein drittes wäre Deko („keine Deko", Entwurfs-Prinzip 6).
+             Die Mitgliedschaftsstufen bleiben darunter erhalten: beigetreten fg-2
+             #d4d4d4 in medium, nicht beigetreten/stumm fg-muted — zwei Stufen,
+             beide ≥7:1 auf dem Rail-Grund. --}}
+        class="pressable group relative flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-start text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
         x-bind:class="room.h === activeRoomH
-            ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
+            ? 'bg-accent-wash font-extrabold text-accent'
             : (isMuted(room)
                 ? 'font-normal text-muted'
-                : (room.joined ? 'font-medium text-zinc-800 dark:text-zinc-100' : 'font-normal text-muted'))">
-
-    <span x-show="room.h === activeRoomH" aria-hidden="true"
-          class="absolute inset-y-1 start-0 w-0.5 rounded-pill bg-brand-700 dark:bg-brand-500"></span>
+                : (room.joined ? 'font-medium text-zinc-300' : 'font-normal text-muted'))">
 
     {{-- Logo-Box: 20px, immer dieselbe Geometrie. Räume OHNE Bild zeigen exakt das
          `#` von vorher — kein getönter Chip, keine neue Form. Nur Räume MIT Bild

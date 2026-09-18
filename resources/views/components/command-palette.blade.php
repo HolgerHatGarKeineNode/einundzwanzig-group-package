@@ -86,7 +86,7 @@
 ])
 @php($paletteActions = array_values(array_filter($paletteActions)))
 {{-- Ein Stil für alle Tastenkappen: derselbe wie am Rail-Prompt. --}}
-@php($kbd = 'shrink-0 rounded bg-black/5 px-1 py-0.5 font-mono text-xs leading-none text-muted dark:bg-white/10')
+@php($kbd = 'shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong')
 
 <div x-data="nostrPalette(@js(['actions' => $paletteActions]))"
      x-on:open-command-palette.window="open()"
@@ -103,7 +103,12 @@
                 x-on:close="onClose()"
                 class="m-0 h-dvh max-h-none w-full max-w-none sm:mx-auto sm:mt-[10dvh] sm:mb-auto sm:h-auto sm:w-[92vw] sm:max-w-xl">
 
-        <div data-palette-card class="flex h-full flex-col overflow-hidden border border-zinc-200 bg-white pt-safe pb-safe shadow-pop dark:border-zinc-800 dark:bg-zinc-900 sm:h-auto sm:rounded-card sm:pt-0 sm:pb-0">
+        {{-- P3 (Entwurf C §2 `.cmdk`): die Palette ist das Overlay — Grund #141415
+              (`--color-overlay`), Radius 16 (`--radius-overlay`), Kante #3a3a3e
+              (`border-strong`), Schatten 0 30px 80px (`--shadow-overlay`). Keine
+              zweite Fläche darunter: Feld, Chips und Liste stehen ALLE auf dem
+              Overlay, getrennt nur durch Haarlinien (border-card/-border). --}}
+            <div data-palette-card class="flex h-full flex-col overflow-hidden border border-zinc-200 bg-white pt-safe pb-safe shadow-pop dark:border-border-strong dark:bg-overlay dark:shadow-overlay sm:h-auto sm:rounded-overlay sm:pt-0 sm:pb-0">
 
             {{-- `!` an genau vier Stellen, und zwar bewusst: der Stub setzt
                  `block`, `rounded-xl`, `border` und `shadow-xs` fest. Gegen eine
@@ -119,9 +124,12 @@
                      `@` Mitglieder, `>` Aktionen. Ein Zeichen sagt, was gerade
                      adressiert wird — dieselbe Marke steht vor jeder Zeile ihrer
                      Sektion. --}}
-                <div class="flex shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-3 dark:border-zinc-800 dark:bg-zinc-900">
-                    <span aria-hidden="true" x-text="sigil"
-                          class="w-[1ch] shrink-0 text-center font-mono text-base font-bold text-brand-800 dark:text-brand-400"></span>
+                <div class="flex shrink-0 items-center gap-2.5 border-b border-zinc-200 bg-white px-4 dark:border-border-card dark:bg-overlay">
+                    {{-- P3: die Lupe ersetzt das Sigel — das Artboard zeigt hier das
+                         orange Such-Icon; WELCHER Bereich adressiert wird, sagt der
+                         Chip daneben (Text + x, aussagekräftiger als ein Zeichen). --}}
+                    <flux:icon.magnifying-glass variant="micro" aria-hidden="true"
+                                                 class="sw-18 size-5 shrink-0 text-accent" />
 
                     {{-- P3: die fünf Labels hier waren ein Präfix-Schlüssel plus angehängter
                          Name („Raum: " + room.name). Der Übersetzer sah den Doppelpunkt ohne
@@ -136,7 +144,7 @@
                         <button type="button" x-on:click.stop.prevent="clearScope()"
                                 x-bind:aria-label="@js(__('Suchbereich aufheben: :label')).split(':label').join(scopeLabel)"
                                 data-palette-chip
-                                class="pressable inline-flex min-h-8 shrink-0 items-center gap-1 rounded-pill bg-brand-500/10 px-2 text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                                class="pressable inline-flex min-h-8 shrink-0 items-center gap-1 rounded-pill border border-accent bg-accent px-3 text-sm font-extrabold text-on-accent">
                             <span x-text="scopeLabel"></span>
                             <flux:icon.x-mark variant="micro" aria-hidden="true" class="size-3" />
                         </button>
@@ -181,9 +189,39 @@
                      Android ändert `vh` nicht mit, die Liste ragte dann unter den
                      Bildschirmrand. Im Vollbild-Sheet gibt es keine Deckelung —
                      dort IST die Palette der Bildschirm. --}}
+                {{-- P3 (Entwurf C `screen-desktop`): Filter-Chips — die klickbare Form
+                     der Bereichs-Grammatik, dieselbe wie die Token im Feld (`r:`, `@`,
+                     `>`). „Alles" brennt im Leerzustand; ein Chip und ein getipptes
+                     Token desselben Bereichs lassen denselben Chip angehen, weil beide
+                     `this.scope` lesen — eine Quelle, kein zweiter Filterbegriff.
+                     Aktiv = orange gefüllt, Text #0b0b0c, 800 (Spec §2 `.chip.on`);
+                     inaktiv = Ghost mit Chip-Kante #2f2f33 und fg-2. `aria-pressed`
+                     trägt den Zustand zusätzlich zur Farbe (WCAG 1.4.1). --}}
+                <div class="flex shrink-0 flex-wrap gap-1.5 border-b border-zinc-200 px-4 py-2.5 dark:border-border">
+                    @php($paletteChips = [
+                        ['label' => __('Alles'), 'section' => null],
+                        ['label' => __('Räume'), 'section' => 'rooms'],
+                        ['label' => __('Mitglieder'), 'section' => 'members'],
+                        ['label' => __('Meetups im Portal'), 'section' => 'meetups'],
+                        ['label' => __('Kurse'), 'section' => 'courses'],
+                        ['label' => __('Aktionen'), 'section' => 'actions'],
+                    ])
+                    @foreach ($paletteChips as $chip)
+                        <button type="button"
+                                x-on:click.stop.prevent="setChipScope(@js($chip['section']))"
+                                x-bind:aria-pressed="chipActive(@js($chip['section'])) ? 'true' : 'false'"
+                                class="pressable inline-flex h-8 items-center whitespace-nowrap rounded-pill border px-3 text-sm transition-colors"
+                                x-bind:class="chipActive(@js($chip['section']))
+                                    ? 'border-accent bg-accent font-extrabold text-on-accent'
+                                    : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5'">
+                            {{ $chip['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+
                 <flux:command.items
                     data-palette-items
-                    class="min-h-0 max-h-none flex-1 bg-white dark:bg-zinc-900 sm:max-h-[60dvh] sm:flex-none">
+                    class="min-h-0 max-h-none flex-1 overflow-y-auto bg-white px-2 py-2 dark:bg-overlay sm:max-h-[60dvh] sm:flex-none">
 
                     {{-- Eigener Leerzustand statt `flux:command.empty`. Zwei
                          gemessene Gründe, beide in `palette.ts` bei `_syncHeadings`
@@ -201,11 +239,10 @@
                          Ohne Eingabe die zuletzt benutzten fünf; sobald gesucht
                          oder eingegrenzt wird, der volle Bestand. --}}
                     <div data-palette-heading="rooms" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Räume') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Räume') }}</div>
                     <template x-for="room in roomItems" :key="'room:' + (room.workspace ? 'w' : 's') + ':' + room.h">
                         <flux:command.item
                             data-palette-section="rooms"
-                            data-palette-sigil="#"
                             x-bind:data-palette-h="room.h"
                             {{-- Reine Beobachtungsstelle, kein Verhalten: `recentRooms()`
                                  füllt den Ruhezustand bewusst mit ENTDECKBAREN Räumen auf,
@@ -224,42 +261,55 @@
                             x-bind:data-palette-joined="room.joined === true ? 'true' : 'false'"
                             x-bind:aria-label="@js(__('Raum: :name')).split(':name').join(room.name)"
                             x-on:click="openRoom(room)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="room.name"></span>
-                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="room.hint"></span>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.chat-bubble-left variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="room.name"></span>
+                                <span class="block truncate text-[13px] text-muted" x-show="room.hint" x-text="room.hint"></span>
+                            </span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('&ouml;ffnen') }}</span>
                     </template>
 
                     {{-- ── Mitglieder (`@`) ───────────────────────────────────── --}}
                     <div data-palette-heading="members" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Mitglieder') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Mitglieder') }}</div>
                     <template x-for="member in memberItems" :key="'member:' + member.pubkey">
                         <flux:command.item
                             data-palette-section="members"
-                            data-palette-sigil="@"
                             x-bind:data-palette-pubkey="member.pubkey"
                             x-bind:aria-label="@js(__('Mitglied: :name')).split(':name').join(member.name)"
                             x-on:click="openMember(member)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="member.name"></span>
-                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="member.nip05"></span>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.user variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="member.name"></span>
+                                <span class="block truncate text-[13px] text-muted" x-show="member.nip05" x-text="member.nip05"></span>
+                            </span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('&ouml;ffnen') }}</span>
                     </template>
 
                     {{-- ── Spaces ─────────────────────────────────────────────── --}}
                     <div data-palette-heading="spaces" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Spaces') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Spaces') }}</div>
                     <template x-for="space in spaceItems" :key="'space:' + space.url">
                         <flux:command.item
                             data-palette-section="spaces"
-                            data-palette-sigil="/"
                             x-bind:data-palette-url="space.url"
                             x-bind:aria-label="@js(__('Space: :label')).split(':label').join(space.label)"
                             x-on:click="openSpace(space)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="space.label"></span>
-                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="space.hint"></span>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.globe-alt variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="space.label"></span>
+                                <span class="block truncate text-[13px] text-muted" x-show="space.hint" x-text="space.hint"></span>
+                            </span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('&ouml;ffnen') }}</span>
                     </template>
 
                     {{-- ── The four Portal sections (D6) ──────────────────────
@@ -278,63 +328,79 @@
                          same character one can type into the field to see that section
                          only. --}}
                     <div data-palette-heading="meetups" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Meetups im Portal') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Meetups im Portal') }}</div>
                     <template x-for="row in meetupItems" :key="'meetup:' + row.r">
                         <flux:command.item
                             data-palette-section="meetups"
-                            data-palette-sigil="o"
                             x-bind:data-palette-portal="row.t + ':' + row.r"
                             x-bind:aria-label="@js(__('Meetup: :name')).split(':name').join(row.n)"
                             x-on:click="openPortal(row)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
-                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="row.s"></span>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.map-pin variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="row.n"></span>
+                                <span class="block truncate text-[13px] text-muted" x-show="row.s" x-text="row.s"></span>
+                            </span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">{{ __('Portal') }}</span>
                     </template>
 
                     <div data-palette-heading="events" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Termine') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Termine') }}</div>
                     <template x-for="row in eventItems" :key="'event:' + row.r + ':' + row.d">
                         <flux:command.item
                             data-palette-section="events"
-                            data-palette-sigil="t"
                             x-bind:data-palette-portal="row.t + ':' + row.r"
                             x-bind:aria-label="@js(__('Termin: :name')).split(':name').join(row.n + ' · ' + row.d)"
                             x-on:click="openPortal(row)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
-                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.calendar variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="row.n"></span>
+                                <span class="block truncate text-[13px] text-muted" x-show="portalHint(row)" x-text="portalHint(row)"></span>
+                            </span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">{{ __('Portal') }}</span>
                     </template>
 
                     <div data-palette-heading="courses" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Kurse') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Kurse') }}</div>
                     <template x-for="row in courseItems" :key="'course:' + row.r">
                         <flux:command.item
                             data-palette-section="courses"
-                            data-palette-sigil="k"
                             x-bind:data-palette-portal="row.t + ':' + row.r"
                             x-bind:aria-label="@js(__('Kurs: :name')).split(':name').join(row.n)"
                             x-on:click="openPortal(row)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
-                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.academic-cap variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="row.n"></span>
+                                <span class="block truncate text-[13px] text-muted" x-show="portalHint(row)" x-text="portalHint(row)"></span>
+                            </span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">{{ __('Portal') }}</span>
                     </template>
 
                     <div data-palette-heading="lecturers" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Referenten') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Referenten') }}</div>
                     <template x-for="row in lecturerItems" :key="'lecturer:' + row.r">
                         <flux:command.item
                             data-palette-section="lecturers"
-                            data-palette-sigil="l"
                             x-bind:data-palette-portal="row.t + ':' + row.r"
                             x-bind:aria-label="@js(__('Referent: :name')).split(':name').join(row.n)"
                             x-on:click="openPortal(row)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
-                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="row.s"></span>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.user variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="row.n"></span>
+                                <span class="block truncate text-[13px] text-muted" x-show="row.s" x-text="row.s"></span>
+                            </span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">{{ __('Portal') }}</span>
                     </template>
 
                     {{-- ── „Zusagen" (`z:`, P5/D12) ────────────────────────────
@@ -352,38 +418,42 @@
                          leads to the meetup page, where the sentence and the button stand next
                          to each other (`palette.zusagen`). --}}
                     <div data-palette-heading="zusagen" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Zusagen zu deinen Meetups') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Zusagen zu deinen Meetups') }}</div>
                     <template x-for="row in zusagenItems" :key="'zusage:' + row.a">
                         <flux:command.item
                             data-palette-section="zusagen"
-                            data-palette-sigil="z"
                             x-bind:data-palette-zusage="row.a"
                             x-bind:aria-label="@js(__('Zusagen: :name')).split(':name').join(row.n + ' · ' + row.d)"
                             x-on:click="zusagen(row)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
-                            {{-- The own answer, where there is one. `aria-hidden` on the check
-                                 alone would hide the only difference between „answered" and
-                                 „not answered" from a screen reader, so the state is TEXT. --}}
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.calendar-days variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="row.n"></span>
+                                <span class="block truncate text-[13px] text-muted" x-show="portalHint(row)" x-text="portalHint(row)"></span>
+                            </span>
                             <span x-show="zusageStatus(row) === 'accepted'" x-cloak
-                                  class="ms-2 shrink-0 text-xs font-semibold text-brand-800 dark:text-brand-400">{{ __('zugesagt') }}</span>
-                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
-                        </flux:command.item>
+                                  class="shrink-0 text-xs font-semibold text-brand-300">{ __('zugesagt') }</span>
                     </template>
 
                     {{-- ── Aktionen (`>`) ─────────────────────────────────────── --}}
                     <div data-palette-heading="actions" role="presentation" aria-hidden="true" hidden
-                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Aktionen') }}</div>
+                         class="px-2 pb-1.5 pt-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{{ __('Aktionen') }}</div>
                     <template x-for="action in actionItems" :key="'action:' + action.id">
                         <flux:command.item
                             data-palette-section="actions"
-                            data-palette-sigil=">"
                             x-bind:data-palette-action="action.id"
                             x-bind:aria-label="@js(__('Aktion: :label')).split(':label').join(action.label)"
                             x-on:click="runAction(action)"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate" x-text="action.label"></span>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.bolt variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold" x-text="action.label"></span>
+                            </span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&gt; {{ __('Aktion') }}</span>
                     </template>
 
                     {{-- Die Kürzel-Übersicht als Zeile — sonst findet sie nur, wer
@@ -407,14 +477,17 @@
                     <template x-if="shows('actions') && $store.viewport?.desktop">
                         <flux:command.item
                             data-palette-section="actions"
-                            data-palette-sigil=">"
                             data-palette-action="shortcuts"
                             aria-label="{{ __('Aktion: Tastenkürzel') }}"
                             x-on:click="openShortcuts()"
-                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
-                            <span class="min-w-0 flex-1 truncate">{{ __('Tastenkürzel') }}</span>
-                            <kbd class="{{ $kbd }} ms-2">?</kbd>
-                        </flux:command.item>
+                            class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
+                            <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
+                                <flux:icon.bolt variant="micro" class="sw-18 size-5" />
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[15px] font-extrabold">{ __('Tastenkürzel') }</span>
+                            </span>
+                            <kbd class="{{ $kbd }}">?</kbd>
                     </template>
                 </flux:command.items>
             </flux:command>
@@ -428,7 +501,7 @@
 
             {{-- Kürzel-Zeile. Blendet unter `xl` aus, statt tote Tasten zu
                  bewerben: dort gibt es kein ⌘K, kein Alt+↑/↓ und kein `?`. --}}
-            <div class="hidden shrink-0 items-center gap-3 border-t border-zinc-200 bg-white px-3 py-2 text-xs text-muted dark:border-zinc-800 dark:bg-zinc-900 xl:flex">
+            <div class="hidden shrink-0 items-center gap-3 border-t border-zinc-200 bg-white px-4 py-2.5 text-xs text-muted dark:border-border-card dark:bg-overlay xl:flex">
                 <span class="inline-flex items-center gap-1"><kbd class="{{ $kbd }}">↑</kbd><kbd class="{{ $kbd }}">↓</kbd>{{ __('Navigieren') }}</span>
                 <span class="inline-flex items-center gap-1"><kbd class="{{ $kbd }}">↵</kbd>{{ __('Öffnen') }}</span>
                 <span class="inline-flex items-center gap-1"><kbd class="{{ $kbd }}">Esc</kbd>{{ __('Schließen') }}</span>

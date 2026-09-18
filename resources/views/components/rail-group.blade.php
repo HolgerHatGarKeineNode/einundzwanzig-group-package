@@ -197,7 +197,7 @@
                                              x-bind:class="isOpen(@js($group)) ? 'rotate-90' : ''" />
                 </span>
                 @unless ($headingHref)
-                    <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-wider">{{ $label }}</span>
+                    <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.08em]">{{ $label }}</span>
                 @endunless
             </button>
 
@@ -231,7 +231,7 @@
                         bei 19,7 px Höhe — SC 2.5.8 verlangt 24, und die
                         Abstands-Ausnahme greift nicht, das Chevron liegt 4 px daneben. --}}
                    class="pressable flex min-h-6 min-w-0 flex-1 items-center rounded text-start text-muted transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">
-                    <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-wider">{{ $label }}</span>
+                    <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.08em]">{{ $label }}</span>
                 </a>
             @endif
 

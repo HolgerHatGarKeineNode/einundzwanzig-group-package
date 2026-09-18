@@ -142,7 +142,7 @@
      weiß erst der Browser. Für weniger als ein Kilobyte ist das gekauft; wer die Zahl
      bewegt, bewegt vor allem die Zeilenzahl der Liste oben. --}}
 <div data-rail-skelett aria-hidden="true" x-data x-show="!$store.viewport?.desktop"
-     class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
+     class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-border dark:bg-zinc-950">
 
     {{-- Space-Kopf. Klassen zeichengleich mit `desktop-rail.blade.php` — mit EINER
          Abweichung, und die ist der Kern der Sache.
@@ -180,9 +180,9 @@
          deshalb steht dort ein Block dieser Höhe und nicht bloß ein dünner Balken.
          Er trägt die RUHIGE Fläche des echten Knopfs (`bg-black/5`), nicht das
          Schimmern: dass die Kappe kommt, ist keine offene Frage. --}}
-    <div class="mx-3 mb-2 flex shrink-0 items-center gap-1.5 rounded-tile bg-zinc-100 px-2.5 py-1.5 dark:bg-zinc-800">
+    <div class="mx-3 mb-2 flex shrink-0 items-center gap-1.5 rounded-tile border border-zinc-300 bg-zinc-100 px-2.5 py-1.5 dark:border-border-chip dark:bg-zinc-900">
         <div class="min-w-0 flex-1 text-sm"><span class="skeleton inline-block h-2 w-24 rounded-pill align-middle"></span></div>
-        <div class="h-6 w-7 shrink-0 rounded bg-black/5 dark:bg-white/10"></div>
+        <div class="h-6 w-7 shrink-0 rounded-pill border border-zinc-300 dark:border-border-strong"></div>
     </div>
 
     {{-- Die Liste. `overflow-hidden` statt `overflow-y-auto`: ein Platzhalter
@@ -215,7 +215,7 @@
              only the browser can read, so the honest direction is GROWTH once they arrive —
              the same rule as the space description in the header above (grow, never
              shrink). --}}
-        <div class="flex min-h-9 items-center gap-2 rounded-tile px-2">
+        <div class="flex min-h-9 items-center gap-2 rounded-tile px-2 xl:min-h-11 xl:rounded-btn">
             <div class="skeleton size-4 shrink-0 rounded"></div>
             <div class="min-w-0 flex-1 text-sm"><span class="skeleton inline-block h-2 w-14 rounded-pill align-middle"></span></div>
         </div>
@@ -241,7 +241,7 @@
                          wechseln, weil Raumnamen das auch tun; eine Spalte gleich
                          langer Balken sähe aus wie ein Strichcode, nicht wie eine
                          Liste. --}}
-                    <div class="flex min-h-8 items-center gap-2 rounded-tile px-2 py-1">
+                    <div class="flex min-h-11 items-center gap-2 rounded-btn px-2 py-1">
                         <div class="skeleton size-5 shrink-0 rounded-md"></div>
                         <div class="min-w-0 flex-1 text-sm"><span class="skeleton inline-block h-2 rounded-pill align-middle {{ $breite }}"></span></div>
                     </div>

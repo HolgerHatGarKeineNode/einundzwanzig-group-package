@@ -27,8 +27,15 @@
      shell would otherwise show a ⌘K field on a device without a ⌘ key, next to its own
      bottom bar that already carries all three affordances. The host is the right question,
      not the width — same rule and same reason as in `bottom-nav.blade.php`. --}}
+{{-- P3 (Entwurf C `screen-desktop`): die Leiste ist der 72-px-Kopf der Bühne. Die
+     Maße kommen aus dem Artboard, nicht aus dem Gefühl: 72 px hoch (`xl:h-18`),
+     Kante unten #242427 (`--color-border`), Grund #0b0b0c — die Leiste ist KEINE
+     eigene Fläche, sie steht auf dem Seitenhintergrund; nur die Kante trennt sie.
+     Der Trigger in der Mitte misst 640 × 44 (radius 12 = `--radius-tile`), ist
+     surface #161617 mit Chip-Kante #2f2f33 und spricht in fg-muted #a3a3a3 —
+     ein Platzhalterversprechen, kein ausgefülltes Feld. --}}
 <div data-command-bar
-     class="hidden shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-[clamp(2rem,2.5vw,3rem)] py-2 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
+     class="hidden shrink-0 border-b border-zinc-200 bg-white px-6 xl:grid xl:h-18 xl:grid-cols-[1fr_minmax(0,40rem)_1fr] xl:items-center dark:border-border dark:bg-zinc-950">
 
     {{-- The ⌘K field. A BUTTON that looks like a field, and that is deliberate: the palette
          brings its own input (`flux:command` is a `<ui-select filter>` and owns filtering,
@@ -41,23 +48,37 @@
          Two elements under one anchor make every E2E locator ambiguous in strict mode.
 
          The label is the palette's own placeholder, so the promise and what the reader sees
-         after the click are the same sentence. --}}
-    <button type="button" data-command-bar-search
-            x-data
-            x-on:click="$dispatch('open-command-palette')"
-            aria-label="{{ __('Befehlspalette öffnen') }}"
-            aria-haspopup="dialog"
-            aria-keyshortcuts="Meta+K Control+K"
-            class="pressable flex min-h-9 w-full max-w-md items-center gap-2 rounded-tile bg-zinc-100 px-2.5 text-start text-sm text-muted transition-colors hover:text-zinc-900 dark:bg-zinc-800 dark:hover:text-zinc-100">
-        <flux:icon.magnifying-glass variant="micro" aria-hidden="true" class="size-4 shrink-0" />
-        <span class="min-w-0 flex-1 truncate">{{ __('Springen, suchen, ausführen…') }}</span>
-        {{-- The cap is the same class string as in the palette footer (`$kbd` there); it is
-             decoration for the shortcut the button carries in `aria-keyshortcuts`. --}}
-        <kbd aria-hidden="true"
-             class="shrink-0 rounded bg-black/5 px-1 py-0.5 font-mono text-xs leading-none text-muted dark:bg-white/10">⌘K</kbd>
-    </button>
+         after the click are the same sentence. Der Trigger ZENTRIERT in der Bühne
+         (`flex-1 justify-center`, Breite gedeckelt auf 640 px): das Feld ist die Mitte
+         der Leiste, nicht ihr erster Block — links und rechts bleibt Raum für das, was
+         je Seite dazukommt. --}}
+    {{-- Die linke Zelle bleibt LEER und ist trotzdem da: das Grid
+         `1fr auto 1fr` zentriert den Trigger über die SYMMETRIE der beiden
+         Flanken, nicht über `justify-center` in einem Rest-Container — dort
+         hätte die rechte Gruppe (Postfach, Avatar) den Trigger um die halbe
+         eigene Breite nach links gedrückt (gemessen −108 px Asymmetrie).
+         Die leere Zelle ist die reservierte Marke-Position des Artboards;
+         bis sie ein Träger hat, ist sie ehrlich leer. --}}
+    <div aria-hidden="true"></div>
+    <div class="flex min-w-0 justify-center">
+        <button type="button" data-command-bar-search
+                x-data
+                x-on:click="$dispatch('open-command-palette')"
+                aria-label="{{ __('Befehlspalette öffnen') }}"
+                aria-haspopup="dialog"
+                aria-keyshortcuts="Meta+K Control+K"
+                class="pressable flex min-h-11 w-full max-w-[640px] items-center gap-2.5 rounded-tile border border-zinc-300 bg-zinc-100 px-3.5 text-start text-[15px] text-muted transition-colors hover:text-zinc-900 dark:border-border-chip dark:bg-zinc-900 dark:hover:text-zinc-100">
+            <flux:icon.magnifying-glass variant="micro" aria-hidden="true" class="sw-18 size-5 shrink-0" />
+            <span class="min-w-0 flex-1 truncate">{{ __('Springen, suchen, ausführen…') }}</span>
+            {{-- The cap is the same class string as in the palette footer (`$kbd` there); it is
+                 decoration for the shortcut the button carries in `aria-keyshortcuts`.
+                 P3: Dom-Pille des Entwurfs — Kontur #3a3a3e statt Alpha-Fläche, 11 px. --}}
+            <kbd aria-hidden="true"
+                 class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">⌘K</kbd>
+        </button>
+    </div>
 
-    <div class="ms-auto flex shrink-0 items-center gap-1">
+    <div class="flex shrink-0 items-center gap-2">
         {{-- ── The inbox, and the one number the desktop shows ───────────────────────
              The bell died with P2 because the Postfach became a slot of the bottom bar.
              The desktop has no such bar, so the entrance comes back here — as the icon of
@@ -101,12 +122,12 @@
                ? @js(__('Postfach, :hints')).split(':hints').join($plural(hints, '1 ungelesener Hinweis', ':count ungelesene Hinweise'))
                : @js(__('Postfach'))"
            class="pressable relative flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5">
-            <flux:icon.inbox class="size-5 text-muted" />
+            <flux:icon.inbox class="sw-18 size-5 text-zinc-700 dark:text-zinc-300" />
             {{-- `sr=false`: the hint is already in the `aria-label` of the link, and a
                  sr-only sibling inside a labelled link is dead markup. The ring in the page
                  background colour separates the pill from the icon. --}}
-            <x-group::unread-badge count="hints" :cap="9" size="sm" :sr="false"
-                                   badge-class="absolute end-1.5 top-1.5 ring-2 ring-zinc-50 dark:ring-zinc-950" />
+            <x-group::unread-badge count="hints" :cap="9" size="bar" :sr="false"
+                                   badge-class="absolute end-1 top-1 ring-2 ring-zinc-50 dark:ring-zinc-950" />
         </a>
 
         {{-- The avatar, in the place the desktop expects it and in the ONE form this client

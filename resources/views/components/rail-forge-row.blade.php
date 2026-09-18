@@ -153,19 +153,19 @@
                                 ? @js(__('Foren auf- oder zuklappen (:count)')).split(':count').join(node.count)
                                 : node.label))))"
             x-bind:title="node.label || null"
-            class="pressable group relative flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-tile px-2 py-1 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            {{-- P3 (Entwurf C `.rail a`): 44 px / radius 10, Aktiv im accent-wash mit
+                 orangem Text und 800 — dieselbe Zeilensprache wie `rail-room-row`
+                 (Begründung dort; der Balken ist mit dem Wash gefallen). --}}
+            class="pressable group relative flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-start text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
             x-bind:class="node.id === activeTargetId
-                ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
+                ? 'bg-accent-wash font-extrabold text-accent'
                 : (node.kind === 'project' || node.kind === 'forums'
                     ? 'font-semibold text-muted'
                     : ((node.kind === 'room' || node.kind === 'forum') && isMuted(node.room)
                         ? 'font-normal text-muted'
                         : (node.kind === 'repo' || node.kind === 'forum'
-                            ? 'font-medium text-zinc-800 dark:text-zinc-100'
+                            ? 'font-medium text-zinc-300'
                             : 'font-normal text-muted')))">
-
-        <span x-show="node.id === activeTargetId" aria-hidden="true"
-              class="absolute inset-y-1 start-0 w-0.5 rounded-pill bg-brand-700 dark:bg-brand-500"></span>
 
         {{-- Icon je Sorte, alle in derselben 20px-Box (siehe „Eine Icon-Spalte"
              oben). Die Glyphen bleiben in der kleinen Stufe (`micro`, 14px),
