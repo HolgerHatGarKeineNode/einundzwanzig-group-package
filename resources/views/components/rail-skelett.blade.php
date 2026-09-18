@@ -209,6 +209,17 @@
              scannt Quelltext, ein zusammengesetzter Name existierte im gebauten
              Stylesheet nie und der Balken fiele auf `auto` zurück. Dieselbe Regel
              wie bei `grid-cols-3` in `bottom-nav.blade.php`. --}}
+        {{-- The Start row (P6) — the one row of this list the SERVER knows for certain: it
+             hangs on a route, not on a relay. The pins above the groups are the opposite
+             case and are deliberately NOT reserved: how many there are is in a NIP-44 blob
+             only the browser can read, so the honest direction is GROWTH once they arrive —
+             the same rule as the space description in the header above (grow, never
+             shrink). --}}
+        <div class="flex min-h-9 items-center gap-2 rounded-tile px-2">
+            <div class="skeleton size-4 shrink-0 rounded"></div>
+            <div class="min-w-0 flex-1 text-sm"><span class="skeleton inline-block h-2 w-14 rounded-pill align-middle"></span></div>
+        </div>
+
         @foreach ([
             ['w-28', 'w-32', 'w-24', 'w-36', 'w-28', 'w-32', 'w-24'],
             ['w-32', 'w-24', 'w-28', 'w-36', 'w-24', 'w-32', 'w-28'],
@@ -239,22 +250,14 @@
         @endforeach
     </div>
 
-    <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
-        {{-- Since P2 the footer reserves exactly ONE row: the profile row.
+    {{-- ── NO FOURTH BLOCK ANY MORE (P6) ─────────────────────────────────────────────
+         Until P6 a footer stood here, reserving the one row the rail still had: the
+         identity. Both are gone — the avatar moved into the command bar above the stage
+         (`command-bar.blade.php`), and this placeholder follows, which is the whole point
+         of this file: whoever adds or removes a block does it on BOTH sides in the SAME
+         edit, otherwise the difference is a jump at boot. The most expensive one so far was
+         38 px, because the bookmarks row stood in the rail and was missing here.
 
-             The four area rows (Artikel · Forge · Lesezeichen · Verschlüsselt) and the nav
-             rows from `config('group.nav')` stood here, each under the same condition as in
-             the rail. Both blocks are gone over there (reasoning at the footer of
-             `desktop-rail.blade.php`), and this placeholder follows them — which is the
-             whole point of this file: whoever adds or removes a row does it on BOTH sides,
-             otherwise the difference is a jump at boot. The most expensive one so far was
-             38 px, because the bookmarks row stood in the rail and was missing here.
-
-             `desktop-boot-geometrie.spec.ts` measures both configurations against each
-             other, `RailSkelettTest` pins the coupling on the server side. --}}
-        <div data-rail-fuss-profil class="flex items-center gap-1">
-            <div class="skeleton size-9 shrink-0 rounded-full"></div>
-            <div class="min-w-0 flex-1 px-1.5 text-sm"><span class="skeleton inline-block h-2.5 w-24 rounded-pill align-middle"></span></div>
-        </div>
-    </div>
+         `desktop-boot-geometrie.spec.ts` measures both sides block for block,
+         `RailSkelettTest` pins the coupling on the server side. --}}
 </div>

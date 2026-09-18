@@ -116,7 +116,36 @@
          auto-platzierte Nachzügler fallen (siehe die Herleitung ganz oben). Beides
          zusammen macht Zeile UND Spalte unabhängig von der Reihenfolge. --}}
     <div @class(['contents', 'xl:col-start-2 xl:row-start-1 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden' => $desktop])>
-        {{ $slot }}
+        @if ($desktop)
+            {{-- P6/D10 — the command bar: ⌘K, the Postfach with its count, the avatar.
+                 It sits at the top of the STAGE and not across both columns, so the left
+                 bar keeps the full height of the window (the established desktop form:
+                 places on the left, global affordances above the work).
+
+                 Under the same condition as the rail, one line above — and therefore never
+                 in the app host. Reasoning in `command-bar.blade.php`. --}}
+            <x-group::command-bar />
+        @endif
+
+        {{-- ── Why the slot sits in a wrapper of its own since P6 ────────────────────
+             The bar is a flex ITEM of the stage column, so everything below it may only
+             claim the REMAINING height. `main#buehne` does that by itself (`xl:flex-1`),
+             but `⚡room.blade.php` says `xl:h-full` — 100 % of the column, measured
+             against the parent and not against what is left of it. With the bar above,
+             that is the column height PLUS the bar, and the bottom of the room (the
+             composer) would be clipped by the column's `overflow-hidden`.
+
+             This wrapper is the fix with the smallest reach: it takes the remaining height
+             (`xl:flex-1 xl:min-h-0`) and becomes the parent every `h-full` inside a page
+             resolves against — one place instead of an audit of every page's root class.
+             No `overflow-hidden` here: the column above already clips, and a second
+             clipping box would be a new one for overlays that reach past the stage.
+
+             Below `xl` it is `contents` and therefore no box at all — the same trick and
+             the same reason as the frame itself: there must be no second DOM for mobile. --}}
+        <div @class(['contents', 'xl:flex xl:min-h-0 xl:flex-1 xl:flex-col' => $desktop])>
+            {{ $slot }}
+        </div>
     </div>
 
     {{-- P4: Die Profilkarte stand bis hierher dreimal einzeln (Raum, Directory,

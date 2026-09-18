@@ -1417,5 +1417,6 @@
     "zugesagt": "komt",
     "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal, z: die Termine deiner eigenen Meetups zum Zusagen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "In het palet beperken r: m: p: en een landcode als de: tot één gebied. @ zoekt leden, > toont acties. o: t: k: l: laten meetups, data, cursussen en docenten uit het portaal zien, z: de data van je eigen meetups om je aan te melden. w: zoekt de workspace — druk daar op ↵, de relay vindt hele woorden.",
     "1 kommt über Nostr": "1 komt via Nostr",
-    ":count kommen über Nostr": ":count komen via Nostr"
+    ":count kommen über Nostr": ":count komen via Nostr",
+    "Postfach, :hints": "Postvak, :hints"
 }

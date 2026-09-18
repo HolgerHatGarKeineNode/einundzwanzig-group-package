@@ -1,4 +1,13 @@
-{{-- Der Navigator (Plan „Desktop-Shell", P4) — die linke Spalte ab `xl`.
+{{-- „Deine Leiste" (Plan „Desktop-Shell" P4, reshaped by P6/D10) — die linke Spalte ab `xl`.
+
+     ── What P6 made of it ────────────────────────────────────────────────────
+     Start, then the reader's pins, then the space's room groups (collapsible, as
+     before). The footer is gone; the identity moved into the command bar above
+     the stage (`command-bar.blade.php`). Alt+↑/↓ still walks `railTargets`
+     (`js/rail.ts`), so the keyboard order is unchanged — the two new blocks stand
+     ABOVE the list the jump list is built from and add nothing to it: Start and a
+     pin are single targets, not rows of a group, and a jump list mixing both would
+     no longer be „the next room".
 
      ── Warum `<template x-if>` und nicht `hidden xl:flex` ────────────────────
      Alpine initialisiert `x-data` auch in Elementen, die per CSS versteckt sind.
@@ -70,19 +79,18 @@
          "
          class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
-        {{-- ══ THE DIRECT CHILDREN OF `[data-rail]` ARE THE FOUR LAYOUT BLOCKS ══════
-             Header · search field · list · footer, and nothing else. The placeholder
-             (`rail-skelett.blade.php`) mirrors exactly these four, and
-             `tests/e2e/desktop-boot-geometrie.spec.ts` compares them block for block —
+        {{-- ══ THE DIRECT CHILDREN OF `[data-rail]` ARE THE THREE LAYOUT BLOCKS ═════
+             Header · search field · list, and nothing else. Until P6 there was a fourth,
+             the footer; it is gone with the command bar (the note where it stood says
+             why). The placeholder (`rail-skelett.blade.php`) mirrors exactly these three,
+             and `tests/e2e/desktop-boot-geometrie.spec.ts` compares them block for block —
              its `bloecke()` throws on any other count, because a pairwise comparison of
              two differently long lists is not a comparison.
 
              Non-layout attachments (store lifecycles, overlays) therefore go INSIDE one
-             of the four, not next to them — the DM store lifecycle at the top of the
-             scroller, the DM dialog at the end of the footer, each with its own note.
-             A visibility filter in the test would not be an alternative: an empty
-             `<ui-modal>` is not `display:none`, so it would pass such a filter and the
-             invariant would only look intact. --}}
+             of the three, not next to them. A visibility filter in the test would not be
+             an alternative: an empty `<ui-modal>` is not `display:none`, so it would pass
+             such a filter and the invariant would only look intact. --}}
 
         {{-- Space-Kopf: „wo bin ich" gehört an den Anfang der Ortsspalte. --}}
         <div class="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-3">
@@ -186,6 +194,32 @@
              prüft damit, was von „Regel 1" bleibt — im SCROLLER steht kein flacher
              Forge-Eintrag; er ist eine Fläche des Clients, kein Raum. --}}
         <div data-rail-scroller class="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+
+            {{-- ══ „Deine Leiste" begins with Start, then the pins (P6/D10) ═══════════
+                 The order is the answer to „what is mine, what is the space's": Start is
+                 the one surface that renders for everyone (D4) and the place every other
+                 way starts from; below it the shortcuts the reader placed himself; below
+                 those the space's own room groups, unchanged.
+
+                 Start stands HERE and not in the command bar above, although the bar is
+                 where the three global affordances live: Start is a PLACE, and places are
+                 what this column is for. The bar carries search, inbox and identity — none
+                 of which is a place in the space.
+
+                 Not a `flux:navlist.item`: the navlist below is the landmark of the ROOM
+                 LIST („Räume und Bereiche"), and a client surface inside it would claim to
+                 be a room group. Same distinction the „Alle Räume & Entdecken" row at the
+                 foot of this scroller already makes, and the same class signature. --}}
+            <a href="{{ route(config('group.start_route', 'group.start')) }}" wire:navigate data-rail-start
+               class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800">
+                <flux:icon.home variant="micro" class="size-4 shrink-0" />
+                <span>{{ __('Start') }}</span>
+            </a>
+
+            {{-- The pins — the SAME list Start shows as chips, from the same selector and
+                 with the same target table (`pin-list.blade.php`, `$store.pinSet.rows`).
+                 Nothing renders while the set is empty. --}}
+            <x-group::pin-list variant="bar" />
 
             {{-- ── Where the conversation store is mounted (P8) ────────────────────
                  It was mounted right here until P7, for the Buzz DM channels: their
@@ -374,112 +408,24 @@
                  der Faltungszeile und in der Befehlspalette. --}}
         </div>
 
-        {{-- Fußzeile: Artikel, darunter die Nav-Ziele, darunter Glocke und Identität. --}}
-        <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            {{-- ══ What stood here until P2, and why it is gone ══════════════════════
-                 Four area rows (Artikel · Forge · Lesezeichen · Verschlüsselt), the
-                 vertical set of nav tabs from `config('group.nav')`, and a bell.
+        {{-- ══ THE FOOTER IS GONE WITH P6, AND THIS IS WHERE IT STOOD ═══════════════
+             P2 had already taken the four area rows, the vertical set of nav tabs and the
+             bell out of it; what was left was ONE row, the identity, „until P6 builds the
+             command bar" (its own note said so). The bar exists now
+             (`command-bar.blade.php`), it carries the avatar at the top right of the stage,
+             and a second avatar in the bottom left of the same window would be the third
+             form of the same thing — the drift Concept C removed.
 
-                 All three blocks answered the same question — "where else?" — and each in
-                 its own way: the rows quietly, the tabs in brand colour, the bell as an
-                 icon with a number. Three vocabularies for one question, on 20 rem of
-                 width, next to a room list that already fills the same surface.
+             **That is why this column now has THREE direct children and not four**: header
+             · search field · list. The placeholder (`rail-skelett.blade.php`) mirrors
+             exactly those three, and `tests/e2e/desktop-boot-geometrie.spec.ts` compares
+             them block for block — its `bloecke()` throws on any other count.
 
-                 Since Concept C the answer exists once: Start carries "Alle Bereiche", the
-                 command palette (⌘K) finds every place from every page, and the Postfach is
-                 a slot of the bar, resp. an icon of the command bar from P6 on. The `nav`
-                 registry is gone from every host with this phase.
-
-                 **What REMAINS is the identity at the bottom left** — the established
-                 desktop convention and, until P6 builds the command bar, the only avatar
-                 place on the desktop. The rail also keeps its room groups; P6 reshapes it
-                 into "Deine Leiste" (Start + pins + collapsible groups). --}}
-            {{-- `data-rail-fuss-profil`: the unambiguous anchor of the ONE row the footer
-                 still carries. The geometry class is no good for that — `flex items-center
-                 gap-1` occurs four times in this rail, and a test on it counted arbitrary
-                 rows (measured 4 instead of 1). Same construction and same reason as the
-                 former `data-rail-fuss`. --}}
-            <div x-data="nostrAuth" data-rail-fuss-profil class="flex items-center gap-1">
-
-                {{-- Identität unten links — die eingeführte Desktop-Konvention. Das
-                     Popover-Markup ist dasselbe wie im Mobil-Kopf, nur der Ursprung
-                     kehrt sich um: es öffnet nach OBEN (`bottom-full`), sonst führe
-                     es aus dem Fenster. --}}
-                <div x-data="{ open: false }" class="relative min-w-0 flex-1">
-                    <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
-                            :aria-label="@js(__('Angemeldet als :name')).split(':name').join(myName)"
-                            class="pressable flex w-full min-w-0 items-center gap-2 rounded-tile px-1.5 py-1 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5">
-                        {{-- Der eigene Präsenzpunkt (P6). Er liest `mine` und NICHT
-                             `byPubkey[<eigener pubkey>]`: der Relay fanoutet das eigene 20001 nicht
-                             zuverlässig an die eigene Verbindung zurück, und was hier stehen soll, ist
-                             ohnehin die andere Auskunft — „das sendest du gerade über dich". Ist der
-                             Store nicht angemeldet (kein Raum offen), steht dort nichts. --}}
-                        <x-group::nostr-avatar picture="myPicture" name="myName" size="1.75rem"
-                                               presence="$store.presence?.mine" />
-                        <span class="min-w-0 flex-1 truncate text-start text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
-                        <x-group::nostr-nip05 nip05="myNip05" />
-                        <flux:icon.chevron-up variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />
-                    </button>
-
-                    <div x-show="open" x-cloak x-transition
-                         x-on:click.outside="open = false" x-on:keydown.escape.window="open = false"
-                         class="surface-card absolute bottom-full start-0 z-30 mb-2 w-72 origin-bottom-left p-4 shadow-lg">
-                        <div class="flex items-start gap-3">
-                            <x-group::nostr-avatar picture="myPicture" name="myName" size="2.75rem" />
-                            <div class="min-w-0 flex-1">
-                                <div class="flex min-w-0 items-center gap-1">
-                                    <span class="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
-                                    <x-group::nostr-nip05 nip05="myNip05" />
-                                </div>
-                                <div x-show="myNip05" x-cloak class="truncate text-xs text-muted" x-text="myNip05"></div>
-                            </div>
-                        </div>
-
-                        <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
-
-                        <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                            <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
-                                    class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                                <span class="min-w-0 flex-1 break-all text-xs leading-relaxed text-muted" x-text="npub"></span>
-                                <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
-                            </button>
-                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-medium text-brand-800 dark:text-brand-400">
-                                <flux:icon.key variant="micro" class="size-3 shrink-0" />
-                                <span x-text="@js(__('Angemeldet über :signer')).split(':signer').join(signerLabel)"></span>
-                            </div>
-                        </div>
-
-                        {{-- Abmelden, auf ausdrücklichen Nutzerwunsch (2026-07-30).
-                             Ich hatte es zunächst weggelassen, weil `SettingsMergeTest`
-                             „Abmelden lebt an EINEM Ort" festhält — dieser Test meint
-                             aber den SETTINGS-Screen (dort waren es einmal 3 Knöpfe),
-                             nicht die App. Auf Desktop ist das Profil unten links der
-                             erwartete Ort dafür; der Weg über Einstellungen wäre zwei
-                             Klicks für eine Aktion, die überall sonst hier sitzt.
-                             Der Test zählt jetzt entsprechend nur im Seiteninhalt. --}}
-                        <flux:button variant="ghost" size="sm" icon="arrow-right-start-on-rectangle"
-                                     class="mt-3 w-full" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
-                    </div>
-                </div>
-            </div>
-
-            {{-- ══ WHERE THE DM DIALOG WENT ═════════════════════════════════════════
-                 `<x-group::dm-modal />` stood here, at the end of the footer. It is gone
-                 with the Buzz DM channels (P8): a conversation is created in the person
-                 picker on `/messages` now, and the rail's `+` button jumps there.
-
-                 **Nothing changes for this column's geometry, and that is why this note
-                 stands here and not only in the commit.** A closed `flux:modal` is a
-                 `<dialog>` in the UA's `display:none` state — no line box, no height. The
-                 footer measured 302 px with and without it (264 without the workspace),
-                 pinned down in `desktop-boot-geometrie.spec.ts`.
-
-                 Whoever ever puts an overlay here again: NOT as a direct child of
-                 `[data-rail]`. That set of children IS the measured column (four blocks,
-                 see the note at the top of this file); a fifth entry breaks the
-                 block-by-block comparison against the placeholder. The footer was the host
-                 because it is the one block that never collapses, never scrolls and is
-                 always there (`shrink-0`). --}}
-        </div>
+             Whoever wants to put an overlay in this column again: NOT as a direct child of
+             `[data-rail]`, and no longer into a footer that does not exist. The scroller is
+             the wrong host (it scrolls away), so a new one needs its own decision — and a
+             fourth block needs the placeholder and the spec changed in the SAME edit. The
+             most expensive boot jump in this file so far was 38 px, from exactly that
+             mistake. --}}
     </div>
 </template>

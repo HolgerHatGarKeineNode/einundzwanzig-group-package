@@ -19,6 +19,7 @@ import {
     ORIGIN_KEYS,
     LABEL_SNIPPET_MAX,
     UPDATES_PAGE,
+    countAddressedUpdates,
     countUnreadUpdates,
     filterUpdates,
     firstNonEmpty,
@@ -332,6 +333,57 @@ test('Die Glocken-Zahl zaehlt ZEILEN, nicht die Ereignisse dahinter (P6)', () =>
 test('Die Glocken-Zahl ist 0, wenn alles quittiert ist — und dann faellt die Pille weg', () => {
     assert.equal(countUnreadUpdates([]), 0)
     assert.equal(countUnreadUpdates([item({ key: 'a', unread: false })]), 0)
+})
+
+/**
+ * The number on the desktop command bar's inbox icon (P6/D10) — and the promise that makes
+ * it readable: it counts what ADDRESSES the reader, not what happened in his rooms.
+ *
+ * The case is here and not in the E2E suite because it is a rule, not a rendering. What the
+ * run can add is only that the markup reads this field
+ * (`tests/e2e/desktop-command-bar.spec.ts`).
+ */
+test('the inbox number counts mentions and thread replies — never room traffic', () => {
+    const zeilen = [
+        item({ key: 'm1', type: 'mention', unread: true }),
+        item({ key: 't1', type: 'thread', unread: true }),
+        // A `message` row is somebody writing in a room the reader joined. The left bar shows
+        // that per room; summed into the icon it would park a permanent number there and bury
+        // the one mention in it.
+        item({ key: 'r1', type: 'message', unread: true, count: 42 }),
+        // Read rows never count, whatever their type.
+        item({ key: 'm2', type: 'mention', unread: false }),
+    ]
+
+    assert.equal(countAddressedUpdates(zeilen), 2)
+    // Calibration against the neighbour: the two numbers are DIFFERENT, and the difference is
+    // exactly the room row. Without this line the case would also pass for a function that
+    // simply counted everything unread.
+    assert.equal(countUnreadUpdates(zeilen), 3)
+})
+
+test('the inbox number is 0 where nothing addresses the reader', () => {
+    assert.equal(countAddressedUpdates([]), 0)
+    assert.equal(countAddressedUpdates([item({ key: 'r1', type: 'message', unread: true })]), 0)
+    assert.equal(countAddressedUpdates([item({ key: 'm1', type: 'mention', unread: false })]), 0)
+})
+
+/**
+ * **A conversation can never raise this number, and the reason is the SOURCE, not a filter.**
+ *
+ * A NIP-17 wrap never enters `deriveUpdates` (D5: it would have to be decrypted first), so
+ * `type` has three values and none of them is a DM. This case pins the consequence at the
+ * counting end: an unknown type — which is the shape a DM row would arrive in if anyone ever
+ * built one — is NOT counted. A `type !== 'message'` implementation would count it, silently,
+ * and that is the one number D5 forbids.
+ */
+test('an unknown row type does not reach the inbox number', () => {
+    const fremd = { ...item({ key: 'x1', unread: true }), type: 'dm' as unknown as UpdateType }
+
+    assert.equal(countAddressedUpdates([fremd]), 0)
+    // And the neighbour DOES count it — so the line above is a property of this function and
+    // not of the fixture.
+    assert.equal(countUnreadUpdates([fremd]), 1)
 })
 
 test('Glocken-Zahl und `hasUnread` widersprechen sich nie', () => {

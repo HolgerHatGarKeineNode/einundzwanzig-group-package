@@ -1417,5 +1417,6 @@
     "zugesagt": "jön",
     "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal, z: die Termine deiner eigenen Meetups zum Zusagen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "A palettán r: m: p: és egy országkód, például de:, egy területre szűkít. @ tagokat keres, > műveleteket listáz. o: t: k: l: a portál meetupjait, időpontjait, kurzusait és oktatóit mutatja, z: a saját meetupjaid időpontjait visszajelzéshez. w: a workspace-ben keres — ott ↵ megnyomni, a relay teljes szavakat talál.",
     "1 kommt über Nostr": "1 fő jön Nostron",
-    ":count kommen über Nostr": ":count fő jön Nostron"
+    ":count kommen über Nostr": ":count fő jön Nostron",
+    "Postfach, :hints": "Postafiók, :hints"
 }

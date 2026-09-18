@@ -364,6 +364,37 @@ export const hasUnreadUpdates = (items: readonly UpdateItem[]): boolean => items
 export const countUnreadUpdates = (items: readonly UpdateItem[]): number =>
     items.reduce((total, item) => (item.unread ? total + 1 : total), 0)
 
+/**
+ * The rows that ADDRESS the reader — the number on the desktop command bar's inbox icon
+ * (P6/D10), fed into `$store.unread.postfach`.
+ *
+ * **Why this is not {@link countUnreadUpdates}.** That one counts every unread notice row,
+ * room traffic included, and it is the right number for a list that shows exactly those
+ * rows. An inbox icon standing on every page makes a different promise: „something is
+ * waiting for YOU". A `message` row means somebody wrote in a room the reader joined — the
+ * left bar shows that per room, with the room's name next to it, which is the only form in
+ * which the information is usable. Summed into one figure the two become unreadable: a busy
+ * space would park a permanent double-digit number on the icon and the one mention in it
+ * would be invisible.
+ *
+ * **And what can never be in here: conversations.** A NIP-17 wrap has to be decrypted before
+ * anything about it is known — sender, time, whether it is even new — and D5 pays that only
+ * while „Direkt" is open. It is not a filter that keeps them out but the source: a wrap
+ * never enters `deriveUpdates` at all, so a `message` row is always a ROOM message. The
+ * explicit type list below is what makes that visible at the place that counts; a
+ * `type !== 'message'` would count a future fourth type by accident, and a DM row, if one
+ * were ever built, would be exactly that.
+ *
+ * Due reminders are NOT part of it: they live in `$store.reminders`, which only fills after
+ * a `mount()` (it nip44-decrypts), so the surface adds that term itself where the store is
+ * mounted anyway. Reasoning at the icon in `command-bar.blade.php`.
+ */
+export const countAddressedUpdates = (items: readonly UpdateItem[]): number =>
+    items.reduce(
+        (total, item) => (item.unread && (item.type === 'mention' || item.type === 'thread') ? total + 1 : total),
+        0,
+    )
+
 // ── Die eine Live-Region des Clients (§4.7) ───────────────────────────────
 
 /**

@@ -1,3 +1,11 @@
+@props([
+    // Where this instance stands: 'header' (the app header of every screen, and the room
+    // list which builds its own) or 'command-bar' (the desktop bar, P6). It decides TWO
+    // things and nothing else — the anchor E2E and Pest address it by, and whether the
+    // instance steps aside from `xl` up.
+    'place' => 'header',
+])
+
 {{-- ── The avatar: the ONE way to „Ich" (Concept C, P2) ───────────────────────────────
 
      It stands in the `app-header` of every surface and — because the room list builds its
@@ -21,15 +29,39 @@
      The own PRESENCE DOT reads `$store.presence?.mine` and NOT
      `byPubkey[<own pubkey>]`: the relay does not reliably fan the own 20001 back out to
      the own connection. No store, no open room → no dot, and that is the correct state
-     (presence has no persistence). --}}
+     (presence has no persistence).
+
+     ── From P6 on there are TWO places, and only one of them shows at a time ───────────
+     The desktop command bar carries the avatar (D10's „right, next to the inbox icon"),
+     and the header carries it everywhere else. Both are rendered server-side, so at
+     1440 px the header instance would sit some 20 px below the bar's — the same avatar
+     twice in one glance, which is the drift P2 removed.
+
+     The header instance therefore steps aside from `xl` up, **in the web host only**: the
+     app never renders the command bar (see there), and on a tablet in landscape it is
+     above `xl` all the same — hiding it there would leave the app without a way to „Ich".
+     The host is the right question, not the width, exactly as in `bottom-nav.blade.php`.
+
+     Both anchors stand as full literals in this file, so `grep` finds either one; a name
+     assembled from `$place` would be invisible to the searches that Pest and two E2E
+     suites hang on. --}}
+@php($stepsAside = $place === 'header' && ! \Einundzwanzig\Group\Chassis::istApp())
+
 <a href="{{ route(config('group.me_route', 'group.ich')) }}" wire:navigate
-   x-data="nostrAuth" data-app-header-avatar
+   x-data="nostrAuth"
+   @if ($place === 'command-bar') data-command-bar-avatar @else data-app-header-avatar @endif
    :aria-label="$store.authGate?.authed
        ? @js(__('Angemeldet als :name')).split(':name').join(myName)
        : @js(__('Anmelden'))"
    x-on:mousedown.capture="$store.authGate.gateTap($event, { label: @js(__('Ich')), returnUrl: $el.pathname })"
    x-on:keydown.enter.capture="$store.authGate.gateTap($event, { label: @js(__('Ich')), returnUrl: $el.pathname })"
-   {{ $attributes->class('pressable flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5') }}>
+   {{-- `xl:hidden` as a full literal in the array and not assembled: Tailwind scans
+        source text, and a class built at runtime would never exist in the built
+        stylesheet — the same rule as `grid-cols-3` in `bottom-nav.blade.php`. --}}
+   {{ $attributes->class([
+       'pressable flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5',
+       'xl:hidden' => $stepsAside,
+   ]) }}>
     <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem"
                            presence="$store.presence?.mine" />
 </a>

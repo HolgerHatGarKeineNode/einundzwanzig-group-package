@@ -1451,5 +1451,6 @@
     "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal, z: die Termine deiner eigenen Meetups zum Zusagen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "Na palete r: m: p: e um código de país como de: limitam a uma área. @ procura membros, > lista ações. o: t: k: l: mostram meetups, datas, cursos e formadores do Portal, z: as datas dos teus próprios meetups para confirmar. w: procura no workspace — prime ↵ aí, o relay encontra palavras inteiras.",
     "1 kommt über Nostr": "1 vai participar via Nostr",
     ":count kommen über Nostr": ":count vão participar via Nostr",
-    ":count kommen über Nostr#one": ":count vai participar via Nostr"
+    ":count kommen über Nostr#one": ":count vai participar via Nostr",
+    "Postfach, :hints": "Caixa, :hints"
 }

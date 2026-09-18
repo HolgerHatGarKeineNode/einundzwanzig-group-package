@@ -76,100 +76,28 @@ new #[Layout('group::einundzwanzig')] class extends Component
              The chips stand above the inbox preview: they are what the user chose, the
              preview is what happened to him.
 
-             Shown to GUESTS as well: a guest's pin set lives in `localStorage` and is unioned
-             into the account set on login (D7), so the section is not a member feature. It
-             does not appear at all while the set is empty — a strip explaining that nothing
-             is pinned would occupy the best row of the page with a negation.
+             The list itself — which keys, in which order, with which target and which
+             honest warning — lives in `x-group::pin-list` since P6: the desktop left bar
+             shows the same set (D10), and the target table is the one thing the two must
+             not answer differently. What stands HERE is only where it appears.
 
-             The targets are built HERE and not in the island: `route()` belongs in Blade, and
-             the island would otherwise carry a second copy of the path table. A `meetup:`
-             chip leads wherever the MEETUPS AREA leads — since P4 that is the package's own
-             read-only page (D9), before it the Portal. The outward branch below stays for
-             exactly that case: a host may still redirect the tile out of the client, and then
-             the chip has to be marked as leaving it.
+             ── Why the chips step aside from `xl` up ──────────────────────────────────
+             From there the left bar carries the pins, on EVERY page and not just on this
+             one. Two lists of the same keys in one glance is the doubling that P5 already
+             ruled out for the room list — its case in `desktop-rail-groups.spec.ts` is called
+             „Ab 1280 px zeigt die Bühne die Raumliste nicht mehr — die Rail trägt sie".
+             The argument is the same: the bar is the place for places.
 
-             `$store.pinSet.answered === false` is the one honest warning this section owes:
-             the pin was kept locally, but no target relay confirmed the read the write hangs
-             on (`js/pinSetSync.ts`, `decidePinPublish` refuses without an `EOSE`). Said once
-             here rather than at every pin button. --}}
-        @php($portalBasis = rtrim((string) config('group.portal_url', ''), '/'))
-        {{-- Area key → URL, built from the same `areas` config the tile grid below reads. A
-             pinned area whose tile has no route (the interim Portal targets of P2) keeps its
-             Portal URL, so the chip never leads somewhere that does not exist. --}}
-        @php($bereichsZiele = collect(config('group.areas', []))
-            ->mapWithKeys(fn (array $bereich) => [
-                $bereich['key'] => $bereich['route'] !== null
-                    ? route($bereich['route'])
-                    : $portalBasis.($bereich['path'] ?? '/'),
-            ])->all())
-        {{-- A pinned MEETUP hangs on the same decision as the meetups TILE: since P4 the
-             package has the page (D9), before it the area left the client. So the chip is
-             built from the area's target and not from a path of its own — otherwise a host
-             that redirects the tile would keep a chip pointing somewhere else. --}}
-        @php($meetupBereich = collect(config('group.areas', []))->firstWhere('key', 'meetups'))
-        @php($meetupBasis = $bereichsZiele['meetups'] ?? $portalBasis)
-        @php($meetupExtern = ($meetupBereich['route'] ?? null) === null)
-        <section class="mb-6" x-data="{
-                     ziel(row) {
-                         if (row.prefix === 'area') { return (@js($bereichsZiele))[row.value] ?? '/start' }
-                         if (row.prefix === 'room') { return '/rooms/' + encodeURIComponent(row.value.slice(0, row.value.lastIndexOf('@'))) }
-                         if (row.prefix === 'article') { return '/articles/' + encodeURIComponent(row.value) }
-                         if (row.prefix === 'repo') { return '/forge/' + encodeURIComponent(row.value) }
-                         if (row.prefix === 'meetup') { return @js(rtrim((string) $meetupBasis, '/')) + '/' + encodeURIComponent(row.value) }
-                         return '/start'
-                     },
-                     extern(row) { return row.prefix === 'meetup' && @js($meetupExtern) },
-                 }"
-                 x-show="($store.pinSet?.rows ?? []).length > 0" x-cloak
-                 aria-labelledby="start-angeheftet">
-            <h2 id="start-angeheftet" class="mb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
-                {{ __('Angeheftet') }}
-            </h2>
+             Per CSS and not per `x-if`, for the reason that precedent names: below `xl` the
+             block has to stay character-identical, and a second breakpoint condition in
+             Alpine would be a second truth about the same threshold.
 
-            <div class="flex flex-wrap gap-2" data-start-angeheftet>
-                <template x-for="row in ($store.pinSet?.rows ?? [])" :key="row.key">
-                    {{-- Two forms of the same chip, and NOT one with a bound `wire:navigate`:
-                         Livewire decides at click time whether an anchor is an SPA target by
-                         asking for the ATTRIBUTE, and an attribute Alpine binds to `null`
-                         still has to be removed in time. A chip that leaves the client (the
-                         Portal meetup page before P4) must not be handed to the SPA router at
-                         all. Same split as the reminder rows: two templates, one wrapper.
-
-                         A chip is a link and not a button: it navigates. The type icon is
-                         `aria-hidden` — the label carries the name, the icon only helps the
-                         eye sort a mixed row. --}}
-                    <span class="contents">
-                        <template x-if="!extern(row)">
-                            <a x-bind:href="ziel(row)" wire:navigate x-bind:data-pin-chip="row.key"
-                               class="pressable inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-pill bg-brand-500/10 px-3 text-sm font-medium text-brand-800 transition-colors hover:bg-brand-500/20 dark:text-brand-400">
-                                <span aria-hidden="true" class="shrink-0">
-                                    <span x-show="row.prefix === 'room'"><flux:icon.hashtag variant="micro" class="size-4" /></span>
-                                    <span x-show="row.prefix === 'person'"><flux:icon.user variant="micro" class="size-4" /></span>
-                                    <span x-show="row.prefix === 'article'"><flux:icon.document-text variant="micro" class="size-4" /></span>
-                                    <span x-show="row.prefix === 'repo'"><flux:icon.code-bracket variant="micro" class="size-4" /></span>
-                                    <span x-show="row.prefix === 'area'"><flux:icon.squares-2x2 variant="micro" class="size-4" /></span>
-                                </span>
-                                <span class="min-w-0 truncate" x-text="row.label"></span>
-                            </a>
-                        </template>
-                        <template x-if="extern(row)">
-                            <a x-bind:href="ziel(row)" rel="external noopener" x-bind:data-pin-chip="row.key"
-                               class="pressable inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-pill bg-brand-500/10 px-3 text-sm font-medium text-brand-800 transition-colors hover:bg-brand-500/20 dark:text-brand-400">
-                                <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 shrink-0" />
-                                <span class="min-w-0 truncate" x-text="row.label"></span>
-                                <flux:icon.arrow-top-right-on-square variant="micro" class="size-3.5 shrink-0" />
-                                <span class="sr-only">{{ __('(öffnet das Portal)') }}</span>
-                            </a>
-                        </template>
-                    </span>
-                </template>
-            </div>
-
-            <p x-show="$store.pinSet?.ready && !$store.pinSet?.answered" x-cloak
-               data-angeheftet-unbestaetigt class="mt-2 text-xs text-muted">
-                {{ __('Kein Relay hat deine Anheftungen bestätigt — sie gelten bis dahin nur auf diesem Gerät.') }}
-            </p>
-        </section>
+             **In the web host only.** The app renders no left bar at any width (it has no
+             `xl` shell at all — `Chassis::istApp()` gates the frame), so hiding the chips
+             there would simply delete them on a tablet in landscape. Same question and same
+             answer as in `me-avatar.blade.php`: the host, not the width. --}}
+        <x-group::pin-list variant="chips"
+                           class="{{ \Einundzwanzig\Group\Chassis::istApp() ? '' : 'xl:hidden' }}" />
 
         {{-- ── „Dein nächster Termin" (D12/P5) ──────────────────────────────────────
              ONE row: the next date of a meetup the reader has a relation to — one he pinned

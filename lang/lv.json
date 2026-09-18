@@ -1485,5 +1485,6 @@
     "1 kommt über Nostr": "1 dalībnieks caur Nostr",
     ":count kommen über Nostr": ":count dalībnieki caur Nostr",
     ":count kommen über Nostr#one": ":count dalībnieks caur Nostr",
-    ":count kommen über Nostr#zero": ":count dalībnieku caur Nostr"
+    ":count kommen über Nostr#zero": ":count dalībnieku caur Nostr",
+    "Postfach, :hints": "Pastkaste, :hints"
 }

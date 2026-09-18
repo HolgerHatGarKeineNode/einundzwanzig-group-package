@@ -266,6 +266,7 @@ import {
 import { BADGE_CAP, deriveUnread, formatUnreadCount, sumUnreadRooms, type UnreadView } from './unread.ts'
 import { deriveUpdates, type UpdateItem } from './updates.ts'
 import {
+    countAddressedUpdates,
     countUnreadUpdates,
     feedFromSearch,
     firstNonEmpty,
@@ -1748,8 +1749,25 @@ type UnreadStore = UnreadView & {
      * `⚡spaces.blade.php` sitzt: auf diesem Screen existiert die Insel gar nicht, und
      * ohne globale Quelle könnte die Glocke nie eine Zahl tragen. Gezählt wird in
      * `countUnreadUpdates` — dieselbe Liste, die der Klick auf die Glocke öffnet.
+     *
+     * **The bell itself is gone since P2**; the field stays because it is the number of the
+     * /updates list, which that surface shows with or without a bell.
      */
     updates: number
+    /**
+     * Unread rows that ADDRESS the reader — mentions and thread replies, never a room
+     * message and never a conversation. The number on the inbox icon of the desktop
+     * command bar (P6/D10).
+     *
+     * A field of its own next to `updates`, not a getter over it: the two answer different
+     * questions and the reasoning belongs in ONE place — {@link countAddressedUpdates},
+     * which also says why a DM can never be in here.
+     *
+     * The command bar adds the due reminders itself (`$store.reminders`, only filled where
+     * that store is mounted). Deliberately not folded in here: this store is global, and
+     * pulling reminders into it would mean nip44-decrypting them on every page.
+     */
+    postfach: number
     /**
      * Zahl → fertiger Pillentext, gekappt. EINE Methode für beide Schwellen aus §4.2
      * (99 an den frei stehenden Pillen, 9 an der Glocke) statt zweier benannter: die
@@ -1783,7 +1801,9 @@ type UnreadStore = UnreadView & {
  *         any: boolean,                      // Punkt der Bottom-Nav, Ja/Nein der Glocke
  *         roomsTotal: number, dmsTotal: number, threadsTotal: number,  // drei EBENEN,
  *                                            // disjunkt; siehe UnreadStore.dmsTotal
- *         updates: number,                   // ungelesene /updates-Zeilen → Header-Glocke
+ *         updates: number,                   // ungelesene /updates-Zeilen
+ *         postfach: number,                  // davon die, die den Leser ADRESSIEREN →
+ *                                            // inbox icon of the command bar (P6)
  *         capped(n, cap = 99): string,       // fertiger Pillentext inkl. Cap (99 bzw. 9)
  *         liveText: string,                  // die EINE aria-live-Zählregion (§4.7)
  *     }
@@ -1809,6 +1829,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         roomsTotal: 0,
         threadsTotal: 0,
         updates: 0,
+        postfach: 0,
         capped: (count, cap = BADGE_CAP) => formatUnreadCount(count, cap),
         liveText: '',
     }
@@ -1879,6 +1900,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         store.roomsTotal = 0
         store.threadsTotal = 0
         store.updates = 0
+        store.postfach = 0
         // Auch die Region auf Anfang: der Zählerstand des ALTEN Space darf im neuen
         // weder stehen bleiben noch als Änderung angesagt werden.
         if (liveTimer !== null) {
@@ -1912,6 +1934,11 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         // Glocke auch auf Screens ohne `nostrUpdates`-Insel eine Zahl trägt.
         unsubUpdateCount = deriveUpdates(url, countedRoomHs, joinedRoomNames).subscribe((items: UpdateItem[]) => {
             store.updates = countUnreadUpdates(items)
+            // The same emission, a second count — the inbox icon's number (P6). Derived
+            // here rather than in a surface, for the reason the whole store exists: the bar
+            // stands on EVERY page, and a second derivation would be a second request for
+            // a list that is already in hand.
+            store.postfach = countAddressedUpdates(items)
             announceUnread(store.updates)
         })
     })
@@ -1976,29 +2003,21 @@ export function registerNostrComponents(Alpine: {
      * instead of retrying by itself. Reasoning in `mitgliedschaft.ts`, rules in
      * `mitgliedschaftModelle.ts`.
      *
-     * ── Both of these are STATIC, and the bundle latch is RED because of it ──────────
+     * ── Both of these are STATIC, and that is a decision, not an oversight ───────────
      *
-     * Measured on 2026-09-18, three builds:
+     * P5 measured it, broke the bundle latch with it and reported the breach; **P6 measured
+     * the alternative and kept the static form.** The four builds, the reason and the raise
+     * of the mark stand in ONE place, at the mark itself:
+     * `tests/e2e/support/bundleGrenze.nodetest.ts`. The short version: registering the two
+     * lazily takes 8.5 kB off the `app` chunk and **324 B off what the browser downloads**,
+     * because the modules move into two chunks the entry then imports statically — a green
+     * mark, two more requests per page in both hosts, and the same bytes over the wire.
      *
-     * | state                                   | app chunk gzip | boot chunks |
-     * |-----------------------------------------|----------------|-------------|
-     * | P4, before this phase                   | 111 916        | 6           |
-     * | P5 with both islands static (this one)  | **114 797**    | 6           |
-     * | P5 with both islands behind a shell     | 106 329        | **8**       |
-     *
-     * The latch's docblock prescribes the third row („it does not get added to, it gets
-     * split"), and the split was built and measured: `nostrRsvpSchale` /
-     * `nostrVereinMitgliedschaftShell`, the same shape as `nostrDirectoryShell`. It makes the
-     * page WORSE. Both islands import modules the boot path already uses — `nip98.ts` and,
-     * through `rsvpPublish.ts`, `publishOptimistic.ts` — so rolldown hoists those into shared
-     * chunks and the entry then imports them statically: `publishResult` (13 944 B gzip) and
-     * `nip98` (1 037 B) turn from a lazy chunk into TWO more requests on every page in both
-     * hosts. Net: about 9 kB more over the wire per page, plus two round trips, to save 8 kB
-     * in one file.
-     *
-     * So the static variant stands, the mark is left untouched, and the breach is reported —
-     * the same handgrip the last raise records („The decision belongs to the client, not to
-     * the builder. P6's builder left the number alone and reported the breach").
+     * **P5's figure here was wrong and is corrected rather than deleted:** it said the split
+     * would cost „about 9 kB more over the wire", because it counted `publishResult`
+     * (13 906 B gzip) and `nip98` (1 037 B) as NEW boot chunks. They are already boot chunks
+     * today — measured in both variants. The conclusion (keep them static) survives the
+     * correction; the number did not.
      */
     wireMitgliedschaft(Alpine)
     // P6b — Angepinnte Nachrichten. Ausnahmsweise ein STORE statt einer Insel: der
