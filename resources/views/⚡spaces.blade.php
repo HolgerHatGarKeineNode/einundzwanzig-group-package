@@ -455,6 +455,28 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          programmatisch anspringbar — dasselbe Muster wie die Liste in
                          ⚡updates. --}}
                     <div x-ref="roomList" tabindex="-1" class="surface-card overflow-hidden p-2">
+                        {{-- ── From xl up, the bar carries this list (2026-09-18) ──────────
+                             Concept C takes the room list away from the stage at `xl` —
+                             it then lives in the rail on the left. Without this
+                             sentence the card read as broken (user report: "on
+                             desktop the room list is gone"); with it, the card says
+                             where the list is NOW. ONE line in the voice of this
+                             surface's side notes (`text-xs text-muted`), no banner,
+                             no education block — an orientation that stays.
+
+                             `hidden xl:block` like the lists below: the same one
+                             truth about the breakpoint, from CSS, no second Alpine
+                             condition. The `x-if` condition only states WHEN the
+                             sentence is true: standard mode, not gated, and only
+                             when there are rooms worth talking about — in a space
+                             without any, it would stand above the empty-state card
+                             and lie. --}}
+                        <template x-if="!focusMode() && space && !gatedOut && (space.userRooms.length + space.otherRooms.length) > 0">
+                            <p data-roomlist-rail-hinweis class="hidden px-2 py-1.5 text-xs text-muted xl:block">
+                                {{ __('Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.') }}
+                            </p>
+                        </template>
+
                         {{-- Räume laden noch --}}
                         <template x-if="loading && space && space.userRooms.length === 0 && space.otherRooms.length === 0">
                             <div class="space-y-2 p-1">

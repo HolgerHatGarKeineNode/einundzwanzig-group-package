@@ -1027,7 +1027,6 @@
     "Alle Projekte anzeigen (:count)": "Pokaż wszystkie projekty (:count)",
     "Bereich :label auf- oder zuklappen": "Rozwiń lub zwiń sekcję :label",
     "Eintrag :name auf- oder zuklappen": "Rozwiń lub zwiń wpis :name",
-    "Forge-Übersicht öffnen": "Otwórz przegląd Forge",
     "Issues des Repositorys öffnen (:count)": "Otwórz zgłoszenia repozytorium (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Otwórz pull requesty repozytorium (:count)",
     "Forge auf :wert": "Forge w: :wert",
@@ -1456,5 +1455,9 @@
     "1 kommt über Nostr": "1 osoba przyjdzie przez Nostr",
     ":count kommen über Nostr": ":count osób przyjdzie przez Nostr",
     ":count kommen über Nostr#few": ":count osoby przyjdą przez Nostr",
-    "Postfach, :hints": "Skrzynka, :hints"
+    "Postfach, :hints": "Skrzynka, :hints",
+    "Raum nicht gefunden": "Nie znaleziono pokoju",
+    "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Ten pokój nie jest znany w tej sesji — został usunięty albo link prowadzi do szyfrowanej rozmowy, którą można przeczytać tylko na urządzeniu, na którym ją prowadzono.",
+    "Zum Postfach": "Do skrzynki",
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Twoje pokoje są na pasku po lewej — ⌘K znajdzie je z dowolnego miejsca."
 }

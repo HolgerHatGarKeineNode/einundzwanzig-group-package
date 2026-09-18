@@ -1005,7 +1005,6 @@
     "Alle Projekte anzeigen (:count)": "Alle projecten tonen (:count)",
     "Bereich :label auf- oder zuklappen": "Sectie :label uit- of invouwen",
     "Eintrag :name auf- oder zuklappen": "Item :name uit- of invouwen",
-    "Forge-Übersicht öffnen": "Forge-overzicht openen",
     "Issues des Repositorys öffnen (:count)": "Issues van de repository openen (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Pull requests van de repository openen (:count)",
     "Forge auf :wert": "Forge op :wert",
@@ -1422,5 +1421,9 @@
     "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal, z: die Termine deiner eigenen Meetups zum Zusagen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "In het palet beperken r: m: p: en een landcode als de: tot één gebied. @ zoekt leden, > toont acties. o: t: k: l: laten meetups, data, cursussen en docenten uit het portaal zien, z: de data van je eigen meetups om je aan te melden. w: zoekt de workspace — druk daar op ↵, de relay vindt hele woorden.",
     "1 kommt über Nostr": "1 komt via Nostr",
     ":count kommen über Nostr": ":count komen via Nostr",
-    "Postfach, :hints": "Postvak, :hints"
+    "Postfach, :hints": "Postvak, :hints",
+    "Raum nicht gefunden": "Kamer niet gevonden",
+    "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Deze kamer is in deze sessie niet bekend — hij is verwijderd, of de link leidt naar een versleuteld gesprek dat alleen op het apparaat waar het plaatsvond te lezen is.",
+    "Zum Postfach": "Naar het postvak",
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Je kamers staan in de balk links — ⌘K vindt ze vanaf elke plek."
 }

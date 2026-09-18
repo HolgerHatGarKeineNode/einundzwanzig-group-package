@@ -1027,7 +1027,6 @@
     "Alle Projekte anzeigen (:count)": "Mostrar todos os projetos (:count)",
     "Bereich :label auf- oder zuklappen": "Expandir ou recolher a secção :label",
     "Eintrag :name auf- oder zuklappen": "Expandir ou recolher a entrada :name",
-    "Forge-Übersicht öffnen": "Abrir a visão geral do Forge",
     "Issues des Repositorys öffnen (:count)": "Abrir os issues do repositório (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Abrir os pull requests do repositório (:count)",
     "Forge auf :wert": "Forge em :wert",
@@ -1456,5 +1455,9 @@
     "1 kommt über Nostr": "1 vai participar via Nostr",
     ":count kommen über Nostr": ":count vão participar via Nostr",
     ":count kommen über Nostr#one": ":count vai participar via Nostr",
-    "Postfach, :hints": "Caixa, :hints"
+    "Postfach, :hints": "Caixa, :hints",
+    "Raum nicht gefunden": "Sala não encontrada",
+    "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Esta sala é desconhecida nesta sessão — foi excluída, ou o link leva a uma conversa criptografada que só pode ser lida no dispositivo onde aconteceu.",
+    "Zum Postfach": "Para a caixa de entrada",
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Suas salas estão na barra à esquerda — ⌘K as encontra de qualquer lugar."
 }

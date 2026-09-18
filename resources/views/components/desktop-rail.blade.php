@@ -301,12 +301,16 @@
                  ohne Config ist die Rail zeichengleich zu vorher. Die Räume kommen
                  aus einem EIGENEN Watch auf die Workspace-URL, nicht aus dem aktiven
                  Space — deshalb stehen hier beide nebeneinander statt abwechselnd. --}}
-            {{-- Seit P1 IST der Workspace die Forge: kein eigener `Forge`-Eintrag mehr
-                 unten, sondern der Baum in dieser Sektion. Drei Wege führen auf die
-                 Übersichtsseite, weil ein nacktes Icon allein zu wenig wäre: der
-                 Sektionsname, das `</>`-Icon daneben und — sobald gefaltet wird — die
-                 Zeile „Alle Projekte · N". Ein vierter steht in der Befehlspalette
-                 (`command-palette.blade.php`, Aktion `forge`). --}}
+            {{-- Since P1 the workspace IS the Forge: no separate `Forge` entry at the
+                 foot any more, the tree lives in this section. Three ways lead to
+                 the overview page — the section NAME (since the icon removal of
+                 2026-09-18 the only labeled way in this column), the fold row that
+                 appears once collapsing kicks in, and the command palette
+                 (`command-palette.blade.php`, action `forge`). Until that removal a
+                 `</>` icon link to the same target stood next to the name; a
+                 production user report about an unnameable entry in this bar buried
+                 it — the full reasoning sits at its former place in
+                 `rail-group.blade.php`. --}}
             {{-- ── Der Relay-Host ist aus der Zeile heraus und in den Tooltip ──
                  Bis 2026-08-17 stand hinter „WORKSPACE" der Name des Workspace-
                  Relays. Bei 295 px Rail-Innenbreite kappte das BEIDE Teile
@@ -348,7 +352,6 @@
                     <x-group::rail-group group="workspace" :label="__('Forge')"
                                          :tree="true"
                                          heading-href="{{ route('group.bereich.forge') }}"
-                                         :overview-label="__('Forge-Übersicht öffnen')"
                                          :heading-title="__('Forge auf :wert')"
                                          heading-title-value="workspaceLabel" />
                 </div>

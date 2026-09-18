@@ -702,13 +702,50 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  (gemessen: Messraum trug GENAU EINE echte Nachricht, die Karte
                  behauptete trotzdem „Noch keine Nachrichten", p11-05). Die
                  Ersatzfläche ist das room-gate weiter unten im Fuß. --}}
-            <template x-if="!loading && messages.length === 0 && $store.authGate?.authed && !gatedOut">
+            {{-- `&& !raumUnbekannt`: the empty-room card is a statement about a room
+                 the space KNOWS — for an `h` that no room list carries (user report
+                 2026-09-18: the pin of an encrypted conversation) it would be
+                 untrue, and the button below it an invitation nothing follows up
+                 on. The honest state for that case stands right below. --}}
+            <template x-if="!loading && messages.length === 0 && $store.authGate?.authed && !gatedOut && !raumUnbekannt">
                 <div class="surface-card empty-state mt-8 p-6 text-center">
                     <flux:icon.chat-bubble-left-right class="mx-auto size-8 text-zinc-400" />
                     <flux:text class="mt-2">{{ __('Noch keine Nachrichten in diesem Raum.') }}</flux:text>
                     <div class="mt-4">
                         <flux:button size="sm" variant="ghost" icon="pencil-square"
                                      x-on:click="(joined ? $refs.composer : $refs.joinButton)?.focus()">{{ __('Schreib die erste.') }}</flux:button>
+                    </div>
+                </div>
+            </template>
+
+            {{-- ── "Not known in this session" (2026-09-18) ────────────────────────
+                 The user report: a pin leads to /rooms/{uuid} and the surface
+                 "leads to nothing" — empty-room card plus join button, both
+                 promises no relay redeems. The usual cause is a NIP-17
+                 conversation: its key looks like an `h` but exists on no relay,
+                 only in the session that can decrypt it. WE cannot tell the two
+                 apart (and deliberately do not try — no decryption logic here);
+                 the card therefore names both possibilities honestly and gives
+                 the way back: Start and the Postfach, whose "Direkt" segment is
+                 where encrypted conversations live.
+
+                 Same shape as the relay gate and the empty-room card (icon ·
+                 heading · sentence · ways), for the same reason: three cards,
+                 one language. NO join button — `join()` on an unknown `h`
+                 provably fails with `invalid: group not found`, and a button
+                 that cannot keep what its label says is worse than none. --}}
+            <template x-if="!loading && raumUnbekannt && $store.authGate?.authed && !gatedOut">
+                <div class="surface-card empty-state mt-8 p-6 text-center" data-room-unbekannt-karte>
+                    <flux:icon.question-mark-circle class="mx-auto size-8 text-zinc-400" />
+                    <flux:heading size="lg" class="mt-2 text-balance">{{ __('Raum nicht gefunden') }}</flux:heading>
+                    <flux:text class="mx-auto mt-2 max-w-xs text-balance text-sm text-muted">
+                        {{ __('Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.') }}
+                    </flux:text>
+                    <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                        <flux:button size="sm" variant="ghost" icon="home" class="text-btn-touch"
+                                     :href="route('group.start')" wire:navigate>{{ __('Zur Startseite') }}</flux:button>
+                        <flux:button size="sm" variant="ghost" icon="inbox-stack" class="text-btn-touch"
+                                     :href="route('group.postfach', ['ansicht' => 'direkt'])" wire:navigate>{{ __('Zum Postfach') }}</flux:button>
                     </div>
                 </div>
             </template>
@@ -770,7 +807,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                  unteren Zone (Mobil), und ein dritter Auslöser für dieselbe
                  Handlung wäre genau die Doppelung, gegen die
                  `topicComposerZiel()` gebaut ist. --}}
-            <template x-if="!topicsLoading && topics.length === 0 && $store.authGate?.authed && !gatedOut">
+            <template x-if="!topicsLoading && topics.length === 0 && $store.authGate?.authed && !gatedOut && !raumUnbekannt">
                 <div class="surface-card empty-state mt-8 p-6 text-center">
                     <flux:icon.chat-bubble-oval-left class="mx-auto size-8 text-zinc-400" />
                     <flux:text class="mt-2">{{ __('Noch keine Themen in diesem Forum.') }}</flux:text>
@@ -1162,11 +1199,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
              kippt) — ohne die Fokus-Übergabe fiele der Fokus auf <body>. Ist der
              Composer noch verborgen, ist `.focus()` ein No-Op und es bleibt beim
              Status quo, also kein Rückschritt. --}}
-        {{-- P11: `&& !gatedOut` — der Knopf scheitert für ein Relay-Nicht-Mitglied
-             garantiert (`join()` → `CLOSED restricted`, P4: p4-raw-join-nichtmitglied.log);
-             die Ersatzfläche ist das room-gate darunter. Für Angemeldete MIT
-             Relay-Mitgliedschaft ohne Raum-Mitgliedschaft bleibt alles wie zuvor. --}}
-        <div x-show="membershipReady && !joined && $store.authGate?.authed && !gatedOut" x-cloak x-transition.opacity.duration.200ms
+        {{-- P11: `&& !gatedOut` — for a non-member of the relay the button
+             provably fails (`join()` → `CLOSED restricted`, P4:
+             p4-raw-join-nichtmitglied.log); the replacement surface is the
+             room-gate below. Logged-in users WITH relay membership but without
+             room membership keep everything as before.
+             `&& !raumUnbekannt`: for an `h` no room list carries, `join()`
+             fails just as hard — with `invalid: group not found` (user report
+             2026-09-18); the replacement surface is the unknown card in the
+             feed. --}}
+        <div x-show="membershipReady && !joined && $store.authGate?.authed && !gatedOut && !raumUnbekannt" x-cloak x-transition.opacity.duration.200ms
              class="surface-card flex items-center justify-between gap-3 p-3">
             <flux:text class="text-sm text-muted">{{ __('Tritt dem Raum bei, um mitzuschreiben.') }}</flux:text>
             <flux:button size="sm" variant="primary" icon="plus" class="icon-btn-touch" x-ref="joinButton"

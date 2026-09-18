@@ -1111,6 +1111,25 @@ type RoomChatState = {
     joining: boolean
     membershipReady: boolean
     gatedOut: boolean // Relay hat den Read verweigert (P11/P8, siehe roomGate.ts) — Raumzustand unbekannt
+    /**
+     * Does the space NOT know this room? A purely presentational derivation
+     * (2026-09-18, user report: a room URL that "leads to nothing"). The space's
+     * room list is already here through the same subscription (`_unsubRoomMeta`
+     * has always read the name from it). Once that list has arrived (≥ 1 room)
+     * and does not carry our `h`, the surface shows its honest unknown state
+     * instead of the empty-room card plus a join button — both would be promises
+     * no relay keeps for a room no relay knows (join → `invalid: group not
+     * found`).
+     *
+     * The typical case is a pin onto a NIP-17 conversation: its key looks like
+     * an `h` but lives only in the session that can decrypt it. Whether that is
+     * the case is NOT decided here — the surface names both possibilities; this
+     * is presentation, not decryption logic.
+     *
+     * `false` until the list is in (an empty space included): "unknown" is a
+     * claim that can only be true after looking into the list.
+     */
+    raumUnbekannt: boolean
     _gateRelistens: number // P8: verbrauchte Wiederaufsetz-Versuche nach `channel access revoked` (Schleifen-Deckel)
     draft: string
     sending: boolean
@@ -5151,6 +5170,7 @@ export function registerNostrComponents(Alpine: {
         joining: false,
         membershipReady: false,
         gatedOut: false,
+        raumUnbekannt: false,
         _gateRelistens: 0,
         draft: '',
         sending: false,
@@ -5369,6 +5389,7 @@ export function registerNostrComponents(Alpine: {
             this.loading = true
             this.membershipReady = false
             this.gatedOut = false
+            this.raumUnbekannt = false
             this._gateRelistens = 0
             this.error = ''
             this.messages = []
@@ -5481,7 +5502,14 @@ export function registerNostrComponents(Alpine: {
             // Those channels are gone (`groups.ts` drops them at the source), so the
             // channel name is once again the name that belongs on screen.
             this._unsubRoomMeta = roomsByUrl.subscribe(($byUrl: Map<string, Room[]>) => {
-                const room = ($byUrl.get(url) ?? []).find((r) => r.h === this.h)
+                const raumliste = $byUrl.get(url) ?? []
+                const room = raumliste.find((r) => r.h === this.h)
+                // "Unknown" only once the list carries something: an empty list is
+                // no statement (it may still be loading, or the space is empty),
+                // and the not-found card would be a claim made without looking at
+                // the stock. If the room does turn up (freshly created, list
+                // caught up), the flag flips back and the surface is the old one.
+                this.raumUnbekannt = raumliste.length > 0 && !room
                 if (room?.name) {
                     const shown = room.name
                     this.roomName = shown

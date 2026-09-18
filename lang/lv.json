@@ -1049,7 +1049,6 @@
     "Alle Projekte anzeigen (:count)": "Rādīt visus projektus (:count)",
     "Bereich :label auf- oder zuklappen": "Izvērst vai sakļaut sadaļu :label",
     "Eintrag :name auf- oder zuklappen": "Izvērst vai sakļaut ierakstu :name",
-    "Forge-Übersicht öffnen": "Atvērt Forge pārskatu",
     "Issues des Repositorys öffnen (:count)": "Atvērt repozitorija pieteikumus (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Atvērt repozitorija pull request pieprasījumus (:count)",
     "Forge auf :wert": "Forge vietnē :wert",
@@ -1490,5 +1489,9 @@
     ":count kommen über Nostr": ":count dalībnieki caur Nostr",
     ":count kommen über Nostr#one": ":count dalībnieks caur Nostr",
     ":count kommen über Nostr#zero": ":count dalībnieku caur Nostr",
-    "Postfach, :hints": "Pastkaste, :hints"
+    "Postfach, :hints": "Pastkaste, :hints",
+    "Raum nicht gefunden": "Istaba nav atrasta",
+    "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Šī istaba šajā sesijā nav zināma — tā tika izdzēsta, vai arī saite ved uz šifrētu sarunu, kuru var lasīt tikai ierīcē, kurā tā notika.",
+    "Zum Postfach": "Uz pastkasti",
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Tavas istabas ir kreisajā joslā — ⌘K tās atrod no jebkurienes."
 }

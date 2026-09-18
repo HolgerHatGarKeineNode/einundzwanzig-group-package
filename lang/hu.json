@@ -1005,7 +1005,6 @@
     "Alle Projekte anzeigen (:count)": "Összes projekt megjelenítése (:count)",
     "Bereich :label auf- oder zuklappen": "A(z) :label szakasz kinyitása vagy összecsukása",
     "Eintrag :name auf- oder zuklappen": "A(z) :name bejegyzés kinyitása vagy összecsukása",
-    "Forge-Übersicht öffnen": "A Forge áttekintés megnyitása",
     "Issues des Repositorys öffnen (:count)": "A repository hibajegyeinek megnyitása (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "A repository pull requestjeinek megnyitása (:count)",
     "Forge auf :wert": "Forge itt: :wert",
@@ -1422,5 +1421,9 @@
     "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal, z: die Termine deiner eigenen Meetups zum Zusagen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "A palettán r: m: p: és egy országkód, például de:, egy területre szűkít. @ tagokat keres, > műveleteket listáz. o: t: k: l: a portál meetupjait, időpontjait, kurzusait és oktatóit mutatja, z: a saját meetupjaid időpontjait visszajelzéshez. w: a workspace-ben keres — ott ↵ megnyomni, a relay teljes szavakat talál.",
     "1 kommt über Nostr": "1 fő jön Nostron",
     ":count kommen über Nostr": ":count fő jön Nostron",
-    "Postfach, :hints": "Postafiók, :hints"
+    "Postfach, :hints": "Postafiók, :hints",
+    "Raum nicht gefunden": "A szoba nem található",
+    "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "Ez a szoba ebben a munkamenetben ismeretlen — törölték, vagy a link egy titkosított beszélgetésre mutat, amely csak azon az eszközön olvasható, ahol folyt.",
+    "Zum Postfach": "A postafiókhoz",
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "A szobáid a bal oldali sávban vannak — a ⌘K bárhonnan megtalálja őket."
 }

@@ -1005,7 +1005,6 @@
     "Alle Projekte anzeigen (:count)": "Show all projects (:count)",
     "Bereich :label auf- oder zuklappen": "Expand or collapse the :label section",
     "Eintrag :name auf- oder zuklappen": "Expand or collapse the entry :name",
-    "Forge-Übersicht öffnen": "Open the Forge overview",
     "Issues des Repositorys öffnen (:count)": "Open the repository's issues (:count)",
     "Pull Requests des Repositorys öffnen (:count)": "Open the repository's pull requests (:count)",
     "Forge auf :wert": "Forge on :wert",
@@ -1422,5 +1421,9 @@
     "In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal, z: die Termine deiner eigenen Meetups zum Zusagen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.": "In the palette r: m: p: and a country code like de: narrow to one area. @ searches members, > lists actions. o: t: k: l: show meetups, dates, courses and lecturers from the Portal, z: the dates of your own meetups to RSVP to. w: searches the workspace — press ↵ there, the relay finds whole words.",
     "1 kommt über Nostr": "1 attending via Nostr",
     ":count kommen über Nostr": ":count attending via Nostr",
-    "Postfach, :hints": "Inbox, :hints"
+    "Postfach, :hints": "Inbox, :hints",
+    "Raum nicht gefunden": "Room not found",
+    "Dieser Raum ist in dieser Sitzung nicht bekannt — er wurde gelöscht, oder der Link führt zu einer verschlüsselten Unterhaltung, die nur auf dem Gerät lesbar ist, auf dem sie geführt wurde.": "This room is unknown in this session — it was deleted, or the link leads to an encrypted conversation that only the device it took place on can read.",
+    "Zum Postfach": "Go to the inbox",
+    "Deine Räume stehen in der Leiste links — ⌘K findet sie von überall.": "Your rooms are in the bar on the left — ⌘K finds them from anywhere."
 }

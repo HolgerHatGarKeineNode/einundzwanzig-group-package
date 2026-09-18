@@ -7,8 +7,6 @@
     // Ziel des Sektionsnamens. Gesetzt heißt: der Name wird zum Link, das Chevron
     // bleibt für Auf/Zu zuständig (P1, zwei getrennte Trefferflächen).
     'headingHref' => null,
-    // Beschriftung des Icon-Knopfes neben Zahl und Lupe; null = kein Knopf.
-    'overviewLabel' => null,
     // Tooltip des Sektionsnamens: ein GANZER Satz mit dem Platzhalter `:wert`,
     // dazu der Alpine-Ausdruck, der ihn füllt. Zwei Props statt einem fertigen
     // Ausdruck, damit `@js()` HIER läuft — es escapt für den Attributkontext
@@ -18,11 +16,11 @@
     'headingTitleValue' => null,
     // Rendert den Forge-Baum zwischen Angehefteten und Sektionen (nur 'workspace').
     'tree' => false,
-    // Eine HANDLUNG am Gruppenkopf: Beschriftung, Icon-Name und der Alpine-Ausdruck,
-    // der sie ausloest. `null` = kein Knopf, und dann ist dieser Kopf zeichengleich zu
-    // vorher. Gebaut wie `overviewLabel` darueber — nur dass jener ein LINK auf eine
-    // Uebersicht ist und dieser eine Aktion im Insel-Scope. Beides nebeneinander gibt es
-    // heute an keiner Gruppe; die zwei Bloecke stehen deshalb unabhaengig voneinander.
+    // An ACTION on the group head: label, icon name, and the Alpine expression
+    // that triggers it. `null` = no button, and then this head renders exactly as
+    // before. (Until 2026-09-18 an `overviewLabel` LINK to an overview stood next
+    // to it — removed after a user report; the reasoning sits in this file's head,
+    // at the link's former place.)
     'actionLabel' => null,
     'actionIcon' => 'plus',
     'actionClick' => null,
@@ -243,16 +241,23 @@
                 <x-group::unread-badge :count="'groupUnread(\''.$group.'\')'" size="sm" :sr="false" />
             </template>
 
-            @if ($overviewLabel && $headingHref)
-                {{-- Der zweite von drei Wegen zur Übersicht. Ein nacktes Icon ohne
-                     Namen wäre ein Rätsel — `aria-label` UND `title`, damit es
-                     Screenreader ankündigen und die Maus es beim Verweilen zeigt. --}}
-                <a href="{{ $headingHref }}" wire:navigate
-                   aria-label="{{ $overviewLabel }}" title="{{ $overviewLabel }}"
-                   class="pressable inline-flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
-                    <flux:icon.code-bracket variant="micro" aria-hidden="true" class="size-3.5" />
-                </a>
-            @endif
+
+            {{-- ── Until 2026-09-18 the `</>` icon link to the overview stood here ──
+                  It is gone, and the reason is a production user report: an
+                  unexpected entry in the bar that nobody could name. In a column
+                  where EVERY row carries text, a bare icon is the one item that
+                  reads as an intruder — its `aria-label` made it technically
+                  accessible, but not recognizable. Its target remains reachable
+                  and better placed than ever: the section NAME four pixels next
+                  to it is already a link to the same address (`$headingHref`),
+                  with a visible label. Two hit areas on one address in one row
+                  was the redundancy this icon never had to carry.
+
+                  The ways to the overview are counted in the head of
+                  `desktop-rail.blade.php` (section name · fold row · palette).
+                  Whoever wants an icon way again: first with a visible label,
+                  then with an argument against the user report — not as a mute
+                  glyph. --}}
 
             @if ($actionLabel && $actionClick)
                 {{-- Die Handlung des Kopfes, in derselben Form wie die Lupe daneben:
