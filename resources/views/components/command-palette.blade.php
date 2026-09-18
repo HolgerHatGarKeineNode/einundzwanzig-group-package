@@ -269,7 +269,8 @@
                                 <span class="block truncate text-[15px] font-extrabold" x-text="room.name"></span>
                                 <span class="block truncate text-[13px] text-muted" x-show="room.hint" x-text="room.hint"></span>
                             </span>
-                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('&ouml;ffnen') }}</span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('öffnen') }}</span>
+                        </flux:command.item>
                     </template>
 
                     {{-- ── Mitglieder (`@`) ───────────────────────────────────── --}}
@@ -289,7 +290,8 @@
                                 <span class="block truncate text-[15px] font-extrabold" x-text="member.name"></span>
                                 <span class="block truncate text-[13px] text-muted" x-show="member.nip05" x-text="member.nip05"></span>
                             </span>
-                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('&ouml;ffnen') }}</span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('öffnen') }}</span>
+                        </flux:command.item>
                     </template>
 
                     {{-- ── Spaces ─────────────────────────────────────────────── --}}
@@ -309,7 +311,8 @@
                                 <span class="block truncate text-[15px] font-extrabold" x-text="space.label"></span>
                                 <span class="block truncate text-[13px] text-muted" x-show="space.hint" x-text="space.hint"></span>
                             </span>
-                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('&ouml;ffnen') }}</span>
+                            <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&#8629; {{ __('öffnen') }}</span>
+                        </flux:command.item>
                     </template>
 
                     {{-- ── The four Portal sections (D6) ──────────────────────
@@ -344,6 +347,7 @@
                                 <span class="block truncate text-[13px] text-muted" x-show="row.s" x-text="row.s"></span>
                             </span>
                             <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">{{ __('Portal') }}</span>
+                        </flux:command.item>
                     </template>
 
                     <div data-palette-heading="events" role="presentation" aria-hidden="true" hidden
@@ -363,6 +367,7 @@
                                 <span class="block truncate text-[13px] text-muted" x-show="portalHint(row)" x-text="portalHint(row)"></span>
                             </span>
                             <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">{{ __('Portal') }}</span>
+                        </flux:command.item>
                     </template>
 
                     <div data-palette-heading="courses" role="presentation" aria-hidden="true" hidden
@@ -382,6 +387,7 @@
                                 <span class="block truncate text-[13px] text-muted" x-show="portalHint(row)" x-text="portalHint(row)"></span>
                             </span>
                             <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">{{ __('Portal') }}</span>
+                        </flux:command.item>
                     </template>
 
                     <div data-palette-heading="lecturers" role="presentation" aria-hidden="true" hidden
@@ -401,6 +407,7 @@
                                 <span class="block truncate text-[13px] text-muted" x-show="row.s" x-text="row.s"></span>
                             </span>
                             <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">{{ __('Portal') }}</span>
+                        </flux:command.item>
                     </template>
 
                     {{-- ── „Zusagen" (`z:`, P5/D12) ────────────────────────────
@@ -434,7 +441,8 @@
                                 <span class="block truncate text-[13px] text-muted" x-show="portalHint(row)" x-text="portalHint(row)"></span>
                             </span>
                             <span x-show="zusageStatus(row) === 'accepted'" x-cloak
-                                  class="shrink-0 text-xs font-semibold text-brand-300">{ __('zugesagt') }</span>
+                                  class="shrink-0 text-xs font-semibold text-brand-300">{{ __('zugesagt') }}</span>
+                        </flux:command.item>
                     </template>
 
                     {{-- ── Aktionen (`>`) ─────────────────────────────────────── --}}
@@ -454,6 +462,7 @@
                                 <span class="block truncate text-[15px] font-extrabold" x-text="action.label"></span>
                             </span>
                             <span class="shrink-0 rounded-pill border border-zinc-300 px-2 py-0.5 text-[11px] leading-none text-muted dark:border-border-strong">&gt; {{ __('Aktion') }}</span>
+                        </flux:command.item>
                     </template>
 
                     {{-- Die Kürzel-Übersicht als Zeile — sonst findet sie nur, wer
@@ -485,9 +494,10 @@
                                 <flux:icon.bolt variant="micro" class="sw-18 size-5" />
                             </span>
                             <span class="min-w-0 flex-1">
-                                <span class="block truncate text-[15px] font-extrabold">{ __('Tastenkürzel') }</span>
+                                <span class="block truncate text-[15px] font-extrabold">{{ __('Tastenkürzel') }}</span>
                             </span>
                             <kbd class="{{ $kbd }}">?</kbd>
+                        </flux:command.item>
                     </template>
                 </flux:command.items>
             </flux:command>
