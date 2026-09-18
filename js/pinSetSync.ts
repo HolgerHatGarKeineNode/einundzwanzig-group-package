@@ -50,7 +50,7 @@ import { ensurePlaintext, nip44EncryptToSelf, pubkey } from './welshmanSession.t
 import { requestOne } from './welshmanNet.ts'
 import { APP_DATA } from './welshmanKinds.ts'
 import { tagSpec, tagValue } from './welshmanTags.ts'
-import { DEFAULT_SPACE_URL, activeSpaceUrl, roomsById } from './groups.ts'
+import { DEFAULT_SPACE_URL, activeSpaceUrl, makeRoomId, roomsById } from './groups.ts'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
 import { WORKSPACE_URL } from './spaceCaps.ts'
 import { channelStars, subscribeWorkspacePrefs, toggleChannelFlag } from './channelPrefs.ts'
@@ -70,6 +70,7 @@ import {
     prunePins,
     roomKeyParts,
     roomPinKey,
+    roomPinLookup,
     seedDefaultPins,
     setPinEntry,
     unionPinnedKeys,
@@ -693,9 +694,13 @@ export const pinRows: Readable<PinRow[]> = derived(
             const at = key.indexOf(':')
             const prefix = at < 1 ? '' : key.slice(0, at)
             const value = at < 1 ? key : key.slice(at + 1)
-            const parts = roomKeyParts(key)
-            const label = parts
-                ? ($rooms.get(parts.h)?.name ?? pinChipFallback(key))
+            // `roomPinLookup` and not `$rooms.get(h)`: the index is keyed by
+            // `makeRoomId(url, h)`, so the bare `h` never hits (P7 fix — see the docblock
+            // over `roomPinLookup`). `|| fallback` and not `?? fallback`: a room whose
+            // kind 39000 carries no name has `name === ''`, and an empty chip is worse
+            // than one showing the `h`.
+            const label = prefix === 'room'
+                ? (roomPinLookup(key, $rooms, makeRoomId)?.name || pinChipFallback(key))
                 : prefix === 'person'
                     ? (displayProfileByPubkey(value) || pinChipFallback(key))
                     : pinChipFallback(key)

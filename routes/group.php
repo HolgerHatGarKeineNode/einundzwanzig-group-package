@@ -239,8 +239,9 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
      * stand in links people have shared and in shipped app builds. Renames are
      * explicit (`c` → `an`), so the receiving page reads its own vocabulary.
      *
-     * 302 and not 301 until the P7 sweep: a 301 is cached by a browser indefinitely
-     * and cannot be taken back.
+     * **301 since the P7 sweep** (302 until then): a 301 is cached by a browser
+     * indefinitely and cannot be taken back, so it was switched only once every row had a
+     * green test. The status itself lives in `LegacyRedirect`.
      *
      * OUTSIDE `nostr.auth` on purpose. A redirect is not a surface; forwarding a
      * guest to the new address and letting THAT route decide is one gate, not two —
@@ -304,7 +305,7 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
  * No `ContentSecurityPolicy`: that middleware writes a policy for a DOCUMENT. On a JSON
  * body it would be a header nothing reads.
  */
-Route::middleware('throttle:60,1')
+Route::middleware('throttle:'.config('group.portal_index_rate', '60,1'))
     ->name('group.')
     ->get('/suche/portal-index', PortalIndexController::class)
     ->name('suche.portal-index');

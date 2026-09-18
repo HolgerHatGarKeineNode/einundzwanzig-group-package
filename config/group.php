@@ -345,6 +345,23 @@ return [
     'portal_url' => env('PORTAL_URL', 'https://portal.einundzwanzig.space'),
 
     /*
+     * Rate of `GET /suche/portal-index`, as the `throttle` middleware spells it.
+     *
+     * The production default is unchanged (60 a minute per IP, the Portal's own rate,
+     * mirrored deliberately — R9). It became a config key in P7 because the E2E suite runs
+     * every worker's browser AND its server on 127.0.0.1: one page load of Start asks this
+     * endpoint once, a worker does far more than 60 page loads a minute, and the 429 then
+     * landed in whatever test happened to be running — measured in the P7 sweep, three
+     * unrelated specs died of it.
+     *
+     * So the number stays where it is for a real visitor and the test environment raises
+     * it (`tests/e2e/support/serverEnv.ts`). The promise that the palette asks ONCE per
+     * session is measured elsewhere and by a request counter, not by this limit
+     * (`tests/e2e/palette-portal.spec.ts`).
+     */
+    'portal_index_rate' => env('GROUP_PORTAL_INDEX_RATE', '60,1'),
+
+    /*
      * "Alle Bereiche" — the tile grid on Start. Source of truth is
      * `Einundzwanzig\Group\Shell\AreaRegistry`; a host passes its own route targets
      * there instead of copying the list (the shallow merge would otherwise force a

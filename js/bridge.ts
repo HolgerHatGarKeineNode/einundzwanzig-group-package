@@ -310,6 +310,7 @@ import {
 import { getWalletAddress, WalletType, type Wallet } from '@welshman/util'
 import { type Zapper } from './welshmanZap.ts'
 import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader.ts'
+import { articleAuthorHref, articleHref } from './articleRoutes.ts'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps.ts'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles.ts'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
@@ -4211,7 +4212,10 @@ export function registerNostrComponents(Alpine: {
             },
             /** Ziel der Zeile. Leerer `naddr` (Artikel ohne `d`) ⇒ kein Link. */
             href(row: ArticleRow) {
-                return row.naddr ? `${this._base}/${row.naddr}` : ''
+                // `articleHref` and not `${this._base}/…`: `_base` is the LIST
+                // (`/bereich/artikel`), the article sits on `/articles/{naddr}` — appending
+                // to the base produced a 404 on every row (P7, `js/articleRoutes.ts`).
+                return articleHref(row.naddr ?? '')
             },
             sortOptions() {
                 return sortOptions
@@ -4683,7 +4687,9 @@ export function registerNostrComponents(Alpine: {
                     return ''
                 }
                 try {
-                    return `${this._base}/autor/${nip19.npubEncode(pk)}`
+                    // Same table as the row target, same reason (P7): the author page is
+                    // `/articles/autor/{autor}`, not a child of the list route.
+                    return articleAuthorHref(nip19.npubEncode(pk))
                 } catch {
                     // Ein Pubkey, den `npubEncode` nicht annimmt, ist kein Fehler dieser
                     // Fläche — er käme aus einem Event, das der Relay so ausgeliefert
@@ -4872,7 +4878,10 @@ export function registerNostrComponents(Alpine: {
                 }
             },
             href(row: ArticleRow) {
-                return row.naddr ? `${this._base}/${row.naddr}` : ''
+                // `articleHref` and not `${this._base}/…`: `_base` is the LIST
+                // (`/bereich/artikel`), the article sits on `/articles/{naddr}` — appending
+                // to the base produced a 404 on every row (P7, `js/articleRoutes.ts`).
+                return articleHref(row.naddr ?? '')
             },
             hatAutor() {
                 return this.fehler === '' && !this.aufloesend

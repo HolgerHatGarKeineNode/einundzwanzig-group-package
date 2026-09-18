@@ -13,7 +13,12 @@
  *    Überschrift ist das nicht der Rand, sondern der Normalfall.**
  *  · **Teilen braucht eine Adresse, die es nicht immer gibt.** Ein Artikel ohne `d`-Tag
  *    hat keinen `naddr` und damit keinen Link. Die Fläche muss das TRAGEN, nicht abfangen.
+ *
+ * The one import since P7 (`articleRoutes.ts`) is pure itself and keeps the object route in
+ * ONE place — the alternative would have been a second copy of the path, and that very
+ * duplication is what pointed the share link at a 404 after P2.
  */
+import { articleHref } from './articleRoutes.ts'
 
 /**
  * Was der Aufrufer am DOM misst — alles in CSS-Pixeln.
@@ -118,10 +123,15 @@ export type TeilZiel = {
 /**
  * Die teilbare Adresse eines Artikels.
  *
- * `basis` ist die **absolute** Adresse der Artikelliste (`route('group.articles')`,
- * dieselbe Quelle, aus der die Liste ihre `href`s baut). Sie kommt herein statt hier
- * gebaut zu werden: eine zweite Stelle, die den Routenpfad kennt, liefe beim nächsten
- * Routen-Umbau still auseinander.
+ * `basis` is the **absolute** address of the article list (`route('group.bereich.artikel')`)
+ * and contributes only the ORIGIN: the path comes from {@link articleHref} since P7.
+ *
+ * **Why that changed.** Until then this function appended the `naddr` to the base — right
+ * while the list itself sat on `/articles`. P2 moved it to `/bereich/artikel` and left the
+ * object route deliberately where it was (`/articles/{naddr}`, shared links point there),
+ * and from then on the share button put a measured `…/bereich/artikel/naddr1…` on the
+ * clipboard — an address that does not exist. The base of a list is not the prefix of its
+ * objects.
  *
  * Geteilt wird der **kanonische** `naddr` aus dem Event (mit Relay-Hinweisen), nicht die
  * Adresszeile des Browsers. Beide zeigen auf denselben Artikel, aber nur der kanonische
@@ -133,7 +143,22 @@ export const artikelTeilZiel = (basis: string, naddr: string, titel: string): Te
         return { teilbar: false, url: '', titel: titel ?? '' }
     }
 
-    return { teilbar: true, url: `${stamm}/${naddr}`, titel: titel ?? '' }
+    return { teilbar: true, url: teilbareArtikelAdresse(stamm, naddr), titel: titel ?? '' }
+}
+
+/**
+ * The object path on the base's origin — and the path alone when the base is none.
+ *
+ * A relative base (tests, a host without absolute `route()` output) makes `new URL` throw.
+ * The PATH is then the honest answer: it is valid in the same tab, leads to the same place,
+ * and it does not carry the old mix-up any further.
+ */
+const teilbareArtikelAdresse = (stamm: string, naddr: string): string => {
+    try {
+        return new URL(articleHref(naddr), stamm).toString()
+    } catch {
+        return articleHref(naddr)
+    }
 }
 
 /**

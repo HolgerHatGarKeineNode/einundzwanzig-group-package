@@ -417,6 +417,30 @@ export const pinChipFallback = (key: string): string => {
     return value
 }
 
+/**
+ * Look a `room:` key up in a room index — **with the RELAY, not with the bare `h`.**
+ *
+ * The id builder comes from the caller (`makeRoomId` in `js/groups.ts`), so this module
+ * carries no second truth about that format; what it does carry is the rule that BOTH
+ * halves of the key go into the lookup. Until P7 the label resolution passed only
+ * `parts.h`, and since the index is keyed `${url}'${h}` the lookup could never hit: every
+ * pinned room fell back to {@link pinChipFallback} and the chip showed its `h` instead of
+ * its name (measured `room:welcome@ws://localhost:3335/ → welcome` instead of
+ * „Willkommen", Start's chips since P3 and the left bar since P6).
+ *
+ * Returns `undefined` for every non-room key and for a malformed one — the caller then has
+ * nothing better than the fallback, which is the correct answer for both.
+ */
+export const roomPinLookup = <T>(
+    key: string,
+    index: { get(id: string): T | undefined },
+    makeId: (relay: string, h: string) => string,
+): T | undefined => {
+    const parts = roomKeyParts(key)
+
+    return parts ? index.get(makeId(parts.relay, parts.h)) : undefined
+}
+
 // ── Write path ─────────────────────────────────────────────────────────────────
 
 /**

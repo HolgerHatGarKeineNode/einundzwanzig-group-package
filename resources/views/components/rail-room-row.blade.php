@@ -46,8 +46,12 @@
      Markentext (6,15:1) — andere Schicht (Navigation), andere Aktiv-Sprache.
 
      ── Stumm & angeheftet (P3, NIP-78 aus Buzz Desktop) ─────────────────────
-     Beides nur im Workspace-Arm; `isMuted`/`isPinned` liefern im zooid-Arm
-     immer `false` (`rail.ts`, gespeist aus `channelPrefs.ts`).
+     `isMuted` applies in the workspace arm only and answers `false` in the zooid
+     arm (`rail.ts`, fed from `channelPrefs.ts`) — `channel-mutes` is Buzz' blob.
+     `isPinned` applies in BOTH arms since P7: the pin set (kind 30078) is the
+     reader's own event, and until then its subscription hung in the workspace
+     branch of `rail.ts` — without a workspace the pin stayed invisible and the
+     menu kept offering „anheften" forever.
 
      **Stumm ist KEINE Opazität.** Buzz dimmt seine stummen Zeilen mit
      `opacity-50` (`SidebarSection.tsx:294-300`) — das ist hier verboten, siehe

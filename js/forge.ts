@@ -128,6 +128,7 @@ import {
     timelineTimeLabel,
     type TimelineGroup,
 } from './forgeTimeline.ts'
+import { repoHref as repoDetailHref } from './railForge.ts'
 import type { ForgeNavProject, ForgeNavRepo } from './railForge.ts'
 import {
     DELETION,
@@ -3709,8 +3710,20 @@ export function wireForge(Alpine: {
                     ),
                 }
             },
+            /**
+             * The detail route of a repository — **built by {@link repoDetailHref}, not
+             * from `_base`.**
+             *
+             * `_base` is the OVERVIEW (`/bereich/forge`, the route this island was handed),
+             * and until P7 this method appended the `naddr` to it. That produced
+             * `/bereich/forge/<naddr>`, for which there is no route: every tile of the
+             * overview led to a 404 (measured by the response guard, and the cause of the
+             * 16 failing `desktop-forge*` cases). The repo page sits at `/forge/{naddr}`
+             * (`routes/group.php`), which is what `railForge.repoHref` — the rail's target
+             * for the same object — has always built. One object, one target table.
+             */
             repoHref(row: { naddr: string }) {
-                return row.naddr ? `${this._base}/${row.naddr}` : ''
+                return repoDetailHref(row.naddr)
             },
             truncatedText() {
                 return this.overview.truncated.length === 0

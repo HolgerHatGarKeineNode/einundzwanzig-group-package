@@ -1994,7 +1994,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                 <ul class="forge-spur-pillen" data-forge-verwandte>
                                     <template x-for="andere in view.verwandte" :key="andere.address">
                                         <li>
-                                            <a :href="'{{ route('group.bereich.forge') }}/' + andere.naddr" wire:navigate
+                                            {{-- `/forge/<naddr>` and NOT the overview plus a `naddr`: the repo page
+                                                 sits on `/forge/{naddr}` (`routes/group.php`), the overview on
+                                                 `/bereich/forge`. Until P7 the overview stood here as the prefix — the
+                                                 same mix-up as in `js/forge.ts repoHref`, and it sent every „Gleiche
+                                                 Historie" pill to a 404. Object path spelled out literally, as `/rooms/`
+                                                 is in the rest of the markup. --}}
+                                            <a :href="'/forge/' + encodeURIComponent(andere.naddr)" wire:navigate
                                                class="forge-anker pressable inline-flex items-center gap-1.5 rounded-tile px-2 py-1 text-xs"
                                                {{-- EINFACHER Doppelpunkt: das hier ist ein normales
                                                     `<a>`, keine Flux-Komponente. `::data-…` erzeugte

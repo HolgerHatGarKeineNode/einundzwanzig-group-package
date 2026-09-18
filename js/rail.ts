@@ -1113,15 +1113,6 @@ export const createRail = (): RailState => ({
                 this.prefs = prefs
             })
 
-            // ── "Pinned" outside the workspace (P3, D7) ───────────────────────────
-            // Same entry point, different source: `subscribePinned` arms the pin set
-            // (kind 30078) and hands out the UNION of it and Buzz' `channel-stars`. The row
-            // asks `isPinned` and gets an answer without having to know which relay holds
-            // the statement.
-            this._unsubPinned = subscribePinned((keys: string[]) => {
-                this.pinned = keys
-            })
-
             // ── Forge-Baum (P1) ──────────────────────────────────────────────────
             // Derselbe Einstieg wie bei den Präferenzen: `subscribeForgeNav`
             // schaltet den Netzweg beim ersten Abonnenten scharf (idempotent,
@@ -1133,6 +1124,22 @@ export const createRail = (): RailState => ({
                 this.forgeProjects = data.projects
             })
         }
+
+        // ── "Pinned" (P3, D7) — OUTSIDE the workspace arm ────────────────────────
+        // `subscribePinned` arms the pin set (kind 30078) and hands out the UNION of it and
+        // Buzz' `channel-stars`; it arms the preference path itself for the second half of
+        // that union, and `initChannelPrefs` refuses without a workspace on its own.
+        //
+        // **Until P7 this stood inside `if (hasWorkspace())`, and that was the defect.** The
+        // pin set is the READER's own event and exists in every installation; a space without
+        // a Buzz workspace — which is every `useZooid()` run and every plain zooid space —
+        // left `this.pinned` empty, so `isPinned(room)` was always false: the row's menu kept
+        // saying „Raum anheften" however often it was pressed, and the pin glyph never
+        // appeared. Measured in P6: the store held the key while the island's `pinned` was
+        // `[]`.
+        this._unsubPinned = subscribePinned((keys: string[]) => {
+            this.pinned = keys
+        })
 
         // Meetup-Präsentation (Land/Flagge/Stadt) EINMAL laden, fail-soft, und den
         // Index nach Alpine spiegeln — die Zeile joint dann über `room.meetupSlug`.

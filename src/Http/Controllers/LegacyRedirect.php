@@ -21,9 +21,11 @@ use Illuminate\Http\Request;
  * `route:cache`, and the mobile build caches its routes. Same reason `verein.return`
  * already uses `RedirectController` instead of a closure.
  *
- * **302, not 301, until P7.** A 301 is cached by browsers indefinitely; a wrong one
- * cannot be taken back. The sweep in P7 flips the status once every redirect has a green
- * test (the plan's default, recorded so the reviewer can check it).
+ * **301 since P7 — 302 until then.** A 301 is cached by a browser indefinitely and cannot
+ * be taken back, so the plan carried the redirects at 302 for five phases and flipped the
+ * status in the release sweep, once every row had a green test
+ * (`tests/Feature/LegacyRedirectTest.php`, one case per row INCLUDING the status). The
+ * default lives here and nowhere else; a row may still override it with `status`.
  *
  * The map itself is NOT in here. It stands in `routes/group.php` (package rows) and in the
  * host's own route file (companion rows), because that is where a reader looks for "which
@@ -40,7 +42,7 @@ final class LegacyRedirect
      *            one old path, two targets, chosen by a query VALUE — `/spaces?tab=workspaces`
      *            became `/bereich/forge` while bare `/spaces` became `/bereich/chat`.
      *            A route cannot be matched on a query string, so the branch lives here.
-     *   status   (int)              HTTP status, default 302
+     *   status   (int)              HTTP status, default 301 (302 until P7)
      *
      * `ziel` may carry PATH PARAMETERS of the matched route as `{name}` (P5): the companion's
      * `/meetups/{slug}` forwards to `/bereich/meetups/{slug}`, and three rows like it would
@@ -52,7 +54,7 @@ final class LegacyRedirect
     {
         $route = $request->route();
         $ziel = (string) $route->defaults['ziel'];
-        $status = (int) ($route->defaults['status'] ?? 302);
+        $status = (int) ($route->defaults['status'] ?? 301);
 
         /** @var array{param: string, werte: array<string, string>}|null $weiche */
         $weiche = $route->defaults['weiche'] ?? null;
