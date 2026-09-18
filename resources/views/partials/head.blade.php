@@ -89,3 +89,4 @@
 
 @vite(config('group.vite'))
 @fluxAppearance
+@include('group::partials.appearance-default')

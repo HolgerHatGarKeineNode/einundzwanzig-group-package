@@ -13,6 +13,7 @@
 @import '@fontsource/inconsolata/500.css';
 @import '@fontsource/inconsolata/600.css';
 @import '@fontsource/inconsolata/700.css';
+@import '@fontsource/inconsolata/800.css';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -39,14 +40,68 @@
     --color-zinc-400: #a3a3a3;
     --color-zinc-500: #737373;
     --color-zinc-600: #525252;
-    --color-zinc-700: #404040;
-    --color-zinc-800: #262626;
-    --color-zinc-900: #171717;
-    --color-zinc-950: #0a0a0a;
+    /* ── P1 (Entwurf C „Ein Eingang"): die dunkle Hälfte der Rampe ist die
+       Entwurfs-Neutralrampe (Spec-Abschnitt 3/9, Token-Map im Plan
+       2026-09-18T1745). REMAP statt neuer Skala: 65 Package-Views und Flux'
+       zinc-Utilities erben die Werte, ohne dass eine Nennung angefasst wird.
+       Die HELLEN Stufen (50–500) bleiben Struktur des Light-Zweigs — der ist
+       bis zum Light-Defektscan nach P6 toter Code und wird hier nicht zerstört.
+
+       Die fg-Rollen des Entwurfs leben unverändert auf 100/300/400/500:
+       fg #f5f5f5 · fg-2 #d4d4d4 · fg-muted #a3a3a3 · fg-faint #737373. */
+    --color-zinc-600: #3a3a3e;
+    --color-zinc-700: #2c2c30;
+    --color-zinc-800: #1f1f22;
+    --color-zinc-900: #161617;
+    --color-zinc-950: #0b0b0c;
 
     --color-accent: var(--color-brand-500);
     --color-accent-content: var(--color-brand-700);
     --color-accent-foreground: var(--color-zinc-950);
+
+    /* ══ P1: semantische Tokens des Entwurfs C (Spec 3/9) ═══════════════════
+       Alles, was die Zinc-Skala nicht trägt: Flächen unterhalb der Karten,
+       Kanten-Stufen, der Wash für aktive Zeilen und die Link-/Hover-Rollen.
+       Utilities entstehen automatisch (bg-surface, bg-bg-elevated, border-border,
+       text-accent-link …). Hex-Literale wie in der Spec — grep-bar. */
+
+    /* Flächen */
+    --color-surface: var(--color-zinc-900); /* Karten, Inputs (#161617) */
+    --color-surface-2: var(--color-zinc-800); /* Icon-Kacheln (#1f1f22) */
+    --color-surface-3: var(--color-zinc-700); /* aktives Segment (#2c2c30) */
+    --color-bg-elevated: #0f0f10; /* Tab-Bar, fixierte Leisten */
+    --color-overlay: #141415; /* Befehlsleiste / Dialog */
+
+    /* Kanten (dunkel; die hellen Zweige laufen weiter über zinc-200/300) */
+    --color-border: #242427; /* Trennlinien, Header-/Tabbar-Kante */
+    --color-border-card: #2a2a2d; /* Kartenrahmen */
+    --color-border-chip: #2f2f33; /* Chip-/Inputrahmen */
+    --color-border-strong: #3a3a3e; /* sekundärer Button, Dialograhmen */
+    --color-border-accent-dim: #7b3d10; /* Chip „braucht Entscheidung" */
+
+    /* Akzent-Rollen: AUF Orange steht immer #0b0b0c, nie Weiß (Spec 3).
+       accent-link/-hover sind die LESBAREN Orangetöne für Text auf dunklen
+       Flächen — accent (#f7931a) selbst ist Zustands-/Flächenfarbe. */
+    --color-accent-wash: #241a0d; /* aktive Zeile Rail/Palette */
+    --color-accent-link: var(--color-brand-400); /* #fda537 */
+    --color-accent-hover: var(--color-brand-300); /* #ffc170 */
+    --color-on-accent: #0b0b0c; /* Text/Icon auf Orange */
+
+    /* ── Kontrast-Mathematik der fg-Stufen (P1-Pflicht, WCAG 1.4.3/1.4.11) ──
+       Relative Luminanzen: bg #0b0b0c L=0,0034 · bg-elevated #0f0f10 L=0,0048
+       · surface #161617 L=0,0080 · surface-2 #1f1f22 L=0,0137.
+
+         fg    #f5f5f5 (zinc-100): 18,0:1 auf bg · 16,6:1 auf surface
+         fg-2  #d4d4d4 (zinc-300): 13,3:1 auf bg · 12,2:1 auf surface
+         muted #a3a3a3 (zinc-400):  7,8:1 auf bg ·  7,2:1 auf surface
+                                     (7,6:1 auf bg-elevated — Tab-Bar-Labels)
+         faint #737373 (zinc-500):  4,2:1 auf bg ·  3,8:1 auf surface
+                                     · 3,5:1 auf surface-2 → NUR Icons (≥3:1,
+                                     1.4.11), NIEMALS Text (reißt 4,5:1 aus
+                                     1.4.3 auf jeder Fläche)
+         link  #fda537:             9,9:1 auf bg · 9,2:1 auf surface
+         on-accent #0b0b0c auf accent #f7931a: 8,6:1
+         accent #f7931a als Text auf wash #241a0d: 7,4:1 · auf bg-elevated: 8,3:1 */
 
     /* Sekundärtext mit tragfähigem Kontrast in BEIDEN Themes:
        zinc-600 auf hellem, zinc-400 auf dunklem Grund. Ersetzt gestreutes text-zinc-500.
@@ -146,8 +201,20 @@
     /* ── AAA Design-Tokens (übernommen aus einundzwanzig-mobile-app) ──────
        Radius-, Shadow- und Motion-Skala. Alle Cards/Sheets/Tiles greifen
        darauf zu, statt rounded-* punktuell zu streuen. */
-    --radius-tile: 0.875rem; /* Icon-Kacheln, Badges */
-    --radius-card: 1rem; /* Listen-/Detail-Cards */
+    /* P1 (Entwurf C §5): Radien-Skala des Entwurfs — sm 9 · md 10 · input 12 ·
+       Karte 14 · Overlay 16 · FAB 20 · Pill 999. `--radius-card` (vorher 1rem)
+       und `--radius-tile` (vorher 0,875rem) sind ÜBERARBEITET, nicht ergänzt:
+       Karte und Kachel sind dieselben Rollen wie vorher, nur mit Entwurfsmaß.
+       9/10 heißen `seg`/`btn` statt `sm`/`md` — ein Override von `--radius-sm`
+       würde `rounded-sm` GLOBAL von 4 auf 9 px heben und sechs Bestands-Views
+       (rail-room-row, rail-forge-row, …) mitverschieben; die Specs-Namen
+       vermeiden die Kollision, ohne eine zweite Skala einzuführen. */
+    --radius-seg: 9px; /* Segment-Innenfläche */
+    --radius-btn: 10px; /* Buttons, Rail-Zeilen */
+    --radius-tile: 12px; /* Icon-Kacheln (Spec: r-input) */
+    --radius-card: 14px; /* Listen-/Detail-Cards */
+    --radius-overlay: 16px; /* Befehlsleiste/Dialog */
+    --radius-fab: 20px; /* FAB in der Tab-Bar */
     --radius-sheet: 1.5rem; /* Bottom-Sheets */
     --radius-pill: 9999px; /* Nav-Indicator, Chips, Composer */
 
@@ -155,6 +222,11 @@
     --shadow-card-pressed: 0 1px 2px rgb(24 24 27 / 0.06);
     --shadow-pop: 0 8px 30px -8px rgb(24 24 27 / 0.18);
     --shadow-glow: 0 0 24px -4px var(--color-brand-500);
+    /* P1 (Entwurf C §2): Overlay- und FAB-Schatten des Entwurfs. Der FAB-Glow
+       ist Teil der Spec (0 8px 24px rgba(247,147,26,.25)) — als Token, damit
+       nicht eine Inline-Arbitrary-Class die einzige Kopie der Zahl ist. */
+    --shadow-overlay: 0 30px 80px rgb(0 0 0 / 0.7);
+    --shadow-fab: 0 8px 24px rgb(247 147 26 / 0.25);
 
     --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
@@ -179,7 +251,10 @@
     .dark {
         --color-accent: var(--color-brand-500);
         --color-accent-content: var(--color-brand-400);
-        --color-accent-foreground: var(--color-zinc-950);
+        /* P1: on-accent als LITERAL — Spec-Regel „auf Orange steht immer
+           #0b0b0c". War var(--color-zinc-950), was durch das Remap denselben
+           Wert trägt; das Literal macht die Regel von der Rampe unabhängig. */
+        --color-accent-foreground: var(--color-on-accent);
         --color-muted: var(--color-zinc-400);
         --color-control-edge: var(--color-zinc-400);
         --color-forge-offen: var(--color-brand-300);
@@ -212,6 +287,15 @@
    booted; it matches the `pb-28` the stage already reserves. */
 @utility scroll-mb-nav {
     scroll-margin-bottom: calc(var(--group-nav-h, 7rem) + 1rem);
+}
+
+/* P1 (Entwurf C §2): Strichstärke der Entwurfs-Icons. Die Spec zeichnet ALLE
+   Icons als Stroke-SVGs mit stroke-width 1.8 (`svg.i`); Heroicons/Flux-Icons
+   kommen mit 1.5. Eine CSS-Klasse schlägt das Präsentationsattribut auf dem
+   <svg> (Attribute verlieren gegen jede Deklaration) — kein Patch der Icons,
+   keine Icon-Font. Anwenden auf dem flux:icon-Element selbst. */
+@utility sw-18 {
+    stroke-width: 1.8;
 }
 
 /* Karten-Oberfläche: gemeinsame Surface aller Cards/Sections. Im Dark trägt
