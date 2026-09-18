@@ -55,7 +55,7 @@
 @php($kopfId = $variant === 'bar' ? 'rail-angeheftet' : 'start-angeheftet')
 
 <section aria-labelledby="{{ $kopfId }}"
-     {{ $attributes->class(['mb-6' => $variant === 'chips', 'pt-2' => $variant === 'bar']) }}
+     {{ $attributes->class(['mb-4' => $variant === 'chips', 'pt-2' => $variant === 'bar']) }}
      x-data="{
          ziel(row) {
              if (row.prefix === 'area') { return (@js($bereichsZiele))[row.value] ?? '/start' }
@@ -78,7 +78,7 @@
             {{ __('Angeheftet') }}
         </h2>
     @else
-        <h2 id="{{ $kopfId }}" class="mb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+        <h2 id="{{ $kopfId }}" class="mb-2 text-xs font-bold uppercase tracking-[0.08em] text-muted">
             {{ __('Angeheftet') }}
         </h2>
     @endif
@@ -99,10 +99,14 @@
                 <template x-if="!extern(row)">
                     <a x-bind:href="ziel(row)" wire:navigate x-bind:data-pin-chip="row.key"
                        @class([
-                           'pressable inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-pill bg-brand-500/10 px-3 text-sm font-medium text-brand-800 transition-colors hover:bg-brand-500/20 dark:text-brand-400' => $variant === 'chips',
+                           {{-- P2 (Entwurf C §2 `.chip`): 32 px hoch, Pill-Radius, Chip-Rahmen
+                                #2f2f33, Text fg-2 #d4d4d4 in 14 px — keine Tint-Fläche
+                                mehr, der Chip ist Kontur („keine Deko": Struktur kommt aus
+                                Rahmen und Abstand). Typ-Icon Orange 14 px. --}}
+                           'pressable inline-flex h-8 max-w-full items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
                            'pressable flex min-h-8 w-full items-center gap-2 rounded-tile px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
-                        <span aria-hidden="true" class="shrink-0">
+                        <span aria-hidden="true" class="shrink-0 text-accent">
                             <span x-show="row.prefix === 'room'"><flux:icon.hashtag variant="micro" class="size-4" /></span>
                             <span x-show="row.prefix === 'person'"><flux:icon.user variant="micro" class="size-4" /></span>
                             <span x-show="row.prefix === 'article'"><flux:icon.document-text variant="micro" class="size-4" /></span>
@@ -116,7 +120,11 @@
                 <template x-if="extern(row)">
                     <a x-bind:href="ziel(row)" rel="external noopener" x-bind:data-pin-chip="row.key"
                        @class([
-                           'pressable inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-pill bg-brand-500/10 px-3 text-sm font-medium text-brand-800 transition-colors hover:bg-brand-500/20 dark:text-brand-400' => $variant === 'chips',
+                           {{-- P2 (Entwurf C §2 `.chip`): 32 px hoch, Pill-Radius, Chip-Rahmen
+                                #2f2f33, Text fg-2 #d4d4d4 in 14 px — keine Tint-Fläche
+                                mehr, der Chip ist Kontur („keine Deko": Struktur kommt aus
+                                Rahmen und Abstand). Typ-Icon Orange 14 px. --}}
+                           'pressable inline-flex h-8 max-w-full items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
                            'pressable flex min-h-8 w-full items-center gap-2 rounded-tile px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
                         <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 shrink-0" />

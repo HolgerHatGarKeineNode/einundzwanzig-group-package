@@ -43,9 +43,9 @@
              ist `position: fixed`, ihr Bezugsrahmen IST das Ansichtsfenster —
              und ein Vorfahre mit `container-type` würde sie sogar aus ihm
              herausreissen. --}}
-        'fixed inset-x-0 bottom-0 z-40 mx-auto w-[min(100%,clamp(28rem,66vw,42rem))] border-t border-zinc-200 px-2 pb-safe dark:border-zinc-800',
-        'bg-zinc-50 dark:bg-zinc-950' => $native,
-        'bg-zinc-50/90 backdrop-blur-md dark:bg-zinc-950/90' => ! $native,
+        'fixed inset-x-0 bottom-0 z-40 mx-auto w-[min(100%,clamp(28rem,66vw,42rem))] border-t border-zinc-200 px-4 pt-2 pb-safe dark:border-border',
+        'bg-zinc-50 dark:bg-bg-elevated' => $native,
+        'bg-zinc-50/90 backdrop-blur-md dark:bg-bg-elevated/90' => ! $native,
         // From xl up the navigator carries the destinations vertically — two navigations
         // at once would be one too many. In the NativePHP app there is no desktop chassis
         // (see app-frame), so the bar stays there at EVERY width.
@@ -87,24 +87,30 @@
         <x-group::nav-tab :route="config('group.start_route', 'group.start')"
                           icon="home" :label="__('Start')" gate="guest" />
 
-        {{-- ── The centre button ────────────────────────────────────────────────
-             The one search (D6). No route, no active state, no unread dot — it opens
-             the command palette, which is mounted in the group layout and listens for
-             this event.
+        {{-- ── The centre button — P2 (Entwurf C): der FAB des Artboards ───────
+             `screen-mobileweb`: 64×64, Radius 20, Orange #f7931a mit DUNKLER
+             Lupe (#0b0b0c, 8,6:1), 22 px ÜBERSTAND über die Bar (margin-top
+             −22px) und der Spec-Glow `0 8px 24px rgba(247,147,26,.25)` aus dem
+             shadow-fab-Token. Gedrückt hellt die Fläche auf accent-hover (#ffc170)
+             auf — Bewegung als Zustandsantwort, nicht als Deko.
 
-             `data-palette-open` stays as the anchor the E2E specs use; it moved from
-             the magnifier beside the grid into the grid itself, and the anchor is what
-             makes that provable rather than guessable. --}}
+             Das EINE Suchziel (D6): kein Route, kein aktiver Zustand, kein
+             Zähler — er öffnet die Befehlspalette, die im Group-Layout hängt und
+             auf dieses Event lauscht. `data-palette-open` bleibt der Anker der
+             E2E-Specs.
+
+             Ohne sichtbares Label (Artboard: Icon allein): der Name steht als
+             sr-only-Text im Slot — „Suche" bleibt damit im Markup messbar, und
+             der aria-label-Ausdruck trägt die ausführlichere Rolle. Kein
+             Kompromiss beim Ziel: 64 px weit über 44 px. --}}
         <button type="button" data-palette-open
                 x-data
                 x-on:click="$dispatch('open-command-palette')"
                 aria-label="{{ __('Suchen und springen') }}"
                 aria-haspopup="dialog"
-                class="pressable relative flex min-h-14 flex-col items-center justify-center gap-1 py-2.5 text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200">
-            <span class="relative inline-flex">
-                <flux:icon.magnifying-glass class="size-6" />
-            </span>
-            <span class="text-[11px] font-semibold leading-none">{{ __('Suche') }}</span>
+                class="pressable focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-2 -mt-5.5 flex size-16 items-center justify-center justify-self-center rounded-fab bg-accent text-on-accent shadow-fab transition-colors active:bg-accent-hover">
+            <flux:icon.magnifying-glass class="size-7 sw-18" />
+            <span class="sr-only">{{ __('Suche') }}</span>
         </button>
 
         {{-- Postfach carries the unread dot — it is the one place that answers "is

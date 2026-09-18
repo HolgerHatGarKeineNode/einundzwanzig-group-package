@@ -53,7 +53,11 @@
          liegt auf beiden Nav-Gründen darunter — gemessen 4,21:1 auf der Bottom-Bar
          (zinc-50) und gerechnet 4,40:1 auf der Rail (weiß). `brand-800` schafft
          6,15:1 bzw. 6,42:1. Der Balken darunter bleibt `brand-700`: er ist ein
-         Grafikobjekt (1.4.11, ≥ 3:1) und trägt dort mit gemessenen 4,21:1. --}}
+         Grafikobjekt (1.4.11, ≥ 3:1) und trägt dort mit gemessenen 4,21:1.
+
+         P2 (Entwurf C): im Dunkeln trägt brand-400 (#fda537, die Link-Stufe des
+         Entwurfs) 9,9:1 auf bg-elevated — dieselbe Klassenregel, der dunkle Zweig
+         läuft jetzt bewusst auf der hellsten Orange-Stufe des Entwurfs. --}}
     @class([
         'pressable relative flex',
         'min-h-14 flex-col items-center justify-center gap-1 py-2.5' => ! $rail,
@@ -63,13 +67,13 @@
         'text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200' => ! $active,
     ])
 >
-    @if ($active)
-        {{-- Indicator im Light-Mode brand-700 (≥3:1 auf hellem Nav-Grund), Dark brand-500.
-             Bottom-Bar: Balken OBEN quer. Rail: Balken LINKS senkrecht — dieselbe
-             Rolle, an die Leserichtung der jeweiligen Nav angepasst. --}}
+    @if ($active && $rail)
+        {{-- Indicator NUR noch in der Rail (Balken links). P2 (Entwurf C): die
+             Bottom-Bar des Artboards `screen-mobileweb` hat KEINEN Balken — der
+             aktive Zustand trägt Farbe + Schriftgewicht des Labels, mehr nicht.
+             Light-Mode brand-700 (≥3:1 auf hellem Nav-Grund), Dark brand-500. --}}
         <span @class([
             'nav-pill absolute rounded-pill bg-brand-700 dark:bg-accent',
-            'inset-x-0 top-0 mx-auto h-1 w-8' => ! $rail,
             'inset-y-1 start-0 w-0.5' => $rail,
         ]) aria-hidden="true"></span>
     @endif
@@ -92,11 +96,19 @@
 
          The term is therefore gone rather than merely inert: a dot fed from decrypted
          messages is the door through which a count comes back (D5: "no DM count anywhere").
-         The price is named — an unread conversation leaves this dot dark. --}}
+         The price is named — an unread conversation leaves this dot dark.
+
+         ── P2 (Entwurf C): die Bottom-Bar trägt den Punkt nicht mehr, sondern
+         die ZÄHLER-PILLE des Artboards (18 px, Orange, dunkle Ziffer) — siehe
+         unten beim Label. Der Punkt lebt in der Rail weiter. --}}
 @php($punkt = '$store.unread?.any')
     <span class="relative inline-flex">
-        <flux:icon :name="$icon" :variant="$active ? 'solid' : 'outline'" @class(['size-6' => ! $rail, 'size-5' => $rail]) />
-        @if ($unreadDot)
+        {{-- P2 (Entwurf C §2 `.tab`): Stroke-Icon in BEIDEN Zuständen — das
+             Artboard zeichnet keinen outline/solid-Wechsel; der aktive Zustand
+             trägt Farbe und Gewicht, nicht die Glyphenform. `sw-18` setzt die
+             Strichstärke des Entwurfs (1.8) gegen Heroicons' 1.5-Attribut. --}}
+        <flux:icon :name="$icon" variant="outline" @class(['size-6 sw-18' => ! $rail, 'size-5' => $rail]) />
+        @if ($unreadDot && $rail)
             {{-- Der Ring nimmt die Farbe des jeweiligen Nav-Grundes an: die
                  Bottom-Bar sitzt auf zinc-50/zinc-950, die Rail auf white/zinc-900.
                  Ein falscher Ring sähe aus wie ein Rand am Punkt. --}}
@@ -110,15 +122,29 @@
          die beim Boot VOR der Locale-Middleware lädt — ein `__()` in der Config löste
          darum immer die Default-Sprache auf. Hier greift die Request-Locale (z.B. „Mehr"→„More"). --}}
     <span @class([
-        'font-semibold leading-none',
-        'text-[11px]' => ! $rail,
-        'text-sm' => $rail,
+        'leading-none',
+        'text-[11px] font-bold' => ! $rail,
+        'text-[11px] font-extrabold' => ! $rail && $active,
+        'text-sm font-semibold' => $rail,
     ])>{{ __($label) }}</span>
-    {{-- Der sr-only-Text steht NACH dem Label (Lesereihenfolge „Chat, ungelesene
-         Nachrichten"); das <a> trägt kein aria-label, der Kindtext kommt also an. --}}
-    @if ($unreadDot)
-        <template x-if="{{ $punkt }}">
-            <span class="sr-only">, {{ __('ungelesene Nachrichten') }}</span>
-        </template>
+    @if ($unreadDot && ! $rail)
+        {{-- ── P2 (Entwurf C): die Postfach-Pille des Artboards ──────────────────
+             18 px hoch, Pill-Radius, Orange mit DUNKLER Ziffer (#0b0b0c auf
+             #f7931a = 8,6:1). Die Zahl ist `postfach` — die Updates, die den
+             LESER adressieren: dieselbe Ebene, die laut Store-Doku das
+             Inbox-Icon der Befehlsleiste speist, ohne Template-Arithmetik über
+             Ebenen zu summieren (Hausregel: das Template liest, es rechnet
+             nicht). Raum-Ungelesene bleiben in den Raum-Zeilen sichtbar; eine
+             DM-Summe steht hier bewusst NICHT (D5).
+
+             Position wie Artboard: `top:4px; left:calc(50% + 6px)` — am TAB,
+             nicht am Icon, damit die Pille unabhängig von Icons und Label
+             immer dieselbe Ecke hat. Der sr-Text der Komponente nennt die
+             ECHTE Zahl (Lesereihenfolge „Postfach, 3 ungelesene Nachrichten";
+             das <a> trägt kein aria-label, der Kindtext kommt an). --}}
+        <span class="absolute left-[calc(50%+6px)] top-1 flex">
+            <x-group::unread-badge count="$store.unread?.postfach" :cap="9"
+                                   badgeClass="h-[18px]! min-w-[18px]! px-[5px]! text-[11px]! font-extrabold!" />
+        </span>
     @endif
 </a>

@@ -41,12 +41,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
          the surface flashes empty. --}}
     <div x-data="{ bereit: false, init() { this.bereit = true } }" class="page-enter">
 
-        <x-group::app-header :title="__('Start')" />
+        <x-group::app-header :title="__('Start')" :mark="false" />
 
         {{-- ── State 0: we do not know yet ──────────────────────────────────────────
              Two placeholder lines at the height of the greeting. No guessing: neither
              "welcome back" nor "please sign in" stands here until the store answers. --}}
-        <div x-show="!bereit" class="surface-card mb-6 p-4" aria-busy="true">
+        <div x-show="!bereit" class="surface-card mb-4 p-4" aria-busy="true">
             <div class="skeleton h-4 w-40"></div>
             <div class="skeleton mt-2 h-3 w-64"></div>
         </div>
@@ -55,7 +55,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              The public tiles below navigate, the gated ones open the login sheet. That is
              why an invitation stands here and not a barrier. --}}
         <template x-if="bereit && !$store.authGate?.authed">
-            <div class="surface-card mb-6 p-4">
+            <div class="surface-card mb-4 p-4">
                 <flux:heading size="lg">{{ __('Willkommen bei EINUNDZWANZIG') }}</flux:heading>
                 <flux:text class="mt-1 text-sm text-muted">
                     {{ __('Artikel und Meetups kannst du ohne Anmeldung lesen. Für Chat, Wallet und dein Postfach brauchst du deinen Nostr-Schlüssel.') }}
@@ -63,8 +63,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="mt-3">
                     {{-- Through the store and not straight to the login view: the sheet
                          (P6) intercepts the same event and keeps the user on the page. The
-                         way back is Start, so exactly this address. --}}
-                    <flux:button size="sm" variant="primary" icon="key" data-start-anmelden
+                         way back is Start, so exactly this address.
+
+                         P2 (Entwurf C §2 `.btn.pri`): primärer Button = Orange mit
+                         DUNKLER Schrift (#0b0b0c auf #f7931a = 8,6:1), 15 px/800,
+                         44 px hoch. Geometrie-Klassen mit `!` — flux:button bringt
+                         eigene Größen mit, und zwei höhen-/text-Klassen entscheiden
+                         im built Bundle, nicht im Markup. --}}
+                    <flux:button variant="primary" icon="key" data-start-anmelden
+                                 class="h-11! px-4! text-[15px]! font-extrabold!"
                                  x-on:click="$store.authGate.requireAuth({ label: @js(__('Start')), returnUrl: '/start' })">
                         {{ __('Anmelden') }}
                     </flux:button>
@@ -115,30 +122,34 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
              `x-show` on the section and not `<template x-if>`: the island IS what resolves the
              address, so it has to boot before there is anything to gate on. --}}
-        <section class="mb-6" x-data="nostrNaechsterTermin" x-show="address" x-cloak
+        <section class="mb-4" x-data="nostrNaechsterTermin" x-show="address" x-cloak
                  aria-labelledby="start-naechster-termin" data-start-naechster-termin>
-            <h2 id="start-naechster-termin" class="mb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+            {{-- P2 (Entwurf C §2 `.lbl`): Sektionslabel 12 px/700/uppercase/0.08em in
+                 fg-muted — text-muted trägt im Dunkeln genau #a3a3a3 (7,2:1 auf surface). --}}
+            <h2 id="start-naechster-termin" class="mb-2 text-xs font-bold uppercase tracking-[0.08em] text-muted">
                 {{ __('Dein nächster Termin') }}
             </h2>
 
-            <div class="surface-card flex flex-col">
+            <div class="surface-card overflow-hidden">
+                {{-- P2 (Entwurf C §2 `.lrow`): Kartenzeile min-height 56 px, Hairline
+                     #242427 zwischen den Zeilen, Titel 15/800, Untertitel 13 muted,
+                     Icon 22 px Orange (sw-18) — das Icon ist BARE, keine Kachel:
+                     so zeichnet das Artboard die Ereignis-Zeilen. --}}
                 <a x-bind:href="href" wire:navigate data-start-termin-link
-                   class="pressable flex items-center gap-3 p-4 text-start">
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-400">
-                        <flux:icon.calendar-days class="size-5" />
-                    </span>
+                   class="pressable flex min-h-14 items-center gap-3 px-4 py-2.5 text-start">
+                    <flux:icon.calendar-days class="size-[22px] shrink-0 text-accent sw-18" />
                     <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span class="truncate font-medium" x-text="name"></span>
+                        <span class="truncate text-[15px] font-extrabold" x-text="name"></span>
                         {{-- The date comes out of the index as `Y-m-d H:i` and is formatted in
                              the ISLAND (`formatTimestamp`), so it reads like every other date in
                              this client instead of like a database column — and so the format
                              follows the active language without a second table in Blade. --}}
-                        <span class="truncate text-sm text-muted"
+                        <span class="truncate text-[13px] text-muted"
                               x-text="dateLabel + (location ? ' · ' + location : '')"></span>
                     </span>
                     <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
                 </a>
-                <div class="px-4 pb-3">
+                <div class="border-t border-zinc-200/60 px-4 pb-3 pt-2 dark:border-border">
                     <x-group::rsvp-termin kompakt ausdruck="address" />
                 </div>
             </div>
@@ -157,13 +168,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
              `limit = 3` via `x-init`: the preview shows three rows, the full list is one
              tap away. --}}
         <template x-if="bereit && $store.authGate?.authed">
-            <section class="mb-6" aria-labelledby="start-postfach">
+            <section class="mb-4" aria-labelledby="start-postfach">
                 <div class="mb-2 flex items-center justify-between gap-3">
-                    <h2 id="start-postfach" class="text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+                    <h2 id="start-postfach" class="text-xs font-bold uppercase tracking-[0.08em] text-muted">
                         {{ __('Postfach') }}
                     </h2>
+                    {{-- P2 (Entwurf C §3): Aktions-Verknüpfung rechts neben dem Label —
+                         Link-Stufe #fda537 (9,9:1 auf bg), Hover hellt auf #ffc170. --}}
                     <a href="{{ route('group.postfach') }}" wire:navigate data-start-postfach
-                       class="pressable rounded-tile px-1.5 py-1 text-sm font-medium text-accent">
+                       class="pressable rounded-pill px-1.5 py-1 text-sm font-medium text-accent-link transition-colors hover:text-accent-hover">
                         {{ __('Alles ansehen') }}
                     </a>
                 </div>
@@ -172,18 +185,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
                     {{-- Due reminders first: they have a deadline, the notices below do
                          not. The same store as in the Postfach — two islands would be two
-                         truths about "is that one done already?". --}}
+                         truths about "is that one done already?".
+
+                         P2 (Entwurf C §2 `.lrow`): Zeilen min-h 56, Hairline #242427
+                         (dark:border-border), Titel 15/800, Untertitel 13, Uhrzeit 12. --}}
                     <div x-data="{
                              init() { $store.reminders?.mount() },
                              destroy() { $store.reminders?.unmount() },
                          }">
                         <template x-for="row in ($store.reminders?.due ?? []).slice(0, 2)" :key="row.d">
                             <a :href="row.href || @js(route('group.postfach'))" wire:navigate
-                               class="pressable flex items-start gap-3 border-b border-zinc-200/60 px-4 py-3 text-left transition-colors hover:bg-brand-500/5 dark:border-zinc-800/60">
-                                <flux:icon.clock class="mt-0.5 size-5 shrink-0 text-muted" />
+                               class="pressable flex min-h-14 items-center gap-3 border-b border-zinc-200/60 px-4 py-2.5 text-left transition-colors hover:bg-brand-500/5 dark:border-border">
+                                <flux:icon.clock class="size-[22px] shrink-0 text-accent sw-18" />
                                 <span class="min-w-0 flex-1">
-                                    <span class="block truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="row.preview || row.note"></span>
-                                    <span class="mt-1 block text-xs text-muted" x-text="row.timeLabel"></span>
+                                    <span class="block truncate text-[15px] font-extrabold" x-text="row.preview || row.note"></span>
+                                    <span class="mt-0.5 block text-[13px] text-muted" x-text="row.timeLabel"></span>
                                 </span>
                             </a>
                         </template>
@@ -196,14 +212,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          preview, not of the updates surface. --}}
                     <template x-for="item in items.filter(function (i) { return i.type !== 'message' }).slice(0, 3)" :key="item.key">
                         <button type="button" x-on:click="open(item)" :aria-label="labelFor(item)" :disabled="item.orphan"
-                                class="pressable flex w-full items-start gap-3 border-b border-zinc-200/60 px-4 py-3 text-left transition-colors hover:bg-brand-500/5 disabled:cursor-default disabled:opacity-60 dark:border-zinc-800/60">
+                                class="pressable flex min-h-14 w-full items-center gap-3 border-b border-zinc-200/60 px-4 py-2.5 text-left transition-colors hover:bg-brand-500/5 disabled:cursor-default disabled:opacity-60 dark:border-border">
                             <span class="shrink-0">
-                                <x-group::nostr-avatar picture="item.picture" name="item.authorName" size="2.25rem" />
+                                <x-group::nostr-avatar picture="item.picture" name="item.authorName" size="2.125rem" />
                             </span>
                             <span class="min-w-0 flex-1">
-                                <span class="block truncate text-sm text-zinc-900 dark:text-zinc-100"
-                                      :class="item.unread ? 'font-bold' : 'font-semibold'" x-text="item.title"></span>
-                                <span class="mt-1 block truncate text-sm text-muted" x-text="item.snippet"></span>
+                                <span class="block truncate text-[15px]"
+                                      :class="item.unread ? 'font-extrabold' : 'font-bold'" x-text="item.title"></span>
+                                <span class="mt-0.5 block truncate text-[13px] text-muted" x-text="item.snippet"></span>
                             </span>
                         </button>
                     </template>
@@ -218,7 +234,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     {{-- The neutral row for the encrypted conversations (D5): it leads
                          there, it counts nothing and it shows nothing. --}}
                     <a href="{{ route('group.postfach', ['ansicht' => 'direkt']) }}" wire:navigate data-start-direkt
-                       class="pressable flex items-center gap-3 px-4 py-3 text-sm font-medium text-muted transition-colors hover:bg-brand-500/5 hover:text-zinc-900 dark:hover:text-zinc-100">
+                       class="pressable flex min-h-14 items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-brand-500/5 hover:text-zinc-900 dark:hover:text-zinc-100">
                         <flux:icon.lock-closed variant="micro" class="size-4 shrink-0" />
                         <span>{{ __('Verschlüsselte Nachrichten öffnen') }}</span>
                     </a>
@@ -253,11 +269,17 @@ new #[Layout('group::einundzwanzig')] class extends Component
             'verein' => __('Verein'),
         ])
         <section aria-labelledby="start-bereiche">
-            <h2 id="start-bereiche" class="mb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+            <h2 id="start-bereiche" class="mb-2 text-xs font-bold uppercase tracking-[0.08em] text-muted">
                 {{ __('Alle Bereiche') }}
             </h2>
 
-            <div class="grid grid-cols-2 gap-2 sm:grid-cols-3" data-start-bereiche>
+            {{-- P2 (Entwurf C `screen-mobileweb`): 4-Spalten-Kachelraster, Gap 8.
+                 Jede Kachel: Card-Fläche (#161617, border-card, Radius 14) mit
+                 44×44-Icon-Kachel darin (surface-2 #1f1f22, border-chip #2f2f33,
+                 Radius 12) und 13-px-Label darunter. Icons Orange, Stroke 1.8
+                 (`sw-18`). min-h 84 wie das Artboard. Die Desktop-Spaltenzahl
+                 gehört P3/P4 — hier steht das Mobile-Maß. --}}
+            <div class="grid grid-cols-4 gap-2" data-start-bereiche>
                 @foreach (config('group.areas', []) as $bereich)
                     @php($schluessel = $bereich['requires'] ?? null)
                     @continue($schluessel !== null && blank(config('group.'.$schluessel)))
@@ -271,12 +293,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                            x-on:mousedown.capture="$store.authGate.gateTap($event, { label: @js($label), returnUrl: $el.pathname + $el.search })"
                            x-on:keydown.enter.capture="$store.authGate.gateTap($event, { label: @js($label), returnUrl: $el.pathname + $el.search })"
                        @endif
-                       class="pressable surface-card flex min-h-24 flex-col items-start justify-between gap-2 p-3 transition-colors hover:bg-brand-500/5">
-                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
-                            <flux:icon :name="$bereich['icon']" class="size-5" />
+                       class="pressable surface-card flex min-h-[84px] flex-col items-start gap-2 p-3 transition-colors hover:bg-brand-500/5">
+                        <span class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-200 bg-zinc-100 dark:border-border-chip dark:bg-zinc-800">
+                            <flux:icon :name="$bereich['icon']" class="size-[22px] text-accent sw-18" />
                         </span>
                         <span class="flex min-w-0 items-center gap-1">
-                            <span class="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{{ $label }}</span>
+                            <span class="min-w-0 truncate text-[13px] font-bold text-zinc-900 dark:text-zinc-100">{{ $label }}</span>
                             @if ($bereich['route'] === null)
                                 {{-- Made visible, not only announced: whoever taps here
                                      leaves the client. The sr-only text stands next to it

@@ -80,11 +80,22 @@
      `aria-hidden` aus demselben Grund wie dort: der Avatar steckt an jeder Aufrufstelle
      in einem Knopf mit eigenem `aria-label`, das den Kindtext ohnehin überschreibt. Der
      `title` ist für die Maus, nicht für die Sprachausgabe. --}}
-@props(['picture', 'name', 'size' => '2rem', 'emoji' => null, 'presence' => null, 'lazy' => false])
+@props(['picture', 'name', 'size' => '2rem', 'emoji' => null, 'presence' => null, 'lazy' => false,
+    // P2 (Entwurf C §2 `.av`): optionale Einfärbung als Identitäts-Fläche des
+    // Headers. 'accent' = Orange #f7931a mit DUNKLEN Initialen (#0b0b0c,
+    // 8,6:1) und 13 px/800 — die Avatar-Form des Artboards. Nur opt-in: alle
+    // anderen Aufrufstellen (Chat-Zeilen, Verzeichnis) behalten die stille
+    // Tint-Fläche, denn dort ist der Avatar Inhalt, nicht Steuerfläche.
+    'tone' => null,
+])
 <span class="relative inline-flex shrink-0" style="width: {{ $size }}; height: {{ $size }};">
     <span x-data="{ imgOrig: false, imgBroken: false, needsAuth: false, authSrc: '' }"
           x-effect="$blossomBind($data, {{ $picture }})"
-          class="relative inline-flex size-full items-center justify-center overflow-hidden rounded-full bg-brand-500/10 text-xs font-semibold uppercase text-brand-900 dark:text-brand-300">
+          @class([
+              'relative inline-flex size-full items-center justify-center overflow-hidden rounded-full',
+              'bg-brand-500/10 text-xs font-semibold uppercase text-brand-900 dark:text-brand-300' => $tone !== 'accent',
+              'bg-accent text-[13px] font-extrabold uppercase text-on-accent' => $tone === 'accent',
+          ])>
         <span x-text="((({{ $name }}) || '?').trim()[0]) || '?'"></span>
         <template x-if="({{ $picture }}) && !imgBroken && (!needsAuth || authSrc)">
             <img alt="" class="absolute inset-0 size-full object-cover"

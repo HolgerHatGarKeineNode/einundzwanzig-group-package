@@ -299,9 +299,11 @@
 }
 
 /* Karten-Oberfläche: gemeinsame Surface aller Cards/Sections. Im Dark trägt
-   der Border die Abgrenzung (kein sichtbarer Schatten). */
+   der Border die Abgrenzung (kein sichtbarer Schatten). P2 (Entwurf C): die
+   Dunkel-Kante läuft auf dem border-card-Token (#2a2a2d) — zinc-800 ist durch
+   das Remap zur ICON-KACHEL-Fläche (#1f1f22) geworden und als Rahmen zu schwach. */
 @utility surface-card {
-    @apply rounded-card border border-zinc-200 bg-white shadow-card dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none;
+    @apply rounded-card border border-zinc-200 bg-white shadow-card dark:border-border-card dark:bg-zinc-900 dark:shadow-none;
 }
 
 /* Touch-Ziel ≥ 44px (WCAG 2.5.5) nur auf grobem Pointer — Desktop-Maus bleibt

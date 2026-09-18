@@ -62,6 +62,6 @@
        'pressable flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5',
        'xl:hidden' => $stepsAside,
    ]) }}>
-    <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem"
+    <x-group::nostr-avatar picture="myPicture" name="myName" size="2.25rem" tone="accent"
                            presence="$store.presence?.mine" />
 </a>

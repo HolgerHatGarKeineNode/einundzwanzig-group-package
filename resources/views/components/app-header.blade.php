@@ -11,6 +11,13 @@
     // (Und: eine Blade-Direktive gehört nicht einmal in einen Kommentar — Blade
     // kompiliert sie auch dort, was hier 33 Tests mit einem ParseError gekippt hat.)
     'backClass' => '',
+    // P2 (Entwurf C `screen-mobileweb`): die Marke vorn WEGlassen, wenn der
+    // Screen-Titel selbst der Anker ist — auf Start steht „Start" als H1 und
+    // der Avatar rechts; eine Marke davor wäre eine zweite Aussage über
+    // denselben Ort. Alle anderen Screens (und jeder Fall mit back) zeigen
+    // die Marke weiter als dritte Wahl — bewacht in AppShellChassisTest über
+    // `/settings`.
+    'mark' => true,
 ])
 
 {{-- The one header of every core screen (Start/Bereich/Postfach/Ich).
@@ -28,7 +35,7 @@
      is exactly ONE shell in both hosts; there is no "back into the app" any more, because
      you never left it. An exit pointing at the same frame would be a claim about a border
      that no longer exists. --}}
-<header {{ $attributes->class('mb-6 flex items-center gap-3') }}>
+<header {{ $attributes->class('mb-2 flex items-center gap-3') }}>
     @if ($backExpr)
         {{-- JS-Rücksprung statt Navigate: für Vollbild-Takeover, die INNERHALB derselben
              Livewire-Seite auf-/zugehen (Thread-Ansicht). Kein href/wire:navigate — die
@@ -39,7 +46,7 @@
                      x-ref="threadClose" :class="$backClass" aria-label="{{ __('Zurück') }}" />
     @elseif ($back)
         <flux:button variant="ghost" size="sm" icon="arrow-left" :href="$back" wire:navigate aria-label="{{ __('Zurück') }}" />
-    @else
+    @elseif ($mark)
         <a href="{{ route(config('group.start_route', 'group.start')) }}" wire:navigate aria-label="{{ __('Startseite') }}" class="pressable shrink-0">
             <x-group::app-brand-mark class="size-9" />
         </a>
@@ -51,11 +58,17 @@
 
     <div class="min-w-0 flex-1">
         {{-- `titleExpr` (Alpine-Ausdruck aus umschließendem Scope) überschreibt den
-             SSR-Titel nach Alpine-Init; `{{ $title }}` bleibt Fallback vor dem Hydrate. --}}
+             SSR-Titel nach Alpine-Init; `{{ $title }}` bleibt Fallback vor dem Hydrate.
+
+             P2 (Entwurf C §4 `h1-app`): der Screen-Titel ist 28 px / 800 / −0.01em
+             Tracking — Hierarchie über GEWICHT (Inconsolata 800, mit P1 im Bundle),
+             nicht über eine zweite Familie. Ein nacktes <h1> statt flux:heading:
+             der Stub setzt IMMER eine eigene text-*-Größe (default text-sm), und
+             zwei font-size-Klassen entscheiden im built Bundle, nicht im Markup. --}}
         @if ($titleExpr)
-            <flux:heading level="1" size="xl" class="truncate" x-text="{{ $titleExpr }}">{{ $title }}</flux:heading>
+            <h1 class="truncate text-[1.75rem] font-extrabold leading-none tracking-[-0.01em]" x-text="{{ $titleExpr }}">{{ $title }}</h1>
         @else
-            <flux:heading level="1" size="xl" class="truncate">{{ $title }}</flux:heading>
+            <h1 class="truncate text-[1.75rem] font-extrabold leading-none tracking-[-0.01em]">{{ $title }}</h1>
         @endif
         @isset($subtitle)
             {{ $subtitle }}
