@@ -17,7 +17,13 @@
                  seinen eigenen. Ohne diesen Rahmen ging die private URL an
                  `$img(...)`, also an den serverseitigen Bild-Proxy: genau der Weg,
                  der hier ausdrücklich nicht gegangen werden soll. --}}
-            <div class="relative h-28 bg-surface-2"
+            {{-- LP2 (Light-Folgeplan, D1-Nebenfund): `bg-surface-2` (#1f1f22) ist ein
+                 Dark-Wert und stand hier unscoped — das Banner wurde im Light ein
+                 dunkler Streifen. Der Light-Zweig ist der Vorkriegs-Brand-Gradient;
+                 `dark:bg-none` nimmt das Bild im Dunkeln wieder weg, sodass das
+                 Dark-Design (flaches surface-2, Referenz des Hauptplans) exakt
+                 erhalten bleibt. --}}
+            <div class="relative h-28 bg-gradient-to-br from-brand-500/30 via-brand-500/10 to-transparent dark:bg-none dark:bg-surface-2"
                  x-data="{ imgOrig: false, imgBroken: false, needsAuth: false, authSrc: '' }"
                  x-effect="$blossomBind($data, banner)">
                 <template x-if="banner && !imgBroken && (!needsAuth || authSrc)">

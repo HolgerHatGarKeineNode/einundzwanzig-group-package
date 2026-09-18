@@ -64,7 +64,14 @@
         'min-h-9 items-center gap-2.5 rounded-tile px-2' => $rail,
         'transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800' => $rail,
         'text-brand-800 dark:text-brand-400' => $active,
-        'text-zinc-600 active:text-zinc-800 dark:text-zinc-400 dark:active:text-zinc-200' => ! $active,
+        {{-- LP2 (Light-Folgeplan, D2): `text-zinc-600` war der Light-Sekundärtext,
+             bis der P1-Remap zinc-600 zum dunklen Entwurfs-Neutral machte
+             (#3a3a3e, gemessen am inaktiven „Postfach" — Hierarchiebruch, nicht
+             Kontrastbruch). `text-muted` ist der Haus-Token für genau diese
+             Rolle und trägt JEDES Theme von selbst: #525252 hell (7,49:1 auf
+             zinc-50), zinc-400 dunkel — der dunkle Zweig ist hiermit wertzgleich
+             mit dem alten `dark:text-zinc-400`, der pressed-Zustand bleibt. --}}
+        'text-muted active:text-zinc-800 dark:active:text-zinc-200' => ! $active,
     ])
 >
     @if ($active && $rail)

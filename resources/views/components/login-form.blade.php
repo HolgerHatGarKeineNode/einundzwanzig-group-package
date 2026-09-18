@@ -30,7 +30,7 @@
             <div class="surface-card empty-state p-6 text-center">
                 <flux:icon.check-badge variant="solid" class="mx-auto size-10 text-brand-500" />
                 <flux:heading size="lg" class="mt-3" x-text="reauthing ? @js(__('Anmeldung wird wiederhergestellt…')) : @js(__('Angemeldet'))"></flux:heading>
-                <div class="mt-2 rounded-tile bg-zinc-100 p-2 font-mono text-xs break-all text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" x-text="npub"></div>
+                <div class="mt-2 rounded-tile bg-zinc-100 p-2 font-mono text-xs break-all text-muted dark:bg-zinc-800 dark:text-zinc-400" x-text="npub"></div>
                 {{-- Auto-Reauth (NIP-98-Handoff) fehlgeschlagen → Grund zeigen. --}}
                 <flux:text x-show="error" x-cloak class="mt-3 text-sm text-red-500" x-text="error"></flux:text>
                 <flux:button variant="ghost" class="mt-4" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>

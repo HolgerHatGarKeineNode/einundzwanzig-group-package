@@ -158,7 +158,7 @@
                  (Begründung dort; der Balken ist mit dem Wash gefallen). --}}
             class="pressable group relative flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-start text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
             x-bind:class="node.id === activeTargetId
-                ? 'bg-accent-wash font-extrabold text-accent'
+                ? 'bg-accent-wash font-extrabold text-brand-800 dark:text-accent'
                 : (node.kind === 'project' || node.kind === 'forums'
                     ? 'font-semibold text-muted'
                     : ((node.kind === 'room' || node.kind === 'forum') && isMuted(node.room)

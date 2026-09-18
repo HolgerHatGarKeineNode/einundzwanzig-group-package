@@ -79,7 +79,7 @@
             </flux:text>
 
             <div class="mx-auto mt-4 max-w-xs rounded-tile bg-brand-500/10 px-4 py-3">
-                <flux:text class="text-sm text-zinc-600 dark:text-zinc-300">
+                <flux:text class="text-sm text-muted dark:text-zinc-300">
                     {{ __('Eine Mitgliedschaft schaltet') }} <span class="font-semibold">{{ __('automatisch') }}</span> {{ __('den Zugang zu diesem Space und Relay frei.') }}
                 </flux:text>
             </div>

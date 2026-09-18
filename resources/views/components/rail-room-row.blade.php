@@ -126,10 +126,10 @@
              beide ≥7:1 auf dem Rail-Grund. --}}
         class="pressable group relative flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-start text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
         x-bind:class="room.h === activeRoomH
-            ? 'bg-accent-wash font-extrabold text-accent'
+            ? 'bg-accent-wash font-extrabold text-brand-800 dark:text-accent'
             : (isMuted(room)
                 ? 'font-normal text-muted'
-                : (room.joined ? 'font-medium text-zinc-300' : 'font-normal text-muted'))">
+                : (room.joined ? 'font-medium text-zinc-800 dark:text-zinc-300' : 'font-normal text-muted'))">
 
     {{-- Logo-Box: 20px, immer dieselbe Geometrie. Räume OHNE Bild zeigen exakt das
          `#` von vorher — kein getönter Chip, keine neue Form. Nur Räume MIT Bild

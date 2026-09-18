@@ -220,8 +220,11 @@
 
                   Der AKTIVE Zustand hängt am Pfad wie der aktive Raum (`roomHFromPath`
                   liest die URL, weil `wire:navigate` Alpine neu aufbaut, die Adressleiste
-                  nicht): Fläche im accent-wash, Text in Orange, Gewicht 800 — Farbe, Fläche
-                  UND Gewicht, nie Farbe allein (WCAG 1.4.1). Farbe und Gewicht stehen im
+                  nicht): Fläche im accent-wash, Gewicht 800 — Farbe, Fläche
+                  UND Gewicht, nie Farbe allein (WCAG 1.4.1). Der Aktivtext ist
+                  je Theme der lesbare Orangeton: brand-800 im Light (6,09:1 auf
+                  brand-50), Orange #f7931a im Dark (7,44:1 auf #241a0d). Farbe
+                  und Gewicht stehen im
                   x-bind und nicht in der Basis: eine Basis-`text-*` davor verlöre gegen die
                   gebundene Farbe je nach Build-Reihenfolge — dieselbe Falle, die
                   `rail-room-row` für die Mitgliedschaftsstufen dokumentiert. --}}
@@ -230,7 +233,7 @@
                x-bind:aria-current="window.location.pathname === @js($startPfad) ? 'page' : null"
                class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 xl:min-h-11 xl:rounded-btn dark:hover:bg-zinc-800"
                x-bind:class="window.location.pathname === @js($startPfad)
-                   ? 'bg-accent-wash font-extrabold text-accent'
+                   ? 'bg-accent-wash font-extrabold text-brand-800 dark:text-accent'
                    : 'font-medium text-zinc-900 dark:text-zinc-100'">
                 <flux:icon.home variant="micro" class="sw-18 size-5 shrink-0" />
                 <span>{{ __('Start') }}</span>

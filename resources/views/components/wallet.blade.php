@@ -53,8 +53,11 @@
 
         {{-- ============ VERBUNDEN: Hero-Balance ============ --}}
         <div x-show="connected" x-cloak class="space-y-4 page-enter">
-            {{-- Hero-Balance-Karte: Guthaben groß, Brand-Glow. --}}
-            <div class="relative overflow-hidden rounded-card bg-accent-wash p-6 shadow-card ring-1 ring-border-chip">
+            {{-- Hero-Balance-Karte: Guthaben groß, Brand-Glow.
+                 LP2 (Light-Folgeplan, D1-Nebenfund): `bg-accent-wash` trägt jetzt
+                 jedes Theme (Light brand-50); die `ring-border-chip`-Kante ist ein
+                 Dark-Wert — im Light steht die Vorkriegs-Brand-Kante (ring-brand-500/20). --}}
+            <div class="relative overflow-hidden rounded-card bg-accent-wash p-6 shadow-card ring-1 ring-brand-500/20 dark:ring-border-chip">
                 <div class="flex items-start justify-between">
                     <div class="flex items-center gap-2 text-sm font-medium text-brand-800 dark:text-brand-400">
                         <flux:icon.bolt variant="solid" class="size-4" />
