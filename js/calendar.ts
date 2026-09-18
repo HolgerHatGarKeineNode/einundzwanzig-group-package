@@ -40,12 +40,12 @@
  * two it is showing — {@link MeetupEventState.source} is rendered, not just tracked.
  */
 import { get } from 'svelte/store'
-import { makeEvent, type Filter, type TrustedEvent } from '@welshman/util'
+import { type Filter, type TrustedEvent } from '@welshman/util'
 import { CALENDAR_EVENT, CALENDAR_RSVP } from './welshmanKinds.ts'
 import { leseRelayListeNachsichtig } from './articleMetrics.ts'
 import { load } from './welshmanNet.ts'
 import { deriveEventsForUrls } from './repository.ts'
-import { publishSpreadOptimistic } from './publishOptimistic.ts'
+import { publishRsvp } from './rsvpPublish.ts'
 import { activeSpace, makeRoomId, roomsById } from './groups.ts'
 import { parseMeetupTags } from './meetupPresentation.ts'
 import { parseAboutMarker } from './roomAbout.ts'
@@ -55,9 +55,10 @@ import { formatTimestamp } from './locale.ts'
 import { t } from './i18n.ts'
 import {
     countRsvps,
+    isCancelledCalendarEvent,
     keepOwnAuthors,
-    makeRsvpTags,
     meetupCalendarAddress,
+    ownRsvpAt,
     ownRsvpStatus,
     pickNextCalendarEvent,
     readCalendarEvent,
@@ -429,7 +430,20 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
             this.location = fields.location
             this.attending = countRsvps(this._rsvps, this._address).accepted
             this.myStatus = ownRsvpStatus(this._rsvps, this._address, get(pubkey))
-            this.canRsvp = Boolean(get(pubkey))
+            /*
+             * A CALLED-OFF date stays on the card and loses its buttons (P5).
+             *
+             * Hiding it instead would be the worse half of the same decision: whoever
+             * planned to go needs to see that it is off, and the portal marks exactly that
+             * — `["status","canceled"]` plus the `CANCELLED: ` prefix in the title, which is
+             * already rendered above. What must not survive is the ANSWER: an RSVP to a
+             * meetup that is not happening is public, permanent and cannot be taken back.
+             * Through the shared READING (`calendarModels.isCancelledCalendarEvent`), so that
+             * this surface and the Portal surfaces cannot drift on the spelling of the tag —
+             * and out of `calendarModels.ts` rather than out of the policy module, which is
+             * loaded only where an answer is possible (bundle latch).
+             */
+            this.canRsvp = Boolean(get(pubkey)) && !isCancelledCalendarEvent(event)
 
             return
         }
@@ -489,9 +503,22 @@ const createMeetupEvent = (h: unknown): MeetupEventState => ({
         this.error = ''
         this.partial = null
         try {
-            const outcome = await publishSpreadOptimistic(
-                CALENDAR_RELAYS,
-                makeEvent(CALENDAR_RSVP, { tags: makeRsvpTags(event, status) }),
+            /*
+             * P5: the answer goes to the calendar relays AND to the user's own NIP-65 write
+             * relays (`rsvpPublish.rsvpRelayTargets`). The first half is where the portal's
+             * ingest looks for it; the second is where the person's own statements live —
+             * their other client finds it there, and so does anybody who follows them.
+             * Before P5 only the first half was written, so „I was there" existed only on
+             * two relays the user never chose.
+             */
+            /*
+             * The fifth argument is the `created_at` of the answer being replaced. Without
+             * it a changed answer inside the same second ties with the previous one and the
+             * id hash decides which survives — measured in P5's E2E run (`rsvpCreatedAt`).
+             */
+            const outcome = await publishRsvp(
+                CALENDAR_RELAYS, get(pubkey) ?? '', event, status,
+                ownRsvpAt(this._rsvps, this._address, get(pubkey)),
             )
             if (outcome.delivered.length === 0) {
                 this.error = outcome.error

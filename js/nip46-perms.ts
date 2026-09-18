@@ -84,6 +84,17 @@
  *   publiziert; die Berechtigung stand schon vorher hier, weil welshman die Rechte einer
  *   bestehenden NIP-46-Verbindung nie nachverhandelt (siehe nip46PermsAreStale) — sonst
  *   bekämen alle vor P6 gekoppelten Signer den Prompt beim ersten Quittieren.
+ *   Since „Ein Eingang" P3 the same kind also carries the personal PIN LIST
+ *   (`d = einundzwanzig/pins`, pinSetSync.ts) — one kind, two payloads, one permission.
+ * - 31925 CALENDAR_RSVP — the NIP-52 answer to a Portal date (calendar.ts `rsvp`,
+ *   rsvpTermine.ts `rsvp`; the rule in rsvpRule.ts). **The ONLY permission this client
+ *   gained in phase „Ein Eingang" P5**, and that is a promise rather than an observation:
+ *   every change to this list marks EVERY existing bunker pairing as stale
+ *   (`nip46PermsAreStale` → reconnect nudge), and two changes in one release would be two
+ *   nudges for the same user. **31923/31924 are deliberately NOT here:** dates and
+ *   calendars are published by the Portal and this client only reads them — a permission
+ *   for a kind we never sign would be a false entry in a list whose evidence is expressly
+ *   the call site.
  */
 export const NIP46_PERMS = [
     'nip44_encrypt',
@@ -123,6 +134,7 @@ export const NIP46_PERMS = [
     'sign_event:28936',
     'sign_event:30078',
     'sign_event:30300',
+    'sign_event:31925',
     'sign_event:41010',
     'sign_event:41011',
     'sign_event:41012',

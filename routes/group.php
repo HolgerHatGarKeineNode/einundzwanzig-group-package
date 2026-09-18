@@ -155,11 +155,13 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
          */
         Route::livewire('/ich/lesezeichen', 'group::bookmarks')->name('ich.lesezeichen');
         /*
-         * Ich › Verein (D11). P2 shows the existing join flow here; status, contribution
-         * year and receipts arrive with P5 through the signed app proxy resp. the session
-         * proxy.
+         * Ich › Verein (D11). P2 showed the JOIN FLOW here as its interim state; since P5 this
+         * is its own page — membership status, contribution year and receipts, read through the
+         * session proxy on the web and through the signed app proxy in the app (P1 built it).
+         * The flow keeps its own address (`/verein/beitritt`) and is reached from here: this
+         * page answers „where do I stand?", the flow answers „how do I get in?".
          */
-        Route::livewire('/ich/verein', 'group::verein')->name('ich.verein');
+        Route::livewire('/ich/verein', 'group::ich-verein')->name('ich.verein');
 
         /*
          * Ein Repository, adressiert über `naddr` (NIP-19) — nicht über die

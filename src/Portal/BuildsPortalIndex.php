@@ -66,6 +66,17 @@ trait BuildsPortalIndex
                     title: $event->meetupName,
                     subtitle: trim(($event->location ?? '') !== '' ? (string) $event->location : $event->meetupCity, ' ·'),
                     date: $event->start->format('Y-m-d H:i'),
+                    /*
+                     * The coordinate the palette action „Zusagen" answers (P5) — and ONLY
+                     * where this client may answer at all. The two flags are applied here
+                     * rather than in the browser, because a row without an address produces
+                     * no RSVP row in the first place: the palette then never shows an
+                     * action for a meetup that switched RSVP off, instead of showing one
+                     * and refusing it on Enter.
+                     */
+                    address: $event->rsvpEnabled && $event->attendeesPublic
+                        ? (string) ($event->nostrAddress ?? '')
+                        : '',
                 );
             }
         }

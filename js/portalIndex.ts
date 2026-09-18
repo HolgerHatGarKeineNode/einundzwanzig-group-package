@@ -38,7 +38,8 @@ export const PORTAL_KINDS: readonly PortalKind[] = ['meetup', 'event', 'course',
 
 /**
  * One index row. The keys are SHORT because the payload is the cost of the feature:
- * `t`ype, `r`eference (slug resp. numeric id), `n`ame, `s`ubtitle, `d`ate (`Y-m-d H:i`).
+ * `t`ype, `r`eference (slug resp. numeric id), `n`ame, `s`ubtitle, `d`ate (`Y-m-d H:i`),
+ * `a`ddress (the 31923 coordinate of a date this client may answer — P5).
  * Named once here and nowhere else.
  */
 export type PortalIndexRow = {
@@ -47,6 +48,12 @@ export type PortalIndexRow = {
     n: string
     s: string
     d: string
+    /**
+     * '' for every row that carries no answerable date: the three other kinds, a date
+     * without a `nostr_address`, and a date whose meetup switched RSVP off or keeps its
+     * attendance private (the server already applies both — `BuildsPortalIndex`).
+     */
+    a: string
 }
 
 /** What the endpoint answers. `status` is the catalog's, not the browser's. */
@@ -97,6 +104,9 @@ export const parsePortalIndex = (payload: unknown): PortalIndex | null => {
             n: r.n,
             s: typeof r.s === 'string' ? r.s : '',
             d: typeof r.d === 'string' ? r.d : '',
+            // Absent on most rows by design (`PortalHit::toIndexRow`), so the fallback is
+            // the ordinary case here and not a defect.
+            a: typeof r.a === 'string' ? r.a : '',
         })
     }
 
@@ -180,6 +190,60 @@ export const portalHref = (row: PortalIndexRow): string => {
 
 /** The right-aligned hint of a row: the date if it has one, otherwise its subtitle. */
 export const portalHint = (row: PortalIndexRow): string => (row.d !== '' ? row.d : row.s)
+
+/**
+ * The dates somebody can say yes to right now (P5) — the rows behind the palette action
+ * „Zusagen" and behind the next-date row on Start.
+ *
+ * Three conditions, and the first two are the whole point:
+ *  · `a !== ''` — the Portal published a 31923 for this date AND the meetup allows an
+ *    answer. Applied on the SERVER (`BuildsPortalIndex`), so a row that reaches here is
+ *    answerable in principle; whether the relays actually hold the event is decided by
+ *    `rsvpRule.decideRsvpOffer` at the moment of the answer.
+ *  · the meetup is one of `slugs` — the user's own: his pinned meetups and the meetups of
+ *    the rooms he joined. Without that narrowing this would be „the next 650 dates of the
+ *    whole association", which is a list nobody acts on.
+ *  · the date has not started. `nowKey` is `Y-m-d H:i` and compared AS A STRING: that
+ *    format sorts lexicographically exactly like chronologically, and the index already
+ *    relies on it (`byDateThenName`).
+ *
+ * Deliberately no fallback to „all meetups" when `slugs` is empty: an empty list is the
+ * honest answer for somebody who has pinned nothing and joined nothing, and the surface
+ * says so. Filling it with strangers' meetups would invite a public, permanent answer to a
+ * date the user has no relation to.
+ */
+export const answerableDates = (
+    rows: readonly PortalIndexRow[],
+    slugs: readonly string[],
+    nowKey: string,
+    limit = PORTAL_SECTION_LIMIT,
+): PortalIndexRow[] => {
+    if (slugs.length === 0) {
+        return []
+    }
+    const wanted = new Set(slugs)
+    const hits = rows.filter(
+        (row) => row.t === 'event' && row.a !== '' && row.d >= nowKey && wanted.has(row.r),
+    )
+    hits.sort(byDateThenName)
+
+    return hits.slice(0, limit)
+}
+
+/**
+ * „Now" in the index' own date format (`Y-m-d H:i`), in LOCAL time.
+ *
+ * Local, because that is what the Portal puts into the payload — its dates are wall-clock
+ * strings without a zone, and comparing them against a UTC stamp would shift every
+ * boundary by the reader's offset. One hour of imprecision at the boundary is the price of
+ * a string comparison over 650 rows per keystroke; a date that started 40 minutes ago is
+ * still one somebody is on their way to.
+ */
+export const nowIndexKey = (at: Date = new Date()): string => {
+    const pad = (value: number): string => String(value).padStart(2, '0')
+
+    return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+}
 
 // ── The one load per session ────────────────────────────────────────────────────
 

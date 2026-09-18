@@ -59,6 +59,8 @@ import { wireMutes } from './mutes.ts'
 import { wireFollows } from './follows.ts'
 import { wireReminders } from './reminders.ts'
 import { wirePinSet } from './pinSetSync.ts'
+import { wireRsvpTermine } from './rsvpTermine.ts'
+import { wireMitgliedschaft } from './mitgliedschaft.ts'
 import { wirePresence } from './presence.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
@@ -1956,6 +1958,49 @@ export function registerNostrComponents(Alpine: {
     // chat island; the card mounts itself from the markup with the room's `h`.
     // Reasoning in the header of `calendar.ts`, the rules in `calendarModels.ts`.
     wireMeetupEvent(Alpine)
+    /*
+     * P5 (D12) — saying yes to a Portal date from the read-only Portal surfaces. A STORE and
+     * not an island, and the reason is the Termine list: sixty dates on one screen would be
+     * sixty subscriptions and sixty REQs against a third-party relay. The rows register their
+     * coordinate, the store asks ONE query. Second reason, the usual one: the same fact („did
+     * I answer this date?") is read by the meetup page and by the same date's row in the list,
+     * and the two never see each other in the DOM. The room's date card above keeps its own
+     * island — it starts from a room, not from a Portal payload — but both share the rule
+     * (`rsvpRule.ts`) and the publish path (`rsvpPublish.ts`).
+     */
+    wireRsvpTermine(Alpine)
+    /*
+     * P5 (D11) — „Ich › Verein": membership status, contribution year and receipts. Its own
+     * island for the same reason as the join flow next to it: every read costs a NIP-98
+     * signature, and the surface has to be able to say „the ID was rejected, sign again"
+     * instead of retrying by itself. Reasoning in `mitgliedschaft.ts`, rules in
+     * `mitgliedschaftModelle.ts`.
+     *
+     * ── Both of these are STATIC, and the bundle latch is RED because of it ──────────
+     *
+     * Measured on 2026-09-18, three builds:
+     *
+     * | state                                   | app chunk gzip | boot chunks |
+     * |-----------------------------------------|----------------|-------------|
+     * | P4, before this phase                   | 111 916        | 6           |
+     * | P5 with both islands static (this one)  | **114 797**    | 6           |
+     * | P5 with both islands behind a shell     | 106 329        | **8**       |
+     *
+     * The latch's docblock prescribes the third row („it does not get added to, it gets
+     * split"), and the split was built and measured: `nostrRsvpSchale` /
+     * `nostrVereinMitgliedschaftShell`, the same shape as `nostrDirectoryShell`. It makes the
+     * page WORSE. Both islands import modules the boot path already uses — `nip98.ts` and,
+     * through `rsvpPublish.ts`, `publishOptimistic.ts` — so rolldown hoists those into shared
+     * chunks and the entry then imports them statically: `publishResult` (13 944 B gzip) and
+     * `nip98` (1 037 B) turn from a lazy chunk into TWO more requests on every page in both
+     * hosts. Net: about 9 kB more over the wire per page, plus two round trips, to save 8 kB
+     * in one file.
+     *
+     * So the static variant stands, the mark is left untouched, and the breach is reported —
+     * the same handgrip the last raise records („The decision belongs to the client, not to
+     * the builder. P6's builder left the number alone and reported the breach").
+     */
+    wireMitgliedschaft(Alpine)
     // P6b — Angepinnte Nachrichten. Ausnahmsweise ein STORE statt einer Insel: der
     // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (Leiste
     // über dem Verlauf, Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat`).

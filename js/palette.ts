@@ -147,6 +147,10 @@ const SECTION_LABEL: Record<PaletteSection, string> = {
     events: t('Termine'),
     courses: t('Kurse'),
     lecturers: t('Referenten'),
+    // P5 — not „Termine" a second time: this section does not show dates to READ but dates to
+    // ANSWER, and only the reader's own. Two chips reading alike would be the drift the
+    // grammar of this file is built against.
+    zusagen: t('Zusagen zu deinen Meetups'),
     actions: t('Aktionen'),
 }
 
@@ -170,6 +174,14 @@ export type PaletteAction = {
     /** Ziel-URL (absolut, aus `route()`); fehlt bei reinen Modal-Aktionen. */
     href?: string
     icon?: string
+    /**
+     * P5 — an action that leaves the palette OPEN and raises a scope chip instead.
+     *
+     * „Zusagen" is not a destination but a question („which date?"): it raises the `z:`
+     * chip and lists the dates of the reader's own meetups. An `href` would have needed a
+     * page for that, and there is none — the list lives in the palette.
+     */
+    scope?: PaletteSection
 }
 
 export type PaletteSpace = { url: string; label: string; hint: string; active: boolean }
@@ -267,6 +279,31 @@ type AuthGateStore = { requireAuth(intent: { label?: string; returnUrl?: string;
 const authGate = (): AuthGateStore | undefined =>
     (window as unknown as { Alpine?: { store(n: string): AuthGateStore | undefined } }).Alpine?.store('authGate')
 
+/**
+ * The two stores the „Zusagen" section reads, reached the same way as `authGate` above:
+ * through `window.Alpine` and not through an import.
+ *
+ * That is deliberate and it is the containment: `palette.ts` sits in the boot path of every
+ * page, and a static import of `pinSetSync.ts`/`rsvpTermine.ts` would pull their welshman
+ * halves in with it. Both stores are registered by `bridge.ts` before any component is
+ * evaluated (`registerNostrComponents`), so the lookup never comes up empty in the browser —
+ * and where it does (a unit test without Alpine), the section is simply empty.
+ */
+const pinSetStore = (): { keys: string[] } | null =>
+    (window as unknown as { Alpine?: { store(n: string): { keys?: string[] } | undefined } })
+        .Alpine?.store('pinSet') as { keys: string[] } | null ?? null
+
+type RsvpStoreLike = {
+    hinweisOffen: boolean
+    row(address: string): { myStatus: string } | undefined
+    track(address: string): void
+    rsvp(address: string, status: 'accepted' | 'declined' | 'tentative'): void
+}
+
+const rsvpStore = (): RsvpStoreLike | null =>
+    (window as unknown as { Alpine?: { store(n: string): RsvpStoreLike | undefined } })
+        .Alpine?.store('rsvpTermine') ?? null
+
 export type PaletteState = {
     /** Ist der Dialog offen? Spiegelt den `<dialog>`, führt ihn nicht. */
     shown: boolean
@@ -355,6 +392,12 @@ export type PaletteState = {
     portalRows(section: PortalSection): PortalIndexRow[]
     portalHint(row: PortalIndexRow): string
     openPortal(row: PortalIndexRow): void
+    /** P5: the dates of the reader's OWN meetups that a kind 31925 can answer. */
+    readonly zusagenItems: PortalIndexRow[]
+    /** The user's own answer to one of those rows ('' = none yet). */
+    zusageStatus(row: PortalIndexRow): string
+    /** Publish the answer. Opens the disclosure first where it is still owed. */
+    zusagen(row: PortalIndexRow): void
     openShortcuts(): void
     _go(href: string, label: string): void
     _dmItems(): PaletteRoom[]
@@ -517,6 +560,76 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
 
     get lecturerItems(): PortalIndexRow[] {
         return (this as PaletteState).portalRows('lecturers')
+    },
+
+    // ── P5/D12: „Zusagen" — answering a date from the palette ───────────────
+
+    /**
+     * The dates of the reader's OWN meetups that this client may answer.
+     *
+     * „Own" is the union of two statements the reader has already made: the meetups he
+     * PINNED (D7, `$store.pinSet`) and the meetups whose ROOM he joined. „The next dates of
+     * the whole association" would be a list of strangers' meetups 600 km away — and every
+     * row of it an invitation to a public, permanent answer to a date he has no relation to.
+     *
+     * The rows come out of the SAME index as the four Portal sections and carry the 31923
+     * coordinate (`a`), which the server only fills where the meetup allows an answer at all
+     * (`BuildsPortalIndex`: `rsvp_enabled` AND `attendees_public`). Whether the relays really
+     * hold that event is decided at the moment of the answer, by the shared rule.
+     */
+    get zusagenItems(): PortalIndexRow[] {
+        const self = this as PaletteState
+        // The reactive reads FIRST — Alpine records a getter's dependencies while it RUNS, and
+        // a guard in front of them would leave this getter without any (the measured „right
+        // rows, zero options" failure of P4).
+        const rows = self.portal?.rows ?? []
+        const pinned = (pinSetStore()?.keys ?? [])
+            .filter((key: string) => key.startsWith('meetup:'))
+            .map((key: string) => key.slice('meetup:'.length))
+        const joined = (self._space?.userRooms ?? [])
+            .map((room: RoomView) => room.meetupSlug)
+            .filter((slug: string) => slug !== '')
+        if (portalModul === null || rows.length === 0 || !self.shows('zusagen')) {
+            return []
+        }
+
+        return portalModul.answerableDates(
+            rows,
+            Array.from(new Set([...pinned, ...joined])),
+            portalModul.nowIndexKey(),
+        )
+    },
+
+    zusageStatus(row: PortalIndexRow): string {
+        return rsvpStore()?.row(row.a)?.myStatus ?? ''
+    },
+
+    /**
+     * Answer this date — through the SAME store and the same publish path as every other RSVP
+     * surface (`$store.rsvpTermine`), so the disclosure, the relay set and the „one answer per
+     * person" fold cannot differ between the palette and the meetup page.
+     *
+     * The palette stays OPEN: the row's state changes in place (the store's `myStatus`), and
+     * somebody who wants to answer three dates should not have to press ⌘K three times. The
+     * disclosure, where it is still owed, appears on the surface that owns it — so the palette
+     * closes and lands on the date's meetup page, which carries the sentence and the buttons.
+     */
+    zusagen(row: PortalIndexRow): void {
+        const store = rsvpStore()
+        if (store === null || row.a === '') {
+            return
+        }
+        store.track(row.a)
+        if (store.hinweisOffen) {
+            // The sentence has to be READ before the first answer, and a palette row is not a
+            // place to read a paragraph. So this one press leads to the meetup page instead of
+            // publishing — with the address in scope, where the disclosure and the button sit
+            // next to each other.
+            (this as PaletteState).openPortal(row)
+
+            return
+        }
+        store.rsvp(row.a, 'accepted')
     },
 
     /**
@@ -917,6 +1030,23 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
     runAction(action: PaletteAction): void {
         if (action.href) {
             this._go(action.href, action.label)
+
+            return
+        }
+        if (action.scope) {
+            /*
+             * P5 — an action that asks a question instead of going somewhere: it lifts the
+             * section's chip and leaves the palette open. The input is cleared as well, not
+             * only `query`: Flux hangs its filter on the input's `value` setter, and a stale
+             * value would filter the fresh list by the old text (the same reason `open()`
+             * clears it by hand).
+             */
+            this.scope = { section: action.scope, group: null, country: '' }
+            this.query = ''
+            const input = this._el()?.querySelector<HTMLInputElement>('[data-palette-input]')
+            if (input) {
+                input.value = ''
+            }
 
             return
         }

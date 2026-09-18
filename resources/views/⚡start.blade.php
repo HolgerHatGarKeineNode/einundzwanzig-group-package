@@ -171,6 +171,51 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </p>
         </section>
 
+        {{-- ── „Dein nächster Termin" (D12/P5) ──────────────────────────────────────
+             ONE row: the next date of a meetup the reader has a relation to — one he pinned
+             (D7) or whose room he joined — with its answer right there.
+
+             Everything about this row is decided in the browser, and it has to be: the pinned
+             meetups live in a NIP-44 blob only this device can read, the joined rooms are
+             relay state, and Start holds no server state at all (D4). The dates come from the
+             index the palette already loads once per session (`/suche/portal-index`), so this
+             row costs no request of its own. Reasoning in `js/rsvpTermine.ts`.
+
+             Shown to guests as well — a guest has pins in `localStorage` — but the answer
+             needs a key, and without one the store reports `offen: false` and the row shows
+             the Portal way instead of two buttons nobody can press.
+
+             `x-show` on the section and not `<template x-if>`: the island IS what resolves the
+             address, so it has to boot before there is anything to gate on. --}}
+        <section class="mb-6" x-data="nostrNaechsterTermin" x-show="address" x-cloak
+                 aria-labelledby="start-naechster-termin" data-start-naechster-termin>
+            <h2 id="start-naechster-termin" class="mb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+                {{ __('Dein nächster Termin') }}
+            </h2>
+
+            <div class="surface-card flex flex-col">
+                <a x-bind:href="href" wire:navigate data-start-termin-link
+                   class="pressable flex items-center gap-3 p-4 text-start">
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-400">
+                        <flux:icon.calendar-days class="size-5" />
+                    </span>
+                    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span class="truncate font-medium" x-text="name"></span>
+                        {{-- The date comes out of the index as `Y-m-d H:i` and is formatted in
+                             the ISLAND (`formatTimestamp`), so it reads like every other date in
+                             this client instead of like a database column — and so the format
+                             follows the active language without a second table in Blade. --}}
+                        <span class="truncate text-sm text-muted"
+                              x-text="dateLabel + (location ? ' · ' + location : '')"></span>
+                    </span>
+                    <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
+                </a>
+                <div class="px-4 pb-3">
+                    <x-group::rsvp-termin kompakt ausdruck="address" />
+                </div>
+            </div>
+        </section>
+
         {{-- ── Member: the inbox preview ────────────────────────────────────────────
              `<template x-if>` and NOT `x-show`: Alpine initialises `x-data` inside
              CSS-hidden elements too, so the updates island would open subscriptions for a

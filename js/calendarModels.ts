@@ -177,6 +177,47 @@ export const readRsvp = (event: CalendarSourceEvent): RsvpFields => {
 }
 
 /**
+ * The `status` tag value of a CALLED-OFF date — single l, because that is the only spelling
+ * in the NIP set and the one the Portal publishes
+ * (`NostrCalendarEventFactory::CANCELLED_STATUS`, read 2026-09-18). The human-facing marker
+ * in the title is `CANCELLED: ` with two l's; this is the machine value, compared byte for
+ * byte.
+ */
+export const CANCELLED_STATUS = 'canceled'
+
+/** The NIP-32 namespace the Portal mirrors the same fact into (`["l","canceled","status"]`). */
+export const CANCELLED_LABEL_NAMESPACE = 'status'
+
+/**
+ * Has this date been called off?
+ *
+ * ── Why this READING lives here and the RULE does not ───────────────────────────────
+ * „Does the event carry a cancellation marker" is a property of a kind 31923, like its start
+ * or its title — so it belongs next to them. „May somebody still answer it" is policy and
+ * lives in `rsvpRule.ts`, which is loaded only where an answer is possible. The split is a
+ * boot-path decision as much as a conceptual one: the room's date card needs this one
+ * function on every page, the policy module on one.
+ *
+ * Both carriers are read, and that is cheap insurance rather than redundancy: the Portal
+ * writes `["status","canceled"]` AND the NIP-32 mirror `["l","canceled","status"]`
+ * (`NostrCalendarEventFactory::cancellationTags()`), and a publisher emitting only the label
+ * would otherwise pass for „taking place". Fail CLOSED on cancellation: an RSVP to a meetup
+ * that is not happening is public, permanent and cannot be taken back.
+ */
+export const isCancelledCalendarEvent = (event: CalendarSourceEvent): boolean => {
+    for (const tag of event.tags) {
+        if (tag[0] === 'status' && tag[1] === CANCELLED_STATUS) {
+            return true
+        }
+        if (tag[0] === 'l' && tag[1] === CANCELLED_STATUS && tag[2] === CANCELLED_LABEL_NAMESPACE) {
+            return true
+        }
+    }
+
+    return false
+}
+
+/**
  * `tzid` if this runtime can actually format in it, `''` otherwise.
  *
  * ## Why this is a check and not a cast
@@ -329,6 +370,49 @@ export const ownRsvpStatus = (
 
     return own ? readRsvp(own).status : ''
 }
+
+/**
+ * The `created_at` of our own newest answer to `address`, or 0 when we never answered.
+ *
+ * Read for ONE purpose: to stamp a replacement one second later — see {@link rsvpCreatedAt}.
+ * It uses the same fold as the displayed status, so the value belongs to the very event the
+ * surface is showing as „my answer".
+ */
+export const ownRsvpAt = (
+    rsvps: readonly CalendarSourceEvent[],
+    address: string,
+    pubkey: string | null | undefined,
+): number => {
+    if (!address || !pubkey) {
+        return 0
+    }
+
+    return newestPerPubkey(rsvps, address).get(pubkey)?.created_at ?? 0
+}
+
+/**
+ * The `created_at` an RSVP must carry to REPLACE an earlier answer of the same key.
+ *
+ * ── Why this is not simply „now" (measured 2026-09-18) ────────────────────────────────
+ *
+ * A kind 31925 is addressable, and this client derives its `d` from the target
+ * (`rsvpDTag`), so a changed answer is meant to REPLACE the previous one — the disclosure
+ * says exactly that („Absagen" does not recall what propagated, it replaces the answer).
+ * Replacement is decided by `created_at`, and NIP-01 breaks a TIE by the lower event id:
+ * `created_at < existing || (created_at === existing && incoming_id >= existing_id)` keeps
+ * the old event (`buzz-db/src/lib.rs`, and the same rule in `newestPerPubkey` above).
+ *
+ * `makeEvent` stamps SECONDS. Two answers inside the same second therefore tie, and the id
+ * hash decides — a coin flip. Measured in the E2E run of P5: „Zusagen" followed by
+ * „Absagen" left the answer at `accepted`, on the relay and in the client, with no error
+ * anywhere. One second of distance removes the tie, and a second is the smallest step the
+ * format has.
+ *
+ * Never backwards: a device clock that jumped back would otherwise produce an answer that
+ * cannot win against the one it replaces, which is the same coin flip with extra steps.
+ */
+export const rsvpCreatedAt = (nowSeconds: number, replacedAt = 0): number =>
+    replacedAt > 0 ? Math.max(nowSeconds, replacedAt + 1) : nowSeconds
 
 /** Newest RSVP per pubkey among those answering `address`. Shared by tally and own-status. */
 const newestPerPubkey = (

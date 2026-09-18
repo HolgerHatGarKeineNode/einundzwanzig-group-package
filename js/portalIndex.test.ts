@@ -15,6 +15,8 @@ import {
     parsePortalIndex,
     portalHint,
     portalHref,
+    answerableDates,
+    nowIndexKey,
     resetPortalIndex,
     type PortalIndexRow,
 } from './portalIndex.ts'
@@ -22,6 +24,7 @@ import {
 const row = (over: Partial<PortalIndexRow> & { t: PortalIndexRow['t']; r: string; n: string }): PortalIndexRow => ({
     s: '',
     d: '',
+    a: '',
     ...over,
 })
 
@@ -189,4 +192,74 @@ test('loadPortalIndex: a failure is empty and is retried on the next open', asyn
     // The status comes from the CATALOG, not from the browser: "stale" means the Portal did
     // not answer and the server is showing its last copy.
     assert.equal(danach.status, 'stale')
+})
+
+// ── answerableDates: the rows behind „Zusagen" (P5) ────────────────────────
+
+const PORTAL_PUB = 'daf83d92768b5d0005373f83e30d4203c0b747c170449e02fea611a0da125ee6'
+const coord = (id: number): string => `31923:${PORTAL_PUB}:meetup-event-${id}`
+
+const termine: PortalIndexRow[] = [
+    row({ t: 'event', r: 'graz', n: 'Einundzwanzig Graz', d: '2026-09-30 18:00', a: coord(1) }),
+    row({ t: 'event', r: 'einundzwanzig-kempten', n: 'Kempten', d: '2026-09-20 19:00', a: coord(2) }),
+    // Same meetup, a second date further out — both are answerable, the nearer one first.
+    row({ t: 'event', r: 'einundzwanzig-kempten', n: 'Kempten', d: '2026-10-18 19:00', a: coord(3) }),
+    // No coordinate: the Portal published nothing for it, or the meetup switched RSVP off /
+    // keeps its attendance private (the server applies both — `BuildsPortalIndex`).
+    row({ t: 'event', r: 'graz', n: 'Einundzwanzig Graz', d: '2026-09-21 18:00' }),
+    // A date that has already started.
+    row({ t: 'event', r: 'graz', n: 'Einundzwanzig Graz', d: '2026-09-18 10:00', a: coord(4) }),
+    // Not a date at all.
+    row({ t: 'meetup', r: 'graz', n: 'Einundzwanzig Graz', d: '2026-09-30 18:00', a: coord(5) }),
+]
+
+test('answerableDates: only own meetups, only published dates, only the future', () => {
+    const hits = answerableDates(termine, ['graz', 'einundzwanzig-kempten'], '2026-09-18 12:00')
+
+    assert.deepEqual(hits.map((hit) => hit.a), [coord(2), coord(1), coord(3)])
+})
+
+test('answerableDates: a meetup that is neither pinned nor joined is not offered', () => {
+    const hits = answerableDates(termine, ['einundzwanzig-kempten'], '2026-09-18 12:00')
+
+    assert.deepEqual(hits.map((hit) => hit.a), [coord(2), coord(3)])
+})
+
+test('answerableDates: nothing pinned, nothing joined — an empty list, not the whole association', () => {
+    // The honest answer. Offering strangers' meetups here would invite a public, permanent
+    // answer to a date the user has no relation to.
+    assert.deepEqual(answerableDates(termine, [], '2026-09-18 12:00'), [])
+})
+
+test('answerableDates: the cap holds', () => {
+    const viele = Array.from({ length: 40 }, (_, i) =>
+        row({ t: 'event', r: 'graz', n: 'Graz', d: `2026-10-${String((i % 28) + 1).padStart(2, '0')} 18:00`, a: coord(i) }))
+
+    assert.equal(answerableDates(viele, ['graz'], '2026-09-18 12:00').length, PORTAL_SECTION_LIMIT)
+    assert.equal(answerableDates(viele, ['graz'], '2026-09-18 12:00', 3).length, 3)
+})
+
+test('nowIndexKey: the index\'s own format, in local time', () => {
+    // Local and not UTC: the Portal's dates are wall-clock strings without a zone, and a
+    // UTC stamp would shift every boundary by the reader's offset.
+    const at = new Date(2026, 8, 18, 9, 5)
+
+    assert.equal(nowIndexKey(at), '2026-09-18 09:05')
+    assert.match(nowIndexKey(), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+})
+
+test('parsePortalIndex: the coordinate survives, and a non-string one does not', () => {
+    const parsed = parsePortalIndex({
+        v: 1,
+        status: 'fresh',
+        rows: [
+            { t: 'event', r: 'graz', n: 'Graz', d: '2026-09-30 18:00', a: coord(7) },
+            { t: 'event', r: 'wien', n: 'Wien', d: '2026-09-30 18:00', a: 31923 },
+            { t: 'meetup', r: 'linz', n: 'Linz' },
+        ],
+    })
+
+    assert.equal(parsed?.rows[0].a, coord(7))
+    assert.equal(parsed?.rows[1].a, '', 'a number is not a coordinate — and must not become a filter')
+    assert.equal(parsed?.rows[2].a, '', 'the key is absent on most rows by design')
 })

@@ -22,10 +22,11 @@ use Livewire\Attributes\Url;
  * would also hand it every reader's IP. So the data comes through {@see PortalCatalog},
  * cached once for the whole instance, and the page is ordinary Livewire.
  *
- * ── Why there is no RSVP here ────────────────────────────────────────────────────
- * That is D12/P5. This phase only CARRIES the 31923 coordinate the Portal publishes
- * (`PortalEvent::$nostrAddress`); the rule which button appears for which date is built
- * where the publishing lives.
+ * ── The RSVP on the Termine rows (D12, P5) ───────────────────────────────────────
+ * Each date registers its 31923 coordinate with ONE store and the store asks one query for
+ * the whole page (`js/rsvpTermine.ts`); which arm a row shows is decided by
+ * `x-group::rsvp-termin` from the payload's own three fields. Sixty islands would have been
+ * sixty REQs against a third-party relay for one screen.
  */
 new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
 {
@@ -60,6 +61,25 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
          */
         if (! in_array($this->ansicht, $this->ansichten(), true)) {
             $this->ansicht = 'liste';
+        }
+
+        /*
+         * The host's default region (P5). Only where the ADDRESS carries none: a shared link
+         * with `?land=` — and a deliberately emptied filter — must win over it, otherwise
+         * „Alle Länder" would be unreachable in a host that has a default.
+         *
+         * `request()->has()` and not `$this->land !== ''`: the `#[Url]` attribute has already
+         * read the query at this point, and the two cases „not in the address" and „in the
+         * address as empty" are exactly what has to be told apart here.
+         */
+        if (! request()->query->has('land')) {
+            $default = config('group.meetup_default_land');
+            if (is_callable($default)) {
+                $default = $default();
+            }
+            if (is_string($default) && $default !== '') {
+                $this->land = mb_strtolower($default);
+            }
         }
     }
 
@@ -311,19 +331,42 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                                 {{ $eventsDesTages[0]->start->translatedFormat('l, d. F') }}
                             </flux:heading>
                             @foreach ($eventsDesTages as $event)
-                                <a href="{{ route('group.bereich.meetups.show', $event->meetupSlug) }}" wire:navigate
-                                   wire:key="termin-{{ $tag }}-{{ $loop->index }}"
-                                   data-portal-termin="{{ $event->meetupSlug }}"
-                                   class="surface-card pressable flex items-center gap-3 p-4 text-start">
-                                    <flux:avatar size="sm" src="{{ \Einundzwanzig\Group\ImageProxy::url($event->meetupLogo) }}" name="{{ $event->meetupName }}" />
-                                    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-                                        <span class="truncate font-medium">{{ $event->meetupName }}</span>
-                                        <span class="truncate text-sm text-muted">
-                                            {{ $event->start->format('H:i') }}{{ $event->location !== null ? ' · '.$event->location : '' }}
+                                {{-- ── Row = link + RSVP, and the RSVP is a SECOND LINE ──────
+                                     The two must not nest: a `<button>` inside an `<a>` is
+                                     invalid HTML and the outer link swallows the press. And
+                                     they must not share the line either — measured at 390 px
+                                     the two labelled buttons take ~160 px, which leaves the
+                                     meetup name 140 px next to an avatar and a chevron. So
+                                     the card is a column: the link keeps its whole line, the
+                                     answer gets its own. --}}
+                                <div wire:key="termin-{{ $tag }}-{{ $loop->index }}" class="surface-card flex flex-col">
+                                    <a href="{{ route('group.bereich.meetups.show', $event->meetupSlug) }}" wire:navigate
+                                       data-portal-termin="{{ $event->meetupSlug }}"
+                                       class="pressable flex items-center gap-3 p-4 text-start">
+                                        <flux:avatar size="sm" src="{{ \Einundzwanzig\Group\ImageProxy::url($event->meetupLogo) }}" name="{{ $event->meetupName }}" />
+                                        <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                                            <span class="truncate font-medium">{{ $event->meetupName }}</span>
+                                            <span class="truncate text-sm text-muted">
+                                                {{ $event->start->format('H:i') }}{{ $event->location !== null ? ' · '.$event->location : '' }}
+                                            </span>
                                         </span>
-                                    </span>
-                                    <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
-                                </a>
+                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
+                                    </a>
+                                    {{-- All dates of this list register with ONE store, which
+                                         asks ONE query for all of them — sixty islands would
+                                         be sixty REQs against a third-party relay for one
+                                         page (`js/rsvpTermine.ts`). `attendeesPublic` comes
+                                         off the payload's own signal: the Portal sends the
+                                         counters as `null` where the meetup hides them. --}}
+                                    <div class="px-4 pb-3">
+                                        <x-group::rsvp-termin kompakt
+                                                              :address="$event->nostrAddress"
+                                                              :attendees-public="$event->attendeesPublic"
+                                                              :rsvp-enabled="$event->rsvpEnabled"
+                                                              :event-id="$event->id"
+                                                              :portal-link="$event->portalLink((string) config('group.portal_url'))" />
+                                    </div>
+                                </div>
                             @endforeach
                         </section>
                     @endforeach

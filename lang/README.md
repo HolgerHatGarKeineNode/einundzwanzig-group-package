@@ -140,3 +140,22 @@ kontextlos sind:
   Schlüsseln daneben.
 
 Wer eine Sprache prüft, streicht sie hier heraus.
+
+**P5 (Hybrid-Zusage + „Ich › Verein")** hat 26 weitere hinzugefügt, `en` von Hand, die sechs
+anderen maschinell — ungeprüft. Sie tragen die Zusage-Fläche der Portal-Termine, die
+Palette-Sektion `z:` und die ganze Seite „Ich › Verein".
+
+Vier Stellen verdienen hier besonderes Misstrauen:
+
+- **`Zusagen`** ist in dieser Runde zweierlei: der KNOPF an einem Termin („ich komme") und die
+  ÜBERSCHRIFT einer Liste („meine Zusagen"). `en` nimmt beide Male `RSVP`, weil das Wort dort
+  Verb und Substantiv ist; ob `Confirmar` · `Visszajelzés` · `Apstiprināt` · `Aanmelden` ·
+  `Potwierdź` · `Confirmar` an einer Überschrift dasselbe leisten wie an einem Knopf, ist offen.
+- **`Beleg`** ist die BTCPay-Quittung eines bezahlten Beitragsjahres, nicht ein Nachweis im
+  allgemeinen Sinn. `en` nimmt `Receipt`; `nl` (`Bewijs`) ist die schwächste der sechs.
+- **`bezahlt` / `offen`** stehen als Zustand EINES Beitragsjahres in einer Liste, nicht als
+  Satzteil. `pl` (`opłacone`/`nieopłacone`) und `pt` (`pago`/`em aberto`) bilden das nach; bei
+  `nl` (`open`) ist die Verwechslung mit „geöffnet" möglich.
+- **`1 kommt über Nostr` / `:count kommen über Nostr`** ist die einzige ZÄHLFORM dieser Runde.
+  Die Sonderformen sind 1:1 aus dem bestehenden Paar `1 kommt`/`:count kommen` übernommen
+  (`pl#few`, `lv#one`, `lv#zero`, `pt#one`) — dieselbe Regel, neuer Satzteil, ungeprüft.

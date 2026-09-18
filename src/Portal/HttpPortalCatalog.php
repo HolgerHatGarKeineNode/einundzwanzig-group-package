@@ -397,6 +397,15 @@ final class HttpPortalCatalog implements PortalCatalog
             mightAttendees: isset($row['might_attendees']) ? (int) $row['might_attendees'] : null,
             nostrAddress: $this->nonEmpty($row['nostr_address'] ?? null),
             rsvpEnabled: (bool) ($row['meetup.rsvp_enabled'] ?? true),
+            /*
+             * The payload has no `attendees_public` of its own on a DATE: the Portal
+             * expresses it by sending `attendees`/`might_attendees` as `null`
+             * (`MeetupEventController::153-168`, read 2026-09-18). Derived here, once, so
+             * that the RSVP rule reads a flag instead of inferring one — and `array_key_exists`
+             * rather than `isset`, because `isset` cannot tell „absent" from „null" and this
+             * is exactly the distinction being read.
+             */
+            attendeesPublic: ! array_key_exists('attendees', $row) || $row['attendees'] !== null,
         );
     }
 

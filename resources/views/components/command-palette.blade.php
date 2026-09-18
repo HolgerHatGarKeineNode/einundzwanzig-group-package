@@ -59,6 +59,19 @@
      */
     ['id' => 'wallet-empfangen', 'label' => __('Rechnung erstellen'), 'href' => route('group.bereich.wallet', ['aktion' => 'empfangen'])],
     ['id' => 'wallet-senden', 'label' => __('Zahlen'), 'href' => route('group.bereich.wallet', ['aktion' => 'senden'])],
+    /*
+     * P5/D12 — „Zusagen". The one action WITHOUT an `href`, and that is the point: it is not a
+     * destination but a question („which date?"). It lifts the `z:` chip and leaves the palette
+     * open with the dates of the reader's own meetups; Enter on one of them publishes the kind
+     * 31925 through the same store and the same relay set as the meetup page
+     * (`js/rsvpTermine.ts`). A page for this does not exist and should not: the list belongs
+     * where the question was asked.
+     *
+     * Unconditional, like the two wallet actions above: without pinned or joined meetups the
+     * section is empty, and an empty list under an explicit question is an ANSWER („you have
+     * not marked a meetup yet"), not a dead end.
+     */
+    ['id' => 'zusagen', 'label' => __('Zusagen'), 'scope' => 'zusagen'],
     // ── Der Einstellungen-Eintrag zeigt auf die Route, die der HOST dafür nennt ──
     // Der Mobile-Host hat seine Einstellungen in P6 mit den Portal-Prefs auf EINEM
     // Screen verschmolzen (`pages/profile`, dort inline dieselben
@@ -324,6 +337,40 @@
                         </flux:command.item>
                     </template>
 
+                    {{-- ── „Zusagen" (`z:`, P5/D12) ────────────────────────────
+                         The one section whose rows do not NAVIGATE but PUBLISH: a press writes
+                         a signed kind 31925 to the calendar relays and the reader's own write
+                         relays. That is why it appears only when it is asked for — through the
+                         action „Zusagen" below or by typing `z:` — and never while somebody is
+                         merely searching (`visibleSections`, with its own test).
+
+                         The rows are the dates of the reader's OWN meetups: the ones he pinned
+                         (D7) and the ones whose room he joined. A list of strangers' dates
+                         would be an invitation to answer something he has no relation to.
+
+                         Where the disclosure is still owed, the press does NOT publish — it
+                         leads to the meetup page, where the sentence and the button stand next
+                         to each other (`palette.zusagen`). --}}
+                    <div data-palette-heading="zusagen" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Zusagen zu deinen Meetups') }}</div>
+                    <template x-for="row in zusagenItems" :key="'zusage:' + row.a">
+                        <flux:command.item
+                            data-palette-section="zusagen"
+                            data-palette-sigil="z"
+                            x-bind:data-palette-zusage="row.a"
+                            x-bind:aria-label="@js(__('Zusagen: :name')).split(':name').join(row.n + ' · ' + row.d)"
+                            x-on:click="zusagen(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            {{-- The own answer, where there is one. `aria-hidden` on the check
+                                 alone would hide the only difference between „answered" and
+                                 „not answered" from a screen reader, so the state is TEXT. --}}
+                            <span x-show="zusageStatus(row) === 'accepted'" x-cloak
+                                  class="ms-2 shrink-0 text-xs font-semibold text-brand-800 dark:text-brand-400">{{ __('zugesagt') }}</span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
+                        </flux:command.item>
+                    </template>
+
                     {{-- ── Aktionen (`>`) ─────────────────────────────────────── --}}
                     <div data-palette-heading="actions" role="presentation" aria-hidden="true" hidden
                          class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Aktionen') }}</div>
@@ -423,6 +470,6 @@
             @endforeach
         </dl>
 
-        <p class="mt-4 text-sm text-muted">{{ __('In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.') }}</p>
+        <p class="mt-4 text-sm text-muted">{{ __('In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal, z: die Termine deiner eigenen Meetups zum Zusagen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.') }}</p>
     </flux:modal>
 </div>

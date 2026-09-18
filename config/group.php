@@ -400,6 +400,37 @@ return [
     'portal_detail_actions' => null,
 
     /*
+     * The RSVP arm a host brings for a date this client must NOT answer through Nostr
+     * (P5, D12) — `null` = none, and then the web's Portal link-out stands there.
+     *
+     * Two cases reach this slot, both decided on the server: a date the Portal has not
+     * published as a kind 31923 (`nostr_address` null), and a meetup that keeps its
+     * attendance private (`attendees_public` false — D12a forbids the public answer, and
+     * only the public answer). In the app the slot mounts its own REST RSVP controls, which
+     * the Portal still accepts (`MeetupEventController::rsvp` gates on `rsvp_enabled` and on
+     * nothing else); on the web there is nothing to bind, because a web visitor's answer
+     * would need a Portal session this client does not have.
+     *
+     * Included with `$eventId` (the Portal's `meetup_events.id`) and `$portalLink` in scope.
+     */
+    'portal_rsvp_view' => null,
+
+    /*
+     * A host-side default for the country filter of `/bereich/meetups` — `null` = none, the
+     * list opens over all countries.
+     *
+     * It exists because of P5's deletion: until then the companion had its OWN meetup list,
+     * and that list opened on the region the user chose during onboarding („die App-Region").
+     * The package list has no notion of an app region, and dropping the default with the page
+     * would have silently taken a working behaviour away from every app user in a non-German
+     * country. The host answers the question, the package only asks it.
+     *
+     * A callable, not a string: the value is a per-VISITOR decision (the app's stored region),
+     * and a config file is read once per boot.
+     */
+    'meetup_default_land' => null,
+
+    /*
      * Settings-Registry (§4.1): geordnete Liste der Sektions-Keys, die der
      * verschmolzene Settings-Hub (`group::pages.settings`) iteriert und je Key als
      * `group::partials.settings.<key>` einbindet. Sichtbarkeit + Reihenfolge sind

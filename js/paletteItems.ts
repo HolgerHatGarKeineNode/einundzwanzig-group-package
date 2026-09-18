@@ -44,12 +44,18 @@ import { groupOf, parseScope, scopeToken, type RailGroupKey, type RailRoom } fro
  */
 export type PortalSection = 'meetups' | 'events' | 'courses' | 'lecturers'
 
-export type PaletteSection = 'rooms' | 'members' | 'spaces' | PortalSection | 'actions'
+/**
+ * `zusagen` (P5) is NOT a Portal section, although its rows come out of the same index: a
+ * Portal row NAVIGATES, a `zusagen` row PUBLISHES — a signed, public, permanent kind 31925.
+ * That difference is why it has its own section, is reachable only by asking for it
+ * explicitly (see {@link visibleSections}), and never appears in the resting palette.
+ */
+export type PaletteSection = 'rooms' | 'members' | 'spaces' | PortalSection | 'zusagen' | 'actions'
 
 export const PORTAL_SECTIONS: readonly PortalSection[] = ['meetups', 'events', 'courses', 'lecturers']
 
 export const PALETTE_SECTIONS: readonly PaletteSection[] = [
-    'rooms', 'members', 'spaces', ...PORTAL_SECTIONS, 'actions',
+    'rooms', 'members', 'spaces', ...PORTAL_SECTIONS, 'zusagen', 'actions',
 ]
 
 /** Does this section come from the Portal index? */
@@ -85,6 +91,15 @@ export const PORTAL_PREFIX: Readonly<Record<string, PortalSection>> = {
 }
 
 /**
+ * The input prefix of the `zusagen` section (P5) — „z" for Zusagen.
+ *
+ * Its own letter for the same reason the four above have theirs: `t:` lists the dates of the
+ * whole association to READ, `z:` lists the dates of the reader's OWN meetups to ANSWER.
+ * Same grammar, and the letter is in the help text, not secret lore.
+ */
+export const RSVP_PREFIX = 'z'
+
+/**
  * Das Sigel einer Sektion. Es steht an drei Orten für dasselbe: als Präfix im
  * Feld, als Zeichen vor dem Prompt und als Marke vor jeder Zeile ihrer Sektion.
  * `#` und `@` sind Nostr-/Chat-Konvention, `>` ist das Aktions-Sigel aus der
@@ -102,6 +117,7 @@ export const SECTION_SIGIL: Readonly<Record<PaletteSection, string>> = {
     events: 't',
     courses: 'k',
     lecturers: 'l',
+    zusagen: RSVP_PREFIX,
     actions: '>',
 }
 
@@ -166,6 +182,14 @@ export const parsePaletteScope = (text: string): { scope: PaletteScope; rest: st
      * unknown single character falls through `parseScope` as text, and `o:` would be a
      * search for "o:".
      */
+    const zusagen = /^\s*([a-zA-Z]):\s*/.exec(text)
+    if (zusagen && zusagen[1].toLowerCase() === RSVP_PREFIX) {
+        return {
+            scope: { section: 'zusagen', group: null, country: '' },
+            rest: text.slice(zusagen[0].length),
+        }
+    }
+
     const portal = /^\s*([a-zA-Z]):\s*/.exec(text)
     if (portal && PORTAL_PREFIX[portal[1].toLowerCase()]) {
         return {
@@ -235,7 +259,7 @@ export const paletteScopeToken = (scope: PaletteScope): string => {
     if (scope.section === 'members' || scope.section === 'actions') {
         return SECTION_SIGIL[scope.section]
     }
-    if (isPortalSection(scope.section)) {
+    if (isPortalSection(scope.section) || scope.section === 'zusagen') {
         // The prefix WITH its colon, exactly as it is typed — not the bare mark.
         return SECTION_SIGIL[scope.section] + ':'
     }
@@ -285,7 +309,16 @@ export const visibleSections = (scope: PaletteScope, query: string): PaletteSect
         return [scope.section]
     }
 
-    return query.trim() === '' ? ['rooms', 'actions'] : [...PALETTE_SECTIONS]
+    /*
+     * `zusagen` is deliberately NOT in the unscoped result — not when resting and not while
+     * typing. Every other section here offers a LINK; this one offers a public, permanent
+     * signature, and an Enter that lands on it because the meetup's name happened to match
+     * what was typed is one keystroke too few. It appears when it is asked for: through the
+     * action „Zusagen", which lifts the `z:` chip, or by typing that chip.
+     */
+    return query.trim() === ''
+        ? ['rooms', 'actions']
+        : PALETTE_SECTIONS.filter((section) => section !== 'zusagen')
 }
 
 const nameOf = (room: RailRoom): string => (room.name || room.h).toLocaleLowerCase()

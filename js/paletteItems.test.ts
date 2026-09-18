@@ -121,10 +121,39 @@ test('visibleSections: ohne Eingabe und ohne Scope Räume + Aktionen — die Pal
     assert.deepEqual(visibleSections({ ...EMPTY_PALETTE_SCOPE }, '   '), ['rooms', 'actions'])
 })
 
-test('visibleSections: with input ALL sections, in a fixed order', () => {
-    // Since P4 there are eight: the three Nostr surfaces, the four Portal sections (D6) and
-    // the actions. The order itself is pinned by the contract case further down.
-    assert.deepEqual(visibleSections({ ...EMPTY_PALETTE_SCOPE }, 'bit'), [...PALETTE_SECTIONS])
+test('visibleSections: with input every section EXCEPT „zusagen", in a fixed order', () => {
+    // Since P4 there are eight of them; P5 added a ninth that is deliberately not among them.
+    // The order itself is pinned by the contract case further down.
+    assert.deepEqual(
+        visibleSections({ ...EMPTY_PALETTE_SCOPE }, 'bit'),
+        PALETTE_SECTIONS.filter((section) => section !== 'zusagen'),
+    )
+})
+
+test('visibleSections: „zusagen" appears ONLY when it is asked for', () => {
+    /*
+     * Not cosmetics. Every other section offers a LINK; a `zusagen` row publishes a signed,
+     * public, permanent kind 31925. Flux activates the first visible option on every text
+     * change and opens it on Enter — with these rows in the unscoped list, typing a meetup's
+     * name and pressing Enter could publish an answer instead of opening a page.
+     */
+    assert.equal(visibleSections(EMPTY_PALETTE_SCOPE, '').includes('zusagen'), false)
+    assert.equal(visibleSections(EMPTY_PALETTE_SCOPE, 'kempten').includes('zusagen'), false)
+    assert.deepEqual(visibleSections({ section: 'zusagen', group: null, country: '' }, ''), ['zusagen'])
+})
+
+test('parsePaletteScope: `z:` is the chip of the „zusagen" section', () => {
+    assert.deepEqual(parsePaletteScope('z:').scope, { section: 'zusagen', group: null, country: '' })
+    assert.deepEqual(parsePaletteScope('Z: kempten'), {
+        scope: { section: 'zusagen', group: null, country: '' },
+        rest: 'kempten',
+    })
+    // TWO letters stay what the grammar has always made of them: a country code
+    // (`parseScope`), not a longer form of this prefix — which is exactly why the new chip
+    // had to be a single letter.
+    // (a two-letter token implies the meetup group — a country filter over rooms without a
+    // country would always be empty, `railGroups.parseScope`).
+    assert.deepEqual(parsePaletteScope('zu:').scope, { section: 'rooms', group: 'meetups', country: 'ZU' })
 })
 
 test('visibleSections: mit gesetztem Scope genau die eine adressierte Sektion', () => {
@@ -281,14 +310,17 @@ test('visibleSections: the Portal sections appear only once something is typed',
     // At rest 312 meetup rows would be noise (and 312 DOM nodes); with input all eight
     // sections are available.
     assert.deepEqual(visibleSections(EMPTY_PALETTE_SCOPE, ''), ['rooms', 'actions'])
-    assert.deepEqual(visibleSections(EMPTY_PALETTE_SCOPE, 'kempten'), [...PALETTE_SECTIONS])
+    assert.deepEqual(
+        visibleSections(EMPTY_PALETTE_SCOPE, 'kempten'),
+        PALETTE_SECTIONS.filter((section) => section !== 'zusagen'),
+    )
     // With a scope exactly the addressed one — even without input (`t:` means "show me dates").
     assert.deepEqual(visibleSections({ section: 'events', group: null, country: '' }, ''), ['events'])
 })
 
 test('PALETTE_SECTIONS: the order is contract — Portal between spaces and actions', () => {
     assert.deepEqual([...PALETTE_SECTIONS], [
-        'rooms', 'members', 'spaces', 'meetups', 'events', 'courses', 'lecturers', 'actions',
+        'rooms', 'members', 'spaces', 'meetups', 'events', 'courses', 'lecturers', 'zusagen', 'actions',
     ])
 })
 
@@ -297,5 +329,8 @@ test('isPortalSection separates the four Portal sections from the Nostr surfaces
     assert.equal(isPortalSection('lecturers'), true)
     assert.equal(isPortalSection('rooms'), false)
     assert.equal(isPortalSection('actions'), false)
+    // `zusagen` reads the same index and is still not a Portal section: its rows publish
+    // instead of navigating, which is why it is gated differently everywhere.
+    assert.equal(isPortalSection('zusagen'), false)
     assert.equal(isPortalSection(null), false)
 })

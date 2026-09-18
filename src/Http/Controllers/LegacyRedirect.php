@@ -41,6 +41,12 @@ final class LegacyRedirect
      *            became `/bereich/forge` while bare `/spaces` became `/bereich/chat`.
      *            A route cannot be matched on a query string, so the branch lives here.
      *   status   (int)              HTTP status, default 302
+     *
+     * `ziel` may carry PATH PARAMETERS of the matched route as `{name}` (P5): the companion's
+     * `/meetups/{slug}` forwards to `/bereich/meetups/{slug}`, and three rows like it would
+     * otherwise each need a controller of their own. Substituted from the route's own
+     * parameters and URL-encoded per segment — a slug comes from Portal data, and a `/` in it
+     * would silently address a different route.
      */
     public function __invoke(Request $request): RedirectResponse
     {
@@ -62,7 +68,7 @@ final class LegacyRedirect
         /** @var array<string, string> $umbenenne */
         $umbenenne = $route->defaults['umbenenne'] ?? [];
 
-        [$pfad, $bestand] = $this->zerlege($ziel);
+        [$pfad, $bestand] = $this->zerlege($this->setzeParameter($ziel, $route->parameters()));
 
         $mitgenommen = [];
         foreach ($behalte as $key) {
@@ -105,6 +111,27 @@ final class LegacyRedirect
         $wert = $request->query($key);
 
         return is_string($wert) && $wert !== '';
+    }
+
+    /**
+     * `{slug}` → the matched route parameter, URL-encoded.
+     *
+     * A placeholder the route does not carry stays as it is rather than becoming an empty
+     * segment: `/bereich/meetups/` would be a 404 that reads like a broken page, while the
+     * literal `{slug}` in the address says what went wrong — and the redirect map has a test
+     * per row.
+     *
+     * @param  array<string, mixed>  $parameter
+     */
+    private function setzeParameter(string $ziel, array $parameter): string
+    {
+        foreach ($parameter as $name => $wert) {
+            if (is_scalar($wert)) {
+                $ziel = str_replace('{'.$name.'}', rawurlencode((string) $wert), $ziel);
+            }
+        }
+
+        return $ziel;
     }
 
     /**

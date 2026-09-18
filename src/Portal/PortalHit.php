@@ -25,6 +25,20 @@ final readonly class PortalHit
         public string $subtitle = '',
         /** `Y-m-d H:i` of the relevant date, '' when the row has none. */
         public string $date = '',
+        /**
+         * The 31923 coordinate of a DATE row, '' for everything else (P5).
+         *
+         * It is here because the palette action „Zusagen" publishes the kind 31925 from the
+         * palette itself (D12/P5) and an RSVP needs the coordinate it answers. The
+         * alternative was a request per row at the moment somebody presses Enter — against a
+         * Portal that throttles 60/min per IP for the whole instance (R9), for a list of a
+         * dozen rows.
+         *
+         * Measured cost: the value is `31923:<64 hex>:meetup-event-<id>`, ~90 bytes, and only
+         * dates carry one. It is the same 64 hex characters on every row (the Portal's
+         * publishing key), so it is the most compressible part of the whole payload.
+         */
+        public string $address = '',
     ) {}
 
     /**
@@ -34,10 +48,20 @@ final readonly class PortalHit
      * lecturers) the four long keys cost about a fifth of the payload. The browser side
      * (`js/portalIndex.ts`) names them once.
      *
-     * @return array{t: string, r: string, n: string, s: string, d: string}
+     * `a` is OMITTED where it is empty instead of being sent as `""`: three quarters of the
+     * rows have no coordinate (meetups, courses, lecturers), and an empty key on each of
+     * them is payload for nothing.
+     *
+     * @return array{t: string, r: string, n: string, s: string, d: string, a?: string}
      */
     public function toIndexRow(): array
     {
-        return ['t' => $this->type, 'r' => $this->ref, 'n' => $this->title, 's' => $this->subtitle, 'd' => $this->date];
+        $row = ['t' => $this->type, 'r' => $this->ref, 'n' => $this->title, 's' => $this->subtitle, 'd' => $this->date];
+
+        if ($this->address !== '') {
+            $row['a'] = $this->address;
+        }
+
+        return $row;
     }
 }

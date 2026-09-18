@@ -18,8 +18,10 @@ use Livewire\Attributes\Layout;
  *  · Editing the meetup → the host's `portal_detail_actions` slot: on the web a link into
  *    the Portal, in the app its own editor sheet (it has the Portal token, the package
  *    does not).
- *  · RSVP → D12/P5. The 31923 coordinate is carried here already
- *    (`PortalEvent::$nostrAddress`), the rule is built with the publishing.
+ *  · RSVP → built in P5 (D12): `x-group::rsvp-termin` under the next date and under every
+ *    further one. Which arm it shows — the Nostr answer, the host's REST controls or the
+ *    link into the Portal — is decided from the payload's `nostr_address`,
+ *    `attendees_public` and `rsvp_enabled`; the rule is `js/rsvpRule.ts`.
  *  · The room chat → an existing package route (`group.room`), reached through the auth
  *    gate: the button only appears when the Portal says a room exists (`has_room`), because
  *    the member-only relay hands out kind 39000 only AUTH-gated and a button into a room
@@ -153,7 +155,10 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                     {{-- The counts, and ONLY when the Portal publishes them
                          (`attendees_public`): a „0 Zusagen" over a meetup that deliberately
                          hides its list would be a number invented by this client.
-                         The RSVP BUTTONS are P5 (D12) — this phase reads. --}}
+                         These are the PORTAL's counters (REST RSVPs plus the Nostr ones its
+                         ingest has already picked up); the Nostr counter below is what this
+                         client sees on the relays right now, which is the faster of the two
+                         and the only one that moves on a tap. --}}
                     @if ($detail->attendeesPublic && $next->attendees !== null)
                         <div class="mt-3 flex items-center gap-2 text-sm text-muted" data-portal-zusagen>
                             <flux:icon.users variant="micro" class="size-4" aria-hidden="true" />
@@ -164,6 +169,20 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                             @endif
                         </div>
                     @endif
+                    {{-- „Zusagen" (D12/P5). Which arm appears is decided by the component: the
+                         Nostr one for a date the Portal published on a meetup that allows a
+                         public answer, the Portal link-out resp. the host's REST controls
+                         otherwise. `portalLink` is the meetup's page and not the date's
+                         `link` — the latter is the ORGANISER's own address (a Telegram post,
+                         a Luma page) and answering there is not answering the Portal. --}}
+                    <div class="mt-4">
+                        <x-group::rsvp-termin :address="$next->nostrAddress"
+                                              :attendees-public="$detail->attendeesPublic"
+                                              :rsvp-enabled="$detail->rsvpEnabled && $next->rsvpEnabled"
+                                              :event-id="$next->id"
+                                              :portal-link="$portalLink" />
+                    </div>
+
                     @if ($next->link !== null)
                         <div class="mt-4">
                             <flux:button size="sm" variant="ghost" icon="arrow-top-right-on-square"
@@ -184,12 +203,24 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                                 <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-400">
                                     <flux:icon.calendar-days class="size-5" />
                                 </span>
-                                <div class="min-w-0">
+                                <div class="min-w-0 flex-1">
                                     <span class="font-semibold">{{ $event->start->translatedFormat('D, d. M · H:i') }}</span>
                                     @if ($event->location !== null)
                                         <flux:text class="truncate text-sm text-muted">{{ $event->location }}</flux:text>
                                     @endif
                                 </div>
+                                {{-- The compact arm on the further dates too: the store batches
+                                     them into the SAME relay query as the next one, so a second
+                                     date costs no second round trip — and somebody who can only
+                                     make the date in three weeks should not have to wait for it
+                                     to become the next one. --}}
+                                <x-group::rsvp-termin kompakt
+                                                      class="shrink-0"
+                                                      :address="$event->nostrAddress"
+                                                      :attendees-public="$detail->attendeesPublic"
+                                                      :rsvp-enabled="$detail->rsvpEnabled && $event->rsvpEnabled"
+                                                      :event-id="$event->id"
+                                                      :portal-link="$portalLink" />
                             </div>
                         @endforeach
                     </div>
