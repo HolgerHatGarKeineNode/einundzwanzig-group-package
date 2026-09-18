@@ -119,11 +119,12 @@
                             (#f7931a) hällt auf Weiß nur 2,17:1 — als Deko zwar WCAG-frei,
                             aber Neuschuld aus Entwurf-C-P2 (640df2c, vom LP4-Gate belegt),
                             und der Folgeplan nimmt nur bewusst deklarierte Reste aus.
-                            accent-content liefert beide Themes tragfähige Töne:
-                            Light brand-800 #98480f (6,42:1 auf Weiß), Dark brand-400
-                            #fda537 (9,14:1 auf surface) — dasselbe Muster wie die
-                            Rail-/Tab-Icons. --}}
-                        <span aria-hidden="true" class="shrink-0 text-accent-content">
+                            Exakt das Muster der Rail-/Tab-Icons (nav-tab:66,
+                            desktop-rail:148): Light brand-800 #98480f = 6,42:1 auf Weiß,
+                            Dark brand-400 #fda537 = 8,95:1 auf zinc-950 (beide Gate-gemessen).
+                            Bewusst NICHT text-accent-content: das Token trägt im Light
+                            brand-700 (#c05c08, 4,40:1) und wiche von den Nachbarn ab. --}}
+                        <span aria-hidden="true" class="shrink-0 text-brand-800 dark:text-brand-400">
                             <span x-show="row.prefix === 'room'"><flux:icon.hashtag variant="micro" class="size-4" /></span>
                             <span x-show="row.prefix === 'person'"><flux:icon.user variant="micro" class="size-4" /></span>
                             <span x-show="row.prefix === 'article'"><flux:icon.document-text variant="micro" class="size-4" /></span>
