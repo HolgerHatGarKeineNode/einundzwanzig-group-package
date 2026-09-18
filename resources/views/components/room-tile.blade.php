@@ -68,6 +68,24 @@
         <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
 
+    {{-- Anheften (P3, D7). OUTSIDE the navigating button — a button inside a button is
+         invalid markup and the click would navigate instead of pinning (`.stop.prevent` in
+         the component is the second half of that).
+
+         **For everyone, not only for admins.** The menu below is an admin affordance; a pin
+         is the reader's own furniture. It therefore stands as its own control and not as an
+         entry in that menu — a non-admin has no menu on this row to put it into.
+
+         The key comes from `$store.pinSet.roomKey(room.h)`: the room list of this surface is
+         the room list of the SPACE, so the relay in the key is the persisted space. The
+         workspace rooms live on `/bereich/forge`, where the pin remains Buzz' `channel-stars`
+         (one truth with Buzz Desktop, `pinWriteRoute`). --}}
+    {{-- Always visible, NOT `opacity-0 group-hover:opacity-100` like the rail's menu: this is
+         the mobile surface, `:hover` never fires on a touch device, and a control that is
+         invisible but tappable is worse than no control. The rail may hide its menu because a
+         mouse is the only way to reach that column. --}}
+    <x-group::pin-toggle schluessel="$store.pinSet?.roomKey(room.h)" :was="__('Raum')" />
+
     {{-- Admin-Aktionen (P4): Bearbeiten/Löschen. `.stop`, damit der Klick nicht die
          Raum-Navigation der Kachel auslöst. --}}
     {{-- KEIN Verwalten-Menü für Meetup- und Antragsräume.

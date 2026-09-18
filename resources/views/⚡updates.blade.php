@@ -4,17 +4,30 @@ use Livewire\Attributes\Layout;
 use Livewire\Component;
 
 /**
- * Benachrichtigungs-View „Neu" (`/updates`, P4) als Livewire-Full-Page-SFC.
- * Die Klasse ist ein dünner Shell — Liste, Filter und Lesestand leben komplett in
- * der Alpine-Insel `nostrUpdates` (welshman/IndexedDB, client-seitig). Kein `mount()`:
- * es gibt nichts server-seitig Vorzubereitendes (kein OG-Bild — die Seite liegt hinter
- * `nostr.auth` und wird nie geteilt/gecrawlt).
+ * The Postfach (`/postfach`, D5) as a Livewire full-page SFC — ONE page with five
+ * segments: Alles · Erwähnungen · Threads · Direkt · Erinnerungen.
+ *
+ * The class is a thin shell — list, segment choice and read state all live in the Alpine
+ * island `nostrUpdates` (welshman/IndexedDB, client-side). No `mount()`: there is nothing
+ * to prepare server-side (no OG image — the page sits behind `nostr.auth` and is never
+ * shared or crawled).
+ *
+ * **The chosen segment stands in the ADDRESS (`?ansicht=`) and is decided in the browser
+ * all the same.** The server does NOT read the parameter: a server-rendered difference per
+ * segment would be a second truth about the same state, and the island keeps that state
+ * across `wire:navigate` anyway. It is read in `bridge.ts` (`feedFromSearch`) and written
+ * back with `replaceState` — a segment change is not a page change.
+ *
+ * **Why the „Direkt" segment is a `<template x-if>` and not an `x-show`:** it carries
+ * `nostrPrivateMessages`, and that store arms the NIP-17 wrap subscription. Alpine
+ * initialises `x-data` inside CSS-hidden elements as well — under `x-show` the decryption
+ * would run in all five segments. That is exactly what D5 forbids.
  */
 new #[Layout('group::einundzwanzig')] class extends Component
 {
     public function render()
     {
-        return $this->view()->title(__('Neu'));
+        return $this->view()->title(__('Postfach'));
     }
 }; ?>
 
@@ -28,9 +41,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Kopf: UP-Ziel ist die Übersicht (explizites Ziel, nie history.back() —
              der Deep-Link-Kaltstart hat keinen Stack). Subtitle + „Alles" erscheinen
              erst, wenn es überhaupt etwas gibt. --}}
-        <x-group::app-header :title="__('Neu')" :back="route('group.spaces')">
+        {{-- NO `:back`: the Postfach is a slot of the bottom bar, so it sits on the same
+             level as Start — between them there is no "back", there is "somewhere else".
+             Until P2 it was a sub-screen of the room list and had one. --}}
+        <x-group::app-header :title="__('Postfach')">
             <x-slot:subtitle>
-                <span class="text-xs text-muted" x-show="hasAny()" x-cloak x-text="subtitleText()"></span>
+                <span class="text-xs text-muted" x-show="isNotices() && hasAny()" x-cloak x-text="subtitleText()"></span>
             </x-slot:subtitle>
             <x-slot:actions>
                 {{-- `aria-label` ERSETZT den Kindtext („Alles") — der Screenreader hört
@@ -49,8 +65,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      statt einer Pfeilfunktion — ein rohes `>` in der Attributliste
                      eines `<flux:…>`-Tags ist in diesem Repo schon einmal verschluckt
                      worden. --}}
+                {{-- `isNotices()` in front of it (P3): "mark all read" acts on the watermark of
+                     the NOTICES. In „Direkt" the button would act on a list that is not there,
+                     in „Erinnerungen" on rows that carry a „done" of their own. --}}
                 <flux:button size="xs" variant="ghost" icon="check" class="icon-btn-touch"
-                             x-show="hasUnread()" x-cloak x-ref="markAllBtn"
+                             x-show="isNotices() && hasUnread()" x-cloak x-ref="markAllBtn"
                              x-on:click="markAllRead(); $nextTick(function () { $refs.undoBtn?.focus() })"
                              aria-label="{{ __('Alles als gelesen markieren') }}">{{ __('Alles') }}</flux:button>
             </x-slot:actions>
@@ -63,7 +82,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
              direkt hinter der auslösenden Kopf-Aktion, ist damit der nächste Tab-Stopp
              und kann weder überlagert noch verpasst werden. `role="status"` meldet sie
              an, ohne den Fokus zu stehlen. --}}
-        <div x-show="canUndo()" x-cloak role="status"
+        {{-- `isNotices()` in front of it (P3): the bar belongs to the notice list, and its
+             focus hand-back targets `$refs.list` — which is `display:none` in „Direkt", where
+             `focus()` would go nowhere. --}}
+        <div x-show="isNotices() && canUndo()" x-cloak role="status"
              class="chip-in mb-3 flex items-center gap-3 rounded-tile bg-zinc-100 px-3 py-2 dark:bg-zinc-800">
             <flux:icon.check-circle variant="micro" class="size-4 shrink-0 text-muted" />
             <span class="min-w-0 flex-1 text-sm text-zinc-900 dark:text-zinc-100">{{ __('Alles als gelesen markiert.') }}</span>
@@ -93,11 +115,21 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Der Zustand liegt in `$store.reminders` (js/reminders.ts) und nicht in
              `nostrUpdates`: derselbe Store trägt den Menü-Eintrag im Raum, und zwei
              Inseln wären zwei Wahrheiten über „ist die schon erledigt?". --}}
+        {{-- Since P3 this section stands in TWO segments: under „Alles" with the DUE reminders
+             (they carry a deadline, the notices below them do not) and under „Erinnerungen"
+             with the waiting ones on top of that. It does NOT stand under
+             „Erwähnungen"/„Threads" — those filter somebody else's activity, and a reminder of
+             one's own falls into neither. Nor under „Direkt": there the surface belongs to the
+             conversation.
+
+             The store's mount sits OUTSIDE the segment condition: `$store.reminders` reads the
+             reader's own kind 30300, which costs no foreign signer call, and the number on the
+             segment bar needs it in every segment. --}}
         <div x-data="{
                  init() { $store.reminders?.mount() },
                  destroy() { $store.reminders?.unmount() },
              }">
-            <template x-if="($store.reminders?.due ?? []).length > 0">
+            <template x-if="(feed === 'all' || feed === 'erinnerungen') && ($store.reminders?.due ?? []).length > 0">
                 <section class="surface-card mb-3 overflow-hidden" aria-labelledby="reminders-heading">
                     <h2 id="reminders-heading"
                         class="flex items-center gap-2 px-4 pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
@@ -179,16 +211,105 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Abgesichert von `js/fluxTabsPanellos.ts` (Herleitung in dessen Kopf).
              Kein `@if`/`@js()` in der Attributliste eines flux-Tags (P5-Fund: `@js()`
              wird dort nicht ausgeführt und landet wörtlich im Alpine-Ausdruck). --}}
-        <flux:tabs variant="segmented" x-model="feed" class="mb-3">
-            <flux:tab name="all">{{ __('Alle') }}</flux:tab>
-            <flux:tab name="mentions">{{ __('Erwähnungen') }}</flux:tab>
-            <flux:tab name="threads">{{ __('Threads') }}</flux:tab>
-        </flux:tabs>
+        {{-- ── The five segments (D5) ─────────────────────────────────────────────────
+             Order as in the plan: Alles · Erwähnungen · Threads · Direkt · Erinnerungen.
+
+             **The bar SCROLLS (`overflow-x-auto`), it does not shrink.** Five entries do not
+             fit into the 358 px of the content column at 390 px — `flux:tabs` is `inline-flex`
+             and does not clip, so the result would be horizontal overflow on the main surface
+             (the same measurement that keeps a third tab out of `dm-list.blade.php`). Scrolled
+             rather than wrapped, because a two-line segment bar above the list costs more
+             height than the fifth label is worth.
+
+             **The count stands on three segments only.** „Alles" gets none (it would be the
+             length of the list right below it) and „Direkt" gets none — a number about
+             encrypted messages exists only after decrypting (D5). `segmentCount()` in the
+             island decides that, not this markup: a number that must not be shown belongs in a
+             function that says no. `x-text` with an empty string at 0 — a „0" next to a tab is
+             a statement nobody needs. --}}
+        <div class="-mx-1 mb-3 overflow-x-auto px-1">
+            <flux:tabs variant="segmented" x-model="feed" data-postfach-segmente>
+                <flux:tab name="all">{{ __('Alle') }}</flux:tab>
+                <flux:tab name="mentions">
+                    {{ __('Erwähnungen') }}
+                    <span class="ms-1 font-normal tabular-nums text-muted"
+                          x-text="segmentCount('mentions') > 0 ? segmentCount('mentions') : ''"></span>
+                </flux:tab>
+                <flux:tab name="threads">
+                    {{ __('Threads') }}
+                    <span class="ms-1 font-normal tabular-nums text-muted"
+                          x-text="segmentCount('threads') > 0 ? segmentCount('threads') : ''"></span>
+                </flux:tab>
+                <flux:tab name="direkt">{{ __('Direkt') }}</flux:tab>
+                <flux:tab name="erinnerungen">
+                    {{ __('Erinnerungen') }}
+                    <span class="ms-1 font-normal tabular-nums text-muted"
+                          x-text="segmentCount('erinnerungen', ($store.reminders?.due ?? []).length) > 0 ? segmentCount('erinnerungen', ($store.reminders?.due ?? []).length) : ''"></span>
+                </flux:tab>
+            </flux:tabs>
+        </div>
+
+        {{-- ── Segment „Direkt" (D5) ──────────────────────────────────────────────────
+             `<template x-if>` and NOT `x-show`: it carries `nostrPrivateMessages`, and Alpine
+             initialises `x-data` inside CSS-hidden elements as well. The full derivation is in
+             the partial's header — it is the reason this phase exists. --}}
+        <template x-if="feed === 'direkt'">
+            <div>
+                @include('group::partials.postfach.direkt')
+            </div>
+        </template>
+
+        {{-- ── Segment „Erinnerungen": the ones still waiting ────────────────────────
+             The DUE ones already stand above (under „Alles" as well); what is added here is
+             what is still to come. Without this list the segment would be empty whenever
+             nothing is due, although the user has set reminders — and "nothing due" is not the
+             same statement as "none set". --}}
+        <template x-if="feed === 'erinnerungen'">
+            <div>
+                <template x-if="($store.reminders?.upcoming ?? []).length > 0">
+                    <section class="surface-card mb-3 overflow-hidden" aria-labelledby="reminders-upcoming">
+                        <h2 id="reminders-upcoming"
+                            class="flex items-center gap-2 px-4 pb-1 pt-4 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
+                            <flux:icon.clock variant="micro" class="size-4" />
+                            {{ __('Noch nicht fällig') }}
+                        </h2>
+                        <div class="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
+                            <template x-for="row in ($store.reminders?.upcoming ?? [])" :key="row.d">
+                                <div class="flex items-start gap-2 px-2" data-erinnerung-offen>
+                                    <div class="min-w-0 flex-1 px-2 py-3">
+                                        <p class="text-sm leading-normal text-zinc-900 line-clamp-2 dark:text-zinc-100"
+                                           x-text="row.preview || row.note || @js(__('(Nachricht wird geladen…)'))"></p>
+                                        <p class="mt-2 text-xs text-muted" x-text="row.timeLabel"></p>
+                                    </div>
+                                    {{-- „Verwerfen" only: a reminder that is not due yet cannot
+                                         be finished — that would be a statement about a
+                                         deadline that is still running. --}}
+                                    <flux:button size="xs" variant="ghost" icon="x-mark" class="icon-btn-touch mt-3 shrink-0"
+                                                 ::disabled="$store.reminders.busy"
+                                                 x-on:click="$store.reminders.finish(row.d, 'cancelled')"
+                                                 aria-label="{{ __('Erinnerung verwerfen') }}" />
+                                </div>
+                            </template>
+                        </div>
+                    </section>
+                </template>
+
+                {{-- The segment's empty state — with the way IN, not just the observation.
+                     Reminders are created from the message menu inside a room. --}}
+                <template x-if="($store.reminders?.due ?? []).length === 0 && ($store.reminders?.upcoming ?? []).length === 0">
+                    <div class="surface-card empty-state px-4 py-10 text-center">
+                        <flux:icon.clock class="mx-auto size-8 text-zinc-400" />
+                        <flux:heading class="mt-2">{{ __('Keine Erinnerungen.') }}</flux:heading>
+                        <flux:text class="mt-1 text-sm text-muted">{{ __('Im Menü einer Nachricht kannst du dich später erinnern lassen.') }}</flux:text>
+                    </div>
+                </template>
+            </div>
+        </template>
 
         {{-- Zustand 4 — Fehler. Wortlaut sagt bewusst, dass die Liste UNVOLLSTÄNDIG,
              nicht falsch ist (Nielsen #1, Systemstatus): der Gerätespeicher trägt
              weiter, auch wenn der Space gerade schweigt. --}}
-        <template x-if="error">
+        <template x-if="isNotices() && error">
             <flux:callout variant="danger" icon="exclamation-triangle" class="mb-3">
                 <flux:callout.text>
                     {{ __('Der Space ist gerade nicht erreichbar. Ältere Hinweise stammen aus dem Gerätespeicher.') }}
@@ -203,7 +324,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
              ein Bedienelement, das sich selbst ausblendet, braucht ein Ziel, sonst landet
              der Fokus auf <body>. Nicht tabbierbar (-1), nur programmatisch anspringbar.
              `:aria-busy` sagt Hilfstechnik, dass der Bereich gerade befüllt wird. --}}
-        <div x-ref="list" tabindex="-1" :aria-busy="loading" class="surface-card overflow-hidden">
+        {{-- `x-show` and NOT `x-if` (P3): this block contains no `x-data` island at all, so it
+             costs nothing while hidden — and `x-ref="list"` has to exist in EVERY segment,
+             because the focus hand-backs above fall back to it. An `x-if` would turn
+             `$refs.list.focus()` into a throw while „Direkt" is open. The „Direkt" segment
+             carries an `x-if` for the opposite reason: it contains exactly such an island. --}}
+        <div x-show="isNotices()" x-ref="list" tabindex="-1" :aria-busy="loading" class="surface-card overflow-hidden">
 
             {{-- Lade-Ansage. Steht PERMANENT im DOM und AUSSERHALB des `x-show="loading"`-
                  Blocks, mit server-seitig LEEREM Inhalt: `aria-live` meldet Änderungen
@@ -268,7 +394,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <flux:heading class="mt-2">{{ __('Alles gelesen.') }}</flux:heading>
                         <flux:text class="mt-1 text-sm text-muted">{{ __('Neue Nachrichten aus deinen Räumen erscheinen hier.') }}</flux:text>
                         <div class="mt-4">
-                            <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.spaces')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
+                            <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.bereich.chat')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
                         </div>
                     </div>
                 </div>
@@ -358,7 +484,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Nachladen verspräche ein Ende, das kommt, aber nicht datengetrieben ist.
              Die Hinweiszeile steht dauerhaft am Listenende, auch ohne weitere Seiten:
              sie erklärt, WARUM die Liste aufhört. --}}
-        <div x-show="!isEmpty()" x-cloak class="mt-4 text-center">
+        <div x-show="isNotices() && !isEmpty()" x-cloak class="mt-4 text-center">
             {{-- Gleiche Bauart wie oben: beim LETZTEN Klick verschwindet der Knopf unter
                  dem Fokus (`hasMore()` wird falsch). Bleibt er stehen, behält er ihn —
                  sonst fängt die Liste. `offsetParent` ist bei `display:none` null. --}}

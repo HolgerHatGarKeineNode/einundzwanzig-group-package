@@ -287,7 +287,7 @@ async function doHandoff(): Promise<string> {
     if (!loginRes.ok || !data.ok) {
         throw new Error(data.error ?? t('Server-Login fehlgeschlagen.'))
     }
-    return data.redirect ?? '/spaces'
+    return data.redirect ?? '/start'
 }
 
 /** Beendet die Laravel-Session (Gegenstück zum NIP-98-Handoff). */

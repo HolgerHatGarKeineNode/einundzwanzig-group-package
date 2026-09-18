@@ -58,6 +58,9 @@ import { wireBookmarks } from './bookmarks.ts'
 import { wireMutes } from './mutes.ts'
 import { wireFollows } from './follows.ts'
 import { wireReminders } from './reminders.ts'
+import { wirePinSet } from './pinSetSync.ts'
+import { wireRsvpTermine } from './rsvpTermine.ts'
+import { wireMitgliedschaft } from './mitgliedschaft.ts'
 import { wirePresence } from './presence.ts'
 import { wireVerein } from './verein.ts'
 import { subscribeForgeNav, wireForge } from './forge.ts'
@@ -179,7 +182,6 @@ import { roomsFingerprint, type RoomLike } from './roomFingerprint.ts'
 import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { readSpaceParam, withSpace, workspaceRoomHref } from './spaceParam.ts'
 import { readSpacesTab, DEFAULT_SPACES_TAB, SPACES_TAB_PARAM } from './spacesTab.ts'
-import { ORTSKARTEN_DROSSEL_MS, ORTSKARTEN_NACHLADE_MS, zeigeLive } from './ortskarten.ts'
 import {
     deriveSpaceDirectory,
     deriveVereinAccess,
@@ -264,14 +266,18 @@ import {
 import { BADGE_CAP, deriveUnread, formatUnreadCount, sumUnreadRooms, type UnreadView } from './unread.ts'
 import { deriveUpdates, type UpdateItem } from './updates.ts'
 import {
+    countAddressedUpdates,
     countUnreadUpdates,
+    feedFromSearch,
     firstNonEmpty,
     groupUpdates,
     hasMoreUpdates,
     hasUnreadUpdates,
+    isNoticeFeed,
     liveRegionDelay,
     nextUpdatesLimit,
     originTarget,
+    postfachUrl,
     threadBackTarget,
     undoClickAction,
     undoSnapshotFor,
@@ -304,6 +310,7 @@ import {
 import { getWalletAddress, WalletType, type Wallet } from '@welshman/util'
 import { type Zapper } from './welshmanZap.ts'
 import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader.ts'
+import { articleAuthorHref, articleHref } from './articleRoutes.ts'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps.ts'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles.ts'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
@@ -493,7 +500,7 @@ async function postLoginRedirect(): Promise<string> {
         // Boot-Gate führt ihn dort aus). Direkt hier würde die folgende
         // window.location-Navigation ihn nach dem Signieren abreißen.
         schedulePortalHandoff()
-        return ret ?? '/spaces'
+        return ret ?? '/start'
     }
     // Web: NIP-98-Handoff MUSS laufen (setzt die Laravel-Session), das Ziel danach.
     // Bei Direkt-Hit auf eine gegatete Route liefert der Server `url.intended`; ein
@@ -806,6 +813,10 @@ type UpdatesState = {
     open(item: UpdateItem): void
     retry(): void
     resetFeed(): void
+    /** P3/D5: does this segment render the notice list at all? `false` for Direkt/Erinnerungen. */
+    isNotices(): boolean
+    /** P3/D5: the segment counts of the tab bar — mentions, threads, due reminders. NEVER a DM count. */
+    segmentCount(feed: UpdateFeed, dueCount?: number): number
     markAllRead(): void
     _closeUndo(): void
     undoMarkAll(): void
@@ -821,33 +832,6 @@ type ArticleSortOption = {
     label: string
 }
 
-/**
- * Zustand der Ortskarten-Leiste (P5) — der Live-Zeilen wegen, sonst nichts.
- *
- * Die Leiste selbst ist reines Server-Markup (`components/ortskarten.blade.php`): Orte,
- * Links, Aktiv-Zustand stehen im ausgelieferten HTML. Diese Insel liefert ausschließlich
- * die drei Zahlen — und `null` heißt „noch keine", nicht „keine".
- */
-type OrtskartenState = {
-    /** Bestand der Artikelliste. `null`, solange nichts geladen wurde. */
-    artikelZahl: number | null
-    /** Repositories im Forge-Baum. `null`, solange nichts geladen wurde. */
-    repoZahl: number | null
-    /** Ist der Screen weg, bevor das Nachladen überhaupt begonnen hat? */
-    _dead: boolean
-    /** Kennung des angemeldeten Leerlauf-Rückrufs (0 = keiner). */
-    _idle: number
-    _unsubArtikel: null | (() => void)
-    _unsubForge: null | (() => void)
-    init(): void
-    destroy(): void
-    /** Startet die beiden Nachlader — erst nach dem ersten Paint, siehe `init`. */
-    _nachladen(): void
-    /** Ungelesenes über Räume UND Threads, aus dem globalen Store. */
-    ungelesen(): number
-    /** Darf dieser Wert die statische Unterzeile ersetzen? (`ortskarten.ts`) */
-    zeigt(wert: number | null): boolean
-}
 
 /**
  * Bildschirm-Zustand der Artikelliste (P2). Alles Fachliche liegt in `longformFeed.ts`
@@ -1441,6 +1425,19 @@ type InviteState = {
 }
 
 /** ZAPS.md Z0.4 — vollwertige Lightning-Wallet-Insel (Verbinden/Balance/Senden/Empfangen). */
+/**
+ * The wallet ROW on „Ich" (P3/D8) — balance and nothing else. See the island for why this
+ * is not `nostrWallet`.
+ */
+type WalletBalanceState = {
+    zapsEnabled: boolean
+    connected: boolean
+    /** `null` = no amount (not connected, WebLN, or the call failed). Never a fabricated 0. */
+    balanceSats: number | null
+    loading: boolean
+    init(): Promise<void>
+}
+
 type WalletState = {
     zapsEnabled: boolean
     connected: boolean
@@ -1753,8 +1750,25 @@ type UnreadStore = UnreadView & {
      * `⚡spaces.blade.php` sitzt: auf diesem Screen existiert die Insel gar nicht, und
      * ohne globale Quelle könnte die Glocke nie eine Zahl tragen. Gezählt wird in
      * `countUnreadUpdates` — dieselbe Liste, die der Klick auf die Glocke öffnet.
+     *
+     * **The bell itself is gone since P2**; the field stays because it is the number of the
+     * /updates list, which that surface shows with or without a bell.
      */
     updates: number
+    /**
+     * Unread rows that ADDRESS the reader — mentions and thread replies, never a room
+     * message and never a conversation. The number on the inbox icon of the desktop
+     * command bar (P6/D10).
+     *
+     * A field of its own next to `updates`, not a getter over it: the two answer different
+     * questions and the reasoning belongs in ONE place — {@link countAddressedUpdates},
+     * which also says why a DM can never be in here.
+     *
+     * The command bar adds the due reminders itself (`$store.reminders`, only filled where
+     * that store is mounted). Deliberately not folded in here: this store is global, and
+     * pulling reminders into it would mean nip44-decrypting them on every page.
+     */
+    postfach: number
     /**
      * Zahl → fertiger Pillentext, gekappt. EINE Methode für beide Schwellen aus §4.2
      * (99 an den frei stehenden Pillen, 9 an der Glocke) statt zweier benannter: die
@@ -1788,7 +1802,9 @@ type UnreadStore = UnreadView & {
  *         any: boolean,                      // Punkt der Bottom-Nav, Ja/Nein der Glocke
  *         roomsTotal: number, dmsTotal: number, threadsTotal: number,  // drei EBENEN,
  *                                            // disjunkt; siehe UnreadStore.dmsTotal
- *         updates: number,                   // ungelesene /updates-Zeilen → Header-Glocke
+ *         updates: number,                   // ungelesene /updates-Zeilen
+ *         postfach: number,                  // davon die, die den Leser ADRESSIEREN →
+ *                                            // inbox icon of the command bar (P6)
  *         capped(n, cap = 99): string,       // fertiger Pillentext inkl. Cap (99 bzw. 9)
  *         liveText: string,                  // die EINE aria-live-Zählregion (§4.7)
  *     }
@@ -1814,6 +1830,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         roomsTotal: 0,
         threadsTotal: 0,
         updates: 0,
+        postfach: 0,
         capped: (count, cap = BADGE_CAP) => formatUnreadCount(count, cap),
         liveText: '',
     }
@@ -1884,6 +1901,7 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         store.roomsTotal = 0
         store.threadsTotal = 0
         store.updates = 0
+        store.postfach = 0
         // Auch die Region auf Anfang: der Zählerstand des ALTEN Space darf im neuen
         // weder stehen bleiben noch als Änderung angesagt werden.
         if (liveTimer !== null) {
@@ -1917,6 +1935,11 @@ function wireUnread(Alpine: { store: (name: string, value?: unknown) => unknown 
         // Glocke auch auf Screens ohne `nostrUpdates`-Insel eine Zahl trägt.
         unsubUpdateCount = deriveUpdates(url, countedRoomHs, joinedRoomNames).subscribe((items: UpdateItem[]) => {
             store.updates = countUnreadUpdates(items)
+            // The same emission, a second count — the inbox icon's number (P6). Derived
+            // here rather than in a surface, for the reason the whole store exists: the bar
+            // stands on EVERY page, and a second derivation would be a second request for
+            // a list that is already in hand.
+            store.postfach = countAddressedUpdates(items)
             announceUnread(store.updates)
         })
     })
@@ -1963,6 +1986,41 @@ export function registerNostrComponents(Alpine: {
     // chat island; the card mounts itself from the markup with the room's `h`.
     // Reasoning in the header of `calendar.ts`, the rules in `calendarModels.ts`.
     wireMeetupEvent(Alpine)
+    /*
+     * P5 (D12) — saying yes to a Portal date from the read-only Portal surfaces. A STORE and
+     * not an island, and the reason is the Termine list: sixty dates on one screen would be
+     * sixty subscriptions and sixty REQs against a third-party relay. The rows register their
+     * coordinate, the store asks ONE query. Second reason, the usual one: the same fact („did
+     * I answer this date?") is read by the meetup page and by the same date's row in the list,
+     * and the two never see each other in the DOM. The room's date card above keeps its own
+     * island — it starts from a room, not from a Portal payload — but both share the rule
+     * (`rsvpRule.ts`) and the publish path (`rsvpPublish.ts`).
+     */
+    wireRsvpTermine(Alpine)
+    /*
+     * P5 (D11) — „Ich › Verein": membership status, contribution year and receipts. Its own
+     * island for the same reason as the join flow next to it: every read costs a NIP-98
+     * signature, and the surface has to be able to say „the ID was rejected, sign again"
+     * instead of retrying by itself. Reasoning in `mitgliedschaft.ts`, rules in
+     * `mitgliedschaftModelle.ts`.
+     *
+     * ── Both of these are STATIC, and that is a decision, not an oversight ───────────
+     *
+     * P5 measured it, broke the bundle latch with it and reported the breach; **P6 measured
+     * the alternative and kept the static form.** The four builds, the reason and the raise
+     * of the mark stand in ONE place, at the mark itself:
+     * `tests/e2e/support/bundleGrenze.nodetest.ts`. The short version: registering the two
+     * lazily takes 8.5 kB off the `app` chunk and **324 B off what the browser downloads**,
+     * because the modules move into two chunks the entry then imports statically — a green
+     * mark, two more requests per page in both hosts, and the same bytes over the wire.
+     *
+     * **P5's figure here was wrong and is corrected rather than deleted:** it said the split
+     * would cost „about 9 kB more over the wire", because it counted `publishResult`
+     * (13 906 B gzip) and `nip98` (1 037 B) as NEW boot chunks. They are already boot chunks
+     * today — measured in both variants. The conclusion (keep them static) survives the
+     * correction; the number did not.
+     */
+    wireMitgliedschaft(Alpine)
     // P6b — Angepinnte Nachrichten. Ausnahmsweise ein STORE statt einer Insel: der
     // Zustand wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (Leiste
     // über dem Verlauf, Eintrag im Nachrichten-Menü innerhalb von `nostrRoomChat`).
@@ -1990,6 +2048,13 @@ export function registerNostrComponents(Alpine: {
     // Erinnerungs-Fläche auf `/updates`). Begründung im Kopf von `reminders.ts`; in
     // `nostrRoomChat` entsteht dadurch KEIN neues Feld.
     wireReminders(Alpine)
+    // P3 (D7/D8) — „Angeheftet": the user's personal pin set (kind 30078,
+    // `d = einundzwanzig/pins`). A store for the same reason as the five above, and this
+    // one has the most readers that never see each other: the chips on Start, the left bar,
+    // the room menus, the profile card, the article and repo headers. Two islands would be
+    // two truths about "is this pinned" — and one of them would be the one a user taps.
+    // The rules are in `js/pinSet.ts`, the relays and the EOSE gate in `js/pinSetSync.ts`.
+    wirePinSet(Alpine)
     // P6 — Präsenz (Buzz kind 20001). Vierter Store nach demselben Muster: der Zustand
     // wird an zwei Stellen gebraucht, die einander im DOM nicht sehen (der Punkt am
     // Avatar jeder Chat-Zeile und der eigene Punkt in der Desktop-Rail). In
@@ -2440,6 +2505,35 @@ export function registerNostrComponents(Alpine: {
             if (wallet) {
                 this._apply(wallet)
                 void this.refreshBalance()
+                /*
+                 * P4/D8 — `?aktion=senden|empfangen` opens the matching sheet once.
+                 *
+                 * That is what the two palette actions („Zahlen", „Rechnung erstellen")
+                 * address: they navigate to this page with the intent in the ADDRESS, so the
+                 * intent survives a full page load — which is the only way the app boots this
+                 * island at all.
+                 *
+                 * Only with a CONNECTED wallet: without one both sheets are empty forms over
+                 * a wallet that cannot pay, and the connect block on the page is what the
+                 * user needs to see instead. And only once — the parameter is removed from
+                 * the address afterwards (`replaceState`), otherwise a reload would reopen a
+                 * sheet the user just closed.
+                 */
+                const aktion = new URLSearchParams(window.location.search).get('aktion')
+                if (aktion === 'senden' || aktion === 'empfangen') {
+                    const url = new URL(window.location.href)
+                    url.searchParams.delete('aktion')
+                    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+                    // After the frame: the modals hang in the same subtree and are not wired
+                    // up yet during `init()` (`dispatchModal` would not find them).
+                    requestAnimationFrame(() => {
+                        if (aktion === 'senden') {
+                            this.openSend()
+                        } else {
+                            this.openReceive()
+                        }
+                    })
+                }
             }
         },
         _apply(w: Wallet) {
@@ -2719,6 +2813,50 @@ export function registerNostrComponents(Alpine: {
             }
             this._unsubProfile?.()
             this._unsubHandle?.()
+        },
+    }))
+
+    /**
+     * P3 (D8) — the balance in the wallet ROW on „Ich". A tiny island of its own and NOT
+     * `nostrWallet`.
+     *
+     * The reason is the price of `nostrWallet.init()`: it subscribes to the reader's own
+     * profile, resolves the NIP-05 verification against a foreign domain, holds a 6 s timer
+     * and waits for `loadUserProfile()` — all for a SCREEN on which one sets an address and
+     * builds invoices. A row showing a number needs none of it. No second truth about
+     * "connected" appears either: both read the same source (`loadWallet()` from
+     * `js/wallet.ts`), and nothing is written here at all.
+     *
+     * **Only NWC carries a number.** `getWalletBalance()` goes through the NWC client; a
+     * WebLN extension has no balance command that answers without a user dialog. The row
+     * then says „verbunden" without an amount instead of a 0 — an invented zero would be the
+     * worse answer (the same rule as `nostrWallet.refreshBalance`).
+     */
+    Alpine.data('nostrWalletGuthaben', (): WalletBalanceState => ({
+        zapsEnabled: zapsEnabled(),
+        connected: false,
+        balanceSats: null,
+        loading: true,
+        async init() {
+            // The pubkey is hydrated from localStorage asynchronously — without this wait a
+            // hard reload on `/ich` would make `loadWallet()` read an empty key, and a
+            // connected wallet would appear as „nicht verbunden" (the same trap
+            // `nostrWallet.init` and `nostrAuth.init` catch).
+            await ensureAuthReady()
+            try {
+                const wallet = await loadWallet()
+                this.connected = wallet !== null
+                if (wallet?.type === WalletType.NWC) {
+                    const res = await getWalletBalance()
+                    this.balanceSats = fromMsats(res.balance)
+                }
+            } catch {
+                // No balance, no error text: the row leads to the wallet, and the diagnosis
+                // stands there. Red text in a navigation row helps nobody.
+                this.balanceSats = null
+            } finally {
+                this.loading = false
+            }
         },
     }))
 
@@ -3501,8 +3639,8 @@ export function registerNostrComponents(Alpine: {
             // „welche Kanäle gibt es" statt „welche Kanäle gibt es und wozu gehören
             // sie" —, und das wäre wieder ein zweites Modell, nur unauffälliger.
             //
-            // **Was es kostet, offen benannt** (dieselbe Rechnung wie bei
-            // `nostrOrtskarten`): `subscribeForgeNav` schaltet den Netzweg modulweit
+            // **Was es kostet, offen benannt**: `subscribeForgeNav` schaltet den
+            // Netzweg modulweit
             // idempotent scharf. Oberhalb `xl` null Aufpreis — die Desktop-Rail ruft
             // ihn ohnehin. Unterhalb `xl` auf `/forge`, wo es keine Rail gibt, sind es
             // vier REQs auf den Workspace-Relay; **kein zweiter Socket und keine
@@ -3642,10 +3780,26 @@ export function registerNostrComponents(Alpine: {
             _unsubActive: null,
             _unsubItems: null,
             init() {
-                // Filterwechsel setzt die Seitenlänge zurück: „Ältere anzeigen" gilt für
-                // die Ansicht, die man gerade sieht, nicht für alle drei Tabs zusammen.
-                ;(this as unknown as { $watch(p: string, cb: () => void): void }).$watch('feed', () => {
+                // D5/P3 — the segment stands in the ADDRESS (`/postfach?ansicht=direkt`).
+                // Read from there on mount, written back on every change: otherwise a shared
+                // link, the way back out of a conversation and the browser's back button all
+                // land on „Alles".
+                this.feed = feedFromSearch(window.location.search)
+                // A segment change resets the page length: "show older" applies to the view
+                // one is looking at, not to all five segments together.
+                ;(this as unknown as { $watch(p: string, cb: (value: UpdateFeed) => void): void }).$watch('feed', (value: UpdateFeed) => {
                     this.limit = UPDATES_PAGE
+                    // `replaceState` and NOT `Livewire.navigate`: a segment change is not a
+                    // page change — the island keeps its state, and a round trip would rebuild
+                    // the list and its subscriptions. `replace` rather than `push`, so five
+                    // taps do not leave five history entries nobody wants to tap back through.
+                    try {
+                        const ziel = postfachUrl(window.location.pathname, window.location.search, value)
+                        window.history.replaceState(window.history.state, '', ziel)
+                    } catch {
+                        // A browser without the History API only changes the display. The
+                        // segment state lives in the island, not in the address.
+                    }
                 })
                 this._unsubActive = activeSpace.subscribe((url: string) => {
                     this._url = url
@@ -3782,6 +3936,40 @@ export function registerNostrComponents(Alpine: {
                 this.limit = UPDATES_PAGE
             },
             /**
+             * Does this segment compute the notice list? It carries the existence of the
+             * list, of the pagination and of both empty states — `direkt` and `erinnerungen`
+             * bring a surface of their own.
+             */
+            isNotices() {
+                return isNoticeFeed(this.feed)
+            },
+            /**
+             * The count on a segment — mentions, threads, due reminders.
+             *
+             * **For `direkt` it is 0 by construction, and that is not thrift but D5.** A
+             * number about encrypted messages exists only after decrypting; showing one here
+             * would cost exactly the signer calls the decision avoids. The function therefore
+             * ACCEPTS `direkt` and answers 0, rather than leaving the choice to the markup —
+             * a number that must not be shown belongs in a function that says no, not in a
+             * template.
+             *
+             * `all` gets no number either: the segment shows everything, and a number next to
+             * it would be the length of the list right below.
+             */
+            segmentCount(feed: UpdateFeed, dueCount = 0) {
+                if (feed === 'mentions' || feed === 'threads') {
+                    return visibleUpdates(this.items, feed, this.items.length).length
+                }
+                if (feed === 'erinnerungen') {
+                    // The due reminders live in `$store.reminders`, not in this island — the
+                    // surface hands the number in rather than this file building itself a way
+                    // to that store.
+                    return Math.max(0, dueCount)
+                }
+
+                return 0
+            },
+            /**
              * „Alles gelesen" — mit Rückweg (§8, verbindlich): erst die Karte puffern,
              * dann das globale Wasserzeichen setzen. Ohne Puffer wäre die Aktion
              * irreversibel und bräuchte einen Bestätigungsdialog; der Puffer ist die
@@ -3856,165 +4044,6 @@ export function registerNostrComponents(Alpine: {
         }
     })
 
-    /**
-     * Die Ortskarten-Leiste (P5) — **nur die drei Zahlen**, sonst nichts.
-     *
-     * Orte, Links und Aktiv-Zustand stehen im Server-Markup
-     * (`components/ortskarten.blade.php`). Diese Insel beantwortet genau eine Frage je
-     * Karte: „gibt es dazu eine Zahl?".
-     *
-     * ── Warum das NACH dem ersten Paint läuft und nicht im `init` ──────────────────
-     *
-     * Die Leiste ist Navigation, ihre Zahlen sind Beiwerk. Sie steht auf `/spaces` über
-     * dem Raum-Feed, auf `/articles` über der Artikelliste und auf `/forge` über dem
-     * Forge-Baum — überall über dem, wofür der Nutzer gekommen ist. Ein `import()` plus
-     * REQ im `init` konkurrierte mit genau dieser Fläche um Netz und Hauptstrang.
-     *
-     * Der Auslöser ist deshalb `requestIdleCallback` mit einer harten Obergrenze
-     * ({@link ORTSKARTEN_NACHLADE_MS}) für Browser, deren Hauptstrang nie ruhig wird —
-     * und für Safari, das `requestIdleCallback` bis heute nicht kennt (dort greift
-     * unmittelbar der `setTimeout`-Zweig).
-     *
-     * ── Was die Zahlen NICHT tun ──────────────────────────────────────────────────
-     *
-     * Sie warten nicht, sie blinken nicht, und sie verschwinden nicht wieder. Bleibt ein
-     * Relay stumm, bleibt der Wert `null` und die statische Unterzeile stehen — die Regel
-     * dafür ist `zeigeLive` (`ortskarten.ts`), geprüft, und sie gilt für alle drei Karten
-     * gleich. `0` fällt ausdrücklich darunter.
-     *
-     * ── Die Kosten, offen benannt ─────────────────────────────────────────────────
-     *
-     * `artikelZahl` kostet einen REQ auf den Board-Relay (kind 30023, `ARTICLE_LOAD_LIMIT`)
-     * — denselben, den `/articles` ohnehin fährt; wer dort landet, hat ihn schon.
-     * `repoZahl` hängt an `subscribeForgeNav`, das modulweit idempotent ist und auf
-     * `/forge` und in der Desktop-Rail ohnehin läuft. Auf `/spaces` sind das zwei REQs,
-     * die es vorher nicht gab. Das ist der Preis der Live-Zeilen, und er ist der Grund
-     * für die Leerlauf-Verzögerung oben.
-     */
-    Alpine.data('nostrOrtskarten', (): OrtskartenState => ({
-        artikelZahl: null,
-        repoZahl: null,
-        _dead: false,
-        _idle: 0,
-        _unsubArtikel: null,
-        _unsubForge: null,
-        init() {
-            // `requestIdleCallback` existiert nicht überall (Safari). Der Rückfall ist
-            // KEIN sofortiges Laden, sondern derselbe Aufschub per `setTimeout` — sonst
-            // wäre ausgerechnet der Browser ohne Leerlauf-API der, der am aggressivsten
-            // lädt.
-            const ric = (window as unknown as {
-                requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
-            }).requestIdleCallback
-            this._idle = ric
-                ? ric(() => this._nachladen(), { timeout: ORTSKARTEN_NACHLADE_MS })
-                : (setTimeout(() => this._nachladen(), ORTSKARTEN_NACHLADE_MS) as unknown as number)
-        },
-        destroy() {
-            this._dead = true
-            if (this._idle) {
-                const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
-                if (cic) {
-                    cic(this._idle)
-                } else {
-                    clearTimeout(this._idle)
-                }
-                this._idle = 0
-            }
-            this._unsubArtikel?.()
-            this._unsubForge?.()
-            this._unsubArtikel = null
-            this._unsubForge = null
-        },
-        _nachladen() {
-            this._idle = 0
-            if (this._dead) {
-                return
-            }
-            // Zwei unabhängige Zweige, bewusst NICHT in einem `Promise.all` und bewusst
-            // ohne gemeinsamen Ausstieg: fällt der eine aus, soll der andere trotzdem
-            // seine Zahl liefern. Fehler bleiben stumm — eine fehlende Beiwerk-Zahl ist
-            // kein Ereignis, über das jemand unterrichtet werden müsste; die statische
-            // Zeile trägt weiter.
-            //
-            // **Kein Chunk ohne Quelle.** `longformFeed` zieht `markdown-it` nach (gemessen
-            // 116 kB roh / 50 kB gzip als eigener Chunk). Ohne konfigurierten Board-Relay
-            // hat `loadArticles` nichts zu tun (`BOARD_URL` ist dort der Riegel) — dann
-            // wäre der Download reine Kosten. Die Frage wird HIER gestellt und nicht im
-            // Modul, weil die Antwort sonst erst nach dem Herunterladen feststünde.
-            // Dieselbe Quelle wie `BOARD_URL` selbst: `window.__nostrBoard` aus
-            // `partials/head.blade.php`, also aus `config('group.board_relay_url')`.
-            // `if` und NICHT `return`: ein früher Ausstieg nähme dem Forge-Zweig darunter
-            // seinen Lauf mit, und der hat mit dem Board nichts zu tun.
-            if ((window as { __nostrBoard?: string }).__nostrBoard) {
-                void import('./longformFeed.ts')
-                    .then((feed) => {
-                        if (this._dead) {
-                            return
-                        }
-                        this._unsubArtikel = throttled(ORTSKARTEN_DROSSEL_MS, feed.deriveArticles()).subscribe(
-                            (rows: ArticleRow[]) => {
-                                this.artikelZahl = rows.length
-                            },
-                        )
-                        void feed.loadArticles().catch(() => undefined)
-                    })
-                    .catch(() => undefined)
-            }
-
-            // `subscribeForgeNav` STATISCH importiert, anders als `longformFeed`: die
-            // Insel-Registrierung `wireForge` hängt ohnehin an `forge.ts`, das Modul liegt
-            // also längst im `app`-Chunk. Ein `import()` daneben täuschte eine
-            // Code-Trennung vor, die es nicht gibt — Rolldown meldet das als
-            // INEFFECTIVE_DYNAMIC_IMPORT und legt das Modul trotzdem in denselben Chunk.
-            // Aufgeschoben wird hier ohnehin nicht der DOWNLOAD, sondern das ABO; das
-            // erledigt der Leerlauf-Rückruf oben. `subscribeForgeNav` schaltet den Netzweg
-            // selbst scharf (idempotent, modulweit) und tut ohne konfigurierten Workspace
-            // gar nichts.
-            //
-            // ── WAS DIESE VIER ZEILEN KOSTEN, gemessen (P5, 2026-08-21) ───────────────
-            //
-            // Playwright-Socket-Mitschnitt auf `/spaces`, 8 s nach dem Mount, gegen einen
-            // lokalen Buzz-Stack; zwischen den Ständen jeweils voller Rebuild:
-            //
-            //   Fenster < xl (1279 px, keine Rail)   mit:  1 Socket · 7 REQ · 1 AUTH
-            //                                        ohne: 0 Sockets · 0 REQ · 0 AUTH
-            //   Fenster ≥ xl (1440 px, mit Rail)     mit:  2 Sockets · 12 REQ · 1 AUTH
-            //                                        ohne: 2 Sockets · 12 REQ · 1 AUTH
-            //
-            // Oberhalb `xl` also **null Aufpreis**: die Desktop-Rail ruft `subscribeForgeNav`
-            // ohnehin auf, und der Netzweg ist modulweit idempotent. Unterhalb `xl` — wo es
-            // keine Rail gibt — kostet die Zahl „7 Repos" eine zweite Relay-Verbindung mit
-            // einer NIP-42-AUTH-Runde auf der wichtigsten Fläche des Clients.
-            //
-            // **Zum Vergleich der Stand VOR P5:** dort fuhr der Workspaces-Tab auf `/spaces`
-            // 2 Sockets · 7 REQ · 1 AUTH. Diese Fläche ist mit den vier Zeilen hier also
-            // immer noch billiger als vorher, nicht teurer.
-            //
-            // **Soll die Zahl weg, ist das GENAU DIESE Zuweisung** (`this._unsubForge = …`).
-            // Fällt sie, bleibt in der Forge-Karte die statische Unterzeile „Repos" stehen —
-            // die Regel dafür (`zeigeLive`) trägt den Fall bereits, es ist kein Umbau.
-            // `_unsubForge` bleibt dann dauerhaft `null`, `destroy()` verträgt das.
-            this._unsubForge = subscribeForgeNav((data) => {
-                this.repoZahl = data.repos.length
-            })
-        },
-        ungelesen() {
-            // Räume UND Threads: die Karte führt an den Ort „Chat", und der hat beide
-            // Ebenen. Bewusst nicht `$store.unread.updates` — das ist die Glocke, also
-            // eine andere Menge (siehe die Begründung am Glocken-Marker).
-            // Both levels. Until P7 there were three — `dmsTotal` counted the Buzz DM
-            // channels, which no longer exist.
-            const store = Alpine.store('unread') as
-                | { roomsTotal?: number; threadsTotal?: number }
-                | undefined
-
-            return (store?.roomsTotal ?? 0) + (store?.threadsTotal ?? 0)
-        },
-        zeigt(wert: number | null) {
-            return zeigeLive(wert)
-        },
-    }))
 
     /**
      * Artikelliste (P7, `/articles`) — Longform vom Board-Relay.
@@ -4183,7 +4212,10 @@ export function registerNostrComponents(Alpine: {
             },
             /** Ziel der Zeile. Leerer `naddr` (Artikel ohne `d`) ⇒ kein Link. */
             href(row: ArticleRow) {
-                return row.naddr ? `${this._base}/${row.naddr}` : ''
+                // `articleHref` and not `${this._base}/…`: `_base` is the LIST
+                // (`/bereich/artikel`), the article sits on `/articles/{naddr}` — appending
+                // to the base produced a 404 on every row (P7, `js/articleRoutes.ts`).
+                return articleHref(row.naddr ?? '')
             },
             sortOptions() {
                 return sortOptions
@@ -4655,7 +4687,9 @@ export function registerNostrComponents(Alpine: {
                     return ''
                 }
                 try {
-                    return `${this._base}/autor/${nip19.npubEncode(pk)}`
+                    // Same table as the row target, same reason (P7): the author page is
+                    // `/articles/autor/{autor}`, not a child of the list route.
+                    return articleAuthorHref(nip19.npubEncode(pk))
                 } catch {
                     // Ein Pubkey, den `npubEncode` nicht annimmt, ist kein Fehler dieser
                     // Fläche — er käme aus einem Event, das der Relay so ausgeliefert
@@ -4844,7 +4878,10 @@ export function registerNostrComponents(Alpine: {
                 }
             },
             href(row: ArticleRow) {
-                return row.naddr ? `${this._base}/${row.naddr}` : ''
+                // `articleHref` and not `${this._base}/…`: `_base` is the LIST
+                // (`/bereich/artikel`), the article sits on `/articles/{naddr}` — appending
+                // to the base produced a 404 on every row (P7, `js/articleRoutes.ts`).
+                return articleHref(row.naddr ?? '')
             },
             hatAutor() {
                 return this.fehler === '' && !this.aufloesend
@@ -7200,7 +7237,7 @@ export function registerNostrComponents(Alpine: {
             // Sinn (der QR liegt auf dem eigenen Gerät, nicht scanbar). Statt Modal
             // direkt in die Wallet-Einstellungen (group.wallet), wo NWC verbunden wird.
             if (isMobile && !(await loadWallet())) {
-                location.assign('/settings/wallet')
+                location.assign('/bereich/wallet')
                 return
             }
             // Modal SOFORT öffnen — dass eine lud16 existiert, weiß der Feed bereits (m.zappable).
@@ -7699,7 +7736,7 @@ export function registerNostrComponents(Alpine: {
                 )
             }
             // SPA-Navigation (welshman bleibt warm) statt Full-Reload.
-            ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/spaces')
+            ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/bereich/chat')
         },
         // Aktiven Space beitreten/verlassen (Space-Ebene, kind 28934/28936).
         async joinActive() {
@@ -7770,7 +7807,7 @@ export function registerNostrComponents(Alpine: {
                 } else {
                     setActiveSpace(this.space)
                     this.done = true
-                    ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/spaces')
+                    ;(window as unknown as { Livewire: { navigate: (u: string) => void } }).Livewire.navigate('/bereich/chat')
                 }
             } finally {
                 this.joining = false
@@ -7929,7 +7966,7 @@ export function registerNostrComponents(Alpine: {
                 // Nutzer eine Fehlermeldung auf der Login-Seite — angemeldet, aber
                 // stehengeblieben. Ein Fehler beim ZIEL darf den geglückten Login nicht
                 // wie einen gescheiterten aussehen lassen.
-                let ziel = '/spaces'
+                let ziel = '/bereich/chat'
                 try {
                     ziel = await postLoginRedirect()
                 } catch {

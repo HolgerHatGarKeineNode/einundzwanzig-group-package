@@ -82,13 +82,18 @@
          rein?". Der Ring trennt ihn vom Icon-Strich und gibt der Kontrastmessung
          einen bekannten flachen Nachbarn (Nav-Grund zinc-50/zinc-950).
 
-         ── The encrypted conversations are a SECOND source (P8) ────────────────
-         `$store.unread.any` covers everything keyed by `h`. A NIP-17 conversation has
-         none and is folded in its own store, so an unread message there would leave this
-         dot dark — and the dot is the one place that answers "is anything waiting
-         anywhere". Two sources, one question; the `?? 0` keeps it dark while the lazily
-         loaded store is not there yet. --}}
-@php($punkt = '$store.unread?.any || ($store.privateMessages?.unreadTotal ?? 0) > 0')
+         ── The encrypted conversations were a SECOND source (P8) — and are not any more ─
+         Until P3 this read `|| ($store.privateMessages?.unreadTotal ?? 0) > 0`, because the
+         wrap store was mounted on every page and a NIP-17 conversation has no `h` to be
+         keyed by. D5 ends that: `nostrPrivateMessages` now mounts ONLY inside the Postfach's
+         „Direkt" segment, so the term could only ever be true while the user is already
+         looking at the conversations — a signal about the screen he is on, paid for with two
+         `nip44.decrypt` per envelope.
+
+         The term is therefore gone rather than merely inert: a dot fed from decrypted
+         messages is the door through which a count comes back (D5: "no DM count anywhere").
+         The price is named — an unread conversation leaves this dot dark. --}}
+@php($punkt = '$store.unread?.any')
     <span class="relative inline-flex">
         <flux:icon :name="$icon" :variant="$active ? 'solid' : 'outline'" @class(['size-6' => ! $rail, 'size-5' => $rail]) />
         @if ($unreadDot)

@@ -39,7 +39,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
             <x-slot name="subtitle">
                 <nav class="mt-1 flex items-center gap-1.5 text-xs text-muted xl:hidden"
                      aria-label="{{ __('Pfad') }}" data-forge-kruemel>
-                    <a href="{{ route('group.forge') }}" wire:navigate
+                    <a href="{{ route('group.bereich.forge') }}" wire:navigate
                        class="pressable rounded-tile px-1 py-0.5 -mx-1 font-semibold hover:text-zinc-900 dark:hover:text-zinc-100">{{ __('Forge') }}</a>
                     <span aria-hidden="true">/</span>
                     <a :href="repoHref()" wire:navigate
@@ -92,7 +92,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <flux:heading size="lg" class="mt-4">{{ __('Dieses Repository kennt der Workspace nicht.') }}</flux:heading>
                     <flux:text class="mx-auto mt-1 max-w-sm text-sm text-muted">{{ __('Vielleicht wurde es entfernt, oder der Link zeigt auf ein anderes Relay.') }}</flux:text>
                     <div class="mt-4">
-                        <flux:button size="sm" variant="ghost" icon="arrow-left" href="{{ route('group.forge') }}" wire:navigate>{{ __('Zur Forge') }}</flux:button>
+                        <flux:button size="sm" variant="ghost" icon="arrow-left" href="{{ route('group.bereich.forge') }}" wire:navigate>{{ __('Zur Forge') }}</flux:button>
                     </div>
                 </div>
             </template>

@@ -32,10 +32,12 @@ import {
     latestByAddress,
     makeRsvpTags,
     meetupCalendarAddress,
+    ownRsvpAt,
     ownRsvpStatus,
     pickNextCalendarEvent,
     readCalendarEvent,
     readRsvp,
+    rsvpCreatedAt,
     rsvpDTag,
     usableTimeZone,
     type CalendarSourceEvent,
@@ -335,6 +337,38 @@ test('ownRsvpStatus reports my newest answer and nobody elses', () => {
     assert.equal(ownRsvpStatus(events, 'ADDR', SOMEONE), 'accepted')
     assert.equal(ownRsvpStatus(events, 'ADDR', 'c'.repeat(64)), '')
     assert.equal(ownRsvpStatus(events, 'ADDR', null), '', 'logged out: no answer, not a crash')
+})
+
+test('ownRsvpAt reports the timestamp of the very answer the surface is showing', () => {
+    // Same fold as `ownRsvpStatus`, and that is the point: the replacement has to be stamped
+    // against the event the user sees as „my answer", not against some other one on the pile.
+    const events = [
+        rsvp({ id: '1'.repeat(64), pubkey: ME, created_at: 100, status: 'tentative' }),
+        rsvp({ id: '2'.repeat(64), pubkey: ME, created_at: 200, status: 'declined', d: 'rsvp:later' }),
+        rsvp({ id: '3'.repeat(64), pubkey: SOMEONE, created_at: 300, status: 'accepted' }),
+    ]
+    assert.equal(ownRsvpAt(events, 'ADDR', ME), 200)
+    assert.equal(ownRsvpAt(events, 'ADDR', SOMEONE), 300)
+    assert.equal(ownRsvpAt(events, 'ADDR', 'c'.repeat(64)), 0, 'never answered')
+    assert.equal(ownRsvpAt(events, 'ADDR', null), 0, 'logged out')
+    assert.equal(ownRsvpAt(events, '', ME), 0)
+})
+
+test('rsvpCreatedAt puts a REPLACEMENT one second past the answer it replaces', () => {
+    /*
+     * The case this function exists for, measured in P5s E2E run: „Zusagen" and then
+     * „Absagen" inside the same second left the answer at `accepted` — on the relay AND in
+     * the client, with no error anywhere. A kind 31925 is addressable, `created_at` decides
+     * the replacement, and NIP-01 breaks a tie by the lower id (the same rule this module
+     * folds with). `makeEvent` stamps seconds, so the tie is one tap away.
+     */
+    assert.equal(rsvpCreatedAt(1_780_000_000, 1_780_000_000), 1_780_000_001, 'same second: no tie')
+    assert.equal(rsvpCreatedAt(1_780_000_005, 1_780_000_000), 1_780_000_005, 'a later answer keeps its own time')
+    assert.equal(rsvpCreatedAt(1_780_000_000, 0), 1_780_000_000, 'a FIRST answer is stamped now')
+    assert.equal(rsvpCreatedAt(1_780_000_000), 1_780_000_000, 'and the argument is optional')
+    // A device clock that jumped BACKWARDS would otherwise write an answer that cannot win
+    // against the one it replaces — the same coin flip with extra steps.
+    assert.equal(rsvpCreatedAt(1_779_000_000, 1_780_000_000), 1_780_000_001, 'never backwards')
 })
 
 // ── Building our own RSVP ───────────────────────────────────────────────────────────

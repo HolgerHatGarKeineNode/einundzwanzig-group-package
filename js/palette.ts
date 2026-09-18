@@ -72,6 +72,7 @@ import {
     EMPTY_PALETTE_SCOPE,
     PALETTE_SECTIONS,
     hasPaletteScope,
+    isPortalSection,
     isTextEntry,
     isWorkspaceScope,
     mergePaletteScope,
@@ -83,7 +84,33 @@ import {
     type PaletteRoom,
     type PaletteScope,
     type PaletteSection,
+    type PortalSection,
 } from './paletteItems.ts'
+/*
+ * ── Why the Portal index arrives through `import()` ──────────────────────────────
+ *
+ * `palette.ts` is in the BOOT path: the palette hangs in the layout, so every page of this
+ * client parses it. The bundle latch (`tests/e2e/support/bundleGrenze.nodetest.ts`) measures
+ * exactly that path and went red over these additions — 112 379 B gzip against a mark of
+ * 112 000, and its own docblock says a second raise of that mark would be a statement about
+ * the boot path rather than about the number.
+ *
+ * So the module is fetched when the palette OPENS (`_ensureData`, together with its data),
+ * and the TYPES are imported separately — a type import is erased at build time and pulls
+ * nothing into the chunk. Same pattern as `longformFeed.ts` and `directoryIsland.ts`.
+ *
+ * The reference is module-level and not per instance: there is one palette per document, and
+ * a second instance (a `wire:navigate` rebuild) must not fetch the chunk again.
+ */
+import type {
+    PortalIndex,
+    PortalIndexRow,
+    PortalKind,
+} from './portalIndex.ts'
+
+type PortalModul = typeof import('./portalIndex.ts')
+
+let portalModul: PortalModul | null = null
 import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { deriveEventsForUrl } from './repository.ts'
 import { searchMessages, type SearchHit, type SearchableRow } from './search.ts'
@@ -113,7 +140,31 @@ const SECTION_LABEL: Record<PaletteSection, string> = {
     rooms: t('Räume'),
     members: t('Mitglieder'),
     spaces: t('Spaces'),
+    // D6 — the four Portal sections. "Meetups" here means the PAGE of the association
+    // portal, not the room group of the same name (`m:`); the chip therefore says "Meetups
+    // im Portal", so the two chips do not read alike.
+    meetups: t('Meetups im Portal'),
+    events: t('Termine'),
+    courses: t('Kurse'),
+    lecturers: t('Referenten'),
+    // P5 — not „Termine" a second time: this section does not show dates to READ but dates to
+    // ANSWER, and only the reader's own. Two chips reading alike would be the drift the
+    // grammar of this file is built against.
+    zusagen: t('Zusagen zu deinen Meetups'),
     actions: t('Aktionen'),
+}
+
+/**
+ * Section → row type of the index. Two vocabularies, because they name two things: the
+ * section is a surface of the palette (plural, like its siblings), the type is a field in
+ * the index (singular, the way the PHP side writes it). The mapping stands HERE once
+ * instead of as a `.slice(0, -1)` trick in four places.
+ */
+const PORTAL_KIND_OF: Record<PortalSection, PortalKind> = {
+    meetups: 'meetup',
+    events: 'event',
+    courses: 'course',
+    lecturers: 'lecturer',
 }
 
 /** Eine Zeile der Sektion „Aktionen". Kommt aus Blade (Routen + `__()`). */
@@ -123,6 +174,14 @@ export type PaletteAction = {
     /** Ziel-URL (absolut, aus `route()`); fehlt bei reinen Modal-Aktionen. */
     href?: string
     icon?: string
+    /**
+     * P5 — an action that leaves the palette OPEN and raises a scope chip instead.
+     *
+     * „Zusagen" is not a destination but a question („which date?"): it raises the `z:`
+     * chip and lists the dates of the reader's own meetups. An `href` would have needed a
+     * page for that, and there is none — the list lives in the palette.
+     */
+    scope?: PaletteSection
 }
 
 export type PaletteSpace = { url: string; label: string; hint: string; active: boolean }
@@ -220,6 +279,31 @@ type AuthGateStore = { requireAuth(intent: { label?: string; returnUrl?: string;
 const authGate = (): AuthGateStore | undefined =>
     (window as unknown as { Alpine?: { store(n: string): AuthGateStore | undefined } }).Alpine?.store('authGate')
 
+/**
+ * The two stores the „Zusagen" section reads, reached the same way as `authGate` above:
+ * through `window.Alpine` and not through an import.
+ *
+ * That is deliberate and it is the containment: `palette.ts` sits in the boot path of every
+ * page, and a static import of `pinSetSync.ts`/`rsvpTermine.ts` would pull their welshman
+ * halves in with it. Both stores are registered by `bridge.ts` before any component is
+ * evaluated (`registerNostrComponents`), so the lookup never comes up empty in the browser —
+ * and where it does (a unit test without Alpine), the section is simply empty.
+ */
+const pinSetStore = (): { keys: string[] } | null =>
+    (window as unknown as { Alpine?: { store(n: string): { keys?: string[] } | undefined } })
+        .Alpine?.store('pinSet') as { keys: string[] } | null ?? null
+
+type RsvpStoreLike = {
+    hinweisOffen: boolean
+    row(address: string): { myStatus: string } | undefined
+    track(address: string): void
+    rsvp(address: string, status: 'accepted' | 'declined' | 'tentative'): void
+}
+
+const rsvpStore = (): RsvpStoreLike | null =>
+    (window as unknown as { Alpine?: { store(n: string): RsvpStoreLike | undefined } })
+        .Alpine?.store('rsvpTermine') ?? null
+
 export type PaletteState = {
     /** Ist der Dialog offen? Spiegelt den `<dialog>`, führt ihn nicht. */
     shown: boolean
@@ -263,6 +347,8 @@ export type PaletteState = {
     searchRejected: string | null
     /** Der Text, mit dem zuletzt gesucht wurde (nicht der im Feld stehende). */
     searchQuery: string
+    /** The ONE Portal index of this session (D6) — empty until the load is through. */
+    portal: PortalIndex | null
     searchMessages: MessageHit[]
     searchPeople: PersonHit[]
     _wsEvents: TrustedEvent[]
@@ -276,6 +362,11 @@ export type PaletteState = {
     readonly memberItems: MemberView[]
     readonly spaceItems: PaletteSpace[]
     readonly actionItems: PaletteAction[]
+    /** The four Portal sections, filtered IN THE BROWSER (D6 — the query stays here). */
+    readonly meetupItems: PortalIndexRow[]
+    readonly eventItems: PortalIndexRow[]
+    readonly courseItems: PortalIndexRow[]
+    readonly lecturerItems: PortalIndexRow[]
     /** Steht die Palette im Workspace-Scope UND gibt es einen Workspace? */
     readonly workspaceActive: boolean
     readonly instantHits: InstantHit[]
@@ -298,6 +389,15 @@ export type PaletteState = {
     openMember(member: MemberView): void
     openSpace(space: PaletteSpace): void
     runAction(action: PaletteAction): void
+    portalRows(section: PortalSection): PortalIndexRow[]
+    portalHint(row: PortalIndexRow): string
+    openPortal(row: PortalIndexRow): void
+    /** P5: the dates of the reader's OWN meetups that a kind 31925 can answer. */
+    readonly zusagenItems: PortalIndexRow[]
+    /** The user's own answer to one of those rows ('' = none yet). */
+    zusageStatus(row: PortalIndexRow): string
+    /** Publish the answer. Opens the disclosure first where it is still owed. */
+    zusagen(row: PortalIndexRow): void
     openShortcuts(): void
     _go(href: string, label: string): void
     _dmItems(): PaletteRoom[]
@@ -351,6 +451,7 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
     searchComplete: false,
     searchRejected: null,
     searchQuery: '',
+    portal: null,
     searchMessages: [],
     searchPeople: [],
     _wsEvents: [],
@@ -441,6 +542,145 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         const self = this as PaletteState
 
         return self.shows('actions') ? self.actions : []
+    },
+
+    // ── P4/D6: the four Portal sections ─────────────────────────────────────
+
+    get meetupItems(): PortalIndexRow[] {
+        return (this as PaletteState).portalRows('meetups')
+    },
+
+    get eventItems(): PortalIndexRow[] {
+        return (this as PaletteState).portalRows('events')
+    },
+
+    get courseItems(): PortalIndexRow[] {
+        return (this as PaletteState).portalRows('courses')
+    },
+
+    get lecturerItems(): PortalIndexRow[] {
+        return (this as PaletteState).portalRows('lecturers')
+    },
+
+    // ── P5/D12: „Zusagen" — answering a date from the palette ───────────────
+
+    /**
+     * The dates of the reader's OWN meetups that this client may answer.
+     *
+     * „Own" is the union of two statements the reader has already made: the meetups he
+     * PINNED (D7, `$store.pinSet`) and the meetups whose ROOM he joined. „The next dates of
+     * the whole association" would be a list of strangers' meetups 600 km away — and every
+     * row of it an invitation to a public, permanent answer to a date he has no relation to.
+     *
+     * The rows come out of the SAME index as the four Portal sections and carry the 31923
+     * coordinate (`a`), which the server only fills where the meetup allows an answer at all
+     * (`BuildsPortalIndex`: `rsvp_enabled` AND `attendees_public`). Whether the relays really
+     * hold that event is decided at the moment of the answer, by the shared rule.
+     */
+    get zusagenItems(): PortalIndexRow[] {
+        const self = this as PaletteState
+        // The reactive reads FIRST — Alpine records a getter's dependencies while it RUNS, and
+        // a guard in front of them would leave this getter without any (the measured „right
+        // rows, zero options" failure of P4).
+        const rows = self.portal?.rows ?? []
+        const pinned = (pinSetStore()?.keys ?? [])
+            .filter((key: string) => key.startsWith('meetup:'))
+            .map((key: string) => key.slice('meetup:'.length))
+        const joined = (self._space?.userRooms ?? [])
+            .map((room: RoomView) => room.meetupSlug)
+            .filter((slug: string) => slug !== '')
+        if (portalModul === null || rows.length === 0 || !self.shows('zusagen')) {
+            return []
+        }
+
+        return portalModul.answerableDates(
+            rows,
+            Array.from(new Set([...pinned, ...joined])),
+            portalModul.nowIndexKey(),
+        )
+    },
+
+    zusageStatus(row: PortalIndexRow): string {
+        return rsvpStore()?.row(row.a)?.myStatus ?? ''
+    },
+
+    /**
+     * Answer this date — through the SAME store and the same publish path as every other RSVP
+     * surface (`$store.rsvpTermine`), so the disclosure, the relay set and the „one answer per
+     * person" fold cannot differ between the palette and the meetup page.
+     *
+     * The palette stays OPEN: the row's state changes in place (the store's `myStatus`), and
+     * somebody who wants to answer three dates should not have to press ⌘K three times. The
+     * disclosure, where it is still owed, appears on the surface that owns it — so the palette
+     * closes and lands on the date's meetup page, which carries the sentence and the buttons.
+     */
+    zusagen(row: PortalIndexRow): void {
+        const store = rsvpStore()
+        if (store === null || row.a === '') {
+            return
+        }
+        store.track(row.a)
+        if (store.hinweisOffen) {
+            // The sentence has to be READ before the first answer, and a palette row is not a
+            // place to read a paragraph. So this one press leads to the meetup page instead of
+            // publishing — with the address in scope, where the disclosure and the button sit
+            // next to each other.
+            (this as PaletteState).openPortal(row)
+
+            return
+        }
+        store.rsvp(row.a, 'accepted')
+    },
+
+    /**
+     * The rows of one Portal section — out of the ONE loaded index, filtered here in the
+     * browser (D6: the typed query never leaves the device).
+     *
+     * Without an index (load still in flight, Portal unreachable) the list is empty and the
+     * section does not appear at all — the palette stays fully usable, rooms, members and
+     * actions do not depend on the Portal.
+     */
+    portalRows(section: PortalSection): PortalIndexRow[] {
+        const self = this as PaletteState
+        /*
+         * ── The REACTIVE fields are read FIRST, and that is not style ────────────
+         *
+         * Alpine records the dependencies of a getter while it RUNS. A guard on the lazily
+         * loaded module in front of these two reads returns before either of them is
+         * touched — the effect then has no dependency on `portal` or `query`, and setting
+         * the index later re-renders NOTHING. Measured exactly like that: the island held
+         * the right rows (`meetupItems.length === 1`) while the DOM had zero options, and
+         * the E2E spec was the only thing that saw it.
+         */
+        const rows = self.portal?.rows ?? []
+        const query = self.query
+        if (portalModul === null || rows.length === 0 || !self.shows(section)) {
+            return []
+        }
+
+        return portalModul.filterPortalIndex(rows, PORTAL_KIND_OF[section], query)
+    },
+
+    /**
+     * The date when there is one, otherwise the subtitle — the right-aligned hint.
+     *
+     * Only ever called from a rendered Portal row, and such a row exists only once the module
+     * is there; the `?? ''` is the honest answer for the impossible case rather than a throw
+     * inside a render.
+     */
+    portalHint(row: PortalIndexRow): string {
+        return portalModul?.portalHint(row) ?? ''
+    },
+
+    /**
+     * Open a Portal row. A DATE leads into its meetup: there is deliberately no page per
+     * date (D9), and its reference IS the meetup slug.
+     */
+    openPortal(row: PortalIndexRow): void {
+        if (portalModul === null) {
+            return
+        }
+        (this as PaletteState)._go(portalModul.portalHref(row), row.n)
     },
 
     shows(section: PaletteSection): boolean {
@@ -741,7 +981,13 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         // run into `/rooms/<key>`, a room no relay knows. The same branch stands in
         // `rail.openRoom`; both columns show the same rows.
         if (room.isPrivateDm === true) {
-            this._go(`${MESSAGES_PATH}?c=${encodeURIComponent(room.h)}`, room.name || room.h)
+            // `&an=` and not `?c=`: `MESSAGES_PATH` already carries `?ansicht=direkt`, so a
+            // second `?` produced `…?ansicht=direkt?c=<key>` — one parameter named
+            // `ansicht` with the value `direkt?c=<key>`, i.e. the palette opened the
+            // conversation list and never the conversation. Present since P2, found while
+            // building the Direkt segment. The separator and the name are decided in
+            // `js/navigate.ts`; this call site no longer builds either.
+            this._go(`${MESSAGES_PATH}&an=${encodeURIComponent(room.h)}`, room.name || room.h)
 
             return
         }
@@ -778,12 +1024,29 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
                 'info',
             )
         }
-        this._go('/spaces', space.label)
+        this._go('/bereich/chat', space.label)
     },
 
     runAction(action: PaletteAction): void {
         if (action.href) {
             this._go(action.href, action.label)
+
+            return
+        }
+        if (action.scope) {
+            /*
+             * P5 — an action that asks a question instead of going somewhere: it lifts the
+             * section's chip and leaves the palette open. The input is cleared as well, not
+             * only `query`: Flux hangs its filter on the input's `value` setter, and a stale
+             * value would filter the fresh list by the old text (the same reason `open()`
+             * clears it by hand).
+             */
+            this.scope = { section: action.scope, group: null, country: '' }
+            this.query = ''
+            const input = this._el()?.querySelector<HTMLInputElement>('[data-palette-input]')
+            if (input) {
+                input.value = ''
+            }
 
             return
         }
@@ -978,6 +1241,30 @@ export const createPalette = (config: PaletteConfig = {}): PaletteState => ({
         this._unsubMeetups = meetupPresentationBySlug.subscribe((bySlug: Map<string, MeetupPresentation>) => {
             this.presentations = Object.fromEntries(bySlug)
         })
+
+        /*
+         * P4/D6 — the Portal index. ONE load, here inside `_ensureData` and therefore on the
+         * FIRST opening of the palette: a page that never sees ⌘K does not pay for it. Every
+         * further opening costs nothing (`loadPortalIndex` keeps the result for the session,
+         * revalidation is the browser's job through the ETag).
+         *
+         * No `await` anywhere in the critical path: the palette is usable immediately with
+         * rooms and actions, and the Portal sections appear as soon as the index is there.
+         */
+        void import('./portalIndex.ts')
+            .then((modul: PortalModul) => {
+                portalModul = modul
+
+                return modul.loadPortalIndex()
+            })
+            .then((index: PortalIndex) => {
+                this.portal = index
+            })
+            // Fail-soft, exactly like the load itself: without the chunk the four Portal
+            // sections stay empty and the palette keeps working with rooms, members and
+            // actions. A rejected `import()` would otherwise be an unhandled rejection on
+            // every page that opens ⌘K.
+            .catch(() => undefined)
     },
 
     // ── Lebenszyklus ────────────────────────────────────────────────────────

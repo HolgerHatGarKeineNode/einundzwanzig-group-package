@@ -4,7 +4,7 @@
      eine kalibrierte ARIA-Trägerzahl (`tests/Feature/EmptyStatesAndA11yTest.php`), und
      `flux:modal` bringt seine Träger selbst mit. Neue Flächen gehören deshalb in eine
      Komponente oder ein Partial — dieselbe Regel und derselbe Grund wie beim
-     Lightbox-Overlay, den Ortskarten und den Forum-Blättern.
+     Lightbox-Overlay and the forum sheets.
 
      Der ganze Zustand liegt im Store `reminders` (`js/reminders.ts`); hier wird nur
      gelesen. `nostrRoomChat` bekommt dafür kein eigenes Feld — dieselbe Bauart wie beim

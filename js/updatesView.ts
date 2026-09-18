@@ -17,14 +17,33 @@
 import type { UpdateBucket, UpdateItem } from './updates.ts'
 import { t, tPlural } from './i18n.ts'
 
-// ── Filter (die drei Tabs) ─────────────────────────────────────────────────
-
-/** Die drei Tabs aus `⚡updates.blade.php`. `all` ist der Default. */
-export type UpdateFeed = 'all' | 'mentions' | 'threads'
+// ── Filter (the five segments) ─────────────────────────────────────────────
 
 /**
- * Tab → Zeilen. `message`-Zeilen erscheinen **nur** unter „Alle": weder eine Erwähnung
- * noch eine Thread-Antwort, und ein vierter Tab „Räume" wäre die Liste selbst.
+ * The segments of the Postfach (D5). `all` is the default.
+ *
+ * **Three of them filter `UpdateItem`s, two do not.** `direkt` shows the encrypted
+ * conversations (own store, own source, own crypto) and `erinnerungen` the reader's own
+ * NIP-ER reminders — neither is a notice ABOUT SOMEBODY ELSE, and `computeUpdates` knows
+ * about neither. They stand in this type all the same, because the type describes the
+ * SELECTION and not the data source: the screen has one state "which segment", and two
+ * states for it would be two truths about the same address.
+ */
+export type UpdateFeed = 'all' | 'mentions' | 'threads' | 'direkt' | 'erinnerungen'
+
+/** The segments made of {@link UpdateItem}s — the list computes for those only. */
+export const NOTICE_FEEDS: readonly UpdateFeed[] = ['all', 'mentions', 'threads']
+
+/** Does this segment compute the notice list? `false` for `direkt`/`erinnerungen`. */
+export const isNoticeFeed = (feed: UpdateFeed): boolean => NOTICE_FEEDS.includes(feed)
+
+/**
+ * Segment → rows. `message` rows appear **only** under „Alle": they are neither a mention
+ * nor a thread reply, and a segment „Räume" would be the room list itself.
+ *
+ * The two foreign segments return **empty** rather than the whole set: they show their own
+ * source, and a list that also printed every notice next to it would be a segment that does
+ * not keep its name.
  */
 export const filterUpdates = (items: readonly UpdateItem[], feed: UpdateFeed): UpdateItem[] => {
     if (feed === 'mentions') {
@@ -33,7 +52,84 @@ export const filterUpdates = (items: readonly UpdateItem[], feed: UpdateFeed): U
     if (feed === 'threads') {
         return items.filter((item) => item.type === 'thread')
     }
+    if (!isNoticeFeed(feed)) {
+        return []
+    }
     return [...items]
+}
+
+// ── Address ↔ segment (`?ansicht=`) ────────────────────────────────────────
+
+/**
+ * The values that stand in the ADDRESS — German, like every other path of this client
+ * (`/postfach?ansicht=direkt`). `UpdateFeed` stays English: that is the internal name, and
+ * `all`/`mentions`/`threads` have stood in `⚡updates.blade.php` that way since P4.
+ *
+ * Two vocabularies with one translation table instead of one shared vocabulary: the address
+ * is public and frozen into shared links, the internal name may change.
+ */
+export const ANSICHT_TO_FEED: Readonly<Record<string, UpdateFeed>> = {
+    alles: 'all',
+    erwaehnungen: 'mentions',
+    threads: 'threads',
+    direkt: 'direkt',
+    erinnerungen: 'erinnerungen',
+}
+
+const FEED_TO_ANSICHT: Readonly<Record<UpdateFeed, string>> = {
+    all: 'alles',
+    mentions: 'erwaehnungen',
+    threads: 'threads',
+    direkt: 'direkt',
+    erinnerungen: 'erinnerungen',
+}
+
+/**
+ * The segment named in a query string. Everything unknown falls back to `all` — the
+ * parameter comes from the address bar and is therefore foreign input (the same rule as
+ * {@link readOrigin}).
+ */
+export const feedFromSearch = (search: string): UpdateFeed => {
+    let value: string | null = null
+    try {
+        value = new URLSearchParams(search).get('ansicht')
+    } catch {
+        return 'all'
+    }
+
+    return (value !== null && ANSICHT_TO_FEED[value]) || 'all'
+}
+
+/** The address value of a segment. */
+export const ansichtOf = (feed: UpdateFeed): string => FEED_TO_ANSICHT[feed] ?? 'alles'
+
+/**
+ * The address that has to stand in the bar after a segment change.
+ *
+ * `alles` does NOT appear in the address: it is the default, and a parameter repeating the
+ * default turns a shared `/postfach` into a second, equivalent URL. Every other parameter
+ * (`an=` of the open conversation) survives — a segment change must not discard state some
+ * other surface has set.
+ */
+export const postfachUrl = (pathname: string, search: string, feed: UpdateFeed): string => {
+    let params: URLSearchParams
+    try {
+        params = new URLSearchParams(search)
+    } catch {
+        params = new URLSearchParams()
+    }
+    if (feed === 'all') {
+        params.delete('ansicht')
+    } else {
+        params.set('ansicht', ansichtOf(feed))
+    }
+    // The open conversation belongs to `direkt` and to nothing else.
+    if (feed !== 'direkt') {
+        params.delete('an')
+    }
+    const rest = params.toString()
+
+    return rest === '' ? pathname : `${pathname}?${rest}`
 }
 
 // ── Paginierung (§3.6) ────────────────────────────────────────────────────
@@ -268,6 +364,37 @@ export const hasUnreadUpdates = (items: readonly UpdateItem[]): boolean => items
 export const countUnreadUpdates = (items: readonly UpdateItem[]): number =>
     items.reduce((total, item) => (item.unread ? total + 1 : total), 0)
 
+/**
+ * The rows that ADDRESS the reader — the number on the desktop command bar's inbox icon
+ * (P6/D10), fed into `$store.unread.postfach`.
+ *
+ * **Why this is not {@link countUnreadUpdates}.** That one counts every unread notice row,
+ * room traffic included, and it is the right number for a list that shows exactly those
+ * rows. An inbox icon standing on every page makes a different promise: „something is
+ * waiting for YOU". A `message` row means somebody wrote in a room the reader joined — the
+ * left bar shows that per room, with the room's name next to it, which is the only form in
+ * which the information is usable. Summed into one figure the two become unreadable: a busy
+ * space would park a permanent double-digit number on the icon and the one mention in it
+ * would be invisible.
+ *
+ * **And what can never be in here: conversations.** A NIP-17 wrap has to be decrypted before
+ * anything about it is known — sender, time, whether it is even new — and D5 pays that only
+ * while „Direkt" is open. It is not a filter that keeps them out but the source: a wrap
+ * never enters `deriveUpdates` at all, so a `message` row is always a ROOM message. The
+ * explicit type list below is what makes that visible at the place that counts; a
+ * `type !== 'message'` would count a future fourth type by accident, and a DM row, if one
+ * were ever built, would be exactly that.
+ *
+ * Due reminders are NOT part of it: they live in `$store.reminders`, which only fills after
+ * a `mount()` (it nip44-decrypts), so the surface adds that term itself where the store is
+ * mounted anyway. Reasoning at the icon in `command-bar.blade.php`.
+ */
+export const countAddressedUpdates = (items: readonly UpdateItem[]): number =>
+    items.reduce(
+        (total, item) => (item.unread && (item.type === 'mention' || item.type === 'thread') ? total + 1 : total),
+        0,
+    )
+
 // ── Die eine Live-Region des Clients (§4.7) ───────────────────────────────
 
 /**
@@ -392,11 +519,11 @@ export const undoClickAction = (undoUntil: number, now: number, hasSnapshot: boo
  * `?from=//evil.tld` oder `?from=https://phish.example` dürfen weder ein
  * Navigationsziel werden noch weitergereicht.
  */
-export const ORIGIN_KEYS = ['updates', 'spaces', 'room'] as const
+export const ORIGIN_KEYS = ['start', 'postfach', 'updates', 'spaces', 'room'] as const
 export type OriginKey = (typeof ORIGIN_KEYS)[number]
 
 /** Default-UP-Ziel, wenn keine gültige Herkunft dasteht. */
-export const ORIGIN_FALLBACK = '/spaces'
+export const ORIGIN_FALLBACK = '/bereich/chat'
 
 /**
  * Gültige Herkunft aus einem Query-String, sonst `null`.
@@ -413,19 +540,29 @@ export function readOrigin(search: string): OriginKey | null {
 /**
  * UP-Ziel aus der Herkunft (§6.2/§6.4).
  *
- * `updates` ist der einzige Wert mit eigenem Ziel. `spaces` fällt bewusst auf denselben
- * Weg wie der Default (es IST der Default), und `room` hat **kein** Ziel: der Parameter
+ * `postfach`/`updates` and `start` are the values with a target of their own. `updates`
+ * STAYS in the list although the screen is called `/postfach` now: the token sits in links
+ * that have long been shared, so both lead to the same address — a token that were
+ * silently discarded would cost the way back. `spaces` falls back to the same path as the
+ * default on purpose (it IS the default), and `room` has **no** target: der Parameter
  * trägt nur den Screen-TYP, keine `h` — welcher Raum gemeint war, steht nirgends. Ein
  * Raum kann auch nicht sein eigenes UP-Ziel sein, das wäre eine Schleife. `room` bleibt
  * trotzdem in der Whitelist, weil {@link withOrigin} ihn DURCHREICHEN muss statt ihn als
  * Müll zu verwerfen — sonst verlöre ein Thread-Wechsel eine gültige Herkunft.
  *
  * @param fallback UP-Ziel ohne gültige Herkunft. Die Aufrufstelle (`⚡room.blade.php`)
- *   reicht dafür `route('group.spaces')` durch — damit bleibt das Ziel dort, wo die
- *   Routen definiert sind, statt als zweites Literal im JS zu leben.
+ *   passes `route('group.bereich.chat')` for that — which keeps the target where the routes
+ *   are defined instead of living on as a second literal in the JS.
  */
 export function originTarget(search: string, fallback: string = ORIGIN_FALLBACK): string {
-    return readOrigin(search) === 'updates' ? '/updates' : fallback
+    const origin = readOrigin(search)
+    if (origin === 'updates' || origin === 'postfach') {
+        return '/postfach'
+    }
+    if (origin === 'start') {
+        return '/start'
+    }
+    return fallback
 }
 
 /**

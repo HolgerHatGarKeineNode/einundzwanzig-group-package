@@ -44,7 +44,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              * Der Rückgabetyp ist deshalb `mixed` — das ist keine Nachlässigkeit, sondern
              * Livewires Vertrag an dieser Stelle.
              */
-            return $this->redirect(route('group.forge').'?tab=workspaces', navigate: true);
+            return $this->redirect(route('group.bereich.forge').'?tab=workspaces', navigate: true);
         }
 
         $info = $cache->relayInfo(SpaceCache::spaceUrl());
@@ -112,85 +112,33 @@ new #[Layout('group::einundzwanzig')] class extends Component
              Details/Abmelden hinter einem Tap). WO bin ich = Space-Block darunter
              (Icon+Name+Beschreibung). `nostrAuth` umschließt beides und erbt
              `space?.…` aus dem `nostrSpaces`-Page-Scope. --}}
-        @php($exit = config('group.exit'))
         <div x-data="nostrAuth" class="mb-6">
 
-            {{-- Utility-Zeile: links der Host-Ausgang (Mobile-App-Takeover — repliziert
-                 app-headers exit-Zweig, ohne ihn säße der Nutzer fest), rechts das
-                 eigene Profil. Kein Brand-Mark im Web: die Startseite braucht keinen
-                 Home-Link auf sich selbst, und `space.icon` unten ist die eine Marke. --}}
-            <div class="mb-3 flex min-h-[44px] items-center justify-between gap-3">
-                <div class="min-w-0">
-                    @if ($exit)
-                        <a href="{{ route($exit['route']) }}" wire:navigate
-                           aria-label="{{ __('Zurück zu :label', ['label' => $exit['label']]) }}"
-                           class="pressable -ms-1 inline-flex shrink-0 items-center gap-0.5 rounded-full py-1.5 pe-3 ps-1.5 text-sm font-semibold text-accent">
-                            <flux:icon.chevron-left variant="micro" class="size-5" />
-                            <span class="max-w-[9rem] truncate">{{ $exit['label'] }}</span>
-                        </a>
-                    @endif
-                </div>
+            {{-- Utility row: the own identity on the right. No brand mark: `space.icon`
+                 below is the one mark of this surface.
+
+                 ── The host exit is gone with P2 ─────────────────────────────────────
+                 A „‹ Meetups" link from `config('group.exit')` stood on the left here — it
+                 replicated the exit branch of `app-header`, because in the app the chat was
+                 a full-screen takeover NEXT TO the app's own bar. Since Concept C there is
+                 one shell in both hosts; there is no "back into the app" any more, because
+                 you never left it. --}}
+            <div class="mb-3 flex min-h-[44px] items-center justify-end gap-3">
 
                 <div class="flex shrink-0 items-center gap-1">
 
-                    {{-- Glocke → Benachrichtigungen („Neu", P4). Der Einstieg sitzt HIER
-                         und nicht in der Bottom-Nav: ein Nav-Tab ist ein ORT, Ungelesenes
-                         ist ein ZUSTAND ÜBER Orte — und ein fünfter Tab bräche
-                         `bottom-nav.blade.php` still auf drei Spalten (Drei-Repo-Release).
-                         Marker ist seit P6 eine ZAHL (§4.1 Nr. 6) — und zwar die der
-                         ungelesenen /updates-ZEILEN (`$store.unread.updates`), nicht die
-                         Summe der Nachrichten: die Glocke führt zu einer Liste, und eine
-                         Zahl, die sich beim Öffnen der Liste ändert, wäre genau die zweite
-                         Wahrheit, die §4 verhindern soll.
-                         Cap 9+ statt 99+ (§4.2): die Glocke sitzt zwischen exit-Link und
-                         Profil-Chip, dreistellig drückte sie die max-w-[7rem]-Namenszeile.
-                         Der Zustand steckt zusätzlich im `aria-label` — es ändert sich
-                         reaktiv mit und wird beim Fokussieren vorgelesen. `?.` durchgehend:
-                         fehlt der Store (Gast, Ladephase, Fremdhost ohne Datenstrang),
-                         bleibt es beim schlichten „Neu". Die 44×44-Fläche (size-11) erfüllt
-                         WCAG 2.5.8/Apple; die Zeile trägt bereits min-h-[44px].
+                    {{-- ── The bell is gone with P2 ────────────────────────────────────
+                         It was the way into „Neu" and stood here because a fourth nav tab
+                         would silently have thrown the old bottom bar's column class back
+                         to three — a three-repo release for one tab. The Postfach IS a slot
+                         of the bar now (Concept C), and that slot carries the unread dot.
+                         Two ways into the same list, one of them only on this single page,
+                         would be exactly the second truth the bell originally stood
+                         against. --}}
 
-                         ── Der Glocken-Marker trägt ZWEI Ausgänge ohne Umbau ──────────────
-                         Ob `$store.unread.updates` überhaupt existiert, hängt an einer noch
-                         offenen Kostenmessung des Datenstrangs (die Zahl muss aus DERSELBEN
-                         Quelle kommen, die die /updates-Liste füllt — `rooms + threads` ist
-                         eine andere Menge, und eine Glocke, die „12" sagt, während die Liste
-                         7 Zeilen zeigt, ist dauerhaft verbrannt). Deshalb steht hier keine
-                         Entweder-oder-Entscheidung, sondern ein Fallback:
-                           Feld vorhanden → Zahl-Pille, Cap 9+ (§4.1 Nr. 6).
-                           Feld FEHLT     → der P3-PUNKT aus `any`, bewusste Abweichung.
-                         Unterschieden wird über `=== undefined`, NICHT über Falsy: `0` heißt
-                         „nichts ungelesen" und muss marker-los bleiben, `undefined` heißt
-                         „diese Zahl gibt es nicht". Wer beides gleich behandelt, macht aus
-                         dem Fallback einen Dauerpunkt. Fällt das Feld weg, ist das eine
-                         Zeile weniger — kein Umbau. --}}
-                    <a href="{{ route('group.updates') }}" wire:navigate
-                       {{-- P3: EIN Schlüssel je Zählform statt Präfix + Zahl + Nomen. Der
-                            alte Bau setzte drei Literale zusammen und hing damit an einer
-                            Feinheit, die nur im Screenreader hörbar war (fehlte ein
-                            Leerzeichen IM Literal, kam „Neu, 1ungelesener Hinweis" heraus —
-                            vom E2E-Anker gefangen, nicht vermutet). Im ganzen Satz kann das
-                            nicht mehr passieren, und der Übersetzer sieht endlich, wo die
-                            Zahl steht.
-                            Dritter Zweig = derselbe Fallback wie beim Marker: ohne Zahl die
-                            P3-Formulierung, damit der Hinweis nicht mit der Pille verschwindet. --}}
-                       :aria-label="$store.unread?.updates ? @js(__('Neu, :hints')).split(':hints').join($plural($store.unread.updates, '1 ungelesener Hinweis', ':count ungelesene Hinweise')) : ($store.unread?.updates === undefined && $store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu')))"
-                       class="pressable relative flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5">
-                        <flux:icon.bell class="size-5 text-muted" />
-                        {{-- `sr=false` an beiden Formen: der Hinweis steckt im aria-label des
-                             <a> (siehe oben), ein sr-only-Geschwister wäre dort totes Markup.
-                             Der Ring in Seitenhintergrundfarbe trennt den Marker vom Icon.
-                             Beide rendern per `x-if` und schließen sich gegenseitig aus —
-                             gleichzeitig sichtbar können sie nicht sein. --}}
-                        <x-group::unread-badge count="$store.unread?.updates" :cap="9" size="sm" :sr="false"
-                                               badge-class="absolute end-1.5 top-1.5 ring-2 ring-zinc-50 dark:ring-zinc-950" />
-                        <x-group::unread-dot when="$store.unread?.updates === undefined && $store.unread?.any" :sr="false"
-                                             dot-class="absolute end-2.5 top-2.5 ring-2 ring-zinc-50 dark:ring-zinc-950" />
-                    </a>
-
-                    {{-- Die EINE Zählregion des Clients (§4.7). Sie steht neben der Glocke,
-                         weil dort die einzige Zahl sitzt, die über ALLE Orte spricht — 20
-                         gleichzeitig aktualisierende Badges in Live-Regions machen einen
+                    {{-- The ONE counting region of the client (§4.7). It stays here, where
+                         the bell stood until P2: it speaks about ALL places, and 20
+                         simultaneously updating badges in live regions make a
                          Screenreader unbenutzbar, deshalb hat kein anderes Badge eine.
                          Die DROSSELUNG (≥ 2 s) liegt im Store und nicht hier: „höchstens
                          alle 2 s" ist Zustand über Zeit, den ein Blade-Ausdruck nicht
@@ -203,112 +151,22 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Zählregionen. --}}
                     <span class="sr-only" aria-live="polite" x-text="$store.unread?.liveText ?? ''"></span>
 
-                    {{-- Profil-Chip → simples Alpine-Popover (kein flux:dropdown/-menu: das
-                         verschluckt rohe Alpine-Kinder). Nur `open` lokal, Rest aus nostrAuth. --}}
-                    <div x-data="{ open: false }" class="relative shrink-0">
-                        {{-- `data-profil-chip`/`data-profil-popover`: eindeutige Anker für die
-                             Messung. „Angemeldet als …" steht auf der Seite auch in der Rail,
-                             ein Test auf Text oder Klasse träfe irgendeine der beiden. Gleiche
-                             Bauform wie `data-rail-fuss` und `data-ortskarte`. --}}
-                        <button type="button" data-profil-chip x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
-                                :aria-label="@js(__('Angemeldet als :name')).split(':name').join(myName)"
-                                class="pressable flex min-h-[44px] items-center gap-2 rounded-full py-1 pe-2 ps-1 ring-1 ring-black/5 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:ring-white/10 dark:hover:bg-white/5">
-                            {{-- Der EIGENE Präsenzpunkt (P6). Er stand bisher nur am
-                                 Rail-Avatar (`desktop-rail.blade.php`) und damit an genau der
-                                 Stelle, die es auf dem Telefon nie gibt: fremde Punkte sah man
-                                 dort in jeder Chat-Zeile, den eigenen nirgends. „Was sende ich
-                                 gerade über mich" ist aber die Frage, die nur der eigene
-                                 Avatar beantworten kann.
+                    {{-- ── Identity: the same avatar as in every other header ───────────
+                         Until P2 a profile CHIP stood here (avatar + name + NIP-05 +
+                         chevron) with a popover below it: full profile, npub to copy,
+                         signer label, three shortcuts and sign out.
 
-                                 `$store.presence?.mine` und NICHT `byPubkey[<self>]`, aus dem
-                                 Grund, der in der Rail steht: der Relay fanoutet das eigene
-                                 20001 nicht verlässlich an die eigene Verbindung zurück.
-                                 Kein Store, kein Raum offen → kein Punkt, und das ist der
-                                 richtige Zustand (Präsenz hat keinen Bestand). --}}
-                            <x-group::nostr-avatar picture="myPicture" name="myName" size="2rem"
-                                                   presence="$store.presence?.mine" />
-                            <span class="min-w-0 max-w-[7rem] truncate text-sm font-semibold text-zinc-900 sm:max-w-[12rem] dark:text-zinc-100" x-text="myName"></span>
-                            <x-group::nostr-nip05 nip05="myNip05" />
-                            <flux:icon.chevron-down variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />
-                        </button>
+                         That was the identity in a SECOND form — the rail footer carried a
+                         third — and the forms drifted apart: the popover led to
+                         bookmarks/encrypted/settings, the rail to other targets. Exactly
+                         that drift is the reason for Concept C. Everything the popover
+                         carried now lives on `/ich`, and the avatar leads there — from
+                         here, from every `app-header` and (from P6) from the command bar.
 
-                        {{-- Popover: volles Profil + sekundäre Infos + Abmelden. --}}
-                        <div x-show="open" x-cloak x-transition data-profil-popover
-                             x-on:click.outside="open = false" x-on:keydown.escape.window="open = false"
-                             class="surface-card absolute end-0 z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] origin-top-right p-4 shadow-lg">
-                            <div class="flex items-start gap-3">
-                                <x-group::nostr-avatar picture="myPicture" name="myName" size="2.75rem" />
-                                <div class="min-w-0 flex-1">
-                                    <div class="flex min-w-0 items-center gap-1">
-                                        <span class="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
-                                        <x-group::nostr-nip05 nip05="myNip05" />
-                                    </div>
-                                    <div x-show="myNip05" x-cloak class="truncate text-xs text-muted" x-text="myNip05"></div>
-                                </div>
-                            </div>
-
-                            <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
-
-                            <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                                {{-- npub: 1-Klick-Kopieren (copy() im nostrAuth-Island, „Kopiert"-Toast). --}}
-                                <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
-                                        class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                                    <span class="min-w-0 flex-1 break-all text-[0.7rem] leading-relaxed text-muted" x-text="npub"></span>
-                                    <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
-                                </button>
-                                <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-brand-800 dark:text-brand-400">
-                                    <flux:icon.key variant="micro" class="size-3 shrink-0" />
-                                    <span x-text="@js(__('Angemeldet über :signer')).split(':signer').join(signerLabel)"></span>
-                                </div>
-                            </div>
-
-                            {{-- ── Die zwei Zeilen, die es auf dem Telefon sonst nicht gibt ──
-                                 `/settings` und `/bookmarks` hatten im Chat-Client zusammen
-                                 GENAU EINEN Einstieg unterhalb `xl`: die Befehlspalette
-                                 (`command-palette.blade.php:42`/`:44`). Lesezeichen stehen ab
-                                 `xl` zusätzlich in der Rail-Fußzeile; Einstellungen stehen
-                                 NIRGENDS sonst, auch nicht auf dem Desktop.
-
-                                 **Warum hier und nicht als weitere Fläche.** Das hier ist
-                                 bereits die Schublade „ich": Avatar, Name, npub, Signer,
-                                 Abmelden. Ein Lesezeichen ist meins, eine Einstellung ist
-                                 meine — sie gehören in dieselbe Schublade, nicht in eine
-                                 siebte Fläche auf einer Seite, die schon sechs trägt. Das
-                                 Mitgliederverzeichnis steht bewusst NICHT hier, sondern am
-                                 Space-Block darunter: es beantwortet „wer ist hier", nicht
-                                 „wer bin ich".
-
-                                 Der Trenner darüber ist derselbe wie zwischen Profil und
-                                 npub-Block — die Schublade hat jetzt drei Fächer (wer ·
-                                 womit · wohin) statt zwei, und die Reihenfolge ist die der
-                                 Häufigkeit, nicht die des Alphabets.
-
-                                 `min-h-11` = 44 px je Zeile: die Zeilen sind leise gesetzt
-                                 (`text-muted`, Micro-Icon), aber ein Ziel unter 44 px wäre
-                                 nicht leise, sondern schwer zu treffen. --}}
-                            <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                                {{-- `settings_route` statt `group.settings` fest: der Mobile-Host
-                                     hat seine Einstellungen in P6 mit den Portal-Prefs auf EINEM
-                                     Screen verschmolzen und `group.settings` rendert dort eine
-                                     zweite, dünnere Fassung derselben Sektionen. Dieselbe
-                                     Config-Zeile liest die Befehlspalette — eine Registry, zwei
-                                     Leser, statt zweier Wahrheiten über denselben Ort. --}}
-                                @foreach ([
-                                    ['route' => 'group.bookmarks', 'icon' => 'bookmark', 'label' => __('Lesezeichen')],
-                                    ['route' => 'group.messages', 'icon' => 'lock-closed', 'label' => __('Verschlüsselt')],
-                                    ['route' => config('group.settings_route', 'group.settings'), 'icon' => 'cog-6-tooth', 'label' => __('Einstellungen')],
-                                ] as $ziel)
-                                    <a href="{{ route($ziel['route']) }}" wire:navigate data-profil-ziel="{{ $ziel['route'] }}"
-                                       class="pressable flex min-h-11 items-center gap-2 rounded-tile px-1.5 text-sm font-medium text-muted transition-colors hover:bg-black/5 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5 dark:hover:text-zinc-100">
-                                        <flux:icon :name="$ziel['icon']" variant="micro" class="size-4 shrink-0" />
-                                        <span class="min-w-0 truncate">{{ $ziel['label'] }}</span>
-                                    </a>
-                                @endforeach
-                            </div>
-
-                            <flux:button variant="ghost" size="sm" icon="arrow-right-start-on-rectangle" class="mt-3 w-full" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
-                        </div>
-                    </div>
+                         This page builds its own header (banner, space icon, name,
+                         description) and therefore carries no `app-header`; that is exactly
+                         why the avatar is a component and not a block inside the header. --}}
+                    <x-group::me-avatar />
                 </div>
             </div>
 
@@ -376,7 +234,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Rail: das hier ist ein Nebenweg, keine Hauptnavigation. Das
                          44-px-Ziel steht trotzdem (`min-h-11`), weil ein Daumen nicht weiß,
                          dass eine Zeile leise gemeint ist. --}}
-                    <a href="{{ route('group.directory') }}" wire:navigate data-space-mitglieder
+                    <a href="{{ route('group.bereich.leute') }}" wire:navigate data-space-mitglieder
                        class="pressable -ms-1.5 mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-tile px-1.5 text-sm font-medium text-muted transition-colors hover:bg-black/5 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5 dark:hover:text-zinc-100">
                         <flux:icon.users variant="micro" class="size-4 shrink-0" />
                         <span>{{ __('Mitglieder') }}</span>
@@ -385,12 +243,6 @@ new #[Layout('group::einundzwanzig')] class extends Component
             </div>
         </div>
 
-        {{-- Die Ortskarten-Leiste (P5): Chat · Artikel · Forge. Sie steht ÜBER dem
-             Vereins-Gate und über der Segmented-Bar, weil sie eine Ebene höher liegt
-             als beide: das Gate spricht über den Chat, die Bar gliedert ihn, die
-             Leiste sagt, wo man überhaupt ist. Die Reihenfolge Chat → Artikel → Forge
-             ist die Festlegung des Nutzers; Chat steht auf BEIDEN Ebenen vorn. --}}
-        <x-group::ortskarten />
 
         {{-- Vereins-Gate: Nicht-Vereinsmitglieder auf einem EINUNDZWANZIG-Vereins-Relay --}}
         <x-group::verein-gate context="{{ __('Räume und Chat') }}" class="mb-4" />
@@ -420,17 +272,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
              zwei Tastaturwege und zwei Aussagen darüber, was diese Seite ist. Er ist
              jetzt der vierte Tab auf `/forge`, wo sein Relay ohnehin die Quelle der
              ganzen Seite ist; das `x-if` ist damit ersatzlos weg. Diese Bar gliedert
-             nur noch den Chat, und die Ebene darüber (wo bin ich?) trägt die
-             Ortskarten-Leiste.
+             only the chat any more; the level above it (where am I?) has been carried by
+             the area tile on Start since P2.
 
-             Das Threads-Icon war bis zum P7-Gate `chat-bubble-left-right` — dasselbe
-             Zeichen wie das der Chat-Ortskarte zwanzig Pixel darüber. Zwei verschiedene
-             Ziele, ein Symbol (Nielsen #4). Getauscht wurde ausdrücklich EINS: das
-             hiesige, weil ein Thread eine ANTWORT ist und `arrow-turn-down-right` das
-             auch bei 14 px noch als andere FORM zeigt statt als zweite Sprechblase mit
-             anderem Detail. Die Ortskarte behält ihr Bubble-Zeichen, denn dort steht es
-             für den Ort „Chat" und wird an vier weiteren Stellen so gelesen
-             (`config/group.php` Bottom-Nav, `AppShellChassisTest`). --}}
+             Until the P7 gate the threads icon was `chat-bubble-left-right` — the same
+             glyph as the chat location card twenty pixels above it back then. Two different
+             destinations, one symbol (Nielsen #4). Exactly ONE of them was swapped: this
+             one, because a thread is a REPLY and `arrow-turn-down-right` still reads as a
+             different SHAPE at 14 px instead of a second speech bubble with another
+             detail. The „Chat" area tile keeps the bubble glyph, because there it stands
+             for the PLACE. --}}
         <div x-show="space" x-cloak>
             <flux:tab.group>
                 <flux:tabs variant="segmented" x-model="tab">
@@ -846,16 +697,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              Meetups stehen weiterhin in „Meine Räume" und zeigen ihre Zahl in
                              ihrer eigenen Zeile. Eine Pille hier wäre eine zweite Wahrheit über
                              eine sichtbare Zahl — die Regel ist „ein Zähler, ein Ort". --}}
-                        {{-- P7: `@js($hasBoard)` erweitert die Bedingung um die Artikel-
-                             Zeile. Sie hängt nicht an einer Client-Zahl, sondern an der
-                             Konfiguration — ohne Artikel-Relay bleibt der Block exakt so,
-                             wie er vorher war. --}}
-                        @php($hasBoard = (bool) config('group.board_relay_url'))
-                        {{-- P6: dieselbe Bauart für die Forge — auch sie hängt an der
-                             Konfiguration, nicht an einer Client-Zahl. Ohne Workspace
-                             bleibt der Block exakt so, wie er vorher war. --}}
-                        @php($hasForge = (bool) config('group.workspace_url'))
-                        <template x-if="!focusMode() && (@js($hasBoard) || @js($hasForge) || proposalCount() > 0 || meetupCount() > 0 || isAdmin)">
+                        {{-- Since P2 this block hangs on exactly ONE question: may this
+                             user create a room here? The four configuration/count
+                             conditions (`board_relay_url`, `workspace_url`,
+                             `proposalCount()`, `meetupCount()`) belonged to the discovery
+                             rows and went with them — see the reasoning below. --}}
+                        <template x-if="!focusMode() && isAdmin">
                             <div data-discover class="flex flex-col gap-0.5"
                                  {{-- Die Trennlinie sitzt zwischen den Raumlisten und diesen
                                       Wegen — sie braucht also etwas ÜBER sich. Ab xl blendet die
@@ -867,128 +714,26 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                       Breakpoint, sondern dieselbe, aus der auch die Rail ihre
                                       Existenz bezieht. --}}
                                  x-bind:class="!$store.viewport?.desktop && (filteredMine().length > 0 || filteredOther().length > 0) ? 'mt-2 border-t border-zinc-200 pt-1.5 dark:border-zinc-800' : ''">
-                                {{-- ── Die Reihenfolge dieses Blocks: erst fest, dann veränderlich ──
-                                     Artikel und Forge hängen an der KONFIGURATION
-                                     ($hasBoard/$hasForge, server-seitig): sie stehen immer da
-                                     oder sie stehen nie da. Die beiden Zeilen darunter hängen an
-                                     ZAHLEN, die sich mit den Daten ändern — Antragsräume kommen
-                                     und gehen, Meetups ebenso. Ein Block, dessen erste Einträge
-                                     mit den Daten wandern, lässt sich nicht lernen; mit den
-                                     stabilen Einträgen am Kopf hat er einen festen Anfang.
-                                     Dass damit die beiden Flächen oben stehen, die außerhalb des
-                                     Chats liegen, ist der zweite Zweck: sie standen bisher am
-                                     ENDE der Raumliste und waren auf dem Telefon nur nach dem
-                                     Durchscrollen aller Räume überhaupt zu sehen.
+                                {{-- ── The discovery rows are gone with P2 (D2) ────────────
+                                     Four rows stood here that led out of the room list:
+                                     "read articles", "open forge", "discover project
+                                     support" and "discover meetup rooms". They were the
+                                     answer to a navigation that had no level above the
+                                     chat — every surface of the client had to find itself
+                                     a place inside the room list.
 
-                                     Artikel (P7). Zeilenform des ganzen Blocks: Icon-Chip ·
-                                     Titel · Rest · Chevron — jede Zeile hier beantwortet
-                                     dieselbe Frage („und was noch?") und führt in eine eigene
-                                     Liste.
+                                     That level exists now: "Alle Bereiche" on Start
+                                     carries articles and forge as equal tiles, and the
+                                     command palette finds both from anywhere.
 
-                                     KEINE Zahl darunter: die Artikel liegen auf einem anderen
-                                     Relay und sind hier noch gar nicht geladen. Eine Zahl müsste
-                                     dafür beim Aufbau der Raumübersicht einen dritten Relay
-                                     anfragen — für eine Zeile, die ohnehin nur weiterführt. Der
-                                     Untertitel sagt stattdessen, was dort liegt. --}}
-                                @if ($hasBoard)
-                                    <a href="{{ route('group.articles') }}" wire:navigate
-                                       class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
-                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
-                                            <flux:icon.document-text class="size-5" />
-                                        </span>
-                                        <span class="min-w-0 flex-1">
-                                            <span class="block font-medium">{{ __('Artikel lesen') }}</span>
-                                            <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Longform aus der Community') }}</span>
-                                        </span>
-                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
-                                    </a>
-                                @endif
-
-                                {{-- Forge (P6). Gleiche Zeilenform wie „Artikel lesen"
-                                     darüber: Icon-Chip · Titel · Rest · Chevron. KEINE
-                                     Zahl darunter — die Repositories liegen auf dem
-                                     Workspace-Relay und sind hier noch gar nicht
-                                     geladen; eine Zahl müsste dafür beim Aufbau der
-                                     Raumübersicht ein weiteres Relay anfragen, für eine
-                                     Zeile, die ohnehin nur weiterführt. --}}
-                                @if ($hasForge)
-                                    <a href="{{ route('group.forge') }}" wire:navigate
-                                       class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
-                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
-                                            <flux:icon.code-bracket class="size-5" />
-                                        </span>
-                                        <span class="min-w-0 flex-1">
-                                            <span class="block font-medium">{{ __('Forge öffnen') }}</span>
-                                            <span class="mt-0.5 block text-[0.8rem] text-muted">{{ __('Repositories, Issues und Pull Requests') }}</span>
-                                        </span>
-                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
-                                    </a>
-                                @endif
-
-                                {{-- Projektunterstützung (Antragsräume, ["t","project-support"]).
-                                     Der Pool ist gegated: eigene Anträge sieht jeder
-                                     Antragsteller, FREMDE nur der Vorstand (isAdmin) — siehe
-                                     _proposalPool(). Keine Zeile, wenn nichts sichtbar ist.
-                                     Der Numerus steht hier ausformuliert (anders als in der
-                                     Meetup-Zeile darunter): bei den Meetups ist der Ein-Element-
-                                     Fall theoretisch, hier ist er der Normalfall — Messung M2
-                                     zählte zwei Antragsräume auf Prod.
-
-                                     Die Pille sitzt vor dem Chevron, an genau der Stelle, an der
-                                     sie in `room-tile` steht — die Zeile hat die Zeilen unter
-                                     sich aufgesogen, also erbt sie deren Ort. Voller Cap (99,
-                                     der Default): der Glocken-Cap 9 gilt laut §4.2 allein für
-                                     die Kopfzeile, wo die Breite knapp ist; hier ist Platz, und
-                                     eine Summe über mehrere Räume erreicht zweistellige Werte
-                                     schneller als eine einzelne Zeile. `sr` bleibt an (Default):
-                                     der Knopf trägt kein `aria-label`, sein Name wächst also aus
-                                     dem Inhalt — der sr-Text hängt sich hinten an. --}}
-                                <template x-if="proposalCount() > 0">
-                                    <button type="button" x-on:click="selectRoomType('proposals')"
-                                            class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
-                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
-                                            <flux:icon.document-text class="size-5" />
-                                        </span>
-                                        <span class="min-w-0 flex-1">
-                                            <span class="block font-medium">{{ __('Projektunterstützung entdecken') }}</span>
-                                            <span class="mt-0.5 block text-[0.8rem] text-muted"
-                                                  x-text="$plural(proposalCount(), '1 Antragsraum', ':count Antragsräume')"></span>
-                                        </span>
-                                        <x-group::unread-badge count="proposalUnread()" />
-                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
-                                    </button>
-                                </template>
-
-                                {{-- Meetup-Räume: unverändertes Muster, nur ohne eigene
-                                     Trennlinie — die trägt jetzt der gemeinsame Rahmen. --}}
-                                <template x-if="meetupCount() > 0">
-                                    <button type="button" x-on:click="selectRoomType('meetups')"
-                                            class="pressable group flex w-full items-center gap-3 rounded-tile p-2 text-left transition-colors hover:bg-brand-500/5">
-                                        <span class="flex size-10 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-700 dark:text-brand-400">
-                                            <flux:icon.map-pin class="size-5" />
-                                        </span>
-                                        <span class="min-w-0 flex-1">
-                                            <span class="block font-medium">{{ __('Meetup-Räume entdecken') }}</span>
-                                            {{-- Zwei Zahlen, zwei Numeri: „1 Gruppe in 1 Land".
-                                                 Auf dem Vereins-Relay ist das theoretisch (86
-                                                 Gruppen), auf einem anderen Space-Relay — das
-                                                 Package hat mehrere Konsumenten — nicht.
-                                                 Vorbestehende Schwäche, hier bewusst NICHT
-                                                 angefasst: die Fragmente „Gruppen in"/„Ländern"
-                                                 sind schlechte Übersetzungseinheiten, weil die
-                                                 Wortstellung fest verdrahtet ist. Das zu
-                                                 richten hieße einen Satz mit Platzhaltern
-                                                 einzuführen und alle sieben Sprachdateien
-                                                 anzufassen — eigener Auftrag. --}}
-                                            <span class="mt-0.5 block text-[0.8rem] text-muted"
-                                                  x-text="@js(__(':groups in :countries'))
-                                                         .split(':groups').join($plural(meetupCount(), '1 Gruppe', ':count Gruppen'))
-                                                         .split(':countries').join($plural(availableCountries().length, '1 Land', ':count Ländern'))"></span>
-                                        </span>
-                                        <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
-                                    </button>
-                                </template>
-
+                                     The two FOCUS modes (meetups, project support) have
+                                     NOT disappeared with them: `?rt=meetups` and
+                                     `?rt=proposals` still switch to them (the reader sits
+                                     in `bridge.ts`, and the legacy redirect of `/spaces`
+                                     carries `rt` along on purpose), and the desktop rail
+                                     lists both groups as sections of its own. What falls
+                                     away is the way in through a row at the foot of a
+                                     list — not the surface. --}}
                                 {{-- Raum anlegen (Admin). Kein Chevron: die Zeile öffnet einen
                                      Dialog, sie führt nicht weg. Der Titel trägt den Akzent, der
                                      Chip bleibt in derselben Geometrie wie oben — gleiche Zeile,

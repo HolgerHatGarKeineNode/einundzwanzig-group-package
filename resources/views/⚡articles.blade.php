@@ -167,11 +167,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     {{-- Der Basis-Pfad kommt aus `route()`, nicht als Literal in die Insel: die Route
          heißt an genau einer Stelle `/articles`, und das ist `routes/group.php`. --}}
-    <div x-data="nostrArticles(@js(route('group.articles')), @js($sortOptions))" class="page-enter">
+    <div x-data="nostrArticles(@js(route('group.bereich.artikel')), @js($sortOptions))" class="page-enter">
 
-        <x-group::app-header :title="__('Artikel')" :back="route('group.spaces')" />
-
-        <x-group::ortskarten />
+        {{-- UP target is Start: the articles are an AREA next to the chat, not a sub-screen
+             of it (until P2 they hung off a discovery row at the foot of the room list). --}}
+        <x-group::app-header :title="__('Artikel')" :back="route(config('group.start_route', 'group.start'))" />
 
         {{-- Ob es überhaupt eine Quelle gibt, entscheidet der SERVER — nicht die Insel.
 
@@ -237,15 +237,15 @@ new #[Layout('group::einundzwanzig')] class extends Component
                              103,6: beides war gegen den Viewport gemessen, und der
                              wandert während der `page-enter`-Animation. Die 0,4 px
                              Unterschied waren deren Rauschen. Was heute gilt, hält
-                             `desktop-boot-geometrie.spec.ts` fest — als Abstand zur
-                             Ortskarten-Leiste, transformfrei und über zwölf Läufe mit
-                             Streuung 0,00 px.
+                             `desktop-boot-geometrie.spec.ts` fest — als Abstand zum
+                             page header, transform-free and over twelve runs with a
+                             spread of 0.00 px.
 
                              Und er muss LEER sein: ein Balken wäre die Zusage „hier kommt
                              ein Suchfeld", und die ist nicht gedeckt — kommt kein Artikel,
                              kommt auch kein Filterkopf, sondern der Leerzustand. Dieselbe
-                             Regel und derselbe Grund wie bei der Unterzeile der
-                             Ortskarten (`ortskarten.blade.php`). Die sechs Karten darunter
+                             rule and the same reason as for any sub-line whose number
+                             comes from a relay. Die sechs Karten darunter
                              DÜRFEN Balken sein: „Artikel werden geladen" ist gedeckt, ein
                              REQ ist unterwegs.
 
@@ -296,7 +296,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                             <flux:heading class="mt-2">{{ __('Noch keine Artikel.') }}</flux:heading>
                             <flux:text class="mt-1 text-sm text-muted">{{ __('Sobald jemand einen Artikel veröffentlicht, erscheint er hier.') }}</flux:text>
                             <div class="mt-4">
-                                <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.spaces')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
+                                <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.bereich.chat')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
                             </div>
                         </div>
                     </div>
@@ -491,7 +491,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  Zeile allein zu füllen. Ein `xl:col-span-3` hätte auf
                                  96 rem einen 64-rem-Banner ergeben, unter dem der Rest
                                  der Liste wie eine Fußnote aussieht. --}}
-                            <article class="surface-card flex h-full flex-col overflow-hidden"
+                            {{-- `relative` since P3: the pin button at the card's edge is
+                                 absolutely positioned and needs THIS card as its containing
+                                 block. Without it the reference would be the next positioned
+                                 ancestor and the button would sit on a foreign card. --}}
+                            <article class="surface-card relative flex h-full flex-col overflow-hidden"
                                      :class="card.featured ? 'sm:col-span-2' : ''">
 
                                 <a :href="href(card) || null" wire:navigate
@@ -674,6 +678,25 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         </div>
                                     </div>
                                 </a>
+
+                                {{-- Pinning (P3, D7) — OUTSIDE the link: a button inside a link
+                                     is nested interactive content, and the click would navigate
+                                     instead of pinning.
+
+                                     The key is the article's ADDRESS (`30023:<pubkey>:<d>`) and
+                                     not its `naddr`: an `naddr` also carries relay hints, so two
+                                     devices would pin the same article under two different keys.
+                                     `card.identifier`/`card.pubkey` stand in the row for exactly
+                                     this (reasoning at `ArticleRow` in `longform.ts`).
+
+                                     No `d`, no key: a 30023 without a `d` is not addressable and
+                                     therefore not pinnable. --}}
+                                <template x-if="card.identifier">
+                                    <div class="absolute end-2 top-2 z-10">
+                                        <x-group::pin-toggle schluessel="'article:30023:' + card.pubkey + ':' + card.identifier"
+                                                             :was="__('Artikel')" />
+                                    </div>
+                                </template>
 
                                 {{-- ── Player: AUSSERHALB des Links, und erst auf Klick ──
 

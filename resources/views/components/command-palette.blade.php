@@ -28,33 +28,61 @@
      Augenschein. --}}
 
 @php($paletteActions = [
-    ['id' => 'spaces', 'label' => __('Alle Räume & Entdecken'), 'href' => route('group.spaces')],
-    ['id' => 'directory', 'label' => __('Mitgliederverzeichnis'), 'href' => route('group.directory')],
-    ['id' => 'articles', 'label' => __('Artikel'), 'href' => route('group.articles')],
+    ['id' => 'start', 'label' => __('Start'), 'href' => route(config('group.start_route', 'group.start'))],
+    ['id' => 'spaces', 'label' => __('Alle Räume & Entdecken'), 'href' => route('group.bereich.chat')],
+    ['id' => 'directory', 'label' => __('Mitgliederverzeichnis'), 'href' => route('group.bereich.leute')],
+    ['id' => 'articles', 'label' => __('Artikel'), 'href' => route('group.bereich.artikel')],
     // P6 — die Forge gibt es nur mit konfiguriertem Workspace. `array_filter` unten
     // wirft den Eintrag sonst raus: ein Palettenbefehl, der in einen Leerzustand
     // führt, ist schlechter als kein Befehl.
-    config('group.workspace_url') ? ['id' => 'forge', 'label' => __('Forge'), 'href' => route('group.forge')] : null,
-    ['id' => 'updates', 'label' => __('Neu'), 'href' => route('group.updates')],
+    config('group.workspace_url') ? ['id' => 'forge', 'label' => __('Forge'), 'href' => route('group.bereich.forge')] : null,
+    ['id' => 'updates', 'label' => __('Postfach'), 'href' => route('group.postfach')],
     // P2 — Lesezeichen. Ohne Bedingung: die Liste gehört dem Nutzer, nicht dem Space,
     // und ist auf jedem Relay lesbar (NIP-51 10003). Ein leerer Screen ist hier eine
     // Aussage („noch nichts gemerkt") und kein Sackgassen-Zustand wie bei der Forge.
-    ['id' => 'bookmarks', 'label' => __('Lesezeichen'), 'href' => route('group.bookmarks')],
+    ['id' => 'bookmarks', 'label' => __('Lesezeichen'), 'href' => route('group.ich.lesezeichen')],
     // P7 — encrypted conversations (NIP-17). Unconditional, for the same reason as the
     // bookmarks entry: the screen itself says what the space can do. A Buzz space refuses
     // the delivery list (10050) but carries messages between its members regardless, so
     // the empty state is a statement rather than a dead end.
-    ['id' => 'messages', 'label' => __('Verschlüsselt'), 'href' => route('group.messages')],
-    ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.wallet')],
+    ['id' => 'messages', 'label' => __('Verschlüsselt'), 'href' => route('group.postfach', ['ansicht' => 'direkt'])],
+    ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.bereich.wallet')],
+    /*
+     * P4/D8 — the two wallet ACTIONS. Not a second way to the wallet page but the two
+     * things people go there for, addressable by name: "Zahlen" and "Rechnung erstellen".
+     *
+     * The intent travels in the ADDRESS (`?aktion=`) and not as a browser event, and that
+     * is not a style choice: in the app the wallet island boots only on a full document
+     * load, so an event dispatched before the navigation would be gone by the time the
+     * island exists. `js/bridge.ts` (`nostrWallet.init`) reads the parameter once, opens
+     * the sheet and removes it from the address again.
+     */
+    ['id' => 'wallet-empfangen', 'label' => __('Rechnung erstellen'), 'href' => route('group.bereich.wallet', ['aktion' => 'empfangen'])],
+    ['id' => 'wallet-senden', 'label' => __('Zahlen'), 'href' => route('group.bereich.wallet', ['aktion' => 'senden'])],
+    /*
+     * P5/D12 — „Zusagen". The one action WITHOUT an `href`, and that is the point: it is not a
+     * destination but a question („which date?"). It lifts the `z:` chip and leaves the palette
+     * open with the dates of the reader's own meetups; Enter on one of them publishes the kind
+     * 31925 through the same store and the same relay set as the meetup page
+     * (`js/rsvpTermine.ts`). A page for this does not exist and should not: the list belongs
+     * where the question was asked.
+     *
+     * Unconditional, like the two wallet actions above: without pinned or joined meetups the
+     * section is empty, and an empty list under an explicit question is an ANSWER („you have
+     * not marked a meetup yet"), not a dead end.
+     */
+    ['id' => 'zusagen', 'label' => __('Zusagen'), 'scope' => 'zusagen'],
     // ── Der Einstellungen-Eintrag zeigt auf die Route, die der HOST dafür nennt ──
     // Der Mobile-Host hat seine Einstellungen in P6 mit den Portal-Prefs auf EINEM
     // Screen verschmolzen (`pages/profile`, dort inline dieselben
-    // `group::partials.settings.*`). `group.settings` existiert dort weiterhin und
-    // rendert eine ZWEITE, dünnere Fassung derselben Sektionen — zwei Orte für eine
-    // Sache, und der Palettenbefehl führte auf den falschen (Nielsen #4).
-    // `settings_route` ist die Config-Zeile je Host, wie `group.exit`; Default ist die
+    // `group::partials.settings.*`) — NOT ANY MORE since P2: its app-only sections are
+    // injected into THIS hub (`view:` entries of the `settings` registry). The config
+    // line stays all the same, because it answers a question a foreign host may answer
+    // differently (Nielsen #4: not two places for one thing).
+    // `settings_route` ist die Config-Zeile je Host; Default ist die
     // package-eigene Route, der Web-Client bleibt damit zeichengleich.
-    ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route(config('group.settings_route', 'group.settings'))],
+    ['id' => 'settings', 'label' => __('Einstellungen'), 'href' => route(config('group.settings_route', 'group.ich.einstellungen'))],
+    ['id' => 'ich', 'label' => __('Ich'), 'href' => route(config('group.me_route', 'group.ich'))],
 ])
 @php($paletteActions = array_values(array_filter($paletteActions)))
 {{-- Ein Stil für alle Tastenkappen: derselbe wie am Rail-Prompt. --}}
@@ -234,6 +262,115 @@
                         </flux:command.item>
                     </template>
 
+                    {{-- ── The four Portal sections (D6) ──────────────────────
+                         Meetups, dates, courses and lecturers of the association portal.
+                         They come from ONE index the island loads ONCE per session
+                         (`/suche/portal-index`) and filters in the browser afterwards — the
+                         typed query never leaves the device, and the Portal's throughput
+                         (60/min per IP for the whole instance) is not spent per keystroke.
+
+                         Four blocks and not one with an `x-if`: Flux' filter works on the
+                         RENDERED options, and the section headings hang on
+                         `data-palette-section` — a shared block could not show and hide its
+                         heading per section.
+
+                         Every row carries its prefix as its mark (`o` `t` `k` `l`) — the
+                         same character one can type into the field to see that section
+                         only. --}}
+                    <div data-palette-heading="meetups" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Meetups im Portal') }}</div>
+                    <template x-for="row in meetupItems" :key="'meetup:' + row.r">
+                        <flux:command.item
+                            data-palette-section="meetups"
+                            data-palette-sigil="o"
+                            x-bind:data-palette-portal="row.t + ':' + row.r"
+                            x-bind:aria-label="@js(__('Meetup: :name')).split(':name').join(row.n)"
+                            x-on:click="openPortal(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="row.s"></span>
+                        </flux:command.item>
+                    </template>
+
+                    <div data-palette-heading="events" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Termine') }}</div>
+                    <template x-for="row in eventItems" :key="'event:' + row.r + ':' + row.d">
+                        <flux:command.item
+                            data-palette-section="events"
+                            data-palette-sigil="t"
+                            x-bind:data-palette-portal="row.t + ':' + row.r"
+                            x-bind:aria-label="@js(__('Termin: :name')).split(':name').join(row.n + ' · ' + row.d)"
+                            x-on:click="openPortal(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
+                        </flux:command.item>
+                    </template>
+
+                    <div data-palette-heading="courses" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Kurse') }}</div>
+                    <template x-for="row in courseItems" :key="'course:' + row.r">
+                        <flux:command.item
+                            data-palette-section="courses"
+                            data-palette-sigil="k"
+                            x-bind:data-palette-portal="row.t + ':' + row.r"
+                            x-bind:aria-label="@js(__('Kurs: :name')).split(':name').join(row.n)"
+                            x-on:click="openPortal(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
+                        </flux:command.item>
+                    </template>
+
+                    <div data-palette-heading="lecturers" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Referenten') }}</div>
+                    <template x-for="row in lecturerItems" :key="'lecturer:' + row.r">
+                        <flux:command.item
+                            data-palette-section="lecturers"
+                            data-palette-sigil="l"
+                            x-bind:data-palette-portal="row.t + ':' + row.r"
+                            x-bind:aria-label="@js(__('Referent: :name')).split(':name').join(row.n)"
+                            x-on:click="openPortal(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="row.s"></span>
+                        </flux:command.item>
+                    </template>
+
+                    {{-- ── „Zusagen" (`z:`, P5/D12) ────────────────────────────
+                         The one section whose rows do not NAVIGATE but PUBLISH: a press writes
+                         a signed kind 31925 to the calendar relays and the reader's own write
+                         relays. That is why it appears only when it is asked for — through the
+                         action „Zusagen" below or by typing `z:` — and never while somebody is
+                         merely searching (`visibleSections`, with its own test).
+
+                         The rows are the dates of the reader's OWN meetups: the ones he pinned
+                         (D7) and the ones whose room he joined. A list of strangers' dates
+                         would be an invitation to answer something he has no relation to.
+
+                         Where the disclosure is still owed, the press does NOT publish — it
+                         leads to the meetup page, where the sentence and the button stand next
+                         to each other (`palette.zusagen`). --}}
+                    <div data-palette-heading="zusagen" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Zusagen zu deinen Meetups') }}</div>
+                    <template x-for="row in zusagenItems" :key="'zusage:' + row.a">
+                        <flux:command.item
+                            data-palette-section="zusagen"
+                            data-palette-sigil="z"
+                            x-bind:data-palette-zusage="row.a"
+                            x-bind:aria-label="@js(__('Zusagen: :name')).split(':name').join(row.n + ' · ' + row.d)"
+                            x-on:click="zusagen(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            {{-- The own answer, where there is one. `aria-hidden` on the check
+                                 alone would hide the only difference between „answered" and
+                                 „not answered" from a screen reader, so the state is TEXT. --}}
+                            <span x-show="zusageStatus(row) === 'accepted'" x-cloak
+                                  class="ms-2 shrink-0 text-xs font-semibold text-brand-800 dark:text-brand-400">{{ __('zugesagt') }}</span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
+                        </flux:command.item>
+                    </template>
+
                     {{-- ── Aktionen (`>`) ─────────────────────────────────────── --}}
                     <div data-palette-heading="actions" role="presentation" aria-hidden="true" hidden
                          class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Aktionen') }}</div>
@@ -333,6 +470,6 @@
             @endforeach
         </dl>
 
-        <p class="mt-4 text-sm text-muted">{{ __('In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.') }}</p>
+        <p class="mt-4 text-sm text-muted">{{ __('In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal, z: die Termine deiner eigenen Meetups zum Zusagen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.') }}</p>
     </flux:modal>
 </div>

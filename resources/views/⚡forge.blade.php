@@ -40,32 +40,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
     {{-- Der Basis-Pfad kommt aus `route()`, nicht als Literal: die Route heißt an
          genau einer Stelle `/forge`, und das ist `routes/group.php`. --}}
-    <div x-data="nostrForge(@js(route('group.forge')))" class="page-enter"
+    <div x-data="nostrForge(@js(route('group.bereich.forge')))" class="page-enter"
          x-on:forge-kanalbestand="kanalbestand = $event.detail">
 
-        <x-group::app-header :title="__('Forge')" :back="route('group.spaces')" />
-
-        {{-- ── Die Ortsleiste endet ab `xl` (P4) ──────────────────────────────
-             Gemessen am gebauten Stand: auf `/forge` @1920 trugen ZWEI sichtbare
-             Elemente `aria-current="page"` mit demselben `href=/forge` — die
-             Rail-Zeile (295 px) und die Ortskarte (496 px); bei 1279 px genau
-             eines. Zwei „du bist hier"-Markierungen auf dasselbe Ziel sind keine
-             Redundanz, sondern eine Zweideutigkeit: welche ist DIE aktuelle?
-
-             Die Begründung im Kopf von `ortskarten.blade.php` („die Rail-Zeile
-             fragt *kann ich dorthin gehen*, die Ortskarte *wo bin ich*") trägt
-             unterhalb `xl` vollständig — dort gibt es die Rail nicht. Ab `xl`
-             trägt sie nicht mehr, weil die Rail-Zeile selbst `aria-current`
-             setzt und damit beide Fragen beantwortet.
-
-             Dazu die Größenordnung: bei 1920 px maß jede der drei Karten 496 px
-             Breite und 70 px Höhe — für die Wörter „Chat", „Artikel", „Forge".
-
-             NUR auf dieser Fläche: `/articles` und `/spaces` binden dieselbe
-             Komponente ein und behalten sie, solange niemand dort dasselbe
-             gemessen und entschieden hat. Die Klasse kommt deshalb von HIER und
-             steht nicht in der Komponente. --}}
-        <x-group::ortskarten :class="$native ? null : 'xl:hidden'" />
+        {{-- UP target is Start: the forge is an AREA next to the chat, not a sub-screen of
+             it (until P2 it hung off a discovery row at the foot of the room list). --}}
+        <x-group::app-header :title="__('Forge')" :back="route(config('group.start_route', 'group.start'))" />
 
         @if (! config('group.workspace_url'))
             {{-- Kein Workspace konfiguriert. Kein Fehler, sondern eine bewusste
@@ -304,13 +284,13 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          der Balken die einzige Affordanz neben der Maske.
 
                          ── Die Beschriftung heisst „Kanäle", der Bezeichner bleibt ────────
-                         `name="workspaces"` ist unverändert: er steht in geteilten Links, in
-                         der serverseitigen Weiterleitung aus `⚡spaces.blade.php` und in
-                         `OrtskartenTest.php`. Umbenannt wird nur, was der Mensch liest.
+                         `name="workspaces"` is unchanged: it stands in shared links and in
+                         the legacy redirect of `/spaces?tab=workspaces`
+                         (`routes/group.php`). Only what a human reads gets renamed.
 
                          Und es ist ein EIGENER Übersetzungsschlüssel, nicht das vorhandene
                          `__('Räume')`. Der bezeichnet an vier Stellen die Chat-Räume des
-                         Vereins-Relays (`ortskarten`, `command-palette`, `desktop-rail`,
+                         Vereins-Relays (`command-palette`, `desktop-rail`,
                          `⚡spaces`); ihn mitzubenutzen hiesse, zwei verschiedene Dinge
                          dauerhaft aneinanderzubinden — ab `xl` stünden „Räume" (Rail) und
                          „Räume" (Tab) gleichzeitig im Bild, für zwei verschiedene Relays.
@@ -808,8 +788,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                      ohne Tabellensemantik zu behaupten, die diese Liste nicht
                                      hat. Die Ablehnung steht hier und nicht nur im Plan, damit
                                      der nächste Leser sie am Gegenstand findet. --}}
+                                {{-- ONE root element per `x-for` pass (Alpine's contract): the
+                                     pin button must not sit INSIDE the link (nested interactive
+                                     content), so a `relative` frame wraps both. `border-b` moves
+                                     out with it — otherwise the hairline would be drawn under
+                                     the link and the button would stand below it. --}}
+                                <div class="relative border-b border-zinc-200 last:border-b-0 dark:border-zinc-800">
                                 <a :href="repoHref(repo) || null" wire:navigate data-forge-repo :data-naddr="repo.naddr"
-                                   class="forge-zeile pressable group border-b border-zinc-200 p-4 transition-colors last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/60">
+                                   class="forge-zeile pressable group p-4 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60">
                                     <span class="forge-glyphe flex size-9 shrink-0 items-center justify-center rounded-tile bg-brand-500/10 text-brand-800 dark:text-brand-300">
                                         <flux:icon.code-bracket class="size-5" />
                                     </span>
@@ -970,6 +956,16 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                         </span>
                                     </span>
                                 </a>
+
+                                {{-- Pinning (P3, D7) — outside the link, absolutely placed in the
+                                     row. The key is `repo.address`, i.e. the NIP-01 address
+                                     `30617:<owner>:<d>` (`forgeModels.ts repoAddressOf`) and not
+                                     the row's `naddr`: that one also carries relay hints, so two
+                                     devices would pin the same repository under two keys. --}}
+                                <div class="absolute end-2 top-3 z-10">
+                                    <x-group::pin-toggle schluessel="'repo:' + repo.address" :was="__('Repository')" />
+                                </div>
+                                </div>
                             </template>
                         </div>
                     </section>

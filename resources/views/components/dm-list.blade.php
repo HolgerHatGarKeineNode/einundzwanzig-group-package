@@ -4,155 +4,54 @@
     'show' => 'true',
 ])
 
-{{-- ── The encrypted conversations inside the room list (mobile reachability) ──────
+{{-- ── The way into the encrypted conversations, from the room list (mobile) ───────
 
-     ── What P8 changed here ────────────────────────────────────────────────────────
-     Until P7 this spot held the list of BUZZ DM channels — a channel with an `h` whose
-     messages lie in plaintext on the relay. That surface is gone; a conversation in this
-     house is always a NIP-17 gift wrap from now on (`/messages`, `js/privateMessages.ts`).
-     The PLACE stayed, because the reasoning for it is unchanged: the rail never renders on
-     a phone, and a third tab does not fit (measurement below). What changed is the data
-     source, the target and the wording.
+     ── What P3 changed here, and why it is a REDUCTION ─────────────────────────────
+     Until P3 this section listed the conversations themselves, with a stock number next to
+     the heading and an unread pill per row. All three are gone. D5: **NIP-17 wraps are
+     decrypted only while „Direkt" is open** — and a list of conversations IS the decrypted
+     state. Titles come from the participants inside the seal, the preview from the message,
+     the unread number from a watermark whose key is only known after decrypting. There is no
+     version of this list that costs the signer nothing.
 
-     ── Why a SECTION of the room list and not a third tab ──────────────────────────
-     The first draft was a third entry "direct" in the segmented bar. It failed on a
-     measurement, not on an opinion: the bar is `inline-flex` and does not shrink, its
-     three entries measure **314 px** together (per tab 32 px padding + 20 px icon + 8 px
-     gap + text; text 35/49/42 px in Inconsolata 14 px), while the content column at a
-     320 px viewport measures **288 px**. Result on the rendered element:
-     `document.scrollWidth` 330 against `clientWidth` 320 — 10 px of horizontal overflow,
-     on the main surface of the client. With two entries it is 212 px; the bar is already
-     74 % full before this change.
+     So what stands here is one row that LEADS there and says nothing else. The price is
+     named rather than hidden: from the room list you can no longer see whether something is
+     waiting. The plan takes that price knowingly (D5, and the planner's default "no DM count
+     and no DM preview before Direkt was opened in that tab").
 
-     Three ways out were costed and rejected: dropping the icons (−84 px, fits — but takes
-     back an explicit decision with a mutation-checked test, `OrtskartenTest` "threads tab
-     and chat location card show different glyphs"), padding at `px-2` (fits — but loses
-     against Flux' own `px-4`: both are Tailwind utilities of equal specificity, and in the
-     built bundle `.px-4` sits at byte 70292, `.px-2` at 70086, so `px-4` wins), and making
-     the bar scroll (an entry you have to push out of the way is not an entry point).
+     ── Why the PLACE stays ─────────────────────────────────────────────────────────
+     Unchanged since P8: the rail never renders on a phone, and a third entry in the
+     segmented bar does not fit — measured, not judged. The bar is `inline-flex` and does not
+     shrink; three entries measure 314 px together while the content column at a 320 px
+     viewport measures 288 px (`document.scrollWidth` 330 against `clientWidth` 320, i.e.
+     10 px of horizontal overflow on the main surface of the client). With two entries it is
+     212 px.
 
-     ── Where the unread numbers come from ──────────────────────────────────────────
-     NOT from `$store.unread`. That map is keyed by `h`, and a NIP-17 conversation has
-     none — it is keyed by its participant set. The count is folded in
-     `privateMessageModels.ts` against a watermark under `c:<conversationKey>`
-     (`readState.ts`), and the store hands it over per row as `unread`.
+     ── `x-if` and not `xl:hidden` ──────────────────────────────────────────────────
+     Kept, although this row no longer mounts anything expensive: the caller's condition
+     carries the three parts the tests pin (`tab === 'rooms'`, `!focusMode()`,
+     `!$store.viewport?.desktop`), and from `xl` up the rail carries the same entry. A CSS
+     hide would render a second entry point into a column that already has one.
 
-     **That watermark is deliberately never written to disk.** Its key IS the participant
-     list, so an IndexedDB row would put "who talks to whom" in plaintext on the device —
-     the very thing this surface does not store. It travels over the wire instead, inside
-     the nip44-SELF-encrypted 30078 (`readState.ts flush`, `readStateSync.ts`). The price,
-     stated rather than hidden: a cold start without network shows every conversation as
-     unread until that event arrives.
-
-     Two levels, same rule as the neighbouring sections: the heading carries the SUM, each
-     row carries its own. The grey number next to the label is the stock (how many
-     conversations exist) and stays what it was — three distinguishing marks keep the two
-     apart, as at the room sections: the stock is grey, without a surface, and sits right
-     at the label; the unread counter is an opaque `brand-500` pill at the end.
-
-     ── `x-if` and not `xl:hidden`, although the neighbouring sections do the opposite ─
-     The neighbours ("my rooms", "other rooms") hide themselves from `xl` up via CSS, with
-     the explicit reasoning that an `x-if` condition would be a second truth about the
-     breakpoint. For them that holds: they cost nothing while invisible.
-
-     This section costs something — and since P8 more than before: `nostrPrivateMessages`
-     holds the wrap subscription, the ONE request in the client whose answers cost the
-     signer (every unwrapped envelope = two `nip44.decrypt`). **Alpine initialises
-     `x-data` inside elements hidden by CSS as well** — the same trap that puts
-     `desktop-rail` inside a `<template x-if>`. Hidden via `xl:hidden` every desktop view
-     would pay twice: here AND in the rail, which shows the same list there. The condition
-     reads `$store.viewport.desktop`, so exactly the one `matchMedia` truth from
-     `viewport.ts` — not a second one.
-
-     ── Why there is NO empty state "this space cannot do DMs" ──────────────────────
-     Because a section that is not there is the more honest answer. A tab always has to
-     stand and therefore explain why it is empty; a section in a list may simply be absent.
-     If the reachable space cannot accept gift wraps (`canSend`, fail-closed through
-     `mayWriteKind`), there are neither rows nor a button here.
-
-     And this surface says NOTHING about encryption in detail. The promise — what stays
-     hidden and what does not — lives on `/messages`, where a conversation is CREATED.
-     Making the same promise in two places is how two versions of it begin. --}}
+     ── No count, no state, no store ────────────────────────────────────────────────
+     This component reads NOTHING from `$store.privateMessages` any more. That is deliberate
+     and it is the enforceable half of D5: a row that reads no store cannot grow a number
+     back. `MobileErreichbarkeitTest` pins both — the row is here, and the store is mounted
+     nowhere but the Direkt segment. --}}
 <template x-if="{{ $show }}">
-    <div data-dm-panel>
+    <div data-dm-panel class="mt-2">
+        {{-- A plain link and not a store call: the store no longer exists on this page.
+             `wire:navigate` keeps it an SPA jump; the target is the segment itself, so the
+             Postfach opens on „Direkt" and mounts the surface there.
 
-        {{-- The whole section exists only when there is something to show or to do:
-             rows, or the right to open a conversation. --}}
-        <template x-if="($store.privateMessages?.conversations ?? []).length > 0 || $store.privateMessages?.canSend">
-            <div class="mt-2">
-
-                {{-- Section heading in the shape of its neighbours: label, count as a grey
-                     number next to it. The number stands INLINE behind the label and not
-                     flush right — the same decision as for "my rooms" and "other rooms",
-                     and for the same reason: it describes exactly what stands right below.
-
-                     The compose button sits right in the same row. `min-h-11` (44 px) is on
-                     the ROW and not on the button: the heading keeps its height even when
-                     the button is absent (no `canSend`) — otherwise the list would jump the
-                     moment the NIP-11 answer arrives. --}}
-                <div class="flex min-h-11 items-center justify-between gap-2 px-2">
-                    <p class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem] font-semibold uppercase tracking-wider text-muted">
-                        <span class="truncate">{{ __('Verschlüsselt') }}</span>
-                        <span x-show="($store.privateMessages?.conversations ?? []).length > 0" x-cloak
-                              class="font-normal normal-case tabular-nums tracking-normal"
-                              x-text="($store.privateMessages?.conversations ?? []).length"></span>
-                        {{-- `size="sm"` (16 px) and not the 20 px of the row pills: the
-                             house rule distinguishes exactly here — 20 px for a FREE
-                             STANDING pill at the end of a row, 16 px for a marker NEXT TO
-                             something. `ms-2` and not `ms-0.5`: with an 8 px gap stock
-                             („3") and unread („22") read as two groups; at 2 px they read
-                             as one number. --}}
-                        <x-group::unread-badge count="$store.privateMessages?.unreadTotal" size="sm" badge-class="ms-2"
-                                               :sr-one="__('ungelesene Nachricht')"
-                                               :sr-many="__('ungelesene Nachrichten')" />
-                    </p>
-
-                    {{-- On `canSend` and not on the relay kind: the button is a WRITE
-                         action, and without a signer session it would lead into a signature
-                         that never comes. Icon-only with an `aria-label` — the label "new
-                         conversation" costs more room next to the heading in a 288 px column
-                         than it explains, and the rail carries the same glyph
-                         (`pencil-square`) in the same position.
-
-                         The person picker lives on `/messages`; the button opens it in the
-                         store and jumps there. A second dialog HERE would be a second
-                         version of the same surface. --}}
-                    <flux:button x-show="$store.privateMessages?.canSend" x-cloak size="sm" variant="ghost"
-                                 icon="pencil-square" class="icon-btn-touch shrink-0" data-dm-neu
-                                 aria-label="{{ __('Neue Unterhaltung') }}"
-                                 x-on:click="$store.privateMessages?.startPicking(); $store.privateMessages?.goTo()" />
-                </div>
-
-                {{-- No separate empty state when only the button stands there: the row
-                     "encrypted +" already says everything a sentence would, and an empty
-                     state in the middle of a list of other sections would be a second card
-                     inside a card (the same rule as for the gated state and the meetup
-                     filter in this card). --}}
-                <div class="space-y-0.5">
-                    <template x-for="row in ($store.privateMessages?.conversations ?? [])" :key="row.key">
-                        {{-- `row.title` arrives finished from the store (`titleOf`), which
-                             resolves the participants' profiles and warms the missing ones
-                             itself. No `aria-label` on the button: its child text IS the
-                             name — a label would replace it and have to rebuild it (same
-                             rule as in `room-tile`).
-
-                             The avatar deliberately gets NO picture: a conversation has
-                             none, and a picture taken from the counterparty's profile would
-                             be an assertion once there are three people. The initial from
-                             the title distinguishes the row at a glance from the `#` tile of
-                             the rooms above; the padlock in front says why it is here. --}}
-                        <button type="button" data-dm-row
-                                x-on:click="$store.privateMessages?.goTo(row.key)"
-                                class="pressable flex min-h-11 w-full items-center gap-2.5 rounded-tile p-1.5 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                            <x-group::nostr-avatar picture="''" name="row.title" size="2rem" />
-                            <flux:icon.lock-closed variant="micro" aria-hidden="true" class="size-3.5 shrink-0 text-brand-500" />
-                            <span class="min-w-0 flex-1 truncate font-medium" x-text="row.title"></span>
-                            <x-group::unread-badge count="row.unread" />
-                            <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
-                        </button>
-                    </template>
-                </div>
-            </div>
-        </template>
+             `min-h-11` = 44 px, the same touch target the rows above carry. --}}
+        <a href="{{ route('group.postfach', ['ansicht' => 'direkt']) }}" wire:navigate data-dm-oeffnen
+           class="pressable flex min-h-11 w-full items-center gap-2.5 rounded-tile p-1.5 text-start transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800">
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-tile bg-brand-500/10">
+                <flux:icon.lock-closed variant="micro" aria-hidden="true" class="size-4 text-brand-500" />
+            </span>
+            <span class="min-w-0 flex-1 truncate font-medium">{{ __('Verschlüsselte Nachrichten öffnen') }}</span>
+            <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
+        </a>
     </div>
 </template>

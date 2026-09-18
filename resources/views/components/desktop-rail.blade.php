@@ -1,4 +1,13 @@
-{{-- Der Navigator (Plan „Desktop-Shell", P4) — die linke Spalte ab `xl`.
+{{-- „Deine Leiste" (Plan „Desktop-Shell" P4, reshaped by P6/D10) — die linke Spalte ab `xl`.
+
+     ── What P6 made of it ────────────────────────────────────────────────────
+     Start, then the reader's pins, then the space's room groups (collapsible, as
+     before). The footer is gone; the identity moved into the command bar above
+     the stage (`command-bar.blade.php`). Alt+↑/↓ still walks `railTargets`
+     (`js/rail.ts`), so the keyboard order is unchanged — the two new blocks stand
+     ABOVE the list the jump list is built from and add nothing to it: Start and a
+     pin are single targets, not rows of a group, and a jump list mixing both would
+     no longer be „the next room".
 
      ── Warum `<template x-if>` und nicht `hidden xl:flex` ────────────────────
      Alpine initialisiert `x-data` auch in Elementen, die per CSS versteckt sind.
@@ -70,19 +79,18 @@
          "
          class="hidden min-h-0 flex-col border-e border-zinc-200 bg-white xl:col-start-1 xl:row-start-1 xl:flex dark:border-zinc-800 dark:bg-zinc-900">
 
-        {{-- ══ THE DIRECT CHILDREN OF `[data-rail]` ARE THE FOUR LAYOUT BLOCKS ══════
-             Header · search field · list · footer, and nothing else. The placeholder
-             (`rail-skelett.blade.php`) mirrors exactly these four, and
-             `tests/e2e/desktop-boot-geometrie.spec.ts` compares them block for block —
+        {{-- ══ THE DIRECT CHILDREN OF `[data-rail]` ARE THE THREE LAYOUT BLOCKS ═════
+             Header · search field · list, and nothing else. Until P6 there was a fourth,
+             the footer; it is gone with the command bar (the note where it stood says
+             why). The placeholder (`rail-skelett.blade.php`) mirrors exactly these three,
+             and `tests/e2e/desktop-boot-geometrie.spec.ts` compares them block for block —
              its `bloecke()` throws on any other count, because a pairwise comparison of
              two differently long lists is not a comparison.
 
              Non-layout attachments (store lifecycles, overlays) therefore go INSIDE one
-             of the four, not next to them — the DM store lifecycle at the top of the
-             scroller, the DM dialog at the end of the footer, each with its own note.
-             A visibility filter in the test would not be an alternative: an empty
-             `<ui-modal>` is not `display:none`, so it would pass such a filter and the
-             invariant would only look intact. --}}
+             of the three, not next to them. A visibility filter in the test would not be
+             an alternative: an empty `<ui-modal>` is not `display:none`, so it would pass
+             such a filter and the invariant would only look intact. --}}
 
         {{-- Space-Kopf: „wo bin ich" gehört an den Anfang der Ortsspalte. --}}
         <div class="flex shrink-0 items-center gap-2.5 px-4 pt-4 pb-3">
@@ -187,6 +195,32 @@
              Forge-Eintrag; er ist eine Fläche des Clients, kein Raum. --}}
         <div data-rail-scroller class="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
 
+            {{-- ══ „Deine Leiste" begins with Start, then the pins (P6/D10) ═══════════
+                 The order is the answer to „what is mine, what is the space's": Start is
+                 the one surface that renders for everyone (D4) and the place every other
+                 way starts from; below it the shortcuts the reader placed himself; below
+                 those the space's own room groups, unchanged.
+
+                 Start stands HERE and not in the command bar above, although the bar is
+                 where the three global affordances live: Start is a PLACE, and places are
+                 what this column is for. The bar carries search, inbox and identity — none
+                 of which is a place in the space.
+
+                 Not a `flux:navlist.item`: the navlist below is the landmark of the ROOM
+                 LIST („Räume und Bereiche"), and a client surface inside it would claim to
+                 be a room group. Same distinction the „Alle Räume & Entdecken" row at the
+                 foot of this scroller already makes, and the same class signature. --}}
+            <a href="{{ route(config('group.start_route', 'group.start')) }}" wire:navigate data-rail-start
+               class="pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800">
+                <flux:icon.home variant="micro" class="size-4 shrink-0" />
+                <span>{{ __('Start') }}</span>
+            </a>
+
+            {{-- The pins — the SAME list Start shows as chips, from the same selector and
+                 with the same target table (`pin-list.blade.php`, `$store.pinSet.rows`).
+                 Nothing renders while the set is empty. --}}
+            <x-group::pin-list variant="bar" />
+
             {{-- ── Where the conversation store is mounted (P8) ────────────────────
                  It was mounted right here until P7, for the Buzz DM channels: their
                  dismissed-conversation state (30622) had to be known before the first row
@@ -216,8 +250,8 @@
                  hält Markup und Tastatur gegen sie. --}}
             {{-- ══ DAS LANDMARK DER RAUMLISTE — hier trägt `flux:navlist` wirklich ══
                  Gemessen und dabei die eigene Annahme korrigiert: die Rail hatte
-                 sehr wohl ein `<nav>` — aber das der FUSSZEILE (`bottom-nav`,
-                 `orientation="rail"`). Die Raumliste selbst stand in keinem
+                 sehr wohl ein `<nav>` — aber das der FUSSZEILE (the vertical set of nav
+                 tabs, gone since P2). Die Raumliste selbst stand in keinem
                  (`p6b-rail-VORHER.log`: `scrollerIstNav: false`). Das eigentliche
                  Navigationsangebot des Clients — vier Gruppen, Räume, Forge-Baum —
                  war also kein Landmark, während die kleine Linkreihe darunter eines
@@ -290,7 +324,7 @@
                 <div>
                     <x-group::rail-group group="workspace" :label="__('Forge')"
                                          :tree="true"
-                                         heading-href="{{ route('group.forge') }}"
+                                         heading-href="{{ route('group.bereich.forge') }}"
                                          :overview-label="__('Forge-Übersicht öffnen')"
                                          :heading-title="__('Forge auf :wert')"
                                          heading-title-value="workspaceLabel" />
@@ -312,18 +346,26 @@
                  `/rooms/{h}`: an encrypted conversation has no `h` on any relay
                  (`rail.ts`, `toRailDms`).
 
-                 ── Where the conversations come from ────────────────────────────────
-                 From `$store.privateMessages`, which `app-frame.blade.php` mounts on
-                 every page behind the gate — that is where the ONE bracket around the
-                 wrap subscription lives, and where it is written down why it unwraps
-                 exactly once per tab and stores nothing. This group only reads. --}}
-            <x-group::rail-group group="dms" :label="__('Verschlüsselt')"
-                                 :action-label="__('Neue Unterhaltung')"
-                                 action-icon="pencil-square"
-                                 action-click="$store.privateMessages?.startPicking(); $store.privateMessages?.goTo()"
-                                 action-show="$store.privateMessages?.canSend"
-                                 always-show="true"
-                                 :empty-text="__('Noch keine verschlüsselte Unterhaltung — der Stift oben eröffnet eine.')" />
+                 ── What changed with P3 (D5) ────────────────────────────────────────
+                 The ROWS are gone. `$store.privateMessages` is no longer mounted outside
+                 the Postfach's „Direkt" segment, because its `mount()` arms the wrap
+                 subscription and every envelope it answers with costs the user's signer two
+                 `nip44.decrypt`. A rail that lists conversations has paid for that on every
+                 page — and there is no cheaper version of the list: the participants sit
+                 inside the seal.
+
+                 What is left is the group with ONE row that leads there. The group keeps its
+                 place in `RAIL_GROUP_ORDER` (the eye reads the block order, Alt+↑/↓ walks
+                 `railTargets`), so nothing about the rail's geometry or its keyboard order
+                 moves; P6 rebuilds this column anyway.
+
+                 `rail.ts toRailDms` therefore has no source any more and yields an empty
+                 list — which is why the row below is plain markup and not a `rail-group`
+                 row. --}}
+            <flux:navlist.item :href="route('group.postfach', ['ansicht' => 'direkt'])" wire:navigate
+                               icon="lock-closed" data-rail-dm>
+                {{ __('Verschlüsselt') }}
+            </flux:navlist.item>
 
             <x-group::rail-group group="meetups" :label="__('Meetups')" :countries="true" />
             <x-group::rail-group group="proposals" :label="__('Projektunterstützung')" />
@@ -345,7 +387,7 @@
             </template>
 
             {{-- Der Weg zu allem, was die Rail bewusst nicht kann. --}}
-            <a href="{{ route('group.spaces') }}" wire:navigate
+            <a href="{{ route('group.bereich.chat') }}" wire:navigate
                class="pressable mt-1 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm font-medium text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100">
                 <flux:icon.squares-2x2 variant="micro" class="size-4 shrink-0" />
                 <span>{{ __('Alle Räume & Entdecken') }}</span>
@@ -366,255 +408,24 @@
                  der Faltungszeile und in der Befehlspalette. --}}
         </div>
 
-        {{-- Fußzeile: Artikel, darunter die Nav-Ziele, darunter Glocke und Identität. --}}
-        <div class="shrink-0 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            {{-- ── „Artikel" steht HIER und nicht mehr im Scroller ──────────────────
-                 Die Artikel sind eine Fläche des Clients, aber keine Räume — und der
-                 Scroller darüber ist eine Raumliste. An deren Ende hing die Zeile
-                 faktisch hinter vier Gruppen (Räume · Workspace · Meetups ·
-                 Projektunterstützung), und deren Länge bestimmt der Relay, nicht das
-                 Layout: auf einem Space mit vielen Meetup-Gruppen war sie nur nach dem
-                 Durchscrollen aller vier zu erreichen. Die Fußzeile ist `shrink-0` und
-                 damit die einzige Fläche der Rail, die IMMER sichtbar ist — genau das
-                 Versprechen, das eine Hauptfläche braucht.
+        {{-- ══ THE FOOTER IS GONE WITH P6, AND THIS IS WHERE IT STOOD ═══════════════
+             P2 had already taken the four area rows, the vertical set of nav tabs and the
+             bell out of it; what was left was ONE row, the identity, „until P6 builds the
+             command bar" (its own note said so). The bar exists now
+             (`command-bar.blade.php`), it carries the avatar at the top right of the stage,
+             and a second avatar in the bottom left of the same window would be the third
+             form of the same thing — the drift Concept C removed.
 
-                 ── Warum sie NICHT wie die Nav-Tabs darunter aussieht ───────────────
-                 Die Tabs darunter kommen aus `config('group.nav')` und sind in allen
-                 Hosts dieselbe Menge; diese Zeile ist es nicht. Sie trägt deshalb
-                 weiterhin die leisere Form aus dem Scroller (Micro-Icon, `font-medium`,
-                 `text-muted`) statt Markenfarbe und Aktiv-Balken. Die Trennung trägt
-                 Gewicht und Icon-Größe, KEINE weitere Haarlinie: die Fußzeile hat
-                 bereits zwei, und eine dritte auf so engem Raum wäre Gitter statt
-                 Gliederung.
+             **That is why this column now has THREE direct children and not four**: header
+             · search field · list. The placeholder (`rail-skelett.blade.php`) mirrors
+             exactly those three, and `tests/e2e/desktop-boot-geometrie.spec.ts` compares
+             them block for block — its `bloecke()` throws on any other count.
 
-                 ── Aktiv-Zustand, den es vorher nicht gab ───────────────────────────
-                 Solange die Zeile im Scroller lag, war sie meist unsichtbar und ein
-                 Marker sinnlos. Sichtbar stehend muss sie „du bist hier" beantworten
-                 (Nielsen #1). Sie tut das über Textgewicht und Vordergrundfarbe plus
-                 `aria-current` — nicht über den brand-Ton der Nav-Tabs, der zur
-                 Registry-Sprache gehört. Die Vollansichten zählen mit: wer einen
-                 Artikel liest, ist unter „Artikel".
-
-                 ── Die Forge-Zeile steht seit P5 daneben ────────────────────────────
-                 Hier stand bis dahin die Begründung, warum es sie NICHT gibt:
-                 `buzz-rail-forge` hielt als „Regel 1" fest, dass die Rail keinen Link
-                 namens „Forge" trägt, weil ein solcher Eintrag am Fuß des Scrollers den
-                 Workspace ein zweites Mal beschrieben hätte — die Repos liegen auf
-                 demselben Relay wie die Kanäle in der Sektion darüber.
-
-                 **Die Regel ist in P5 begründet ERSETZT, nicht umgangen.** Was sich
-                 geändert hat, ist die Voraussetzung, auf der sie stand: die Sektion
-                 heißt jetzt selbst „Forge", und der Client hat mit der Ortskarten-Leiste
-                 eine Ebene bekommen, auf der Chat, Artikel und Forge gleichrangig
-                 nebeneinander stehen. Die Rail-Fußzeile ist die Desktop-Entsprechung
-                 dieser Ebene — dort fehlte von den dreien genau einer. Ein Ort, der auf
-                 jeder Bühne in der Leiste steht und im Navigator nur als Sektionskopf
-                 im Scroller, ist an zwei Stellen verschieden wichtig.
-
-                 Die alte Sorge bleibt beantwortet: die Zeile beschreibt den Workspace
-                 NICHT ein zweites Mal, denn der Sektionskopf oben trägt jetzt denselben
-                 Namen und führt an dasselbe Ziel. Zwei Wege zu einem Ort sind kein
-                 Duplikat, sondern der Normalfall dieser Rail — die Artikel-Zeile
-                 daneben ist auch in der Befehlspalette erreichbar. --}}
-            {{-- `mb-2` = 8px aus der Abstands-Skala, nicht 4: die Nav-Tabs darunter
-                 stehen mit `gap-0.5` (2px) dicht beieinander. Ein 4px-Absatz läse sich
-                 als unsauberer Zeilenabstand innerhalb EINER Liste; 8px sind der
-                 sichtbare Unterschied zwischen „andere Gruppe" und „nächste Zeile".
-                 Das ist die Trennung, die hier die Haarlinie ersetzt. --}}
-            <div class="mb-2">
-                {{-- Die Vollansichten zählen mit: wer einen Artikel liest oder auf der
-                     Autorenseite steht, ist unter „Artikel". Dieselbe Regel wie in der
-                     Ortskarten-Leiste, und aus demselben Grund. --}}
-                @php($articlesActive = request()->routeIs('group.articles', 'group.article', 'group.articles.author'))
-                {{-- `data-rail-fuss`: die beiden Zeilen brauchen einen EINDEUTIGEN Anker.
-                     Ihre Beschriftungen („Artikel", „Forge") stehen auf derselben Seite
-                     noch zweimal — in der Ortskarten-Leiste und am Sektionskopf des
-                     Scrollers. Ein Test, der auf den Text zielt, misst dann irgendeine
-                     der drei Stellen. --}}
-                <a href="{{ route('group.articles') }}" wire:navigate data-rail-fuss="artikel"
-                   @if ($articlesActive) aria-current="page" @endif
-                   @class([
-                       'pressable flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
-                       'font-semibold text-zinc-900 dark:text-zinc-100' => $articlesActive,
-                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $articlesActive,
-                   ])>
-                    <flux:icon.document-text variant="micro" class="size-4 shrink-0" />
-                    <span>{{ __('Artikel') }}</span>
-                </a>
-
-                {{-- Forge — dieselbe leise Form wie die Artikel-Zeile darüber (Micro-Icon,
-                     `font-medium`, `text-muted`) und ausdrücklich NICHT die Markenfarbe
-                     der Nav-Tabs darunter: die kommen aus `config('group.nav')` und sind
-                     in allen Hosts dieselbe Menge, diese beiden Zeilen sind es nicht.
-
-                     Nur bei konfigurierter Quelle, wie die Forge-Ortskarte: ohne
-                     `workspace_url` führt `/forge` in einen erklärenden Leerzustand, und
-                     eine Zeile in einen Leerzustand ist ein Ort ohne Inhalt. --}}
-                @if (config('group.workspace_url'))
-                    @php($forgeActive = request()->routeIs('group.forge', 'group.forge.repo'))
-                    <a href="{{ route('group.forge') }}" wire:navigate data-rail-fuss="forge"
-                       @if ($forgeActive) aria-current="page" @endif
-                       @class([
-                           'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
-                           'font-semibold text-zinc-900 dark:text-zinc-100' => $forgeActive,
-                           'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $forgeActive,
-                       ])>
-                        <flux:icon.code-bracket-square variant="micro" class="size-4 shrink-0" />
-                        <span>{{ __('Forge') }}</span>
-                    </a>
-                @endif
-
-                {{-- Lesezeichen (P2) — dieselbe leise Form wie die beiden Zeilen darüber.
-                     Ohne Bedingung, anders als die Forge: die Liste hängt am NUTZER
-                     (NIP-51 kind 10003) und nicht an einer Konfiguration, ein Leerzustand
-                     hier ist also eine Aussage und keine Sackgasse. Eigener
-                     `data-rail-fuss`-Anker, weil „Lesezeichen" auch in der
-                     Befehlspalette steht — ein Test auf den Text träfe irgendeine der
-                     beiden Stellen. --}}
-                @php($bookmarksActive = request()->routeIs('group.bookmarks'))
-                <a href="{{ route('group.bookmarks') }}" wire:navigate data-rail-fuss="lesezeichen"
-                   @if ($bookmarksActive) aria-current="page" @endif
-                   @class([
-                       'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
-                       'font-semibold text-zinc-900 dark:text-zinc-100' => $bookmarksActive,
-                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $bookmarksActive,
-                   ])>
-                    <flux:icon.bookmark variant="micro" class="size-4 shrink-0" />
-                    <span>{{ __('Lesezeichen') }}</span>
-                </a>
-
-                {{-- Encrypted (NIP-17 direct messages) — the reason this row exists at all
-                     is that the screen had no fixed place in the chrome: the three ways in
-                     were the command palette, the DM modal's footer link and the profile
-                     popover of `⚡spaces.blade.php`. All three are things you open, none is
-                     a thing you see. A user went looking for the screen and did not find
-                     it, and that is a recognition-over-recall failure (Nielsen 6), not a
-                     discoverability nicety.
-
-                     WHY HERE and not one row higher: the profile popover already lists
-                     Lesezeichen → Verschlüsselt → Einstellungen. Keeping that order makes
-                     the two lists one vocabulary instead of two orderings of the same
-                     places.
-
-                     Unconditional, like the bookmarks row above and unlike Forge: the
-                     inbox hangs on the USER (NIP-17 kind 1059 giftwraps), not on a config.
-                     Without messages the screen explains itself; it is never a dead end.
-
-                     `lock-closed` is not a new pick — it is the glyph the profile popover
-                     already carries for this destination, and the only footer icon that
-                     says something about the KIND of place rather than its category.
-
-                     Own `data-rail-fuss` anchor, for the reason the block comment above
-                     gives: the label „Verschlüsselt" also stands in the command palette and
-                     in the profile popover, so a text-based test would hit any of the
-                     three. The anchor reads `messages` and not `verschluesselt` because it
-                     names the DESTINATION (`group.messages`) — a label may be retranslated,
-                     the route may not. --}}
-                @php($messagesActive = request()->routeIs('group.messages'))
-                <a href="{{ route('group.messages') }}" wire:navigate data-rail-fuss="messages"
-                   @if ($messagesActive) aria-current="page" @endif
-                   @class([
-                       'pressable mt-0.5 flex min-h-9 items-center gap-2 rounded-tile px-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800',
-                       'font-semibold text-zinc-900 dark:text-zinc-100' => $messagesActive,
-                       'font-medium text-muted hover:text-zinc-900 dark:hover:text-zinc-100' => ! $messagesActive,
-                   ])>
-                    <flux:icon.lock-closed variant="micro" class="size-4 shrink-0" />
-                    <span>{{ __('Verschlüsselt') }}</span>
-                </a>
-            </div>
-
-            <x-group::bottom-nav orientation="rail" />
-
-            <div x-data="nostrAuth" class="mt-2 flex items-center gap-1 border-t border-zinc-200 pt-2 dark:border-zinc-800">
-                <a href="{{ route('group.updates') }}" wire:navigate
-                   :aria-label="$store.unread?.updates ? @js(__('Neu, :hints')).split(':hints').join($plural($store.unread.updates, '1 ungelesener Hinweis', ':count ungelesene Hinweise')) : ($store.unread?.updates === undefined && $store.unread?.any ? @js(__('Neu, ungelesene Nachrichten')) : @js(__('Neu')))"
-                   class="pressable relative flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/5">
-                    <flux:icon.bell class="size-5 text-muted" />
-                    <x-group::unread-badge count="$store.unread?.updates" :cap="9" size="sm" :sr="false"
-                                           badge-class="absolute end-0.5 top-0.5 ring-2 ring-white dark:ring-zinc-900" />
-                    <x-group::unread-dot when="$store.unread?.updates === undefined && $store.unread?.any" :sr="false"
-                                         dot-class="absolute end-1.5 top-1.5 ring-2 ring-white dark:ring-zinc-900" />
-                </a>
-
-                {{-- Identität unten links — die eingeführte Desktop-Konvention. Das
-                     Popover-Markup ist dasselbe wie im Mobil-Kopf, nur der Ursprung
-                     kehrt sich um: es öffnet nach OBEN (`bottom-full`), sonst führe
-                     es aus dem Fenster. --}}
-                <div x-data="{ open: false }" class="relative min-w-0 flex-1">
-                    <button type="button" x-on:click="open = !open" aria-haspopup="true" :aria-expanded="open"
-                            :aria-label="@js(__('Angemeldet als :name')).split(':name').join(myName)"
-                            class="pressable flex w-full min-w-0 items-center gap-2 rounded-tile px-1.5 py-1 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:bg-white/5">
-                        {{-- Der eigene Präsenzpunkt (P6). Er liest `mine` und NICHT
-                             `byPubkey[<eigener pubkey>]`: der Relay fanoutet das eigene 20001 nicht
-                             zuverlässig an die eigene Verbindung zurück, und was hier stehen soll, ist
-                             ohnehin die andere Auskunft — „das sendest du gerade über dich". Ist der
-                             Store nicht angemeldet (kein Raum offen), steht dort nichts. --}}
-                        <x-group::nostr-avatar picture="myPicture" name="myName" size="1.75rem"
-                                               presence="$store.presence?.mine" />
-                        <span class="min-w-0 flex-1 truncate text-start text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
-                        <x-group::nostr-nip05 nip05="myNip05" />
-                        <flux:icon.chevron-up variant="micro" class="size-4 shrink-0 text-muted transition-transform" ::class="open ? 'rotate-180' : ''" />
-                    </button>
-
-                    <div x-show="open" x-cloak x-transition
-                         x-on:click.outside="open = false" x-on:keydown.escape.window="open = false"
-                         class="surface-card absolute bottom-full start-0 z-30 mb-2 w-72 origin-bottom-left p-4 shadow-lg">
-                        <div class="flex items-start gap-3">
-                            <x-group::nostr-avatar picture="myPicture" name="myName" size="2.75rem" />
-                            <div class="min-w-0 flex-1">
-                                <div class="flex min-w-0 items-center gap-1">
-                                    <span class="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="myName"></span>
-                                    <x-group::nostr-nip05 nip05="myNip05" />
-                                </div>
-                                <div x-show="myNip05" x-cloak class="truncate text-xs text-muted" x-text="myNip05"></div>
-                            </div>
-                        </div>
-
-                        <p x-show="myAbout" x-cloak class="mt-3 line-clamp-3 text-sm leading-normal text-muted" x-text="myAbout"></p>
-
-                        <div class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                            <button type="button" x-on:click="copy(npub, @js(__('npub kopiert.')))" aria-label="{{ __('npub kopieren') }}"
-                                    class="pressable group/npub flex w-full items-start gap-2 rounded-tile text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                                <span class="min-w-0 flex-1 break-all text-xs leading-relaxed text-muted" x-text="npub"></span>
-                                <flux:icon.clipboard variant="micro" class="mt-0.5 size-3.5 shrink-0 text-muted transition-colors group-hover/npub:text-brand-500" />
-                            </button>
-                            <div x-show="signerLabel" x-cloak class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-medium text-brand-800 dark:text-brand-400">
-                                <flux:icon.key variant="micro" class="size-3 shrink-0" />
-                                <span x-text="@js(__('Angemeldet über :signer')).split(':signer').join(signerLabel)"></span>
-                            </div>
-                        </div>
-
-                        {{-- Abmelden, auf ausdrücklichen Nutzerwunsch (2026-07-30).
-                             Ich hatte es zunächst weggelassen, weil `SettingsMergeTest`
-                             „Abmelden lebt an EINEM Ort" festhält — dieser Test meint
-                             aber den SETTINGS-Screen (dort waren es einmal 3 Knöpfe),
-                             nicht die App. Auf Desktop ist das Profil unten links der
-                             erwartete Ort dafür; der Weg über Einstellungen wäre zwei
-                             Klicks für eine Aktion, die überall sonst hier sitzt.
-                             Der Test zählt jetzt entsprechend nur im Seiteninhalt. --}}
-                        <flux:button variant="ghost" size="sm" icon="arrow-right-start-on-rectangle"
-                                     class="mt-3 w-full" x-on:click="doLogout()">{{ __('Abmelden') }}</flux:button>
-                    </div>
-                </div>
-            </div>
-
-            {{-- ══ WHERE THE DM DIALOG WENT ═════════════════════════════════════════
-                 `<x-group::dm-modal />` stood here, at the end of the footer. It is gone
-                 with the Buzz DM channels (P8): a conversation is created in the person
-                 picker on `/messages` now, and the rail's `+` button jumps there.
-
-                 **Nothing changes for this column's geometry, and that is why this note
-                 stands here and not only in the commit.** A closed `flux:modal` is a
-                 `<dialog>` in the UA's `display:none` state — no line box, no height. The
-                 footer measured 302 px with and without it (264 without the workspace),
-                 pinned down in `desktop-boot-geometrie.spec.ts`.
-
-                 Whoever ever puts an overlay here again: NOT as a direct child of
-                 `[data-rail]`. That set of children IS the measured column (four blocks,
-                 see the note at the top of this file); a fifth entry breaks the
-                 block-by-block comparison against the placeholder. The footer was the host
-                 because it is the one block that never collapses, never scrolls and is
-                 always there (`shrink-0`). --}}
-        </div>
+             Whoever wants to put an overlay in this column again: NOT as a direct child of
+             `[data-rail]`, and no longer into a footer that does not exist. The scroller is
+             the wrong host (it scrolls away), so a new one needs its own decision — and a
+             fourth block needs the placeholder and the spec changed in the SAME edit. The
+             most expensive boot jump in this file so far was 38 px, from exactly that
+             mistake. --}}
     </div>
 </template>

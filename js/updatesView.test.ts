@@ -19,6 +19,7 @@ import {
     ORIGIN_KEYS,
     LABEL_SNIPPET_MAX,
     UPDATES_PAGE,
+    countAddressedUpdates,
     countUnreadUpdates,
     filterUpdates,
     firstNonEmpty,
@@ -334,6 +335,57 @@ test('Die Glocken-Zahl ist 0, wenn alles quittiert ist — und dann faellt die P
     assert.equal(countUnreadUpdates([item({ key: 'a', unread: false })]), 0)
 })
 
+/**
+ * The number on the desktop command bar's inbox icon (P6/D10) — and the promise that makes
+ * it readable: it counts what ADDRESSES the reader, not what happened in his rooms.
+ *
+ * The case is here and not in the E2E suite because it is a rule, not a rendering. What the
+ * run can add is only that the markup reads this field
+ * (`tests/e2e/desktop-command-bar.spec.ts`).
+ */
+test('the inbox number counts mentions and thread replies — never room traffic', () => {
+    const zeilen = [
+        item({ key: 'm1', type: 'mention', unread: true }),
+        item({ key: 't1', type: 'thread', unread: true }),
+        // A `message` row is somebody writing in a room the reader joined. The left bar shows
+        // that per room; summed into the icon it would park a permanent number there and bury
+        // the one mention in it.
+        item({ key: 'r1', type: 'message', unread: true, count: 42 }),
+        // Read rows never count, whatever their type.
+        item({ key: 'm2', type: 'mention', unread: false }),
+    ]
+
+    assert.equal(countAddressedUpdates(zeilen), 2)
+    // Calibration against the neighbour: the two numbers are DIFFERENT, and the difference is
+    // exactly the room row. Without this line the case would also pass for a function that
+    // simply counted everything unread.
+    assert.equal(countUnreadUpdates(zeilen), 3)
+})
+
+test('the inbox number is 0 where nothing addresses the reader', () => {
+    assert.equal(countAddressedUpdates([]), 0)
+    assert.equal(countAddressedUpdates([item({ key: 'r1', type: 'message', unread: true })]), 0)
+    assert.equal(countAddressedUpdates([item({ key: 'm1', type: 'mention', unread: false })]), 0)
+})
+
+/**
+ * **A conversation can never raise this number, and the reason is the SOURCE, not a filter.**
+ *
+ * A NIP-17 wrap never enters `deriveUpdates` (D5: it would have to be decrypted first), so
+ * `type` has three values and none of them is a DM. This case pins the consequence at the
+ * counting end: an unknown type — which is the shape a DM row would arrive in if anyone ever
+ * built one — is NOT counted. A `type !== 'message'` implementation would count it, silently,
+ * and that is the one number D5 forbids.
+ */
+test('an unknown row type does not reach the inbox number', () => {
+    const fremd = { ...item({ key: 'x1', unread: true }), type: 'dm' as unknown as UpdateType }
+
+    assert.equal(countAddressedUpdates([fremd]), 0)
+    // And the neighbour DOES count it — so the line above is a property of this function and
+    // not of the fixture.
+    assert.equal(countUnreadUpdates([fremd]), 1)
+})
+
 test('Glocken-Zahl und `hasUnread` widersprechen sich nie', () => {
     // Beide fragen dieselbe Eigenschaft ab; der boolesche Export bleibt nur, weil der
     // „Alles gelesen"-Knopf genau ja/nein braucht.
@@ -444,19 +496,25 @@ test('firstNonEmpty loest genau EINMAL auf', async () => {
 // ── Rückweg: die `?from=`-Whitelist ───────────────────────────────────────
 
 test('Whitelist: jeder gelistete Wert wird erkannt', () => {
-    assert.deepEqual([...ORIGIN_KEYS], ['updates', 'spaces', 'room'])
+    // P2 (Concept C) added `start` and `postfach`; `updates` STAYS, because the token sits
+    // in links that have long been shared.
+    assert.deepEqual([...ORIGIN_KEYS], ['start', 'postfach', 'updates', 'spaces', 'room'])
     for (const key of ORIGIN_KEYS) {
         assert.equal(readOrigin(`?from=${key}`), key)
     }
 })
 
-test('UP-Ziel: nur `updates` fuehrt nach „Neu", alles andere auf die Raumliste', () => {
-    assert.equal(originTarget('?from=updates'), '/updates')
+test('UP target: `updates`/`postfach` lead to the inbox, `start` to Start, the rest to the room list', () => {
+    // Both spellings reach the same address: the screen is called `/postfach` since P2, but
+    // the `updates` token is in shared links and must not be discarded silently.
+    assert.equal(originTarget('?from=updates'), '/postfach')
+    assert.equal(originTarget('?from=postfach'), '/postfach')
+    assert.equal(originTarget('?from=start'), '/start')
     assert.equal(originTarget('?from=spaces'), ORIGIN_FALLBACK)
     // `room` ist gelistet, hat aber KEIN eigenes Ziel: der Parameter traegt keinen
     // Raum-`h`, und ein Raum kann nicht sein eigenes UP-Ziel sein.
     assert.equal(originTarget('?from=room'), ORIGIN_FALLBACK)
-    assert.equal(ORIGIN_FALLBACK, '/spaces')
+    assert.equal(ORIGIN_FALLBACK, '/bereich/chat')
 })
 
 test('UP-Ziel: NICHT gelistete Werte fallen auf die Raumliste', () => {
@@ -476,9 +534,9 @@ test('UP-Ziel: NICHT gelistete Werte fallen auf die Raumliste', () => {
     }
 })
 
-test('UP-Ziel: die Aufrufstelle darf ihr eigenes Fallback setzen (route(group.spaces))', () => {
-    assert.equal(originTarget('?from=nonsense', 'https://group.einundzwanzig.space/spaces'), 'https://group.einundzwanzig.space/spaces')
-    assert.equal(originTarget('?from=updates', 'https://group.einundzwanzig.space/spaces'), '/updates')
+test('UP target: the call site may set its own fallback (route(group.bereich.chat))', () => {
+    assert.equal(originTarget('?from=nonsense', 'https://group.einundzwanzig.space/bereich/chat'), 'https://group.einundzwanzig.space/bereich/chat')
+    assert.equal(originTarget('?from=updates', 'https://group.einundzwanzig.space/bereich/chat'), '/postfach')
 })
 
 test('doppelter Parameter: der ERSTE gewinnt (Zusage von URLSearchParams)', () => {

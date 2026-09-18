@@ -75,6 +75,7 @@ import {
     type WorkspaceModel,
 } from './workspaceModel.ts'
 import { subscribeWorkspacePrefs, toggleChannelFlag } from './channelPrefs.ts'
+import { roomPinKeyFor, subscribePinned, togglePin } from './pinSetSync.ts'
 import { subscribeForgeNav } from './forge.ts'
 import { t } from './i18n.ts'
 import { pubkey } from './welshmanSession.ts'
@@ -176,6 +177,9 @@ export type RailState = {
     _unsubWorkspace: (() => void) | null
     _unsubMeetups: (() => void) | null
     _unsubPrefs: (() => void) | null
+    _unsubPinned: (() => void) | null
+    /** The pinned keys (pin set ∪ Buzz stars) — the source of {@link isPinned}. */
+    pinned: string[]
     _controller: AbortController | null
     _wsController: AbortController | null
     _onKey: ((e: KeyboardEvent) => void) | null
@@ -224,13 +228,19 @@ export type RailState = {
     cityHint(room: RailRoom): string
     /** Ist dieser Raum in Buzz Desktop stummgeschaltet? */
     isMuted(room: RailRoom): boolean
-    /** Ist dieser Raum in Buzz Desktop angeheftet (`channel-stars`)? */
+    /**
+     * Angeheftet? Since P3 from BOTH sources: Buzz' `channel-stars` for a workspace room,
+     * the reader's own pin set (kind 30078) for everything else — one word, one selector
+     * (`pinnedKeys` in `js/pinSetSync.ts`).
+     */
     isPinned(room: RailRoom): boolean
     /** May this row carry a channel preference? Only workspace rooms may (P4). */
     canSetPrefs(room: RailRoom): boolean
+    /** May this row be pinned? Since P3: every row with an `h`, workspace or not. */
+    canPin(room: RailRoom): boolean
     /** Mute/unmute this room — writes `channel-mutes` (P4). */
     toggleMuted(room: RailRoom): void
-    /** Pin/unpin this room — writes `channel-stars` (P4). */
+    /** Pin/unpin this room — `channel-stars` in the workspace, the pin set elsewhere (P3). */
     togglePinned(room: RailRoom): void
     openRoom(room: RailRoom): void
     jumpToFirst(): void
@@ -408,6 +418,8 @@ export const createRail = (): RailState => ({
     _unsubWorkspace: null,
     _unsubMeetups: null,
     _unsubPrefs: null,
+    _unsubPinned: null,
+    pinned: [],
     _controller: null,
     _wsController: null,
     _onKey: null,
@@ -870,9 +882,25 @@ export const createRail = (): RailState => ({
         return isChannelMuted(this.prefs, room.h)
     },
 
-    /** Angeheftet? Trägt das Nadel-Icon der Zeile — dieselbe Quelle wie {@link isMuted}. */
+    /**
+     * Pinned? Carries the pin glyph of the row.
+     *
+     * **Two sources, one answer (P3, D7).** A workspace room lives in Buzz' `channel-stars`
+     * — set there so Buzz Desktop sees the same pin. Every other room lives in the reader's
+     * own pin set (kind 30078). What is asked is therefore the UNION, through the same store
+     * the chips on Start read: two truths about "pinned" would be exactly the state the
+     * decision forbids.
+     *
+     * An encrypted conversation has no `h` on any relay — it cannot be pinned, and `canPin`
+     * says so to the surface.
+     */
     isPinned(room: RailRoom): boolean {
+        if (room.isPrivateDm) {
+            return false
+        }
+
         return isChannelPinned(this.prefs, room.h)
+            || this.pinned.includes(roomPinKeyFor(room.h, isWorkspaceChannel(this.workspace, room.h)))
     },
 
     /**
@@ -888,6 +916,18 @@ export const createRail = (): RailState => ({
     },
 
     /**
+     * **May this row be pinned?** Every row with an `h` — the pin set is the reader's own
+     * event and needs no permission from any relay.
+     *
+     * The exception is the encrypted conversation: it has no `h` on any relay (its `h` field
+     * carries the conversation key), so there is nothing stable to address. Offering the
+     * action would produce a key no other device can resolve.
+     */
+    canPin(room: RailRoom): boolean {
+        return !room.isPrivateDm && room.h !== ''
+    },
+
+    /**
      * Mute/unmute — {@link toggleChannelFlag} does the reading, the optimistic local set
      * and the debounced publish; the rail only names the room. Both room lists call the
      * same function, so "already muted" is decided in one place.
@@ -896,9 +936,19 @@ export const createRail = (): RailState => ({
         toggleChannelFlag('mutes', room.h)
     },
 
-    /** Pin/unpin — same path as {@link toggleMuted}, other blob. */
+    /**
+     * Pin/unpin — **one call, and the ROUTING happens inside** (P3).
+     *
+     * `togglePin` reads the relay out of the key: is it the workspace, the statement goes to
+     * Buzz' `channel-stars` (shared with Buzz Desktop); is it the space, into the reader's own
+     * pin set. The row does not decide that, and it must not — `roomPinKeyFor` is the single
+     * place that knows which relay belongs into a key.
+     */
     togglePinned(room: RailRoom): void {
-        toggleChannelFlag('stars', room.h)
+        if (!this.canPin(room)) {
+            return
+        }
+        togglePin(roomPinKeyFor(room.h, isWorkspaceChannel(this.workspace, room.h)))
     },
 
     /** Stadt als Trefferbegründung — nur, wenn die Suche NICHT über den Namen traf. */
@@ -1075,6 +1125,22 @@ export const createRail = (): RailState => ({
             })
         }
 
+        // ── "Pinned" (P3, D7) — OUTSIDE the workspace arm ────────────────────────
+        // `subscribePinned` arms the pin set (kind 30078) and hands out the UNION of it and
+        // Buzz' `channel-stars`; it arms the preference path itself for the second half of
+        // that union, and `initChannelPrefs` refuses without a workspace on its own.
+        //
+        // **Until P7 this stood inside `if (hasWorkspace())`, and that was the defect.** The
+        // pin set is the READER's own event and exists in every installation; a space without
+        // a Buzz workspace — which is every `useZooid()` run and every plain zooid space —
+        // left `this.pinned` empty, so `isPinned(room)` was always false: the row's menu kept
+        // saying „Raum anheften" however often it was pressed, and the pin glyph never
+        // appeared. Measured in P6: the store held the key while the island's `pinned` was
+        // `[]`.
+        this._unsubPinned = subscribePinned((keys: string[]) => {
+            this.pinned = keys
+        })
+
         // Meetup-Präsentation (Land/Flagge/Stadt) EINMAL laden, fail-soft, und den
         // Index nach Alpine spiegeln — die Zeile joint dann über `room.meetupSlug`.
         void loadMeetupPresentations()
@@ -1105,6 +1171,7 @@ export const createRail = (): RailState => ({
         this._unsubWorkspace?.()
         this._unsubMeetups?.()
         this._unsubPrefs?.()
+        this._unsubPinned?.()
         this._unsubForge?.()
         this._controller?.abort()
         this._wsController?.abort()

@@ -39,7 +39,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
         {{-- Kopf: UP-Ziel ist die Übersicht (explizites Ziel, nie history.back() —
              der Deep-Link-Kaltstart hat keinen Stack). --}}
-        <x-group::app-header :title="__('Lesezeichen')" :back="route('group.spaces')" />
+        {{-- UP target is „Ich": bookmarks belong to the USER, not to the space, and have
+             lived under `/ich/lesezeichen` since P2. An explicit target, never
+             `history.back()` — a deep-link cold start has no stack. --}}
+        <x-group::app-header :title="__('Lesezeichen')" :back="route(config('group.me_route', 'group.ich'))" />
 
         {{-- Fehler des Relays, wörtlich. Gleiche Bauart wie die Pin-Leiste: der
              Originalwortlaut ist bei einer Ablehnung die einzige ehrliche Auskunft,
@@ -102,7 +105,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <flux:heading class="mt-2">{{ __('Noch nichts gemerkt.') }}</flux:heading>
                     <flux:text class="mt-1 text-sm text-muted">{{ __('Über „Merken“ im Nachrichtenmenü landet eine Nachricht hier.') }}</flux:text>
                     <div class="mt-4">
-                        <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.spaces')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
+                        <flux:button size="sm" variant="ghost" icon="hashtag" :href="route('group.bereich.chat')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
                     </div>
                 </div>
             </div>

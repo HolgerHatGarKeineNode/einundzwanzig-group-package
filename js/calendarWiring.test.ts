@@ -212,21 +212,52 @@ test('CORE 2: every relay query names its relays explicitly', () => {
 
 // ── CORE 3: the RSVP is published, and through the rollback path ────────────────────
 
-test('CORE 3: the island publishes its RSVP through `publishSpreadOptimistic`', () => {
+test('CORE 3: the island publishes its RSVP through the SHARED publish path', () => {
     const f = source('calendar.ts')
+    /*
+     * P5 moved the publish itself one module out: `rsvpPublish.ts` is used by this island AND
+     * by the store behind the Portal surfaces (`rsvpTermine.ts`), because both had to gain the
+     * same second relay half — the user's own NIP-65 write relays next to the calendar relays.
+     * Two copies of that union would have been two answers to „where does my answer live".
+     */
+    assert.ok(importiertAus(f, 'publishRsvp', './rsvpPublish.ts'), 'the publish path is gone')
+    assert.ok(ruftAuf(f, 'publishRsvp'), '… and is never called: the button would do nothing')
+
+    const p = source('rsvpPublish.ts')
     // The SPREAD variant, not the flat one, and that is the assertion: the flat
-    // `publishOptimistic` reports a partial result as a failure, and `calendar.ts` writes
-    // to several relays where the partial result is the ordinary case.
-    assert.ok(importiertAus(f, 'publishSpreadOptimistic', './publishOptimistic.ts'), 'the publish path is gone')
-    assert.ok(ruftAuf(f, 'publishSpreadOptimistic'), '… and is never called: the button would do nothing')
+    // `publishOptimistic` reports a partial result as a failure, and an RSVP goes to several
+    // relays where the partial result is the ordinary case.
+    assert.ok(importiertAus(p, 'publishSpreadOptimistic', './publishOptimistic.ts'), 'the spread publish is gone')
+    assert.ok(ruftAuf(p, 'publishSpreadOptimistic'))
     assert.equal(
-        ruftAuf(f, 'publishOptimistic'),
+        ruftAuf(p, 'publishOptimistic'),
         false,
         'back on the flat variant — a partial result would be reported as a failure and rolled back',
     )
-    // The tags are the pure module's business, not this file's — one place decides.
-    assert.ok(importiertAus(f, 'makeRsvpTags', './calendarModels.ts'))
-    assert.ok(ruftAuf(f, 'makeRsvpTags'))
+    // The tags are the pure module's business, not the publish path's — one place decides.
+    assert.ok(importiertAus(p, 'makeRsvpTags', './calendarModels.ts'))
+    assert.ok(ruftAuf(p, 'makeRsvpTags'))
+    // And the second relay half really is asked for. Without this line the union could shrink
+    // back to the calendar relays and every test above would stay green.
+    assert.ok(importiertAus(p, 'RelayLists', '@welshman/app'), 'the own write relays are not read at all')
+    assert.ok(ruftAuf(p, 'ownWriteRelays'), 'the target set does not include the user\'s own relays')
+})
+
+test('CORE 3b: a CALLED-OFF date keeps its card and loses its buttons', () => {
+    // Both halves matter. Hiding a cancelled date would keep whoever planned to go in the
+    // dark; leaving the buttons would let them publish a public, permanent answer to a meetup
+    // that is not happening. The spelling of the tag is decided once, in the shared rule.
+    const f = source('calendar.ts')
+    // Out of `calendarModels.ts` and NOT out of `rsvpRule.ts`: the policy module is loaded
+    // only where an answer is possible, and importing it here would pull the whole rule into
+    // the boot path — which the bundle latch measures (`bundleGrenze.nodetest.ts`).
+    assert.ok(importiertAus(f, 'isCancelledCalendarEvent', './calendarModels.ts'), 'the cancellation check is gone')
+    assert.equal(
+        importiertAus(f, 'decideRsvpOffer', './rsvpRule.ts'),
+        false,
+        'the policy module is back in the boot path',
+    )
+    assert.ok(ruftAuf(f, 'isCancelledCalendarEvent'))
 })
 
 test('CORE 3d: the reading-side author check goes through the pure function', () => {

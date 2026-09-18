@@ -50,11 +50,11 @@
      eine mitwandernde Beschriftung sagt der Sprachausgabe zweimal dasselbe und
      einmal davon falsch, sobald sie nachzieht.
 
-     ── Zählung ───────────────────────────────────────────────────────────────
-     Eine Komponente, also bewusst nicht in der ARIA-Trägerzählung von
-     `tests/Feature/EmptyStatesAndA11yTest.php` (`'room' => 37`) — dieselbe Regel
-     und derselbe Grund wie beim Lightbox-Overlay, den Ortskarten und den zwei
-     Themen-Composer-Bauformen. --}}
+     ── Counting ──────────────────────────────────────────────────────────────
+     A component, so deliberately absent from the ARIA carrier count of
+     `tests/Feature/EmptyStatesAndA11yTest.php` (`'room' => 37`) — the same rule
+     and the same reason as for the lightbox overlay, the reminder dialog and the
+     two topic-composer forms. --}}
 @props(['topic' => 'topic'])
 {{-- `w-11` = 2,75 rem = 44 px, und das ist gerechnet, nicht geschätzt: `icon-btn-touch`
      setzt auf grobem Pointer `min-width: 2.75rem` (`theme.css:216-220`). Eine schmalere

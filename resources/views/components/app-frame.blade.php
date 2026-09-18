@@ -47,38 +47,29 @@
     'contents',
     'xl:grid xl:h-dvh xl:grid-cols-[20rem_minmax(0,1fr)] xl:grid-rows-1 xl:overflow-hidden' => $desktop,
 ])>
-    {{-- ── Encrypted conversations (P8, NIP-17): mount the store ──────────────────
-         The ONE bracket around the wrap subscription — the single request in the client
-         whose answers cost the signer (every unwrapped envelope = two `nip44.decrypt`).
-         `mount()`/`unmount()` in `js/privateMessages.ts` count the surfaces reading it;
-         this is the only registration, and it stands on every page behind the gate.
+    {{-- ── Encrypted conversations: the mount is GONE from here (P3, D5) ──────────
 
-         **Why on every page and not only on `/messages`.** Until P7 `/messages` was the
-         only reader and the store was loaded there. Since P8 the rail group and the list
-         on `/spaces` show the same conversations — a hidden place is not a surface. That
-         makes the backlog something to unwrap exactly ONCE per tab: `armWraps` remembers
-         in `armedWrapsFor` what it is armed for, and the `load()` runs once per relay set
-         and identity. After that an open subscription with `limit: 0` keeps the list
-         current without unwrapping the backlog again.
+         Until P3 this spot carried `<div x-data="nostrPrivateMessages" hidden>` — on every
+         page behind the gate, so the rail group and the list on the chat area could show
+         conversations and an unread number. D5 ends that: **NIP-17 wraps are decrypted only
+         while „Direkt" is open.**
 
-         **Nothing is stored** (decision of 2026-09-06). The unwrapped set lives in this
-         tab's memory; who talks to whom reaches no disk. That is why there is no cache
-         here — and why a new tab costs another pass. That price is paid on purpose.
+         Why the mount was the thing that had to go, and not just the count: the store's
+         `mount()` arms the wrap subscription, and every envelope it answers with costs the
+         user's signer two `nip44.decrypt` — on NIP-46 two bunker round trips, on NIP-55
+         potentially two prompts on the phone. A page that shows a number for those
+         conversations has already paid for it. There is no version of "count without
+         decrypting": the sender sits inside the seal, `created_at` is randomised and our own
+         copy of every sent message arrives as a second envelope (measured 139 ms apart), so
+         even counting envelopes gives a wrong number.
 
-         **Here and not on a page.** `app-frame` is the root of exactly the pages behind
-         the gate (the same reasoning as for the `profile-card` further down; login and
-         join carry no `app-shell`). On `⚡spaces.blade.php` alone the store would be torn
-         down when navigating to `/updates`: the new body would carry no registration, the
-         counter in `mount`/`unmount` would fall to 0 and the subscription would die —
-         precisely while paging between surfaces that all show the same list.
+         The mount now stands exactly once, inside the Direkt segment of
+         `⚡updates.blade.php`, and `js/wrapIngest.ts` queues arriving wraps while no such
+         segment is mounted. Everything that used to read the store here shows a neutral row
+         instead (`dm-list.blade.php`, the rail group) — it leads there, it counts nothing.
 
-         `nostrPrivateMessages` loads `privateMessages.ts` dynamically: a static import
-         would pull the module into the app chunk and past the marker in
-         `bundleGrenze.nodetest.ts` (derivation in `bridge.ts` at the component).
-
-         `hidden` keeps the node out of the box tree entirely — it is no grid item and no
-         second, implicit row, so the geometry above is untouched. --}}
-    <div x-data="nostrPrivateMessages" hidden></div>
+         `MobileErreichbarkeitTest` holds both halves: no mount outside the Direkt segment,
+         and the neutral row present on the chat area. --}}
 
     @if ($desktop)
         {{-- WCAG 2.4.1 (Blöcke überspringen): ab xl liegen 25+ Tab-Stopps der Rail
@@ -125,7 +116,36 @@
          auto-platzierte Nachzügler fallen (siehe die Herleitung ganz oben). Beides
          zusammen macht Zeile UND Spalte unabhängig von der Reihenfolge. --}}
     <div @class(['contents', 'xl:col-start-2 xl:row-start-1 xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden' => $desktop])>
-        {{ $slot }}
+        @if ($desktop)
+            {{-- P6/D10 — the command bar: ⌘K, the Postfach with its count, the avatar.
+                 It sits at the top of the STAGE and not across both columns, so the left
+                 bar keeps the full height of the window (the established desktop form:
+                 places on the left, global affordances above the work).
+
+                 Under the same condition as the rail, one line above — and therefore never
+                 in the app host. Reasoning in `command-bar.blade.php`. --}}
+            <x-group::command-bar />
+        @endif
+
+        {{-- ── Why the slot sits in a wrapper of its own since P6 ────────────────────
+             The bar is a flex ITEM of the stage column, so everything below it may only
+             claim the REMAINING height. `main#buehne` does that by itself (`xl:flex-1`),
+             but `⚡room.blade.php` says `xl:h-full` — 100 % of the column, measured
+             against the parent and not against what is left of it. With the bar above,
+             that is the column height PLUS the bar, and the bottom of the room (the
+             composer) would be clipped by the column's `overflow-hidden`.
+
+             This wrapper is the fix with the smallest reach: it takes the remaining height
+             (`xl:flex-1 xl:min-h-0`) and becomes the parent every `h-full` inside a page
+             resolves against — one place instead of an audit of every page's root class.
+             No `overflow-hidden` here: the column above already clips, and a second
+             clipping box would be a new one for overlays that reach past the stage.
+
+             Below `xl` it is `contents` and therefore no box at all — the same trick and
+             the same reason as the frame itself: there must be no second DOM for mobile. --}}
+        <div @class(['contents', 'xl:flex xl:min-h-0 xl:flex-1 xl:flex-col' => $desktop])>
+            {{ $slot }}
+        </div>
     </div>
 
     {{-- P4: Die Profilkarte stand bis hierher dreimal einzeln (Raum, Directory,

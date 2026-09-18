@@ -1,5 +1,7 @@
 <?php
 
+use Einundzwanzig\Group\Shell\AreaRegistry;
+
 return [
     /*
      * Fixierter Default-Space (§12): die Relay-URL, die die Web-Client-Insel
@@ -300,62 +302,150 @@ return [
     'vite' => ['resources/css/app.css', 'resources/js/app.ts'],
 
     /*
-     * Rücksprung aus dem Vollbild-Chat in die Host-App. Das Group-Layout ist ein
-     * kompletter Vollbild-Takeover (eigene Bottom-Nav) — betreibt die App den
-     * Chat als eingebetteten Tab (z.B. einundzwanzig-mobile-app neben „Meetups"),
-     * bliebe der Nutzer sonst ohne sichtbaren Ausgang gefangen. Der Host setzt
-     * hier eine benannte Route + Label; der App-Header zeigt dann oben links einen
-     * „‹ {label}"-Ausgang, der DIREKT dorthin springt (umgeht eine home-Weiche,
-     * die chat-eingeloggte Nutzer zurück in den Chat loopen würde).
-     * `null` = eigenständiger Web-Client (kein Rücksprung → Brand-Mark bleibt).
+     * ── The shell's route registry (Concept C "One Entrance", P2) ─────────────────
      *
-     * @var array{route: string, label: string}|null
+     * The bottom nav is no longer a config list. It has exactly THREE slots (Start ·
+     * Search · Postfach) as fixed markup in `components/bottom-nav.blade.php`; what a
+     * host may still redirect is WHERE those three, the avatar and the settings hub
+     * point. The keys are flat and single-valued on purpose: the merge is shallow
+     * (`mergeConfigFrom` → `array_merge` on the top level), so a nested override would
+     * silently replace the whole subtree.
+     *
+     * `exit`, `nav` and the companion's `unified_shell` are gone with this phase — a
+     * config-driven N-tab bar invites drift, and the design has three slots.
      */
-    'exit' => null,
+    'start_route' => 'group.start',
 
     /*
-     * Die Route, die „Einstellungen" in diesem Host bedeutet.
-     *
-     * Gelesen von der Befehlspalette und vom Profil-Chip auf `/spaces` — den beiden
-     * Stellen, über die ein Nutzer die Einstellungen überhaupt findet. Default ist der
-     * package-eigene Hub (`group::pages.settings`, iteriert `settings` weiter unten).
-     *
-     * Ein Host, der die Sektionen ANDERSWO einbindet, nennt hier seine eigene Route:
-     * `twenty-one-companion` hat sie in P6 mit den Portal-Prefs auf einem Screen
-     * verschmolzen (`pages/profile` bindet dieselben `partials/settings/*` inline ein).
-     * Ohne diese Zeile führten beide Einstiege dort auf eine zweite, dünnere Fassung
-     * derselben Sektionen — zwei Orte für eine Sache.
-     *
-     * Es ist bewusst eine ROUTE und kein Href: `route()` wirft bei einem Tippfehler,
-     * eine falsche URL fiele still ins Leere.
+     * The avatar in the app header points here ("Ich"). Guests get the login sheet
+     * instead; the decision is made client-side, because on the app the login state
+     * lives only in `localStorage` (D4).
      */
-    'settings_route' => 'group.settings',
+    'me_route' => 'group.ich',
 
     /*
-     * Nav-Registry der Shell (`<x-group::app-shell>` / `<x-group::bottom-nav>`).
-     * Die eigentliche Vereinigung (§8.2): jeder Host publiziert seine Tabs als
-     * Config, `bottom-nav` iteriert sie und rendert je Eintrag `<x-group::nav-tab>`.
-     * „GENAU N Tabs" ist damit eine Config-Zeile, in jedem Consumer identisch.
+     * The route that means „Einstellungen" in this host.
      *
-     * Default = die drei package-nativen Chat-Tabs (Räume/Mitglieder/Einstellungen),
-     * damit das alte Vollbild-Layout unverändert weiterläuft. Hosts überschreiben:
-     *   Web → 3 Tabs (Chat · Wallet · Einstellungen), Mobile → 4 (+ Meetups · Mehr).
+     * Read by the command palette, the Ich page and the Start tiles. Default is the
+     * package hub (`group::pages.settings`, which iterates `settings` below). A host
+     * that mounts the sections elsewhere names its own route here — but since P2 the
+     * companion no longer does: its app-only sections are injected INTO this registry
+     * (`view:…` entries, see `settings`), so there is one settings place, not two.
      *
-     * Felder je Eintrag:
-     *   key    stabiler Bezeichner (Aktiv-Match für host-injizierte Routen, §10.6)
-     *   route  benannte Route (route()-auflösbar)
-     *   match  routeIs()-Pattern für den Aktiv-State (Default: route)
-     *   icon   Flux-Icon-Name (outline/solid je Aktiv-State)
-     *   label  Tab-Beschriftung
-     *   gate   'guest' = frei | 'nostr' = Tap ohne pubkey → open-login-sheet
-     *
-     * @var list<array{key: string, route: string, match?: string, icon: string, label: string, gate: 'guest'|'nostr'}>
+     * Deliberately a ROUTE and not an href: `route()` throws on a typo, a wrong URL
+     * would fail silently.
      */
-    'nav' => [
-        ['key' => 'chat', 'route' => 'group.spaces', 'match' => 'group.spaces', 'icon' => 'chat-bubble-left-right', 'label' => 'Räume', 'gate' => 'nostr'],
-        ['key' => 'members', 'route' => 'group.directory', 'match' => 'group.directory', 'icon' => 'users', 'label' => 'Mitglieder', 'gate' => 'nostr'],
-        ['key' => 'settings', 'route' => 'group.settings', 'match' => 'group.settings,group.space.settings', 'icon' => 'cog-6-tooth', 'label' => 'Einstellungen', 'gate' => 'nostr'],
-    ],
+    'settings_route' => 'group.ich.einstellungen',
+
+    /*
+     * Origin of the association portal. The `meetups`/`kurse` tiles link there until
+     * P4 builds the read-only pages in the package (D9), and the palette's Portal
+     * sections (P4) read the same value.
+     */
+    'portal_url' => env('PORTAL_URL', 'https://portal.einundzwanzig.space'),
+
+    /*
+     * Rate of `GET /suche/portal-index`, as the `throttle` middleware spells it.
+     *
+     * The production default is unchanged (60 a minute per IP, the Portal's own rate,
+     * mirrored deliberately — R9). It became a config key in P7 because the E2E suite runs
+     * every worker's browser AND its server on 127.0.0.1: one page load of Start asks this
+     * endpoint once, a worker does far more than 60 page loads a minute, and the 429 then
+     * landed in whatever test happened to be running — measured in the P7 sweep, three
+     * unrelated specs died of it.
+     *
+     * So the number stays where it is for a real visitor and the test environment raises
+     * it (`tests/e2e/support/serverEnv.ts`). The promise that the palette asks ONCE per
+     * session is measured elsewhere and by a request counter, not by this limit
+     * (`tests/e2e/palette-portal.spec.ts`).
+     */
+    'portal_index_rate' => env('GROUP_PORTAL_INDEX_RATE', '60,1'),
+
+    /*
+     * "Alle Bereiche" — the tile grid on Start. Source of truth is
+     * `Einundzwanzig\Group\Shell\AreaRegistry`; a host passes its own route targets
+     * there instead of copying the list (the shallow merge would otherwise force a
+     * full copy, and a copy drifts).
+     *
+     * @var list<array{key: string, route: string|null, path?: string, icon: string, gate: 'guest'|'nostr', requires?: string}>
+     */
+    'areas' => AreaRegistry::defaults(),
+
+    /*
+     * Ordered entries of the „Ich" page. Keys map to `group::partials.ich.<key>`;
+     * a host may inject its own with a `view:` prefix (same mechanism as `settings`).
+     *
+     * @var list<string>
+     */
+    'ich' => ['identitaet', 'wallet', 'verein', 'lesezeichen', 'einstellungen'],
+
+    /*
+     * The views `/bereich/meetups` offers (P4). Listed here already because the
+     * companion adds `karte` — a view only the app can bind (Leaflet + native
+     * location) — and P2's redirect map has to know the token set.
+     *
+     * @var list<string>
+     */
+    'meetup_views' => ['liste', 'termine'],
+
+    /*
+     * The view that RENDERS `?ansicht=karte` (P4). `null` (default) = this host has no
+     * map: the meetups page then links to the Portal's map instead of offering a tab
+     * that leads nowhere.
+     *
+     * A host view and not a package one, because the map is the one Portal surface whose
+     * ingredients are host-owned: Leaflet plus marker clustering (~150 kB) and, in the
+     * app, the device location. Shipping that in the package would put it in the
+     * association's embed as well, which needs four chat views and no map.
+     *
+     * The view is included with `$meetups` (list<PortalMeetup>) in scope.
+     */
+    'meetup_map_view' => null,
+
+    /*
+     * The host's block at the END of a Portal detail page (P4) — `null` = none.
+     *
+     * Read-only pages, one host-specific exception (D9): on the web this is the way OUT
+     * („Im Portal bearbeiten"), in the app it is the way IN — its editor sheets, which
+     * need a Portal token the package knows nothing about. Both are the same slot
+     * because it is the same question („what can I do with this object beyond reading
+     * it?"), and a package that answered it itself would answer it wrong in one host.
+     *
+     * Included with `$portalLink` (string) and, where the object has one, `$meetupId` /
+     * `$courseId` / `$lecturerId` in scope.
+     */
+    'portal_detail_actions' => null,
+
+    /*
+     * The RSVP arm a host brings for a date this client must NOT answer through Nostr
+     * (P5, D12) — `null` = none, and then the web's Portal link-out stands there.
+     *
+     * Two cases reach this slot, both decided on the server: a date the Portal has not
+     * published as a kind 31923 (`nostr_address` null), and a meetup that keeps its
+     * attendance private (`attendees_public` false — D12a forbids the public answer, and
+     * only the public answer). In the app the slot mounts its own REST RSVP controls, which
+     * the Portal still accepts (`MeetupEventController::rsvp` gates on `rsvp_enabled` and on
+     * nothing else); on the web there is nothing to bind, because a web visitor's answer
+     * would need a Portal session this client does not have.
+     *
+     * Included with `$eventId` (the Portal's `meetup_events.id`) and `$portalLink` in scope.
+     */
+    'portal_rsvp_view' => null,
+
+    /*
+     * A host-side default for the country filter of `/bereich/meetups` — `null` = none, the
+     * list opens over all countries.
+     *
+     * It exists because of P5's deletion: until then the companion had its OWN meetup list,
+     * and that list opened on the region the user chose during onboarding („die App-Region").
+     * The package list has no notion of an app region, and dropping the default with the page
+     * would have silently taken a working behaviour away from every app user in a non-German
+     * country. The host answers the question, the package only asks it.
+     *
+     * A callable, not a string: the value is a per-VISITOR decision (the app's stored region),
+     * and a config file is read once per boot.
+     */
+    'meetup_default_land' => null,
 
     /*
      * Settings-Registry (§4.1): geordnete Liste der Sektions-Keys, die der
@@ -369,7 +459,14 @@ return [
      *
      * Default = voller Satz (Package-nativ). Hosts überschreiben:
      *   Web   → ohne 'relays' (Web-Client editiert/zeigt keine Relays).
-     *   Mobile→ mit 'relays', ohne 'wallet' (Wallet ist dort eigener Bottom-Nav-Tab).
+     *   Mobile→ mit 'relays', ohne 'wallet' (Wallet ist dort eigener Bereich).
+     *
+     * ── Host-injected sections (P2) ───────────────────────────────────────────────
+     * An entry prefixed `view:` is included as a HOST view instead of a package
+     * partial: `view:partials.settings.region` → `@includeIf('partials.settings.region')`.
+     * That is how `twenty-one-companion` folds its app-only sections (region, push,
+     * portal connection, about) into this one hub instead of keeping a second
+     * settings screen — the reason `settings_route` no longer points away there.
      *
      * @var list<string>
      */

@@ -23,11 +23,16 @@ import { planRoomNavigation } from './roomNavModel.ts'
 /**
  * The address of the encrypted conversations (NIP-17).
  *
- * A constant rather than a string at every call site: since P8 THREE surfaces lead there
- * — the rail group, the list on `/spaces` and the profile card. Site-relative like
+ * A constant rather than a string at every call site: THREE surfaces lead there — the
+ * rail group, the list on the chat area and the profile card. Site-relative like
  * `/rooms/{h}` in `roomNavModel.ts`; the package is mounted at the root.
+ *
+ * Since P2 (Concept C) this is a SEGMENT of the Postfach, not a screen of its own: the
+ * conversations are one of five views of the one inbox (D5). The old `/messages` path
+ * answers with a 302 to exactly this address and renames its `c` parameter to `an`,
+ * which is why the conversation key below travels as `an`.
  */
-export const MESSAGES_PATH = '/messages'
+export const MESSAGES_PATH = '/postfach?ansicht=direkt'
 
 /** Navigate through Livewire, with a hard fallback — at ONE place instead of three. */
 export const navigateTo = (href: string): void => {
@@ -52,7 +57,9 @@ export const navigateTo = (href: string): void => {
  *            only, never content.
  */
 export const openPrivateConversation = (key: string): void => {
-    navigateTo(key === '' ? MESSAGES_PATH : `${MESSAGES_PATH}?c=${encodeURIComponent(key)}`)
+    // `&` and not `?`: the path already carries its segment. One place decides the
+    // address, so the separator is decided here too.
+    navigateTo(key === '' ? MESSAGES_PATH : `${MESSAGES_PATH}&an=${encodeURIComponent(key)}`)
 }
 
 /**

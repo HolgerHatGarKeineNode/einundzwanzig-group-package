@@ -51,7 +51,8 @@ export const FORGE_TAB_PARAM = 'tab'
  *
  * **`'workspaces'` bleibt als BEZEICHNER**, obwohl der Tab seit 2026-08-23 „Kanäle" heißt.
  * Der Wert steht in geteilten Links, in der serverseitigen Weiterleitung aus
- * `⚡spaces.blade.php` und in `OrtskartenTest.php`. Ihn umzubenennen bräche jeden Bookmark
+ * `⚡spaces.blade.php` und in der Legacy-Weiterleitung von `/spaces?tab=workspaces`
+ * (`routes/group.php`). Ihn umzubenennen bräche jeden Bookmark
  * — still, mit Rückfall auf `activity`. Beschriftung und Bezeichner sind zwei Dinge.
  */
 export const FORGE_TABS = ['activity', 'repos', 'workspaces', 'issues', 'pulls'] as const

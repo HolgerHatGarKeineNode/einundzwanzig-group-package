@@ -58,7 +58,7 @@ import { activeSpace } from './groups.ts'
 import { deriveSpaceKind, type SpaceKind } from './spaceCaps.ts'
 import { publishOptimistic } from './publishOptimistic.ts'
 import { buildGiftWrap } from './giftWrap.ts'
-import { addOwnPrivateMessage, privateRumors } from './wrapIngest.ts'
+import { addOwnPrivateMessage, closePrivateWraps, openPrivateWraps, privateRumors } from './wrapIngest.ts'
 import type { Readable as StoreReadable } from 'svelte/store'
 import { armMessagingRelays, deriveMessagingRelays, fetchMessagingRelays, writeMessagingRelays } from './messagingRelays.ts'
 import { MESSAGING_RELAYS } from './messagingRelayModels.ts'
@@ -140,9 +140,24 @@ const noop = (): void => {}
  * module keeps, and every caller would read the same thing. Guarded, because this module
  * is also loaded under `node --test`, where there is no `window`.
  */
+/**
+ * The conversation named in the address.
+ *
+ * **`an`, not `c`** — since P2 this surface is the `?ansicht=direkt` segment of the
+ * Postfach and the parameter is renamed on the way (`LegacyRedirect` maps `/messages?c=`
+ * to `/postfach?ansicht=direkt&an=`, `js/navigate.ts` builds the same). Until P3 this
+ * function still read `c`: every deep link into a conversation — the rail row, the profile
+ * card, the palette — landed on the list instead of the conversation, silently.
+ *
+ * `c` is still accepted as a second name for the same thing. It costs one `??` and it
+ * catches whatever old link, shipped app build or bookmark reaches this page without
+ * passing the redirect.
+ */
 const conversationFromAddress = (): string => {
     try {
-        return new URL(window.location.href).searchParams.get('c') ?? ''
+        const params = new URL(window.location.href).searchParams
+
+        return params.get('an') ?? params.get('c') ?? ''
     } catch {
         return ''
     }
@@ -283,6 +298,12 @@ const createStore = (
 
         mount(): void {
             mounts += 1
+            // D5/P3: the unpacking gate follows the SAME counter as the wrap subscription.
+            // Since this store is only mounted by the Postfach's „Direkt" segment, "a
+            // Direkt view stands" and "mounts > 0" are the same statement — and keeping
+            // them one statement is what prevents a second opinion about when the signer
+            // may be asked (`js/wrapIngest.ts` header).
+            openPrivateWraps()
             // A `?c=<key>` in the address opens that conversation — the deep link the rail
             // group, the list on `/spaces` and the profile card all produce (`goTo`). Read
             // on EVERY mount and not once at wiring time: `wire:navigate` keeps the store
@@ -319,6 +340,7 @@ const createStore = (
 
         unmount(): void {
             mounts = Math.max(0, mounts - 1)
+            closePrivateWraps()
             if (mounts === 0) {
                 // The wrap subscription is the one thing that costs the signer, so it is
                 // dropped as soon as no surface is reading it. The Buzz DM channels are

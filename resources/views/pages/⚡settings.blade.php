@@ -29,7 +29,16 @@ new #[Layout('group::einundzwanzig')] #[Title('Einstellungen')] class extends Co
          Registry überspringt die Sektion (kein 500). --}}
     <div class="page-enter space-y-8" x-data="nostrAuth">
         @foreach (config('group.settings', []) as $section)
-            @includeIf('group::partials.settings.'.$section)
+            @if (str_starts_with($section, 'view:'))
+                {{-- Host-injected section (P2): a view of the HOST, not a package
+                     partial. That is how `twenty-one-companion` folds its app-only
+                     settings (region, push, portal connection, about) into this one
+                     hub instead of keeping a second, thinner settings screen — two
+                     places for one thing, depending on which way you came. --}}
+                @includeIf(substr($section, 5))
+            @else
+                @includeIf('group::partials.settings.'.$section)
+            @endif
         @endforeach
     </div>
 

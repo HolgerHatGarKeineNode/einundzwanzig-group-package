@@ -154,7 +154,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
 <x-group::app-shell>
 
-    <div x-data="nostrArticleAuthor(@js($autor), @js(route('group.articles')))" class="page-enter">
+    <div x-data="nostrArticleAuthor(@js($autor), @js(route('group.bereich.artikel')))" class="page-enter">
 
         {{-- Der Kopf trägt den Autorennamen, sobald er da ist — und damit die EINE `h1`
              des Dokuments. Gleiche Bauart wie die Vollansicht und der Raum-Kopf.
@@ -162,7 +162,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              doppelt geschweiftes Echo und escaped ihn damit selbst genau einmal. Vor dem Alpine-Boot steht der SSR-Titel. --}}
         @php($titleExpr = 'autor ? autor.name : '.json_encode(__('Autor')))
 
-        <x-group::app-header :title="__('Autor')" :title-expr="$titleExpr" :back="route('group.articles')">
+        <x-group::app-header :title="__('Autor')" :title-expr="$titleExpr" :back="route('group.bereich.artikel')">
             {{-- Der Avatar steht im KOPF und nicht noch einmal in der Karte darunter: er
                  gehört zum Namen, und der Name steht hier. Erst sichtbar, wenn die Adresse
                  aufgelöst ist — vorher gibt es niemanden abzubilden. --}}
@@ -238,7 +238,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <flux:heading class="mt-2">{{ __('Das ist keine Autoren-Adresse.') }}</flux:heading>
                     <flux:text class="mt-1 text-sm text-muted">{{ __('Eine Autorenseite steht unter einer npub oder unter einer NIP-05-Adresse wie name@domain.tld.') }}</flux:text>
                     <div class="mt-4">
-                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.articles')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
+                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.bereich.artikel')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
                     </div>
                 </div>
             </template>
@@ -252,7 +252,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <flux:heading class="mt-2">{{ __('Diese npub lässt sich nicht lesen.') }}</flux:heading>
                     <flux:text class="mt-1 text-sm text-muted">{{ __('Meist fehlt oder verrutscht ein Zeichen — der Link ist unterwegs beschädigt worden.') }}</flux:text>
                     <div class="mt-4">
-                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.articles')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
+                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.bereich.artikel')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
                     </div>
                 </div>
             </template>
@@ -267,7 +267,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                         <span x-text="@js(__(':domain führt für diese Adresse keinen Eintrag.')).split(':domain').join(fehlerDomain)"></span>
                     </flux:text>
                     <div class="mt-4">
-                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.articles')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
+                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.bereich.artikel')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
                     </div>
                 </div>
             </template>
@@ -284,7 +284,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </flux:text>
                     <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
                         <flux:button size="sm" variant="primary" icon="arrow-path" x-on:click="retry()">{{ __('Erneut versuchen') }}</flux:button>
-                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.articles')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
+                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.bereich.artikel')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
                     </div>
                 </div>
             </template>
@@ -460,7 +460,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     <flux:heading class="mt-2">{{ __('Von diesem Autor liegt hier noch kein Artikel.') }}</flux:heading>
                     <flux:text class="mt-1 text-sm text-muted">{{ __('Sobald einer auf diesem Relay erscheint, steht er hier.') }}</flux:text>
                     <div class="mt-4">
-                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.articles')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
+                        <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.bereich.artikel')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
                     </div>
                 </div>
             </template>

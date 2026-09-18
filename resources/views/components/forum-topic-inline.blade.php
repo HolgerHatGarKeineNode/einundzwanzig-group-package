@@ -26,15 +26,15 @@
 
      ── Und was die ZÄHLUNG angeht ────────────────────────────────────────────
 
-     Diese Datei ist eine Komponente und steht damit bewusst nicht in der
-     ARIA-Trägerzählung von `tests/Feature/EmptyStatesAndA11yTest.php`
-     (`'room' => 37`) — dieselbe Regel und derselbe Grund wie beim
-     Lightbox-Overlay und den Ortskarten: eine Komponente, die von mehreren
-     Stellen eingebunden wird, wäre dort mehrfach zu führen. Der Riegel für sie
-     ist ihre eigene Verhaltenszusage (`tests/e2e/buzz-forum.spec.ts`), nicht
-     diese Zahl. Nachgemessen: `⚡room.blade.php` fällt von 38 auf 37, und zwar
-     einseitig — der eine gefallene Träger ist das Info-Icon der gelöschten
-     Hinweiszeile, es kam keiner hinzu. --}}
+     This file is a component and therefore deliberately absent from the ARIA
+     carrier count of `tests/Feature/EmptyStatesAndA11yTest.php`
+     (`'room' => 37`) — the same rule and the same reason as for the lightbox
+     overlay and the reminder dialog: a component embedded from several places
+     would have to be counted there more than once. Its own latch is its
+     behavioural promise (`tests/e2e/buzz-forum.spec.ts`), not this number.
+     Measured: `⚡room.blade.php` drops from 38 to 37, and one-sidedly — the one
+     carrier that fell away is the info icon of the deleted notice row, none was
+     added. --}}
 
 {{-- `sticky top-0`, weil Buzz Desktop den Streifen ebenfalls stehen lässt: dort
      liegt er in einem eigenen `border-b`-Kopf ÜBER dem Scrollbereich

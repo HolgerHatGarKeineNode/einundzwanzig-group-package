@@ -148,7 +148,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
 
 <x-group::app-shell>
 
-    <div x-data="nostrArticle(@js($naddr), @js(route('group.articles')))" class="page-enter">
+    <div x-data="nostrArticle(@js($naddr), @js(route('group.bereich.artikel')))" class="page-enter">
 
     {{-- Der Kopf trägt den Artikeltitel, sobald er da ist — und damit die EINE `h1` des
          Dokuments (`app-header` rendert `flux:heading level="1"`). Genau dieselbe Bauart
@@ -161,7 +161,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
          der SSR-Titel `Artikel`. --}}
     @php($titleExpr = 'article ? (article.title || '.json_encode(__('Ohne Titel')).') : '.json_encode(__('Artikel')))
 
-        <x-group::app-header :title="__('Artikel')" :title-expr="$titleExpr" :back="route('group.articles')">
+        <x-group::app-header :title="__('Artikel')" :title-expr="$titleExpr" :back="route('group.bereich.artikel')">
             {{-- Teilen steht im Kopf und nicht im Nachspann: es ist die eine Handlung,
                  die man an JEDER Stelle des Textes treffen kann, und der Kopf ist die
                  einzige Zeile, die auf allen Breiten an derselben Stelle sitzt.
@@ -285,7 +285,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <flux:heading class="mt-2">{{ __('Diesen Artikel gibt es nicht.') }}</flux:heading>
                 <flux:text class="mt-1 text-sm text-muted">{{ __('Dieser Link führt zu keinem Artikel.') }}</flux:text>
                 <div class="mt-4">
-                    <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.articles')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
+                    <flux:button size="sm" variant="ghost" icon="arrow-left" :href="route('group.bereich.artikel')" wire:navigate>{{ __('Alle Artikel') }}</flux:button>
                 </div>
             </div>
         </template>
