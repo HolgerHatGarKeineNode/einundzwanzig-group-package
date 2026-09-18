@@ -121,7 +121,8 @@
                             und der Folgeplan nimmt nur bewusst deklarierte Reste aus.
                             Exakt das Muster der Rail-/Tab-Icons (nav-tab:66,
                             desktop-rail:148): Light brand-800 #98480f = 6,42:1 auf Weiß,
-                            Dark brand-400 #fda537 = 8,95:1 auf zinc-950 (beide Gate-gemessen).
+                            Dark brand-400 #fda537 = 9,94:1 auf zinc-950 #0b0b0c (beide
+                            am konkreten Paar nachgerechnet, nicht aus Nachbartabellen).
                             Bewusst NICHT text-accent-content: das Token trägt im Light
                             brand-700 (#c05c08, 4,40:1) und wiche von den Nachbarn ab. --}}
                         <span aria-hidden="true" class="shrink-0 text-brand-800 dark:text-brand-400">
