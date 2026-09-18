@@ -43,6 +43,12 @@ class ContentSecurityPolicy
             "style-src 'self' 'unsafe-inline'",
             // Avatare/Chat-Bilder kommen von beliebigen Hosts.
             'img-src * data: blob:',
+            // Chat-Videos (Blossom-MP4s) liegen genauso auf verteilten Servern wie
+            // die Bilder — ohne eigenes media-src fällt <video> auf default-src
+            // 'self' zurück und jede fremde Blossom-URL stirbt stumm im Player.
+            // https: statt *: Blossom ist immer TLS, und http: wäre auf einer
+            // https-Seite eh Mixed Content; blob: für lokale Upload-Previews.
+            'media-src https: data: blob:',
             "font-src 'self' data:",
             // Relays (ws/wss) + deren NIP-11 (http/https — plain-ws-Relays servieren
             // NIP-11 über http). Für Nostr muss connect-src breit sein; der Härtungs-
