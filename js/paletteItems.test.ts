@@ -19,6 +19,7 @@ import {
     recentRooms,
     scopedRooms,
     visibleSections,
+    isPortalSection,
     type PaletteRoom,
     type PaletteScope,
 } from './paletteItems.ts'
@@ -120,9 +121,10 @@ test('visibleSections: ohne Eingabe und ohne Scope Räume + Aktionen — die Pal
     assert.deepEqual(visibleSections({ ...EMPTY_PALETTE_SCOPE }, '   '), ['rooms', 'actions'])
 })
 
-test('visibleSections: mit Eingabe alle vier, in fester Reihenfolge Räume · Mitglieder · Spaces · Aktionen', () => {
+test('visibleSections: with input ALL sections, in a fixed order', () => {
+    // Since P4 there are eight: the three Nostr surfaces, the four Portal sections (D6) and
+    // the actions. The order itself is pinned by the contract case further down.
     assert.deepEqual(visibleSections({ ...EMPTY_PALETTE_SCOPE }, 'bit'), [...PALETTE_SECTIONS])
-    assert.deepEqual([...PALETTE_SECTIONS], ['rooms', 'members', 'spaces', 'actions'])
 })
 
 test('visibleSections: mit gesetztem Scope genau die eine adressierte Sektion', () => {
@@ -228,4 +230,72 @@ test('isTextEntry: Buttons, Checkboxen und der leere Fokus zählen NICHT — dor
     assert.equal(isTextEntry({ tagName: 'INPUT', type: 'checkbox' }), false)
     assert.equal(isTextEntry({ tagName: 'INPUT', type: 'radio' }), false)
     assert.equal(isTextEntry({ tagName: 'BODY' }), false)
+})
+
+// ── P4/D6: the four Portal sections ────────────────────────────────────────
+
+test('parsePaletteScope: o: t: k: l: address the Portal sections', () => {
+    assert.deepEqual(parsePaletteScope('o:kempten'), {
+        scope: { section: 'meetups', group: null, country: '' },
+        rest: 'kempten',
+    })
+    assert.deepEqual(parsePaletteScope('t:'), {
+        scope: { section: 'events', group: null, country: '' },
+        rest: '',
+    })
+    assert.deepEqual(parsePaletteScope('k:basis'), {
+        scope: { section: 'courses', group: null, country: '' },
+        rest: 'basis',
+    })
+    assert.deepEqual(parsePaletteScope('L: johannes'), {
+        scope: { section: 'lecturers', group: null, country: '' },
+        rest: 'johannes',
+    })
+})
+
+test('parsePaletteScope: `m:` stays the ROOM group — the Portal section carries its own prefix', () => {
+    // The heart of D6's collision question: the same word ("Meetups") for two things, hence
+    // two prefixes. An `m:` that suddenly filtered Portal pages would have made every head
+    // that uses the rail relearn it.
+    assert.deepEqual(parsePaletteScope('m:kempten').scope, { section: 'rooms', group: 'meetups', country: '' })
+    assert.deepEqual(parsePaletteScope('o:kempten').scope, { section: 'meetups', group: null, country: '' })
+})
+
+test('parsePaletteScope: a country code stays a country code', () => {
+    // Two letters are ALWAYS a country (`parseScope`) — which is why the Portal prefixes are
+    // single letters. Measured so a later `tr:` does not silently become a country filter.
+    assert.deepEqual(parsePaletteScope('at:graz').scope, { section: 'rooms', group: 'meetups', country: 'AT' })
+})
+
+test('paletteScopeToken: a Portal section writes its prefix back WITH the colon', () => {
+    // This is the text a click on the chip writes into the field — it has to parse back into
+    // the same section, or the surface teaches a grammar it does not understand itself.
+    for (const [token, section] of [['o:', 'meetups'], ['t:', 'events'], ['k:', 'courses'], ['l:', 'lecturers']] as const) {
+        const scope: PaletteScope = { section, group: null, country: '' }
+        assert.equal(paletteScopeToken(scope), token)
+        assert.equal(parsePaletteScope(token).scope.section, section)
+    }
+})
+
+test('visibleSections: the Portal sections appear only once something is typed', () => {
+    // At rest 312 meetup rows would be noise (and 312 DOM nodes); with input all eight
+    // sections are available.
+    assert.deepEqual(visibleSections(EMPTY_PALETTE_SCOPE, ''), ['rooms', 'actions'])
+    assert.deepEqual(visibleSections(EMPTY_PALETTE_SCOPE, 'kempten'), [...PALETTE_SECTIONS])
+    // With a scope exactly the addressed one — even without input (`t:` means "show me dates").
+    assert.deepEqual(visibleSections({ section: 'events', group: null, country: '' }, ''), ['events'])
+})
+
+test('PALETTE_SECTIONS: the order is contract — Portal between spaces and actions', () => {
+    assert.deepEqual([...PALETTE_SECTIONS], [
+        'rooms', 'members', 'spaces', 'meetups', 'events', 'courses', 'lecturers', 'actions',
+    ])
+})
+
+test('isPortalSection separates the four Portal sections from the Nostr surfaces', () => {
+    assert.equal(isPortalSection('meetups'), true)
+    assert.equal(isPortalSection('lecturers'), true)
+    assert.equal(isPortalSection('rooms'), false)
+    assert.equal(isPortalSection('actions'), false)
+    assert.equal(isPortalSection(null), false)
 })

@@ -6,6 +6,10 @@ namespace Einundzwanzig\Group;
 
 use Einundzwanzig\Group\Console\Commands\WarmNostrCache;
 use Einundzwanzig\Group\Http\Middleware\EnsureNostrAuth;
+use Einundzwanzig\Group\Portal\HttpPortalCatalog;
+use Einundzwanzig\Group\Portal\PortalAffordances;
+use Einundzwanzig\Group\Portal\PortalCatalog;
+use Einundzwanzig\Group\Portal\WebPortalAffordances;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
@@ -22,6 +26,28 @@ class GroupServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/group.php', 'group');
+
+        /*
+         * ── The Portal seam (D6/D9, P4) ──────────────────────────────────────────
+         *
+         * `bindIf` and not `bind`: a host that has its OWN way to the Portal registers it
+         * in its provider and wins here. That is not hypothetical — `twenty-one-companion`
+         * binds a catalog over its `PortalApi` (two-tier cache with a permanent stale copy,
+         * so the pages still render offline) and native affordances (share sheet, in-app
+         * browser, calendar editor).
+         *
+         * `scoped` and not `singleton`: {@see PortalCatalog::status()} is an answer about
+         * THIS request. A singleton would carry a „stale" from one request into the next
+         * and hang a banner over a page that loaded fine (the same reason the app's
+         * `PortalApi` resets its flags per Livewire request).
+         *
+         * The web defaults live in the PACKAGE and not in the web host, deliberately: the
+         * package route `/suche/portal-index` must answer in ANY host that mounts these
+         * routes, and a host that forgets a binding would get a container error on a
+         * public URL instead of a Portal page.
+         */
+        $this->app->scopedIf(PortalCatalog::class, HttpPortalCatalog::class);
+        $this->app->scopedIf(PortalAffordances::class, WebPortalAffordances::class);
     }
 
     public function boot(): void

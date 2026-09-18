@@ -82,9 +82,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
              is pinned would occupy the best row of the page with a negation.
 
              The targets are built HERE and not in the island: `route()` belongs in Blade, and
-             the island would otherwise carry a second copy of the path table. For `meetup:`
-             there is no package page before P4 (D9), so its chip leads to the Portal — the
-             same rule the area tile follows, and it is marked as leaving the client.
+             the island would otherwise carry a second copy of the path table. A `meetup:`
+             chip leads wherever the MEETUPS AREA leads — since P4 that is the package's own
+             read-only page (D9), before it the Portal. The outward branch below stays for
+             exactly that case: a host may still redirect the tile out of the client, and then
+             the chip has to be marked as leaving it.
 
              `$store.pinSet.answered === false` is the one honest warning this section owes:
              the pin was kept locally, but no target relay confirmed the read the write hangs
@@ -100,10 +102,10 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     ? route($bereich['route'])
                     : $portalBasis.($bereich['path'] ?? '/'),
             ])->all())
-        {{-- A pinned MEETUP hangs on the same decision as the meetups TILE: on the web that
-             area leads to the Portal until P4 (D9), in the companion to its own page. So the
-             chip is built from the area's target and not from a path of its own — otherwise a
-             host that redirects the tile would keep a chip pointing at the Portal. --}}
+        {{-- A pinned MEETUP hangs on the same decision as the meetups TILE: since P4 the
+             package has the page (D9), before it the area left the client. So the chip is
+             built from the area's target and not from a path of its own — otherwise a host
+             that redirects the tile would keep a chip pointing somewhere else. --}}
         @php($meetupBereich = collect(config('group.areas', []))->firstWhere('key', 'meetups'))
         @php($meetupBasis = $bereichsZiele['meetups'] ?? $portalBasis)
         @php($meetupExtern = ($meetupBereich['route'] ?? null) === null)

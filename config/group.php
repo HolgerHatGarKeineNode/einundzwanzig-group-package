@@ -372,6 +372,34 @@ return [
     'meetup_views' => ['liste', 'termine'],
 
     /*
+     * The view that RENDERS `?ansicht=karte` (P4). `null` (default) = this host has no
+     * map: the meetups page then links to the Portal's map instead of offering a tab
+     * that leads nowhere.
+     *
+     * A host view and not a package one, because the map is the one Portal surface whose
+     * ingredients are host-owned: Leaflet plus marker clustering (~150 kB) and, in the
+     * app, the device location. Shipping that in the package would put it in the
+     * association's embed as well, which needs four chat views and no map.
+     *
+     * The view is included with `$meetups` (list<PortalMeetup>) in scope.
+     */
+    'meetup_map_view' => null,
+
+    /*
+     * The host's block at the END of a Portal detail page (P4) — `null` = none.
+     *
+     * Read-only pages, one host-specific exception (D9): on the web this is the way OUT
+     * („Im Portal bearbeiten"), in the app it is the way IN — its editor sheets, which
+     * need a Portal token the package knows nothing about. Both are the same slot
+     * because it is the same question („what can I do with this object beyond reading
+     * it?"), and a package that answered it itself would answer it wrong in one host.
+     *
+     * Included with `$portalLink` (string) and, where the object has one, `$meetupId` /
+     * `$courseId` / `$lecturerId` in scope.
+     */
+    'portal_detail_actions' => null,
+
+    /*
      * Settings-Registry (§4.1): geordnete Liste der Sektions-Keys, die der
      * verschmolzene Settings-Hub (`group::pages.settings`) iteriert und je Key als
      * `group::partials.settings.<key>` einbindet. Sichtbarkeit + Reihenfolge sind

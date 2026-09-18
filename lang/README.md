@@ -110,6 +110,25 @@ verdienen:
   das Gerät. `es`/`pl`/`pt` sind entsprechend femininisiert; ob das in der Zeile trägt, ist
   offen.
 
+**P4 (read-only Portal-Seiten + Portal-Sektionen der Palette)** hat 64 weitere
+hinzugefügt, `en` von Hand, die sechs anderen maschinell — ungeprüft. Sie tragen die
+Meetup-Liste, die Termine, Kurse/Referenten, die Portal-Status-Zeilen und die vier neuen
+Palette-Sektionen.
+
+Drei Stellen verdienen hier besonderes Misstrauen:
+
+- **`Referent`/`Referenten`** ist im Portal die Person, die einen Kurs HÄLT. `en` nimmt
+  `Lecturer`; ob `Ponente` · `Oktató` · `Pasniedzējs` · `Docent` · `Prelegent` ·
+  `Formador` an einer Listenüberschrift dasselbe leisten wie im Satz, ist offen.
+- **`Termin`/`Termine`** heißt hier das DATUM eines Meetups, nicht „Verabredung". `en` nimmt
+  deshalb `Date(s)` — in den anderen Sprachen steht die wörtliche Entsprechung, und bei
+  `nl` (`Data`) ist die Verwechslung mit „Daten" (Plural von Datum UND von data) möglich.
+- **`{0}Noch keine Zusagen|{1}…|[2,*]…`** ist die einzige ZÄHLFORM dieser Runde. `pl`, `lv`
+  und `hu` haben andere Pluralregeln als Deutsch; die maschinellen Fassungen bilden nur die
+  drei deutschen Fälle nach.
+- **`Karte`** ist `lv` zeichengleich zum Deutschen (`Karte` heißt dort wirklich „Karte") —
+  das ist kein fehlender Eintrag, sondern ein echtes Homograph.
+
 Zwei Stellen verdienen dabei besonderes Misstrauen, weil sie kurz und damit
 kontextlos sind:
 

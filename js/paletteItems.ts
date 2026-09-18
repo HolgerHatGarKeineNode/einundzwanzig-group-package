@@ -28,10 +28,61 @@
 
 import { groupOf, parseScope, scopeToken, type RailGroupKey, type RailRoom } from './railGroups.ts'
 
-/** Die vier Sektionen. Reihenfolge ist Teil des Vertrags, nicht Zufall. */
-export type PaletteSection = 'rooms' | 'members' | 'spaces' | 'actions'
+/**
+ * The sections. Their order is part of the contract, not an accident.
+ *
+ * ── The four Portal sections (D6, P4) ──────────────────────────────────────────
+ * `meetups` `events` `courses` `lecturers` come from the ONE index the palette loads per
+ * session (`portalIndex.ts`) — not from a relay and not per keystroke. They stand AFTER
+ * rooms and members and BEFORE the actions: whoever types is usually looking for something
+ * he knows (a room, a person); the Portal objects are what he wants to FIND, and the
+ * actions stay the last block because they are always the same ones.
+ *
+ * **`meetups` is NOT the room group `m:`.** That group filters the chat ROOMS of a meetup,
+ * this section shows the meetup PAGES of the Portal — two different things with the same
+ * word, and exactly why they carry different prefixes (see {@link PORTAL_PREFIX}).
+ */
+export type PortalSection = 'meetups' | 'events' | 'courses' | 'lecturers'
 
-export const PALETTE_SECTIONS: readonly PaletteSection[] = ['rooms', 'members', 'spaces', 'actions']
+export type PaletteSection = 'rooms' | 'members' | 'spaces' | PortalSection | 'actions'
+
+export const PORTAL_SECTIONS: readonly PortalSection[] = ['meetups', 'events', 'courses', 'lecturers']
+
+export const PALETTE_SECTIONS: readonly PaletteSection[] = [
+    'rooms', 'members', 'spaces', ...PORTAL_SECTIONS, 'actions',
+]
+
+/** Does this section come from the Portal index? */
+export const isPortalSection = (section: PaletteSection | null): section is PortalSection =>
+    section !== null && (PORTAL_SECTIONS as readonly string[]).includes(section)
+
+/**
+ * The input prefixes of the Portal sections.
+ *
+ * ── Why OWN letters and not `m:` ──────────────────────────────────────────────
+ * `m:` has narrowed the rail to the meetup ROOMS since its own P4 (`railGroups.SCOPE_PREFIX`),
+ * and it must keep doing so: it sits in every head that uses the rail. A second `m:` with a
+ * different meaning inside the same grammar would be exactly the drift the head of this file
+ * rejects.
+ *
+ * Free are single letters other than `r` `m` `p` `f` `w` `d` — and TWO letters are out of
+ * the question: `parseScope` reads those as a country code (`de:` `at:`), so a `tr:` would
+ * silently be a country filter. Hence these four, named after the German words the surface
+ * uses:
+ *
+ *   `o:` Orte (places) — the meetup pages of the Portal
+ *   `t:` Termine (dates) — the meetup dates
+ *   `k:` Kurse (courses)
+ *   `l:` Lehrende (lecturers)
+ *
+ * The characters are part of the help text (`command-palette.blade.php`), not secret lore.
+ */
+export const PORTAL_PREFIX: Readonly<Record<string, PortalSection>> = {
+    o: 'meetups',
+    t: 'events',
+    k: 'courses',
+    l: 'lecturers',
+}
 
 /**
  * Das Sigel einer Sektion. Es steht an drei Orten für dasselbe: als Präfix im
@@ -45,6 +96,12 @@ export const SECTION_SIGIL: Readonly<Record<PaletteSection, string>> = {
     rooms: '#',
     members: '@',
     spaces: '/',
+    // The Portal sections carry their input prefix as their mark — a character the user can
+    // type himself is the best reading aid. No zoo of symbols for four sections.
+    meetups: 'o',
+    events: 't',
+    courses: 'k',
+    lecturers: 'l',
     actions: '>',
 }
 
@@ -100,6 +157,20 @@ export const parsePaletteScope = (text: string): { scope: PaletteScope; rest: st
         return {
             scope: { section: sigil[1] === '@' ? 'members' : 'actions', group: null, country: '' },
             rest: text.slice(sigil[0].length),
+        }
+    }
+
+    /*
+     * The Portal prefixes BEFORE `parseScope`: the grammar is the same shape (`x:`), but
+     * these letters belong to this file. Placed after it the branch would never run — an
+     * unknown single character falls through `parseScope` as text, and `o:` would be a
+     * search for "o:".
+     */
+    const portal = /^\s*([a-zA-Z]):\s*/.exec(text)
+    if (portal && PORTAL_PREFIX[portal[1].toLowerCase()]) {
+        return {
+            scope: { section: PORTAL_PREFIX[portal[1].toLowerCase()], group: null, country: '' },
+            rest: text.slice(portal[0].length),
         }
     }
 
@@ -164,6 +235,10 @@ export const paletteScopeToken = (scope: PaletteScope): string => {
     if (scope.section === 'members' || scope.section === 'actions') {
         return SECTION_SIGIL[scope.section]
     }
+    if (isPortalSection(scope.section)) {
+        // The prefix WITH its colon, exactly as it is typed — not the bare mark.
+        return SECTION_SIGIL[scope.section] + ':'
+    }
 
     return scopeToken({ group: scope.group, country: scope.country })
 }
@@ -179,6 +254,11 @@ export const paletteScopeToken = (scope: PaletteScope): string => {
  * sondern die Antwort auf „was hilft im Ruhezustand": eine alphabetische
  * Mitgliederliste beim Öffnen wäre Rauschen vor der ersten Taste — und sie kostet
  * dann auch keine hundert Zeilen im DOM.
+ *
+ * P4: with input it is now all EIGHT sections, because the four Portal ones joined. Each
+ * of them caps at twelve rows (`portalIndex.PORTAL_SECTION_LIMIT`) — 312 meetup rows in
+ * the DOM would be the same noise three hundred times over, and the selection in front of
+ * that cap is made by the index filter, not by Flux.
  */
 export const visibleSections = (scope: PaletteScope, query: string): PaletteSection[] => {
     // Der Workspace-Scope erzeugt BEWUSST keine einzige Flux-Option — und das

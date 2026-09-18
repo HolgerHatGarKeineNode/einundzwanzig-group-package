@@ -2440,6 +2440,35 @@ export function registerNostrComponents(Alpine: {
             if (wallet) {
                 this._apply(wallet)
                 void this.refreshBalance()
+                /*
+                 * P4/D8 — `?aktion=senden|empfangen` opens the matching sheet once.
+                 *
+                 * That is what the two palette actions („Zahlen", „Rechnung erstellen")
+                 * address: they navigate to this page with the intent in the ADDRESS, so the
+                 * intent survives a full page load — which is the only way the app boots this
+                 * island at all.
+                 *
+                 * Only with a CONNECTED wallet: without one both sheets are empty forms over
+                 * a wallet that cannot pay, and the connect block on the page is what the
+                 * user needs to see instead. And only once — the parameter is removed from
+                 * the address afterwards (`replaceState`), otherwise a reload would reopen a
+                 * sheet the user just closed.
+                 */
+                const aktion = new URLSearchParams(window.location.search).get('aktion')
+                if (aktion === 'senden' || aktion === 'empfangen') {
+                    const url = new URL(window.location.href)
+                    url.searchParams.delete('aktion')
+                    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+                    // After the frame: the modals hang in the same subtree and are not wired
+                    // up yet during `init()` (`dispatchModal` would not find them).
+                    requestAnimationFrame(() => {
+                        if (aktion === 'senden') {
+                            this.openSend()
+                        } else {
+                            this.openReceive()
+                        }
+                    })
+                }
             }
         },
         _apply(w: Wallet) {

@@ -47,6 +47,18 @@
     // the empty state is a statement rather than a dead end.
     ['id' => 'messages', 'label' => __('Verschlüsselt'), 'href' => route('group.postfach', ['ansicht' => 'direkt'])],
     ['id' => 'wallet', 'label' => __('Wallet'), 'href' => route('group.bereich.wallet')],
+    /*
+     * P4/D8 — the two wallet ACTIONS. Not a second way to the wallet page but the two
+     * things people go there for, addressable by name: "Zahlen" and "Rechnung erstellen".
+     *
+     * The intent travels in the ADDRESS (`?aktion=`) and not as a browser event, and that
+     * is not a style choice: in the app the wallet island boots only on a full document
+     * load, so an event dispatched before the navigation would be gone by the time the
+     * island exists. `js/bridge.ts` (`nostrWallet.init`) reads the parameter once, opens
+     * the sheet and removes it from the address again.
+     */
+    ['id' => 'wallet-empfangen', 'label' => __('Rechnung erstellen'), 'href' => route('group.bereich.wallet', ['aktion' => 'empfangen'])],
+    ['id' => 'wallet-senden', 'label' => __('Zahlen'), 'href' => route('group.bereich.wallet', ['aktion' => 'senden'])],
     // ── Der Einstellungen-Eintrag zeigt auf die Route, die der HOST dafür nennt ──
     // Der Mobile-Host hat seine Einstellungen in P6 mit den Portal-Prefs auf EINEM
     // Screen verschmolzen (`pages/profile`, dort inline dieselben
@@ -237,6 +249,81 @@
                         </flux:command.item>
                     </template>
 
+                    {{-- ── The four Portal sections (D6) ──────────────────────
+                         Meetups, dates, courses and lecturers of the association portal.
+                         They come from ONE index the island loads ONCE per session
+                         (`/suche/portal-index`) and filters in the browser afterwards — the
+                         typed query never leaves the device, and the Portal's throughput
+                         (60/min per IP for the whole instance) is not spent per keystroke.
+
+                         Four blocks and not one with an `x-if`: Flux' filter works on the
+                         RENDERED options, and the section headings hang on
+                         `data-palette-section` — a shared block could not show and hide its
+                         heading per section.
+
+                         Every row carries its prefix as its mark (`o` `t` `k` `l`) — the
+                         same character one can type into the field to see that section
+                         only. --}}
+                    <div data-palette-heading="meetups" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Meetups im Portal') }}</div>
+                    <template x-for="row in meetupItems" :key="'meetup:' + row.r">
+                        <flux:command.item
+                            data-palette-section="meetups"
+                            data-palette-sigil="o"
+                            x-bind:data-palette-portal="row.t + ':' + row.r"
+                            x-bind:aria-label="@js(__('Meetup: :name')).split(':name').join(row.n)"
+                            x-on:click="openPortal(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="row.s"></span>
+                        </flux:command.item>
+                    </template>
+
+                    <div data-palette-heading="events" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Termine') }}</div>
+                    <template x-for="row in eventItems" :key="'event:' + row.r + ':' + row.d">
+                        <flux:command.item
+                            data-palette-section="events"
+                            data-palette-sigil="t"
+                            x-bind:data-palette-portal="row.t + ':' + row.r"
+                            x-bind:aria-label="@js(__('Termin: :name')).split(':name').join(row.n + ' · ' + row.d)"
+                            x-on:click="openPortal(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
+                        </flux:command.item>
+                    </template>
+
+                    <div data-palette-heading="courses" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Kurse') }}</div>
+                    <template x-for="row in courseItems" :key="'course:' + row.r">
+                        <flux:command.item
+                            data-palette-section="courses"
+                            data-palette-sigil="k"
+                            x-bind:data-palette-portal="row.t + ':' + row.r"
+                            x-bind:aria-label="@js(__('Kurs: :name')).split(':name').join(row.n)"
+                            x-on:click="openPortal(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="portalHint(row)"></span>
+                        </flux:command.item>
+                    </template>
+
+                    <div data-palette-heading="lecturers" role="presentation" aria-hidden="true" hidden
+                         class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Referenten') }}</div>
+                    <template x-for="row in lecturerItems" :key="'lecturer:' + row.r">
+                        <flux:command.item
+                            data-palette-section="lecturers"
+                            data-palette-sigil="l"
+                            x-bind:data-palette-portal="row.t + ':' + row.r"
+                            x-bind:aria-label="@js(__('Referent: :name')).split(':name').join(row.n)"
+                            x-on:click="openPortal(row)"
+                            class="dark:data-active:bg-zinc-800 min-h-11 gap-2 sm:min-h-10">
+                            <span class="min-w-0 flex-1 truncate" x-text="row.n"></span>
+                            <span class="ms-2 shrink-0 truncate text-xs font-normal text-muted" x-text="row.s"></span>
+                        </flux:command.item>
+                    </template>
+
                     {{-- ── Aktionen (`>`) ─────────────────────────────────────── --}}
                     <div data-palette-heading="actions" role="presentation" aria-hidden="true" hidden
                          class="px-2 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted">{{ __('Aktionen') }}</div>
@@ -336,6 +423,6 @@
             @endforeach
         </dl>
 
-        <p class="mt-4 text-sm text-muted">{{ __('In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.') }}</p>
+        <p class="mt-4 text-sm text-muted">{{ __('In der Palette grenzen r: m: p: und ein Ländercode wie de: auf einen Bereich ein. @ sucht Mitglieder, > listet Aktionen. o: t: k: l: zeigen Meetups, Termine, Kurse und Referenten aus dem Portal. w: durchsucht den Workspace — dort ↵ drücken, der Relay findet ganze Wörter.') }}</p>
     </flux:modal>
 </div>

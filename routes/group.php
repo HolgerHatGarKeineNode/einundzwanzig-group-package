@@ -3,6 +3,7 @@
 use Einundzwanzig\Group\Http\Controllers\LegacyRedirect;
 use Einundzwanzig\Group\Http\Controllers\LocaleController;
 use Einundzwanzig\Group\Http\Controllers\NostrAuthController;
+use Einundzwanzig\Group\Http\Controllers\PortalIndexController;
 use Einundzwanzig\Group\Http\Middleware\ContentSecurityPolicy;
 use Illuminate\Routing\RedirectController;
 use Illuminate\Support\Facades\Route;
@@ -85,6 +86,33 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
      * dort steht sie (`js/articleAuthor.ts`).
      */
     Route::livewire('/articles/autor/{autor}', 'group::article-author')->name('articles.author');
+
+    /*
+     * ══ THE READ-ONLY PORTAL PAGES (D9, P4) ═════════════════════════════════════
+     *
+     * Meetups, their dates and the courses/lecturers of the association portal, readable
+     * inside this client. Deliberately WITHOUT `nostr.auth`, and not as a courtesy: a
+     * meetup page is what a guest follows from a shared link, and „come to our meetup"
+     * behind a login is the opposite of what the surface is for (D4). Everything these
+     * pages can do is READ — managing a meetup stays in the Portal (web) resp. in the
+     * app's own editor sheets, reached through the `portal_detail_actions` slot.
+     *
+     * `?ansicht=` chooses the view (`liste`|`termine` and, where a host binds it, `karte`
+     * — `config('group.meetup_views')`). One route per object, not one per view: the
+     * address of a meetup must not change when someone switches to the map.
+     */
+    Route::livewire('/bereich/meetups', 'group::meetups')->name('bereich.meetups');
+    Route::livewire('/bereich/meetups/{slug}', 'group::meetup')->name('bereich.meetups.show');
+    Route::livewire('/bereich/kurse', 'group::kurse')->name('bereich.kurse');
+    /*
+     * The two detail routes carry NUMERIC ids because the Portal's courses and lecturers
+     * have no slug (measured: `/api/courses/{id}`, `/api/lecturers/{id}`). `whereNumber`
+     * keeps `/bereich/kurse/referenten/{id}` and `/bereich/kurse/{id}` apart even if a
+     * future view token were added — three segments against four would already do it, but
+     * a non-numeric id is a 404 here rather than a Portal request with a garbage path.
+     */
+    Route::livewire('/bereich/kurse/{id}', 'group::kurs')->whereNumber('id')->name('bereich.kurse.show');
+    Route::livewire('/bereich/kurse/referenten/{id}', 'group::referent')->whereNumber('id')->name('bereich.referenten.show');
 
     /*
      * „Ich" and the settings hub carry NO server gate: their sections gate
@@ -256,3 +284,25 @@ Route::middleware(['web', ContentSecurityPolicy::class])->name('group.')->group(
     $legacy('/settings/space', '/ich/einstellungen', ['name' => 'space.settings']);
     $legacy('/settings/wallet', '/bereich/wallet');
 });
+
+/*
+ * ══ THE PALETTE INDEX (D6) ══════════════════════════════════════════════════════
+ *
+ * OUTSIDE the `web` group, and that is the point of the route: the answer depends on
+ * nothing but the Portal's public lists, so it needs neither session nor cookie nor CSRF
+ * token — the same reasoning as the host's image proxy (`routes/img.php`). Inside `web`
+ * every palette open would write a session row, and on SQLite that serialises against
+ * every other request of the instance (measured there: TTFB 0.4 s → 5 s).
+ *
+ * Its own throttle instead of the host's global one: this endpoint is answered from a
+ * cache and is loaded ONCE per palette session, so a tight per-IP bucket is right — and a
+ * host that shares an IP with a whole office must not lose its chat because someone opened
+ * ⌘K. `throttle:60,1` is the Portal's own rate for its API, deliberately mirrored.
+ *
+ * No `ContentSecurityPolicy`: that middleware writes a policy for a DOCUMENT. On a JSON
+ * body it would be a header nothing reads.
+ */
+Route::middleware('throttle:60,1')
+    ->name('group.')
+    ->get('/suche/portal-index', PortalIndexController::class)
+    ->name('suche.portal-index');
