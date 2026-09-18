@@ -284,7 +284,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              for the PLACE. --}}
         <div x-show="space" x-cloak>
             <flux:tab.group>
-                <flux:tabs variant="segmented" x-model="tab">
+                <flux:tabs variant="segmented" data-seg x-model="tab">
                     {{-- Die Tab-Badges zeigen seit P6 UNGELESENES, nicht mehr den Bestand
                          (§4.4). Der Bestand steht als graue Mono-Zahl über der Liste. Grund:
                          sobald daneben irgendwo eine Ungelesen-Pille in derselben getönten

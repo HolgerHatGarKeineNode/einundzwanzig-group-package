@@ -27,7 +27,7 @@
      {{ $attributes->class('page-enter surface-card relative overflow-hidden border-brand-500/30!') }}>
 
     {{-- Brand-Akzent: warmer Verlauf oben, dezenter Glow --}}
-    <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-500 to-transparent"></div>
+    <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-px bg-border-accent-dim"></div>
     <div aria-hidden="true" class="pointer-events-none absolute -top-16 left-1/2 size-40 -translate-x-1/2 rounded-full bg-brand-500/15 blur-3xl"></div>
 
     <div class="relative p-6 text-center">

@@ -16,7 +16,7 @@
      könnte (Anmeldung ist schon vorhanden, `join()` scheitert nachweislich). --}}
 <div data-testid="room-gate-restricted"
      class="surface-card relative overflow-hidden border-brand-500/30! p-6 text-center">
-    <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-500 to-transparent"></div>
+    <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-px bg-border-accent-dim"></div>
 
     <flux:icon.lock-closed class="mx-auto size-8 text-zinc-400" />
 

@@ -124,6 +124,17 @@
                             <span x-show="row.prefix === 'meetup'"><flux:icon.map-pin variant="micro" class="size-4" /></span>
                         </span>
                         <span class="min-w-0 truncate" x-text="row.label"></span>
+                        {{-- P2-Nachtrag (Entwurf C `screen-mobileweb`): der Ungelesen-Zähler
+                             am Raum-Pin — dieselbe 18-px-Pille wie an der Befehlsleiste,
+                             Datenlage `$store.unread.rooms` (Dennis-P2-Notiz). Nur in der
+                             CHIPS-Form: die Rail-Zeile desselben Pins trägt ihren Zähler
+                             schon über `rail-room-row`. Der Schlüssel ist derselbe Schnitt
+                             wie in `ziel()` — ohne Relay-Suffix, so liegt der Raum im
+                             Store. Kein Raum-Pin → falsy → kein Badge. --}}
+                        @if ($variant === 'chips')
+                            <x-group::unread-badge size="bar" :sr="false"
+                                                   :count="'row.prefix === \'room\' ? $store.unread?.rooms?.[row.value.slice(0, row.value.lastIndexOf(\'@\'))] : null'" />
+                        @endif
                     </a>
                 </template>
                 <template x-if="extern(row)">

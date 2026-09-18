@@ -265,7 +265,7 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
         {{-- The view switch. Only the views this host HAS (`meetup_views`); the map is the
              one that a host binds (`meetup_map_view`) and the web does not. --}}
         @if (count($this->ansichten()) > 1)
-            <flux:tabs wire:model.live="ansicht" variant="segmented" class="mb-4 w-full" data-meetups-ansichten>
+            <flux:tabs wire:model.live="ansicht" variant="segmented" class="mb-4 w-full" data-seg data-meetups-ansichten>
                 @foreach ($this->ansichten() as $view)
                     <flux:tab name="{{ $view }}" data-meetups-ansicht="{{ $view }}">
                         @switch($view)

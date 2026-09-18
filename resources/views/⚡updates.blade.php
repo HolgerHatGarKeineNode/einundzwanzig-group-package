@@ -228,7 +228,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              function that says no. `x-text` with an empty string at 0 — a „0" next to a tab is
              a statement nobody needs. --}}
         <div class="-mx-1 mb-3 overflow-x-auto px-1">
-            <flux:tabs variant="segmented" x-model="feed" data-postfach-segmente>
+            <flux:tabs variant="segmented" data-seg x-model="feed" data-postfach-segmente>
                 <flux:tab name="all">{{ __('Alle') }}</flux:tab>
                 <flux:tab name="mentions">
                     {{ __('Erwähnungen') }}

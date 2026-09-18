@@ -293,7 +293,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                            x-on:mousedown.capture="$store.authGate.gateTap($event, { label: @js($label), returnUrl: $el.pathname + $el.search })"
                            x-on:keydown.enter.capture="$store.authGate.gateTap($event, { label: @js($label), returnUrl: $el.pathname + $el.search })"
                        @endif
-                       class="pressable surface-card flex min-h-[84px] flex-col items-start gap-2 p-3 transition-colors hover:bg-brand-500/5">
+                       class="pressable surface-card flex min-h-[84px] flex-col items-start gap-2 p-3 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800">
                         <span class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-200 bg-zinc-100 dark:border-border-chip dark:bg-zinc-800">
                             <flux:icon :name="$bereich['icon']" class="size-[22px] text-accent sw-18" />
                         </span>

@@ -379,10 +379,16 @@
 
 /* Chat-Nachrichten: Links im gerenderten (welshman/content) Inhalt. */
 .chat-content a {
-    color: var(--color-brand-500);
+    /* P4 (Entwurf C §2): Link-Rolle — #fda537, Hover #ffc170 (accent-link/-hover).
+       brand-500 (#f7931a) ist Zustands-/Flächenfarbe, nicht Lesefarbe. */
+    color: var(--color-accent-link);
     text-decoration: underline;
     text-underline-offset: 2px;
     overflow-wrap: anywhere;
+}
+.chat-content a:hover,
+.article-content a:hover {
+    color: var(--color-accent-hover);
 }
 
 /* Die schmale Auszeichnungs-Schicht des Chats (2026-08-16, `js/chatMarkup.ts`).
@@ -724,6 +730,51 @@ select:focus[data-flux-control] {
     ui-radio [data-flux-radio-indicator] {
         border-color: var(--color-control-edge);
     }
+
+    /* ── P4 (Entwurf C §2): Radii der Bedienelemente ─────────────────────────
+       Inputs radius 12 (--radius-tile = Spec r-input) auf ihrer Fläche; Flux'
+       Default ist rounded-lg (8). Die Segmente der segmentierten Auswahl tragen
+       r-seg (9). Spezifität (0,1,1) je Regel — schlägt Flux' einzelne Klasse
+       (0,1,0), bleibt aber hinter jedem Zustand zurück, derselbe Mechanismus
+       wie bei der Kante darüber. */
+    .dark input[data-flux-control],
+    .dark textarea[data-flux-control],
+    .dark select[data-flux-control] {
+        border-radius: var(--radius-tile);
+    }
+
+    .dark [data-flux-button] {
+        border-radius: var(--radius-btn);
+    }
+
+    /* ── P4 (Entwurf C §2 `.seg`): die segmentierte Auswahl ──────────────────
+       Container: surface #161617 mit border-card-Kante und radius 12 statt
+       Flux' `dark:bg-white/10`-Alphafläche (auf #0b0b0c eine 1,37:1-Kante
+       gewesen — dieselbe Messung wie bei --color-control-edge). Aktives
+       Segment: surface-3 #2c2c30, Text fg #f5f5f5, Gewicht 800, radius 9 —
+       Fläche UND Gewicht, nicht Farbe allein (WCAG 1.4.1).
+       `[data-seg]` setzen die vier Flächen mit segmentierter Auswahl an den
+       Aufrufstellen (Postfach, Räume, Meetups, Kurse) — ein Attribut statt
+       vier Kopien derselben Klassenliste. (0,2,1)/(0,3,1) gegen Flux'
+       data-selected-Utilities (0,2,0): Zustände höherer Ordnung bleiben
+       unberührt, weil keine mehr höher geht als diese Regeln. */
+    .dark [data-flux-tabs][data-seg] {
+        background-color: var(--color-surface);
+        border: 1px solid var(--color-border-card);
+        border-radius: var(--radius-tile);
+    }
+
+    .dark [data-seg] [data-flux-tab] {
+        color: var(--color-zinc-400);
+    }
+
+    .dark [data-seg] [data-flux-tab][data-selected] {
+        background-color: var(--color-surface-3);
+        color: var(--color-zinc-100);
+        font-weight: 800;
+        border-radius: var(--radius-seg);
+        box-shadow: none;
+    }
 }
 
 /* ── Maus-Affordanz (Desktop-Shell P6) ────────────────────────────────────────
@@ -856,7 +907,9 @@ select:focus[data-flux-control] {
 .article-content :is(h4, h5, h6) { font-size: 1rem; }
 
 .article-content a {
-    color: var(--color-brand-500);
+    /* P4 (Entwurf C §2): Link-Rolle — #fda537, Hover #ffc170 (accent-link/-hover).
+       brand-500 (#f7931a) ist Zustands-/Flächenfarbe, nicht Lesefarbe. */
+    color: var(--color-accent-link);
     text-decoration: underline;
     text-underline-offset: 2px;
 }

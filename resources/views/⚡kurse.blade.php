@@ -105,7 +105,7 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
 
         <x-group::app-header :title="__('Kurse')" />
 
-        <flux:tabs wire:model.live="ansicht" variant="segmented" class="mb-4 w-full" data-kurse-ansichten>
+        <flux:tabs wire:model.live="ansicht" variant="segmented" class="mb-4 w-full" data-seg data-kurse-ansichten>
             <flux:tab name="kurse" data-kurse-ansicht="kurse">{{ __('Kurse') }}</flux:tab>
             <flux:tab name="referenten" data-kurse-ansicht="referenten">{{ __('Referenten') }}</flux:tab>
         </flux:tabs>

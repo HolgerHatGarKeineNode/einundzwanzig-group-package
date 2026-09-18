@@ -291,7 +291,10 @@
                                     x-bind:class="scope.country === c.country
                                         ? 'bg-brand-500/10 font-semibold text-zinc-900 dark:text-zinc-50'
                                         : 'bg-zinc-100 text-muted hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700'">
-                                <span aria-hidden="true" x-text="c.flag"></span>
+                                {{-- P4 („keine Emoji"): der Ländercode statt der Flaggen-Emoji —
+                                     dieselbe Information, keine Glyphen-Deko auf der
+                                     Hauptfläche. --}}
+                                <span class="uppercase" aria-hidden="true" x-text="c.country"></span>
                                 <span class="tabular-nums" x-text="c.count"></span>
                             </button>
                         </template>
@@ -371,7 +374,9 @@
             <template x-for="sec in groupFor(@js($group)).sections" :key="sec.id">
                 <div class="mt-1">
                     <p class="flex items-baseline gap-1 px-2 pb-0.5 text-xs font-semibold text-muted">
-                        <span x-show="sec.icon" x-cloak aria-hidden="true" class="shrink-0" x-text="sec.icon"></span>
+                        {{-- P4: sec.icon (Buzz-Emoji der Sektion) fällt der Deko-Regel
+                             zum Opfer — der NAME trägt die Information, das Emoji nur
+                             Stimmung. --}}
                         <span class="min-w-0 truncate" x-text="sec.name"></span>
                         <span class="shrink-0 font-normal tabular-nums" x-text="sec.rooms.length"></span>
                     </p>

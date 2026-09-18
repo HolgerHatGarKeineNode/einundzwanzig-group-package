@@ -54,7 +54,7 @@
         {{-- ============ VERBUNDEN: Hero-Balance ============ --}}
         <div x-show="connected" x-cloak class="space-y-4 page-enter">
             {{-- Hero-Balance-Karte: Guthaben groß, Brand-Glow. --}}
-            <div class="relative overflow-hidden rounded-card bg-gradient-to-br from-brand-500/15 via-brand-500/5 to-transparent p-6 shadow-card ring-1 ring-brand-500/20">
+            <div class="relative overflow-hidden rounded-card bg-accent-wash p-6 shadow-card ring-1 ring-border-chip">
                 <div class="flex items-start justify-between">
                     <div class="flex items-center gap-2 text-sm font-medium text-brand-800 dark:text-brand-400">
                         <flux:icon.bolt variant="solid" class="size-4" />

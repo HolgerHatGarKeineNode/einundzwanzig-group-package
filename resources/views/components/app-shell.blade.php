@@ -135,7 +135,7 @@
          Unterhalb `xl` ändert sich nichts: dort scrollt das
          Dokument absichtlich, und die Klasse trägt den `xl:`-Riegel. --}}
     @php($nativeShell = \Einundzwanzig\Group\Chassis::istApp())
-    <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:relative xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-[clamp(2rem,2.5vw,3rem)] xl:pt-6 '.($chrome ? ($nativeShell ? 'pb-28' : 'pb-28 xl:pb-8') : 'pb-8')) }}>
+    <main data-tab-outlet id="buehne" {{ $attributes->class('mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1.5rem)] md:max-w-lg lg:max-w-2xl xl:relative xl:mx-0 xl:min-h-0 xl:max-w-none xl:flex-1 xl:overflow-y-auto xl:px-[clamp(1.5rem,2vw,1.75rem)] xl:pt-6 '.($chrome ? ($nativeShell ? 'pb-28' : 'pb-28 xl:pb-8') : 'pb-8')) }}>
         {{-- Ab xl bekommt der Seiteninhalt einen eigenen Deckel, statt die ganze
              Spaltenbreite zu füllen — eine Bühne ohne Deckel ist Slacks
              Lesbarkeitsfehler.
