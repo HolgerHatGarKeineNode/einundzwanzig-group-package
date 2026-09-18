@@ -80,12 +80,29 @@
     --color-border-accent-dim: #7b3d10; /* Chip „braucht Entscheidung" */
 
     /* Akzent-Rollen: AUF Orange steht immer #0b0b0c, nie Weiß (Spec 3).
-       accent-link/-hover sind die LESBAREN Orangetöne für Text auf dunklen
-       Flächen — accent (#f7931a) selbst ist Zustands-/Flächenfarbe. */
-    --color-accent-wash: #241a0d; /* aktive Zeile Rail/Palette */
-    --color-accent-link: var(--color-brand-400); /* #fda537 */
-    --color-accent-hover: var(--color-brand-300); /* #ffc170 */
-    --color-on-accent: #0b0b0c; /* Text/Icon auf Orange */
+       accent-link/-hover sind die LESBAREN Orangetöne für Text — accent
+       (#f7931a) selbst ist Zustands-/Flächenfarbe.
+
+       LP1 (Light-Folgeplan): wash/link/hover sind ZWEI-Theme-Rollen. Der
+       Default hier ist der LIGHT-Zweig; die Entwurfs-Dark-Werte (#241a0d,
+       #fda537, #ffc170) stehen im `.dark`-Block unten — grep-bar wie zuvor,
+       nur jetzt gescoped. Bis LP1 standen die Dark-Werte unscoped und galten
+       damit auch im Light (Befund D1: dunkler Rail-Wash-Pill in heller Rail,
+       #241a0d auf Weiß).
+
+       Light-Kalibrierung (nachgerechnet, WCAG-Formel):
+         wash brand-50   als Fläche auf weißer Rail = 1,06:1 — symmetrisch zur
+                         Dark-Referenz #241a0d auf zinc-900 = 1,06:1; der Wash
+                         ist Tönung, der Zustand trägt Textfarbe + Gewicht 800
+                         (1.4.1)
+         link brand-800  auf Weiß 6,42:1 (brand-700 reißt mit 4,40:1 knapp)
+         hover brand-900 auf Weiß 8,34:1 — Hover-Richtung dunkler wie am
+                         Hausmuster (hover:text-zinc-900 hell / zinc-100
+                         dunkel), nicht heller */
+    --color-accent-wash: var(--color-brand-50); /* aktive Zeile Rail/Palette */
+    --color-accent-link: var(--color-brand-800); /* #98480f */
+    --color-accent-hover: var(--color-brand-900); /* #7b3d10 */
+    --color-on-accent: #0b0b0c; /* Text/Icon auf Orange — beide Themes */
 
     /* ── Kontrast-Mathematik der fg-Stufen (P1-Pflicht, WCAG 1.4.3/1.4.11) ──
        Relative Luminanzen: bg #0b0b0c L=0,0034 · bg-elevated #0f0f10 L=0,0048
@@ -132,8 +149,17 @@
        (`color: var(--color-muted)`), der Theme-Wechsel passiert an der Variablen
        im `.dark`-Block unten. Damit trägt jede Variante, weil keine mehr
        verschachtelt werden muss. Dasselbe Muster wie `--color-accent-content`
-       drei Zeilen höher. */
-    --color-muted: var(--color-zinc-600);
+       drei Zeilen höher.
+
+       LP1 (Light-Folgeplan, Befund D2): bis hier lief der Light-Zweig auf
+       `var(--color-zinc-600)` — der P1-Remap machte zinc-600 zum dunklen
+       Entwurfs-Neutral (#3a3a3e, für dunklen Grund kalibriert), und der
+       SekundärTEXT wurde im Light fast schwarz (gemessen am inaktiven Tab
+       „Postfach", 10,85:1 auf zinc-50 — Hierarchiebruch, nicht Kontrastbruch).
+       Der Remap ist Dark-Referenz und bleibt; der Light-Wert steht deshalb
+       ab jetzt als LITERAL #525252 hier — der dokumentierte Vorkriegs-zinc-600,
+       7,81:1 auf Weiß. Der Dark-Zweig (zinc-400) steht unverändert unten. */
+    --color-muted: #525252;
 
     /* Kante aller Bedienelemente (Felder, Auswahl, Ankreuzfelder). EIN Wert für
        die ganze App, damit ein Feld nirgends anders aussieht als ein anderes —
@@ -255,6 +281,15 @@
            #0b0b0c". War var(--color-zinc-950), was durch das Remap denselben
            Wert trägt; das Literal macht die Regel von der Rampe unabhängig. */
         --color-accent-foreground: var(--color-on-accent);
+        /* LP1: Dark-Werte der Zwei-Theme-Akzentrollen (Herleitung der
+           Light-Defaults oben im @theme-Block): wash #241a0d ist der
+           Entwurfs-Wash auf zinc-900/basis — im Dark unverändert (Referenz
+           des Hauptplans: Rail-Aktiv bg #241a0d). link/hover sind die
+           LESBAREN Orangetöne des Entwurfs auf dunklem Grund:
+           #fda537 = 9,9:1 auf bg-elevated. */
+        --color-accent-wash: #241a0d;
+        --color-accent-link: var(--color-brand-400);
+        --color-accent-hover: var(--color-brand-300);
         --color-muted: var(--color-zinc-400);
         --color-control-edge: var(--color-zinc-400);
         --color-forge-offen: var(--color-brand-300);
