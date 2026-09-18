@@ -1302,8 +1302,30 @@ export const memoedToChatMessage = (event: TrustedEvent, ctx: ChatBuildCtx): Cha
  * zuletzt unten stand?"), wohl aber an der Manipulierbarkeit: ein Event mit
  * `created_at = now + 1 Jahr` konnte vorher den ganzen Verlauf quittieren.
  */
-export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> =>
-    derived(
+/**
+ * Die fertige Zeile (inkl. Positions-Felder), mit Identitätsgedächtnis.
+ *
+ * `memoedToChatMessage` liefert bei unverändertem Inhalt bereits dasselbe KERN-Objekt —
+ * aber das `events.map` darüber baute bis hierher bei JEDEM Emit eine FRISCHE
+ * ChatMessage-Hülle (`{divider, …, …core}`). Alpines `x-for` schreibt das neue Objekt in
+ * den Zeilen-Scope, die Reaktivität meldet „geändert" (Identität, nicht Inhalt), und
+ * `x-html` setzt `innerHTML` erneut — mit demselben String, der trotzdem die Kindknoten
+ * zerstört. Gemessen am Live-Fall (tests/e2e/chat-video-stabilitaet.spec.ts): eine nach
+ * dem Boot eintreffende Nachricht ersetzte so das `<video>` einer älteren Zeile und
+ * startete einen neuen mp4-Load; auf Prod mit nachstreamender Historie ist das die
+ * Flacker-Kette aus dem Vorfälle-Bericht.
+ *
+ * Der Cache gehört in die Closure EINER Ableitung (nicht ans Modul): `unreadDivider`
+ * hängt an `lastRead`, und zwei Subscriptions desselben Raums mit unterschiedlicher
+ * Grenze würden sich sonst gegenseitig ihre Zeilen busten. Positionsfelder werden
+ * explizit verglichen — `divider`/`showAuthor` können bei gleichem Kern wandern
+ * (Tagwechsel, Kopfzeilen-Gruppierung), und dann MUSS die Zeile neu entstehen.
+ */
+type RowCacheEntry = { core: ChatMsgFields; row: ChatMessage }
+
+export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<ChatMessage[]> => {
+    const rowCache = new Map<string, RowCacheEntry>()
+    return derived(
         [
             // Nachrichten LEADING-EDGE-gedrosselt (100ms): `throttle` feuert den ersten Emit
             // einer Ruhephase SOFORT (Tools.ts:987) → eine einzeln gesendete/eintreffende Nachricht
@@ -1424,7 +1446,7 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
         let prevDay = ''
         let prevPubkey = ''
         let unreadShown = false
-        return events.map((event, idx): ChatMessage => {
+        const rows = events.map((event, idx): ChatMessage => {
             const day = dayLabel(event.created_at)
             const divider = day !== prevDay ? day : ''
             const showAuthor = event.pubkey !== prevPubkey || divider !== ''
@@ -1436,10 +1458,39 @@ export const deriveRoomChat = (url: string, h: string, lastRead = 0): Readable<C
             if (unreadDivider) {
                 unreadShown = true
             }
-            return { divider, unreadDivider, showAuthor, ...memoedToChatMessage(event, ctx) }
+            const core = memoedToChatMessage(event, ctx)
+            // Identitätsgedächtnis: unveränderte Zeile = unverändertes Objekt. Kern-Ref
+            // GLEICH und Positions-Felder GLEICH heißt feldweise identisch — die Hülle
+            // neu zu bauen hieße, x-html für nichts neu feuern zu lassen (siehe Kopf
+            // von {@link rowCache}).
+            const cached = rowCache.get(event.id)
+            if (
+                cached &&
+                cached.core === core &&
+                cached.row.divider === divider &&
+                cached.row.unreadDivider === unreadDivider &&
+                cached.row.showAuthor === showAuthor
+            ) {
+                return cached.row
+            }
+            const row: ChatMessage = { divider, unreadDivider, showAuthor, ...core }
+            rowCache.set(event.id, { core, row })
+            return row
         })
+        // Verschwundene Events (Mute, Löschung, Fensterwechsel) räumen ihren Eintrag ab —
+        // die Map wächst sonst über eine lange Session monoton.
+        if (rowCache.size !== events.length) {
+            const sichtbar = new Set(events.map((e) => e.id))
+            for (const id of rowCache.keys()) {
+                if (!sichtbar.has(id)) {
+                    rowCache.delete(id)
+                }
+            }
+        }
+        return rows
     },
     )
+}
 
 /**
  * Honoriert ein eingehendes NIP-29-`delete-event` (kind 9005, nur von `can_manage`-

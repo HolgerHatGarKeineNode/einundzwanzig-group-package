@@ -200,8 +200,14 @@
                                  nicht in dessen Mitte — ein npub ist 63 Zeichen und muss auf eine
                                  Zeile passen. Inconsolata ist 0.5em breit, 72ch sind damit ~504px
                                  bei 14px. Der Deckel sitzt am Textkörper, nicht an der Zeile:
-                                 Bilder, Umfragen und Zap-Karten dürfen breiter werden. --}}
-                            <div class="chat-content text-sm break-words whitespace-pre-wrap xl:max-w-[72ch]" x-html="m.html"
+                                 Bilder, Umfragen und Zap-Karten dürfen breiter werden.
+
+                                 `x-html-stable` statt `x-html`: setzt innerHTML nur, wenn der
+                                 String WIRKLICH ein anderer ist — Alpines x-html zerstört die
+                                 Kindknoten bei jedem Effect-Lauf, und ein <video>/<img> in einer
+                                 Nachricht lädt dann bei jedem Store-Re-Map neu (Flacker-Kette,
+                                 js/stableHtml.ts + tests/e2e/chat-video-stabilitaet.spec.ts). --}}
+                            <div class="chat-content text-sm break-words whitespace-pre-wrap xl:max-w-[72ch]" x-html-stable="m.html"
                                  x-on:click="
                                      if ($event.target.matches('img.chat-image')) {
                                          $event.stopPropagation();

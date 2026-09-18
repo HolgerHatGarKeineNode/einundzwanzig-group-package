@@ -970,9 +970,14 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          Der Thread-ROOT rendert NICHT über `chat-row`, sondern über dieses eigene
                          Markup (`personFields` ohne Karte) — ein Handler nur in `chat-row` ließe die
                          Erwähnung genau hier tot. `.stop`, weil die Kopf-Leiste darüber selbst
-                         ein Klickziel ist (Auf-/Zuklappen). --}}
+                         ein Klickziel ist (Auf-/Zuklappen).
+
+                         `x-html-stable` statt `x-html`: der Thread-Kopf wird bei jeder Thread-Welle
+                         (Reaction/Zap/Profil) als FRISCHES Objekt neu gebaut — Alpines x-html
+                         zerstörte die Kindknoten dann trotz identischem String (js/stableHtml.ts,
+                         Messung tests/e2e/chat-video-stabilitaet.spec.ts). --}}
                     <div x-ref="rootBody" class="chat-content mt-0.5 pl-7 text-sm break-words whitespace-pre-wrap text-muted"
-                         :class="expanded ? '' : 'line-clamp-1'" x-html="threadRoot.html"
+                         :class="expanded ? '' : 'line-clamp-1'" x-html-stable="threadRoot.html"
                          x-on:click="
                              if ($event.target.matches('img.chat-image')) {
                                  $event.stopPropagation();

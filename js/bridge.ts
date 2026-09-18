@@ -294,6 +294,7 @@ import {
 } from './updatesView.ts'
 import { createScroller, type Scroller } from './scroll.ts'
 import { toast, flashToast } from './toast.ts'
+import { wireStableHtml } from './stableHtml.ts'
 import {
     getNwcModule,
     getWebLn,
@@ -1952,8 +1953,30 @@ export function registerNostrComponents(Alpine: {
     data: (name: string, factory: (...args: unknown[]) => unknown) => void
     magic: (name: string, callback: () => unknown) => void
     store: (name: string, value?: unknown) => unknown
+    directive: (
+        name: string,
+        callback: (
+            el: HTMLElement,
+            directives: { expression: string },
+            utilities: {
+                effect: (fn: () => void, options?: { priority?: string }) => void
+                evaluateLater: (expression: string) => (callback: (value: unknown) => void) => void
+            },
+        ) => void
+    ) => void
+    mutateDom: (fn: () => void) => void
+    destroyTree: (el: Element) => void
+    initTree: (el: Element) => void
 }) {
     installResizeObserverLoopFilter()
+    // X-HTML-STABIL — `x-html`, das innerHTML nur setzt, wenn der String WIRKLICH ein
+    // anderer ist. Alpines `x-html` zerstört die Kindknoten bei jedem Effect-Lauf, auch
+    // bei identischem Wert — ein Video-Element in einer Chat-Nachricht lädt dann bei
+    // jedem Store-Re-Map neu (Flacker-Kette, gemessen in
+    // tests/e2e/chat-video-stabilitaet.spec.ts). Registrierung HIER und nicht im Host:
+    // die Direktive ist Teil der Insel, der Host ruft `registerNostrComponents` ohnehin
+    // in `alpine:init` (resources/js/app.ts).
+    wireStableHtml(Alpine)
     wireUnread(Alpine)
     // Desktop-Shell: `$store.viewport.desktop` gatet die EXISTENZ der Rail-Insel
     // (`<template x-if>`), `nostrRail` ist ihre lesende Datenquelle.
