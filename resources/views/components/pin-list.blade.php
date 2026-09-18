@@ -115,7 +115,15 @@
                            'pressable inline-flex h-8 max-w-full items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
                            'pressable flex min-h-11 w-full items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
-                        <span aria-hidden="true" class="shrink-0 text-accent">
+                        {{-- Typ-Icon: themenbewusst statt blauem Orange im Light. text-accent
+                            (#f7931a) hällt auf Weiß nur 2,17:1 — als Deko zwar WCAG-frei,
+                            aber Neuschuld aus Entwurf-C-P2 (640df2c, vom LP4-Gate belegt),
+                            und der Folgeplan nimmt nur bewusst deklarierte Reste aus.
+                            accent-content liefert beide Themes tragfähige Töne:
+                            Light brand-800 #98480f (6,42:1 auf Weiß), Dark brand-400
+                            #fda537 (9,14:1 auf surface) — dasselbe Muster wie die
+                            Rail-/Tab-Icons. --}}
+                        <span aria-hidden="true" class="shrink-0 text-accent-content">
                             <span x-show="row.prefix === 'room'"><flux:icon.hashtag variant="micro" class="size-4" /></span>
                             <span x-show="row.prefix === 'person'"><flux:icon.user variant="micro" class="size-4" /></span>
                             <span x-show="row.prefix === 'article'"><flux:icon.document-text variant="micro" class="size-4" /></span>
