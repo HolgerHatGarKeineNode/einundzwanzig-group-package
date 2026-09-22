@@ -1443,7 +1443,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                               x-bind:class="isMuted(room) ? 'font-normal text-muted' : 'font-medium'"></span>
                                         <template x-if="isPinned(room)">
                                             <span class="inline-flex shrink-0 items-center">
-                                                <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 text-zinc-400" />
+                                                <flux:icon.pin variant="micro" aria-hidden="true" class="size-4 text-zinc-400" />
                                             </span>
                                         </template>
                                         <template x-if="isMuted(room)">
@@ -1475,7 +1475,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                             <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch"
                                                          x-bind:aria-label="@js(__('Einstellungen für :name')).split(':name').join(room.name)" />
                                             <flux:menu>
-                                                <flux:menu.item icon="map-pin" x-on:click="togglePinned(room)">
+                                                <flux:menu.item icon="pin" x-on:click="togglePinned(room)">
                                                     <span x-text="isPinned(room) ? @js(__('Anheftung des Raums aufheben')) : @js(__('Raum anheften'))"></span>
                                                 </flux:menu.item>
                                                 {{-- `bell-slash` stays with the ROOM; muting a PERSON

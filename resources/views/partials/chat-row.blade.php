@@ -490,11 +490,11 @@
                                                  „Loslösen" tippt, bekäme ohne diese Bindung keinerlei Reaktion.
                                                  Das ✕ in der Pin-Leiste ist seit jeher so gebunden; hier fehlte es. --}}
                                             <template x-if="$store.roomPins?.canPin && !$store.roomPins?.isPinned(m.id)">
-                                                <flux:menu.item icon="map-pin" x-bind:disabled="$store.roomPins.busy"
+                                                <flux:menu.item icon="pin" x-bind:disabled="$store.roomPins.busy"
                                                                 x-on:click="$store.roomPins.toggle(m.id)">{{ __('Anpinnen') }}</flux:menu.item>
                                             </template>
                                             <template x-if="$store.roomPins?.canUnpin(m.id)">
-                                                <flux:menu.item icon="map-pin" x-bind:disabled="$store.roomPins.busy"
+                                                <flux:menu.item icon="pin" x-bind:disabled="$store.roomPins.busy"
                                                                 x-on:click="$store.roomPins.toggle(m.id)">{{ __('Loslösen') }}</flux:menu.item>
                                             </template>
                                             @endif

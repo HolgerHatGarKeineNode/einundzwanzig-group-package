@@ -162,7 +162,7 @@
 
     <template x-if="isPinned(room)">
         <span class="inline-flex shrink-0 items-center">
-            <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-3.5 text-muted" />
+            <flux:icon.pin variant="micro" aria-hidden="true" class="size-3.5 text-muted" />
         </span>
     </template>
 
@@ -214,7 +214,7 @@
                      space room into the reader's own pin set (`pinWriteRoute`). One entry, one
                      word — the user does not have to know which relay owns the statement. --}}
                 <template x-if="canPin(room)">
-                    <flux:menu.item icon="map-pin" x-on:click="togglePinned(room)">
+                    <flux:menu.item icon="pin" x-on:click="togglePinned(room)">
                         <span x-text="isPinned(room) ? @js(__('Anheftung des Raums aufheben')) : @js(__('Raum anheften'))"></span>
                     </flux:menu.item>
                 </template>

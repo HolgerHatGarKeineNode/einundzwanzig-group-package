@@ -66,6 +66,12 @@ class GroupServiceProvider extends ServiceProvider
         Livewire::addNamespace('group', $views);
         // Anonyme Blade-Komponenten: `<x-group.app-header>` etc. (absoluter Pfad).
         Blade::anonymousComponentPath($views.'/components', 'group');
+        // Package-owned Flux icons (`<flux:icon.pin>`), available in every host without a
+        // copy in the host's own `resources/views/flux`. Blade tries the `flux` paths in
+        // registration order, and this provider boots BEFORE Flux's (measured in
+        // twenty-one-companion: this path is listed first) — a file here therefore shadows a
+        // host override AND Flux's own stub of the same name. Only add names Flux does not ship.
+        Blade::anonymousComponentPath($views.'/flux', 'flux');
 
         Route::aliasMiddleware('nostr.auth', EnsureNostrAuth::class);
         $this->loadRoutesFrom(__DIR__.'/../routes/group.php');

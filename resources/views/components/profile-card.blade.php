@@ -309,10 +309,10 @@
                                  x-bind:aria-pressed="$store.pinSet?.has('person:' + pubkey) ? 'true' : 'false'"
                                  x-on:click="$store.pinSet?.toggle('person:' + pubkey)">
                         <span x-show="$store.pinSet?.has('person:' + pubkey)" x-cloak>
-                            <flux:icon.map-pin variant="solid" class="size-4 text-brand-600 dark:text-brand-400" />
+                            <flux:icon.pin variant="solid" class="size-4 text-brand-600 dark:text-brand-400" />
                         </span>
                         <span x-show="!$store.pinSet?.has('person:' + pubkey)">
-                            <flux:icon.map-pin class="size-4" />
+                            <flux:icon.pin class="size-4" />
                         </span>
                         {{-- Finished sentences from PHP instead of `@js()` concatenation: the
                              same rule as in `pin-toggle.blade.php`, and the same reason — the

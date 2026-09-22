@@ -139,8 +139,18 @@
                   reserves the column and reveals the glyph on hover/focus — the
                   `rail-room-row` menu pattern, because a 295 px column owes the name the
                   space first. --}}
-            <span @class([
-                'group/pin inline-flex max-w-full items-center gap-1' => $variant === 'chips',
+            {{-- ── On Start the unpin action is PART of the chip ──────────────────────
+                  Until the v1.13.0 device sighting the toggle stood NEXT to the chip, as a
+                  bare pin glyph outside its border — it read as a stray map marker, not
+                  as a control (user report after the sighting). In the CHIPS form this span is therefore the chip
+                  itself: it carries the pill border, and the link and a small × stand
+                  inside it as two separate targets. The link still opens the item, the ×
+                  (`pin-toggle` form `chip`) unpins it. Still siblings, never nested: a
+                  button inside an `<a>` is invalid and would navigate
+                  (`AngeheftetPostfachTest`). No `overflow-hidden` on the frame — it
+                  would clip the focus outline of both targets. --}}
+            <span @if ($variant === 'chips') data-pin-chip-frame @endif @class([
+                'group/pin inline-flex h-8 max-w-full items-center rounded-pill border border-zinc-300 bg-white pe-1 text-sm dark:border-border-chip dark:bg-transparent' => $variant === 'chips',
                 'group/pin flex w-full items-center' => $variant === 'bar',
             ])>
                 <template x-if="!extern(row)">
@@ -150,7 +160,7 @@
                                 #2f2f33, Text fg-2 #d4d4d4 in 14 px — keine Tint-Fläche
                                 mehr, der Chip ist Kontur („keine Deko": Struktur kommt aus
                                 Rahmen und Abstand). Typ-Icon Orange 14 px. --}}
-                           'pressable inline-flex h-8 max-w-full min-w-0 flex-1 items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
+                           'pressable inline-flex h-full max-w-full min-w-0 flex-1 items-center gap-1.5 rounded-s-pill ps-3 pe-1.5 font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
                            'pressable flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
                         {{-- Typ-Icon: themenbewusst statt blauem Orange im Light. text-accent
@@ -192,7 +202,7 @@
                                 #2f2f33, Text fg-2 #d4d4d4 in 14 px — keine Tint-Fläche
                                 mehr, der Chip ist Kontur („keine Deko": Struktur kommt aus
                                 Rahmen und Abstand). Typ-Icon Orange 14 px. --}}
-                           'pressable inline-flex h-8 max-w-full min-w-0 flex-1 items-center gap-1.5 rounded-pill border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-border-chip dark:bg-transparent dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
+                           'pressable inline-flex h-full max-w-full min-w-0 flex-1 items-center gap-1.5 rounded-s-pill ps-3 pe-1.5 font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-white/5' => $variant === 'chips',
                            'pressable flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
                         <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 shrink-0" />
@@ -205,9 +215,11 @@
                      what the row IS, `row.key`, and `toggle()` routes on its own). The
                      accessible name names the TYPE via `wasWort`, so a mixed list does
                      not announce a dozen identical buttons — the same rule the static
-                     `was` prop holds on uniform surfaces. `shrink-0` and the 44 px touch
-                     floor come with the component; the bar adds only the reveal (the
-                     reserved-column pattern of `rail-room-row`).
+                     `was` prop holds on uniform surfaces. In the BAR the component brings
+                     `shrink-0` and the 44 px touch floor, and the bar adds only the reveal
+                     (the reserved-column pattern of `rail-room-row`). On the CHIPS it is the
+                     `chip` form: a 24 × 24 × inside the frame above (WCAG 2.5.8's minimum;
+                     the 44 px floor would burst a 32 px chip).
 
                      `:class` and NOT a bare `{{ }}` ternary in the tag: the component
                      tag parser reads raw echoes in its attribute list as markup — the
@@ -216,6 +228,7 @@
                      PHP-evaluated form is the same mechanism `:href` uses one screen
                      down, in the unknown-room card. --}}
                 <x-group::pin-toggle schluessel="row.key" wasExpr="wasWort(row.prefix)"
+                                     :form="$variant === 'chips' ? 'chip' : 'icon'"
                                      :class="$variant === 'bar' ? 'opacity-0 transition-opacity group-hover/pin:opacity-100 group-focus-within/pin:opacity-100' : ''" />
             </span>
         </template>

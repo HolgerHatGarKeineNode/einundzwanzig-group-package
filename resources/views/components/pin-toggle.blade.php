@@ -16,7 +16,8 @@
     // no fragment concatenation, `I18nCatalogGateTest` reads both forms).
     'wasExpr' => null,
     // 'icon' = the bare pin glyph (rows, headers) · 'menu' = a `flux:menu.item` for a menu
-    // that already exists.
+    // that already exists · 'chip' = a small × that sits INSIDE a chip (the pinned row on
+    // Start, `pin-list`), where every row is pinned by definition.
     'form' => 'icon',
     'size' => 'xs',
 ])
@@ -69,9 +70,29 @@
 @endphp
 
 @if ($form === 'menu')
-    <flux:menu.item icon="map-pin" x-on:click="$store.pinSet?.toggle({{ $schluessel }})">
+    <flux:menu.item icon="pin" x-on:click="$store.pinSet?.toggle({{ $schluessel }})">
         <span x-text="$store.pinSet?.has({{ $schluessel }}) ? {{ $labelAus }} : {{ $labelAn }}"></span>
     </flux:menu.item>
+@elseif ($form === 'chip')
+    {{-- The unpin control as part of the chip (v1.13.0 device sighting): a pin glyph next to
+         the chip read as a stray map marker, not as a button. Inside a chip that is pinned by
+         definition the action is "take it out", and × says that without a legend.
+
+         Same contract as the icon form — `data-pin-toggle`/`data-pin-key`, `aria-pressed`,
+         the bound `aria-label` („Anheftung von :was aufheben") — so every reader of the toggle
+         keeps working. 24 × 24 (`size-6`), not the 44 px `icon-btn-touch` floor: that would
+         burst the 32 px chip, and 24 × 24 is WCAG 2.5.8's own minimum. A plain `<button>`
+         with `pressable`, so the host focus rules (`button.pressable:focus-visible`) paint its
+         indicator like every other tappable surface. --}}
+    <button type="button"
+            data-pin-toggle
+            x-bind:data-pin-key="{{ $schluessel }}"
+            x-bind:aria-pressed="$store.pinSet?.has({{ $schluessel }}) ? 'true' : 'false'"
+            x-bind:aria-label="$store.pinSet?.has({{ $schluessel }}) ? {{ $labelAus }} : {{ $labelAn }}"
+            x-on:click.stop.prevent="$store.pinSet?.toggle({{ $schluessel }})"
+            {{ $attributes->class('pressable inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-zinc-100') }}>
+        <flux:icon.x-mark variant="micro" class="size-4" />
+    </button>
 @else
     {{-- `icon-btn-touch`: the house utility for iconic targets — 44 px on a coarse pointer,
          compact for a mouse (WCAG 2.5.5). `aria-pressed` makes the state audible without a
@@ -90,10 +111,10 @@
              so an Alpine binding on `variant` lands as a meaningless attribute and never
              switches (house finding, measured three times). --}}
         <span x-show="$store.pinSet?.has({{ $schluessel }})" x-cloak>
-            <flux:icon.map-pin variant="solid" class="size-4 text-brand-600 dark:text-brand-400" />
+            <flux:icon.pin variant="solid" class="size-4 text-brand-600 dark:text-brand-400" />
         </span>
         <span x-show="!$store.pinSet?.has({{ $schluessel }})">
-            <flux:icon.map-pin class="size-4 text-muted" />
+            <flux:icon.pin class="size-4 text-muted" />
         </span>
     </flux:button>
 @endif

@@ -519,7 +519,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              class="mb-2 shrink-0">
             <div class="surface-card flex flex-col gap-1 p-2">
                 <div class="flex items-center gap-2 px-1">
-                    <flux:icon.map-pin variant="micro" class="text-brand-500" />
+                    <flux:icon.pin variant="micro" class="text-brand-500" />
                     {{-- Zahl statt bloßem Wort: die Leiste ist einklappbar, und eingeklappt
                          wäre „Angepinnt" ohne Zahl eine Fläche, die nichts sagt. --}}
                     <span class="text-xs font-semibold"
@@ -1603,11 +1603,11 @@ new #[Layout('group::einundzwanzig')] class extends Component
             {{-- `::disabled` an `busy` — Begründung wie im Web-Popover
                  (`partials/chat-row.blade.php`): ohne die Bindung wäre der Eintrag
                  während eines laufenden Pin/Unpin ein stiller Blindgänger. --}}
-            <flux:button variant="ghost" icon="map-pin" class="w-full justify-start"
+            <flux:button variant="ghost" icon="pin" class="w-full justify-start"
                          x-show="!_menuInThread && menuFor && $store.roomPins?.canPin && !$store.roomPins?.isPinned(menuFor.id)" x-cloak
                          ::disabled="$store.roomPins.busy"
                          x-on:click="if (menuFor) { $store.roomPins.toggle(menuFor.id); closeMessageMenu() }">{{ __('Anpinnen') }}</flux:button>
-            <flux:button variant="ghost" icon="map-pin" class="w-full justify-start"
+            <flux:button variant="ghost" icon="pin" class="w-full justify-start"
                          x-show="!_menuInThread && menuFor && $store.roomPins?.canUnpin(menuFor.id)" x-cloak
                          ::disabled="$store.roomPins.busy"
                          x-on:click="if (menuFor) { $store.roomPins.toggle(menuFor.id); closeMessageMenu() }">{{ __('Loslösen') }}</flux:button>
