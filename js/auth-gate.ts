@@ -44,3 +44,28 @@ export function sanitizeReturnUrl(raw: string | null | undefined): string | null
     }
     return raw
 }
+
+/**
+ * Name of the `<meta>` the package layout renders when the CURRENT route carries the
+ * `nostr.auth` middleware (`routes/group.php`). The server is the one place that knows which
+ * surfaces need a key; on the device `EnsureNostrAuth` lets every request through, so the
+ * island reads the server's answer from this tag instead of keeping a second list.
+ */
+export const AUTH_REQUIRED_META = 'nostr-auth-required'
+
+/**
+ * Where the device gate sends this page — or `null` to leave it alone.
+ *
+ * Until 2026-09-22 the device gate sent EVERY guest page to `/nostr-login`: a guest could
+ * never see Start, which Concept C designs for guests (the welcome card). Now it acts only
+ * where the web's server gate acts — on a route behind `nostr.auth` — and it takes the reader
+ * back there after the login (`?return`, same form as `authGate.requireAuth`).
+ */
+export function mobileGateTarget(authed: boolean, requiresAuth: boolean, path: string, search = ''): string | null {
+    if (authed || ! requiresAuth || path.startsWith('/nostr-login')) {
+        return null
+    }
+    const ret = sanitizeReturnUrl(path + search)
+
+    return '/nostr-login' + (ret ? '?return=' + encodeURIComponent(ret) : '')
+}

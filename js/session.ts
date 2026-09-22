@@ -25,6 +25,7 @@ import { SIGNER_RELAYS, isMobile } from './core.ts'
 import { NIP46_PERMS, NIP46_PERMS_KEY, nip46PermsAreStale } from './nip46-perms.ts'
 import { installNip55WindowNostr } from './nip55-signer.ts'
 import { runScheduledPortalHandoff } from './portal-handoff.ts'
+import { AUTH_REQUIRED_META, mobileGateTarget } from './auth-gate.ts'
 import { clearWallet } from './wallet.ts'
 import { clearCache } from './storage.ts'
 import { clearReadState } from './readState.ts'
@@ -35,8 +36,12 @@ import { t } from './i18n.ts'
  * (§7) — `EnsureNostrAuth` lässt Mobile durch. Ohne dieses Gate rendert der Chat
  * mit „Abmelden"-Kopf, aber ohne Signer (leerer Screen). Also erzwingt die Insel
  * die eigene Anmeldung: kein welshman-pubkey → zurück zum Login.
- * ponytail: Pfad-Check statt Route-Flag — der Chat hat genau eine öffentliche
- * Seite (/nostr-login), und die Insel lädt nur im Chat-Layout.
+ *
+ * Since 2026-09-22 a route flag and no longer a path check: the path check assumed the
+ * island loads only in the chat layout with /nostr-login as its one public page. Neither
+ * holds any more — Start and the read-only areas are open to guests, and the host layout
+ * loads the same bundle. Which pages need a key is the server's answer, see
+ * {@link redirectGuestOffGatedPage}.
  */
 function applyMobileAuthGate(): void {
     const pk = pubkey.get()
@@ -46,13 +51,25 @@ function applyMobileAuthGate(): void {
     if (pk && sessions.get()[pk]?.method === 'nip07') {
         installNip55WindowNostr()
     }
-    if (!pk && !location.pathname.startsWith('/nostr-login')) {
-        window.location.assign('/nostr-login')
-    }
+    redirectGuestOffGatedPage()
     // Single-Login: einen nach dem Login vorgemerkten Portal-Handoff hier auf
     // der stabilen Zielseite ausführen (der Shim ist oben schon installiert).
     if (pk) {
         void runScheduledPortalHandoff()
+    }
+}
+
+/**
+ * The page part of the device gate, run on the first boot AND after every `wire:navigate`:
+ * a guest leaves a page only when the server marked it as behind `nostr.auth`
+ * ({@link AUTH_REQUIRED_META}). Everything else — Start, articles, meetups, courses, the
+ * map — is what the web shows a guest, too.
+ */
+function redirectGuestOffGatedPage(): void {
+    const requiresAuth = document.querySelector(`meta[name="${AUTH_REQUIRED_META}"]`) !== null
+    const target = mobileGateTarget(Boolean(pubkey.get()), requiresAuth, location.pathname, location.search)
+    if (target !== null) {
+        window.location.assign(target)
     }
 }
 
@@ -89,6 +106,10 @@ export function ensureAuthReady(): Promise<unknown> {
         // vor allen `await ensureAuthReady()` der Aufrufer).
         if (isMobile) {
             void authReadyPromise.then(applyMobileAuthGate)
+            // A `wire:navigate` swaps the page without a new boot; the gate has to look again.
+            document.addEventListener('livewire:navigated', () => {
+                void authReadyPromise?.then(redirectGuestOffGatedPage)
+            })
         }
     }
 

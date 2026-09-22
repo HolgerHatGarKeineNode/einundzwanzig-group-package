@@ -20,6 +20,15 @@
     {{-- Head pro Host: Web-Client nutzt seine reiche partials.head (OG/Favicons);
          ein Fremdhost (Portal) setzt config('group.head_partial')='group::partials.head'. --}}
     @include(config('group.head_partial', 'partials.head'))
+    {{-- The routes behind `nostr.auth` (routes/group.php) are the surfaces that need a key.
+         On the web the server gate redirects a guest; on the device `EnsureNostrAuth` lets
+         every request through and the island gates instead (`session.ts`) — this tag is how
+         it learns the server's answer rather than keeping a list of its own. A `<meta>`
+         and not a body attribute: `wire:navigate` replaces the non-asset head elements, so
+         the answer follows every SPA navigation. --}}
+    @if (in_array('nostr.auth', request()->route()?->gatherMiddleware() ?? [], true))
+        <meta name="nostr-auth-required" content="1" />
+    @endif
 </head>
 <body class="min-h-screen bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
     {{-- P2: Die beiden Signer-Banner leben jetzt im <x-group::status-strip> der
