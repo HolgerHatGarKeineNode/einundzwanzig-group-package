@@ -1053,7 +1053,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                                      erfundener Bildinhalt wäre eine
                                                      Behauptung über etwas, das wir
                                                      nicht kennen. --}}
-                                                <img :src="code.bildUrl" :alt="code.datei" data-forge-datei-bild
+                                                {{-- `|| null`: Alpine removes a bound attribute for null but writes `src=""`, which the browser resolves to the page URL and reports as a failed image. --}}
+                                                <img :src="code.bildUrl || null" :alt="code.datei" data-forge-datei-bild
                                                      class="max-h-[32rem] max-w-full object-contain p-4" />
                                             </template>
 

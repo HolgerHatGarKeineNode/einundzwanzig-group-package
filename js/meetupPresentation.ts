@@ -15,8 +15,28 @@
  * einziger Fetch von /api/mobile/meetups genuegt fuer den kompletten Join.
  */
 
-/** Die oeffentliche Portal-Meetup-Liste (CORS offen: access-control-allow-origin: *). */
-export const MEETUP_API_URL = 'https://portal.einundzwanzig.space/api/mobile/meetups'
+/**
+ * The production portal — the default whenever the host hands over no portal origin.
+ *
+ * The origin itself comes from the server config (`group.portal_url` → `window.__nostrPortal`,
+ * see `partials/head.blade.php`); `meetups.ts` reads it there. Hardcoded, the browser tests
+ * fetched production from every page although they point `PORTAL_URL` at a dead port — and
+ * met its rate limit (429 on `bereich/meetups`).
+ */
+export const DEFAULT_PORTAL_URL = 'https://portal.einundzwanzig.space'
+
+/**
+ * The configured portal origin without trailing slashes. Only an absent or blank value falls
+ * back to production: an unusable value stays as it is and fails in the fetch (fail-soft in
+ * `meetups.ts`) rather than silently reaching production.
+ */
+export const portalBase = (configured: unknown): string => {
+    const value = typeof configured === 'string' ? configured.trim().replace(/\/+$/, '') : ''
+    return value !== '' ? value : DEFAULT_PORTAL_URL
+}
+
+/** The public portal meetup list (CORS open: access-control-allow-origin: *). */
+export const meetupApiUrl = (base: string = DEFAULT_PORTAL_URL): string => `${portalBase(base)}/api/mobile/meetups`
 
 /** Marker/Bindungs-Tags, aus `room.event.tags` gehoben. */
 export type MeetupTags = {
@@ -93,23 +113,26 @@ export const flagEmoji = (country: string): string => {
 /**
  * Baut den Portal-Deep-Link aus `country`+`slug` (verifiziert 100 % deckungs-
  * gleich mit dem `portalLink` der reichen API). '' wenn country/slug fehlen.
+ *
+ * The link points at the same portal the list was fetched from (`base`): the slugs
+ * belong to that portal, and the server-side tiles link to `group.portal_url` as well.
  */
-export const portalLink = (country: string, slug: string): string => {
+export const portalLink = (country: string, slug: string, base: string = DEFAULT_PORTAL_URL): string => {
     const cc = (country || '').trim().toLowerCase()
     if (!cc || !slug) {
         return ''
     }
-    return `https://portal.einundzwanzig.space/${cc}/meetup/${slug}`
+    return `${portalBase(base)}/${cc}/meetup/${slug}`
 }
 
 /** Ein API-Record → fertige Praesentation (Flagge + Deep-Link abgeleitet). */
-export const buildPresentation = (rec: MeetupApiRecord): MeetupPresentation => {
+export const buildPresentation = (rec: MeetupApiRecord, base: string = DEFAULT_PORTAL_URL): MeetupPresentation => {
     const country = (rec.country || '').trim().toUpperCase()
     return {
         slug: rec.slug,
         country,
         flag: flagEmoji(country),
-        portalLink: portalLink(country, rec.slug),
+        portalLink: portalLink(country, rec.slug, base),
         city: rec.city || '',
         name: rec.name,
         nextEventStart: rec.next_event_start || '',
@@ -117,11 +140,11 @@ export const buildPresentation = (rec: MeetupApiRecord): MeetupPresentation => {
 }
 
 /** Die ganze API-Liste → Map slug → Praesentation (der Join-Index). */
-export const buildPresentationMap = (records: MeetupApiRecord[]): Map<string, MeetupPresentation> => {
+export const buildPresentationMap = (records: MeetupApiRecord[], base: string = DEFAULT_PORTAL_URL): Map<string, MeetupPresentation> => {
     const map = new Map<string, MeetupPresentation>()
     for (const rec of records) {
         if (rec && rec.slug) {
-            map.set(rec.slug, buildPresentation(rec))
+            map.set(rec.slug, buildPresentation(rec, base))
         }
     }
     return map

@@ -65,6 +65,14 @@
     <script>window.__nostrMedia = window.__nostrMedia ?? @js(config('group.media_public_url'));</script>
 @endif
 
+{{-- Portal origin for the client-side meetup join (`js/meetups.ts`): the list is fetched
+     from here and the deep links point here. Without this line the island falls back to
+     production — which is how the browser tests used to reach the live portal although they
+     point `PORTAL_URL` at a dead port. Same `??` rule as above. --}}
+@if (config('group.portal_url'))
+    <script>window.__nostrPortal = window.__nostrPortal ?? @js(config('group.portal_url'));</script>
+@endif
+
 {{-- Plattform-Flag: auf dem Gerät gated die Insel client-seitig (kein NIP-98).
      Ein vorab gesetztes Flag gewinnt (E2E via addInitScript, wie __nostrRelays). --}}
 <script>window.__nostrMobile = window.__nostrMobile ?? @js(\Einundzwanzig\Group\Chassis::istApp());</script>

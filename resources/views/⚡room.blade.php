@@ -1424,7 +1424,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <flux:text x-show="!zapNostrless" class="text-sm text-muted" role="status">{{ __('Mit einer Lightning-Wallet scannen oder Rechnung kopieren — die Zahlung wird automatisch erkannt.') }}</flux:text>
                 <flux:text x-show="zapNostrless" x-cloak class="text-sm text-muted" role="status">{{ __('Mit einer Lightning-Wallet scannen oder Rechnung kopieren. Danach das Fenster schließen — diese Zahlung erscheint nicht als Zap im Raum.') }}</flux:text>
                 <div class="flex justify-center">
-                    <img :src="zapQr" alt="{{ __('Lightning-Rechnung als QR-Code') }}" class="rounded-tile bg-white p-2" width="256" height="256" />
+                    {{-- `|| null`: Alpine removes a bound attribute for null but writes `src=""`, which the browser resolves to the page URL and reports as a failed image. --}}
+                    <img :src="zapQr || null" alt="{{ __('Lightning-Rechnung als QR-Code') }}" class="rounded-tile bg-white p-2" width="256" height="256" />
                 </div>
                 <div class="flex items-center gap-2">
                     <flux:input readonly ::value="zapInvoice" class="flex-1 font-mono text-xs" />

@@ -10,13 +10,20 @@
  */
 import { writable, get, type Readable } from 'svelte/store'
 import {
-    MEETUP_API_URL,
     buildPresentationMap,
+    meetupApiUrl,
+    portalBase,
     type MeetupApiRecord,
     type MeetupPresentation,
 } from './meetupPresentation.ts'
 
 export type { MeetupPresentation } from './meetupPresentation.ts'
+
+/**
+ * Portal origin from the server config, written by the host's head partial before the
+ * bundle boots (`window.__nostrPortal`, same `??` rule as `__nostrSpace`). Absent → production.
+ */
+const PORTAL_BASE = portalBase((globalThis as { __nostrPortal?: unknown }).__nostrPortal)
 
 /** Reaktiver Join-Index: slug → Praesentation. Leer, bis der Fetch durch ist. */
 const _presentationBySlug = writable<Map<string, MeetupPresentation>>(new Map())
@@ -40,12 +47,12 @@ export const loadMeetupPresentations = (): Promise<void> => {
     }
     _inflight = (async () => {
         try {
-            const resp = await fetch(MEETUP_API_URL, { headers: { Accept: 'application/json' } })
+            const resp = await fetch(meetupApiUrl(PORTAL_BASE), { headers: { Accept: 'application/json' } })
             if (!resp.ok) {
                 throw new Error(`meetup api ${resp.status}`)
             }
             const records = (await resp.json()) as MeetupApiRecord[]
-            _presentationBySlug.set(buildPresentationMap(records))
+            _presentationBySlug.set(buildPresentationMap(records, PORTAL_BASE))
             _loaded = true
         } catch {
             // fail-soft: Index bleibt leer; ein spaeterer Aufruf darf erneut versuchen.

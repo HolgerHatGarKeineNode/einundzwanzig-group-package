@@ -311,7 +311,8 @@
             {{-- Ergebnis: QR + kopierbare bolt11. --}}
             <div x-show="recvInvoice" x-cloak class="space-y-3">
                 <div class="flex justify-center">
-                    <img :src="recvQr" :alt="@js(__('QR-Code der Rechnung'))"
+                    {{-- `|| null`: Alpine removes a bound attribute for null but writes `src=""`, which the browser resolves to the page URL and reports as a failed image. --}}
+                    <img :src="recvQr || null" :alt="@js(__('QR-Code der Rechnung'))"
                          class="size-56 rounded-tile bg-white p-2" />
                 </div>
                 <button type="button" x-on:click="copy(recvInvoice, @js(__('Rechnung kopiert.')))"

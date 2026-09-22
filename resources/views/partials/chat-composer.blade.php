@@ -63,7 +63,8 @@
 <div x-show="{{ $attachment }}" x-cloak data-composer="{{ $context }}"
      class="surface-card mb-1 flex items-center gap-3 px-3 py-2">
     <template x-if="({{ $attachment }}?.mime || 'image/').startsWith('image/')">
-        <img :src="{{ $attachment }}?.previewUrl || $img({{ $attachment }}?.url, 'msg')" alt="{{ __('Anhang-Vorschau') }}"
+        {{-- `|| null`: Alpine removes a bound attribute for null but writes `src=""`, which the browser resolves to the page URL and reports as a failed image. --}}
+        <img :src="{{ $attachment }}?.previewUrl || $img({{ $attachment }}?.url, 'msg') || null" alt="{{ __('Anhang-Vorschau') }}"
              class="size-14 shrink-0 rounded-tile object-cover" />
     </template>
     <template x-if="!({{ $attachment }}?.mime || 'image/').startsWith('image/')">

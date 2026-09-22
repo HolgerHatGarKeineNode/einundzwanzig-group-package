@@ -691,7 +691,8 @@ new #[Layout('group::einundzwanzig')] class extends Component
                      Proxy, die data:-URL einer frisch gewählten Datei unverändert. --}}
                 <div class="flex items-center gap-3">
                     <div class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                        <img x-show="spaceIconPreview" :src="$img(spaceIconPreview)" alt="" class="size-full object-cover" />
+                        {{-- `|| null`: Alpine removes a bound attribute for null but writes `src=""`, which the browser resolves to the page URL and reports as a failed image. --}}
+                        <img x-show="spaceIconPreview" :src="$img(spaceIconPreview) || null" alt="" class="size-full object-cover" />
                         <flux:icon.server x-show="!spaceIconPreview" class="size-6 text-zinc-400" />
                     </div>
                     <flux:button size="sm" variant="ghost" icon="photo" x-on:click="$refs.spaceIcon.click()">{{ __('Icon ändern') }}</flux:button>
