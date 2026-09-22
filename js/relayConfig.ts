@@ -267,3 +267,47 @@ const EIGENE_RELAYS = [
  * nicht bei einer Literalliste.
  */
 export const darfAuthBekommen = (url: string): boolean => authErlaubt(url, METRIK_RELAYS, EIGENE_RELAYS)
+
+/**
+ * The address the island uses as its space when the host configured none — a name that
+ * can never be reached, and that {@link isUnconfiguredSpace} lets no socket and no NIP-11
+ * fetch go out to.
+ *
+ * ── Why no code default any more ─────────────────────────────────────────────────
+ *
+ * The space fell back to `ws://localhost:3334/`, the local test relay. A page whose head
+ * did not write `__nostrSpace` — measured on the device for every page of the app's own
+ * layout, v1.13.0 build 142 — therefore dialled the PHONE's own port 3334: a refused
+ * socket and a refused NIP-11 fetch on every load, and on a machine that does run
+ * something on 3334, a connection to whatever that is. A development default must not
+ * survive into a production bundle.
+ *
+ * A production default was the other option and is worse here: the value would have to
+ * be baked in at build time, the test bundles are built from the same `.env` as a release,
+ * and the browser suites point the space at a dead port precisely so that no test talks to
+ * the live relay (see `phpunit.browser.xml`). A baked-in production relay would reopen that.
+ * Same rule as `board_relay_url` and `workspace_url`: missing configuration = no
+ * connection.
+ *
+ * ── Why a reserved name and not `''` ─────────────────────────────────────────────
+ *
+ * `DEFAULT_SPACE_URL` has ten readers that all expect a relay URL, and
+ * `normalizeRelayUrl('')` throws — at module top level that would take the whole island
+ * down. `.invalid` is reserved for exactly this (RFC 6761 §6.4): it never resolves, and
+ * the space header shows the host name, so the unconfigured state is visible where the
+ * space's name would stand instead of looking like a slow relay.
+ */
+export const UNCONFIGURED_SPACE_URL = 'ws://space-not-configured.invalid/'
+
+/** The configured space from the host head, or {@link UNCONFIGURED_SPACE_URL}. */
+export const configuredSpaceUrl = (raw: unknown): string =>
+    normalizeRelayUrl(typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : UNCONFIGURED_SPACE_URL)
+
+/** Is this the unconfigured placeholder? Checked before any socket or fetch goes out. */
+export const isUnconfiguredSpace = (url: string): boolean => {
+    try {
+        return new URL(url).hostname.endsWith('.invalid')
+    } catch {
+        return false
+    }
+}

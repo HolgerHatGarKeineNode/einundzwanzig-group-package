@@ -61,6 +61,7 @@ import {
     App,
     Router as Router095,
     RelayStats,
+    Relays,
     appPolicyRelayStats,
     appPolicyCacheDecrypt,
     appPolicyLogSignerMethods,
@@ -79,7 +80,7 @@ import {
     PROFILE,
     WRAP,
 } from '@welshman/util'
-import { SocketEvent, isRelayEvent, makeSocketPolicyAuth } from '@welshman/net'
+import { SocketEvent, SocketStatus, isRelayEvent, makeSocketPolicyAuth, type Socket } from '@welshman/net'
 import { guardRelayQuality } from './deadRelays.ts'
 import { socketPolicyAuthHold } from './authHold.ts'
 import { appPolicyPrivateWraps } from './wrapIngest.ts'
@@ -89,7 +90,7 @@ import {
     makeSubscriptionLedger,
     rememberOwnRequest,
 } from './wrapOrigin.ts'
-import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, WORKSPACE_ROH, darfAuthBekommen } from './relayConfig.ts'
+import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, WORKSPACE_ROH, darfAuthBekommen, isUnconfiguredSpace } from './relayConfig.ts'
 
 /**
  * **Kein kind-0 vom Workspace-Relay ins Repository** (Risiko R3 des Sprung-Plans).
@@ -437,6 +438,42 @@ const authHoldPolicy: AppPolicy = (app) => {
 }
 
 /**
+ * No socket and no NIP-11 fetch to the unconfigured-space placeholder
+ * (`UNCONFIGURED_SPACE_URL` in `relayConfig.ts`, where the reasoning stands).
+ *
+ * The two doors are the only ones a relay URL has here: the pool opens a WebSocket per
+ * URL (`Socket.open`), and welshman fetches the NIP-11 document of every socket it sees
+ * (`Relays.fetch`, over http). The socket keeps its object — ten readers of
+ * `DEFAULT_SPACE_URL` hold it — but its `open` reports an error instead of dialling, so
+ * the existing "not reachable" handling runs and nothing leaves the device. `.invalid`
+ * never resolves anyway; this makes it not even try.
+ */
+const unconfiguredSpacePolicy: AppPolicy = (app) => {
+    const socketPolicy = (socket: Socket) => {
+        if (isUnconfiguredSpace(socket.url)) {
+            socket.open = () => {
+                socket.emit(SocketEvent.Status, SocketStatus.Error, socket.url)
+            }
+        }
+
+        return () => {}
+    }
+    app.pool.socketPolicies.push(socketPolicy)
+
+    const relays = app.use(Relays)
+    const fetchNip11 = relays.fetch
+    relays.fetch = async (url: string) => (isUnconfiguredSpace(url) ? undefined : fetchNip11(url))
+
+    return () => {
+        const index = app.pool.socketPolicies.indexOf(socketPolicy)
+        if (index !== -1) {
+            app.pool.socketPolicies.splice(index, 1)
+        }
+        relays.fetch = fetchNip11
+    }
+}
+
+/**
  * Unsere Policy-Liste. Bewusst NICHT `createApp` (das nimmt `defaultAppPolicies`):
  * zwei der sechs Voreinstellungen ersetzen wir — `appPolicyIngest` durch den
  * Workspace-Riegel (R3) und `appPolicyAuthUnlessBlocked` durch unsere engere AUTH-Regel.
@@ -483,6 +520,8 @@ const policies: AppPolicy[] = [
     // ZUERST: die anderen Policies lösen `app.use(Router)` mit auf, und der soll seinen
     // fertigen Auflöser vorfinden.
     resolverPolicy,
+    // Before anything can open a socket: the placeholder space must never be dialled.
+    unconfiguredSpacePolicy,
     ingestMitWorkspaceRiegel,
     // P7. **The position in this list carries NOTHING here** — it is stated so nobody
     // mistakes it for the protection: the two policies are independent

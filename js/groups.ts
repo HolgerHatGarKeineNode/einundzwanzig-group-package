@@ -70,6 +70,7 @@ import {
     type RoomAnswerVerdict,
 } from './roomReconcile.ts'
 import { storageReady } from './storage.ts'
+import { configuredSpaceUrl } from './relayConfig.ts'
 import { spaceSupportsRooms, spaceBranding, BUZZ_MESSAGE_V2 } from './relayCaps.ts'
 import { spaceIsBuzzAsync } from './buzzAdmin.ts'
 import { parseMeetupTags } from './meetupPresentation.ts'
@@ -687,15 +688,13 @@ export const userSpacesView: Readable<SpaceView[]> = derived(
 // ── Aktiver Space (Single-Space-Fokus, §12) ─────────────────────────────────
 
 /**
- * Fixierter Default-Space: eine hardcodierte Relay-URL (§12). Die App fokussiert
- * IMMER genau diesen Space — unabhängig von der 10009-Mitgliedschaft; gewechselt
- * wird nur in den Einstellungen. Überschreibbar via `window.__nostrSpace` (E2E);
- * Prod setzt hier die echte Vereins-Relay-URL.
- * ponytail: hardcodiert auf den lokalen Test-Relay — Upgrade: aus Server-Config
- * injizieren, sobald die produktive Space-URL feststeht.
+ * The fixed default space (§12): the app ALWAYS focuses exactly this space, regardless of
+ * the 10009 membership; it is changed only in the settings. The value comes from the host
+ * head (`window.__nostrSpace`, from `config('group.space_url')`); without it the island
+ * gets the unreachable placeholder and opens no connection — the reasoning, and why the
+ * old `ws://localhost:3334/` fallback had to go, is at `UNCONFIGURED_SPACE_URL`.
  */
-const spaceOverride = (globalThis as { __nostrSpace?: string }).__nostrSpace
-export const DEFAULT_SPACE_URL = normalizeRelayUrl(spaceOverride ?? 'ws://localhost:3334/')
+export const DEFAULT_SPACE_URL = configuredSpaceUrl((globalThis as { __nostrSpace?: string }).__nostrSpace)
 
 /**
  * Die EINUNDZWANZIG-Vereins-Relays: der fixierte Default-Space (lokaler
