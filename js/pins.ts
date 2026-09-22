@@ -345,4 +345,53 @@ export const mayUnpin = (
     return isRoomMember && (pinnedBy === ownPubkey || isSpaceAdmin)
 }
 
+/**
+ * What the pin bar shows for one pinned message.
+ *
+ * `unavailable` is the state that was missing: the bar asked the relay ONCE for a pinned
+ * message older than the loaded window, and when that request settled without the event
+ * (deleted, on another relay, refused, timed out) nothing ever said so — the row stayed on
+ * „Nachricht wird geladen…" for good (device sighting v1.13.0, room „TWENTY ONE Companion
+ * App"). The answer does not guess WHY the event is missing; it only stops claiming it is
+ * on its way.
+ */
+export type PinnedMessageState = 'loaded' | 'loading' | 'unavailable'
+
+/**
+ * The bookkeeping of the one-shot fetch per pinned id: which ids were asked for, and which
+ * of those requests have settled.
+ *
+ * `toRequest` hands out every id at most once (no second REQ, no loop through the
+ * recompute that the settled request triggers); `settle` records the end of a request, and
+ * `state` turns both into what the row shows. An event that arrives later through another
+ * channel (the room history) still wins: `loaded` is asked first.
+ */
+export const createPinFetchLedger = () => {
+    const requested = new Set<string>()
+    const settled = new Set<string>()
+
+    return {
+        toRequest(ids: string[], isLoaded: (id: string) => boolean): string[] {
+            const missing = ids.filter((id) => !isLoaded(id) && !requested.has(id))
+            missing.forEach((id) => requested.add(id))
+
+            return missing
+        },
+        settle(ids: string[]): void {
+            ids.forEach((id) => settled.add(id))
+        },
+        state(id: string, isLoaded: (id: string) => boolean): PinnedMessageState {
+            if (isLoaded(id)) {
+                return 'loaded'
+            }
+
+            return settled.has(id) ? 'unavailable' : 'loading'
+        },
+        clear(): void {
+            requested.clear()
+            settled.clear()
+        },
+    }
+}
+
 const unique = <T>(items: T[]): T[] => Array.from(new Set(items))

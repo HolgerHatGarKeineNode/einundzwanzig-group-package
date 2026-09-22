@@ -573,7 +573,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <span class="ms-auto shrink-0 font-mono text-[0.7rem] text-muted" x-text="pin.time"></span>
                                 </span>
                                 <span class="mt-0.5 block truncate text-sm"
-                                      x-text="pin.resolved ? pin.text : @js($jsVar8)"></span>
+                                      x-text="pin.resolved ? pin.text : (pin.unavailable ? @js(__('Nachricht nicht verfügbar')) : @js($jsVar8))"></span>
                             </button>
                             <template x-if="$store.roomPins.canUnpin(pin.id)">
                                 <flux:button size="xs" variant="ghost" icon="x-mark" square class="icon-btn-touch"

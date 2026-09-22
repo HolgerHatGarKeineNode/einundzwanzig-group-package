@@ -73,11 +73,13 @@ export const readPayments = (body: unknown): PaymentRow[] => {
 }
 
 /**
- * The four states this page can be in, and the surface says which one it is.
+ * The five states this page can be in, and the surface says which one it is.
  *
  * | condition                                         | state             |
  * |---------------------------------------------------|-------------------|
  * | `membership_status` = `active`                     | `mitglied`        |
+ * | a record exists, the current year is PAID, but     | `freischaltung-   |
+ * |   `membership_status` is not `active` (yet)        |   offen`          |
  * | a record exists, the current year is not paid      | `zahlung-offen`   |
  * | no record at all (404 / empty)                     | `kein-antrag`     |
  * | the association was not reachable                  | `unbekannt`       |
@@ -86,8 +88,14 @@ export const readPayments = (body: unknown): PaymentRow[] => {
  * (the join flow's payment step): somebody who applied and has not paid, and a member whose
  * new fee year is open. Distinguishing them would need a fourth button and says nothing the
  * reader has to act on differently.
+ *
+ * `freischaltung-offen` is the fee paid for the association's `current_year` while
+ * `membership_status` still says otherwise — the association reconciles payments at night
+ * (see `verein.ts`, „wartet auf den nächtlichen Abgleich"). Mapping that to `zahlung-offen`
+ * put „your fee is still open" and a pay button next to „Fee year 2026 · paid" (device
+ * sighting v1.13.0).
  */
-export type MitgliedschaftZustand = 'mitglied' | 'zahlung-offen' | 'kein-antrag' | 'unbekannt'
+export type MitgliedschaftZustand = 'mitglied' | 'freischaltung-offen' | 'zahlung-offen' | 'kein-antrag' | 'unbekannt'
 
 export const mitgliedschaftZustand = (input: {
     /** Did the read succeed at all? False = the association was not reachable. */
@@ -106,6 +114,9 @@ export const mitgliedschaftZustand = (input: {
     }
     if (input.membershipStatus === 'active') {
         return 'mitglied'
+    }
+    if (input.me.paid) {
+        return 'freischaltung-offen'
     }
 
     return 'zahlung-offen'

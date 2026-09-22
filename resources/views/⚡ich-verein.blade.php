@@ -62,7 +62,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Verein')] class extends Component
             <div x-show="angemeldet" x-cloak class="flex flex-col gap-4">
 
                 {{-- ── Status ───────────────────────────────────────────────────────
-                     Four states, one sentence each, and the fourth („unbekannt") is the one a
+                     Five states, one sentence each, and the last („unbekannt") is the one a
                      surface usually forgets: the association was not reachable. Saying „kein
                      Antrag" there would be a statement about somebody's membership that
                      nobody measured. Which state it is, is decided in ONE place
@@ -84,6 +84,13 @@ new #[Layout('group::einundzwanzig')] #[Title('Verein')] class extends Component
                             <flux:text x-show="!laden && zustand === 'mitglied'" x-cloak
                                        class="mt-1 text-sm" data-verein-satz="mitglied">
                                 {{ __('Du bist Mitglied. Danke, dass du den Verein trägst.') }}
+                            </flux:text>
+                            {{-- Paid for the current year, not yet active: the association
+                                 reconciles at night. Neither „still open" nor a pay button —
+                                 the fee box below says „paid" for the same year. --}}
+                            <flux:text x-show="!laden && zustand === 'freischaltung-offen'" x-cloak
+                                       class="mt-1 text-sm" data-verein-satz="freischaltung-offen">
+                                {{ __('Du bist noch nicht freigeschaltet. Der Abgleich läuft automatisch.') }}
                             </flux:text>
                             <flux:text x-show="!laden && zustand === 'zahlung-offen'" x-cloak
                                        class="mt-1 text-sm" data-verein-satz="zahlung-offen">

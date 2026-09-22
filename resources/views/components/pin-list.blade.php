@@ -66,6 +66,8 @@
              return '/start'
          },
          extern(row) { return row.prefix === 'meetup' && @js($meetupExtern) },
+         {{-- A pinned AREA is named like its tile on Start; the store only knows the key. --}}
+         name(row) { return row.prefix === 'area' ? ((@js(\Einundzwanzig\Group\Shell\AreaRegistry::labels()))[row.value] ?? row.label) : row.label },
          wasWort(prefix) {
              return {
                  room: @js(__('Raum')),
@@ -169,7 +171,7 @@
                             <span x-show="row.prefix === 'area'"><flux:icon.squares-2x2 variant="micro" class="size-4" /></span>
                             <span x-show="row.prefix === 'meetup'"><flux:icon.map-pin variant="micro" class="size-4" /></span>
                         </span>
-                        <span class="min-w-0 truncate" x-text="row.label"></span>
+                        <span class="min-w-0 truncate" x-text="name(row)"></span>
                         {{-- P2-Nachtrag (Entwurf C `screen-mobileweb`): der Ungelesen-Zähler
                              am Raum-Pin — dieselbe 18-px-Pille wie an der Befehlsleiste,
                              Datenlage `$store.unread.rooms` (Dennis-P2-Notiz). Nur in der
@@ -194,7 +196,7 @@
                            'pressable flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-btn px-2 py-1 text-sm text-zinc-900 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800' => $variant === 'bar',
                        ])>
                         <flux:icon.map-pin variant="micro" aria-hidden="true" class="size-4 shrink-0" />
-                        <span class="min-w-0 truncate" x-text="row.label"></span>
+                        <span class="min-w-0 truncate" x-text="name(row)"></span>
                         <flux:icon.arrow-top-right-on-square variant="micro" class="size-3.5 shrink-0" />
                         <span class="sr-only">{{ __('(öffnet das Portal)') }}</span>
                     </a>

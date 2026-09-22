@@ -171,7 +171,7 @@ export const resetMitgliedschaftCache = (): void => {
 }
 
 type MitgliedschaftState = {
-    /** The four states of the page — see `mitgliedschaftModelle.mitgliedschaftZustand`. */
+    /** The five states of the page — see `mitgliedschaftModelle.mitgliedschaftZustand`. */
     zustand: MitgliedschaftZustand
     /** A read is in flight. */
     laden: boolean

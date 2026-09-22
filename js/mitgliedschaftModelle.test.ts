@@ -129,6 +129,27 @@ test('mitgliedschaftZustand: a LAPSED member is not active — the second status
     assert.equal(mitgliedschaftZustand({ gelesen: true, ohneAkte: false, me, membershipStatus }), 'zahlung-offen')
 })
 
+test('mitgliedschaftZustand: a PAID current year is never „zahlung-offen", whatever membership_status still says', () => {
+    /*
+     * Device sighting v1.13.0: „Your fee for this year is still open." and „Pay the fee" stood
+     * above „Fee year 2026 · paid". The association had confirmed the payment for its
+     * `current_year` and not yet flipped `membership_status` (nightly reconciliation). The
+     * headline and the button read the status, the fee box read `paid` — two sources, two
+     * answers.
+     */
+    const body = {
+        data: {
+            ...ME_AKTIV.data,
+            membership_status: 'awaiting_payment',
+            current_year: { year: 2026, fee: 21000, currency: 'SATS', paid: true, receipt_url: 'https://btcpay.example/i/x/receipt' },
+        },
+    }
+    const { me, membershipStatus } = readMembership(body)
+
+    assert.equal(me.paid, true)
+    assert.equal(mitgliedschaftZustand({ gelesen: true, ohneAkte: false, me, membershipStatus }), 'freischaltung-offen')
+})
+
 test('mitgliedschaftZustand: no record at all is „kein-antrag" (the 404 of a guest)', () => {
     assert.equal(
         mitgliedschaftZustand({ gelesen: true, ohneAkte: true, me: readMembership({}).me, membershipStatus: '' }),

@@ -149,9 +149,12 @@ new #[Layout('group::einundzwanzig')] class extends Component
                     </span>
                     <flux:icon.chevron-right class="size-4 shrink-0 text-zinc-400" />
                 </a>
-                <div class="border-t border-zinc-200/60 px-4 pb-3 pt-2 dark:border-border">
-                    <x-group::rsvp-termin kompakt ausdruck="address" />
-                </div>
+                {{-- The footer classes sit ON the RSVP row, not on a wrapper around it: the row
+                     hides itself (`x-show`) while the date is not open for an answer, and a
+                     wrapper kept its hairline and 20 px of padding as an empty strip under the
+                     card (device sighting v1.13.0). --}}
+                <x-group::rsvp-termin kompakt ausdruck="address"
+                                      class="border-t border-zinc-200/60 px-4 pb-3 pt-2 dark:border-border" />
             </div>
         </section>
 
@@ -258,16 +261,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
              back; `rel="external"` marks them for `wire:navigate`, which then does not
              treat them as an SPA destination. --}}
         @php($portal = rtrim((string) config('group.portal_url', ''), '/'))
-        @php($beschriftung = [
-            'chat' => __('Chat'),
-            'meetups' => __('Meetups'),
-            'artikel' => __('Artikel'),
-            'forge' => __('Forge'),
-            'leute' => __('Leute'),
-            'wallet' => __('Wallet'),
-            'kurse' => __('Kurse'),
-            'verein' => __('Verein'),
-        ])
+        @php($beschriftung = \Einundzwanzig\Group\Shell\AreaRegistry::labels())
         <section aria-labelledby="start-bereiche">
             <h2 id="start-bereiche" class="mb-2 text-xs font-bold uppercase tracking-[0.08em] text-muted">
                 {{ __('Alle Bereiche') }}

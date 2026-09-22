@@ -26,6 +26,29 @@ namespace Einundzwanzig\Group\Shell;
 final class AreaRegistry
 {
     /**
+     * The visible name of each area, in the active locale. Called at render time and not
+     * stored in the config, for the reason the class docblock gives under `key`.
+     *
+     * ONE map for both places that name an area: the tile on Start and a pinned area chip
+     * (`pin-list`). The chip used to fall back to the raw key and read „wallet".
+     *
+     * @return array<string, string>
+     */
+    public static function labels(): array
+    {
+        return [
+            'chat' => __('Chat'),
+            'meetups' => __('Meetups'),
+            'artikel' => __('Artikel'),
+            'forge' => __('Forge'),
+            'leute' => __('Leute'),
+            'wallet' => __('Wallet'),
+            'kurse' => __('Kurse'),
+            'verein' => __('Verein'),
+        ];
+    }
+
+    /**
      * @param  array<string, string>  $routes  key => named route, replacing that entry's
      *                                         target (up to P3 the companion bound
      *                                         `meetups`/`kurse` to its own Portal pages;

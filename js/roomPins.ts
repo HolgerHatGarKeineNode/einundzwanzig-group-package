@@ -64,6 +64,7 @@ import {
     ZOOID_PUT_PINS,
     buzzPinEntries,
     buzzUnpinCommands,
+    createPinFetchLedger,
     foreignPinTags,
     isAlreadyGoneError,
     isZooidPinList,
@@ -74,6 +75,7 @@ import {
     pinnedIdsFromList,
     putPinsTags,
     type PinEventLike,
+    type PinnedMessageState,
 } from './pins.ts'
 
 /** Eine Zeile der Pin-Leiste. `text` ist leer, solange die Nachricht noch nicht da ist. */
@@ -86,6 +88,8 @@ export type PinnedEntry = {
     pinnedBy: string
     /** Ist die Nachricht selbst schon geladen? Sonst steht in der Leiste ein Platzhalter. */
     resolved: boolean
+    /** The one-shot fetch settled without the event — the row says so instead of „loading". */
+    unavailable: boolean
 }
 
 type RoomPinsStore = {
@@ -135,13 +139,19 @@ const noop = (): void => {}
  * Exportiert, damit die Zusage prüfbar ist, ohne die Alpine-Insel zu bauen — dieselbe
  * Begründung wie bei `updates.ts updatesMentionCandidates`.
  */
-export const pinnedEntry = (id: string, pinnedBy: string, event: TrustedEvent | undefined): PinnedEntry => ({
+export const pinnedEntry = (
+    id: string,
+    pinnedBy: string,
+    event: TrustedEvent | undefined,
+    state: PinnedMessageState = event ? 'loaded' : 'loading',
+): PinnedEntry => ({
     id,
     text: event ? previewBody(event, displayProfileByPubkey) : '',
     name: event ? displayProfileByPubkey(event.pubkey) : '',
     time: event ? fullTimeLabel(event.created_at) : '',
     pinnedBy,
     resolved: Boolean(event),
+    unavailable: !event && state === 'unavailable',
 })
 
 /**
@@ -227,8 +237,8 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
     let isAdmin = false
     /** Darf hier geschrieben werden? Quelle je Relay verschieden — {@link deriveCanWriteHere}. */
     let canWriteHere = false
-    /** Ids, die bereits gezielt nachgeladen wurden (kein zweiter REQ je Id). */
-    const requested = new Set<string>()
+    /** Ids fetched on their own (one REQ per id at most), and which of those requests settled. */
+    const fetches = createPinFetchLedger()
     /**
      * Pin-Ereignisse (`40004`), deren Löschung der Relay **bestätigt** hat.
      *
@@ -453,7 +463,7 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
         armedFor = null
         rawPins = []
         pinList = null
-        requested.clear()
+        fetches.clear()
         confirmedUnpinned.clear()
         self.h = ''
         self.url = ''
@@ -529,13 +539,19 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
             ids = pinList ? pinnedIdsFromList(pinList, self.h) : []
         }
 
+        const isLoaded = (id: string): boolean => Boolean(app.repository.getEvent(id))
+
         self.entries = ids.map((id) =>
-            pinnedEntry(id, pinnedByById.get(id) ?? '', app.repository.getEvent(id) as TrustedEvent | undefined),
+            pinnedEntry(
+                id,
+                pinnedByById.get(id) ?? '',
+                app.repository.getEvent(id) as TrustedEvent | undefined,
+                fetches.state(id, isLoaded),
+            ),
         )
 
-        const missing = ids.filter((id) => !app.repository.getEvent(id) && !requested.has(id))
-        if (missing.length > 0 && self.url) {
-            missing.forEach((id) => requested.add(id))
+        const missing = self.url ? fetches.toRequest(ids, isLoaded) : []
+        if (missing.length > 0) {
             // Gezielt und einmalig: eine gepinnte Nachricht kann älter sein als das
             // geladene Fenster. Ohne diesen Load bliebe die Leiste bei einem alten Pin
             // dauerhaft ein Platzhalter.
@@ -550,7 +566,17 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
             // trifft später ein und wird nie wieder gelesen. Der `requested`-Wächter
             // verhindert dabei die Endlosschleife — der zweite Durchlauf findet nichts
             // Fehlendes mehr und lädt nicht erneut.
-            void load({ relays: [self.url], filters: [{ ids: missing }] }).then(() => recompute())
+            //
+            // `.finally` and not `.then`: a REJECTED load settles the request as well. Once
+            // settled, an id still absent from the repository reads `unavailable` instead of
+            // „loading" forever. The `requested` guard named above lives in
+            // `fetches.toRequest` now.
+            void load({ relays: [self.url], filters: [{ ids: missing }] })
+                .catch(() => undefined)
+                .finally(() => {
+                    fetches.settle(missing)
+                    recompute()
+                })
         }
     }
 
