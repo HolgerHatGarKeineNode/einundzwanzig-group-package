@@ -50,7 +50,7 @@ new #[Layout('group::einundzwanzig')] #[Title('Vereinsbeitritt')] class extends 
                 <flux:text>{{ __('Der Beitritt ist in dieser App gerade nicht eingerichtet.') }}</flux:text>
                 <flux:button variant="primary" class="mt-4 w-full" icon:trailing="arrow-up-right"
                              href="{{ config('group.verein_public_url') }}" target="_blank" rel="noopener"
-                             x-on:click="openExternal(@js($jsVar1), $event)">
+                             x-on:click="openExternal({{ Js::from($jsVar1) }}, $event)">
                     {{ __('Beitritt im Browser öffnen') }}
                 </flux:button>
                 {{-- Wohin der Knopf führt, steht darunter — derselbe Handgriff wie

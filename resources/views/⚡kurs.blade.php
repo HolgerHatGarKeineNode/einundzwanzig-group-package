@@ -116,7 +116,7 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                                 @if ($termin->link !== null)
                                     <flux:button size="xs" variant="ghost" icon="arrow-top-right-on-square"
                                                  class="icon-btn-touch shrink-0"
-                                                 wire:click="openLink(@js($termin->link))"
+                                                 wire:click="openLink({{ Js::from($termin->link) }})"
                                                  :aria-label="__('Zum Termin')" />
                                 @endif
                             </div>

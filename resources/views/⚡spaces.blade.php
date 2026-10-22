@@ -954,7 +954,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         <flux:modal name="room-form" class="max-w-sm"
                     x-on:close="$nextTick(() => { if (document.activeElement === document.body) $refs.roomList?.focus() })">
             <div class="space-y-4">
-                <flux:heading size="lg" x-text="roomForm.h ? @js(__('Raum bearbeiten')) : @js(__('Neuer Raum'))"></flux:heading>
+                <flux:heading size="lg" x-text="roomForm.h ? {{ Js::from(__('Raum bearbeiten')) }} : {{ Js::from(__('Neuer Raum')) }}"></flux:heading>
 
                 {{-- Raumbild: runde-eckige Vorschau + „wählen". Upload erst beim Speichern.
                      `$img` (P7): die Vorschau einer REMOTEN picture (beim Bearbeiten

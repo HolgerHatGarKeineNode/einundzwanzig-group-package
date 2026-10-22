@@ -58,7 +58,7 @@
                 icon:trailing="arrow-right"
                 data-testid="verein-gate-anmelden"
                 class="mt-5 w-full"
-                x-on:click="$store.authGate.requireAuth({ label: @js(__('Melde dich an, um fortzufahren.')) })">
+                x-on:click="$store.authGate.requireAuth({ label: {{ Js::from(__('Melde dich an, um fortzufahren.')) }} })">
                 {{ __('Anmelden') }}
             </flux:button>
 
@@ -122,7 +122,7 @@
                 href="{{ config('group.verein_public_url') }}"
                 target="_blank"
                 rel="noopener"
-                x-on:click="openExternal(@js(config('group.verein_public_url')), $event)"
+                x-on:click="openExternal({{ Js::from(config('group.verein_public_url')) }}, $event)"
                 variant="primary"
                 icon:trailing="arrow-up-right"
                 data-testid="verein-gate-extern"

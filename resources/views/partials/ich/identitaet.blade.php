@@ -37,7 +37,7 @@
             <flux:text class="mt-1 text-sm text-muted">{{ __('Mit deinem Nostr-Schlüssel gehören dir Postfach, Lesezeichen und Wallet.') }}</flux:text>
             <div class="mt-3">
                 <flux:button size="sm" variant="primary" icon="key" data-ich-anmelden
-                             x-on:click="$store.authGate.requireAuth({ label: @js(__('Ich')), returnUrl: '/ich' })">
+                             x-on:click="$store.authGate.requireAuth({ label: {{ Js::from(__('Ich')) }}, returnUrl: '/ich' })">
                     {{ __('Anmelden') }}
                 </flux:button>
             </div>

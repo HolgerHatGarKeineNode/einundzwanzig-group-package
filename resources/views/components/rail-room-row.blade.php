@@ -208,7 +208,7 @@
                  set the density of the whole column. The touch surface for these
                  two actions is the mobile list, and there the class is on. --}}
             <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal"
-                         x-bind:aria-label="@js(__('Einstellungen für :name')).split(':name').join(room.name || room.h)" />
+                         x-bind:aria-label="{{ Js::from(__('Einstellungen für :name')) }}.split(':name').join(room.name || room.h)" />
             <flux:menu>
                 {{-- `togglePinned` routes: a workspace room goes to Buzz' `channel-stars`, a
                      space room into the reader's own pin set (`pinWriteRoute`). One entry, one

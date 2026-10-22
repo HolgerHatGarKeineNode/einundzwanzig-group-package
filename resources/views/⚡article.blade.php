@@ -179,7 +179,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          beim Antippen den Grund (`teilenAusloesen`). Das INERTE Muster
                          dieser Fläche, zum ersten von zwei Malen. --}}
                     <flux:button size="sm" variant="ghost" icon="link"
-                                 x-bind:aria-label="canShare ? @js(__('Artikel teilen')) : @js(__('Link kopieren'))"
+                                 x-bind:aria-label="canShare ? {{ Js::from(__('Artikel teilen')) }} : {{ Js::from(__('Link kopieren')) }}"
                                  x-bind:aria-disabled="teilZiel().teilbar ? null : 'true'"
                                  x-on:click="teilenAusloesen()" />
                 </template>

@@ -1473,7 +1473,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                     <div class="shrink-0 pe-1" x-on:click.stop>
                                         <flux:dropdown position="bottom" align="end">
                                             <flux:button size="xs" variant="ghost" icon="ellipsis-vertical" class="icon-btn-touch"
-                                                         x-bind:aria-label="@js(__('Einstellungen für :name')).split(':name').join(room.name)" />
+                                                         x-bind:aria-label="{{ Js::from(__('Einstellungen für :name')) }}.split(':name').join(room.name)" />
                                             <flux:menu>
                                                 <flux:menu.item icon="pin" x-on:click="togglePinned(room)">
                                                     <span x-text="isPinned(room) ? @js(__('Anheftung des Raums aufheben')) : @js(__('Raum anheften'))"></span>

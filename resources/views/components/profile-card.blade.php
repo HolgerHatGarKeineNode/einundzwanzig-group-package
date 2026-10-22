@@ -240,7 +240,7 @@
                                  x-show="$store.follows?.canFollow" x-cloak
                                  x-bind:aria-busy="$store.follows?.busy ? 'true' : 'false'"
                                  x-bind:aria-disabled="$store.follows?.listSeen ? null : 'true'"
-                                 x-bind:aria-label="$store.follows?.listSeen ? null : ($store.follows?.noRelayList ? @js(__('Kontaktliste laden — danach kannst du folgen')) : @js(__('Kontaktliste wird geladen — Folgen ist noch nicht möglich')))"
+                                 x-bind:aria-label="$store.follows?.listSeen ? null : ($store.follows?.noRelayList ? {{ Js::from(__('Kontaktliste laden — danach kannst du folgen')) }} : {{ Js::from(__('Kontaktliste wird geladen — Folgen ist noch nicht möglich')) }})"
                                  x-on:click="$store.follows?.toggle(pubkey)">
                         {{-- ── The third state has TWO wordings, and the difference is honesty (D8) ──
                              `listSeen` false means „we have not read the list". For a

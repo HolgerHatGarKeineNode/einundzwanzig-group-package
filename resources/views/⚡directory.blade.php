@@ -515,7 +515,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
         {{-- Rolle anlegen/bearbeiten (HSL via native range, §6) --}}
         <flux:modal name="role-form" class="max-w-sm">
             <div class="space-y-4">
-                <flux:heading size="lg" x-text="roleForm.id ? @js(__('Rolle bearbeiten')) : @js(__('Neue Rolle'))"></flux:heading>
+                <flux:heading size="lg" x-text="roleForm.id ? {{ Js::from(__('Rolle bearbeiten')) }} : {{ Js::from(__('Neue Rolle')) }}"></flux:heading>
 
                 <flux:input label="{{ __('Bezeichnung') }}" x-model="roleForm.label" placeholder="{{ __('z.B. Vorstand') }}" />
                 <flux:textarea label="{{ __('Beschreibung') }}" x-model="roleForm.description" rows="2" placeholder="{{ __('Optional') }}" />

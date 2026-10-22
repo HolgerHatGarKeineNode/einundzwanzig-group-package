@@ -535,7 +535,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                                  x-bind:aria-expanded="$store.roomPins.collapsed ? 'false' : 'true'"
                                  aria-expanded="true" aria-controls="room-pin-list"
                                  x-on:click="$store.roomPins.collapsed = !$store.roomPins.collapsed"
-                                 x-bind:aria-label="$store.roomPins.collapsed ? @js($jsVar6) : @js($jsVar7)">
+                                 x-bind:aria-label="$store.roomPins.collapsed ? {{ Js::from($jsVar6) }} : {{ Js::from($jsVar7) }}">
                         <flux:icon.chevron-up variant="micro" class="size-4 shrink-0 transition-transform"
                                               x-bind:class="$store.roomPins.collapsed ? 'rotate-180' : ''" />
                     </flux:button>
@@ -1429,7 +1429,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 </div>
                 <div class="flex items-center gap-2">
                     <flux:input readonly ::value="zapInvoice" class="flex-1 font-mono text-xs" />
-                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, @js($jsVar18))" aria-label="{{ __('Rechnung kopieren') }}" />
+                    <flux:button size="sm" variant="ghost" icon="clipboard" x-ref="zapCopyBtn" x-on:click="copy(zapInvoice, {{ Js::from($jsVar18) }})" aria-label="{{ __('Rechnung kopieren') }}" />
                 </div>
                 <a href="{{ route('group.bereich.wallet') }}" wire:navigate class="block text-center text-sm text-brand-500 hover:underline">{{ __('Wallet verbinden für 1-Klick-Zaps') }}</a>
                 <flux:modal.close><flux:button variant="ghost" class="w-full">{{ __('Fertig') }}</flux:button></flux:modal.close>
@@ -1697,7 +1697,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                 <div class="space-y-1">
                     <div class="flex items-center justify-between">
                         <flux:text class="text-xs text-muted">{{ __('Roh-Event') }}</flux:text>
-                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, @js($jsVar27))">{{ __('Kopieren') }}</flux:button>
+                        <flux:button size="xs" variant="ghost" icon="clipboard" class="icon-btn-touch" x-on:click="copy(infoFor.json, {{ Js::from($jsVar27) }})">{{ __('Kopieren') }}</flux:button>
                     </div>
                     <pre class="surface-card max-h-60 overflow-auto rounded-tile p-2 text-xs"><code x-text="infoFor.json"></code></pre>
                 </div>

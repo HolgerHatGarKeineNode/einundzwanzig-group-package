@@ -192,7 +192,7 @@
                 <span aria-hidden="true" class="inline-flex size-6 shrink-0 items-center justify-center">
                     <flux:icon.chevron-right variant="micro"
                                              class="size-3 shrink-0 transition-transform"
-                                             x-bind:class="isOpen(@js($group)) ? 'rotate-90' : ''" />
+                                             x-bind:class="isOpen({{ Js::from($group) }}) ? 'rotate-90' : ''" />
                 </span>
                 @unless ($headingHref)
                     <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.08em]">{{ $label }}</span>

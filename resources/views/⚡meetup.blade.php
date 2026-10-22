@@ -119,7 +119,7 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                         <flux:button size="sm" variant="primary" icon="chat-bubble-left-right"
                                      href="{{ route('group.room', $detail->roomH()) }}"
                                      data-portal-raum="{{ $detail->roomH() }}"
-                                     x-on:click="$store.authGate?.gateTap($event, { label: @js($meetup->name) })">
+                                     x-on:click="$store.authGate?.gateTap($event, { label: {{ Js::from($meetup->name) }} })">
                             {{ __('Zum Raum-Chat') }}
                         </flux:button>
                     @endif
@@ -186,7 +186,7 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                     @if ($next->link !== null)
                         <div class="mt-4">
                             <flux:button size="sm" variant="ghost" icon="arrow-top-right-on-square"
-                                         wire:click="openLink(@js($next->link))" data-portal-termin-link>
+                                         wire:click="openLink({{ Js::from($next->link) }})" data-portal-termin-link>
                                 {{ __('Zum Termin') }}
                             </flux:button>
                         </div>

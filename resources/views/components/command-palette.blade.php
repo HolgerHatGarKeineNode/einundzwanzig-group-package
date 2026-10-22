@@ -174,7 +174,7 @@
                             autocomplete="off"
                             autocorrect="off"
                             spellcheck="false"
-                            x-bind:placeholder="hasScope ? @js(__('Filtern…')) : @js(__('Springen, suchen, ausführen…'))"
+                            x-bind:placeholder="hasScope ? {{ Js::from(__('Filtern…')) }} : {{ Js::from(__('Springen, suchen, ausführen…')) }}"
                             aria-label="{{ __('Suchen und springen') }}"
                             class="ps-0! border-b-0! bg-white dark:bg-zinc-900" />
                     </div>
@@ -259,7 +259,7 @@
                                  „Attribut fehlt" hieße dann zweierlei — nicht beigetreten
                                  ODER noch nicht gebunden. --}}
                             x-bind:data-palette-joined="room.joined === true ? 'true' : 'false'"
-                            x-bind:aria-label="@js(__('Raum: :name')).split(':name').join(room.name)"
+                            x-bind:aria-label="{{ Js::from(__('Raum: :name')) }}.split(':name').join(room.name)"
                             x-on:click="openRoom(room)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
@@ -280,7 +280,7 @@
                         <flux:command.item
                             data-palette-section="members"
                             x-bind:data-palette-pubkey="member.pubkey"
-                            x-bind:aria-label="@js(__('Mitglied: :name')).split(':name').join(member.name)"
+                            x-bind:aria-label="{{ Js::from(__('Mitglied: :name')) }}.split(':name').join(member.name)"
                             x-on:click="openMember(member)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
@@ -301,7 +301,7 @@
                         <flux:command.item
                             data-palette-section="spaces"
                             x-bind:data-palette-url="space.url"
-                            x-bind:aria-label="@js(__('Space: :label')).split(':label').join(space.label)"
+                            x-bind:aria-label="{{ Js::from(__('Space: :label')) }}.split(':label').join(space.label)"
                             x-on:click="openSpace(space)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
@@ -336,7 +336,7 @@
                         <flux:command.item
                             data-palette-section="meetups"
                             x-bind:data-palette-portal="row.t + ':' + row.r"
-                            x-bind:aria-label="@js(__('Meetup: :name')).split(':name').join(row.n)"
+                            x-bind:aria-label="{{ Js::from(__('Meetup: :name')) }}.split(':name').join(row.n)"
                             x-on:click="openPortal(row)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
@@ -356,7 +356,7 @@
                         <flux:command.item
                             data-palette-section="events"
                             x-bind:data-palette-portal="row.t + ':' + row.r"
-                            x-bind:aria-label="@js(__('Termin: :name')).split(':name').join(row.n + ' · ' + row.d)"
+                            x-bind:aria-label="{{ Js::from(__('Termin: :name')) }}.split(':name').join(row.n + ' · ' + row.d)"
                             x-on:click="openPortal(row)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
@@ -376,7 +376,7 @@
                         <flux:command.item
                             data-palette-section="courses"
                             x-bind:data-palette-portal="row.t + ':' + row.r"
-                            x-bind:aria-label="@js(__('Kurs: :name')).split(':name').join(row.n)"
+                            x-bind:aria-label="{{ Js::from(__('Kurs: :name')) }}.split(':name').join(row.n)"
                             x-on:click="openPortal(row)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
@@ -396,7 +396,7 @@
                         <flux:command.item
                             data-palette-section="lecturers"
                             x-bind:data-palette-portal="row.t + ':' + row.r"
-                            x-bind:aria-label="@js(__('Referent: :name')).split(':name').join(row.n)"
+                            x-bind:aria-label="{{ Js::from(__('Referent: :name')) }}.split(':name').join(row.n)"
                             x-on:click="openPortal(row)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
@@ -430,7 +430,7 @@
                         <flux:command.item
                             data-palette-section="zusagen"
                             x-bind:data-palette-zusage="row.a"
-                            x-bind:aria-label="@js(__('Zusagen: :name')).split(':name').join(row.n + ' · ' + row.d)"
+                            x-bind:aria-label="{{ Js::from(__('Zusagen: :name')) }}.split(':name').join(row.n + ' · ' + row.d)"
                             x-on:click="zusagen(row)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">
@@ -452,7 +452,7 @@
                         <flux:command.item
                             data-palette-section="actions"
                             x-bind:data-palette-action="action.id"
-                            x-bind:aria-label="@js(__('Aktion: :label')).split(':label').join(action.label)"
+                            x-bind:aria-label="{{ Js::from(__('Aktion: :label')) }}.split(':label').join(action.label)"
                             x-on:click="runAction(action)"
                             class="dark:data-active:bg-accent-wash! min-h-11 items-center gap-3 rounded-btn! px-2.5! py-1.5">
                             <span aria-hidden="true" class="flex size-11 shrink-0 items-center justify-center rounded-tile border border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-border-chip dark:bg-surface-2 dark:text-accent">

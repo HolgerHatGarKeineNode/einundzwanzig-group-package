@@ -72,7 +72,7 @@ new #[Layout('group::einundzwanzig')] class extends Component
                          im built Bundle, nicht im Markup. --}}
                     <flux:button variant="primary" icon="key" data-start-anmelden
                                  class="h-11! px-4! text-[15px]! font-extrabold!"
-                                 x-on:click="$store.authGate.requireAuth({ label: @js(__('Start')), returnUrl: '/start' })">
+                                 x-on:click="$store.authGate.requireAuth({ label: {{ Js::from(__('Start')) }}, returnUrl: '/start' })">
                         {{ __('Anmelden') }}
                     </flux:button>
                 </div>

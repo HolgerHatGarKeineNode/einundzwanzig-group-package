@@ -42,7 +42,7 @@
                      the rule `I18nCatalogGateTest` enforces. Without the name, a list
                      would announce a dozen identical-sounding buttons. --}}
                 <flux:button size="xs" variant="ghost" class="shrink-0" data-mute-remove
-                             x-bind:aria-label="@js(__('Ausblenden von :name aufheben')).split(':name').join(person.name)"
+                             x-bind:aria-label="{{ Js::from(__('Ausblenden von :name aufheben')) }}.split(':name').join(person.name)"
                              x-on:click="$store.mutes.toggle(person.pubkey)">{{ __('Wieder einblenden') }}</flux:button>
             </div>
         </template>

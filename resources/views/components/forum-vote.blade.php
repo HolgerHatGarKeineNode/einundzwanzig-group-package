@@ -70,7 +70,7 @@
                      class="icon-btn-touch"
                      data-forum-vote="up"
                      x-bind:aria-pressed="({{ $topic }}).myVote === 1 ? 'true' : 'false'"
-                     x-bind:aria-label="@js(__('Thema :title befürworten')).split(':title').join(({{ $topic }}).title || @js(__('Ohne Titel')))"
+                     x-bind:aria-label="{{ Js::from(__('Thema :title befürworten')) }}.split(':title').join(({{ $topic }}).title || {{ Js::from(__('Ohne Titel')) }})"
                      x-on:click="voteTopic({{ $topic }}, 1)" />
     </template>
 
@@ -93,7 +93,7 @@
                      class="icon-btn-touch"
                      data-forum-vote="down"
                      x-bind:aria-pressed="({{ $topic }}).myVote === -1 ? 'true' : 'false'"
-                     x-bind:aria-label="@js(__('Thema :title ablehnen')).split(':title').join(({{ $topic }}).title || @js(__('Ohne Titel')))"
+                     x-bind:aria-label="{{ Js::from(__('Thema :title ablehnen')) }}.split(':title').join(({{ $topic }}).title || {{ Js::from(__('Ohne Titel')) }})"
                      x-on:click="voteTopic({{ $topic }}, -1)" />
     </template>
 </div>
