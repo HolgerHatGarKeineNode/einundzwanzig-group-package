@@ -187,6 +187,9 @@
                          decided by the segment, which can say so. A button that hides itself
                          because a NIP-11 answer has not arrived yet looks like a missing
                          feature (the documented `spaceCaps` trap). --}}
+                    {{-- Hosts that embed only the components (einundzwanzig-verein) register no `group.*`
+                         routes and have no Postfach; `route()` would throw and take the whole card down. --}}
+                    @if (Route::has('group.postfach'))
                     <flux:button variant="primary" size="sm" icon="lock-closed" class="flex-1 basis-0 text-btn-touch"
                                  data-person-dm
                                  aria-label="{{ __('Verschlüsselte Nachricht schreiben') }}"
@@ -194,6 +197,7 @@
                                  x-on:click="Livewire.navigate({{ \Illuminate\Support\Js::from(route('group.postfach', ['ansicht' => 'direkt'])) }} + '&an=' + encodeURIComponent([pubkey, $store.pinSet?.me ?? ''].sort().join(',')))">
                         {{ __('Schreiben') }}
                     </flux:button>
+                    @endif
 
                     {{-- Kind 3 is the most consequential replaceable list this client
                          writes: one per person, global, and the object every other client
