@@ -555,9 +555,12 @@ const INVENTAR: Deklaration[] = [
     {
         datei: 'resources/views/components/command-palette.blade.php',
         ausdruck: 'member.nip05',
-        quellen: ['markup'],
+        // Two reads on ONE line (`x-show="member.nip05" x-text="member.nip05"`, since P3
+        // 2026-09-18): the guard and the text. Same model value, so one source twice — the
+        // declaration said one, and the count case stayed red from that commit on.
+        quellen: ['markup', 'markup'],
         modell: { datei: 'js/members.ts', token: 'verifiedNip05(' },
-        warum: 'Palette zeigt dieselben Mitglieder-Modelle.',
+        warum: 'Palette zeigt dieselben Mitglieder-Modelle (Guard `x-show` und Text `x-text` auf einer Zeile).',
     },
     {
         datei: 'resources/views/partials/chat-row.blade.php',
