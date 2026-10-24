@@ -176,7 +176,7 @@
                             spellcheck="false"
                             x-bind:placeholder="hasScope ? {{ Js::from(__('Filtern…')) }} : {{ Js::from(__('Springen, suchen, ausführen…')) }}"
                             aria-label="{{ __('Suchen und springen') }}"
-                            class="ps-0! border-b-0! bg-white dark:bg-zinc-900" />
+                            class="ps-0! border-b-0! bg-white dark:bg-overlay!" />
                     </div>
 
                     <flux:modal.close>
@@ -221,7 +221,7 @@
 
                 <flux:command.items
                     data-palette-items
-                    class="min-h-0 max-h-none flex-1 overflow-y-auto bg-white px-2 py-2 dark:bg-overlay sm:max-h-[60dvh] sm:flex-none">
+                    class="min-h-0 max-h-none flex-1 overflow-y-auto bg-white px-2 py-2 dark:bg-overlay! sm:max-h-[60dvh] sm:flex-none">
 
                     {{-- Eigener Leerzustand statt `flux:command.empty`. Zwei
                          gemessene Gründe, beide in `palette.ts` bei `_syncHeadings`

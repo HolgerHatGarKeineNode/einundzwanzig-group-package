@@ -108,14 +108,18 @@
          ── P2 (Entwurf C): die Bottom-Bar trägt den Punkt nicht mehr, sondern
          die ZÄHLER-PILLE des Artboards (18 px, Orange, dunkle Ziffer) — siehe
          unten beim Label. Der Punkt lebt in der Rail weiter. --}}
-@php($punkt = '$store.unread?.any')
+{{-- The bottom bar carries the dot again, but only while its Postfach pill shows nothing:
+     the pill counts `postfach` alone, so an unread row elsewhere (`any`) used to leave the
+     bar blank while the Postfach listed it (updates.spec Anchor 20). Pill and dot never
+     show together. --}}
+@php($punkt = $rail ? '$store.unread?.any' : '$store.unread?.any && !(($store.unread?.postfach ?? 0) > 0)')
     <span class="relative inline-flex">
         {{-- P2 (Entwurf C §2 `.tab`): Stroke-Icon in BEIDEN Zuständen — das
              Artboard zeichnet keinen outline/solid-Wechsel; der aktive Zustand
              trägt Farbe und Gewicht, nicht die Glyphenform. `sw-18` setzt die
              Strichstärke des Entwurfs (1.8) gegen Heroicons' 1.5-Attribut. --}}
         <flux:icon :name="$icon" variant="outline" @class(['size-6 sw-18' => ! $rail, 'size-5' => $rail]) />
-        @if ($unreadDot && $rail)
+        @if ($unreadDot)
             {{-- Der Ring nimmt die Farbe des jeweiligen Nav-Grundes an: die
                  Bottom-Bar sitzt auf zinc-50/zinc-950, die Rail auf white/zinc-900.
                  Ein falscher Ring sähe aus wie ein Rand am Punkt. --}}
