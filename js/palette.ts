@@ -385,6 +385,8 @@ export type PaletteState = {
     onEscape(): void
     lift(): void
     clearScope(): void
+    chipActive(section: PaletteSection | null): boolean
+    setChipScope(section: PaletteSection | null): void
     openRoom(room: PaletteRoom): void
     openMember(member: MemberView): void
     openSpace(space: PaletteSpace): void
