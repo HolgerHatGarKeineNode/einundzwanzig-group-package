@@ -39,7 +39,7 @@
  * dieselbe Konvention wie bei den NIP-86-Wrappern in `members.ts`, damit die
  * Aufrufer in `bridge.ts` unveraendert bleiben.
  */
-import { app, Relays, Thunks } from './welshmanApp.ts'
+import { app, Relays, Publisher } from './welshmanApp.ts'
 import { signer } from './welshmanSession.ts'
 import { makeEvent } from '@welshman/util'
 import * as nip19 from 'nostr-tools/nip19'
@@ -135,7 +135,7 @@ export const spaceIsBuzzAsync = async (url: string): Promise<boolean> => {
  * (`''` = OK). Das Event entsteht hier drin — siehe Fallstrick 1 im Modulkopf.
  */
 const publishAdminEvent = (url: string, kind: number, tags: string[][]): Promise<string> =>
-    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(kind, { tags }) }))
+    waitForPublishError(app.use(Publisher).publish({ relays: [url], event: makeEvent(kind, { tags }) }))
 
 // ── Mitglieder ──────────────────────────────────────────────────────────────
 

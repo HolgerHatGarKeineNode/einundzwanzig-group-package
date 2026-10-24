@@ -32,7 +32,7 @@
  */
 import { get } from 'svelte/store'
 import { pubkey, nip44EncryptToSelf, ensurePlaintext } from './welshmanSession.ts'
-import { app, Thunks, waitForThunkCompletion } from './welshmanApp.ts'
+import { app, Publisher, waitForThunkCompletion } from './welshmanApp.ts'
 import { PublishStatus } from '@welshman/net'
 import { load } from './welshmanNet.ts'
 import { eigeneOutboxUrls } from './welshmanRouter.ts'
@@ -368,7 +368,7 @@ export const publishReadState = async (): Promise<RelayPublishResult[]> => {
                 return []
             }
             const content = await nip44EncryptToSelf(json)
-            const thunk = app.use(Thunks).publish({ event: makeEvent(APP_DATA, { content, tags: [['d', READ_STATE_D]] }), relays })
+            const thunk = app.use(Publisher).publish({ event: makeEvent(APP_DATA, { content, tags: [['d', READ_STATE_D]] }), relays })
             await waitForThunkCompletion(thunk)
             const results = summarizeReadStatePublish(thunk.results)
             if (results.some((r) => r.ok)) {

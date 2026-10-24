@@ -10,7 +10,7 @@
  * a `bookmarks.ts` that assembles its own tag list and publishes that would leave every
  * other suite green while the gate stands beside the road.
  *
- * The same holds for the verdict: publishing through `app.use(Thunks).publish` directly
+ * The same holds for the verdict: publishing through `app.use(Publisher).publish` directly
  * would skip `publishOptimistic`, and with it the rollback of the optimistically
  * inserted event on a relay reject. The bookmark would stay on screen and be gone on
  * the next reload.
@@ -83,7 +83,7 @@ test('… and the markup mirror asks the same gate, so a dead menu entry never s
 
 test('… and publishes through `publishOptimistic`, which rolls back on a reject', () => {
     // welshman withdraws an optimistically inserted event only on an abort, never on a
-    // relay reject (`js/publishOptimistic.ts`). Publishing through `Thunks` directly
+    // relay reject (`js/publishOptimistic.ts`). Publishing through `Publisher` directly
     // would leave a rejected bookmark standing on screen until the next reload.
     const f = befund('bookmarks.ts')
     assert.ok(importiertAus(f, 'publishOptimistic', './publishOptimistic.ts'))

@@ -5,7 +5,7 @@
  * überschreibt. Web = relativer Endpunkt; Mobile = gehosteter Host (Hybrid wie $img).
  */
 import { get } from 'svelte/store'
-import { app, Profiles, Thunks, userProfile, waitForThunkCompletion } from './welshmanApp.ts'
+import { app, Profiles, Publisher, userProfile, waitForThunkCompletion } from './welshmanApp.ts'
 import { PublishStatus } from '@welshman/net'
 import { makeEvent, verifyEvent, verifiedSymbol, type TrustedEvent } from '@welshman/util'
 import {
@@ -195,7 +195,7 @@ export const publishReceivingAddress = async (lud16: string, spaceUrls: string[]
     // Nachladens fehlender Relay-Listen, das die synchronen Helfer nicht können.
     const szenario = await resolveRelays([userOutbox(), ...relays(spaceUrls), indexers()])
     const zielRelays = szenario.getUrls().filter(acceptsProfiles)
-    const thunk = app.use(Thunks).publish({ event, relays: zielRelays })
+    const thunk = app.use(Publisher).publish({ event, relays: zielRelays })
     await waitForThunkCompletion(thunk)
     return summarizePublishResults(thunk.results)
 }

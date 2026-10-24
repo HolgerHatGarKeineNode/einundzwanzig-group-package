@@ -43,7 +43,7 @@
  * gezielt per `ids`-Filter und nur für Pins, die im Repository fehlen.
  */
 
-import { app, Relays, Thunks } from './welshmanApp.ts'
+import { app, Relays, Publisher } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { load, request } from './welshmanNet.ts'
 import { throttled } from '@welshman/store'
@@ -634,7 +634,7 @@ const createStore = (): { store: RoomPinsStore; bind: (reactive: RoomPinsStore) 
      * Der Rückgabewert ist die wörtliche Relay-Begründung, '' = angenommen.
      */
     const publishPin = (kind: number, tags: string[][]): Promise<string> =>
-        waitForPublishError(app.use(Thunks).publish({ relays: [self.url], event: makeEvent(kind, { tags }) }))
+        waitForPublishError(app.use(Publisher).publish({ relays: [self.url], event: makeEvent(kind, { tags }) }))
 
     /**
      * Auf die **Wirkung** warten statt auf die Quittung.

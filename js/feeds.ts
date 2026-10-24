@@ -9,7 +9,7 @@
  */
 import { derived, get, writable, type Readable } from 'svelte/store'
 import { load, request } from './welshmanNet.ts'
-import { app, Handles, Thunks, Zappers } from './welshmanApp.ts'
+import { app, Handles, Publisher, Zappers } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { parse, renderAsHtml, ParsedType } from '@welshman/content'
 import { sanitizeUrl } from '@braintree/sanitize-url'
@@ -1590,7 +1590,7 @@ export const listenRoomScoped = (
  * Re-Publish desselben Events). '' = Erfolg.
  */
 export const moderateDeleteMessage = (url: string, h: string, id: string): Promise<string> =>
-    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEvent(ROOM_DELETE_EVENT, { tags: [['h', h], ['e', id]] }) }))
+    waitForPublishError(app.use(Publisher).publish({ relays: [url], event: makeEvent(ROOM_DELETE_EVENT, { tags: [['h', h], ['e', id]] }) }))
 
 /**
  * Lädt NUR die Poll-Responses (kind 1018) eines Raums fürs Tally — NICHT die Poll-Events
@@ -1915,7 +1915,7 @@ export const sendRoomMessage = async (
  */
 export const deleteRoomMessage = (url: string, h: string, id: string): Promise<string> =>
     waitForPublishError(
-        app.use(Thunks).publish({
+        app.use(Publisher).publish({
             relays: [url],
             event: makeEvent(DELETE, {
                 tags: [['k', String(MESSAGE)], ['e', id], ...roomTags(h, url)],
@@ -1944,7 +1944,7 @@ export const editRoomMessage = async (
     // Tombstone landet optimistisch sofort im Repository. ponytail: schlägt der
     // Re-Publish unten fehl, ist das Alte bereits weg (wie beim Referenz-Client) —
     // der Nutzer bekommt den Text zum erneuten Senden zurück (bridge).
-    void app.use(Thunks).publish({ relays: [url], event: makeEventDelete(original, url) })
+    void app.use(Publisher).publish({ relays: [url], event: makeEventDelete(original, url) })
     return publishOptimistic(
         url,
         makeEvent(MESSAGE, {
@@ -2282,7 +2282,7 @@ export const sendComment = async (url: string, target: TrustedEvent, content: st
  * (das Relay hat den Tombstone nie erhalten — wie beim Nachricht-Löschen).
  */
 export const removeReaction = (url: string, reaction: TrustedEvent): Promise<string> =>
-    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeEventDelete(reaction, url) })).then((err) =>
+    waitForPublishError(app.use(Publisher).publish({ relays: [url], event: makeEventDelete(reaction, url) })).then((err) =>
         err ? mapRelayError(err) : '',
     )
 
@@ -2297,7 +2297,7 @@ export const sendReport = (
     reason: string,
     content: string,
 ): Promise<string> =>
-    waitForPublishError(app.use(Thunks).publish({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
+    waitForPublishError(app.use(Publisher).publish({ relays: [url], event: makeReport(target, reason, content) })).then((err) =>
         err ? mapRelayError(err) : '',
     )
 
@@ -2312,7 +2312,7 @@ export const sendReport = (
 const publishPollShareQuote = (url: string, h: string, poll: TrustedEvent): void => {
     const nevent = nip19.neventEncode({ id: poll.id, relays: [url], author: poll.pubkey, kind: POLL })
     const tags = [['q', poll.id, url, poll.pubkey], ['p', poll.pubkey, url], ...roomTags(h, url)]
-    void app.use(Thunks).publish({ relays: [url], event: makeEvent(MESSAGE, { content: `nostr:${nevent}\n\n`, tags }) })
+    void app.use(Publisher).publish({ relays: [url], event: makeEvent(MESSAGE, { content: `nostr:${nevent}\n\n`, tags }) })
 }
 
 /**
@@ -2328,7 +2328,7 @@ export const sendPoll = async (
     // Die Poll wird optimistisch aus dem Repository gerendert (roomStreamFilter zieht
     // kind-1068). welshman entfernt sie bei Relay-Reject NICHT selbst → sonst bliebe die
     // Karte sichtbar, obwohl sie das Relay nie erreicht hat (wie sendRoomMessage).
-    const thunk = app.use(Thunks).publish({ relays: [url], event: makePoll(params, h, url) })
+    const thunk = app.use(Publisher).publish({ relays: [url], event: makePoll(params, h, url) })
     const err = await waitForPublishError(thunk)
     if (err) {
         app.repository.removeEvent(thunk.event.id)

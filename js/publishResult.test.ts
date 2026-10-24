@@ -27,13 +27,13 @@ import {
 } from './publishResult.ts'
 
 /**
- * Minimaler Thunk-Ersatz: `emit` schiebt einen Zustand nach, `options.relays` traegt die
- * Ziele — genau die Form, aus der `waitForPublishError` die NOTICE-Quelle liest.
+ * Minimal Publication stand-in: `emit` pushes a new state, `relays` carries the targets —
+ * exactly the shape `waitForPublishError` reads the NOTICE source from.
  */
 const fakeThunk = (relays: string[] = ['wss://a']) => {
     const subs: ((t: { results?: Record<string, { status?: string; detail?: string }> }) => void)[] = []
     return {
-        options: { relays },
+        relays,
         subscribe: (cb: (typeof subs)[number]) => {
             subs.push(cb)
             cb({ results: {} })

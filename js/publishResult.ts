@@ -196,8 +196,11 @@ export const rollBackAfterPublish = (spread: { delivered: readonly string[] }): 
 
 type ThunkLike = {
     results?: Record<string, PublishResultRow>
-    /** welshmans `Thunk` trägt hier seine Zielrelays — die Quelle für die NOTICE-Nachfrage. */
-    options?: { relays?: readonly string[] }
+    /**
+     * The target relays of welshman's `Publication` — the source for the NOTICE lookup.
+     * (0.9.x: `Thunk.options.relays`; 0.13: `Publication.relays`.)
+     */
+    relays?: readonly string[]
     subscribe: (cb: (t: { results?: Record<string, PublishResultRow> }) => void) => unknown
 }
 
@@ -275,14 +278,14 @@ export const waitForPublishOutcome = (thunk: ThunkLike): Promise<PublishOutcome>
             resolve(outcome)
         }
         const timer = setTimeout(() => {
-            const reason = (thunk.options?.relays ?? []).map((url) => readNotice(url, started)).find(Boolean) ?? ''
+            const reason = (thunk.relays ?? []).map((url) => readNotice(url, started)).find(Boolean) ?? ''
             // No verdict at all means nothing is known to have landed anywhere — the
             // spread has to say so, or a caller would read the empty `failed` as "fine".
             settle({
                 error: reason ? `${NO_VERDICT_ERROR} ${reason}` : NO_VERDICT_ERROR,
                 detail: '',
                 delivered: [],
-                failed: [...(thunk.options?.relays ?? [])],
+                failed: [...(thunk.relays ?? [])],
                 // No `OK` frame arrived at all, so no relay claimed anything about a
                 // stored copy — an empty column here is a fact, not a default.
                 duplicates: [],

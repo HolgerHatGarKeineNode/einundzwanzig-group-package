@@ -45,7 +45,7 @@ import { derived, get, writable, type Readable, type Writable } from 'svelte/sto
 import { makeEvent, normalizeRelayUrl, type Filter, type TrustedEvent } from '@welshman/util'
 import { PublishStatus } from '@welshman/net'
 import { RelayLists } from '@welshman/app'
-import { app, Thunks, waitForThunkCompletion } from './welshmanApp.ts'
+import { app, Publisher, waitForThunkCompletion } from './welshmanApp.ts'
 import { ensurePlaintext, nip44EncryptToSelf, pubkey } from './welshmanSession.ts'
 import { requestOne } from './welshmanNet.ts'
 import { APP_DATA } from './welshmanKinds.ts'
@@ -549,7 +549,7 @@ export const publishPinSet = async (): Promise<void> => {
             if (epoch !== armEpoch) {
                 return
             }
-            const thunk = app.use(Thunks).publish({
+            const thunk = app.use(Publisher).publish({
                 event: makeEvent(APP_DATA, {
                     content,
                     tags: decision.plan.tags,

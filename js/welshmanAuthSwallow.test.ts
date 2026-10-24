@@ -33,11 +33,19 @@
  * (`socket.js:83-98`) — genau das steht unten. Gemessen wird an welshmans eigener
  * `defaultSocketPolicies`, nicht an einem Nachbau der Policy.
  *
+ * **Since welshman 0.13 the buffer only withholds answers to messages it saw being SENT**
+ * during the AUTH round (`socketPolicyAuthBuffer` keys them by req/event id), and it hands
+ * the withheld refusals over once AUTH ends in `denied_signature`/`forbidden`. The hazard
+ * this file pins down is unchanged: while the round hangs in `pending_signature`, the
+ * CLOSED and the EOSE of a REQ that went out during it never reach the caller. The two
+ * cases below therefore announce their REQ first, as every real subscription does
+ * ({@link announceReq}); against 0.9.x that step is a no-op, so the contract holds for both.
+ *
  * Ausführen: node --test --experimental-strip-types packages/einundzwanzig-group/js/welshmanAuthSwallow.test.ts
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { AuthStatus, Socket, SocketEvent, defaultSocketPolicies } from '@welshman/net'
+import { AuthStatus, Socket, SocketEvent, SocketStatus, defaultSocketPolicies } from '@welshman/net'
 
 const URL_ = 'wss://relay.invalid/'
 const SUB = 'REQ-abcd1234'
@@ -58,6 +66,16 @@ const einspeisen = async (socket: Socket, nachricht: unknown[]): Promise<unknown
     return zugestellt
 }
 
+/**
+ * Let the socket see the REQ go out, the way `socket.send` announces it — without queueing
+ * it and without dialing: `socketPolicyConnectOnSend` opens a closed socket on `Sending`,
+ * so the status is set to `open` first and no WebSocket to the `.invalid` host is created.
+ */
+const announceReq = (socket: Socket): void => {
+    socket.status = SocketStatus.Open
+    socket.emit(SocketEvent.Sending, ['REQ', SUB, {}], URL_)
+}
+
 const socketMit = (status: AuthStatus): Socket => {
     const socket = new Socket(URL_, defaultSocketPolicies)
     socket.auth.setStatus(status)
@@ -67,6 +85,7 @@ const socketMit = (status: AuthStatus): Socket => {
 describe('welshman entfernt Abschluss-Signale während einer laufenden AUTH-Runde', () => {
     test('CLOSED mit Präfix `auth-required:` wird NICHT zugestellt', async () => {
         const socket = socketMit(AuthStatus.PendingSignature)
+        announceReq(socket)
         const zugestellt = await einspeisen(socket, [
             'CLOSED',
             SUB,
@@ -80,6 +99,7 @@ describe('welshman entfernt Abschluss-Signale während einer laufenden AUTH-Rund
     test('EOSE wird NICHT zugestellt — obwohl der Relay sauber geantwortet hat', async () => {
         // Der beobachtete Fall. Hängt die Runde, verschwindet dieses Signal dauerhaft.
         const socket = socketMit(AuthStatus.PendingSignature)
+        announceReq(socket)
         const zugestellt = await einspeisen(socket, ['EOSE', SUB])
         socket.cleanup()
 

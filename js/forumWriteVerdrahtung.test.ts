@@ -120,7 +120,7 @@ test('GEGENPROBE: der Scanner findet den Namen sehr wohl, wenn er als CODE daste
     // (Über die reine `lies`-Schnittstelle, ohne eine Datei anzulegen.)
     //
     // Kalibriert auf `waitForPublishError` und nicht mehr auf `publishThunk`: das
-    // Publizieren läuft seit der welshman-Kapselung über `app.use(Thunks).publish(…)`,
+    // Publizieren läuft seit der welshman-Kapselung über `app.use(Publisher).publish(…)`,
     // also über einen Methodenaufruf statt eines nackten Bezeichners — genau die Form,
     // die `ruftAuf` nicht sucht. Der gewählte Name ist zugleich der, den die Zusage
     // oben als richtigen Weg nennt.

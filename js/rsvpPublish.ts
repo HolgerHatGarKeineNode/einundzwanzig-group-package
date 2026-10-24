@@ -14,7 +14,7 @@
  *    list, their own history of „I was there" stays behind.
  *
  * The union is deduplicated and the order is calendar-first, because that is the half the
- * count depends on and `Thunks.publish` starts them in list order.
+ * count depends on and `Publisher.publish` starts them in list order.
  *
  * ── Why the relays are an ARGUMENT and not read here ─────────────────────────────────
  * `calendar.ts` (the room's date card) already owns the two configuration constants and is

@@ -24,7 +24,7 @@
  */
 import { derived, get, type Readable } from 'svelte/store'
 import { Network, Profiles, RelayLists } from '@welshman/app'
-import type { Thunk } from '@welshman/app'
+import type { Publication } from '@welshman/app'
 import { getAddress, isReplaceable, isReplaceableKind, type TrustedEvent } from '@welshman/util'
 import type { ProfileReader } from '@welshman/domain'
 import { app, appStore } from './welshmanInstance.ts'
@@ -35,12 +35,12 @@ export {
     Relays,
     Handles,
     Zappers,
-    Thunks,
+    Publisher,
     RelayManagement,
     BlockedRelayLists,
     RelayLists,
 } from '@welshman/app'
-export type { Thunk, ThunkOptions, IApp, Plugin } from '@welshman/app'
+export type { Publication, PublishRequest, IApp, Plugin } from '@welshman/app'
 export type { ManagementResponse } from '@welshman/util'
 export { app } from './welshmanInstance.ts'
 
@@ -74,11 +74,15 @@ export const loadUserProfile = (): Promise<ProfileReader | undefined> => {
 }
 
 /**
- * In 0.9.5 eine Methode am Thunk selbst. Hier weiter eine freie Funktion, damit die
- * beiden Aufrufstellen (`js/profiles.ts:198`, `js/readStateSync.ts:371`) unverändert
- * bleiben; der Rumpf ist die 0.9.5-Form.
+ * In 0.9.5 a method on the thunk itself. Kept as a free function so that the call sites
+ * (`js/profiles.ts`, `js/readStateSync.ts`, `js/channelPrefs.ts`, `js/pinSetSync.ts`)
+ * stay unchanged.
+ *
+ * welshman 0.13 replaced `Thunk`/`Thunks` with `Publication`/`Publisher`; the old
+ * `waitForCompletion()` is now `settled()`. Both resolve once the publication reached a
+ * terminal state (every relay answered, timed out or was aborted, or signing failed).
  */
-export const waitForThunkCompletion = (thunk: Thunk): Promise<void> => thunk.waitForCompletion()
+export const waitForThunkCompletion = (thunk: Publication): Promise<void> => thunk.settled().then(() => undefined)
 
 /**
  * ── Die drei Tag-Bauer: warum sie hier nachgebaut stehen ─────────────────────────

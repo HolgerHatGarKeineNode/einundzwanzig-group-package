@@ -110,7 +110,7 @@ test('… and the NIP-11 doc is SUBSCRIBED, not read once', () => {
 
 test('… and publishes through `publishOptimistic`, which rolls back on a reject', () => {
     // welshman withdraws an optimistically inserted event only on an abort, never on a
-    // relay reject (`js/publishOptimistic.ts`). Publishing through `Thunks` directly would
+    // relay reject (`js/publishOptimistic.ts`). Publishing through `Publisher` directly would
     // leave a rejected reminder standing on screen until the next reload — and a reminder
     // the relay never took is exactly the failure this surface must not have.
     const f = befund('reminders.ts')

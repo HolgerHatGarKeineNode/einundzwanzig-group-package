@@ -50,7 +50,7 @@
  */
 import { derived, get, writable, type Readable, type Writable } from 'svelte/store'
 import { ensurePlaintext, nip44EncryptToSelf, pubkey } from './welshmanSession.ts'
-import { app, Thunks, waitForThunkCompletion } from './welshmanApp.ts'
+import { app, Publisher, waitForThunkCompletion } from './welshmanApp.ts'
 import { PublishStatus } from '@welshman/net'
 import { load, request } from './welshmanNet.ts'
 import { makeEvent, type TrustedEvent } from '@welshman/util'
@@ -453,7 +453,7 @@ export const publishChannelFlags = async (kind: ChannelFlagKind): Promise<void> 
             if (!publishEpochUnchanged(epoch, armEpoch)) {
                 return
             }
-            const thunk = app.use(Thunks).publish({
+            const thunk = app.use(Publisher).publish({
                 event: makeEvent(APP_DATA, { content, tags: plan.tags, created_at: plan.createdAt }),
                 relays: [WORKSPACE_URL],
             })

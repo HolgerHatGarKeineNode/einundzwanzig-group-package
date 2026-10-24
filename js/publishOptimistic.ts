@@ -20,7 +20,7 @@
  * Also: eine kleine Datei, die beide importieren. Sie zieht nur `@welshman/app` (das im
  * Boot-Pfad ohnehin liegt) und `publishResult.ts` (kein welshman).
  */
-import { app, Thunks, type ThunkOptions } from './welshmanApp.ts'
+import { app, Publisher, type PublishRequest } from './welshmanApp.ts'
 import { mapRelayError, rollBackAfterPublish, waitForPublishOutcome } from './publishResult.ts'
 
 /**
@@ -59,7 +59,7 @@ import { mapRelayError, rollBackAfterPublish, waitForPublishOutcome } from './pu
  */
 export const publishOptimistic = async (
     url: string | readonly string[],
-    event: ThunkOptions['event'],
+    event: PublishRequest['event'],
 ): Promise<string> => (await publishSpreadOptimistic(url, event)).error
 
 /** What a publish across several relays actually did. */
@@ -100,9 +100,9 @@ export type OptimisticSpread = {
  */
 export const publishSpreadOptimistic = async (
     url: string | readonly string[],
-    event: ThunkOptions['event'],
+    event: PublishRequest['event'],
 ): Promise<OptimisticSpread> => {
-    const thunk = app.use(Thunks).publish({ relays: typeof url === 'string' ? [url] : [...url], event })
+    const thunk = app.use(Publisher).publish({ relays: typeof url === 'string' ? [url] : [...url], event })
     const outcome = await waitForPublishOutcome(thunk)
     // Through the pure rule and not inline: see {@link rollBackAfterPublish}. Written
     // out here, a mutation back to `if (outcome.error)` left every test green.

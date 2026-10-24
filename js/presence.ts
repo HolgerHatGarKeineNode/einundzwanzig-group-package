@@ -55,7 +55,7 @@
  */
 import { makeEvent } from '@welshman/util'
 import { get } from 'svelte/store'
-import { app, Thunks } from './welshmanApp.ts'
+import { app, Publisher } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { request } from './welshmanNet.ts'
 import { activeSpace } from './groups.ts'
@@ -374,7 +374,7 @@ const createStore = (): { store: PresenceStore; bind: (reactive: PresenceStore) 
         lastSend = { status, atMs: Date.now() }
         self.mine = status === 'offline' ? '' : status
         try {
-            const thunk = app.use(Thunks).publish({
+            const thunk = app.use(Publisher).publish({
                 relays: [url],
                 event: makeEvent(plan.kind, { content: plan.content, tags: plan.tags }),
             })

@@ -33,8 +33,15 @@ import { requestOne as requestOne095 } from '@welshman/net'
 import type { LoadOptions, RequestOptions, RequestOneOptions, PublishOptions } from '@welshman/net'
 import { app } from './welshmanInstance.ts'
 
-/** Gebündelte, gedrosselte Abfrage über mehrere Relays. 0.9.5: `app.use(Network).load`. */
-export const load = (options: LoadOptions) => app.use(Network).load(options)
+/**
+ * Batched, throttled query across several relays. 0.9.5: `app.use(Network).load`.
+ *
+ * welshman 0.13 split that loader in two: `loadComplete` waits for every relay,
+ * `loadLenient` resolves once half of them closed. `loadLenient` carries exactly the old
+ * `load` options (`delay: 50, timeout: 3000, threshold: 0.5`), so it is the one-to-one
+ * replacement.
+ */
+export const load = (options: LoadOptions) => app.use(Network).loadLenient(options)
 
 /** Einzelne Abfrage ohne Bündelung. 0.9.5: `app.use(Network).request`. */
 export const request = (options: Omit<RequestOptions, 'context'>) => app.use(Network).request(options)
