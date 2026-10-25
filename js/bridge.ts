@@ -312,6 +312,7 @@ import { getWalletAddress, WalletType, type Wallet } from '@welshman/util'
 import { type Zapper } from './welshmanZap.ts'
 import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader.ts'
 import { articleAuthorHref, articleHref } from './articleRoutes.ts'
+import { nip05ProxyBase } from './nip05Proxy.ts'
 import { warmZappers, loadZapperNow, canZap, canPay, chooseZapMethod, createZapInvoice, payZapAuto, payZapPlain, requestPlainInvoice, watchZapReceipt, mapZapError, DEFAULT_ZAP_CONTENT } from './zaps.ts'
 import { publishReceivingAddress, warmProfiles, type RelayPublishResult } from './profiles.ts'
 import { displayProfileByPubkey, profilesByPubkey } from './spaceProfiles.ts'
@@ -4821,7 +4822,10 @@ export function registerNostrComponents(Alpine: {
                     // Eingabe, den die Fläche zeigt, und sie ist gegen ein enges Muster
                     // geprüft (kein Port, keine Zugangsdaten, kein Pfad).
                     this.fehlerDomain = ziel.domain
-                    const ergebnis = await autorModul.aufloesenNip05(ziel, autorModul.holeNip05Json)
+                    const proxy = nip05ProxyBase()
+                    const ergebnis = proxy
+                        ? await autorModul.aufloesenNip05UeberServer(ziel, proxy)
+                        : await autorModul.aufloesenNip05(ziel, autorModul.holeNip05Json)
                     // **Nach dem `await` gilt der Riegel wieder.** Ein `wire:navigate` weg
                     // von der Seite kann `destroy()` vor die Antwort schieben; ohne diese
                     // Zeile schriebe die Abfrage in einen Screen, den es nicht mehr gibt.

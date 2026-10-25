@@ -458,6 +458,51 @@ export const holeNip05Json = async (url: string): Promise<unknown> => {
 }
 
 /**
+ * Resolve the address through our own server (`GET /nostr/nip05`, `Nip05Resolver`)
+ * instead of asking the domain from the browser.
+ *
+ * The browser path fails on CORS for domains that answer it wrongly — measured
+ * 2026-10-25 from the companion app: `primal.net` sends `Access-Control-Allow-Origin: *, *`,
+ * `0xchat.com` none. The author page then claimed "domain did not answer" for an address
+ * that is valid. The badge already goes this way (`nip05Proxy.ts`); this is the same lookup
+ * for the page that takes the address as its parameter.
+ *
+ * The server's three outcomes map one to one onto {@link Nip05Ergebnis}: `found`,
+ * `unknown` (valid `nostr.json`, name missing) and `failed`. Anything else — `disabled`,
+ * a non-hex key, an unreadable answer, a thrown fetch — is `fehlgeschlagen`.
+ */
+export const aufloesenNip05UeberServer = async (
+    ziel: { name: string; domain: string },
+    base: string,
+    fetchImpl: (url: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'json'>> = (url, init) => fetch(url, init),
+): Promise<Nip05Ergebnis> => {
+    const handle = `${ziel.name}@${ziel.domain}`
+    let roh: unknown
+    try {
+        const antwort = await fetchImpl(`${base}?h[]=${encodeURIComponent(handle)}`, {
+            credentials: 'omit',
+            headers: { accept: 'application/json' },
+            signal: AbortSignal.timeout(NIP05_TIMEOUT_MS),
+        })
+        if (!antwort.ok) {
+            return { art: 'fehlgeschlagen' }
+        }
+        roh = await antwort.json()
+    } catch {
+        return { art: 'fehlgeschlagen' }
+    }
+    const data = (roh as { data?: unknown } | null)?.data
+    const eintrag = Array.isArray(data)
+        ? (data as Array<{ handle?: unknown; status?: unknown; info?: { pubkey?: unknown } | null }>).find((e) => e?.handle === handle)
+        : undefined
+    if (eintrag?.status === 'found' && typeof eintrag.info?.pubkey === 'string' && HEX64.test(eintrag.info.pubkey)) {
+        return { art: 'gefunden', pubkey: eintrag.info.pubkey }
+    }
+
+    return eintrag?.status === 'unknown' ? { art: 'unbekannt' } : { art: 'fehlgeschlagen' }
+}
+
+/**
  * **Der Kernbeweis dieser Phase: gefiltert wird der `pubkey`, nie der Name.**
  *
  * Zwei Autoren dürfen gleich heißen, und im Bestand ist das kein Gedankenspiel — der

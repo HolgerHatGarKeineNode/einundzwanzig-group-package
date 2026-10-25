@@ -64,6 +64,7 @@ import {
     NIP05_WURZEL,
     artikelDesAutors,
     aufloesenNip05,
+    aufloesenNip05UeberServer,
     autorGrunddaten,
     deuteAutorParam,
     holeNip05Json,
@@ -814,4 +815,33 @@ test('holeNip05Json wirft bei einem Fehlerstatus — und der Aufrufer macht dara
             await assert.rejects(holeNip05Json('https://example.com/.well-known/nostr.json?name=a'), /NIP-05: 500/)
         },
     )
+})
+
+// ── Resolving through the server (`/nostr/nip05`) ─────────────────────────────────
+
+const serverAntwort = (data: unknown, ok = true) => async () => ({ ok, json: async () => data })
+
+test('server lookup asks for exactly name@domain and maps the three outcomes', async () => {
+    const gerufen: string[] = []
+    const ergebnis = await aufloesenNip05UeberServer({ name: 'alice', domain: 'example.com' }, '/nostr/nip05', async (url) => {
+        gerufen.push(url)
+
+        return { ok: true, json: async () => ({ data: [{ handle: 'alice@example.com', status: 'found', info: { pubkey: AUTOR_A } }] }) }
+    })
+    assert.deepEqual(gerufen, ['/nostr/nip05?h[]=alice%40example.com'])
+    assert.deepEqual(ergebnis, { art: 'gefunden', pubkey: AUTOR_A })
+
+    const ziel = { name: 'alice', domain: 'example.com' }
+    assert.deepEqual(await aufloesenNip05UeberServer(ziel, '/x', serverAntwort({ data: [{ handle: 'alice@example.com', status: 'unknown', info: null }] })), { art: 'unbekannt' })
+    assert.deepEqual(await aufloesenNip05UeberServer(ziel, '/x', serverAntwort({ data: [{ handle: 'alice@example.com', status: 'failed', info: null }] })), { art: 'fehlgeschlagen' })
+})
+
+test('server lookup fails closed: other handle, bad key, disabled, HTTP error, throw', async () => {
+    const ziel = { name: 'alice', domain: 'example.com' }
+    // An answer for a different handle must not lend its key to this one.
+    assert.deepEqual(await aufloesenNip05UeberServer(ziel, '/x', serverAntwort({ data: [{ handle: 'bob@example.com', status: 'found', info: { pubkey: AUTOR_A } }] })), { art: 'fehlgeschlagen' })
+    assert.deepEqual(await aufloesenNip05UeberServer(ziel, '/x', serverAntwort({ data: [{ handle: 'alice@example.com', status: 'found', info: { pubkey: 'nope' } }] })), { art: 'fehlgeschlagen' })
+    assert.deepEqual(await aufloesenNip05UeberServer(ziel, '/x', serverAntwort({ data: [{ handle: 'alice@example.com', status: 'disabled', info: null }] })), { art: 'fehlgeschlagen' })
+    assert.deepEqual(await aufloesenNip05UeberServer(ziel, '/x', serverAntwort({}, false)), { art: 'fehlgeschlagen' })
+    assert.deepEqual(await aufloesenNip05UeberServer(ziel, '/x', async () => { throw new Error('offline') }), { art: 'fehlgeschlagen' })
 })
