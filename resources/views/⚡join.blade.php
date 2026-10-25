@@ -18,9 +18,12 @@ new #[Layout('group::einundzwanzig')] #[Title('Einladung')] class extends Compon
 
         {{-- Ungültiger Link --}}
         <template x-if="error && !space">
-            <flux:callout variant="danger" icon="exclamation-triangle">
-                <flux:callout.text x-text="error"></flux:callout.text>
-            </flux:callout>
+            <div>
+                <flux:callout variant="danger" icon="exclamation-triangle">
+                    <flux:callout.text x-text="error"></flux:callout.text>
+                </flux:callout>
+                <flux:button variant="ghost" size="sm" class="mt-4 w-full" :href="route('group.bereich.chat')" wire:navigate>{{ __('Zu den Räumen') }}</flux:button>
+            </div>
         </template>
 
         {{-- Einladung --}}
