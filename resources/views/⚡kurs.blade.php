@@ -94,7 +94,7 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                     {{-- Portal markdown as TEXT with its line breaks — same rule and same
                          reason as the meetup intro: foreign input, no HTML sink, no markdown
                          dependency in a package that four association views embed. --}}
-                    <flux:text class="mt-3 text-sm whitespace-pre-line">{{ $kurs->description }}</flux:text>
+                    <flux:text class="mt-3 text-sm whitespace-pre-line break-words">{{ $kurs->description }}</flux:text>
                 </section>
             @endif
 

@@ -1743,14 +1743,23 @@ export type InviteData = { url: string; claim: string }
 
 /** Parst einen Invite-Link `…/join?r=<relay>&c=<claim>` (Fallback: reine URL). */
 export const parseInviteLink = (invite: string): InviteData | undefined => {
+    let link: URL | undefined
     try {
-        const params = new URL(invite).searchParams
-        const url = normalizeRelayUrl(params.get('r') ?? '')
-        if (isRelayUrl(url)) {
-            return { url, claim: params.get('c') ?? '' }
-        }
+        link = new URL(invite)
     } catch {
         // kein URL — als reine Relay-URL versuchen
+    }
+    if (link?.protocol === 'http:' || link?.protocol === 'https:') {
+        // A web link is an invite only through `r`. Falling through to the bare-relay
+        // path turned the page's own address into a relay (`/join` opened bare showed
+        // "127.0.0.1/join"); `normalizeRelayUrl('')` throws, so that path was reached
+        // through the catch, not the `if`.
+        try {
+            const url = normalizeRelayUrl(link.searchParams.get('r') ?? '')
+            return isRelayUrl(url) ? { url, claim: link.searchParams.get('c') ?? '' } : undefined
+        } catch {
+            return undefined
+        }
     }
     const url = normalizeRelayUrl(invite)
     return isRelayUrl(url) ? { url, claim: '' } : undefined

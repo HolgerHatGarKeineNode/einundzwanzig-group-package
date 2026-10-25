@@ -150,7 +150,7 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                         </div>
                     </div>
                     @if ($next->description !== null)
-                        <flux:text class="mt-3 text-sm whitespace-pre-line">{{ $next->description }}</flux:text>
+                        <flux:text class="mt-3 text-sm whitespace-pre-line break-words">{{ $next->description }}</flux:text>
                     @endif
                     {{-- The counts, and ONLY when the Portal publishes them
                          (`attendees_public`): a „0 Zusagen" over a meetup that deliberately
@@ -236,7 +236,7 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                          this package would be a dependency (and an HTML sink) for one
                          paragraph. `whitespace-pre-line` keeps what the author intended
                          about structure; the link syntax stays visible, which is honest. --}}
-                    <flux:text class="mt-3 text-sm whitespace-pre-line">{{ $detail->intro }}</flux:text>
+                    <flux:text class="mt-3 text-sm whitespace-pre-line break-words">{{ $detail->intro }}</flux:text>
                 </section>
             @endif
 

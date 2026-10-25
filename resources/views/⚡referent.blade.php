@@ -96,10 +96,10 @@ new #[Layout('group::einundzwanzig')] class extends GroupPortalPage
                 <section class="surface-card mt-4 p-6">
                     <flux:heading size="lg" level="2">{{ __('Über') }}</flux:heading>
                     @if ($referent->intro !== null)
-                        <flux:text class="mt-3 text-sm whitespace-pre-line">{{ $referent->intro }}</flux:text>
+                        <flux:text class="mt-3 text-sm whitespace-pre-line break-words">{{ $referent->intro }}</flux:text>
                     @endif
                     @if ($referent->description !== null)
-                        <flux:text class="mt-3 text-sm whitespace-pre-line">{{ $referent->description }}</flux:text>
+                        <flux:text class="mt-3 text-sm whitespace-pre-line break-words">{{ $referent->description }}</flux:text>
                     @endif
                 </section>
             @endif
