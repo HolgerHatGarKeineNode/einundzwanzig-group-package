@@ -84,7 +84,7 @@ describe('the backoff', () => {
 })
 
 describe('learning from welshman RelayStats items', () => {
-    test('KERNBEWEIS: a failure with a working network is remembered across a page load and keeps the relay out of routing', async () => {
+    test('CORE PROOF: a failure with a working network is remembered across a page load and keeps the relay out of routing', async () => {
         const storage = memoryStorage()
         const c = clock()
         const page1 = makeRelayForgetting({ storage, now: c.now, persistDelayMs: 0 })

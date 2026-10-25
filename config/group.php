@@ -367,13 +367,13 @@ return [
      * island fetch `.well-known/nostr.json` itself again (the E2E suite runs that way: it
      * stubs those requests in the browser and the server must not leave the machine).
      */
-    'nip05_proxy' => (bool) env('GROUP_NIP05_PROXY', true),
+    'handle_proxy' => (bool) env('GROUP_HANDLE_PROXY', true),
 
     /*
      * Rate of `GET /nostr/nip05` per IP, as `throttle` spells it. The island sends at most
      * 30 handles per call, so 60 calls a minute cover a 1 800-member directory.
      */
-    'nip05_rate' => env('GROUP_NIP05_RATE', '60,1'),
+    'handle_proxy_rate' => env('GROUP_HANDLE_PROXY_RATE', '60,1'),
 
     /*
      * "Alle Bereiche" — the tile grid on Start. Source of truth is

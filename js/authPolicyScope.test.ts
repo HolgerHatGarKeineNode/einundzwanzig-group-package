@@ -250,8 +250,12 @@ describe('P6/F2: die Insel hängt den Riegel auch wirklich ein', () => {
             false,
             'makeAppPolicyAuth ohne Socket-Parameter — dasselbe Loch in welshmans Kurzform',
         )
-        assert.match(quelle, /shouldAuth:\s*\(socket\)\s*=>/)
-        assert.match(quelle, /darfAuthBekommen\(socket\.url\)/)
+        // Since 2026-10-25 the predicate is a MODE per socket (`authScope.ts`): the policy
+        // hands the socket to `authModeFor`, and that reads the socket's URL.
+        assert.match(quelle, /mode:\s*\(socket\)\s*=>\s*authModeFor\(app,\s*socket\)/)
+        const modus = quelle.slice(quelle.indexOf('const authModeFor'), quelle.indexOf('const groupListRelays'))
+        assert.ok(modus.length > 100, 'authModeFor not found')
+        assert.match(modus, /darfAuthBekommen\(socket\.url\)/)
 
         // **Und der Nutzer wird zur LAUFZEIT gelesen, nicht bei der Konstruktion.**
         // welshmans `makeAppPolicyAuth` prüft `app.user` einmal und liefert ohne Nutzer
@@ -259,9 +263,9 @@ describe('P6/F2: die Insel hängt den Riegel auch wirklich ein', () => {
         // Die Policy wäre für die ganze Sitzung tot, und zwar stumm: ein zooid mit
         // `public_read=false` lieferte einfach nichts.
         assert.match(
-            quelle,
-            /shouldAuth:\s*\(socket\)\s*=>\s*Boolean\(app\.user\)/,
-            'die Nutzer-Prüfung steht nicht mehr im Prädikat — dann entscheidet sie wieder die Konstruktionszeit',
+            modus,
+            /const pk = app\.user\?\.pubkey\s*if \(!pk \|\| !darfAuthBekommen\(socket\.url\)\) \{\s*return 'never'/,
+            'the user check left the mode function — construction time would decide again',
         )
     })
 
@@ -326,7 +330,7 @@ describe('P6/F2: die Insel hängt den Riegel auch wirklich ein', () => {
             quelle.length > 5_000,
             `welshmanInstance.ts wirkt zu kurz (${quelle.length} Zeichen) — liest der Test die richtige Datei?`,
         )
-        assert.match(quelle, /makeSocketPolicyAuth\(/)
+        assert.match(quelle, /makeSocketPolicyAuthScope\(/)
         // Und die zweite Datei ebenso: sie trägt die Relay-Mengen des Riegels.
         const konfig = konfigQuelle()
         assert.ok(

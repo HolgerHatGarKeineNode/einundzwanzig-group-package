@@ -326,7 +326,7 @@ Route::middleware('throttle:'.config('group.portal_index_rate', '60,1'))
  * and under stricter rules: pinned DNS, no redirects, raw-byte limit, deadline and a
  * per-domain budget (`Nip05Resolver`).
  */
-Route::middleware('throttle:'.config('group.nip05_rate', '60,1'))
+Route::middleware('throttle:'.config('group.handle_proxy_rate', '60,1'))
     ->name('group.')
     ->get('/nostr/nip05', Nip05Controller::class)
-    ->name('nip05');
+    ->name('handle-lookup');

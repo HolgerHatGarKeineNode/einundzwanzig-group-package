@@ -74,11 +74,11 @@
     <script>window.__nostrPortal = window.__nostrPortal ?? @js(config('group.portal_url'));</script>
 @endif
 
-{{-- NIP-05 lookups through this server (`js/handles.ts`, `group.nip05_proxy`). Empty = the
+{{-- NIP-05 lookups through this server (`js/handles.ts`, `group.handle_proxy`). Empty = the
      island fetches `.well-known/nostr.json` itself. Same `??` rule as above. A page whose
      layout does not include this partial falls back to the same relative route, which every
      host that mounts the package answers. --}}
-<script>window.__nostrNip05Proxy = window.__nostrNip05Proxy ?? @js(config('group.nip05_proxy', true) ? route('group.nip05', absolute: false) : '');</script>
+<script>window.__nostrNip05Proxy = window.__nostrNip05Proxy ?? @js(config('group.handle_proxy', true) ? route('group.handle-lookup', absolute: false) : '');</script>
 
 {{-- Platform flag: on the device the island gates client-side (no NIP-98). A flag set
      beforehand wins (E2E via addInitScript, like __nostrRelays). --}}

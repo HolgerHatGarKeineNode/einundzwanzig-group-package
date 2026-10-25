@@ -60,6 +60,8 @@ import { readable } from 'svelte/store'
 import {
     App,
     Handles,
+    MessagingRelayLists,
+    RelayLists,
     Router as Router095,
     RelayStats,
     Relays,
@@ -79,9 +81,11 @@ import {
     normalizeRelayUrl,
     verifyEvent,
     PROFILE,
+    ROOMS,
     WRAP,
 } from '@welshman/util'
-import { SocketEvent, SocketStatus, isRelayEvent, makeSocketPolicyAuth, type Socket } from '@welshman/net'
+import { SocketEvent, SocketStatus, isRelayEvent, type Socket } from '@welshman/net'
+import { makeSocketPolicyAuthScope, type AuthMode } from './authScope.ts'
 import { guardRelayQuality } from './deadRelays.ts'
 import { socketPolicyAuthHold } from './authHold.ts'
 import { nip05ProxyBase, routeHandlesThroughProxy } from './nip05Proxy.ts'
@@ -93,7 +97,7 @@ import {
     makeSubscriptionLedger,
     rememberOwnRequest,
 } from './wrapOrigin.ts'
-import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, WORKSPACE_ROH, darfAuthBekommen, istEigenerRelay, isUnconfiguredSpace } from './relayConfig.ts'
+import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, WORKSPACE_ROH, darfAuthBekommen, isHostRelay, isUnconfiguredSpace } from './relayConfig.ts'
 
 /**
  * **Kein kind-0 vom Workspace-Relay ins Repository** (Risiko R3 des Sprung-Plans).
@@ -343,11 +347,11 @@ const ingestMitWorkspaceRiegel: AppPolicy = (app) => {
  * own `RelayStats`, persisted across page loads in `localStorage`, undone by one successful
  * open. Read by the resolver below; the host's own relays are exempt.
  */
-const relayForgetting = makeRelayForgetting({ storage: lokalerSpeicher() })
+const relayForgetting = makeRelayForgetting({ storage: localStorageOrNone() })
 
 const relayForgetPolicy: AppPolicy = (app) => app.use(RelayStats).onItem((url, item) => relayForgetting.feed(url, item))
 
-function lokalerSpeicher(): Storage | undefined {
+function localStorageOrNone(): Storage | undefined {
     try {
         return typeof globalThis.localStorage === 'undefined' ? undefined : globalThis.localStorage
     } catch {
@@ -397,7 +401,7 @@ const resolverPolicy: AppPolicy = (app) => {
     const original = router.resolver
     router.resolver = new Resolver(router.resolveRoute, {
         getRelayQuality: guardRelayQuality(
-            forgetRelayQuality(relayForgetting.records, istEigenerRelay)((url: string) => app.use(RelayStats).getQuality(url)),
+            forgetRelayQuality(relayForgetting.records, isHostRelay)((url: string) => app.use(RelayStats).getQuality(url)),
         ),
         getDefaultRelays: app.config.getDefaultRelays,
         policy: addMinimalFallbacks,
@@ -409,8 +413,64 @@ const resolverPolicy: AppPolicy = (app) => {
 }
 
 /**
+ * Which NIP-42 mode a socket gets (`authScope.ts`) — read at each challenge and refusal.
+ *
+ * `never` without a user or where {@link darfAuthBekommen} excludes the relay (metric and
+ * calendar relays). `eager` for the host's relays and for those the user chose: own kind
+ * 10002 (read and write), 10050 and the public relay tags of 10009 — the old behaviour
+ * there, because a NIP-29 relay may hide what it would show an authenticated member
+ * without ever saying `auth-required:`. `on-demand` for everything else: a foreign relay
+ * gets the reader's pubkey only once it actually asks for it.
+ *
+ * Private (encrypted) 10009 items are not read here; such a space still gets AUTH on
+ * demand, one round trip later.
+ */
+export const authModeFor = (app: IApp, socket: Socket): AuthMode => {
+    const pk = app.user?.pubkey
+    if (!pk || !darfAuthBekommen(socket.url)) {
+        return 'never'
+    }
+    if (isHostRelay(socket.url)) {
+        return 'eager'
+    }
+    let url: string
+    try {
+        url = normalizeRelayUrl(socket.url)
+    } catch {
+        return 'on-demand'
+    }
+    const chosen = [
+        ...app.use(RelayLists).readUrls(pk).get(),
+        ...app.use(RelayLists).writeUrls(pk).get(),
+        ...app.use(MessagingRelayLists).urls(pk).get(),
+        ...groupListRelays(app, pk),
+    ]
+
+    return chosen.some((entry) => normalizeOrEmpty(entry) === url) ? 'eager' : 'on-demand'
+}
+
+/** The public relay tags of the user's newest kind 10009 (`r`/`relay`, and `group` tag[2]). */
+const groupListRelays = (app: IApp, pk: string): string[] => {
+    const list = app.repository.query([{ kinds: [ROOMS], authors: [pk] }]).sort((a, b) => b.created_at - a.created_at)[0]
+    if (!list) {
+        return []
+    }
+
+    return list.tags.flatMap((tag) => (tag[0] === 'r' || tag[0] === 'relay' ? [tag[1] ?? ''] : tag[0] === 'group' ? [tag[2] ?? ''] : []))
+}
+
+const normalizeOrEmpty = (url: string): string => {
+    try {
+        return normalizeRelayUrl(url)
+    } catch {
+        return ''
+    }
+}
+
+/**
  * NIP-42-AUTH: sobald ein Signer aktiv ist, signiert welshman AUTH-Challenges
- * (kind 22242) automatisch — nötig für zooid-Spaces mit `public_read=false`.
+ * (kind 22242) — nötig für zooid-Spaces mit `public_read=false`. Seit 2026-10-25 nach
+ * {@link authModeFor}: sofort, auf Anfrage oder nie (`authScope.ts`).
  *
  * **Bewusst NICHT `makeAppPolicyAuth`**, so nah es läge: das prüft `app.user` EINMAL bei
  * der Konstruktion und gibt ohne Nutzer ein `noop` zurück (`app/src/policy.js:20-22`).
@@ -424,9 +484,9 @@ const resolverPolicy: AppPolicy = (app) => {
  * begründet in {@link darfAuthBekommen}.
  */
 const authPolicy: AppPolicy = (app) => {
-    const policy = makeSocketPolicyAuth({
+    const policy = makeSocketPolicyAuthScope({
         sign: (event) => User.require(app).sign(event),
-        shouldAuth: (socket) => Boolean(app.user) && darfAuthBekommen(socket.url),
+        mode: (socket) => authModeFor(app, socket),
     })
     app.pool.socketPolicies.push(policy)
 

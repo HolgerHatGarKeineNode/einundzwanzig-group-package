@@ -15,7 +15,7 @@ use Illuminate\Http\Request;
  * session row per call (SQLite serialises them), no CSRF token, nothing per visitor. The
  * fetch itself, its limits and its cache live in {@see Nip05Resolver}.
  *
- * `config('group.nip05_proxy') === false` answers every handle as `disabled` without a
+ * `config('group.handle_proxy') === false` answers every handle as `disabled` without a
  * single outbound request — the E2E suite runs that way (it stubs `.well-known` in the
  * browser and must not leave the machine from the server).
  */
@@ -31,7 +31,7 @@ final class Nip05Controller
             static fn ($handle): bool => is_string($handle) && $handle !== '' && strlen($handle) <= 320,
         ));
 
-        $data = config('group.nip05_proxy', true)
+        $data = config('group.handle_proxy', true)
             ? $resolver->resolve($handles)
             : array_map(static fn (string $handle): array => ['handle' => $handle, 'status' => 'disabled', 'info' => null], array_slice($handles, 0, Nip05Resolver::MAX_HANDLES));
 

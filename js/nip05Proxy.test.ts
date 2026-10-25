@@ -38,7 +38,7 @@ describe('nip05ProxyBase', () => {
 })
 
 describe('welshman Handles asks our server, never the domain', () => {
-    test('KERNBEWEIS: load() resolves through the endpoint and no .well-known request leaves the browser', async () => {
+    test('CORE PROOF: load() resolves through the endpoint and no .well-known request leaves the browser', async () => {
         const direct: string[] = []
         globalThis.fetch = (async (url: string) => {
             direct.push(String(url))
@@ -58,7 +58,7 @@ describe('welshman Handles asks our server, never the domain', () => {
         assert.deepEqual(direct, [], 'a direct .well-known fetch went out — the CORS failure is back')
     })
 
-    test('GEGENPROBE: without the proxy welshman fetches the domain directly (what fails on CORS)', async () => {
+    test('COUNTER-CHECK: without the proxy welshman fetches the domain directly (what fails on CORS)', async () => {
         const direct: string[] = []
         globalThis.fetch = (async (url: string) => {
             direct.push(String(url))

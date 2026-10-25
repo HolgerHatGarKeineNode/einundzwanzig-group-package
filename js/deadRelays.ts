@@ -34,11 +34,11 @@
  * ── Was diese Liste NICHT kann ────────────────────────────────────────────────
  *
  * Sie lernt nichts. Eine unbekannte tote Domain wird beim ERSTEN Kontakt trotzdem
- * abgerufen — die Liste verhindert nur die Wiederholung bekannter Fälle. Das Lernen
- * (Persistenz, Ablauf, Wiedereintritt — hier einst verworfen) steht seit 2026-10-25 in
- * `relayForget.ts`, auf Wunsch des Nutzers; es fängt Relays, die FEHLSCHLAGEN. Diese
- * Liste bleibt für Parkseiten, die technisch erfolgreich antworten und deshalb nie als
- * Fehler zählen. Den nutzereigenen, portablen Weg deckt NIP-51 kind 10006
+ * abgerufen — die Liste verhindert nur die Wiederholung bekannter Fälle.
+ * Learning (persistence, expiry, re-entry — once discarded here) lives in `relayForget.ts`
+ * since 2026-10-25, at the user's request; it catches relays that FAIL. This list stays for
+ * parked domains, which answer successfully and therefore never count as a failure.
+ * Den nutzereigenen, portablen Weg deckt NIP-51 kind 10006
  * ab — die Liste lädt `core.ts` beim Login, welshman honoriert sie in seinem
  * eigenen `getRelayQuality`, das hier unten weiterhin aufgerufen wird.
  */

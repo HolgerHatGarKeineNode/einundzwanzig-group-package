@@ -275,16 +275,16 @@ export const darfAuthBekommen = (url: string): boolean => authErlaubt(url, METRI
  * forgetting (`relayForget.ts`) never skips these, and the AUTH scope
  * (`authScope.ts`) answers their challenge at once. Unparseable entries count as absent.
  */
-export const istEigenerRelay = (url: string): boolean => {
-    const ziel = normalisiereOderLeer(url)
-    if (!ziel) {
+export const isHostRelay = (url: string): boolean => {
+    const target = normalizeOrEmpty(url)
+    if (!target) {
         return false
     }
 
-    return EIGENE_RELAYS.some((eintrag) => eintrag !== '' && normalisiereOderLeer(eintrag) === ziel)
+    return EIGENE_RELAYS.some((entry) => entry !== '' && normalizeOrEmpty(entry) === target)
 }
 
-const normalisiereOderLeer = (url: string): string => {
+const normalizeOrEmpty = (url: string): string => {
     try {
         return normalizeRelayUrl(url)
     } catch {

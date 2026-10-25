@@ -62,6 +62,12 @@
  * ohne diese Policy:   aufrufer_sah EVENT    draht: ←REQ  →EVENT+EOSE
  * ```
  *
+ * **As of 2026-10-25:** path 1 is fixed in welshman 0.13.1 (`tryCatch` now also catches a
+ * rejected promise, `doAuth` ends in `denied_signature`). Path 2 no longer occurs:
+ * `authScope.ts` moves a declined challenge to `none` or `denied_signature` at once, neither
+ * of which is a state this policy holds in. The deadline stays as the emergency brake for a
+ * signer that never answers (Amber, a bunker).
+ *
  * Ohne Frist macht die Policy aus „Daten kommen, nur ohne EOSE" ein „gar nichts".
  * Deshalb hält sie nur, solange die Runde **läuft**: nach {@link AUTH_HOLD_FRIST_MS}
  * geht wieder alles durch — zurück auf das Verhalten vor der Policy, also genau die
