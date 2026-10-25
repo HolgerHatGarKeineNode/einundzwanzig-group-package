@@ -193,10 +193,16 @@ final class Nip05Resolver
      */
     public static function fetchOptions(string $domain, string $ip): array
     {
-        return [
+        // `defined()`: a PHP build without ext-curl (Guzzle then falls back to its stream
+        // handler) has no such constant, and referencing it would be a fatal error. There
+        // the address check above still runs, only the pin is missing.
+        $pin = defined('CURLOPT_RESOLVE')
+            ? ['curl' => [CURLOPT_RESOLVE => [$domain.':443:'.(str_contains($ip, ':') ? '['.$ip.']' : $ip)]]]
+            : [];
+
+        return $pin + [
             'allow_redirects' => false,
             'decode_content' => false,
-            'curl' => [CURLOPT_RESOLVE => [$domain.':443:'.(str_contains($ip, ':') ? '['.$ip.']' : $ip)]],
             'progress' => static function (int|float $downloadTotal, int|float $downloaded): void {
                 if ($downloadTotal > self::MAX_BYTES || $downloaded > self::MAX_BYTES) {
                     throw new \RuntimeException('nostr.json exceeds the size limit');
