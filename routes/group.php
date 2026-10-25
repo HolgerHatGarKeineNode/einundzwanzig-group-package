@@ -2,6 +2,7 @@
 
 use Einundzwanzig\Group\Http\Controllers\LegacyRedirect;
 use Einundzwanzig\Group\Http\Controllers\LocaleController;
+use Einundzwanzig\Group\Http\Controllers\Nip05Controller;
 use Einundzwanzig\Group\Http\Controllers\NostrAuthController;
 use Einundzwanzig\Group\Http\Controllers\PortalIndexController;
 use Einundzwanzig\Group\Http\Middleware\ContentSecurityPolicy;
@@ -309,3 +310,23 @@ Route::middleware('throttle:'.config('group.portal_index_rate', '60,1'))
     ->name('group.')
     ->get('/suche/portal-index', PortalIndexController::class)
     ->name('suche.portal-index');
+
+/*
+ * ══ NIP-05 LOOKUP FOR THE VERIFIED BADGE ═════════════════════════════════════════
+ *
+ * Outside `web` for the palette index's reasons (no session, no CSRF, no cookie). The
+ * browser cannot read a `.well-known/nostr.json` whose host gets CORS wrong — measured on
+ * primal.net (`*, *`) and 0xchat.com (no header) — so the island asks here instead
+ * (`js/handles.ts`). Every host that mounts these routes answers it, the companion app
+ * included: there the "server" is the app's own PHP on the device.
+ *
+ * This takes the trade that `/articles/autor/{autor}` above declined — a connection from
+ * the server to a domain the caller names — and that page still resolves in the browser.
+ * It is accepted here because the image proxy already makes exactly this kind of request,
+ * and under stricter rules: pinned DNS, no redirects, raw-byte limit, deadline and a
+ * per-domain budget (`Nip05Resolver`).
+ */
+Route::middleware('throttle:'.config('group.nip05_rate', '60,1'))
+    ->name('group.')
+    ->get('/nostr/nip05', Nip05Controller::class)
+    ->name('nip05');

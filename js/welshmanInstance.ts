@@ -59,6 +59,7 @@ import type { Readable, Unsubscriber } from 'svelte/store'
 import { readable } from 'svelte/store'
 import {
     App,
+    Handles,
     Router as Router095,
     RelayStats,
     Relays,
@@ -83,6 +84,7 @@ import {
 import { SocketEvent, SocketStatus, isRelayEvent, makeSocketPolicyAuth, type Socket } from '@welshman/net'
 import { guardRelayQuality } from './deadRelays.ts'
 import { socketPolicyAuthHold } from './authHold.ts'
+import { nip05ProxyBase, routeHandlesThroughProxy } from './nip05Proxy.ts'
 import { appPolicyPrivateWraps } from './wrapIngest.ts'
 import {
     forgetClosedSubscription,
@@ -417,6 +419,13 @@ const authPolicy: AppPolicy = (app) => {
 }
 
 /**
+ * NIP-05 lookups for the verified badge through our own server instead of each domain —
+ * the browser fails on every domain with broken CORS (primal.net, 0xchat.com, measured
+ * 2026-10-25). Why the fetch is swapped and `dufflepudUrl` stays empty: `js/nip05Proxy.ts`.
+ */
+const handlesViaServerPolicy: AppPolicy = (app) => routeHandlesThroughProxy(app.use(Handles), nip05ProxyBase())
+
+/**
  * Doppelte REQs während der AUTH-Runde streichen — siehe `authHold.ts`. Steht NEBEN
  * welshmans `socketPolicyAuthBuffer`, nicht an dessen Stelle: der bleibt der Zustellweg,
  * diese Policy löscht nur den ersten, ohnehin abgelehnten Versuch.
@@ -535,6 +544,7 @@ const policies: AppPolicy[] = [
     // 14 is in `PERSIST_KINDS`.
     appPolicyPrivateWraps,
     appPolicyRelayStats,
+    handlesViaServerPolicy,
     authPolicy,
     authHoldPolicy,
 ]

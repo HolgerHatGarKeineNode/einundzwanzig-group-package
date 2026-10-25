@@ -362,6 +362,20 @@ return [
     'portal_index_rate' => env('GROUP_PORTAL_INDEX_RATE', '60,1'),
 
     /*
+     * NIP-05 lookups through this server (`GET /nostr/nip05`, `Nip05Resolver`) instead of
+     * the reader's browser, which fails on every domain with broken CORS. `false` makes the
+     * island fetch `.well-known/nostr.json` itself again (the E2E suite runs that way: it
+     * stubs those requests in the browser and the server must not leave the machine).
+     */
+    'nip05_proxy' => (bool) env('GROUP_NIP05_PROXY', true),
+
+    /*
+     * Rate of `GET /nostr/nip05` per IP, as `throttle` spells it. The island sends at most
+     * 30 handles per call, so 60 calls a minute cover a 1 800-member directory.
+     */
+    'nip05_rate' => env('GROUP_NIP05_RATE', '60,1'),
+
+    /*
      * "Alle Bereiche" — the tile grid on Start. Source of truth is
      * `Einundzwanzig\Group\Shell\AreaRegistry`; a host passes its own route targets
      * there instead of copying the list (the shallow merge would otherwise force a
