@@ -85,6 +85,7 @@ import { SocketEvent, SocketStatus, isRelayEvent, makeSocketPolicyAuth, type Soc
 import { guardRelayQuality } from './deadRelays.ts'
 import { socketPolicyAuthHold } from './authHold.ts'
 import { nip05ProxyBase, routeHandlesThroughProxy } from './nip05Proxy.ts'
+import { forgetRelayQuality, makeRelayForgetting } from './relayForget.ts'
 import { appPolicyPrivateWraps } from './wrapIngest.ts'
 import {
     forgetClosedSubscription,
@@ -92,7 +93,7 @@ import {
     makeSubscriptionLedger,
     rememberOwnRequest,
 } from './wrapOrigin.ts'
-import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, WORKSPACE_ROH, darfAuthBekommen, isUnconfiguredSpace } from './relayConfig.ts'
+import { DEFAULT_RELAYS, INDEXER_RELAYS, WORKSPACE, WORKSPACE_ROH, darfAuthBekommen, istEigenerRelay, isUnconfiguredSpace } from './relayConfig.ts'
 
 /**
  * **Kein kind-0 vom Workspace-Relay ins Repository** (Risiko R3 des Sprung-Plans).
@@ -338,6 +339,23 @@ const ingestMitWorkspaceRiegel: AppPolicy = (app) => {
 }
 
 /**
+ * Soft forgetting of relays that keep failing (`relayForget.ts`): learned from welshman's
+ * own `RelayStats`, persisted across page loads in `localStorage`, undone by one successful
+ * open. Read by the resolver below; the host's own relays are exempt.
+ */
+const relayForgetting = makeRelayForgetting({ storage: lokalerSpeicher() })
+
+const relayForgetPolicy: AppPolicy = (app) => app.use(RelayStats).onItem((url, item) => relayForgetting.feed(url, item))
+
+function lokalerSpeicher(): Storage | undefined {
+    try {
+        return typeof globalThis.localStorage === 'undefined' ? undefined : globalThis.localStorage
+    } catch {
+        return undefined
+    }
+}
+
+/**
  * Der Relay-Auflöser der App — **mit unserer Sperrliste UND einer Rückfallebene.**
  *
  * Eine Policy und keine `Router`-Unterklasse, und der Grund ist der halbe Nutzen:
@@ -378,7 +396,9 @@ const resolverPolicy: AppPolicy = (app) => {
     const router = app.use(Router095)
     const original = router.resolver
     router.resolver = new Resolver(router.resolveRoute, {
-        getRelayQuality: guardRelayQuality((url: string) => app.use(RelayStats).getQuality(url)),
+        getRelayQuality: guardRelayQuality(
+            forgetRelayQuality(relayForgetting.records, istEigenerRelay)((url: string) => app.use(RelayStats).getQuality(url)),
+        ),
         getDefaultRelays: app.config.getDefaultRelays,
         policy: addMinimalFallbacks,
     })
@@ -544,6 +564,7 @@ const policies: AppPolicy[] = [
     // 14 is in `PERSIST_KINDS`.
     appPolicyPrivateWraps,
     appPolicyRelayStats,
+    relayForgetPolicy,
     handlesViaServerPolicy,
     authPolicy,
     authHoldPolicy,

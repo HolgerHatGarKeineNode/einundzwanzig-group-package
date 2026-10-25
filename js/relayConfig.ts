@@ -269,6 +269,30 @@ const EIGENE_RELAYS = [
 export const darfAuthBekommen = (url: string): boolean => authErlaubt(url, METRIK_RELAYS, EIGENE_RELAYS)
 
 /**
+ * Is this one of the relays the HOST configured (space, workspace, board)?
+ *
+ * Used where a learned judgement about a relay must not override the operator's: soft
+ * forgetting (`relayForget.ts`) never skips these, and the AUTH scope
+ * (`authScope.ts`) answers their challenge at once. Unparseable entries count as absent.
+ */
+export const istEigenerRelay = (url: string): boolean => {
+    const ziel = normalisiereOderLeer(url)
+    if (!ziel) {
+        return false
+    }
+
+    return EIGENE_RELAYS.some((eintrag) => eintrag !== '' && normalisiereOderLeer(eintrag) === ziel)
+}
+
+const normalisiereOderLeer = (url: string): string => {
+    try {
+        return normalizeRelayUrl(url)
+    } catch {
+        return ''
+    }
+}
+
+/**
  * The address the island uses as its space when the host configured none — a name that
  * can never be reached, and that {@link isUnconfiguredSpace} lets no socket and no NIP-11
  * fetch go out to.
