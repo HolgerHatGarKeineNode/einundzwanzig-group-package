@@ -6,6 +6,7 @@
  * `init`/`destroy` folgen dem Alpine-Lifecycle (kein Doppel-Alpine).
  */
 import { derived, get, type Readable } from 'svelte/store'
+import type Cropper from 'cropperjs'
 import { app, Handles, loadUserProfile, Profiles, Relays, userProfile, Zappers } from './welshmanApp.ts'
 import { pubkey } from './welshmanSession.ts'
 import { toNostrURI, getLnUrl, normalizeRelayUrl } from '@welshman/util'
@@ -447,21 +448,226 @@ const qrDataUrl = async (text: string): Promise<string> => {
     return QRCode.toDataURL(text, { width: 256, margin: 1 })
 }
 
-/** Minimal-API des cropperjs-Instanz, die wir nutzen (C6a). */
-type CropperLike = {
-    setAspectRatio(r: number): void
-    rotate(d: number): void
-    scaleX(x: number): void
-    getData(): { scaleX: number }
-    getCroppedCanvas(o?: object): HTMLCanvasElement | null
-    destroy(): void
-}
-
 // Die cropperjs-Instanz lebt BEWUSST außerhalb des Alpine-Zustands: Alpine wickelt
 // reaktive Werte in einen Proxy, der cropperjs' interne DOM-/Layout-Mathematik
 // (offset-Messungen, Element-Identität) verfälscht → versetzte Doppelanzeige. Es gibt
 // nie mehr als einen offenen Cropper, darum genügt eine Modul-Variable.
-let cropperInstance: CropperLike | null = null
+let cropperInstance: Cropper | null = null
+/** Resolves once the open cropper has its initial state (true) or gave up / was closed (false). */
+let cropperSettled: Promise<boolean> = Promise.resolve(false)
+
+/**
+ * The cropperjs 2 template, built to behave like the cropperjs 1 options this dialog
+ * used (`viewMode: 1, autoCropArea: 1, background: false`, everything else default):
+ * no checkerboard (`background` left off), the selection starts on the whole image
+ * (set in {@link limitCropSelection} once the image is loaded), the shade outside
+ * the selection is on (v1 `modal: true`; the v2 default hides it), dragging on the
+ * image draws a new selection (`select` handle = v1 `dragMode: 'crop'`), the wheel
+ * zooms (`scalable`). `skewable` is left off: v1 had no skew. `precise` keeps the
+ * selection in fractional pixels — v2 rounds it otherwise, which pushed an edge up to
+ * half a pixel past the image and into the output as a transparent strip.
+ * `viewMode: 1` itself has no attribute in v2; {@link limitCropSelection} does it.
+ * The canvas fills the fixed-height stage like v1's container did; on its own it
+ * stays at its 100 px minimum height (measured: a 630×100 stage).
+ */
+const CROPPER_TEMPLATE = '<cropper-canvas style="height: 100%">'
+    + '<cropper-image rotatable scalable translatable></cropper-image>'
+    + '<cropper-shade></cropper-shade>'
+    + '<cropper-handle action="select" plain></cropper-handle>'
+    + '<cropper-selection movable resizable precise>'
+    + '<cropper-grid role="grid" bordered covered></cropper-grid>'
+    + '<cropper-crosshair centered></cropper-crosshair>'
+    + '<cropper-handle action="move" theme-color="rgba(255, 255, 255, 0.35)"></cropper-handle>'
+    + '<cropper-handle action="n-resize"></cropper-handle>'
+    + '<cropper-handle action="e-resize"></cropper-handle>'
+    + '<cropper-handle action="s-resize"></cropper-handle>'
+    + '<cropper-handle action="w-resize"></cropper-handle>'
+    + '<cropper-handle action="ne-resize"></cropper-handle>'
+    + '<cropper-handle action="nw-resize"></cropper-handle>'
+    + '<cropper-handle action="se-resize"></cropper-handle>'
+    + '<cropper-handle action="sw-resize"></cropper-handle>'
+    + '</cropper-selection>'
+    + '</cropper-canvas>'
+
+/** Longest edge of the cropped output, as v1's `getCroppedCanvas({ maxWidth, maxHeight })`. */
+const CROP_MAX_EDGE = 2048
+
+type CropRect = { x: number; y: number; width: number; height: number }
+
+/**
+ * Where the selection may lie, in canvas pixels: the image as rendered, cut to the
+ * stage. That is v1's `viewMode: 1` ("the crop box cannot exceed the canvas") — the
+ * bounding box of a rotated image counts, as it did in v1.
+ */
+const cropBounds = (cropper: Cropper): CropRect | null => {
+    const canvas = cropper.getCropperCanvas()?.getBoundingClientRect()
+    const image = cropper.getCropperImage()?.getBoundingClientRect()
+    if (!canvas || !image) {
+        return null
+    }
+    const left = Math.max(image.left, canvas.left)
+    const top = Math.max(image.top, canvas.top)
+    return {
+        x: left - canvas.left,
+        y: top - canvas.top,
+        width: Math.max(0, Math.min(image.right, canvas.right) - left),
+        height: Math.max(0, Math.min(image.bottom, canvas.bottom) - top),
+    }
+}
+
+/** The largest rectangle of `ratio` (NaN = free: all of it) inside `area`, centred. */
+const fitRect = (area: CropRect, ratio: number): CropRect => {
+    let { width, height } = area
+    if (ratio > 0) {
+        if (width / height > ratio) {
+            width = height * ratio
+        } else {
+            height = width / ratio
+        }
+    }
+    return { x: area.x + (area.width - width) / 2, y: area.y + (area.height - height) / 2, width, height }
+}
+
+/**
+ * Cuts the selection back into {@link cropBounds}, keeping its aspect ratio — what
+ * v1's `limitCropBox` did after a rotation. A selection without area (one the user
+ * dragged out of the image entirely) becomes the largest box inside the bounds.
+ */
+const clampCropSelection = (cropper: Cropper): void => {
+    const selection = cropper.getCropperSelection()
+    const bounds = cropBounds(cropper)
+    if (!selection || !bounds || cropperInstance !== cropper) {
+        return
+    }
+    const left = Math.max(selection.x, bounds.x)
+    const top = Math.max(selection.y, bounds.y)
+    let inside: CropRect = {
+        x: left,
+        y: top,
+        width: Math.max(0, Math.min(selection.x + selection.width, bounds.x + bounds.width) - left),
+        height: Math.max(0, Math.min(selection.y + selection.height, bounds.y + bounds.height) - top),
+    }
+    if (inside.width === 0 || inside.height === 0) {
+        inside = bounds
+    } else if (inside.width === selection.width && inside.height === selection.height) {
+        return
+    }
+    const r = fitRect(inside, selection.aspectRatio)
+    selection.$change(r.x, r.y, r.width, r.height)
+}
+
+/**
+ * v1 `viewMode: 1` for cropperjs 2: a selection change that would leave
+ * {@link cropBounds} is replaced by the nearest one inside it, and after the image has
+ * loaded and after every image transform (rotate, flip, wheel zoom) the selection is
+ * clamped back into it ({@link clampCropSelection}).
+ */
+const limitCropSelection = (cropper: Cropper): void => {
+    const selection = cropper.getCropperSelection()
+    const image = cropper.getCropperImage()
+    if (!selection || !image) {
+        return
+    }
+    const SLACK = 0.5
+    selection.addEventListener('change', (event) => {
+        const next = (event as CustomEvent<CropRect>).detail
+        const bounds = cropBounds(cropper)
+        if (!bounds) {
+            return
+        }
+        if (next.x >= bounds.x - SLACK && next.y >= bounds.y - SLACK
+            && next.x + next.width <= bounds.x + bounds.width + SLACK
+            && next.y + next.height <= bounds.y + bounds.height + SLACK) {
+            return
+        }
+        event.preventDefault()
+        // A move (same size) slides along the edge instead of stopping dead — a
+        // diagonal drag against one edge still moves along the other, as in v1.
+        // A resize or a new box is cut at the edge, keeping its aspect ratio.
+        const right = bounds.x + bounds.width
+        const bottom = bounds.y + bounds.height
+        let r: CropRect
+        if (next.width === selection.width && next.height === selection.height) {
+            r = {
+                x: Math.min(Math.max(next.x, bounds.x), right - next.width),
+                y: Math.min(Math.max(next.y, bounds.y), bottom - next.height),
+                width: next.width,
+                height: next.height,
+            }
+        } else {
+            const left = Math.max(next.x, bounds.x)
+            const top = Math.max(next.y, bounds.y)
+            r = fitRect({
+                x: left,
+                y: top,
+                width: Math.max(0, Math.min(next.x + next.width, right) - left),
+                height: Math.max(0, Math.min(next.y + next.height, bottom) - top),
+            }, selection.aspectRatio)
+        }
+        if (r.width > 0 && r.height > 0 && (r.x !== selection.x || r.y !== selection.y
+            || r.width !== selection.width || r.height !== selection.height)) {
+            selection.$change(r.x, r.y, r.width, r.height)
+        }
+    })
+    image.addEventListener('transform', () => {
+        requestAnimationFrame(() => clampCropSelection(cropper))
+    })
+    // Initial state, set explicitly once the image is loaded: fitted into the stage and
+    // the selection on all of it (v1 `autoCropArea: 1`). Not left to cropperjs: in 2 of
+    // 21 probe runs its own fit had not happened — the image stayed at natural size
+    // (identity matrix) and a 3:4 crop came out 297×396 instead of 472×630. So the fit
+    // is repeated per frame until the image really sits inside the stage (bounded).
+    const settle = (framesLeft: number, done: (ok: boolean) => void): void => {
+        if (cropperInstance !== cropper) {
+            done(false)
+            return
+        }
+        image.$center('contain')
+        const stage = cropper.getCropperCanvas()?.getBoundingClientRect()
+        const shown = image.getBoundingClientRect()
+        const fitted = Boolean(stage) && shown.width > 0 && shown.height > 0
+            && shown.width <= stage!.width + 1 && shown.height <= stage!.height + 1
+        if (!fitted && framesLeft > 0) {
+            requestAnimationFrame(() => settle(framesLeft - 1, done))
+            return
+        }
+        const bounds = cropBounds(cropper)
+        if (bounds) {
+            const r = fitRect(bounds, selection.aspectRatio)
+            selection.$change(r.x, r.y, r.width, r.height)
+        }
+        done(fitted)
+    }
+    cropperSettled = image.$ready().then(
+        () => new Promise<boolean>((resolve) => requestAnimationFrame(() => settle(60, resolve))),
+        () => false,
+    )
+}
+
+/**
+ * The cropped image at the image's own resolution, longest edge capped at
+ * {@link CROP_MAX_EDGE} — what v1's `getCroppedCanvas({ maxWidth: 2048, maxHeight: 2048 })`
+ * returned. v2's `$toCanvas()` without a size draws at the selection's SCREEN size, so
+ * the natural size is derived from the image's display scale (the length of the
+ * matrix's first column; rotation and flip do not change it). `null` for an empty
+ * selection — the caller reports that as an unprocessable image, as before.
+ */
+const croppedCanvas = async (cropper: Cropper): Promise<HTMLCanvasElement | null> => {
+    const selection = cropper.getCropperSelection()
+    const image = cropper.getCropperImage()
+    if (!selection || !image) {
+        return null
+    }
+    const [a, b] = image.$getTransform()
+    const scale = Math.hypot(a, b)
+    const width = selection.width / scale
+    const height = selection.height / scale
+    if (!(width >= 1 && height >= 1)) {
+        return null
+    }
+    const fit = Math.min(1, CROP_MAX_EDGE / width, CROP_MAX_EDGE / height)
+    return selection.$toCanvas({ width: Math.round(width * fit), height: Math.round(height * fit) })
+}
 
 /**
  * `nostr:nevent…` einer Nachricht (NIP-19/21): gesehene Relays als Hints, sonst
@@ -7011,7 +7217,8 @@ export function registerNostrComponents(Alpine: {
             this.cropRatio = NaN
             const magics = this as unknown as AlpineMagics
             magics.$nextTick(async () => {
-                const [{ default: Cropper }] = await Promise.all([import('cropperjs'), import('cropperjs/dist/cropper.css')])
+                // cropperjs 2 is web components with shadow-DOM styles: no stylesheet to load.
+                const { default: CropperClass } = await import('cropperjs')
                 // Abgebrochen, während der Lazy-Chunk lud (cancelCrop nullte `_cropSrc`)?
                 // Dann KEINEN Zombie-Cropper auf dem versteckten <img> bauen.
                 const img = magics.$refs.cropImg as HTMLImageElement | undefined
@@ -7019,7 +7226,8 @@ export function registerNostrComponents(Alpine: {
                     return
                 }
                 cropperInstance?.destroy()
-                cropperInstance = new Cropper(img, { viewMode: 1, autoCropArea: 1, background: false }) as unknown as CropperLike
+                cropperInstance = new CropperClass(img, { template: CROPPER_TEMPLATE })
+                limitCropSelection(cropperInstance)
             })
         },
         // Datei-Picker (+-Menü): Wert danach leeren, damit dieselbe Datei erneut wählbar bleibt.
@@ -7074,18 +7282,41 @@ export function registerNostrComponents(Alpine: {
                 this._openCropper(file)
             }
         },
+        // Like v1's setAspectRatio: the selection becomes the largest box of that ratio
+        // inside the image (NaN = free: the whole image), centred.
         setCropRatio(r: number) {
             this.cropRatio = r
-            cropperInstance?.setAspectRatio(r)
-        },
-        rotateCrop() {
-            cropperInstance?.rotate(90)
-        },
-        // Horizontal spiegeln: aktuelles scaleX umkehren (getData liest den Ist-Zustand).
-        flipCrop() {
-            if (cropperInstance) {
-                cropperInstance.scaleX(cropperInstance.getData().scaleX >= 0 ? -1 : 1)
+            const selection = cropperInstance?.getCropperSelection()
+            const bounds = cropperInstance && cropBounds(cropperInstance)
+            if (!selection || !bounds) {
+                return
             }
+            selection.aspectRatio = r
+            const fit = fitRect(bounds, r)
+            selection.$change(fit.x, fit.y, fit.width, fit.height, r)
+        },
+        // 90° clockwise ON SCREEN, as v1 (`rotate(…) scaleX(…)`: the rotation acts after
+        // the flip). `$rotate` would act before it and turn a flipped image the other
+        // way, so the screen rotation is put in front of the matrix: R·M with
+        // R = [0, 1, -1, 0]; the translation (the image centre) stays. Then the image is
+        // scaled so its on-screen WIDTH is what it was — v1 kept the canvas width on a
+        // rotation (a landscape image turned upright grew past the stage), and the
+        // selection is then cut back into it (limitCropSelection).
+        async rotateCrop() {
+            const image = cropperInstance?.getCropperImage()
+            if (image && (await cropperSettled)) {
+                const widthBefore = image.getBoundingClientRect().width
+                const [a, b, c, d, e, f] = image.$getTransform()
+                image.$setTransform(-b, a, -d, c, e, f)
+                const widthAfter = image.getBoundingClientRect().width
+                if (widthBefore > 0 && widthAfter > 0) {
+                    image.$scale(widthBefore / widthAfter)
+                }
+            }
+        },
+        // Horizontal spiegeln: in the image's own axes, as v1's scaleX(-1) (toggles).
+        flipCrop() {
+            cropperInstance?.getCropperImage()?.$scale(-1, 1)
         },
         // Zuschnitt bestätigen: Canvas (max. 2048px) → WebP-Blob (q=0.85, ersetzt die
         // separate Kompression) → Blossom-Upload. Ergebnis wird zum wartenden Anhang;
@@ -7096,7 +7327,7 @@ export function registerNostrComponents(Alpine: {
             }
             this.uploadingImage = true
             try {
-                const canvas = cropperInstance.getCroppedCanvas({ maxWidth: 2048, maxHeight: 2048 })
+                const canvas = await croppedCanvas(cropperInstance)
                 const blob = canvas && (await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.85)))
                 if (!blob) {
                     throw new Error(t('Bild konnte nicht verarbeitet werden.'))
