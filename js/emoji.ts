@@ -12,19 +12,39 @@ import { pubkey } from './welshmanSession.ts'
 import type { Filter, TrustedEvent } from '@welshman/util'
 import { DEFAULT_RELAYS, proxifyImage } from './core.ts'
 import { emojiTagsForContent } from './emojiTags.ts'
-import { buildEmojiGroups, type CompactEmoji, type CustomEmoji, type EmojiGroup, type EmojiMessages, type EmojiVersions } from './emojiCatalog.ts'
+import { buildEmojiGroups, emojibaseLocale, type CompactEmoji, type CustomEmoji, type EmojiGroup, type EmojiLocale, type EmojiMessages, type EmojiVersions } from './emojiCatalog.ts'
+import { islandLocale } from './locale.ts'
 
 /** NIP-30-Kinds: kuratierte User-Liste bzw. benanntes Emoji-Set. */
 const USER_EMOJI_LIST = 10030
 const EMOJI_SET = 30030
 
 export type { CustomEmoji, EmojiGroup, StdEmoji } from './emojiCatalog.ts'
-export { searchEmojis } from './emojiCatalog.ts'
+export { labelsByEmoji, searchEmojis } from './emojiCatalog.ts'
 
-let groupsPromise: Promise<EmojiGroup[]> | null = null
+/**
+ * Per-locale data files as STATIC `?url` imports — one literal per file, so Vite emits
+ * one asset per locale and the browser fetches only the chosen one. (A template-string
+ * import would not be analysed; `import.meta.glob` would need a relative path into
+ * `node_modules`, which differs between the host and the app that link this package.)
+ */
+const EMOJI_DATA: Record<EmojiLocale, () => Promise<[{ default: string }, { default: string }]>> = {
+    de: () => Promise.all([import('emojibase-data/de/compact.json?url'), import('emojibase-data/de/messages.json?url')]),
+    en: () => Promise.all([import('emojibase-data/en/compact.json?url'), import('emojibase-data/en/messages.json?url')]),
+    es: () => Promise.all([import('emojibase-data/es/compact.json?url'), import('emojibase-data/es/messages.json?url')]),
+    hu: () => Promise.all([import('emojibase-data/hu/compact.json?url'), import('emojibase-data/hu/messages.json?url')]),
+    nl: () => Promise.all([import('emojibase-data/nl/compact.json?url'), import('emojibase-data/nl/messages.json?url')]),
+    pl: () => Promise.all([import('emojibase-data/pl/compact.json?url'), import('emojibase-data/pl/messages.json?url')]),
+    pt: () => Promise.all([import('emojibase-data/pt/compact.json?url'), import('emojibase-data/pt/messages.json?url')]),
+}
+
+const groupsByLocale = new Map<EmojiLocale, Promise<EmojiGroup[]>>()
 
 /**
  * Lädt & indiziert das Standard-Emoji-Set einmalig (memoized).
+ *
+ * Per language: the locale comes from `<html lang>` ({@link emojibaseLocale}), and each
+ * locale is loaded and cached on its own, so only its files are fetched.
  *
  * `?url` + `fetch` statt eines direkten JSON-Imports, und das ist der Unterschied
  * zwischen „geht auf" und „lädt gefühlt drei Sekunden". Ein `import(…json)` schiebt
@@ -54,19 +74,20 @@ let groupsPromise: Promise<EmojiGroup[]> | null = null
  * {@link buildEmojiGroups} uses it to leave out emoji newer than the device fonts
  * draw (see `MAX_EMOJI_VERSION` there).
  */
-export const loadEmojiGroups = (): Promise<EmojiGroup[]> => {
-    if (!groupsPromise) {
-        groupsPromise = Promise.all([
-            import('emojibase-data/de/compact.json?url'),
-            import('emojibase-data/de/messages.json?url'),
+export const loadEmojiGroups = (locale: EmojiLocale = emojibaseLocale(islandLocale())): Promise<EmojiGroup[]> => {
+    let groups = groupsByLocale.get(locale)
+    if (!groups) {
+        groups = Promise.all([
+            EMOJI_DATA[locale](),
             import('emojibase-data/versions/emoji.json?url'),
-        ]).then(([compact, messages, versions]) => Promise.all([
+        ]).then(([[compact, messages], versions]) => Promise.all([
             fetch(compact.default).then((r) => r.json() as Promise<CompactEmoji[]>),
             fetch(messages.default).then((r) => r.json() as Promise<EmojiMessages>),
             fetch(versions.default).then((r) => r.json() as Promise<EmojiVersions>),
-        ])).then(([list, groups, versions]) => buildEmojiGroups(list, groups, versions))
+        ])).then(([list, messageData, versionData]) => buildEmojiGroups(list, messageData, versionData))
+        groupsByLocale.set(locale, groups)
     }
-    return groupsPromise
+    return groups
 }
 
 /**

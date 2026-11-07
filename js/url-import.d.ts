@@ -19,6 +19,66 @@ declare module 'emojibase-data/de/messages.json?url' {
     export default url
 }
 
+declare module 'emojibase-data/en/compact.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/en/messages.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/es/compact.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/es/messages.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/hu/compact.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/hu/messages.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/nl/compact.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/nl/messages.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/pl/compact.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/pl/messages.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/pt/compact.json?url' {
+    const url: string
+    export default url
+}
+
+declare module 'emojibase-data/pt/messages.json?url' {
+    const url: string
+    export default url
+}
+
 declare module 'emojibase-data/versions/emoji.json?url' {
     const url: string
     export default url

@@ -7,9 +7,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import {
     buildEmojiGroups,
+    EMOJI_LOCALES,
+    emojibaseLocale,
     hexcodesNewerThan,
+    labelsByEmoji,
     MAX_EMOJI_VERSION,
     searchEmojis,
     type CompactEmoji,
@@ -58,4 +62,70 @@ test('the v18 tag-casing fix holds: a lowercased query matches a capitalised CLD
     const groups = buildEmojiGroups(compact, messages, versions)
     assert.ok(compact.some((e) => (e.tags ?? []).includes('Liebe')), 'no capitalised "Liebe" tag in the data — control')
     assert.ok(searchEmojis('liebe', groups, [], 10_000).length >= 30)
+})
+
+// ── Locale ────────────────────────────────────────────────────────────────────
+
+test('locale resolution: app language → emojibase locale', () => {
+    const table: [string, string][] = [
+        ['de', 'de'], ['en', 'en'], ['es', 'es'], ['hu', 'hu'], ['nl', 'nl'], ['pl', 'pl'], ['pt', 'pt'],
+        ['lv', 'en'], // app language without emojibase data
+        ['pt-BR', 'pt'], ['pt_BR', 'pt'], ['en-GB', 'en'], ['DE', 'de'], [' es ', 'es'],
+        ['fr', 'en'], ['xx-YY', 'en'], ['', 'en'],
+    ]
+    assert.deepEqual(table.map(([lang]) => [lang, emojibaseLocale(lang)]), table)
+})
+
+const groupsFor = (locale: string) =>
+    buildEmojiGroups(
+        readJson<CompactEmoji[]>(`emojibase-data/${locale}/compact.json`),
+        readJson<EmojiMessages>(`emojibase-data/${locale}/messages.json`),
+        versions,
+    )
+
+test('English data gives English group names and finds "face"', () => {
+    const groups = groupsFor('en')
+    assert.equal(groups[0]?.name, 'smileys & emotion')
+    const hits = searchEmojis('face', groups, [], 10_000).map((e) => ('u' in e ? e.u : ''))
+    assert.ok(hits.includes('😀'), '"face" does not find 😀 (grinning face)')
+    assert.ok(hits.length > 50)
+})
+
+for (const locale of EMOJI_LOCALES) {
+    test(`${locale}: no emoji newer than the limit, and lowercased tags match a lowercased query`, () => {
+        const list = readJson<CompactEmoji[]>(`emojibase-data/${locale}/compact.json`)
+        const groups = groupsFor(locale)
+        const tooNew = hexcodesNewerThan(versions, MAX_EMOJI_VERSION)
+        const offered = new Set(groups.flatMap((g) => g.emojis.map((e) => e.u)))
+        assert.deepEqual(list.filter((e) => tooNew.has(e.hexcode) && offered.has(e.unicode)).map((e) => e.hexcode), [])
+        assert.equal(offered.has(CRACKING_FACE), false)
+        // Every capitalised tag must still be found by its lowercased form.
+        const capitalised = list.find((e) => !tooNew.has(e.hexcode) && (e.tags ?? []).some((t) => t !== t.toLowerCase()))
+        if (capitalised) {
+            const tag = capitalised.tags!.find((t) => t !== t.toLowerCase())!
+            const hits = searchEmojis(tag.toLowerCase(), groups, [], 10_000).map((e) => ('u' in e ? e.u : ''))
+            assert.ok(hits.includes(capitalised.unicode), `${locale}: "${tag}" not found by its lowercase form`)
+        }
+    })
+}
+
+test('MRU labels follow the language: same emoji key, current label', () => {
+    assert.equal(labelsByEmoji(groupsFor('en')).get('😀'), 'grinning face')
+    assert.equal(labelsByEmoji(groupsFor('de')).get('😀'), 'grinsendes Gesicht')
+})
+
+/**
+ * `loadEmojiGroups` itself cannot run here (Vite `?url` imports + fetch), so its wiring is
+ * read from the source: every shipped locale has its own static import pair naming that
+ * locale, and the default locale comes from `<html lang>` — not a hardcoded `de`.
+ */
+test('emoji.ts: one static data import per locale, locale taken from the page', () => {
+    const source = readFileSync(join(import.meta.dirname, 'emoji.ts'), 'utf8')
+    for (const locale of EMOJI_LOCALES) {
+        const line = source.split('\n').find((l) => l.trimStart().startsWith(`${locale}: () =>`))
+        assert.ok(line, `no EMOJI_DATA entry for ${locale}`)
+        assert.ok(line.includes(`'emojibase-data/${locale}/compact.json?url'`), `${locale} does not load its own compact.json`)
+        assert.ok(line.includes(`'emojibase-data/${locale}/messages.json?url'`), `${locale} does not load its own messages.json`)
+    }
+    assert.match(source, /loadEmojiGroups = \(locale: EmojiLocale = emojibaseLocale\(islandLocale\(\)\)\)/)
 })

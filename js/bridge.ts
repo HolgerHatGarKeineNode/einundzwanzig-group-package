@@ -243,6 +243,7 @@ import {
     loadEmojiGroups,
     loadUserCustomEmojis,
     loadRecentEmojis,
+    labelsByEmoji,
     pushRecentEmoji,
     searchEmojis,
     type CustomEmoji,
@@ -8292,6 +8293,10 @@ export function registerNostrComponents(Alpine: {
                 // Load ist beim Raum-Init vorgewärmt (loadUserCustomEmojis) → hier
                 // i.d.R. ein Cache-Treffer, kein zweiter Relay-Roundtrip.
                 groups = await loadEmojiGroups()
+                // MRU entries are keyed by the emoji, not the label; show them with
+                // the current language's label (it may have been stored in another).
+                const labels = labelsByEmoji(groups)
+                this.recent = this.recent.map((e) => (e.custom ? e : { ...e, label: labels.get(e.u) ?? e.label }))
                 this.rebuildTabs()
                 this.ready = true
                 void loadUserCustomEmojis().then((c) => {

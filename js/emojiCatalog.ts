@@ -16,6 +16,24 @@ export type EmojiGroup = { key: string; name: string; icon: string; emojis: StdE
  */
 export type CustomEmoji = { shortcode: string; url: string; src: string }
 
+/**
+ * emojibase locales the picker ships, one per app language that emojibase has
+ * (`config('group.locales')`: de, en, es, hu, lv, nl, pl, pt — emojibase has no `lv`).
+ */
+export const EMOJI_LOCALES = ['de', 'en', 'es', 'hu', 'nl', 'pl', 'pt'] as const
+export type EmojiLocale = (typeof EMOJI_LOCALES)[number]
+
+/**
+ * The emojibase locale for a page language (`<html lang>`): its primary subtag if
+ * emojibase has it, otherwise English. Region forms collapse to the language
+ * (`pt-BR` → `pt`, `en-GB` → `en`): the app's languages carry no region, and
+ * emojibase's `en-gb` would differ only in a handful of British spellings.
+ */
+export const emojibaseLocale = (lang: string): EmojiLocale => {
+    const primary = lang.trim().toLowerCase().split(/[-_]/)[0] ?? ''
+    return (EMOJI_LOCALES as readonly string[]).includes(primary) ? (primary as EmojiLocale) : 'en'
+}
+
 /** One entry of `emojibase-data/<locale>/compact.json` (the fields used here). */
 export type CompactEmoji = { group?: number; order: number; label: string; unicode: string; hexcode: string; tags?: string[] }
 /** `emojibase-data/<locale>/messages.json` (the fields used here). */
@@ -51,7 +69,8 @@ export const hexcodesNewerThan = (versions: EmojiVersions, maxVersion: number): 
  * these groups, so it inherits the filter.
  *
  * Tags are lowercased because {@link searchEmojis} compares them against a lowercased
- * query. Since emojibase-data 18 keywords keep their CLDR casing (German nouns: "Liebe",
+ * query (plain `toLowerCase` on both sides; locale-specific casing only differs for
+ * Turkish, Azerbaijani and Lithuanian, none of which the picker ships). Since emojibase-data 18 keywords keep their CLDR casing (German nouns: "Liebe",
  * "Herz") — 6650 capitalised tags in `de/compact.json` instead of 259 in v17 — and
  * without this step those tags would no longer match.
  */
@@ -74,6 +93,14 @@ export const buildEmojiGroups = (
         })
         .filter((g) => g.emojis.length > 0)
 }
+
+/**
+ * The current label of every offered emoji, keyed by the emoji itself. The recent-emoji
+ * list (MRU) is keyed by the emoji character, not by a label, so it survives a language
+ * switch; its stored label is replaced by the current language's one with this.
+ */
+export const labelsByEmoji = (groups: EmojiGroup[]): Map<string, string> =>
+    new Map(groups.flatMap((g) => g.emojis.map((e) => [e.u, e.label] as const)))
 
 /**
  * Flache Volltext-Suche über Standard- + Custom-Emojis (Label, Keywords, Shortcode).
