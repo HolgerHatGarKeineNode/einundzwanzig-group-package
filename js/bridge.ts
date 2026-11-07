@@ -306,8 +306,8 @@ import {
     payInvoice,
     lnurlInvoice,
     fromMsats,
-    type NWCInfo,
 } from './wallet.ts'
+import { storedNwcInfo } from './nwcInfo.ts'
 import { getWalletAddress, WalletType, type Wallet } from '@welshman/util'
 import { type Zapper } from './welshmanZap.ts'
 import { leseFortschritt, restMinuten, lesestandForm, artikelTeilZiel, type TeilZiel } from './articleReader.ts'
@@ -2596,13 +2596,13 @@ export function registerNostrComponents(Alpine: {
                 if (!url.startsWith('nostr+walletconnect://')) {
                     throw new Error(t('Ungültige Verbindung (nostr+walletconnect://…)'))
                 }
-                const { nwc } = await getNwcModule()
-                const client = new nwc.NWCClient({ nostrWalletConnectUrl: url })
+                const { NWCClient } = await getNwcModule()
+                const client = new NWCClient({ nostrWalletConnectUrl: url })
                 const info = await client.getInfo() // validiert die Verbindung
                 if (!info) {
                     throw new Error(t('Wallet nicht erreichbar'))
                 }
-                const wallet: Wallet = { type: WalletType.NWC, info: client.options as unknown as NWCInfo }
+                const wallet: Wallet = { type: WalletType.NWC, info: storedNwcInfo(client.options) }
                 await saveWallet(wallet)
                 this._apply(wallet)
                 this.connectUrl = ''

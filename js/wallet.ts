@@ -13,10 +13,12 @@ import { fromMsats, getLnUrl, type NWCInfo, type Wallet } from '@welshman/util'
 import { bech32ToHex, fetchJson } from '@welshman/lib'
 import { secureGet, secureRemove, secureSet } from './secure-storage.ts'
 import { t } from './i18n.ts'
+import { nwcClientOptions } from './nwcInfo.ts'
 
 // Lazy-load: @getalby/sdk erst beim ersten Wallet-Gebrauch laden, gecacht (Z0.1).
-let _nwcModule: Promise<typeof import('@getalby/sdk')> | null = null
-export const getNwcModule = () => (_nwcModule ??= import('@getalby/sdk'))
+// The `nwc` subpath: sdk 6 removed the `nwc` namespace export from the package root.
+let _nwcModule: Promise<typeof import('@getalby/sdk/nwc')> | null = null
+export const getNwcModule = () => (_nwcModule ??= import('@getalby/sdk/nwc'))
 
 const walletKey = (pk: string) => `einundzwanzig:wallet:${pk}`
 
@@ -66,11 +68,14 @@ export const getNwcClient = async () => {
     if (!wallet || wallet.type !== 'nwc') {
         throw new Error(t('Kein NWC-Wallet verbunden'))
     }
-    const { nwc } = await getNwcModule()
-    // `info` = gespeicherte `client.options` ({relayUrl, walletPubkey, secret, lud16}).
-    // Der NWCClient-Konstruktor akzeptiert diese Felder direkt (oder eine
-    // nostrWalletConnectUrl, falls je vorhanden) — ein Aufruf deckt beides.
-    return new nwc.NWCClient(wallet.info)
+    const { NWCClient } = await getNwcModule()
+    // `info` is the stored `client.options` — `relayUrl` from sdk 5 or `relayUrls`
+    // from sdk 7+; nwcClientOptions() maps both onto what the client takes today.
+    const options = nwcClientOptions(wallet.info)
+    if (options.relayUrls.length === 0) {
+        throw new Error(t('Wallet nicht erreichbar'))
+    }
+    return new NWCClient(options)
 }
 
 // NWC = MILLISATS, WebLN = SATS. `msats` nur bei betragsloser Rechnung setzen.
