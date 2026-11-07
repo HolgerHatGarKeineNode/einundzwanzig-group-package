@@ -18,3 +18,8 @@ declare module 'emojibase-data/de/messages.json?url' {
     const url: string
     export default url
 }
+
+declare module 'emojibase-data/versions/emoji.json?url' {
+    const url: string
+    export default url
+}

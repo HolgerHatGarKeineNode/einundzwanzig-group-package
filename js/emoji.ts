@@ -12,25 +12,14 @@ import { pubkey } from './welshmanSession.ts'
 import type { Filter, TrustedEvent } from '@welshman/util'
 import { DEFAULT_RELAYS, proxifyImage } from './core.ts'
 import { emojiTagsForContent } from './emojiTags.ts'
+import { buildEmojiGroups, type CompactEmoji, type CustomEmoji, type EmojiGroup, type EmojiMessages, type EmojiVersions } from './emojiCatalog.ts'
 
 /** NIP-30-Kinds: kuratierte User-Liste bzw. benanntes Emoji-Set. */
 const USER_EMOJI_LIST = 10030
 const EMOJI_SET = 30030
 
-/** Ein wählbares Standard-Emoji: `u` = Unicode-Zeichen, `label`+`tags` = Suchindex (deutsch). */
-export type StdEmoji = { u: string; label: string; tags: string[] }
-
-/** Eine Kategorie des Standard-Sets (emojibase-Gruppe), ohne die Skin-Tone-Komponenten. */
-export type EmojiGroup = { key: string; name: string; icon: string; emojis: StdEmoji[] }
-
-/**
- * Ein Custom-Emoji (NIP-30): `url` bleibt roh fürs Reaction-Event (`["emoji",…]`),
- * `src` ist die proxifizierte https-Bild-URL für die Anzeige im Picker.
- */
-export type CustomEmoji = { shortcode: string; url: string; src: string }
-
-type CompactEmoji = { group?: number; order: number; label: string; unicode: string; tags?: string[] }
-type EmojiMessages = { groups: { key: string; message: string; order: number }[] }
+export type { CustomEmoji, EmojiGroup, StdEmoji } from './emojiCatalog.ts'
+export { searchEmojis } from './emojiCatalog.ts'
 
 let groupsPromise: Promise<EmojiGroup[]> | null = null
 
@@ -61,32 +50,21 @@ let groupsPromise: Promise<EmojiGroup[]> | null = null
  *
  * Die Skin-Tone-Komponenten-Gruppe (`component`) wird verworfen (keine Skin-Tones).
  *
- * Tags are lowercased here because {@link searchEmojis} compares them against a
- * lowercased query. Since emojibase-data 18 keywords keep their CLDR casing (German
- * nouns: "Liebe", "Herz") — 6650 capitalised tags in `de/compact.json` instead of 259
- * in v17 — and without this step those tags would no longer match.
+ * The third file, `versions/emoji.json`, maps each Emoji version to its hexcodes;
+ * {@link buildEmojiGroups} uses it to leave out emoji newer than the device fonts
+ * draw (see `MAX_EMOJI_VERSION` there).
  */
 export const loadEmojiGroups = (): Promise<EmojiGroup[]> => {
     if (!groupsPromise) {
         groupsPromise = Promise.all([
             import('emojibase-data/de/compact.json?url'),
             import('emojibase-data/de/messages.json?url'),
-        ]).then(([compact, messages]) => Promise.all([
+            import('emojibase-data/versions/emoji.json?url'),
+        ]).then(([compact, messages, versions]) => Promise.all([
             fetch(compact.default).then((r) => r.json() as Promise<CompactEmoji[]>),
             fetch(messages.default).then((r) => r.json() as Promise<EmojiMessages>),
-        ])).then(([list, groups]) => {
-            return groups.groups
-                .filter((g) => g.key !== 'component')
-                .sort((a, b) => a.order - b.order)
-                .map((g) => {
-                    const emojis = list
-                        .filter((e) => e.group === g.order && Boolean(e.unicode))
-                        .sort((a, b) => a.order - b.order)
-                        .map((e) => ({ u: e.unicode, label: e.label, tags: (e.tags ?? []).map((t) => t.toLowerCase()) }))
-                    return { key: g.key, name: g.message, icon: emojis[0]?.u ?? '·', emojis }
-                })
-                .filter((g) => g.emojis.length > 0)
-        })
+            fetch(versions.default).then((r) => r.json() as Promise<EmojiVersions>),
+        ])).then(([list, groups, versions]) => buildEmojiGroups(list, groups, versions))
     }
     return groupsPromise
 }
@@ -225,35 +203,3 @@ export const knownCustomEmojis = (pk = pubkey.get()): CustomEmoji[] =>
 export const contentEmojiTags = (content: string): string[][] =>
     emojiTagsForContent(content, knownCustomEmojis())
 
-/**
- * Flache Volltext-Suche über Standard- + Custom-Emojis (Label, Keywords, Shortcode).
- * Begrenzt auf `limit` Treffer — das Grid soll nicht tausende Knoten rendern.
- */
-export const searchEmojis = (
-    query: string,
-    groups: EmojiGroup[],
-    custom: CustomEmoji[],
-    limit = 90,
-): (StdEmoji | (CustomEmoji & { custom: true }))[] => {
-    const q = query.trim().toLowerCase()
-    if (!q) {
-        return []
-    }
-    const hits: (StdEmoji | (CustomEmoji & { custom: true }))[] = []
-    for (const e of custom) {
-        if (e.shortcode.toLowerCase().includes(q)) {
-            hits.push({ ...e, custom: true })
-        }
-    }
-    for (const g of groups) {
-        for (const e of g.emojis) {
-            if (e.label.toLowerCase().includes(q) || e.tags.some((t) => t.includes(q))) {
-                hits.push(e)
-                if (hits.length >= limit) {
-                    return hits
-                }
-            }
-        }
-    }
-    return hits.slice(0, limit)
-}
