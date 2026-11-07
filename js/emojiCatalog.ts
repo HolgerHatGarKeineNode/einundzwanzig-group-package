@@ -74,6 +74,14 @@ export const hexcodesNewerThan = (versions: EmojiVersions, maxVersion: number): 
  * "Herz") — 6650 capitalised tags in `de/compact.json` instead of 259 in v17 — and
  * without this step those tags would no longer match.
  */
+/**
+ * emojibase ships some category names lowercase ("smileys & emotion" in en and pt), while
+ * de, es, nl … start with a capital. The tabs show the name as tooltip and accessible name,
+ * so the first letter is raised for every locale alike.
+ */
+export const capitalizeFirst = (text: string): string =>
+    text.length === 0 ? text : text.charAt(0).toLocaleUpperCase() + text.slice(1)
+
 export const buildEmojiGroups = (
     list: CompactEmoji[],
     messages: EmojiMessages,
@@ -89,7 +97,7 @@ export const buildEmojiGroups = (
                 .filter((e) => e.group === g.order && Boolean(e.unicode) && !tooNew.has(e.hexcode))
                 .sort((a, b) => a.order - b.order)
                 .map((e) => ({ u: e.unicode, label: e.label, tags: (e.tags ?? []).map((t) => t.toLowerCase()) }))
-            return { key: g.key, name: g.message, icon: emojis[0]?.u ?? '·', emojis }
+            return { key: g.key, name: capitalizeFirst(g.message), icon: emojis[0]?.u ?? '·', emojis }
         })
         .filter((g) => g.emojis.length > 0)
 }

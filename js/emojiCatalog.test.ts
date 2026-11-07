@@ -85,11 +85,20 @@ const groupsFor = (locale: string) =>
 
 test('English data gives English group names and finds "face"', () => {
     const groups = groupsFor('en')
-    assert.equal(groups[0]?.name, 'smileys & emotion')
+    assert.equal(groups[0]?.name, 'Smileys & emotion')
     const hits = searchEmojis('face', groups, [], 10_000).map((e) => ('u' in e ? e.u : ''))
     assert.ok(hits.includes('😀'), '"face" does not find 😀 (grinning face)')
     assert.ok(hits.length > 50)
 })
+
+for (const locale of EMOJI_LOCALES) {
+    test(`${locale}: every category name starts with a capital letter`, () => {
+        const lower = groupsFor(locale)
+            .map((g) => g.name)
+            .filter((name) => name.charAt(0) !== name.charAt(0).toLocaleUpperCase())
+        assert.deepEqual(lower, [])
+    })
+}
 
 for (const locale of EMOJI_LOCALES) {
     test(`${locale}: no emoji newer than the limit, and lowercased tags match a lowercased query`, () => {
