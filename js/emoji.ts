@@ -60,6 +60,11 @@ let groupsPromise: Promise<EmojiGroup[]> | null = null
  * wirklich Emojis lädt — in Node also nie. Vite behandelt beide Formen gleich.
  *
  * Die Skin-Tone-Komponenten-Gruppe (`component`) wird verworfen (keine Skin-Tones).
+ *
+ * Tags are lowercased here because {@link searchEmojis} compares them against a
+ * lowercased query. Since emojibase-data 18 keywords keep their CLDR casing (German
+ * nouns: "Liebe", "Herz") — 6650 capitalised tags in `de/compact.json` instead of 259
+ * in v17 — and without this step those tags would no longer match.
  */
 export const loadEmojiGroups = (): Promise<EmojiGroup[]> => {
     if (!groupsPromise) {
@@ -77,7 +82,7 @@ export const loadEmojiGroups = (): Promise<EmojiGroup[]> => {
                     const emojis = list
                         .filter((e) => e.group === g.order && Boolean(e.unicode))
                         .sort((a, b) => a.order - b.order)
-                        .map((e) => ({ u: e.unicode, label: e.label, tags: e.tags ?? [] }))
+                        .map((e) => ({ u: e.unicode, label: e.label, tags: (e.tags ?? []).map((t) => t.toLowerCase()) }))
                     return { key: g.key, name: g.message, icon: emojis[0]?.u ?? '·', emojis }
                 })
                 .filter((g) => g.emojis.length > 0)

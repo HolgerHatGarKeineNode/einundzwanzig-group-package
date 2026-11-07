@@ -31,7 +31,7 @@
         "@welshman/util": "0.13.1",
         "buffer": "^6.0.3",
         "cropperjs": "^1.6.2",
-        "emojibase-data": "^17.0.0",
+        "emojibase-data": "^18.0.0",
         "isomorphic-git": "^1.41.4",
         "markdown-it": "^15.0.0",
         "nostr-tools": "^2.23.9",
